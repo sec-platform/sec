@@ -1024,13 +1024,11 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     expect(readFileSync(fixture.target, 'utf8')).toBe(currentSource);
     expect(existsSync(fixture.stage)).toBe(false);
 
-    const applied = successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T03:00:00.000Z'
-    ]);
+    const applied = successfulTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
     expect(applied).toMatchObject({ status: 'applied', changed: true });
-    expect(tcbArchivePathFromResult(fixture, applied)).toBe(plannedArchive);
-    expect(readFileSync(plannedArchive, 'utf8')).toBe(currentSource);
-    expect(readFileSync(fixture.target, 'utf8')).toBe(update.nextSource);
+    expect(readFileSync(tcbArchivePathFromResult(fixture, applied), 'utf8')).toBe(currentSource);
+    expect(successfulTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'check']))
+      .toMatchObject({ status: 'current', changed: false });
     expect(existsSync(fixture.stage)).toBe(false);
     expect(tcbArchiveFiles(fixture)).toHaveLength(1);
     expect(tcbOperationFiles(fixture)).toHaveLength(1);
@@ -1046,9 +1044,10 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     expect(handwrittenDryRun.generatedAt).toBe('2026-08-09T03:30:00.000Z');
     expect(handwrittenDryRun.nextRawSourceDigest).toBe(handwrittenPlan.nextRawSourceDigest);
     expect(readFileSync(fixture.target, 'utf8')).toBe(handwrittenSource);
-    const handwrittenApplied = successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', powerShellRoundTripInstant
-    ]);
+    const handwrittenApplied = successfulTcbClosureCli(
+      fixture,
+      ['tcb-closure-lock', '--mode', 'apply']
+    );
     expect(handwrittenApplied).toMatchObject({ status: 'applied', changed: true });
     expect(readFileSync(tcbArchivePathFromResult(fixture, handwrittenApplied), 'utf8')).toBe(handwrittenSource);
     expect(tcbArchiveFiles(fixture)).toHaveLength(2);
@@ -1066,7 +1065,7 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     process.env.GITHUB_ACTIONS = 'true';
     try {
       await expect(CodexDevelopmentCiVerificationTcbClosureLockCliV1([
-        'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T04:00:00.000Z'
+        'tcb-closure-lock', '--mode', 'apply'
       ])).rejects.toThrow('forbidden in hosted execution');
     } finally {
       if (originalHosted === undefined) delete process.env.GITHUB_ACTIONS;
@@ -1083,9 +1082,7 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
 test('TCB closure apply retains exact archives and recovers only canonical operation states', () => {
   const fixture = createTcbClosureCommandFixture();
   try {
-    successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T05:00:00.000Z'
-    ]);
+    successfulTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
 
     const staged = planTcbFixtureUpdate(fixture, '2026-08-09T06:00:00.000Z', 2);
     const stagedDryRun = successfulTcbClosureCli(fixture, [
@@ -1096,14 +1093,15 @@ test('TCB closure apply retains exact archives and recovers only canonical opera
     writeFileSync(fixture.stage, staged.nextSource, 'utf8');
     expect(existsSync(fixture.stage)).toBe(true);
     expect(existsSync(stagedArchive)).toBe(false);
-    const wrongStageEpoch = invokeTcbClosureCli(fixture, [
+    const manualApplyTime = invokeTcbClosureCli(fixture, [
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T06:30:00.000Z'
     ]);
-    expect(wrongStageEpoch.status).not.toBe(0);
+    expect(manualApplyTime.status).not.toBe(0);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(staged.nextSource);
-    const recoveredStage = successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T06:00:00.000Z'
-    ]);
+    const recoveredStage = successfulTcbClosureCli(
+      fixture,
+      ['tcb-closure-lock', '--mode', 'apply']
+    );
     expect(recoveredStage).toMatchObject({ status: 'recovered', changed: true });
     expect(recoveredStage.generatedAt).toBe('2026-08-09T06:00:00.000Z');
     expect(readFileSync(fixture.target, 'utf8')).toBe(staged.nextSource);
@@ -1120,9 +1118,10 @@ test('TCB closure apply retains exact archives and recovers only canonical opera
     writeFileSync(fixture.stage, captured.nextSource, 'utf8');
     renameSync(fixture.target, capturedArchive);
     expect(existsSync(fixture.target)).toBe(false);
-    const recoveredCapture = successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T07:00:00.000Z'
-    ]);
+    const recoveredCapture = successfulTcbClosureCli(
+      fixture,
+      ['tcb-closure-lock', '--mode', 'apply']
+    );
     expect(recoveredCapture.status).toBe('recovered');
     expect(readFileSync(fixture.target, 'utf8')).toBe(captured.nextSource);
     expect(readFileSync(capturedArchive, 'utf8')).toBe(capturedOldSource);
@@ -1137,9 +1136,10 @@ test('TCB closure apply retains exact archives and recovers only canonical opera
     writeFileSync(fixture.stage, installed.nextSource, 'utf8');
     renameSync(fixture.target, installedArchive);
     renameSync(fixture.stage, fixture.target);
-    const recoveredInstall = successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T08:00:00.000Z'
-    ]);
+    const recoveredInstall = successfulTcbClosureCli(
+      fixture,
+      ['tcb-closure-lock', '--mode', 'apply']
+    );
     expect(recoveredInstall.status).toBe('current');
     expect(readFileSync(fixture.target, 'utf8')).toBe(installed.nextSource);
     expect(readFileSync(installedArchive, 'utf8')).toBe(installedOldSource);
@@ -1158,9 +1158,7 @@ test('TCB closure apply retains exact archives and recovers only canonical opera
     prepareRecordedTcbOperation(fixture, substitutedDryRun);
     writeFileSync(fixture.stage, substituted.nextSource, 'utf8');
     writeFileSync(substitutedArchive, thirdValue, 'utf8');
-    const blocked = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T09:00:00.000Z'
-    ]);
+    const blocked = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
     expect(blocked.status).not.toBe(0);
     expect(readFileSync(fixture.target, 'utf8')).toBe(oldSource);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(substituted.nextSource);
@@ -1173,9 +1171,7 @@ test('TCB closure apply retains exact archives and recovers only canonical opera
 test('TCB closure captured recovery blocks archive substitution without deleting any observed bytes', () => {
   const fixture = createTcbClosureCommandFixture();
   try {
-    successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T10:00:00.000Z'
-    ]);
+    successfulTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
     const recovery = planTcbFixtureUpdate(fixture, '2026-08-09T11:00:00.000Z', 6);
     const dryRun = successfulTcbClosureCli(fixture, [
       'tcb-closure-lock', '--mode', 'dry-run', '--generated-at', '2026-08-09T11:00:00.000Z'
@@ -1191,9 +1187,7 @@ test('TCB closure captured recovery blocks archive substitution without deleting
     renameSync(fixture.target, archive);
     writeFileSync(archive, thirdValue, 'utf8');
 
-    const blocked = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T11:00:00.000Z'
-    ]);
+    const blocked = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
     expect(blocked.status).not.toBe(0);
     expect(existsSync(fixture.target)).toBe(false);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(recovery.nextSource);
@@ -1217,9 +1211,7 @@ test('TCB closure raw CAPTURED census rejects non-canonical operation time witho
     writeFileSync(fixture.stage, plan.nextSource, 'utf8');
     renameSync(fixture.target, operation.archivePath);
 
-    const blocked = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T11:30:00Z'
-    ]);
+    const blocked = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
     expect(blocked.status).not.toBe(0);
     expect(existsSync(fixture.target)).toBe(false);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(plan.nextSource);
@@ -1249,9 +1241,7 @@ test('TCB closure CAPTURED rollback destination race preserves archive, stage an
     writeFileSync(fixture.stage, plan.nextSource, 'utf8');
     renameSync(fixture.target, archive);
 
-    const blocked = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T11:40:00.000Z'
-    ]);
+    const blocked = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
     expect(blocked.status).not.toBe(0);
     expect(readFileSync(fixture.target, 'utf8')).toBe('destination third value');
     expect(readFileSync(fixture.stage, 'utf8')).toBe(plan.nextSource);
@@ -1278,9 +1268,7 @@ test('TCB closure CAPTURED rollback never executes a semantically invalid staged
     writeFileSync(fixture.stage, maliciousStage, 'utf8');
     renameSync(fixture.target, operation.archivePath);
 
-    const blocked = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T11:50:00.000Z'
-    ]);
+    const blocked = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
     expect(blocked.status).not.toBe(0);
     expect(existsSync(marker)).toBe(false);
     expect(readFileSync(fixture.target, 'utf8')).toBe(oldSource);
@@ -1307,9 +1295,7 @@ for (const transition of [
         'same-bytes-object-substitution'
       );
       const plan = planTcbFixtureUpdate(fixture, '2026-08-09T12:00:00.000Z', 7);
-      const blocked = invokeTcbClosureCli(fixture, [
-        'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T12:00:00.000Z'
-      ]);
+      const blocked = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
       expect(blocked.status).not.toBe(0);
       expect(blocked.stderr).toMatch(/retained (?:FileId\/volume|dev:ino) identity mismatch/u);
       const substitutedSource = transition.label === 'target-to-archive' ? fixture.target : fixture.stage;
@@ -1344,9 +1330,7 @@ test('TCB closure destination final fence preserves the source and a concurrent 
       'destination-third-value'
     );
     const plan = planTcbFixtureUpdate(fixture, '2026-08-09T13:00:00.000Z', 8);
-    const blocked = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T13:00:00.000Z'
-    ]);
+    const blocked = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
     expect(blocked.status).not.toBe(0);
     expect(readFileSync(fixture.target, 'utf8')).toBe(originalSource);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(plan.nextSource);
@@ -1380,9 +1364,7 @@ for (const swapped of ['target-parent', 'archive-ancestor'] as const) {
         mkdirSync(redirected, { recursive: true });
         symlinkSync(redirected, archiveAncestor, process.platform === 'win32' ? 'junction' : 'dir');
       }
-      const blocked = invokeTcbClosureCli(fixture, [
-        'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T14:00:00.000Z'
-      ]);
+      const blocked = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'apply']);
       expect(blocked.status).not.toBe(0);
       expect(blocked.stderr).toMatch(/non-reparse|openat failed/u);
       expect(readFileSync(fixture.target, 'utf8')).toBe(originalSource);

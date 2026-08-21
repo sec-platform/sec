@@ -140,7 +140,7 @@ test('CI PR risk gate selects slow suites from test impact ownership', () => {
   });
 });
 
-test('documentation registry and verifier trust roots select mandatory sentinels', () => {
+test('documentation registry and verifier trust roots stay on focused fast evidence', () => {
   for (const file of [
     'docs/authority.json',
     'docs/scripts/docs-doctor.ts',
@@ -150,25 +150,17 @@ test('documentation registry and verifier trust roots select mandatory sentinels
     'platform/shared/documentation-authority-contract.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
-    expect(selection.suites).toEqual(expect.arrayContaining(slowTestPrRiskBaselineSuiteIds()));
-    if (file === 'docs/authority.json') {
-      expect(selection.suites).toContain('contract-document-control-plane-lifecycle');
-    }
-    expect(selection.owners).toEqual(expect.arrayContaining([
-      'agent-governance',
-      'bounded-slow-risk'
-    ]));
-    expect(selection.reasons).toEqual(expect.arrayContaining([
-      'mandatory-sentinel',
-      'ownership-impact'
-    ]));
+    expect(selection.suites).toEqual([]);
+    expect(selection.owners).toContain('agent-governance');
+    expect(selection.owners).not.toContain('bounded-slow-risk');
+    expect(selection.reasons).toEqual(['ownership-impact']);
     expect(selection.resolved).toBe(true);
   }
 
   expect(selectCiPrRiskSlowSuites(['docs/product.md'])).toEqual({
-    suites: ['contract-document-control-plane-lifecycle'],
+    suites: [],
     slowTests: [],
-    affectedSlowTests: ['tests/contract/document-control-plane-lifecycle.test.ts'],
+    affectedSlowTests: [],
     owners: ['documentation-authority'],
     reasons: ['ownership-impact'],
     resolved: true
@@ -210,8 +202,7 @@ test('V1 Quick resolves the active corpus and control-plane path set', () => {
   expect(plan.gates.map((gate) => gate.id)).toEqual([
     'docs-doctor',
     'typecheck',
-    'affected-tests',
-    'impact-risk'
+    'affected-tests'
   ]);
 });
 

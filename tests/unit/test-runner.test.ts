@@ -413,7 +413,6 @@ test('fast process planning deterministically bounds concurrent shards without d
     (_, index) => `tests/unit/concurrent-${String(index).padStart(2, '0')}.test.ts`
   );
   const isolatedFiles = [
-    'tests/unit/work-package-gate-execution.test.ts',
     'tests/integration/pipeline-kernel.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts'
   ];
@@ -432,10 +431,8 @@ test('fast process planning deterministically bounds concurrent shards without d
     1
   ]);
   expect(plan.resourceClassOrder).toEqual(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER);
-  expect(plan.resourceQueues['independent-process']).toEqual(isolatedFiles.slice(1));
+  expect(plan.resourceQueues['independent-process']).toEqual(isolatedFiles);
   expect(plan.resourceQueues['shared-host-runtime']).toEqual([]);
-  expect(plan.resourceQueues['repository-worktree']).toEqual(isolatedFiles.slice(0, 1));
-  expect(plan.resourceQueues['host-profile']).toEqual([]);
   expect(plan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
   expect([...plannedFiles].sort()).toEqual([...files].sort());
   expect(new Set(plannedFiles).size).toBe(files.length);
@@ -472,9 +469,6 @@ test('fast process planning removes stale isolation and bounds structural proces
   expect([...registeredFiles]).toEqual(expect.arrayContaining([
     'tests/contract/dev-runner-contract.test.ts',
     'tests/unit/command-runner.test.ts',
-    'tests/unit/work-package-gate-execution.test.ts',
-    'tests/unit/work-package-profile-census-repair.test.ts',
-    'tests/unit/work-package-profile-probe-diagnostic.test.ts',
     'tests/integration/pipeline-kernel.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
     'tests/integration/semantic-mutation-apply.test.ts',
@@ -505,9 +499,6 @@ test('fast process planning removes stale isolation and bounds structural proces
   expect(Object.values(plan.resourceLimits).every((limit) => limit >= 1)).toBe(true);
   expect(processWaves).toBeLessThanOrEqual(structurallyMaximumProcessWaves);
   expect(structurallyMaximumProcessWaves).toBeLessThanOrEqual(plannedFiles.length);
-  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
-    ({ file }) => file === 'tests/unit/work-package-gate-execution.test.ts'
-  )?.processLimit).toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['repository-worktree']);
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/integration/workspace-engineering-ir.test.ts'
   )?.processLimit).toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']);
@@ -611,7 +602,7 @@ test('complete fast process-global hazards have unique typed isolation and singl
 
 test('fast process policy covers default-excluded files and rejects stale or duplicate identities', () => {
   const completeFastFiles = getFastTestFilesSync();
-  const excludedFastFile = 'tests/unit/work-package-gate-execution.test.ts';
+  const excludedFastFile = 'tests/unit/semantic-mutation-isolated-child-fence.test.ts';
   expect(DEFAULT_FAST_TEST_EXCLUDED_FILES).toContain(excludedFastFile);
   expect(isDefaultFastTestFile(excludedFastFile)).toBe(false);
   expect(completeFastFiles).toContain(excludedFastFile);
@@ -664,24 +655,18 @@ test('fast process resource classes uniquely derive limits and isolate productio
   });
   const resourcePlan = planFastTestProcesses([
     'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
-    ...productionHostAndRuntimeLifecycleFiles,
-    'tests/unit/work-package-gate-execution.test.ts',
-    'tests/unit/work-package-profile-probe-diagnostic.test.ts'
+    ...productionHostAndRuntimeLifecycleFiles
   ]);
   expect(resourcePlan.concurrentShards).toEqual([]);
   expect(resourcePlan.resourceClassOrder).toEqual([
     'independent-process',
-    'shared-host-runtime',
-    'repository-worktree',
-    'host-profile'
+    'shared-host-runtime'
   ]);
   expect(resourcePlan.resourceQueues).toEqual({
     'independent-process': [
       'tests/integration/semantic-mutation-recovery-lifecycle.test.ts'
     ],
-    'shared-host-runtime': productionHostAndRuntimeLifecycleFiles,
-    'repository-worktree': ['tests/unit/work-package-gate-execution.test.ts'],
-    'host-profile': ['tests/unit/work-package-profile-probe-diagnostic.test.ts']
+    'shared-host-runtime': productionHostAndRuntimeLifecycleFiles
   });
   expect(resourcePlan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
 });
@@ -698,8 +683,7 @@ test('default fast inventory excludes deterministic deep acceptance while comple
     'tests/integration/semantic-mutation-apply.test.ts',
     'tests/integration/upgrade-pipeline-kernel.test.ts',
     'tests/integration/workbench-pipeline.test.ts',
-    'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
-    'tests/unit/work-package-gate-execution.test.ts'
+    'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
   ]));
   expect(DEFAULT_FAST_TEST_EXCLUDED_FILES.every((file) => complete.includes(file))).toBe(true);
   expect(defaultFiles.every(isDefaultFastTestFile)).toBe(true);
@@ -1340,9 +1324,7 @@ test.serial('each resource class obeys its own bounded batches and deterministic
   const availableFiles = new Set(getFastTestFilesSync());
   const filesByClass = Object.fromEntries(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.map(
     (resourceClass) => {
-      const requiredCount = resourceClass === 'host-profile'
-        ? 1
-        : DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[resourceClass] + 1;
+      const requiredCount = DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[resourceClass] + 1;
       return [
         resourceClass,
         FAST_TEST_PROCESS_ISOLATION_REGISTRY
@@ -1356,9 +1338,7 @@ test.serial('each resource class obeys its own bounded batches and deterministic
   )) as Record<typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER[number], string[]>;
 
   for (const resourceClass of FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER) {
-    const expectedCount = resourceClass === 'host-profile'
-      ? 1
-      : DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[resourceClass] + 1;
+    const expectedCount = DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[resourceClass] + 1;
     expect(filesByClass[resourceClass]).toHaveLength(expectedCount);
   }
 
@@ -1415,7 +1395,6 @@ test.serial('each resource class obeys its own bounded batches and deterministic
     expect(observedWaveClasses).toEqual(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.flatMap(
       (resourceClass) => filesByClass[resourceClass].map(() => resourceClass)
     ));
-    expect(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['host-profile']).toBe(1);
   } finally {
     for (const wave of waves) wave.settlement.resolve();
   }
@@ -1430,9 +1409,7 @@ test.serial('resource-class failure stops every later class', async () => {
   try {
     const code = await runFastTests([
       'tests/integration/pipeline-kernel.test.ts',
-      'tests/integration/workbench-writer-lease.test.ts',
-      'tests/unit/work-package-gate-execution.test.ts',
-      'tests/unit/work-package-profile-probe-diagnostic.test.ts'
+      'tests/integration/workbench-writer-lease.test.ts'
     ]);
 
     expect(code).toBe(7);
@@ -2061,7 +2038,7 @@ test.serial('affected plan reports resolved selection without dependency or test
 });
 
 test.serial('affected plan applies the same process-policy sentinel to a default-excluded fast test', async () => {
-  changedFiles = ['tests/unit/work-package-gate-execution.test.ts'];
+  changedFiles = ['tests/unit/semantic-mutation-isolated-child-fence.test.ts'];
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -2074,11 +2051,11 @@ test.serial('affected plan applies the same process-policy sentinel to a default
 
     expect(code).toBe(0);
     expect(plan).toMatchObject({
-      changedPaths: ['tests/unit/work-package-gate-execution.test.ts'],
+      changedPaths: ['tests/unit/semantic-mutation-isolated-child-fence.test.ts'],
       owners: ['dev-runner'],
       selectedFastTests: [
-        FAST_TEST_PROCESS_POLICY_TEST_FILE,
-        'tests/unit/work-package-gate-execution.test.ts'
+        'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+        FAST_TEST_PROCESS_POLICY_TEST_FILE
       ],
       unresolvedPaths: [],
       resolved: true

@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentCreateTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
 import { TCB_REVIEWED_PROCESS_DISPATCHERS } from '../../platform/shared/tcb-closure-lock.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from '../../platform/shared/test-budget-contract.ts';
 import {
@@ -12,7 +11,11 @@ import {
   testOwnershipDeclarations,
   type CodexDevelopmentTestImpactSourceProviderV2
 } from '../../platform/shared/test-impact-contract.ts';
-import { RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS } from '../../platform/shared/test-impact-rules/governance.ts';
+import {
+  matchesTestOwnershipDeclaration,
+  resolveTestOwnershipClosureMode,
+  type TestOwnershipDeclaration
+} from '../../platform/shared/test-ownership-contract.ts';
 
 function expectUnique(values: readonly string[]): void {
   expect(new Set(values).size).toBe(values.length);
@@ -130,6 +133,54 @@ test('ownership declarations contain only valid supplemental evidence', () => {
   }
 });
 
+test('ownership closure mode is explicit and conflicts fail closed', () => {
+  const declaredOnly: TestOwnershipDeclaration = {
+    owner: 'declared-only-owner',
+    identity: { kind: 'contract', id: 'declared-only-owner' },
+    closureMode: 'declared-only',
+    sourceFiles: ['platform/shared/test-impact-rules/governance.ts'],
+    supplementalFast: [],
+    supplementalSlow: []
+  };
+  const included: TestOwnershipDeclaration = {
+    owner: 'included-owner',
+    identity: { kind: 'contract', id: 'included-owner' },
+    closureMode: 'include',
+    sourceFiles: ['platform/shared/test-impact-rules/governance.ts'],
+    supplementalFast: [],
+    supplementalSlow: []
+  };
+
+  expect(resolveTestOwnershipClosureMode([])).toBe('include');
+  expect(resolveTestOwnershipClosureMode([declaredOnly])).toBe('declared-only');
+  expect(() => resolveTestOwnershipClosureMode([declaredOnly, included]))
+    .toThrow('conflicting closure modes');
+});
+
+test('the governance registry uses its declared-only owner without reverse-import or product e2e closure', () => {
+  const registryDeclarations = testOwnershipDeclarations.filter((declaration) => (
+    matchesTestOwnershipDeclaration(
+      declaration,
+      'platform/shared/test-impact-rules/governance.ts'
+    )
+  ));
+  expect(registryDeclarations).toHaveLength(1);
+  expect(registryDeclarations[0]?.closureMode).toBe('declared-only');
+
+  const selection = selectTestsForSources(['platform/shared/test-impact-rules/governance.ts']);
+
+  expect(selection).toEqual({
+    fast: [
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ],
+    slow: [],
+    owners: ['test-impact-governance-registry']
+  });
+  expect(selection.owners).not.toContain('module-graph');
+  expect(selection.slow.some((file) => file.startsWith('tests/e2e/'))).toBe(false);
+});
+
 test('fallback declarations contain valid evidence and never target test sources', () => {
   const tests = new Set(getTestFilesSync());
   for (const rule of testImpactFallbackRules) {
@@ -169,39 +220,6 @@ test('Verification Action canonical owners select direct behavior and boundary e
     'tests/unit/verification-action-runner.test.ts',
     'tests/unit/verification-session-runtime.test.ts'
   ]));
-});
-
-test('retired evidence ownership requires the exact removed transition', () => {
-  const retired = RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS[0]!;
-  const headSha = 'b'.repeat(40);
-  const observation = (
-    status: 'added' | 'changed' | 'removed',
-    baseSha: string = retired.baseSha,
-    baseBlobSha: string = retired.baseBlobSha,
-    baseMode: '100644' | '100755' = retired.baseMode
-  ) => CodexDevelopmentCreateTestImpactTransitionObservationV1({
-    baseSha,
-    headSha,
-    records: [{ status, path: retired.path }],
-    readPathBlob: (revision) => status === 'removed' && revision === baseSha
-      ? { mode: baseMode, blobSha: baseBlobSha }
-      : null
-  });
-
-  expect(selectTestsForSources([retired.path])).toEqual({ fast: [], slow: [], owners: [] });
-  const exact = selectTestsForSources([retired.path], undefined, observation('removed'));
-  expect(exact.owners).toContain('work-package-gate');
-  expect(exact.fast).toContain('tests/unit/work-package-gate-execution.test.ts');
-  for (const transition of [
-    observation('added'),
-    observation('changed'),
-    observation('removed', 'c'.repeat(40)),
-    observation('removed', retired.baseSha, 'd'.repeat(40)),
-    observation('removed', retired.baseSha, retired.baseBlobSha, '100755')
-  ]) {
-    expect(selectTestsForSources([retired.path], undefined, transition))
-      .toEqual({ fast: [], slow: [], owners: [] });
-  }
 });
 
 test('semantic resources retain explicit behavior evidence while unmapped sources stay narrow', () => {

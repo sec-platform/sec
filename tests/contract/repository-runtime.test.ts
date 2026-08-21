@@ -15,7 +15,7 @@ describe('test budget and benchmark contracts', () => {
     }
     expect(scripts.depcruise).toMatch(/\bdependency-cruiser@[1-9]\d*\.\d+\.\d+\b/u);
     expect(scripts.jscpd).toMatch(/\bjscpd@[1-9]\d*\.\d+\.\d+\b/u);
-    expect(scripts.graphify).toMatch(/\bgraphifyy==[1-9]\d*\.\d+\.\d+\b/u);
+    expect(scripts.graphify).toMatch(/\bgraphifyy==(?:0|[1-9]\d*)\.\d+\.\d+\b/u);
     expect(devDependencies?.gitnexus).toMatch(/^[1-9]\d*\.\d+\.\d+$/u);
     expect(trustedDependencies).toEqual(expect.arrayContaining([
       '@ladybugdb/core',

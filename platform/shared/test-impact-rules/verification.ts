@@ -12,8 +12,7 @@ const DEV_RUNNER_FAST_TESTS = [
 ];
 
 const DEV_RUNNER_WORKSPACE_FAST_TESTS = [
-  ...DEV_RUNNER_FAST_TESTS,
-  'tests/unit/work-package-gate-execution.test.ts'
+  ...DEV_RUNNER_FAST_TESTS
 ];
 
 const DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS = [
@@ -183,6 +182,27 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
+    owner: 'bounded-slow-risk',
+    identity: { kind: 'contract', id: 'bounded-slow-risk' },
+    closureMode: 'declared-only',
+    riskProfile: 'bounded-baseline',
+    sourceFiles: [
+      'package.json',
+      'bun.lock',
+      'platform/orchestrator.ts',
+      'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts',
+      'tests/helpers/workspace-fixtures.ts',
+      'tests/setup/runtime-deps.setup.ts',
+      'tests/testkit/workspace.ts'
+    ],
+    supplementalFast: [
+      'tests/contract/benchmark-budget.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ],
+    supplementalSlow: []
+  },
+  {
     owner: 'workspace-write-lease',
     identity: { kind: 'architecture-owner', id: 'workspace-write-lease' },
     sourceFiles: ['platform/shared/workspace-write-lease.ts'],
@@ -322,6 +342,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
   {
     owner: 'verification-evidence-producers',
     identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },
+    closureMode: 'declared-only',
     sourceFiles: ['scripts/ci-pr-risk.ts'],
     supplementalFast: CI_PR_RISK_FAST_TESTS,
     supplementalSlow: []
@@ -378,8 +399,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/fast-test-policy.ts',
       'platform/dev-runner/import-organizer.ts',
       'platform/dev-runner/test-concurrency-policy.ts',
-      'platform/dev-runner/typecheck-runner.ts',
-      'tests/setup/runtime-deps.setup.ts'
+      'platform/dev-runner/typecheck-runner.ts'
     ],
     supplementalFast: DEV_RUNNER_FAST_TESTS,
     supplementalSlow: []

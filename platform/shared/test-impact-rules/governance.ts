@@ -1,13 +1,9 @@
+import { DOCUMENTATION_LIFECYCLE_TEST_OWNERS } from '../documentation-lifecycle-test-owner-contract.ts';
 import { DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE } from '../test-budget-contract.ts';
 import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 import { TRUSTED_VERIFIER_TCB_FAST_TESTS } from './verification.ts';
 
-export const DOCUMENTATION_LIFECYCLE_TEST_OWNERS = {
-  authority: 'documentation-authority',
-  evidence: 'documentation-evidence',
-  frozenWorkPackage: 'frozen-work-package',
-  historical: 'historical-documentation'
-} as const;
+export { DOCUMENTATION_LIFECYCLE_TEST_OWNERS } from '../documentation-lifecycle-test-owner-contract.ts';
 
 const DOCUMENTATION_CORPUS_FAST_TESTS = [
   'tests/contract/documentation-corpus-census.test.ts',
@@ -134,37 +130,83 @@ export const FROZEN_WORK_PACKAGE_TOMBSTONE_FILES = [
   'docs/work-packages/sm3-p0-local-isolated-runner-v1.md'
 ] as const;
 
-const WORK_PACKAGE_SELECTOR_FAST_TESTS = [
-  'tests/unit/ci-pr-risk-selection.test.ts',
-  'tests/contract/test-impact.test.ts'
-];
-
-const WORK_PACKAGE_EVIDENCE_FAST_TESTS = [
-  ...WORK_PACKAGE_SELECTOR_FAST_TESTS,
-  'tests/unit/work-package-gate-contract.test.ts',
-  'tests/unit/work-package-gate-execution.test.ts'
-];
-
-const WORK_PACKAGE_FIXTURE_FAST_TESTS = [
-  ...WORK_PACKAGE_SELECTOR_FAST_TESTS,
-  'tests/unit/work-package-gate-execution.test.ts'
-];
-
-// Deletion-impact only. Matching also requires an exact Git removed record,
-// this base blob identity, and target absence; the path alone has no owner.
-export const RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS = [
-  {
-    path: 'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json',
-    baseSha: '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b',
-    baseMode: '100644',
-    baseBlobSha: '3fbfa041119f70429b5f6cc4440816b50ab3a0ef'
-  }
-] as const;
+const RETIRED_WORK_PACKAGE_GATE_TRANSITIONS = [
+  ['scripts/diagnose-work-package-profile-probe.ts', 'c926e693d1976b94e7f6736308e43cc428c7a030'],
+  ['scripts/run-work-package-gate.ts', '8094f3041a2d5a29d7e8fbe9d2895201c852d39a'],
+  ['scripts/work-package-gate-contract.ts', '97dda35ef4b52d2266ebf370483924649ee1f526'],
+  ['scripts/work-package-gate-custody-ledger.ts', '3476ab2701530e439fea7edeac94048704563f17'],
+  ['scripts/work-package-profile-probe.ts', 'dc3b75e244af764da4121363b22bf5620d896137'],
+  ['tests/fixtures/work-package-gate-retained-recovery/records/000001-prepared.json', '5bee4fff416d84f584fba40c2e6c4b8b6850dcf4'],
+  ['tests/fixtures/work-package-gate-retained-recovery/records/000002-authoring-committed.json', '987a405b6d9b85187792b734337ebe8df0acfa7a'],
+  ['tests/fixtures/work-package-gate-retained-recovery/records/000003-verified.json', 'd47099bbbb2ffb2baaecfb4a01902297e6e520e1'],
+  ['tests/fixtures/work-package-gate-retained-recovery/terminal-order/.sequence-head.json', '9407ded37cd9da2526f2d36a627810278eb38535'],
+  ['tests/fixtures/work-package-gate-retained-recovery/terminal-order/000000000002.json', 'f1278efa1e8d30497194fa675eb6a759538e58ff']
+].map(([path, baseBlobSha]) => ({
+  path: path!,
+  baseSha: 'b6200c3a2ae821bc9ff8cf4fc751060fd391914f',
+  baseMode: '100644' as const,
+  baseBlobSha: baseBlobSha!
+}));
 
 export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
+    owner: 'test-impact-governance-registry',
+    identity: { kind: 'contract', id: 'test-impact-governance-registry' },
+    closureMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/test-impact-rules/governance.ts',
+      'platform/shared/test-impact-rules/semantic.ts',
+      'platform/shared/test-impact-rules/verification.ts'
+    ],
+    supplementalFast: [
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ],
+    supplementalSlow: []
+  },
+  {
+    owner: 'test-impact-control',
+    identity: { kind: 'contract', id: 'test-impact-control' },
+    closureMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/ci-pr-risk-selection.ts',
+      'platform/shared/ci-verification-plan.ts',
+      'platform/shared/documentation-lifecycle-test-owner-contract.ts',
+      'platform/shared/test-budget-contract.ts',
+      'platform/shared/test-impact-contract.ts',
+      'platform/shared/test-ownership-contract.ts'
+    ],
+    supplementalFast: [
+      'tests/contract/ci-lanes.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts',
+      'tests/unit/ci-verification-execution.test.ts'
+    ],
+    supplementalSlow: []
+  },
+  {
+    owner: 'shared-boundary-classification',
+    identity: { kind: 'contract', id: 'shared-boundary-classification' },
+    closureMode: 'declared-only',
+    sourceFiles: ['platform/shared/shared-boundary-contract.ts'],
+    supplementalFast: ['tests/contract/shared-boundary-classification.test.ts'],
+    supplementalSlow: []
+  },
+  {
+    owner: 'retired-work-package-gate',
+    identity: { kind: 'contract', id: 'retired-work-package-gate' },
+    closureMode: 'declared-only',
+    removedSourceTransitions: RETIRED_WORK_PACKAGE_GATE_TRANSITIONS,
+    supplementalFast: [
+      'tests/contract/repository-audit.test.ts',
+      'tests/contract/test-impact.test.ts'
+    ],
+    supplementalSlow: []
+  },
+  {
     owner: 'issue-disposition',
     identity: { kind: 'contract', id: 'issue-disposition' },
+    closureMode: 'declared-only',
     sourceFiles: [
       'platform/shared/issue-disposition-contract.ts',
       'scripts/codex/issue-disposition-github.ts',
@@ -176,6 +218,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'work-selection',
     identity: { kind: 'contract', id: 'work-selection' },
+    closureMode: 'declared-only',
     sourceFiles: [
       'platform/shared/work-selection-contract.ts',
       'platform/shared/work-selection-live-contract.ts',
@@ -213,6 +256,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'agent-operation-activation',
     identity: { kind: 'contract', id: 'agent-operation-activation' },
+    closureMode: 'declared-only',
     sourceFiles: [
       'platform/shared/agent-operation-activation-contract.ts',
       'scripts/codex/agent-operation-activation-census.ts',
@@ -228,6 +272,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'agent-task-capsule',
     identity: { kind: 'contract', id: 'agent-task-capsule' },
+    closureMode: 'declared-only',
     sourceFiles: [
       'platform/shared/agent-task-capsule-contract.ts',
       'scripts/codex/task-capsule.ts'
@@ -245,6 +290,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'agent-operation-read-plan',
     identity: { kind: 'contract', id: 'agent-operation-read-plan' },
+    closureMode: 'declared-only',
     sourceFiles: [
       'platform/shared/agent-operation-read-plan-contract.ts',
       'scripts/codex/operation-read-plan.ts'
@@ -284,6 +330,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority },
+    closureMode: 'declared-only',
     sourceKinds: ['active-documentation'],
     supplementalFast: [...DOCUMENTATION_AUTHORITY_FAST_TESTS, ...DOCUMENT_CONTROL_PROJECTION_FAST_TESTS],
     supplementalSlow: []
@@ -291,6 +338,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority },
+    closureMode: 'declared-only',
     sourceFiles: DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES,
     supplementalFast: ['tests/contract/documentation-authority.test.ts'],
     supplementalSlow: []
@@ -298,6 +346,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.historical,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.historical },
+    closureMode: 'declared-only',
     sourcePrefixes: [
       'docs/archive/',
       'docs/superpowers/',
@@ -309,6 +358,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.evidence,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.evidence },
+    closureMode: 'declared-only',
     sourceFiles: [
       'docs/evidence/2026-07-26-development-throughput-audit.md',
       'docs/evidence/2026-08-03-constraint-thoughts-execution-plan.md',
@@ -322,6 +372,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'agent-skill-authoring',
     identity: { kind: 'contract', id: 'agent-skill-authoring' },
+    closureMode: 'declared-only',
     sourcePrefixes: ['.agents/skills/'],
     supplementalFast: AGENT_SKILL_AUTHORING_FAST_TESTS,
     supplementalSlow: []
@@ -329,6 +380,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'agent-governance',
     identity: { kind: 'architecture-owner', id: 'agent-governance' },
+    closureMode: 'declared-only',
     sourceFiles: [
       'AGENTS.md',
       '.codex/agents/implementation-worker.toml',
@@ -349,6 +401,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'work-package-contract',
     identity: { kind: 'contract', id: 'work-package-contract' },
+    closureMode: 'declared-only',
     sourceFiles: ['scripts/codex/work-package-contract.ts'],
     supplementalFast: [...WORK_PACKAGE_CONTRACT_FAST_TESTS, ...DOCUMENT_CONTROL_PROJECTION_FAST_TESTS],
     supplementalSlow: []
@@ -356,6 +409,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.frozenWorkPackage,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.frozenWorkPackage },
+    closureMode: 'declared-only',
     sourceFiles: FROZEN_WORK_PACKAGE_TOMBSTONE_FILES,
     supplementalFast: ['tests/contract/documentation-authority.test.ts'],
     supplementalSlow: []
@@ -363,42 +417,10 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.frozenWorkPackage,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.frozenWorkPackage },
+    closureMode: 'declared-only',
     excludedSourceFiles: FROZEN_WORK_PACKAGE_TOMBSTONE_FILES,
     sourcePrefixes: ['docs/work-packages/'],
     supplementalFast: [...FROZEN_WORK_PACKAGE_FAST_TESTS, ...DOCUMENT_CONTROL_PROJECTION_FAST_TESTS],
-    supplementalSlow: []
-  },
-  {
-    owner: 'work-package-gate',
-    identity: { kind: 'contract', id: 'work-package-gate' },
-    removedSourceTransitions: RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS,
-    sourceFiles: [
-      'scripts/run-work-package-gate.ts',
-      'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
-      'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
-      'docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json',
-      'docs/evidence/v0-4-semantic-mutation-browser-closure-exact-timeout-stop-record-2026-07-17.json',
-      'docs/evidence/v0-4-semantic-mutation-local-child-exact-public-verification-2026-07-17.json',
-      'docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json',
-      'docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json',
-      'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json',
-      'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json'
-    ],
-    sourcePrefixes: ['tests/fixtures/work-package-gate-manifests/'],
-    supplementalFast: WORK_PACKAGE_EVIDENCE_FAST_TESTS,
-    supplementalSlow: []
-  },
-  {
-    owner: 'work-package-gate',
-    identity: { kind: 'contract', id: 'work-package-gate' },
-    sourceFiles: [
-      'tests/fixtures/work-package-gate-retained-recovery/records/000001-prepared.json',
-      'tests/fixtures/work-package-gate-retained-recovery/records/000002-authoring-committed.json',
-      'tests/fixtures/work-package-gate-retained-recovery/records/000003-verified.json',
-      'tests/fixtures/work-package-gate-retained-recovery/terminal-order/000000000002.json',
-      'tests/fixtures/work-package-gate-retained-recovery/terminal-order/.sequence-head.json'
-    ],
-    supplementalFast: WORK_PACKAGE_FIXTURE_FAST_TESTS,
     supplementalSlow: []
   }
 ];

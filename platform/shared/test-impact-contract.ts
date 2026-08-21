@@ -13,6 +13,8 @@ import {
   classifyTestImpactSource,
   matchesTestOwnershipDeclaration,
   resolveDeclaredTestOwnership,
+  resolveTestOwnershipClosureMode,
+  resolveTestOwnershipRiskProfile,
   type ResolvedTestOwnership,
   type TestOwnershipDeclaration
 } from './test-ownership-contract.ts';
@@ -765,9 +767,24 @@ export function hasTestImpactForFile(
   const declarations = testOwnershipDeclarations.filter((declaration) => (
     matchesTestOwnershipDeclaration(declaration, file, transition)
   ));
-  if (declarations.length > 0) return true;
+  if (declarations.length > 0) {
+    // Resolve even though the boolean result is already known: conflicting
+    // ownership modes are an authority error and must fail closed.
+    resolveTestOwnershipClosureMode(declarations);
+    return true;
+  }
   if (testImpactFallbackRules.some((rule) => rule.sourcePattern.test(file))) return true;
   return deriveTestsForSourcesV1([file], provider).length > 0;
+}
+
+export function testImpactRiskProfileForFile(
+  file: string,
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
+) {
+  const declarations = testOwnershipDeclarations.filter((declaration) => (
+    matchesTestOwnershipDeclaration(declaration, file, transition)
+  ));
+  return resolveTestOwnershipRiskProfile(declarations);
 }
 
 /** @internal Reset all caches — for tests verifying persistence across processes. */
@@ -799,7 +816,10 @@ export function selectTestsForSources(
     const declarations = testOwnershipDeclarations.filter((declaration) => (
       matchesTestOwnershipDeclaration(declaration, file, transition)
     ));
-    const referencedTests = deriveTestsForSourcesV1([file], provider);
+    const closureMode = resolveTestOwnershipClosureMode(declarations);
+    const referencedTests = closureMode === 'declared-only'
+      ? []
+      : deriveTestsForSourcesV1([file], provider);
     if (referencedTests.length > 0) {
       owners.add('module-graph');
       addAll(fast, referencedTests.filter(isFastTestFile));

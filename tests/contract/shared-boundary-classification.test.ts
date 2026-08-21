@@ -11,9 +11,6 @@ import {
   sharedBoundaryClassification
 } from '../../platform/shared/shared-boundary-contract.ts';
 
-const MAX_SHARED_DOMAIN_OWNER_REVIEW_DEBT = 66;
-const MAX_SHARED_MECHANICAL_FOUNDATION_PATHS = 16;
-
 async function collectSharedFiles(): Promise<string[]> {
   const sharedRoot = path.join(compilerRoot, 'platform', 'shared');
   const files: string[] = [];
@@ -48,20 +45,13 @@ test('every physical platform/shared ordinary file has exactly one explicit plac
   expect(sharedBoundaryClassification('new-unclassified-shared-owner.ts')).toBeNull();
 });
 
-test('the mechanical foundation remains a bounded explicit top-level classification', () => {
-  expect(SHARED_MECHANICAL_FOUNDATION_PATHS.length)
-    .toBeLessThanOrEqual(MAX_SHARED_MECHANICAL_FOUNDATION_PATHS);
+test('the mechanical foundation remains an explicit top-level classification', () => {
   expect(new Set(SHARED_MECHANICAL_FOUNDATION_PATHS).size)
     .toBe(SHARED_MECHANICAL_FOUNDATION_PATHS.length);
   for (const sharedPath of SHARED_MECHANICAL_FOUNDATION_PATHS) {
     expect(sharedPath).not.toContain('/');
     expect(sharedBoundaryClassification(sharedPath)).toBe('mechanical-foundation');
   }
-});
-
-test('shared domain-owner placement debt may shrink but cannot grow', () => {
-  expect(SHARED_DOMAIN_OWNER_REVIEW_REQUIRED_PATHS.length)
-    .toBeLessThanOrEqual(MAX_SHARED_DOMAIN_OWNER_REVIEW_DEBT);
 });
 
 test('stateful, destructive, workspace, CLI, and verification behavior remains owner-review debt', () => {

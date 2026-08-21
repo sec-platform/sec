@@ -147,7 +147,7 @@ test('managed explicit concurrency adapts the outer allocation and rejects impos
     innerConcurrency: 12,
     outerProcessConcurrency: 1
   });
-  expect(Object.values(singleProcess.resourceClassLimits)).toEqual([1, 1, 1, 1]);
+  expect(Object.values(singleProcess.resourceClassLimits)).toEqual([1, 1]);
   expect(() => resolveManagedFastTestConcurrency(budget, 13)).toThrow(
     'exceeds the managed fast-test global budget 12'
   );
@@ -169,9 +169,7 @@ test('resource-class limits derive deterministically across outer limits 1, 2, 3
     expect(managed.outerProcessConcurrency).toBe(expected.cpu);
     expect(managed.resourceClassLimits).toEqual({
       'independent-process': expected.independent,
-      'shared-host-runtime': expected.shared,
-      'repository-worktree': 1,
-      'host-profile': 1
+      'shared-host-runtime': expected.shared
     });
   }
 });

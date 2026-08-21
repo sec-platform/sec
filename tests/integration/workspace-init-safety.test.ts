@@ -90,7 +90,6 @@ test('repeated init cannot overwrite an existing SEC workspace', async () => {
 
 test('active writer contention remains a lease error instead of being relabeled as lifecycle conflict', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-init-active-writer-');
-  await initWorkspace(workspaceRoot);
   const lease = await acquireWorkspaceWriteLease(workspaceRoot);
   try {
     await expect(initWorkspace(workspaceRoot, { reset: true }))

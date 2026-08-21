@@ -34,7 +34,7 @@ forbiddenPaths:
 acceptance:
   - exact-head-evidence
 tests:
-  - bun run typecheck
+  - tests/unit/codex-work-package-contract.test.ts
 ${overrides}---
 
 # B0 Bootstrap
@@ -195,7 +195,7 @@ test('built-in Work Package YAML keeps strict mapping and lexical fail-closed se
   )).not.toThrow();
 });
 
-test('built-in Work Package YAML preserves every tracked historical manifest value', () => {
+test('active Work Packages obey the current contract while historical fixtures preserve valid YAML', () => {
   const paths = [
     'docs/work-packages',
     'docs/archive/work-packages',
@@ -220,7 +220,7 @@ test('built-in Work Package YAML preserves every tracked historical manifest val
     expect(legacy.warnings).toEqual([]);
     const parsed = manifestPath.startsWith('docs/work-packages/')
       ? CodexDevelopmentParseWorkPackageManifest(source, manifestPath)
-      : CodexDevelopmentParseWorkPackageManifest(source);
+      : legacy.toJS({ maxAliasCount: 0 });
     expect(ids.has(parsed.id)).toBe(false);
     ids.add(parsed.id);
     expect(parsed).toEqual(legacy.toJS({ maxAliasCount: 0 }));

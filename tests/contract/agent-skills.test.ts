@@ -263,7 +263,7 @@ test('documentation and Agent trust roots have focused governance ownership', ()
   }
 });
 
-test('trust-root changes retain mandatory Risk while ordinary Skill edits remain focused', () => {
+test('trust-root changes remain focused without physical lifecycle evidence', () => {
   const focused = selectCiPrRiskSlowSuites([
     '.agents/skills/sec-worker-development/SKILL.md'
   ]);
@@ -280,11 +280,8 @@ test('trust-root changes retain mandatory Risk while ordinary Skill edits remain
     'platform/shared/test-impact-rules/governance.ts'
   ]);
   expect(trustRoot.resolved).toBe(true);
-  expect(trustRoot.suites.length).toBeGreaterThan(0);
-  expect(trustRoot.reasons).toEqual([
-    'mandatory-sentinel',
-    'ownership-impact'
-  ]);
+  expect(trustRoot.suites).toEqual([]);
+  expect(trustRoot.reasons).toEqual(['ownership-impact']);
 });
 
 test('external capability ledger binds current package authority without a self-referential main SHA', async () => {

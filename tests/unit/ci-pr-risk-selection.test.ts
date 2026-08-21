@@ -1,20 +1,15 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentCreateTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import { slowTestPrRiskBaselineSuiteIds } from '../../platform/shared/test-budget-contract.ts';
 import {
-  DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES,
-  RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS
+  DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES
 } from '../../platform/shared/test-impact-rules/governance.ts';
 
 const baselineSuites = slowTestPrRiskBaselineSuiteIds();
 
-test('bounded slow baseline is owned by shared execution lifecycle surfaces', () => {
+test('bounded slow baseline is derived from explicit runtime-risk ownership', () => {
   for (const file of [
-    'scripts/ci-pr-risk.ts',
-    'platform/shared/ci-pr-risk-selection.ts',
-    'platform/shared/test-budget-contract.ts',
     'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts',
     'tests/helpers/workspace-fixtures.ts',
     'tests/setup/runtime-deps.setup.ts',
@@ -25,13 +20,11 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
     expect(selection.slowTests).toEqual([]);
     expect(selection.owners).toContain('bounded-slow-risk');
     expect(selection.resolved).toBe(true);
-    expect(selection.reasons).toContain(
-      file.startsWith('tests/') ? 'bounded-baseline' : 'mandatory-sentinel'
-    );
+    expect(selection.reasons).toContain('bounded-baseline');
   }
 });
 
-test('documentation authority trust roots require bounded sentinels', () => {
+test('documentation authority trust roots remain fast and do not select physical lifecycle evidence', () => {
   for (const file of [
     'docs/authority.json',
     'docs/scripts/docs-doctor.ts',
@@ -41,9 +34,9 @@ test('documentation authority trust roots require bounded sentinels', () => {
     'platform/shared/documentation-authority-contract.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
-    expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
-    expect(selection.owners).toContain('bounded-slow-risk');
-    expect(selection.reasons).toContain('mandatory-sentinel');
+    expect(selection.suites).toEqual([]);
+    expect(selection.owners).not.toContain('bounded-slow-risk');
+    expect(selection.reasons).toEqual(['ownership-impact']);
     expect(selection.resolved).toBe(true);
   }
 });
@@ -117,7 +110,7 @@ test('dev-runner mandatory ownership rejects CLI prefix collisions', () => {
     const selection = selectCiPrRiskSlowSuites([file]);
     expect(selection.resolved).toBe(false);
     expect(selection.reasons).toContain('changed-files-unresolved');
-    expect(selection.reasons).not.toContain('mandatory-sentinel');
+    expect(selection.reasons).not.toContain('bounded-baseline');
   }
 });
 
@@ -188,7 +181,7 @@ test('every unmapped changed path fails closed even when another path has known 
   ]));
 });
 
-test('explicit documentation ownership selects its lifecycle suite and remains resolved', () => {
+test('explicit documentation ownership remains resolved without physical lifecycle evidence', () => {
   const documentation = selectCiPrRiskSlowSuites([
     'README.md',
     'docs/product.md',
@@ -198,10 +191,8 @@ test('explicit documentation ownership selects its lifecycle suite and remains r
   ]);
   expect(documentation.resolved).toBe(true);
   expect(documentation.reasons).not.toContain('changed-files-unresolved');
-  expect(documentation.suites).toEqual(['contract-document-control-plane-lifecycle']);
-  expect(documentation.affectedSlowTests).toEqual([
-    'tests/contract/document-control-plane-lifecycle.test.ts'
-  ]);
+  expect(documentation.suites).toEqual([]);
+  expect(documentation.affectedSlowTests).toEqual([]);
 
   const directSlowTest = selectCiPrRiskSlowSuites(['tests/e2e/dry-run-plan.test.ts']);
   expect(directSlowTest.resolved).toBe(true);
@@ -240,7 +231,7 @@ test('documentation tombstones resolve exactly while unknown docs YAML fails clo
   }
 });
 
-test('agent governance and frozen work-package inputs retain focused lifecycle ownership', () => {
+test('agent governance and frozen work-package inputs retain focused fast ownership', () => {
   const agentGovernance = selectCiPrRiskSlowSuites([
     'AGENTS.md',
     '.codex/agents/implementation-worker.toml',
@@ -249,57 +240,35 @@ test('agent governance and frozen work-package inputs retain focused lifecycle o
   expect(agentGovernance.resolved).toBe(true);
   expect(agentGovernance.reasons).toContain('ownership-impact');
   expect(agentGovernance.owners).toEqual(['agent-governance', 'documentation-authority']);
-  expect(agentGovernance.suites).toEqual(['contract-document-control-plane-lifecycle']);
-  expect(agentGovernance.affectedSlowTests).toEqual([
-    'tests/contract/document-control-plane-lifecycle.test.ts'
-  ]);
-
-  const retired = RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS[0]!;
-  const exactDeletion = CodexDevelopmentCreateTestImpactTransitionObservationV1({
-    baseSha: retired.baseSha,
-    headSha: 'b'.repeat(40),
-    records: [{ status: 'removed', path: retired.path }],
-    readPathBlob: (revision) => revision === retired.baseSha
-      ? { mode: retired.baseMode, blobSha: retired.baseBlobSha }
-      : null
-  });
-  const workPackageGate = selectCiPrRiskSlowSuites([
-    retired.path,
-    'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
-    'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
-    'docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json',
-    'docs/evidence/v0-4-semantic-mutation-browser-closure-exact-timeout-stop-record-2026-07-17.json',
-    'docs/evidence/v0-4-semantic-mutation-local-child-exact-public-verification-2026-07-17.json',
-    'docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json',
-    'docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json',
-    'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json',
-    'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json',
-    'tests/fixtures/work-package-gate-retained-recovery/records/000001-prepared.json',
-    'tests/fixtures/work-package-gate-retained-recovery/records/000002-authoring-committed.json',
-    'tests/fixtures/work-package-gate-retained-recovery/records/000003-verified.json',
-    'tests/fixtures/work-package-gate-retained-recovery/terminal-order/000000000002.json',
-    'tests/fixtures/work-package-gate-retained-recovery/terminal-order/.sequence-head.json'
-  ], undefined, exactDeletion);
-  expect(workPackageGate.resolved).toBe(true);
-  expect(workPackageGate.reasons).toContain('ownership-impact');
-  expect(workPackageGate.owners).toEqual(['work-package-gate']);
-  expect(workPackageGate.suites).toEqual([]);
-  const pathOnlyRetirement = selectCiPrRiskSlowSuites([retired.path]);
-  expect(pathOnlyRetirement.resolved).toBe(false);
-  expect(pathOnlyRetirement.reasons).toContain('changed-files-unresolved');
+  expect(agentGovernance.suites).toEqual([]);
+  expect(agentGovernance.affectedSlowTests).toEqual([]);
 
   for (const file of [
     'docs/project-state.json',
     'docs/evidence/unowned.json',
     'docs/evidence/archive/probe.json',
     '.codex/agents/unowned.toml',
-    'tests/fixtures/other/prepared.json',
-    'tests/fixtures/work-package-gate-retained-recovery/runtime-hook.ts'
+    'tests/fixtures/other/prepared.json'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
     expect(selection.resolved).toBe(false);
     expect(selection.reasons).toContain('changed-files-unresolved');
   }
+});
+
+test('governance registry uses its declared owner without bounded baseline or product e2e risk', () => {
+  const selection = selectCiPrRiskSlowSuites([
+    'platform/shared/test-impact-rules/governance.ts'
+  ]);
+
+  expect(selection).toEqual({
+    suites: [],
+    slowTests: [],
+    affectedSlowTests: [],
+    owners: ['test-impact-governance-registry'],
+    reasons: ['ownership-impact'],
+    resolved: true
+  });
 });
 
 test('runner build changes select only the focused verification PR-risk suite', () => {

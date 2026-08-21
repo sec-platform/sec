@@ -3,9 +3,9 @@ import type { CodexDevelopmentTestImpactTransitionObservationV1 } from './ci-git
 import { selectCiPrRiskSlowSuites } from './ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 import { uniqueSorted } from './collections.ts';
+import { isDocumentationLifecycleTestOwner } from './documentation-lifecycle-test-owner-contract.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 import type { CodexDevelopmentTestImpactSourceProviderV2 } from './test-impact-contract.ts';
-import { DOCUMENTATION_LIFECYCLE_TEST_OWNERS } from './test-impact-rules/governance.ts';
 
 export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v19' as const;
 export const CI_VERIFICATION_ARTIFACT_NAMESPACE = CI_VERIFICATION_CONTRACT_REVISION.replace(
@@ -103,12 +103,8 @@ function hasTypeScriptChange(files: readonly string[]): boolean {
   return files.some((file) => /\.[cm]?tsx?$/u.test(file));
 }
 
-const DOCUMENTATION_LIFECYCLE_OWNER_SET = new Set<string>(
-  Object.values(DOCUMENTATION_LIFECYCLE_TEST_OWNERS)
-);
-
 function hasDocumentationLifecycleChange(owners: readonly string[]): boolean {
-  return owners.some((owner) => DOCUMENTATION_LIFECYCLE_OWNER_SET.has(owner));
+  return owners.some(isDocumentationLifecycleTestOwner);
 }
 
 export function CodexDevelopmentBuildVerificationPlanV1(

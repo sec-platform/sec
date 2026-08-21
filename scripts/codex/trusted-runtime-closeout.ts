@@ -36,12 +36,15 @@ import {
 import {
   createTrustedRuntimeHostCommandEnvironmentV1,
   createTrustedRuntimeMainHealthReceiptV1,
+  executeTrustedRuntimeBootstrapRepairV1,
   executeTrustedRuntimeContainerVerificationV1,
   executeTrustedRuntimeMainHealthV1,
+  parseTrustedRuntimeBootstrapRepairReceiptV1,
   parseTrustedRuntimeContainerReceiptV1,
   parseTrustedRuntimeMainHealthReceiptV1,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1,
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
+  type TrustedRuntimeBootstrapRepairReceiptV1,
   type TrustedRuntimeContainerReceiptV1,
   type TrustedRuntimeMainHealthReceiptV1
 } from './trusted-runtime-container.ts';
@@ -108,7 +111,11 @@ function canonicalBytes(value: unknown): Uint8Array {
   return Buffer.from(`${encodeVerificationActionDataV2(value)}\n`, 'utf8');
 }
 
-function parseArgs(argv: readonly string[]): Readonly<{ repository: string; prNumber: number }> {
+function parseArgs(argv: readonly string[]): Readonly<{
+  repository: string;
+  prNumber: number;
+  mode: 'ordinary' | 'bootstrap-repair';
+}> {
   const values = new Map<string, string>();
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index];
@@ -118,14 +125,16 @@ function parseArgs(argv: readonly string[]): Readonly<{ repository: string; prNu
     }
     values.set(key, value);
   }
-  if ([...values.keys()].some((key) => key !== '--pr' && key !== '--repository')) {
-    fail('usage: bun run sec:closeout -- --pr <n> [--repository owner/name]');
+  if ([...values.keys()].some((key) => key !== '--pr' && key !== '--repository' && key !== '--mode')) {
+    fail('usage: bun run sec:closeout -- --pr <n> [--repository owner/name] [--mode ordinary|bootstrap-repair]');
   }
   const rawPr = values.get('--pr');
   if (rawPr === undefined || !/^[1-9][0-9]*$/u.test(rawPr)) fail('--pr must be positive');
   const repository = values.get('--repository') ?? 'sec-platform/sec';
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)) fail('--repository is invalid');
-  return Object.freeze({ repository, prNumber: Number(rawPr) });
+  const mode = values.get('--mode') ?? 'ordinary';
+  if (mode !== 'ordinary' && mode !== 'bootstrap-repair') fail('--mode is invalid');
+  return Object.freeze({ repository, prNumber: Number(rawPr), mode });
 }
 
 async function tool(
@@ -162,6 +171,22 @@ async function assertTrustedBaseRuntime(
   ]);
   if (branch !== 'main' || head !== candidate.baseSha || tree !== candidate.baseTreeSha || status !== '') {
     fail('command must execute from the clean exact live-base main worktree');
+  }
+}
+
+async function assertBootstrapCandidateRuntime(
+  repositoryRoot: string,
+  candidate: GitHubCandidateObservationV1
+): Promise<void> {
+  const [branch, head, tree, status] = await Promise.all([
+    tool('git', ['branch', '--show-current'], repositoryRoot),
+    tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
+    tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
+    tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot)
+  ]);
+  if (branch !== candidate.headBranch || head !== candidate.headSha
+      || tree !== candidate.headTreeSha || status !== '') {
+    fail('bootstrap repair must execute from the clean exact live candidate worktree');
   }
 }
 
@@ -583,6 +608,106 @@ async function recoverMergedTrustedRuntimeV1(input: Readonly<{
   });
 }
 
+export async function verifyBootstrapRepairWithTrustedRuntimeV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  prNumber: number;
+}>): Promise<Readonly<{
+  status: 'VERIFIED_BOOTSTRAP_REPAIR';
+  provider: 'sec-trusted-runtime';
+  evidenceReused: boolean;
+  receipt: TrustedRuntimeBootstrapRepairReceiptV1;
+}>> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const github = createVerificationSessionGitHubClientV1(repositoryRoot);
+  const candidate = github.observeCandidate(input.repository, input.prNumber);
+  if (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository) {
+    fail('bootstrap repair candidate must be one open same-repository non-draft PR');
+  }
+  await assertBootstrapCandidateRuntime(repositoryRoot, candidate);
+  const comparison = github.observeComparison(input.repository, candidate.baseSha, candidate.headSha);
+  const openCount = github.observeOpenPullRequestCountForHead(input.repository, candidate.headSha);
+  const ancestry = (await tool('git', [
+    'rev-list', '--parents', '-n', '1', candidate.headSha
+  ], repositoryRoot)).split(/\s+/u);
+  if (comparison.status !== 'ahead' || comparison.behindBy !== 0 || openCount !== 1
+      || ancestry.length !== 2 || ancestry[0] !== candidate.headSha
+      || ancestry[1] !== candidate.baseSha) {
+    fail('bootstrap repair candidate must be one exact single-parent commit on the live base');
+  }
+  const manifestPath = CodexDevelopmentParseWorkPackageLocator(candidate.body);
+  const manifestSource = github.readBlobText(input.repository, candidate.headSha, manifestPath);
+  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, manifestPath);
+  const changed = observeVerificationSessionChangedSelectionV1({
+    repositoryRoot,
+    repository: input.repository,
+    prNumber: input.prNumber,
+    candidate,
+    github
+  });
+  CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changed.changedPaths]);
+  const principal = github.observeViewerPrincipal(input.repository);
+  if (principal.permission !== 'admin' && principal.permission !== 'maintain') {
+    fail('current principal lacks maintain/admin permission');
+  }
+  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
+    repository: input.repository,
+    repositoryRoot
+  });
+  const receiptRoot = path.join(
+    runtimeLayout.repositoryStateRoot,
+    'trusted-bootstrap-repair',
+    'v1'
+  );
+  const authority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot,
+    stateRoot: runtimeLayout.stateRoot,
+    cacheRoot: runtimeLayout.cacheRoot,
+    requiredDirectories: [receiptRoot]
+  });
+  const receiptDirectory = authority.directory(receiptRoot);
+  const receiptFile = `head-${candidate.headSha}.json`;
+  const existing = readNoFollowOrdinaryFileV1(receiptDirectory, receiptFile);
+  let receipt: TrustedRuntimeBootstrapRepairReceiptV1;
+  let evidenceReused = false;
+  if (existing === null) {
+    receipt = publishCanonical({
+      parent: receiptDirectory,
+      name: receiptFile,
+      value: await executeTrustedRuntimeBootstrapRepairV1({
+        repositoryRoot,
+        repository: input.repository,
+        baseSha: candidate.baseSha,
+        baseTreeSha: candidate.baseTreeSha,
+        headSha: candidate.headSha,
+        headTreeSha: candidate.headTreeSha,
+        manifestPath
+      }),
+      parse: (bytes) => parseTrustedRuntimeBootstrapRepairReceiptV1(
+        Buffer.from(bytes).toString('utf8')
+      )
+    });
+  } else {
+    const source = Buffer.from(existing).toString('utf8');
+    receipt = parseTrustedRuntimeBootstrapRepairReceiptV1(source);
+    if (source !== `${encodeVerificationActionDataV2(receipt)}\n`) {
+      fail('durable bootstrap repair receipt bytes are not canonical');
+    }
+    evidenceReused = true;
+  }
+  if (receipt.repository !== input.repository || receipt.baseSha !== candidate.baseSha
+      || receipt.baseTreeSha !== candidate.baseTreeSha || receipt.headSha !== candidate.headSha
+      || receipt.headTreeSha !== candidate.headTreeSha || receipt.manifestPath !== manifestPath) {
+    fail('durable bootstrap repair receipt differs from the exact live candidate');
+  }
+  return Object.freeze({
+    status: 'VERIFIED_BOOTSTRAP_REPAIR' as const,
+    provider: 'sec-trusted-runtime' as const,
+    evidenceReused,
+    receipt
+  });
+}
+
 export async function closeoutWithTrustedRuntimeV1(input: Readonly<{
   repositoryRoot: string;
   repository: string;
@@ -982,11 +1107,17 @@ export async function closeoutWithTrustedRuntimeV1(input: Readonly<{
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const result = await closeoutWithTrustedRuntimeV1({
+  const result = await (args.mode === 'bootstrap-repair'
+    ? verifyBootstrapRepairWithTrustedRuntimeV1({
+        repositoryRoot: process.cwd(),
+        repository: args.repository,
+        prNumber: args.prNumber
+      })
+    : closeoutWithTrustedRuntimeV1({
     repositoryRoot: process.cwd(),
     repository: args.repository,
     prNumber: args.prNumber
-  });
+    }));
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 

@@ -137,8 +137,6 @@ const OBSERVED_PROCESS_LIFECYCLE_FAST_TESTS = [
   "tests/contract/test-impact.test.ts",
   "tests/unit/observed-process-lifecycle.test.ts",
   "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
-  "tests/unit/work-package-gate-execution.test.ts",
-  "tests/unit/work-package-profile-probe-diagnostic.test.ts",
 ];
 
 export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [

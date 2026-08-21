@@ -6203,9 +6203,6 @@ async function executeTcbClosureLockCommandV1(
           throw new Error('TCB closure lock target is absent without one exact CAPTURED recovery record.');
         }
         const captured = raw.latest;
-        if (generatedAt !== captured.generatedAt) {
-          throw new Error('TCB closure lock recovery generatedAt does not match the recorded operation.');
-        }
         if (
           tcbClosureRawSourceDigestV1(captured.oldSource) !== captured.oldRawSourceDigest
           || tcbClosureRawSourceDigestV1(stageSource) !== captured.nextRawSourceDigest
@@ -6280,9 +6277,6 @@ async function executeTcbClosureLockCommandV1(
       const stagedGeneratedAt = stageSource === null
         ? recordedPrepared?.generatedAt ?? null
         : runtime.parseTcbClosureGeneratedRegionV2(stageSource).receipt.generatedAt;
-      if (stagedGeneratedAt !== null && generatedAt !== stagedGeneratedAt) {
-        throw new Error('TCB closure lock PREPARED operation generatedAt does not match the apply request.');
-      }
       const plan = runtime.planTcbClosureLockSourceV2({
         source: targetSource,
         nextLock: runtime.generateTcbClosureLockV2(),
@@ -6310,26 +6304,31 @@ async function executeTcbClosureLockCommandV1(
 }
 
 export async function CodexDevelopmentCiVerificationTcbClosureLockCliV1(
-  argv: readonly string[]
+  argv: readonly string[],
+  now: () => Date = () => new Date()
 ): Promise<string> {
   const mode = argv[0] === 'tcb-closure-lock' && argv[1] === '--mode'
     ? argv[2]
     : undefined;
   const isCheck = mode === 'check' && argv.length === 3;
-  const isPlannedWrite = (
-    (mode === 'dry-run' || mode === 'apply')
+  const isDryRun = (
+    mode === 'dry-run'
     && argv.length === 5
     && argv[3] === '--generated-at'
   );
-  if (!isCheck && !isPlannedWrite) {
+  const isApply = mode === 'apply' && argv.length === 3;
+  if (!isCheck && !isDryRun && !isApply) {
     throw new Error(
       'Usage: bun scripts/ci-verification.ts tcb-closure-lock --mode check | '
-      + '--mode dry-run|apply --generated-at <iso-8601-instant>'
+      + '--mode dry-run --generated-at <iso-8601-instant> | --mode apply'
     );
   }
   const generatedAt = isCheck
     ? null
-    : canonicalizeIsoInstantInputV1(argv[4]!, 'TCB closure lock --generated-at');
+    : canonicalizeIsoInstantInputV1(
+      isApply ? now().toISOString() : argv[4]!,
+      isApply ? 'TCB closure lock owner clock' : 'TCB closure lock --generated-at'
+    );
   const result = await executeTcbClosureLockCommandV1(
     mode as CodexDevelopmentTcbClosureLockModeV1,
     generatedAt

@@ -19,9 +19,22 @@ export type TestOwnershipIdentity =
   | { kind: 'pass'; id: PassId }
   | { kind: 'contract'; id: string };
 
+/**
+ * Controls whether a matched ownership declaration may add reverse-import
+ * consumers to its explicit evidence closure.
+ *
+ * `declared-only` is intentionally opt-in. It is for registries whose own
+ * declaration is the complete authority for scheduling; inferring consumers
+ * from imports would create a second, moving risk truth.
+ */
+export type TestOwnershipClosureMode = 'include' | 'declared-only';
+export type TestOwnershipRiskProfile = 'focused' | 'bounded-baseline';
+
 export type TestOwnershipDeclaration = {
   owner: string;
   identity: TestOwnershipIdentity;
+  closureMode?: TestOwnershipClosureMode;
+  riskProfile?: TestOwnershipRiskProfile;
   sourceFiles?: readonly string[];
   excludedSourceFiles?: readonly string[];
   sourcePrefixes?: readonly string[];
@@ -37,6 +50,34 @@ export type TestOwnershipDeclaration = {
   /** Slow behavior/physical evidence that cannot be inferred from module imports. */
   supplementalSlow: readonly string[];
 };
+
+/**
+ * Resolve one closure mode for a matched declaration set.
+ *
+ * A source can match multiple owners, but those owners must agree on whether
+ * reverse-import consumers are part of the closure. A conflict is an
+ * authority error and therefore fails closed instead of silently choosing one
+ * mode based on declaration order.
+ */
+export function resolveTestOwnershipClosureMode(
+  declarations: readonly TestOwnershipDeclaration[]
+): TestOwnershipClosureMode {
+  const modes = [...new Set(declarations.map((declaration) => (
+    declaration.closureMode ?? 'include'
+  )))];
+  if (modes.length > 1) {
+    throw new Error('Test ownership declarations contain conflicting closure modes.');
+  }
+  return modes[0] ?? 'include';
+}
+
+export function resolveTestOwnershipRiskProfile(
+  declarations: readonly TestOwnershipDeclaration[]
+): TestOwnershipRiskProfile {
+  return declarations.some((declaration) => declaration.riskProfile === 'bounded-baseline')
+    ? 'bounded-baseline'
+    : 'focused';
+}
 
 export type ResolvedTestOwnership = {
   source: string;
@@ -90,11 +131,16 @@ export function resolveDeclaredTestOwnership(
   declarations: readonly TestOwnershipDeclaration[],
   transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): ResolvedTestOwnership[] {
-  return files.flatMap((source) => declarations
-    .filter((declaration) => matchesTestOwnershipDeclaration(declaration, source, transition))
-    .map((declaration) => ({
+  return files.flatMap((source) => {
+    const matched = declarations.filter((declaration) => (
+      matchesTestOwnershipDeclaration(declaration, source, transition)
+    ));
+    resolveTestOwnershipClosureMode(matched);
+    resolveTestOwnershipRiskProfile(matched);
+    return matched.map((declaration) => ({
       source,
       owner: declaration.owner,
       identity: declaration.identity
-    })));
+    }));
+  });
 }

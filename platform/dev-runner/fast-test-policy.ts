@@ -9,9 +9,7 @@ export const MAX_FAST_TEST_PROCESS_CONCURRENCY = 8;
 
 export const FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER = [
   'independent-process',
-  'shared-host-runtime',
-  'repository-worktree',
-  'host-profile'
+  'shared-host-runtime'
 ] as const;
 
 export type FastTestProcessResourceClass = typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER[number];
@@ -48,9 +46,7 @@ export function resolveFastTestConcurrencyBudget(availableCpuCount: number): Fas
   const concurrentProcessLimit = Math.max(1, Math.floor(globalBudget / bunTestMaxConcurrency));
   const resourceClassProcessCaps = Object.freeze({
     'independent-process': Math.min(MAX_FAST_TEST_PROCESS_CONCURRENCY, globalBudget),
-    'shared-host-runtime': Math.min(2, globalBudget),
-    'repository-worktree': 1,
-    'host-profile': 1
+    'shared-host-runtime': Math.min(2, globalBudget)
   });
 
   return Object.freeze({
@@ -123,8 +119,7 @@ export const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
   {
     file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
     reason: 'production-host-and-runtime-lifecycle'
-  },
-  { file: 'tests/unit/work-package-gate-execution.test.ts', reason: 'repository-worktree-execution' }
+  }
 ] as const;
 
 export const DEFAULT_FAST_TEST_EXCLUDED_FILES = DEFAULT_FAST_TEST_EXCLUSION_REGISTRY
@@ -296,26 +291,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     reason: 'workspace-lease-process-state',
     resourceClass: 'independent-process'
   },
-  {
-    file: 'tests/unit/work-package-gate-contract.test.ts',
-    reason: 'work-package-evidence',
-    resourceClass: 'independent-process'
-  },
-  {
-    file: 'tests/unit/work-package-gate-execution.test.ts',
-    reason: 'repository-worktree-mutation',
-    resourceClass: 'repository-worktree'
-  },
-  {
-    file: 'tests/unit/work-package-profile-census-repair.test.ts',
-    reason: 'work-package-profile-evidence',
-    resourceClass: 'repository-worktree'
-  },
-  {
-    file: 'tests/unit/work-package-profile-probe-diagnostic.test.ts',
-    reason: 'host-profile-probe',
-    resourceClass: 'host-profile'
-  }
 ] as const satisfies readonly FastTestProcessIsolationDefinitionV1[];
 
 export function assertUniqueFastTestProcessIsolationDefinitionsV1(
@@ -400,12 +375,9 @@ export interface FastTestProcessPlan {
 }
 
 function emptyFastTestResourceQueues(): Record<FastTestProcessResourceClass, string[]> {
-  return {
-    'independent-process': [],
-    'shared-host-runtime': [],
-    'repository-worktree': [],
-    'host-profile': []
-  };
+  return Object.fromEntries(
+    FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.map((resourceClass) => [resourceClass, []])
+  ) as unknown as Record<FastTestProcessResourceClass, string[]>;
 }
 
 export function partitionFastTestFiles(files: readonly string[]): FastTestFilePartition {

@@ -569,7 +569,7 @@ export const INFORMATION_LIFECYCLE_DISPOSITION_RULES: readonly InformationLifecy
       documentRole: 'frozen-work-package-manifest',
       currentOwner: 'test-fixture-owner',
       currentReferences: [...FIXTURE_WORK_PACKAGE_GATE_MANIFESTS],
-      consumers: ['work-package-gate-contract-tests'],
+      consumers: ['repository-audit-tests'],
       reason: 'exact old/new Git blob identity preserved as test fixture (R100)'
     }),
     Object.freeze({
@@ -930,7 +930,7 @@ export const INFORMATION_LIFECYCLE_CLAIM_FAMILIES: readonly InformationLifecycle
         FIXTURE_DOCUMENTATION_HISTORY_PATH,
         ...FIXTURE_WORK_PACKAGE_GATE_MANIFESTS
       ],
-      consumers: ['documentation-authority-tests', 'work-package-gate-contract-tests'],
+      consumers: ['documentation-authority-tests', 'repository-audit-tests'],
       positiveEvidence: ['tests/contract/repository-audit.test.ts'],
       negativeEvidence: [],
       conflicts: [],
