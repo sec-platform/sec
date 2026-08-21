@@ -16,7 +16,8 @@ import {
   createTrustedRuntimeDependencyCacheVolumeSpecV1,
   createTrustedRuntimeHostCommandEnvironmentV1,
   createTrustedRuntimeMainHealthReceiptV1,
-  parseTrustedRuntimeMainHealthReceiptV1
+  parseTrustedRuntimeMainHealthReceiptV1,
+  renderTrustedRuntimeCommandFailureDetailV1
 } from '../../scripts/codex/trusted-runtime-container.ts';
 
 const dockerEndpoint = Object.freeze({
@@ -87,6 +88,15 @@ describe('provider-neutral trusted runtime container', () => {
     expect(environment.GIT_CONFIG_GLOBAL).toBe(process.platform === 'win32' ? 'NUL' : '/dev/null');
     expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
     expect(environment.GIT_TEMPLATE_DIR).toBeUndefined();
+  });
+
+  test('retains bounded stdout and stderr when a provider command fails', () => {
+    expect(renderTrustedRuntimeCommandFailureDetailV1({
+      stdout: 'compiler diagnostic',
+      stderr: 'process exit summary'
+    })).toBe('stdout:\ncompiler diagnostic\nstderr:\nprocess exit summary');
+    expect(renderTrustedRuntimeCommandFailureDetailV1({ stdout: '', stderr: '' }))
+      .toBe('<no captured output>');
   });
 
   test('reclaims only one twice-observed exact dead-owner container identity', () => {
