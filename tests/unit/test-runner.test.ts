@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 
@@ -41,7 +42,6 @@ const {
   resolveTestWorkspaceRunChild,
   resolveTestWorkspaceNamespace,
   settlePreparedTestWorkspaceRunV1: actualSettlePreparedTestWorkspaceRunV1,
-  testWorkspaceSupervisorLeasePathV1,
   TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
@@ -1631,20 +1631,28 @@ test.serial('fast tests reject an inherited run child instead of escaping its ca
 test.serial('fast tests consume one Gate-assigned physical child and scrub the opaque assignment', async () => {
   const parentNamespace = 'test-runner-gate-assigned-parent';
   const nonce = 'f'.repeat(64);
+  const fakeRepositoryRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-test-runner-gate-repository-'));
+  const executionSnapshotRoot = path.join(
+    fakeRepositoryRoot,
+    '.tmp',
+    'gate-execution-snapshots',
+    parentNamespace
+  );
   const supervisorLease = createTestWorkspaceSupervisorLeaseV1({
     namespace: parentNamespace,
     runId: 'test-runner-gate-assigned',
-    repositoryRoot: compilerRoot,
-    executionSnapshotRoot: path.join(
-      compilerRoot,
-      '.tmp',
-      'gate-execution-snapshots',
-      parentNamespace
-    ),
+    repositoryRoot: fakeRepositoryRoot,
+    executionSnapshotRoot,
     issuerProcessId: process.ppid,
     nonce: 'e'.repeat(64)
   });
-  const supervisorLeasePath = testWorkspaceSupervisorLeasePathV1(parentNamespace);
+  const supervisorLeasePath = path.join(
+    fakeRepositoryRoot,
+    '.tmp',
+    'test-workspaces',
+    '.gate-supervisor-leases',
+    `${parentNamespace}.lock`
+  );
   await fs.mkdir(path.dirname(supervisorLeasePath), { recursive: true });
   await fs.writeFile(supervisorLeasePath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
   const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
@@ -1704,7 +1712,7 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
       .rejects.toThrow('runFastTests caller assignment authority was already consumed');
   } finally {
     await fs.rm(parentRoot, { recursive: true, force: true });
-    await fs.rm(supervisorLeasePath, { force: true });
+    await fs.rm(fakeRepositoryRoot, { recursive: true, force: true });
   }
 });
 
@@ -1713,7 +1721,7 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
   const parentRoot = getTestWorkspaceTempRoot({
     [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace
   });
-  const fakeRepositoryRoot = await fs.mkdtemp(path.join(compilerRoot, '.tmp', 'forged-gate-root-'));
+  const fakeRepositoryRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-forged-gate-root-'));
   await fs.mkdir(parentRoot, { recursive: true });
   const source = `
     import { mkdirSync, writeFileSync } from 'node:fs';
