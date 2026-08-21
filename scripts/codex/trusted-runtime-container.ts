@@ -879,7 +879,8 @@ function formalEnvironment(input: Readonly<{
     SEC_CHANGED_BASE: 'refs/sec/base',
     SEC_AFFECTED_TESTS_BASE: 'refs/sec/base',
     SEC_WORK_PACKAGE_MANIFEST_PATH: envelope.session.manifestPath,
-    SEC_CI_VERIFICATION_EVIDENCE_PATH: `${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`
+    SEC_CI_VERIFICATION_EVIDENCE_PATH: `${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`,
+    SEC_CACHE_HOME: `${TRUSTED_RUNTIME_OUTPUT_V1}/cache`
   });
   return Object.freeze(Object.entries(values).sort(([left], [right]) => left.localeCompare(right))
     .flatMap(([key, value]) => ['--env', `${key}=${value}`]));
@@ -1377,6 +1378,7 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
         const result = await commandResult('docker', [
           'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
           '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', '--env', 'LANG=C',
+          '--env', `SEC_CACHE_HOME=${TRUSTED_RUNTIME_OUTPUT_V1}/cache`,
           '--env', 'LC_ALL=C', '--env', 'TZ=UTC', '--env', 'GIT_CONFIG_NOSYSTEM=1',
           '--env', 'GIT_CONFIG_GLOBAL=/dev/null', '--env', 'GIT_TERMINAL_PROMPT=0',
           containerName, ...argv
