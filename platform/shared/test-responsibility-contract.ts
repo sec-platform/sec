@@ -86,13 +86,13 @@ export type TestRetirementCondition =
     }>
   | Readonly<{ kind: 'diagnostic-completion'; workRef: string }>;
 
-export type TestResponsibilityDeclaration = Readonly<{
-  /** Stable logical proof identity. */
+/**
+ * Stable proof semantics authored beside the executable case. Physical source/suite/title
+ * locators are excluded so source is the only writer of those facts and a census can derive
+ * them from the current tree.
+ */
+export type TestResponsibilityMetadata = Readonly<{
   testId: string;
-  /** Current test source locator; never semantic identity. */
-  sourcePath: string;
-  /** Exact current executable case locator inside sourcePath. */
-  case: TestCaseLocator;
   owner: string;
   layer: TestResponsibilityLayer;
   role: TestResponsibilityRole;
@@ -105,6 +105,13 @@ export type TestResponsibilityDeclaration = Readonly<{
    */
   independence?: readonly TestProofIndependence[];
   retirementCondition: TestRetirementCondition;
+}>;
+
+export type TestResponsibilityDeclaration = TestResponsibilityMetadata & Readonly<{
+  /** Current test source locator; never semantic identity. */
+  sourcePath: string;
+  /** Exact current executable case locator inside sourcePath. */
+  case: TestCaseLocator;
 }>;
 
 const MACHINE_ID = /^[a-z0-9][a-z0-9._:-]*$/u;
@@ -203,6 +210,24 @@ function normalizeRetirementCondition(
     case 'diagnostic-completion':
       requireReference(condition.workRef, 'retirementCondition.workRef');
       return Object.freeze({ ...condition });
+  }
+}
+
+function assertObligationFailureMeaningsAreCanonical(
+  declarations: readonly TestResponsibilityDeclaration[]
+): void {
+  const failureMeaningByObligation = new Map<string, string>();
+  for (const declaration of declarations) {
+    for (const obligation of declaration.obligations) {
+      const identity = obligationIdentity(obligation);
+      const existing = failureMeaningByObligation.get(identity);
+      if (existing !== undefined && existing !== obligation.failureMeaningCode) {
+        throw new Error(
+          `proof obligation ${identity} has conflicting failure meanings: ${existing} != ${obligation.failureMeaningCode}`
+        );
+      }
+      failureMeaningByObligation.set(identity, obligation.failureMeaningCode);
+    }
   }
 }
 
@@ -360,6 +385,7 @@ export function normalizeTestResponsibilityDeclarations(
     testCaseLocatorIdentity(declaration.sourcePath, declaration.case)
   ));
   uniqueValues(locatorKeys, 'test case locator');
+  assertObligationFailureMeaningsAreCanonical(normalized);
   assertReplacementProofsClose(normalized);
   return Object.freeze([...normalized].sort((left, right) => compareText(left.testId, right.testId)));
 }
