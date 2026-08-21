@@ -184,11 +184,7 @@ function assertReplacementProofsClose(
     });
 
     const replacementObligations = new Set(replacements.flatMap((replacement) => (
-      replacement.obligations
-        .filter((obligation) => (
-          replacement.role !== 'calibration' || obligation.kind === 'verifier-calibration'
-        ))
-        .map(obligationIdentity)
+      replacement.obligations.map(obligationIdentity)
     )));
 
     const missing = declaration.obligations
@@ -236,6 +232,15 @@ export function normalizeTestResponsibilityDeclarations(
     const obligations = declaration.obligations.map(normalizeObligation);
     const obligationKeys = obligations.map(obligationIdentity);
     uniqueValues(obligationKeys, `${declaration.testId}.obligations`);
+    if (declaration.role === 'calibration'
+      && obligations.some((obligation) => obligation.kind !== 'verifier-calibration')) {
+      throw new Error(`${declaration.testId} calibration proof may only own verifier-calibration obligations`);
+    }
+    if (declaration.role !== 'calibration'
+      && declaration.role !== 'diagnostic'
+      && obligations.some((obligation) => obligation.kind === 'verifier-calibration')) {
+      throw new Error(`${declaration.testId} verifier-calibration obligation requires calibration role`);
+    }
 
     const regressionRefs = [...(declaration.regressionRefs ?? [])];
     for (const reference of regressionRefs) requireReference(reference, 'regressionRef');
