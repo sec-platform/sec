@@ -464,6 +464,32 @@
       ]
     },
     {
+      "id": "test-responsibility",
+      "path": "docs/test-responsibility.md",
+      "kind": "authority",
+      "domain": "verification-governance",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "verification.proof-economy",
+        "verification.test-lifecycle",
+        "verification.test-responsibility"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "repository-audit",
+        "test-impact",
+        "test-responsibility-contract"
+      ],
+      "updateTriggers": [
+        "test-responsibility-contract-change",
+        "verification-authority-change"
+      ]
+    },
+    {
       "id": "development-governance",
       "path": "docs/development-governance.md",
       "kind": "authority",
