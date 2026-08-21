@@ -142,8 +142,8 @@ secTest({
 
   expect(census.caseCount).toBe(2);
   expect(census.unresolved.map(({ reasonCode }) => reasonCode)).toEqual([
-    'dynamic-suite-family',
-    'parameterized-family-unresolved'
+    'parameterized-family-unresolved',
+    'dynamic-suite-family'
   ]);
 });
 
