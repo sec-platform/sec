@@ -12,6 +12,7 @@ function declaration(
   return {
     testId: 'verification.test-responsibility.contract',
     sourcePath: 'tests/contract/test-responsibility-contract.test.ts',
+    case: { suitePath: [], title: 'synthetic test responsibility fixture' },
     owner: 'verification-governance',
     layer: 'contract',
     role: 'primary',
@@ -44,6 +45,7 @@ test('canonical test responsibility sources select focused proof through existin
 test('test responsibility normalization is order-independent for non-semantic collections', () => {
   const first = declaration({
     testId: 'verification.proof-economy.first',
+    case: { suitePath: [], title: 'first synthetic proof' },
     obligations: [
       {
         kind: 'verification-requirement',
@@ -67,6 +69,7 @@ test('test responsibility normalization is order-independent for non-semantic co
   const second = declaration({
     testId: 'verification.proof-economy.second',
     sourcePath: 'tests/contract/verification-result.test.ts',
+    case: { suitePath: [], title: 'second synthetic proof' },
     role: 'supporting',
     obligations: [{
       kind: 'verification-requirement',
@@ -90,6 +93,34 @@ test('test responsibility normalization is order-independent for non-semantic co
   expect(JSON.stringify(left)).toBe(JSON.stringify(right));
   expect(Object.isFrozen(left)).toBe(true);
   expect(Object.isFrozen(left[0])).toBe(true);
+  expect(Object.isFrozen(left[0]?.case)).toBe(true);
+});
+
+test('stable test identity and current physical case locator are separate', () => {
+  const before = normalizeTestResponsibilityDeclarations([
+    declaration({
+      testId: 'verification.proof.stable-id',
+      case: { suitePath: ['suite-a'], title: 'current title' }
+    })
+  ])[0]!;
+  const after = normalizeTestResponsibilityDeclarations([
+    declaration({
+      testId: 'verification.proof.stable-id',
+      sourcePath: 'tests/contract/verification-result.test.ts',
+      case: { suitePath: ['suite-b'], title: 'renamed title' }
+    })
+  ])[0]!;
+
+  expect(before.testId).toBe(after.testId);
+  expect(before.sourcePath).not.toBe(after.sourcePath);
+  expect(before.case).not.toEqual(after.case);
+});
+
+test('two stable ids cannot claim the same executable case locator', () => {
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({ testId: 'verification.proof.first' }),
+    declaration({ testId: 'verification.proof.second' })
+  ])).toThrow('test case locator contains duplicate values');
 });
 
 test('every registered proof binds a canonical obligation and failure meaning', () => {
@@ -203,6 +234,7 @@ test('diagnostic proofs cannot masquerade as ordinary required proof', () => {
 test('replacement proof has one direction and can only target active proof', () => {
   const retiring = declaration({
     testId: 'verification.proof.retiring',
+    case: { suitePath: [], title: 'retiring synthetic proof' },
     lifecycle: 'retiring',
     retirementCondition: {
       kind: 'replacement-proof',
@@ -212,7 +244,8 @@ test('replacement proof has one direction and can only target active proof', () 
   });
   const replacement = declaration({
     testId: 'verification.proof.replacement',
-    sourcePath: 'tests/contract/verification-result.test.ts'
+    sourcePath: 'tests/contract/verification-result.test.ts',
+    case: { suitePath: [], title: 'replacement synthetic proof' }
   });
 
   const normalized = normalizeTestResponsibilityDeclarations([retiring, replacement]);
@@ -239,6 +272,7 @@ test('replacement proof has one direction and can only target active proof', () 
 test('replacement proof must preserve every canonical obligation identity', () => {
   const retiring = declaration({
     testId: 'verification.proof.retiring',
+    case: { suitePath: [], title: 'retiring coverage proof' },
     lifecycle: 'retiring',
     obligations: [
       {
@@ -262,7 +296,8 @@ test('replacement proof must preserve every canonical obligation identity', () =
   });
   const incomplete = declaration({
     testId: 'verification.proof.replacement',
-    sourcePath: 'tests/contract/verification-result.test.ts'
+    sourcePath: 'tests/contract/verification-result.test.ts',
+    case: { suitePath: [], title: 'incomplete replacement proof' }
   });
 
   expect(() => normalizeTestResponsibilityDeclarations([retiring, incomplete]))
@@ -270,6 +305,7 @@ test('replacement proof must preserve every canonical obligation identity', () =
 
   const complete = declaration({
     ...incomplete,
+    case: { suitePath: [], title: 'complete replacement proof' },
     obligations: retiring.obligations.map((obligation) => ({
       ...obligation,
       failureMeaningCode: `${obligation.failureMeaningCode}-replacement`
@@ -281,6 +317,7 @@ test('replacement proof must preserve every canonical obligation identity', () =
 test('calibration proof cannot replace an ordinary product or contract obligation', () => {
   const retiring = declaration({
     testId: 'verification.proof.retiring',
+    case: { suitePath: [], title: 'ordinary retiring proof' },
     lifecycle: 'retiring',
     retirementCondition: {
       kind: 'replacement-proof',
@@ -291,6 +328,7 @@ test('calibration proof cannot replace an ordinary product or contract obligatio
   const calibration = declaration({
     testId: 'verification.proof.calibration',
     sourcePath: 'tests/contract/verification-result.test.ts',
+    case: { suitePath: [], title: 'calibration replacement proof' },
     role: 'calibration',
     obligations: [{
       kind: 'verifier-calibration',
@@ -370,7 +408,8 @@ test('retiring lifecycle requires an actionable retirement owner', () => {
     }),
     declaration({
       testId: 'verification.other-proof',
-      sourcePath: 'tests/contract/verification-result.test.ts'
+      sourcePath: 'tests/contract/verification-result.test.ts',
+      case: { suitePath: [], title: 'other synthetic proof' }
     })
   ])).toThrow('replacement-proof requires retiring lifecycle');
 });
