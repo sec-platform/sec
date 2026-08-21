@@ -216,6 +216,16 @@ export interface TrustedRuntimeContainerIdentityV1 {
   readonly labels: Readonly<Record<string, string>>;
 }
 
+export function composeTrustedRuntimeContainerLabelsV1(
+  imageLabels: Readonly<Record<string, string>>,
+  operationLabels: Readonly<Record<string, string>>
+): Readonly<Record<string, string>> {
+  if (Object.keys(imageLabels).some((key) => Object.hasOwn(operationLabels, key))) {
+    fail('Docker image labels collide with retained operation identity');
+  }
+  return Object.freeze({ ...imageLabels, ...operationLabels });
+}
+
 const TRUSTED_RUNTIME_OWNER_HOST = hostname();
 
 function localProcessLiveness(pid: number): 'alive' | 'dead' | 'unknown' {
@@ -284,35 +294,33 @@ export function authorizeTrustedRuntimeContainerRecoveryV1(input: Readonly<{
     headSha: string;
     endpointDigest: Digest;
     imageId: string;
+    imageLabels: Readonly<Record<string, string>>;
     ownerHost: string;
   }>;
   observeProcessLiveness: (pid: number) => 'alive' | 'dead' | 'unknown';
 }>): string {
-  const expectedLabelKeys = [
-    'sec.trusted-runtime.base-sha',
-    'sec.trusted-runtime.endpoint-digest',
-    'sec.trusted-runtime.head-sha',
-    'sec.trusted-runtime.image-id',
-    'sec.trusted-runtime.operation',
-    'sec.trusted-runtime.owner-host',
-    'sec.trusted-runtime.owner-nonce',
-    'sec.trusted-runtime.owner-pid',
-    'sec.trusted-runtime.repository'
-  ];
   const ownerPidText = input.first.labels['sec.trusted-runtime.owner-pid'];
   const ownerPid = ownerPidText !== undefined && /^[1-9][0-9]*$/u.test(ownerPidText)
     ? Number(ownerPidText)
     : Number.NaN;
   const ownerNonce = input.first.labels['sec.trusted-runtime.owner-nonce'];
-  if (Object.keys(input.first.labels).sort().join('\0') !== expectedLabelKeys.join('\0')
+  const expectedLabels = composeTrustedRuntimeContainerLabelsV1(
+    input.expected.imageLabels,
+    Object.freeze({
+      'sec.trusted-runtime.operation': input.expected.operationKey,
+      'sec.trusted-runtime.repository': input.expected.repository,
+      'sec.trusted-runtime.base-sha': input.expected.baseSha,
+      'sec.trusted-runtime.head-sha': input.expected.headSha,
+      'sec.trusted-runtime.endpoint-digest': input.expected.endpointDigest,
+      'sec.trusted-runtime.owner-host': input.expected.ownerHost,
+      'sec.trusted-runtime.owner-pid': ownerPidText ?? '',
+      'sec.trusted-runtime.owner-nonce': ownerNonce ?? '',
+      'sec.trusted-runtime.image-id': input.expected.imageId
+    })
+  );
+  if (encodeVerificationActionDataV2(input.first.labels)
+        !== encodeVerificationActionDataV2(expectedLabels)
       || input.first.imageId !== input.expected.imageId
-      || input.first.labels['sec.trusted-runtime.operation'] !== input.expected.operationKey
-      || input.first.labels['sec.trusted-runtime.repository'] !== input.expected.repository
-      || input.first.labels['sec.trusted-runtime.base-sha'] !== input.expected.baseSha
-      || input.first.labels['sec.trusted-runtime.head-sha'] !== input.expected.headSha
-      || input.first.labels['sec.trusted-runtime.endpoint-digest'] !== input.expected.endpointDigest
-      || input.first.labels['sec.trusted-runtime.image-id'] !== input.expected.imageId
-      || input.first.labels['sec.trusted-runtime.owner-host'] !== input.expected.ownerHost
       || ownerNonce === undefined
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(ownerNonce)
       || input.first.name !== `sec-trusted-runtime-${input.expected.operationKey}-${ownerNonce}`
@@ -359,6 +367,7 @@ async function reclaimAbandonedTrustedRuntimeContainersV1(input: Readonly<{
   headSha: string;
   endpointDigest: Digest;
   imageId: string;
+  imageLabels: Readonly<Record<string, string>>;
 }>): Promise<void> {
   const list = await runCommand('docker', [...dockerEndpointCommandArgsV3(
     input.dockerEndpoint,
@@ -407,6 +416,7 @@ async function reclaimAbandonedTrustedRuntimeContainersV1(input: Readonly<{
         headSha: input.headSha,
         endpointDigest: input.endpointDigest,
         imageId: input.imageId,
+        imageLabels: input.imageLabels,
         ownerHost: TRUSTED_RUNTIME_OWNER_HOST
       },
       observeProcessLiveness: localProcessLiveness
@@ -817,11 +827,12 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
       baseSha,
       headSha,
       endpointDigest,
-      imageId: image.imageId
+      imageId: image.imageId,
+      imageLabels: image.labels
     });
     const ownerNonce = randomUUID();
     const containerName = `sec-trusted-runtime-${input.operationKey}-${ownerNonce}`;
-    const containerLabels = Object.freeze({
+    const operationLabels = Object.freeze({
       'sec.trusted-runtime.operation': input.operationKey,
       'sec.trusted-runtime.repository': repositoryIdentity,
       'sec.trusted-runtime.base-sha': baseSha,
@@ -832,6 +843,7 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
       'sec.trusted-runtime.owner-nonce': ownerNonce,
       'sec.trusted-runtime.image-id': image.imageId
     });
+    const containerLabels = composeTrustedRuntimeContainerLabelsV1(image.labels, operationLabels);
     const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-trusted-runtime-'));
     let containerCreated = false;
     let containerId: string | null = null;
