@@ -6316,20 +6316,20 @@ export async function CodexDevelopmentCiVerificationTcbClosureLockCliV1(
     ? argv[2]
     : undefined;
   const isCheck = mode === 'check' && argv.length === 3;
-  const isPlannedWrite = (
-    (mode === 'dry-run' || mode === 'apply')
-    && argv.length === 5
-    && argv[3] === '--generated-at'
-  );
+  const isPlannedMode = mode === 'dry-run' || mode === 'apply';
+  const hasExplicitGeneratedAt = argv.length === 5 && argv[3] === '--generated-at';
+  const isPlannedWrite = isPlannedMode && (argv.length === 3 || hasExplicitGeneratedAt);
   if (!isCheck && !isPlannedWrite) {
     throw new Error(
       'Usage: bun scripts/ci-verification.ts tcb-closure-lock --mode check | '
-      + '--mode dry-run|apply --generated-at <iso-8601-instant>'
+      + '--mode dry-run|apply [--generated-at <deterministic-test-instant>]'
     );
   }
   const generatedAt = isCheck
     ? null
-    : canonicalizeIsoInstantInputV1(argv[4]!, 'TCB closure lock --generated-at');
+    : hasExplicitGeneratedAt
+      ? canonicalizeIsoInstantInputV1(argv[4]!, 'TCB closure lock --generated-at')
+      : new Date().toISOString();
   const result = await executeTcbClosureLockCommandV1(
     mode as CodexDevelopmentTcbClosureLockModeV1,
     generatedAt

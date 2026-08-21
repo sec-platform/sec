@@ -2,10 +2,6 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../platform/shared/canonical-primitives.ts';
-import {
-  createMainHealthLedgerV1,
-  resolveOrdinaryMainHealthLaneV1
-} from '../../platform/shared/main-health-contract.ts';
 import { parseVerificationRegistryProjectionV1 } from '../../platform/shared/verification-session-contract.ts';
 import type {
   SecCurrentWorkLifecycleV1,
@@ -38,7 +34,6 @@ import {
   CodexDevelopmentParseRollingPlanV1
 } from './document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgsV1 } from './document-control-plane-github-observation.ts';
-import { createObservedMainHealthInputV1 } from './main-health-observation.ts';
 import { createVerificationSessionGitHubClientV1 } from './verification-session-github.ts';
 import {
   parseOpenPullRequestList,
@@ -48,6 +43,10 @@ import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
+import {
+  observeCanonicalWorkSelectionMainHealthV1,
+  observeHostedMainHealthChecksV1
+} from './work-selection-main-health.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
@@ -558,45 +557,22 @@ function observeCanonicalMainHealth(input: {
 }> {
   const observedAt = new Date().toISOString();
   const expiresAt = new Date(new Date(observedAt).getTime() + 300_000).toISOString();
-  const checks = createVerificationSessionGitHubClientV1(input.root)
-    .observeChecks(input.repository, input.exactMain);
-  const ledger = createMainHealthLedgerV1(createObservedMainHealthInputV1({
+  const github = createVerificationSessionGitHubClientV1(input.root);
+  const hosted = observeHostedMainHealthChecksV1({
     repository: input.repository,
     mainSha: input.exactMain,
-    mainTreeSha: input.exactMainTree,
-    trustRevision: input.exactMain,
-    observedAt,
-    expiresAt,
-    sourceRunId: `work-selection-${input.exactMain}`,
-    sourceRef: `github-check-runs:${input.repository}@${input.exactMain}`,
-    checks
-  }));
-  const decision = resolveOrdinaryMainHealthLaneV1({
-    ledger,
-    now: observedAt,
-    expectedRepository: input.repository,
-    expectedDefaultBranch: input.defaultBranch,
-    expectedMainSha: input.exactMain,
-    expectedMainTreeSha: input.exactMainTree,
-    expectedTrustRevision: input.exactMain
+    observeChecks: () => github.observeChecks(input.repository, input.exactMain)
   });
-  // Work Selection observes the canonical ledger; it never acquires the
-  // proposal-only repair lane. A valid degraded ledger is still an unhealthy
-  // lifecycle fact, while an invalid/locked observation remains unresolved.
-  const state: SecCurrentWorkLifecycleV1['mainHealthState'] = decision.observationValidity === 'invalid'
-      || decision.ledger === null
-      || ledger.status === 'locked'
-    ? 'unresolved'
-    : ledger.status === 'degraded'
-      ? 'unhealthy'
-      : decision.allowed
-        ? 'healthy'
-        : 'unresolved';
-  // Selection identity follows semantic health facts, not observation time or
-  // transport provenance. MainHealth already owns this exact split:
-  // healthRevision changes with status/failures/owner/lanes/main identity,
-  // while ledgerDigest also changes for every fresh observation receipt.
-  return Object.freeze({ state, ref: ledger.healthRevision as SecWorkDigestV1 });
+  return observeCanonicalWorkSelectionMainHealthV1({
+    repositoryRoot: input.root,
+    repository: input.repository,
+    defaultBranch: input.defaultBranch,
+    mainSha: input.exactMain,
+    mainTreeSha: input.exactMainTree,
+    now: observedAt,
+    hostedExpiresAt: expiresAt,
+    hosted
+  });
 }
 
 function observeCanonicalControl(input: {

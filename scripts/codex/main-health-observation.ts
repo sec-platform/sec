@@ -32,6 +32,9 @@ export interface TrustedLocalMainHealthObservationV1 {
 export const MAIN_HEALTH_CHECK_PROVIDER_POLICY_SCHEMA_V1 =
   'sec-main-health-check-provider-policy-v1' as const;
 
+/** One provider-neutral freshness budget for durable trusted-local MainHealth evidence. */
+export const TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS_V1 = 10 * 60_000;
+
 export type MainHealthCheckProviderPolicyV1 = Readonly<{
   schema: typeof MAIN_HEALTH_CHECK_PROVIDER_POLICY_SCHEMA_V1;
   policyRevision: string;

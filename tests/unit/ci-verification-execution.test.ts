@@ -1014,6 +1014,15 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
 
     const update = planTcbFixtureUpdate(fixture, '2026-08-09T03:00:00.000Z', 1);
     expect(update.status).toBe('update-required');
+    const automaticDryRun = successfulTcbClosureCli(fixture, [
+      'tcb-closure-lock', '--mode', 'dry-run'
+    ]);
+    expect(automaticDryRun).toMatchObject({ status: 'update-required', changed: false });
+    if (typeof automaticDryRun.generatedAt !== 'string') {
+      throw new Error('automatic TCB generatedAt must be one string');
+    }
+    expect(new Date(automaticDryRun.generatedAt).toISOString()).toBe(automaticDryRun.generatedAt);
+    expect(readFileSync(fixture.target, 'utf8')).toBe(currentSource);
     const dryRun = successfulTcbClosureCli(fixture, [
       'tcb-closure-lock', '--mode', 'dry-run', '--generated-at', '2026-08-09T03:00:00.000Z'
     ]);
