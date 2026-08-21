@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
 import {
   normalizeTestResponsibilityDeclarations,
   type TestResponsibilityDeclaration
@@ -25,6 +26,20 @@ function declaration(
     ...overrides
   };
 }
+
+test('canonical test responsibility sources select focused proof through existing impact owner', () => {
+  for (const source of [
+    'docs/test-responsibility.md',
+    'platform/shared/test-responsibility-contract.ts'
+  ]) {
+    const selection = selectTestsForSources([source]);
+    expect(selection.owners).toContain('test-responsibility');
+    expect(selection.fast).toEqual(expect.arrayContaining([
+      'tests/contract/test-impact.test.ts',
+      'tests/contract/test-responsibility-contract.test.ts'
+    ]));
+  }
+});
 
 test('test responsibility normalization is order-independent for non-semantic collections', () => {
   const first = declaration({
