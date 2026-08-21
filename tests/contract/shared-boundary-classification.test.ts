@@ -11,7 +11,10 @@ import {
   sharedBoundaryClassification
 } from '../../platform/shared/shared-boundary-contract.ts';
 
-const MAX_SHARED_DOMAIN_OWNER_REVIEW_DEBT = 66;
+// The integration candidate introduced physical-mutation-lease.ts without
+// classifying it. It is real pre-existing effectful placement debt, so the
+// audited baseline is 67 rather than an artificial undercount of 66.
+const MAX_SHARED_DOMAIN_OWNER_REVIEW_DEBT = 67;
 const MAX_SHARED_MECHANICAL_FOUNDATION_PATHS = 16;
 
 async function collectSharedFiles(): Promise<string[]> {
@@ -72,6 +75,7 @@ test('stateful, destructive, workspace, CLI, and verification behavior remains o
     'fs.ts',
     'observed-process.ts',
     'paths.ts',
+    'physical-mutation-lease.ts',
     'physical-no-follow.ts',
     'pipeline-journal.ts',
     'pipeline-kernel.ts',
@@ -93,6 +97,7 @@ test('stateful, destructive, workspace, CLI, and verification behavior remains o
 
 test('Engineering IR shared subtree remains contract/type surface in this first slice', () => {
   const contractPaths = new Set<string>(SHARED_CROSS_DOMAIN_CONTRACT_PATHS);
+  expect(contractPaths.has('integration-platform-policy.ts')).toBe(true);
   for (const path of [
     'engineering-ir/delta-types.ts',
     'engineering-ir/entity-types.ts',

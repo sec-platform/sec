@@ -175,6 +175,43 @@ function sameIdentity(left: PhysicalDirectoryIdentityV1, right: PhysicalDirector
     left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
 }
 
+function samePhysicalObject(
+  left: PhysicalDirectoryIdentityV1,
+  right: PhysicalDirectoryIdentityV1
+): boolean {
+  return left.schema === right.schema
+    && left.device === right.device
+    && left.inode === right.inode
+    && left.objectId === right.objectId;
+}
+
+/** True when outer's physical target is equal to or contains inner's target. */
+export function physicallyContainsDirectoryChainV1(
+  outer: PhysicalDirectoryChainV1,
+  inner: PhysicalDirectoryChainV1
+): boolean {
+  return inner.ancestors.some((entry) => samePhysicalObject(outer.target, entry));
+}
+
+/**
+ * Rejects containment or equality between two fully no-follow-proven directory
+ * chains. Sharing an ancestor is allowed; either target appearing in the
+ * other's ancestor chain is not.
+ */
+export function assertPhysicallyDisjointDirectoryChainsV1(
+  left: PhysicalDirectoryChainV1,
+  right: PhysicalDirectoryChainV1,
+  label = 'directory chains'
+): void {
+  if (physicallyContainsDirectoryChainV1(left, right)
+    || physicallyContainsDirectoryChainV1(right, left)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+      `${label} must be physically disjoint.`
+    );
+  }
+}
+
 const LINUX_O_RDONLY = 0;
 const LINUX_O_WRONLY = 1;
 const LINUX_O_DIRECTORY = 0x0001_0000;

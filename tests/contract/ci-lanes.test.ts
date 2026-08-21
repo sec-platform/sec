@@ -140,7 +140,7 @@ test('CI PR risk gate selects slow suites from test impact ownership', () => {
   });
 });
 
-test('documentation registry and verifier trust roots select mandatory sentinels', () => {
+test('documentation trust roots select baseline sentinels without transaction lifecycle work', () => {
   for (const file of [
     'docs/authority.json',
     'docs/scripts/docs-doctor.ts',
@@ -151,8 +151,10 @@ test('documentation registry and verifier trust roots select mandatory sentinels
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
     expect(selection.suites).toEqual(expect.arrayContaining(slowTestPrRiskBaselineSuiteIds()));
-    if (file === 'docs/authority.json') {
+    if (file === 'platform/shared/active-documentation-contract.ts') {
       expect(selection.suites).toContain('contract-document-control-plane-lifecycle');
+    } else {
+      expect(selection.suites).not.toContain('contract-document-control-plane-lifecycle');
     }
     expect(selection.owners).toEqual(expect.arrayContaining([
       'agent-governance',
@@ -166,9 +168,9 @@ test('documentation registry and verifier trust roots select mandatory sentinels
   }
 
   expect(selectCiPrRiskSlowSuites(['docs/product.md'])).toEqual({
-    suites: ['contract-document-control-plane-lifecycle'],
+    suites: [],
     slowTests: [],
-    affectedSlowTests: ['tests/contract/document-control-plane-lifecycle.test.ts'],
+    affectedSlowTests: [],
     owners: ['documentation-authority'],
     reasons: ['ownership-impact'],
     resolved: true

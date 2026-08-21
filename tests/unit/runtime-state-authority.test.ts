@@ -3,7 +3,12 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } fr
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
+import {
+  assertPhysicallyDisjointDirectoryChainsV1,
+  inspectNoFollowDirectoryChainV1,
+  type PhysicalDirectoryChainV1,
+  type PhysicalDirectoryIdentityV1
+} from '../../platform/shared/physical-no-follow.ts';
 import { acquireSecRuntimeCachePhysicalAuthorityV1 } from '../../tooling/sec-dev/runtime-state-authority.ts';
 
 test('runtime cache authority materializes one no-follow tree physically outside the repository', () => {
@@ -51,4 +56,24 @@ test('runtime cache authority rejects a symlink or junction ancestor before crea
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('physical disjointness rejects different lexical paths for the same physical object', () => {
+  const identity = (physical: string, lexical: string): PhysicalDirectoryIdentityV1 => Object.freeze({
+    schema: 'sec-physical-no-follow-v1',
+    path: lexical,
+    finalPath: lexical,
+    device: '7',
+    inode: '11',
+    objectId: physical
+  });
+  const chain = (target: PhysicalDirectoryIdentityV1): PhysicalDirectoryChainV1 => Object.freeze({
+    target,
+    ancestors: Object.freeze([target])
+  });
+  expect(() => assertPhysicallyDisjointDirectoryChainsV1(
+    chain(identity('same-object', '/first/path')),
+    chain(identity('same-object', '/bind/alias')),
+    'alias roots'
+  )).toThrow('physically disjoint');
 });
