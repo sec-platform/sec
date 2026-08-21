@@ -23,7 +23,7 @@ import {
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY_V1,
   TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS_V1
 } from './main-health-observation.ts';
-import { parseTrustedRuntimeMainHealthReceiptV1 } from './trusted-runtime-container.ts';
+import { parseTrustedRuntimeMainHealthReceiptV2 } from './trusted-runtime-container.ts';
 import type { GitHubCheckObservationV1 } from './verification-session-github.ts';
 
 const WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1 =
@@ -123,7 +123,7 @@ function observeTrustedLocalProvider(input: Readonly<{
     );
     if (receiptBytes === null) return Object.freeze({ kind: 'absent' });
 
-    const receipt = parseTrustedRuntimeMainHealthReceiptV1(decodeExactUtf8(receiptBytes));
+    const receipt = parseTrustedRuntimeMainHealthReceiptV2(decodeExactUtf8(receiptBytes));
     const canonicalReceiptBytes = Buffer.from(
       `${encodeVerificationActionDataV2(receipt)}\n`,
       'utf8'

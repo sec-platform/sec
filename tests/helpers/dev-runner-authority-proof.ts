@@ -7863,14 +7863,16 @@ type GitChangedFileReadOperation =
   | 'path-blob'
   | 'rev-parse-base'
   | 'rev-parse-head'
-  | 'untracked-files';
+  | 'untracked-files'
+  | 'worktree-status';
 
 const GIT_CHANGED_FILE_READ_OPERATIONS = Object.freeze<readonly GitChangedFileReadOperation[]>([
   'changed-diff',
   'path-blob',
   'rev-parse-base',
   'rev-parse-head',
-  'untracked-files'
+  'untracked-files',
+  'worktree-status'
 ]);
 
 interface CompactCallSite {
@@ -11089,19 +11091,6 @@ class ProgramAuthorityLowerer {
       : null;
   }
 
-  private isExactRevisionShaFallback(
-    expression: ts.Expression,
-    role: 'base' | 'head'
-  ): boolean {
-    const value = unwrapExpression(expression);
-    if (!ts.isBinaryExpression(value) ||
-      value.operatorToken.kind !== ts.SyntaxKind.QuestionQuestionToken ||
-      !this.exactRevisionShaDeclaration(value.left, role)) return false;
-    return role === 'base'
-      ? this.isExactUndefined(value.right)
-      : ts.isStringLiteralLike(value.right) && value.right.text === 'HEAD';
-  }
-
   private isExactChangedDiffBuilderCall(expression: ts.Expression): boolean {
     const value = unwrapExpression(expression);
     return ts.isCallExpression(value) && value.arguments.length === 2 &&
@@ -11109,8 +11098,13 @@ class ProgramAuthorityLowerer {
         value.expression,
         '../shared/ci-git-changed-files.ts',
         'gitChangedFileDiffArgs'
-      ) && this.isExactRevisionShaFallback(value.arguments[0]!, 'base') &&
-      this.isExactRevisionShaFallback(value.arguments[1]!, 'head');
+      ) && (() => {
+        const base = unwrapExpression(value.arguments[0]!);
+        return ts.isBinaryExpression(base) &&
+          base.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken &&
+          this.exactRevisionShaDeclaration(base.left, 'base') !== null &&
+          ts.isStringLiteralLike(base.right) && base.right.text === 'HEAD';
+      })() && this.isExactNull(value.arguments[1]!);
   }
 
   private isExactUntrackedBuilderCall(expression: ts.Expression): boolean {
@@ -11123,12 +11117,22 @@ class ProgramAuthorityLowerer {
       );
   }
 
+  private isExactWorktreeStatusBuilderCall(expression: ts.Expression): boolean {
+    const value = unwrapExpression(expression);
+    return ts.isCallExpression(value) && value.arguments.length === 0 &&
+      this.isExactNamedImport(
+        value.expression,
+        '../shared/ci-git-changed-files.ts',
+        'gitWorkingTreeStatusArgs'
+      );
+  }
+
   private exactTrackedResultBinding(expression: ts.Expression): ts.BindingElement | null {
     const declaration = this.exactLocalDeclaration(expression);
     if (!declaration || !ts.isBindingElement(declaration) ||
       !ts.isIdentifier(declaration.name) || !ts.isArrayBindingPattern(declaration.parent)) return null;
     const bindingPattern = declaration.parent;
-    if (bindingPattern.elements.length !== 2 || bindingPattern.elements[0] !== declaration ||
+    if (bindingPattern.elements.length !== 3 || bindingPattern.elements[0] !== declaration ||
       bindingPattern.elements.some(ts.isOmittedExpression)) return null;
     const variable = bindingPattern.parent;
     if (!ts.isVariableDeclaration(variable) || !variable.initializer ||
@@ -11141,13 +11145,16 @@ class ProgramAuthorityLowerer {
       !this.isExactDefaultLibraryValue(initializer.expression.expression, 'Promise') ||
       initializer.arguments.length !== 1) return null;
     const observations = unwrapExpression(initializer.arguments[0]!);
-    return ts.isArrayLiteralExpression(observations) && observations.elements.length === 2 &&
+    return ts.isArrayLiteralExpression(observations) && observations.elements.length === 3 &&
       this.isExactRunCommandBytesCall(
         observations.elements[0]!,
         (argv) => this.isExactChangedDiffBuilderCall(argv)
       ) && this.isExactRunCommandBytesCall(
         observations.elements[1]!,
         (argv) => this.isExactUntrackedBuilderCall(argv)
+      ) && this.isExactRunCommandBytesCall(
+        observations.elements[2]!,
+        (argv) => this.isExactWorktreeStatusBuilderCall(argv)
       )
       ? declaration
       : null;
@@ -11288,6 +11295,7 @@ class ProgramAuthorityLowerer {
     }
     if (this.isExactChangedDiffBuilderCall(argv)) return 'changed-diff';
     if (this.isExactUntrackedBuilderCall(argv)) return 'untracked-files';
+    if (this.isExactWorktreeStatusBuilderCall(argv)) return 'worktree-status';
     if (ts.isCallExpression(node) && this.isExactPathBlobBuilderCall(argv, node)) {
       return 'path-blob';
     }
