@@ -598,7 +598,9 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   const lexicalFixtures = [
     {
       name: 'resolveChangedDocumentPathsSince',
-      identity: 'docs/scripts/docs-doctor.ts::function-declaration:resolveChangedDocumentPathsSince::spawnSync#1',
+      identities: [
+        'docs/scripts/docs-doctor.ts::function-declaration:resolveChangedDocumentPathsSince::spawnSync#1'
+      ],
       body: [
         'function resolveChangedDocumentPathsSince(repositoryRoot: string, sinceRef: string) {',
         "  const result = spawnSync('git', ['diff', '--name-only', `${sinceRef}..HEAD`], { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });",
@@ -608,17 +610,24 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
     },
     {
       name: 'captureDocsDoctorIndexTree',
-      identity: 'docs/scripts/docs-doctor.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#1',
+      identities: [
+        'docs/scripts/docs-doctor.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#1',
+        'docs/scripts/docs-doctor.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#2'
+      ],
       body: [
         'function captureDocsDoctorIndexTree(repositoryRoot: string) {',
+        "  const paths = spawnSync('git', ['rev-parse', '--git-path', 'index', '--git-path', 'objects'], { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });",
         "  const result = spawnSync('git', ['write-tree'], { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });",
+        '  void paths;',
         '  return result;',
         '}'
       ]
     },
     {
       name: 'readCapturedGitTreeBlob',
-      identity: 'docs/scripts/docs-doctor.ts::function-declaration:readCapturedGitTreeBlob::spawnSync#1',
+      identities: [
+        'docs/scripts/docs-doctor.ts::function-declaration:readCapturedGitTreeBlob::spawnSync#1'
+      ],
       body: [
         "function readCapturedGitTreeBlob(repositoryRoot: string, treeSha: string, repositoryPath: string, observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes') {",
         '  if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) throw new Error("noncanonical");',
@@ -632,9 +641,11 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   ] as const;
   expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].filter((identity) =>
     identity.startsWith('docs/scripts/docs-doctor.ts::')
-  ).sort()).toEqual(lexicalFixtures.map(({ identity }) => identity).sort());
+  ).sort()).toEqual(lexicalFixtures.flatMap(({ identities }) => identities).sort());
   for (const fixture of lexicalFixtures) {
-    expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(fixture.identity)).toBe(true);
+    for (const identity of fixture.identities) {
+      expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(true);
+    }
     const canonicalSource = [
       "import { spawnSync } from 'node:child_process';",
       ...fixture.body
@@ -643,7 +654,7 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
     expect(() => runtimeRelativeImportsFromSource(
       repositoryPath, canonicalSource, observed, new Set(), new Set()
     )).not.toThrow();
-    expect([...observed]).toEqual([fixture.identity]);
+    expect([...observed].sort()).toEqual([...fixture.identities].sort());
     const nearName = canonicalSource.replace(
       `function ${fixture.name}(`,
       `function ${fixture.name}NearName(`
@@ -667,10 +678,12 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
     'captureDocsDoctorIndexTree',
     'hostile-mutation'
   );
-  expect(captureSource.match(/spawnSync\(/gu)).toHaveLength(1);
+  expect(captureSource.match(/spawnSync\(/gu)).toHaveLength(2);
+  expect(captureSource).toContain("['rev-parse', '--git-path', 'index', '--git-path', 'objects']");
   expect(captureSource).toContain("spawnSync('git', ['write-tree'], {");
-  expect(captureSource).toContain('cwd: repositoryRoot');
-  expect(captureSource).not.toContain('env:');
+  expect(captureSource).toContain('cwd: resolvedRepositoryRoot');
+  expect(captureSource).toContain('env: baseEnvironment');
+  expect(captureSource).toContain('env: gitEnvironment');
 
   const resolveSource = readTypeScriptHostileMutationNode(
     docsDoctorSource,
@@ -682,7 +695,7 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   expect(resolveSource).toContain('cwd: repositoryRoot');
   expect(resolveSource).toContain("encoding: 'utf8'");
   expect(resolveSource).toContain('windowsHide: true');
-  expect(resolveSource).not.toContain('env:');
+  expect(resolveSource).toContain('env: isolatedGitReadEnvironment()');
 
   const parserSource = readTypeScriptHostileMutationNode(
     docsDoctorSource,
@@ -715,7 +728,7 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   expect(readerSource).toContain('windowsHide: true');
   expect(readerSource).toContain('maxBuffer: 8 * 1024 * 1024');
   expect(readerSource).toContain('return parseCapturedGitTreeBlobFrameV1(result.stdout, repositoryPath);');
-  expect(readerSource).not.toContain('env:');
+  expect(readerSource).toContain('env: gitEnvironment');
   expect(readerSource).not.toContain('shell:');
   expect(readerSource).not.toContain("['show'");
 
@@ -726,7 +739,7 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   );
   expect(censusSource).not.toContain('spawnSync(');
   expect(censusSource).toContain(
-    "readCapturedGitTreeBlob(repositoryRoot, treeSha, packageRoot, 'direct-entry-names')"
+    "snapshot.treeSha,\n      packageRoot,\n      'direct-entry-names',\n      snapshot.gitEnvironment"
   );
   expect(censusSource).toContain('source.includes(\'\\r\')');
   expect(censusSource).toContain("name.includes('/')");
@@ -735,7 +748,7 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   const digest = (source: string) => createHash('sha256').update(source).digest('hex');
   for (const hostileSource of [
     captureSource.replace("['write-tree']", "['read-tree', 'HEAD']"),
-    captureSource.replace('cwd: repositoryRoot', "cwd: repositoryRoot + '/.git'"),
+    captureSource.replace('cwd: resolvedRepositoryRoot', "cwd: resolvedRepositoryRoot + '/.git'"),
     captureSource.replace("encoding: 'utf8'", "env: { GIT_INDEX_FILE: 'forged' }, encoding: 'utf8'")
   ]) {
     expect(hostileSource).not.toBe(captureSource);

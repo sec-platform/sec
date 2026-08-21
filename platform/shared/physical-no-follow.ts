@@ -59,6 +59,28 @@ export interface PhysicalDirectoryChainV1 {
   readonly ancestors: readonly PhysicalDirectoryIdentityV1[];
 }
 
+/**
+ * A directory retained for a bounded child-process read lifecycle. On Linux
+ * the child receives the already-open directory as one explicit stdio file
+ * descriptor and addresses that object through `/proc/self/fd`. On Windows
+ * every lexical ancestor is held without delete sharing, so the child path
+ * cannot be redirected through a rename, junction, or replacement while the
+ * capability is live.
+ */
+export interface RetainedNoFollowChildProcessDirectoryV1 {
+  readonly childPath: string;
+  readonly stdioSourceDescriptor: number | null;
+  assertCurrent(): void;
+  dispose(): void;
+}
+
+export interface RetainedNoFollowChildProcessFileV1 {
+  readonly childPath: string;
+  readonly stdioSourceDescriptor: number | null;
+  assertCurrent(): void;
+  dispose(): void;
+}
+
 export type ExactNoFollowDirectoryPresenceV1 =
   | Readonly<{ state: 'present'; directory: PhysicalDirectoryChainV1 }>
   | Readonly<{ state: 'absent' }>;
@@ -678,6 +700,7 @@ const WINDOWS_READ_CONTROL = 0x0002_0000;
 const WINDOWS_DELETE = 0x0001_0000;
 const WINDOWS_FILE_WRITE_ATTRIBUTES = 0x0000_0100;
 const WINDOWS_SHARE_READ_WRITE_DELETE = 0x0000_0007;
+const WINDOWS_SHARE_READ = 0x0000_0001;
 // FILE_INFO_BY_HANDLE_CLASS::FileDispositionInfoEx.  The native
 // FILE_INFORMATION_CLASS value is 64; SetFileInformationByHandle requires
 // the Win32 enum value 21.
@@ -820,6 +843,54 @@ function windowsOpenDirectory(absolutePath: string, label: string, forFlush = fa
       throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
     }
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} cannot be opened without following reparse points (Win32 ${lastError}).`);
+  }
+  return handle;
+}
+
+function windowsOpenPinnedReadDirectory(absolutePath: string, label: string): bigint {
+  const library = requireWindowsKernel32();
+  const handle = library.symbols.CreateFileW(
+    windowsWide(absolutePath),
+    WINDOWS_GENERIC_READ,
+    WINDOWS_SHARE_READ,
+    null,
+    WINDOWS_OPEN_EXISTING,
+    WINDOWS_FILE_FLAG_BACKUP_SEMANTICS | WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT,
+    null
+  );
+  if (handle === WINDOWS_INVALID_HANDLE) {
+    const lastError = library.symbols.GetLastError();
+    if (lastError === 2 || lastError === 3) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+    }
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+      `${label} cannot be pinned without delete sharing (Win32 ${lastError}).`
+    );
+  }
+  return handle;
+}
+
+function windowsOpenPinnedReadFile(absolutePath: string, label: string): bigint {
+  const library = requireWindowsKernel32();
+  const handle = library.symbols.CreateFileW(
+    windowsWide(absolutePath),
+    WINDOWS_GENERIC_READ,
+    WINDOWS_SHARE_READ,
+    null,
+    WINDOWS_OPEN_EXISTING,
+    WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT,
+    null
+  );
+  if (handle === WINDOWS_INVALID_HANDLE) {
+    const lastError = library.symbols.GetLastError();
+    if (lastError === 2 || lastError === 3) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+    }
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+      `${label} cannot be pinned without delete sharing (Win32 ${lastError}).`
+    );
   }
   return handle;
 }
@@ -1556,6 +1627,233 @@ export function assertSameNoFollowDirectoryIdentityV1(
     throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} physical identity changed.`);
   }
   return current;
+}
+
+/**
+ * Retains one fully-proven directory chain for repeated child-process reads.
+ * The caller chooses the Linux child descriptor so multiple retained
+ * directories can be inherited by the same child without an implicit global
+ * descriptor convention. The capability is single-owner and must be disposed.
+ */
+export function retainNoFollowDirectoryForChildProcessV1(
+  expected: PhysicalDirectoryChainV1,
+  childDescriptor: number,
+  label = 'child-process directory'
+): RetainedNoFollowChildProcessDirectoryV1 {
+  if (!Number.isSafeInteger(childDescriptor) || childDescriptor < 3 || childDescriptor > 64) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+      `${label} child descriptor must be one bounded inherited descriptor.`
+    );
+  }
+  const absolutePath = requireAbsoluteDirectoryPath(expected.target.path, label);
+  if (expected.ancestors.length === 0 || !sameIdentity(expected.target, expected.ancestors.at(-1)!)
+      || expected.ancestors.some((entry) => entry.schema !== PHYSICAL_NO_FOLLOW_SCHEMA_V1)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} expected chain is malformed.`);
+  }
+
+  if (process.platform === 'linux') {
+    const rootFd = linuxOpenRoot(label);
+    let directoryFd = rootFd;
+    let disposed = false;
+    try {
+      const rootPath = path.parse(absolutePath).root;
+      const segments = absolutePath.slice(rootPath.length).split('/').filter(Boolean);
+      if (segments.length === 0) {
+        const identity = linuxIdentity(rootFd, absolutePath);
+        if (expected.ancestors.length !== 1 || !sameIdentity(expected.target, identity)
+            || !sameIdentity(expected.ancestors[0]!, identity)) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root identity changed.`);
+        }
+      } else {
+        if (segments.length !== expected.ancestors.length) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} chain shape changed.`);
+        }
+        let currentPath = rootPath;
+        for (const [index, segment] of segments.entries()) {
+          const nextFd = linuxOpenAt(directoryFd, segment, label);
+          if (directoryFd !== rootFd) closeSync(directoryFd);
+          directoryFd = nextFd;
+          currentPath = path.join(currentPath, segment);
+          const current = linuxIdentity(directoryFd, currentPath);
+          if (!sameIdentity(expected.ancestors[index]!, current)) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} ancestor identity changed.`);
+          }
+        }
+      }
+      const assertCurrent = (): void => {
+        if (disposed) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} capability is disposed.`);
+        }
+        if (!sameIdentity(expected.target, linuxIdentity(directoryFd, absolutePath))) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained identity changed.`);
+        }
+      };
+      return Object.freeze({
+        childPath: `/proc/self/fd/${childDescriptor}`,
+        stdioSourceDescriptor: directoryFd,
+        assertCurrent,
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          if (directoryFd !== rootFd) closeSync(directoryFd);
+          closeSync(rootFd);
+        }
+      });
+    } catch (error) {
+      if (directoryFd !== rootFd) closeSync(directoryFd);
+      closeSync(rootFd);
+      throw error;
+    }
+  }
+
+  if (process.platform === 'win32') {
+    const parsed = path.win32.parse(absolutePath);
+    const paths: string[] = [];
+    let currentPath = parsed.root;
+    for (const segment of absolutePath.slice(parsed.root.length).split(/[\\/]+/u).filter(Boolean)) {
+      currentPath = path.win32.join(currentPath, segment);
+      paths.push(currentPath);
+    }
+    if (paths.length === 0) paths.push(absolutePath);
+    if (paths.length !== expected.ancestors.length) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} chain shape changed.`);
+    }
+    const handles: bigint[] = [];
+    let disposed = false;
+    try {
+      for (const [index, current] of paths.entries()) {
+        const handle = windowsOpenPinnedReadDirectory(current, label);
+        handles.push(handle);
+        if (!sameIdentity(expected.ancestors[index]!, windowsIdentity(handle, current, label))) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} ancestor identity changed.`);
+        }
+      }
+      const targetHandle = handles.at(-1)!;
+      const assertCurrent = (): void => {
+        if (disposed) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} capability is disposed.`);
+        }
+        if (!sameIdentity(expected.target, windowsIdentity(targetHandle, absolutePath, label))) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained identity changed.`);
+        }
+      };
+      return Object.freeze({
+        childPath: absolutePath,
+        stdioSourceDescriptor: null,
+        assertCurrent,
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          for (const handle of handles.reverse()) closeWindowsHandle(handle);
+        }
+      });
+    } catch (error) {
+      for (const handle of handles.reverse()) closeWindowsHandle(handle);
+      throw error;
+    }
+  }
+
+  throw physicalError(
+    'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+    `${label} retained child-process backend is unavailable on ${process.platform}.`
+  );
+}
+
+/** Retains one already-observed ordinary file for exact child-process reads. */
+export function retainNoFollowOrdinaryFileForChildProcessV1(
+  parent: PhysicalDirectoryChainV1,
+  expected: NoFollowDirectoryTreeEntryV1,
+  childDescriptor: number,
+  label = 'child-process file'
+): RetainedNoFollowChildProcessFileV1 {
+  ensureLeafName(expected.relativePath);
+  if (expected.kind !== 'file' || !Number.isSafeInteger(childDescriptor)
+      || childDescriptor < 3 || childDescriptor > 64) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} retention input is invalid.`);
+  }
+  const retainedParent = retainNoFollowDirectoryForChildProcessV1(parent, 64, `${label} parent`);
+  const absolutePath = path.join(parent.target.path, expected.relativePath);
+  if (process.platform === 'linux') {
+    let descriptor: number | null = null;
+    let disposed = false;
+    try {
+      descriptor = openSync(
+        path.join(`/proc/self/fd/${retainedParent.stdioSourceDescriptor!}`, expected.relativePath),
+        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | LINUX_O_CLOEXEC
+      );
+      const assertCurrent = (): void => {
+        if (disposed || descriptor === null) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} capability is disposed.`);
+        }
+        const current = fstatSync(descriptor, { bigint: true });
+        if (!current.isFile() || String(current.dev) !== expected.device || String(current.ino) !== expected.inode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained identity changed.`);
+        }
+        retainedParent.assertCurrent();
+      };
+      assertCurrent();
+      return Object.freeze({
+        childPath: `/proc/self/fd/${childDescriptor}`,
+        stdioSourceDescriptor: descriptor,
+        assertCurrent,
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          closeSync(descriptor!);
+          descriptor = null;
+          retainedParent.dispose();
+        }
+      });
+    } catch (error) {
+      if (descriptor !== null) closeSync(descriptor);
+      retainedParent.dispose();
+      throw error;
+    }
+  }
+  if (process.platform === 'win32') {
+    let handle: bigint | null = null;
+    let disposed = false;
+    try {
+      handle = windowsOpenPinnedReadFile(absolutePath, label);
+      const retainedIdentity = windowsRetainedLeafIdentity(handle, absolutePath, 'file', label);
+      if (retainedIdentity.device !== expected.device || retainedIdentity.inode !== expected.inode) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} identity changed before retention.`);
+      }
+      const assertCurrent = (): void => {
+        if (disposed || handle === null) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} capability is disposed.`);
+        }
+        const current = windowsRetainedLeafIdentity(handle, absolutePath, 'file', label);
+        if (current.device !== expected.device || current.inode !== expected.inode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained identity changed.`);
+        }
+        retainedParent.assertCurrent();
+      };
+      assertCurrent();
+      return Object.freeze({
+        childPath: absolutePath,
+        stdioSourceDescriptor: null,
+        assertCurrent,
+        dispose: () => {
+          if (disposed) return;
+          disposed = true;
+          closeWindowsHandle(handle!);
+          handle = null;
+          retainedParent.dispose();
+        }
+      });
+    } catch (error) {
+      if (handle !== null) closeWindowsHandle(handle);
+      retainedParent.dispose();
+      throw error;
+    }
+  }
+  retainedParent.dispose();
+  throw physicalError(
+    'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+    `${label} retained child-process backend is unavailable on ${process.platform}.`
+  );
 }
 
 /**

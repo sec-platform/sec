@@ -480,7 +480,7 @@ test('pointer digest and rolling-plan binding remain fail-closed', async () => {
   }
 });
 
-test('production docs-doctor CLI rejects a selected manifest digest mismatch from one captured index tree', async () => {
+test('production docs-doctor ignores ambient index redirection and captures the canonical index', async () => {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'sec-docs-doctor-cli-index-'));
   try {
     const gitIndexResult = spawnSync('git', ['rev-parse', '--git-path', 'index'], {
@@ -531,10 +531,11 @@ test('production docs-doctor CLI rejects a selected manifest digest mismatch fro
       env: environment,
       timeout: 60_000
     });
-    expect(cli.status).toBe(1);
-    expect(`${cli.stderr}\n${cli.stdout}`).toContain(
+    expect(cli.status).toBe(0);
+    expect(`${cli.stderr}\n${cli.stdout}`).not.toContain(
       'Active pointer manifest digest does not match candidate manifest bytes.'
     );
+    expect(cli.stdout).toContain('docs-doctor: 0 error(s), 0 warning(s)');
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

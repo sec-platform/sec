@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
   closeSync,
@@ -23,6 +24,7 @@ import { pathToFileURL } from 'node:url';
 import {
   readCompilerTypeScriptMutationFixtureSync
 } from '../helpers/compiler-fixtures.ts';
+import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
@@ -39,6 +41,8 @@ import {
   readNoFollowOrdinaryFileV1,
   relocateRetainedNoFollowDirectoryV1,
   replaceDurableCanonicalFileV1,
+  retainNoFollowDirectoryForChildProcessV1,
+  retainNoFollowOrdinaryFileForChildProcessV1,
   scanNoFollowDirectoryTreeInventoryV1,
   scanNoFollowDirectoryTreeMetadataV1,
   scanNoFollowDirectoryTreeV1
@@ -360,6 +364,95 @@ test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced r
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('retained child-process directory reads the authorized inode after lexical replacement', () => {
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    const displaced = path.join(root, 'target-displaced');
+    mkdirSync(target);
+    writeFileSync(path.join(target, 'value.txt'), 'authorized\n', 'utf8');
+    const capability = retainNoFollowDirectoryForChildProcessV1(
+      inspectNoFollowDirectoryChainV1(target, 'retained child directory'),
+      3,
+      'retained child directory'
+    );
+    try {
+      if (process.platform === 'linux') {
+        renameSync(target, displaced);
+        mkdirSync(target);
+        writeFileSync(path.join(target, 'value.txt'), 'replacement\n', 'utf8');
+      } else if (process.platform === 'win32') {
+        expect(() => renameSync(target, displaced)).toThrow();
+      }
+      const stdio: Array<'ignore' | 'pipe' | number> = [
+        'ignore',
+        'pipe',
+        'pipe',
+        capability.stdioSourceDescriptor ?? 'ignore'
+      ];
+      const child = spawnSync(process.execPath, [
+        '-e',
+        'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
+        path.join(capability.childPath, 'value.txt')
+      ], {
+        encoding: 'utf8',
+        stdio
+      });
+      expect(child.status).toBe(0);
+      expect(child.stdout).toBe('authorized\n');
+      capability.assertCurrent();
+    } finally {
+      capability.dispose();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('retained child-process file reads the observed inode after leaf replacement', () => {
+  const root = fixtureRoot();
+  try {
+    const filePath = path.join(root, 'index');
+    const displaced = path.join(root, 'index-displaced');
+    writeFileSync(filePath, 'authorized-index\n', 'utf8');
+    const parent = inspectNoFollowDirectoryChainV1(root, 'retained file parent');
+    const entry = inspectNoFollowOrdinaryFileEntryV1(parent.target, 'index')!;
+    const capability = retainNoFollowOrdinaryFileForChildProcessV1(
+      parent,
+      entry,
+      3,
+      'retained index file'
+    );
+    try {
+      if (process.platform === 'linux') {
+        renameSync(filePath, displaced);
+        writeFileSync(filePath, 'replacement-index\n', 'utf8');
+      } else if (process.platform === 'win32') {
+        expect(() => renameSync(filePath, displaced)).toThrow();
+      }
+      const child = spawnSync(process.execPath, [
+        '-e',
+        'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
+        capability.childPath
+      ], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe', capability.stdioSourceDescriptor ?? 'ignore']
+      });
+      expect(child.status).toBe(0);
+      expect(child.stdout).toBe('authorized-index\n');
+      capability.assertCurrent();
+    } finally {
+      capability.dispose();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('retained Git index and object directories support write-tree without lexical reopen', () => {
+  expect(runRetainedGitWriteTreeProbeV1()).toMatch(/^[0-9a-f]{40}$/u);
 });
 
 test('exact ordinary leaf observation does not scan unrelated parent entries', () => {
