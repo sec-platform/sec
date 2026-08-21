@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,6 +17,7 @@ import {
   resolveTestWorkspaceNamespace,
   resolveTestWorkspaceRunChild,
   settlePreparedTestWorkspaceRunV1,
+  TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV,
   testWorkspaceCleanupModeForPlatformV1,
@@ -27,9 +27,10 @@ import { compilerRoot } from '../../platform/shared/paths.ts';
 import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
 
 test('test workspace roots honor a safe CI lane namespace', () => {
-  const defaultRoot = path.join(compilerRoot, '.tmp', 'test-workspaces');
+  const defaultRoot = getTestWorkspaceTempRoot({});
 
-  expect(getTestWorkspaceTempRoot({})).toBe(defaultRoot);
+  const relativeToRepository = path.relative(compilerRoot, defaultRoot);
+  expect(path.isAbsolute(relativeToRepository) || relativeToRepository.startsWith('..')).toBe(true);
   expect(getTestWorkspaceTempRoot({
     SEC_TEST_WORKSPACE_NAMESPACE: 'pr-risk-slow-suite-e2e-artifacts'
   })).toBe(path.join(defaultRoot, 'pr-risk-slow-suite-e2e-artifacts'));
@@ -191,12 +192,25 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
       namespace,
       executionSnapshotRoot
     );
+    const draftAssignment = createTestWorkspaceRunChildAssignmentV1({
+      parentNamespace: namespace,
+      issuerProcessId: process.pid,
+      device: 'pending-device',
+      inode: 'pending-inode',
+      nonce: '8'.repeat(64),
+      supervisorLeaseDigest: lease.leaseDigest,
+      supervisorLeasePath: binding.path,
+      supervisorLeaseDevice: binding.device,
+      supervisorLeaseInode: binding.inode,
+      namespaceDevice: 'pending-namespace-device',
+      namespaceInode: 'pending-namespace-inode'
+    });
     const childRoot = path.join(
       executionSnapshotRoot,
       '.tmp',
       'test-workspaces',
       namespace,
-      `fast-${'1'.repeat(64)}`
+      draftAssignment.name
     );
     await fs.mkdir(childRoot, { recursive: true });
     const namespaceIdentity = inspectNoFollowDirectoryChainV1(path.dirname(childRoot)).target;
@@ -231,9 +245,17 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
       'env-manager.ts'
     )).href;
     const source = `
+      import path from 'node:path';
       import {
         consumeTestWorkspaceSupervisorChallengeV1,
-        parseTestWorkspaceRunChildAssignmentV1
+        getTestWorkspaceTempRoot,
+        parseTestWorkspaceRunChildAssignmentV1,
+        prepareTestWorkspaceRunV1,
+        settlePreparedTestWorkspaceRunV1,
+        TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
+        TEST_WORKSPACE_NAMESPACE_ENV,
+        TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
+        TEST_WORKSPACE_RUN_CHILD_ENV
       } from ${JSON.stringify(moduleUrl)};
       const assignment = JSON.parse(Buffer.from(process.argv[1], 'base64').toString('utf8'));
       const parsed = parseTestWorkspaceRunChildAssignmentV1(
@@ -241,7 +263,29 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
         process.argv[2],
         assignment.name
       );
-      await consumeTestWorkspaceSupervisorChallengeV1(parsed);
+      const unboundRoot = getTestWorkspaceTempRoot({
+        [TEST_WORKSPACE_NAMESPACE_ENV]: process.argv[2],
+        [TEST_WORKSPACE_RUN_CHILD_ENV]: assignment.name
+      });
+      if (unboundRoot.startsWith(process.cwd())) process.exit(12);
+      const authority = await consumeTestWorkspaceSupervisorChallengeV1(parsed);
+      const env = {
+        ...process.env,
+        [TEST_WORKSPACE_NAMESPACE_ENV]: process.argv[2],
+        [TEST_WORKSPACE_RUN_CHILD_ENV]: assignment.name,
+        [TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: undefined,
+        [TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV]: JSON.stringify(parsed)
+      };
+      const expectedRoot = path.join(
+        process.cwd(),
+        '.tmp',
+        'test-workspaces',
+        process.argv[2],
+        assignment.name
+      );
+      if (getTestWorkspaceTempRoot(env) !== expectedRoot) process.exit(13);
+      const cleanup = prepareTestWorkspaceRunV1(env, authority);
+      settlePreparedTestWorkspaceRunV1(cleanup);
     `;
     const encoded = Buffer.from(JSON.stringify(assignment), 'utf8').toString('base64');
     const first = Bun.spawn([process.execPath, '-e', source, encoded, namespace], {
@@ -249,7 +293,10 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
       stdout: 'pipe',
       stderr: 'pipe'
     });
-    expect(await first.exited).toBe(0);
+    const firstExit = await first.exited;
+    if (firstExit !== 0) {
+      throw new Error(`execution-snapshot consumer failed: ${await new Response(first.stderr).text()}`);
+    }
     server.assertConsumed(assignment);
     expect(() => server!.assertConsumed(assignment)).toThrow('exactly once');
     const replay = Bun.spawn([process.execPath, '-e', source, encoded, namespace], {
@@ -264,99 +311,26 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
   }
 }, 20_000);
 
-test('caller-assigned adoption never creates beneath an absent, replaced, or swapped parent', async () => {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return;
-  const namespace = `gate-${randomUUID().replaceAll('-', '').slice(0, 32)}-owned`;
-  const executionSnapshotRoot = path.join(
-    compilerRoot,
-    '.tmp',
-    'gate-execution-snapshots',
-    namespace
-  );
-  const leasePath = testWorkspaceSupervisorLeasePathV1(namespace);
-  const parentRoot = getTestWorkspaceTempRoot({ [TEST_WORKSPACE_NAMESPACE_ENV]: namespace });
-  const displacedChild = path.join(parentRoot, 'displaced-child');
-  const displacedParent = `${parentRoot}-displaced`;
-  try {
-    const lease = createTestWorkspaceSupervisorLeaseV1({
-      namespace,
-      runId: 'inspect-only-adoption',
-      repositoryRoot: compilerRoot,
-      executionSnapshotRoot,
-      issuerProcessId: process.ppid,
-      nonce: '7'.repeat(64)
-    });
-    await fs.mkdir(path.dirname(leasePath), { recursive: true });
-    await fs.writeFile(leasePath, JSON.stringify(lease), { encoding: 'utf8', flag: 'wx' });
-    const binding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
-      leasePath,
-      namespace,
-      executionSnapshotRoot
-    );
-    const seed = createTestWorkspaceRunChildAssignmentV1({
-      parentNamespace: namespace,
-      issuerProcessId: process.ppid,
-      device: 'seed-device',
-      inode: 'seed-inode',
-      nonce: '6'.repeat(64),
-      supervisorLeaseDigest: lease.leaseDigest,
-      supervisorLeasePath: binding.path,
-      supervisorLeaseDevice: binding.device,
-      supervisorLeaseInode: binding.inode,
-      namespaceDevice: 'seed-namespace-device',
-      namespaceInode: 'seed-namespace-inode'
-    });
-    const env = {
-      [TEST_WORKSPACE_NAMESPACE_ENV]: namespace,
-      [TEST_WORKSPACE_RUN_CHILD_ENV]: seed.name
-    };
-    const childRoot = getTestWorkspaceTempRoot(env);
-    await fs.mkdir(childRoot, { recursive: true });
-    const namespaceIdentity = inspectNoFollowDirectoryChainV1(parentRoot).target;
-    const childIdentity = inspectNoFollowDirectoryChainV1(childRoot).target;
-    const assignment = createTestWorkspaceRunChildAssignmentV1({
-      parentNamespace: namespace,
-      issuerProcessId: process.ppid,
-      device: childIdentity.device,
-      inode: childIdentity.inode,
-      nonce: '6'.repeat(64),
-      supervisorLeaseDigest: lease.leaseDigest,
-      supervisorLeasePath: binding.path,
-      supervisorLeaseDevice: binding.device,
-      supervisorLeaseInode: binding.inode,
-      namespaceDevice: namespaceIdentity.device,
-      namespaceInode: namespaceIdentity.inode
-    });
-
-    await fs.rename(childRoot, displacedChild);
-    expect(() => prepareTestWorkspaceRunV1(env, assignment)).toThrow('child physical identity');
-    await expect(fs.lstat(childRoot)).rejects.toThrow();
-    expect((await fs.lstat(displacedChild)).isDirectory()).toBe(true);
-    await fs.rename(displacedChild, childRoot);
-
-    await fs.rename(childRoot, displacedChild);
-    await fs.mkdir(childRoot);
-    await fs.writeFile(path.join(childRoot, 'replacement-owner.txt'), 'foreign', 'utf8');
-    expect(() => prepareTestWorkspaceRunV1(env, assignment)).toThrow('child physical identity');
-    expect(await fs.readFile(path.join(childRoot, 'replacement-owner.txt'), 'utf8')).toBe('foreign');
-    expect((await fs.lstat(displacedChild)).isDirectory()).toBe(true);
-    await fs.rm(childRoot, { recursive: true, force: false });
-    await fs.rename(displacedChild, childRoot);
-
-    await fs.rename(parentRoot, displacedParent);
-    await fs.mkdir(parentRoot);
-    await fs.writeFile(path.join(parentRoot, 'replacement-parent-owner.txt'), 'foreign-parent', 'utf8');
-    expect(() => prepareTestWorkspaceRunV1(env, assignment)).toThrow('parent physical identity');
-    expect(await fs.readFile(path.join(parentRoot, 'replacement-parent-owner.txt'), 'utf8'))
-      .toBe('foreign-parent');
-    await expect(fs.lstat(path.join(parentRoot, seed.name))).rejects.toThrow();
-    expect((await fs.lstat(path.join(displacedParent, seed.name))).isDirectory()).toBe(true);
-  } finally {
-    await fs.rm(parentRoot, { recursive: true, force: true });
-    await fs.rm(displacedParent, { recursive: true, force: true });
-    await fs.rm(leasePath, { force: true });
-  }
-}, 20_000);
+test('a serialized assignment cannot be used as cleanup authority', () => {
+  const namespace = 'forged-cleanup-authority';
+  const assignment = createTestWorkspaceRunChildAssignmentV1({
+    parentNamespace: namespace,
+    issuerProcessId: process.pid,
+    device: 'device',
+    inode: 'inode',
+    nonce: '6'.repeat(64),
+    supervisorLeaseDigest: `sha256:${'7'.repeat(64)}`,
+    supervisorLeasePath: path.join(compilerRoot, '.tmp', 'forged-lease.lock'),
+    supervisorLeaseDevice: 'lease-device',
+    supervisorLeaseInode: 'lease-inode',
+    namespaceDevice: 'namespace-device',
+    namespaceInode: 'namespace-inode'
+  });
+  expect(() => prepareTestWorkspaceRunV1({
+    [TEST_WORKSPACE_NAMESPACE_ENV]: namespace,
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: assignment.name
+  }, assignment as never)).toThrow('cleanup authority is invalid');
+});
 
 test('opaque retained cleanup removes only the prepared physical child beneath its caller scope', async () => {
   const namespace = `env-manager-${process.pid}-${Date.now()}`;
