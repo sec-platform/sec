@@ -32,6 +32,7 @@ SEC 的产品、架构、实现、测试、文档、CI、Review、分支和主�
 
 - **当前可强制规则**：`main` authority、一个 formal active Work Package、single writer、frozen manifest、exact candidate Evidence、独立 Review、merge readback 和 branch hygiene。
 - **已实现但尚未成为默认并行运行时**：并行 Work Package resolver（V3 schema、pairwise conflict resolver、global exclusive resource registry）。
+- **已实现的 managed continuation**：`sec-local-continuation-checkpoint-v1` 只压缩一个 immutable upstream snapshot 的上下文；`VerificationSession` 仍是唯一 run/stage/journal 状态机，continuation 不产生新的执行或授权状态机。
 - **当前T2候选冻结的目标合同**：VerificationSession、producer-owned Action、Review-Stable Barrier、MainHealth与单次IntegrationAuthorization；只有进入new main并由首个ordinary candidate canary通过后才是active capability。
 - **更后继的目标架构**：Agent Operation Compiler、Integration Queue、统一Hermetic Runtime/resource scheduler、完整Evidence DAG/CAS和自动feedback service。
 
@@ -1246,21 +1247,41 @@ Failure首先分类：root cause、owner、violated invariant、minimal reproduc
 
 ## 可验证续跑
 
-上下文压缩、进程退出、会话/Agent/worktree切换后的目标是：只依赖外部权威状态，重新计算同一合法 next transition；不是恢复模型未外化的隐藏思维。
+上下文压缩、进程退出、会话/Agent/worktree切换后的目标是：从已外化的 canonical facts 重算同一合法 next transition，而不是恢复模型隐藏思维，也不是为“续跑”建立第二 DevelopmentSession。
 
-VerificationSession尚未由new-main canary激活，或不能完整投影某一外部事实时：
+第一次跨会话接力只接受由真实 Git/GitHub observation 冻结的 immutable、digest-bound
+`sec-local-continuation-checkpoint-v1`。`bun run dev:continue -- --handoff <external.json> --json`
+把 JSON 当一次性 transport，并在任何持久化前验证 exact branch、base tree、head/tree、单父 parent、
+clean state、manifest digest 与 rename/copy-aware Work Package scope。candidate 自产、手工重填或没有
+upstream freshness 的 checkpoint 不能建立远端事实。Admission 成功后，checkpoint 作为内容寻址对象写入
+仓库外 canonical SEC Runtime State，并绑定 physical-workspace locator 与 active pointer；同一 workspace
+后续只运行 `bun run dev:continue -- --json`。
 
-- 每次恢复重新读取 main、PR/Issue、manifest、branch/worktree、dirty state、CI/Review和failure Evidence；
-- 未提交/未外化的“已经做过”视为unknown；
-- current operation、last completed transition、next action和stop condition写入受控外部记录；
-- identity、instruction、authority或trust fence不一致时停止，不猜测继续；
-- Skill正文按需加载，旧阶段正文不因已经读过而继续取得authority。
+Continuation 采用 invalidation-driven 选择，而不是每次恢复全仓/全 GitHub census：
 
-VerificationSession的目标所有权只包括run/session identity、event、transition、owner decisions 的
-typed references 与 resume verification。它只引用 `taskCapsuleRef/digest/revision`；它不拥有 Task Capsule 内容或 compiler。
-Epoch/Failure、Verification Result、Action/Evidence、Review、MainHealth、
-Work Package和Integration各由自己的domain owner拥有，禁止建立第二状态机或 general Run
-Kernel。字段、有效性与授权语义只引用verification authority；本文件只规定操作顺序。
+```text
+exact snapshot + no boundary       -> reuse-zero-remote
+local candidate delta in scope     -> reuse-local-only
+dirty or committed delta out scope -> typed local-control blocker
+Review/MainHealth/authorization/
+merge/closeout boundary            -> refresh only that live owner
+known external change              -> persist snapshot invalidation, clear pointer, repository orientation
+control drift                      -> repository orientation
+terminal session/work              -> retire pointer, reachability/retention GC
+```
+
+本地 delta 的 scope 校验同时覆盖 committed records 与当前 dirty/untracked records；不能因为 HEAD 仍由旧
+manifest 控制就接受越界工作树。无 scope 的 `--external-changed` 明确回退 repository orientation，且必须
+先持久清除旧 active pointer，使下一进程不可能重新复用 stale snapshot。corrupt/partial active pointer 不构成
+删除 authority：GC fail safe retain 全部不确定对象。
+
+`VerificationSession` 继续拥有唯一 run/session identity、event、transition、owner-decision references 与
+resume verification；Epoch/Failure、Verification Result、Action/Evidence、Review、MainHealth、Work Package
+和 Integration 各由自己的 domain owner 拥有。Managed Continuation 永远只有
+`context-compression-only` authority，不产生 Scope、Verification PASS、Review、MainHealth、
+IntegrationAuthorization、status 或 merge authority；future event/webhook adapter 也只能提供 typed
+invalidation fact。未外化的“已经做过”仍视为 unknown，identity、instruction、authority 或 trust fence
+不一致时停止而不猜测继续。
 
 ## Merge 与收口
 
