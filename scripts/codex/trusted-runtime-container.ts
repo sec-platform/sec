@@ -1901,19 +1901,26 @@ export async function executeTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
           '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', containerName,
           'bun', './platform/dev-runner.ts', 'deps:ensure'
         ], repositoryRoot, 30 * 60_000, dockerEndpoint);
-        const [providerVersion, cliVersion] = await Promise.all([
+        const [providerIdentity, isolatedProviderIdentity] = await Promise.all([
           command('docker', [
             'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
             containerName, 'bun', '-e',
-            "import manifest from './node_modules/typescript/package.json'; process.stdout.write(manifest.version)"
+            "import { resolveInstalledTypecheckProviderV1 as resolve } from './platform/toolchain/typecheck-provider.ts'; " +
+              "process.stdout.write(JSON.stringify(await resolve('./node_modules')))"
           ], repositoryRoot, 120_000, dockerEndpoint),
           command('docker', [
-            'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
-            containerName, 'bun', './node_modules/typescript/bin/tsc', '--version'
+            'container', 'exec', '--user', '1000:1000', '--workdir', '/tmp',
+            containerName, '/bin/bash', '-ceu',
+            `NODE_PATH="$(realpath ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules)" ` +
+              `exec bun --no-install -e 'import path from "node:path"; ` +
+              `import { resolveInstalledTypecheckProviderV1 as resolve } ` +
+              `from "${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/platform/toolchain/typecheck-provider.ts"; ` +
+              'const manifest=Bun.resolveSync("typescript/package.json", "/tmp"); ' +
+              'process.stdout.write(JSON.stringify(await resolve(path.dirname(path.dirname(manifest)))))\''
           ], repositoryRoot, 120_000, dockerEndpoint)
         ]);
-        if (cliVersion !== `Version ${providerVersion}`) {
-          fail('dependency canary TypeCheck Provider CLI identity differs from its package manifest');
+        if (isolatedProviderIdentity !== providerIdentity) {
+          fail('dependency canary isolated TypeCheck Provider identity differs from its canonical owner');
         }
       }
       const [observedHead, observedTree, observedStatus] = await Promise.all([

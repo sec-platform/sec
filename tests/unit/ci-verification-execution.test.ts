@@ -926,13 +926,14 @@ function invokeTcbClosureCli(
   argv: readonly string[],
   hosted = false
 ): TcbClosureCliObservation {
+  const dependencyGeneration = realpathSync.native(path.join(compilerRoot, 'node_modules'));
   const result = spawnSync(process.execPath, ['--no-install', fixture.entrypoint, ...argv], {
     cwd: fixture.root,
     encoding: 'utf8',
     env: {
       ...process.env,
       GITHUB_ACTIONS: hosted ? 'true' : 'false',
-      NODE_PATH: path.join(compilerRoot, 'node_modules')
+      NODE_PATH: dependencyGeneration
     },
     maxBuffer: 16 * 1024 * 1024,
     timeout: TCB_CLOSURE_FIXTURE_CHILD_TIMEOUT_MS,
