@@ -55,7 +55,7 @@ export type TestProofObligation = Readonly<{
   kind: TestProofObligationKind;
   id: string;
   owner: string;
-  /** Stable machine reason code; human prose remains an owner projection. */
+  /** Failure meaning for this test-to-obligation proof edge, not a global obligation label. */
   failureMeaningCode: string;
 }>;
 
@@ -213,24 +213,6 @@ function normalizeRetirementCondition(
   }
 }
 
-function assertObligationFailureMeaningsAreCanonical(
-  declarations: readonly TestResponsibilityDeclaration[]
-): void {
-  const failureMeaningByObligation = new Map<string, string>();
-  for (const declaration of declarations) {
-    for (const obligation of declaration.obligations) {
-      const identity = obligationIdentity(obligation);
-      const existing = failureMeaningByObligation.get(identity);
-      if (existing !== undefined && existing !== obligation.failureMeaningCode) {
-        throw new Error(
-          `proof obligation ${identity} has conflicting failure meanings: ${existing} != ${obligation.failureMeaningCode}`
-        );
-      }
-      failureMeaningByObligation.set(identity, obligation.failureMeaningCode);
-    }
-  }
-}
-
 function assertReplacementProofsClose(
   declarations: readonly TestResponsibilityDeclaration[]
 ): void {
@@ -385,7 +367,6 @@ export function normalizeTestResponsibilityDeclarations(
     testCaseLocatorIdentity(declaration.sourcePath, declaration.case)
   ));
   uniqueValues(locatorKeys, 'test case locator');
-  assertObligationFailureMeaningsAreCanonical(normalized);
   assertReplacementProofsClose(normalized);
   return Object.freeze([...normalized].sort((left, right) => compareText(left.testId, right.testId)));
 }
