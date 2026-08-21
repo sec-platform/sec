@@ -64,15 +64,11 @@ export type TestProofIndependence = Readonly<{
   witnessRef: string;
 }>;
 
-export type TestSupersedence = Readonly<{
-  testId: string;
-  coverageRef: string;
-}>;
-
 export type TestRetirementCondition =
   | Readonly<{ kind: 'persistent-invariant' }>
   | Readonly<{ kind: 'owner-retirement'; owner: string }>
   | Readonly<{
+      /** This is the only canonical supersedence relation. */
       kind: 'replacement-proof';
       replacementTestIds: readonly string[];
       coverageRef: string;
@@ -90,7 +86,6 @@ export type TestResponsibilityDeclaration = Readonly<{
   obligations: readonly TestProofObligation[];
   regressionRefs?: readonly string[];
   independence?: readonly TestProofIndependence[];
-  supersedes?: readonly TestSupersedence[];
   retirementCondition: TestRetirementCondition;
 }>;
 
@@ -166,14 +161,16 @@ function normalizeRetirementCondition(
   }
 }
 
-function assertNoSupersedenceCycles(
+function assertNoReplacementCycles(
   declarations: readonly TestResponsibilityDeclaration[]
 ): void {
   const edges = new Map<string, readonly string[]>();
   for (const declaration of declarations) {
     edges.set(
       declaration.testId,
-      declaration.supersedes?.map((edge) => edge.testId) ?? []
+      declaration.retirementCondition.kind === 'replacement-proof'
+        ? declaration.retirementCondition.replacementTestIds
+        : []
     );
   }
 
@@ -182,7 +179,7 @@ function assertNoSupersedenceCycles(
   const visit = (testId: string): void => {
     if (visited.has(testId)) return;
     if (visiting.has(testId)) {
-      throw new Error(`test supersedence cycle contains ${testId}`);
+      throw new Error(`test replacement cycle contains ${testId}`);
     }
     visiting.add(testId);
     for (const target of edges.get(testId) ?? []) visit(target);
@@ -243,22 +240,6 @@ export function normalizeTestResponsibilityDeclarations(
       `${declaration.testId}.independence`
     );
 
-    const supersedes = [...(declaration.supersedes ?? [])].map((entry) => {
-      requireMachineId(entry.testId, 'supersedes.testId');
-      requireReference(entry.coverageRef, 'supersedes.coverageRef');
-      if (entry.testId === declaration.testId) {
-        throw new Error(`${declaration.testId} cannot supersede itself`);
-      }
-      if (!allTestIds.has(entry.testId)) {
-        throw new Error(`unknown superseded test: ${entry.testId}`);
-      }
-      return Object.freeze({ ...entry });
-    });
-    uniqueValues(
-      supersedes.map((entry) => entry.testId),
-      `${declaration.testId}.supersedes`
-    );
-
     const diagnostic = declaration.role === 'diagnostic' || declaration.lifecycle === 'diagnostic';
     if (diagnostic && !(declaration.role === 'diagnostic' && declaration.lifecycle === 'diagnostic')) {
       throw new Error(`${declaration.testId} diagnostic role and lifecycle must agree`);
@@ -269,8 +250,14 @@ export function normalizeTestResponsibilityDeclarations(
     if (!diagnostic && declaration.retirementCondition.kind === 'diagnostic-completion') {
       throw new Error(`${declaration.testId} non-diagnostic proof cannot use diagnostic-completion retirement`);
     }
-    if (diagnostic && supersedes.length > 0) {
-      throw new Error(`${declaration.testId} diagnostic proof cannot supersede required proof`);
+    if (declaration.lifecycle === 'retiring'
+      && declaration.retirementCondition.kind !== 'replacement-proof'
+      && declaration.retirementCondition.kind !== 'owner-retirement') {
+      throw new Error(`${declaration.testId} retiring proof requires replacement-proof or owner-retirement`);
+    }
+    if (declaration.lifecycle !== 'retiring'
+      && declaration.retirementCondition.kind === 'replacement-proof') {
+      throw new Error(`${declaration.testId} replacement-proof requires retiring lifecycle`);
     }
 
     const retirementCondition = normalizeRetirementCondition(declaration, allTestIds);
@@ -293,13 +280,10 @@ export function normalizeTestResponsibilityDeclarations(
             compareText(`${left.dimension}:${left.witnessRef}`, `${right.dimension}:${right.witnessRef}`)
           )))
         : undefined,
-      supersedes: supersedes.length > 0
-        ? Object.freeze(supersedes.sort((left, right) => compareText(left.testId, right.testId)))
-        : undefined,
       retirementCondition
     } satisfies TestResponsibilityDeclaration);
   });
 
-  assertNoSupersedenceCycles(normalized);
+  assertNoReplacementCycles(normalized);
   return Object.freeze([...normalized].sort((left, right) => compareText(left.testId, right.testId)));
 }
