@@ -181,6 +181,11 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
   'tests/unit/verification-result-proof-identity.test.ts'
 ];
 
+const TEST_RESPONSIBILITY_FAST_TESTS = [
+  'tests/contract/test-impact.test.ts',
+  'tests/contract/test-responsibility-contract.test.ts'
+];
+
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'workspace-write-lease',
@@ -353,6 +358,16 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/shared/verification-artifact-contract.ts'
     ],
     supplementalFast: VERIFICATION_TRUTH_FAST_TESTS,
+    supplementalSlow: []
+  },
+  {
+    owner: 'test-responsibility',
+    identity: { kind: 'contract', id: 'test-responsibility' },
+    sourceFiles: [
+      'docs/test-responsibility.md',
+      'platform/shared/test-responsibility-contract.ts'
+    ],
+    supplementalFast: TEST_RESPONSIBILITY_FAST_TESTS,
     supplementalSlow: []
   },
   {
