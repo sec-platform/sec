@@ -1199,7 +1199,7 @@ physicalStartsPerActionKey <= 1
 
 trusted-runtime container owner 必须显式创建并在启动前从 Docker identity 读回唯一 tmpfs policy：测试临时根 `/tmp` 固定为 `rw,exec,nosuid,nodev`，使测试拥有的私有 provider executable 能被真实 PATH/spawn 边界观察；`/sec-runtime` 固定为 `rw,noexec,nosuid,nodev`，只承载 trusted tree、workspace、state 与 cache 数据。二者的容量和 ownership 选项同样属于 canonical identity；Docker 隐式默认、缺失或额外 tmpfs、`/tmp=noexec`、`/sec-runtime=exec` 均 fail closed。container 同时必须启用并读回 Docker 原生 `--init`，由 daemon 提供的 init process 回收测试或 provider 遗留的孤儿进程；禁止在测试中复制 PID 1、轮询或自造第二套 teardown owner。`/tmp=exec` 与 init process 均不签发 provider、network、scope 或 completion authority；cap-drop、no-new-privileges、只读 rootfs/bundle、断网与 exact executable observation 仍分别拥有这些边界。
 
-需要可变合成仓库的测试 fixture 必须创建在 owner 提供的 OS temp，不得写入只读 compiler tree。若合成仓库只需读取外层已验证的依赖 generation，子 Bun 进程必须同时使用 `--no-install` 与指向该 exact `node_modules` 的显式 `NODE_PATH`；它不创建 link、不复制依赖、不触发下载，也不把依赖目录纳入 fixture 的清理 authority。
+需要可变合成仓库的测试 fixture 必须创建在 owner 提供的 OS temp，不得写入只读 compiler tree。若合成仓库只需读取外层已验证的依赖 generation，子 Bun 进程必须同时使用 `--no-install` 与指向该 exact physical `node_modules` generation 的显式 `NODE_PATH`；必须先解析并固定真实目录，禁止把 workspace symlink、caller 字符串或惯例路径冒充 generation identity。该引用不创建 link、不复制依赖、不触发下载，也不把依赖目录纳入 fixture 的清理 authority。显式 dependency canary 必须从 `/tmp` 真实执行这一解析边界，并把解析出的 Provider 版本与 canonical package/CLI identity 对齐；ordinary lifecycle canary 仍不准备依赖。
 
 只读 rootfs 中的每个 trusted-runtime command 必须从唯一 container owner 自动取得 `/sec-runtime/output/state` 与 `/sec-runtime/output/cache` 这对物理分离的可写 sibling roots；不得依赖 Linux HOME 缺省 state，也不得让 test preload 回填 authority。
 
