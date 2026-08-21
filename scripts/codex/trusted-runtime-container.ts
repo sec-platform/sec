@@ -305,10 +305,24 @@ async function commandResult(
     maxStderrBytes: 32 * 1024 * 1024
   });
   if (result.code !== 0) {
-    const detail = result.stderr.trim().slice(-4_096) || result.stdout.trim().slice(-4_096);
+    const detail = renderTrustedRuntimeCommandFailureDetailV1(result);
     fail(`${executable} ${args[0] ?? '<missing>'} failed (${result.code}): ${detail}`);
   }
   return result;
+}
+
+export function renderTrustedRuntimeCommandFailureDetailV1(input: Readonly<{
+  stdout: string;
+  stderr: string;
+}>): string {
+  const sections = ([
+    ['stdout', input.stdout],
+    ['stderr', input.stderr]
+  ] as const).flatMap(([label, source]) => {
+    const tail = source.trim().slice(-4_096);
+    return tail.length === 0 ? [] : [`${label}:\n${tail}`];
+  });
+  return sections.length === 0 ? '<no captured output>' : sections.join('\n');
 }
 
 async function command(

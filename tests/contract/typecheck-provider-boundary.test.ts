@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { resolveTypecheckBuildInfoPathV1 } from '../../platform/dev-runner/typecheck-runner.ts';
 import {
   resolveInstalledTypecheckProviderV1,
   typecheckProviderArguments
@@ -24,6 +25,39 @@ test('installed TypeCheck Provider revision comes from the actual package manife
     expect(provider.providerRevision).toBe('typescript@6.0.3');
     expect(provider.cliEntryRelativePath).toBe('bin/tsc');
     expect(typecheckProviderArguments(provider)).toEqual(['--noEmit', '-p', 'tsconfig.json']);
+    const buildInfoFile = resolveTypecheckBuildInfoPathV1({
+      provider,
+      compilerRootPath: path.join(root, 'compiler'),
+      cacheRoot: path.join(root, 'cache')
+    });
+    expect(buildInfoFile).toMatch(/[\\/]cache[\\/][0-9a-f]{64}[\\/]tsconfig\.tsbuildinfo$/u);
+    expect(() => typecheckProviderArguments(provider, ['--tsBuildInfoFile', buildInfoFile]))
+      .toThrow('provider-owned');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('TypeCheck build-info is deterministic derived cache outside the compiler tree', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-typecheck-cache-boundary-'));
+  try {
+    const compilerRootPath = path.join(root, 'compiler');
+    const packageRoot = path.join(compilerRootPath, 'node_modules', 'typescript');
+    await fs.mkdir(packageRoot, { recursive: true });
+    await fs.writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({
+      name: 'typescript', version: '6.0.3', bin: { tsc: './bin/tsc' }
+    }));
+    const provider = await resolveInstalledTypecheckProviderV1(path.join(compilerRootPath, 'node_modules'));
+    const cacheRoot = path.join(root, 'external-cache');
+    const first = resolveTypecheckBuildInfoPathV1({ provider, compilerRootPath, cacheRoot });
+    const second = resolveTypecheckBuildInfoPathV1({ provider, compilerRootPath, cacheRoot });
+    expect(second).toBe(first);
+    expect(first.startsWith(`${path.resolve(cacheRoot)}${path.sep}`)).toBe(true);
+    expect(() => resolveTypecheckBuildInfoPathV1({
+      provider,
+      compilerRootPath,
+      cacheRoot: path.join(compilerRootPath, '.tmp')
+    })).toThrow('outside the compiler tree');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
