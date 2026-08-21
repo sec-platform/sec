@@ -68,7 +68,6 @@ lifecycle
 obligations[]
 regressionRefs[]?
 independence[]?
-supersedes[]?
 retirementCondition
 ```
 
@@ -305,7 +304,7 @@ Proof Economy 不能把独立性优化掉。
 
 “新 test 覆盖更多”不是 supersedence proof。
 
-正式 supersedence 必须显式绑定：
+正式 supersedence 只由旧 test 的 `retirementCondition.kind = replacement-proof` 表达，不能再维护一份反向 `supersedes[]` 清单。它必须显式绑定：
 
 ```text
 old test identity
@@ -326,7 +325,7 @@ recovery/platform/provider coverage
 
 均已由 replacement 覆盖或 owning Requirement 明确退休。
 
-machine contract拒绝 self-supersedes、unknown target和 supersedence cycle。
+machine contract拒绝 self replacement、unknown replacement 和 replacement cycle；`replacement-proof` 只有 `retiring` lifecycle 才合法。
 
 ## Retirement
 
@@ -351,7 +350,7 @@ diagnostic-completion
 
 ### Replacement proof
 
-必须引用明确 replacement test 与 coverage Evidence；新文件存在本身不是 coverage。
+必须引用明确 replacement test 与 coverage Evidence；新文件存在本身不是 coverage。进入该状态时 test lifecycle 必须显式为 `retiring`，不能让 active proof 暗中携带已完成的替代关系。
 
 ### Diagnostic completion
 
