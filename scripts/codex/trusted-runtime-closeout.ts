@@ -123,17 +123,19 @@ function canonicalBytes(value: unknown): Uint8Array {
 type TrustedRuntimeOperatorArgsV1 =
   | Readonly<{ mode: 'closeout'; repository: string; prNumber: number }>
   | Readonly<{ mode: 'main-health'; repository: string }>
-  | Readonly<{ mode: 'runtime-canary'; repository: string }>;
+  | Readonly<{ mode: 'runtime-canary'; repository: string; dependencies: boolean }>;
 
 function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgsV1 {
   const mainHealthCount = argv.filter((argument) => argument === '--main-health').length;
   const runtimeCanaryCount = argv.filter((argument) => argument === '--runtime-canary').length;
+  const dependenciesCount = argv.filter((argument) => argument === '--dependencies').length;
   if (mainHealthCount > 1 || runtimeCanaryCount > 1
-      || mainHealthCount + runtimeCanaryCount > 1) {
+      || dependenciesCount > 1 || mainHealthCount + runtimeCanaryCount > 1
+      || (dependenciesCount === 1 && runtimeCanaryCount !== 1)) {
     fail('trusted runtime operator mode must appear exactly once');
   }
   const normalized = argv.filter((argument) =>
-    argument !== '--main-health' && argument !== '--runtime-canary');
+    argument !== '--main-health' && argument !== '--runtime-canary' && argument !== '--dependencies');
   const values = new Map<string, string>();
   for (let index = 0; index < normalized.length; index += 2) {
     const key = normalized[index];
@@ -144,7 +146,7 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgsV1 {
     values.set(key, value);
   }
   if ([...values.keys()].some((key) => key !== '--pr' && key !== '--repository')) {
-    fail('usage: bun run sec:closeout -- --pr <n> [--repository owner/name] | bun run sec:main-health | bun run sec:runtime-canary');
+    fail('usage: bun run sec:closeout -- --pr <n> [--repository owner/name] | bun run sec:main-health | bun run sec:runtime-canary [-- --dependencies]');
   }
   const rawPr = values.get('--pr');
   const repository = values.get('--repository') ?? 'sec-platform/sec';
@@ -155,7 +157,7 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgsV1 {
   }
   if (runtimeCanaryCount === 1) {
     if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
-    return Object.freeze({ mode: 'runtime-canary', repository });
+    return Object.freeze({ mode: 'runtime-canary', repository, dependencies: dependenciesCount === 1 });
   }
   if (rawPr === undefined || !/^[1-9][0-9]*$/u.test(rawPr)) fail('--pr must be positive');
   return Object.freeze({ mode: 'closeout', repository, prNumber: Number(rawPr) });
@@ -455,6 +457,7 @@ function assertOriginMatchesRepositoryV1(originUrl: string, repository: string):
 export async function runCurrentTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
   repositoryRoot: string;
   repository: string;
+  dependencies?: boolean;
 }>): Promise<Awaited<ReturnType<typeof executeTrustedRuntimeWorkspaceCanaryV1>>> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const [branch, headSha, headTreeSha, status, originUrl] = await Promise.all([
@@ -473,7 +476,8 @@ export async function runCurrentTrustedRuntimeWorkspaceCanaryV1(input: Readonly<
     repositoryRoot,
     repository: input.repository,
     headSha,
-    headTreeSha
+    headTreeSha,
+    dependencies: input.dependencies === true
   });
 }
 
@@ -1167,7 +1171,8 @@ async function main(): Promise<void> {
     : args.mode === 'runtime-canary'
       ? await runCurrentTrustedRuntimeWorkspaceCanaryV1({
           repositoryRoot: process.cwd(),
-          repository: args.repository
+          repository: args.repository,
+          dependencies: args.dependencies
         })
       : await closeoutWithTrustedRuntimeV1({
           repositoryRoot: process.cwd(),

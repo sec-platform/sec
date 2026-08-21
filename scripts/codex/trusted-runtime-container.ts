@@ -34,6 +34,14 @@ export const TRUSTED_RUNTIME_CONTAINER_SCHEMA_V1 =
   'sec-trusted-runtime-container-v1' as const;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V1 =
   'sec-trusted-runtime-main-health-receipt-v1' as const;
+export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA_V1 =
+  'sec-trusted-runtime-dependency-cache-v1' as const;
+export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_VOLUME_SCHEMA_V1 =
+  'sec-trusted-runtime-dependency-cache-volume-v1' as const;
+export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_MARKER_FILE_V1 =
+  '.sec-derived-cache.json' as const;
+export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1 =
+  '/tmp/sec-hosted-dependency-home/.bun/install/cache' as const;
 export const TRUSTED_RUNTIME_CONTAINER_IMAGE_V1 =
   'sec-trusted-runtime:bun-1.3.14-v1' as const;
 export const TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1 =
@@ -116,6 +124,25 @@ export interface TrustedRuntimeMainHealthReceiptV1 {
   readonly receiptDigest: Digest;
 }
 
+export interface TrustedRuntimeDependencyCacheMarkerV1 {
+  readonly schema: typeof TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA_V1;
+  readonly classification: 'rebuildable-derived-cache';
+  readonly authority: 'none';
+  readonly repository: string;
+  readonly bunLockBlobSha: string;
+  readonly imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1;
+  readonly bunVersion: '1.3.14';
+  readonly deletionEffect: 'performance-loss-only';
+  readonly activeUseFence: 'docker-mounted-volume-plus-operation-lease-v1';
+  readonly cacheKey: Digest;
+}
+
+export interface TrustedRuntimeDependencyCacheVolumeSpecV1 {
+  readonly schema: typeof TRUSTED_RUNTIME_DEPENDENCY_CACHE_VOLUME_SCHEMA_V1;
+  readonly name: string;
+  readonly labels: Readonly<Record<string, string>>;
+}
+
 function fail(message: string): never {
   throw new Error(`Trusted runtime container: ${message}`);
 }
@@ -126,6 +153,85 @@ function digestBytes(value: string | Uint8Array): Digest {
 
 function digestValue(value: unknown): Digest {
   return digestBytes(encodeVerificationActionDataV2(value));
+}
+
+export function createTrustedRuntimeDependencyCacheMarkerV1(input: Readonly<{
+  repository: string;
+  bunLockBlobSha: string;
+  imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1;
+}>): TrustedRuntimeDependencyCacheMarkerV1 {
+  const withoutKey = Object.freeze({
+    schema: TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA_V1,
+    classification: 'rebuildable-derived-cache' as const,
+    authority: 'none' as const,
+    repository: repository(input.repository),
+    bunLockBlobSha: sha(input.bunLockBlobSha, 'dependency cache bunLockBlobSha'),
+    imageId: input.imageId,
+    bunVersion: '1.3.14' as const,
+    deletionEffect: 'performance-loss-only' as const,
+    activeUseFence: 'docker-mounted-volume-plus-operation-lease-v1' as const
+  });
+  return Object.freeze({ ...withoutKey, cacheKey: digestValue(withoutKey) });
+}
+
+function canonicalDependencyCacheMarkerBytes(
+  marker: TrustedRuntimeDependencyCacheMarkerV1
+): Uint8Array {
+  return Buffer.from(`${encodeVerificationActionDataV2(marker)}\n`, 'utf8');
+}
+
+export function createTrustedRuntimeDependencyCacheVolumeSpecV1(
+  marker: TrustedRuntimeDependencyCacheMarkerV1
+): TrustedRuntimeDependencyCacheVolumeSpecV1 {
+  const name = `sec-trusted-runtime-bun-cache-v1-${marker.cacheKey.slice(7, 39)}`;
+  return Object.freeze({
+    schema: TRUSTED_RUNTIME_DEPENDENCY_CACHE_VOLUME_SCHEMA_V1,
+    name,
+    labels: Object.freeze({
+      'sec.trusted-runtime.cache-schema': TRUSTED_RUNTIME_DEPENDENCY_CACHE_VOLUME_SCHEMA_V1,
+      'sec.trusted-runtime.repository': marker.repository,
+      'sec.trusted-runtime.cache-key': marker.cacheKey,
+      'sec.trusted-runtime.image-id': marker.imageId
+    })
+  });
+}
+
+export function assertTrustedRuntimeDependencyCacheVolumeV1(input: Readonly<{
+  source: string;
+  expected: TrustedRuntimeDependencyCacheVolumeSpecV1;
+  endpointDigest: Digest;
+}>): Digest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input.source) as unknown;
+  } catch {
+    fail('Docker dependency-cache volume inspect is not JSON');
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 1 || parsed[0] === null
+      || typeof parsed[0] !== 'object' || Array.isArray(parsed[0])) {
+    fail('Docker dependency-cache volume inspect must contain one volume');
+  }
+  const record = parsed[0] as Record<string, unknown>;
+  const labels = record.Labels;
+  const options = record.Options;
+  if (record.Name !== input.expected.name || record.Driver !== 'local' || record.Scope !== 'local'
+      || typeof record.CreatedAt !== 'string' || Number.isNaN(Date.parse(record.CreatedAt))
+      || labels === null || typeof labels !== 'object' || Array.isArray(labels)
+      || encodeVerificationActionDataV2(labels)
+        !== encodeVerificationActionDataV2(input.expected.labels)
+      || !(options === null || (typeof options === 'object' && !Array.isArray(options)
+        && Object.keys(options as Record<string, unknown>).length === 0))) {
+    fail('Docker dependency-cache volume differs from the content-addressed specification');
+  }
+  return digestValue(Object.freeze({
+    schema: TRUSTED_RUNTIME_DEPENDENCY_CACHE_VOLUME_SCHEMA_V1,
+    endpointDigest: digest(input.endpointDigest, 'dependency-cache volume endpointDigest'),
+    name: input.expected.name,
+    createdAt: record.CreatedAt,
+    driver: record.Driver,
+    scope: record.Scope,
+    labels: input.expected.labels
+  }));
 }
 
 function bounded(value: unknown, label: string): string {
@@ -222,6 +328,7 @@ export interface TrustedRuntimeContainerIdentityV1 {
   readonly labels: Readonly<Record<string, string>>;
   readonly readOnlyRootfs: true;
   readonly readOnlyCandidateBundle: true;
+  readonly dependencyCacheVolumeName: string | null;
 }
 
 export function composeTrustedRuntimeContainerLabelsV1(
@@ -281,6 +388,24 @@ function parseContainerIdentityV1(source: string): TrustedRuntimeContainerIdenti
       || (candidateBundleMounts[0] as Record<string, unknown>).RW !== false) {
     fail('Docker candidate bundle must be one read-only bind mount');
   }
+  const dependencyCacheMounts = mounts.filter((entry) => entry !== null
+    && typeof entry === 'object'
+    && !Array.isArray(entry)
+    && (entry as Record<string, unknown>).Destination
+      === TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1);
+  if (dependencyCacheMounts.length > 1) {
+    fail('Docker dependency-cache mount must be zero or one');
+  }
+  let dependencyCacheVolumeName: string | null = null;
+  if (dependencyCacheMounts.length === 1) {
+    const cacheMount = dependencyCacheMounts[0] as Record<string, unknown>;
+    if (cacheMount.Type !== 'volume' || cacheMount.Driver !== 'local' || cacheMount.RW !== true
+        || typeof cacheMount.Name !== 'string'
+        || !/^sec-trusted-runtime-bun-cache-v1-[0-9a-f]{32}$/u.test(cacheMount.Name)) {
+      fail('Docker dependency-cache mount differs from the content-addressed volume');
+    }
+    dependencyCacheVolumeName = cacheMount.Name;
+  }
   const rawLabels = (config as Record<string, unknown>).Labels;
   if (rawLabels === null || typeof rawLabels !== 'object' || Array.isArray(rawLabels)) {
     fail('Docker container labels are invalid');
@@ -296,7 +421,8 @@ function parseContainerIdentityV1(source: string): TrustedRuntimeContainerIdenti
     name: record.Name.slice(1),
     labels: Object.freeze(labels),
     readOnlyRootfs: true,
-    readOnlyCandidateBundle: true
+    readOnlyCandidateBundle: true,
+    dependencyCacheVolumeName
   });
 }
 
@@ -307,6 +433,7 @@ function sameContainerIdentityV1(
   return left.id === right.id && left.imageId === right.imageId && left.name === right.name
     && left.readOnlyRootfs === right.readOnlyRootfs
     && left.readOnlyCandidateBundle === right.readOnlyCandidateBundle
+    && left.dependencyCacheVolumeName === right.dependencyCacheVolumeName
     && encodeVerificationActionDataV2(left.labels) === encodeVerificationActionDataV2(right.labels);
 }
 
@@ -322,6 +449,8 @@ export function authorizeTrustedRuntimeContainerRecoveryV1(input: Readonly<{
     imageId: string;
     imageLabels: Readonly<Record<string, string>>;
     ownerHost: string;
+    dependencyCacheKey?: Digest;
+    dependencyCacheVolumeName: string | null;
   }>;
   observeProcessLiveness: (pid: number) => 'alive' | 'dead' | 'unknown';
 }>): string {
@@ -341,7 +470,10 @@ export function authorizeTrustedRuntimeContainerRecoveryV1(input: Readonly<{
       'sec.trusted-runtime.owner-host': input.expected.ownerHost,
       'sec.trusted-runtime.owner-pid': ownerPidText ?? '',
       'sec.trusted-runtime.owner-nonce': ownerNonce ?? '',
-      'sec.trusted-runtime.image-id': input.expected.imageId
+      'sec.trusted-runtime.image-id': input.expected.imageId,
+      ...(input.expected.dependencyCacheKey === undefined ? {} : {
+        'sec.trusted-runtime.dependency-cache-key': input.expected.dependencyCacheKey
+      })
     })
   );
   if (encodeVerificationActionDataV2(input.first.labels)
@@ -349,6 +481,7 @@ export function authorizeTrustedRuntimeContainerRecoveryV1(input: Readonly<{
       || input.first.imageId !== input.expected.imageId
       || input.first.readOnlyRootfs !== true
       || input.first.readOnlyCandidateBundle !== true
+      || input.first.dependencyCacheVolumeName !== input.expected.dependencyCacheVolumeName
       || ownerNonce === undefined
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(ownerNonce)
       || input.first.name !== `sec-trusted-runtime-${input.expected.operationKey}-${ownerNonce}`
@@ -396,6 +529,8 @@ async function reclaimAbandonedTrustedRuntimeContainersV1(input: Readonly<{
   endpointDigest: Digest;
   imageId: string;
   imageLabels: Readonly<Record<string, string>>;
+  dependencyCacheKey?: Digest;
+  dependencyCacheVolumeName: string | null;
 }>): Promise<void> {
   const list = await runCommand('docker', [...dockerEndpointCommandArgsV3(
     input.dockerEndpoint,
@@ -445,7 +580,11 @@ async function reclaimAbandonedTrustedRuntimeContainersV1(input: Readonly<{
         endpointDigest: input.endpointDigest,
         imageId: input.imageId,
         imageLabels: input.imageLabels,
-        ownerHost: TRUSTED_RUNTIME_OWNER_HOST
+        ownerHost: TRUSTED_RUNTIME_OWNER_HOST,
+        dependencyCacheVolumeName: input.dependencyCacheVolumeName,
+        ...(input.dependencyCacheKey === undefined ? {} : {
+          dependencyCacheKey: input.dependencyCacheKey
+        })
       },
       observeProcessLiveness: localProcessLiveness
     });
@@ -559,6 +698,55 @@ async function ensureImage(
   ], repositoryRoot, 120_000, dockerEndpoint));
 }
 
+async function ensureTrustedRuntimeDependencyCacheVolumeV1(input: Readonly<{
+  repositoryRoot: string;
+  dockerEndpoint: DockerEndpointIdentityV3;
+  endpointDigest: Digest;
+  marker: TrustedRuntimeDependencyCacheMarkerV1;
+}>): Promise<Readonly<{
+  spec: TrustedRuntimeDependencyCacheVolumeSpecV1;
+  observationDigest: Digest;
+}>> {
+  const spec = createTrustedRuntimeDependencyCacheVolumeSpecV1(input.marker);
+  let inspected = await runCommand('docker', [...dockerEndpointCommandArgsV3(
+    input.dockerEndpoint,
+    ['volume', 'inspect', spec.name]
+  )], {
+    cwd: input.repositoryRoot,
+    envMode: 'replace',
+    env: createTrustedRuntimeHostCommandEnvironmentV1('docker'),
+    timeoutMs: 120_000,
+    maxStdoutBytes: 4 * 1024 * 1024,
+    maxStderrBytes: 4 * 1024 * 1024
+  });
+  if (inspected.code !== 0) {
+    if (!/no such volume/iu.test(inspected.stderr)) {
+      fail(`Docker dependency-cache volume inventory failed: ${inspected.stderr.trim().slice(-4_096)}`);
+    }
+    const created = await command('docker', [
+      'volume', 'create', '--driver', 'local',
+      ...Object.entries(spec.labels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
+      spec.name
+    ], input.repositoryRoot, 120_000, input.dockerEndpoint);
+    if (created !== spec.name) fail('Docker dependency-cache volume create returned another name');
+    inspected = await commandResult(
+      'docker',
+      ['volume', 'inspect', spec.name],
+      input.repositoryRoot,
+      120_000,
+      input.dockerEndpoint
+    );
+  }
+  return Object.freeze({
+    spec,
+    observationDigest: assertTrustedRuntimeDependencyCacheVolumeV1({
+      source: inspected.stdout,
+      expected: spec,
+      endpointDigest: input.endpointDigest
+    })
+  });
+}
+
 async function createCandidateBundle(input: Readonly<{
   repositoryRoot: string;
   temporaryRoot: string;
@@ -581,12 +769,43 @@ async function createCandidateBundle(input: Readonly<{
   return bundle;
 }
 
+const PUBLISH_DEPENDENCY_CACHE_MARKER_SCRIPT_V1 = [
+  'set -euo pipefail',
+  'expected="$1"',
+  'expected_digest="$2"',
+  `root="${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1}"`,
+  `marker="$root/${TRUSTED_RUNTIME_DEPENDENCY_CACHE_MARKER_FILE_V1}"`,
+  '[ -d "$root" ] && [ ! -L "$root" ]',
+  '[ "$(stat -c %a "$root")" = "1777" ] || chmod 1777 "$root"',
+  'if [ -e "$marker" ]; then',
+  '  [ -f "$marker" ] && [ ! -L "$marker" ]',
+  '  [ "$(cat -- "$marker")" = "$expected" ]',
+  'else',
+  '  temporary="$root/.sec-derived-cache.new-$$"',
+  '  (umask 077; set -C; printf \'%s\\n\' "$expected" > "$temporary")',
+  '  mv -T -- "$temporary" "$marker"',
+  'fi',
+  'actual="$(sha256sum "$marker")"',
+  'actual="${actual%% *}"',
+  '[ "sha256:$actual" = "$expected_digest" ]',
+  'printf \'sha256:%s\\n\' "$actual"'
+].join('\n');
+
+const READ_DEPENDENCY_CACHE_MARKER_DIGEST_SCRIPT_V1 = [
+  'set -euo pipefail',
+  `marker="${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1}/${TRUSTED_RUNTIME_DEPENDENCY_CACHE_MARKER_FILE_V1}"`,
+  '[ -f "$marker" ] && [ ! -L "$marker" ]',
+  'actual="$(sha256sum "$marker")"',
+  'actual="${actual%% *}"',
+  'printf \'sha256:%s\\n\' "$actual"'
+].join('\n');
+
 const SETUP_SCRIPT = [
   'set -euo pipefail',
   'base="$1"',
   'head="$2"',
   'mode="$3"',
-  '[ "$mode" = "full" ] || [ "$mode" = "lifecycle-canary" ]',
+  '[ "$mode" = "full" ] || [ "$mode" = "lifecycle-canary" ] || [ "$mode" = "dependency-canary" ]',
   `mkdir -p ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} ${TRUSTED_RUNTIME_WORKSPACE_V1} ${TRUSTED_RUNTIME_OUTPUT_V1}`,
   `git init --quiet ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
   `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} fetch --quiet ${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1} refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
@@ -596,11 +815,17 @@ const SETUP_SCRIPT = [
   `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} fetch --quiet ${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1} refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
   `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} reset --hard --quiet refs/sec/head`,
   `[ "$(git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} rev-parse HEAD)" = "$head" ]`,
-  'if [ "$mode" = "full" ]; then',
+  'if [ "$mode" != "lifecycle-canary" ]; then',
   `  cd ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
-  '  bun install --frozen-lockfile --ignore-scripts',
-  `  rm -rf ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
-  `  ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  '  mkdir -p .shared-deps',
+  `  ln -s ${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1} .shared-deps/.bun-cache`,
+  '  CI=1 bun ./platform/dev-runner.ts deps:ensure',
+  '  if [ "$mode" = "full" ]; then',
+  `    rm -rf ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  `    ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  '  else',
+  `    [ ! -e ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules ]`,
+  '  fi',
   'fi',
   `chmod -R a-w ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`
 ].join('\n');
@@ -805,6 +1030,7 @@ interface TrustedRuntimeWorkspaceV1 {
   readonly temporaryRoot: string;
   readonly image: TrustedRuntimeContainerImageObservationV1;
   readonly dockerEndpoint: DockerEndpointIdentityV3;
+  readonly dependencyCacheKey: Digest | null;
 }
 
 async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
@@ -813,7 +1039,7 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
   baseSha: string;
   headSha: string;
   operationKey: string;
-  setupMode: 'full' | 'lifecycle-canary';
+  setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
   execute: (workspace: TrustedRuntimeWorkspaceV1) => Promise<T>;
 }>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
@@ -850,6 +1076,23 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
     const image = await ensureImage(repositoryRoot, dockerEndpoint);
     await assertDockerEndpointIdentityV3(dockerEndpoint, repositoryRoot);
     const endpointDigest = digestValue(dockerEndpoint);
+    const dependencyCacheMarker = input.setupMode === 'lifecycle-canary'
+      ? null
+      : createTrustedRuntimeDependencyCacheMarkerV1({
+          repository: repositoryIdentity,
+          bunLockBlobSha: await command(
+            'git', ['rev-parse', `${baseSha}:bun.lock`], repositoryRoot
+          ),
+          imageId: image.imageId
+        });
+    const dependencyCacheVolume = dependencyCacheMarker === null
+      ? null
+      : await ensureTrustedRuntimeDependencyCacheVolumeV1({
+          repositoryRoot,
+          dockerEndpoint,
+          endpointDigest,
+          marker: dependencyCacheMarker
+        });
     await reclaimAbandonedTrustedRuntimeContainersV1({
       repositoryRoot,
       dockerEndpoint,
@@ -859,7 +1102,11 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
       headSha,
       endpointDigest,
       imageId: image.imageId,
-      imageLabels: image.labels
+      imageLabels: image.labels,
+      dependencyCacheVolumeName: dependencyCacheVolume?.spec.name ?? null,
+      ...(dependencyCacheMarker === null ? {} : {
+        dependencyCacheKey: dependencyCacheMarker.cacheKey
+      })
     });
     const ownerNonce = randomUUID();
     const containerName = `sec-trusted-runtime-${input.operationKey}-${ownerNonce}`;
@@ -872,7 +1119,10 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
       'sec.trusted-runtime.owner-host': TRUSTED_RUNTIME_OWNER_HOST,
       'sec.trusted-runtime.owner-pid': String(process.pid),
       'sec.trusted-runtime.owner-nonce': ownerNonce,
-      'sec.trusted-runtime.image-id': image.imageId
+      'sec.trusted-runtime.image-id': image.imageId,
+      ...(dependencyCacheMarker === null ? {} : {
+        'sec.trusted-runtime.dependency-cache-key': dependencyCacheMarker.cacheKey
+      })
     });
     const containerLabels = composeTrustedRuntimeContainerLabelsV1(image.labels, operationLabels);
     const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-trusted-runtime-'));
@@ -880,6 +1130,12 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
     let containerId: string | null = null;
     try {
       const bundle = await createCandidateBundle({ repositoryRoot, temporaryRoot, baseSha, headSha });
+      const dependencyCacheMarkerBytes = dependencyCacheMarker === null
+        ? null
+        : canonicalDependencyCacheMarkerBytes(dependencyCacheMarker);
+      const dependencyCacheMarkerFileDigest = dependencyCacheMarkerBytes === null
+        ? null
+        : digestBytes(dependencyCacheMarkerBytes);
       containerId = await command('docker', [
         'container', 'create', '--name', containerName,
         ...Object.entries(containerLabels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
@@ -889,6 +1145,9 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         '--tmpfs', '/tmp:rw,nosuid,nodev,size=2g',
         '--tmpfs', `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}:rw,nosuid,nodev,size=10g,mode=0711,uid=1000,gid=1000`,
         '--mount', `type=bind,source=${path.resolve(bundle)},target=${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1},readonly`,
+        ...(dependencyCacheVolume === null ? [] : [
+          '--mount', `type=volume,source=${dependencyCacheVolume.spec.name},target=${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1}`
+        ]),
         image.imageId
       ], repositoryRoot, 120_000, dockerEndpoint);
       containerCreated = true;
@@ -906,6 +1165,8 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
           || createdIdentity.imageId !== image.imageId
           || createdIdentity.readOnlyRootfs !== true
           || createdIdentity.readOnlyCandidateBundle !== true
+          || createdIdentity.dependencyCacheVolumeName
+            !== (dependencyCacheVolume?.spec.name ?? null)
           || encodeVerificationActionDataV2(createdIdentity.labels)
             !== encodeVerificationActionDataV2(containerLabels)) {
         fail('Docker container creation readback differs from the retained attempt identity');
@@ -917,6 +1178,17 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         120_000,
         dockerEndpoint
       );
+      if (dependencyCacheMarkerBytes !== null && dependencyCacheMarkerFileDigest !== null) {
+        const publishedMarkerDigest = digest(await command('docker', [
+          'container', 'exec', containerTarget, '/bin/bash', '-ceu',
+          PUBLISH_DEPENDENCY_CACHE_MARKER_SCRIPT_V1, '--',
+          Buffer.from(dependencyCacheMarkerBytes).toString('utf8').trimEnd(),
+          dependencyCacheMarkerFileDigest
+        ], repositoryRoot, 120_000, dockerEndpoint), 'published dependency-cache marker digest');
+        if (publishedMarkerDigest !== dependencyCacheMarkerFileDigest) {
+          fail('published dependency-cache marker digest differs');
+        }
+      }
       await command('docker', ['container', 'exec', '--user', '1000:1000', containerTarget,
         '/bin/mkdir', '-p', TRUSTED_RUNTIME_OUTPUT_V1], repositoryRoot, 120_000, dockerEndpoint);
       await command('docker', [
@@ -924,6 +1196,15 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         containerTarget, '/bin/bash', '-lc', SETUP_SCRIPT, '--',
         baseSha, headSha, input.setupMode
       ], repositoryRoot, 30 * 60_000, dockerEndpoint);
+      if (dependencyCacheMarkerFileDigest !== null) {
+        const readbackDigest = digest(await command('docker', [
+          'container', 'exec', containerTarget, '/bin/bash', '-ceu',
+          READ_DEPENDENCY_CACHE_MARKER_DIGEST_SCRIPT_V1
+        ], repositoryRoot, 120_000, dockerEndpoint), 'dependency-cache marker readback digest');
+        if (readbackDigest !== dependencyCacheMarkerFileDigest) {
+          fail('dependency-cache marker changed during setup');
+        }
+      }
       const networksSource = await command('docker', [
         'container', 'inspect', '--format', '{{json .NetworkSettings.Networks}}', containerTarget
       ], repositoryRoot, 120_000, dockerEndpoint);
@@ -948,7 +1229,8 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         containerName: containerTarget,
         temporaryRoot,
         image,
-        dockerEndpoint
+        dockerEndpoint,
+        dependencyCacheKey: dependencyCacheMarker?.cacheKey ?? null
       }));
     } finally {
       if (containerCreated) {
@@ -1072,14 +1354,14 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
     setupMode: 'full',
     execute: async ({ containerName, image, dockerEndpoint }) => {
       const observedTree = await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
         containerName, 'git', 'rev-parse', 'HEAD^{tree}'
       ], repositoryRoot, 120_000, dockerEndpoint);
       if (observedTree !== mainTreeSha) fail('MainHealth exact main tree differs before execution');
       const commandResultDigests: Digest[] = [];
       for (const argv of TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1) {
         const result = await commandResult('docker', [
-          'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+          'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
           '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', '--env', 'LANG=C',
           '--env', 'LC_ALL=C', '--env', 'TZ=UTC', '--env', 'GIT_CONFIG_NOSYSTEM=1',
           '--env', 'GIT_CONFIG_GLOBAL=/dev/null', '--env', 'GIT_TERMINAL_PROMPT=0',
@@ -1093,15 +1375,15 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
         })));
       }
       const finalIdentity = await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
         containerName, 'git', 'status', '--porcelain=v1', '--untracked-files=all'
       ], repositoryRoot, 120_000, dockerEndpoint);
       const finalHead = await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
         containerName, 'git', 'rev-parse', 'HEAD'
       ], repositoryRoot, 120_000, dockerEndpoint);
       const finalTree = await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
         containerName, 'git', 'rev-parse', 'HEAD^{tree}'
       ], repositoryRoot, 120_000, dockerEndpoint);
       if (finalIdentity !== '' || finalHead !== mainSha || finalTree !== mainTreeSha) {
@@ -1139,11 +1421,14 @@ export async function executeTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
   repository: string;
   headSha: string;
   headTreeSha: string;
+  dependencies?: boolean;
 }>): Promise<Readonly<{
   schema: 'sec-trusted-runtime-workspace-canary-v1';
   repository: string;
   headSha: string;
   headTreeSha: string;
+  dependenciesReady: boolean;
+  dependencyCacheKey: Digest | null;
   imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1;
   dockerEndpoint: DockerEndpointIdentityV3;
 }>> {
@@ -1156,9 +1441,16 @@ export async function executeTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
     repository: repositoryIdentity,
     baseSha: headSha,
     headSha,
-    operationKey: `canary-${headSha.slice(0, 24)}`,
-    setupMode: 'lifecycle-canary',
-    execute: async ({ containerName, image, dockerEndpoint }) => {
+    operationKey: `${input.dependencies === true ? 'dependency' : 'canary'}-${headSha.slice(0, 24)}`,
+    setupMode: input.dependencies === true ? 'dependency-canary' : 'lifecycle-canary',
+    execute: async ({ containerName, image, dockerEndpoint, dependencyCacheKey }) => {
+      if (input.dependencies === true) {
+        await command('docker', [
+          'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
+          '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', containerName,
+          'bun', './platform/dev-runner.ts', 'deps:ensure'
+        ], repositoryRoot, 30 * 60_000, dockerEndpoint);
+      }
       const [observedHead, observedTree, observedStatus] = await Promise.all([
         command('docker', [
           'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
@@ -1186,6 +1478,8 @@ export async function executeTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
         repository: repositoryIdentity,
         headSha,
         headTreeSha,
+        dependenciesReady: input.dependencies === true,
+        dependencyCacheKey,
         imageId: image.imageId,
         dockerEndpoint
       });
