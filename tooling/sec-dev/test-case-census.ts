@@ -57,13 +57,17 @@ const TEST_SOURCE_PATH = /^tests\/.+\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 const RESPONSIBILITY_WRAPPER_PATH = 'tests/testkit/responsibility.ts';
 const UNSUPPORTED = Symbol('unsupported-static-value');
 
+interface StaticValueObject {
+  readonly [key: string]: StaticValue;
+}
+
 type StaticValue =
   | null
   | boolean
   | number
   | string
   | readonly StaticValue[]
-  | Readonly<Record<string, StaticValue>>;
+  | StaticValueObject;
 
 type RegistrationKind = 'test' | 'it' | 'describe' | 'secTest';
 
