@@ -17,7 +17,9 @@ import {
   createTrustedRuntimeDependencyCacheVolumeSpecV1,
   createTrustedRuntimeHostCommandEnvironmentV1,
   createTrustedRuntimeMainHealthBaselineObservationV2,
+  createTrustedRuntimeMainHealthGatePlansV1,
   createTrustedRuntimeMainHealthReceiptV2,
+  parseTrustedRuntimeMainHealthAffectedPlanV1,
   parseTrustedRuntimeMainHealthReceiptV2,
   renderTrustedRuntimeCommandFailureDetailV1
 } from '../../scripts/codex/trusted-runtime-container.ts';
@@ -49,6 +51,43 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('uses stable per-gate ActionKeys and invalidates only when bound inputs change', () => {
+    const affectedPlan = parseTrustedRuntimeMainHealthAffectedPlanV1(JSON.stringify({
+      schema: 'sec-local-affected-check-plan-v1',
+      resolved: true,
+      changedPaths: ['platform/example.ts'],
+      affectedPlan: {},
+      gates: [
+        { id: 'imports:check', command: 'bun run imports:check' },
+        { id: 'typecheck', command: 'bun run typecheck' },
+        { id: 'test:affected', command: 'bun run test:affected' }
+      ],
+      umbrellaCommand: 'bun run check:affected',
+      subsumedStandaloneCommands: [
+        'bun run imports:check', 'bun run typecheck', 'bun run test:affected'
+      ]
+    }));
+    const common = {
+      mainTreeSha: '1'.repeat(40),
+      baselineObservationDigest: `sha256:${'2'.repeat(64)}` as const,
+      affectedPlan,
+      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+      dockerEndpoint
+    };
+    const first = createTrustedRuntimeMainHealthGatePlansV1(common);
+    const same = createTrustedRuntimeMainHealthGatePlansV1(common);
+    const changed = createTrustedRuntimeMainHealthGatePlansV1({
+      ...common,
+      mainTreeSha: '3'.repeat(40)
+    });
+    expect(first.map(({ action }) => action.actionKey))
+      .toEqual(same.map(({ action }) => action.actionKey));
+    expect(first.map(({ action }) => action.actionKey))
+      .not.toEqual(changed.map(({ action }) => action.actionKey));
+    expect(first[2]!.plan.dependencies.map(({ actionKey }) => actionKey))
+      .toEqual(first.slice(0, 2).map(({ action }) => action.actionKey).sort());
+  });
+
   test('binds immutable Docker and Bun identities without a GitHub Actions run', () => {
     const image = assertTrustedRuntimeContainerImageV1(imageInspect());
     expect(image.imageId).toBe(TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1);
