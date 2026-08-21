@@ -17,9 +17,18 @@ import {
   createCiVerificationLocalExecutionEnvironmentV2,
   type CiVerificationExecutionEnvironmentV2
 } from '../../platform/shared/verification-action-ci-contract.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
+import {
+  createVerificationActionKeyV2,
+  createVerificationActionPlanV2,
+  createVerificationActionTerminalV2,
+  encodeVerificationActionDataV2,
+  type VerificationActionKeyDigest,
+  type VerificationActionKeyV2,
+  type VerificationActionPlanV2
+} from '../../platform/shared/verification-action-contract.ts';
 import { acquireSecRuntimeStatePhysicalAuthorityV1 } from '../../tooling/sec-dev/runtime-state-authority.ts';
 import { resolveSecRuntimeStateForRepositoryV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
+import { VerificationActionRunnerV2 } from '../../tooling/sec-dev/verification-action-runner.ts';
 import {
   assertDockerEndpointIdentityV3,
   dockerEndpointCommandArgsV3,
@@ -84,8 +93,26 @@ const TRUSTED_RUNTIME_OUTPUT_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/output`;
 
 export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2 = digestValue(Object.freeze({
   schema: 'sec-trusted-runtime-main-health-plan-v2',
-  actions: TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2
+  actions: TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2,
+  expansion: 'affected-gate-actionkeys-v1'
 }));
+
+const TRUSTED_RUNTIME_MAIN_HEALTH_GATE_COMMANDS_V1 = Object.freeze({
+  'imports:check': Object.freeze(['bun', 'run', 'imports:check']),
+  typecheck: Object.freeze(['bun', 'run', 'typecheck']),
+  'docs:doctor': Object.freeze(['bun', 'run', 'docs:doctor']),
+  'test:affected': Object.freeze(['bun', 'run', 'test:affected'])
+} as const);
+
+type TrustedRuntimeMainHealthGateIdV1 = keyof typeof TRUSTED_RUNTIME_MAIN_HEALTH_GATE_COMMANDS_V1;
+
+type TrustedRuntimeMainHealthAffectedPlanV1 = Readonly<{
+  planDigest: Digest;
+  gates: readonly Readonly<{
+    id: TrustedRuntimeMainHealthGateIdV1;
+    command: string;
+  }>[];
+}>;
 
 export interface TrustedRuntimeContainerImageObservationV1 {
   readonly imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1;
@@ -169,6 +196,136 @@ function digestBytes(value: string | Uint8Array): Digest {
 
 function digestValue(value: unknown): Digest {
   return digestBytes(encodeVerificationActionDataV2(value));
+}
+
+export function parseTrustedRuntimeMainHealthAffectedPlanV1(
+  source: string
+): TrustedRuntimeMainHealthAffectedPlanV1 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source) as unknown;
+  } catch (error) {
+    throw new Error('Trusted runtime MainHealth affected plan is invalid JSON.', { cause: error });
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    fail('MainHealth affected plan must be one object');
+  }
+  const record = parsed as Record<string, unknown>;
+  const recordKeys = Object.keys(record).sort();
+  const expectedRecordKeys = [
+    'affectedPlan', 'changedPaths', 'gates', 'resolved', 'schema',
+    'subsumedStandaloneCommands', 'umbrellaCommand'
+  ];
+  if (record.schema !== 'sec-local-affected-check-plan-v1' || record.resolved !== true
+      || record.umbrellaCommand !== 'bun run check:affected' || !Array.isArray(record.gates)
+      || record.affectedPlan === null || typeof record.affectedPlan !== 'object'
+      || Array.isArray(record.affectedPlan) || !Array.isArray(record.changedPaths)
+      || !record.changedPaths.every((entry) => typeof entry === 'string')
+      || recordKeys.length !== expectedRecordKeys.length
+      || recordKeys.some((key, index) => key !== expectedRecordKeys[index])) {
+    fail('MainHealth affected plan is unresolved or has a noncanonical identity');
+  }
+  const canonicalOrder = Object.keys(TRUSTED_RUNTIME_MAIN_HEALTH_GATE_COMMANDS_V1);
+  const gates = record.gates.map((candidate, index) => {
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      fail(`MainHealth affected gate ${index} must be one object`);
+    }
+    const gateRecord = candidate as Record<string, unknown>;
+    const keys = Object.keys(gateRecord).sort();
+    if (keys.length !== 2 || keys[0] !== 'command' || keys[1] !== 'id'
+        || typeof gateRecord.id !== 'string'
+        || !Object.hasOwn(TRUSTED_RUNTIME_MAIN_HEALTH_GATE_COMMANDS_V1, gateRecord.id)) {
+      fail(`MainHealth affected gate ${index} is not canonical`);
+    }
+    const id = gateRecord.id as TrustedRuntimeMainHealthGateIdV1;
+    if (gateRecord.command !== `bun run ${id}`) {
+      fail(`MainHealth affected gate ${id} command differs from its owner`);
+    }
+    return Object.freeze({ id, command: gateRecord.command });
+  });
+  if (new Set(gates.map(({ id }) => id)).size !== gates.length
+      || gates.some(({ id }, index) => canonicalOrder.indexOf(id) <=
+        (index === 0 ? -1 : canonicalOrder.indexOf(gates[index - 1]!.id)))) {
+    fail('MainHealth affected gates are duplicated or out of canonical order');
+  }
+  if (!Array.isArray(record.subsumedStandaloneCommands)
+      || record.subsumedStandaloneCommands.length !== gates.length
+      || record.subsumedStandaloneCommands.some((command, index) =>
+        command !== gates[index]!.command)) {
+    fail('MainHealth affected plan standalone command projection differs');
+  }
+  return Object.freeze({
+    planDigest: digestValue(parsed),
+    gates: Object.freeze(gates)
+  });
+}
+
+export function createTrustedRuntimeMainHealthGatePlansV1(input: Readonly<{
+  mainTreeSha: string;
+  baselineObservationDigest: Digest;
+  affectedPlan: TrustedRuntimeMainHealthAffectedPlanV1;
+  imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1;
+  dockerEndpoint: DockerEndpointIdentityV3;
+}>): readonly Readonly<{
+  id: TrustedRuntimeMainHealthGateIdV1;
+  argv: readonly string[];
+  action: VerificationActionKeyV2;
+  plan: VerificationActionPlanV2;
+}>[] {
+  const results: Array<Readonly<{
+    id: TrustedRuntimeMainHealthGateIdV1;
+    argv: readonly string[];
+    action: VerificationActionKeyV2;
+    plan: VerificationActionPlanV2;
+  }>> = [];
+  for (const gate of input.affectedPlan.gates) {
+    const argv = TRUSTED_RUNTIME_MAIN_HEALTH_GATE_COMMANDS_V1[gate.id];
+    const dependencies = gate.id === 'test:affected'
+      ? results.map(({ action }) => action.actionKey)
+      : [];
+    const action = createVerificationActionKeyV2({
+      actionKind: 'trusted-main-health-gate',
+      producer: {
+        identity: 'sec-trusted-runtime-main-health',
+        revision: 'affected-gate-v1'
+      },
+      operation: {
+        identity: gate.id,
+        revision: 'dev-runner-command-v1',
+        semanticDigest: digestValue({ gateId: gate.id, argv }),
+        workingDirectory: '.',
+        declaredEnvironment: [{
+          name: 'affected-baseline',
+          digest: input.baselineObservationDigest
+        }]
+      },
+      inputClosure: [
+        { path: 'main.tree', digest: digestValue(input.mainTreeSha) },
+        { path: 'affected.plan', digest: input.affectedPlan.planDigest }
+      ],
+      environment: {
+        toolchainRevision: 'bun@1.3.14-linux-x64',
+        providerRevision: `trusted-container:${digestValue({
+          imageId: input.imageId,
+          dockerEndpoint: input.dockerEndpoint
+        }).slice(7)}`,
+        contractRevision: 'sec-trusted-runtime-main-health-action-v1'
+      },
+      requiredCheapPreflightActionKeys: dependencies,
+      upstreamActionKeys: [],
+      resultSchemaRevision: 'sec-verification-result-v1'
+    });
+    const plan = createVerificationActionPlanV2({
+      action,
+      executionClass: dependencies.length === 0 ? 'cheap-preflight' : 'expensive',
+      dependencies: dependencies.map((actionKey) => ({
+        actionKey,
+        kind: 'cheap-preflight'
+      }))
+    });
+    results.push(Object.freeze({ id: gate.id, argv, action, plan }));
+  }
+  return Object.freeze(results);
 }
 
 export function createTrustedRuntimeDependencyCacheMarkerV1(input: Readonly<{
@@ -299,7 +456,7 @@ export function createTrustedRuntimeHostCommandEnvironmentV1(
   return executable === 'git' ? isolatedGitChildEnvironment(result) : result;
 }
 
-async function commandResult(
+async function observeCommandResult(
   executable: 'docker' | 'git',
   args: readonly string[],
   cwd: string,
@@ -312,7 +469,7 @@ async function commandResult(
       args
     )
     : args;
-  const result = await runCommand(executable, [...commandArgs], {
+  return await runCommand(executable, [...commandArgs], {
     cwd,
     envMode: 'replace',
     env: createTrustedRuntimeHostCommandEnvironmentV1(executable),
@@ -320,6 +477,22 @@ async function commandResult(
     maxStdoutBytes: 32 * 1024 * 1024,
     maxStderrBytes: 32 * 1024 * 1024
   });
+}
+
+async function commandResult(
+  executable: 'docker' | 'git',
+  args: readonly string[],
+  cwd: string,
+  timeoutMs = 120_000,
+  dockerEndpoint?: DockerEndpointIdentityV3
+): Promise<Awaited<ReturnType<typeof runCommand>>> {
+  const result = await observeCommandResult(
+    executable,
+    args,
+    cwd,
+    timeoutMs,
+    dockerEndpoint
+  );
   if (result.code !== 0) {
     const detail = renderTrustedRuntimeCommandFailureDetailV1(result);
     fail(`${executable} ${args[0] ?? '<missing>'} failed (${result.code}): ${detail}`);
@@ -1481,7 +1654,7 @@ export async function executeTrustedRuntimeMainHealthV2(input: Readonly<{
           SEC_AFFECTED_TESTS_BASE: baseline.baselineSha,
           SEC_CHANGED_BASE: baseline.baselineSha
         });
-        const result = await commandResult('docker', [
+        const planResult = await commandResult('docker', [
           'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
           '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', '--env', 'LANG=C',
           '--env', `SEC_CACHE_HOME=${TRUSTED_RUNTIME_OUTPUT_V1}/cache`,
@@ -1489,17 +1662,79 @@ export async function executeTrustedRuntimeMainHealthV2(input: Readonly<{
           '--env', 'GIT_CONFIG_GLOBAL=/dev/null', '--env', 'GIT_TERMINAL_PROMPT=0',
           '--env', `SEC_AFFECTED_TESTS_BASE=${baseline.baselineSha}`,
           '--env', `SEC_CHANGED_BASE=${baseline.baselineSha}`,
-          containerName, ...action.argv
+          containerName, 'bun', 'run', 'check:affected', '--', '--plan'
         ], repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
+        const affectedPlan = parseTrustedRuntimeMainHealthAffectedPlanV1(planResult.stdout);
+        const gatePlans = createTrustedRuntimeMainHealthGatePlansV1({
+          mainTreeSha,
+          baselineObservationDigest: baseline.observationDigest,
+          affectedPlan,
+          imageId: image.imageId,
+          dockerEndpoint
+        });
+        const runner = new VerificationActionRunnerV2();
+        const gateResults: Array<Readonly<{
+          actionKey: VerificationActionKeyDigest;
+          resultDigest: VerificationActionKeyDigest;
+        }>> = [];
+        for (const gate of gatePlans) {
+          let executedFailureDetail: string | null = null;
+          const outcome = await runner.execute({
+            repositoryRoot,
+            action: gate.action,
+            plan: gate.plan,
+            executionDomain: 'trusted-runtime-main-health',
+            leaseDurationMs: 4 * 60 * 60_000,
+            executor: async () => {
+              const result = await observeCommandResult('docker', [
+                'container', 'exec', '--user', '1000:1000',
+                '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
+                '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', '--env', 'LANG=C',
+                '--env', `SEC_CACHE_HOME=${TRUSTED_RUNTIME_OUTPUT_V1}/cache`,
+                '--env', 'LC_ALL=C', '--env', 'TZ=UTC', '--env', 'GIT_CONFIG_NOSYSTEM=1',
+                '--env', 'GIT_CONFIG_GLOBAL=/dev/null', '--env', 'GIT_TERMINAL_PROMPT=0',
+                '--env', `SEC_AFFECTED_TESTS_BASE=${baseline.baselineSha}`,
+                '--env', `SEC_CHANGED_BASE=${baseline.baselineSha}`,
+                containerName, ...gate.argv
+              ], repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
+              const resultDigest = digestValue(Object.freeze({
+                actionKey: gate.action.actionKey,
+                exitCode: result.code,
+                stdout: result.stdout,
+                stderr: result.stderr
+              }));
+              if (result.code !== 0) executedFailureDetail = renderTrustedRuntimeCommandFailureDetailV1(result);
+              return createVerificationActionTerminalV2({
+                status: result.code === 0 ? 'passed' : 'failed',
+                reasonCode: result.code === 0 ? 'executed-success' : 'executed-failure',
+                resultDigest
+              });
+            }
+          });
+          if (outcome.terminal?.status !== 'passed' || outcome.terminal.resultDigest === null) {
+            fail(
+              `MainHealth gate ${gate.id} ${outcome.disposition} without PASS `
+              + `for ${gate.action.actionKey}${executedFailureDetail === null
+                ? `: ${outcome.reason ?? 'terminal failure'}`
+                : `:\n${executedFailureDetail}`}`
+            );
+          }
+          console.log(
+            `Trusted MainHealth gate ${gate.id}: ${outcome.disposition} ${gate.action.actionKey}`
+          );
+          gateResults.push(Object.freeze({
+            actionKey: gate.action.actionKey,
+            resultDigest: outcome.terminal.resultDigest
+          }));
+        }
         actionResults.push(Object.freeze({
           actionId: action.id,
           resultDigest: digestValue(Object.freeze({
             actionId: action.id,
             argv: action.argv,
             declaredEnvironment,
-            exitCode: result.code,
-            stdout: result.stdout,
-            stderr: result.stderr
+            affectedPlanDigest: affectedPlan.planDigest,
+            gateResults
           }))
         }));
       }
