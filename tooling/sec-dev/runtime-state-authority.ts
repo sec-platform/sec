@@ -22,6 +22,12 @@ export interface SecRuntimeStatePhysicalAuthorityV1 {
   readonly assertCurrent: () => Promise<void>;
 }
 
+export interface SecRuntimeCachePhysicalAuthorityV1 {
+  readonly cacheRoot: PhysicalDirectoryIdentityV1;
+  readonly directory: (absolutePath: string) => PhysicalDirectoryIdentityV1;
+  readonly assertCurrent: () => void;
+}
+
 const windowsRuntimeStateAuthorities = new Map<string, Promise<WindowsHostDirectoryAuthority>>();
 
 function identityKey(value: PhysicalDirectoryIdentityV1): string {
@@ -94,6 +100,82 @@ function pathInside(candidate: string, root: string): boolean {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));
   return relative === '' || (!path.isAbsolute(relative)
     && relative !== '..' && !relative.startsWith(`..${path.sep}`));
+}
+
+/**
+ * Acquires only disposable Runtime Cache authority. This is intentionally
+ * separate from durable Runtime State issuance: short-lived read-only tools
+ * must not create the state root or pay the Windows state-DACL issuance cost.
+ */
+export function acquireSecRuntimeCachePhysicalAuthorityV1(input: Readonly<{
+  repositoryRoot: string;
+  cacheRoot: string;
+  requiredDirectories: readonly string[];
+}>): SecRuntimeCachePhysicalAuthorityV1 {
+  const repository = inspectNoFollowDirectoryChainV1(
+    path.resolve(input.repositoryRoot),
+    'SEC runtime repository root'
+  );
+  let cache = materializePhysicalDirectory(input.cacheRoot);
+  assertPhysicallyDisjoint(repository, cache, 'cache root and repository');
+
+  const requested = [...new Set([
+    path.resolve(input.cacheRoot),
+    ...input.requiredDirectories.map((entry) => path.resolve(entry))
+  ])];
+  for (const directoryPath of requested) {
+    if (!pathInside(directoryPath, input.cacheRoot)) {
+      throw new Error('SEC runtime required directory escapes cache authority.');
+    }
+  }
+
+  const directories = new Map<string, PhysicalDirectoryIdentityV1>();
+  for (const directoryPath of requested.sort((left, right) =>
+    left.split(path.sep).length - right.split(path.sep).length || left.localeCompare(right))) {
+    let directory = materializePhysicalDirectory(directoryPath);
+    assertPhysicallyDisjoint(repository, directory, `cache directory ${directoryPath} and repository`);
+    let target = directory.target;
+    if (process.platform === 'linux') {
+      target = hardenPosixDirectory(target);
+    } else if (process.platform === 'win32') {
+      target = inspectNoFollowDirectoryChainV1(
+        target.path,
+        'SEC runtime Windows cache directory readback'
+      ).target;
+    } else {
+      throw new Error('SEC runtime cache physical authority is unavailable on this platform.');
+    }
+    directories.set(path.resolve(directoryPath), target);
+  }
+
+  cache = inspectNoFollowDirectoryChainV1(path.resolve(input.cacheRoot), 'SEC runtime cache root');
+  assertPhysicallyDisjoint(repository, cache, 'cache root and repository');
+  const assertCurrent = (): void => {
+    for (const [directoryPath, expected] of directories) {
+      const observed = assertSameNoFollowDirectoryIdentityV1(
+        expected,
+        `SEC runtime cache directory ${directoryPath}`
+      ).target;
+      if (process.platform === 'linux') {
+        const metadata = lstatSync(observed.path);
+        if ((metadata.mode & 0o077) !== 0) {
+          throw new Error('SEC runtime private cache directory permissions changed.');
+        }
+      }
+    }
+  };
+
+  return Object.freeze({
+    cacheRoot: directories.get(path.resolve(input.cacheRoot))!,
+    directory: (absolutePath: string): PhysicalDirectoryIdentityV1 => {
+      const value = directories.get(path.resolve(absolutePath));
+      if (value === undefined) {
+        throw new Error('SEC runtime directory is outside the acquired cache authority.');
+      }
+      return value;
+    },
+    assertCurrent
+  });
 }
 
 /**

@@ -120,6 +120,19 @@ function defaultCacheRoot(platform: SecRuntimePlatformV1, env: SecRuntimeStateEn
     : api.join(home, '.cache', 'sec');
 }
 
+export function resolveSecRuntimeCacheRootV1(input: Readonly<{
+  platform: SecRuntimePlatformV1;
+  environment: SecRuntimeStateEnvironmentV1;
+  repositoryRoot: string;
+}>): string {
+  const repositoryRoot = requireAbsolute(input.repositoryRoot, input.platform, 'repositoryRoot');
+  const cacheRoot = defaultCacheRoot(input.platform, input.environment);
+  if (isSameOrInside(cacheRoot, repositoryRoot, input.platform)) {
+    fail('cache root must remain outside the repository worktree.');
+  }
+  return cacheRoot;
+}
+
 function workspacePhysicalIdentity(
   value: SecWorkspacePhysicalIdentityV1
 ): SecWorkspacePhysicalIdentityV1 {
@@ -156,12 +169,13 @@ export function resolveSecRuntimeRootsV1(input: Readonly<{
 }>): SecRuntimeRootsV1 {
   const repositoryRoot = requireAbsolute(input.repositoryRoot, input.platform, 'repositoryRoot');
   const stateRoot = defaultStateRoot(input.platform, input.environment);
-  const cacheRoot = defaultCacheRoot(input.platform, input.environment);
+  const cacheRoot = resolveSecRuntimeCacheRootV1({
+    platform: input.platform,
+    environment: input.environment,
+    repositoryRoot
+  });
   if (isSameOrInside(stateRoot, repositoryRoot, input.platform)) {
     fail('durable state root must remain outside the repository worktree.');
-  }
-  if (isSameOrInside(cacheRoot, repositoryRoot, input.platform)) {
-    fail('cache root must remain outside the repository worktree.');
   }
   if (isSameOrInside(stateRoot, cacheRoot, input.platform)
       || isSameOrInside(cacheRoot, stateRoot, input.platform)) {
