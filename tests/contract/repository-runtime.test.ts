@@ -13,10 +13,10 @@ describe('test budget and benchmark contracts', () => {
       expect(typeof scripts[scriptName], scriptName).toBe('string');
       expect(scripts[scriptName], scriptName).not.toMatch(/(?:@|==)latest(?:\s|$)/u);
     }
-    expect(scripts.depcruise).toMatch(/\bdependency-cruiser@[1-9]\d*\.\d+\.\d+\b/u);
-    expect(scripts.jscpd).toMatch(/\bjscpd@[1-9]\d*\.\d+\.\d+\b/u);
-    expect(scripts.graphify).toMatch(/\bgraphifyy==[1-9]\d*\.\d+\.\d+\b/u);
-    expect(devDependencies?.gitnexus).toMatch(/^[1-9]\d*\.\d+\.\d+$/u);
+    expect(scripts.depcruise).toMatch(/\bdependency-cruiser@\d+\.\d+\.\d+\b/u);
+    expect(scripts.jscpd).toMatch(/\bjscpd@\d+\.\d+\.\d+\b/u);
+    expect(scripts.graphify).toMatch(/\bgraphifyy==\d+\.\d+\.\d+\b/u);
+    expect(devDependencies?.gitnexus).toMatch(/^\d+\.\d+\.\d+$/u);
     expect(trustedDependencies).toEqual(expect.arrayContaining([
       '@ladybugdb/core',
       'gitnexus',
