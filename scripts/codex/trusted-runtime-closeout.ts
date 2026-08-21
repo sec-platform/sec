@@ -44,6 +44,7 @@ import {
   createTrustedRuntimeMainHealthReceiptV1,
   executeTrustedRuntimeContainerVerificationV1,
   executeTrustedRuntimeMainHealthV1,
+  executeTrustedRuntimeWorkspaceCanaryV1,
   parseTrustedRuntimeContainerReceiptV1,
   parseTrustedRuntimeMainHealthReceiptV1,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1,
@@ -121,14 +122,18 @@ function canonicalBytes(value: unknown): Uint8Array {
 
 type TrustedRuntimeOperatorArgsV1 =
   | Readonly<{ mode: 'closeout'; repository: string; prNumber: number }>
-  | Readonly<{ mode: 'main-health'; repository: string }>;
+  | Readonly<{ mode: 'main-health'; repository: string }>
+  | Readonly<{ mode: 'runtime-canary'; repository: string }>;
 
 function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgsV1 {
-  const mainHealth = argv.includes('--main-health');
-  const normalized = argv.filter((argument) => argument !== '--main-health');
-  if (mainHealth && normalized.length !== argv.length - 1) {
-    fail('--main-health must appear exactly once');
+  const mainHealthCount = argv.filter((argument) => argument === '--main-health').length;
+  const runtimeCanaryCount = argv.filter((argument) => argument === '--runtime-canary').length;
+  if (mainHealthCount > 1 || runtimeCanaryCount > 1
+      || mainHealthCount + runtimeCanaryCount > 1) {
+    fail('trusted runtime operator mode must appear exactly once');
   }
+  const normalized = argv.filter((argument) =>
+    argument !== '--main-health' && argument !== '--runtime-canary');
   const values = new Map<string, string>();
   for (let index = 0; index < normalized.length; index += 2) {
     const key = normalized[index];
@@ -139,14 +144,18 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgsV1 {
     values.set(key, value);
   }
   if ([...values.keys()].some((key) => key !== '--pr' && key !== '--repository')) {
-    fail('usage: bun run sec:closeout -- --pr <n> [--repository owner/name] | bun run sec:main-health');
+    fail('usage: bun run sec:closeout -- --pr <n> [--repository owner/name] | bun run sec:main-health | bun run sec:runtime-canary');
   }
   const rawPr = values.get('--pr');
   const repository = values.get('--repository') ?? 'sec-platform/sec';
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)) fail('--repository is invalid');
-  if (mainHealth) {
-    if (rawPr !== undefined) fail('--main-health cannot be combined with --pr');
+  if (mainHealthCount === 1) {
+    if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
     return Object.freeze({ mode: 'main-health', repository });
+  }
+  if (runtimeCanaryCount === 1) {
+    if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
+    return Object.freeze({ mode: 'runtime-canary', repository });
   }
   if (rawPr === undefined || !/^[1-9][0-9]*$/u.test(rawPr)) fail('--pr must be positive');
   return Object.freeze({ mode: 'closeout', repository, prNumber: Number(rawPr) });
@@ -411,13 +420,7 @@ export async function ensureCurrentTrustedRuntimeMainHealthV1(input: Readonly<{
     tool('git', ['remote', 'get-url', 'origin'], repositoryRoot),
     tool('gh', ['api', `/repos/${input.repository}/git/ref/heads/main`, '--jq', '.object.sha'], repositoryRoot)
   ]);
-  const escapedRepository = input.repository.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-  if (!new RegExp(
-    `^(?:https://github\\.com/|git@github\\.com:|ssh://git@github\\.com/)${escapedRepository}(?:\\.git)?$`,
-    'u'
-  ).test(originUrl)) {
-    fail('origin remote does not match the requested GitHub repository');
-  }
+  assertOriginMatchesRepositoryV1(originUrl, input.repository);
   if (branch !== 'main' || status !== '' || !/^[0-9a-f]{40}$/u.test(liveDefaultSha)
       || liveDefaultSha !== headSha) {
     fail('standalone MainHealth must execute from the clean exact default-branch worktree');
@@ -436,6 +439,41 @@ export async function ensureCurrentTrustedRuntimeMainHealthV1(input: Readonly<{
     receiptDigest: ensured.receipt.receiptDigest,
     executionId: ensured.receipt.executionId,
     reused: ensured.reused
+  });
+}
+
+function assertOriginMatchesRepositoryV1(originUrl: string, repository: string): void {
+  const escapedRepository = repository.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  if (!new RegExp(
+    `^(?:https://github\\.com/|git@github\\.com:|ssh://git@github\\.com/)${escapedRepository}(?:\\.git)?$`,
+    'u'
+  ).test(originUrl)) {
+    fail('origin remote does not match the requested GitHub repository');
+  }
+}
+
+export async function runCurrentTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+}>): Promise<Awaited<ReturnType<typeof executeTrustedRuntimeWorkspaceCanaryV1>>> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const [branch, headSha, headTreeSha, status, originUrl] = await Promise.all([
+    tool('git', ['branch', '--show-current'], repositoryRoot),
+    tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
+    tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
+    tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot),
+    tool('git', ['remote', 'get-url', 'origin'], repositoryRoot)
+  ]);
+  assertOriginMatchesRepositoryV1(originUrl, input.repository);
+  if (branch === '' || status !== '' || !/^[0-9a-f]{40}$/u.test(headSha)
+      || !/^[0-9a-f]{40}$/u.test(headTreeSha)) {
+    fail('runtime workspace canary requires one clean attached exact Git head');
+  }
+  return await executeTrustedRuntimeWorkspaceCanaryV1({
+    repositoryRoot,
+    repository: input.repository,
+    headSha,
+    headTreeSha
   });
 }
 
@@ -1126,11 +1164,16 @@ async function main(): Promise<void> {
         repositoryRoot: process.cwd(),
         repository: args.repository
       })
-    : await closeoutWithTrustedRuntimeV1({
-        repositoryRoot: process.cwd(),
-        repository: args.repository,
-        prNumber: args.prNumber
-      });
+    : args.mode === 'runtime-canary'
+      ? await runCurrentTrustedRuntimeWorkspaceCanaryV1({
+          repositoryRoot: process.cwd(),
+          repository: args.repository
+        })
+      : await closeoutWithTrustedRuntimeV1({
+          repositoryRoot: process.cwd(),
+          repository: args.repository,
+          prNumber: args.prNumber
+        });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 

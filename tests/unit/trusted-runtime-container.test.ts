@@ -105,6 +105,8 @@ describe('provider-neutral trusted runtime container', () => {
       id: '4'.repeat(64),
       imageId: expected.imageId,
       name: `sec-trusted-runtime-${operationKey}-${ownerNonce}`,
+      readOnlyRootfs: true as const,
+      readOnlyCandidateBundle: true as const,
       labels: Object.freeze({
         ...imageLabels,
         'sec.trusted-runtime.operation': operationKey,
