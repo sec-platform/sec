@@ -1121,8 +1121,10 @@ function fakeDependencies(input: {
               parentNamespace,
               runChild
             );
-            await consumeTestWorkspaceSupervisorChallengeV1(assignment);
-            const cleanup = prepareTestWorkspaceRunV1(process.env, assignment);
+            const authority = await consumeTestWorkspaceSupervisorChallengeV1(assignment);
+            process.env.SEC_TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT = undefined;
+            process.env.SEC_TEST_WORKSPACE_BOUND_CHILD_LOCATOR = JSON.stringify(assignment);
+            const cleanup = prepareTestWorkspaceRunV1(process.env, authority);
             settlePreparedTestWorkspaceRunV1(cleanup);
           `;
           return runObservedCommand(command, ['-e', source], options);

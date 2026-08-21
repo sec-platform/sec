@@ -2,17 +2,23 @@ import { rmSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { ensureTestDependencies } from '../../platform/dev-runner/dependency-bootstrap.ts';
+import { compilerRoot } from '../../platform/shared/paths.ts';
+import {
+  acquireSecRuntimeCachePhysicalAuthorityV1,
+  type SecRuntimeCachePhysicalAuthorityV1
+} from '../../tooling/sec-dev/runtime-state-authority.ts';
+import { resolveSecWorkspaceRuntimeRootsV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
+
+let testProcessTempAuthority: SecRuntimeCachePhysicalAuthorityV1 | null = null;
 
 async function configureTestTempRoot(): Promise<void> {
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-  if (process.env.SEC_STATE_HOME === undefined && process.env.SEC_CACHE_HOME === undefined) {
+  if (process.env.SEC_STATE_HOME === undefined || process.env.SEC_CACHE_HOME === undefined) {
     const hostTempRoot = path.resolve(tmpdir());
     const runtimeRoot = await fs.mkdtemp(path.join(hostTempRoot, 'sec-test-runtime-'));
-    process.env.SEC_STATE_HOME = path.join(runtimeRoot, 'state');
-    process.env.SEC_CACHE_HOME = path.join(runtimeRoot, 'cache');
+    process.env.SEC_STATE_HOME ??= path.join(runtimeRoot, 'state');
+    process.env.SEC_CACHE_HOME ??= path.join(runtimeRoot, 'cache');
     process.once('exit', () => {
       const resolved = path.resolve(runtimeRoot);
       if (path.dirname(resolved) === hostTempRoot && path.basename(resolved).startsWith('sec-test-runtime-')) {
@@ -20,8 +26,17 @@ async function configureTestTempRoot(): Promise<void> {
       }
     });
   }
-  const tempRoot = path.join(repoRoot, '.tmp', 'test-workspaces');
-  await fs.mkdir(tempRoot, { recursive: true });
+  const roots = resolveSecWorkspaceRuntimeRootsV1({
+    repositoryRoot: compilerRoot,
+    environment: process.env
+  });
+  const tempRoot = path.join(roots.cacheRoot, 'test-process-tmp');
+  testProcessTempAuthority = acquireSecRuntimeCachePhysicalAuthorityV1({
+    repositoryRoot: compilerRoot,
+    cacheRoot: roots.cacheRoot,
+    requiredDirectories: [tempRoot]
+  });
+  testProcessTempAuthority.assertCurrent();
   process.env.TMPDIR = tempRoot;
   process.env.TMP = tempRoot;
   process.env.TEMP = tempRoot;

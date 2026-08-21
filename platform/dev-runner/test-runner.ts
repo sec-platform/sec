@@ -58,6 +58,7 @@ import {
   resolveTestWorkspaceNamespace,
   resolveTestWorkspaceRunChild,
   settlePreparedTestWorkspaceRunV1,
+  TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV
@@ -450,8 +451,10 @@ async function prepareFastTestWorkspaceRun(): Promise<Readonly<{
   const parentNamespace = resolveTestWorkspaceNamespace();
   const inheritedRunChild = resolveTestWorkspaceRunChild();
   const serializedAssignment = process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV];
+  const inheritedBoundChildLocator = process.env[TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV];
   if ((inheritedRunChild === undefined) !== (serializedAssignment === undefined) ||
-    (inheritedRunChild !== undefined && parentNamespace === undefined)) {
+    (inheritedRunChild !== undefined && parentNamespace === undefined) ||
+    inheritedBoundChildLocator !== undefined) {
     throw new Error('runFastTests cannot start beneath an existing run-owned workspace child');
   }
   fastTestRunSequence += 1;
@@ -463,20 +466,26 @@ async function prepareFastTestWorkspaceRun(): Promise<Readonly<{
       processNonce: fastTestProcessNonce,
       runSequence: fastTestRunSequence
     });
+  let callerAuthority = null;
   if (callerAssignment !== null) {
     if (callerAssignmentClaimed) throw new Error('runFastTests caller assignment authority was already consumed');
-    await consumeTestWorkspaceSupervisorChallengeV1(callerAssignment);
+    callerAuthority = await consumeTestWorkspaceSupervisorChallengeV1(callerAssignment);
     callerAssignmentClaimed = true;
   }
   const env = {
     [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace ?? runChild,
     // Explicit undefined scrubs a poisoned inherited child for ordinary runs.
     [TEST_WORKSPACE_RUN_CHILD_ENV]: parentNamespace === undefined ? undefined : runChild,
-    [TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: undefined
+    [TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: undefined,
+    // This projection is a read-only locator. Cleanup requires the opaque,
+    // process-local authority returned only after the live challenge succeeds.
+    [TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV]: callerAssignment === null
+      ? undefined
+      : JSON.stringify(callerAssignment)
   };
   return Object.freeze({
     env,
-    cleanup: prepareTestWorkspaceRunV1(env, callerAssignment)
+    cleanup: prepareTestWorkspaceRunV1(env, callerAuthority)
   });
 }
 

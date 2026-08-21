@@ -42,6 +42,7 @@ const {
   resolveTestWorkspaceNamespace,
   settlePreparedTestWorkspaceRunV1: actualSettlePreparedTestWorkspaceRunV1,
   testWorkspaceSupervisorLeasePathV1,
+  TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV
@@ -62,6 +63,7 @@ let testDependencyBootstrapCalls = 0;
 let hasTestDependencyBootstrapFailure = false;
 let testDependencyBootstrapFailure: unknown;
 let cleanupFailure: Error | null = null;
+const mockedAssignedCleanupTokens = new WeakSet<object>();
 const isolatedFastTestFileSet = new Set<string>(PROCESS_ISOLATED_FAST_TEST_FILES);
 let changedFiles = ['platform/unmapped-source.ts'];
 let materializeTestWorkspace = false;
@@ -69,6 +71,7 @@ let trustedCallerAssignmentFixture: actualEnvManager.TestWorkspaceRunChildAssign
 let previousTestWorkspaceNamespace: string | undefined;
 let previousTestWorkspaceRunChild: string | undefined;
 let previousTestWorkspaceRunChildAssignment: string | undefined;
+let previousTestWorkspaceBoundChildLocator: string | undefined;
 let previousAffectedTestsBase: string | undefined;
 let previousChangedBase: string | undefined;
 let previousConsoleLog: typeof console.log;
@@ -116,7 +119,8 @@ mock.module('../../platform/shared/process.ts', () => ({
 }));
 
 mock.module('../../platform/dev-runner/env-manager.ts', () => ({
-  consumeTestWorkspaceSupervisorChallengeV1: async () => undefined,
+  consumeTestWorkspaceSupervisorChallengeV1: async () =>
+    Object.freeze({ schema: 'sec-test-workspace-run-child-authority-v1' as const }),
   createTestWorkspaceRunChildAssignmentV1,
   deriveTestWorkspaceRunNamespaceV1,
   getTestWorkspaceTemplateRoot,
@@ -130,13 +134,23 @@ mock.module('../../platform/dev-runner/env-manager.ts', () => ({
     ? trustedCallerAssignmentFixture
     : parseTestWorkspaceRunChildAssignmentV1(serialized, parentNamespace, runChild),
   pathEnvKey,
-  prepareTestWorkspaceRunV1,
+  prepareTestWorkspaceRunV1: (
+    env: NodeJS.ProcessEnv,
+    authority: actualEnvManager.TestWorkspaceRunChildAuthorityV1 | null
+  ) => {
+    if (authority === null) return prepareTestWorkspaceRunV1(env, null);
+    const token = Object.freeze({ schema: 'prepared-test-workspace-run-v1' as const });
+    mockedAssignedCleanupTokens.add(token);
+    return token;
+  },
   resolveTestWorkspaceRunChild,
   resolveTestWorkspaceNamespace,
   settlePreparedTestWorkspaceRunV1: (token: actualEnvManager.PreparedTestWorkspaceRunV1) => {
     if (cleanupFailure) throw cleanupFailure;
+    if (mockedAssignedCleanupTokens.has(token)) return;
     actualSettlePreparedTestWorkspaceRunV1(token);
   },
+  TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV
@@ -154,7 +168,10 @@ mock.module('../../platform/dev-runner/command-runner.ts', () => ({
     devCommandEnvironments.push(env);
     devCommandStartObservers.shift()?.();
     if (materializeTestWorkspace) {
-      await fs.mkdir(getTestWorkspaceTempRoot(env), { recursive: true });
+      await fs.mkdir(getTestWorkspaceTempRoot({
+        ...env,
+        [TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV]: undefined
+      }), { recursive: true });
     }
     const failure = devCommandFailures.shift();
     const settlement = devCommandSettlements.shift();
@@ -350,11 +367,13 @@ beforeEach(() => {
   previousTestWorkspaceNamespace = process.env[TEST_WORKSPACE_NAMESPACE_ENV];
   previousTestWorkspaceRunChild = process.env[TEST_WORKSPACE_RUN_CHILD_ENV];
   previousTestWorkspaceRunChildAssignment = process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV];
+  previousTestWorkspaceBoundChildLocator = process.env[TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV];
   previousAffectedTestsBase = process.env.SEC_AFFECTED_TESTS_BASE;
   previousChangedBase = process.env.SEC_CHANGED_BASE;
   delete process.env[TEST_WORKSPACE_NAMESPACE_ENV];
   delete process.env[TEST_WORKSPACE_RUN_CHILD_ENV];
   delete process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV];
+  delete process.env[TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV];
   delete process.env.SEC_AFFECTED_TESTS_BASE;
   delete process.env.SEC_CHANGED_BASE;
   commandCalls.length = 0;
@@ -394,6 +413,11 @@ afterEach(() => {
     delete process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV];
   } else {
     process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV] = previousTestWorkspaceRunChildAssignment;
+  }
+  if (previousTestWorkspaceBoundChildLocator === undefined) {
+    delete process.env[TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV];
+  } else {
+    process.env[TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV] = previousTestWorkspaceBoundChildLocator;
   }
   if (previousAffectedTestsBase === undefined) {
     delete process.env.SEC_AFFECTED_TESTS_BASE;
@@ -1667,7 +1691,6 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
   process.env[TEST_WORKSPACE_RUN_CHILD_ENV] = runChild;
   process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV] = JSON.stringify(assignment);
   trustedCallerAssignmentFixture = assignment;
-  materializeTestWorkspace = true;
   try {
     const code = await runFastTests(['tests/unit/path-containment.test.ts']);
     const workspaceEnv = devCommandEnvironments[0]!;
@@ -1676,7 +1699,7 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
     expect(workspaceEnv[TEST_WORKSPACE_NAMESPACE_ENV]).toBe(parentNamespace);
     expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ENV]).toBe(runChild);
     expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]).toBeUndefined();
-    await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
+    expect(workspaceEnv[TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV]).toBe(JSON.stringify(assignment));
     await expect(runFastTests(['tests/unit/path-containment.test.ts']))
       .rejects.toThrow('runFastTests caller assignment authority was already consumed');
   } finally {

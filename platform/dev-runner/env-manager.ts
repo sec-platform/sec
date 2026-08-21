@@ -15,12 +15,18 @@ import {
   scanNoFollowDirectoryTreeMetadataV1,
   type PhysicalDirectoryIdentityV1
 } from '../shared/physical-no-follow.ts';
+import {
+  currentSecRuntimePlatformV1,
+  resolveSecRuntimeCacheRootV1,
+  secRuntimeStateEnvironmentV1
+} from '../shared/sec-runtime-state-contract.ts';
 
 export { pathEnvKey } from '../shared/process.ts';
 
 export const TEST_WORKSPACE_NAMESPACE_ENV = 'SEC_TEST_WORKSPACE_NAMESPACE';
 export const TEST_WORKSPACE_RUN_CHILD_ENV = 'SEC_TEST_WORKSPACE_RUN_CHILD';
 export const TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV = 'SEC_TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT';
+export const TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV = 'SEC_TEST_WORKSPACE_BOUND_CHILD_LOCATOR';
 export const TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_SCHEMA_V1 = 'sec-test-workspace-run-child-assignment-v1';
 export const TEST_WORKSPACE_SUPERVISOR_LEASE_SCHEMA_V1 = 'sec-test-workspace-supervisor-lease-v1';
 const TEST_WORKSPACE_SUPERVISOR_CHALLENGE_SCHEMA_V1 = 'sec-test-workspace-supervisor-challenge-v1';
@@ -75,6 +81,10 @@ export interface PreparedTestWorkspaceRunV1 {
   readonly schema: 'prepared-test-workspace-run-v1';
 }
 
+export interface TestWorkspaceRunChildAuthorityV1 {
+  readonly schema: 'sec-test-workspace-run-child-authority-v1';
+}
+
 type PreparedTestWorkspaceRunStateV1 =
   | {
       readonly mode: 'retained';
@@ -92,6 +102,8 @@ type PreparedTestWorkspaceRunStateV1 =
     };
 
 const preparedTestWorkspaceRuns = new WeakMap<object, PreparedTestWorkspaceRunStateV1>();
+const testWorkspaceRunChildAuthorities = new WeakMap<object, TestWorkspaceRunChildAssignmentV1>();
+const consumedTestWorkspaceRunChildAuthorities = new WeakSet<object>();
 
 function exactObjectKeys(value: object, expected: readonly string[]): boolean {
   return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
@@ -539,7 +551,7 @@ export async function acquireTestWorkspaceSupervisorChallengeServerV1(input: {
 
 export async function consumeTestWorkspaceSupervisorChallengeV1(
   assignment: TestWorkspaceRunChildAssignmentV1
-): Promise<void> {
+): Promise<TestWorkspaceRunChildAuthorityV1> {
   const snapshot = testWorkspaceGateSnapshotBindingV1(compilerRoot);
   const challenge = testWorkspaceSupervisorChallengeV1(assignment);
   const requestBytes = Buffer.from(`${JSON.stringify(challenge)}\n`, 'utf8');
@@ -587,12 +599,28 @@ export async function consumeTestWorkspaceSupervisorChallengeV1(
       }
     });
   });
+  const authority = Object.freeze({ schema: 'sec-test-workspace-run-child-authority-v1' as const });
+  testWorkspaceRunChildAuthorities.set(authority, assignment);
+  return authority;
 }
 
-export function parseTestWorkspaceRunChildAssignmentV1(
+function processIsAlive(processId: number): boolean {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'EPERM';
+  }
+}
+
+function parseTestWorkspaceRunChildAssignmentProjectionV1(
   serialized: string | undefined,
   parentNamespace: string,
-  runChild: string
+  runChild: string,
+  input: Readonly<{
+    executionSnapshotRoot: string;
+    issuerBinding: 'direct-parent' | 'live-supervisor';
+  }>
 ): TestWorkspaceRunChildAssignmentV1 {
   if (!serialized) throw new Error('runFastTests caller-assigned workspace child has no opaque assignment');
   let value: unknown;
@@ -622,16 +650,21 @@ export function parseTestWorkspaceRunChildAssignmentV1(
     device: candidate.device,
     inode: candidate.inode
   };
-  const supervisorLease = bindTestWorkspaceSupervisorLeaseV1(
+  const supervisorLease = bindTestWorkspaceSupervisorLeaseProjectionV1(
     String(candidate.supervisorLeasePath),
-    parentNamespace
+    parentNamespace,
+    input.executionSnapshotRoot
   );
+  const issuerProcessId = Number(candidate.issuerProcessId);
+  const issuerBindingValid = input.issuerBinding === 'direct-parent'
+    ? issuerProcessId === process.ppid
+    : processIsAlive(issuerProcessId);
   if (candidate.schema !== TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_SCHEMA_V1 ||
     !/^[0-9a-f]{64}$/u.test(String(candidate.nonce)) ||
     candidate.nonceDigest !== rawSha256(String(candidate.nonce)) ||
-    !Number.isSafeInteger(candidate.issuerProcessId) || Number(candidate.issuerProcessId) < 1 ||
-    candidate.issuerProcessId !== process.ppid ||
-    candidate.issuerProcessId !== supervisorLease.record.issuerProcessId ||
+    !Number.isSafeInteger(candidate.issuerProcessId) || issuerProcessId < 1 ||
+    !issuerBindingValid ||
+    issuerProcessId !== supervisorLease.record.issuerProcessId ||
     candidate.supervisorLeaseDigest !== supervisorLease.record.leaseDigest ||
     candidate.supervisorLeasePath !== supervisorLease.path ||
     candidate.supervisorLeaseDevice !== supervisorLease.device ||
@@ -644,7 +677,7 @@ export function parseTestWorkspaceRunChildAssignmentV1(
     candidate.name !== deriveAssignedTestWorkspaceRunChildV1({
       parentNamespace,
       nonceDigest: candidate.nonceDigest as `sha256:${string}`,
-      issuerProcessId: Number(candidate.issuerProcessId),
+      issuerProcessId,
       supervisorLeaseDigest: candidate.supervisorLeaseDigest as `sha256:${string}`
     }) ||
     candidate.assignmentDigest !== rawSha256(JSON.stringify(draft))) {
@@ -653,19 +686,84 @@ export function parseTestWorkspaceRunChildAssignmentV1(
   return Object.freeze(candidate as unknown as TestWorkspaceRunChildAssignmentV1);
 }
 
+export function parseTestWorkspaceRunChildAssignmentV1(
+  serialized: string | undefined,
+  parentNamespace: string,
+  runChild: string
+): TestWorkspaceRunChildAssignmentV1 {
+  return parseTestWorkspaceRunChildAssignmentProjectionV1(serialized, parentNamespace, runChild, {
+    executionSnapshotRoot: compilerRoot,
+    issuerBinding: 'direct-parent'
+  });
+}
+
+function bindTestWorkspaceChildLocatorV1(
+  serialized: string,
+  parentNamespace: string,
+  runChild: string
+): TestWorkspaceRunChildAssignmentV1 {
+  const assignment = parseTestWorkspaceRunChildAssignmentProjectionV1(
+    serialized,
+    parentNamespace,
+    runChild,
+    { executionSnapshotRoot: compilerRoot, issuerBinding: 'live-supervisor' }
+  );
+  const snapshot = testWorkspaceGateSnapshotBindingV1(compilerRoot);
+  const namespaceRoot = inspectNoFollowDirectoryChainV1(
+    path.join(snapshot.executionSnapshotRoot, '.tmp', 'test-workspaces', parentNamespace),
+    'Bound test workspace namespace locator'
+  ).target;
+  const child = inspectNoFollowDirectoryChildV1(
+    namespaceRoot,
+    runChild,
+    'Bound test workspace child locator'
+  );
+  if (namespaceRoot.device !== assignment.namespaceDevice ||
+    namespaceRoot.inode !== assignment.namespaceInode || child === null ||
+    child.device !== assignment.device || child.inode !== assignment.inode) {
+    throw new Error('Bound test workspace child locator physical identity changed');
+  }
+  return assignment;
+}
+
 export function getTestWorkspaceTempRoot(env: NodeJS.ProcessEnv = process.env): string {
-  const root = path.join(compilerRoot, '.tmp', 'test-workspaces');
-  const namespace = resolveTestWorkspaceNamespace(env);
-  const runChild = resolveTestWorkspaceRunChild(env);
+  const effectiveEnvironment = { ...process.env, ...env };
+  const namespace = resolveTestWorkspaceNamespace(effectiveEnvironment);
+  const runChild = resolveTestWorkspaceRunChild(effectiveEnvironment);
   if (runChild && !namespace) {
     throw new Error(`${TEST_WORKSPACE_RUN_CHILD_ENV} requires ${TEST_WORKSPACE_NAMESPACE_ENV}`);
   }
+  const boundChildLocator = effectiveEnvironment[TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV]?.trim();
+  if (boundChildLocator !== undefined && (namespace === undefined || runChild === undefined)) {
+    throw new Error(`${TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV} requires an exact namespace and run child`);
+  }
+  const hasBoundGateChild = boundChildLocator !== undefined && namespace !== undefined && runChild !== undefined;
+  if (hasBoundGateChild) bindTestWorkspaceChildLocatorV1(boundChildLocator, namespace, runChild);
+  const physicalCompilerRoot = realpathSync.native(compilerRoot);
+  const root = hasBoundGateChild
+    ? path.join(compilerRoot, '.tmp', 'test-workspaces')
+    : path.join(
+        resolveSecRuntimeCacheRootV1({
+          platform: currentSecRuntimePlatformV1(),
+          environment: secRuntimeStateEnvironmentV1(effectiveEnvironment),
+          repositoryRoot: physicalCompilerRoot
+        }),
+        'test-workspaces',
+        'v1',
+        rawSha256(process.platform === 'win32'
+          ? physicalCompilerRoot.toLocaleLowerCase('en-US')
+          : physicalCompilerRoot).slice('sha256:'.length)
+      );
   if (!namespace) return root;
   return runChild ? path.join(root, namespace, runChild) : path.join(root, namespace);
 }
 
-export function getTestWorkspaceTemplateRoot(): string {
-  return path.join(compilerRoot, '.tmp', 'test-workspaces', '.templates');
+export function getTestWorkspaceTemplateRoot(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(getTestWorkspaceTempRoot({ ...env,
+    [TEST_WORKSPACE_NAMESPACE_ENV]: undefined,
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: undefined,
+    [TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV]: undefined
+  }), '.templates');
 }
 
 export function testWorkspaceCleanupModeForPlatformV1(
@@ -679,8 +777,17 @@ export function testWorkspaceCleanupModeForPlatformV1(
 
 export function prepareTestWorkspaceRunV1(
   env: NodeJS.ProcessEnv,
-  expectedAssignment: TestWorkspaceRunChildAssignmentV1 | null
+  authority: TestWorkspaceRunChildAuthorityV1 | null
 ): PreparedTestWorkspaceRunV1 {
+  let expectedAssignment: TestWorkspaceRunChildAssignmentV1 | null = null;
+  if (authority !== null) {
+    const boundAssignment = testWorkspaceRunChildAuthorities.get(authority);
+    if (boundAssignment === undefined || consumedTestWorkspaceRunChildAuthorities.has(authority)) {
+      throw new Error('Test workspace run-child cleanup authority is invalid or already consumed');
+    }
+    consumedTestWorkspaceRunChildAuthorities.add(authority);
+    expectedAssignment = boundAssignment;
+  }
   const targetPath = getTestWorkspaceTempRoot(env);
   const parentPath = path.dirname(targetPath);
   const cleanupMode = testWorkspaceCleanupModeForPlatformV1(process.platform, expectedAssignment !== null);
