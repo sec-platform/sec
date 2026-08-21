@@ -763,9 +763,7 @@ type TcbClosureCommandFixture = Readonly<{
 }>;
 
 function createTcbClosureCommandFixture(): TcbClosureCommandFixture {
-  const parent = path.join(compilerRoot, '.tmp');
-  mkdirSync(parent, { recursive: true });
-  const root = mkdtempSync(path.join(parent, 'sec-tcb-command-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-tcb-command-'));
   const runtime = trustedRuntimeClosure();
   for (const reviewedSutEdge of SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.reviewedSutEdges) {
     if (!runtime.reviewedEdges.has(reviewedSutEdge)) {
@@ -928,10 +926,14 @@ function invokeTcbClosureCli(
   argv: readonly string[],
   hosted = false
 ): TcbClosureCliObservation {
-  const result = spawnSync(process.execPath, [fixture.entrypoint, ...argv], {
+  const result = spawnSync(process.execPath, ['--no-install', fixture.entrypoint, ...argv], {
     cwd: fixture.root,
     encoding: 'utf8',
-    env: { ...process.env, GITHUB_ACTIONS: hosted ? 'true' : 'false' },
+    env: {
+      ...process.env,
+      GITHUB_ACTIONS: hosted ? 'true' : 'false',
+      NODE_PATH: path.join(compilerRoot, 'node_modules')
+    },
     maxBuffer: 16 * 1024 * 1024,
     timeout: TCB_CLOSURE_FIXTURE_CHILD_TIMEOUT_MS,
     windowsHide: true
@@ -1000,7 +1002,9 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     renameSync(absentTarget, fixture.target);
 
     const freshCheck = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'check']);
-    expect(freshCheck.status).toBe(0);
+    if (freshCheck.status !== 0) {
+      throw new Error(`TCB closure fresh fixture check failed: ${freshCheck.stderr || freshCheck.stdout}`);
+    }
     expect(JSON.parse(freshCheck.stdout)).toMatchObject({ status: 'current', changed: false });
     expect(existsSync(fixture.archiveRoot)).toBe(false);
     expect(existsSync(fixture.stage)).toBe(false);
