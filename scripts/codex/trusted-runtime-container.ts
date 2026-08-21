@@ -564,6 +564,7 @@ export interface TrustedRuntimeContainerIdentityV1 {
   readonly labels: Readonly<Record<string, string>>;
   readonly readOnlyRootfs: true;
   readonly readOnlyCandidateBundle: true;
+  readonly initProcess: true;
   readonly executableTestTmpfs: true;
   readonly nonExecutableMutableTmpfs: true;
   readonly dependencyCacheVolumeName: string | null;
@@ -646,6 +647,7 @@ export function parseTrustedRuntimeContainerIdentityV1(
       || config === null || typeof config !== 'object' || Array.isArray(config)
       || hostConfig === null || typeof hostConfig !== 'object' || Array.isArray(hostConfig)
       || (hostConfig as Record<string, unknown>).ReadonlyRootfs !== true
+      || (hostConfig as Record<string, unknown>).Init !== true
       || !Array.isArray(mounts)) {
     fail('Docker container identity is invalid');
   }
@@ -693,6 +695,7 @@ export function parseTrustedRuntimeContainerIdentityV1(
     labels: Object.freeze(labels),
     readOnlyRootfs: true,
     readOnlyCandidateBundle: true,
+    initProcess: true,
     executableTestTmpfs: true,
     nonExecutableMutableTmpfs: true,
     dependencyCacheVolumeName
@@ -706,6 +709,7 @@ function sameContainerIdentityV1(
   return left.id === right.id && left.imageId === right.imageId && left.name === right.name
     && left.readOnlyRootfs === right.readOnlyRootfs
     && left.readOnlyCandidateBundle === right.readOnlyCandidateBundle
+    && left.initProcess === right.initProcess
     && left.executableTestTmpfs === right.executableTestTmpfs
     && left.nonExecutableMutableTmpfs === right.nonExecutableMutableTmpfs
     && left.dependencyCacheVolumeName === right.dependencyCacheVolumeName
@@ -756,6 +760,7 @@ export function authorizeTrustedRuntimeContainerRecoveryV1(input: Readonly<{
       || input.first.imageId !== input.expected.imageId
       || input.first.readOnlyRootfs !== true
       || input.first.readOnlyCandidateBundle !== true
+      || input.first.initProcess !== true
       || input.first.executableTestTmpfs !== true
       || input.first.nonExecutableMutableTmpfs !== true
       || input.first.dependencyCacheVolumeName !== input.expected.dependencyCacheVolumeName
@@ -1491,6 +1496,7 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         'container', 'create', '--name', containerName,
         ...Object.entries(containerLabels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
+        '--init',
         '--read-only',
         '--pids-limit', '1024', '--cpus', '8', '--memory', '12g',
         '--tmpfs', TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1,
@@ -1516,6 +1522,7 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
           || createdIdentity.imageId !== image.imageId
           || createdIdentity.readOnlyRootfs !== true
           || createdIdentity.readOnlyCandidateBundle !== true
+          || createdIdentity.initProcess !== true
           || createdIdentity.executableTestTmpfs !== true
           || createdIdentity.nonExecutableMutableTmpfs !== true
           || createdIdentity.dependencyCacheVolumeName
