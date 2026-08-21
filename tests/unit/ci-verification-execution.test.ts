@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   closeSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -800,7 +799,7 @@ function createTcbClosureCommandFixture(): TcbClosureCommandFixture {
       || path.isAbsolute(targetRelative)
     ) throw new Error(`TCB closure fixture path escapes its bounded root: ${repositoryPath}.`);
     mkdirSync(path.dirname(targetPath), { recursive: true });
-    copyFileSync(source, targetPath);
+    writeFileSync(targetPath, readFileSync(source));
   }
   const target = path.join(root, ...CI_TCB_CLOSURE_LOCK_TARGET_V1.split('/'));
   return {
