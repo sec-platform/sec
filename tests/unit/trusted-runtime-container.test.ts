@@ -8,8 +8,11 @@ import {
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
   assertTrustedRuntimeContainerImageV1,
+  assertTrustedRuntimeDependencyCacheVolumeV1,
   authorizeTrustedRuntimeContainerRecoveryV1,
   composeTrustedRuntimeContainerLabelsV1,
+  createTrustedRuntimeDependencyCacheMarkerV1,
+  createTrustedRuntimeDependencyCacheVolumeSpecV1,
   createTrustedRuntimeHostCommandEnvironmentV1,
   createTrustedRuntimeMainHealthReceiptV1,
   parseTrustedRuntimeMainHealthReceiptV1
@@ -99,7 +102,8 @@ describe('provider-neutral trusted runtime container', () => {
       endpointDigest: `sha256:${'3'.repeat(64)}` as `sha256:${string}`,
       imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
       imageLabels,
-      ownerHost: 'trusted-host'
+      ownerHost: 'trusted-host',
+      dependencyCacheVolumeName: null
     });
     const identity = Object.freeze({
       id: '4'.repeat(64),
@@ -107,6 +111,7 @@ describe('provider-neutral trusted runtime container', () => {
       name: `sec-trusted-runtime-${operationKey}-${ownerNonce}`,
       readOnlyRootfs: true as const,
       readOnlyCandidateBundle: true as const,
+      dependencyCacheVolumeName: null,
       labels: Object.freeze({
         ...imageLabels,
         'sec.trusted-runtime.operation': operationKey,
@@ -131,6 +136,13 @@ describe('provider-neutral trusted runtime container', () => {
       }
     })).toBe(identity.id);
     expect(observations).toBe(2);
+    expect(() => authorizeTrustedRuntimeContainerRecoveryV1({
+      first: { ...identity,
+        dependencyCacheVolumeName: 'sec-trusted-runtime-bun-cache-v1-1234567890abcdef1234567890abcdef' },
+      confirmed: identity,
+      expected,
+      observeProcessLiveness: () => 'dead'
+    })).toThrow(/differs from the fenced operation/);
     expect(() => authorizeTrustedRuntimeContainerRecoveryV1({
       first: identity,
       confirmed: identity,
@@ -172,6 +184,37 @@ describe('provider-neutral trusted runtime container', () => {
       { shared: 'image' },
       { shared: 'operation' }
     )).toThrow('collide with retained operation identity');
+  });
+
+  test('reuses only one exact content-addressed Docker dependency cache', () => {
+    const marker = createTrustedRuntimeDependencyCacheMarkerV1({
+      repository: 'sec-platform/sec',
+      bunLockBlobSha: '1'.repeat(40),
+      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1
+    });
+    const spec = createTrustedRuntimeDependencyCacheVolumeSpecV1(marker);
+    const inspect = JSON.stringify([{
+      CreatedAt: '2026-08-21T00:00:00Z',
+      Driver: 'local',
+      Labels: spec.labels,
+      Name: spec.name,
+      Options: null,
+      Scope: 'local'
+    }]);
+    expect(spec.name).toMatch(/^sec-trusted-runtime-bun-cache-v1-[0-9a-f]{32}$/u);
+    expect(assertTrustedRuntimeDependencyCacheVolumeV1({
+      source: inspect,
+      expected: spec,
+      endpointDigest: `sha256:${'2'.repeat(64)}`
+    })).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(() => assertTrustedRuntimeDependencyCacheVolumeV1({
+      source: JSON.stringify([{
+        ...JSON.parse(inspect)[0],
+        Labels: { ...spec.labels, 'sec.trusted-runtime.cache-key': `sha256:${'3'.repeat(64)}` }
+      }]),
+      expected: spec,
+      endpointDigest: `sha256:${'2'.repeat(64)}`
+    })).toThrow(/differs from the content-addressed specification/);
   });
 
   test('binds one reusable exact-main health execution receipt', () => {
