@@ -59,7 +59,7 @@ const TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1 = Object.freeze([
 ] as const);
 
 const TRUSTED_RUNTIME_MUTABLE_ROOT_V1 = '/sec-runtime' as const;
-const TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/authenticated-input`;
+const TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1 = '/candidate.bundle' as const;
 const TRUSTED_RUNTIME_TRUSTED_TREE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/trusted`;
 const TRUSTED_RUNTIME_WORKSPACE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/workspace`;
 const TRUSTED_RUNTIME_OUTPUT_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/output`;
@@ -220,6 +220,8 @@ export interface TrustedRuntimeContainerIdentityV1 {
   readonly imageId: string;
   readonly name: string;
   readonly labels: Readonly<Record<string, string>>;
+  readonly readOnlyRootfs: true;
+  readonly readOnlyCandidateBundle: true;
 }
 
 export function composeTrustedRuntimeContainerLabelsV1(
@@ -259,11 +261,25 @@ function parseContainerIdentityV1(source: string): TrustedRuntimeContainerIdenti
   }
   const record = parsed[0] as Record<string, unknown>;
   const config = record.Config;
+  const hostConfig = record.HostConfig;
+  const mounts = record.Mounts;
   if (typeof record.Id !== 'string' || !/^[0-9a-f]{64}$/u.test(record.Id)
       || typeof record.Image !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(record.Image)
       || typeof record.Name !== 'string' || !record.Name.startsWith('/')
-      || config === null || typeof config !== 'object' || Array.isArray(config)) {
+      || config === null || typeof config !== 'object' || Array.isArray(config)
+      || hostConfig === null || typeof hostConfig !== 'object' || Array.isArray(hostConfig)
+      || (hostConfig as Record<string, unknown>).ReadonlyRootfs !== true
+      || !Array.isArray(mounts)) {
     fail('Docker container identity is invalid');
+  }
+  const candidateBundleMounts = mounts.filter((entry) => entry !== null
+    && typeof entry === 'object'
+    && !Array.isArray(entry)
+    && (entry as Record<string, unknown>).Destination === TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1);
+  if (candidateBundleMounts.length !== 1
+      || (candidateBundleMounts[0] as Record<string, unknown>).Type !== 'bind'
+      || (candidateBundleMounts[0] as Record<string, unknown>).RW !== false) {
+    fail('Docker candidate bundle must be one read-only bind mount');
   }
   const rawLabels = (config as Record<string, unknown>).Labels;
   if (rawLabels === null || typeof rawLabels !== 'object' || Array.isArray(rawLabels)) {
@@ -278,7 +294,9 @@ function parseContainerIdentityV1(source: string): TrustedRuntimeContainerIdenti
     id: record.Id,
     imageId: record.Image,
     name: record.Name.slice(1),
-    labels: Object.freeze(labels)
+    labels: Object.freeze(labels),
+    readOnlyRootfs: true,
+    readOnlyCandidateBundle: true
   });
 }
 
@@ -287,6 +305,8 @@ function sameContainerIdentityV1(
   right: TrustedRuntimeContainerIdentityV1
 ): boolean {
   return left.id === right.id && left.imageId === right.imageId && left.name === right.name
+    && left.readOnlyRootfs === right.readOnlyRootfs
+    && left.readOnlyCandidateBundle === right.readOnlyCandidateBundle
     && encodeVerificationActionDataV2(left.labels) === encodeVerificationActionDataV2(right.labels);
 }
 
@@ -327,6 +347,8 @@ export function authorizeTrustedRuntimeContainerRecoveryV1(input: Readonly<{
   if (encodeVerificationActionDataV2(input.first.labels)
         !== encodeVerificationActionDataV2(expectedLabels)
       || input.first.imageId !== input.expected.imageId
+      || input.first.readOnlyRootfs !== true
+      || input.first.readOnlyCandidateBundle !== true
       || ownerNonce === undefined
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(ownerNonce)
       || input.first.name !== `sec-trusted-runtime-${input.expected.operationKey}-${ownerNonce}`
@@ -563,21 +585,24 @@ const SETUP_SCRIPT = [
   'set -euo pipefail',
   'base="$1"',
   'head="$2"',
-  `mkdir -p ${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1} ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} ${TRUSTED_RUNTIME_WORKSPACE_V1} ${TRUSTED_RUNTIME_OUTPUT_V1}`,
+  'mode="$3"',
+  '[ "$mode" = "full" ] || [ "$mode" = "lifecycle-canary" ]',
+  `mkdir -p ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} ${TRUSTED_RUNTIME_WORKSPACE_V1} ${TRUSTED_RUNTIME_OUTPUT_V1}`,
   `git init --quiet ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
-  `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} fetch --quiet ${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1}/candidate.bundle refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
+  `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} fetch --quiet ${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1} refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
   `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} reset --hard --quiet refs/sec/base`,
   `[ "$(git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} rev-parse HEAD)" = "$base" ]`,
   `git init --quiet ${TRUSTED_RUNTIME_WORKSPACE_V1}`,
-  `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} fetch --quiet ${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1}/candidate.bundle refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
+  `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} fetch --quiet ${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1} refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
   `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} reset --hard --quiet refs/sec/head`,
   `[ "$(git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} rev-parse HEAD)" = "$head" ]`,
-  `cd ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
-  'bun install --frozen-lockfile --ignore-scripts',
-  `rm -rf ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
-  `ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
-  `chmod -R a-w ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
-  `rm -f ${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1}/candidate.bundle`
+  'if [ "$mode" = "full" ]; then',
+  `  cd ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
+  '  bun install --frozen-lockfile --ignore-scripts',
+  `  rm -rf ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  `  ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  'fi',
+  `chmod -R a-w ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`
 ].join('\n');
 
 function formalEnvironment(input: Readonly<{
@@ -788,6 +813,7 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
   baseSha: string;
   headSha: string;
   operationKey: string;
+  setupMode: 'full' | 'lifecycle-canary';
   execute: (workspace: TrustedRuntimeWorkspaceV1) => Promise<T>;
 }>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
@@ -858,9 +884,11 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         'container', 'create', '--name', containerName,
         ...Object.entries(containerLabels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
+        '--read-only',
         '--pids-limit', '1024', '--cpus', '8', '--memory', '12g',
         '--tmpfs', '/tmp:rw,nosuid,nodev,size=2g',
-        '--tmpfs', `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}:rw,nosuid,nodev,size=10g,mode=0700,uid=1000,gid=1000`,
+        '--tmpfs', `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}:rw,nosuid,nodev,size=10g,mode=0711,uid=1000,gid=1000`,
+        '--mount', `type=bind,source=${path.resolve(bundle)},target=${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1},readonly`,
         image.imageId
       ], repositoryRoot, 120_000, dockerEndpoint);
       containerCreated = true;
@@ -876,6 +904,8 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
       if (createdIdentity.id !== containerTarget
           || createdIdentity.name !== containerName
           || createdIdentity.imageId !== image.imageId
+          || createdIdentity.readOnlyRootfs !== true
+          || createdIdentity.readOnlyCandidateBundle !== true
           || encodeVerificationActionDataV2(createdIdentity.labels)
             !== encodeVerificationActionDataV2(containerLabels)) {
         fail('Docker container creation readback differs from the retained attempt identity');
@@ -888,15 +918,11 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         dockerEndpoint
       );
       await command('docker', ['container', 'exec', '--user', '1000:1000', containerTarget,
-        '/bin/mkdir', '-p', TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1, TRUSTED_RUNTIME_OUTPUT_V1],
-      repositoryRoot, 120_000, dockerEndpoint);
-      await command('docker', ['container', 'cp', bundle,
-        `${containerTarget}:${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1}/candidate.bundle`],
-      repositoryRoot, 120_000, dockerEndpoint);
+        '/bin/mkdir', '-p', TRUSTED_RUNTIME_OUTPUT_V1], repositoryRoot, 120_000, dockerEndpoint);
       await command('docker', [
         'container', 'exec', '--user', '1000:1000', '--env', 'HOME=/home/ubuntu',
         containerTarget, '/bin/bash', '-lc', SETUP_SCRIPT, '--',
-        baseSha, headSha
+        baseSha, headSha, input.setupMode
       ], repositoryRoot, 30 * 60_000, dockerEndpoint);
       const networksSource = await command('docker', [
         'container', 'inspect', '--format', '{{json .NetworkSettings.Networks}}', containerTarget
@@ -971,6 +997,7 @@ export async function executeTrustedRuntimeContainerVerificationV1(input: Readon
     baseSha: session.baseSha,
     headSha: session.headSha,
     operationKey: `session-${session.sessionRevision.slice(7, 31)}`,
+    setupMode: 'full',
     execute: async ({ containerName, temporaryRoot, image, dockerEndpoint }) => {
       const outputPath = path.join(temporaryRoot, 'verification-evidence.json');
       const executionId = `trusted-runtime-${digestValue(Object.freeze({
@@ -1042,6 +1069,7 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
     baseSha: mainSha,
     headSha: mainSha,
     operationKey: `main-${mainSha.slice(0, 24)}`,
+    setupMode: 'full',
     execute: async ({ containerName, image, dockerEndpoint }) => {
       const observedTree = await command('docker', [
         'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
@@ -1101,6 +1129,65 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
         commandResultDigests,
         transition: null,
         observedAt: (input.now ?? (() => new Date()))().toISOString()
+      });
+    }
+  });
+}
+
+export async function executeTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  headSha: string;
+  headTreeSha: string;
+}>): Promise<Readonly<{
+  schema: 'sec-trusted-runtime-workspace-canary-v1';
+  repository: string;
+  headSha: string;
+  headTreeSha: string;
+  imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1;
+  dockerEndpoint: DockerEndpointIdentityV3;
+}>> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const repositoryIdentity = repository(input.repository);
+  const headSha = sha(input.headSha, 'workspace canary headSha');
+  const headTreeSha = sha(input.headTreeSha, 'workspace canary headTreeSha');
+  return await withTrustedRuntimeWorkspaceV1({
+    repositoryRoot,
+    repository: repositoryIdentity,
+    baseSha: headSha,
+    headSha,
+    operationKey: `canary-${headSha.slice(0, 24)}`,
+    setupMode: 'lifecycle-canary',
+    execute: async ({ containerName, image, dockerEndpoint }) => {
+      const [observedHead, observedTree, observedStatus] = await Promise.all([
+        command('docker', [
+          'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+          containerName, 'git', 'rev-parse', 'HEAD'
+        ], repositoryRoot, 120_000, dockerEndpoint),
+        command('docker', [
+          'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+          containerName, 'git', 'rev-parse', 'HEAD^{tree}'
+        ], repositoryRoot, 120_000, dockerEndpoint),
+        command('docker', [
+          'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+          containerName, 'git', 'status', '--porcelain=v1', '--untracked-files=all'
+        ], repositoryRoot, 120_000, dockerEndpoint)
+      ]);
+      await command('docker', [
+        'container', 'exec', '--user', '1000:1000', containerName,
+        '/bin/bash', '-lc', `test -r ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/package.json && test -w ${TRUSTED_RUNTIME_OUTPUT_V1}`
+      ], repositoryRoot, 120_000, dockerEndpoint);
+      if (observedHead !== headSha || observedTree !== headTreeSha || observedStatus !== '') {
+        fail('workspace canary exact Git identity or clean state differs');
+      }
+      await assertDockerEndpointIdentityV3(dockerEndpoint, repositoryRoot);
+      return Object.freeze({
+        schema: 'sec-trusted-runtime-workspace-canary-v1',
+        repository: repositoryIdentity,
+        headSha,
+        headTreeSha,
+        imageId: image.imageId,
+        dockerEndpoint
       });
     }
   });
