@@ -1,10 +1,11 @@
-import { expect, test } from 'bun:test';
+import { expect } from 'bun:test';
 
 import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
 import {
   normalizeTestResponsibilityDeclarations,
   type TestResponsibilityDeclaration
 } from '../../platform/shared/test-responsibility-contract.ts';
+import { secTest } from '../testkit/responsibility.ts';
 
 function declaration(
   overrides: Partial<TestResponsibilityDeclaration> = {}
@@ -28,7 +29,20 @@ function declaration(
   };
 }
 
-test('canonical test responsibility sources select focused proof through existing impact owner', () => {
+secTest({
+  testId: 'verification.test-responsibility.selection-round-trip',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'selection-round-trip',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'test-responsibility-selection-unprotected'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'canonical test responsibility sources select focused proof through existing impact owner', () => {
   for (const source of [
     'docs/test-responsibility.md',
     'platform/shared/test-responsibility-contract.ts'
@@ -42,7 +56,20 @@ test('canonical test responsibility sources select focused proof through existin
   }
 });
 
-test('test responsibility normalization is order-independent for non-semantic collections', () => {
+secTest({
+  testId: 'verification.test-responsibility.determinism',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'normalization-determinism',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'test-responsibility-normalization-order-dependent'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'test responsibility normalization is order-independent for non-semantic collections', () => {
   const first = declaration({
     testId: 'verification.proof-economy.first',
     case: { suitePath: [], title: 'first synthetic proof' },
@@ -96,7 +123,20 @@ test('test responsibility normalization is order-independent for non-semantic co
   expect(Object.isFrozen(left[0]?.case)).toBe(true);
 });
 
-test('stable test identity and current physical case locator are separate', () => {
+secTest({
+  testId: 'verification.test-responsibility.stable-identity',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'stable-test-identity',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'test-identity-coupled-to-physical-locator'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'stable test identity and current physical case locator are separate', () => {
   const before = normalizeTestResponsibilityDeclarations([
     declaration({
       testId: 'verification.proof.stable-id',
@@ -116,14 +156,40 @@ test('stable test identity and current physical case locator are separate', () =
   expect(before.case).not.toEqual(after.case);
 });
 
-test('two stable ids cannot claim the same executable case locator', () => {
+secTest({
+  testId: 'verification.test-responsibility.duplicate-locator',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'unique-test-locator',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'multiple-test-identities-claim-one-locator'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'two stable ids cannot claim the same executable case locator', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({ testId: 'verification.proof.first' }),
     declaration({ testId: 'verification.proof.second' })
   ])).toThrow('test case locator contains duplicate values');
 });
 
-test('every registered proof binds a canonical obligation and failure meaning', () => {
+secTest({
+  testId: 'verification.test-responsibility.obligation-integrity',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'obligation-integrity',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'test-proof-obligation-unbound'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'every registered proof binds a canonical obligation and failure meaning', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({ obligations: [] })
   ])).toThrow('must bind at least one proof obligation');
@@ -151,7 +217,20 @@ test('every registered proof binds a canonical obligation and failure meaning', 
   ])).toThrow('obligation.failureMeaningCode must be a bounded stable machine id');
 });
 
-test('calibration role is reserved for verifier-calibration obligations', () => {
+secTest({
+  testId: 'verification.test-responsibility.calibration-role',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'calibration-role-boundary',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'calibration-role-owns-product-proof'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'calibration role is reserved for verifier-calibration obligations', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({ role: 'calibration' })
   ])).toThrow('calibration proof may only own verifier-calibration obligations');
@@ -180,7 +259,20 @@ test('calibration role is reserved for verifier-calibration obligations', () => 
   ])).not.toThrow();
 });
 
-test('mutation layer is calibration or diagnostic evidence, never primary proof', () => {
+secTest({
+  testId: 'verification.test-responsibility.mutation-layer',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'mutation-layer-boundary',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'mutation-calibration-promoted-to-product-proof'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'mutation layer is calibration or diagnostic evidence, never primary proof', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({ layer: 'mutation' })
   ])).toThrow('mutation layer is calibration/diagnostic evidence, not primary proof');
@@ -199,7 +291,20 @@ test('mutation layer is calibration or diagnostic evidence, never primary proof'
   ])).not.toThrow();
 });
 
-test('diagnostic proofs cannot masquerade as ordinary required proof', () => {
+secTest({
+  testId: 'verification.test-responsibility.diagnostic-lifecycle',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'diagnostic-lifecycle-boundary',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'diagnostic-proof-leaked-into-required-lifecycle'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'diagnostic proofs cannot masquerade as ordinary required proof', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({ role: 'diagnostic', lifecycle: 'active' })
   ])).toThrow('diagnostic role and lifecycle must agree');
@@ -231,7 +336,20 @@ test('diagnostic proofs cannot masquerade as ordinary required proof', () => {
   expect(normalized[0]?.role).toBe('diagnostic');
 });
 
-test('replacement proof has one direction and can only target active proof', () => {
+secTest({
+  testId: 'verification.test-responsibility.replacement-lifecycle',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'replacement-lifecycle',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'replacement-target-not-active'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'replacement proof has one direction and can only target active proof', () => {
   const retiring = declaration({
     testId: 'verification.proof.retiring',
     case: { suitePath: [], title: 'retiring synthetic proof' },
@@ -269,7 +387,20 @@ test('replacement proof has one direction and can only target active proof', () 
   ])).toThrow('replacement verification.proof.replacement must be active');
 });
 
-test('replacement proof must preserve every canonical obligation identity', () => {
+secTest({
+  testId: 'verification.test-responsibility.replacement-coverage',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'replacement-obligation-coverage',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'replacement-drops-proof-obligation'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'replacement proof must preserve every canonical obligation identity', () => {
   const retiring = declaration({
     testId: 'verification.proof.retiring',
     case: { suitePath: [], title: 'retiring coverage proof' },
@@ -314,7 +445,20 @@ test('replacement proof must preserve every canonical obligation identity', () =
   expect(() => normalizeTestResponsibilityDeclarations([retiring, complete])).not.toThrow();
 });
 
-test('calibration proof cannot replace an ordinary product or contract obligation', () => {
+secTest({
+  testId: 'verification.test-responsibility.calibration-replacement',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'calibration-replacement-boundary',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'calibration-replaces-product-obligation'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'calibration proof cannot replace an ordinary product or contract obligation', () => {
   const retiring = declaration({
     testId: 'verification.proof.retiring',
     case: { suitePath: [], title: 'ordinary retiring proof' },
@@ -342,7 +486,20 @@ test('calibration proof cannot replace an ordinary product or contract obligatio
     .toThrow('replacement proof does not cover obligations');
 });
 
-test('replacement retirement cannot silently point to self or an unknown proof', () => {
+secTest({
+  testId: 'verification.test-responsibility.replacement-reference',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'replacement-reference-integrity',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'replacement-reference-self-or-unknown'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'replacement retirement cannot silently point to self or an unknown proof', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({
       lifecycle: 'retiring',
@@ -366,7 +523,20 @@ test('replacement retirement cannot silently point to self or an unknown proof',
   ])).toThrow('unknown replacement test');
 });
 
-test('owner retirement cannot silently discard obligations owned elsewhere', () => {
+secTest({
+  testId: 'verification.test-responsibility.owner-retirement',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'owner-retirement-coverage',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'owner-retirement-drops-foreign-obligation'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'owner retirement cannot silently discard obligations owned elsewhere', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({
       retirementCondition: {
@@ -392,7 +562,20 @@ test('owner retirement cannot silently discard obligations owned elsewhere', () 
   ])).not.toThrow();
 });
 
-test('retiring lifecycle requires an actionable retirement owner', () => {
+secTest({
+  testId: 'verification.test-responsibility.retiring-lifecycle',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'retiring-lifecycle-authority',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'retiring-proof-without-actionable-owner'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'retiring lifecycle requires an actionable retirement owner', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({ lifecycle: 'retiring' })
   ])).toThrow('retiring proof requires replacement-proof or owner-retirement');
