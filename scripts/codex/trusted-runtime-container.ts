@@ -32,8 +32,10 @@ import type { VerificationSessionHostedEnvelopeV1 } from './verification-session
 
 export const TRUSTED_RUNTIME_CONTAINER_SCHEMA_V1 =
   'sec-trusted-runtime-container-v1' as const;
-export const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V1 =
-  'sec-trusted-runtime-main-health-receipt-v1' as const;
+export const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V2 =
+  'sec-trusted-runtime-main-health-receipt-v2' as const;
+export const TRUSTED_RUNTIME_MAIN_HEALTH_BASELINE_OBSERVATION_SCHEMA_V2 =
+  'sec-trusted-runtime-main-health-baseline-observation-v2' as const;
 export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA_V1 =
   'sec-trusted-runtime-dependency-cache-v1' as const;
 export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_VOLUME_SCHEMA_V1 =
@@ -59,12 +61,20 @@ CiVerificationExecutionEnvironmentV2 = createCiVerificationLocalExecutionEnviron
 
 type Digest = `sha256:${string}`;
 
-export const TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1 = Object.freeze([
-  Object.freeze(['bun', 'run', 'imports:check', '--all']),
-  Object.freeze(['bun', 'run', 'typecheck']),
-  Object.freeze(['bun', 'run', 'docs:doctor']),
-  Object.freeze(['bun', 'run', 'test:fast'])
+export const TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2 = Object.freeze([
+  Object.freeze({ id: 'affected-closure', argv: Object.freeze(['bun', 'run', 'check:affected']) })
 ] as const);
+export type TrustedRuntimeMainHealthActionIdV2 =
+  typeof TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2[number]['id'];
+
+export interface TrustedRuntimeMainHealthBaselineObservationV2 {
+  readonly schema: typeof TRUSTED_RUNTIME_MAIN_HEALTH_BASELINE_OBSERVATION_SCHEMA_V2;
+  readonly mainSha: string;
+  readonly mainTreeSha: string;
+  readonly baselineSha: string;
+  readonly baselineTreeSha: string;
+  readonly observationDigest: Digest;
+}
 
 const TRUSTED_RUNTIME_MUTABLE_ROOT_V1 = '/sec-runtime' as const;
 const TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1 = '/candidate.bundle' as const;
@@ -72,9 +82,9 @@ const TRUSTED_RUNTIME_TRUSTED_TREE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/trus
 const TRUSTED_RUNTIME_WORKSPACE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/workspace`;
 const TRUSTED_RUNTIME_OUTPUT_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/output`;
 
-export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1 = digestValue(Object.freeze({
-  schema: 'sec-trusted-runtime-main-health-plan-v1',
-  commands: TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1
+export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2 = digestValue(Object.freeze({
+  schema: 'sec-trusted-runtime-main-health-plan-v2',
+  actions: TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2
 }));
 
 export interface TrustedRuntimeContainerImageObservationV1 {
@@ -99,18 +109,24 @@ export interface TrustedRuntimeContainerReceiptV1 {
   readonly receiptDigest: Digest;
 }
 
-export interface TrustedRuntimeMainHealthReceiptV1 {
-  readonly schema: typeof TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V1;
+export interface TrustedRuntimeMainHealthReceiptV2 {
+  readonly schema: typeof TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V2;
   readonly origin: 'physical-main' | 'verified-candidate-transition';
   readonly repository: string;
   readonly mainSha: string;
   readonly mainTreeSha: string;
+  readonly baselineSha: string;
+  readonly baselineTreeSha: string;
+  readonly baselineObservationDigest: Digest;
   readonly executionId: string;
   readonly imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1;
   readonly dockerEndpoint: DockerEndpointIdentityV3;
   readonly networkIsolatedBeforeExecution: true;
-  readonly planDigest: typeof TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1;
-  readonly commandResultDigests: readonly Digest[];
+  readonly planDigest: typeof TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2;
+  readonly actionResults: readonly Readonly<{
+    readonly actionId: TrustedRuntimeMainHealthActionIdV2;
+    readonly resultDigest: Digest;
+  }>[];
   readonly transition: Readonly<{
     readonly candidateHeadSha: string;
     readonly candidateHeadTreeSha: string;
@@ -933,18 +949,82 @@ export function parseTrustedRuntimeContainerReceiptV1(
   return rebuilt;
 }
 
-export function createTrustedRuntimeMainHealthReceiptV1(input: Omit<
-  TrustedRuntimeMainHealthReceiptV1,
+export function createTrustedRuntimeMainHealthBaselineObservationV2(input: Readonly<{
+  mainSha: string;
+  mainTreeSha: string;
+  parentLine: string;
+  parentTreeSha: string;
+}>): TrustedRuntimeMainHealthBaselineObservationV2 {
+  const mainSha = sha(input.mainSha, 'MainHealth baseline observation mainSha');
+  const mainTreeSha = sha(input.mainTreeSha, 'MainHealth baseline observation mainTreeSha');
+  const fields = input.parentLine.split(' ');
+  if (fields.length !== 2 || fields[0] !== mainSha) {
+    fail('MainHealth exact main must have one canonical parent baseline');
+  }
+  const withoutDigest = Object.freeze({
+    schema: TRUSTED_RUNTIME_MAIN_HEALTH_BASELINE_OBSERVATION_SCHEMA_V2,
+    mainSha,
+    mainTreeSha,
+    baselineSha: sha(fields[1], 'MainHealth baseline observation baselineSha'),
+    baselineTreeSha: sha(
+      input.parentTreeSha,
+      'MainHealth baseline observation baselineTreeSha'
+    )
+  });
+  return Object.freeze({
+    ...withoutDigest,
+    observationDigest: digestValue(withoutDigest)
+  });
+}
+
+export function assertTrustedRuntimeMainHealthCarryForwardBaselineV2(
+  observation: TrustedRuntimeMainHealthBaselineObservationV2,
+  expected: Readonly<{ baselineSha: string; baselineTreeSha: string }>
+): void {
+  if (!trustedRuntimeMainHealthCarryForwardBaselineMatchesV2(observation, expected)) {
+    fail('MainHealth carry-forward baseline differs from the exact merged commit parent');
+  }
+}
+
+export function trustedRuntimeMainHealthCarryForwardBaselineMatchesV2(
+  observation: TrustedRuntimeMainHealthBaselineObservationV2,
+  expected: Readonly<{ baselineSha: string; baselineTreeSha: string }>
+): boolean {
+  return observation.baselineSha === sha(expected.baselineSha, 'expected MainHealth baselineSha')
+    && observation.baselineTreeSha === sha(
+        expected.baselineTreeSha,
+        'expected MainHealth baselineTreeSha'
+      );
+}
+
+export function createTrustedRuntimeMainHealthReceiptV2(input: Omit<
+  TrustedRuntimeMainHealthReceiptV2,
   'schema' | 'receiptDigest'
->): TrustedRuntimeMainHealthReceiptV1 {
+>): TrustedRuntimeMainHealthReceiptV2 {
   if ((input.origin !== 'physical-main' && input.origin !== 'verified-candidate-transition')
       || input.imageId !== TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1
       || input.networkIsolatedBeforeExecution !== true
-      || input.planDigest !== TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1
-      || input.commandResultDigests.length !== TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1.length) {
+      || input.planDigest !== TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2
+      || input.actionResults.length !== TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2.length
+      || input.actionResults.some((result, index) =>
+        result.actionId !== TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2[index]!.id)) {
     fail('MainHealth receipt fixed execution identity is invalid');
   }
-  let transition: TrustedRuntimeMainHealthReceiptV1['transition'];
+  const mainSha = sha(input.mainSha, 'MainHealth mainSha');
+  const mainTreeSha = sha(input.mainTreeSha, 'MainHealth mainTreeSha');
+  const baselineSha = sha(input.baselineSha, 'MainHealth baselineSha');
+  const baselineTreeSha = sha(input.baselineTreeSha, 'MainHealth baselineTreeSha');
+  const expectedBaselineObservationDigest = digestValue(Object.freeze({
+    schema: TRUSTED_RUNTIME_MAIN_HEALTH_BASELINE_OBSERVATION_SCHEMA_V2,
+    mainSha,
+    mainTreeSha,
+    baselineSha,
+    baselineTreeSha
+  }));
+  if (input.baselineObservationDigest !== expectedBaselineObservationDigest) {
+    fail('MainHealth receipt baseline observation digest is invalid');
+  }
+  let transition: TrustedRuntimeMainHealthReceiptV2['transition'];
   if (input.origin === 'physical-main') {
     if (input.transition !== null) fail('physical MainHealth receipt cannot carry transition evidence');
     transition = null;
@@ -973,27 +1053,32 @@ export function createTrustedRuntimeMainHealthReceiptV1(input: Omit<
     });
   }
   const withoutDigest = Object.freeze({
-    schema: TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V1,
+    schema: TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V2,
     origin: input.origin,
     repository: repository(input.repository),
-    mainSha: sha(input.mainSha, 'MainHealth mainSha'),
-    mainTreeSha: sha(input.mainTreeSha, 'MainHealth mainTreeSha'),
+    mainSha,
+    mainTreeSha,
+    baselineSha,
+    baselineTreeSha,
+    baselineObservationDigest: expectedBaselineObservationDigest,
     executionId: bounded(input.executionId, 'MainHealth executionId'),
     imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
     dockerEndpoint: parseDockerEndpointIdentityV3(input.dockerEndpoint),
     networkIsolatedBeforeExecution: true as const,
-    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
-    commandResultDigests: Object.freeze(input.commandResultDigests.map((entry, index) =>
-      digest(entry, `MainHealth commandResultDigests[${index}]`))),
+    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+    actionResults: Object.freeze(input.actionResults.map((entry, index) => Object.freeze({
+      actionId: entry.actionId,
+      resultDigest: digest(entry.resultDigest, `MainHealth actionResults[${index}].resultDigest`)
+    }))),
     transition,
     observedAt: canonicalInstant(input.observedAt, 'MainHealth observedAt')
   });
   return Object.freeze({ ...withoutDigest, receiptDigest: digestValue(withoutDigest) });
 }
 
-export function parseTrustedRuntimeMainHealthReceiptV1(
+export function parseTrustedRuntimeMainHealthReceiptV2(
   value: unknown
-): TrustedRuntimeMainHealthReceiptV1 {
+): TrustedRuntimeMainHealthReceiptV2 {
   if (typeof value === 'string') {
     try {
       value = JSON.parse(value);
@@ -1006,32 +1091,38 @@ export function parseTrustedRuntimeMainHealthReceiptV1(
   }
   const record = value as Record<string, unknown>;
   const expected = [
-    'schema', 'origin', 'repository', 'mainSha', 'mainTreeSha', 'executionId', 'imageId',
+    'schema', 'origin', 'repository', 'mainSha', 'mainTreeSha', 'baselineSha',
+    'baselineTreeSha', 'baselineObservationDigest', 'executionId', 'imageId',
     'dockerEndpoint', 'networkIsolatedBeforeExecution', 'planDigest',
-    'commandResultDigests', 'transition', 'observedAt', 'receiptDigest'
+    'actionResults', 'transition', 'observedAt', 'receiptDigest'
   ].sort();
   const actual = Object.keys(record).sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])
-      || record.schema !== TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V1
+      || record.schema !== TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V2
       || record.imageId !== TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1
       || record.networkIsolatedBeforeExecution !== true
-      || record.planDigest !== TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1
-      || !Array.isArray(record.commandResultDigests)) {
+      || record.planDigest !== TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2
+      || !Array.isArray(record.actionResults)) {
     fail('MainHealth receipt shape or fixed identity is invalid');
   }
-  const rebuilt = createTrustedRuntimeMainHealthReceiptV1({
-    origin: record.origin as TrustedRuntimeMainHealthReceiptV1['origin'],
+  const rebuilt = createTrustedRuntimeMainHealthReceiptV2({
+    origin: record.origin as TrustedRuntimeMainHealthReceiptV2['origin'],
     repository: repository(record.repository),
     mainSha: sha(record.mainSha, 'MainHealth mainSha'),
     mainTreeSha: sha(record.mainTreeSha, 'MainHealth mainTreeSha'),
+    baselineSha: sha(record.baselineSha, 'MainHealth baselineSha'),
+    baselineTreeSha: sha(record.baselineTreeSha, 'MainHealth baselineTreeSha'),
+    baselineObservationDigest: digest(
+      record.baselineObservationDigest,
+      'MainHealth baselineObservationDigest'
+    ),
     executionId: bounded(record.executionId, 'MainHealth executionId'),
     imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
     dockerEndpoint: parseDockerEndpointIdentityV3(record.dockerEndpoint),
     networkIsolatedBeforeExecution: true,
-    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
-    commandResultDigests: record.commandResultDigests.map((entry, index) =>
-      digest(entry, `MainHealth commandResultDigests[${index}]`)),
-    transition: record.transition as TrustedRuntimeMainHealthReceiptV1['transition'],
+    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+    actionResults: record.actionResults as TrustedRuntimeMainHealthReceiptV2['actionResults'],
+    transition: record.transition as TrustedRuntimeMainHealthReceiptV2['transition'],
     observedAt: canonicalInstant(record.observedAt, 'MainHealth observedAt')
   });
   if (rebuilt.receiptDigest !== digest(record.receiptDigest, 'MainHealth receiptDigest')) {
@@ -1349,17 +1440,25 @@ export async function executeTrustedRuntimeContainerVerificationV1(input: Readon
   });
 }
 
-export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
+export async function executeTrustedRuntimeMainHealthV2(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   mainSha: string;
   mainTreeSha: string;
   now?: () => Date;
-}>): Promise<TrustedRuntimeMainHealthReceiptV1> {
+}>): Promise<TrustedRuntimeMainHealthReceiptV2> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const mainSha = sha(input.mainSha, 'MainHealth mainSha');
   const mainTreeSha = sha(input.mainTreeSha, 'MainHealth mainTreeSha');
   const repositoryIdentity = repository(input.repository);
+  const parentLine = await command('git', ['rev-list', '--parents', '-n', '1', mainSha], repositoryRoot);
+  const parentSha = parentLine.split(' ')[1] ?? '';
+  const baseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+    mainSha,
+    mainTreeSha,
+    parentLine,
+    parentTreeSha: await command('git', ['rev-parse', `${parentSha}^{tree}`], repositoryRoot)
+  });
   return await withTrustedRuntimeWorkspaceV1({
     repositoryRoot,
     repository: repositoryIdentity,
@@ -1373,22 +1472,36 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
         containerName, 'git', 'rev-parse', 'HEAD^{tree}'
       ], repositoryRoot, 120_000, dockerEndpoint);
       if (observedTree !== mainTreeSha) fail('MainHealth exact main tree differs before execution');
-      const commandResultDigests: Digest[] = [];
-      for (const argv of TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1) {
+      const actionResults: Array<Readonly<{
+        actionId: TrustedRuntimeMainHealthActionIdV2;
+        resultDigest: Digest;
+      }>> = [];
+      for (const action of TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2) {
+        const declaredEnvironment = Object.freeze({
+          SEC_AFFECTED_TESTS_BASE: baseline.baselineSha,
+          SEC_CHANGED_BASE: baseline.baselineSha
+        });
         const result = await commandResult('docker', [
           'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
           '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', '--env', 'LANG=C',
           '--env', `SEC_CACHE_HOME=${TRUSTED_RUNTIME_OUTPUT_V1}/cache`,
           '--env', 'LC_ALL=C', '--env', 'TZ=UTC', '--env', 'GIT_CONFIG_NOSYSTEM=1',
           '--env', 'GIT_CONFIG_GLOBAL=/dev/null', '--env', 'GIT_TERMINAL_PROMPT=0',
-          containerName, ...argv
+          '--env', `SEC_AFFECTED_TESTS_BASE=${baseline.baselineSha}`,
+          '--env', `SEC_CHANGED_BASE=${baseline.baselineSha}`,
+          containerName, ...action.argv
         ], repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
-        commandResultDigests.push(digestValue(Object.freeze({
-          argv,
-          exitCode: result.code,
-          stdout: result.stdout,
-          stderr: result.stderr
-        })));
+        actionResults.push(Object.freeze({
+          actionId: action.id,
+          resultDigest: digestValue(Object.freeze({
+            actionId: action.id,
+            argv: action.argv,
+            declaredEnvironment,
+            exitCode: result.code,
+            stdout: result.stdout,
+            stderr: result.stderr
+          }))
+        }));
       }
       const finalIdentity = await command('docker', [
         'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
@@ -1410,21 +1523,25 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
         repository: repositoryIdentity,
         mainSha,
         mainTreeSha,
+        baselineObservationDigest: baseline.observationDigest,
         imageId: image.imageId,
         dockerEndpoint,
-        planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1
+        planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2
       })).slice(7, 31)}`;
-      return createTrustedRuntimeMainHealthReceiptV1({
+      return createTrustedRuntimeMainHealthReceiptV2({
         origin: 'physical-main',
         repository: repositoryIdentity,
         mainSha,
         mainTreeSha,
+        baselineSha: baseline.baselineSha,
+        baselineTreeSha: baseline.baselineTreeSha,
+        baselineObservationDigest: baseline.observationDigest,
         executionId,
         imageId: image.imageId,
         dockerEndpoint,
         networkIsolatedBeforeExecution: true,
-        planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
-        commandResultDigests,
+        planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+        actionResults,
         transition: null,
         observedAt: (input.now ?? (() => new Date()))().toISOString()
       });

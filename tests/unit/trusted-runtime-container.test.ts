@@ -6,17 +6,19 @@ import {
   TRUSTED_RUNTIME_CONTAINER_BUN_IMAGE_MANIFEST_V1,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1,
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
-  TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
+  TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2,
+  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
   assertTrustedRuntimeContainerImageV1,
   assertTrustedRuntimeDependencyCacheVolumeV1,
+  assertTrustedRuntimeMainHealthCarryForwardBaselineV2,
   authorizeTrustedRuntimeContainerRecoveryV1,
   composeTrustedRuntimeContainerLabelsV1,
   createTrustedRuntimeDependencyCacheMarkerV1,
   createTrustedRuntimeDependencyCacheVolumeSpecV1,
   createTrustedRuntimeHostCommandEnvironmentV1,
-  createTrustedRuntimeMainHealthReceiptV1,
-  parseTrustedRuntimeMainHealthReceiptV1,
+  createTrustedRuntimeMainHealthBaselineObservationV2,
+  createTrustedRuntimeMainHealthReceiptV2,
+  parseTrustedRuntimeMainHealthReceiptV2,
   renderTrustedRuntimeCommandFailureDetailV1
 } from '../../scripts/codex/trusted-runtime-container.ts';
 
@@ -229,54 +231,63 @@ describe('provider-neutral trusted runtime container', () => {
   });
 
   test('binds one reusable exact-main health execution receipt', () => {
-    expect(TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1).toEqual([
-      ['bun', 'run', 'imports:check', '--all'],
-      ['bun', 'run', 'typecheck'],
-      ['bun', 'run', 'docs:doctor'],
-      ['bun', 'run', 'test:fast']
+    expect(TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2).toEqual([
+      { id: 'affected-closure', argv: ['bun', 'run', 'check:affected'] }
     ]);
-    const receipt = createTrustedRuntimeMainHealthReceiptV1({
+    const baseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+      mainSha: '1'.repeat(40),
+      mainTreeSha: '2'.repeat(40),
+      parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
+      parentTreeSha: '8'.repeat(40)
+    });
+    const receipt = createTrustedRuntimeMainHealthReceiptV2({
       origin: 'physical-main',
       repository: 'sec-platform/sec',
       mainSha: '1'.repeat(40),
       mainTreeSha: '2'.repeat(40),
+      baselineSha: '7'.repeat(40),
+      baselineTreeSha: '8'.repeat(40),
+      baselineObservationDigest: baseline.observationDigest,
       executionId: 'trusted-main-health-example',
       imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
       dockerEndpoint,
       networkIsolatedBeforeExecution: true,
-      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
-      commandResultDigests: [
-        `sha256:${'3'.repeat(64)}`,
-        `sha256:${'4'.repeat(64)}`,
-        `sha256:${'5'.repeat(64)}`,
-        `sha256:${'6'.repeat(64)}`
+      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+      actionResults: [
+        { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
       ],
       transition: null,
       observedAt: '2026-08-21T00:00:00.000Z'
     });
-    expect(parseTrustedRuntimeMainHealthReceiptV1(JSON.stringify(receipt))).toEqual(receipt);
-    expect(() => parseTrustedRuntimeMainHealthReceiptV1({
+    expect(parseTrustedRuntimeMainHealthReceiptV2(JSON.stringify(receipt))).toEqual(receipt);
+    expect(() => parseTrustedRuntimeMainHealthReceiptV2({
       ...receipt,
       mainTreeSha: '7'.repeat(40)
-    })).toThrow('receipt digest mismatch');
+    })).toThrow('baseline observation digest is invalid');
   });
 
   test('carries verified candidate evidence forward only when the new-main tree is exact', () => {
-    const receipt = createTrustedRuntimeMainHealthReceiptV1({
+    const baseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+      mainSha: '1'.repeat(40),
+      mainTreeSha: '2'.repeat(40),
+      parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
+      parentTreeSha: '8'.repeat(40)
+    });
+    const receipt = createTrustedRuntimeMainHealthReceiptV2({
       origin: 'verified-candidate-transition',
       repository: 'sec-platform/sec',
       mainSha: '1'.repeat(40),
       mainTreeSha: '2'.repeat(40),
+      baselineSha: '7'.repeat(40),
+      baselineTreeSha: '8'.repeat(40),
+      baselineObservationDigest: baseline.observationDigest,
       executionId: 'trusted-runtime-transition',
       imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
       dockerEndpoint,
       networkIsolatedBeforeExecution: true,
-      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
-      commandResultDigests: [
-        `sha256:${'3'.repeat(64)}`,
-        `sha256:${'4'.repeat(64)}`,
-        `sha256:${'5'.repeat(64)}`,
-        `sha256:${'6'.repeat(64)}`
+      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+      actionResults: [
+        { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
       ],
       transition: {
         candidateHeadSha: '7'.repeat(40),
@@ -289,10 +300,46 @@ describe('provider-neutral trusted runtime container', () => {
       },
       observedAt: '2026-08-21T00:00:00.000Z'
     });
-    expect(parseTrustedRuntimeMainHealthReceiptV1(JSON.stringify(receipt))).toEqual(receipt);
-    expect(() => createTrustedRuntimeMainHealthReceiptV1({
+    expect(parseTrustedRuntimeMainHealthReceiptV2(JSON.stringify(receipt))).toEqual(receipt);
+    const differentTreeBaseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+      mainSha: '1'.repeat(40),
+      mainTreeSha: 'd'.repeat(40),
+      parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
+      parentTreeSha: '8'.repeat(40)
+    });
+    expect(() => createTrustedRuntimeMainHealthReceiptV2({
       ...receipt,
-      mainTreeSha: 'd'.repeat(40)
+      mainTreeSha: 'd'.repeat(40),
+      baselineObservationDigest: differentTreeBaseline.observationDigest
     })).toThrow('does not bind the exact new-main tree');
+  });
+
+  test('carry-forward accepts only the observed single parent and exact parent tree', () => {
+    const mainSha = '1'.repeat(40);
+    const baselineSha = '7'.repeat(40);
+    const observation = createTrustedRuntimeMainHealthBaselineObservationV2({
+      mainSha,
+      mainTreeSha: '2'.repeat(40),
+      parentLine: `${mainSha} ${baselineSha}`,
+      parentTreeSha: '8'.repeat(40)
+    });
+    expect(() => createTrustedRuntimeMainHealthBaselineObservationV2({
+      mainSha,
+      mainTreeSha: '2'.repeat(40),
+      parentLine: `${mainSha} ${baselineSha} ${'9'.repeat(40)}`,
+      parentTreeSha: '8'.repeat(40)
+    })).toThrow('one canonical parent baseline');
+    expect(() => assertTrustedRuntimeMainHealthCarryForwardBaselineV2(
+      observation,
+      { baselineSha: '6'.repeat(40), baselineTreeSha: '8'.repeat(40) }
+    )).toThrow('differs from the exact merged commit parent');
+    expect(() => assertTrustedRuntimeMainHealthCarryForwardBaselineV2(
+      observation,
+      { baselineSha, baselineTreeSha: '9'.repeat(40) }
+    )).toThrow('differs from the exact merged commit parent');
+    expect(() => assertTrustedRuntimeMainHealthCarryForwardBaselineV2(
+      observation,
+      { baselineSha, baselineTreeSha: '8'.repeat(40) }
+    )).not.toThrow();
   });
 });

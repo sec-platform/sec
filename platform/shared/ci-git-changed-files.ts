@@ -227,7 +227,10 @@ export function decodeGitPathOutput(stdout: Uint8Array, label: string): string {
   }
 }
 
-export function gitChangedFileDiffArgs(baseRef?: string, currentRef = 'HEAD'): string[] {
+export function gitChangedFileDiffArgs(
+  baseRef?: string,
+  currentRef: string | null = 'HEAD'
+): string[] {
   return [
     '-c',
     'core.quotepath=false',
@@ -237,7 +240,20 @@ export function gitChangedFileDiffArgs(baseRef?: string, currentRef = 'HEAD'): s
     '--find-renames',
     '--find-copies',
     '--diff-filter=ACDMRTUXB',
-    ...(baseRef ? [baseRef, currentRef] : [currentRef])
+    ...(baseRef
+      ? currentRef === null ? [baseRef] : [baseRef, currentRef]
+      : currentRef === null ? ['HEAD'] : [currentRef])
+  ];
+}
+
+export function gitWorkingTreeStatusArgs(): string[] {
+  return [
+    '-c',
+    'core.quotepath=false',
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=all'
   ];
 }
 
