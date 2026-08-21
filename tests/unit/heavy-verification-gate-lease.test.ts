@@ -5,11 +5,31 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  acquireHeavyVerificationGateLease
+  acquireHeavyVerificationGateLease,
+  heavyVerificationGateLockPathV1
 } from '../../platform/shared/heavy-verification-gate-lease.ts';
 
 const TOKEN_A = '11111111111111111111111111111111';
 const TOKEN_B = '22222222222222222222222222222222';
+
+test('heavy verification gate derives its default mutable lease from canonical external cache', () => {
+  const repositoryRoot = path.resolve(tmpdir(), 'sec-heavy-gate-repository');
+  const cacheRoot = path.resolve(tmpdir(), 'sec-heavy-gate-cache');
+  const lockPath = heavyVerificationGateLockPathV1({
+    physicalWorktreeRoot: repositoryRoot,
+    environment: {
+      ...process.env,
+      SEC_CACHE_HOME: cacheRoot
+    }
+  });
+  expect(path.relative(cacheRoot, lockPath).startsWith('..')).toBe(false);
+  expect(path.relative(repositoryRoot, lockPath).startsWith('..')).toBe(true);
+  expect(lockPath).toContain(path.join('heavy-verification-gates', 'v1'));
+  expect(heavyVerificationGateLockPathV1({
+    physicalWorktreeRoot: repositoryRoot,
+    environment: { ...process.env, SEC_CACHE_HOME: cacheRoot }
+  })).toBe(lockPath);
+});
 
 async function withLockRoot(callback: (lockPath: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-heavy-gate-'));

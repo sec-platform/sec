@@ -52,6 +52,29 @@ export interface SecRuntimeStateLayoutV1 {
   readonly verificationActionJournalRoot: string;
 }
 
+export function currentSecRuntimePlatformV1(
+  platform: NodeJS.Platform = process.platform
+): SecRuntimePlatformV1 {
+  if (platform !== 'win32' && platform !== 'linux' && platform !== 'darwin') {
+    fail(`does not support platform ${platform}.`);
+  }
+  return platform;
+}
+
+export function secRuntimeStateEnvironmentV1(
+  source: NodeJS.ProcessEnv = process.env
+): SecRuntimeStateEnvironmentV1 {
+  const result: Record<string, string> = {};
+  for (const name of [
+    'SEC_STATE_HOME', 'SEC_CACHE_HOME', 'LOCALAPPDATA',
+    'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'HOME'
+  ]) {
+    const value = source[name];
+    if (typeof value === 'string' && value.length > 0) result[name] = value;
+  }
+  return Object.freeze(result as SecRuntimeStateEnvironmentV1);
+}
+
 function fail(message: string): never {
   throw new Error(`SEC runtime state ${message}`);
 }

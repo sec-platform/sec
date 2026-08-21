@@ -5,6 +5,11 @@ import path from 'node:path';
 
 import { digest } from './canonical-primitives.ts';
 import { compilerRoot } from './paths.ts';
+import {
+  currentSecRuntimePlatformV1,
+  resolveSecRuntimeCacheRootV1,
+  secRuntimeStateEnvironmentV1
+} from './sec-runtime-state-contract.ts';
 
 type HeavyVerificationGateOwnerV1 = Readonly<{
   command: readonly string[];
@@ -44,6 +49,27 @@ const INITIALIZATION_GRACE_MS = 30_000;
 const WINDOWS_WAIT_OBJECT_0 = 0x0000_0000;
 const WINDOWS_WAIT_ABANDONED_0 = 0x0000_0080;
 const WINDOWS_WAIT_TIMEOUT = 0x0000_0102;
+
+export function heavyVerificationGateLockPathV1(input: Readonly<{
+  physicalWorktreeRoot: string;
+  environment?: NodeJS.ProcessEnv;
+}>): string {
+  const physicalWorktreeRoot = path.resolve(input.physicalWorktreeRoot);
+  const cacheRoot = resolveSecRuntimeCacheRootV1({
+    platform: currentSecRuntimePlatformV1(),
+    environment: secRuntimeStateEnvironmentV1(input.environment ?? process.env),
+    repositoryRoot: physicalWorktreeRoot
+  });
+  return path.join(
+    cacheRoot,
+    'heavy-verification-gates',
+    'v1',
+    digest(process.platform === 'win32'
+      ? physicalWorktreeRoot.toLocaleLowerCase('en-US')
+      : physicalWorktreeRoot),
+    HEAVY_VERIFICATION_GATE_LOCK_NAME
+  );
+}
 
 interface HeavyVerificationGateKernel32Symbols {
   CreateMutexW: (security: null, initialOwner: number, name: Buffer) => bigint;
@@ -214,8 +240,11 @@ export async function acquireHeavyVerificationGateLease(
   const namespaceSegment = namespace
     ? heavyVerificationGateNamespaceSegment(namespace)
     : undefined;
+  const physicalWorktreeRoot = options.lockPath === undefined
+    ? await realpath(compilerRoot)
+    : null;
   const baseLockPath = options.lockPath
-    ?? path.join(compilerRoot, '.tmp', HEAVY_VERIFICATION_GATE_LOCK_NAME);
+    ?? heavyVerificationGateLockPathV1({ physicalWorktreeRoot: physicalWorktreeRoot! });
   const lockPath = namespaceSegment
     ? path.join(baseLockPath, namespaceSegment)
     : path.resolve(baseLockPath);
