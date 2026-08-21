@@ -105,6 +105,35 @@ test('every registered proof binds a canonical obligation and failure meaning', 
   ])).toThrow('obligation.failureMeaningCode must be a bounded stable machine id');
 });
 
+test('calibration role is reserved for verifier-calibration obligations', () => {
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({ role: 'calibration' })
+  ])).toThrow('calibration proof may only own verifier-calibration obligations');
+
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({
+      obligations: [{
+        kind: 'verifier-calibration',
+        id: 'selector-detection-power',
+        owner: 'verification-governance',
+        failureMeaningCode: 'selector-calibration-failed'
+      }]
+    })
+  ])).toThrow('verifier-calibration obligation requires calibration role');
+
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({
+      role: 'calibration',
+      obligations: [{
+        kind: 'verifier-calibration',
+        id: 'selector-detection-power',
+        owner: 'verification-governance',
+        failureMeaningCode: 'selector-calibration-failed'
+      }]
+    })
+  ])).not.toThrow();
+});
+
 test('diagnostic proofs cannot masquerade as ordinary required proof', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({ role: 'diagnostic', lifecycle: 'active' })
@@ -162,7 +191,14 @@ test('replacement proof has one direction and can only target active proof', () 
 
   expect(() => normalizeTestResponsibilityDeclarations([
     retiring,
-    { ...replacement, lifecycle: 'retiring', retirementCondition: { kind: 'owner-retirement', owner: 'verification-governance' } }
+    {
+      ...replacement,
+      lifecycle: 'retiring',
+      retirementCondition: {
+        kind: 'owner-retirement',
+        owner: 'verification-governance'
+      }
+    }
   ])).toThrow('replacement verification.proof.replacement must be active');
 });
 
@@ -221,7 +257,13 @@ test('calibration proof cannot replace an ordinary product or contract obligatio
   const calibration = declaration({
     testId: 'verification.proof.calibration',
     sourcePath: 'tests/contract/verification-result.test.ts',
-    role: 'calibration'
+    role: 'calibration',
+    obligations: [{
+      kind: 'verifier-calibration',
+      id: 'selector-detection-power',
+      owner: 'verification-governance',
+      failureMeaningCode: 'selector-calibration-failed'
+    }]
   });
 
   expect(() => normalizeTestResponsibilityDeclarations([retiring, calibration]))
