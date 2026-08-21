@@ -18,6 +18,7 @@ import {
   type BranchLifecycleInventory
 } from './branch-lifecycle-contract.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
+import { executeMergedLocalBranchResidueCloseoutV1 } from './branch-local-residue-closeout.ts';
 
 export {
   createPublishedBranchCloseoutReceipt,
@@ -81,7 +82,7 @@ function formatAuditText(inventory: BranchLifecycleInventory): string {
 }
 
 interface CliArguments {
-  command: 'audit' | 'configure-clone' | 'prepare';
+  command: 'audit' | 'configure-clone' | 'prepare' | 'settle-local-merged';
   json: boolean;
   compact: boolean;
   branch: string | null;
@@ -107,6 +108,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
     command !== 'audit'
     && command !== 'configure-clone'
     && command !== 'prepare'
+    && command !== 'settle-local-merged'
   ) {
     throw new Error(USAGE);
   }
@@ -170,6 +172,7 @@ const USAGE = `Usage:
   bun scripts/codex/branch-lifecycle.ts audit [--json [--compact]]
   bun scripts/codex/branch-lifecycle.ts configure-clone [--json]
   bun scripts/codex/branch-lifecycle.ts prepare --branch <name> [--pr <n>] [--ref-state <present|absent>] [--expected-head-sha <sha>] [--pr-head-sha <sha>] [--recovery-root <absolute-path>] [--json]
+  bun scripts/codex/branch-lifecycle.ts settle-local-merged [--json]
 `;
 
 async function main(): Promise<void> {
@@ -214,6 +217,21 @@ async function main(): Promise<void> {
         'Configured clone-local fetch.prune, remote.origin.prune and fetch.pruneTags to true.\n'
       );
     }
+    return;
+  }
+
+  if (args.command === 'settle-local-merged') {
+    const result = await executeMergedLocalBranchResidueCloseoutV1({
+      repositoryRoot: process.cwd()
+    });
+    if (args.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    else {
+      process.stdout.write(
+        `Settled ${result.settled.length} merged local branch residues; `
+        + `protected=${result.protectedBranches.length}; unresolved=${result.unresolvedBranches.length}.\n`
+      );
+    }
+    if (result.unresolvedBranches.length > 0) process.exitCode = 2;
     return;
   }
 
