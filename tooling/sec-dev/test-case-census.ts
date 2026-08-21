@@ -1,21 +1,18 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import ts from 'typescript';
 
 import {
   normalizeTestResponsibilityDeclarations,
-  type TestResponsibilityDeclaration
+  type TestResponsibilityDeclaration,
+  type TestResponsibilityMetadata
 } from '../../platform/shared/test-responsibility-contract.ts';
 import {
   decodeExactUtf8,
   gitReadBytes,
   parseNulUtf8
 } from './git/git-read.ts';
-
-type TestResponsibilityMetadata = Omit<
-  TestResponsibilityDeclaration,
-  'sourcePath' | 'case'
->;
 
 export const TEST_CASE_CENSUS_FORMAT = 'sec-test-case-census-v1' as const;
 
@@ -26,7 +23,8 @@ export type TestCaseCensusReasonCode =
   | 'parameterized-family-unresolved'
   | 'dynamic-responsibility-metadata'
   | 'physical-locator-in-responsibility'
-  | 'unsupported-sec-test-modifier';
+  | 'unsupported-sec-test-modifier'
+  | 'duplicate-test-locator';
 
 export type TestCaseRegistration = 'sec-test' | 'bun-test' | 'bun-it';
 
@@ -47,12 +45,14 @@ export interface TestCaseCensusV1 {
   readonly caseCount: number;
   readonly resolvedCount: number;
   readonly unresolvedCount: number;
+  readonly duplicateLocatorCount: number;
   readonly observations: readonly TestCaseObservationV1[];
   readonly resolvedResponsibilities: readonly TestResponsibilityDeclaration[];
   readonly unresolved: readonly TestCaseObservationV1[];
 }
 
 const TEST_SOURCE_PATH = /^tests\/.+\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const RESPONSIBILITY_WRAPPER_PATH = 'tests/testkit/responsibility.ts';
 const UNSUPPORTED = Symbol('unsupported-static-value');
 
 type StaticValue =
@@ -62,6 +62,19 @@ type StaticValue =
   | string
   | readonly StaticValue[]
   | Readonly<Record<string, StaticValue>>;
+
+type RegistrationKind = 'test' | 'it' | 'describe' | 'secTest';
+
+type RegistrationBinding = Readonly<{
+  kind: RegistrationKind;
+  qualifiers: readonly string[];
+}>;
+
+type RegistrationBindings = Readonly<{
+  named: ReadonlyMap<string, RegistrationKind>;
+  bunNamespaces: ReadonlySet<string>;
+  responsibilityNamespaces: ReadonlySet<string>;
+}>;
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -129,28 +142,117 @@ function staticValue(expression: ts.Expression): StaticValue | typeof UNSUPPORTE
   return UNSUPPORTED;
 }
 
-function callRootIdentifier(expression: ts.LeftHandSideExpression): string | null {
-  if (ts.isIdentifier(expression)) return expression.text;
-  if (ts.isPropertyAccessExpression(expression)) return callRootIdentifier(expression.expression);
-  if (ts.isCallExpression(expression)) return callRootIdentifier(expression.expression);
+function scriptKindForPath(sourcePath: string): ts.ScriptKind {
+  if (sourcePath.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  if (sourcePath.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (/\.(?:cjs|mjs|js)$/u.test(sourcePath)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
+function resolvesToResponsibilityWrapper(sourcePath: string, specifier: string): boolean {
+  if (!specifier.startsWith('.')) return false;
+  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(sourcePath), specifier));
+  return resolved === RESPONSIBILITY_WRAPPER_PATH
+    || `${resolved}.ts` === RESPONSIBILITY_WRAPPER_PATH;
+}
+
+function addNamedBinding(
+  bindings: Map<string, RegistrationKind>,
+  localName: string,
+  kind: RegistrationKind
+): void {
+  const existing = bindings.get(localName);
+  if (existing !== undefined && existing !== kind) {
+    throw new Error(`Conflicting test registration import binding: ${localName}`);
+  }
+  bindings.set(localName, kind);
+}
+
+function collectRegistrationBindings(
+  sourcePath: string,
+  source: ts.SourceFile
+): RegistrationBindings {
+  const named = new Map<string, RegistrationKind>();
+  const bunNamespaces = new Set<string>();
+  const responsibilityNamespaces = new Set<string>();
+
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause === undefined) continue;
+    if (statement.importClause.isTypeOnly) continue;
+    const specifier = staticString(statement.moduleSpecifier);
+    if (specifier === null) continue;
+    const bindings = statement.importClause.namedBindings;
+    if (bindings === undefined) continue;
+
+    const isBunTest = specifier === 'bun:test';
+    const isResponsibility = resolvesToResponsibilityWrapper(sourcePath, specifier);
+    if (!isBunTest && !isResponsibility) continue;
+
+    if (ts.isNamespaceImport(bindings)) {
+      if (isBunTest) bunNamespaces.add(bindings.name.text);
+      if (isResponsibility) responsibilityNamespaces.add(bindings.name.text);
+      continue;
+    }
+
+    for (const element of bindings.elements) {
+      if (element.isTypeOnly) continue;
+      const importedName = (element.propertyName ?? element.name).text;
+      const localName = element.name.text;
+      if (isBunTest && (importedName === 'test' || importedName === 'it' || importedName === 'describe')) {
+        addNamedBinding(named, localName, importedName);
+      }
+      if (isResponsibility && importedName === 'secTest') {
+        addNamedBinding(named, localName, 'secTest');
+      }
+    }
+  }
+
+  return Object.freeze({ named, bunNamespaces, responsibilityNamespaces });
+}
+
+function callParts(expression: ts.Expression): readonly string[] | null {
+  const current = unwrapExpression(expression);
+  if (ts.isIdentifier(current)) return Object.freeze([current.text]);
+  if (ts.isPropertyAccessExpression(current)) {
+    const parent = callParts(current.expression);
+    return parent === null ? null : Object.freeze([...parent, current.name.text]);
+  }
+  if (ts.isElementAccessExpression(current)) {
+    const parent = callParts(current.expression);
+    const property = staticString(current.argumentExpression);
+    return parent === null || property === null ? null : Object.freeze([...parent, property]);
+  }
+  if (ts.isCallExpression(current)) return callParts(current.expression);
   return null;
 }
 
-function collectCallQualifiers(expression: ts.LeftHandSideExpression, output: string[]): void {
-  if (ts.isPropertyAccessExpression(expression)) {
-    collectCallQualifiers(expression.expression, output);
-    output.push(expression.name.text);
-    return;
-  }
-  if (ts.isCallExpression(expression)) {
-    collectCallQualifiers(expression.expression, output);
-  }
-}
+function resolveRegistrationBinding(
+  expression: ts.LeftHandSideExpression,
+  bindings: RegistrationBindings
+): RegistrationBinding | null {
+  const parts = callParts(expression);
+  if (parts === null || parts.length === 0) return null;
 
-function callQualifiers(expression: ts.LeftHandSideExpression): readonly string[] {
-  const qualifiers: string[] = [];
-  collectCallQualifiers(expression, qualifiers);
-  return Object.freeze(qualifiers);
+  const named = bindings.named.get(parts[0]!);
+  if (named !== undefined) {
+    return Object.freeze({ kind: named, qualifiers: Object.freeze(parts.slice(1)) });
+  }
+
+  if (bindings.bunNamespaces.has(parts[0]!) && parts.length >= 2) {
+    const member = parts[1];
+    if (member === 'test' || member === 'it' || member === 'describe') {
+      return Object.freeze({ kind: member, qualifiers: Object.freeze(parts.slice(2)) });
+    }
+  }
+
+  if (
+    bindings.responsibilityNamespaces.has(parts[0]!)
+    && parts[1] === 'secTest'
+  ) {
+    return Object.freeze({ kind: 'secTest', qualifiers: Object.freeze(parts.slice(2)) });
+  }
+
+  return null;
 }
 
 function callbackBody(expression: ts.Expression | undefined): ts.ConciseBody | null {
@@ -186,21 +288,11 @@ function responsibilityMetadata(value: StaticValue): TestResponsibilityMetadata 
   return value as unknown as TestResponsibilityMetadata;
 }
 
-export function observeTestCasesInSourceV1(
+function observeTestCasesInParsedSource(
   sourcePath: string,
-  sourceText: string
+  source: ts.SourceFile
 ): readonly TestCaseObservationV1[] {
-  if (!TEST_SOURCE_PATH.test(sourcePath)) {
-    throw new Error(`Test case census source path is not executable test source: ${sourcePath}`);
-  }
-
-  const source = ts.createSourceFile(
-    sourcePath,
-    sourceText,
-    ts.ScriptTarget.Latest,
-    true,
-    sourcePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
+  const bindings = collectRegistrationBindings(sourcePath, source);
   const observations: TestCaseObservationV1[] = [];
 
   const visit = (
@@ -209,16 +301,17 @@ export function observeTestCasesInSourceV1(
     dynamicSuite: boolean
   ): void => {
     if (ts.isCallExpression(node)) {
-      const root = callRootIdentifier(node.expression);
-      if (root === 'describe') {
+      const registration = resolveRegistrationBinding(node.expression, bindings);
+      if (registration?.kind === 'describe') {
         const title = staticString(node.arguments[0]);
-        const qualifiers = callQualifiers(node.expression);
         const line = sourceLine(source, node);
         const nextSuite = Object.freeze([
           ...suitePath,
           title ?? `<dynamic-suite:${line}>`
         ]);
-        const nextDynamicSuite = dynamicSuite || title === null || qualifiers.includes('each');
+        const nextDynamicSuite = dynamicSuite
+          || title === null
+          || registration.qualifiers.includes('each');
         const body = callbackBody(node.arguments[node.arguments.length - 1]);
         if (body !== null) {
           if (ts.isBlock(body)) {
@@ -230,15 +323,14 @@ export function observeTestCasesInSourceV1(
         return;
       }
 
-      if (root === 'secTest' || root === 'test' || root === 'it') {
-        const registration: TestCaseRegistration = root === 'secTest'
+      if (registration?.kind === 'secTest' || registration?.kind === 'test' || registration?.kind === 'it') {
+        const observedRegistration: TestCaseRegistration = registration.kind === 'secTest'
           ? 'sec-test'
-          : root === 'test'
+          : registration.kind === 'test'
             ? 'bun-test'
             : 'bun-it';
-        const qualifiers = callQualifiers(node.expression);
         const line = sourceLine(source, node);
-        const titleIndex = root === 'secTest' ? 1 : 0;
+        const titleIndex = registration.kind === 'secTest' ? 1 : 0;
         const title = staticString(node.arguments[titleIndex]);
 
         let resolution: TestCaseObservationV1['resolution'] = 'observed-but-unresolved';
@@ -247,13 +339,13 @@ export function observeTestCasesInSourceV1(
 
         if (dynamicSuite) {
           reasonCode = 'dynamic-suite-family';
-        } else if (qualifiers.includes('each')) {
+        } else if (registration.qualifiers.includes('each')) {
           reasonCode = 'parameterized-family-unresolved';
         } else if (title === null) {
           reasonCode = 'dynamic-test-title';
-        } else if (root !== 'secTest') {
+        } else if (registration.kind !== 'secTest') {
           reasonCode = 'raw-bun-test-without-responsibility';
-        } else if (qualifiers.length > 0) {
+        } else if (registration.qualifiers.length > 0) {
           reasonCode = 'unsupported-sec-test-modifier';
         } else {
           const metadataExpression = node.arguments[0];
@@ -285,8 +377,8 @@ export function observeTestCasesInSourceV1(
           suitePath: Object.freeze([...suitePath]),
           title,
           line,
-          registration,
-          qualifiers,
+          registration: observedRegistration,
+          qualifiers: registration.qualifiers,
           resolution,
           ...(reasonCode === undefined ? {} : { reasonCode }),
           ...(responsibility === undefined ? {} : { responsibility })
@@ -304,25 +396,63 @@ export function observeTestCasesInSourceV1(
   )));
 }
 
+export function observeTestCasesInSourceV1(
+  sourcePath: string,
+  sourceText: string
+): readonly TestCaseObservationV1[] {
+  if (!TEST_SOURCE_PATH.test(sourcePath)) {
+    throw new Error(`Test case census source path is not executable test source: ${sourcePath}`);
+  }
+
+  const source = ts.createSourceFile(
+    sourcePath,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindForPath(sourcePath)
+  );
+  return observeTestCasesInParsedSource(sourcePath, source);
+}
+
+function projectDuplicateLocators(
+  observations: readonly TestCaseObservationV1[]
+): Readonly<{
+  observations: readonly TestCaseObservationV1[];
+  duplicateLocatorCount: number;
+}> {
+  const counts = new Map<string, number>();
+  for (const observation of observations) {
+    const key = physicalLocatorKey(observation);
+    if (key !== null) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const duplicateKeys = new Set([...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([key]) => key));
+
+  const projected = observations.map((observation) => {
+    const key = physicalLocatorKey(observation);
+    if (key === null || !duplicateKeys.has(key)) return observation;
+    return Object.freeze({
+      ...observation,
+      resolution: 'observed-but-unresolved' as const,
+      reasonCode: 'duplicate-test-locator' as const
+    });
+  });
+
+  return Object.freeze({
+    observations: Object.freeze(projected),
+    duplicateLocatorCount: duplicateKeys.size
+  });
+}
+
 export function compileTestCaseCensusV1(
   sources: readonly Readonly<{ sourcePath: string; sourceText: string }>[]
 ): TestCaseCensusV1 {
-  const observations = sources
+  const rawObservations = sources
     .flatMap(({ sourcePath, sourceText }) => observeTestCasesInSourceV1(sourcePath, sourceText))
     .sort((left, right) => compareText(observationSortKey(left), observationSortKey(right)));
-
-  const locatorOwners = new Map<string, TestCaseObservationV1>();
-  for (const observation of observations) {
-    const key = physicalLocatorKey(observation);
-    if (key === null) continue;
-    const previous = locatorOwners.get(key);
-    if (previous !== undefined) {
-      throw new Error(
-        `Duplicate executable test case locator: ${observation.sourcePath}:${observation.suitePath.join(' > ')}:${observation.title}`
-      );
-    }
-    locatorOwners.set(key, observation);
-  }
+  const collisionProjection = projectDuplicateLocators(rawObservations);
+  const observations = collisionProjection.observations;
 
   const declarations: TestResponsibilityDeclaration[] = [];
   for (const observation of observations) {
@@ -350,21 +480,22 @@ export function compileTestCaseCensusV1(
     caseCount: observations.length,
     resolvedCount: resolvedResponsibilities.length,
     unresolvedCount: unresolved.length,
-    observations: Object.freeze(observations),
+    duplicateLocatorCount: collisionProjection.duplicateLocatorCount,
+    observations,
     resolvedResponsibilities,
     unresolved
   });
 }
 
 export function censusRepositoryTestCasesV1(repositoryRoot: string): TestCaseCensusV1 {
-  const inventory = parseNulUtf8(
+  const inventory = [...new Set(parseNulUtf8(
     gitReadBytes(
       repositoryRoot,
       ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'tests'],
       { label: 'test case census inventory' }
     ),
     'test case census inventory'
-  )
+  ))]
     .filter((repositoryPath) => TEST_SOURCE_PATH.test(repositoryPath))
     .sort(compareText);
 
@@ -372,7 +503,7 @@ export function censusRepositoryTestCasesV1(repositoryRoot: string): TestCaseCen
   for (const sourcePath of inventory) {
     let bytes: Buffer;
     try {
-      bytes = readFileSync(`${repositoryRoot}/${sourcePath}`);
+      bytes = readFileSync(path.join(repositoryRoot, ...sourcePath.split('/')));
     } catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue;
       throw error;
