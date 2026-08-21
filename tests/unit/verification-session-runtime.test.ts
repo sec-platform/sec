@@ -769,19 +769,25 @@ let privateGhProxySuiteRoot = '';
 function privateGhProxyRoot(): string {
   if (privateGhProxySuiteRoot !== '') return privateGhProxySuiteRoot;
   privateGhProxySuiteRoot = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-proxy-'));
-  const source = path.join(privateGhProxySuiteRoot, 'gh-proxy.ts');
   const output = path.join(privateGhProxySuiteRoot, process.platform === 'win32' ? 'gh.exe' : 'gh');
-  writeFileSync(source, `
+  const sourceText = `
 import { pathToFileURL } from 'node:url';
 const runner = process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
 if (!runner) throw new Error('SEC_VERIFICATION_SESSION_TEST_GH_RUNNER is required');
 await import(pathToFileURL(runner).href);
-`, 'utf8');
-  const compiled = spawnSync(process.execPath, [
-    'build', '--compile', source, '--outfile', output
-  ], { encoding: 'utf8', windowsHide: true });
-  if (compiled.status !== 0) {
-    throw new Error(`cannot compile private gh proxy: ${compiled.stderr || compiled.stdout}`);
+`;
+  if (process.platform === 'win32') {
+    const source = path.join(privateGhProxySuiteRoot, 'gh-proxy.ts');
+    writeFileSync(source, sourceText, 'utf8');
+    const compiled = spawnSync(process.execPath, [
+      'build', '--compile', source, '--outfile', output
+    ], { encoding: 'utf8', windowsHide: true });
+    if (compiled.status !== 0) {
+      throw new Error(`cannot compile private gh proxy: ${compiled.stderr || compiled.stdout}`);
+    }
+  } else {
+    writeFileSync(output, `#!/usr/bin/env bun\n${sourceText}`, { encoding: 'utf8', mode: 0o700 });
+    chmodSync(output, 0o700);
   }
   return privateGhProxySuiteRoot;
 }
