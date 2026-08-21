@@ -64,6 +64,16 @@ export type TestProofIndependence = Readonly<{
   witnessRef: string;
 }>;
 
+/**
+ * Current physical locator for one executable test case. It is deliberately not
+ * semantic identity: a file move, suite rename or title rewrite updates this locator
+ * while stable testId remains unchanged.
+ */
+export type TestCaseLocator = Readonly<{
+  suitePath: readonly string[];
+  title: string;
+}>;
+
 export type TestRetirementCondition =
   | Readonly<{ kind: 'persistent-invariant' }>
   | Readonly<{ kind: 'owner-retirement'; owner: string }>
@@ -77,12 +87,12 @@ export type TestRetirementCondition =
   | Readonly<{ kind: 'diagnostic-completion'; workRef: string }>;
 
 export type TestResponsibilityDeclaration = Readonly<{
-  /**
-   * Stable logical proof identity. Test titles and source paths are locators, not identity,
-   * and this field does not become a second runner-case inventory.
-   */
+  /** Stable logical proof identity. */
   testId: string;
+  /** Current test source locator; never semantic identity. */
   sourcePath: string;
+  /** Exact current executable case locator inside sourcePath. */
+  case: TestCaseLocator;
   owner: string;
   layer: TestResponsibilityLayer;
   role: TestResponsibilityRole;
@@ -98,6 +108,7 @@ export type TestResponsibilityDeclaration = Readonly<{
 }>;
 
 const MACHINE_ID = /^[a-z0-9][a-z0-9._:-]*$/u;
+const TEST_SOURCE_PATH = /^tests\/.+\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -115,6 +126,12 @@ function requireReference(value: string, field: string): void {
   }
 }
 
+function requireLocatorText(value: string, field: string, maxLength: number): void {
+  if (value.length === 0 || value.length > maxLength || value.trim() !== value) {
+    throw new Error(`${field} must be a non-empty bounded exact locator string`);
+  }
+}
+
 function uniqueValues(values: readonly string[], field: string): void {
   if (new Set(values).size !== values.length) {
     throw new Error(`${field} contains duplicate values`);
@@ -123,6 +140,22 @@ function uniqueValues(values: readonly string[], field: string): void {
 
 function obligationIdentity(obligation: TestProofObligation): string {
   return `${obligation.kind}:${obligation.owner}:${obligation.id}`;
+}
+
+export function testCaseLocatorIdentity(
+  sourcePath: string,
+  locator: TestCaseLocator
+): string {
+  return [sourcePath, ...locator.suitePath, locator.title].join('\u0000');
+}
+
+function normalizeCaseLocator(locator: TestCaseLocator, testId: string): TestCaseLocator {
+  requireLocatorText(locator.title, `${testId}.case.title`, 1024);
+  const suitePath = locator.suitePath.map((segment, index) => {
+    requireLocatorText(segment, `${testId}.case.suitePath[${index}]`, 512);
+    return segment;
+  });
+  return Object.freeze({ suitePath: Object.freeze(suitePath), title: locator.title });
 }
 
 function normalizeObligation(obligation: TestProofObligation): TestProofObligation {
@@ -208,8 +241,9 @@ function assertReplacementProofsClose(
 }
 
 /**
- * Validates and canonicalizes only proof-responsibility declarations.
- * It does not select tests, execute Verification, or authorize retirement.
+ * Validates and canonicalizes proof-responsibility declarations only.
+ * It does not select tests, discover runtime cases, execute Verification, validate
+ * coverageRef Evidence, or authorize retirement.
  */
 export function normalizeTestResponsibilityDeclarations(
   declarations: readonly TestResponsibilityDeclaration[]
@@ -220,9 +254,11 @@ export function normalizeTestResponsibilityDeclarations(
   const allTestIds = new Set(testIds);
 
   const normalized = declarations.map((declaration) => {
-    if (!CodexDevelopmentIsCanonicalRepositoryPathV1(declaration.sourcePath)) {
-      throw new Error(`${declaration.testId} sourcePath is not canonical repository-relative POSIX`);
+    if (!CodexDevelopmentIsCanonicalRepositoryPathV1(declaration.sourcePath)
+      || !TEST_SOURCE_PATH.test(declaration.sourcePath)) {
+      throw new Error(`${declaration.testId} sourcePath must be a canonical executable test path`);
     }
+    const testCase = normalizeCaseLocator(declaration.case, declaration.testId);
     requireMachineId(declaration.owner, `${declaration.testId}.owner`);
     if (!TEST_RESPONSIBILITY_LAYERS.includes(declaration.layer)) {
       throw new Error(`unknown test responsibility layer: ${String(declaration.layer)}`);
@@ -300,6 +336,7 @@ export function normalizeTestResponsibilityDeclarations(
     return Object.freeze({
       testId: declaration.testId,
       sourcePath: declaration.sourcePath,
+      case: testCase,
       owner: declaration.owner,
       layer: declaration.layer,
       role: declaration.role,
@@ -319,6 +356,10 @@ export function normalizeTestResponsibilityDeclarations(
     } satisfies TestResponsibilityDeclaration);
   });
 
+  const locatorKeys = normalized.map((declaration) => (
+    testCaseLocatorIdentity(declaration.sourcePath, declaration.case)
+  ));
+  uniqueValues(locatorKeys, 'test case locator');
   assertReplacementProofsClose(normalized);
   return Object.freeze([...normalized].sort((left, right) => compareText(left.testId, right.testId)));
 }
