@@ -113,6 +113,10 @@ function uniqueValues(values: readonly string[], field: string): void {
   }
 }
 
+function obligationIdentity(obligation: TestProofObligation): string {
+  return `${obligation.kind}:${obligation.owner}:${obligation.id}`;
+}
+
 function normalizeObligation(obligation: TestProofObligation): TestProofObligation {
   requireMachineId(obligation.id, 'obligation.id');
   requireMachineId(obligation.owner, 'obligation.owner');
@@ -161,33 +165,42 @@ function normalizeRetirementCondition(
   }
 }
 
-function assertNoReplacementCycles(
+function assertReplacementProofsClose(
   declarations: readonly TestResponsibilityDeclaration[]
 ): void {
-  const edges = new Map<string, readonly string[]>();
+  const byId = new Map(declarations.map((declaration) => [declaration.testId, declaration] as const));
+
   for (const declaration of declarations) {
-    edges.set(
-      declaration.testId,
-      declaration.retirementCondition.kind === 'replacement-proof'
-        ? declaration.retirementCondition.replacementTestIds
-        : []
-    );
-  }
+    const condition = declaration.retirementCondition;
+    if (condition.kind !== 'replacement-proof') continue;
 
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const visit = (testId: string): void => {
-    if (visited.has(testId)) return;
-    if (visiting.has(testId)) {
-      throw new Error(`test replacement cycle contains ${testId}`);
+    const replacements = condition.replacementTestIds.map((testId) => {
+      const replacement = byId.get(testId);
+      if (!replacement) throw new Error(`unknown replacement test: ${testId}`);
+      if (replacement.lifecycle !== 'active') {
+        throw new Error(`${declaration.testId} replacement ${testId} must be active`);
+      }
+      return replacement;
+    });
+
+    const replacementObligations = new Set(replacements.flatMap((replacement) => (
+      replacement.obligations
+        .filter((obligation) => (
+          replacement.role !== 'calibration' || obligation.kind === 'verifier-calibration'
+        ))
+        .map(obligationIdentity)
+    )));
+
+    const missing = declaration.obligations
+      .map(obligationIdentity)
+      .filter((identity) => !replacementObligations.has(identity))
+      .sort(compareText);
+    if (missing.length > 0) {
+      throw new Error(
+        `${declaration.testId} replacement proof does not cover obligations: ${missing.join(', ')}`
+      );
     }
-    visiting.add(testId);
-    for (const target of edges.get(testId) ?? []) visit(target);
-    visiting.delete(testId);
-    visited.add(testId);
-  };
-
-  for (const testId of edges.keys()) visit(testId);
+  }
 }
 
 /**
@@ -221,7 +234,7 @@ export function normalizeTestResponsibilityDeclarations(
     }
 
     const obligations = declaration.obligations.map(normalizeObligation);
-    const obligationKeys = obligations.map((obligation) => `${obligation.kind}:${obligation.id}`);
+    const obligationKeys = obligations.map(obligationIdentity);
     uniqueValues(obligationKeys, `${declaration.testId}.obligations`);
 
     const regressionRefs = [...(declaration.regressionRefs ?? [])];
@@ -270,7 +283,7 @@ export function normalizeTestResponsibilityDeclarations(
       role: declaration.role,
       lifecycle: declaration.lifecycle,
       obligations: Object.freeze([...obligations].sort((left, right) => (
-        compareText(`${left.kind}:${left.id}`, `${right.kind}:${right.id}`)
+        compareText(obligationIdentity(left), obligationIdentity(right))
       ))),
       regressionRefs: regressionRefs.length > 0
         ? Object.freeze(regressionRefs.sort(compareText))
@@ -284,6 +297,6 @@ export function normalizeTestResponsibilityDeclarations(
     } satisfies TestResponsibilityDeclaration);
   });
 
-  assertNoReplacementCycles(normalized);
+  assertReplacementProofsClose(normalized);
   return Object.freeze([...normalized].sort((left, right) => compareText(left.testId, right.testId)));
 }
