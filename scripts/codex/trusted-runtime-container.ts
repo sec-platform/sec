@@ -1916,7 +1916,11 @@ export async function executeTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
               `import { resolveInstalledTypecheckProviderV1 as resolve } ` +
               `from "${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/platform/toolchain/typecheck-provider.ts"; ` +
               'const manifest=Bun.resolveSync("typescript/package.json", "/tmp"); ' +
-              'process.stdout.write(JSON.stringify(await resolve(path.dirname(path.dirname(manifest)))))\''
+              'const provider=await resolve(path.dirname(path.dirname(manifest))); ' +
+              'const runtime=await import("typescript"); ' +
+              'if(provider.providerRevision!==`typescript@${runtime.version}`) ' +
+              'throw new Error("TypeCheck Provider runtime revision mismatch"); ' +
+              'process.stdout.write(JSON.stringify(provider))\''
           ], repositoryRoot, 120_000, dockerEndpoint)
         ]);
         if (isolatedProviderIdentity !== providerIdentity) {

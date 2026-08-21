@@ -105,7 +105,6 @@ import {
   CodexDevelopmentCandidateProcessEnvironmentV2,
   CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1,
   CodexDevelopmentCiVerificationMain,
-  CodexDevelopmentCiVerificationTcbClosureLockCliV1,
   CodexDevelopmentComposeHostedEvidenceV2,
   CodexDevelopmentCoordinateHostedActionsV2,
   CodexDevelopmentExecuteHostedActionSutV2,
@@ -1076,19 +1075,16 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     expect(invalidInstant.status).not.toBe(0);
     expect(readFileSync(fixture.target, 'utf8')).toBe(beforeInvalidInstant);
 
-    const originalHosted = process.env.GITHUB_ACTIONS;
-    process.env.GITHUB_ACTIONS = 'true';
-    try {
-      await expect(CodexDevelopmentCiVerificationTcbClosureLockCliV1([
-        'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T04:00:00.000Z'
-      ])).rejects.toThrow('forbidden in hosted execution');
-    } finally {
-      if (originalHosted === undefined) delete process.env.GITHUB_ACTIONS;
-      else process.env.GITHUB_ACTIONS = originalHosted;
-    }
-    await expect(CodexDevelopmentCiVerificationTcbClosureLockCliV1([
+    const hostedApply = invokeTcbClosureCli(fixture, [
+      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T04:00:00.000Z'
+    ], true);
+    expect(hostedApply.status).not.toBe(0);
+    expect(hostedApply.stderr).toContain('forbidden in hosted execution');
+    const pathOverride = invokeTcbClosureCli(fixture, [
       'tcb-closure-lock', '--mode', 'check', '--path', fixture.target
-    ])).rejects.toThrow('Usage:');
+    ]);
+    expect(pathOverride.status).not.toBe(0);
+    expect(pathOverride.stderr).toContain('Usage:');
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
