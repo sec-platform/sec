@@ -2,7 +2,7 @@
 title: 系统架构与权威流
 status: stable
 domain: system-architecture
-last-reviewed: 2026-08-11
+last-reviewed: 2026-08-21
 ---
 
 # 系统架构与权威流
@@ -391,6 +391,58 @@ domain 数量由 `docs/authority.json` 推导，state-machine 数量也不是架
 canonical facts 纯计算、唯一 writer/consumer 以及 migration/retirement 时，才允许建立 durable
 state machine。Evidence、freshness、health、applicability、maturity 和 next-transition projection
 优先保持 immutable record、truth lattice 或 pure evaluator；不得为了展示 phase 再建状态机。
+
+### Runtime State 与状态域分层
+
+SEC 开发控制面区分五类生命周期域；目录位置只是物理 binding，不能把不同 authority 压成“本地状态”：
+
+```text
+Git repository semantic state
+External platform state (GitHub PR/Review/status/ruleset/ref)
+Durable SEC Runtime State
+Disposable cache
+Transaction-local scratch / recovery
+```
+
+- Git repository semantic state进入 candidate tree，受 Work Package、Review 与 Verification 治理；
+- External platform state只由对应 live owner观察，不能由本地 checkpoint、PR body 或 candidate 推断；
+- Durable Runtime State承载跨进程恢复所需的本机状态，不属于 repository tree，也不是 cache；
+- Disposable cache只提供可重算加速，不能成为 Evidence 或 authority；
+- Transaction-local scratch/recovery由具体 transaction owner决定生命周期，不能按`.tmp`等目录名机械迁移或清理。
+
+```mermaid
+flowchart TB
+  G[Git semantic state] --> R[Durable SEC Runtime State]
+  X[External platform state] --> R
+  R --> Q[Next legal operation resolver]
+  C[Disposable cache] -. recomputable only .-> Q
+  T[Transaction recovery] --> Q
+  R -. cannot mint .-> V[Verification / Review / MainHealth / Authorization]
+```
+
+Canonical path、root disjointness、repository/workspace key 与物理 identity 由
+`platform/shared/sec-runtime-state-contract.ts` 唯一拥有；journal、continuation 和 consumer 不复制路径算法。
+Windows、Linux、macOS 的 state/cache root 可由 `SEC_STATE_HOME`、`SEC_CACHE_HOME` 显式覆盖，但必须位于
+repository tree 外且彼此物理 disjoint。lexical path 不是 workspace identity：workspace key必须绑定 canonical
+physical identity，所有写入、替换、删除与 GC 都在 retained/no-follow identity 上重验，防止
+symlink、junction、reparse point、mount、case/Unicode alias 或 TOCTOU 改写 authority。
+
+```text
+stateRoot/
+  workspace-locators/v1/
+  workspaces/v1/<physical-workspace-key>/
+    active-continuation-v1.json
+    verification-sessions/v2/
+    verification-actions/v2/
+  repositories/<repository-key>/objects/continuation-v1/
+```
+
+Continuation object按 canonical bytes digest内容寻址；active pointer只表示某个 physical workspace 当前引用的
+snapshot。pointer/locator/object的发布、替换、退役和journal/claim mutation使用同一 retained physical
+authority，并在文件持久化后完成父目录 durability fence与exact-byte readback。GC只删除所有有效 pointer
+均不可达且超过retention的对象；任何 pointer read、schema、digest、workspace binding 或物理 identity 验证
+失败都 fail safe retain，而不是把损坏状态解释成“没有引用”。Runtime State可以保存恢复事实，不能签发
+Verification、Review、MainHealth、IntegrationAuthorization 或 merge truth。
 
 ## 生命周期与失败
 
