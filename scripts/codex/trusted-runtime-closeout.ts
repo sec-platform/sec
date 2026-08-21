@@ -403,13 +403,13 @@ export async function ensureCurrentTrustedRuntimeMainHealthV1(input: Readonly<{
   reused: boolean;
 }>> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  const [branch, headSha, mainTreeSha, status, originUrl, liveDefault] = await Promise.all([
+  const [branch, headSha, mainTreeSha, status, originUrl, liveDefaultSha] = await Promise.all([
     tool('git', ['branch', '--show-current'], repositoryRoot),
     tool('git', ['rev-parse', 'HEAD'], repositoryRoot),
     tool('git', ['rev-parse', 'HEAD^{tree}'], repositoryRoot),
     tool('git', ['status', '--porcelain=v1', '--untracked-files=all'], repositoryRoot),
     tool('git', ['remote', 'get-url', 'origin'], repositoryRoot),
-    tool('git', ['ls-remote', '--exit-code', 'origin', 'refs/heads/main'], repositoryRoot)
+    tool('gh', ['api', `/repos/${input.repository}/git/ref/heads/main`, '--jq', '.object.sha'], repositoryRoot)
   ]);
   const escapedRepository = input.repository.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   if (!new RegExp(
@@ -418,8 +418,8 @@ export async function ensureCurrentTrustedRuntimeMainHealthV1(input: Readonly<{
   ).test(originUrl)) {
     fail('origin remote does not match the requested GitHub repository');
   }
-  const liveMatch = /^([0-9a-f]{40})\trefs\/heads\/main$/u.exec(liveDefault);
-  if (branch !== 'main' || status !== '' || liveMatch?.[1] !== headSha) {
+  if (branch !== 'main' || status !== '' || !/^[0-9a-f]{40}$/u.test(liveDefaultSha)
+      || liveDefaultSha !== headSha) {
     fail('standalone MainHealth must execute from the clean exact default-branch worktree');
   }
   const ensured = await ensureTrustedRuntimeMainHealthReceiptV1({
