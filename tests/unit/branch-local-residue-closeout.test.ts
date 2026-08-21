@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -348,4 +349,55 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
   } finally {
     parentFixture.dispose();
   }
-}, 15_000);
+
+  const restartedFixture = createEffectFixture('cross-process-substitution');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseoutV1({
+      repositoryRoot: restartedFixture.repositoryRoot,
+      recoveryRoot: restartedFixture.recoveryRoot,
+      run: restartedFixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: { afterAuthorization: () => { throw new Error('simulated-process-exit'); } }
+    })).rejects.toThrow('simulated-process-exit');
+    const oldRepository = `${restartedFixture.repositoryRoot}-old`;
+    const oldRecovery = `${restartedFixture.recoveryRoot}-old`;
+    renameSync(restartedFixture.repositoryRoot, oldRepository);
+    renameSync(restartedFixture.recoveryRoot, oldRecovery);
+    cpSync(oldRepository, restartedFixture.repositoryRoot, { recursive: true });
+    cpSync(oldRecovery, restartedFixture.recoveryRoot, { recursive: true });
+    await expect(executeMergedLocalBranchResidueCloseoutV1({
+      repositoryRoot: restartedFixture.repositoryRoot,
+      recoveryRoot: restartedFixture.recoveryRoot,
+      run: restartedFixture.run,
+      now: () => new Date('2026-08-22T00:01:00.000Z')
+    })).rejects.toThrow(/physical identity changed/u);
+    expect(refExists(restartedFixture.repositoryRoot, 'refs/heads/fix/example')).toBeTrue();
+  } finally {
+    restartedFixture.dispose();
+  }
+
+  const dynamicWorktreeFixture = createEffectFixture('dynamic-worktree-alias');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseoutV1({
+      repositoryRoot: dynamicWorktreeFixture.repositoryRoot,
+      recoveryRoot: dynamicWorktreeFixture.recoveryRoot,
+      run: dynamicWorktreeFixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: {
+        afterAuthorization: () => {
+          const alias = path.join(dynamicWorktreeFixture.root, 'detached-worktree-alias');
+          git(dynamicWorktreeFixture.repositoryRoot, ['worktree', 'add', '--detach', alias, 'main']);
+          rmSync(alias, { recursive: true, force: true });
+          symlinkSync(
+            dynamicWorktreeFixture.recoveryRoot,
+            alias,
+            process.platform === 'win32' ? 'junction' : 'dir'
+          );
+        }
+      }
+    })).rejects.toThrow();
+    expect(refExists(dynamicWorktreeFixture.repositoryRoot, 'refs/heads/fix/example')).toBeTrue();
+  } finally {
+    dynamicWorktreeFixture.dispose();
+  }
+}, 30_000);

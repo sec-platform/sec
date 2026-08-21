@@ -22,9 +22,12 @@ import {
   createNoFollowOrdinaryDirectoryChainV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
+  inspectNoFollowOrdinaryFileEntryV1,
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
   scanNoFollowDirectoryTreeMetadataV1,
+  type NoFollowDirectoryTreeEntryV1,
+  type PhysicalDirectoryChainV1,
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
 
@@ -124,14 +127,39 @@ function defaultRecoveryRoot(inventory: BranchLifecycleInventory): string {
 
 export interface BranchRecoveryStoreV1 {
   readonly root: PhysicalDirectoryIdentityV1;
+  readonly rootChain: PhysicalDirectoryChainV1;
   readonly publishExclusive: (input: Readonly<{
     name: string;
     bytes: Uint8Array;
     validate: (bytes: Uint8Array) => void;
   }>) => Readonly<{ path: string; digest: string; created: boolean }>;
   readonly read: (name: string) => Uint8Array | null;
+  readonly inspectFile: (name: string) => NoFollowDirectoryTreeEntryV1 | null;
   readonly listOwnedFiles: (prefix: string) => readonly string[];
+  readonly assertPhysicallyDisjointFrom: (absoluteDirectoryPaths: readonly string[]) => void;
   readonly assertCurrent: () => void;
+}
+
+function sameDirectoryIdentity(
+  left: PhysicalDirectoryIdentityV1,
+  right: PhysicalDirectoryIdentityV1
+): boolean {
+  return left.schema === right.schema
+    && left.path === right.path
+    && left.finalPath === right.finalPath
+    && left.device === right.device
+    && left.inode === right.inode
+    && left.objectId === right.objectId;
+}
+
+function sameDirectoryChain(
+  left: PhysicalDirectoryChainV1,
+  right: PhysicalDirectoryChainV1
+): boolean {
+  return sameDirectoryIdentity(left.target, right.target)
+    && left.ancestors.length === right.ancestors.length
+    && left.ancestors.every((entry, index) =>
+      sameDirectoryIdentity(entry, right.ancestors[index]!));
 }
 
 function pathInside(candidate: string, root: string): boolean {
@@ -206,11 +234,19 @@ export function acquireBranchRecoveryStoreV1(input: Readonly<{
     );
   }
 
+  const assertCurrentChain = (): PhysicalDirectoryChainV1 => {
+    const current = assertSameNoFollowDirectoryIdentityV1(root, 'Branch recovery root');
+    if (!sameDirectoryChain(rootChain, current)) {
+      throw new Error('Branch recovery physical ancestor chain changed.');
+    }
+    return current;
+  };
   const assertCurrent = (): void => {
-    assertSameNoFollowDirectoryIdentityV1(root, 'Branch recovery root');
+    assertCurrentChain();
   };
   return Object.freeze({
     root,
+    rootChain,
     publishExclusive: (publication: Readonly<{
       name: string;
       bytes: Uint8Array;
@@ -229,6 +265,12 @@ export function acquireBranchRecoveryStoreV1(input: Readonly<{
     read: (name: string) => {
       assertCurrent();
       const result = readNoFollowOrdinaryFileV1(root, name);
+      assertCurrent();
+      return result;
+    },
+    inspectFile: (name: string) => {
+      assertCurrent();
+      const result = inspectNoFollowOrdinaryFileEntryV1(root, name);
       assertCurrent();
       return result;
     },
@@ -253,6 +295,21 @@ export function acquireBranchRecoveryStoreV1(input: Readonly<{
       assertCurrent();
       return Object.freeze(owned.map(({ relativePath }) => relativePath)
         .sort((left, right) => left.localeCompare(right)));
+    },
+    assertPhysicallyDisjointFrom: (absoluteDirectoryPaths: readonly string[]) => {
+      const current = assertCurrentChain();
+      for (const directoryPath of absoluteDirectoryPaths) {
+        const directory = inspectNoFollowDirectoryChainV1(
+          path.resolve(directoryPath),
+          'Branch recovery dynamic worktree'
+        );
+        assertPhysicallyDisjointDirectoryChainsV1(
+          current,
+          directory,
+          `Branch recovery root and dynamic worktree ${directoryPath}`
+        );
+      }
+      assertCurrent();
     },
     assertCurrent
   });

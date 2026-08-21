@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  inspectNoFollowDirectoryChainV1,
+  type PhysicalDirectoryChainV1
+} from '../../platform/shared/physical-no-follow.ts';
+import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease
 } from '../../platform/shared/workspace-write-lease.ts';
@@ -74,6 +78,19 @@ export interface LocalBranchResiduePlanV1 {
 interface RecoveryBindingV1 {
   readonly path: string;
   readonly digest: Digest;
+  readonly device: string;
+  readonly inode: string;
+  readonly checksumDevice: string;
+  readonly checksumInode: string;
+}
+
+interface PhysicalDirectoryBindingV1 {
+  readonly path: string;
+  readonly finalPath: string;
+  readonly device: string;
+  readonly inode: string;
+  readonly objectId: string;
+  readonly ancestorChainDigest: Digest;
 }
 
 interface AuthorizationEntryV1 extends LocalBranchResiduePlanEntryV1 {
@@ -88,6 +105,9 @@ interface LocalBranchResidueAuthorizationV1 {
   readonly commonDir: string;
   readonly remote: string;
   readonly remoteUrl: string;
+  readonly repositoryPhysical: PhysicalDirectoryBindingV1;
+  readonly commonDirPhysical: PhysicalDirectoryBindingV1;
+  readonly recoveryRootPhysical: PhysicalDirectoryBindingV1;
   readonly remoteMainSha: string;
   readonly defaultBranch: string;
   readonly entries: readonly AuthorizationEntryV1[];
@@ -131,6 +151,28 @@ function sha256Bytes(bytes: Uint8Array): Digest {
 
 function canonicalSource(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function bindPhysicalDirectory(chain: PhysicalDirectoryChainV1): PhysicalDirectoryBindingV1 {
+  return Object.freeze({
+    path: chain.target.path,
+    finalPath: chain.target.finalPath,
+    device: chain.target.device,
+    inode: chain.target.inode,
+    objectId: chain.target.objectId,
+    ancestorChainDigest: digest(chain.ancestors)
+  });
+}
+
+function assertPhysicalDirectoryBinding(
+  expected: PhysicalDirectoryBindingV1,
+  current: PhysicalDirectoryChainV1,
+  label: string
+): void {
+  const actual = bindPhysicalDirectory(current);
+  if (canonicalSource(actual) !== canonicalSource(expected)) {
+    throw new Error(`${label} physical identity changed after authorization.`);
+  }
 }
 
 function defaultRunner(
@@ -376,6 +418,26 @@ function verifyBundleBytes(
   }
 }
 
+function bindRecoveryFiles(
+  store: BranchRecoveryStoreV1,
+  name: string,
+  bundleDigest: Digest
+): RecoveryBindingV1 {
+  const bundle = store.inspectFile(name);
+  const checksum = store.inspectFile(`${name}.sha256`);
+  if (bundle === null || checksum === null) {
+    throw new Error(`Recovery publication disappeared before physical binding: ${name}`);
+  }
+  return Object.freeze({
+    path: path.join(store.root.path, name),
+    digest: bundleDigest,
+    device: bundle.device,
+    inode: bundle.inode,
+    checksumDevice: checksum.device,
+    checksumInode: checksum.inode
+  });
+}
+
 function createRecovery(
   run: CommandRunnerV1,
   repositoryRoot: string,
@@ -402,7 +464,7 @@ function createRecovery(
       throw new Error(`Existing recovery checksum differs for ${entry.branch}.`);
     }
     verifyBundleBytes(run, repositoryRoot, entry, existing, 'Existing recovery bundle');
-    return Object.freeze({ path: path.join(store.root.path, name), digest: bundleDigest });
+    return bindRecoveryFiles(store, name, bundleDigest);
   }
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-local-branch-residue-'));
   const temporaryBundle = path.join(temporaryRoot, 'recovery.bundle');
@@ -435,7 +497,7 @@ function createRecovery(
         }
       }
     });
-    return Object.freeze({ path: path.join(store.root.path, name), digest: bundleDigest });
+    return bindRecoveryFiles(store, name, bundleDigest);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -450,19 +512,25 @@ function assertRecoveryBytes(
       || !name.startsWith('sec-local-branch-residue-') || !name.endsWith('.bundle')) {
     throw new Error(`Recovery path escaped the canonical recovery owner for ${entry.branch}.`);
   }
-  const bytes = store.read(name);
-  if (bytes === null || sha256Bytes(bytes) !== entry.recovery.digest) {
+  const bundle = store.inspectFile(name);
+  if (bundle === null || bundle.bytes === null
+      || bundle.device !== entry.recovery.device
+      || bundle.inode !== entry.recovery.inode
+      || sha256Bytes(bundle.bytes) !== entry.recovery.digest) {
     throw new Error(`Recovery bytes changed for ${entry.branch}.`);
   }
   const expectedChecksum = Buffer.from(
     `${entry.recovery.digest.slice('sha256:'.length)}  ${name}\n`,
     'utf8'
   );
-  const checksum = store.read(`${name}.sha256`);
-  if (checksum === null || !Buffer.from(checksum).equals(expectedChecksum)) {
+  const checksum = store.inspectFile(`${name}.sha256`);
+  if (checksum === null || checksum.bytes === null
+      || checksum.device !== entry.recovery.checksumDevice
+      || checksum.inode !== entry.recovery.checksumInode
+      || !Buffer.from(checksum.bytes).equals(expectedChecksum)) {
     throw new Error(`Recovery checksum changed for ${entry.branch}.`);
   }
-  return bytes;
+  return bundle.bytes;
 }
 
 function verifyRecovery(
@@ -533,6 +601,9 @@ function createAuthorization(input: Readonly<{
   commonDir: string;
   remote: string;
   remoteUrl: string;
+  repositoryPhysical: PhysicalDirectoryBindingV1;
+  commonDirPhysical: PhysicalDirectoryBindingV1;
+  recoveryRootPhysical: PhysicalDirectoryBindingV1;
   remoteMainSha: string;
   defaultBranch: string;
   entries: readonly AuthorizationEntryV1[];
@@ -545,6 +616,9 @@ function createAuthorization(input: Readonly<{
     commonDir: input.commonDir,
     remote: input.remote,
     remoteUrl: input.remoteUrl,
+    repositoryPhysical: input.repositoryPhysical,
+    commonDirPhysical: input.commonDirPhysical,
+    recoveryRootPhysical: input.recoveryRootPhysical,
     remoteMainSha: input.remoteMainSha,
     defaultBranch: input.defaultBranch,
     entries: input.entries
@@ -574,7 +648,10 @@ function parseAuthorizationEntries(value: unknown): readonly AuthorizationEntryV
       throw new Error(`Authorization entry ${index} shape is invalid.`);
     }
     const recoveryRecord = recovery as Record<string, unknown>;
-    if (Object.keys(recoveryRecord).sort().join(',') !== ['digest', 'path'].join(',')) {
+    const recoveryKeys = [
+      'path', 'digest', 'device', 'inode', 'checksumDevice', 'checksumInode'
+    ].sort();
+    if (Object.keys(recoveryRecord).sort().join(',') !== recoveryKeys.join(',')) {
       throw new Error(`Authorization recovery ${index} shape is invalid.`);
     }
     const result: AuthorizationEntryV1 = {
@@ -585,7 +662,11 @@ function parseAuthorizationEntries(value: unknown): readonly AuthorizationEntryV
       pullRequestUrl: String(entry.pullRequestUrl),
       recovery: {
         path: String(recoveryRecord.path),
-        digest: String(recoveryRecord.digest) as Digest
+        digest: String(recoveryRecord.digest) as Digest,
+        device: String(recoveryRecord.device),
+        inode: String(recoveryRecord.inode),
+        checksumDevice: String(recoveryRecord.checksumDevice),
+        checksumInode: String(recoveryRecord.checksumInode)
       }
     };
     assertGitBranchName(result.branch, `authorization entry ${index} branch`);
@@ -595,8 +676,48 @@ function parseAuthorizationEntries(value: unknown): readonly AuthorizationEntryV
       throw new Error(`Authorization entry ${index} pull request number is invalid.`);
     }
     assertDigest(result.recovery.digest, `authorization entry ${index} recovery digest`);
+    if ([
+      result.recovery.device,
+      result.recovery.inode,
+      result.recovery.checksumDevice,
+      result.recovery.checksumInode
+    ].some((identity) => identity.length === 0 || identity.length > 256)) {
+      throw new Error(`Authorization recovery ${index} physical identity is invalid.`);
+    }
     return Object.freeze(result);
   }));
+}
+
+function parsePhysicalDirectoryBinding(
+  value: unknown,
+  label: string
+): PhysicalDirectoryBindingV1 {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${label} physical binding must be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  const expectedKeys = [
+    'path', 'finalPath', 'device', 'inode', 'objectId', 'ancestorChainDigest'
+  ].sort();
+  if (Object.keys(record).sort().join(',') !== expectedKeys.join(',')) {
+    throw new Error(`${label} physical binding shape is invalid.`);
+  }
+  const result: PhysicalDirectoryBindingV1 = {
+    path: String(record.path),
+    finalPath: String(record.finalPath),
+    device: String(record.device),
+    inode: String(record.inode),
+    objectId: String(record.objectId),
+    ancestorChainDigest: String(record.ancestorChainDigest) as Digest
+  };
+  assertDigest(result.ancestorChainDigest, `${label} ancestor chain digest`);
+  if (!path.isAbsolute(result.path) || result.finalPath.length === 0
+      || [result.device, result.inode, result.objectId].some((entry) => (
+        entry.length === 0 || entry.length > 512
+      ))) {
+    throw new Error(`${label} physical binding identity is invalid.`);
+  }
+  return Object.freeze(result);
 }
 
 function parseAuthorization(source: Uint8Array): LocalBranchResidueAuthorizationV1 {
@@ -608,6 +729,7 @@ function parseAuthorization(source: Uint8Array): LocalBranchResidueAuthorization
   const record = value as Record<string, unknown>;
   const expectedKeys = [
     'schema', 'operationId', 'repository', 'repositoryRoot', 'commonDir', 'remote', 'remoteUrl',
+    'repositoryPhysical', 'commonDirPhysical', 'recoveryRootPhysical',
     'remoteMainSha', 'defaultBranch', 'entries', 'authorizedAt', 'authorizationDigest'
   ].sort();
   if (Object.keys(record).sort().join(',') !== expectedKeys.join(',')
@@ -622,6 +744,9 @@ function parseAuthorization(source: Uint8Array): LocalBranchResidueAuthorization
     commonDir: String(record.commonDir),
     remote: String(record.remote),
     remoteUrl: String(record.remoteUrl),
+    repositoryPhysical: parsePhysicalDirectoryBinding(record.repositoryPhysical, 'repository'),
+    commonDirPhysical: parsePhysicalDirectoryBinding(record.commonDirPhysical, 'common directory'),
+    recoveryRootPhysical: parsePhysicalDirectoryBinding(record.recoveryRootPhysical, 'recovery root'),
     remoteMainSha: String(record.remoteMainSha),
     defaultBranch: String(record.defaultBranch),
     entries,
@@ -652,6 +777,9 @@ function parseAuthorization(source: Uint8Array): LocalBranchResidueAuthorization
     commonDir: parsed.commonDir,
     remote: parsed.remote,
     remoteUrl: parsed.remoteUrl,
+    repositoryPhysical: parsed.repositoryPhysical,
+    commonDirPhysical: parsed.commonDirPhysical,
+    recoveryRootPhysical: parsed.recoveryRootPhysical,
     remoteMainSha: parsed.remoteMainSha,
     defaultBranch: parsed.defaultBranch,
     entries: parsed.entries
@@ -826,7 +954,20 @@ function assertRecoverySeparatedFromWorktrees(
       throw new Error(`Worktree overlaps the canonical recovery root: ${worktree}`);
     }
   }
-  store.assertCurrent();
+  store.assertPhysicallyDisjointFrom(observation.worktreeRoots);
+}
+
+function observeWorktreeState(
+  run: CommandRunnerV1,
+  repositoryRoot: string
+): Readonly<{ branches: readonly string[]; roots: readonly string[] }> {
+  const source = requireText(run, 'git', [
+    'worktree', 'list', '--porcelain', '-z'
+  ], repositoryRoot, 'effect-boundary worktree observation');
+  return Object.freeze({
+    branches: parseWorktreeBranches(source),
+    roots: parseWorktreeRoots(source)
+  });
 }
 
 function assertAuthorizationIdentity(input: Readonly<{
@@ -837,6 +978,7 @@ function assertAuthorizationIdentity(input: Readonly<{
   remote: string;
   remoteUrl: string;
   provider: RepositoryProviderObservationV1;
+  store: BranchRecoveryStoreV1;
 }>): void {
   const { authorization } = input;
   if (authorization.repository !== input.repository
@@ -848,6 +990,27 @@ function assertAuthorizationIdentity(input: Readonly<{
       || authorization.defaultBranch !== input.provider.defaultBranch) {
     throw new Error('Pending authorization differs from the exact repository provider identity.');
   }
+  if (authorization.repositoryPhysical.path !== input.repositoryRoot
+      || authorization.commonDirPhysical.path !== input.commonDir
+      || authorization.recoveryRootPhysical.path !== input.store.root.path) {
+    throw new Error('Authorization physical path binding differs from its lexical identity.');
+  }
+  assertPhysicalDirectoryBinding(
+    authorization.repositoryPhysical,
+    inspectNoFollowDirectoryChainV1(input.repositoryRoot, 'Authorized repository root'),
+    'Repository root'
+  );
+  assertPhysicalDirectoryBinding(
+    authorization.commonDirPhysical,
+    inspectNoFollowDirectoryChainV1(input.commonDir, 'Authorized Git common directory'),
+    'Git common directory'
+  );
+  assertPhysicalDirectoryBinding(
+    authorization.recoveryRootPhysical,
+    input.store.rootChain,
+    'Recovery root'
+  );
+  input.store.assertCurrent();
   for (const entry of authorization.entries) {
     if (entry.pullRequestUrl
         !== `https://github.com/${authorization.repository}/pull/${entry.pullRequestNumber}`) {
@@ -943,6 +1106,14 @@ export async function executeMergedLocalBranchResidueCloseoutV1(input: Readonly<
   const commonDir = realpathSync(path.isAbsolute(commonRaw)
     ? commonRaw
     : path.resolve(repositoryRoot, commonRaw));
+  const repositoryPhysical = inspectNoFollowDirectoryChainV1(
+    repositoryRoot,
+    'Local branch residue repository root'
+  );
+  const commonDirPhysical = inspectNoFollowDirectoryChainV1(
+    commonDir,
+    'Local branch residue Git common directory'
+  );
   const remote = input.remote ?? 'origin';
   assertGitBranchName(remote, 'remote');
   const remoteUrl = requireText(run, 'git', ['remote', 'get-url', remote],
@@ -977,7 +1148,8 @@ export async function executeMergedLocalBranchResidueCloseoutV1(input: Readonly<
         commonDir,
         remote,
         remoteUrl,
-        provider: currentProvider
+        provider: currentProvider,
+        store
       });
       const current = observe(
         run,
@@ -1004,6 +1176,23 @@ export async function executeMergedLocalBranchResidueCloseoutV1(input: Readonly<
         input.faults?.afterAuthorization?.();
       }
       await assertWorkspaceWriteLease(repositoryRoot, lease);
+      const effectWorktrees = observeWorktreeState(run, repositoryRoot);
+      for (const entry of authorization.entries) {
+        if (effectWorktrees.branches.includes(entry.branch)) {
+          throw new Error(`Worktree acquired branch at the ref effect boundary: ${entry.branch}.`);
+        }
+      }
+      store.assertPhysicallyDisjointFrom(effectWorktrees.roots);
+      assertPhysicalDirectoryBinding(
+        authorization.repositoryPhysical,
+        inspectNoFollowDirectoryChainV1(repositoryRoot, 'Ref effect repository root'),
+        'Repository root'
+      );
+      assertPhysicalDirectoryBinding(
+        authorization.commonDirPhysical,
+        inspectNoFollowDirectoryChainV1(commonDir, 'Ref effect Git common directory'),
+        'Git common directory'
+      );
       for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
       if (state === 'present') {
         deleteExactTransaction(run, repositoryRoot, authorization.entries);
@@ -1048,7 +1237,8 @@ export async function executeMergedLocalBranchResidueCloseoutV1(input: Readonly<
       commonDir,
       remote,
       remoteUrl,
-      provider
+      provider,
+      store
     });
     return await settleAuthorization(pending, false, Object.freeze([]), Object.freeze([]));
   }
@@ -1078,6 +1268,9 @@ export async function executeMergedLocalBranchResidueCloseoutV1(input: Readonly<
     commonDir,
     remote,
     remoteUrl,
+    repositoryPhysical: bindPhysicalDirectory(repositoryPhysical),
+    commonDirPhysical: bindPhysicalDirectory(commonDirPhysical),
+    recoveryRootPhysical: bindPhysicalDirectory(store.rootChain),
     remoteMainSha: exactRemoteMain,
     defaultBranch: provider.defaultBranch,
     entries,
