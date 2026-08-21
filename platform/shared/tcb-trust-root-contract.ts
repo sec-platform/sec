@@ -41,6 +41,7 @@ const REQUIRED_STATIC_EXACT_PATHS = [
   '.bun-version',
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3,
   'platform/shared/tcb-closure-lock.ts',
+  'scripts/codex/branch-local-residue-closeout.ts',
   'scripts/codex/branch-lifecycle.ts',
   'scripts/codex/trusted-runtime.Dockerfile'
 ] as const;
