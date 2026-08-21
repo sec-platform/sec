@@ -8,11 +8,14 @@ import {
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
   TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2,
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+  TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1,
+  TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1,
   assertTrustedRuntimeContainerImageV1,
   assertTrustedRuntimeDependencyCacheVolumeV1,
   assertTrustedRuntimeMainHealthCarryForwardBaselineV2,
   authorizeTrustedRuntimeContainerRecoveryV1,
   composeTrustedRuntimeContainerLabelsV1,
+  createTrustedRuntimeCommandEnvironmentArgsV1,
   createTrustedRuntimeDependencyCacheMarkerV1,
   createTrustedRuntimeDependencyCacheVolumeSpecV1,
   createTrustedRuntimeHostCommandEnvironmentV1,
@@ -51,6 +54,21 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('projects one writable sibling state/cache authority into every trusted runtime command', () => {
+    expect(TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1).toEqual({
+      SEC_STATE_HOME: '/sec-runtime/output/state',
+      SEC_CACHE_HOME: '/sec-runtime/output/cache'
+    });
+    const projected = createTrustedRuntimeCommandEnvironmentArgsV1({ SURFACE: 'main-health' });
+    expect(projected).toContain('--env');
+    expect(projected).toContain('SEC_STATE_HOME=/sec-runtime/output/state');
+    expect(projected).toContain('SEC_CACHE_HOME=/sec-runtime/output/cache');
+    expect(projected).toContain('SURFACE=main-health');
+    expect(() => createTrustedRuntimeCommandEnvironmentArgsV1({
+      SEC_STATE_HOME: '/caller/override'
+    })).toThrow('cannot replace SEC_STATE_HOME');
+  });
+
   test('uses stable per-gate ActionKeys and invalidates only when bound inputs change', () => {
     const affectedPlan = parseTrustedRuntimeMainHealthAffectedPlanV1(JSON.stringify({
       schema: 'sec-local-affected-check-plan-v1',
@@ -82,6 +100,11 @@ describe('provider-neutral trusted runtime container', () => {
     });
     expect(first.map(({ action }) => action.actionKey))
       .toEqual(same.map(({ action }) => action.actionKey));
+    expect(first.every(({ action }) => action.environment.contractRevision ===
+      'sec-trusted-runtime-main-health-action-v2')).toBe(true);
+    expect(first.every(({ action }) => action.operation.declaredEnvironment.some((entry) =>
+      entry.name === 'trusted-runtime-state-environment'
+      && entry.digest === TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1))).toBe(true);
     expect(first.map(({ action }) => action.actionKey))
       .not.toEqual(changed.map(({ action }) => action.actionKey));
     expect(first[2]!.plan.dependencies.map(({ actionKey }) => actionKey))

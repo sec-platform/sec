@@ -90,11 +90,32 @@ const TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1 = '/candidate.bundle' as const;
 const TRUSTED_RUNTIME_TRUSTED_TREE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/trusted`;
 const TRUSTED_RUNTIME_WORKSPACE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/workspace`;
 const TRUSTED_RUNTIME_OUTPUT_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/output`;
+export const TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1 = Object.freeze({
+  SEC_STATE_HOME: `${TRUSTED_RUNTIME_OUTPUT_V1}/state`,
+  SEC_CACHE_HOME: `${TRUSTED_RUNTIME_OUTPUT_V1}/cache`
+});
+export const TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1 =
+  digestValue(TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1);
+
+export function createTrustedRuntimeCommandEnvironmentArgsV1(
+  environment: Readonly<Record<string, string>>
+): readonly string[] {
+  for (const key of Object.keys(TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1)) {
+    if (key in environment) fail(`trusted runtime command environment cannot replace ${key}`);
+  }
+  return Object.freeze(Object.entries({
+    ...environment,
+    ...TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1
+  })
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([name, value]) => ['--env', `${name}=${value}`]));
+}
 
 export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2 = digestValue(Object.freeze({
   schema: 'sec-trusted-runtime-main-health-plan-v2',
   actions: TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2,
-  expansion: 'affected-gate-actionkeys-v1'
+  expansion: 'affected-gate-actionkeys-v1',
+  stateEnvironmentDigest: TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1
 }));
 
 const TRUSTED_RUNTIME_MAIN_HEALTH_GATE_COMMANDS_V1 = Object.freeze({
@@ -292,12 +313,19 @@ export function createTrustedRuntimeMainHealthGatePlansV1(input: Readonly<{
       operation: {
         identity: gate.id,
         revision: 'dev-runner-command-v1',
-        semanticDigest: digestValue({ gateId: gate.id, argv }),
+        semanticDigest: digestValue({
+          gateId: gate.id,
+          argv,
+          stateEnvironmentDigest: TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1
+        }),
         workingDirectory: '.',
-        declaredEnvironment: [{
-          name: 'affected-baseline',
-          digest: input.baselineObservationDigest
-        }]
+        declaredEnvironment: [
+          { name: 'affected-baseline', digest: input.baselineObservationDigest },
+          {
+            name: 'trusted-runtime-state-environment',
+            digest: TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1
+          }
+        ]
       },
       inputClosure: [
         { path: 'main.tree', digest: digestValue(input.mainTreeSha) },
@@ -309,7 +337,7 @@ export function createTrustedRuntimeMainHealthGatePlansV1(input: Readonly<{
           imageId: input.imageId,
           dockerEndpoint: input.dockerEndpoint
         }).slice(7)}`,
-        contractRevision: 'sec-trusted-runtime-main-health-action-v1'
+        contractRevision: 'sec-trusted-runtime-main-health-action-v2'
       },
       requiredCheapPreflightActionKeys: dependencies,
       upstreamActionKeys: [],
@@ -1068,11 +1096,9 @@ function formalEnvironment(input: Readonly<{
     SEC_CHANGED_BASE: 'refs/sec/base',
     SEC_AFFECTED_TESTS_BASE: 'refs/sec/base',
     SEC_WORK_PACKAGE_MANIFEST_PATH: envelope.session.manifestPath,
-    SEC_CI_VERIFICATION_EVIDENCE_PATH: `${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`,
-    SEC_CACHE_HOME: `${TRUSTED_RUNTIME_OUTPUT_V1}/cache`
+    SEC_CI_VERIFICATION_EVIDENCE_PATH: `${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`
   });
-  return Object.freeze(Object.entries(values).sort(([left], [right]) => left.localeCompare(right))
-    .flatMap(([key, value]) => ['--env', `${key}=${value}`]));
+  return createTrustedRuntimeCommandEnvironmentArgsV1(values);
 }
 
 function createReceipt(input: Omit<TrustedRuntimeContainerReceiptV1, 'schema' | 'receiptDigest'>):
@@ -1654,14 +1680,21 @@ export async function executeTrustedRuntimeMainHealthV2(input: Readonly<{
           SEC_AFFECTED_TESTS_BASE: baseline.baselineSha,
           SEC_CHANGED_BASE: baseline.baselineSha
         });
+        const mainHealthEnvironment = createTrustedRuntimeCommandEnvironmentArgsV1({
+          CI: '1',
+          HOME: '/home/ubuntu',
+          LANG: 'C',
+          LC_ALL: 'C',
+          TZ: 'UTC',
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_TERMINAL_PROMPT: '0',
+          SEC_AFFECTED_TESTS_BASE: baseline.baselineSha,
+          SEC_CHANGED_BASE: baseline.baselineSha
+        });
         const planResult = await commandResult('docker', [
           'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
-          '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', '--env', 'LANG=C',
-          '--env', `SEC_CACHE_HOME=${TRUSTED_RUNTIME_OUTPUT_V1}/cache`,
-          '--env', 'LC_ALL=C', '--env', 'TZ=UTC', '--env', 'GIT_CONFIG_NOSYSTEM=1',
-          '--env', 'GIT_CONFIG_GLOBAL=/dev/null', '--env', 'GIT_TERMINAL_PROMPT=0',
-          '--env', `SEC_AFFECTED_TESTS_BASE=${baseline.baselineSha}`,
-          '--env', `SEC_CHANGED_BASE=${baseline.baselineSha}`,
+          ...mainHealthEnvironment,
           containerName, 'bun', 'run', 'check:affected', '--', '--plan'
         ], repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
         const affectedPlan = parseTrustedRuntimeMainHealthAffectedPlanV1(planResult.stdout);
@@ -1689,12 +1722,7 @@ export async function executeTrustedRuntimeMainHealthV2(input: Readonly<{
               const result = await observeCommandResult('docker', [
                 'container', 'exec', '--user', '1000:1000',
                 '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
-                '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', '--env', 'LANG=C',
-                '--env', `SEC_CACHE_HOME=${TRUSTED_RUNTIME_OUTPUT_V1}/cache`,
-                '--env', 'LC_ALL=C', '--env', 'TZ=UTC', '--env', 'GIT_CONFIG_NOSYSTEM=1',
-                '--env', 'GIT_CONFIG_GLOBAL=/dev/null', '--env', 'GIT_TERMINAL_PROMPT=0',
-                '--env', `SEC_AFFECTED_TESTS_BASE=${baseline.baselineSha}`,
-                '--env', `SEC_CHANGED_BASE=${baseline.baselineSha}`,
+                ...mainHealthEnvironment,
                 containerName, ...gate.argv
               ], repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
               const resultDigest = digestValue(Object.freeze({
