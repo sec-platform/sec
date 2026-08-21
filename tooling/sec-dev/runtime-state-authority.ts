@@ -2,6 +2,7 @@ import { chmodSync, lstatSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  assertPhysicallyDisjointDirectoryChainsV1,
   assertSameNoFollowDirectoryIdentityV1,
   createNoFollowOrdinaryDirectoryChainV1,
   inspectExactNoFollowDirectoryPresenceV1,
@@ -30,26 +31,12 @@ export interface SecRuntimeCachePhysicalAuthorityV1 {
 
 const windowsRuntimeStateAuthorities = new Map<string, Promise<WindowsHostDirectoryAuthority>>();
 
-function identityKey(value: PhysicalDirectoryIdentityV1): string {
-  return `${value.device}:${value.inode}:${value.objectId}`;
-}
-
-function physicallyContains(
-  outer: PhysicalDirectoryChainV1,
-  inner: PhysicalDirectoryChainV1
-): boolean {
-  const target = identityKey(outer.target);
-  return inner.ancestors.some((entry) => identityKey(entry) === target);
-}
-
 function assertPhysicallyDisjoint(
   left: PhysicalDirectoryChainV1,
   right: PhysicalDirectoryChainV1,
   label: string
 ): void {
-  if (physicallyContains(left, right) || physicallyContains(right, left)) {
-    throw new Error(`SEC runtime state ${label} must be physically disjoint.`);
-  }
+  assertPhysicallyDisjointDirectoryChainsV1(left, right, `SEC runtime state ${label}`);
 }
 
 function materializePhysicalDirectory(absolutePath: string): PhysicalDirectoryChainV1 {
@@ -77,7 +64,9 @@ function samePhysicalIdentity(
   left: PhysicalDirectoryIdentityV1,
   right: PhysicalDirectoryIdentityV1
 ): boolean {
-  return identityKey(left) === identityKey(right);
+  return left.device === right.device
+    && left.inode === right.inode
+    && left.objectId === right.objectId;
 }
 
 function hardenPosixDirectory(directory: PhysicalDirectoryIdentityV1): PhysicalDirectoryIdentityV1 {

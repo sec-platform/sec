@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -26,15 +27,23 @@ import {
 import { compilerRoot } from '../../platform/shared/paths.ts';
 import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
 
+const isolatedTestWorkspaceEnvironment = {
+  [TEST_WORKSPACE_NAMESPACE_ENV]: undefined,
+  [TEST_WORKSPACE_RUN_CHILD_ENV]: undefined,
+  [TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV]: undefined
+};
+
 test('test workspace roots honor a safe CI lane namespace', () => {
-  const defaultRoot = getTestWorkspaceTempRoot({});
+  const defaultRoot = getTestWorkspaceTempRoot(isolatedTestWorkspaceEnvironment);
 
   const relativeToRepository = path.relative(compilerRoot, defaultRoot);
   expect(path.isAbsolute(relativeToRepository) || relativeToRepository.startsWith('..')).toBe(true);
   expect(getTestWorkspaceTempRoot({
+    ...isolatedTestWorkspaceEnvironment,
     SEC_TEST_WORKSPACE_NAMESPACE: 'pr-risk-slow-suite-e2e-artifacts'
   })).toBe(path.join(defaultRoot, 'pr-risk-slow-suite-e2e-artifacts'));
   expect(getTestWorkspaceTempRoot({
+    ...isolatedTestWorkspaceEnvironment,
     [TEST_WORKSPACE_NAMESPACE_ENV]: 'verification-gate',
     [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'a'.repeat(64)}`
   })).toBe(path.join(defaultRoot, 'verification-gate', `fast-${'a'.repeat(64)}`));
@@ -58,6 +67,7 @@ test('test workspace namespace rejects path traversal and nested paths', () => {
     [TEST_WORKSPACE_RUN_CHILD_ENV]: 'caller-selected-child'
   })).toThrow('SEC_TEST_WORKSPACE_RUN_CHILD must be an exact run-owned child segment');
   expect(() => getTestWorkspaceTempRoot({
+    ...isolatedTestWorkspaceEnvironment,
     [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'b'.repeat(64)}`
   })).toThrow('SEC_TEST_WORKSPACE_RUN_CHILD requires SEC_TEST_WORKSPACE_NAMESPACE');
 });
@@ -91,8 +101,9 @@ test('run-owned workspace namespaces bind but never reuse the caller scope', () 
 
 test('issuer projection is exact while a non-snapshot consumer rejects caller-selected roots', async () => {
   const namespace = `gate-owned-parent-${process.pid}`;
+  const repositoryRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-env-manager-issuer-'));
   const executionSnapshotRoot = path.join(
-    compilerRoot,
+    repositoryRoot,
     '.tmp',
     'gate-execution-snapshots',
     namespace
@@ -100,13 +111,13 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
   const supervisorLease = createTestWorkspaceSupervisorLeaseV1({
     namespace,
     runId: 'env-manager-test',
-    repositoryRoot: compilerRoot,
+    repositoryRoot,
     executionSnapshotRoot,
     issuerProcessId: process.ppid,
     nonce: 'f'.repeat(64)
   });
   const supervisorLeasePath = path.join(
-    compilerRoot,
+    repositoryRoot,
     '.tmp',
     'test-workspaces',
     '.gate-supervisor-leases',
@@ -138,7 +149,7 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
       namespace,
       assignment.name
     )).toThrow('Gate execution snapshot binding is invalid');
-    const foreignRoot = await fs.mkdtemp(path.join(compilerRoot, '.tmp', 'cross-worktree-lease-'));
+    const foreignRoot = await fs.mkdtemp(path.join(tmpdir(), 'cross-worktree-lease-'));
     const foreignPath = path.join(
       foreignRoot,
       '.gate-supervisor-leases',
@@ -150,13 +161,13 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
       .toThrow('Gate execution snapshot binding is invalid');
     await fs.rm(foreignRoot, { recursive: true, force: true });
   } finally {
-    await fs.rm(supervisorLeasePath, { force: true });
+    await fs.rm(repositoryRoot, { recursive: true, force: true });
   }
 });
 
 test('a real execution-snapshot consumer must spend the live supervisor challenge exactly once', async () => {
   if (process.platform !== 'win32' && process.platform !== 'linux') return;
-  const repositoryRoot = await fs.mkdtemp(path.join(compilerRoot, '.tmp', 'supervisor-challenge-'));
+  const repositoryRoot = await fs.mkdtemp(path.join(tmpdir(), 'supervisor-challenge-'));
   const namespace = `gate-${process.pid}-${Date.now()}-owned`;
   const executionSnapshotRoot = path.join(
     repositoryRoot,

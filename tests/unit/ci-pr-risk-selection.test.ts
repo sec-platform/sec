@@ -188,7 +188,7 @@ test('every unmapped changed path fails closed even when another path has known 
   ]));
 });
 
-test('explicit documentation ownership selects its lifecycle suite and remains resolved', () => {
+test('documentation ownership stays resolved without running the transaction lifecycle suite', () => {
   const documentation = selectCiPrRiskSlowSuites([
     'README.md',
     'docs/product.md',
@@ -198,10 +198,8 @@ test('explicit documentation ownership selects its lifecycle suite and remains r
   ]);
   expect(documentation.resolved).toBe(true);
   expect(documentation.reasons).not.toContain('changed-files-unresolved');
-  expect(documentation.suites).toEqual(['contract-document-control-plane-lifecycle']);
-  expect(documentation.affectedSlowTests).toEqual([
-    'tests/contract/document-control-plane-lifecycle.test.ts'
-  ]);
+  expect(documentation.suites).toEqual([]);
+  expect(documentation.affectedSlowTests).toEqual([]);
 
   const directSlowTest = selectCiPrRiskSlowSuites(['tests/e2e/dry-run-plan.test.ts']);
   expect(directSlowTest.resolved).toBe(true);
@@ -240,7 +238,7 @@ test('documentation tombstones resolve exactly while unknown docs YAML fails clo
   }
 });
 
-test('agent governance and frozen work-package inputs retain focused lifecycle ownership', () => {
+test('agent governance remains focused without transaction lifecycle coverage', () => {
   const agentGovernance = selectCiPrRiskSlowSuites([
     'AGENTS.md',
     '.codex/agents/implementation-worker.toml',
@@ -249,10 +247,8 @@ test('agent governance and frozen work-package inputs retain focused lifecycle o
   expect(agentGovernance.resolved).toBe(true);
   expect(agentGovernance.reasons).toContain('ownership-impact');
   expect(agentGovernance.owners).toEqual(['agent-governance', 'documentation-authority']);
-  expect(agentGovernance.suites).toEqual(['contract-document-control-plane-lifecycle']);
-  expect(agentGovernance.affectedSlowTests).toEqual([
-    'tests/contract/document-control-plane-lifecycle.test.ts'
-  ]);
+  expect(agentGovernance.suites).toEqual([]);
+  expect(agentGovernance.affectedSlowTests).toEqual([]);
 
   const retired = RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS[0]!;
   const exactDeletion = CodexDevelopmentCreateTestImpactTransitionObservationV1({
