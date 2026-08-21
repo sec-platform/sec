@@ -58,6 +58,12 @@ const TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1 = Object.freeze([
   Object.freeze(['bun', 'run', 'test:fast'])
 ] as const);
 
+const TRUSTED_RUNTIME_MUTABLE_ROOT_V1 = '/sec-runtime' as const;
+const TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/authenticated-input`;
+const TRUSTED_RUNTIME_TRUSTED_TREE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/trusted`;
+const TRUSTED_RUNTIME_WORKSPACE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/workspace`;
+const TRUSTED_RUNTIME_OUTPUT_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/output`;
+
 export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1 = digestValue(Object.freeze({
   schema: 'sec-trusted-runtime-main-health-plan-v1',
   commands: TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1
@@ -557,22 +563,21 @@ const SETUP_SCRIPT = [
   'set -euo pipefail',
   'base="$1"',
   'head="$2"',
-  'mkdir -p /authenticated-input /trusted /workspace /output',
-  'git init --quiet /trusted',
-  'git -C /trusted fetch --quiet /authenticated-input/candidate.bundle refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head',
-  'git -C /trusted reset --hard --quiet refs/sec/base',
-  '[ "$(git -C /trusted rev-parse HEAD)" = "$base" ]',
-  'git init --quiet /workspace',
-  'git -C /workspace fetch --quiet /authenticated-input/candidate.bundle refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head',
-  'git -C /workspace reset --hard --quiet refs/sec/head',
-  '[ "$(git -C /workspace rev-parse HEAD)" = "$head" ]',
-  'cd /trusted',
+  `mkdir -p ${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1} ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} ${TRUSTED_RUNTIME_WORKSPACE_V1} ${TRUSTED_RUNTIME_OUTPUT_V1}`,
+  `git init --quiet ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
+  `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} fetch --quiet ${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1}/candidate.bundle refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
+  `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} reset --hard --quiet refs/sec/base`,
+  `[ "$(git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} rev-parse HEAD)" = "$base" ]`,
+  `git init --quiet ${TRUSTED_RUNTIME_WORKSPACE_V1}`,
+  `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} fetch --quiet ${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1}/candidate.bundle refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
+  `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} reset --hard --quiet refs/sec/head`,
+  `[ "$(git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} rev-parse HEAD)" = "$head" ]`,
+  `cd ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
   'bun install --frozen-lockfile --ignore-scripts',
-  'rm -rf /workspace/node_modules',
-  'ln -s /trusted/node_modules /workspace/node_modules',
-  'chown -R 1000:1000 /workspace /output',
-  'chmod -R a-w /trusted',
-  'rm -f /authenticated-input/candidate.bundle'
+  `rm -rf ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  `ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  `chmod -R a-w ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
+  `rm -f ${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1}/candidate.bundle`
 ].join('\n');
 
 function formalEnvironment(input: Readonly<{
@@ -610,7 +615,7 @@ function formalEnvironment(input: Readonly<{
     SEC_CHANGED_BASE: 'refs/sec/base',
     SEC_AFFECTED_TESTS_BASE: 'refs/sec/base',
     SEC_WORK_PACKAGE_MANIFEST_PATH: envelope.session.manifestPath,
-    SEC_CI_VERIFICATION_EVIDENCE_PATH: '/output/verification-evidence.json'
+    SEC_CI_VERIFICATION_EVIDENCE_PATH: `${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`
   });
   return Object.freeze(Object.entries(values).sort(([left], [right]) => left.localeCompare(right))
     .flatMap(([key, value]) => ['--env', `${key}=${value}`]));
@@ -855,6 +860,7 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
         '--pids-limit', '1024', '--cpus', '8', '--memory', '12g',
         '--tmpfs', '/tmp:rw,nosuid,nodev,size=2g',
+        '--tmpfs', `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}:rw,nosuid,nodev,size=10g,mode=0700,uid=1000,gid=1000`,
         image.imageId
       ], repositoryRoot, 120_000, dockerEndpoint);
       containerCreated = true;
@@ -881,12 +887,15 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         120_000,
         dockerEndpoint
       );
-      await command('docker', ['container', 'exec', containerTarget,
-        '/bin/mkdir', '-p', '/authenticated-input', '/output'], repositoryRoot, 120_000, dockerEndpoint);
+      await command('docker', ['container', 'exec', '--user', '1000:1000', containerTarget,
+        '/bin/mkdir', '-p', TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1, TRUSTED_RUNTIME_OUTPUT_V1],
+      repositoryRoot, 120_000, dockerEndpoint);
       await command('docker', ['container', 'cp', bundle,
-        `${containerTarget}:/authenticated-input/candidate.bundle`], repositoryRoot, 120_000, dockerEndpoint);
+        `${containerTarget}:${TRUSTED_RUNTIME_AUTHENTICATED_INPUT_V1}/candidate.bundle`],
+      repositoryRoot, 120_000, dockerEndpoint);
       await command('docker', [
-        'container', 'exec', containerTarget, '/bin/bash', '-lc', SETUP_SCRIPT, '--',
+        'container', 'exec', '--user', '1000:1000', '--env', 'HOME=/home/ubuntu',
+        containerTarget, '/bin/bash', '-lc', SETUP_SCRIPT, '--',
         baseSha, headSha
       ], repositoryRoot, 30 * 60_000, dockerEndpoint);
       const networksSource = await command('docker', [
@@ -970,15 +979,16 @@ export async function executeTrustedRuntimeContainerVerificationV1(input: Readon
         dockerEndpoint
       })).slice(7, 31)}`;
     await command('docker', [
-      'container', 'exec', '--user', '1000:1000', '--workdir', '/workspace',
+      'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
       ...formalEnvironment({ envelope: input.envelope, executionId,
         actorNodeId: input.actorNodeId, requiredBlobs: input.requiredBlobs }),
       containerName,
-      'bun', '/trusted/scripts/ci-verification.ts',
+      'bun', `${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/scripts/ci-verification.ts`,
       '--profile', session.profile, '--expected-head', session.headSha
     ], repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
     await command('docker', ['container', 'cp',
-      `${containerName}:/output/verification-evidence.json`, outputPath], repositoryRoot, 120_000, dockerEndpoint);
+      `${containerName}:${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`, outputPath],
+    repositoryRoot, 120_000, dockerEndpoint);
     const canonicalEvidenceBytes = readFileSync(outputPath, 'utf8');
     const parsed = JSON.parse(canonicalEvidenceBytes) as CodexDevelopmentVerificationEvidenceV4;
     if (canonicalEvidenceBytes !== `${encodeVerificationActionDataV2(parsed)}\n`) {
@@ -1034,14 +1044,14 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
     operationKey: `main-${mainSha.slice(0, 24)}`,
     execute: async ({ containerName, image, dockerEndpoint }) => {
       const observedTree = await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--workdir', '/workspace',
+        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
         containerName, 'git', 'rev-parse', 'HEAD^{tree}'
       ], repositoryRoot, 120_000, dockerEndpoint);
       if (observedTree !== mainTreeSha) fail('MainHealth exact main tree differs before execution');
       const commandResultDigests: Digest[] = [];
       for (const argv of TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1) {
         const result = await commandResult('docker', [
-          'container', 'exec', '--user', '1000:1000', '--workdir', '/workspace',
+          'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
           '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', '--env', 'LANG=C',
           '--env', 'LC_ALL=C', '--env', 'TZ=UTC', '--env', 'GIT_CONFIG_NOSYSTEM=1',
           '--env', 'GIT_CONFIG_GLOBAL=/dev/null', '--env', 'GIT_TERMINAL_PROMPT=0',
@@ -1055,15 +1065,15 @@ export async function executeTrustedRuntimeMainHealthV1(input: Readonly<{
         })));
       }
       const finalIdentity = await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--workdir', '/workspace',
+        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
         containerName, 'git', 'status', '--porcelain=v1', '--untracked-files=all'
       ], repositoryRoot, 120_000, dockerEndpoint);
       const finalHead = await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--workdir', '/workspace',
+        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
         containerName, 'git', 'rev-parse', 'HEAD'
       ], repositoryRoot, 120_000, dockerEndpoint);
       const finalTree = await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--workdir', '/workspace',
+        'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
         containerName, 'git', 'rev-parse', 'HEAD^{tree}'
       ], repositoryRoot, 120_000, dockerEndpoint);
       if (finalIdentity !== '' || finalHead !== mainSha || finalTree !== mainTreeSha) {
