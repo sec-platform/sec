@@ -65,6 +65,7 @@ describe('provider-neutral trusted runtime container', () => {
       Config: { Labels: {} },
       HostConfig: {
         ReadonlyRootfs: true,
+        Init: true,
         Tmpfs: {
           '/tmp': TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1.slice('/tmp:'.length),
           '/sec-runtime': TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1.slice('/sec-runtime:'.length)
@@ -73,7 +74,15 @@ describe('provider-neutral trusted runtime container', () => {
       Mounts: [{ Destination: '/candidate.bundle', Type: 'bind', RW: false }]
     };
     expect(parseTrustedRuntimeContainerIdentityV1(JSON.stringify([container])))
-      .toMatchObject({ executableTestTmpfs: true, nonExecutableMutableTmpfs: true });
+      .toMatchObject({
+        initProcess: true,
+        executableTestTmpfs: true,
+        nonExecutableMutableTmpfs: true
+      });
+    expect(() => parseTrustedRuntimeContainerIdentityV1(JSON.stringify([{
+      ...container,
+      HostConfig: { ...container.HostConfig, Init: false }
+    }]))).toThrow('container identity is invalid');
     expect(() => parseTrustedRuntimeContainerIdentityV1(JSON.stringify([{
       ...container,
       HostConfig: {
@@ -222,6 +231,7 @@ describe('provider-neutral trusted runtime container', () => {
       name: `sec-trusted-runtime-${operationKey}-${ownerNonce}`,
       readOnlyRootfs: true as const,
       readOnlyCandidateBundle: true as const,
+      initProcess: true as const,
       executableTestTmpfs: true as const,
       nonExecutableMutableTmpfs: true as const,
       dependencyCacheVolumeName: null,
