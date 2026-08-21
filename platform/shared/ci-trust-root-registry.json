@@ -12,6 +12,7 @@
     "platform/shared/ci-trust-root-registry.json",
     "platform/shared/tcb-closure-lock.ts",
     "scripts/codex/branch-lifecycle.ts",
+    "scripts/codex/branch-local-residue-closeout.ts",
     "scripts/codex/trusted-runtime.Dockerfile",
     "tsconfig.json"
   ],

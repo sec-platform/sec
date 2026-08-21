@@ -1213,6 +1213,8 @@ trusted-runtime container owner 必须显式创建并在启动前从 Docker iden
 
 Merge effect之前必须重新观察完整candidate identity、platform projection以及由PR title/body和provider closing references共同编译的同一`IssueDisposition` plan；任一digest漂移都停止effect。Merge请求无论返回成功、错误或响应丢失，随后都以PR exact head/tree、merge markers、durable Session/Gate/status bytes和remote main tree作物理判定：已精确merge则继续，仍OPEN且provider明确失败才返回失败，readback不可得则进入可重入的ambiguous状态。重试从merge commit中的content-addressed locators读取repository-scoped canonical artifacts，不重新执行业务验证；在任何next-main health或closeout effect前复用唯一post-merge Issue reconciliation，发现unexpected close只返回maintainer action boundary。
 
+当 GitHub 的 delete-branch-on-merge 已删除远端 head、但原宿主仍保留已合并的本地 ref 时，`branch-lifecycle settle-local-merged` 是同一 #313 owner 的 bounded terminal operation。它只消费一次有上限的 merged-PR observation、一次 remote-head observation 与本地 ref/worktree inventory；只有 local SHA、PR-recorded head、default base、merge commit→exact remote main 可达性、remote absence 和 worktree absence全部相等的 ref 才进入集合。操作先为每个 head发布仓库外 recovery bundle，再发布整个集合的自动时间戳 authorization，最后用一个 `git update-ref --stdin` transaction做 exact-SHA CAS 删除并发布 readback receipt。worktree-owned、remote-surviving、无唯一 merged PR或任一漂移对象保持不动；branch prefix、ahead/behind、Issue prose和全历史 comment census均不参与授权。
+
 MainHealth receipt绑定 exact main SHA/tree、唯一父 baseline SHA/tree、固定 image、Docker endpoint 与 affected-closure plan digest。同一 receipt 永不重跑；main 变化只让 selector重新投影 delta，不等于所有 Gate失效。selector输出的每个 Gate只因其输入 closure变化而执行，空 closure不启动测试，已有 frozen candidate Evidence则整体 carry-forward；不得用 main SHA变化、时间刷新或没有 Actions check runs作为全量重跑理由。
 
 ```mermaid

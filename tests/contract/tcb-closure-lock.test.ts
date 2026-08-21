@@ -160,6 +160,8 @@ test('TCB closure lock is the sole causal-runtime identity consumed by the trust
   expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/verification-session-contract.ts');
   expect(TCB_CLOSURE_LOCK.modules).toContain('scripts/codex/verification-session-runtime.ts');
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.staticExactPaths)
+    .toContain('scripts/codex/branch-local-residue-closeout.ts');
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.staticExactPaths)
     .toContain('scripts/codex/branch-lifecycle.ts');
   expect(TCB_TRUST_ROOT_V3.causalRuntimePaths)
     .not.toContain('scripts/codex/branch-lifecycle.ts');
