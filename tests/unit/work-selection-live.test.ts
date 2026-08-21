@@ -25,6 +25,10 @@ import {
   type SecWorkCurrentSpecObservationV1,
   type SecWorkRegistryObservationV1
 } from '../../platform/shared/work-selection-live-contract.ts';
+import {
+  isExactWorkSelectionActiveIdentityV1,
+  isWorkSelectionProspectiveTransportV1
+} from '../../scripts/codex/work-selection.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
@@ -207,6 +211,52 @@ function receipt(completedWorkIds?: readonly string[]) {
 }
 
 describe('work-selection live contract', () => {
+
+  test('branch namespace never grants or denies prospective transport identity', () => {
+    for (const currentBranch of ['fix/main-health', 'refactor/test-architecture', 'codex/legacy-bootstrap']) {
+      expect(isWorkSelectionProspectiveTransportV1({
+        currentBranch,
+        currentHead: exactMain,
+        defaultBranch: 'main',
+        exactMain
+      })).toBe(true);
+    }
+    for (const input of [
+      { currentBranch: '', currentHead: exactMain },
+      { currentBranch: 'main', currentHead: exactMain },
+      { currentBranch: 'codex/legacy-bootstrap', currentHead: 'c'.repeat(40) }
+    ]) {
+      expect(isWorkSelectionProspectiveTransportV1({
+        ...input,
+        defaultBranch: 'main',
+        exactMain
+      })).toBe(false);
+    }
+  });
+
+  test('open PR legality depends on exact lifecycle facts and not branch namespace', () => {
+    const exact = (branch: string) => ({
+      activeState: 'incomplete' as const,
+      activeBranch: branch,
+      activeHeadSha: 'c'.repeat(40),
+      activeLegality: 'legal' as const,
+      pullRequestHeadBranch: branch,
+      pullRequestHeadSha: 'c'.repeat(40),
+      registryHeadSha: 'c'.repeat(40),
+      registryBaseSha: exactMain,
+      pullRequestBaseSha: exactMain
+    });
+    expect(isExactWorkSelectionActiveIdentityV1(exact('fix/main-health'))).toBe(true);
+    expect(isExactWorkSelectionActiveIdentityV1(exact('refactor/test-architecture'))).toBe(true);
+    expect(isExactWorkSelectionActiveIdentityV1({
+      ...exact('codex/legacy-bootstrap'),
+      registryBaseSha: 'd'.repeat(40)
+    })).toBe(false);
+    expect(isExactWorkSelectionActiveIdentityV1({
+      ...exact('codex/legacy-bootstrap'),
+      activeLegality: 'invalid'
+    })).toBe(false);
+  });
 
   test('canonical roadmap embeds one bounded normalized catalog', () => {
     const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
