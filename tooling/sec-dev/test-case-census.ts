@@ -24,7 +24,8 @@ export type TestCaseCensusReasonCode =
   | 'dynamic-responsibility-metadata'
   | 'physical-locator-in-responsibility'
   | 'unsupported-sec-test-modifier'
-  | 'duplicate-test-locator';
+  | 'duplicate-test-locator'
+  | 'duplicate-test-id';
 
 export type TestCaseRegistration = 'sec-test' | 'bun-test' | 'bun-it';
 
@@ -36,7 +37,7 @@ export interface TestCaseObservationV1 {
   readonly registration: TestCaseRegistration;
   readonly qualifiers: readonly string[];
   readonly resolution: 'resolved' | 'observed-but-unresolved';
-  readonly reasonCode?: TestCaseCensusReasonCode;
+  readonly reasonCodes: readonly TestCaseCensusReasonCode[];
   readonly responsibility?: TestResponsibilityMetadata;
 }
 
@@ -46,6 +47,7 @@ export interface TestCaseCensusV1 {
   readonly resolvedCount: number;
   readonly unresolvedCount: number;
   readonly duplicateLocatorCount: number;
+  readonly duplicateTestIdCount: number;
   readonly observations: readonly TestCaseObservationV1[];
   readonly resolvedResponsibilities: readonly TestResponsibilityDeclaration[];
   readonly unresolved: readonly TestCaseObservationV1[];
@@ -267,6 +269,12 @@ function sourceLine(source: ts.SourceFile, node: ts.Node): number {
   return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 }
 
+function sortedReasonCodes(
+  reasonCodes: Iterable<TestCaseCensusReasonCode>
+): readonly TestCaseCensusReasonCode[] {
+  return Object.freeze([...new Set(reasonCodes)].sort(compareText));
+}
+
 function observationSortKey(observation: TestCaseObservationV1): string {
   return [
     observation.sourcePath,
@@ -280,6 +288,11 @@ function observationSortKey(observation: TestCaseObservationV1): string {
 function physicalLocatorKey(observation: TestCaseObservationV1): string | null {
   if (observation.title === null) return null;
   return [observation.sourcePath, ...observation.suitePath, observation.title].join('\u0000');
+}
+
+function responsibilityTestId(observation: TestCaseObservationV1): string | null {
+  const testId = observation.responsibility?.testId;
+  return typeof testId === 'string' ? testId : null;
 }
 
 function responsibilityMetadata(value: StaticValue): TestResponsibilityMetadata | null {
@@ -332,46 +345,45 @@ function observeTestCasesInParsedSource(
         const line = sourceLine(source, node);
         const titleIndex = registration.kind === 'secTest' ? 1 : 0;
         const title = staticString(node.arguments[titleIndex]);
-
-        let resolution: TestCaseObservationV1['resolution'] = 'observed-but-unresolved';
-        let reasonCode: TestCaseCensusReasonCode | undefined;
+        const reasonCodes: TestCaseCensusReasonCode[] = [];
         let responsibility: TestResponsibilityMetadata | undefined;
 
-        if (dynamicSuite) {
-          reasonCode = 'dynamic-suite-family';
-        } else if (registration.qualifiers.includes('each')) {
-          reasonCode = 'parameterized-family-unresolved';
-        } else if (title === null) {
-          reasonCode = 'dynamic-test-title';
-        } else if (registration.kind !== 'secTest') {
-          reasonCode = 'raw-bun-test-without-responsibility';
-        } else if (registration.qualifiers.length > 0) {
-          reasonCode = 'unsupported-sec-test-modifier';
+        if (dynamicSuite) reasonCodes.push('dynamic-suite-family');
+        if (registration.qualifiers.includes('each')) {
+          reasonCodes.push('parameterized-family-unresolved');
+        }
+        if (title === null) reasonCodes.push('dynamic-test-title');
+
+        if (registration.kind !== 'secTest') {
+          reasonCodes.push('raw-bun-test-without-responsibility');
         } else {
+          if (registration.qualifiers.length > 0) {
+            reasonCodes.push('unsupported-sec-test-modifier');
+          }
           const metadataExpression = node.arguments[0];
           const metadataValue = metadataExpression === undefined
             ? UNSUPPORTED
             : staticValue(metadataExpression);
           if (metadataValue === UNSUPPORTED) {
-            reasonCode = 'dynamic-responsibility-metadata';
+            reasonCodes.push('dynamic-responsibility-metadata');
           } else if (
             metadataValue !== null
             && !Array.isArray(metadataValue)
             && typeof metadataValue === 'object'
             && (Object.hasOwn(metadataValue, 'sourcePath') || Object.hasOwn(metadataValue, 'case'))
           ) {
-            reasonCode = 'physical-locator-in-responsibility';
+            reasonCodes.push('physical-locator-in-responsibility');
           } else {
             const parsed = responsibilityMetadata(metadataValue);
             if (parsed === null) {
-              reasonCode = 'dynamic-responsibility-metadata';
+              reasonCodes.push('dynamic-responsibility-metadata');
             } else {
-              resolution = 'resolved';
               responsibility = parsed;
             }
           }
         }
 
+        const normalizedReasons = sortedReasonCodes(reasonCodes);
         observations.push(Object.freeze({
           sourcePath,
           suitePath: Object.freeze([...suitePath]),
@@ -379,8 +391,10 @@ function observeTestCasesInParsedSource(
           line,
           registration: observedRegistration,
           qualifiers: registration.qualifiers,
-          resolution,
-          ...(reasonCode === undefined ? {} : { reasonCode }),
+          resolution: normalizedReasons.length === 0 && responsibility !== undefined
+            ? 'resolved'
+            : 'observed-but-unresolved',
+          reasonCodes: normalizedReasons,
           ...(responsibility === undefined ? {} : { responsibility })
         }));
         return;
@@ -414,34 +428,54 @@ export function observeTestCasesInSourceV1(
   return observeTestCasesInParsedSource(sourcePath, source);
 }
 
-function projectDuplicateLocators(
+function projectIdentityConflicts(
   observations: readonly TestCaseObservationV1[]
 ): Readonly<{
   observations: readonly TestCaseObservationV1[];
   duplicateLocatorCount: number;
+  duplicateTestIdCount: number;
 }> {
-  const counts = new Map<string, number>();
+  const locatorCounts = new Map<string, number>();
+  const testIdCounts = new Map<string, number>();
+
   for (const observation of observations) {
-    const key = physicalLocatorKey(observation);
-    if (key !== null) counts.set(key, (counts.get(key) ?? 0) + 1);
+    const locator = physicalLocatorKey(observation);
+    if (locator !== null) locatorCounts.set(locator, (locatorCounts.get(locator) ?? 0) + 1);
+    const testId = responsibilityTestId(observation);
+    if (testId !== null) testIdCounts.set(testId, (testIdCounts.get(testId) ?? 0) + 1);
   }
-  const duplicateKeys = new Set([...counts.entries()]
+
+  const duplicateLocators = new Set([...locatorCounts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([key]) => key));
+  const duplicateTestIds = new Set([...testIdCounts.entries()]
     .filter(([, count]) => count > 1)
     .map(([key]) => key));
 
   const projected = observations.map((observation) => {
-    const key = physicalLocatorKey(observation);
-    if (key === null || !duplicateKeys.has(key)) return observation;
+    const reasons = [...observation.reasonCodes];
+    const locator = physicalLocatorKey(observation);
+    if (locator !== null && duplicateLocators.has(locator)) {
+      reasons.push('duplicate-test-locator');
+    }
+    const testId = responsibilityTestId(observation);
+    if (testId !== null && duplicateTestIds.has(testId)) {
+      reasons.push('duplicate-test-id');
+    }
+    const reasonCodes = sortedReasonCodes(reasons);
     return Object.freeze({
       ...observation,
-      resolution: 'observed-but-unresolved' as const,
-      reasonCode: 'duplicate-test-locator' as const
+      reasonCodes,
+      resolution: reasonCodes.length === 0 && observation.responsibility !== undefined
+        ? 'resolved' as const
+        : 'observed-but-unresolved' as const
     });
   });
 
   return Object.freeze({
     observations: Object.freeze(projected),
-    duplicateLocatorCount: duplicateKeys.size
+    duplicateLocatorCount: duplicateLocators.size,
+    duplicateTestIdCount: duplicateTestIds.size
   });
 }
 
@@ -451,8 +485,8 @@ export function compileTestCaseCensusV1(
   const rawObservations = sources
     .flatMap(({ sourcePath, sourceText }) => observeTestCasesInSourceV1(sourcePath, sourceText))
     .sort((left, right) => compareText(observationSortKey(left), observationSortKey(right)));
-  const collisionProjection = projectDuplicateLocators(rawObservations);
-  const observations = collisionProjection.observations;
+  const conflictProjection = projectIdentityConflicts(rawObservations);
+  const observations = conflictProjection.observations;
 
   const declarations: TestResponsibilityDeclaration[] = [];
   for (const observation of observations) {
@@ -480,7 +514,8 @@ export function compileTestCaseCensusV1(
     caseCount: observations.length,
     resolvedCount: resolvedResponsibilities.length,
     unresolvedCount: unresolved.length,
-    duplicateLocatorCount: collisionProjection.duplicateLocatorCount,
+    duplicateLocatorCount: conflictProjection.duplicateLocatorCount,
+    duplicateTestIdCount: conflictProjection.duplicateTestIdCount,
     observations,
     resolvedResponsibilities,
     unresolved
