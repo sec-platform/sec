@@ -6,34 +6,38 @@ import {
   type TypecheckProviderV1
 } from '../toolchain/typecheck-provider.ts';
 import { runDevCommand } from './command-runner.ts';
-import { commandPath, pathEnvKey } from './env-manager.ts';
+import { pathEnvKey } from './env-manager.ts';
 
 type TypecheckDependencyContext = {
-  binPath: string;
   nodeModulesPath: string;
 };
 
 async function typecheckDependencyContext(): Promise<TypecheckDependencyContext> {
   const compilerDeps = await ensureCompilerDepsReady();
   return {
-    binPath: path.join(compilerDeps.nodeModulesPath, '.bin'),
     nodeModulesPath: compilerDeps.nodeModulesPath
   };
 }
 
 export async function runTypecheckWithProvider(
-  binPath: string,
+  nodeModulesPath: string,
   provider: TypecheckProviderV1,
   args: string[] = []
 ): Promise<number> {
+  const binPath = path.join(nodeModulesPath, '.bin');
+  const cliEntryPath = path.join(
+    nodeModulesPath,
+    provider.packageName,
+    ...provider.cliEntryRelativePath.split('/')
+  );
   const env = {
     [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`,
     SEC_TYPECHECK_PROVIDER_REVISION: provider.providerRevision
   };
 
   return runDevCommand(
-    commandPath(binPath, provider.binaryName),
-    typecheckProviderArguments(provider, args),
+    process.execPath,
+    [cliEntryPath, ...typecheckProviderArguments(provider, args)],
     env
   );
 }
@@ -48,11 +52,11 @@ export async function runTypecheckWithBinPath(
   args: string[] = []
 ): Promise<number> {
   const provider = await resolveInstalledTypecheckProviderV1(path.dirname(binPath));
-  return runTypecheckWithProvider(binPath, provider, args);
+  return runTypecheckWithProvider(path.dirname(binPath), provider, args);
 }
 
 export async function runTypecheck(args: string[] = []): Promise<number> {
   const deps = await typecheckDependencyContext();
   const provider = await resolveInstalledTypecheckProviderV1(deps.nodeModulesPath);
-  return runTypecheckWithProvider(deps.binPath, provider, args);
+  return runTypecheckWithProvider(deps.nodeModulesPath, provider, args);
 }
