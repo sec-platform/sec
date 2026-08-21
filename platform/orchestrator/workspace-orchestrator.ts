@@ -82,23 +82,22 @@ async function assertWorkspaceCreateSurfaceEmpty(
   const entries = await readdir(workspaceRoot, { withFileTypes: true });
   if (suppliedLease === undefined) {
     if (entries.length === 0) return;
-    const localStateEntry = entries.length === 1 && entries[0]?.name === '.sec'
-      ? entries[0]
-      : undefined;
+    const localStateEntry = entries.find((entry) => entry.name === '.sec');
     if (localStateEntry !== undefined && !localStateEntry.isSymbolicLink()
         && localStateEntry.isDirectory()) {
       const localStateEntries = await readdir(path.join(workspaceRoot, '.sec'), {
         withFileTypes: true
       });
-      const leaseEntry = localStateEntries.length === 1
-        && localStateEntries[0]?.name === WORKSPACE_WRITE_LEASE_DIRECTORY_NAME
-        ? localStateEntries[0]
-        : undefined;
+      const leaseEntry = localStateEntries.find(
+        (entry) => entry.name === WORKSPACE_WRITE_LEASE_DIRECTORY_NAME
+      );
       if (leaseEntry !== undefined && !leaseEntry.isSymbolicLink()
           && leaseEntry.isDirectory()) {
         // The canonical acquisition path is the only owner allowed to decide
-        // whether this namespace is live, stale/dead, or malformed.  A raw
-        // preflight inspection must not strand its verified recovery lane.
+        // whether this namespace is live, stale/dead, or malformed. Other
+        // workspace content does not let this preflight relabel active writer
+        // contention as a lifecycle conflict; the callback still validates
+        // the complete create surface after authority acquisition.
         return;
       }
     }

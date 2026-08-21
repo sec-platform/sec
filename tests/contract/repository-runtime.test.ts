@@ -13,10 +13,11 @@ describe('test budget and benchmark contracts', () => {
       expect(typeof scripts[scriptName], scriptName).toBe('string');
       expect(scripts[scriptName], scriptName).not.toMatch(/(?:@|==)latest(?:\s|$)/u);
     }
-    expect(scripts.depcruise).toMatch(/\bdependency-cruiser@[1-9]\d*\.\d+\.\d+\b/u);
-    expect(scripts.jscpd).toMatch(/\bjscpd@[1-9]\d*\.\d+\.\d+\b/u);
-    expect(scripts.graphify).toMatch(/\bgraphifyy==[1-9]\d*\.\d+\.\d+\b/u);
-    expect(devDependencies?.gitnexus).toMatch(/^[1-9]\d*\.\d+\.\d+$/u);
+    const canonicalSemver = '(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)';
+    expect(scripts.depcruise).toMatch(new RegExp(`\\bdependency-cruiser@${canonicalSemver}\\b`, 'u'));
+    expect(scripts.jscpd).toMatch(new RegExp(`\\bjscpd@${canonicalSemver}\\b`, 'u'));
+    expect(scripts.graphify).toMatch(new RegExp(`\\bgraphifyy==${canonicalSemver}\\b`, 'u'));
+    expect(devDependencies?.gitnexus).toMatch(new RegExp(`^${canonicalSemver}$`, 'u'));
     expect(trustedDependencies).toEqual(expect.arrayContaining([
       '@ladybugdb/core',
       'gitnexus',
