@@ -149,6 +149,25 @@ test('calibration role is reserved for verifier-calibration obligations', () => 
   ])).not.toThrow();
 });
 
+test('mutation layer is calibration or diagnostic evidence, never primary proof', () => {
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({ layer: 'mutation' })
+  ])).toThrow('mutation layer is calibration/diagnostic evidence, not primary proof');
+
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({
+      layer: 'mutation',
+      role: 'calibration',
+      obligations: [{
+        kind: 'verifier-calibration',
+        id: 'mutation-detection-power',
+        owner: 'verification-governance',
+        failureMeaningCode: 'mutation-calibration-failed'
+      }]
+    })
+  ])).not.toThrow();
+});
+
 test('diagnostic proofs cannot masquerade as ordinary required proof', () => {
   expect(() => normalizeTestResponsibilityDeclarations([
     declaration({ role: 'diagnostic', lifecycle: 'active' })
@@ -307,6 +326,32 @@ test('replacement retirement cannot silently point to self or an unknown proof',
       }
     })
   ])).toThrow('unknown replacement test');
+});
+
+test('owner retirement cannot silently discard obligations owned elsewhere', () => {
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({
+      retirementCondition: {
+        kind: 'owner-retirement',
+        owner: 'compiler-target-ir'
+      }
+    })
+  ])).toThrow('owner-retirement must cover every obligation owner');
+
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({
+      obligations: [{
+        kind: 'verification-requirement',
+        id: 'implementation-resolution-contract',
+        owner: 'compiler-target-ir',
+        failureMeaningCode: 'implementation-resolution-unproven'
+      }],
+      retirementCondition: {
+        kind: 'owner-retirement',
+        owner: 'compiler-target-ir'
+      }
+    })
+  ])).not.toThrow();
 });
 
 test('retiring lifecycle requires an actionable retirement owner', () => {
