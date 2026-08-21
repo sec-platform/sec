@@ -137,34 +137,29 @@ test('diagnostic proofs cannot masquerade as ordinary required proof', () => {
   expect(normalized[0]?.role).toBe('diagnostic');
 });
 
-test('supersedence is explicit, coverage-bound, and acyclic', () => {
+test('replacement proof is the single canonical supersedence relation and is acyclic', () => {
   const first = declaration({
     testId: 'verification.proof.first',
-    supersedes: [{
-      testId: 'verification.proof.second',
+    lifecycle: 'retiring',
+    retirementCondition: {
+      kind: 'replacement-proof',
+      replacementTestIds: ['verification.proof.second'],
       coverageRef: 'evidence:replacement-first'
-    }]
+    }
   });
   const second = declaration({
     testId: 'verification.proof.second',
     sourcePath: 'tests/contract/verification-result.test.ts',
-    supersedes: [{
-      testId: 'verification.proof.first',
+    lifecycle: 'retiring',
+    retirementCondition: {
+      kind: 'replacement-proof',
+      replacementTestIds: ['verification.proof.first'],
       coverageRef: 'evidence:replacement-second'
-    }]
+    }
   });
 
   expect(() => normalizeTestResponsibilityDeclarations([first, second]))
-    .toThrow('test supersedence cycle');
-
-  expect(() => normalizeTestResponsibilityDeclarations([
-    declaration({
-      supersedes: [{
-        testId: 'verification.unknown-proof',
-        coverageRef: 'evidence:replacement'
-      }]
-    })
-  ])).toThrow('unknown superseded test');
+    .toThrow('test replacement cycle');
 });
 
 test('replacement retirement cannot silently point to self or an unknown proof', () => {
@@ -189,4 +184,25 @@ test('replacement retirement cannot silently point to self or an unknown proof',
       }
     })
   ])).toThrow('unknown replacement test');
+});
+
+test('retiring lifecycle requires an actionable retirement owner', () => {
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({ lifecycle: 'retiring' })
+  ])).toThrow('retiring proof requires replacement-proof or owner-retirement');
+
+  expect(() => normalizeTestResponsibilityDeclarations([
+    declaration({
+      lifecycle: 'active',
+      retirementCondition: {
+        kind: 'replacement-proof',
+        replacementTestIds: ['verification.other-proof'],
+        coverageRef: 'evidence:replacement'
+      }
+    }),
+    declaration({
+      testId: 'verification.other-proof',
+      sourcePath: 'tests/contract/verification-result.test.ts'
+    })
+  ])).toThrow('replacement-proof requires retiring lifecycle');
 });
