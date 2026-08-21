@@ -96,6 +96,7 @@ export const SHARED_CROSS_DOMAIN_CONTRACT_PATHS = [
   'test-budget-contract.ts',
   'test-impact-contract.ts',
   'test-ownership-contract.ts',
+  'test-responsibility-contract.ts',
   'text-byte-census-contract.ts',
   'tool-evidence-contract.ts',
   'types.ts',
