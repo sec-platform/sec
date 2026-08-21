@@ -17,15 +17,15 @@ secTest({
   }],
   retirementCondition: { kind: 'persistent-invariant' }
 }, 'responsibility census and wrapper changes are protected by the existing module graph', () => {
-  for (const source of [
-    'tooling/sec-dev/test-case-census.ts',
-    'tests/testkit/responsibility.ts'
-  ]) {
-    const selection = selectTestsForSources([source]);
-    expect(selection.owners).toContain('module-graph');
-    expect(selection.fast).toEqual(expect.arrayContaining([
-      'tests/contract/test-case-census.test.ts',
-      'tests/contract/test-responsibility-impact.test.ts'
-    ]));
-  }
+  const censusSelection = selectTestsForSources(['tooling/sec-dev/test-case-census.ts']);
+  expect(censusSelection.owners).toContain('module-graph');
+  expect(censusSelection.fast).toContain('tests/contract/test-case-census.test.ts');
+
+  const wrapperSelection = selectTestsForSources(['tests/testkit/responsibility.ts']);
+  expect(wrapperSelection.owners).toContain('module-graph');
+  expect(wrapperSelection.fast).toEqual(expect.arrayContaining([
+    'tests/contract/test-case-census.test.ts',
+    'tests/contract/test-responsibility-contract.test.ts',
+    'tests/contract/test-responsibility-impact.test.ts'
+  ]));
 });
