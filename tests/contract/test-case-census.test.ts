@@ -30,7 +30,7 @@ secTest({
     failureMeaningCode: ${JSON.stringify(input.failureMeaningCode)}
   }],
   retirementCondition: { kind: 'persistent-invariant' }
-}, ${JSON.stringify(input.title)}, () => {});
+}, ${JSON.stringify(input.title)}, () => {})
 `;
 }
 
