@@ -155,6 +155,6 @@ flowchart LR
   K --> L[next-main MainHealth carry-forward]
 ```
 
-`bun run sec:closeout -- --pr <number>` 是唯一 operator entrypoint。相同 exact main 的 MainHealth receipt 与相同 Session/ActionKey 的 Action Evidence 均按内容寻址复用；只有 exact main、candidate tree、dependency closure、review authority 或 toolchain identity 真正变化时才重新执行相应最小缺口。
+`bun run sec:closeout -- --pr <number>` 是 candidate closeout entrypoint；`bun run sec:main-health` 是同一 owner 的显式 clean exact-main entrypoint。两者复用同一个固定 image、Docker endpoint、runtime workspace 和 receipt publisher，不形成第二条实现。相同 exact main 的 immutable MainHealth receipt 与相同 Session/ActionKey 的 Action Evidence 均按内容寻址复用；observation freshness 不使底层证明过期，只有 exact main、candidate tree、dependency closure、review authority 或 toolchain identity 真正变化时才重新执行相应最小缺口。
 
 冻结顺序固定为 source normalization → generated TCB lock → read-only checks/Evidence。Import transform 等 normalizer 仍有 delta 时禁止生成内容寻址锁，避免同一候选因命令顺序自我失效并重复验证。

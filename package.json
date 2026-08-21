@@ -12,6 +12,7 @@
     "dev": "bun ./platform/dev-runner.ts",
     "dev:continue": "bun scripts/codex/local-continuation.ts continue",
     "sec:closeout": "bun scripts/codex/trusted-runtime-closeout.ts",
+    "sec:main-health": "bun scripts/codex/trusted-runtime-closeout.ts --main-health",
     "build": "bun ./scripts/build-release.ts",
     "publish": "bun ./scripts/publish-public.ts",
     "typecheck": "bun ./platform/dev-runner.ts typecheck",
