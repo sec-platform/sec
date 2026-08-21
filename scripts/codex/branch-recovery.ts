@@ -17,6 +17,18 @@ import {
 import path from 'node:path';
 
 import {
+  assertPhysicallyDisjointDirectoryChainsV1,
+  assertSameNoFollowDirectoryIdentityV1,
+  createNoFollowOrdinaryDirectoryChainV1,
+  inspectExactNoFollowDirectoryPresenceV1,
+  inspectNoFollowDirectoryChainV1,
+  publishExclusiveDurableCanonicalFileV1,
+  readNoFollowOrdinaryFileV1,
+  scanNoFollowDirectoryTreeMetadataV1,
+  type PhysicalDirectoryIdentityV1
+} from '../../platform/shared/physical-no-follow.ts';
+
+import {
   createBranchLifecycleGitChildEnvironmentV1,
   decodeBranchLifecycleChildErrorV1,
   decodeBranchLifecycleChildStdoutV1
@@ -108,6 +120,142 @@ function defaultRecoveryRoot(inventory: BranchLifecycleInventory): string {
     path.dirname(inventory.repository.root),
     `${path.basename(inventory.repository.root)}-recovery`
   );
+}
+
+export interface BranchRecoveryStoreV1 {
+  readonly root: PhysicalDirectoryIdentityV1;
+  readonly publishExclusive: (input: Readonly<{
+    name: string;
+    bytes: Uint8Array;
+    validate: (bytes: Uint8Array) => void;
+  }>) => Readonly<{ path: string; digest: string; created: boolean }>;
+  readonly read: (name: string) => Uint8Array | null;
+  readonly listOwnedFiles: (prefix: string) => readonly string[];
+  readonly assertCurrent: () => void;
+}
+
+function pathInside(candidate: string, root: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!path.isAbsolute(relative)
+    && relative !== '..' && !relative.startsWith(`..${path.sep}`));
+}
+
+function materializeNoFollowDirectory(absolutePath: string): PhysicalDirectoryIdentityV1 {
+  const target = path.resolve(absolutePath);
+  const missing: string[] = [];
+  let cursor = target;
+  for (;;) {
+    const presence = inspectExactNoFollowDirectoryPresenceV1(
+      cursor,
+      'Branch recovery directory'
+    );
+    if (presence.state === 'present') {
+      const ancestor = presence.directory.target;
+      if (missing.length > 0) createNoFollowOrdinaryDirectoryChainV1(ancestor, missing);
+      assertSameNoFollowDirectoryIdentityV1(ancestor, 'Branch recovery existing ancestor');
+      return inspectNoFollowDirectoryChainV1(target, 'Branch recovery directory readback').target;
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) throw new Error('Branch recovery directory has no existing physical ancestor.');
+    missing.unshift(path.basename(cursor));
+    cursor = parent;
+  }
+}
+
+/**
+ * Acquires the single branch-recovery filesystem authority.  The root may be
+ * shared by the established recovery families, but this store only reads and
+ * publishes caller-supplied collision-rejecting leaf names.  Every operation
+ * revalidates the same physical root and never follows a link or reparse point.
+ */
+export function acquireBranchRecoveryStoreV1(input: Readonly<{
+  repositoryRoot: string;
+  commonDir: string;
+  worktreeRoots: readonly string[];
+  recoveryRoot?: string;
+}>): BranchRecoveryStoreV1 {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const commonDir = path.resolve(input.commonDir);
+  const worktreeRoots = [...new Set(input.worktreeRoots.map((entry) => path.resolve(entry)))];
+  const requested = path.resolve(
+    input.recoveryRoot
+      ?? process.env.SEC_BRANCH_RECOVERY_ROOT
+      ?? path.join(path.dirname(repositoryRoot), `${path.basename(repositoryRoot)}-recovery`)
+  );
+  for (const forbidden of [repositoryRoot, commonDir, ...worktreeRoots]) {
+    if (pathInside(requested, forbidden) || pathInside(forbidden, requested)) {
+      throw new Error(`Branch recovery root must be physically separate from owned Git paths: ${forbidden}`);
+    }
+  }
+
+  const repository = inspectNoFollowDirectoryChainV1(repositoryRoot, 'Branch recovery repository');
+  const common = inspectNoFollowDirectoryChainV1(commonDir, 'Branch recovery common directory');
+  const worktrees = worktreeRoots.map((entry) =>
+    inspectNoFollowDirectoryChainV1(entry, 'Branch recovery worktree'));
+  const root = materializeNoFollowDirectory(requested);
+  const rootChain = inspectNoFollowDirectoryChainV1(root.path, 'Branch recovery root');
+  for (const [label, forbidden] of [
+    ['repository', repository],
+    ['common directory', common],
+    ...worktrees.map((entry, index) => [`worktree ${index}`, entry] as const)
+  ] as const) {
+    assertPhysicallyDisjointDirectoryChainsV1(
+      rootChain,
+      forbidden,
+      `Branch recovery root and ${label}`
+    );
+  }
+
+  const assertCurrent = (): void => {
+    assertSameNoFollowDirectoryIdentityV1(root, 'Branch recovery root');
+  };
+  return Object.freeze({
+    root,
+    publishExclusive: (publication: Readonly<{
+      name: string;
+      bytes: Uint8Array;
+      validate: (bytes: Uint8Array) => void;
+    }>) => {
+      assertCurrent();
+      const result = publishExclusiveDurableCanonicalFileV1({
+        parent: root,
+        name: publication.name,
+        bytes: publication.bytes,
+        validate: publication.validate
+      });
+      assertCurrent();
+      return result;
+    },
+    read: (name: string) => {
+      assertCurrent();
+      const result = readNoFollowOrdinaryFileV1(root, name);
+      assertCurrent();
+      return result;
+    },
+    listOwnedFiles: (prefix: string) => {
+      if (!/^[A-Za-z0-9._-]+$/u.test(prefix)) {
+        throw new Error('Branch recovery owned-file prefix is invalid.');
+      }
+      assertCurrent();
+      const entries = scanNoFollowDirectoryTreeMetadataV1(root, {
+        deadlineAtMs: performance.now() + 5_000,
+        maximumEntries: 20_000
+      });
+      const owned = entries.filter((entry) => (
+        !entry.relativePath.includes('/')
+        && !entry.relativePath.includes('\\')
+        && entry.relativePath.startsWith(prefix)
+      ));
+      const unsafe = owned.find((entry) => entry.kind !== 'file');
+      if (unsafe !== undefined) {
+        throw new Error(`Branch recovery owned path is not an ordinary file: ${unsafe.relativePath}`);
+      }
+      assertCurrent();
+      return Object.freeze(owned.map(({ relativePath }) => relativePath)
+        .sort((left, right) => left.localeCompare(right)));
+    },
+    assertCurrent
+  });
 }
 
 export function ensureRecoveryRoot(
