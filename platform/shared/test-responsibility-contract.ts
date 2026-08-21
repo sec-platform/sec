@@ -71,12 +71,16 @@ export type TestRetirementCondition =
       /** This is the only canonical supersedence relation. */
       kind: 'replacement-proof';
       replacementTestIds: readonly string[];
+      /** Reference only: this pure normalizer does not validate the replacement Evidence itself. */
       coverageRef: string;
     }>
   | Readonly<{ kind: 'diagnostic-completion'; workRef: string }>;
 
 export type TestResponsibilityDeclaration = Readonly<{
-  /** Stable logical identity. Test titles and source paths are locators, not identity. */
+  /**
+   * Stable logical proof identity. Test titles and source paths are locators, not identity,
+   * and this field does not become a second runner-case inventory.
+   */
   testId: string;
   sourcePath: string;
   owner: string;
@@ -85,6 +89,10 @@ export type TestResponsibilityDeclaration = Readonly<{
   lifecycle: TestResponsibilityLifecycle;
   obligations: readonly TestProofObligation[];
   regressionRefs?: readonly string[];
+  /**
+   * Omission means unobserved/unresolved, never "no independent dimension". A retirement
+   * or dedup consumer must not turn undefined into authority to remove a proof.
+   */
   independence?: readonly TestProofIndependence[];
   retirementCondition: TestRetirementCondition;
 }>;
@@ -241,6 +249,11 @@ export function normalizeTestResponsibilityDeclarations(
       && obligations.some((obligation) => obligation.kind === 'verifier-calibration')) {
       throw new Error(`${declaration.testId} verifier-calibration obligation requires calibration role`);
     }
+    if (declaration.layer === 'mutation'
+      && declaration.role !== 'calibration'
+      && declaration.role !== 'diagnostic') {
+      throw new Error(`${declaration.testId} mutation layer is calibration/diagnostic evidence, not primary proof`);
+    }
 
     const regressionRefs = [...(declaration.regressionRefs ?? [])];
     for (const reference of regressionRefs) requireReference(reference, 'regressionRef');
@@ -279,6 +292,10 @@ export function normalizeTestResponsibilityDeclarations(
     }
 
     const retirementCondition = normalizeRetirementCondition(declaration, allTestIds);
+    if (retirementCondition.kind === 'owner-retirement'
+      && obligations.some((obligation) => obligation.owner !== retirementCondition.owner)) {
+      throw new Error(`${declaration.testId} owner-retirement must cover every obligation owner`);
+    }
 
     return Object.freeze({
       testId: declaration.testId,
