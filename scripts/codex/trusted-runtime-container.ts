@@ -1450,6 +1450,20 @@ export async function executeTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
           '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', containerName,
           'bun', './platform/dev-runner.ts', 'deps:ensure'
         ], repositoryRoot, 30 * 60_000, dockerEndpoint);
+        const [providerVersion, cliVersion] = await Promise.all([
+          command('docker', [
+            'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
+            containerName, 'bun', '-e',
+            "import manifest from './node_modules/typescript/package.json'; process.stdout.write(manifest.version)"
+          ], repositoryRoot, 120_000, dockerEndpoint),
+          command('docker', [
+            'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
+            containerName, 'bun', './node_modules/typescript/bin/tsc', '--version'
+          ], repositoryRoot, 120_000, dockerEndpoint)
+        ]);
+        if (cliVersion !== `Version ${providerVersion}`) {
+          fail('dependency canary TypeCheck Provider CLI identity differs from its package manifest');
+        }
       }
       const [observedHead, observedTree, observedStatus] = await Promise.all([
         command('docker', [

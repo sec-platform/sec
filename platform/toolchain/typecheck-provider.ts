@@ -8,11 +8,13 @@ export interface TypecheckProviderV1 {
   readonly packageName: 'typescript';
   readonly providerRevision: `typescript@${string}`;
   readonly binaryName: 'tsc';
+  readonly cliEntryRelativePath: 'bin/tsc';
   readonly projectConfig: 'tsconfig.json';
   readonly noEmit: true;
 }
 
 type TypeScriptPackageManifest = Readonly<{
+  bin?: unknown;
   name?: unknown;
   version?: unknown;
 }>;
@@ -92,6 +94,10 @@ export async function resolveInstalledTypecheckProviderV1(
   if (raw.name !== 'typescript') {
     throw new Error(`TypeCheck Provider package identity mismatch: ${String(raw.name)}`);
   }
+  if (raw.bin === null || typeof raw.bin !== 'object' || Array.isArray(raw.bin)
+      || (raw.bin as Record<string, unknown>).tsc !== './bin/tsc') {
+    throw new Error('TypeCheck Provider package does not expose the canonical tsc CLI entry');
+  }
   const version = exactVersion(raw.version);
   return Object.freeze({
     schema: 'sec-typecheck-provider-v1' as const,
@@ -100,6 +106,7 @@ export async function resolveInstalledTypecheckProviderV1(
     packageName: 'typescript' as const,
     providerRevision: `typescript@${version}` as `typescript@${string}`,
     binaryName: 'tsc' as const,
+    cliEntryRelativePath: 'bin/tsc' as const,
     projectConfig: 'tsconfig.json' as const,
     noEmit: true as const
   });
