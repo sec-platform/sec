@@ -2,7 +2,7 @@
 title: Verification、Evidence 与 CI 治理
 status: stable
 domain: verification-governance
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-21
 ---
 
 # Verification、Evidence 与 CI 治理
@@ -40,13 +40,15 @@ passed | failed | not-run | unsupported | invalidated
 
 - 完整Execution Ledger；
 - Evidence DAG/CAS；
-- Development Run Journal；
 - 统一Hermetic Runtime和resource allocator；
-- 自动persistent reuse/resume/flake governance；
+- 自动persistent reuse/flake governance；
 - 跨Host/Target/Implementation/Release的完整Observation catalog；
 - 机器化Review finding/merge decision平台。
 
-目标设计被接受不等于实现完成。CLI、PR summary、文档或Skill不得把未来状态名投影成当前PASS。
+Managed Continuation 与 VerificationSession/VerificationAction durable journal 已是当前实现：前者只投影一个
+immutable upstream snapshot 的可复用/失效事实，后者只保存可恢复 machine state。二者都不是完整
+Execution Ledger、第二 Verification Result 或 merge authority。目标设计被接受不等于实现完成；CLI、PR
+summary、文档或Skill不得把未来状态名或 journal 存在投影成当前PASS。
 T2 trusted-cutover epoch只有在 integrated candidate 与 new `main` 完成 exact commit/tree/
 merged-tree readback，并由 ordinary candidate canary 证明新路径后，才把 Action、Session、
 Review和merge authorization从目标变为active capability。轮换中的Work Package identity只由
@@ -234,7 +236,10 @@ failure可以复用为失败事实，但 `not-run`、`unsupported`、`invalidate
 ## VerificationSession、Scope 与 MainHealth
 
 VerificationSession 是一次 frozen candidate 从定向到合并/readback 的唯一运行状态机，
-不是第二个Task Capsule、Result、Review或Integration owner，也不是 general Run Kernel。稳定
+不是第二个Task Capsule、Result、Review或Integration owner，也不是 general Run Kernel。跨会话
+Managed Continuation 不是第二 Session：它只回答哪些已观察事实可复用、哪些失效以及应刷新哪个
+canonical owner，不拥有 WorkSelection、Verification Result、Review、MainHealth、
+IntegrationAuthorization、status 或 merge authority。稳定
 `sessionRevision` 与 `sessionId`、candidate generation、event ID和时间戳分离，至少绑定：
 
 - exact repository/default base commit与tree、`CandidateContentId` 与
@@ -769,11 +774,17 @@ external Verification Action；provider selection/availability与receipt freshne
 cross-boundary Impact以减少重复读取，但每个新 `ReviewSubjectId` 必须由独立principal签发新的
 full-candidate exact-head ReviewReceipt。旧approved hunks与新delta不得由机器拼装成新批准。
 
-Development Run State记录run/capsule/event/transition/resume；Verification Evidence记录proof。二者必须通过typed references连接，不能把Run Journal变成第二Verification Result，也不能把Evidence文件当作当前执行状态。
+VerificationSession记录run/capsule/event/transition/resume；Verification Evidence记录proof。二者必须通过
+typed references连接，不能把Session/Action journal变成第二Verification Result，也不能把Evidence文件
+当作当前执行状态。journal丢失最多损失resume能力，不能制造、删除或改写Verification Result。
 
 Session journal使用append-only hash chain和单调transition记录可恢复进度；所有外部副作用
 必须有stable operation identity和provider readback receipt。journal与本机`wx` claim只能
-帮助同一runner恢复，不能授予跨host mutation authority。普通resume只查询、join或重新
+帮助同一runner恢复，不能授予跨host mutation authority。VerificationSession与VerificationAction的
+durable journal和physical claim位于仓库外canonical Runtime State的physical-workspace namespace，
+不属于repository tree或cache；publication/replacement/deletion必须保持retained/no-follow parent
+authority、file durability、parent-directory durability与exact readback，ambiguous crash fail closed而不
+blind replay。普通resume只查询、join或重新
 dispatch下一合法hosted transition；同一Action不重复spawn，同一Review head不重复请求，
 同一hosted Gate不重复dispatch，同一authorization不重复merge，同一closeout operation不重复发布。
 

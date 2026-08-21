@@ -267,7 +267,7 @@ forbiddenPaths:
 acceptance:
   - "Published predecessor fixture remains exact."
 tests:
-  - "bun run docs:doctor"
+  - tests/contract/docs-doctor.test.ts
 ---
 `, 'utf8');
 }
@@ -294,7 +294,7 @@ forbiddenPaths:
 acceptance:
   - "Registry-backed docs fixture passes."
 tests:
-  - "bun run docs:doctor"
+  - tests/contract/docs-doctor.test.ts
 ---
 
 # ${ACTIVE_PACKAGE_ID}
