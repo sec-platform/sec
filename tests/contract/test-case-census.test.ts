@@ -15,7 +15,7 @@ secTest({
   lifecycle: 'active',
   obligations: [{
     kind: 'contract',
-    id: 'test-case-census',
+    id: 'test-case-census-fixture',
     owner: 'test-responsibility',
     failureMeaningCode: 'test-case-census-incomplete'
   }],
@@ -31,7 +31,7 @@ secTest({
   lifecycle: 'active',
   obligations: [{
     kind: 'contract',
-    id: 'test-case-census',
+    id: 'test-case-census-co-located-responsibility',
     owner: 'test-responsibility',
     failureMeaningCode: 'co-located-responsibility-not-observed'
   }],
@@ -59,7 +59,7 @@ secTest({
   lifecycle: 'active',
   obligations: [{
     kind: 'contract',
-    id: 'test-case-census',
+    id: 'test-case-census-legacy-visible',
     owner: 'test-responsibility',
     failureMeaningCode: 'legacy-test-silently-missing'
   }],
@@ -90,7 +90,7 @@ secTest({
   lifecycle: 'active',
   obligations: [{
     kind: 'contract',
-    id: 'test-case-census',
+    id: 'test-case-census-suite-path',
     owner: 'test-responsibility',
     failureMeaningCode: 'nested-suite-locator-incomplete'
   }],
@@ -123,7 +123,7 @@ secTest({
   lifecycle: 'active',
   obligations: [{
     kind: 'contract',
-    id: 'test-case-census',
+    id: 'test-case-census-dynamic-families',
     owner: 'test-responsibility',
     failureMeaningCode: 'dynamic-test-family-silently-collapsed'
   }],
@@ -155,7 +155,7 @@ secTest({
   lifecycle: 'active',
   obligations: [{
     kind: 'contract',
-    id: 'test-case-census',
+    id: 'test-case-census-duplicate-locator',
     owner: 'test-responsibility',
     failureMeaningCode: 'duplicate-test-locator-accepted'
   }],
@@ -178,7 +178,7 @@ secTest({
   lifecycle: 'active',
   obligations: [{
     kind: 'contract',
-    id: 'test-case-census',
+    id: 'test-case-census-no-physical-double-write',
     owner: 'test-responsibility',
     failureMeaningCode: 'physical-locator-double-written'
   }],
@@ -215,7 +215,7 @@ secTest({
   lifecycle: 'active',
   obligations: [{
     kind: 'contract',
-    id: 'test-case-census',
+    id: 'test-case-census-deterministic-order',
     owner: 'test-responsibility',
     failureMeaningCode: 'test-case-census-order-dependent'
   }],
