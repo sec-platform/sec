@@ -9,6 +9,7 @@ import {
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
   assertTrustedRuntimeContainerImageV1,
   authorizeTrustedRuntimeContainerRecoveryV1,
+  composeTrustedRuntimeContainerLabelsV1,
   createTrustedRuntimeHostCommandEnvironmentV1,
   createTrustedRuntimeMainHealthReceiptV1,
   parseTrustedRuntimeMainHealthReceiptV1
@@ -87,6 +88,9 @@ describe('provider-neutral trusted runtime container', () => {
   test('reclaims only one twice-observed exact dead-owner container identity', () => {
     const operationKey = 'session-1234567890abcdef';
     const ownerNonce = '12345678-1234-4234-9234-1234567890ab';
+    const imageLabels = Object.freeze({
+      'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1'
+    });
     const expected = Object.freeze({
       operationKey,
       repository: 'sec-platform/sec',
@@ -94,6 +98,7 @@ describe('provider-neutral trusted runtime container', () => {
       headSha: '2'.repeat(40),
       endpointDigest: `sha256:${'3'.repeat(64)}` as `sha256:${string}`,
       imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+      imageLabels,
       ownerHost: 'trusted-host'
     });
     const identity = Object.freeze({
@@ -101,6 +106,7 @@ describe('provider-neutral trusted runtime container', () => {
       imageId: expected.imageId,
       name: `sec-trusted-runtime-${operationKey}-${ownerNonce}`,
       labels: Object.freeze({
+        ...imageLabels,
         'sec.trusted-runtime.operation': operationKey,
         'sec.trusted-runtime.repository': expected.repository,
         'sec.trusted-runtime.base-sha': expected.baseSha,
@@ -142,6 +148,28 @@ describe('provider-neutral trusted runtime container', () => {
       expected,
       observeProcessLiveness: () => 'dead'
     })).toThrow(/differs from the fenced operation/);
+    expect(() => authorizeTrustedRuntimeContainerRecoveryV1({
+      first: { ...identity, labels: { ...identity.labels,
+        'sec.trusted-runtime.image-schema': 'foreign-image' } },
+      confirmed: identity,
+      expected,
+      observeProcessLiveness: () => 'dead'
+    })).toThrow(/differs from the fenced operation/);
+  });
+
+  test('one exact label set drives Docker create and identity readback', () => {
+    const labels = composeTrustedRuntimeContainerLabelsV1(
+      { 'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1' },
+      { 'sec.trusted-runtime.operation': 'main-12345678' }
+    );
+    expect(labels).toEqual({
+      'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1',
+      'sec.trusted-runtime.operation': 'main-12345678'
+    });
+    expect(() => composeTrustedRuntimeContainerLabelsV1(
+      { shared: 'image' },
+      { shared: 'operation' }
+    )).toThrow('collide with retained operation identity');
   });
 
   test('binds one reusable exact-main health execution receipt', () => {
