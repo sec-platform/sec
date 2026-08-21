@@ -18,8 +18,8 @@ import {
   type ViewOverlay,
   type ViewReference
 } from '../../shared/semantic-view-types.ts';
-import { compareCodeUnits, uniqueSorted } from '../ir/ir-canonical-primitives.ts';
 import { indexValidatedEngineeringIR, type EngineeringIRIndex } from '../ir/index-engineering-ir.ts';
+import { compareCodeUnits, uniqueSorted } from '../ir/ir-canonical-primitives.ts';
 
 export { uniqueSorted };
 

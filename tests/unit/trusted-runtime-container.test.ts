@@ -6,6 +6,7 @@ import {
   TRUSTED_RUNTIME_CONTAINER_BUN_IMAGE_MANIFEST_V1,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1,
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+  TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1,
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
   assertTrustedRuntimeContainerImageV1,
   assertTrustedRuntimeDependencyCacheVolumeV1,
@@ -218,6 +219,12 @@ describe('provider-neutral trusted runtime container', () => {
   });
 
   test('binds one reusable exact-main health execution receipt', () => {
+    expect(TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1).toEqual([
+      ['bun', 'run', 'imports:check', '--all'],
+      ['bun', 'run', 'typecheck'],
+      ['bun', 'run', 'docs:doctor'],
+      ['bun', 'run', 'test:fast']
+    ]);
     const receipt = createTrustedRuntimeMainHealthReceiptV1({
       origin: 'physical-main',
       repository: 'sec-platform/sec',

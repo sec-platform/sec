@@ -59,8 +59,8 @@ CiVerificationExecutionEnvironmentV2 = createCiVerificationLocalExecutionEnviron
 
 type Digest = `sha256:${string}`;
 
-const TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1 = Object.freeze([
-  Object.freeze(['bun', 'run', 'imports:check']),
+export const TRUSTED_RUNTIME_MAIN_HEALTH_COMMANDS_V1 = Object.freeze([
+  Object.freeze(['bun', 'run', 'imports:check', '--all']),
   Object.freeze(['bun', 'run', 'typecheck']),
   Object.freeze(['bun', 'run', 'docs:doctor']),
   Object.freeze(['bun', 'run', 'test:fast'])
