@@ -1552,7 +1552,8 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
       await command('docker', ['container', 'exec', '--user', '1000:1000', containerTarget,
         '/bin/mkdir', '-p', TRUSTED_RUNTIME_OUTPUT_V1], repositoryRoot, 120_000, dockerEndpoint);
       await command('docker', [
-        'container', 'exec', '--user', '1000:1000', '--env', 'HOME=/home/ubuntu',
+        'container', 'exec', '--user', '1000:1000',
+        ...createTrustedRuntimeCommandEnvironmentArgsV1({ HOME: '/home/ubuntu' }),
         containerTarget, '/bin/bash', '-lc', SETUP_SCRIPT, '--',
         baseSha, headSha, input.setupMode
       ], repositoryRoot, 30 * 60_000, dockerEndpoint);
@@ -1898,7 +1899,8 @@ export async function executeTrustedRuntimeWorkspaceCanaryV1(input: Readonly<{
       if (input.dependencies === true) {
         await command('docker', [
           'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
-          '--env', 'CI=1', '--env', 'HOME=/home/ubuntu', containerName,
+          ...createTrustedRuntimeCommandEnvironmentArgsV1({ CI: '1', HOME: '/home/ubuntu' }),
+          containerName,
           'bun', './platform/dev-runner.ts', 'deps:ensure'
         ], repositoryRoot, 30 * 60_000, dockerEndpoint);
         const [providerIdentity, isolatedProviderIdentity] = await Promise.all([

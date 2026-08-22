@@ -684,8 +684,8 @@ function linuxOpenOrCreateDirectoryAt(input: {
         throw physicalError(
           errno === 17 ? 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' : 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
           errno === 17
-            ? `${input.label} name already exists.`
-            : `${input.label} relative mkdirat failed (errno ${errno}).`
+            ? `${input.label} name already exists at ${input.absolutePath}.`
+            : `${input.label} relative mkdirat failed for ${input.absolutePath} (errno ${errno}).`
         );
       }
     }
