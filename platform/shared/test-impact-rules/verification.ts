@@ -11,6 +11,21 @@ const DEV_RUNNER_FAST_TESTS = [
   FAST_TEST_PROCESS_POLICY_TEST_FILE
 ];
 
+const DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS = [
+  'tests/contract/dev-runner-live-authority.test.ts'
+];
+
+const DEV_RUNNER_PROOF_IMPLEMENTATION_SLOW_TESTS = [
+  ...DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS,
+  'tests/contract/dev-runner-authority-program.test.ts'
+];
+
+const GENERATED_STATE_LIFECYCLE_FAST_TESTS = [
+  'tests/integration/compiler-dependency-installation.test.ts',
+  'tests/unit/generated-state-contract.test.ts',
+  'tests/unit/generated-state-lifecycle.test.ts'
+];
+
 const DEV_RUNNER_WORKSPACE_FAST_TESTS = [
   ...DEV_RUNNER_FAST_TESTS,
   'tests/unit/work-package-gate-execution.test.ts'
@@ -363,11 +378,31 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     supplementalSlow: []
   },
   {
+    owner: 'generated-state-registry',
+    identity: { kind: 'architecture-owner', id: 'generated-state-registry' },
+    sourceFiles: ['platform/shared/generated-state-registry.json'],
+    moduleGraphImpact: 'owner-only',
+    supplementalFast: GENERATED_STATE_LIFECYCLE_FAST_TESTS,
+    supplementalSlow: []
+  },
+  {
+    owner: 'generated-state-lifecycle',
+    identity: { kind: 'architecture-owner', id: 'generated-state-lifecycle' },
+    sourceFiles: [
+      'platform/shared/generated-state-contract.ts',
+      'scripts/codex/environment-settlement.ts',
+      'scripts/codex/generated-state.ts',
+      'tooling/sec-dev/generated-state-lifecycle.ts'
+    ],
+    supplementalFast: GENERATED_STATE_LIFECYCLE_FAST_TESTS,
+    supplementalSlow: []
+  },
+  {
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' },
     sourceFiles: ['platform/dev-runner/dependency-bootstrap.ts'],
     supplementalFast: DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS,
-    supplementalSlow: []
+    supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
   },
   {
     owner: 'dev-runner',
@@ -382,7 +417,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'tests/setup/runtime-deps.setup.ts'
     ],
     supplementalFast: DEV_RUNNER_FAST_TESTS,
-    supplementalSlow: []
+    supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
   },
   {
     owner: 'dev-runner',
@@ -392,7 +427,14 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/test-runner.ts'
     ],
     supplementalFast: DEV_RUNNER_WORKSPACE_FAST_TESTS,
-    supplementalSlow: []
+    supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
+  },
+  {
+    owner: 'dev-runner-authority-proof',
+    identity: { kind: 'architecture-owner', id: 'dev-runner-authority-proof' },
+    sourceFiles: ['tests/helpers/dev-runner-authority-proof.ts'],
+    supplementalFast: [],
+    supplementalSlow: DEV_RUNNER_PROOF_IMPLEMENTATION_SLOW_TESTS
   },
   {
     owner: 'dev-runner',

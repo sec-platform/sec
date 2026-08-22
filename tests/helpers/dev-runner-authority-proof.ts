@@ -727,6 +727,27 @@ export function devRunnerScenarioModuleId(scenarioId: string, logicalPath: strin
     : `__contract__/scenario/${scenarioId}/${logicalPath}`;
 }
 
+export function createDevRunnerLiveAuthorityScenarioV1(
+  packageJson: unknown
+): DevRunnerAuthorityScenario {
+  return Object.freeze({
+    scenarioId: 'live',
+    label: 'complete live host',
+    moduleScope: '',
+    commandOwnerModuleId: 'platform/dev-runner/command-runner.ts',
+    boundedOwnerModuleId: 'platform/dev-runner/test-runner.ts',
+    processOwnerModuleId: 'platform/shared/process.ts',
+    policyOwnerModuleIds: Object.freeze([
+      'platform/dev-runner/fast-test-policy.ts',
+      'platform/dev-runner/test-concurrency-policy.ts'
+    ]),
+    modules: Object.freeze([]),
+    packageSurfaces: Object.freeze([{ relativePath: 'package.json', value: packageJson }]),
+    expectedValidation: 'accepted',
+    expectedViolationCodes: Object.freeze([])
+  });
+}
+
 export function isDevRunnerExecutableSource(relativePath: string): boolean {
   return EXECUTABLE_SOURCE_EXTENSION_SET.has(path.posix.extname(relativePath).toLowerCase()) &&
     !/\.d\.(?:c|m)?ts$/iu.test(relativePath);
@@ -14276,6 +14297,7 @@ function validateCompactProof(
 
     if (binding.boundedModuleId && binding.runCommandBytesCallableId) {
       const processCalls = scenarioCalls.filter((call) =>
+        call.moduleId === binding.boundedModuleId &&
         hasExactDirectTarget(call, binding.runCommandBytesCallableId!));
       const operationCensus = processCalls
         .map(({ gitChangedFileReadOperation }) => gitChangedFileReadOperation)

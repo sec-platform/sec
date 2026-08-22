@@ -305,6 +305,7 @@ SEC只应自行拥有自己的工程语义、authority、identity、Contract、E
 ```text
 problem / real consumer
 → required capability and contract
+→ terminal business intent and known consumer/lifecycle horizon
 → current internal implementation and cost
 → mature external candidates / standards / platform primitives
 → exact versions, license, security and maintenance
@@ -315,6 +316,27 @@ problem / real consumer
 → duplicate code / dependency / path to remove
 → rollback, revalidation and retirement conditions
 ```
+
+`known consumer/lifecycle horizon`只包含有canonical目标、roadmap、current spec、重新激活条件或现存
+consumer支持的未来，不做开放世界猜测；它覆盖authoring、runtime、Verification、升级、替换、运维和退役，
+因此当前调用次数不能单独决定依赖或自研策略。
+
+该census必须充分，但禁止无目的扩读。先冻结本次`decision questions`、会改变裁决的unknown与required
+Evidence kinds，再由authority、dependency、causal、consumer和Impact图派生
+`SufficientInformationClosure`。任何新增读取都必须关闭一个明确frontier并可能改变一项具体裁决；不能回答
+未决问题的Issue、历史、源码或工具输出不得进入上下文。确定性全仓census可以维护图与coverage，但执行者只
+消费带provenance的相关投影。所有决定性问题闭合、最强已知反例不再改变裁决，或剩余缺口形成typed unknown
+后立即停止；禁止把“充分探究”误写成“尽量多读”。
+
+根因闭包不是给单个symptom贴标签。它至少证明可复现观察、被破坏不变量、最上游可修改因果机制、同类
+failure空间、已知consumer、唯一owner、反事实验收和旧路径退役；只能解释当前一个样例时仍是diagnostic
+finding，不能宣称根治。
+
+任何 P0/P1、重复 finding 或用户指出的同类漂移在进入实现前必须形成同一 owner 的
+`ClassRootClosure`：`rootMechanism + canonicalOwner + classInvariant + affectedEntryClosure +
+strongestCounterexample + retirement/stopCondition`。缺任一项只能保持 `diagnostic`，不能标记
+`remediation-ready`，也不能按 finding/file 顺序逐个打补丁。实现后验证的是类级不变量与最强反例，
+不是把同一句源码或文件清单复制成测试；若 affected entry 仍存在 optional/manual bypass，闭包未完成。
 
 没有上述Evidence时，不得以“更可控”“以后可能需要”“AI写起来容易”或“自己实现更统一”为由扩大自研面积。
 
@@ -597,6 +619,12 @@ invalidationInputs
 不得为了“熟悉工程”默认读取 assistant memory、聊天历史、旧 PR/Issue comments、全部开放 Issue、
 全仓文档或全部 Skill 正文。只有一个显式 `unresolvedFrontier` 尚未闭合时，才允许读取该 frontier
 列出的 `conditionalRefs`；conditional ref 必须反向绑定同一 frontier，禁止 unrestricted search。
+
+“最小”不是最少文件，“完整”也不是读完整仓库。编译前必须明确当前decision questions与required
+Evidence kinds；每个required/conditional ref都要有`decisionWitness`，说明缺少它会让哪项owner、root cause、
+scope、mechanism、Verification或retirement裁决不完整。frontier只在新引用可能改变该裁决时扩展；所有
+决定性问题已由Evidence或反证闭合、最强已知反例不会改变结果，或缺口已成为typed unknown时立即停止。
+确定性索引、代码图和全仓census可以作为closure compiler输入，但不得等价成模型正文读取。
 
 同一 source ref 在一个有效 operation context 中只能出现一次。`readReceipts` 绑定 planned ref ID、
 canonical owner、exact revision、content digest 与 reason。它们只证明

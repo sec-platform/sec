@@ -22,6 +22,8 @@ export type TestOwnershipIdentity =
 export type TestOwnershipDeclaration = {
   owner: string;
   identity: TestOwnershipIdentity;
+  /** Machine data with a complete semantic owner may bypass generic reverse-import expansion. */
+  moduleGraphImpact?: 'include' | 'owner-only';
   sourceFiles?: readonly string[];
   excludedSourceFiles?: readonly string[];
   sourcePrefixes?: readonly string[];

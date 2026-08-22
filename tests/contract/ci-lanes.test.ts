@@ -329,6 +329,8 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
     .filter((suite) => suite.resourceClass === 'runtime-heavy')
     .map((suite) => suite.id);
   expect(runtimeHeavy).toEqual([
+    'contract-dev-runner-live-authority',
+    'contract-dev-runner-authority-program',
     'integration-shared-runtime-dependencies',
     'contract-document-control-plane-lifecycle',
     'unit-worktree-closeout-crash-recovery',

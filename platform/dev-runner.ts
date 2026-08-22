@@ -1,7 +1,7 @@
 import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
 
@@ -65,6 +65,25 @@ async function main(): Promise<void> {
   const [target, ...args] = process.argv.slice(2);
   if (!target) {
     usage();
+  }
+
+  if (target === 'generated-state:inspect' || target === 'generated-state:plan'
+      || target === 'generated-state:cleanup') {
+    const { runGeneratedStateCliV1 } = await import('../scripts/codex/generated-state.ts');
+    const operation = target.slice('generated-state:'.length);
+    const result = await runGeneratedStateCliV1([operation, ...args]);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (target === 'environment:workspace-settle') {
+    const unknown = args.filter((argument) => argument !== '--fix');
+    if (unknown.length > 0) usage();
+    const { settleEnvironmentV1 } = await import('../scripts/codex/environment-settlement.ts');
+    const result = await settleEnvironmentV1({ fix: args.includes('--fix') });
+    console.log(JSON.stringify(result, null, 2));
+    if (result.status !== 'settled') process.exitCode = 1;
+    return;
   }
 
   if (target === 'check:affected') {

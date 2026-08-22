@@ -799,7 +799,10 @@ export function selectTestsForSources(
     const declarations = testOwnershipDeclarations.filter((declaration) => (
       matchesTestOwnershipDeclaration(declaration, file, transition)
     ));
-    const referencedTests = deriveTestsForSourcesV1([file], provider);
+    const ownerOnly = declarations.length > 0 && declarations.every(
+      ({ moduleGraphImpact }) => moduleGraphImpact === 'owner-only'
+    );
+    const referencedTests = ownerOnly ? [] : deriveTestsForSourcesV1([file], provider);
     if (referencedTests.length > 0) {
       owners.add('module-graph');
       addAll(fast, referencedTests.filter(isFastTestFile));

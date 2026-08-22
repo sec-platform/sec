@@ -8,7 +8,8 @@ import {
   EXTERNAL_NODE_MINIMUM_MAJOR_VERSION,
   readRuntimeDepsStamp,
   resolveExternalNodeRuntimeAuthority,
-  type ExternalNodeRuntimeResolutionOptions
+  type ExternalNodeRuntimeResolutionOptions,
+  type RuntimeDependencyInstallOptions
 } from './project-runtime.ts';
 import { loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 
@@ -46,6 +47,7 @@ export interface DependencyCleanOptions {
 }
 
 export interface DependencyEnvironmentOptions {
+  generatedStateLifecycle?: RuntimeDependencyInstallOptions['generatedStateLifecycle'];
   nodeRuntime?: ExternalNodeRuntimeResolutionOptions;
   sharedDepsRoot?: string;
 }
@@ -352,7 +354,10 @@ export async function warmupDependencyEnvironment(
   workspaceRoot = process.cwd(),
   options: DependencyEnvironmentOptions = {}
 ): Promise<DependencyEnvironmentStatus> {
-  await ensureSharedDepsReady({ sharedDepsRoot: options.sharedDepsRoot });
+  await ensureSharedDepsReady({
+    generatedStateLifecycle: options.generatedStateLifecycle,
+    sharedDepsRoot: options.sharedDepsRoot
+  });
   return getDependencyEnvironmentStatus(workspaceRoot, options);
 }
 
@@ -363,7 +368,10 @@ export async function relinkProjectDependencies(
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   await removeDir(path.join(projectRoot, 'node_modules'));
   await removeDir(projectStampPath(projectRoot));
-  await ensureProjectDependencies(projectRoot, { sharedDepsRoot: options.sharedDepsRoot });
+  await ensureProjectDependencies(projectRoot, {
+    generatedStateLifecycle: options.generatedStateLifecycle,
+    sharedDepsRoot: options.sharedDepsRoot
+  });
   return getDependencyEnvironmentStatus(workspaceRoot, options);
 }
 

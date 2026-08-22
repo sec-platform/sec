@@ -171,6 +171,21 @@ test('Verification Action canonical owners select direct behavior and boundary e
   ]));
 });
 
+test('generated-state machine registry selects only its behavior and producer evidence', () => {
+  const selection = selectTestsForSources([
+    'platform/shared/generated-state-registry.json'
+  ]);
+  expect(selection).toEqual({
+    fast: [
+      'tests/integration/compiler-dependency-installation.test.ts',
+      'tests/unit/generated-state-contract.test.ts',
+      'tests/unit/generated-state-lifecycle.test.ts'
+    ],
+    slow: [],
+    owners: ['generated-state-registry']
+  });
+});
+
 test('retired evidence ownership requires the exact removed transition', () => {
   const retired = RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS[0]!;
   const headSha = 'b'.repeat(40);

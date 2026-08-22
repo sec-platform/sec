@@ -27,6 +27,7 @@ import { uniqueSorted, uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommandBytes } from '../shared/process.ts';
+import { secRuntimeStateEnvironmentV1 } from '../shared/sec-runtime-state-contract.ts';
 import {
   FAST_TEST_PROCESS_POLICY_TEST_FILE,
   getFastTestFilesSync,
@@ -720,7 +721,7 @@ async function runWithTestInvocationRuntimeV1(
     if (testInvocationRuntimeIsolationModeForPlatformV1(process.platform) === 'retained') {
       runtime = await createTestInvocationRuntimeRootsV1({
         repositoryRoot: compilerRoot,
-        environment: { ...process.env, ...environment }
+        environment: { ...secRuntimeStateEnvironmentV1(), ...environment }
       });
     }
     exitCode = await run(runtime);
@@ -1052,7 +1053,7 @@ export async function runFastTests(args: string[] = []): Promise<number> {
     if (testInvocationRuntimeIsolationModeForPlatformV1(process.platform) === 'retained') {
       invocationRuntime = await createTestInvocationRuntimeRootsV1({
         repositoryRoot: compilerRoot,
-        environment: { ...process.env, ...workspaceEnv }
+        environment: { ...secRuntimeStateEnvironmentV1(), ...workspaceEnv }
       });
     }
     await withFastTestDependencies(async ({ binPath }) => {
