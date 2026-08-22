@@ -75,6 +75,11 @@ import {
 } from './fast-test-policy.ts';
 import { explicitFastTestMaxConcurrency } from './test-concurrency-policy.ts';
 import { withDefaultTestTimeout } from './test-execution-policy.ts';
+import {
+  createTestInvocationRuntimeRootsV1,
+  testInvocationRuntimeIsolationModeForPlatformV1,
+  type TestInvocationRuntimeRootsV1
+} from './test-process-temp.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
   '--timeout',
@@ -154,8 +159,14 @@ function selectMatchingTestFiles(availableFiles: string[], selectors: string[], 
   return selected;
 }
 
-function fastTestArgs(files: string[], options: string[], concurrent: boolean): string[] {
-  return ['test', ...(concurrent ? ['--concurrent'] : []), ...files, ...withDefaultTestTimeout(options)];
+function fastTestArgs(files: string[], options: string[], innerConcurrency: number): string[] {
+  // Process shards are the concurrency boundary. Ordinary Bun tests keep their
+  // declared sequential semantics; only explicit test.concurrent cases consume
+  // the bounded inner concurrency budget.
+  const boundedOptions = explicitFastTestMaxConcurrency(options) === null
+    ? ['--max-concurrency', String(innerConcurrency), ...options]
+    : options;
+  return ['test', ...files, ...withDefaultTestTimeout(boundedOptions)];
 }
 
 export type FastTestInvocationQueue = 'concurrent-shard' | FastTestProcessResourceClass;
@@ -205,7 +216,7 @@ function fastTestInvocations(
       plan.resourceQueues[resourceClass].map((file, index) => ({
         id: fastTestInvocationId(resourceClass, index),
         queue: resourceClass,
-        args: fastTestArgs([file], options, false)
+        args: fastTestArgs([file], options, managedConcurrency.innerConcurrency)
       }))
     ])
   ) as Record<FastTestProcessResourceClass, FastTestInvocation[]>;
@@ -214,7 +225,7 @@ function fastTestInvocations(
     concurrentShards: plan.concurrentShards.map((shard, index) => ({
       id: fastTestInvocationId('concurrent-shard', index),
       queue: 'concurrent-shard',
-      args: fastTestArgs(shard, options, true)
+      args: fastTestArgs(shard, options, managedConcurrency.innerConcurrency)
     })),
     concurrentProcessLimit: managedConcurrency.outerProcessConcurrency,
     resourceClassOrder: plan.resourceClassOrder,
@@ -298,16 +309,24 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
   };
 }
 
-function fullTestInvocations(): string[][] {
+type FullTestInvocation = Readonly<{
+  kind: 'fast' | 'slow';
+  id: string;
+  args: string[];
+}>;
+
+function fullTestInvocations(): FullTestInvocation[] {
   const slowSelection = slowTestArgSelection([]);
   const fast = fastTestInvocations([], 'complete');
   return [
-    ...fast.concurrentShards.map(({ args }) => args),
+    ...fast.concurrentShards.map(({ id, args }) => ({ kind: 'fast' as const, id, args })),
     ...fast.resourceClassOrder.flatMap((resourceClass) => (
-      fast.resourceQueues[resourceClass].map(({ args }) => args)
+      fast.resourceQueues[resourceClass].map(({ id, args }) => ({ kind: 'fast' as const, id, args }))
     )),
-    slowSelection.kind === 'run' ? slowSelection.args : []
-  ].filter((invocation) => invocation.length > 0);
+    ...(slowSelection.kind === 'run'
+      ? [{ kind: 'slow' as const, id: 'slow:001', args: slowSelection.args }]
+      : [])
+  ];
 }
 
 function affectedTestsBaseRef(): string | undefined {
@@ -634,12 +653,17 @@ export async function scheduleBoundedFastTestInvocations<TResult>(
 async function runBoundedFastTestInvocations(
   invocations: readonly FastTestInvocation[],
   env: NodeJS.ProcessEnv,
-  concurrency: number
+  concurrency: number,
+  invocationRuntime: TestInvocationRuntimeRootsV1 | null
 ): Promise<number> {
   const failedBatch = await scheduleBoundedFastTestInvocations(
     invocations,
     concurrency,
-    (invocation) => runDevCommand('bun', invocation.args, env, { observe: true }),
+    (invocation) => {
+      return runDevCommand(
+        'bun', invocation.args, fastInvocationEnvironment(env, invocationRuntime, invocation.id), { observe: true }
+      );
+    },
     (observation) => devCommandObservationExitCode(observation) !== 0
   );
   if (!failedBatch) return 0;
@@ -668,6 +692,50 @@ async function runBoundedFastTestInvocations(
   return firstFailure.kind === 'observer-rejected'
     ? 1
     : devCommandObservationExitCode(firstFailure.observation);
+}
+
+function fastInvocationEnvironment(
+  environment: NodeJS.ProcessEnv,
+  invocationRuntime: TestInvocationRuntimeRootsV1 | null,
+  invocationId: string
+): NodeJS.ProcessEnv {
+  if (invocationRuntime === null) return environment;
+  const invocationRuntimeRoot = path.join('invocation-runtime', invocationId.replace(':', '-'));
+  return {
+    ...environment,
+    SEC_STATE_HOME: path.join(invocationRuntime.stateRoot, invocationRuntimeRoot),
+    SEC_CACHE_HOME: path.join(invocationRuntime.cacheRoot, invocationRuntimeRoot)
+  };
+}
+
+async function runWithTestInvocationRuntimeV1(
+  environment: NodeJS.ProcessEnv,
+  run: (runtime: TestInvocationRuntimeRootsV1 | null) => Promise<number>
+): Promise<number> {
+  let runtime: TestInvocationRuntimeRootsV1 | null = null;
+  let exitCode = 1;
+  let hasPrimaryFailure = false;
+  let primaryFailure: unknown;
+  try {
+    if (testInvocationRuntimeIsolationModeForPlatformV1(process.platform) === 'retained') {
+      runtime = await createTestInvocationRuntimeRootsV1({
+        repositoryRoot: compilerRoot,
+        environment: { ...process.env, ...environment }
+      });
+    }
+    exitCode = await run(runtime);
+  } catch (error) {
+    hasPrimaryFailure = true;
+    primaryFailure = error;
+  }
+  try {
+    runtime?.cleanup();
+  } catch (error) {
+    console.error(`Test invocation runtime cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
+  }
+  if (hasPrimaryFailure) throw primaryFailure;
+  return exitCode;
 }
 
 interface AffectedTestSelection {
@@ -929,21 +997,46 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
 
 export async function runTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
+  let selectors: string[] = [];
   if (args.length > 0) {
-    const { selectors } = partitionBunTestArgs(args);
+    ({ selectors } = partitionBunTestArgs(args));
     if (selectors.length > 0 && selectors.every(isFastTestFile)) {
       await withFastTestDependencies(async ({ binPath }) => {
-        exitCode = await runDevCommand('bun', ['test', ...args], pathEnv(binPath, null));
+        const environment = pathEnv(binPath, null);
+        exitCode = await runWithTestInvocationRuntimeV1(environment, (runtime) =>
+          runDevCommand(
+            'bun', ['test', ...args], fastInvocationEnvironment(environment, runtime, 'direct:001')
+          ));
       });
       return exitCode;
     }
   }
   await withTestDependencies(async ({ binPath, browserCachePath }) => {
-    const invocations = args.length > 0 ? [['test', ...args]] : fullTestInvocations();
-    for (const invocation of invocations) {
-      exitCode = await runDevCommand('bun', invocation, pathEnv(binPath, browserCachePath));
-      if (exitCode !== 0) return;
+    const environment = pathEnv(binPath, browserCachePath);
+    if (args.length > 0) {
+      // Only an exact slow-file selection proves that Bun cannot discover a
+      // fast test. Option-only, mixed and pattern/directory selections share
+      // the same invocation runtime boundary as every other fast-capable
+      // entrypoint.
+      const isProvenSlowOnly = selectors.length > 0 && selectors.every(isSlowTestFile);
+      exitCode = isProvenSlowOnly
+        ? await runDevCommand('bun', ['test', ...args], environment)
+        : await runWithTestInvocationRuntimeV1(environment, (runtime) =>
+            runDevCommand(
+              'bun', ['test', ...args], fastInvocationEnvironment(environment, runtime, 'direct:001')
+            ));
+      return;
     }
+    exitCode = await runWithTestInvocationRuntimeV1(environment, async (runtime) => {
+      for (const invocation of fullTestInvocations()) {
+        const invocationEnvironment = invocation.kind === 'fast'
+          ? fastInvocationEnvironment(environment, runtime, invocation.id)
+          : environment;
+        const code = await runDevCommand('bun', invocation.args, invocationEnvironment);
+        if (code !== 0) return code;
+      }
+      return 0;
+    });
   });
   return exitCode;
 }
@@ -952,9 +1045,16 @@ export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   const workspace = await prepareFastTestWorkspaceRun();
   const workspaceEnv = workspace.env;
+  let invocationRuntime: TestInvocationRuntimeRootsV1 | null = null;
   let hasPrimaryFailure = false;
   let primaryFailure: unknown;
   try {
+    if (testInvocationRuntimeIsolationModeForPlatformV1(process.platform) === 'retained') {
+      invocationRuntime = await createTestInvocationRuntimeRootsV1({
+        repositoryRoot: compilerRoot,
+        environment: { ...process.env, ...workspaceEnv }
+      });
+    }
     await withFastTestDependencies(async ({ binPath }) => {
       try {
         const plan = fastTestInvocations(args);
@@ -962,14 +1062,16 @@ export async function runFastTests(args: string[] = []): Promise<number> {
         exitCode = await runBoundedFastTestInvocations(
           plan.concurrentShards,
           env,
-          plan.concurrentProcessLimit
+          plan.concurrentProcessLimit,
+          invocationRuntime
         );
         if (exitCode !== 0) return;
         for (const resourceClass of plan.resourceClassOrder) {
           exitCode = await runBoundedFastTestInvocations(
             plan.resourceQueues[resourceClass],
             env,
-            plan.resourceLimits[resourceClass]
+            plan.resourceLimits[resourceClass],
+            invocationRuntime
           );
           if (exitCode !== 0) return;
         }
@@ -981,6 +1083,12 @@ export async function runFastTests(args: string[] = []): Promise<number> {
   } catch (error) {
     hasPrimaryFailure = true;
     primaryFailure = error;
+  }
+  try {
+    invocationRuntime?.cleanup();
+  } catch (error) {
+    console.error(`Fast test invocation runtime cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
   }
   try {
     settlePreparedTestWorkspaceRunV1(workspace.cleanup);
@@ -1019,12 +1127,18 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
 export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {
   let exitCode = 0;
   await withTestDependencies(async ({ binPath, browserCachePath }) => {
-    for (const invocation of buildContractFreezeRunnerInvocations(targets)) {
-      exitCode = await runDevCommand('bun', invocation.args, pathEnv(binPath, browserCachePath));
-      if (exitCode !== 0) {
-        return;
+    const environment = pathEnv(binPath, browserCachePath);
+    exitCode = await runWithTestInvocationRuntimeV1(environment, async (runtime) => {
+      for (const [index, invocation] of buildContractFreezeRunnerInvocations(targets).entries()) {
+        const code = await runDevCommand(
+          'bun',
+          invocation.args,
+          fastInvocationEnvironment(environment, runtime, `contract-freeze:${String(index + 1).padStart(3, '0')}`)
+        );
+        if (code !== 0) return code;
       }
-    }
+      return 0;
+    });
   });
   return exitCode;
 }

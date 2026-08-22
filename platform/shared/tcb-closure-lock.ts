@@ -602,9 +602,9 @@ export function runtimeRelativeImportsFromSource(
       const bunNamespace = bunNamespaceName(node.expression);
       if (bunNamespace) {
         const member = node.name.text;
-        const isDirectBuiltinYamlParse = (
+        const isDirectBuiltinDataParse = (
           bunNamespace === 'Bun'
-          && member === 'YAML'
+          && (member === 'TOML' || member === 'YAML')
           && node.questionDotToken === undefined
           && ts.isPropertyAccessExpression(node.parent)
           && node.parent.expression === node
@@ -638,7 +638,7 @@ export function runtimeRelativeImportsFromSource(
             rejectUnmodeledLoader(`indirect Bun process loader ${bunNamespace}.${member}`);
           }
         } else if (
-          !isDirectBuiltinYamlParse
+          !isDirectBuiltinDataParse
           && !isDirectBuiltinSemverSatisfies
           && !isDirectBuiltinTranspilerConstruction
           && !TCB_BUN_SAFE_GLOBAL_MEMBERS.has(member)
@@ -1926,12 +1926,12 @@ export function generateTcbClosureLockV2(
 // ---------------------------------------------------------------------------
 
 // <sec-tcb-closure-lock-generated-v2>
-export const TCB_CLOSURE_TRUST_REVISION = "sha256:48bb1bf8d48bcdaee67f2104f53c7ffede16132505f70e727e802fd39caee349";
+export const TCB_CLOSURE_TRUST_REVISION = "sha256:b7fa24513e55c2b77a704b23bd3bbc33b67a0bf57b1c837290f823609c38aa24";
 
 // Generated from the exact live causal closure. Do not hand-edit this marked region.
 export const TCB_CLOSURE_LOCK: TcbClosureLock = {
   "schema": "sec-tcb-closure-lock-v2",
-  "trustRevision": "sha256:48bb1bf8d48bcdaee67f2104f53c7ffede16132505f70e727e802fd39caee349",
+  "trustRevision": "sha256:b7fa24513e55c2b77a704b23bd3bbc33b67a0bf57b1c837290f823609c38aa24",
   "moduleCount": 138,
   "modules": [
     "docs/scripts/docs-doctor-ledgers.ts",
@@ -2141,15 +2141,15 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/dev-runner/check-runner.ts": "0532888b914a53c1e2601b82312d6abccfcf6bc3",
     "platform/dev-runner/command-runner.ts": "1153ba825e53727c8cc72f6727c2d7308a9df2f9",
     "platform/dev-runner/dependency-bootstrap.ts": "e9be49f30e17a9e66d7deae65c53380b58ab4ff0",
-    "platform/dev-runner/env-manager.ts": "fbd9d1804160844a1fa9a2794df19e4a556285ca",
-    "platform/dev-runner/fast-test-policy.ts": "bbf01291148d01b95dba456816909688f4997392",
+    "platform/dev-runner/env-manager.ts": "54c6ae455903e9ea1c2a35296914d2fda4811e42",
+    "platform/dev-runner/fast-test-policy.ts": "44287693a29dcc3362dbcd7799dae4ceee38edae",
     "platform/dev-runner/import-organizer.ts": "cdceb97b710376552529afb3bb7b00a836c3c1ac",
     "platform/dev-runner/import-transform-transaction.ts": "1a0916434730596351437c347119523d301f5401",
     "platform/dev-runner/repository-mutation-fence.ts": "590ee15af7e6a3ffe70b1cee2f070b533d6a53dd",
     "platform/dev-runner/test-concurrency-policy.ts": "614dcca876dc8f15dfdcc265fdf33ce54c778e78",
     "platform/dev-runner/test-execution-policy.ts": "a637b18fe22c37215a44b9ba30a05175548f9748",
-    "platform/dev-runner/test-process-temp.ts": "ef43b0d05d67eaa9647e47e273c4e44313a36588",
-    "platform/dev-runner/test-runner.ts": "6b2bb87a927534e10a2141640d77d6d4f44a02ab",
+    "platform/dev-runner/test-process-temp.ts": "e1e1c294330d4de986299e6d44a47537ea941a2f",
+    "platform/dev-runner/test-runner.ts": "9b3b157b61529c23c190c285b5c6ff1d32703e36",
     "platform/dev-runner/typecheck-runner.ts": "28161aa38ffda39493699c69612ab7979b85d3bb",
     "platform/dev-runner/verification-action-executor.ts": "03fd171730005ce1fb326a05e179a8e5fe038d72",
     "platform/shared/active-documentation-contract.ts": "8894712cc4303fbc0a584029c5b4f6c00acf5ad8",
@@ -2179,7 +2179,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/errors.ts": "160c3b00d95d8457f59801762ae55c5f89e24784",
     "platform/shared/fs.ts": "06f88220c0165e040c94d931223706f794ea3414",
     "platform/shared/git-read-environment.ts": "41b18f7969138ba88278cea725fc3bf70a6df8bf",
-    "platform/shared/heavy-verification-gate-lease.ts": "bfd3b62e9411abc339234451d5122a2c0230a3cc",
+    "platform/shared/heavy-verification-gate-lease.ts": "d419e7ca8e7dfe10b56b2c53a2c44cf03a708458",
     "platform/shared/integration-authorization-contract.ts": "18bc72e4ffb195c44baacc19707c93af7c49e53b",
     "platform/shared/integration-platform-policy.ts": "192252f60bd1c478449eafed31e667a34384a356",
     "platform/shared/iso-instant-input.ts": "0c33ab8bda23c073481e9c6ad8b2b211b52c16cd",
@@ -2193,7 +2193,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/physical-no-follow.ts": "d20283e23684c601c62d2cb349fa80939987ef65",
     "platform/shared/platform-command.ts": "6a59e27518b3e5d0b8c17d4d2cda67a987d68ff3",
     "platform/shared/process.ts": "07f9433bb08593c26863ade7b95b4090fea4fb8d",
-    "platform/shared/project-runtime.ts": "055002051361b70b30cf66cc4a4389392de119e5",
+    "platform/shared/project-runtime.ts": "202a3329321657e3c41122a34506655230239c8e",
     "platform/shared/repository-path-contract.ts": "0d655f17a56379651ed3da2de59048db43936f91",
     "platform/shared/retained-file-read.ts": "76cfbc2380cbfd22f8efd376e7daf5541dacdfb1",
     "platform/shared/review-stability-contract.ts": "1bf6f9c248323376c75e40bb8394d7d05cc6011d",
@@ -2267,7 +2267,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/worktree-physical-closeout.ts": "14c49122bf823d3cc24305d88989fc0a04340268",
     "scripts/install-git-hooks.ts": "b13fb3af64e67a67908698f4698002877aa7713b",
     "tests/setup/runtime-deps.setup.ts": "2452b8018c1cd955f80aeb062cb3d5bbfc733dca",
-    "tooling/sec-dev/runtime-state-authority.ts": "170316749177cd6060526ebd8c5327647ed21f6c",
+    "tooling/sec-dev/runtime-state-authority.ts": "72391a13850603a659a645d726e3be7b92f965c7",
     "tooling/sec-dev/runtime-state-journal-filesystem.ts": "7b7a2ac8266b61ca5bb647e8733aec36a45b2b5b",
     "tooling/sec-dev/runtime-state-paths.ts": "1ff5dd329a0509d33afc57a0b141078ab9a15715",
     "tooling/sec-dev/verification-action-journal.ts": "6fd54cfa82db1afeeea76705b0abea4a0a4b0a96",
@@ -2281,15 +2281,15 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/dev-runner/check-runner.ts": "sha256:ee8e03c72eafe284df4ac70f22ea19457f6a3fc1608f7aa26bf7cd0edf07e8bb",
     "platform/dev-runner/command-runner.ts": "sha256:b45598f646f81bfd06d3ac4c53997d068d17fb3959bf3f5ff75d98da2d63ae2e",
     "platform/dev-runner/dependency-bootstrap.ts": "sha256:41923b58b2eb13c3f57499e30be29a5542087baecb7ce401b4ba375a52b0df36",
-    "platform/dev-runner/env-manager.ts": "sha256:e8a83695e2f44ab7d2c47623aaa412d1dea445c9496fd16bf272ca04fc4c810d",
-    "platform/dev-runner/fast-test-policy.ts": "sha256:24e9452b8ca2488cbd85ab10f71c31bd8a77e820fbf350eb7f03903ac6ec4ad9",
+    "platform/dev-runner/env-manager.ts": "sha256:01eda6f71b3c311bff423bc9f0ec5cb20afc67d1a10245fd3e2f4c5db8036173",
+    "platform/dev-runner/fast-test-policy.ts": "sha256:a04cb3f4267baab61df3cbd8b64151886ceff4b2d7cb9a96b69307ef201447e2",
     "platform/dev-runner/import-organizer.ts": "sha256:d21475c2f5cb1a8804590d3c6c9ca69f63e6b2a2500c28aff3275fb1d82010ea",
     "platform/dev-runner/import-transform-transaction.ts": "sha256:050d3e474c81cb1b31f23974f7df160f78384b791f49076f894c797473a07c76",
     "platform/dev-runner/repository-mutation-fence.ts": "sha256:a25ad31b72439f4a5cbc7371ec80e498784e8557ee544f1d4f8592e0cfad78c1",
     "platform/dev-runner/test-concurrency-policy.ts": "sha256:b0ae5d1f29a528dadf2bd7d91e703e1753baf4991aeb5d65940c05d4f8cf2e4f",
     "platform/dev-runner/test-execution-policy.ts": "sha256:c9c2078c179a9cbb81251851f7d45bd0d1542c8fea270845d1bde08e64c579e3",
-    "platform/dev-runner/test-process-temp.ts": "sha256:45668e15c50fee5b3020caab37fba3936369db5d3eb7c525ae4ec2c80ee2bf89",
-    "platform/dev-runner/test-runner.ts": "sha256:228486b4b7261b1b02384c1a4d7d1723debb8fbd0112327750e2ead01543a1ed",
+    "platform/dev-runner/test-process-temp.ts": "sha256:29f429b7af555da051680295cc09b31301bfd3dd9b6e6bedc77e1aaf0d6347c5",
+    "platform/dev-runner/test-runner.ts": "sha256:b1d681aa71cdeb546b9dbd6ed1d410258321f5e612c30bc5d8e5e6ef546f33db",
     "platform/dev-runner/typecheck-runner.ts": "sha256:4f85e995a97414253e581f9b81de73ea7ffb541c170f2b29c88b8fcbf0590ca6",
     "platform/dev-runner/verification-action-executor.ts": "sha256:35b2ec01e0c65da11e3cee0a12a80693aef214cd9a5ebee82b121beddae473d4",
     "platform/shared/active-documentation-contract.ts": "sha256:5990c41ce11be18985b63876c912819240ed9e1f3345e93e1856d43dda1e3e1f",
@@ -2319,7 +2319,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/errors.ts": "sha256:6f2c91d5dda872f56f6e344d2b18a8cbf00fd1ffe3b46d5d36e48b11344c7e15",
     "platform/shared/fs.ts": "sha256:c8f2f1cc2fdc8aa3fe204ee4caac25e1f6de47c9f7d523b802fa63c53eabec73",
     "platform/shared/git-read-environment.ts": "sha256:ad2b9868d9b42de684f271288841e9295ddde033ccaf7842842641831bd1d229",
-    "platform/shared/heavy-verification-gate-lease.ts": "sha256:823c007152110400a65a65702c962471a5a5b829c43c6d6fc35b877c937915bb",
+    "platform/shared/heavy-verification-gate-lease.ts": "sha256:daf41c79d22512185734919cebb5c7f29d08dd745a280129a83f53b33532935a",
     "platform/shared/integration-authorization-contract.ts": "sha256:3d121feb0ac7a8eb48a15becb19d314ad5c4c8486ab154320ac4a8d328c51807",
     "platform/shared/integration-platform-policy.ts": "sha256:a5dd08498039631d2f1d3690a32883b0752575dd14710ffa238d1674aaa1fd1b",
     "platform/shared/iso-instant-input.ts": "sha256:b5c4258ef27eea097bc64b1a629345e0567be81e1bc0c0435b9d54100aa6002a",
@@ -2333,7 +2333,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/physical-no-follow.ts": "sha256:93d5bba77e124ff264285ed09130974801c50f3f65d7ca1c906d7b33a4456186",
     "platform/shared/platform-command.ts": "sha256:dbb654a1697a0d73892b55bbd488f9fc2006a1fafe80f22fb82b8e0e15ba1a9c",
     "platform/shared/process.ts": "sha256:c73fbf7577dca08697a7932e55c9c0b31a1465d8518da62b8923b8217253473e",
-    "platform/shared/project-runtime.ts": "sha256:09b1a1ec71d29da834e0d2f8f8f4e2a9d4060c0a63d924dc93852ee2233421a4",
+    "platform/shared/project-runtime.ts": "sha256:ff91818f757a554b8bfca17e2b3ed4588a9f618de79afb1983cc846f6a2ac401",
     "platform/shared/repository-path-contract.ts": "sha256:262d0d7b19105bb20c232b88e0f71de0987956374034bb80f3548d92e27454ba",
     "platform/shared/retained-file-read.ts": "sha256:24a9dff61392f17184d5cc49f3bb6f1bc7eb638dc4855dc319bbb241c0612b95",
     "platform/shared/review-stability-contract.ts": "sha256:a08c088bcc0ced337f6c3e8ebabd63cafed6e3f4461cdb824b5b6603682454cd",
@@ -2407,18 +2407,18 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/worktree-physical-closeout.ts": "sha256:148f02f8a1da3261c9496d3169b8f8c4f324ead406c9511398d6653848dabe61",
     "scripts/install-git-hooks.ts": "sha256:effb6154d7b41002086df75dc4acea3eaa68cc92cbe99357307c937f8e73098f",
     "tests/setup/runtime-deps.setup.ts": "sha256:1689bc0f3453ffbce8f945c58efc56518f1163bfee646a58fef40d8af9d71fc2",
-    "tooling/sec-dev/runtime-state-authority.ts": "sha256:3fa7e400fbe01f7b5b99839935a908cfabbaca81c3adfb0308c02deae0a02cb4",
+    "tooling/sec-dev/runtime-state-authority.ts": "sha256:3c6b57cffd1b7bd9e7bd2de6536f8e48563529db21c73a78e115b9ae20f436ee",
     "tooling/sec-dev/runtime-state-journal-filesystem.ts": "sha256:415ac3adf76557b322dd12141822ad923b27a003e9f74c8a846248edb5ffb305",
     "tooling/sec-dev/runtime-state-paths.ts": "sha256:0f173a6c1bf52d672b1bb81ef711a3a9b34ae758afc59c32ffac0b5977d76f37",
     "tooling/sec-dev/verification-action-journal.ts": "sha256:cf4931b75bb5bbde0cc97a08bf5e7bc8128c0abf328bb6254c7063b03086e2b4",
     "tooling/sec-dev/verification-action-runner.ts": "sha256:27e30dd3e0e358554c5bb4f8dcca58d39f1950863951dd4c84e319089baaa8d8"
   },
-  "closureDigest": "sha256:0a4ac4954843f7f3d614884fc1af06935f9d6e2b6d57c7b88dd0b85fa7a2f0a7"
+  "closureDigest": "sha256:33289cc2095d3d6ad09cb7dea06bec71296830163a739b1c5285be582248c7aa"
 };
 
 export const TCB_CLOSURE_LOCK_RECEIPT = createTcbClosureLockReceiptV2(
   TCB_CLOSURE_LOCK,
-  "2026-08-22T07:12:58.468Z"
+  "2026-08-22T11:24:03.896Z"
 );
 // </sec-tcb-closure-lock-generated-v2>
 

@@ -118,11 +118,126 @@ describe('compiler dependency installation', () => {
         bunVersion: process.versions.bun,
         declaredBunVersion: process.versions.bun,
         dependencyManifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
-        formatVersion: 'compiler-deps-binding-v4'
+        formatVersion: 'compiler-deps-binding-v5'
       });
       expect(binding).not.toHaveProperty('packageManifestSha256');
       expect(binding).not.toHaveProperty('packageSourceSha256');
     }, 'engineering-compiler-dev-deps-');
+  });
+
+  test('reuses a compatible external physical generation without giving its bridge mutation ownership', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      const ownerRoot = path.join(tempRoot, 'owner');
+      const consumerRoot = path.join(tempRoot, 'consumer');
+      await Promise.all([fs.mkdir(ownerRoot), fs.mkdir(consumerRoot)]);
+      await Promise.all([
+        writeCompilerDependencyRoot(ownerRoot),
+        writeCompilerDependencyRoot(consumerRoot)
+      ]);
+      await Promise.all([
+        fs.writeFile(
+          path.join(ownerRoot, 'bunfig.toml'),
+          '[install]\r\nauto = "disable"\r\n\r\n[test]\r\npreload = ["owner.ts"]\r\n'
+        ),
+        fs.writeFile(
+          path.join(consumerRoot, 'bunfig.toml'),
+          '[install]\nauto = "disable"\n\n[test]\npreload = ["consumer.ts"]\n'
+        )
+      ]);
+      let installCalls = 0;
+      await ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          installCalls += 1;
+          await installCompilerDependencyFixture(command.cwd, 'shared-owner');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, ownerRoot);
+      const bridgePath = path.join(consumerRoot, 'node_modules');
+      const generationPath = path.join(ownerRoot, 'node_modules');
+      await fs.symlink(generationPath, bridgePath, process.platform === 'win32' ? 'junction' : 'dir');
+
+      const reused = await ensureCompilerDepsReady({
+        commandRunner: async () => {
+          throw new Error('Compatible dependency bridge must not install.');
+        }
+      }, consumerRoot);
+      expect(reused).toMatchObject({
+        nodeModulesPath: bridgePath,
+        root: consumerRoot,
+        source: 'existing'
+      });
+      expect(installCalls).toBe(1);
+      expect(await fs.realpath(bridgePath)).toBe(await fs.realpath(generationPath));
+
+      const parkedBridgePath = path.join(consumerRoot, 'node_modules.validated');
+      const replacementGenerationPath = path.join(tempRoot, 'replacement', 'node_modules');
+      await fs.mkdir(replacementGenerationPath, { recursive: true });
+      await expect(ensureCompilerDepsReady({
+        testCompilerBridgeValidationHook: async (stage) => {
+          if (stage !== 'binding-observed') return;
+          await fs.rename(bridgePath, parkedBridgePath);
+          await fs.symlink(
+            replacementGenerationPath,
+            bridgePath,
+            process.platform === 'win32' ? 'junction' : 'dir'
+          );
+        }
+      }, consumerRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect(await fs.realpath(parkedBridgePath)).toBe(await fs.realpath(generationPath));
+      expect(await fs.realpath(bridgePath)).toBe(await fs.realpath(replacementGenerationPath));
+      await fs.unlink(bridgePath);
+      await fs.rename(parkedBridgePath, bridgePath);
+
+      const originalConsumerLock = await fs.readFile(path.join(consumerRoot, 'bun.lock'));
+      await expect(ensureCompilerDepsReady({
+        testCompilerBridgeValidationHook: async (stage) => {
+          if (stage !== 'final-binding-observed') return;
+          await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'consumer-drift-during-admission\n');
+        }
+      }, consumerRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      await fs.writeFile(path.join(consumerRoot, 'bun.lock'), originalConsumerLock);
+
+      await fs.writeFile(path.join(consumerRoot, 'bun.lock'), 'incompatible-lock\n');
+      await expect(ensureCompilerDepsReady({
+        commandRunner: async () => {
+          throw new Error('Incompatible dependency bridge must not install or replace its target.');
+        }
+      }, consumerRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect(await fs.realpath(bridgePath)).toBe(await fs.realpath(generationPath));
+      expect(await fs.readFile(
+        path.join(generationPath, 'typescript', 'lib', 'typescript.js'),
+        'utf8'
+      )).toBe('shared-owner:typescript\n');
+
+      const noConfigOwnerRoot = path.join(tempRoot, 'no-config-owner');
+      const testOnlyConsumerRoot = path.join(tempRoot, 'test-only-consumer');
+      await Promise.all([fs.mkdir(noConfigOwnerRoot), fs.mkdir(testOnlyConsumerRoot)]);
+      await Promise.all([
+        writeCompilerDependencyRoot(noConfigOwnerRoot),
+        writeCompilerDependencyRoot(testOnlyConsumerRoot),
+        fs.writeFile(
+          path.join(testOnlyConsumerRoot, 'bunfig.toml'),
+          '[test]\npreload = ["consumer.ts"]\n'
+        )
+      ]);
+      await ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'no-install-config');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, noConfigOwnerRoot);
+      const testOnlyBridgePath = path.join(testOnlyConsumerRoot, 'node_modules');
+      await fs.symlink(
+        path.join(noConfigOwnerRoot, 'node_modules'),
+        testOnlyBridgePath,
+        process.platform === 'win32' ? 'junction' : 'dir'
+      );
+      expect((await ensureCompilerDepsReady({
+        commandRunner: async () => {
+          throw new Error('Absent and non-install-only config must share one identity.');
+        }
+      }, testOnlyConsumerRoot)).source).toBe('existing');
+    }, 'engineering-compiler-dev-deps-bridge-');
   });
 
   test('repairs critical direct and transitive entry corruption before developer commands load dependencies', async () => {
