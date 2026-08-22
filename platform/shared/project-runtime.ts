@@ -2342,6 +2342,7 @@ async function stageCompilerDependencyGeneration(
     }
     await runBunInstall(stagingRoot, options, ['install', '--frozen-lockfile', '--ignore-scripts'], cacheDir);
     const nodeModulesPath = path.join(stagingRoot, 'node_modules');
+    await normalizeCompilerDependencyGenerationSymlinks(nodeModulesPath, options.beforeCommit);
     const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
     const runtimeMaterialization = await compilerRuntimeMaterializationBinding(root, nodeModulesPath, identity);
     const binding = {
@@ -2382,6 +2383,96 @@ async function stageCompilerDependencyGeneration(
       } : error instanceof Error ? error.message : String(error)
       }
     );
+  }
+}
+
+type CompilerDependencySymlinkIdentity = Readonly<{
+  dev: string;
+  ino: string;
+  mode: string;
+  target: string;
+}>;
+
+async function compilerDependencySymlinkIdentity(
+  linkPath: string
+): Promise<CompilerDependencySymlinkIdentity> {
+  const [metadata, target] = await Promise.all([
+    fs.lstat(linkPath, { bigint: true }),
+    fs.readlink(linkPath)
+  ]);
+  if (!metadata.isSymbolicLink()) {
+    throw new Error(`Compiler dependency link changed type before publish: ${linkPath}`);
+  }
+  return Object.freeze({
+    dev: String(metadata.dev),
+    ino: String(metadata.ino),
+    mode: String(metadata.mode),
+    target
+  });
+}
+
+async function normalizeCompilerDependencyGenerationSymlinks(
+  nodeModulesPath: string,
+  beforeCommit?: CommitFence
+): Promise<void> {
+  const root = path.resolve(nodeModulesPath);
+  const rootIdentity = await compilerDependencyDirectoryIdentity(root);
+  if (rootIdentity === null) {
+    throw new Error('Compiler dependency generation has no ordinary node_modules root.');
+  }
+  const walk = async (directory: string): Promise<void> => {
+    const entries = (await fs.readdir(directory, { withFileTypes: true }))
+      .sort((left, right) => compareCodeUnits(left.name, right.name));
+    for (const entry of entries) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolute);
+        continue;
+      }
+      if (!entry.isSymbolicLink()) continue;
+      const observed = await compilerDependencySymlinkIdentity(absolute);
+      const resolvedTarget = path.resolve(directory, observed.target);
+      if (!isPathInside(root, resolvedTarget) || resolvedTarget === root ||
+          resolvedTarget === absolute || isPathInside(resolvedTarget, absolute)) {
+        throw new Error(`Compiler dependency generation link escapes or targets its own ancestry: ${absolute}`);
+      }
+      const targetMetadata = await fs.stat(resolvedTarget).catch(() => null);
+      if (targetMetadata === null) {
+        throw new Error(`Compiler dependency generation link target is unavailable: ${absolute}`);
+      }
+      if (!path.isAbsolute(observed.target)) continue;
+      const relativeTarget = path.relative(directory, resolvedTarget);
+      if (relativeTarget === '' || path.isAbsolute(relativeTarget)) {
+        throw new Error(`Compiler dependency generation link cannot be made relative: ${absolute}`);
+      }
+      const temporary = path.join(
+        directory,
+        `.${entry.name}.sec-relative-link-${crypto.randomUUID()}`
+      );
+      await beforeCommit?.();
+      await fs.symlink(relativeTarget, temporary, targetMetadata.isDirectory() ? 'dir' : 'file');
+      try {
+        const current = await compilerDependencySymlinkIdentity(absolute);
+        if (!canonicalEquals(current, observed)) {
+          throw new Error(`Compiler dependency generation link changed before normalization: ${absolute}`);
+        }
+        await beforeCommit?.();
+        if (process.platform === 'win32') await fs.unlink(absolute);
+        await fs.rename(temporary, absolute);
+        if ((await fs.readlink(absolute)) !== relativeTarget) {
+          throw new Error(`Compiler dependency generation link normalization readback failed: ${absolute}`);
+        }
+      } finally {
+        await fs.rm(temporary, { force: true }).catch(() => undefined);
+      }
+    }
+  };
+  await walk(root);
+  if (!sameCompilerDependencyDirectoryIdentity(
+    await compilerDependencyDirectoryIdentity(root),
+    rootIdentity
+  )) {
+    throw new Error('Compiler dependency generation root changed during link normalization.');
   }
 }
 

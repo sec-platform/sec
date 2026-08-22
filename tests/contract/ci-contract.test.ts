@@ -398,16 +398,16 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(step(workflow, 'assemble-verification-action-terminal',
     'Assemble canonical five-state terminal artifact').name)
     .toBe('Assemble canonical five-state terminal artifact');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':sandbox-v5');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':sandbox-v6');
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).not.toContain(':sandbox-v4');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1).toMatchObject({
-    policyRevision: 'sandbox-v5',
+    policyRevision: 'sandbox-v6',
     rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate',
     toolClosure: 'private-explicit-runtime-binaries-and-dynamic-libraries-v2',
     network: 'none',
     inheritedFileDescriptors: 'stdio-plus-authenticated-archive-fd-until-private-copy',
     inputMount: 'retained-ordinary-fd-private-tmpfs-authenticated-copy-v2',
-    resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit'
+    resourceController: 'outer-cgroup-cpu-memory-pids-times-wall-plus-non-memory-prlimit'
   });
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.archiveValidation).toMatchObject({
     retainedOrdinaryFileDescriptor: true,
@@ -417,7 +417,8 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits).toMatchObject({
     aggregateCpuSeconds: 7200,
     perProcessCpuSeconds: 7200,
-    wallSeconds: 3600
+    wallSeconds: 3600,
+    virtualAddressSpace: 'unlimited'
   });
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities).toEqual([
     'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'

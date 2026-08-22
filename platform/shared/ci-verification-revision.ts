@@ -41,7 +41,7 @@ export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2 = Object.freeze([
   'package.json'
 ] as const);
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
-  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:gh-2.97.0:gh-archive-sha256-a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112:image-sha256-418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f:container-init-v1:bun-1.3.14:action-producer-v2:sandbox-v5' as const;
+  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:gh-2.97.0:gh-archive-sha256-a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112:image-sha256-418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f:container-init-v1:bun-1.3.14:action-producer-v2:sandbox-v6' as const;
 
 /**
  * The hosted SUT isolation policy is part of Action identity through
@@ -50,7 +50,7 @@ export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
  */
 export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 = Object.freeze({
   schema: 'sec-ci-verification-hosted-sandbox-policy-v1' as const,
-  policyRevision: 'sandbox-v5' as const,
+  policyRevision: 'sandbox-v6' as const,
   runnerImage: 'ubuntu-24.04' as const,
   substrate: 'util-linux-unshare' as const,
   namespaces: Object.freeze(['mount', 'pid', 'network'] as const),
@@ -146,13 +146,17 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 = Object.freeze({
     aggregateCpuSeconds: 7_200 as const,
     perProcessCpuSeconds: 7_200 as const,
     wallSeconds: 3_600 as const,
-    addressSpaceBytes: 4_294_967_296 as const,
+    // Physical memory is owned by the outer SUT cgroup. Bun/JSC legitimately
+    // reserves more virtual address space than its resident memory, so a
+    // duplicate RLIMIT_AS rejects healthy executions without adding a
+    // physical-memory boundary.
+    virtualAddressSpace: 'unlimited' as const,
     fileSizeBytes: 268_435_456 as const,
     openFiles: 1_024 as const,
     processes: 256 as const,
     workspaceBytes: 4_294_967_296 as const
   }),
-  resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit' as const,
+  resourceController: 'outer-cgroup-cpu-memory-pids-times-wall-plus-non-memory-prlimit' as const,
   capabilitySelfTest: 'dedicated-pre-start-sut-role' as const,
   teardown: 'unshare-kill-child-process-close-readback' as const
 });

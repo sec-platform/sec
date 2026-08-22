@@ -139,7 +139,7 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/contract/dev-runner-contract.test.ts',
     reason: 'finite-program-proof-and-process-contract',
-    resourceClass: 'independent-process'
+    resourceClass: 'host-profile'
   },
   {
     file: 'tests/contract/repository-audit.test.ts',
@@ -239,6 +239,16 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/unit/manifest-cache-activation.test.ts',
     reason: 'module-global-manifest-cache',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/local-main-closeout.test.ts',
+    reason: 'module-global-git-repositories-and-child-process-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/main-health-provider-observation.test.ts',
+    reason: 'production-child-process-and-runtime-state-lifecycle',
     resourceClass: 'independent-process'
   },
   {

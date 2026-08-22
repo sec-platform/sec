@@ -68,6 +68,14 @@ import {
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
 } from '../../platform/shared/runtime-dependency-spec.ts';
 
+const externalNodeRuntime = await resolveExternalNodeRuntimeAuthority().catch((error: unknown) => {
+  if (error && typeof error === 'object' && 'code' in error && error.code === 'RUNTIME-DEPS-005') {
+    return null;
+  }
+  throw error;
+});
+const externalNodeRuntimeTest = test.skipIf(externalNodeRuntime === null);
+
 const RUNTIME_PRECOMMAND_PHASES = [
   'runtime-test-discovery',
   'runtime-dependency-validation',
@@ -294,7 +302,9 @@ test('isolated runtime assigns staged Node to build and acceptance while Bun rem
   expect(path.relative(stagingRoot, fixedConfigPath).startsWith('..')).toBe(false);
 });
 
-test('isolated runtime executes direct canonical modules under staged external Node with an empty PATH', async () => {
+externalNodeRuntimeTest(
+  'isolated runtime executes direct canonical modules under staged external Node with an empty PATH',
+  async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-runtime-direct-modules-'));
   try {
     const projectRoot = path.join(root, 'project');
@@ -323,7 +333,7 @@ test('isolated runtime executes direct canonical modules under staged external N
       mkdir(path.dirname(fixedConfigPath), { recursive: true }),
       mkdir(path.dirname(stagedNode), { recursive: true })
     ]);
-    const externalNode = await resolveExternalNodeRuntimeAuthority();
+    const externalNode = externalNodeRuntime!;
     await Promise.all([
       writeFile(nextCli, recorder, 'utf8'),
       writeFile(acceptanceCli, recorder, 'utf8'),
@@ -1076,12 +1086,12 @@ test('runtime acceptance shell environment rejects ambiguous or non-physical Win
   )).toThrow('SystemRoot');
 });
 
-test('runtime acceptance resolves only the staged external Node through a real shell', async () => {
+externalNodeRuntimeTest('runtime acceptance resolves only the staged external Node through a real shell', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-runtime-shell-authority-'));
   try {
     const stagingRoot = path.join(root, 'staging');
     const stagedNode = semanticMutationIsolatedNodeExecutablePath(stagingRoot);
-    const externalNode = await resolveExternalNodeRuntimeAuthority();
+    const externalNode = externalNodeRuntime!;
     await mkdir(path.dirname(stagedNode), { recursive: true });
     await copyFile(externalNode.executablePath, stagedNode);
     const environment = buildIsolatedRuntimeAcceptanceEnvironment(stagingRoot);

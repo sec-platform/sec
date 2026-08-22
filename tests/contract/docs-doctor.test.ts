@@ -531,7 +531,12 @@ test('production docs-doctor ignores ambient index redirection and captures the 
       env: environment,
       timeout: 60_000
     });
-    expect(cli.status).toBe(0);
+    if (cli.status !== 0) {
+      const diagnostic = `${cli.stderr ?? ''}\n${cli.stdout ?? ''}`;
+      throw new Error(
+        `production docs-doctor failed with status ${String(cli.status)}:\n${diagnostic.slice(-8 * 1024)}`
+      );
+    }
     expect(`${cli.stderr}\n${cli.stdout}`).not.toContain(
       'Active pointer manifest digest does not match candidate manifest bytes.'
     );

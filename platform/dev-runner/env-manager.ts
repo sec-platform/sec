@@ -844,6 +844,14 @@ export function prepareTestWorkspaceRunV1(
   return token;
 }
 
+export function preparedTestWorkspaceRunRootV1(token: PreparedTestWorkspaceRunV1): string {
+  const state = preparedTestWorkspaceRuns.get(token);
+  if (state === undefined || state.settled) {
+    throw new Error('Test workspace run locator capability is invalid or already settled');
+  }
+  return state.mode === 'darwin-ordinary' ? state.targetPath : state.target.path;
+}
+
 export function settlePreparedTestWorkspaceRunV1(token: PreparedTestWorkspaceRunV1): void {
   const state = preparedTestWorkspaceRuns.get(token);
   if (state === undefined || state.settled) {

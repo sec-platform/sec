@@ -429,9 +429,12 @@ Linux capability只在provider/sandbox revision或对应owner发生变化、缓�
 不会重新校准Linux substrate。Playwright也只有browser closure命中且exact revision cache缺失时才下载，缓存命中
 直接复用；不存在“每次运行先等待安装再决定skip”的路径。
 
-`sandbox-v5`保留并延续v4已冻结的CPU聚合边界：outer SUT cgroup固定2 CPU，unit wall bound固定3600秒且
+`sandbox-v6`保留并延续v5已冻结的CPU聚合边界：outer SUT cgroup固定2 CPU，unit wall bound固定3600秒且
 `--kill-child=KILL`关闭全部descendant，所以整棵进程树最多消费7200 CPU秒；同值`RLIMIT_CPU`只是冗余的
-per-process ceiling，不能被描述为聚合controller。trusted-bootstrap candidate job也必须由exact base checkout中的
+per-process ceiling，不能被描述为聚合controller。物理内存只由outer SUT cgroup的`memory.max=4 GiB`拥有；
+Bun/JSC会合法预留大于RSS的虚拟地址空间，故`RLIMIT_AS`必须保持`unlimited`，不能把同一个4 GiB数值重复解释为
+虚拟地址上限。capability self-test必须同时读回cgroup物理内存边界与unlimited address-space soft limit，command-plan
+validator必须拒绝重新引入`--as=`；`RLIMIT_FSIZE/NOFILE/NPROC`仍保留。trusted-bootstrap candidate job也必须由exact base checkout中的
 固定CLI创建authenticated archive，并调用同一namespace/chroot command plan；candidate checkout只作数据，不能在
 runner root执行install、script或test。base lock/package驱动的`--ignore-scripts`依赖物化可复用runner私有content cache，
 cache不会挂入candidate chroot，候选也不能写入或读取它。冷下载只允许一个确定性的收敛例外：第一次安装必须先
@@ -440,9 +443,17 @@ cache不会挂入candidate chroot，候选也不能写入或读取它。冷下�
 也立即terminal。`attempts=1|2`与恢复分类必须进入trusted-bootstrap SUT物理operation digest，不能靠日志或人工解释
 把失败改写成PASS，也禁止为该恢复清空整个content cache并重复下载全部依赖。
 
+依赖物化只有`ensureCompilerDepsReady` generation publisher一个owner；禁止先执行一次root `bun install`再由publisher
+安装并替换同一`node_modules`。focused control tests必须通过`test:fast`的selected-test closure执行，由runner设置
+`SEC_SKIP_RUNTIME_DEPS_SETUP=1`并显式scrub browser状态；没有browser closure时不得观察external Node、安装Playwright、
+访问browser cache或联网。sandbox transport必须分别保留stdout/stderr tail，bootstrap summary只从stdout解析，失败步骤的
+exit、digest与bounded tail必须进入逐步evidence，禁止以`observation:null`丢失第一次失败后再靠重跑诊断。
+
 Bun可把exact-base依赖中的嵌套`file:`包实现为指向同一`node_modules`内部的绝对symlink；该host路径不能进入
-可迁移archive，也不能通过放宽absolute-link规则进入sandbox。dependency source始终是只读subject，禁止为了transport
-改写symlink、创建同目录temporary name或用path rename替换安装结果。trusted bootstrap在打包前以retained no-follow
+可迁移archive，也不能通过放宽absolute-link规则进入sandbox。publisher只能在尚未发布的private staging generation内，
+用no-follow census证明target仍严格位于同一generation、存在且不形成self/ancestor link后，把该absolute link原子替换为
+等价relative link；随后必须做完整identity/readback并以单次rename发布。active generation一经发布即成为只读subject，
+archive writer不得再改写它。trusted bootstrap在打包前以retained no-follow
 root/parent/leaf读取完整依赖树，流式冻结每个ordinary file的physical identity、size与canonical content digest；每个
 link的raw target必须由retained link fd上的`readlinkat(fd, "")`读取，不能从parent/name二次解析。archive writer只从这些
 retained directory/link fd读取，并且只在tar header中把lexically仍严格
@@ -624,9 +635,15 @@ Known unnecessary、fresh proof、same failure 与 authenticated in-flight 可�
 dynamic frontier 无法证明无影响时只能扩大或阻塞，不能承诺超出当前 model 能力的“全知最小集”。
 
 `affected` selector只编译delta、owner和test-impact closure；它不得为了判断skip而启动测试、浏览器、
-Linux provider、安装锁或完整Gate。普通fast test可以合并为bounded shard，但包含复制仓库、真实子进程、
-TCB/物理恢复或其他长时状态机的文件必须在canonical process-isolation registry中成为单文件
-invocation，使failure receipt的`selectedTestFiles`精确等于失败文件，而不是整个普通shard。failure
+Linux provider、安装锁或完整Gate。普通fast test可以合并为bounded shard并让多个shard进程并行，但runner
+不得用`--concurrent`把测试未声明的顺序语义改写成进程内并发；只有测试自身显式声明的并发才消费bounded
+inner budget。普通bounded只读子进程不因“存在child process”机械拆成单文件；真正共享process-global、
+repository worktree、host profile/runtime、TCB物理恢复或长时状态机的文件才必须在canonical
+process-isolation registry中成为typed单文件invocation。每个shard/resource invocation的`SEC_STATE_HOME`与
+`SEC_CACHE_HOME`必须从同一run-owned test workspace派生为不相交子树并随父级cleanup退役；不同invocation
+不得因共同继承`HOME`而竞争同一runtime目录，只有显式authenticated shared resource可以例外共享。
+failure receipt对普通shard保留bounded stdout/stderr
+诊断，对isolated invocation的`selectedTestFiles`精确等于失败文件。failure
 receipt只拥有diagnostic定位，`replayAuthority=none-diagnostic-only`；修复后必须重新编译当前delta的
 affected closure，并只把精确旧失败与修复新增影响合并。裸argv、旧receipt或Agent手选清单不能跳过
 新影响，也不能把局部authoring PASS升级为formal Evidence。

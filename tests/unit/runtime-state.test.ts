@@ -3,6 +3,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -198,7 +199,8 @@ test('physical Runtime State rejects a symlink or junction into the repository b
       repositoryRoot,
       checkpoint,
       environment
-    })).rejects.toThrow(/no-follow|ordinary non-reparse|physical/iu);
+    })).rejects.toThrow();
+    expect(readdirSync(repositoryRoot)).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

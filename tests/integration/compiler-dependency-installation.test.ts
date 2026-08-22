@@ -146,6 +146,48 @@ describe('compiler dependency installation', () => {
     }, 'engineering-compiler-dev-deps-corruption-');
   });
 
+  test('publishes internal relative links and rejects dependency links that escape the generation', async () => {
+    if (process.platform !== 'linux') return;
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      let stagedRoot = '';
+      const installWithLink = async (
+        _command: string,
+        _args: string[],
+        command: { cwd: string },
+        escape: boolean
+      ) => {
+        installCalls += 1;
+        stagedRoot = command.cwd;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        const linkPath = path.join(command.cwd, 'node_modules', 'commander', 'typescript-entry.js');
+        const targetPath = escape
+          ? path.join(tempRoot, 'outside-generation.js')
+          : path.join(command.cwd, 'node_modules', 'typescript', 'lib', 'typescript.js');
+        if (escape) await fs.writeFile(targetPath, 'outside\n');
+        await fs.symlink(targetPath, linkPath, 'file');
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+
+      await ensureCompilerDepsReady({
+        commandRunner: (command, args, options) => installWithLink(command, args, options, false)
+      }, tempRoot);
+      const publishedLink = path.join(tempRoot, 'node_modules', 'commander', 'typescript-entry.js');
+      const publishedTarget = await fs.readlink(publishedLink);
+      expect(path.isAbsolute(publishedTarget)).toBe(false);
+      expect(await fs.readFile(publishedLink, 'utf8')).toBe('generation-1:typescript\n');
+      await expect(fs.stat(stagedRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      await expect(ensureCompilerDepsReady({
+        commandRunner: (command, args, options) => installWithLink(command, args, options, true)
+      }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-002' });
+      expect(installCalls).toBe(2);
+      expect(await fs.readFile(publishedLink, 'utf8')).toBe('generation-1:typescript\n');
+    }, 'engineering-compiler-dev-deps-links-');
+  });
+
   test('preserves the active generation when materialization or atomic publish fails', async () => {
     await withTempWorkspace(async (tempRoot) => {
       await writeCompilerDependencyRoot(tempRoot);

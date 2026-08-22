@@ -33,6 +33,7 @@ import {
   createExclusiveNoFollowDirectoryV1,
   createNoFollowDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
+  hardenRetainedNoFollowDirectoryModeV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
   inspectNoFollowDirectoryChildV1,
@@ -122,6 +123,34 @@ test('same-identity readback rejects replacement rather than accepting same lexi
       () => assertSameNoFollowDirectoryIdentityV1(original, 'replace target'),
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Linux retained permission hardening produces one mode-bound postimage and rejects a replaced preimage', () => {
+  if (process.platform !== 'linux') return;
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    const displaced = path.join(root, 'displaced');
+    mkdirSync(target, { mode: 0o755 });
+    chmodSync(target, 0o755);
+    const before = inspectNoFollowDirectoryChainV1(target, 'permission target').target;
+    const after = hardenRetainedNoFollowDirectoryModeV1(before, 0o700, 'permission target');
+    expect(after.device).toBe(before.device);
+    expect(after.inode).toBe(before.inode);
+    expect(after.objectId).not.toBe(before.objectId);
+    expect(lstatSync(target).mode & 0o777).toBe(0o700);
+    expect(assertSameNoFollowDirectoryIdentityV1(after, 'permission target').target).toEqual(after);
+
+    renameSync(target, displaced);
+    mkdirSync(target, { mode: 0o755 });
+    expectPhysicalCode(
+      () => hardenRetainedNoFollowDirectoryModeV1(after, 0o700, 'replaced permission target'),
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    );
+    expect(lstatSync(target).mode & 0o777).toBe(0o755);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

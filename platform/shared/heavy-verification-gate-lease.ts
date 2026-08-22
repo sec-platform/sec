@@ -307,6 +307,12 @@ export async function acquireHeavyVerificationGateLease(
     }
     if (!current) {
       const lockStat = await stat(lockPath).catch(() => null);
+      // The observed owner may release between this contender's EEXIST and
+      // the owner readback.  An absent lock is a completed handoff, not a
+      // corrupt publication; return to the bounded CAS loop and acquire the
+      // now-free name.  A still-present ownerless directory remains
+      // fail-closed below.
+      if (!lockStat) continue;
       if (lockStat && Date.now() - lockStat.mtimeMs < INITIALIZATION_GRACE_MS) {
         throw new Error('Heavy verification gate owner publication is still initializing.');
       }

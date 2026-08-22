@@ -54,6 +54,7 @@ import {
   deriveTestWorkspaceRunNamespaceV1,
   parseTestWorkspaceRunChildAssignmentV1,
   pathEnvKey,
+  preparedTestWorkspaceRunRootV1,
   prepareTestWorkspaceRunV1,
   resolveTestWorkspaceNamespace,
   resolveTestWorkspaceRunChild,
@@ -154,8 +155,12 @@ function selectMatchingTestFiles(availableFiles: string[], selectors: string[], 
   return selected;
 }
 
-function fastTestArgs(files: string[], options: string[], concurrent: boolean): string[] {
-  return ['test', ...(concurrent ? ['--concurrent'] : []), ...files, ...withDefaultTestTimeout(options)];
+function fastTestArgs(files: string[], options: string[]): string[] {
+  // Process shards are the concurrency boundary. Do not promote ordinary Bun
+  // tests to concurrent tests: that changes their ordering/state contract and
+  // makes otherwise sequential files interact nondeterministically. Tests that
+  // explicitly declare test.concurrent still consume the bounded inner budget.
+  return ['test', ...files, ...withDefaultTestTimeout(options)];
 }
 
 export type FastTestInvocationQueue = 'concurrent-shard' | FastTestProcessResourceClass;
@@ -205,7 +210,7 @@ function fastTestInvocations(
       plan.resourceQueues[resourceClass].map((file, index) => ({
         id: fastTestInvocationId(resourceClass, index),
         queue: resourceClass,
-        args: fastTestArgs([file], options, false)
+        args: fastTestArgs([file], options)
       }))
     ])
   ) as Record<FastTestProcessResourceClass, FastTestInvocation[]>;
@@ -214,7 +219,7 @@ function fastTestInvocations(
     concurrentShards: plan.concurrentShards.map((shard, index) => ({
       id: fastTestInvocationId('concurrent-shard', index),
       queue: 'concurrent-shard',
-      args: fastTestArgs(shard, options, true)
+      args: fastTestArgs(shard, options)
     })),
     concurrentProcessLimit: managedConcurrency.outerProcessConcurrency,
     resourceClassOrder: plan.resourceClassOrder,
@@ -490,7 +495,7 @@ async function prepareFastTestWorkspaceRun(): Promise<Readonly<{
 }
 
 export const FAST_TEST_FAILURE_RECEIPT_PREFIX = 'SEC_FAST_TEST_FAILURE_RECEIPT ';
-const FAST_TEST_FAILURE_RECEIPT_TAIL_MAX_BYTES = 2 * 1024;
+const FAST_TEST_FAILURE_RECEIPT_TAIL_MAX_BYTES = 8 * 1024;
 const FAST_TEST_FAILURE_RECEIPT_TEXT_MAX_BYTES = 1024;
 const FAST_TEST_FAILURE_RECEIPT_ARG_MAX_BYTES = 512;
 const FAST_TEST_FAILURE_RECEIPT_MAX_ARGS = 64;
@@ -634,12 +639,24 @@ export async function scheduleBoundedFastTestInvocations<TResult>(
 async function runBoundedFastTestInvocations(
   invocations: readonly FastTestInvocation[],
   env: NodeJS.ProcessEnv,
-  concurrency: number
+  concurrency: number,
+  runRoot: string
 ): Promise<number> {
   const failedBatch = await scheduleBoundedFastTestInvocations(
     invocations,
     concurrency,
-    (invocation) => runDevCommand('bun', invocation.args, env, { observe: true }),
+    (invocation) => {
+      const invocationRuntimeRoot = path.join(
+        runRoot,
+        'invocation-runtime',
+        invocation.id.replace(':', '-')
+      );
+      return runDevCommand('bun', invocation.args, {
+        ...env,
+        SEC_STATE_HOME: path.join(invocationRuntimeRoot, 'state'),
+        SEC_CACHE_HOME: path.join(invocationRuntimeRoot, 'cache')
+      }, { observe: true });
+    },
     (observation) => devCommandObservationExitCode(observation) !== 0
   );
   if (!failedBatch) return 0;
@@ -952,6 +969,7 @@ export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   const workspace = await prepareFastTestWorkspaceRun();
   const workspaceEnv = workspace.env;
+  const workspaceRoot = preparedTestWorkspaceRunRootV1(workspace.cleanup);
   let hasPrimaryFailure = false;
   let primaryFailure: unknown;
   try {
@@ -962,14 +980,16 @@ export async function runFastTests(args: string[] = []): Promise<number> {
         exitCode = await runBoundedFastTestInvocations(
           plan.concurrentShards,
           env,
-          plan.concurrentProcessLimit
+          plan.concurrentProcessLimit,
+          workspaceRoot
         );
         if (exitCode !== 0) return;
         for (const resourceClass of plan.resourceClassOrder) {
           exitCode = await runBoundedFastTestInvocations(
             plan.resourceQueues[resourceClass],
             env,
-            plan.resourceLimits[resourceClass]
+            plan.resourceLimits[resourceClass],
+            workspaceRoot
           );
           if (exitCode !== 0) return;
         }

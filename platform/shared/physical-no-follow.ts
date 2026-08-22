@@ -2,6 +2,7 @@ import { dlopen, FFIType, ptr, read } from 'bun:ffi';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
+  fchmodSync,
   constants as fsConstants,
   fstatSync,
   fsyncSync,
@@ -360,6 +361,60 @@ function linuxOpenRetainedAbsoluteDirectory(absolutePath: string, label: string)
     if (directoryFd !== filesystemRootFd) closeSync(directoryFd);
     closeSync(filesystemRootFd);
     throw error;
+  }
+}
+
+/**
+ * Apply an authorized Linux permission transition to the exact retained
+ * directory object. The preimage includes mode, so the postimage deliberately
+ * receives a new objectId while device/inode continuity and the lexical
+ * no-follow path are both revalidated.
+ */
+export function hardenRetainedNoFollowDirectoryModeV1(
+  expected: PhysicalDirectoryIdentityV1,
+  mode: number,
+  label = 'directory permission hardening'
+): PhysicalDirectoryIdentityV1 {
+  if (process.platform !== 'linux') {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} is only available through the retained Linux directory backend.`
+    );
+  }
+  if (!Number.isSafeInteger(mode) || mode < 0 || mode > 0o777) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} mode is invalid.`);
+  }
+
+  const retained = linuxOpenRetainedAbsoluteDirectory(expected.path, label);
+  try {
+    const before = linuxIdentity(retained.directoryFd, expected.path);
+    if (!sameIdentity(expected, before)) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} preimage identity changed.`
+      );
+    }
+    fchmodSync(retained.directoryFd, mode);
+    const after = linuxIdentity(retained.directoryFd, expected.path);
+    const metadata = fstatSync(retained.directoryFd, { bigint: true });
+    if (before.device !== after.device || before.inode !== after.inode ||
+      (Number(metadata.mode) & 0o777) !== mode) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} retained postimage identity or mode changed unexpectedly.`
+      );
+    }
+    const lexical = inspectNoFollowDirectoryChainV1(expected.path, `${label} lexical readback`).target;
+    if (!sameIdentity(after, lexical)) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} lexical path no longer names the retained postimage.`
+      );
+    }
+    return lexical;
+  } finally {
+    if (retained.directoryFd !== retained.filesystemRootFd) closeSync(retained.directoryFd);
+    closeSync(retained.filesystemRootFd);
   }
 }
 

@@ -173,6 +173,8 @@ function sandboxObservation(
     stderrDigest,
     stdoutBytesObserved: Buffer.byteLength(failureTail),
     stderrBytesObserved: 0,
+    stdoutTail: failureTail,
+    stderrTail: '',
     outputTruncated: options.truncated ?? false,
     commandStarted: options.started ?? true
   });
@@ -1811,7 +1813,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   for (const forbidden of [
     'GITHUB_OUTPUT', 'GH_TOKEN', '/host/output', '/var/run/docker.sock', '/run/docker.sock',
     '/home/runner/work', 'RUNNER_TEMP', 'verification-action-raw-result.json',
-    'mount --bind /usr', '/usr/bin/sudo', '/usr/bin/systemd-run'
+    'mount --bind /usr', '/usr/bin/sudo', '/usr/bin/systemd-run', '--as='
   ]) expect(encoded).not.toContain(forbidden);
   expect(plan.candidateEnvironmentNames).toEqual(
     executionAuthorization.physicalCommand.fixedSandboxEnvironment.map((entry) => entry.name)
@@ -1834,7 +1836,16 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(bootstrapPlan.executionAuthorizationDigest).toBeNull();
   expect(bootstrapPlan.physicalCommandProjectionDigest).toBeNull();
   expect(bootstrapPlan.argv.at(-1)).toBe(CodexDevelopmentTrustedBootstrapSutHarnessV1);
-  expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
+  expect(CodexDevelopmentTrustedBootstrapSutHarnessV1)
+    .toContain('["bun","run","test:fast","--timeout","180000"');
+  expect(CodexDevelopmentTrustedBootstrapSutHarnessV1)
+    .not.toContain('["bun","test","--timeout","180000"');
+  expect(CodexDevelopmentTrustedBootstrapSutHarnessV1).toContain('const TAIL = 8192;');
+  const bootstrapCommand = JSON.stringify(bootstrapPlan.argv);
+  expect(bootstrapCommand).not.toContain('GITHUB_OUTPUT');
+  expect(bootstrapCommand).not.toContain('chown -R 65532:65532 \\"$root/workspace\\"');
+  expect(bootstrapCommand.indexOf('git -C /workspace reset --hard --quiet refs/sec/head'))
+    .toBeLessThan(bootstrapCommand.indexOf('chown -R 65532:65532 /workspace'));
 });
 
 test('Linux retained archive descriptor defeats pathname ABA before private sandbox copy', () => {

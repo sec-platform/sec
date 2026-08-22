@@ -7,6 +7,10 @@ import {
   type MainHealthLedgerV1
 } from '../../platform/shared/main-health-contract.ts';
 import {
+  compileMainHealthRepairDecisionV1,
+  type MainHealthRepairDecisionV1
+} from '../../platform/shared/main-health-repair-contract.ts';
+import {
   inspectExactNoFollowDirectoryPresenceV1,
   PhysicalNoFollowError,
   readNoFollowOrdinaryFileV1
@@ -24,10 +28,14 @@ import {
   TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS_V1
 } from './main-health-observation.ts';
 import { parseTrustedRuntimeMainHealthReceiptV2 } from './trusted-runtime-container.ts';
-import type { GitHubCheckObservationV1 } from './verification-session-github.ts';
+import {
+  classifyGitHubObservationFailureV1,
+  createVerificationSessionGitHubClientV1,
+  type GitHubCheckObservationV1
+} from './verification-session-github.ts';
 
-const WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1 =
-  'sec-work-selection-main-health-providers-v1' as const;
+const MAIN_HEALTH_PROVIDER_OBSERVATION_SCHEMA_V1 =
+  'sec-main-health-provider-observation-v1' as const;
 
 type ProviderObservationV1 =
   | Readonly<{ kind: 'available'; ledger: MainHealthLedgerV1 }>
@@ -37,12 +45,17 @@ type ProviderObservationV1 =
 
 export type HostedMainHealthObservationV1 =
   | Readonly<{ kind: 'observed'; checks: readonly GitHubCheckObservationV1[] }>
-  | Readonly<{ kind: 'unavailable'; ref: SecWorkDigestV1 }>;
+  | Readonly<{ kind: 'unavailable'; ref: SecWorkDigestV1 }>
+  | Readonly<{ kind: 'invalid'; ref: SecWorkDigestV1 }>;
 
-export type WorkSelectionMainHealthProjectionV1 = Readonly<{
+export type MainHealthWorkSelectionProjectionV1 = Readonly<{
   state: SecCurrentWorkLifecycleV1['mainHealthState'];
   ref: SecWorkDigestV1;
 }>;
+
+export type CanonicalMainHealthProviderObservationV1 =
+  | Readonly<{ kind: 'available'; ledger: MainHealthLedgerV1; ref: SecWorkDigestV1 }>
+  | Readonly<{ kind: 'unresolved'; ref: SecWorkDigestV1 }>;
 
 function digestRef(value: unknown): SecWorkDigestV1 {
   return sha256(value) as SecWorkDigestV1;
@@ -50,7 +63,7 @@ function digestRef(value: unknown): SecWorkDigestV1 {
 
 function invalidRef(label: string, value: Uint8Array | string): SecWorkDigestV1 {
   return digestRef(Object.freeze({
-    schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
+    schema: MAIN_HEALTH_PROVIDER_OBSERVATION_SCHEMA_V1,
     label,
     valueDigest: rawSha256(value)
   }));
@@ -72,7 +85,7 @@ function projectLedger(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-}>): WorkSelectionMainHealthProjectionV1 {
+}>): MainHealthWorkSelectionProjectionV1 {
   const decision = resolveOrdinaryMainHealthLaneV1({
     ledger: input.ledger,
     now: input.now,
@@ -114,7 +127,7 @@ function observeTrustedLocalProvider(input: Readonly<{
     const root = path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1');
     const presence = inspectExactNoFollowDirectoryPresenceV1(
       root,
-      'WorkSelection trusted MainHealth root'
+      'MainHealth trusted local receipt root'
     );
     if (presence.state === 'absent') return Object.freeze({ kind: 'absent' });
     receiptBytes = readNoFollowOrdinaryFileV1(
@@ -194,35 +207,43 @@ function observeHostedProvider(input: Readonly<{
   expiresAt: string;
   observation: HostedMainHealthObservationV1;
 }>): ProviderObservationV1 {
-  if (input.observation.kind === 'unavailable') return input.observation;
-  const checks = input.observation.checks;
-  const context = GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY_V1.context;
-  const providerPresent = checks.some((check) => (
-    check.headSha === input.mainSha && check.name === context
-  ));
-  if (!providerPresent) return Object.freeze({ kind: 'absent' });
+  if (input.observation.kind !== 'observed') return input.observation;
+  try {
+    const checks = input.observation.checks;
+    const context = GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY_V1.context;
+    const providerPresent = checks.some((check) => (
+      check.headSha === input.mainSha && check.name === context
+    ));
+    if (!providerPresent) return Object.freeze({ kind: 'absent' });
 
-  const ledger = createMainHealthLedgerV1(createObservedMainHealthInputV1({
-    repository: input.repository,
-    mainSha: input.mainSha,
-    mainTreeSha: input.mainTreeSha,
-    trustRevision: input.mainSha,
-    observedAt: input.now,
-    expiresAt: input.expiresAt,
-    sourceRunId: `work-selection-${input.mainSha}`,
-    sourceRef: `github-check-runs:${input.repository}@${input.mainSha}`,
-    checks
-  }));
-  if (ledger.status === 'locked') {
+    const ledger = createMainHealthLedgerV1(createObservedMainHealthInputV1({
+      repository: input.repository,
+      mainSha: input.mainSha,
+      mainTreeSha: input.mainTreeSha,
+      trustRevision: input.mainSha,
+      observedAt: input.now,
+      expiresAt: input.expiresAt,
+      sourceRunId: `main-health-observation-${input.mainSha}`,
+      sourceRef: `github-check-runs:${input.repository}@${input.mainSha}`,
+      checks
+    }));
+    if (ledger.status !== 'locked') return Object.freeze({ kind: 'available', ledger });
     return Object.freeze({
       kind: 'invalid',
       ref: ledger.healthRevision as SecWorkDigestV1
     });
+  } catch (error) {
+    return Object.freeze({
+      kind: 'invalid',
+      ref: invalidRef(
+        'hosted-main-health-observation-invalid',
+        error instanceof Error ? `${error.name}:${error.message}` : String(error)
+      )
+    });
   }
-  return Object.freeze({ kind: 'available', ledger });
 }
 
-export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
+function resolveCanonicalMainHealthProvidersV1(input: Readonly<{
   repository: string;
   defaultBranch: string;
   mainSha: string;
@@ -230,12 +251,12 @@ export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
   now: string;
   local: ProviderObservationV1;
   hosted: ProviderObservationV1;
-}>): WorkSelectionMainHealthProjectionV1 {
+}>): CanonicalMainHealthProviderObservationV1 {
   if (input.local.kind === 'invalid' || input.hosted.kind === 'invalid') {
     return Object.freeze({
-      state: 'unresolved',
+      kind: 'unresolved',
       ref: digestRef(Object.freeze({
-        schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
+        schema: MAIN_HEALTH_PROVIDER_OBSERVATION_SCHEMA_V1,
         status: 'provider-invalid',
         local: input.local.kind === 'invalid' ? input.local.ref : input.local.kind,
         hosted: input.hosted.kind === 'invalid' ? input.hosted.ref : input.hosted.kind
@@ -248,9 +269,9 @@ export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
   if (localLedger !== null && hostedLedger !== null
       && localLedger.healthRevision !== hostedLedger.healthRevision) {
     return Object.freeze({
-      state: 'unresolved',
+      kind: 'unresolved',
       ref: digestRef(Object.freeze({
-        schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
+        schema: MAIN_HEALTH_PROVIDER_OBSERVATION_SCHEMA_V1,
         status: 'provider-conflict',
         localHealthRevision: localLedger.healthRevision,
         hostedHealthRevision: hostedLedger.healthRevision
@@ -260,20 +281,37 @@ export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
 
   const selected = localLedger ?? hostedLedger;
   if (selected !== null) {
-    return projectLedger({
+    const validity = resolveOrdinaryMainHealthLaneV1({
       ledger: selected,
       now: input.now,
-      repository: input.repository,
-      defaultBranch: input.defaultBranch,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha
+      expectedRepository: input.repository,
+      expectedDefaultBranch: input.defaultBranch,
+      expectedMainSha: input.mainSha,
+      expectedMainTreeSha: input.mainTreeSha,
+      expectedTrustRevision: input.mainSha
+    });
+    if (validity.observationValidity === 'invalid') {
+      return Object.freeze({
+        kind: 'unresolved',
+        ref: digestRef(Object.freeze({
+          schema: MAIN_HEALTH_PROVIDER_OBSERVATION_SCHEMA_V1,
+          status: 'selected-provider-invalid',
+          reasonCode: validity.reasonCode,
+          ledgerDigest: selected.ledgerDigest
+        }))
+      });
+    }
+    return Object.freeze({
+      kind: 'available',
+      ledger: selected,
+      ref: selected.healthRevision as SecWorkDigestV1
     });
   }
 
   return Object.freeze({
-    state: 'unresolved',
+    kind: 'unresolved',
     ref: digestRef(Object.freeze({
-      schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
+      schema: MAIN_HEALTH_PROVIDER_OBSERVATION_SCHEMA_V1,
       status: 'provider-missing-or-unavailable',
       local: input.local.kind,
       hosted: input.hosted.kind,
@@ -286,7 +324,7 @@ export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
   });
 }
 
-export function observeCanonicalWorkSelectionMainHealthV1(input: Readonly<{
+function observeCanonicalMainHealthProvidersV1(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   defaultBranch: string;
@@ -296,8 +334,8 @@ export function observeCanonicalWorkSelectionMainHealthV1(input: Readonly<{
   hostedExpiresAt: string;
   hosted: HostedMainHealthObservationV1;
   runtimeStateEnvironment?: NodeJS.ProcessEnv;
-}>): WorkSelectionMainHealthProjectionV1 {
-  return resolveWorkSelectionMainHealthProvidersV1({
+}>): CanonicalMainHealthProviderObservationV1 {
+  return resolveCanonicalMainHealthProvidersV1({
     repository: input.repository,
     defaultBranch: input.defaultBranch,
     mainSha: input.mainSha,
@@ -324,6 +362,73 @@ export function observeCanonicalWorkSelectionMainHealthV1(input: Readonly<{
   });
 }
 
+export function observeCanonicalMainHealthForWorkSelectionV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  defaultBranch: string;
+  mainSha: string;
+  mainTreeSha: string;
+  now: string;
+  hostedExpiresAt: string;
+  hosted: HostedMainHealthObservationV1;
+  runtimeStateEnvironment?: NodeJS.ProcessEnv;
+}>): MainHealthWorkSelectionProjectionV1 {
+  const observation = observeCanonicalMainHealthProvidersV1(input);
+  if (observation.kind === 'unresolved') {
+    return Object.freeze({ state: 'unresolved', ref: observation.ref });
+  }
+  return projectLedger({
+    ledger: observation.ledger,
+    now: input.now,
+    repository: input.repository,
+    defaultBranch: input.defaultBranch,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha
+  });
+}
+
+export function observeCanonicalMainHealthForRepairV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  defaultBranch: string;
+  mainSha: string;
+  mainTreeSha: string;
+  observedAt?: string;
+}>): MainHealthRepairDecisionV1 {
+  const now = input.observedAt ?? new Date().toISOString();
+  const hostedExpiresAt = new Date(new Date(now).getTime() + 300_000).toISOString();
+  const github = createVerificationSessionGitHubClientV1(input.repositoryRoot);
+  const hosted = observeHostedMainHealthChecksV1({
+    repository: input.repository,
+    mainSha: input.mainSha,
+    observeChecks: () => github.observeChecks(input.repository, input.mainSha)
+  });
+  const observation = observeCanonicalMainHealthProvidersV1({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    defaultBranch: input.defaultBranch,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now,
+    hostedExpiresAt,
+    hosted
+  });
+  return compileMainHealthRepairDecisionV1({
+    ledger: observation.kind === 'available'
+      ? observation.ledger
+      : Object.freeze({
+          schema: 'sec-main-health-provider-observation-unresolved-v1',
+          observationRef: observation.ref
+        }),
+    now,
+    expectedRepository: input.repository,
+    expectedDefaultBranch: input.defaultBranch,
+    expectedMainSha: input.mainSha,
+    expectedMainTreeSha: input.mainTreeSha,
+    expectedTrustRevision: input.mainSha
+  });
+}
+
 export function observeHostedMainHealthChecksV1(input: Readonly<{
   repository: string;
   mainSha: string;
@@ -332,14 +437,18 @@ export function observeHostedMainHealthChecksV1(input: Readonly<{
   try {
     return Object.freeze({ kind: 'observed', checks: Object.freeze([...input.observeChecks()]) });
   } catch (error) {
-    const diagnostic = error instanceof Error
-      ? `${error.name}:${error.message}`
-      : `${typeof error}:${String(error)}`;
+    const failure = classifyGitHubObservationFailureV1(error);
+    if (failure.kind === 'provider-invalid') {
+      return Object.freeze({
+        kind: 'invalid',
+        ref: failure.responseDigest as SecWorkDigestV1
+      });
+    }
     return Object.freeze({
       kind: 'unavailable',
       ref: invalidRef(
         'hosted-main-health-transport-unavailable',
-        `${input.repository}\n${input.mainSha}\n${diagnostic}`
+        `${input.repository}\n${input.mainSha}\n${failure.diagnostic}`
       )
     });
   }

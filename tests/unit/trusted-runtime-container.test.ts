@@ -1,4 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { parseDockerEndpointIdentityV3 } from '../../scripts/codex/local-github-actions-runner.ts';
 import {
@@ -6,6 +10,7 @@ import {
   TRUSTED_RUNTIME_CONTAINER_BUN_IMAGE_MANIFEST_V1,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1,
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+  TRUSTED_RUNTIME_DEPENDENCY_PROJECTION_SCRIPT_V1,
   TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2,
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
   TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1,
@@ -57,6 +62,54 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('projects shared dependencies through an ignored ordinary node_modules root', () => {
+    if (process.platform !== 'linux') return;
+
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-trusted-dependency-projection-'));
+    const dependencyRoot = path.join(temporaryRoot, 'trusted-node-modules');
+    const workspaceRoot = path.join(temporaryRoot, 'workspace');
+    const targetRoot = path.join(workspaceRoot, 'node_modules');
+    try {
+      mkdirSync(path.join(dependencyRoot, '.bin'), { recursive: true });
+      mkdirSync(path.join(dependencyRoot, '@scope'), { recursive: true });
+      mkdirSync(path.join(dependencyRoot, 'plain-package'), { recursive: true });
+      mkdirSync(workspaceRoot, { recursive: true });
+      writeFileSync(path.join(workspaceRoot, '.gitignore'), 'node_modules/\n', 'utf8');
+      writeFileSync(path.join(workspaceRoot, 'tracked.txt'), 'tracked\n', 'utf8');
+      expect(spawnSync('git', ['init', '--quiet'], { cwd: workspaceRoot }).status).toBe(0);
+      expect(spawnSync('git', ['add', '.gitignore', 'tracked.txt'], {
+        cwd: workspaceRoot
+      }).status).toBe(0);
+      expect(spawnSync('git', [
+        '-c', 'user.name=SEC Test', '-c', 'user.email=sec-test@example.invalid',
+        'commit', '--quiet', '-m', 'fixture'
+      ], { cwd: workspaceRoot }).status).toBe(0);
+
+      symlinkSync(dependencyRoot, targetRoot, 'dir');
+      expect(spawnSync('git', [
+        'status', '--porcelain=v1', '--untracked-files=normal', '--ignored=no'
+      ], { cwd: workspaceRoot, encoding: 'utf8' }).stdout).toContain('?? node_modules');
+      rmSync(targetRoot, { recursive: true, force: true });
+
+      const projected = spawnSync('/bin/bash', [
+        '-ceu', TRUSTED_RUNTIME_DEPENDENCY_PROJECTION_SCRIPT_V1, '--',
+        dependencyRoot, targetRoot
+      ], { cwd: workspaceRoot, encoding: 'utf8' });
+      expect(projected.status).toBe(0);
+      expect(projected.stderr).toBe('');
+      expect(lstatSync(targetRoot).isDirectory()).toBe(true);
+      expect(lstatSync(targetRoot).isSymbolicLink()).toBe(false);
+      for (const name of ['.bin', '@scope', 'plain-package']) {
+        expect(lstatSync(path.join(targetRoot, name)).isSymbolicLink()).toBe(true);
+      }
+      expect(spawnSync('git', [
+        'status', '--porcelain=v1', '--untracked-files=normal', '--ignored=no'
+      ], { cwd: workspaceRoot, encoding: 'utf8' }).stdout).toBe('');
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
   test('admits only the canonical executable test tmpfs and non-executable runtime state', () => {
     const container = {
       Id: '4'.repeat(64),

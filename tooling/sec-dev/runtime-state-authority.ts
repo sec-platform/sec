@@ -1,10 +1,11 @@
-import { chmodSync, lstatSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import path from 'node:path';
 
 import {
   assertPhysicallyDisjointDirectoryChainsV1,
   assertSameNoFollowDirectoryIdentityV1,
   createNoFollowOrdinaryDirectoryChainV1,
+  hardenRetainedNoFollowDirectoryModeV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
   type PhysicalDirectoryChainV1,
@@ -60,24 +61,12 @@ function materializePhysicalDirectory(absolutePath: string): PhysicalDirectoryCh
   }
 }
 
-function samePhysicalIdentity(
-  left: PhysicalDirectoryIdentityV1,
-  right: PhysicalDirectoryIdentityV1
-): boolean {
-  return left.device === right.device
-    && left.inode === right.inode
-    && left.objectId === right.objectId;
-}
-
 function hardenPosixDirectory(directory: PhysicalDirectoryIdentityV1): PhysicalDirectoryIdentityV1 {
-  chmodSync(directory.path, 0o700);
-  const current = inspectNoFollowDirectoryChainV1(
-    directory.path,
-    'SEC runtime private directory readback'
-  ).target;
-  if (!samePhysicalIdentity(directory, current)) {
-    throw new Error('SEC runtime private directory identity changed during permission hardening.');
-  }
+  const current = hardenRetainedNoFollowDirectoryModeV1(
+    directory,
+    0o700,
+    'SEC runtime private directory'
+  );
   const metadata = lstatSync(current.path);
   if (!metadata.isDirectory() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0) {
     throw new Error('SEC runtime private directory must be owner-only.');

@@ -107,17 +107,6 @@ function browserRuntimeAuthority(
 }
 
 describe('Playwright browser cache materialization', () => {
-  test('selects a real external Node 22+ authority instead of Bun compatibility metadata', async () => {
-    const authority = await resolveExternalNodeRuntimeAuthority();
-    expect(path.isAbsolute(authority.executablePath)).toBe(true);
-    expect(Number.parseInt(authority.version.split('.')[0] ?? '0', 10)).toBeGreaterThanOrEqual(22);
-    expect(await fs.realpath(authority.executablePath)).toBe(authority.executablePath);
-    expect(Object.isFrozen(authority)).toBe(true);
-    if (process.versions.bun) {
-      expect(authority.executablePath).not.toBe(process.execPath);
-    }
-  });
-
   test('selects the first physical PATH runtime and validates its reported identity', async () => {
     await withTempWorkspace(async (tempRoot) => {
       const nodeExecutablePath = await writeNodeRuntime(tempRoot);

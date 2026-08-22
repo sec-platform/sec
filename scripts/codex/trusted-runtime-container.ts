@@ -1082,8 +1082,30 @@ const READ_DEPENDENCY_CACHE_MARKER_DIGEST_SCRIPT_V1 = [
   'printf \'sha256:%s\\n\' "$actual"'
 ].join('\n');
 
+const TRUSTED_RUNTIME_DEPENDENCY_PROJECTION_FUNCTION_LINES_V1 = Object.freeze([
+  'project_trusted_dependencies() {',
+  '  source_root="$1"',
+  '  target_root="$2"',
+  '  [ -d "$source_root" ] && [ ! -L "$source_root" ]',
+  '  rm -rf -- "$target_root"',
+  '  mkdir -p -- "$target_root"',
+  '  while IFS= read -r -d "" dependency; do',
+  '    name="${dependency##*/}"',
+  '    ln -s -- "$dependency" "$target_root/$name"',
+  '  done < <(find "$source_root" -mindepth 1 -maxdepth 1 -print0)',
+  '  [ -d "$target_root" ] && [ ! -L "$target_root" ]',
+  '}'
+] as const);
+
+export const TRUSTED_RUNTIME_DEPENDENCY_PROJECTION_SCRIPT_V1 = [
+  'set -euo pipefail',
+  ...TRUSTED_RUNTIME_DEPENDENCY_PROJECTION_FUNCTION_LINES_V1,
+  'project_trusted_dependencies "$1" "$2"'
+].join('\n');
+
 const SETUP_SCRIPT = [
   'set -euo pipefail',
+  ...TRUSTED_RUNTIME_DEPENDENCY_PROJECTION_FUNCTION_LINES_V1,
   'base="$1"',
   'head="$2"',
   'mode="$3"',
@@ -1103,8 +1125,7 @@ const SETUP_SCRIPT = [
   `  ln -s ${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1} .shared-deps/.bun-cache`,
   '  CI=1 bun ./platform/dev-runner.ts deps:ensure',
   '  if [ "$mode" = "full" ]; then',
-  `    rm -rf ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
-  `    ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  `    project_trusted_dependencies ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
   '  else',
   `    [ ! -e ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules ]`,
   '  fi',

@@ -260,8 +260,11 @@ export interface GitHubPullRequestFileInventoryExpectationV1 {
   readonly headSha: string;
 }
 
-interface GitHubApiFailure extends Error {
-  statusCode?: number;
+class GitHubApiFailure extends Error {
+  constructor(message: string, readonly statusCode?: number) {
+    super(message);
+    this.name = 'GitHubApiFailure';
+  }
 }
 
 interface VerificationSessionGitHubTransport {
@@ -821,6 +824,47 @@ function providerResponseShapeDigest(error: GitHubProviderResponseShapeError): S
   return hash(Object.freeze({
     schema: 'sec-provider-response-shape-v2', classification: error.classification, source: error.source
   }));
+}
+
+export type GitHubObservationFailureClassificationV1 =
+  | Readonly<{ kind: 'provider-invalid'; responseDigest: SessionDigest }>
+  | Readonly<{ kind: 'transport-unavailable'; diagnostic: string }>;
+
+export function classifyGitHubObservationFailureV1(
+  error: unknown
+): GitHubObservationFailureClassificationV1 {
+  if (error instanceof GitHubProviderResponseShapeError) {
+    return Object.freeze({
+      kind: 'provider-invalid',
+      responseDigest: providerResponseShapeDigest(error)
+    });
+  }
+  if (error instanceof GitHubProviderSchemaUnsupportedError) {
+    return Object.freeze({ kind: 'provider-invalid', responseDigest: error.responseDigest });
+  }
+  if (error instanceof GitHubApiFailure) {
+    return Object.freeze({
+      kind: 'transport-unavailable',
+      diagnostic: `${error.name}:${error.message}`
+    });
+  }
+  let identity: Readonly<{ type: string; name: string | null; message: string | null }>;
+  try {
+    identity = Object.freeze({
+      type: typeof error,
+      name: error instanceof Error ? error.name : null,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  } catch {
+    identity = Object.freeze({ type: typeof error, name: null, message: null });
+  }
+  return Object.freeze({
+    kind: 'provider-invalid',
+    responseDigest: hash(Object.freeze({
+      schema: 'sec-github-observation-unknown-failure-v1',
+      identity
+    }))
+  });
 }
 
 function assertSha(value: unknown, label: string): string {
@@ -2666,9 +2710,129 @@ function repoParts(repository: string): { owner: string; name: string } {
 }
 
 function apiFailure(message: string, statusCode?: number): GitHubApiFailure {
-  const error = new Error(message) as GitHubApiFailure;
-  error.statusCode = statusCode;
-  return error;
+  return new GitHubApiFailure(message, statusCode);
+}
+
+type VerificationSessionGhCommandResultV1 = Readonly<{
+  status: number | null;
+  stdout: Buffer;
+  stderr: Buffer;
+}>;
+
+const GITHUB_OBSERVATION_RETRY_DELAYS_MS_V1 = Object.freeze([250, 1_000] as const);
+
+export function isIdempotentGitHubObservationCommandV1(
+  args: readonly string[],
+  input?: Buffer
+): boolean {
+  if (input !== undefined) return false;
+  if (args[0] === 'pr' && args[1] === 'view') {
+    return args.length === 7
+      && /^[1-9][0-9]*$/u.test(args[2]!)
+      && args[3] === '--repo'
+      && /^[^/\s]+\/[^/\s]+$/u.test(args[4]!)
+      && args[5] === '--json'
+      && /^[A-Za-z][A-Za-z,]*$/u.test(args[6]!);
+  }
+  if (args[0] !== 'api' || args.length < 2) return false;
+  if (args[1] !== 'graphql') {
+    let endpointSeen = false;
+    let explicitGetSeen = false;
+    let queryFieldSeen = false;
+    for (let index = 1; index < args.length; index += 1) {
+      const argument = args[index]!;
+      if (argument === '--paginate' || argument === '--slurp') continue;
+      if (argument === '--method') {
+        if (explicitGetSeen || args[index + 1] !== 'GET') return false;
+        explicitGetSeen = true;
+        index += 1;
+        continue;
+      }
+      if (argument === '-f' || argument === '-F') {
+        const field = args[index + 1];
+        if (field === undefined
+            || !/^[A-Za-z_][A-Za-z0-9_.\[\]-]*=.+$/u.test(field)) return false;
+        queryFieldSeen = true;
+        index += 1;
+        continue;
+      }
+      if (argument === '--jq') {
+        const expression = args[index + 1];
+        if (expression === undefined || expression.length === 0 || expression.startsWith('-')) {
+          return false;
+        }
+        index += 1;
+        continue;
+      }
+      if (argument.startsWith('-') || endpointSeen) return false;
+      endpointSeen = true;
+    }
+    // `gh api -f/-F` changes the default method to POST. Field-bearing REST
+    // observations therefore qualify for replay only when the command binds
+    // the method to GET explicitly.
+    return endpointSeen && (!queryFieldSeen || explicitGetSeen);
+  }
+  let query: string | null = null;
+  for (let index = 2; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (argument === '--paginate' || argument === '--slurp') continue;
+    if (argument !== '-f' && argument !== '-F') return false;
+    const field = args[index + 1];
+    if (field === undefined || field.length === 0 || field.startsWith('-')) return false;
+    index += 1;
+    if (argument === '-f') {
+      if (query !== null || !field.startsWith('query=')) return false;
+      query = field.slice('query='.length).trimStart();
+    } else if (field.startsWith('query=')) {
+      return false;
+    }
+  }
+  return query !== null && /^query(?:\s|\()/u.test(query) && !/\bmutation\b/u.test(query);
+}
+
+export function isRetryableGitHubObservationFailureV1(
+  result: VerificationSessionGhCommandResultV1
+): boolean {
+  if (result.status === 0) return false;
+  const diagnostic = result.stderr.toString('utf8');
+  return /(?:\bEOF\b|ECONNRESET|ETIMEDOUT|connection reset|connection closed|network is unreachable|temporary failure in name resolution|could not resolve host|TLS handshake timeout|i\/o timeout|context deadline exceeded|HTTP\s+(?:408|500|502|503|504)\b|status\s+(?:408|500|502|503|504)\b)/iu.test(diagnostic);
+}
+
+export function runGitHubObservationWithBoundedRetryV1(input: Readonly<{
+  args: readonly string[];
+  body?: Buffer;
+  execute: () => VerificationSessionGhCommandResultV1;
+  wait?: (delayMs: number) => void;
+}>): VerificationSessionGhCommandResultV1 {
+  const wait = input.wait ?? ((delayMs: number) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+  });
+  let result = input.execute();
+  if (!isIdempotentGitHubObservationCommandV1(input.args, input.body)) return result;
+  for (const delayMs of GITHUB_OBSERVATION_RETRY_DELAYS_MS_V1) {
+    if (!isRetryableGitHubObservationFailureV1(result)) return result;
+    wait(delayMs);
+    result = input.execute();
+  }
+  return result;
+}
+
+export function createGitHubCommandFailureDiagnosticV1(
+  stderr: Buffer | string | null | undefined,
+  error?: Error
+): Buffer {
+  const stderrBytes = Buffer.isBuffer(stderr)
+    ? stderr
+    : Buffer.from(String(stderr ?? ''), 'utf8');
+  const errorMessage = error?.message.trim() ?? '';
+  if (errorMessage.length === 0) return stderrBytes;
+  if (stderrBytes.length === 0) return Buffer.from(errorMessage, 'utf8');
+  if (stderrBytes.toString('utf8').includes(errorMessage)) return stderrBytes;
+  const separator = stderrBytes.at(-1) === 0x0a ? '' : '\n';
+  return Buffer.concat([
+    stderrBytes,
+    Buffer.from(`${separator}${errorMessage}`, 'utf8')
+  ]);
 }
 
 function runVerificationSessionGh(
@@ -2677,24 +2841,28 @@ function runVerificationSessionGh(
   input?: Buffer
 ) {
   if (args.some((arg) => arg.includes('\0'))) fail('GitHub observation argument contains NUL.');
-  const spawned = spawnSync('gh', [...args], {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    input,
-    windowsHide: true,
-    timeout: 60_000,
-    maxBuffer: 32 * 1024 * 1024,
-    env: { ...process.env, GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0' }
+  return runGitHubObservationWithBoundedRetryV1({
+    args,
+    ...(input === undefined ? {} : { body: input }),
+    execute: () => {
+      const spawned = spawnSync('gh', [...args], {
+        cwd: repositoryRoot,
+        encoding: 'buffer',
+        input,
+        windowsHide: true,
+        timeout: 60_000,
+        maxBuffer: 32 * 1024 * 1024,
+        env: { ...process.env, GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0' }
+      });
+      return {
+        status: spawned.status,
+        stdout: Buffer.isBuffer(spawned.stdout)
+          ? spawned.stdout
+          : Buffer.from(String(spawned.stdout ?? '')),
+        stderr: createGitHubCommandFailureDiagnosticV1(spawned.stderr, spawned.error)
+      };
+    }
   });
-  return {
-    status: spawned.status,
-    stdout: Buffer.isBuffer(spawned.stdout)
-      ? spawned.stdout
-      : Buffer.from(String(spawned.stdout ?? '')),
-    stderr: Buffer.isBuffer(spawned.stderr)
-      ? spawned.stderr
-      : Buffer.from(String(spawned.stderr ?? spawned.error?.message ?? ''))
-  };
 }
 
 /** Concrete provider transport; construction is module-private. */
@@ -2706,7 +2874,9 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     const result = runVerificationSessionGh(this.repositoryRoot, args, input);
     if (result.status !== 0) {
       const message = decodeBranchLifecycleChildErrorV1(result);
-      const schemaFailure = classifyGitHubGraphQLSchemaFailureV1(message);
+      const schemaFailure = args[0] === 'api' && args[1] === 'graphql'
+        ? classifyGitHubGraphQLSchemaFailureV1(message)
+        : null;
       if (schemaFailure !== null) {
         // Raw GitHub schema prose never becomes control-plane text; the typed
         // status carries only a bounded reasonCode and a response digest.
@@ -3187,8 +3357,17 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
 
   checkPage(repository: string, headSha: string, after: string | null): GitHubPageV1<GitHubCheckObservationV1> {
     if (after !== null) fail('default REST transport returns all check pages in one page.');
-    const pages = parseJson<any[]>(this.gh(['api', `/repos/${repository}/commits/${headSha}/check-runs?per_page=100`, '--paginate', '--slurp'], 'check pagination'), 'check pagination');
-    const nodes = pages.flatMap((page) => page.check_runs ?? []).map((node: any) => {
+    const source = this.gh(['api', `/repos/${repository}/commits/${headSha}/check-runs?per_page=100`, '--paginate', '--slurp'], 'check pagination');
+    const parsed = parseJson<unknown>(source, 'check pagination');
+    if (!Array.isArray(parsed) || !parsed.every((page) => page !== null
+      && typeof page === 'object' && !Array.isArray(page)
+      && Array.isArray((page as any).check_runs)
+      && (page as any).check_runs.every((node: unknown) => node !== null
+        && typeof node === 'object' && !Array.isArray(node)))) {
+      fail('check pagination must be a complete page-object array.');
+    }
+    const pages = parsed as Array<Record<string, any>>;
+    const nodes = pages.flatMap((page) => page.check_runs).map((node: any) => {
       const runId = /\/actions\/runs\/([1-9][0-9]*)/u.exec(String(node.details_url ?? ''))?.[1] ?? null;
       const run = runId === null ? null : parseJson<Record<string, any>>(this.gh([
         'api', `/repos/${repository}/actions/runs/${runId}`
@@ -3204,7 +3383,10 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
         workflowRunId: typeof run?.id === 'number' && Number.isSafeInteger(run.id) ? String(run.id) : null,
         workflowRunDisplayTitle: typeof run?.display_title === 'string' ? run.display_title : null };
     });
-    return { nodes, hasNextPage: false, endCursor: null, pageDigest: hash(pages) };
+    return bindProviderShapeSource(
+      { nodes, hasNextPage: false, endCursor: null, pageDigest: hash(pages) },
+      source
+    );
   }
 
   workflowRunPage(repository: string, headSha: string, after: string | null): GitHubPageV1<GitHubWorkflowRunObservationV1> {

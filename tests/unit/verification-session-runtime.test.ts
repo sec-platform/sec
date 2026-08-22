@@ -1331,10 +1331,10 @@ test('trusted app review binds stable app/node and exact reviewed head', () => {
   expect(result.snapshot.reviewPageDigests).toContain(result.authority.sourceDigest);
 });
 
-test('REST clean verdict accepts stable prefix variants only with provider-resolved exact 10/full locator', () => {
+test('REST clean verdict accepts closed presentation only with provider-resolved exact 10/full locator', () => {
   const providerAbout = new FakeTransport();
   providerAbout.issueComments = [[botIssueComment(
-    `Codex Review: Didn't find any major issues. What shall we build next?\n\n` +
+    `Codex Review: Didn't find any major issues. Can't wait for the next one!\n\n` +
     `**Reviewed commit:** \`${HEAD.slice(0, 10)}\`\n\n` +
     '<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\n' +
     '[Your team has set up Codex to review pull requests in this repo]' +

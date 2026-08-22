@@ -11,8 +11,10 @@ export const CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1 =
 export const CODEX_CLEAN_REVIEW_CONGRATULATIONS_V1 = Object.freeze([
   'Bravo.',
   'Delightful!',
+  "Can't wait for the next one!",
   'Swish!',
   'What shall we build next?',
+  'What shall we delve into next?',
   'You’re on a roll!',
   'Chef’s kiss.',
   '🚀'

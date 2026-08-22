@@ -41,7 +41,10 @@ test('Codex clean Review verdict owns one stable semantic prefix and closed pres
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.\nFinding`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.\u0000`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Finding: P1 unsafe behavior`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} I found a P1 unsafe behavior.`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} No unsafe behavior here.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} **P1 finding**.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} hidden second line.`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} ${'x'.repeat(201)}`
   ]) expect(isCodexCleanReviewVerdictV1(value)).toBe(false);
 

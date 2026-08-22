@@ -34,6 +34,10 @@ import {
   CodexDevelopmentParseRollingPlanV1
 } from './document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgsV1 } from './document-control-plane-github-observation.ts';
+import {
+  observeCanonicalMainHealthForWorkSelectionV1,
+  observeHostedMainHealthChecksV1
+} from './main-health-provider-observation.ts';
 import { createVerificationSessionGitHubClientV1 } from './verification-session-github.ts';
 import {
   parseOpenPullRequestList,
@@ -43,10 +47,6 @@ import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
-import {
-  observeCanonicalWorkSelectionMainHealthV1,
-  observeHostedMainHealthChecksV1
-} from './work-selection-main-health.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
@@ -563,7 +563,7 @@ function observeCanonicalMainHealth(input: {
     mainSha: input.exactMain,
     observeChecks: () => github.observeChecks(input.repository, input.exactMain)
   });
-  return observeCanonicalWorkSelectionMainHealthV1({
+  return observeCanonicalMainHealthForWorkSelectionV1({
     repositoryRoot: input.root,
     repository: input.repository,
     defaultBranch: input.defaultBranch,

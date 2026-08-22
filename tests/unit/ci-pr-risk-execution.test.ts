@@ -44,7 +44,7 @@ forbiddenPaths:
 acceptance:
   - exact-risk
 tests:
-  - focused-risk
+  - tests/unit/ci-pr-risk-execution.test.ts
 ---
 
 # Exact Risk

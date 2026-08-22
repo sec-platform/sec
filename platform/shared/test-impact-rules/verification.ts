@@ -32,6 +32,7 @@ const MAIN_HEALTH_FAST_TESTS = [
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/main-health-contract.test.ts',
+  'tests/unit/main-health-provider-observation.test.ts',
   'tests/unit/main-health-repair-contract.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/verification-session-runtime.test.ts',
@@ -223,6 +224,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/shared/main-health-contract.ts',
       'platform/shared/main-health-repair-contract.ts',
       'scripts/codex/main-health-observation.ts',
+      'scripts/codex/main-health-provider-observation.ts',
       'scripts/codex/main-health-repair.ts'
     ],
     supplementalFast: MAIN_HEALTH_FAST_TESTS,
