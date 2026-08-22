@@ -1,7 +1,12 @@
 import { expect, test } from 'bun:test';
 
 import {
+  CI_MAIN_HEALTH_POLICY_V1,
+  createCiMainHealthRequestOperationIdV1
+} from '../../platform/shared/ci-verification-revision.ts';
+import {
   createObservedMainHealthInputWithPolicyV1,
+  createRegisteredHostedMainHealthInputsV1,
   createTrustedLocalMainHealthInputV1,
   createTrustedRuntimeMainHealthCheckProviderPolicyV1
 } from '../../scripts/codex/main-health-observation.ts';
@@ -91,6 +96,38 @@ test('duplicate direct App MainHealth checks remain ambiguous and locked', () =>
 
 test('direct App sourceRunId must bind the exact observed GitHub check id', () => {
   expect(() => observe([check()], '78')).toThrow('sourceRunId must equal the exact observed check id');
+});
+
+test('hosted registry accepts the exact Actions principal and ignores an unregistered same-name App', () => {
+  const compile = (checks: readonly GitHubCheckObservationV1[]) =>
+    createRegisteredHostedMainHealthInputsV1({
+      repository: 'sec-platform/sec',
+      mainSha: MAIN,
+      mainTreeSha: MAIN_TREE,
+      trustRevision: MAIN,
+      observedAt: '2026-08-19T00:00:00.000Z',
+      expiresAt: '2026-08-19T01:00:00.000Z',
+      sourceRef: `github-check-runs:sec-platform/sec@${MAIN}`,
+      checks
+    });
+  expect(compile([check()])).toEqual([]);
+  const operationId = createCiMainHealthRequestOperationIdV1(MAIN);
+  expect(compile([{
+    id: 123,
+    name: CI_MAIN_HEALTH_POLICY_V1.context,
+    status: 'completed',
+    conclusion: 'success',
+    headSha: MAIN,
+    detailsUrl: 'https://github.com/sec-platform/sec/actions/runs/123',
+    appId: CI_MAIN_HEALTH_POLICY_V1.app.id,
+    appNodeId: CI_MAIN_HEALTH_POLICY_V1.app.nodeId,
+    appSlug: CI_MAIN_HEALTH_POLICY_V1.app.slug,
+    workflowPath: CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath,
+    workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${MAIN}`,
+    eventName: CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0],
+    workflowRunId: '123',
+    workflowRunDisplayTitle: `SEC main health ${MAIN} operation ${operationId}`
+  }])).toMatchObject([{ status: 'healthy', allowedLanes: ['ordinary'] }]);
 });
 
 test('terminal non-success remains degraded and routes only to repair', () => {

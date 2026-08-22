@@ -1926,13 +1926,13 @@ export function generateTcbClosureLockV2(
 // ---------------------------------------------------------------------------
 
 // <sec-tcb-closure-lock-generated-v2>
-export const TCB_CLOSURE_TRUST_REVISION = "sha256:9eb401a1a6d55b9b0eeb997fa1fe71b7b763bf9e9b806da9cd0b9e91bcad5eb9";
+export const TCB_CLOSURE_TRUST_REVISION = "sha256:48bb1bf8d48bcdaee67f2104f53c7ffede16132505f70e727e802fd39caee349";
 
 // Generated from the exact live causal closure. Do not hand-edit this marked region.
 export const TCB_CLOSURE_LOCK: TcbClosureLock = {
   "schema": "sec-tcb-closure-lock-v2",
-  "trustRevision": "sha256:9eb401a1a6d55b9b0eeb997fa1fe71b7b763bf9e9b806da9cd0b9e91bcad5eb9",
-  "moduleCount": 137,
+  "trustRevision": "sha256:48bb1bf8d48bcdaee67f2104f53c7ffede16132505f70e727e802fd39caee349",
+  "moduleCount": 138,
   "modules": [
     "docs/scripts/docs-doctor-ledgers.ts",
     "docs/scripts/docs-doctor-shared.ts",
@@ -1987,6 +1987,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/logical-path-component.ts",
     "platform/shared/logical-path-identity.ts",
     "platform/shared/main-health-contract.ts",
+    "platform/shared/main-health-repair-contract.ts",
     "platform/shared/paths.ts",
     "platform/shared/physical-mutation-lease.ts",
     "platform/shared/physical-no-follow.ts",
@@ -2186,6 +2187,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/logical-path-component.ts": "2fb925f8e94c3bffa63a3fdcc6dce1c8eae04690",
     "platform/shared/logical-path-identity.ts": "f3a3e60b0c6643f13bc0725cc66e9488ed0b8c66",
     "platform/shared/main-health-contract.ts": "b013a77db2467a46485e5b5fe1302d72497ff4a9",
+    "platform/shared/main-health-repair-contract.ts": "de51609809ba9f6682ec0d22a8429a0b6a32504a",
     "platform/shared/paths.ts": "01e6fb8443c001c62087073e520d52d4da7257ab",
     "platform/shared/physical-mutation-lease.ts": "afb3d96336d86c3db6849283500ef3c692a71757",
     "platform/shared/physical-no-follow.ts": "d20283e23684c601c62d2cb349fa80939987ef65",
@@ -2245,7 +2247,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/issue-disposition-github.ts": "10aac92f5aadd8d8aa706bc74c11d3c86a7b9810",
     "scripts/codex/local-github-actions-runner.ts": "f8f086e5175190000e3f4d67ae299129f5acf447",
     "scripts/codex/local-main-closeout.ts": "4772672fee4897a3cc908cd873032638367b1fdb",
-    "scripts/codex/main-health-observation.ts": "354673be8eb2674127731321666169f839e3764d",
+    "scripts/codex/main-health-observation.ts": "f1ee5f5292e8091b16a52d89d2f19b9a6af039ce",
     "scripts/codex/merge-gate.ts": "fd7013e35def194056ff8c1f5f0208def11330f9",
     "scripts/codex/operation-read-plan.ts": "6ba70b3801d828827f6122925635fa3cec17dd78",
     "scripts/codex/skill-applicability.ts": "d05b4d4d6e8addda7e57a5079665d02640b14d21",
@@ -2254,13 +2256,13 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/trusted-runtime-container.ts": "d209bcbc5920afe2df32a0e8fccb365590e1fa04",
     "scripts/codex/verification-action-github-provider.ts": "3f4c1adb70d51a820713ece691eeb1e0aee8afff",
     "scripts/codex/verification-provider-capability-ledger.ts": "4dd028e20a7d975ba2f05dc23f384802c1e1a99d",
-    "scripts/codex/verification-session-github.ts": "6c4a674a0886f0bebb375f50951aadb76592ab11",
+    "scripts/codex/verification-session-github.ts": "30d902d020d28c155a2fdb4572fa681371317def",
     "scripts/codex/verification-session-journal.ts": "23d44d1a39d1f0c6075ee84d99a92ff7e7618f95",
     "scripts/codex/verification-session-runtime.ts": "1880254fd958b7dfb056eec3f0199db6f0b4c431",
     "scripts/codex/verification-session.ts": "4ac820d72a4d920017e866e4d51ea384f3e2af0e",
     "scripts/codex/work-package-contract.ts": "5179230c82073bc79ddd5f4fa18eb87a10a631a7",
-    "scripts/codex/work-selection-main-health.ts": "1208bf077b1461c7f4e158e7496895e05c384f37",
-    "scripts/codex/work-selection.ts": "23122f3891495862e2d2147905e6d82583543060",
+    "scripts/codex/work-selection-main-health.ts": "b80e8ee041726f54a4b43fbbfa9cd2071d7cbb99",
+    "scripts/codex/work-selection.ts": "fa13b3c6688aa9fd80a5c900bdf227b580adb2f4",
     "scripts/codex/worktree-physical-closeout-contract.ts": "2319555be026f3f17774f734a05e40b6c2bc7675",
     "scripts/codex/worktree-physical-closeout.ts": "14c49122bf823d3cc24305d88989fc0a04340268",
     "scripts/install-git-hooks.ts": "b13fb3af64e67a67908698f4698002877aa7713b",
@@ -2325,6 +2327,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/logical-path-component.ts": "sha256:75f9bcad59e17be1a9fca25ecb3b9aa597b8b3e89fbb2794645188bfc7a1c7c6",
     "platform/shared/logical-path-identity.ts": "sha256:a1c914f957fe9865685b9c50a10cd47ad48d24d35722c5630638e62dff6a6381",
     "platform/shared/main-health-contract.ts": "sha256:d58862a761664e3a68e50bccceb70b2172f1d37befe3331ffbb09eada04addeb",
+    "platform/shared/main-health-repair-contract.ts": "sha256:78b30b9bf5325ddf116a5b0f78c436f11fbe68901368d1c09e9321d75ceb37b8",
     "platform/shared/paths.ts": "sha256:7849e074e625f4955283bb41c0960ca3acfa43324ab0f59d8e74b4989fda60e3",
     "platform/shared/physical-mutation-lease.ts": "sha256:5060522603bcb592650ef535b612f598910112795055b0eaf15a58cc744b48d4",
     "platform/shared/physical-no-follow.ts": "sha256:93d5bba77e124ff264285ed09130974801c50f3f65d7ca1c906d7b33a4456186",
@@ -2384,7 +2387,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/issue-disposition-github.ts": "sha256:fe05b1fed0ec46e1af6b1363bf5695046d72757065802ef51242270a6ac4c0cf",
     "scripts/codex/local-github-actions-runner.ts": "sha256:20a6a059f1f3e89bfcfc8f64b32091f1c494313479f98e554ebd52b1da0761f3",
     "scripts/codex/local-main-closeout.ts": "sha256:c4f48d5497cce32607b21f4fa3b130e7e04b93ade7850158426709c90cf8a351",
-    "scripts/codex/main-health-observation.ts": "sha256:694c10496f84868ee04a96ce340d7f5f271347770691773019b5da17acfe9b09",
+    "scripts/codex/main-health-observation.ts": "sha256:bfc9738d6841a4c891e434bdc0b4726b9ca66ea00809a482ff9925d58aad72cb",
     "scripts/codex/merge-gate.ts": "sha256:2c139cc0eb1a4ff41bd83fe8f84b0f3fc847af1aa83b0df7340e30d047498205",
     "scripts/codex/operation-read-plan.ts": "sha256:1b9dc658ca1bf292956a1dd6ab93eb9d995ec42784c2382e19c2614bf03395cd",
     "scripts/codex/skill-applicability.ts": "sha256:12a406b260e588bfa6423c1abfa2695446c4058f864fed502bbe908f543b3510",
@@ -2393,13 +2396,13 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/trusted-runtime-container.ts": "sha256:51e32ed1a5a791b43b9d9669b86a486e78998a6cd17c33fcd935b75348da2431",
     "scripts/codex/verification-action-github-provider.ts": "sha256:be2a8337cefa9274c4adf2822b90e205c59bfd73fe228063a248c8ef1bb249cd",
     "scripts/codex/verification-provider-capability-ledger.ts": "sha256:3fec5e9372337d62e8906367126946ebddf54227e97af15ad86246a165818794",
-    "scripts/codex/verification-session-github.ts": "sha256:7da0e018c0cf3e6c102234e8e75de6597d874441e53a25227e22b9924b50dad3",
+    "scripts/codex/verification-session-github.ts": "sha256:87d6c02deb023b7036faa87d60b01cdbc0cc49fce3c6a2ad2ddd09dfb875affd",
     "scripts/codex/verification-session-journal.ts": "sha256:e4fdaeffb02627cd1518c088b22a97709587fc159afb65cd2a8a5eb025d7a9fe",
     "scripts/codex/verification-session-runtime.ts": "sha256:cf9604f56d33cf58f0e8296d174a23862a2271300c046ac1d972cf971da51dec",
     "scripts/codex/verification-session.ts": "sha256:2bf6246d01a953d2ebb949a07fc41f3f028333e46bc22667c69b6064b65e5c7b",
     "scripts/codex/work-package-contract.ts": "sha256:c8f79e2c9cbf292146139583dede05076f6936e15bc923bd4e7903103078ac3e",
-    "scripts/codex/work-selection-main-health.ts": "sha256:9861dade5b8c3e9f3fc6295b5f196bff72d8dc86e5f472ce68c8c0c35e23eed9",
-    "scripts/codex/work-selection.ts": "sha256:6ef5fde8078027e95a4b5f439904abae89c6341a45503f56657f683859be3253",
+    "scripts/codex/work-selection-main-health.ts": "sha256:7a00986248a25d1f6b86a95ced60cc022626dc4d92c55e3d3dac34e0e326620b",
+    "scripts/codex/work-selection.ts": "sha256:e20472bc9a82444cea6f0a1fa2e64eeebd595d72190fcf3de81ff84b73ba21fc",
     "scripts/codex/worktree-physical-closeout-contract.ts": "sha256:65871321fa18ac012d493642ad4249f97781e19b57ad9806e2da8a92ab2a6ff9",
     "scripts/codex/worktree-physical-closeout.ts": "sha256:148f02f8a1da3261c9496d3169b8f8c4f324ead406c9511398d6653848dabe61",
     "scripts/install-git-hooks.ts": "sha256:effb6154d7b41002086df75dc4acea3eaa68cc92cbe99357307c937f8e73098f",
@@ -2410,12 +2413,12 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "tooling/sec-dev/verification-action-journal.ts": "sha256:cf4931b75bb5bbde0cc97a08bf5e7bc8128c0abf328bb6254c7063b03086e2b4",
     "tooling/sec-dev/verification-action-runner.ts": "sha256:27e30dd3e0e358554c5bb4f8dcca58d39f1950863951dd4c84e319089baaa8d8"
   },
-  "closureDigest": "sha256:429f446965b4caee901e1f98aaa72fc727b52024a0067ff5e15e86c6f196fe4c"
+  "closureDigest": "sha256:0a4ac4954843f7f3d614884fc1af06935f9d6e2b6d57c7b88dd0b85fa7a2f0a7"
 };
 
 export const TCB_CLOSURE_LOCK_RECEIPT = createTcbClosureLockReceiptV2(
   TCB_CLOSURE_LOCK,
-  "2026-08-21T23:56:15.843Z"
+  "2026-08-22T07:12:58.468Z"
 );
 // </sec-tcb-closure-lock-generated-v2>
 
