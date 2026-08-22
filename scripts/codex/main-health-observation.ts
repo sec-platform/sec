@@ -200,6 +200,16 @@ export const GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY_V1: MainHealthChec
   });
 
 /**
+ * Static trust registry for hosted MainHealth principals. Observing an App on
+ * GitHub never enrolls it. A dedicated App becomes authoritative only after
+ * its exact id/nodeId/slug policy is added by this canonical owner.
+ */
+const HOSTED_MAIN_HEALTH_PROVIDER_POLICIES_V1:
+readonly MainHealthCheckProviderPolicyV1[] = Object.freeze([
+  GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY_V1
+]);
+
+/**
  * Builds the exact policy for a dedicated SEC Integration/App principal. The
  * App check is the GitHub transport/readback projection; the trusted runtime
  * that owns the App credentials remains responsible for executing the actual
@@ -373,6 +383,45 @@ export function createObservedMainHealthInputWithPolicyV1(input: {
       sourceDigest: hash({ policyDigest: policy.policyDigest, matching })
     })
   });
+}
+
+/**
+ * Selects only source-registered hosted principals and compiles each through
+ * the single provider-neutral MainHealth matcher. Unknown same-name checks do
+ * not gain authority and cannot invalidate an independent trusted provider.
+ */
+export function createRegisteredHostedMainHealthInputsV1(input: {
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+  trustRevision: string;
+  observedAt: string;
+  expiresAt: string;
+  sourceRef: string;
+  checks: readonly GitHubCheckObservationV1[];
+}): readonly MainHealthLedgerInputV1[] {
+  const presentPolicies = HOSTED_MAIN_HEALTH_PROVIDER_POLICIES_V1.filter((policy) => (
+    input.checks.some((check) => check.headSha === input.mainSha
+      && check.name === policy.context
+      && check.appId === policy.app.id
+      && check.appNodeId === policy.app.nodeId
+      && check.appSlug === policy.app.slug)
+  ));
+  return Object.freeze(presentPolicies.map((policy) => {
+    const exactProviderChecks = input.checks.filter((check) => check.headSha === input.mainSha
+      && check.name === policy.context
+      && check.appId === policy.app.id
+      && check.appNodeId === policy.app.nodeId
+      && check.appSlug === policy.app.slug);
+    return createObservedMainHealthInputWithPolicyV1({
+      ...input,
+      sourceRunId: policy.producer.kind === 'github-app-check'
+        && exactProviderChecks.length === 1
+        ? String(exactProviderChecks[0]!.id)
+        : `work-selection-${input.mainSha}`,
+      policy
+    });
+  }));
 }
 
 /** Existing Actions adapter preserved for current consumers. */
