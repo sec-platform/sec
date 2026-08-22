@@ -39,7 +39,7 @@ import {
   projectWorkPackageRegistry
 } from './verification-session.ts';
 import {
-  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
 import {
@@ -575,7 +575,7 @@ function observeCanonicalControl(input: {
   const pointer = CodexDevelopmentParseActivePointerV2(input.pointerSource);
   CodexDevelopmentAssertControlPlaneBindingV1({ spec: input.spec, pointer });
   const rolling = CodexDevelopmentParseRollingPlanV1(input.rollingPlanSource);
-  const manifest = CodexDevelopmentParseWorkPackageManifest(
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
     decodeUtf8(input.manifestBytes, 'active-manifest-invalid-utf8'),
     input.manifestPath
   );

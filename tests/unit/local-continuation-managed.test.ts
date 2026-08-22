@@ -74,7 +74,7 @@ acceptance:
   - managed-continuation
   - zero-remote-local-edit
 tests:
-  - bun test tests/unit/local-continuation-managed.test.ts
+  - tests/unit/local-continuation-managed.test.ts
 ---
 
 # Continuation fixture

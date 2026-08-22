@@ -192,7 +192,7 @@ import {
   type VerificationSessionHostedRequestV1
 } from './codex/verification-session-runtime.ts';
 import {
-  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest,
   CodexDevelopmentWorkPackageSchemaV1,
   type CodexDevelopmentWorkPackageManifest
@@ -4099,11 +4099,7 @@ function manifestBinding(
     repositoryPath: manifestPath
   }).bytes;
   const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
-  const manifest = CodexDevelopmentParseWorkPackageManifest(text, manifestPath);
-  if (manifest.schema === CodexDevelopmentWorkPackageSchemaV1
-    && manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
-    throw new Error('Work Package manifest does not target the current CI verification revision.');
-  }
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(text, manifestPath);
   return {
     manifestPath,
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(source),

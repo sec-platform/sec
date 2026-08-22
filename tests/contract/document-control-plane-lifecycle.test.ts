@@ -224,7 +224,14 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
 }
 
 function runGit(cwd: string, args: string[]): string {
-  const result = spawnSync('git', args, {
+  const disabledHooksPath = path.resolve(cwd, '.git', 'sec-test-hooks-disabled');
+  const result = spawnSync('git', [
+    '-c',
+    `core.hooksPath=${disabledHooksPath}`,
+    '-c',
+    'core.autocrlf=false',
+    ...args
+  ], {
     cwd,
     encoding: 'utf8',
     windowsHide: true,
@@ -1508,6 +1515,146 @@ test('pre-evidence replan replaces one committed candidate generation pending am
     await fixture.dispose();
   }
 }, 30_000);
+
+test('committed candidate replan repairs one ancestry-proven published control projection drift', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const manifestFile = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
+    await writeFile(
+      path.join(fixture.repositoryRoot, CURRENT_STATE_PATH),
+      currentStateSource('origin', true),
+      'utf8'
+    );
+    runGit(fixture.repositoryRoot, ['add', CURRENT_STATE_PATH]);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'enable machine rolling projection']);
+    runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
+    const selectionBaseSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${selectionBaseSha}^{tree}`]);
+    const firstManifest = Buffer.from(
+      (await readFile(manifestFile, 'utf8')).replace(`base: ${fixture.baseSha}`, `base: ${selectionBaseSha}`),
+      'utf8'
+    );
+    await writeFile(manifestFile, firstManifest);
+    const firstProjection = CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
+      currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      workSelectionProjection: {
+        receipt: workSelectionReceiptFixture({ exactMain: selectionBaseSha, exactMainTree })
+      },
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes: firstManifest,
+      baseSha: selectionBaseSha,
+      baseTreeSha: exactMainTree,
+      reviewedOn: '2026-08-21'
+    });
+    await writeFile(path.join(fixture.repositoryRoot, POINTER_PATH), firstProjection.pointerSource, 'utf8');
+    await writeFile(
+      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      firstProjection.rollingPlanSource,
+      'utf8'
+    );
+    runGit(fixture.repositoryRoot, ['switch', '--quiet', '-c', 'candidate-transition']);
+    runGit(fixture.repositoryRoot, ['add', '.']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'candidate source generation']);
+    const sourceHead = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+
+    await writeFile(manifestFile, Buffer.concat([
+      firstManifest,
+      Buffer.from('\nExact candidate generation refresh.\n', 'utf8')
+    ]));
+    await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-21'
+    });
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '--amend', '--no-edit']);
+    expect(runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^'])).toBe(selectionBaseSha);
+    expect(await readFile(
+      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      'utf8'
+    )).toContain(`"sourceHead": "${sourceHead}"`);
+
+    runGit(fixture.repositoryRoot, ['switch', '--quiet', 'main']);
+    runGit(fixture.repositoryRoot, ['merge', '--quiet', '--squash', 'candidate-transition']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'publish transition projection']);
+    const driftedDefaultManifest = Buffer.concat([
+      await readFile(manifestFile),
+      Buffer.from('\nIndependent main manifest drift.\n', 'utf8')
+    ]);
+    await writeFile(manifestFile, driftedDefaultManifest);
+    await writeFile(
+      path.join(fixture.repositoryRoot, POINTER_PATH),
+      activePointerSource(FREEZE_TARGET_PATH, driftedDefaultManifest),
+      'utf8'
+    );
+    runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH, POINTER_PATH]);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'drift published manifest and pointer']);
+    runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
+    const liveDefaultSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    const liveDefaultTree = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+
+    runGit(fixture.repositoryRoot, ['switch', '--quiet', '-c', 'candidate-repair']);
+    const driftedManifest = await readFile(manifestFile, 'utf8');
+    await writeFile(
+      manifestFile,
+      `${driftedManifest.replace(`base: ${selectionBaseSha}`, `base: ${liveDefaultSha}`)}\nRepair generation.\n`,
+      'utf8'
+    );
+    runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH]);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'repair projection generation']);
+
+    const publishedRolling = readGitBlob(
+      fixture.repositoryRoot,
+      `${liveDefaultSha}:docs/work/rolling-plan.md`
+    )!;
+    await writeFile(
+      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      Buffer.concat([publishedRolling, Buffer.from('\nCandidate-only alternate publication claim.\n', 'utf8')])
+    );
+    runGit(fixture.repositoryRoot, ['add', 'docs/work/rolling-plan.md']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '--amend', '--no-edit']);
+    await expect(freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-22'
+    })).rejects.toThrow('do not equal the exact published live-default projection');
+    await writeFile(
+      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      publishedRolling
+    );
+    runGit(fixture.repositoryRoot, ['add', 'docs/work/rolling-plan.md']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '--amend', '--no-edit']);
+
+    const repaired = await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-22'
+    });
+    expect(repaired).toMatchObject({
+      status: 'ACTIVATED_INDEX_PENDING_COMMIT',
+      baseSha: liveDefaultSha,
+      baseTreeSha: liveDefaultTree,
+      candidateHeadSha: null
+    });
+    const repairedManifest = readGitBlob(fixture.repositoryRoot, `:${FREEZE_TARGET_PATH}`)!;
+    const repairedPointer = CodexDevelopmentParseActivePointerV2(
+      await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
+    );
+    expect<string>(repairedPointer.manifestDigest)
+      .toBe(CodexDevelopmentWorkPackageManifestDigest(repairedManifest));
+    const repairedRolling = await readFile(
+      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      'utf8'
+    );
+    expect(repairedRolling).toContain(`"exactMain": "${liveDefaultSha}"`);
+    expect(repairedRolling).toContain(`"exactMainTree": "${liveDefaultTree}"`);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 60_000);
 
 test('committed candidate replan rejects a stacked generation', async () => {
   const fixture = await createFreezeFixture();
