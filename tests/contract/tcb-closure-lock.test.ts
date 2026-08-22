@@ -134,6 +134,23 @@ test('TCB closure explicitly models direct OS parent-process identity without op
   )).toThrow('computed process member');
 });
 
+test('TCB closure admits only direct Bun data parser calls', () => {
+  for (const member of ['TOML', 'YAML']) {
+    expect(() => runtimeRelativeImportsFromSource(
+      'synthetic-bun-data-parser.ts',
+      `export const parsed = Bun.${member}.parse('value');`
+    )).not.toThrow();
+    expect(() => runtimeRelativeImportsFromSource(
+      'synthetic-bun-data-parser.ts',
+      `const parse = Bun.${member}.parse; export const parsed = parse('value');`
+    )).toThrow(`unclassified Bun namespace member Bun.${member}`);
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-bun-data-parser.ts',
+    "export const serialized = Bun.TOML.stringify({ install: {} });"
+  )).toThrow('unclassified Bun namespace member Bun.TOML');
+});
+
 test('TCB closure lock has the correct schema and trust revision', () => {
   expect(TCB_CLOSURE_LOCK.schema).toBe('sec-tcb-closure-lock-v2');
   expect(TCB_CLOSURE_LOCK.trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);

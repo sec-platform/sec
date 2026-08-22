@@ -72,10 +72,10 @@ test('test workspace namespace rejects path traversal and nested paths', () => {
   })).toThrow('SEC_TEST_WORKSPACE_RUN_CHILD requires SEC_TEST_WORKSPACE_NAMESPACE');
 });
 
-test('platform cleanup capability preserves ordinary Darwin fast tests without claiming retained Gate authority', () => {
+test('platform cleanup capability gives Darwin no destructive cleanup authority', () => {
   expect(testWorkspaceCleanupModeForPlatformV1('win32', false)).toBe('retained');
   expect(testWorkspaceCleanupModeForPlatformV1('linux', true)).toBe('retained');
-  expect(testWorkspaceCleanupModeForPlatformV1('darwin', false)).toBe('darwin-ordinary');
+  expect(testWorkspaceCleanupModeForPlatformV1('darwin', false)).toBe('darwin-os-managed');
   expect(testWorkspaceCleanupModeForPlatformV1('darwin', true)).toBe('unavailable');
   expect(testWorkspaceCleanupModeForPlatformV1('freebsd', false)).toBe('unavailable');
 });

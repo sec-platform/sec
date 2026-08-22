@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { lstatSync, mkdirSync, realpathSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { rawSha256 } from '../shared/canonical-primitives.ts';
@@ -20,7 +21,6 @@ import {
   resolveSecRuntimeCacheRootV1,
   secRuntimeStateEnvironmentV1
 } from '../shared/sec-runtime-state-contract.ts';
-
 export { pathEnvKey } from '../shared/process.ts';
 
 export const TEST_WORKSPACE_NAMESPACE_ENV = 'SEC_TEST_WORKSPACE_NAMESPACE';
@@ -93,11 +93,7 @@ type PreparedTestWorkspaceRunStateV1 =
       settled: boolean;
     }
   | {
-      readonly mode: 'darwin-ordinary';
-      readonly targetPath: string;
-      readonly tombstonePath: string;
-      readonly device: bigint;
-      readonly inode: bigint;
+      readonly mode: 'darwin-os-managed';
       settled: boolean;
     };
 
@@ -742,6 +738,13 @@ export function getTestWorkspaceTempRoot(env: NodeJS.ProcessEnv = process.env): 
   const physicalCompilerRoot = realpathSync.native(compilerRoot);
   const root = hasBoundGateChild
     ? path.join(compilerRoot, '.tmp', 'test-workspaces')
+    : process.platform === 'darwin'
+      ? path.join(
+          tmpdir(),
+          'sec-test-workspaces',
+          'v1',
+          rawSha256(physicalCompilerRoot).slice('sha256:'.length)
+        )
     : path.join(
         resolveSecRuntimeCacheRootV1({
           platform: currentSecRuntimePlatformV1(),
@@ -769,9 +772,9 @@ export function getTestWorkspaceTemplateRoot(env: NodeJS.ProcessEnv = process.en
 export function testWorkspaceCleanupModeForPlatformV1(
   platform: NodeJS.Platform,
   callerAssigned: boolean
-): 'darwin-ordinary' | 'retained' | 'unavailable' {
+): 'darwin-os-managed' | 'retained' | 'unavailable' {
   if (platform === 'win32' || platform === 'linux') return 'retained';
-  if (platform === 'darwin' && !callerAssigned) return 'darwin-ordinary';
+  if (platform === 'darwin' && !callerAssigned) return 'darwin-os-managed';
   return 'unavailable';
 }
 
@@ -794,27 +797,12 @@ export function prepareTestWorkspaceRunV1(
   if (cleanupMode === 'unavailable') {
     throw new Error('Test workspace cleanup capability is unavailable on this platform');
   }
-  if (cleanupMode === 'darwin-ordinary') {
+  if (cleanupMode === 'darwin-os-managed') {
     mkdirSync(parentPath, { recursive: true });
-    const parentMetadata = lstatSync(parentPath, { bigint: true });
-    if (!parentMetadata.isDirectory() || parentMetadata.isSymbolicLink() ||
-      path.resolve(realpathSync(parentPath)) !== path.resolve(parentPath)) {
-      throw new Error('Darwin ordinary test workspace parent is not an exact directory');
-    }
     mkdirSync(targetPath);
-    const targetMetadata = lstatSync(targetPath, { bigint: true });
-    if (!targetMetadata.isDirectory() || targetMetadata.isSymbolicLink() ||
-      path.resolve(realpathSync(targetPath)) !== path.resolve(targetPath) ||
-      targetMetadata.dev === 0n || targetMetadata.ino === 0n) {
-      throw new Error('Darwin ordinary test workspace identity is ambiguous');
-    }
     const token = Object.freeze({ schema: 'prepared-test-workspace-run-v1' as const });
     preparedTestWorkspaceRuns.set(token, {
-      mode: 'darwin-ordinary',
-      targetPath,
-      tombstonePath: path.join(parentPath, `.retired-${randomBytes(32).toString('hex')}`),
-      device: targetMetadata.dev,
-      inode: targetMetadata.ino,
+      mode: 'darwin-os-managed',
       settled: false
     });
     return token;
@@ -849,24 +837,10 @@ export function settlePreparedTestWorkspaceRunV1(token: PreparedTestWorkspaceRun
   if (state === undefined || state.settled) {
     throw new Error('Test workspace run cleanup capability is invalid or already consumed');
   }
-  if (state.mode === 'darwin-ordinary') {
-    const before = lstatSync(state.targetPath, { bigint: true });
-    if (!before.isDirectory() || before.isSymbolicLink() || before.dev !== state.device || before.ino !== state.inode ||
-      path.resolve(realpathSync(state.targetPath)) !== path.resolve(state.targetPath)) {
-      throw new Error('Darwin ordinary test workspace identity changed before cleanup');
-    }
-    renameSync(state.targetPath, state.tombstonePath);
-    const moved = lstatSync(state.tombstonePath, { bigint: true });
-    if (!moved.isDirectory() || moved.isSymbolicLink() || moved.dev !== state.device || moved.ino !== state.inode) {
-      throw new Error('Darwin ordinary test workspace rename selected a replacement');
-    }
-    rmSync(state.tombstonePath, { recursive: true, force: false });
-    try {
-      lstatSync(state.tombstonePath);
-      throw new Error('Darwin ordinary test workspace cleanup did not reach absence');
-    } catch (error) {
-      if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error;
-    }
+  if (state.mode === 'darwin-os-managed') {
+    // Darwin's path APIs cannot condition recursive deletion on the directory
+    // identity retained at creation. The OS temporary lifecycle owns eventual
+    // reclamation; SEC deliberately holds no destructive cleanup authority.
     state.settled = true;
     return;
   }
