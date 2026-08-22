@@ -33,7 +33,7 @@ import {
   type CodexDevelopmentExactGitBlobReadOptionsV1
 } from './codex/exact-git-blob.ts';
 import {
-  CodexDevelopmentParseWorkPackageManifestV1,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
 } from './codex/work-package-contract.ts';
 
@@ -174,10 +174,7 @@ function manifestBinding(
   } catch (error) {
     throw new Error('Work Package manifest exact Git blob is not strict UTF-8.', { cause: error });
   }
-  const manifest = CodexDevelopmentParseWorkPackageManifestV1(text, manifestPath);
-  if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
-    throw new Error('Work Package manifest does not target the current CI verification revision.');
-  }
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(text, manifestPath);
   return {
     manifestPath,
     manifestDigest: CodexDevelopmentWorkPackageManifestDigest(source)

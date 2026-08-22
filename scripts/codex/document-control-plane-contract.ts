@@ -15,7 +15,7 @@ import {
   type SecWorkRollingTransitionAuthorityV1
 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
-  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest,
   type CodexDevelopmentWorkPackageManifest
 } from './work-package-contract.ts';
@@ -695,7 +695,7 @@ export function CodexDevelopmentClassifyWorkPackageCensusV1(input: Readonly<{
   if (selectedEntry === undefined) {
     throw new Error('Work Package census does not contain the selected manifest.');
   }
-  const selectedManifest = CodexDevelopmentParseWorkPackageManifest(
+  const selectedManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
     decodeCensusManifest(selectedEntry.candidateBytes, 'Selected Work Package census manifest'),
     selectedEntry.path
   );
@@ -718,7 +718,7 @@ export function CodexDevelopmentClassifyWorkPackageCensusV1(input: Readonly<{
     const item = catalogByPath.get(entry.path);
     if (item === undefined || entry.defaultBytes === null
         || !rawBytesEqual(entry.candidateBytes, entry.defaultBytes)) return false;
-    const predecessor = CodexDevelopmentParseWorkPackageManifest(
+    const predecessor = CodexDevelopmentParseCurrentWorkPackageManifestV1(
       decodeCensusManifest(entry.candidateBytes, `Published predecessor ${entry.path}`),
       entry.path
     );
@@ -1108,7 +1108,7 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
   } catch (error) {
     throw new Error('Work Package manifest bytes must be valid UTF-8.', { cause: error });
   }
-  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, manifestPath);
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(manifestSource, manifestPath);
   if (manifest.base !== input.baseSha) {
     throw new Error('Work Package manifest base must equal the exact live default revision.');
   }
@@ -1129,7 +1129,7 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
   } catch (error) {
     throw new Error('Current Work Package manifest bytes must be valid UTF-8.', { cause: error });
   }
-  const currentManifest = CodexDevelopmentParseWorkPackageManifest(
+  const currentManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
     currentManifestSource,
     currentPointer.manifest
   );

@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-plan.ts';
+
 export const CodexDevelopmentWorkPackageSchemaV1 = 'codex-development-work-package-v1' as const;
 export const CodexDevelopmentWorkPackageManifestStateFrozen = 'frozen' as const;
 
@@ -386,13 +388,16 @@ export function CodexDevelopmentParseWorkPackageManifestV1(
 
   const acceptance = stringArray(raw.acceptance, 'Work Package manifest acceptance');
   const tests = stringArray(raw.tests, 'Work Package manifest tests');
-  tests.forEach((testPath, index) => {
-    const label = `Work Package manifest tests[${index}]`;
-    assertOwnershipPath(testPath, label);
-    if (!/^tests\/(?:[^/]+\/)*[^/]+\.test\.ts$/u.test(testPath)) {
-      throw new Error(`${label} must name one canonical tests/**/*.test.ts module.`);
-    }
-  });
+  const ciRevisionNumber = Number(ciRevision.slice('ci-verification-v'.length));
+  if (ciRevisionNumber >= 19) {
+    tests.forEach((testPath, index) => {
+      const label = `Work Package manifest tests[${index}]`;
+      assertOwnershipPath(testPath, label);
+      if (!/^tests\/(?:[^/]+\/)*[^/]+\.test\.ts$/u.test(testPath)) {
+        throw new Error(`${label} must name one canonical tests/**/*.test.ts module.`);
+      }
+    });
+  }
   const authorityRefs = raw.authorityRefs === undefined
     ? undefined
     : stableIdArray(raw.authorityRefs, 'Work Package manifest authorityRefs');
@@ -423,9 +428,27 @@ export function CodexDevelopmentParseWorkPackageManifest(
 ): CodexDevelopmentWorkPackageManifest {
   const schema = parseManifestRaw(source).schema;
   if (schema === CodexDevelopmentWorkPackageSchemaV1) {
-    return CodexDevelopmentParseWorkPackageManifestV1(source, expectedPath);
+    return CodexDevelopmentAssertCurrentWorkPackageRevisionV1(
+      CodexDevelopmentParseWorkPackageManifestV1(source, expectedPath)
+    );
   }
   throw new Error('Work Package manifest schema is unsupported.');
+}
+
+export function CodexDevelopmentAssertCurrentWorkPackageRevisionV1(
+  manifest: CodexDevelopmentWorkPackageManifestV1
+): CodexDevelopmentWorkPackageManifestV1 {
+  if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
+    throw new Error('Work Package manifest does not target the current CI verification revision.');
+  }
+  return manifest;
+}
+
+export function CodexDevelopmentParseCurrentWorkPackageManifestV1(
+  source: string,
+  expectedPath?: string
+): CodexDevelopmentWorkPackageManifestV1 {
+  return CodexDevelopmentParseWorkPackageManifest(source, expectedPath);
 }
 
 export function CodexDevelopmentAssertWorkPackageOwnership(

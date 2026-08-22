@@ -12,7 +12,7 @@ import {
   observeGitHubPullRequestClosingFactsV1
 } from './issue-disposition-github.ts';
 import {
-  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
 
@@ -71,7 +71,7 @@ function readManifest(manifestPath: string) {
   if (!Buffer.from(source, 'utf8').equals(sourceBytes)) return fail('manifest must be valid UTF-8 bytes.');
   return Object.freeze({ path: normalized, sourceBytes, source,
     digest: CodexDevelopmentWorkPackageManifestDigest(sourceBytes) as IssueDispositionDigestV1,
-    manifest: CodexDevelopmentParseWorkPackageManifest(source, normalized) });
+    manifest: CodexDevelopmentParseCurrentWorkPackageManifestV1(source, normalized) });
 }
 
 function writeDurable(outputPath: string, source: string): void {

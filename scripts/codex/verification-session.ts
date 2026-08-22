@@ -223,6 +223,7 @@ import {
 } from './verification-session-runtime.ts';
 import {
   CodexDevelopmentAssertWorkPackageOwnership,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
@@ -2304,7 +2305,7 @@ function observeHostedTrackingIssueDispositionV1(input: Readonly<{
   if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== session.manifestDigest) {
     throw new Error('IssueDisposition exact merged manifest bytes differ from the Session.');
   }
-  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, session.manifestPath);
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(manifestSource, session.manifestPath);
   const plan = observeExactIssueDispositionPlanV1({
     github,
     repository,
@@ -3648,7 +3649,7 @@ function evaluateFreshHostedIntegration(input: {
   if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== artifact.session.manifestDigest) {
     throw new Error('Hosted integration Issue disposition manifest bytes drifted.');
   }
-  const manifest = CodexDevelopmentParseWorkPackageManifest(
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
     manifestSource,
     artifact.session.manifestPath
   );
@@ -4309,7 +4310,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const manifestPath = CodexDevelopmentParseWorkPackageLocator(candidate.body);
     const manifestSource = github.readBlobText(repository, candidate.headSha, manifestPath);
     const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestSource) as `sha256:${string}`;
-    const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource);
+    const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(manifestSource);
     if (manifest.schema !== 'codex-development-work-package-v1') {
       throw new Error('prepare currently requires the canonical V1 Work Package requiredProfile field.');
     }
@@ -4571,7 +4572,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (CodexDevelopmentParseWorkPackageLocator(candidate.body) !== request.manifestPath) throw new Error('observe-hosted manifest locator drifted.');
     const manifestSource = github.readBlobText(repository, request.expectedHeadSha, request.manifestPath);
     if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== request.manifestDigest) throw new Error('observe-hosted manifest digest drifted.');
-    const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource);
+    const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(manifestSource);
     const changedSelection = observeVerificationSessionChangedSelectionV1({
       repositoryRoot,
       repository,
@@ -5084,7 +5085,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         candidate,
         manifestPath: artifact.session.manifestPath,
         manifestDigest: artifact.session.manifestDigest,
-        tracking: CodexDevelopmentParseWorkPackageManifest(
+        tracking: CodexDevelopmentParseCurrentWorkPackageManifestV1(
           github.readBlobText(repository, artifact.session.headSha, artifact.session.manifestPath),
           artifact.session.manifestPath
         ).tracking

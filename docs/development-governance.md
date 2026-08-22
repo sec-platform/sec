@@ -858,6 +858,13 @@ Manifest 冻结：
 - acceptance、tests、profile和Evidence；
 - completion、migration、readback和cleanup。
 
+Manifest 中随 Verification 合同演进的约束必须绑定 `ciRevision`，不得回写同一 schema 的历史语义。
+`ci-verification-v19` 起，`tests[]` 只保存 canonical `tests/**/*.test.ts` 模块，不再保存命令、参数、
+环境变量或组合批次；执行 argv 由 Verification/Test Provider 从这些模块和当前责任、影响、资源合同派生。
+旧 revision 的命令式 `tests[]` 只允许作为不可变历史 Evidence 被 parser 读取，不能通过 current-revision
+activation。以后新增约束必须在新 revision 分支落地，并同时保留历史 parse 哨兵；禁止无版本地收紧旧
+revision、批量改写历史 Work Package，或让测试 fixture 比它声明的 revision 更早采用未来规则。
+
 Work Package planning 与 Verification freeze 是两个状态边界。首次 candidate publication、外部
 Evidence 或 Review 之前，A0 必须能以 expected-old CAS 执行 `replan` 或 `abort`：撤销 prospective
 pointer/rolling projection、使旧 ScopeGrant proposal失效并在同一 worktree/ref 重算 manifest；不得
@@ -898,10 +905,28 @@ WorkDecision/selection owner。
 candidate tree的NUL-safe Git delta证明变化只包含manifest、active pointer和rolling plan三个projection target。
 任一业务/架构路径变化、缺失/非committed projection或无法读取source tree都强制生成新projection；只剩这三个
 compiler输出的delta才是收敛NOOP。Resolver与freeze不得各自再定义另一套manifest/head/tree新鲜度规则。
+该delta只决定projection是否过期，不授予candidate scope：非projection path必须产生新的source tree绑定，
+但其owned/forbidden legality仍由Work Package Gate独立裁决；禁止把projection freshness误当成scope bypass或
+在freeze中复制第二套scope owner。
 projection对exact main/tree的绑定只约束manifest尚未进入default的prospective active阶段。只要resolver从
 fresh default读取到与pointer digest完全相同的manifest blob，该projection就成为不可变transition history；
 此时不得再要求它绑定包含自身的post-merge commit，否则每次成功发布都会在new main上自锁status并阻断
 reorientation。published状态必须返回typed `none/matching-default-blob`；digest不一致、default不可用或观察竞争
+均不得被解释为完成。若同一published control后来被main上的独立提交单边改写，唯一freeze owner只允许一个
+`published projection drift repair`：pointer必须与rolling active digest、live-default manifest digest中的
+恰好一侧相等；三者全等表示已完成，pointer两侧都不匹配则没有authority anchor，两种情况都拒绝replan。
+旧machine projection必须是
+`committed-candidate-replan`，其exact main/tree必须能从Git对象逐项读回且exact main是当前live default的祖先，
+source head必须以旧exact main为sole parent，source tree、manifest、pointer与rolling原始bytes必须全部匹配
+projection中记录的authority；此外，旧exact main之后沿live-default first-parent ancestry的第一个commit必须以
+旧exact main为sole parent，且该published commit中的manifest、pointer和rolling完整原始bytes必须逐项绑定
+同一个active identity/digest并与candidate携带的旧rolling逐字相等。candidate自造的alternate child/source或
+alternate rolling即使内部digest自洽，也不能成为publication authority。live-default manifest与新candidate
+manifest还必须保持同一package、tracking和path，
+而新candidate仍以当前live default为sole parent并把manifest base更新到该exact revision。满足这些证明后才由
+同一个全文renderer、transaction、expected-old CAS与readback重投影；matching pointer、非祖先、tree/bytes
+不匹配或identity变化继续fail closed。禁止手改pointer/rolling、把任意published path重新激活，或建立第二个
+repair命令。
 仍分别保持`invalid`/`unresolved`，不能借历史化放宽。
 document-control的全部Git子进程（包括blob、index、tree、ref与remote observation）统一消费
 `platform/shared/git-read-environment.ts`的isolated read environment；cwd/argv与resolver显式生成的

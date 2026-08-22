@@ -162,6 +162,19 @@ test('hosted PRE requires every stale default-branch Work Package to be deleted'
     ],
     defaultPackagePaths: [predecessorPath]
   })).toThrow(/not activatable/u);
+  for (const historicalOrFuture of ['ci-verification-v18', 'ci-verification-v20']) {
+    expect(() => assertAgentOperationActivationWorkPackageCensusV1({
+      selectedManifestPath: selectedPath,
+      candidateEntries: [{
+        path: selectedPath,
+        candidateBytes: Buffer.from(selectedBytes.toString('utf8').replace(
+          'ci-verification-v19', historicalOrFuture
+        ), 'utf8'),
+        defaultBytes: null
+      }],
+      defaultPackagePaths: []
+    })).toThrow(/current CI verification revision/u);
+  }
 });
 
 test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE scope', () => {

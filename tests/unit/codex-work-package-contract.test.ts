@@ -34,7 +34,7 @@ forbiddenPaths:
 acceptance:
   - exact-head-evidence
 tests:
-  - bun run typecheck
+  - tests/unit/codex-work-package-contract.test.ts
 ${overrides}---
 
 # B0 Bootstrap
@@ -134,6 +134,14 @@ test('Work Package parser exposes one V1 authority route and rejects retired V2 
   );
   expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifestV2()))
     .toThrow('schema is unsupported');
+  for (const historicalOrFuture of ['ci-verification-v18', 'ci-verification-v20'] as const) {
+    expect(() => CodexDevelopmentParseWorkPackageManifest(
+      manifest().replace('ci-verification-v19', historicalOrFuture)
+    )).toThrow('current CI verification revision');
+    expect(CodexDevelopmentParseWorkPackageManifestV1(
+      manifest().replace('ci-verification-v19', historicalOrFuture)
+    ).ciRevision).toBe(historicalOrFuture);
+  }
 });
 
 test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous scope', () => {
@@ -151,6 +159,14 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
       manifest().replace('ci-verification-v19', revision)
     )).toThrow('stable positive verification revision');
   }
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace('tests/unit/codex-work-package-contract.test.ts', 'bun run typecheck')
+  )).toThrow('canonical tests/**/*.test.ts module');
+  expect(CodexDevelopmentParseWorkPackageManifestV1(
+    manifest()
+      .replace('ci-verification-v19', 'ci-verification-v18')
+      .replace('tests/unit/codex-work-package-contract.test.ts', 'bun run typecheck')
+  ).tests).toEqual(['bun run typecheck']);
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
     manifest().replace('id: b0-bootstrap-v1', 'id: !custom b0-bootstrap-v1')
   )).toThrow('YAML tags are forbidden');
@@ -220,7 +236,7 @@ test('built-in Work Package YAML preserves every tracked historical manifest val
     expect(legacy.warnings).toEqual([]);
     const parsed = manifestPath.startsWith('docs/work-packages/')
       ? CodexDevelopmentParseWorkPackageManifest(source, manifestPath)
-      : CodexDevelopmentParseWorkPackageManifest(source);
+      : CodexDevelopmentParseWorkPackageManifestV1(source);
     expect(ids.has(parsed.id)).toBe(false);
     ids.add(parsed.id);
     expect(parsed).toEqual(legacy.toJS({ maxAliasCount: 0 }));

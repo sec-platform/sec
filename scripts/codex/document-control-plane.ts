@@ -61,7 +61,7 @@ import {
 } from './document-control-plane-github-observation.ts';
 import { observeMainHealthRepairDecisionV1 } from './main-health-repair.ts';
 import {
-  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
 import { observeSecWorkSelectionLiveV1 } from './work-selection.ts';
@@ -5247,7 +5247,7 @@ function assertCommittedCandidateReplanAuthorityV1(input: {
     `${input.headSha}:${input.manifestPath}`,
     'Committed candidate Work Package manifest'
   );
-  const manifest = CodexDevelopmentParseWorkPackageManifest(
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
     decodeUtf8(manifestBytes, 'Committed candidate Work Package manifest'),
     input.manifestPath
   );
@@ -5263,11 +5263,138 @@ function assertCommittedCandidateReplanAuthorityV1(input: {
     throw new Error('Committed candidate replan requires the prior machine projection identity.');
   }
   if (rollingMachine !== null) {
-    CodexDevelopmentAssertRollingMachineBaseBindingV1({
-      projection: rollingMachine,
-      exactMain: input.trustedDefaultSha,
-      exactMainTree: input.trustedDefaultTree
-    });
+    if (rollingMachine.exactMain === input.trustedDefaultSha) {
+      CodexDevelopmentAssertRollingMachineBaseBindingV1({
+        projection: rollingMachine,
+        exactMain: input.trustedDefaultSha,
+        exactMainTree: input.trustedDefaultTree
+      });
+    } else {
+      if (rollingMachine.schema !== 'sec-work-rolling-transition-projection-v1'
+          || rollingMachine.authority.kind !== 'committed-candidate-replan') {
+        throw new Error(
+          'Committed candidate replan can repair only one fully bound historical committed-candidate projection.'
+        );
+      }
+      const historicalBaseTree = shaValue(requireCommand(
+        run('git', ['rev-parse', `${rollingMachine.exactMain}^{tree}`], input.repositoryRoot),
+        'Historical rolling base tree'
+      ), 'Historical rolling base tree');
+      if (historicalBaseTree !== rollingMachine.exactMainTree) {
+        throw new Error('Historical rolling projection tree does not bind its exact recorded base revision.');
+      }
+      const historicalBaseAncestry = run(
+        'git',
+        ['merge-base', '--is-ancestor', rollingMachine.exactMain, input.trustedDefaultSha],
+        input.repositoryRoot
+      );
+      if (historicalBaseAncestry.code !== 0) {
+        throw new Error('Historical rolling projection base is not an ancestor of the live default.');
+      }
+      const publicationChain = requireCommand(
+        run('git', [
+          'rev-list',
+          '--first-parent',
+          '--ancestry-path',
+          '--reverse',
+          `${rollingMachine.exactMain}..${input.trustedDefaultSha}`
+        ], input.repositoryRoot),
+        'Published rolling projection ancestry'
+      ).split(/\s+/u);
+      const publicationCommit = publicationChain[0];
+      if (publicationCommit === undefined) {
+        throw new Error('Historical rolling projection has no published live-default generation.');
+      }
+      const publicationAncestry = requireCommand(
+        run('git', ['rev-list', '--parents', '-n', '1', publicationCommit], input.repositoryRoot),
+        'Published rolling projection commit ancestry'
+      ).split(/\s+/u);
+      if (publicationAncestry.length !== 2
+          || publicationAncestry[0] !== publicationCommit
+          || publicationAncestry[1] !== rollingMachine.exactMain) {
+        throw new Error(
+          'Published rolling projection must be the sole-parent first live-default generation after its exact base.'
+        );
+      }
+      const publishedRollingBytes = requireGitBlob(
+        input.repositoryRoot,
+        `${publicationCommit}:${RollingPlanPath}`,
+        'Published rolling projection bytes'
+      );
+      if (!publishedRollingBytes.equals(rollingBytes)) {
+        throw new Error('Candidate rolling bytes do not equal the exact published live-default projection.');
+      }
+      const publishedPointerSource = decodeUtf8(requireGitBlob(
+        input.repositoryRoot,
+        `${publicationCommit}:${ActivePointerPath}`,
+        'Published rolling projection pointer'
+      ), 'Published rolling projection pointer');
+      const publishedPointer = CodexDevelopmentParseActivePointerV2(publishedPointerSource);
+      const publishedManifestBytes = requireGitBlob(
+        input.repositoryRoot,
+        `${publicationCommit}:${input.manifestPath}`,
+        'Published rolling projection manifest'
+      );
+      const publishedManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
+        decodeUtf8(publishedManifestBytes, 'Published rolling projection manifest'),
+        input.manifestPath
+      );
+      const publishedManifestDigest = CodexDevelopmentWorkPackageManifestDigest(publishedManifestBytes);
+      if (publishedPointer.manifest !== input.manifestPath
+          || publishedPointer.manifestDigest !== publishedManifestDigest
+          || rollingMachine.active.manifestDigest !== publishedManifestDigest
+          || publishedManifest.id !== rollingMachine.active.packageId
+          || publishedManifest.tracking !== rollingMachine.active.tracking) {
+        throw new Error('Historical rolling authority does not bind the exact published control generation.');
+      }
+      const sourceAuthority = rollingMachine.authority;
+      const sourceAncestry = requireCommand(
+        run('git', ['rev-list', '--parents', '-n', '1', sourceAuthority.sourceHead], input.repositoryRoot),
+        'Historical committed-candidate source ancestry'
+      ).split(/\s+/u);
+      if (sourceAncestry.length !== 2
+          || sourceAncestry[0] !== sourceAuthority.sourceHead
+          || sourceAncestry[1] !== rollingMachine.exactMain) {
+        throw new Error(
+          'Historical committed-candidate source must have the recorded rolling base as its sole parent.'
+        );
+      }
+      const sourceTree = shaValue(requireCommand(
+        run('git', ['rev-parse', `${sourceAuthority.sourceHead}^{tree}`], input.repositoryRoot),
+        'Historical committed-candidate source tree'
+      ), 'Historical committed-candidate source tree');
+      if (sourceTree !== sourceAuthority.sourceTree) {
+        throw new Error('Historical committed-candidate source tree does not match its recorded authority.');
+      }
+      const sourceManifestBytes = requireGitBlob(
+        input.repositoryRoot,
+        `${sourceAuthority.sourceHead}:${input.manifestPath}`,
+        'Historical committed-candidate source manifest'
+      );
+      const sourceManifestDigest = CodexDevelopmentWorkPackageManifestDigest(sourceManifestBytes);
+      if (sourceManifestDigest !== sourceAuthority.sourceManifestDigest) {
+        throw new Error('Historical committed-candidate manifest does not bind its recorded source digest.');
+      }
+      const sourcePointer = decodeUtf8(requireGitBlob(
+        input.repositoryRoot,
+        `${sourceAuthority.sourceHead}:${ActivePointerPath}`,
+        'Historical committed-candidate source pointer'
+      ), 'Historical committed-candidate source pointer');
+      const sourceRolling = decodeUtf8(requireGitBlob(
+        input.repositoryRoot,
+        `${sourceAuthority.sourceHead}:${RollingPlanPath}`,
+        'Historical committed-candidate source rolling plan'
+      ), 'Historical committed-candidate source rolling plan');
+      if (rawSha256(sourcePointer) !== sourceAuthority.sourcePointerRevision
+          || rawSha256(sourceRolling) !== sourceAuthority.sourceRollingRevision) {
+        throw new Error('Historical committed-candidate control bytes do not match their recorded authority.');
+      }
+      const parsedSourcePointer = CodexDevelopmentParseActivePointerV2(sourcePointer);
+      if (parsedSourcePointer.manifest !== input.manifestPath
+          || parsedSourcePointer.manifestDigest !== sourceManifestDigest) {
+        throw new Error('Historical committed-candidate source does not bind its exact manifest.');
+      }
+    }
     if (rollingMachine.active.packageId !== manifest.id
         || rollingMachine.active.tracking !== manifest.tracking
         || (rollingMachine.schema === 'sec-work-rolling-transition-projection-v1'
@@ -5280,7 +5407,24 @@ function assertCommittedCandidateReplanAuthorityV1(input: {
     `${input.trustedDefaultSha}:${input.manifestPath}`
   );
   if (defaultManifestBlob !== undefined) {
-    throw new Error('Committed candidate replan rejects a Work Package path already present on the live default.');
+    const defaultManifestDigest = CodexDevelopmentWorkPackageManifestDigest(defaultManifestBlob);
+    const pointerBindsDefault = defaultManifestDigest === pointer.manifestDigest;
+    const pointerBindsRolling = rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
+      && rollingMachine.active.manifestDigest === pointer.manifestDigest;
+    if (rollingMachine?.schema !== 'sec-work-rolling-transition-projection-v1'
+        || rollingMachine.exactMain === input.trustedDefaultSha
+        || pointerBindsDefault === pointerBindsRolling) {
+      throw new Error(
+        'Published projection drift repair requires the active pointer to bind exactly one of rolling or default.'
+      );
+    }
+    const defaultManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
+      decodeUtf8(defaultManifestBlob, 'Live-default drifted Work Package manifest'),
+      input.manifestPath
+    );
+    if (defaultManifest.id !== manifest.id || defaultManifest.tracking !== manifest.tracking) {
+      throw new Error('Published Work Package drift repair cannot replace package or tracking identity.');
+    }
   }
   const sourceTree = shaValue(
     requireCommand(
@@ -6060,7 +6204,18 @@ export async function freezeDocumentControlPlaneV1(input: {
     }
     const indexedTargetManifest = snapshot.targetManifestBlob;
     const defaultTargetManifest = readGitBlob(repositoryRoot, `${localDefaultSha}:${input.manifestPath}`);
-    if (defaultTargetManifest !== undefined) {
+    const immutableRollingMachine = CodexDevelopmentParseRollingMachineProjectionV1(
+      immutableRollingPlanSource
+    );
+    const publishedManifestDriftRepair = defaultTargetManifest !== undefined
+      && committedCandidateReplanAuthority !== undefined
+      && immutableRollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
+      && (
+        CodexDevelopmentWorkPackageManifestDigest(defaultTargetManifest) === immutablePointer.manifestDigest
+      ) !== (
+        immutableRollingMachine.active.manifestDigest === immutablePointer.manifestDigest
+      );
+    if (defaultTargetManifest !== undefined && !publishedManifestDriftRepair) {
       throw new Error('Work Package manifest path is already published on the live default ref.');
     }
 
@@ -6093,7 +6248,7 @@ export async function freezeDocumentControlPlaneV1(input: {
     const requestedRollingPlanSource = rollingPlanWorktree.equals(rollingPlanPre)
       ? indexedControlMatchesPriorProjection ? snapshot.rollingPlanSource : undefined
       : decodeUtf8(rollingPlanWorktree, 'Requested rolling-plan projection');
-    const targetManifest = CodexDevelopmentParseWorkPackageManifest(
+    const targetManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
       decodeUtf8(manifestBytes, 'Work Package manifest'),
       input.manifestPath
     );
@@ -6120,6 +6275,9 @@ export async function freezeDocumentControlPlaneV1(input: {
         }),
         permittedProjectionDeltaPaths: targetSet
       });
+    // This delta is projection-freshness input, not Work Package scope authority.
+    // A non-projection path forces a new digest-bound projection; the Work Package
+    // Gate independently owns whether that candidate path is permitted at all.
     let workSelectionProjection: CodexDevelopmentWorkSelectionProjectionV1 | undefined;
     let mainHealthRepairProjection: CodexDevelopmentMainHealthRepairProjectionV1 | undefined;
     if (targetManifest.id !== immutableRolling.activePackageId
@@ -6727,7 +6885,7 @@ export async function resolveLiveControlPlane(
 
   const candidateManifestBlob = snapshot.candidateManifestBlob;
   if (rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1') {
-    const candidateManifest = CodexDevelopmentParseWorkPackageManifest(
+    const candidateManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
       decodeUtf8(candidateManifestBlob, 'Rolling transition active manifest'),
       pointer.manifest
     );
