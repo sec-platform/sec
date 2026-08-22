@@ -11,7 +11,15 @@ import {
 } from '../../platform/shared/ci-git-changed-files.ts';
 import { uniqueSorted } from '../../platform/shared/collections.ts';
 import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
-import { CodexDevelopmentReadExactGitBlobEntryV1 } from './exact-git-blob.ts';
+import {
+  createTestImpactSourceProviderV2,
+  type CodexDevelopmentTestImpactSourceProviderV2
+} from '../../platform/shared/test-impact-contract.ts';
+import {
+  CodexDevelopmentListExactGitTreeEntriesV1,
+  CodexDevelopmentReadExactGitBlobEntryV1,
+  CodexDevelopmentReadExactGitTextBlobsBatchV1
+} from './exact-git-blob.ts';
 
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT_V1 = 24_000;
 
@@ -122,6 +130,44 @@ export function CodexDevelopmentDefaultChangedFilesV1(
   headSha: string
 ): string[] | null {
   return CodexDevelopmentDefaultChangedPathsV1(repositoryRoot, baseSha, headSha)?.files ?? null;
+}
+
+/**
+ * The trusted base observes the candidate commit as immutable Git data. The
+ * candidate never executes its own selector implementation or chooses files.
+ */
+export function CodexDevelopmentExactGitTestImpactSourceProviderV1(
+  repositoryRoot: string,
+  candidateSha: string
+): CodexDevelopmentTestImpactSourceProviderV2 {
+  const treeEntries = CodexDevelopmentListExactGitTreeEntriesV1({
+    repositoryRoot,
+    commitSha: candidateSha
+  });
+  const entriesByPath = new Map(treeEntries.map((entry) => [entry.repositoryPath, entry]));
+  let provider!: CodexDevelopmentTestImpactSourceProviderV2;
+  let sourceByPath: ReadonlyMap<string, string> | null = null;
+  provider = createTestImpactSourceProviderV2({
+    repositoryFiles: treeEntries.map(({ repositoryPath }) => repositoryPath),
+    readModuleSource: (moduleFile) => {
+      if (sourceByPath === null) {
+        const ordinaryModuleEntries = provider.moduleFiles.flatMap((repositoryPath) => {
+          const entry = entriesByPath.get(repositoryPath);
+          return entry !== undefined
+              && (entry.mode === '100644' || entry.mode === '100755')
+              && entry.type === 'blob'
+            ? [entry]
+            : [];
+        });
+        sourceByPath = new Map(CodexDevelopmentReadExactGitTextBlobsBatchV1({
+          repositoryRoot,
+          entries: ordinaryModuleEntries
+        }).map(({ repositoryPath, source }) => [repositoryPath, source]));
+      }
+      return sourceByPath.get(moduleFile) ?? null;
+    }
+  });
+  return provider;
 }
 
 export function CodexDevelopmentRunGateProcessV1(

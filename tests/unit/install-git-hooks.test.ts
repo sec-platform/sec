@@ -19,7 +19,6 @@ test('tracked hooks bind dependency preparation and candidate freeze without amb
   expect(preCommit).not.toContain('SEC_CHANGED_BASE');
   expect(preCommit).not.toContain('\r');
   expect(prePush).toContain('bun ./platform/dev-runner.ts imports:freeze');
-  expect(prePush).toContain('bun ./scripts/ci-verification.ts tcb-closure-lock --mode check');
   expect(prePush).toContain('git diff --cached --quiet HEAD');
   expect(prePush).not.toContain('\r');
   for (const dependencyHook of [postCheckout, postMerge, postRewrite]) {

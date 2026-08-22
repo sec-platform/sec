@@ -46,13 +46,10 @@ const REQUIRED_STATIC_EXACT_PATHS = [
   'scripts/codex/trusted-runtime.Dockerfile'
 ] as const;
 
-const REQUIRED_REVIEWED_BOUNDARY_EDGES = [
-  'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts',
-  'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
-] as const;
+const REQUIRED_REVIEWED_BOUNDARY_EDGES = [] as const;
 
 // These are invariant privileged surfaces, not an import-graph inventory. The
-// generated lock remains the sole owner of the complete derived closure.
+// exact-tree compiler remains the sole owner of the complete derived closure.
 const REQUIRED_PRIVILEGED_RUNTIME_SURFACES = [
   'platform/shared/agent-operation-activation-contract.ts',
   'platform/shared/agent-operation-read-plan-contract.ts',
@@ -157,9 +154,14 @@ function assertPrefix(value: string, label: string): void {
     throw new Error(`${label} is not a canonical repository prefix.`);
 }
 
-function stringArray(value: unknown, label: string, maximum = 4_096): string[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) {
-    throw new Error(`${label} must be a non-empty bounded array.`);
+function stringArray(
+  value: unknown,
+  label: string,
+  maximum = 4_096,
+  allowEmpty = false
+): string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0) || value.length > maximum) {
+    throw new Error(`${label} must be a ${allowEmpty ? '' : 'non-empty '}bounded array.`);
   }
   const result = value.map((entry, index) => {
     assertBoundedNfc(entry, `${label}[${index}]`);
@@ -273,7 +275,12 @@ function validateSecTrustedBootstrapRegistryValueV3(value: unknown): SecTrustedB
   const staticPrefixes = stringArray(value.staticPrefixes, 'staticPrefixes', 128);
   const runtimeEntrypoints = stringArray(value.runtimeEntrypoints, 'runtimeEntrypoints');
   const reviewedSutEdges = stringArray(value.reviewedSutEdges, 'reviewedSutEdges');
-  const reviewedBoundaryEdges = stringArray(value.reviewedBoundaryEdges, 'reviewedBoundaryEdges');
+  const reviewedBoundaryEdges = stringArray(
+    value.reviewedBoundaryEdges,
+    'reviewedBoundaryEdges',
+    4_096,
+    true
+  );
 
   staticExactPaths.forEach((entry, index) => assertRepositoryPath(entry, `staticExactPaths[${index}]`, false));
   staticDirectoryPaths.forEach((entry, index) => assertRepositoryPath(entry, `staticDirectoryPaths[${index}]`, true));

@@ -50,6 +50,7 @@ import {
   type ScopeAuthorizationInputV1,
   type ScopeAuthorizationV1
 } from '../../platform/shared/scope-authorization-contract.ts';
+import type { CodexDevelopmentTestImpactSourceProviderV2 } from '../../platform/shared/test-impact-contract.ts';
 import {
   buildCiVerificationActionPlanClosureV1,
   CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
@@ -271,6 +272,7 @@ export function reconstructVerificationSessionHostedFactsV1(input: {
   candidate: GitHubCandidateObservationV1;
   changedPaths: readonly string[];
   testImpactTransition: CodexDevelopmentTestImpactTransitionObservationV1;
+  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV2;
   integrationPrincipalNodeId: string;
   producerPrincipalNodeId: string;
   sourceRunId: string;
@@ -323,7 +325,7 @@ export function reconstructVerificationSessionHostedFactsV1(input: {
   const plan = CodexDevelopmentBuildVerificationPlanV1(
     request.profile as 'quick' | 'full',
     input.changedPaths,
-    undefined,
+    input.testImpactSourceProvider,
     transition.observation
   );
   if (!plan.selectionResolved) throw new Error('observe-hosted verification plan selection is unresolved.');
@@ -442,7 +444,6 @@ export interface TrustedRuntimeProofV1 {
   localDefaultSha: string;
   remoteDefaultSha: string;
   workingTreeClean: boolean;
-  tcbClosureMatched: boolean;
   runtimeEntrypointBlobMatched: boolean;
   boundaryTargetsMatched: boolean;
 }
@@ -734,7 +735,6 @@ export function assertTrustedExactRevisionRuntimeV1(
     || proof.localDefaultSha !== expectedMainSha
     || (!allowRemoteMainTransition && proof.remoteDefaultSha !== expectedMainSha)
     || !proof.workingTreeClean
-    || !proof.tcbClosureMatched
     || !proof.runtimeEntrypointBlobMatched || !proof.boundaryTargetsMatched
   ) {
     throw new Error('VerificationSession runtime is not the clean exact trusted default revision TCB.');
@@ -783,7 +783,7 @@ export function assertTrustedMergedRequestRuntimeReachabilityV1(input: {
 }): void {
   const { proof, repository, prNumber, baseSha, headSha, headTreeSha, candidate, github } = input;
   if ((proof.currentBranch !== '' && proof.currentBranch !== 'main') || proof.currentHeadSha !== baseSha
-    || proof.localDefaultSha !== proof.remoteDefaultSha || !proof.workingTreeClean || !proof.tcbClosureMatched
+    || proof.localDefaultSha !== proof.remoteDefaultSha || !proof.workingTreeClean
     || !proof.runtimeEntrypointBlobMatched || !proof.boundaryTargetsMatched) {
     throw new Error('VerificationSession MERGED recovery is not executing the clean exact old-base trusted TCB with a synchronized local/live default.');
   }
@@ -814,6 +814,7 @@ export function prepareTrustedMainVerificationSessionV1(input: {
   manifestDigest: Digest;
   changedPaths: readonly string[];
   testImpactTransition: CodexDevelopmentTestImpactTransitionObservationV1;
+  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV2;
   profile: 'quick' | 'full';
   integrationPrincipalNodeId: string;
   producerPrincipalNodeId: string;
@@ -867,7 +868,7 @@ export function prepareTrustedMainVerificationSessionV1(input: {
   const plan = CodexDevelopmentBuildVerificationPlanV1(
     input.profile,
     input.changedPaths,
-    undefined,
+    input.testImpactSourceProvider,
     transition.observation
   );
   if (!plan.selectionResolved) throw new Error('trusted-main preparation verification plan is unresolved.');
@@ -986,6 +987,7 @@ export function prepareLocalQuickVerificationActionPlanV2(input: {
   manifestDigest: Digest;
   changedPaths: readonly string[];
   testImpactTransition: CodexDevelopmentTestImpactTransitionObservationV1;
+  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV2;
   expectedTestImpactTransitionDigest: Digest;
   scopeAuthorizationRevision: Digest;
   executionEnvironment: CiVerificationExecutionEnvironmentV2;
@@ -1005,7 +1007,7 @@ export function prepareLocalQuickVerificationActionPlanV2(input: {
   const plan = CodexDevelopmentBuildVerificationPlanV1(
     'quick',
     input.changedPaths,
-    undefined,
+    input.testImpactSourceProvider,
     transition.observation
   );
   if (!plan.selectionResolved) {

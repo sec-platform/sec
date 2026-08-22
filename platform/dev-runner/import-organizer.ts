@@ -1,9 +1,14 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
+import {
+  inspectNoFollowDirectoryChainV1,
+  retainNoFollowDirectoryForChildProcessV1,
+  type RetainedNoFollowChildProcessDirectoryV1
+} from '../shared/physical-no-follow.ts';
 
 import {
   canonicalEquals,
@@ -124,6 +129,11 @@ interface StagedImportOrganizerTestHooks {
   readonly beforeHash?: (fileName: string) => void;
   readonly afterIndexLock?: () => void | Promise<void>;
   readonly candidateContext?: (mode: 'working-tree' | 'snapshot') => void | Promise<void>;
+  readonly beforeCandidateSnapshotWrite?: (snapshotRoot: string) => void | Promise<void>;
+  readonly generatedStateLifecycle?: Readonly<{
+    born(relativePath: string, operationId: string): Promise<void>;
+    disposed(relativePath: string, outcome: string): Promise<void>;
+  }>;
 }
 
 interface StagedImportSelection {
@@ -247,19 +257,27 @@ function gitBytes(
   projectRoot: string,
   args: readonly string[],
   input?: Buffer,
-  env: NodeJS.ProcessEnv = pureGitReadEnvironment(process.env)
+  env: NodeJS.ProcessEnv = pureGitReadEnvironment(process.env),
+  retainedDirectory?: RetainedNoFollowChildProcessDirectoryV1
 ): Buffer {
+  retainedDirectory?.assertCurrent();
+  const stdio: SpawnSyncOptions['stdio'] = retainedDirectory?.stdioSourceDescriptor === null
+    || retainedDirectory === undefined
+    ? ['pipe', 'pipe', 'pipe']
+    : ['pipe', 'pipe', 'pipe', retainedDirectory.stdioSourceDescriptor];
   const result = spawnSync('git', [...args], {
     cwd: projectRoot,
     encoding: 'buffer',
     env,
     input,
     maxBuffer: 128 * 1024 * 1024,
+    stdio,
     windowsHide: true
   });
   if (result.error || result.status !== 0) {
     throw gitError(args, result.stderr);
   }
+  retainedDirectory?.assertCurrent();
   return Buffer.from(result.stdout);
 }
 
@@ -531,17 +549,81 @@ function absoluteRepositoryPath(projectRoot: string, gitPath: string): string {
   return absolute;
 }
 
-async function materializeCandidateIndex(projectRoot: string): Promise<string> {
+type ImportSnapshotLifecycleV1 = Readonly<{
+  disposed(relativePath: string, outcome: string): Promise<void>;
+}>;
+
+type MaterializedCandidateIndexV1 = Readonly<{
+  snapshotRoot: string;
+  relativePath: string;
+  lifecycle: ImportSnapshotLifecycleV1 | null;
+}>;
+
+async function materializeCandidateIndex(
+  projectRoot: string,
+  lifecycleOverride?: StagedImportOrganizerTestHooks['generatedStateLifecycle'],
+  beforeWrite?: StagedImportOrganizerTestHooks['beforeCandidateSnapshotWrite']
+): Promise<MaterializedCandidateIndexV1> {
   const snapshotsRoot = path.join(projectRoot, '.tmp', 'import-candidate-snapshots');
-  const snapshotRoot = path.join(snapshotsRoot, randomUUID());
+  const operationId = randomUUID();
+  const snapshotName = `snapshot-${operationId}`;
+  const relativePath = `.tmp/import-candidate-snapshots/${snapshotName}`;
+  const snapshotRoot = path.join(snapshotsRoot, snapshotName);
+  let lifecycle: (ImportSnapshotLifecycleV1 & Readonly<{
+    born(relativePath: string, operationId: string): Promise<void>;
+  }>) | null = null;
   await ensureDir(snapshotRoot);
+  const retainedSnapshot = retainNoFollowDirectoryForChildProcessV1(
+    inspectNoFollowDirectoryChainV1(snapshotRoot, 'Import candidate snapshot'),
+    3,
+    'Import candidate snapshot'
+  );
   try {
-    const prefix = `${snapshotRoot.replace(/\\/gu, '/')}/`;
-    gitBytes(projectRoot, ['checkout-index', '--all', '--force', `--prefix=${prefix}`]);
-    return snapshotRoot;
+    const resolvedProjectRoot = path.resolve(projectRoot);
+    const resolvedCompilerRoot = path.resolve(compilerRoot);
+    const sameCompilerRoot = process.platform === 'win32'
+      ? resolvedProjectRoot.toLowerCase() === resolvedCompilerRoot.toLowerCase()
+      : resolvedProjectRoot === resolvedCompilerRoot;
+    if (sameCompilerRoot && lifecycleOverride !== undefined) {
+      throw new Error('Canonical import snapshots cannot replace the generated-state lifecycle owner.');
+    }
+    if (lifecycleOverride !== undefined) {
+      lifecycle = lifecycleOverride;
+      await lifecycle.born(relativePath, `import-candidate-snapshot:${operationId}`);
+    } else if (sameCompilerRoot) {
+      const { generatedStateProducerHooksV1 } = await import(
+        '../../tooling/sec-dev/generated-state-lifecycle.ts'
+      );
+      lifecycle = generatedStateProducerHooksV1({ repositoryRoot: projectRoot });
+      await lifecycle.born(relativePath, `import-candidate-snapshot:${operationId}`);
+    }
+    await beforeWrite?.(snapshotRoot);
+    const prefix = `${retainedSnapshot.childPath.replace(/\\/gu, '/')}/`;
+    const args = ['checkout-index', '--all', '--force', `--prefix=${prefix}`];
+    gitBytes(
+      projectRoot,
+      args,
+      undefined,
+      pureGitReadEnvironment(process.env),
+      retainedSnapshot
+    );
+    return Object.freeze({ snapshotRoot, relativePath, lifecycle });
   } catch (error) {
-    await fs.rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+    try {
+      if (lifecycle === null) {
+        await fs.rm(snapshotRoot, { recursive: true, force: true });
+      } else {
+        await lifecycle.disposed(relativePath, 'materialization-failed');
+      }
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Import candidate snapshot materialization and lifecycle cleanup both failed.'
+      );
+    }
     throw error;
+  } finally {
+    retainedSnapshot.dispose();
   }
 }
 
@@ -583,22 +665,49 @@ async function workingTreeMatchesIndex(projectRoot: string): Promise<boolean> {
 async function candidateContext(
   projectRoot: string,
   testHooks: StagedImportOrganizerTestHooks
-): Promise<{ readonly root: string; readonly snapshotRoot: string | null; readonly mode: 'working-tree' | 'snapshot' }> {
+): Promise<{
+  readonly root: string;
+  readonly snapshotRoot: string | null;
+  readonly snapshotRelativePath: string | null;
+  readonly snapshotLifecycle: ImportSnapshotLifecycleV1 | null;
+  readonly mode: 'working-tree' | 'snapshot';
+}> {
   if (await workingTreeMatchesIndex(projectRoot)) {
     await testHooks.candidateContext?.('working-tree');
     return Object.freeze({
       root: projectRoot,
       snapshotRoot: null,
+      snapshotRelativePath: null,
+      snapshotLifecycle: null,
       mode: 'working-tree'
     });
   }
-  const snapshotRoot = await materializeCandidateIndex(projectRoot);
+  const snapshot = await materializeCandidateIndex(
+    projectRoot,
+    testHooks.generatedStateLifecycle,
+    testHooks.beforeCandidateSnapshotWrite
+  );
   await testHooks.candidateContext?.('snapshot');
   return Object.freeze({
-    root: snapshotRoot,
-    snapshotRoot,
+    root: snapshot.snapshotRoot,
+    snapshotRoot: snapshot.snapshotRoot,
+    snapshotRelativePath: snapshot.relativePath,
+    snapshotLifecycle: snapshot.lifecycle,
     mode: 'snapshot'
   });
+}
+
+async function disposeCandidateContextV1(context: Readonly<{
+  snapshotRoot: string | null;
+  snapshotRelativePath: string | null;
+  snapshotLifecycle: ImportSnapshotLifecycleV1 | null;
+}>): Promise<void> {
+  if (context.snapshotRoot === null) return;
+  if (context.snapshotLifecycle !== null && context.snapshotRelativePath !== null) {
+    await context.snapshotLifecycle.disposed(context.snapshotRelativePath, 'candidate-snapshot-consumed');
+    return;
+  }
+  await fs.rm(context.snapshotRoot, { recursive: true, force: true });
 }
 
 function decodeTypeScriptBlob(bytes: Buffer, gitPath: string): string {
@@ -815,7 +924,7 @@ type StagedImportComputationV1 = Readonly<{
   targetPaths: readonly string[];
   selectedEntries: readonly StagedIndexEntry[];
   updates: readonly StagedImportUpdate[];
-  context: Readonly<{ root: string; snapshotRoot: string | null; mode: 'working-tree' | 'snapshot' }>;
+  context: Awaited<ReturnType<typeof candidateContext>>;
 }>;
 
 async function computeStagedImportUpdates(
@@ -843,6 +952,8 @@ async function computeStagedImportUpdates(
     ? Object.freeze({
       root: projectRoot,
       snapshotRoot: null,
+      snapshotRelativePath: null,
+      snapshotLifecycle: null,
       mode: 'working-tree' as const
     })
     : await candidateContext(projectRoot, testHooks);
@@ -890,16 +1001,21 @@ async function computeStagedImportUpdates(
       updates: Object.freeze(updates), context });
   } catch (error) {
     if (context.snapshotRoot !== null) {
-      await fs.rm(context.snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+      try {
+        await disposeCandidateContextV1(context);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          'Import candidate computation and lifecycle cleanup both failed.'
+        );
+      }
     }
     throw error;
   }
 }
 
 function disposeStagedComputation(computation: StagedImportComputationV1): Promise<void> {
-  return computation.context.snapshotRoot === null
-    ? Promise.resolve()
-    : fs.rm(computation.context.snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+  return disposeCandidateContextV1(computation.context);
 }
 
 export async function runStagedImportCheck(

@@ -125,12 +125,6 @@ export const testImpactFallbackRules: TestImpactRule[] = [
     slow: []
   },
   {
-    owner: 'test-impact',
-    sourcePattern: /^platform\/shared\/test-impact-contract\.ts$/,
-    fast: ['tests/contract/benchmark-budget.test.ts'],
-    slow: []
-  },
-  {
     owner: 'contract-freeze',
     sourcePattern: /^platform\/shared\/contract-freeze-contract\.ts$/,
     fast: ['tests/contract/contract-freeze.test.ts'],
@@ -299,6 +293,48 @@ export type CodexDevelopmentTestImpactSourceProviderV2 = {
   testFiles: readonly string[];
   readModuleSource: (moduleFile: string) => string | null;
 };
+
+/**
+ * Compile the canonical TestImpact source view from an already observed tree.
+ * The caller owns physical observation; this owner alone decides which tracked
+ * paths participate in the TypeScript module graph and which are tests.
+ */
+export function createTestImpactSourceProviderV2(input: Readonly<{
+  repositoryFiles: readonly string[];
+  readModuleSource: (moduleFile: string) => string | null;
+}>): CodexDevelopmentTestImpactSourceProviderV2 {
+  const repositoryFiles = uniqueSorted(input.repositoryFiles.map((repositoryFile) => {
+    const normalized = normalizeRepoPath(repositoryFile);
+    if (normalized !== repositoryFile
+        || normalized.length === 0
+        || normalized === '.'
+        || normalized.startsWith('../')
+        || normalized.includes('/../')
+        || normalized.includes('/./')
+        || normalized.includes('\0')) {
+      throw new Error(`Test impact repository file is not canonical: ${repositoryFile}.`);
+    }
+    return normalized;
+  }));
+  const moduleFiles = Object.freeze(repositoryFiles.filter((repositoryFile) => (
+    /\.[cm]?tsx?$/u.test(repositoryFile)
+    && TRANSITIVE_MODULE_ROOTS.some((root) => (
+      repositoryFile === root || repositoryFile.startsWith(`${root}/`)
+    ))
+    && isRepositoryRuntimeModulePath(repositoryFile)
+  )));
+  const moduleFileSet = new Set(moduleFiles);
+  const testFiles = Object.freeze(moduleFiles.filter((moduleFile) => (
+    /^tests\/.+\.(?:test|spec)\.tsx?$/u.test(moduleFile)
+  )));
+  return Object.freeze({
+    moduleFiles,
+    testFiles,
+    readModuleSource: (moduleFile: string): string | null => (
+      moduleFileSet.has(moduleFile) ? input.readModuleSource(moduleFile) : null
+    )
+  });
+}
 
 function readRepositoryModuleSource(moduleFile: string): string | null {
   try {
@@ -799,7 +835,10 @@ export function selectTestsForSources(
     const declarations = testOwnershipDeclarations.filter((declaration) => (
       matchesTestOwnershipDeclaration(declaration, file, transition)
     ));
-    const referencedTests = deriveTestsForSourcesV1([file], provider);
+    const ownerOnly = declarations.length > 0 && declarations.every(
+      ({ moduleGraphImpact }) => moduleGraphImpact === 'owner-only'
+    );
+    const referencedTests = ownerOnly ? [] : deriveTestsForSourcesV1([file], provider);
     if (referencedTests.length > 0) {
       owners.add('module-graph');
       addAll(fast, referencedTests.filter(isFastTestFile));

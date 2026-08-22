@@ -2,7 +2,11 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getDoctorReport } from '../../platform/shared/dependency-environment.ts';
+import {
+  cleanDependencyEnvironment,
+  getDoctorReport
+} from '../../platform/shared/dependency-environment.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function writeNodeRuntime(tempRoot: string): Promise<string> {
@@ -69,4 +73,23 @@ test('doctor fails closed for Bun compatibility metadata or an incompatible exte
       expect(report.status).toBe('fail');
     }
   }, 'engineering-compiler-doctor-node-failure-');
+});
+
+test('dependency clean removes each custom domain-owned root once without selecting its nested cache twice', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { projectRoot } = getWorkspacePaths(workspaceRoot);
+    const sharedRoot = path.join(projectRoot, '.shared-deps');
+    await fs.mkdir(path.join(projectRoot, 'node_modules'), { recursive: true });
+    await fs.mkdir(path.join(sharedRoot, '.bun-cache'), { recursive: true });
+    const targets = await cleanDependencyEnvironment(
+      workspaceRoot,
+      { all: true, force: true },
+      { sharedDepsRoot: sharedRoot }
+    );
+
+    expect(targets).toHaveLength(3);
+    expect(targets).not.toContain(path.join(sharedRoot, '.bun-cache'));
+    await expect(fs.stat(path.join(projectRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.stat(sharedRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  }, 'engineering-compiler-dependency-clean-');
 });

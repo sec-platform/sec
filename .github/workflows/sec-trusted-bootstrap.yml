@@ -204,82 +204,9 @@ jobs:
                 throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
               }
             }
-            if (registry.reviewedBoundaryEdges.some((edge) => !/^[^ ]+ -> [^ ]+$/.test(edge)) ||
-                !registry.reviewedBoundaryEdges.includes(
-                  'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts'
-                ) ||
-                !registry.reviewedBoundaryEdges.includes(
-                  'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
-                )) {
+            if (registry.reviewedBoundaryEdges.some((edge) => !/^[^ ]+ -> [^ ]+$/.test(edge))) {
               throw new Error('Trusted-base reviewedBoundaryEdges do not match the canonical V3 boundary shape.');
             }
-            const lockBlob = await readBlobFromTree(
-              baseTree,
-              'platform/shared/tcb-closure-lock.ts',
-              'Trusted-base generated TCB closure lock'
-            );
-            const lockSource = new TextDecoder('utf-8', { fatal: true }).decode(lockBlob.bytes);
-            const lockRegionStartMarker = '// <sec-tcb-closure-lock-generated-v2>\n';
-            const lockRegionEndMarker = '\n// </sec-tcb-closure-lock-generated-v2>';
-            const lockRegionStart = lockSource.indexOf(lockRegionStartMarker);
-            const lockRegionEnd = lockSource.indexOf(
-              lockRegionEndMarker,
-              lockRegionStart + lockRegionStartMarker.length
-            );
-            if (lockRegionStart < 0 || lockRegionEnd < 0 ||
-                lockSource.indexOf(lockRegionStartMarker, lockRegionStart + 1) >= 0 ||
-                lockSource.indexOf(lockRegionEndMarker, lockRegionEnd + 1) >= 0 ||
-                lockSource.includes('\r') || lockSource.includes('\0')) {
-              throw new Error('Trusted-base generated TCB closure region is invalid.');
-            }
-            const lockRegion = lockSource.slice(
-              lockRegionStart + lockRegionStartMarker.length,
-              lockRegionEnd
-            );
-            const lockPrefix = 'export const TCB_CLOSURE_LOCK: TcbClosureLock = ';
-            const lockSuffix = ';\n\nexport const TCB_CLOSURE_LOCK_RECEIPT';
-            const lockStart = lockRegion.indexOf(lockPrefix);
-            const lockEnd = lockRegion.indexOf(lockSuffix, lockStart + lockPrefix.length);
-            if (lockStart < 0 || lockEnd < 0 || lockRegion.indexOf(lockPrefix, lockStart + 1) >= 0 ||
-                lockRegion.indexOf(lockSuffix, lockEnd + 1) >= 0) {
-              throw new Error('Trusted-base generated TCB closure lock envelope is invalid.');
-            }
-            let lock;
-            try {
-              lock = JSON.parse(lockRegion.slice(lockStart + lockPrefix.length, lockEnd));
-            } catch {
-              throw new Error('Trusted-base generated TCB closure lock is not canonical JSON.');
-            }
-            const lockKeys = [
-              'closureDigest', 'moduleBlobs', 'moduleContentDigests', 'moduleCount', 'modules',
-              'reviewedBoundaryEdges', 'reviewedEdges', 'reviewedExternalImports',
-              'reviewedProcessDispatchers', 'schema', 'trustRevision'
-            ];
-            if (!lock || typeof lock !== 'object' || Array.isArray(lock) ||
-                lock.schema !== 'sec-tcb-closure-lock-v2' ||
-                JSON.stringify(Object.keys(lock).sort()) !== JSON.stringify(lockKeys) ||
-                !Number.isSafeInteger(lock.moduleCount) || lock.moduleCount <= 0 ||
-                !Array.isArray(lock.modules) || lock.modules.length !== lock.moduleCount ||
-                lock.modules.some((entry) => typeof entry !== 'string' || entry.length === 0 ||
-                  entry.includes('\\') || entry.startsWith('/') || entry.includes('//') ||
-                  entry.split('/').some((segment) => segment.length === 0 || segment === '.' || segment === '..')) ||
-                lock.modules.some((entry, index) => index > 0 && lock.modules[index - 1] >= entry)) {
-              throw new Error('Trusted-base generated TCB closure module identity is invalid.');
-            }
-            const causalRuntimePaths = lock.modules;
-            const trustFiles = new Set([...registry.staticExactPaths, ...causalRuntimePaths]);
-            const selectTrust = (tree) => Object.fromEntries(tree.data.tree
-              .filter((entry) => entry.path && (
-                trustFiles.has(entry.path) ||
-                registry.staticDirectoryPaths.some((directory) => entry.path.startsWith(directory)) ||
-                registry.staticPrefixes.some((prefix) => entry.path.startsWith(prefix))
-              ))
-              .map((entry) => [entry.path, `${entry.mode}:${entry.type}:${entry.sha}`])
-              .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
-            if (JSON.stringify(selectTrust(headTree)) === JSON.stringify(selectTrust(baseTree))) {
-              throw new Error('Trusted bootstrap is only valid when the exact candidate changes the trusted-base verifier boundary.');
-            }
-
             const bunVersionBlob = await readBlobFromTree(baseTree, '.bun-version', 'Trusted-base Bun version');
             const bunVersion = new TextDecoder('utf-8', { fatal: true }).decode(bunVersionBlob.bytes).trim();
             if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(bunVersion)) {
@@ -501,99 +428,109 @@ jobs:
                 throw new Error("trusted bootstrap checker base registry digest drifted.");
               }
               const baseRegistry = registryContract.parseSecTrustedBootstrapRegistryV3(baseRegistryBytes.toString("utf8"));
-              const checkerClosure = tcb.trustedRuntimeClosure(baseRegistry.runtimeEntrypoints, baseSnapshotOptions);
-              const baseTrustRoot = registryContract.createSecTrustedBootstrapTrustRootV3({
-                registry: baseRegistry,
-                causalRuntimePaths: [...checkerClosure.closure].sort()
-              });
-              const baseUndecidablePaths = changedPaths
-                .filter((repositoryPath) =>
-                  registryContract.matchSecTrustedBootstrapPathV3(repositoryPath, baseTrustRoot) !== null
-                )
-                .sort();
-              const manualReasons = new Set(baseUndecidablePaths.length === 0
-                ? []
-                : ["trusted-base-cannot-decide-checker-policy-or-validation-plan-change"]);
-              const hardFailureReasons = new Set();
-              try {
-                registryContract.parseSecTrustedBootstrapRegistryV3(Buffer.from(candidateRegistryBytes).toString("utf8"));
-              } catch (error) {
-                manualReasons.add(`candidate-registry-schema-or-policy-change:${error instanceof Error ? error.message : String(error)}`);
-              }
-              if (candidateRegistryDigest !== baseRegistryDigest) {
-                manualReasons.add("candidate-registry-differs-from-trusted-base-policy");
-              }
-            const checkerVerification = tcb.verifyTcbClosureLock(checkerClosure, baseSnapshotOptions);
-            if (checkerVerification.status !== "passed") {
-              const substitutionKinds = new Map();
-              let closureDigestFailureCount = 0;
-              let unsupportedFailure = false;
-              for (const failure of checkerVerification.failures) {
-                const substitution = /^substitution: (blob|content digest) mismatch for ([A-Za-z0-9._/-]+)$/u.exec(failure);
-                if (substitution !== null) {
-                  const kinds = substitutionKinds.get(substitution[2]) ?? new Set();
-                  kinds.add(substitution[1]);
-                  substitutionKinds.set(substitution[2], kinds);
-                  continue;
+              let pre = null;
+              if (phase === "post") {
+                if (required("SEC_PRE_DOWNLOAD_OUTCOME") !== "success") {
+                  throw new Error("trusted bootstrap reducer requires the base-owned PRE artifact.");
                 }
-                if (/^closure digest: expected sha256:[0-9a-f]{64}, actual sha256:[0-9a-f]{64}$/u.test(failure)) {
-                  closureDigestFailureCount += 1;
-                  continue;
+                pre = JSON.parse(readFileSync(path.join(required("BOOTSTRAP_EVIDENCE_ROOT"), "pre-receipt.json"), "utf8"));
+                const { receiptDigest: preReceiptDigest, ...preSemantic } = pre;
+                if (preReceiptDigest !== digest(Buffer.from(JSON.stringify(preSemantic), "utf8")) ||
+                    pre.schema !== "sec-trusted-bootstrap-checker-receipt-v1" || pre.phase !== "pre" ||
+                    pre.checkerBaseSha !== expectedBase || pre.baseTreeSha !== expectedBaseTree ||
+                    pre.candidateHeadSha !== expectedHead || pre.candidateTreeSha !== expectedTree ||
+                    pre.candidateParentSha !== expectedBase || pre.registryDigest !== baseRegistryDigest) {
+                  throw new Error("trusted bootstrap PRE receipt identity or digest is invalid.");
                 }
-                unsupportedFailure = true;
               }
-              const substitutionOnlyDrift = !unsupportedFailure
-                && closureDigestFailureCount === 1
-                && substitutionKinds.size > 0
-                && [...substitutionKinds.values()].every((kinds) =>
-                  kinds.size === 2 && kinds.has("blob") && kinds.has("content digest")
-                );
-              if (!substitutionOnlyDrift) {
-                throw new Error(`trusted bootstrap checker closure is not frozen: ${checkerVerification.failures.join(" | ")}`);
-              }
-              manualReasons.add("trusted-base-lock-substitution-drift");
-            }
-              let parsedCandidateLock = null;
-              let candidateLockSourceDigest = null;
-              try {
-                const candidateLockSource = tcb.readTcbClosureCandidateFileV1(
-                  "platform/shared/tcb-closure-lock.ts",
-                  candidateSnapshotOptions
-                );
-                candidateLockSourceDigest = digest(candidateLockSource);
-                const candidateLockText = new TextDecoder("utf-8", { fatal: true }).decode(candidateLockSource);
-                parsedCandidateLock = tcb.parseTcbClosureGeneratedRegionV2(candidateLockText).lock;
-              } catch (error) {
-                hardFailureReasons.add(`candidate-lock-v2-generated-region-invalid:${error instanceof Error ? error.message : String(error)}`);
-              }
-              let candidateLock = null;
-              try {
-                const candidateClosure = tcb.trustedRuntimeClosure(
-                  baseRegistry.runtimeEntrypoints,
-                  candidateSnapshotOptions
-                );
-                candidateLock = tcb.computeTcbClosureLock(candidateClosure, candidateSnapshotOptions);
-                if (JSON.stringify(candidateLock.modules) !== JSON.stringify(baseTrustRoot.causalRuntimePaths)) {
-                  manualReasons.add("candidate-causal-closure-differs-from-trusted-base-closure");
+              let checkerAction;
+              let checkerLock;
+              let candidateAction;
+              let baseUndecidablePaths;
+              let authorityVerdict;
+              let authorityReason;
+              if (pre === null) {
+                checkerAction = tcb.compileTcbClosureActionResultV1({
+                  plan: tcb.createTcbClosureActionPlanV1({
+                    exactTreeSha: expectedBaseTree,
+                    registryDigest: baseRegistryDigest,
+                    toolchainRevision: `bun@${Bun.version}:typescript`,
+                    providerRevision: "github-actions-trusted-bootstrap-v1"
+                  }),
+                  options: baseSnapshotOptions
+                });
+                checkerLock = checkerAction.identity;
+                const baseTrustRoot = registryContract.createSecTrustedBootstrapTrustRootV3({
+                  registry: baseRegistry,
+                  causalRuntimePaths: checkerLock.modules
+                });
+                const candidateDemand = tcb.selectTcbClosureCandidateActionV1({
+                  changedPaths,
+                  exactTreeSha: expectedTree,
+                  registryDigest: baseRegistryDigest,
+                  toolchainRevision: `bun@${Bun.version}:typescript`,
+                  providerRevision: "github-actions-trusted-bootstrap-v1",
+                  trustedRegistry: baseRegistry,
+                  checkerResult: checkerAction
+                });
+                baseUndecidablePaths = candidateDemand.impactedPaths;
+                const hardFailureReasons = new Set();
+                const manualReasons = new Set(baseUndecidablePaths.length === 0
+                  ? []
+                  : ["trusted-base-cannot-decide-checker-policy-or-validation-plan-change"]);
+                if (baseUndecidablePaths.length === 0) {
+                  hardFailureReasons.add("trusted-bootstrap-request-does-not-change-trust-root");
                 }
-              } catch (error) {
-                hardFailureReasons.add(`candidate-closure-computation-failed:${error instanceof Error ? error.message : String(error)}`);
-              }
-              if (parsedCandidateLock !== null && candidateLock !== null) {
                 try {
-                  tcb.assertTcbClosureLockDataMatchesV2(parsedCandidateLock, candidateLock);
+                  registryContract.parseSecTrustedBootstrapRegistryV3(Buffer.from(candidateRegistryBytes).toString("utf8"));
                 } catch (error) {
-                  hardFailureReasons.add(`candidate-lock-does-not-match-base-computed-closure:${error instanceof Error ? error.message : String(error)}`);
+                  manualReasons.add(`candidate-registry-schema-or-policy-change:${error instanceof Error ? error.message : String(error)}`);
                 }
+                if (candidateRegistryDigest !== baseRegistryDigest) {
+                  manualReasons.add("candidate-registry-differs-from-trusted-base-policy");
+                }
+                candidateAction = null;
+                if (candidateDemand.plan !== null) {
+                  try {
+                    candidateAction = tcb.compileTcbClosureActionResultV1({
+                      plan: candidateDemand.plan,
+                      options: candidateSnapshotOptions,
+                      upstreamResults: [checkerAction]
+                    });
+                    if (JSON.stringify(candidateAction.identity.modules) !== JSON.stringify(baseTrustRoot.causalRuntimePaths)) {
+                      manualReasons.add("candidate-causal-closure-differs-from-trusted-base-closure");
+                    }
+                  } catch (error) {
+                    hardFailureReasons.add(`candidate-closure-computation-failed:${error instanceof Error ? error.message : String(error)}`);
+                  }
+                }
+                authorityVerdict = hardFailureReasons.size > 0
+                  ? "failed"
+                  : manualReasons.size > 0 ? "manual-bootstrap-required" : "passed";
+                authorityReason = authorityVerdict === "failed"
+                  ? [...hardFailureReasons].sort().join("|")
+                  : authorityVerdict === "manual-bootstrap-required"
+                    ? [...manualReasons].sort().join("|")
+                    : "trusted-base-policy-fully-decided-candidate";
+              } else {
+                checkerAction = {
+                  actionKey: pre.checkerActionKey,
+                  terminal: { resultDigest: pre.checkerActionResultDigest }
+                };
+                checkerLock = { closureDigest: pre.checkerClosureDigest };
+                candidateAction = pre.candidateActionKey === null ? null : {
+                  actionKey: pre.candidateActionKey,
+                  terminal: { resultDigest: pre.candidateActionResultDigest },
+                  identity: {
+                    closureDigest: pre.candidateClosureDigest,
+                    trustRevision: pre.candidateTrustRevision,
+                    moduleCount: pre.candidateModuleCount
+                  }
+                };
+                baseUndecidablePaths = pre.baseUndecidablePaths;
+                authorityVerdict = pre.authorityVerdict;
+                authorityReason = pre.authorityReason;
               }
-              const authorityVerdict = hardFailureReasons.size > 0
-                ? "failed"
-                : manualReasons.size > 0 ? "manual-bootstrap-required" : "passed";
-              const authorityReason = authorityVerdict === "failed"
-                ? [...hardFailureReasons].sort().join("|")
-                : authorityVerdict === "manual-bootstrap-required"
-                  ? [...manualReasons].sort().join("|")
-                  : "trusted-base-policy-fully-decided-candidate";
               const blob = (root, repositoryPath) => git(root, `HEAD:${repositoryPath}`);
               const exactKeys = (value, expected, label) => {
                 if (!value || typeof value !== "object" || Array.isArray(value) ||
@@ -606,9 +543,6 @@ jobs:
               let sutDiagnosticDigest = null;
               let auxiliaryStatus = phase === "pre" ? "not-observed" : "unavailable";
               if (phase === "post") {
-                if (required("SEC_PRE_DOWNLOAD_OUTCOME") !== "success") {
-                  throw new Error("trusted bootstrap reducer requires the base-owned PRE artifact.");
-                }
                 sutJobResult = required("SEC_SUT_JOB_RESULT");
                 const sutDownloadOutcome = required("SEC_SUT_DOWNLOAD_OUTCOME");
                 let candidateReceiptDigest = null;
@@ -698,12 +632,14 @@ jobs:
                 candidateTreeSha: expectedTree,
                 candidateParentSha: expectedBase,
                 registryDigest: baseRegistryDigest,
-                checkerClosureDigest: tcb.TCB_CLOSURE_LOCK.closureDigest,
-                candidateClosureDigest: candidateLock?.closureDigest ?? null,
-                candidateFrozenClosureDigest: parsedCandidateLock?.closureDigest ?? null,
-                candidateLockSourceDigest,
-                candidateTrustRevision: candidateLock?.trustRevision ?? null,
-                candidateModuleCount: candidateLock?.moduleCount ?? null,
+                checkerActionKey: checkerAction.actionKey,
+                checkerActionResultDigest: checkerAction.terminal.resultDigest,
+                checkerClosureDigest: checkerLock.closureDigest,
+                candidateActionKey: candidateAction?.actionKey ?? null,
+                candidateActionResultDigest: candidateAction?.terminal.resultDigest ?? null,
+                candidateClosureDigest: candidateAction?.identity.closureDigest ?? null,
+                candidateTrustRevision: candidateAction?.identity.trustRevision ?? null,
+                candidateModuleCount: candidateAction?.identity.moduleCount ?? null,
                 checkerProgramDigest: digest(readFileSync(import.meta.path)),
                 checkerToolBlob: blob(trustedRoot, "platform/shared/tcb-closure-lock.ts"),
                 checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
@@ -720,7 +656,6 @@ jobs:
               const receiptDigest = digest(Buffer.from(JSON.stringify(semantic), "utf8"));
               const receipt = { ...semantic, receiptDigest };
               if (phase === "post") {
-                const pre = JSON.parse(readFileSync(path.join(required("BOOTSTRAP_EVIDENCE_ROOT"), "pre-receipt.json"), "utf8"));
                 exactKeys(pre, [...Object.keys(semantic), "receiptDigest"], "trusted bootstrap PRE receipt");
                 const { receiptDigest: preReceiptDigest, ...preSemantic } = pre;
                 if (preReceiptDigest !== digest(Buffer.from(JSON.stringify(preSemantic), "utf8"))) {
@@ -989,7 +924,7 @@ jobs:
           name: sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Recompute POST and reduce exact bootstrap evidence
+      - name: Reuse PRE Actions and reduce exact bootstrap evidence
         shell: bash
         env:
           TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base

@@ -83,7 +83,7 @@ async function withRepository(run: (repoRoot: string) => Promise<void>): Promise
   }
 }
 
-test('hook installer configures unset and stale missing paths and is idempotent', async () => {
+test('hook installer configures unset authority idempotently', async () => {
   await withRepository(async (repoRoot) => {
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     expect(() => git(repoRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
@@ -93,16 +93,22 @@ test('hook installer configures unset and stale missing paths and is idempotent'
     await expectManagedHooksMirror(repoRoot, configured);
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
     expect(configuredManagedHooksPath(repoRoot)).toBe(configured);
+  });
+});
 
+test('hook installer repairs mutated installed bytes instead of trusting its marker', async () => {
+  await withRepository(async (repoRoot) => {
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    const configured = configuredManagedHooksPath(repoRoot);
     await writeFile(path.join(configured, 'pre-commit'), '#!/usr/bin/env sh\nexit 42\n', 'utf8');
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     const repaired = configuredManagedHooksPath(repoRoot);
     expect(repaired).not.toBe(configured);
     await expectManagedHooksMirror(repoRoot, repaired);
-    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
-    expect(configuredManagedHooksPath(repoRoot)).toBe(repaired);
   });
+});
 
+test('hook installer replaces a stale missing managed path', async () => {
   await withRepository(async (repoRoot) => {
     const staleHooks = path.join(repoRoot, 'missing-hooks');
     git(repoRoot, ['config', '--local', 'core.hooksPath', staleHooks]);
@@ -112,7 +118,9 @@ test('hook installer configures unset and stale missing paths and is idempotent'
     expect(path.resolve(git(repoRoot, ['config', '--get', 'core.hooksPath']))).toBe(configured);
     await expectManagedHooksMirror(repoRoot, configured);
   });
+});
 
+test('hook installer migrates the legacy tracked hooks path', async () => {
   await withRepository(async (repoRoot) => {
     git(repoRoot, ['config', '--local', 'core.hooksPath', '.githooks']);
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });

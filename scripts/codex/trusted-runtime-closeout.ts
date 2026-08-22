@@ -909,6 +909,7 @@ export async function closeoutWithTrustedRuntimeV1(input: Readonly<{
     manifestDigest,
     changedPaths: changed.changedPaths,
     testImpactTransition: changed.testImpactTransition,
+    testImpactSourceProvider: changed.testImpactSourceProvider,
     profile: manifest.requiredProfile,
     integrationPrincipalNodeId: principal.nodeId,
     producerPrincipalNodeId: principal.nodeId,

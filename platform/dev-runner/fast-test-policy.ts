@@ -137,11 +137,6 @@ export function isDefaultFastTestFile(file: string): boolean {
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
-    file: 'tests/contract/dev-runner-contract.test.ts',
-    reason: 'finite-program-proof-and-process-contract',
-    resourceClass: 'host-profile'
-  },
-  {
     file: 'tests/contract/repository-audit.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'

@@ -271,7 +271,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     'Install trusted-base reducer dependencies without lifecycle scripts',
     'Download bounded checker PRE artifact',
     'Download bounded candidate SUT artifact',
-    'Recompute POST and reduce exact bootstrap evidence',
+    'Reuse PRE Actions and reduce exact bootstrap evidence',
     'Upload final canonical trusted bootstrap evidence'
   ]);
   const postPreflight = step(workflow, 'checker-post', 'Preflight exact trusted-base checkout');
@@ -288,7 +288,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   });
   expect(postSteps.some((step) => step.name === 'Install candidate SUT dependencies without lifecycle scripts'))
     .toBe(false);
-  const post = step(workflow, 'checker-post', 'Recompute POST and reduce exact bootstrap evidence');
+  const post = step(workflow, 'checker-post', 'Reuse PRE Actions and reduce exact bootstrap evidence');
   expect(post.env).toMatchObject({
     BOOTSTRAP_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}',
     SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}',

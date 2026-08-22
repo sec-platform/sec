@@ -66,8 +66,5 @@
     "scripts/ci-workspace-fast.ts -> platform/orchestrator/verify-orchestrator.ts",
     "scripts/ci-workspace-fast.ts -> platform/orchestrator/workspace-orchestrator.ts"
   ],
-  "reviewedBoundaryEdges": [
-    "scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts",
-    "scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts"
-  ]
+  "reviewedBoundaryEdges": []
 }

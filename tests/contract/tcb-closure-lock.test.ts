@@ -3,9 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   linkSync,
   mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
+  mkdtempSync, realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -19,28 +17,44 @@ import {
 import { readTypeScriptHostileMutationNode } from '../helpers/typescript-hostile-mutation.ts';
 
 import {
-  TCB_CLOSURE_LOCK,
-  TCB_CLOSURE_LOCK_RECEIPT,
-  TCB_CLOSURE_TRUST_REVISION,
   TCB_REVIEWED_EXTERNAL_IMPORTS,
   TCB_REVIEWED_NETWORK_DISPATCHERS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
   TCB_TRUST_ROOT_V3,
-  assertTcbClosureLockDataMatchesV2,
+  compileTcbClosureActionResultV1,
+  trustedRuntimeClosure as compileTrustedRuntimeClosure,
   computeTcbClosureLock,
+  createTcbClosureActionPlanV1,
   createTcbClosureCandidateSnapshotV1,
   finalizeTcbClosureCandidateSnapshotV1,
   generateTcbClosureLockV2,
-  parseTcbClosureGeneratedRegionV2,
-  planTcbClosureLockSourceV2,
   readTcbClosureCandidateFileV1,
-  renderTcbClosureGeneratedRegionV2,
   runtimeRelativeImportsFromSource,
-  trustedRuntimeClosure,
-  verifyTcbClosureLock
+  selectTcbClosureCandidateActionV1,
+  verifyTcbClosureLock as verifyTcbClosureLockAgainstExactTree
 } from '../../platform/shared/tcb-closure-lock.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import { readRepositoryModuleGraphV1 } from '../../platform/shared/test-impact-contract.ts';
+
+const LIVE_TCB_CLOSURE = compileTrustedRuntimeClosure();
+const TCB_CLOSURE_LOCK = computeTcbClosureLock(LIVE_TCB_CLOSURE);
+const TCB_CLOSURE_TRUST_REVISION = TCB_CLOSURE_LOCK.trustRevision;
+const trustedRuntimeClosure = (
+  ...args: Parameters<typeof compileTrustedRuntimeClosure>
+): ReturnType<typeof compileTrustedRuntimeClosure> => args.length === 0
+  ? {
+    closure: new Set(LIVE_TCB_CLOSURE.closure),
+    reviewedEdges: new Set(LIVE_TCB_CLOSURE.reviewedEdges),
+    reviewedBoundaryEdges: new Set(LIVE_TCB_CLOSURE.reviewedBoundaryEdges),
+    reviewedExternalImports: new Set(LIVE_TCB_CLOSURE.reviewedExternalImports),
+    reviewedProcessDispatchers: new Set(LIVE_TCB_CLOSURE.reviewedProcessDispatchers),
+    reviewedNetworkDispatchers: new Set(LIVE_TCB_CLOSURE.reviewedNetworkDispatchers),
+    observedExternalImports: new Set(LIVE_TCB_CLOSURE.observedExternalImports)
+  }
+  : compileTrustedRuntimeClosure(...args);
+const verifyTcbClosureLock = (
+  input: Parameters<typeof verifyTcbClosureLockAgainstExactTree>[0]
+) => verifyTcbClosureLockAgainstExactTree(input, { expectedIdentity: TCB_CLOSURE_LOCK });
 
 test('TCB candidate root exclusively drives closure discovery and hashing', () => {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-')));
@@ -161,6 +175,55 @@ test('V2 closure generation binds the canonical trust revision', () => {
   expect(generateTcbClosureLockV2().trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);
 });
 
+test('TCB closure is one exact-tree Action with a typed reusable terminal', () => {
+  const input = {
+    exactTreeSha: '1'.repeat(40),
+    registryDigest: `sha256:${'2'.repeat(64)}` as const,
+    toolchainRevision: 'bun@1.3.14:typescript',
+    providerRevision: 'contract-test'
+  };
+  const plan = createTcbClosureActionPlanV1(input);
+  const repeated = createTcbClosureActionPlanV1(input);
+  const changedTree = createTcbClosureActionPlanV1({ ...input, exactTreeSha: '3'.repeat(40) });
+  expect(plan.action.actionKind).toBe('tcb-closure-identity');
+  expect(plan.action.resultSchemaRevision).toBe('sec-tcb-closure-action-result-v1');
+  expect(repeated.action.actionKey).toBe(plan.action.actionKey);
+  expect(changedTree.action.actionKey).not.toBe(plan.action.actionKey);
+
+  const result = compileTcbClosureActionResultV1({ plan });
+  expect(result.actionKey).toBe(plan.action.actionKey);
+  expect(result.identity.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
+  expect(result.terminal).toEqual({
+    status: 'passed',
+    reasonCode: 'executed-success',
+    resultDigest: TCB_CLOSURE_LOCK.closureDigest as `sha256:${string}`
+  });
+
+  const commonDemand = {
+    exactTreeSha: '3'.repeat(40),
+    registryDigest: input.registryDigest,
+    toolchainRevision: input.toolchainRevision,
+    providerRevision: input.providerRevision,
+    trustedRegistry: SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3,
+    checkerResult: result
+  };
+  const unrelated = selectTcbClosureCandidateActionV1({
+    ...commonDemand,
+    changedPaths: ['README.md']
+  });
+  expect(unrelated).toEqual({ impactedPaths: [], plan: null });
+
+  const impacted = selectTcbClosureCandidateActionV1({
+    ...commonDemand,
+    changedPaths: ['platform/shared/tcb-closure-lock.ts']
+  });
+  expect(impacted.impactedPaths).toEqual(['platform/shared/tcb-closure-lock.ts']);
+  expect(impacted.plan?.action.upstreamActionKeys).toEqual([result.actionKey]);
+  expect(impacted.plan?.dependencies).toEqual([{ actionKey: result.actionKey, kind: 'upstream' }]);
+  expect(() => compileTcbClosureActionResultV1({ plan: impacted.plan! }))
+    .toThrow('upstream results do not satisfy');
+});
+
 test('TCB closure lock binds the reviewed causal module set', () => {
   expect(TCB_CLOSURE_LOCK.moduleCount).toBe(TCB_CLOSURE_LOCK.modules.length);
   expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/canonical-primitives.ts');
@@ -185,10 +248,7 @@ test('TCB closure lock is the sole causal-runtime identity consumed by the trust
   expect(TCB_CLOSURE_LOCK.modules).not.toContain('scripts/codex/branch-lifecycle.ts');
   expect(TCB_CLOSURE_LOCK.modules.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
   expect(TCB_CLOSURE_LOCK.modules).not.toContain('scripts/codex/repository-audit.ts');
-  expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([
-    'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts',
-    'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
-  ]);
+  expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([]);
 });
 
 test('TCB closure lock binds Git blobs and content digests for every module', () => {
@@ -198,91 +258,6 @@ test('TCB closure lock binds Git blobs and content digests for every module', ()
   }
   expect(Object.keys(TCB_CLOSURE_LOCK.moduleBlobs)).toHaveLength(TCB_CLOSURE_LOCK.moduleCount);
   expect(Object.keys(TCB_CLOSURE_LOCK.moduleContentDigests)).toHaveLength(TCB_CLOSURE_LOCK.moduleCount);
-});
-
-test('TCB closure lock receipt records the generation metadata', () => {
-  expect(TCB_CLOSURE_LOCK_RECEIPT.schema).toBe('sec-tcb-closure-lock-receipt-v2');
-  expect(TCB_CLOSURE_LOCK_RECEIPT.trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);
-  expect(TCB_CLOSURE_LOCK_RECEIPT.moduleCount).toBe(TCB_CLOSURE_LOCK.moduleCount);
-  expect(TCB_CLOSURE_LOCK_RECEIPT.reviewedBoundaryEdgeCount).toBe(TCB_CLOSURE_LOCK.reviewedBoundaryEdges.length);
-  expect(TCB_CLOSURE_LOCK_RECEIPT.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
-  expect(TCB_CLOSURE_LOCK_RECEIPT.generatedBy).toBe('tcb-closure-maintainer');
-});
-
-test('TCB generated region renderer, parser and planner are canonical and preserve no-op time', () => {
-  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-renderer-')));
-  try {
-    mkdirSync(path.join(root, 'fixture'), { recursive: true });
-    const modulePath = path.join(root, 'fixture', 'entry.ts');
-    writeFileSync(modulePath, 'export const value = 1;\n', 'utf8');
-    const input = {
-      closure: new Set(['fixture/entry.ts']),
-      reviewedEdges: new Set<string>(),
-      reviewedBoundaryEdges: new Set<string>(),
-      reviewedExternalImports: new Set<string>(),
-      reviewedProcessDispatchers: new Set<string>()
-    };
-    const first = computeTcbClosureLock(input, { candidateRoot: root });
-    expect(first.trustRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    const generatedAt = '2026-08-09T00:00:00.000Z';
-    const region = renderTcbClosureGeneratedRegionV2(first, generatedAt);
-    const source = `// prefix\n${region}\n// suffix\n`;
-    const parsed = parseTcbClosureGeneratedRegionV2(source);
-    expect(parsed.lock).toEqual(first);
-    expect(parsed.receipt.generatedAt).toBe(generatedAt);
-    expect(() => assertTcbClosureLockDataMatchesV2(parsed.lock, first)).not.toThrow();
-    expect(() => parseTcbClosureGeneratedRegionV2(source.replace(
-      '"schema": "sec-tcb-closure-lock-v2"',
-      '"schema": "sec-tcb-closure-lock-v1"'
-    ))).toThrow('schema mismatch');
-    expect(() => parseTcbClosureGeneratedRegionV2(
-      source.replaceAll(first.trustRevision, '1'.repeat(40))
-    )).toThrow('trustRevision is not derived');
-
-    const noOp = planTcbClosureLockSourceV2({
-      source,
-      nextLock: first,
-      generatedAt: '2026-08-09T01:00:00.000Z'
-    });
-    expect(noOp.status).toBe('current');
-    expect(noOp.nextSource).toBe(source);
-    expect(noOp.nextGeneratedAt).toBe(generatedAt);
-
-    writeFileSync(modulePath, 'export const value = 2;\n', 'utf8');
-    const second = computeTcbClosureLock(input, { candidateRoot: root });
-    expect(() => assertTcbClosureLockDataMatchesV2(parsed.lock, second))
-      .toThrow('trustRevision');
-    expect(() => assertTcbClosureLockDataMatchesV2(parsed.lock, {
-      ...parsed.lock,
-      closureDigest: `sha256:${'0'.repeat(64)}`
-    })).toThrow('closureDigest');
-    const update = planTcbClosureLockSourceV2({
-      source,
-      nextLock: second,
-      generatedAt: '2026-08-09T02:00:00.000Z'
-    });
-    expect(update.status).toBe('update-required');
-    expect(parseTcbClosureGeneratedRegionV2(update.nextSource).lock).toEqual(second);
-    expect(update.nextRawSourceDigest).not.toBe(update.oldRawSourceDigest);
-
-    expect(() => parseTcbClosureGeneratedRegionV2(
-      source.replace('// <sec-tcb-closure-lock-generated-v2>', '// missing-generated-region')
-    )).toThrow('exactly one complete generated-region sentinel pair');
-    expect(() => parseTcbClosureGeneratedRegionV2(`${source}${region}\n`))
-      .toThrow('exactly one complete generated-region sentinel pair');
-    expect(() => planTcbClosureLockSourceV2({
-      source,
-      nextLock: second,
-      generatedAt: '2026-08-09T02:00:00Z'
-    })).toThrow('canonical ISO-8601 UTC');
-    expect(() => computeTcbClosureLock(
-      { ...input, closure: new Set(['fixture/missing.ts']) },
-      { candidateRoot: root }
-    ))
-      .toThrow('missing or unreadable');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test('Action provider preflight binds the exact eight dispatchers and the canonical action executor', async () => {
@@ -812,28 +787,16 @@ test('live TCB closure passes lock verification', () => {
   expect(verification.failures).toEqual([]);
 });
 
-test('live process dispatcher allowlist exactly matches the frozen lock', () => {
+test('live process dispatcher allowlist exactly matches the derived identity', () => {
   expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort()).toEqual(
     [...TCB_CLOSURE_LOCK.reviewedProcessDispatchers].sort()
   );
 });
 
-test('live network dispatcher allowlist exactly matches the frozen lock', () => {
+test('live network dispatcher allowlist exactly matches the derived identity', () => {
   expect([...TCB_REVIEWED_NETWORK_DISPATCHERS].sort()).toEqual(
     [...(TCB_CLOSURE_LOCK.reviewedNetworkDispatchers ?? [])].sort()
   );
-});
-
-test('Read Plan manifest reuse retires both duplicate Git process dispatchers', () => {
-  const retired = [
-    'scripts/codex/operation-read-plan.ts::function-declaration:gitBytesOutput::spawnSync#1',
-    'scripts/codex/operation-read-plan.ts::function-declaration:gitOutput::spawnSync#1'
-  ];
-  for (const identity of retired) {
-    expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(false);
-    expect(TCB_CLOSURE_LOCK.reviewedProcessDispatchers).not.toContain(identity);
-  }
-  expect(() => generateTcbClosureLockV2()).not.toThrow();
 });
 
 test.serial('TCB generation rejects a stale reviewed dispatcher authorization', () => {
@@ -866,7 +829,7 @@ test.serial('TCB generation rejects a stale reviewed network dispatcher authoriz
   expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(stale)).toBe(false);
 });
 
-test('computeTcbClosureLock produces a closure digest that matches the frozen lock', () => {
+test('computeTcbClosureLock produces the exact-tree identity digest', () => {
   const closure = trustedRuntimeClosure();
   const live = computeTcbClosureLock(closure);
   expect(live.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
@@ -959,18 +922,6 @@ test('removing a reviewed edge causes the lock to break', () => {
   expect(verification.status).toBe('failed');
   expect(verification.failures).toEqual(expect.arrayContaining([
     expect.stringContaining('edge removal: missing edge')
-  ]));
-});
-
-test('removing the privileged static-exact boundary causes the lock to break', () => {
-  const closure = trustedRuntimeClosure();
-  const verification = verifyTcbClosureLock({
-    ...closure,
-    reviewedBoundaryEdges: new Set<string>()
-  });
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('boundary edge removal: missing edge')
   ]));
 });
 

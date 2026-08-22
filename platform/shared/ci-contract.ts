@@ -58,7 +58,6 @@ export const CI_VERIFICATION_RELEASE_STEP_ORDER = [
   'Fetch release base for exact tree comparison',
   'Setup Bun',
   'Cache bun install',
-  'Cache tsc incremental build info',
   'Install dependencies once',
   'Run exact-head full verification',
   'Upload compact full verification evidence'

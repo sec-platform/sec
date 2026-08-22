@@ -105,6 +105,20 @@ function slowFileSuite(
 // highest useful parallelism while PR risk gates run only the impacted files.
 const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
   slowPathSuite(
+    'contract-dev-runner-live-authority',
+    'tests/contract/dev-runner-live-authority.test.ts',
+    'dev-runner-live-authority',
+    120_000,
+    { parallelSafe: true, resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'contract-dev-runner-authority-program',
+    'tests/contract/dev-runner-authority-program.test.ts',
+    'dev-runner-authority-program',
+    180_000,
+    { parallelSafe: true, resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
     'integration-shared-runtime-dependencies',
     'tests/integration/project-dependency-runtime.test.ts',
     'shared-runtime-dependency-integration',

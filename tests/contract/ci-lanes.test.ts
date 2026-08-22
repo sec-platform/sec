@@ -32,7 +32,6 @@ import {
   CodexDevelopmentCreateNotRunGateV2,
   CodexDevelopmentRunGateProcessV1
 } from '../../scripts/codex/ci-orchestration-core.ts';
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import {
   expectCiContractSelfConsistent,
   expectFullLaneCoversCorrectnessBackstop,
@@ -140,7 +139,7 @@ test('CI PR risk gate selects slow suites from test impact ownership', () => {
   });
 });
 
-test('documentation trust roots select baseline sentinels without transaction lifecycle work', () => {
+test('documentation trust roots select exact sentinels without unrelated slow baselines', () => {
   for (const file of [
     'docs/authority.json',
     'docs/scripts/docs-doctor.ts',
@@ -150,16 +149,9 @@ test('documentation trust roots select baseline sentinels without transaction li
     'platform/shared/documentation-authority-contract.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
-    expect(selection.suites).toEqual(expect.arrayContaining(slowTestPrRiskBaselineSuiteIds()));
-    if (file === 'platform/shared/active-documentation-contract.ts') {
-      expect(selection.suites).toContain('contract-document-control-plane-lifecycle');
-    } else {
-      expect(selection.suites).not.toContain('contract-document-control-plane-lifecycle');
-    }
-    expect(selection.owners).toEqual(expect.arrayContaining([
-      'agent-governance',
-      'bounded-slow-risk'
-    ]));
+    expect(selection.suites).toEqual([]);
+    expect(selection.owners).toContain('agent-governance');
+    expect(selection.owners).not.toContain('bounded-slow-risk');
     expect(selection.reasons).toEqual(expect.arrayContaining([
       'mandatory-sentinel',
       'ownership-impact'
@@ -212,8 +204,7 @@ test('V1 Quick resolves the active corpus and control-plane path set', () => {
   expect(plan.gates.map((gate) => gate.id)).toEqual([
     'docs-doctor',
     'typecheck',
-    'affected-tests',
-    'impact-risk'
+    'affected-tests'
   ]);
 });
 
@@ -297,7 +288,7 @@ test('Ticket semantic Contract impact selects the mandatory vertical slow suite'
   );
 });
 
-test('CI PR risk gate uses a bounded baseline for broad risk changes', () => {
+test('CI PR risk gate reserves bounded fallback for unknown input and uses exact owners otherwise', () => {
   const baselineSuites = slowTestPrRiskBaselineSuiteIds();
   expect(baselineSuites.length).toBeGreaterThan(0);
   expect(baselineSuites.length).toBeLessThan(slowTestSuiteIds().length);
@@ -309,18 +300,41 @@ test('CI PR risk gate uses a bounded baseline for broad risk changes', () => {
     reasons: ['bounded-baseline', 'changed-files-unresolved'],
     resolved: false
   });
-  for (const file of [
-    'package.json',
-    'tests/helpers/workspace-fixtures.ts',
-    'tests/setup/runtime-deps.setup.ts',
-    'tests/testkit/workspace.ts'
-  ]) {
-    const selection = selectCiPrRiskSlowSuites([file]);
-    expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
-    expect(selection.owners).toContain('bounded-slow-risk');
-    expect(selection.reasons).toContain('bounded-baseline');
-    expect(selection.resolved).toBe(true);
-  }
+  expect(selectCiPrRiskSlowSuites(['package.json'])).toMatchObject({
+    suites: ['integration-shared-runtime-dependencies'],
+    owners: ['repository-package-contract'],
+    reasons: ['ownership-impact'],
+    resolved: true
+  });
+  expect(selectCiPrRiskSlowSuites(['tests/helpers/workspace-fixtures.ts'])).toMatchObject({
+    suites: ['e2e-artifacts', 'e2e-compiler-smoke', 'e2e-provenance', 'e2e-verify-lock', 'e2e-workspace'],
+    owners: ['bounded-slow-risk'],
+    reasons: ['bounded-baseline'],
+    resolved: true
+  });
+  expect(selectCiPrRiskSlowSuites(['tests/setup/runtime-deps.setup.ts'])).toMatchObject({
+    suites: [
+      'contract-dev-runner-live-authority',
+      'e2e-artifacts',
+      'e2e-compiler-smoke',
+      'e2e-provenance',
+      'e2e-verify-lock',
+      'e2e-workspace'
+    ],
+    owners: ['bounded-slow-risk', 'dev-runner'],
+    reasons: ['bounded-baseline', 'ownership-impact'],
+    resolved: true
+  });
+  const sharedTestkit = selectCiPrRiskSlowSuites(['tests/testkit/workspace.ts']);
+  expect(sharedTestkit).toMatchObject({
+    owners: ['bounded-slow-risk', 'module-graph'],
+    reasons: ['bounded-baseline', 'ownership-impact'],
+    resolved: true
+  });
+  expect(sharedTestkit.suites).toContain('integration-shared-runtime-dependencies');
+  expect(sharedTestkit.suites).toContain('e2e-workspace');
+  expect(sharedTestkit.suites).not.toContain('contract-document-control-plane-lifecycle');
+  expect(sharedTestkit.suites.length).toBeGreaterThan(baselineSuites.length);
 });
 
 test('slow suite budget distinguishes state safety from runtime resource pressure', () => {
@@ -329,6 +343,8 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
     .filter((suite) => suite.resourceClass === 'runtime-heavy')
     .map((suite) => suite.id);
   expect(runtimeHeavy).toEqual([
+    'contract-dev-runner-live-authority',
+    'contract-dev-runner-authority-program',
     'integration-shared-runtime-dependencies',
     'contract-document-control-plane-lifecycle',
     'unit-worktree-closeout-crash-recovery',
