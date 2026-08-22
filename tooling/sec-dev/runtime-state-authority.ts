@@ -7,6 +7,7 @@ import {
   createNoFollowOrdinaryDirectoryChainV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
+  physicallyContainsDirectoryChainV1,
   type PhysicalDirectoryChainV1,
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
@@ -20,6 +21,7 @@ export interface SecRuntimeStatePhysicalAuthorityV1 {
   readonly stateRoot: PhysicalDirectoryIdentityV1;
   readonly cacheRoot: PhysicalDirectoryIdentityV1;
   readonly directory: (absolutePath: string) => PhysicalDirectoryIdentityV1;
+  readonly directoryChain: (absolutePath: string) => PhysicalDirectoryChainV1;
   readonly assertCurrent: () => Promise<void>;
 }
 
@@ -39,23 +41,39 @@ function assertPhysicallyDisjoint(
   assertPhysicallyDisjointDirectoryChainsV1(left, right, `SEC runtime state ${label}`);
 }
 
-function materializePhysicalDirectory(absolutePath: string): PhysicalDirectoryChainV1 {
-  const target = path.resolve(absolutePath);
-  const missing: string[] = [];
-  let cursor = target;
+type PhysicalDirectoryMaterializationPlanV1 = Readonly<{
+  targetPath: string;
+  ancestor: PhysicalDirectoryIdentityV1;
+  missingSegments: readonly string[];
+}>;
+
+function planPhysicalDirectoryMaterialization(
+  absolutePath: string,
+  physicalRoot: PhysicalDirectoryChainV1,
+  label: string
+): PhysicalDirectoryMaterializationPlanV1 {
+  const targetPath = path.resolve(absolutePath);
+  const missingSegments: string[] = [];
+  let cursor = targetPath;
   for (;;) {
-    const presence = inspectExactNoFollowDirectoryPresenceV1(cursor, 'SEC runtime directory');
+    const presence = inspectExactNoFollowDirectoryPresenceV1(cursor, label);
     if (presence.state === 'present') {
-      if (missing.length > 0) {
-        createNoFollowOrdinaryDirectoryChainV1(presence.directory.target, missing);
+      if (cursor === targetPath) {
+        assertPhysicallyDisjoint(physicalRoot, presence.directory, label);
+      } else if (physicallyContainsDirectoryChainV1(physicalRoot, presence.directory)) {
+        throw new Error(`SEC runtime ${label} is physically inside the repository.`);
       }
-      return inspectNoFollowDirectoryChainV1(target, 'SEC runtime directory readback');
+      return Object.freeze({
+        targetPath,
+        ancestor: presence.directory.target,
+        missingSegments: Object.freeze(missingSegments)
+      });
     }
     const parent = path.dirname(cursor);
     if (parent === cursor) {
-      throw new Error('SEC runtime directory has no existing physical ancestor.');
+      throw new Error(`SEC runtime ${label} has no existing physical ancestor.`);
     }
-    missing.unshift(path.basename(cursor));
+    missingSegments.unshift(path.basename(cursor));
     cursor = parent;
   }
 }
@@ -69,13 +87,58 @@ function samePhysicalIdentity(
     && left.objectId === right.objectId;
 }
 
+function bindMaterializedDirectory(
+  expected: PhysicalDirectoryIdentityV1,
+  targetPath: string,
+  label: string
+): PhysicalDirectoryChainV1 {
+  const readback = inspectNoFollowDirectoryChainV1(targetPath, label);
+  if (!samePhysicalIdentity(expected, readback.target)) {
+    throw new Error(`SEC runtime ${label} identity differs from the retained materialization capability.`);
+  }
+  return readback;
+}
+
+function materializePlannedPhysicalDirectory(
+  plan: PhysicalDirectoryMaterializationPlanV1,
+  label: string
+): PhysicalDirectoryChainV1 {
+  const target = plan.missingSegments.length === 0
+    ? assertSameNoFollowDirectoryIdentityV1(plan.ancestor, `${label} retained target`).target
+    : createNoFollowOrdinaryDirectoryChainV1(plan.ancestor, plan.missingSegments);
+  return bindMaterializedDirectory(target, plan.targetPath, `${label} readback`);
+}
+
+function materializeWithinPhysicalAuthority(
+  authorityRoot: PhysicalDirectoryIdentityV1,
+  absolutePath: string,
+  label: string
+): PhysicalDirectoryChainV1 {
+  const targetPath = path.resolve(absolutePath);
+  if (!pathInside(targetPath, authorityRoot.path)) {
+    throw new Error(`SEC runtime ${label} escapes its physical authority.`);
+  }
+  const relative = path.relative(authorityRoot.path, targetPath);
+  const segments = relative === '' ? [] : relative.split(path.sep);
+  const target = segments.length === 0
+    ? assertSameNoFollowDirectoryIdentityV1(authorityRoot, `${label} authority root`).target
+    : createNoFollowOrdinaryDirectoryChainV1(authorityRoot, segments);
+  return bindMaterializedDirectory(target, targetPath, `${label} readback`);
+}
+
 function hardenPosixDirectory(directory: PhysicalDirectoryIdentityV1): PhysicalDirectoryIdentityV1 {
+  const before = assertSameNoFollowDirectoryIdentityV1(
+    directory,
+    'SEC runtime private directory before permission hardening'
+  ).target;
   chmodSync(directory.path, 0o700);
   const current = inspectNoFollowDirectoryChainV1(
     directory.path,
     'SEC runtime private directory readback'
   ).target;
-  if (!samePhysicalIdentity(directory, current)) {
+  // Linux objectId includes mutable mode material. chmod is the authorized
+  // transition here; the stable filesystem object must remain dev/inode exact.
+  if (before.device !== current.device || before.inode !== current.inode) {
     throw new Error('SEC runtime private directory identity changed during permission hardening.');
   }
   const metadata = lstatSync(current.path);
@@ -105,7 +168,10 @@ export function acquireSecRuntimeCachePhysicalAuthorityV1(input: Readonly<{
     path.resolve(input.repositoryRoot),
     'SEC runtime repository root'
   );
-  let cache = materializePhysicalDirectory(input.cacheRoot);
+  const cachePlan = planPhysicalDirectoryMaterialization(
+    input.cacheRoot, repository, 'cache root planned location'
+  );
+  let cache = materializePlannedPhysicalDirectory(cachePlan, 'cache root materialization');
   assertPhysicallyDisjoint(repository, cache, 'cache root and repository');
 
   const requested = [...new Set([
@@ -119,9 +185,11 @@ export function acquireSecRuntimeCachePhysicalAuthorityV1(input: Readonly<{
   }
 
   const directories = new Map<string, PhysicalDirectoryIdentityV1>();
+  const cacheRootPath = path.resolve(input.cacheRoot);
   for (const directoryPath of requested.sort((left, right) =>
     left.split(path.sep).length - right.split(path.sep).length || left.localeCompare(right))) {
-    let directory = materializePhysicalDirectory(directoryPath);
+    const authorityRoot = directories.get(cacheRootPath) ?? cache.target;
+    let directory = materializeWithinPhysicalAuthority(authorityRoot, directoryPath, 'cache directory');
     assertPhysicallyDisjoint(repository, directory, `cache directory ${directoryPath} and repository`);
     let target = directory.target;
     if (process.platform === 'linux') {
@@ -134,7 +202,10 @@ export function acquireSecRuntimeCachePhysicalAuthorityV1(input: Readonly<{
     } else {
       throw new Error('SEC runtime cache physical authority is unavailable on this platform.');
     }
-    directories.set(path.resolve(directoryPath), target);
+    const directoryChain = bindMaterializedDirectory(
+      target, directoryPath, 'cache directory authority'
+    );
+    directories.set(path.resolve(directoryPath), directoryChain.target);
   }
 
   cache = inspectNoFollowDirectoryChainV1(path.resolve(input.cacheRoot), 'SEC runtime cache root');
@@ -187,8 +258,14 @@ export async function acquireSecRuntimeStatePhysicalAuthorityV1(input: Readonly<
     path.resolve(input.repositoryRoot),
     'SEC runtime repository root'
   );
-  let state = materializePhysicalDirectory(input.stateRoot);
-  let cache = materializePhysicalDirectory(input.cacheRoot);
+  const statePlan = planPhysicalDirectoryMaterialization(
+    input.stateRoot, repository, 'state root planned location'
+  );
+  const cachePlan = planPhysicalDirectoryMaterialization(
+    input.cacheRoot, repository, 'cache root planned location'
+  );
+  let state = materializePlannedPhysicalDirectory(statePlan, 'state root materialization');
+  let cache = materializePlannedPhysicalDirectory(cachePlan, 'cache root materialization');
   assertPhysicallyDisjoint(repository, state, 'durable state root and repository');
   assertPhysicallyDisjoint(repository, cache, 'cache root and repository');
   assertPhysicallyDisjoint(state, cache, 'durable state and cache roots');
@@ -206,10 +283,18 @@ export async function acquireSecRuntimeStatePhysicalAuthorityV1(input: Readonly<
   }
 
   const directories = new Map<string, PhysicalDirectoryIdentityV1>();
+  const directoryChains = new Map<string, PhysicalDirectoryChainV1>();
+  const stateRootPath = path.resolve(input.stateRoot);
+  const cacheRootPath = path.resolve(input.cacheRoot);
   const windowsAuthorities: WindowsHostDirectoryAuthority[] = [];
   for (const directoryPath of requested.sort((left, right) =>
     left.split(path.sep).length - right.split(path.sep).length || left.localeCompare(right))) {
-    let directory = materializePhysicalDirectory(directoryPath).target;
+    const authorityRoot = pathInside(directoryPath, stateRootPath)
+      ? directories.get(stateRootPath) ?? state.target
+      : directories.get(cacheRootPath) ?? cache.target;
+    let directory = materializeWithinPhysicalAuthority(
+      authorityRoot, directoryPath, 'state/cache directory'
+    ).target;
     if (process.platform === 'win32' && directoryPath === path.resolve(input.stateRoot)) {
       const cached = windowsRuntimeStateAuthorities.get(directory.path);
       if (cached !== undefined) {
@@ -241,7 +326,11 @@ export async function acquireSecRuntimeStatePhysicalAuthorityV1(input: Readonly<
     } else {
       throw new Error('SEC runtime physical authority is unavailable on this platform.');
     }
-    directories.set(path.resolve(directoryPath), directory);
+    const directoryChain = bindMaterializedDirectory(
+      directory, directoryPath, 'state/cache directory authority'
+    );
+    directories.set(path.resolve(directoryPath), directoryChain.target);
+    directoryChains.set(path.resolve(directoryPath), directoryChain);
   }
 
   state = inspectNoFollowDirectoryChainV1(path.resolve(input.stateRoot), 'SEC runtime state root');
@@ -279,6 +368,13 @@ export async function acquireSecRuntimeStatePhysicalAuthorityV1(input: Readonly<
       const value = directories.get(path.resolve(absolutePath));
       if (value === undefined) {
         throw new Error('SEC runtime directory is outside the acquired physical authority.');
+      }
+      return value;
+    },
+    directoryChain: (absolutePath: string): PhysicalDirectoryChainV1 => {
+      const value = directoryChains.get(path.resolve(absolutePath));
+      if (value === undefined) {
+        throw new Error('SEC runtime directory chain is outside the acquired physical authority.');
       }
       return value;
     },

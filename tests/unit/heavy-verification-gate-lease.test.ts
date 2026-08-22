@@ -50,6 +50,9 @@ test('heavy verification gate rejects a second live owner and releases exact own
       ownerPid: 101,
       token: TOKEN_A
     });
+    if (process.platform === 'win32') {
+      expect(await readFile(lockPath, 'utf8').catch(() => 'missing')).toBe('missing');
+    }
     await expect(acquireHeavyVerificationGateLease({
       gateId: 'ci:risk',
       isProcessAlive: () => true,
@@ -72,7 +75,7 @@ test('heavy verification gate rejects a second live owner and releases exact own
   });
 });
 
-test('heavy verification gate atomically reclaims a dead owner', async () => {
+test.skipIf(process.platform === 'win32')('heavy verification gate atomically reclaims a dead owner', async () => {
   await withLockRoot(async (lockPath) => {
     await mkdir(lockPath);
     await writeFile(path.join(lockPath, 'owner.json'), `${JSON.stringify({
@@ -96,7 +99,7 @@ test('heavy verification gate atomically reclaims a dead owner', async () => {
   });
 });
 
-test('heavy verification gate never removes a successor owner during release', async () => {
+test.skipIf(process.platform === 'win32')('heavy verification gate never removes a successor owner during release', async () => {
   await withLockRoot(async (lockPath) => {
     const lease = await acquireHeavyVerificationGateLease({
       gateId: 'test:affected',
@@ -114,7 +117,7 @@ test('heavy verification gate never removes a successor owner during release', a
   });
 });
 
-test('heavy verification gate never reclaims an owner from another host', async () => {
+test.skipIf(process.platform === 'win32')('heavy verification gate never reclaims an owner from another host', async () => {
   await withLockRoot(async (lockPath) => {
     await mkdir(lockPath);
     await writeFile(path.join(lockPath, 'owner.json'), `${JSON.stringify({

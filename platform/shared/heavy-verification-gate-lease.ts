@@ -83,7 +83,7 @@ interface HeavyVerificationGateKernel32 {
 }
 
 let heavyVerificationGateKernel32Promise: Promise<HeavyVerificationGateKernel32> | undefined;
-let windowsHeavyVerificationGateHeld = false;
+const windowsHeavyVerificationGatesHeld = new Map<string, HeavyVerificationGateOwnerV1>();
 
 async function loadHeavyVerificationGateKernel32(): Promise<HeavyVerificationGateKernel32> {
   heavyVerificationGateKernel32Promise ??= (async () => {
@@ -188,40 +188,68 @@ async function reclaimStaleLock(lockPath: string, token: string): Promise<boolea
 
 async function acquireWindowsHeavyVerificationGateLease(
   owner: HeavyVerificationGateOwnerV1,
+  mutexIdentity: string,
   namespace: string | undefined,
   waitTimeoutMs: number
 ): Promise<HeavyVerificationGateLease> {
-  if (windowsHeavyVerificationGateHeld) {
-    throw new Error('Another heavy verification gate is already active in this process.');
+  const mutexName = heavyVerificationGateMutexName(mutexIdentity, namespace);
+  const held = windowsHeavyVerificationGatesHeld.get(mutexName);
+  if (held !== undefined) {
+    throw new Error(
+      `Heavy verification gate ${held.gateId} is already active ` +
+      `(pid ${held.pid}, started ${held.startedAt}).`
+    );
   }
-  const physicalWorktreeRoot = await realpath(compilerRoot);
-  const kernel32 = await loadHeavyVerificationGateKernel32();
-  const handle = kernel32.symbols.CreateMutexW(
-    null,
-    0,
-    windowsWide(heavyVerificationGateMutexName(physicalWorktreeRoot, namespace))
-  );
-  if (handle === 0n) {
-    throw new Error('Heavy verification gate mutex could not be created.');
-  }
-  const wait = kernel32.symbols.WaitForSingleObject(handle, waitTimeoutMs);
-  if (wait !== WINDOWS_WAIT_OBJECT_0 && wait !== WINDOWS_WAIT_ABANDONED_0) {
-    kernel32.symbols.CloseHandle(handle);
-    if (wait === WINDOWS_WAIT_TIMEOUT) {
-      throw new Error('Another heavy verification gate is already active in this worktree.');
+  // Reserve synchronously before the first await. Windows mutexes are
+  // thread-reentrant, so concurrent async callers in this JS thread must not
+  // both enter the kernel acquisition and overwrite the local owner.
+  windowsHeavyVerificationGatesHeld.set(mutexName, owner);
+  let kernel32: HeavyVerificationGateKernel32 | null = null;
+  let handle = 0n;
+  try {
+    kernel32 = await loadHeavyVerificationGateKernel32();
+    handle = kernel32.symbols.CreateMutexW(
+      null,
+      0,
+      windowsWide(mutexName)
+    );
+    if (handle === 0n) {
+      throw new Error('Heavy verification gate mutex could not be created.');
     }
-    throw new Error('Heavy verification gate mutex wait failed.');
+    const wait = kernel32.symbols.WaitForSingleObject(handle, waitTimeoutMs);
+    if (wait !== WINDOWS_WAIT_OBJECT_0 && wait !== WINDOWS_WAIT_ABANDONED_0) {
+      kernel32.symbols.CloseHandle(handle);
+      handle = 0n;
+      if (wait === WINDOWS_WAIT_TIMEOUT) {
+        throw new Error('Another heavy verification gate is already active in this worktree.');
+      }
+      throw new Error('Heavy verification gate mutex wait failed.');
+    }
+  } catch (error) {
+    if (handle !== 0n && kernel32 !== null) kernel32.symbols.CloseHandle(handle);
+    if (windowsHeavyVerificationGatesHeld.get(mutexName)?.token === owner.token) {
+      windowsHeavyVerificationGatesHeld.delete(mutexName);
+    }
+    throw error;
   }
-  windowsHeavyVerificationGateHeld = true;
+  const acquiredKernel32 = kernel32;
+  const acquiredHandle = handle;
   let released = false;
   return Object.freeze({
     owner,
     release: async (): Promise<void> => {
       if (released) return;
+      const current = windowsHeavyVerificationGatesHeld.get(mutexName);
+      if (current?.token !== owner.token) {
+        throw new Error('Heavy verification gate lease ownership was lost before release.');
+      }
+      const releaseResult = acquiredKernel32.symbols.ReleaseMutex(acquiredHandle);
+      const closeResult = acquiredKernel32.symbols.CloseHandle(acquiredHandle);
+      windowsHeavyVerificationGatesHeld.delete(mutexName);
       released = true;
-      windowsHeavyVerificationGateHeld = false;
-      kernel32.symbols.ReleaseMutex(handle);
-      kernel32.symbols.CloseHandle(handle);
+      if (releaseResult === 0 || closeResult === 0) {
+        throw new Error('Heavy verification gate mutex release failed.');
+      }
     }
   });
 }
@@ -260,8 +288,13 @@ export async function acquireHeavyVerificationGateLease(
     startedAt: options.startedAt ?? new Date().toISOString(),
     token
   });
-  if (process.platform === 'win32' && options.lockPath === undefined) {
-    return acquireWindowsHeavyVerificationGateLease(owner, namespace, waitTimeoutMs);
+  if (process.platform === 'win32') {
+    return acquireWindowsHeavyVerificationGateLease(
+      owner,
+      options.lockPath === undefined ? physicalWorktreeRoot! : path.resolve(options.lockPath),
+      namespace,
+      waitTimeoutMs
+    );
   }
   const ownerIsAlive = options.isProcessAlive ?? isProcessAlive;
   await mkdir(path.dirname(lockPath), { recursive: true });

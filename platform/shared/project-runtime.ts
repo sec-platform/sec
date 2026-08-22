@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
@@ -6,6 +7,7 @@ import path from 'node:path';
 import { loadCanonicalBunRuntimeVersion } from './bun-runtime-version.ts';
 import {
   canonicalEquals,
+  canonicalJson,
   compareCodeUnits,
   digest,
   sortedKeys,
@@ -101,7 +103,7 @@ interface CompilerDepsBinding {
   readonly bunVersion: string;
   readonly declaredBunVersion: string;
   readonly dependencyManifestSha256: string;
-  readonly formatVersion: 'compiler-deps-binding-v4';
+  readonly formatVersion: 'compiler-deps-binding-v4' | 'compiler-deps-binding-v5';
   readonly installConfigSha256: string | null;
   readonly lockSha256: string;
   readonly manifestHash: string;
@@ -126,6 +128,9 @@ export interface RuntimeDependencyInstallOptions {
   sleep?: (ms: number) => Promise<void>;
   testCompilerPublishPlatform?: NodeJS.Platform;
   testCompilerPublishHook?: (stage: 'active-backed-up') => void | Promise<void>;
+  testCompilerBridgeValidationHook?: (
+    stage: 'binding-observed' | 'final-binding-observed'
+  ) => void | Promise<void>;
   testCompilerRename?: (source: string, target: string) => Promise<void>;
 }
 
@@ -241,12 +246,21 @@ interface CompilerDependencyIdentity {
   declaredBunVersion: string;
   dependencyManifestSha256: string;
   installConfigSha256: string | null;
+  legacyInstallConfigSha256: string | null;
+  legacyManifestHash: string;
   lockSha256: string;
   manifestHash: string;
   packageNames: string[];
   packageSourceSha256: string;
   packageVersions: Record<string, string>;
   platform: NodeJS.Platform;
+}
+
+function compilerInstallConfigSha256(bytes: Uint8Array | null): string {
+  const install = bytes === null
+    ? null
+    : (Bun.TOML.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).install ?? null;
+  return digest(JSON.stringify(canonicalJson({ install })));
 }
 
 type RuntimeExecutableIdentity = Readonly<{
@@ -350,28 +364,58 @@ async function compilerDependencyIdentity(root: string): Promise<CompilerDepende
   }
   const packageVersions = { ...dependencies, ...devDependencies };
   const lockSha256 = digest(lockfileBytes);
-  const installConfigSha256 = installConfigBytes === null ? null : digest(installConfigBytes);
+  const installConfigSha256 = compilerInstallConfigSha256(installConfigBytes);
+  const legacyInstallConfigSha256 = installConfigBytes === null ? null : digest(installConfigBytes);
+  const manifestContent = (configSha256: string | null) => JSON.stringify({
+    dependencyManifestSha256: manifestAuthority.dependencyManifestSha256,
+    installConfigSha256: configSha256,
+    lockSha256,
+    runtime: {
+      ...runtime,
+      bunExecutablePath: runtimeExecutable.path,
+      bunExecutableSha256: runtimeExecutable.sha256
+    }
+  });
   return {
     ...runtime,
     bunExecutablePath: runtimeExecutable.path,
     bunExecutableSha256: runtimeExecutable.sha256,
     dependencyManifestSha256: manifestAuthority.dependencyManifestSha256,
     installConfigSha256,
+    legacyInstallConfigSha256,
+    legacyManifestHash: digest(manifestContent(legacyInstallConfigSha256)),
     lockSha256,
-    manifestHash: digest(JSON.stringify({
-      dependencyManifestSha256: manifestAuthority.dependencyManifestSha256,
-      installConfigSha256,
-      lockSha256,
-      runtime: {
-        ...runtime,
-        bunExecutablePath: runtimeExecutable.path,
-        bunExecutableSha256: runtimeExecutable.sha256
-      }
-    })),
+    manifestHash: digest(manifestContent(installConfigSha256)),
     packageNames: sortedKeys(packageVersions),
     packageSourceSha256: digest(packageJsonBytes),
     packageVersions
   };
+}
+
+function compilerDependencyInputFenceMatchesV1(
+  root: string,
+  expected: CompilerDependencyIdentity
+): boolean {
+  try {
+    const packageJsonBytes = readFileSync(path.join(root, 'package.json'));
+    const lockfileBytes = readFileSync(path.join(root, 'bun.lock'));
+    let installConfigBytes: Buffer | null;
+    try {
+      installConfigBytes = readFileSync(path.join(root, 'bunfig.toml'));
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
+      installConfigBytes = null;
+    }
+    const manifest = compilerDependencyManifestAuthority(packageJsonBytes);
+    const canonicalBunVersion = readFileSync(path.join(root, '.bun-version'), 'utf8').trim();
+    return manifest.declaredBunVersion === expected.declaredBunVersion &&
+      manifest.dependencyManifestSha256 === expected.dependencyManifestSha256 &&
+      digest(lockfileBytes) === expected.lockSha256 &&
+      compilerInstallConfigSha256(installConfigBytes) === expected.installConfigSha256 &&
+      canonicalBunVersion === expected.bunVersion;
+  } catch {
+    return false;
+  }
 }
 
 function dependencyPackagePath(nodeModulesPath: string, packageName: string): string {
@@ -484,23 +528,36 @@ async function compilerDependencyGenerationBinding(
   identity: CompilerDependencyIdentity
 ): Promise<Readonly<CompilerDepsBinding> | null> {
   const binding = await readJson<CompilerDepsBinding>(bindingPath).catch(() => null);
-  if (binding === null || binding.formatVersion !== 'compiler-deps-binding-v4' ||
+  if (binding === null ||
+    (binding.formatVersion !== 'compiler-deps-binding-v4' &&
+      binding.formatVersion !== 'compiler-deps-binding-v5')) return null;
+  const legacy = binding.formatVersion === 'compiler-deps-binding-v4';
+  const bindingInstallConfigSha256 = legacy
+    ? identity.legacyInstallConfigSha256
+    : identity.installConfigSha256;
+  const bindingManifestHash = legacy ? identity.legacyManifestHash : identity.manifestHash;
+  if (
     binding.architecture !== identity.architecture ||
     binding.bunExecutablePath !== identity.bunExecutablePath ||
     binding.bunExecutableSha256 !== identity.bunExecutableSha256 ||
     binding.bunVersion !== identity.bunVersion ||
     binding.declaredBunVersion !== identity.declaredBunVersion ||
     binding.dependencyManifestSha256 !== identity.dependencyManifestSha256 ||
-    binding.installConfigSha256 !== identity.installConfigSha256 ||
+    binding.installConfigSha256 !== bindingInstallConfigSha256 ||
     binding.lockSha256 !== identity.lockSha256 ||
-    binding.manifestHash !== identity.manifestHash ||
+    binding.manifestHash !== bindingManifestHash ||
     binding.platform !== identity.platform) return null;
   const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity).catch(() => null);
   if (packages === null || !canonicalEquals(binding.packages, packages)) return null;
+  const bindingIdentity = {
+    ...identity,
+    installConfigSha256: bindingInstallConfigSha256,
+    manifestHash: bindingManifestHash
+  };
   const runtimeMaterialization = await compilerRuntimeMaterializationBinding(
     root,
     nodeModulesPath,
-    identity
+    bindingIdentity
   ).catch(() => undefined);
   if (runtimeMaterialization === undefined) return null;
   const expected = {
@@ -510,10 +567,10 @@ async function compilerDependencyGenerationBinding(
     bunVersion: identity.bunVersion,
     declaredBunVersion: identity.declaredBunVersion,
     dependencyManifestSha256: identity.dependencyManifestSha256,
-    formatVersion: 'compiler-deps-binding-v4',
-    installConfigSha256: identity.installConfigSha256,
+    formatVersion: binding.formatVersion,
+    installConfigSha256: bindingInstallConfigSha256,
     lockSha256: identity.lockSha256,
-    manifestHash: identity.manifestHash,
+    manifestHash: bindingManifestHash,
     packages,
     platform: identity.platform,
     runtimeMaterialization
@@ -756,10 +813,15 @@ async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
     currentRuntimeExecutableIdentity()
   ]);
   const dependencyManifest = compilerDependencyManifestAuthority(packageJsonBytes);
+  const observedInstallConfigSha256 = compilerInstallConfigSha256(installConfigBytes);
+  const observedLegacyInstallConfigSha256 = installConfigBytes === null
+    ? null
+    : digest(installConfigBytes);
   if (digest(lockfileBytes) !== input.toolchain.lockSha256 ||
     dependencyManifest.dependencyManifestSha256 !== input.toolchain.dependencyManifestSha256 ||
     dependencyManifest.declaredBunVersion !== input.toolchain.declaredBunVersion ||
-    (installConfigBytes === null ? null : digest(installConfigBytes)) !== input.toolchain.installConfigSha256 ||
+    (input.toolchain.installConfigSha256 !== observedInstallConfigSha256 &&
+      input.toolchain.installConfigSha256 !== observedLegacyInstallConfigSha256) ||
     runtimeExecutable.path !== input.toolchain.bunExecutablePath ||
     runtimeExecutable.sha256 !== input.toolchain.bunExecutableSha256 ||
     canonicalBunVersion !== input.toolchain.bunVersion ||
@@ -2323,13 +2385,14 @@ async function stageCompilerDependencyGeneration(
         if (error.code === 'ENOENT') return null;
         throw error;
       });
-    if ((installConfigBytes === null ? null : digest(installConfigBytes)) !== identity.installConfigSha256) {
+    if (compilerInstallConfigSha256(installConfigBytes) !== identity.installConfigSha256) {
       throw new CompilerError('IMPORT-AUTHORITY-001', 'Compiler dependency install config changed before staging');
     }
     if (installConfigBytes !== null) {
       await options.beforeCommit?.();
       await fs.writeFile(stagedInstallConfigPath, installConfigBytes);
-      if (digest(await fs.readFile(stagedInstallConfigPath)) !== identity.installConfigSha256) {
+      if (compilerInstallConfigSha256(await fs.readFile(stagedInstallConfigPath)) !==
+        identity.installConfigSha256) {
         throw new CompilerError('IMPORT-AUTHORITY-001', 'Compiler dependency install config staging failed');
       }
     }
@@ -2351,7 +2414,7 @@ async function stageCompilerDependencyGeneration(
       bunVersion: identity.bunVersion,
       declaredBunVersion: identity.declaredBunVersion,
       dependencyManifestSha256: identity.dependencyManifestSha256,
-      formatVersion: 'compiler-deps-binding-v4',
+      formatVersion: 'compiler-deps-binding-v5',
       installConfigSha256: identity.installConfigSha256,
       lockSha256: identity.lockSha256,
       manifestHash: identity.manifestHash,
@@ -2524,6 +2587,83 @@ async function publishCompilerDependencyGeneration(
   }
 }
 
+async function compilerDependencyConsumerBridgeBinding(
+  consumerRoot: string,
+  bridgePath: string,
+  consumerIdentity: CompilerDependencyIdentity,
+  options: RuntimeDependencyInstallOptions
+): Promise<Readonly<CompilerDepsBinding> | null> {
+  const bridgeMetadata = await fs.lstat(bridgePath, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (bridgeMetadata === null || !bridgeMetadata.isSymbolicLink()) return null;
+
+  try {
+    const generationPath = path.resolve(await fs.realpath(bridgePath));
+    const generationMetadata = await fs.lstat(generationPath, { bigint: true });
+    const ownerRoot = path.dirname(generationPath);
+    if (!generationMetadata.isDirectory() || generationMetadata.isSymbolicLink() ||
+      path.basename(generationPath).toLocaleLowerCase('en-US') !== 'node_modules' ||
+      sameHostPath(ownerRoot, consumerRoot)) {
+      throw new Error('Dependency consumer bridge target is not one external physical generation.');
+    }
+    const ownerIdentity = await compilerDependencyIdentity(ownerRoot);
+    if (ownerIdentity.manifestHash !== consumerIdentity.manifestHash) {
+      throw new Error('Dependency consumer bridge owner has incompatible canonical inputs.');
+    }
+    const binding = await compilerDependencyGenerationBinding(
+      ownerRoot,
+      generationPath,
+      path.join(generationPath, COMPILER_DEPS_BINDING_FILE),
+      ownerIdentity
+    );
+    if (binding === null) {
+      throw new Error('Dependency consumer bridge target has no valid owner binding.');
+    }
+    await options.testCompilerBridgeValidationHook?.('binding-observed');
+    const finalOwnerIdentity = await compilerDependencyIdentity(ownerRoot);
+    const finalConsumerIdentity = await compilerDependencyIdentity(consumerRoot);
+    const finalBinding = await compilerDependencyGenerationBinding(
+      ownerRoot,
+      generationPath,
+      path.join(generationPath, COMPILER_DEPS_BINDING_FILE),
+      finalOwnerIdentity
+    );
+    await options.testCompilerBridgeValidationHook?.('final-binding-observed');
+    // No asynchronous work may follow this fence: every mutable input and
+    // physical bridge identity is observed in one final synchronous interval.
+    const finalBridgeMetadata = lstatSync(bridgePath, { bigint: true });
+    const finalGenerationPath = path.resolve(realpathSync(bridgePath));
+    const finalGenerationMetadata = lstatSync(finalGenerationPath, { bigint: true });
+    if (!finalBridgeMetadata.isSymbolicLink() ||
+      finalBridgeMetadata.dev !== bridgeMetadata.dev ||
+      finalBridgeMetadata.ino !== bridgeMetadata.ino ||
+      finalBridgeMetadata.mode !== bridgeMetadata.mode ||
+      !sameHostPath(finalGenerationPath, generationPath) ||
+      !finalGenerationMetadata.isDirectory() || finalGenerationMetadata.isSymbolicLink() ||
+      finalGenerationMetadata.dev !== generationMetadata.dev ||
+      finalGenerationMetadata.ino !== generationMetadata.ino ||
+      finalGenerationMetadata.mode !== generationMetadata.mode ||
+      !compilerDependencyInputFenceMatchesV1(ownerRoot, finalOwnerIdentity) ||
+      !compilerDependencyInputFenceMatchesV1(consumerRoot, finalConsumerIdentity)) {
+      throw new Error('Dependency consumer bridge identity changed during validation.');
+    }
+    if (finalConsumerIdentity.manifestHash !== consumerIdentity.manifestHash ||
+      finalOwnerIdentity.manifestHash !== finalConsumerIdentity.manifestHash ||
+      finalBinding === null || !canonicalEquals(finalBinding, binding)) {
+      throw new Error('Dependency consumer bridge binding changed during validation.');
+    }
+    return finalBinding;
+  } catch (error) {
+    throw new CompilerError(
+      'IMPORT-AUTHORITY-004',
+      'Compiler dependency consumer bridge is incompatible',
+      { cause: error instanceof Error ? error.message : String(error), bridgePath }
+    );
+  }
+}
+
 export async function ensureCompilerDepsReady(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot
@@ -2534,6 +2674,22 @@ export async function ensureCompilerDepsReady(
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
 
   const identity = await compilerDependencyIdentity(root);
+  const bridgeBinding = await compilerDependencyConsumerBridgeBinding(
+    root,
+    nodeModulesPath,
+    identity,
+    options
+  );
+  if (bridgeBinding !== null) {
+    return {
+      manifestHash: identity.manifestHash,
+      nodeModulesPath,
+      packageManager: 'bun',
+      root,
+      runtimeMaterialization: bridgeBinding.runtimeMaterialization,
+      source: 'existing'
+    };
+  }
   const ready = () => compilerDependencyGenerationBinding(
     root,
     nodeModulesPath,
