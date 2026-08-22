@@ -57,6 +57,7 @@ describe('compiler dependency installation', () => {
       await writeCompilerDependencyRoot(tempRoot);
       let installCalls = 0;
       const stagingRoots = new Set<string>();
+      const lifecycleEvents: string[] = [];
       const commandRunner = async (_command: string, args: string[], options: { cwd: string }) => {
         installCalls += 1;
         expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts']);
@@ -70,7 +71,20 @@ describe('compiler dependency installation', () => {
         await installCompilerDependencyFixture(options.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
       };
-      const options = { commandRunner, pollIntervalMs: 10 };
+      const options = {
+        commandRunner,
+        generatedStateLifecycle: {
+          born: async (relativePath: string) => {
+            lifecycleEvents.push(`born:${relativePath}`);
+          },
+          retired: async () => undefined,
+          disposed: async (relativePath: string, outcome: string) => {
+            lifecycleEvents.push(`disposed:${relativePath}:${outcome}`);
+            await fs.rm(path.join(tempRoot, ...relativePath.split('/')), { force: true, recursive: true });
+          }
+        },
+        pollIntervalMs: 10
+      };
 
       const first = await Promise.all([
         ensureCompilerDepsReady(options, tempRoot),
@@ -104,6 +118,9 @@ describe('compiler dependency installation', () => {
       expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
       expect(installCalls).toBe(2);
       expect(stagingRoots.size).toBe(2);
+      expect(lifecycleEvents.filter((event) => event.startsWith('born:.tmp/dependency-installs/c.staging-')))
+        .toHaveLength(2);
+      expect(lifecycleEvents.filter((event) => event.endsWith(':generation-published'))).toHaveLength(2);
       for (const stagingRoot of stagingRoots) {
         await expect(fs.stat(stagingRoot)).rejects.toMatchObject({ code: 'ENOENT' });
       }

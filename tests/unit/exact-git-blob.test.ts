@@ -12,7 +12,9 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
+  CodexDevelopmentListExactGitTreeEntriesV1,
   CodexDevelopmentReadExactGitBlobV1,
+  CodexDevelopmentReadExactGitTextBlobsBatchV1,
   type CodexDevelopmentExactGitBlobCommandResultV1
 } from '../../scripts/codex/exact-git-blob.ts';
 
@@ -184,4 +186,36 @@ test('exact Git blob reader rejects a cat-file byte-count mismatch', () => {
     repositoryPath: 'fixture',
     runGit
   })).toThrow('size mismatch');
+});
+
+test('exact Git text batch preserves path-to-blob identity and rejects malformed output', () => {
+  const repositoryRoot = initializeRepository();
+  try {
+    writeFileSync(path.join(repositoryRoot, 'first.ts'), 'export const first = 1;\n', 'utf8');
+    writeFileSync(path.join(repositoryRoot, 'second.ts'), 'export const second = 2;\n', 'utf8');
+    git(repositoryRoot, ['add', 'first.ts', 'second.ts']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'batch']);
+    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const entries = CodexDevelopmentListExactGitTreeEntriesV1({ repositoryRoot, commitSha });
+    const source = CodexDevelopmentReadExactGitTextBlobsBatchV1({
+      repositoryRoot,
+      entries
+    });
+    expect(source.map(({ repositoryPath, source: text }) => [repositoryPath, text])).toEqual([
+      ['first.ts', 'export const first = 1;\n'],
+      ['second.ts', 'export const second = 2;\n']
+    ]);
+
+    expect(() => CodexDevelopmentReadExactGitTextBlobsBatchV1({
+      repositoryRoot,
+      entries: [entries[0]!],
+      runGitBatch: () => ({
+        status: 0,
+        stderr: Buffer.alloc(0),
+        stdout: Buffer.from(`${'f'.repeat(40)} blob 1\nx\n`, 'utf8')
+      })
+    })).toThrow('header does not match');
+  } finally {
+    rmSync(repositoryRoot, { force: true, recursive: true });
+  }
 });

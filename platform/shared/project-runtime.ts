@@ -132,6 +132,39 @@ export interface RuntimeDependencyInstallOptions {
     stage: 'binding-observed' | 'final-binding-observed'
   ) => void | Promise<void>;
   testCompilerRename?: (source: string, target: string) => Promise<void>;
+  generatedStateLifecycle?: Readonly<{
+    born(relativePath: string, operationId: string): Promise<void>;
+    retired(relativePath: string, outcome: string): Promise<void>;
+    disposed(relativePath: string, outcome: string): Promise<void>;
+  }>;
+}
+
+async function bindCanonicalGeneratedStateLifecycle(
+  options: RuntimeDependencyInstallOptions,
+  root: string
+): Promise<RuntimeDependencyInstallOptions> {
+  if (!sameHostPath(root, compilerRoot)) return options;
+  const { generatedStateProducerHooksV1 } = await import('../../tooling/sec-dev/generated-state-lifecycle.ts');
+  return Object.freeze({
+    ...options,
+    generatedStateLifecycle: generatedStateProducerHooksV1({ repositoryRoot: root })
+  });
+}
+
+export async function disposeCanonicalSharedDependencies(
+  options: RuntimeDependencyInstallOptions = {},
+  outcome = 'maintainer-clean-requested'
+): Promise<boolean> {
+  const sharedDepsRoot = defaultSharedDepsRoot();
+  if (!await pathExists(sharedDepsRoot)) return false;
+  const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(options, compilerRoot);
+  const lifecycle = lifecycleOptions.generatedStateLifecycle;
+  if (lifecycle === undefined) {
+    throw new Error('Canonical shared dependencies have no generated-state lifecycle owner.');
+  }
+  await lifecycle.born('.shared-deps', 'dependency-maintainer-clean:shared-dependency-cache');
+  await lifecycle.disposed('.shared-deps', outcome);
+  return true;
 }
 
 export interface ExternalNodeRuntimeResolutionOptions {
@@ -2356,7 +2389,16 @@ async function stageCompilerDependencyGeneration(
   await ensureDir(stagingParent, options.beforeCommit);
   await options.beforeCommit?.();
   const stagingRoot = await fs.mkdtemp(path.join(stagingParent, 'c.staging-'));
+  const stagingRelativePath = path.relative(root, stagingRoot).replaceAll('\\', '/');
+  let lifecycleRegistered = false;
   try {
+    if (options.generatedStateLifecycle !== undefined) {
+      await options.generatedStateLifecycle.born(
+        stagingRelativePath,
+        `compiler-dependency-generation:${identity.manifestHash}:${path.basename(stagingRoot)}`
+      );
+      lifecycleRegistered = true;
+    }
     const sourcePackagePath = path.join(root, 'package.json');
     const sourceLockPath = path.join(root, 'bun.lock');
     const stagedPackagePath = path.join(stagingRoot, 'package.json');
@@ -2429,7 +2471,11 @@ async function stageCompilerDependencyGeneration(
     );
     return { binding, stagingRoot };
   } catch (error) {
-    await fs.rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+    if (lifecycleRegistered) {
+      await options.generatedStateLifecycle!.disposed(stagingRelativePath, 'generation-aborted');
+    } else {
+      await fs.rm(stagingRoot, { recursive: true, force: true });
+    }
     if (error instanceof CompilerError && error.code.startsWith('IMPORT-AUTHORITY-')) throw error;
     const causeMessage = error instanceof CompilerError
       ? JSON.stringify(error.details).slice(-2000)
@@ -2560,12 +2606,21 @@ async function publishCompilerDependencyGeneration(
   await ensureDir(backupsRoot, options.beforeCommit);
   try {
     if (await pathExists(activeNodeModulesPath)) {
+      await options.generatedStateLifecycle?.born(
+        'node_modules',
+        `compiler-node-modules-preimage:${path.basename(stagingRoot)}`
+      );
+      await options.generatedStateLifecycle?.retired('node_modules', 'generation-superseded');
       await renameCompilerDependencyDirectory(activeNodeModulesPath, backupPath, options);
       activeBackedUp = true;
       await options.testCompilerPublishHook?.('active-backed-up');
     }
     await renameCompilerDependencyDirectory(stagingNodeModulesPath, activeNodeModulesPath, options);
     published = true;
+    await options.generatedStateLifecycle?.born(
+      'node_modules',
+      `compiler-node-modules:${path.basename(stagingRoot)}`
+    );
   } catch (error) {
     let rollbackFailure: unknown;
     if (activeBackedUp && !(await pathExists(activeNodeModulesPath))) {
@@ -2575,12 +2630,26 @@ async function publishCompilerDependencyGeneration(
         rollbackFailure = rollbackError;
       }
     }
+    if (activeBackedUp && await pathExists(activeNodeModulesPath)) {
+      await options.generatedStateLifecycle?.born(
+        'node_modules',
+        `compiler-node-modules-restored:${path.basename(stagingRoot)}`
+      );
+    }
     throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency generation publish failed', {
       cause: error instanceof Error ? error.message : String(error),
       rollbackFailure: rollbackFailure instanceof Error ? rollbackFailure.message : rollbackFailure
     });
   } finally {
-    await fs.rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+    const stagingRelativePath = path.relative(root, stagingRoot).replaceAll('\\', '/');
+    if (options.generatedStateLifecycle !== undefined) {
+      await options.generatedStateLifecycle.disposed(
+        stagingRelativePath,
+        published ? 'generation-published' : 'generation-publish-failed'
+      );
+    } else {
+      await fs.rm(stagingRoot, { recursive: true, force: true });
+    }
   }
   if (published && activeBackedUp) {
     await retainOnlyLatestCompilerDependencyBackup(backupsRoot, backupPath);
@@ -2669,6 +2738,7 @@ export async function ensureCompilerDepsReady(
   compilerDependencyRoot = compilerRoot
 ): Promise<CompilerDepsReadyState> {
   const root = path.resolve(compilerDependencyRoot);
+  const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(options, root);
   const nodeModulesPath = dependencyAuthorityPaths(root).compilerModulesRoot;
   const bindingPath = path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE);
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
@@ -2678,7 +2748,7 @@ export async function ensureCompilerDepsReady(
     root,
     nodeModulesPath,
     identity,
-    options
+    lifecycleOptions
   );
   if (bridgeBinding !== null) {
     return {
@@ -2699,6 +2769,10 @@ export async function ensureCompilerDepsReady(
 
   const existing = await ready();
   if (existing !== null) {
+    await lifecycleOptions.generatedStateLifecycle?.born(
+      'node_modules',
+      `compiler-node-modules:${identity.manifestHash}`
+    );
     const readyState: CompilerDepsReadyState = {
       manifestHash: identity.manifestHash,
       nodeModulesPath,
@@ -2710,9 +2784,13 @@ export async function ensureCompilerDepsReady(
     return readyState;
   }
 
-  return withInstallLock(installLockPath, options, async () => {
+  return withInstallLock(installLockPath, lifecycleOptions, async () => {
     const lockedExisting = await ready();
     if (lockedExisting !== null) {
+      await lifecycleOptions.generatedStateLifecycle?.born(
+        'node_modules',
+        `compiler-node-modules:${identity.manifestHash}`
+      );
       const readyState: CompilerDepsReadyState = {
         manifestHash: identity.manifestHash,
         nodeModulesPath,
@@ -2724,8 +2802,8 @@ export async function ensureCompilerDepsReady(
       return readyState;
     }
 
-    const staged = await stageCompilerDependencyGeneration(root, identity, options);
-    await publishCompilerDependencyGeneration(root, nodeModulesPath, staged.stagingRoot, options);
+    const staged = await stageCompilerDependencyGeneration(root, identity, lifecycleOptions);
+    await publishCompilerDependencyGeneration(root, nodeModulesPath, staged.stagingRoot, lifecycleOptions);
     const published = await ready();
     if (published === null) {
       throw new CompilerError('IMPORT-AUTHORITY-002', 'Published compiler dependency generation failed validation');
@@ -2749,6 +2827,9 @@ export async function ensureSharedDepsReady(
   const runtimeSpec = await loadRuntimeDependencySpec();
   const sharedDepsRoot = path.resolve(options.sharedDepsRoot ?? defaultSharedDepsRoot());
   const compilerDependencyRoot = path.resolve(compilerRoot);
+  const lifecycleOptions = sameHostPath(sharedDepsRoot, defaultSharedDepsRoot())
+    ? await bindCanonicalGeneratedStateLifecycle(options, compilerDependencyRoot)
+    : options;
   const sharedPackagePath = path.join(sharedDepsRoot, 'package.json');
   const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
   const sharedStampPath = path.join(sharedDepsRoot, 'runtime-deps.stamp.json');
@@ -2757,6 +2838,10 @@ export async function ensureSharedDepsReady(
 
   const observedRoot = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
   if (observedRoot !== null) {
+    await lifecycleOptions.generatedStateLifecycle?.born(
+      '.shared-deps',
+      `shared-dependencies:${runtimeSpec.manifestHash}`
+    );
     await assertNoSharedDependencyAuthorityResidue(sharedDepsRoot);
     await assertPhysicalControlEntries([sharedPackagePath, sharedStampPath, sharedLockPath]);
   }
@@ -2779,13 +2864,17 @@ export async function ensureSharedDepsReady(
     };
   }
 
-  const compilerReady = await ensureCompilerDepsReady(options, compilerDependencyRoot);
+  const compilerReady = await ensureCompilerDepsReady(lifecycleOptions, compilerDependencyRoot);
   const binding = compilerReady.runtimeMaterialization;
   if (binding === null || binding === undefined || binding.manifestHash !== runtimeSpec.manifestHash) {
     throw new CompilerError('RUNTIME-DEPS-002', 'Compiler dependency generation has no runtime closure');
   }
 
   const rootIdentity = await ensurePhysicalSharedDependencyRoot(sharedDepsRoot, options.beforeCommit);
+  await lifecycleOptions.generatedStateLifecycle?.born(
+    '.shared-deps',
+    `shared-dependencies:${runtimeSpec.manifestHash}`
+  );
   const rootFence = async (): Promise<void> => {
     await options.beforeCommit?.();
     await assertSharedDependencyRootIdentity(rootIdentity);

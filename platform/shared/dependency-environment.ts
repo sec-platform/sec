@@ -3,12 +3,14 @@ import path from 'node:path';
 import { pathExists, removeDir } from './fs.ts';
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from './paths.ts';
 import {
+  disposeCanonicalSharedDependencies,
   ensureProjectDependencies,
   ensureSharedDepsReady,
   EXTERNAL_NODE_MINIMUM_MAJOR_VERSION,
   readRuntimeDepsStamp,
   resolveExternalNodeRuntimeAuthority,
-  type ExternalNodeRuntimeResolutionOptions
+  type ExternalNodeRuntimeResolutionOptions,
+  type RuntimeDependencyInstallOptions
 } from './project-runtime.ts';
 import { loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 
@@ -46,6 +48,7 @@ export interface DependencyCleanOptions {
 }
 
 export interface DependencyEnvironmentOptions {
+  generatedStateLifecycle?: RuntimeDependencyInstallOptions['generatedStateLifecycle'];
   nodeRuntime?: ExternalNodeRuntimeResolutionOptions;
   sharedDepsRoot?: string;
 }
@@ -352,7 +355,10 @@ export async function warmupDependencyEnvironment(
   workspaceRoot = process.cwd(),
   options: DependencyEnvironmentOptions = {}
 ): Promise<DependencyEnvironmentStatus> {
-  await ensureSharedDepsReady({ sharedDepsRoot: options.sharedDepsRoot });
+  await ensureSharedDepsReady({
+    generatedStateLifecycle: options.generatedStateLifecycle,
+    sharedDepsRoot: options.sharedDepsRoot
+  });
   return getDependencyEnvironmentStatus(workspaceRoot, options);
 }
 
@@ -363,7 +369,10 @@ export async function relinkProjectDependencies(
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   await removeDir(path.join(projectRoot, 'node_modules'));
   await removeDir(projectStampPath(projectRoot));
-  await ensureProjectDependencies(projectRoot, { sharedDepsRoot: options.sharedDepsRoot });
+  await ensureProjectDependencies(projectRoot, {
+    generatedStateLifecycle: options.generatedStateLifecycle,
+    sharedDepsRoot: options.sharedDepsRoot
+  });
   return getDependencyEnvironmentStatus(workspaceRoot, options);
 }
 
@@ -374,24 +383,29 @@ export async function cleanDependencyEnvironment(
 ): Promise<string[]> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const sharedRoot = environmentOptions.sharedDepsRoot ?? defaultSharedDepsRoot();
-  const targets: string[] = [];
+  const targets = new Set<string>();
 
   if (options.all || options.project) {
-    targets.push(path.join(projectRoot, 'node_modules'));
-    targets.push(projectStampPath(projectRoot));
+    targets.add(path.join(projectRoot, 'node_modules'));
+    targets.add(projectStampPath(projectRoot));
   }
   if (options.all || options.shared) {
-    targets.push(sharedRoot);
+    targets.add(sharedRoot);
   }
-  if (options.all || options.bunCache) {
-    targets.push(bunCacheRoot(sharedRoot));
+  if (!(options.all || options.shared) && options.bunCache) {
+    targets.add(bunCacheRoot(sharedRoot));
   }
 
   for (const target of targets) {
-    await removeDir(target);
+    if (path.resolve(target) === path.resolve(sharedRoot) &&
+      path.resolve(sharedRoot) === path.resolve(defaultSharedDepsRoot())) {
+      await disposeCanonicalSharedDependencies(environmentOptions);
+    } else {
+      await removeDir(target);
+    }
   }
 
-  return targets;
+  return [...targets];
 }
 
 export function formatBytes(value: number): string {

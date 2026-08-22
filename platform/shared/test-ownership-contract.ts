@@ -22,6 +22,11 @@ export type TestOwnershipIdentity =
 export type TestOwnershipDeclaration = {
   owner: string;
   identity: TestOwnershipIdentity;
+  /**
+   * A complete semantic owner may replace generic reverse-import fanout with
+   * its explicit requirement evidence. The default remains conservative.
+   */
+  moduleGraphImpact?: 'include' | 'owner-only';
   sourceFiles?: readonly string[];
   excludedSourceFiles?: readonly string[];
   sourcePrefixes?: readonly string[];

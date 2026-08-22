@@ -7045,27 +7045,90 @@ export async function resolveLiveControlPlane(
   };
 }
 
+export interface DocumentControlPlaneStatusCliProjectionV1 {
+  readonly schema: 'sec-document-control-plane-status-cli-projection-v1';
+  readonly resultDigest: `sha256:${string}`;
+  readonly repository: unknown;
+  readonly workspace: unknown;
+  readonly github: Readonly<{
+    status: unknown;
+    reason?: unknown;
+    openPullRequestNumbers?: readonly number[];
+    openIssueCount?: number;
+    reviewThreadPullRequestCount?: number;
+  }>;
+  readonly activeWorkPackage: unknown;
+  readonly activation: unknown;
+}
+
+export function projectDocumentControlPlaneStatusCliV1(
+  resolved: Readonly<Record<string, unknown>>
+): DocumentControlPlaneStatusCliProjectionV1 {
+  const github = resolved.github !== null
+    && typeof resolved.github === 'object'
+    && !Array.isArray(resolved.github)
+    ? resolved.github as Record<string, unknown>
+    : {};
+  const openPullRequests = Array.isArray(github.openPullRequests)
+    ? github.openPullRequests
+    : undefined;
+  const openIssues = Array.isArray(github.openIssues) ? github.openIssues : undefined;
+  const reviewThreads = github.reviewThreads !== null
+    && typeof github.reviewThreads === 'object'
+    && !Array.isArray(github.reviewThreads)
+    ? github.reviewThreads as Record<string, unknown>
+    : undefined;
+  return Object.freeze({
+    schema: 'sec-document-control-plane-status-cli-projection-v1',
+    resultDigest: rawSha256(JSON.stringify(resolved)),
+    repository: resolved.repository,
+    workspace: resolved.workspace,
+    github: Object.freeze({
+      status: github.status,
+      ...(github.reason === undefined ? {} : { reason: github.reason }),
+      ...(openPullRequests === undefined ? {} : {
+        openPullRequestNumbers: Object.freeze(openPullRequests.flatMap((item) => (
+          item !== null && typeof item === 'object' && !Array.isArray(item)
+            && typeof (item as { number?: unknown }).number === 'number'
+            ? [(item as { number: number }).number]
+            : []
+        )))
+      }),
+      ...(openIssues === undefined ? {} : { openIssueCount: openIssues.length }),
+      ...(reviewThreads === undefined ? {} : {
+        reviewThreadPullRequestCount: Object.keys(reviewThreads).length
+      })
+    }),
+    activeWorkPackage: resolved.activeWorkPackage,
+    activation: resolved.activation
+  });
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const command = argv.shift();
   const usage = 'Usage:\n'
-    + '  bun scripts/codex/document-control-plane.ts status [--workspace <path>] [--json]\n'
+    + '  bun scripts/codex/document-control-plane.ts status [--workspace <path>] [--json] [--full]\n'
     + '  bun scripts/codex/document-control-plane.ts freeze --workspace <candidate-path> '
     + '--manifest <path> --reviewed-on <YYYY-MM-DD> [--json]';
   if (command === 'status') {
     let workspace = process.cwd();
     for (let index = 0; index < argv.length; index += 1) {
       const argument = argv[index]!;
-      if (argument === '--json') continue;
+      if (argument === '--json' || argument === '--full') continue;
       if (argument !== '--workspace' || argv[index + 1] === undefined
           || argv[index + 1]!.startsWith('--')) throw new Error(usage);
       workspace = path.resolve(argv[index + 1]!);
       index += 1;
     }
     if (argv.filter((argument) => argument === '--json').length > 1
+        || argv.filter((argument) => argument === '--full').length > 1
         || argv.filter((argument) => argument === '--workspace').length > 1) throw new Error(usage);
     const resolved = await resolveLiveControlPlane(workspace);
-    process.stdout.write(`${JSON.stringify(resolved, null, 2)}\n`);
+    const output = argv.includes('--full')
+      ? resolved
+      : projectDocumentControlPlaneStatusCliV1(resolved);
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
     const repository = resolved.repository as { defaultRefState: CodexDevelopmentDefaultRefState };
     const github = resolved.github as { status: string };
     const active = resolved.activeWorkPackage as CodexDevelopmentActiveWorkPackageResolution;

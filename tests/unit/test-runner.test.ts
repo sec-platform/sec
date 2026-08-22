@@ -543,7 +543,6 @@ test('fast process planning removes stale isolation and bounds structural proces
     ), 0);
 
   expect([...registeredFiles]).toEqual(expect.arrayContaining([
-    'tests/contract/dev-runner-contract.test.ts',
     'tests/unit/command-runner.test.ts',
     'tests/unit/work-package-gate-execution.test.ts',
     'tests/unit/work-package-profile-census-repair.test.ts',
@@ -557,6 +556,7 @@ test('fast process planning removes stale isolation and bounds structural proces
     'tests/unit/ci-verification-execution.test.ts'
   ]));
   expect([...registeredFiles]).not.toContain('tests/integration/overview.test.ts');
+  expect([...registeredFiles]).not.toContain('tests/contract/dev-runner-contract.test.ts');
   expect([...registeredFiles]).not.toContain('tests/integration/semantic-core-vertical.test.ts');
   expect([...registeredFiles]).not.toContain('tests/integration/compiler-dependency-installation.test.ts');
   expect([...registeredFiles]).not.toContain('tests/integration/project-base.test.ts');
@@ -597,13 +597,6 @@ test('fast process planning removes stale isolation and bounds structural proces
     reason: 'production-child-process-and-runtime-state-lifecycle',
     resourceClass: 'independent-process',
     processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']
-  });
-  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
-    ({ file }) => file === 'tests/contract/dev-runner-contract.test.ts'
-  )).toMatchObject({
-    reason: 'finite-program-proof-and-process-contract',
-    resourceClass: 'host-profile',
-    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['host-profile']
   });
 });
 

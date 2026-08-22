@@ -123,3 +123,19 @@ export function typecheckProviderArguments(
     ...diagnosticArguments(additionalArgs)
   ];
 }
+
+export function typecheckProviderExecutionArguments(
+  provider: TypecheckProviderV1,
+  buildInfoFile: string,
+  additionalArgs: readonly string[] = []
+): string[] {
+  if (!path.isAbsolute(buildInfoFile)) {
+    throw new Error('TypeCheck Provider build-info path must be absolute');
+  }
+  return [
+    ...typecheckProviderArguments(provider, additionalArgs),
+    '--incremental',
+    '--tsBuildInfoFile',
+    path.resolve(buildInfoFile)
+  ];
+}

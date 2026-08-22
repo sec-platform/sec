@@ -59,7 +59,6 @@ import {
   renderIndependentReviewTrailerV1,
   type ReviewStabilityReceiptV1
 } from '../../platform/shared/review-stability-contract.ts';
-import { TCB_CLOSURE_LOCK } from '../../platform/shared/tcb-closure-lock.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import {
   assertCiVerificationActionProviderEnvelopeMemberV2,
@@ -150,7 +149,10 @@ import {
   type BranchLifecycleInventory
 } from './branch-lifecycle-types.ts';
 import { verifyRecoveryAuthorityLive } from './branch-recovery.ts';
-import { CodexDevelopmentDefaultChangedPathsV1 } from './ci-orchestration-core.ts';
+import {
+  CodexDevelopmentDefaultChangedPathsV1,
+  CodexDevelopmentExactGitTestImpactSourceProviderV1
+} from './ci-orchestration-core.ts';
 import {
   assertHostedIntegrationPhaseOwnershipV1,
   createIntegrationAuthorizationOperationPublicationV1,
@@ -260,6 +262,7 @@ export function observeVerificationSessionChangedSelectionV1(input: {
   github: VerificationSessionGitHubClientV1;
 }): Readonly<{
   changedPaths: readonly string[];
+  testImpactSourceProvider: ReturnType<typeof CodexDevelopmentExactGitTestImpactSourceProviderV1>;
   testImpactTransition: CodexDevelopmentTestImpactTransitionObservationV1;
 }> {
   const provider = input.github.observeChangedPaths({
@@ -280,6 +283,10 @@ export function observeVerificationSessionChangedSelectionV1(input: {
   }
   return Object.freeze({
     changedPaths: Object.freeze([...provider.paths]),
+    testImpactSourceProvider: CodexDevelopmentExactGitTestImpactSourceProviderV1(
+      input.repositoryRoot,
+      input.candidate.headSha
+    ),
     testImpactTransition: exact.transitionObservation
   });
 }
@@ -454,16 +461,9 @@ function inspectTrustedRuntimeV1(input: {
   const workingTreeClean = requireCommand(ctx, 'git', [
     'status', '--porcelain=v1', '--untracked-files=all'
   ], 'worktree readback').length === 0;
-  let tcbClosureMatched = true;
-  for (const modulePath of TCB_CLOSURE_LOCK.modules) {
-    const expectedBlob = TCB_CLOSURE_LOCK.moduleBlobs[modulePath];
-    const trustedBlob = requireCommand(ctx, 'git', ['rev-parse', `${currentHeadSha}:${modulePath}`], `TCB blob ${modulePath}`);
-    const workingBlob = requireCommand(ctx, 'git', ['hash-object', '--', modulePath], `working TCB blob ${modulePath}`);
-    if (expectedBlob !== trustedBlob || trustedBlob !== workingBlob) {
-      tcbClosureMatched = false;
-      break;
-    }
-  }
+  // Exact clean Git identity proves every tracked byte, including the TCB.
+  // Candidate TCB compilation is an Impact-selected Verification Action and
+  // must not run before changed-path selection on unrelated operations.
   const entrypointPath = 'scripts/codex/verification-session-runtime.ts';
   const runtimeEntrypointBlobMatched = requireCommand(
     ctx, 'git', ['rev-parse', `${currentHeadSha}:${entrypointPath}`], 'runtime entrypoint trusted blob'
@@ -485,7 +485,7 @@ function inspectTrustedRuntimeV1(input: {
     }
   }
   return Object.freeze({ currentHeadSha, currentBranch, localDefaultSha, remoteDefaultSha,
-    workingTreeClean, tcbClosureMatched, runtimeEntrypointBlobMatched, boundaryTargetsMatched });
+    workingTreeClean, runtimeEntrypointBlobMatched, boundaryTargetsMatched });
 }
 
 function synchronizeTrustedRemoteDefaultRefV1(input: {
@@ -4334,6 +4334,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const observedAt = now();
     const prepared = prepareTrustedMainVerificationSessionV1({ repository, candidate, manifestPath, manifestDigest,
       changedPaths, testImpactTransition: changedSelection.testImpactTransition,
+      testImpactSourceProvider: changedSelection.testImpactSourceProvider,
       profile: manifest.requiredProfile, integrationPrincipalNodeId: principal.nodeId,
       producerPrincipalNodeId: principal.nodeId, sourceRunId: environment.GITHUB_RUN_ID ?? `local-${process.pid}`,
       sourceRef: `refs/heads/main@${candidate.baseSha}`, observedAt, reviewBarrier: barrier,
@@ -4377,6 +4378,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
             manifestDigest,
             changedPaths,
             testImpactTransition: changedSelection.testImpactTransition,
+            testImpactSourceProvider: changedSelection.testImpactSourceProvider,
             expectedTestImpactTransitionDigest: prepared.testImpactTransitionDigest,
             scopeAuthorizationRevision: prepared.scopeAuthorizationRevision,
             executionEnvironment: localExecutionEnvironment,
@@ -4644,6 +4646,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const observedFacts = reconstructVerificationSessionHostedFactsV1({
       request, repository, candidate, changedPaths,
       testImpactTransition: changedSelection.testImpactTransition,
+      testImpactSourceProvider: changedSelection.testImpactSourceProvider,
       integrationPrincipalNodeId: compilerIdentity.actorNodeId,
       producerPrincipalNodeId: compilerIdentity.actorNodeId, sourceRunId: compilerIdentity.runId,
       sourceRef: `.github/workflows/compiler-pr-validation.yml@${request.expectedBaseSha}`, observedAt, reviewBarrier,

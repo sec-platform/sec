@@ -11,7 +11,6 @@ import {
 } from './test-budget-contract.ts';
 import {
   hasTestImpactForFile,
-  isTestImpactSourceFile,
   type CodexDevelopmentTestImpactSourceProviderV2
 } from './test-impact-contract.ts';
 
@@ -31,8 +30,6 @@ export type CiPrRiskSlowSuiteSelection = {
 };
 
 const BOUNDED_BASELINE_PATTERNS = [
-  /^package\.json$/,
-  /^bun\.lock$/,
   /^platform\/orchestrator\.ts$/,
   /^tests\/helpers\/semantic-mutation-runtime-target-swap-runner\.ts$/,
   /^tests\/helpers\/workspace-fixtures\.ts$/,
@@ -101,7 +98,6 @@ export function selectCiPrRiskSlowSuites(
       || BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file))
       || MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
     ) return false;
-    if (!isTestImpactSourceFile(file, transition)) return true;
     return !hasTestImpactForFile(file, provider, transition);
   });
   const selectionResolved = unresolvedFiles.length === 0;
@@ -110,7 +106,7 @@ export function selectCiPrRiskSlowSuites(
     ...inventory.affectedSlowTests
   ]);
   const impactedSuites = suitesForSlowTests(affectedSlowTests);
-  const baselineSuites = boundedBaselineRequired || mandatorySentinelsRequired || !selectionResolved
+  const baselineSuites = boundedBaselineRequired || !selectionResolved
     ? baselineSlowSuiteIds()
     : [];
   const suites = uniqueSorted([...baselineSuites, ...impactedSuites]);
@@ -134,7 +130,7 @@ export function selectCiPrRiskSlowSuites(
     slowTests,
     affectedSlowTests,
     owners: uniqueSorted([
-      ...(boundedBaselineRequired || mandatorySentinelsRequired || !selectionResolved
+      ...(boundedBaselineRequired || !selectionResolved
         ? ['bounded-slow-risk']
         : []),
       ...inventory.affectedOwners
