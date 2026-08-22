@@ -80,8 +80,8 @@ import {
 } from './verification-session.ts';
 import {
   CodexDevelopmentAssertWorkPackageOwnership,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
 
@@ -590,7 +590,7 @@ async function finalizeMergedTrustedRuntimeV1(input: Readonly<{
       !== artifact.session.manifestDigest) {
     fail('merged candidate Work Package bytes differ from the durable Session');
   }
-  const manifest = CodexDevelopmentParseWorkPackageManifest(
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
     manifestSource,
     artifact.session.manifestPath
   );
@@ -855,7 +855,7 @@ export async function closeoutWithTrustedRuntimeV1(input: Readonly<{
   const manifestPath = CodexDevelopmentParseWorkPackageLocator(candidate.body);
   const manifestSource = github.readBlobText(input.repository, candidate.headSha, manifestPath);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestSource) as Digest;
-  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, manifestPath);
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(manifestSource, manifestPath);
   const changed = observeVerificationSessionChangedSelectionV1({ repositoryRoot,
     repository: input.repository, prNumber: input.prNumber, candidate, github });
   CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changed.changedPaths]);

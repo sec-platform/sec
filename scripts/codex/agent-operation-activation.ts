@@ -74,7 +74,7 @@ import {
 } from './document-control-plane-contract.ts';
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
-  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest,
   type CodexDevelopmentWorkPackageManifest
 } from './work-package-contract.ts';
@@ -552,7 +552,7 @@ function readCandidateControl(
   }
   const manifestBlob = readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`);
   const manifestBytes = manifestBlob.bytes;
-  const manifest = CodexDevelopmentParseWorkPackageManifest(
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
     decodeUtf8(manifestBytes, 'activation-stale'), pointer.manifest
   );
   assertManifestTestBlobsExist(candidateRoot, revision, manifest);

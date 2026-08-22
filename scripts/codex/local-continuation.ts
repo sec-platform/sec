@@ -53,7 +53,7 @@ import {
 } from './ci-orchestration-core.ts';
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
-  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
 
@@ -164,7 +164,7 @@ function checkpointStillControlsHead(
     const manifestBytes = runGit(root, [
       'show', `${checkpoint.headSha}:${checkpoint.manifestPath}`
     ]);
-    const manifest = CodexDevelopmentParseWorkPackageManifest(
+    const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
       utf8(manifestBytes, 'managed manifest bytes'),
       checkpoint.manifestPath
     );
@@ -204,7 +204,7 @@ export function observeLocalContinuationV1(input: Readonly<{
     'show', `${checkpoint.headSha}:${checkpoint.manifestPath}`
   ]);
   const manifestSource = utf8(manifestBytes, 'manifest bytes');
-  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, checkpoint.manifestPath);
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(manifestSource, checkpoint.manifestPath);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
 
   const changed = CodexDevelopmentDefaultChangedPathsV1(

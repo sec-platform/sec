@@ -12,6 +12,7 @@ import {
   scanDocumentation,
   type DocsDoctorResult
 } from '../../docs/scripts/docs-doctor.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-plan.ts';
 import {
   DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
   parseDocumentationAuthorityRegistry,
@@ -256,7 +257,7 @@ tracking: ${tracking}
 base: "${'2'.repeat(40)}"
 manifestState: frozen
 requiredProfile: quick
-ciRevision: ci-verification-v19
+ciRevision: ${CI_VERIFICATION_CONTRACT_REVISION}
 tasks:
   - id: fixture-task
     owner: a0
@@ -283,7 +284,7 @@ tracking: none
 base: "${'1'.repeat(40)}"
 manifestState: frozen
 requiredProfile: full
-ciRevision: ci-verification-v17
+ciRevision: ${CI_VERIFICATION_CONTRACT_REVISION}
 tasks:
   - id: fixture-task
     owner: a0
