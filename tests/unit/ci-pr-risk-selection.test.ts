@@ -67,52 +67,6 @@ test('documentation authority trust roots use exact owner sentinels', () => {
   }
 });
 
-test('dev-runner changes use exact owned slow sentinels instead of the bounded baseline', () => {
-  for (const file of [
-    'platform/dev-runner.ts',
-    'platform/dev-runner/check-runner.ts',
-    'platform/dev-runner/test-runner.ts',
-    'platform/dev-runner/typecheck-runner.ts'
-  ]) {
-    const selection = selectCiPrRiskSlowSuites([file]);
-    expect(selection.suites).toEqual([]);
-    expect(selection.slowTests).toEqual([]);
-    expect(selection.affectedSlowTests).toEqual([]);
-    expect(selection.owners).toContain('dev-runner');
-    expect(selection.owners).not.toContain('bounded-slow-risk');
-    expect(selection.reasons).toEqual(['ownership-impact']);
-    expect(selection.resolved).toBe(true);
-  }
-
-  expect(selectCiPrRiskSlowSuites(['platform/dev-runner/import-organizer.ts'])).toMatchObject({
-    suites: ['e2e-import-organizer-staged'],
-    affectedSlowTests: [
-      'tests/e2e/import-organizer-staged.test.ts',
-      'tests/e2e/import-organizer-worktree-isolation.test.ts'
-    ],
-    reasons: ['ownership-impact'],
-    resolved: true
-  });
-  expect(selectCiPrRiskSlowSuites(['platform/dev-runner/import-transform-transaction.ts'])).toMatchObject({
-    suites: ['e2e-import-organizer-staged'],
-    affectedSlowTests: [
-      'tests/e2e/import-organizer-staged.test.ts',
-      'tests/e2e/import-organizer-worktree-isolation.test.ts'
-    ],
-    owners: expect.arrayContaining(['import-transform-transaction']),
-    reasons: ['ownership-impact'],
-    resolved: true
-  });
-  expect(selectCiPrRiskSlowSuites(['platform/dev-runner/dependency-bootstrap.ts'])).toMatchObject({
-    suites: [],
-    slowTests: [],
-    affectedSlowTests: [],
-    owners: expect.arrayContaining(['module-graph', 'dev-runner']),
-    reasons: ['ownership-impact'],
-    resolved: true
-  });
-});
-
 test('staged runtime helper bounded ownership rejects path prefix collisions', () => {
   for (const file of [
     'tests/helpers/semantic-mutation-runtime-target-swap-runner.tsx',

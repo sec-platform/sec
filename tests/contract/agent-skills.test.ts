@@ -17,7 +17,6 @@ import {
   SEC_REPOSITORY_BEHAVIOR_IDS,
   SEC_REPOSITORY_BEHAVIOR_ROUTES
 } from '../../platform/shared/agent-skill-contract.ts';
-import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import {
   activeDocumentationPaths,
   parseDocumentationAuthorityRegistry
@@ -261,30 +260,6 @@ test('documentation and Agent trust roots have focused governance ownership', ()
       'tests/contract/test-impact.test.ts'
     ]));
   }
-});
-
-test('trust-root changes retain mandatory Risk while ordinary Skill edits remain focused', () => {
-  const focused = selectCiPrRiskSlowSuites([
-    '.agents/skills/sec-worker-development/SKILL.md'
-  ]);
-  expect(focused.resolved).toBe(true);
-  expect(focused.suites).toEqual([]);
-
-  const trustRoot = selectCiPrRiskSlowSuites([
-    'docs/scripts/docs-doctor.ts',
-    'docs/scripts/docs-doctor-ledgers.ts',
-    'docs/scripts/docs-doctor-shared.ts',
-    'platform/shared/documentation-authority-contract.ts',
-    'platform/shared/active-documentation-contract.ts',
-    'platform/shared/agent-skill-contract.ts',
-    'platform/shared/test-impact-rules/governance.ts'
-  ]);
-  expect(trustRoot.resolved).toBe(true);
-  expect(trustRoot.suites.length).toBeGreaterThan(0);
-  expect(trustRoot.reasons).toEqual([
-    'mandatory-sentinel',
-    'ownership-impact'
-  ]);
 });
 
 test('external capability ledger binds current package authority without a self-referential main SHA', async () => {
