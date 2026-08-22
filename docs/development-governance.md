@@ -1056,6 +1056,22 @@ physical target absence。该 materializer 进入 main 前，本段是明确 tar
 
 Stacked successor可以基于当前exact candidate形成可审查tree，但在前序进入新main并readback前不得激活、复用Review/Evidence或宣称merge-ready。激活时必须从then-latest main重新冻结base、manifest、scope和Evidence。
 
+## Authoring 与 Promotion 分离
+
+开发可继续与结果可提升是两个不同的machine state。`authoringAllowed`只消费当前workspace identity、用户授权、
+owned/forbidden path交集和本地delta；它允许dirty candidate继续实现，并按
+`RequiredClosure ∩ MissingOrStale`运行廉价受影响检查。GitHub provider不可用、MainHealth
+`degraded|locked`、rolling projection过期、WorkDecision尚未重算、Review或IntegrationAuthorization缺失，
+只能使`promotionEligible=false`，不得反向令`authoringAllowed=false`，也不得要求开发者先伪造健康事实、清空改动
+或机械重跑与delta无关的验证。
+
+`promotionEligible`只在freeze、Review、formal Verification、merge和发布Effect前消费exact base/head/tree、
+current Work Package/repair authority、MainHealth、Evidence、独立Review与provider readback。Authoring结果、branch、
+pointer、局部测试PASS或candidate生成的projection都不签发promotion authority。latest main变化时重新计算
+authority与MissingOrStale closure，但源码/工具链/环境和输入闭包未变的ActionKey继续复用；禁止仅因commit SHA
+变化机械失效所有开发期证据。唯一状态机必须使promotion failure可修复而不会冻结authoring，同时保证authoring
+永远不能把自己提升为healthy、reviewed、authorized或merged。
+
 ## 并行工作
 
 当前默认：一个 formal active Work Package。只读 research、census和Evidence发现可以并行，但不能同时写 canonical owner、`docs/work/**`、package/lock、workflow、Skill registry或同一 state/artifact。

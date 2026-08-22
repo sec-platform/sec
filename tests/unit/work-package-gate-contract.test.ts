@@ -1,4 +1,5 @@
-import { readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -410,7 +411,8 @@ test('final evidence rejects argv and digest tamper and survives atomic readback
     journalSource: lifecycleJournal
   })).toThrow('do not agree');
 
-  const outputPath = path.join(repoRoot, '.tmp', `synthetic-gate-contract-${process.pid}.json`);
+  const outputRoot = await mkdtemp(path.join(tmpdir(), 'sec-work-package-gate-contract-'));
+  const outputPath = path.join(outputRoot, 'evidence.json');
   try {
     await writeWorkPackageGateJsonAtomic(outputPath, evidence, assertWorkPackageGateEvidence);
     expect(JSON.parse(await readFile(outputPath, 'utf8'))).toEqual(evidence);
@@ -423,7 +425,7 @@ test('final evidence rejects argv and digest tamper and survives atomic readback
     )).rejects.toThrow();
     expect(JSON.parse(await readFile(outputPath, 'utf8'))).toEqual(evidence);
   } finally {
-    await rm(outputPath, { force: true });
+    await rm(outputRoot, { recursive: true, force: true });
   }
 });
 
