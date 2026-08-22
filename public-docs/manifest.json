@@ -10,6 +10,13 @@
       "canonicalRefs": ["docs/system-architecture.md"]
     },
     {
+      "id": "case-studies",
+      "path": "public-docs/case-studies.md",
+      "kind": "rationale-casebook",
+      "audiences": ["architect", "beginner", "developer", "researcher", "user"],
+      "canonicalRefs": ["docs/change-management.md", "docs/compiler-target-ir.md", "docs/runtime-and-distribution.md", "docs/semantic-model.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+    },
+    {
       "id": "concepts",
       "path": "public-docs/concepts.md",
       "kind": "concept-guide",
@@ -36,6 +43,13 @@
       "kind": "rationale-guide",
       "audiences": ["architect", "developer", "researcher"],
       "canonicalRefs": ["docs/roadmap.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+    },
+    {
+      "id": "design-method",
+      "path": "public-docs/design-method.md",
+      "kind": "design-method-guide",
+      "audiences": ["architect", "beginner", "contributor", "developer", "researcher"],
+      "canonicalRefs": ["docs/brownfield-import.md", "docs/compiler-target-ir.md", "docs/delta-and-impact.md", "docs/development-governance.md", "docs/semantic-model.md", "docs/semantic-mutation.md", "docs/system-architecture.md", "docs/verification-governance.md"]
     },
     {
       "id": "glossary",
@@ -85,6 +99,13 @@
       "kind": "reference-index",
       "audiences": ["developer", "operator", "user"],
       "canonicalRefs": ["docs/authority.json", "docs/runtime-and-distribution.md", "docs/verification-governance.md"]
+    },
+    {
+      "id": "semantic-system",
+      "path": "public-docs/semantic-system.md",
+      "kind": "semantic-system-guide",
+      "audiences": ["architect", "beginner", "developer", "researcher", "user"],
+      "canonicalRefs": ["docs/brownfield-import.md", "docs/compiler-target-ir.md", "docs/delta-and-impact.md", "docs/semantic-model.md", "docs/system-architecture.md", "docs/verification-governance.md"]
     },
     {
       "id": "start-here",
