@@ -14,18 +14,45 @@ SEC 是一个 **Engineering Workspace Compiler（工程工作区编译器）**�
 
 ## 第一次来这里
 
-按这个顺序读：
+如果你完全不了解 SEC，建议先建立直觉，再进入完整体系：
 
 1. [从零认识 SEC](start-here.md)
-2. [最短 Quickstart](quickstart.md)
-3. [学习路线](learn.md)
-4. [核心概念](concepts.md)
-5. [术语表](glossary.md)
+2. [SEC 的完整工程语义系统](semantic-system.md)
+3. [SEC 怎样从现实问题推导设计](design-method.md)
+4. [现实案例：为什么这些语义不能省略](case-studies.md)
+5. [最短 Quickstart](quickstart.md)
+6. [学习路线](learn.md)
+7. [核心概念](concepts.md)
+8. [术语表](glossary.md)
 
-## 想知道为什么这样设计
+不需要按顺序读完；如果你已经知道自己要解决什么，可以直接跳到对应任务页面。
 
+## 想知道“为什么这样设计”
+
+先看现实依据和推导，再看浓缩原则：
+
+- [SEC 怎样从现实问题推导设计](design-method.md)
+- [现实案例：为什么这些语义不能省略](case-studies.md)
 - [原则与为什么](principles.md)
 - [设计、成熟度与证据](decisions-and-evidence.md)
+
+重要设计不只回答“是什么”，还应该尽量回答：现实问题、机制、替代方案、tradeoff、失败边界、unknown、recovery、Evidence 和 maturity。
+
+## 想理解“SEC 最终怎样容纳完整工程世界”
+
+- [完整工程语义系统](semantic-system.md)：从 Reality / Source Program / Engineering Semantics / Implementation / Evidence 一路解释到跨领域扩展；
+- [架构学习](architecture.md)：从不同读者问题进入架构图和 owner；
+- [核心概念](concepts.md)：查 Entity、Fact、Assertion、Responsibility 等概念的直觉关系。
+
+公共文档会明确区分：
+
+```text
+canonical architecture
+!=
+正在验证的 design direction
+!=
+已经 implemented / verified 的现实能力
+```
 
 ## 要完成真实任务
 
@@ -36,19 +63,35 @@ SEC 是一个 **Engineering Workspace Compiler（工程工作区编译器）**�
 
 - [Reference](reference.md)
 
-## 要理解完整架构
-
-- [架构学习](architecture.md)
-
 ## 要开发 SEC 本身
 
 - [贡献 SEC](contributing.md)
+
+## 这套公共文档也用于反向审查 SEC 自己
+
+如果一个设计无法向初学者回答：
+
+```text
+它解决什么现实问题？
+为什么现有机制不够？
+真正不可绕过的约束是什么？
+最强替代方案和反例是什么？
+什么时候它会失效？
+凭什么相信它？
+现实做到哪一步？
+```
+
+那么需要检查的不一定只是文档，也可能是设计本身还没有真正收敛。
+
+但“容易解释”不能成为删除真实复杂度的理由；权限、unknown、failure、recovery、physical reality 等必要边界不能为了故事简单被省略。
 
 ## 真值边界
 
 `public-docs/**` 是面向读者的投影层，不是产品/架构 authority。
 
 真正的 canonical 领域文档位于 `docs/**`，入口为 `docs/README.md`。如果公共页面和 canonical owner 冲突，以 canonical owner 为准。
+
+外部标准、事故和成熟系统只作为设计 Evidence / prior-art mechanism；它们不会因为出现在案例页，就自动改变 SEC architecture。
 
 ## “文档里有”不等于“已经完成”
 
