@@ -34,7 +34,6 @@ import {
   CodexDevelopmentParseRollingPlanV1
 } from './document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgsV1 } from './document-control-plane-github-observation.ts';
-import { createVerificationSessionGitHubClientV1 } from './verification-session-github.ts';
 import {
   parseOpenPullRequestList,
   projectWorkPackageRegistry
@@ -44,8 +43,7 @@ import {
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
 import {
-  observeCanonicalWorkSelectionMainHealthV1,
-  observeHostedMainHealthChecksV1
+  observeCanonicalMainHealthForWorkSelectionV1
 } from './work-selection-main-health.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;
@@ -555,23 +553,12 @@ function observeCanonicalMainHealth(input: {
   state: SecCurrentWorkLifecycleV1['mainHealthState'];
   ref: SecWorkDigestV1;
 }> {
-  const observedAt = new Date().toISOString();
-  const expiresAt = new Date(new Date(observedAt).getTime() + 300_000).toISOString();
-  const github = createVerificationSessionGitHubClientV1(input.root);
-  const hosted = observeHostedMainHealthChecksV1({
-    repository: input.repository,
-    mainSha: input.exactMain,
-    observeChecks: () => github.observeChecks(input.repository, input.exactMain)
-  });
-  return observeCanonicalWorkSelectionMainHealthV1({
+  return observeCanonicalMainHealthForWorkSelectionV1({
     repositoryRoot: input.root,
     repository: input.repository,
     defaultBranch: input.defaultBranch,
     mainSha: input.exactMain,
-    mainTreeSha: input.exactMainTree,
-    now: observedAt,
-    hostedExpiresAt: expiresAt,
-    hosted
+    mainTreeSha: input.exactMainTree
   });
 }
 

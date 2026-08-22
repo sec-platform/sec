@@ -260,8 +260,11 @@ export interface GitHubPullRequestFileInventoryExpectationV1 {
   readonly headSha: string;
 }
 
-interface GitHubApiFailure extends Error {
-  statusCode?: number;
+class GitHubApiFailure extends Error {
+  constructor(message: string, readonly statusCode?: number) {
+    super(message);
+    this.name = 'GitHubApiFailure';
+  }
 }
 
 interface VerificationSessionGitHubTransport {
@@ -821,6 +824,52 @@ function providerResponseShapeDigest(error: GitHubProviderResponseShapeError): S
   return hash(Object.freeze({
     schema: 'sec-provider-response-shape-v2', classification: error.classification, source: error.source
   }));
+}
+
+export type GitHubObservationFailureClassificationV1 =
+  | Readonly<{ kind: 'provider-invalid'; responseDigest: SessionDigest }>
+  | Readonly<{ kind: 'transport-unavailable'; diagnostic: string }>;
+
+/**
+ * Provider failure routing for physical GitHub observations. A transport that
+ * cannot be reached is absence; bytes that were reached but violate the
+ * provider contract are invalid Evidence and must remain fail-closed.
+ */
+export function classifyGitHubObservationFailureV1(
+  error: unknown
+): GitHubObservationFailureClassificationV1 {
+  if (error instanceof GitHubProviderResponseShapeError) {
+    return Object.freeze({
+      kind: 'provider-invalid',
+      responseDigest: providerResponseShapeDigest(error)
+    });
+  }
+  if (error instanceof GitHubProviderSchemaUnsupportedError) {
+    return Object.freeze({ kind: 'provider-invalid', responseDigest: error.responseDigest });
+  }
+  if (error instanceof GitHubApiFailure) {
+    return Object.freeze({
+      kind: 'transport-unavailable',
+      diagnostic: `${error.name}:${error.message}`
+    });
+  }
+  let identity: Readonly<{ type: string; name: string | null; message: string | null }>;
+  try {
+    identity = Object.freeze({
+      type: typeof error,
+      name: error instanceof Error ? error.name : null,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  } catch {
+    identity = Object.freeze({ type: typeof error, name: null, message: null });
+  }
+  return Object.freeze({
+    kind: 'provider-invalid',
+    responseDigest: hash(Object.freeze({
+      schema: 'sec-github-observation-unknown-failure-v1',
+      identity
+    }))
+  });
 }
 
 function assertSha(value: unknown, label: string): string {
@@ -2665,10 +2714,91 @@ function repoParts(repository: string): { owner: string; name: string } {
   return { owner: match[1]!, name: match[2]! };
 }
 
+export function parseGitHubCheckPagesV1(input: Readonly<{
+  source: unknown;
+  repository: string;
+  headSha: string;
+  observeWorkflowRun: (runId: string) => unknown;
+}>): readonly GitHubCheckObservationV1[] {
+  if (!Array.isArray(input.source) || input.source.length === 0) {
+    fail('check pagination returned no complete REST page set.');
+  }
+  const pages = input.source as Array<Record<string, unknown>>;
+  let totalCount: number | null = null;
+  const rawNodes: unknown[] = [];
+  for (const [pageIndex, page] of pages.entries()) {
+    if (page === null || typeof page !== 'object' || Array.isArray(page)
+      || !Number.isSafeInteger(page.total_count) || (page.total_count as number) < 0
+      || !Array.isArray(page.check_runs) || page.check_runs.length > 100) {
+      fail(`check pagination page[${pageIndex}] is malformed.`);
+    }
+    if (totalCount === null) totalCount = page.total_count as number;
+    else if (totalCount !== page.total_count) fail('check pagination total_count changed between pages.');
+    rawNodes.push(...page.check_runs);
+  }
+  if (totalCount === null || rawNodes.length !== totalCount
+    || pages.length !== Math.max(1, Math.ceil(totalCount / 100))) {
+    fail('check pagination does not match its declared complete census.');
+  }
+  const identities = new Set<number>();
+  return Object.freeze(rawNodes.map((rawNode, index) => {
+    if (rawNode === null || typeof rawNode !== 'object' || Array.isArray(rawNode)) {
+      fail(`checkRuns[${index}] is not an object.`);
+    }
+    const node = rawNode as Record<string, any>;
+    if (!Number.isSafeInteger(node.id) || node.id < 1 || identities.has(node.id)) {
+      fail(`checkRuns[${index}].id is invalid or duplicated.`);
+    }
+    identities.add(node.id);
+    const name = boundedText(node.name, `checkRuns[${index}].name`, 256);
+    if (!['queued', 'in_progress', 'completed'].includes(node.status)
+      || (node.status === 'completed' ? typeof node.conclusion !== 'string' : node.conclusion !== null)
+      || (node.details_url !== null && typeof node.details_url !== 'string')) {
+      fail(`checkRuns[${index}] lifecycle or details URL is invalid.`);
+    }
+    const observedHeadSha = assertSha(node.head_sha, `checkRuns[${index}].headSha`);
+    if (observedHeadSha !== input.headSha) fail(`checkRuns[${index}] head filter was not honored.`);
+    const rawApp = node.app;
+    if (rawApp !== null && rawApp !== undefined
+      && (typeof rawApp !== 'object' || Array.isArray(rawApp))) {
+      fail(`checkRuns[${index}].app is invalid.`);
+    }
+    const appId = Number.isSafeInteger(rawApp?.id) && rawApp.id > 0 ? rawApp.id : null;
+    const appNodeId = typeof rawApp?.node_id === 'string'
+      ? boundedText(rawApp.node_id, `checkRuns[${index}].app.nodeId`, 256)
+      : null;
+    const appSlug = typeof rawApp?.slug === 'string'
+      ? boundedText(rawApp.slug, `checkRuns[${index}].app.slug`, 256)
+      : null;
+    if ((appId === null) !== (appNodeId === null) || (appId === null) !== (appSlug === null)) {
+      fail(`checkRuns[${index}].app identity is partial.`);
+    }
+    const detailsUrl = node.details_url as string | null;
+    const runId = detailsUrl === null
+      ? null
+      : /\/actions\/runs\/([1-9][0-9]*)/u.exec(detailsUrl)?.[1] ?? null;
+    const run = runId === null ? null : input.observeWorkflowRun(runId) as Record<string, any>;
+    if (run !== null && (typeof run !== 'object' || Array.isArray(run)
+      || !Number.isSafeInteger(run.id) || String(run.id) !== runId
+      || typeof run.path !== 'string' || typeof run.event !== 'string'
+      || typeof run.display_title !== 'string' || run.head_sha !== observedHeadSha)) {
+      fail(`checkRuns[${index}] workflow provenance is invalid.`);
+    }
+    const workflowPath = run === null
+      ? null
+      : boundedText(run.path, `checkRuns[${index}].workflowPath`, 512);
+    return Object.freeze({ id: node.id, name, status: node.status, conclusion: node.conclusion,
+      headSha: observedHeadSha, detailsUrl, appId, appNodeId, appSlug,
+      workflowPath, workflowRef: workflowPath === null ? null : `${workflowPath}@${observedHeadSha}`,
+      eventName: run === null ? null : boundedText(run.event, `checkRuns[${index}].eventName`, 64),
+      workflowRunId: runId,
+      workflowRunDisplayTitle: run === null ? null
+        : boundedText(run.display_title, `checkRuns[${index}].displayTitle`, 1024) });
+  }));
+}
+
 function apiFailure(message: string, statusCode?: number): GitHubApiFailure {
-  const error = new Error(message) as GitHubApiFailure;
-  error.statusCode = statusCode;
-  return error;
+  return new GitHubApiFailure(message, statusCode);
 }
 
 function runVerificationSessionGh(
@@ -3187,24 +3317,24 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
 
   checkPage(repository: string, headSha: string, after: string | null): GitHubPageV1<GitHubCheckObservationV1> {
     if (after !== null) fail('default REST transport returns all check pages in one page.');
-    const pages = parseJson<any[]>(this.gh(['api', `/repos/${repository}/commits/${headSha}/check-runs?per_page=100`, '--paginate', '--slurp'], 'check pagination'), 'check pagination');
-    const nodes = pages.flatMap((page) => page.check_runs ?? []).map((node: any) => {
-      const runId = /\/actions\/runs\/([1-9][0-9]*)/u.exec(String(node.details_url ?? ''))?.[1] ?? null;
-      const run = runId === null ? null : parseJson<Record<string, any>>(this.gh([
-        'api', `/repos/${repository}/actions/runs/${runId}`
-      ], 'check workflow provenance'), 'check workflow provenance');
-      const workflowPath = typeof run?.path === 'string' ? run.path : null;
-      return { id: node.id, name: node.name, status: node.status, conclusion: node.conclusion,
-        headSha: node.head_sha, detailsUrl: node.details_url,
-        appId: Number.isSafeInteger(node.app?.id) ? node.app.id : null,
-        appNodeId: typeof node.app?.node_id === 'string' ? node.app.node_id : null,
-        appSlug: typeof node.app?.slug === 'string' ? node.app.slug : null,
-        workflowPath, workflowRef: workflowPath === null ? null : `${workflowPath}@${node.head_sha}`,
-        eventName: typeof run?.event === 'string' ? run.event : null,
-        workflowRunId: typeof run?.id === 'number' && Number.isSafeInteger(run.id) ? String(run.id) : null,
-        workflowRunDisplayTitle: typeof run?.display_title === 'string' ? run.display_title : null };
-    });
-    return { nodes, hasNextPage: false, endCursor: null, pageDigest: hash(pages) };
+    const source = this.gh(['api', `/repos/${repository}/commits/${headSha}/check-runs?per_page=100`,
+      '--paginate', '--slurp'], 'check pagination');
+    try {
+      const parsed = parseJson<unknown>(source, 'check pagination');
+      const nodes = parseGitHubCheckPagesV1({
+        source: parsed,
+        repository,
+        headSha,
+        observeWorkflowRun: (runId) => parseJson<unknown>(this.gh([
+          'api', `/repos/${repository}/actions/runs/${runId}`
+        ], 'check workflow provenance'), 'check workflow provenance')
+      });
+      return Object.freeze({ nodes, hasNextPage: false, endCursor: null,
+        pageDigest: hash(parsed) });
+    } catch (error) {
+      return rethrowProviderResponseShape(error, 'github-rest-check-pages',
+        Object.freeze({ repository, headSha, source }));
+    }
   }
 
   workflowRunPage(repository: string, headSha: string, after: string | null): GitHubPageV1<GitHubWorkflowRunObservationV1> {
