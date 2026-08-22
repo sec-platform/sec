@@ -73,6 +73,15 @@ function createEffectFixture(label: string) {
     calls.push([command, ...args]);
     if (command === 'gh') {
       if (args[0] === 'repo') {
+        if (JSON.stringify(args) !== JSON.stringify([
+          'repo', 'view', 'sec-platform/sec', '--json', 'nameWithOwner,defaultBranchRef'
+        ])) {
+          return {
+            status: 1,
+            stdout: Buffer.alloc(0),
+            stderr: Buffer.from(`unexpected gh repo view argv: ${args.join(' ')}`)
+          };
+        }
         return {
           status: 0,
           stdout: Buffer.from(JSON.stringify({
@@ -275,6 +284,12 @@ test('resumes the same durable authorization after crashes before and after the 
       expect(ref.status).not.toBe(0);
       expect(fixture.calls.some((call) => call.includes('symbolic-ref'))).toBeFalse();
       expect(fixture.calls.filter(([command]) => command === 'gh')
+        .every((call) => call.includes('sec-platform/sec'))).toBeTrue();
+      expect(fixture.calls.filter((call) => call[0] === 'gh' && call[1] === 'repo')
+        .every((call) => JSON.stringify(call.slice(1)) === JSON.stringify([
+          'repo', 'view', 'sec-platform/sec', '--json', 'nameWithOwner,defaultBranchRef'
+        ]))).toBeTrue();
+      expect(fixture.calls.filter((call) => call[0] === 'gh' && call[1] === 'pr')
         .every((call) => call.includes('--repo') && call.includes('sec-platform/sec'))).toBeTrue();
       expect(fixture.calls.filter((call) => call.includes('bundle') && call.includes('create')))
         .toHaveLength(1);
