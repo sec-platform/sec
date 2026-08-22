@@ -935,7 +935,7 @@ function observeRepositoryProvider(
   repository: string
 ): RepositoryProviderObservationV1 {
   return parseRepositoryProviderObservationV1(requireText(run, 'gh', [
-    'repo', 'view', '--repo', repository, '--json', 'nameWithOwner,defaultBranchRef'
+    'repo', 'view', repository, '--json', 'nameWithOwner,defaultBranchRef'
   ], repositoryRoot, 'repository provider observation'), repository);
 }
 
