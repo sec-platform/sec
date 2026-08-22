@@ -1,5 +1,4 @@
 import { installGitHooks } from '../../scripts/install-git-hooks.ts';
-
 import {
   ensureCompilerDepsReady,
   ensurePlaywrightBrowserCacheReady,
@@ -44,10 +43,14 @@ function dependencyBootstrapResult(ready: CompilerDepsReadyState): DevDependency
   };
 }
 
+function ensureCanonicalCompilerDependencies(): Promise<CompilerDepsReadyState> {
+  return ensureCompilerDepsReady();
+}
+
 export async function ensureDevDependencies(
   options: DevDependencyBootstrapOptions = {}
 ): Promise<DevDependencyBootstrapResult> {
-  const ready = await (options.ensureCompilerDeps ?? (() => ensureCompilerDepsReady()))();
+  const ready = await (options.ensureCompilerDeps ?? ensureCanonicalCompilerDependencies)();
   if (options.hookPolicy !== 'never'
     && (options.hookPolicy !== 'if-installed' || ready.source === 'installed')) {
     await (options.ensureHooks ?? ensureManagedHooks)(ready.root);
@@ -64,14 +67,14 @@ export async function ensureFastTestDependencies(
   options: CompilerDependencyBootstrapOptions = {}
 ): Promise<DevDependencyBootstrapResult> {
   return dependencyBootstrapResult(
-    await (options.ensureCompilerDeps ?? (() => ensureCompilerDepsReady()))()
+    await (options.ensureCompilerDeps ?? ensureCanonicalCompilerDependencies)()
   );
 }
 
 export async function ensureTestDependencies(
   options: TestDependencyBootstrapOptions = {}
 ): Promise<TestDependencyBootstrapResult> {
-  const ready = await (options.ensureCompilerDeps ?? (() => ensureCompilerDepsReady()))();
+  const ready = await (options.ensureCompilerDeps ?? ensureCanonicalCompilerDependencies)();
   const browser = await (options.ensureBrowserCache ?? ((dependencyRoot) =>
     ensurePlaywrightBrowserCacheReady({}, dependencyRoot)))(ready.root);
   return {

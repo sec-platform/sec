@@ -6,7 +6,8 @@ import path from 'node:path';
 import { resolveTypecheckBuildInfoPathV1 } from '../../platform/dev-runner/typecheck-runner.ts';
 import {
   resolveInstalledTypecheckProviderV1,
-  typecheckProviderArguments
+  typecheckProviderArguments,
+  typecheckProviderExecutionArguments
 } from '../../platform/toolchain/typecheck-provider.ts';
 
 test('installed TypeCheck Provider revision comes from the actual package manifest', async () => {
@@ -31,6 +32,9 @@ test('installed TypeCheck Provider revision comes from the actual package manife
       cacheRoot: path.join(root, 'cache')
     });
     expect(buildInfoFile).toMatch(/[\\/]cache[\\/][0-9a-f]{64}[\\/]tsconfig\.tsbuildinfo$/u);
+    expect(typecheckProviderExecutionArguments(provider, buildInfoFile)).toEqual([
+      '--noEmit', '-p', 'tsconfig.json', '--incremental', '--tsBuildInfoFile', buildInfoFile
+    ]);
     expect(() => typecheckProviderArguments(provider, ['--tsBuildInfoFile', buildInfoFile]))
       .toThrow('provider-owned');
   } finally {

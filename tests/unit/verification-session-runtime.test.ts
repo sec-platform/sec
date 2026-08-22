@@ -63,7 +63,7 @@ import {
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
   createCiMainHealthRequestOperationIdV1
 } from '../../platform/shared/ci-verification-revision.ts';
-import { TCB_CLOSURE_LOCK } from '../../platform/shared/tcb-closure-lock.ts';
+import { compileTcbClosureIdentityV2 } from '../../platform/shared/tcb-closure-lock.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import { createVerificationSessionV2, type VerificationSessionV2 } from '../../platform/shared/verification-session-contract.ts';
 import {
@@ -170,9 +170,7 @@ import {
   reconstructVerificationSessionHostedFactsV1,
   resumeVerificationSessionV2,
   SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY_V1,
-  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1,
-  VERIFICATION_SESSION_HOSTED_EVENT_V2,
-  VERIFICATION_SESSION_HOSTED_REQUEST_SCHEMA_V1,
+  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1, VERIFICATION_SESSION_HOSTED_REQUEST_SCHEMA_V1,
   type VerificationSessionHostedEnvelopeV1,
   type VerificationSessionHostedFactsV1,
   type VerificationSessionHostedRequestV1,
@@ -1199,7 +1197,7 @@ function reducerFixture(options: {
           ? options.localDefaultSha ?? liveDefaultSha
           : BASE,
         remoteDefaultSha: liveDefaultSha,
-        workingTreeClean: true, tcbClosureMatched: true, runtimeEntrypointBlobMatched: true,
+        workingTreeClean: true, runtimeEntrypointBlobMatched: true,
         boundaryTargetsMatched: true };
     },
     runLocalActions: () => ({ status: 'passed', resultDigest: artifact.evidence.evidenceDigest as `sha256:${string}` }),
@@ -2446,7 +2444,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
 
 test('trusted-main preparation rejects candidate/dirty/boundary runtime proof', () => {
   const proof = { currentHeadSha: BASE, currentBranch: 'main', localDefaultSha: BASE, remoteDefaultSha: BASE,
-    workingTreeClean: true, tcbClosureMatched: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
+    workingTreeClean: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
   expect(() => assertTrustedMainRuntimeV1({ ...proof, workingTreeClean: false }, BASE)).toThrow();
   expect(() => assertTrustedMainRuntimeV1({ ...proof, currentBranch: 'feature' }, BASE)).toThrow();
   expect(() => assertTrustedMainRuntimeV1({ ...proof, boundaryTargetsMatched: false }, BASE)).toThrow();
@@ -2455,7 +2453,7 @@ test('trusted-main preparation rejects candidate/dirty/boundary runtime proof', 
 test('hosted exact-revision runtime permits only a detached exact trusted-main checkout', () => {
   const session = { baseSha: BASE, trustRevision: BASE } as VerificationSessionV2;
   const detachedExact = { currentHeadSha: BASE, currentBranch: '', localDefaultSha: BASE, remoteDefaultSha: BASE,
-    workingTreeClean: true, tcbClosureMatched: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
+    workingTreeClean: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
   expect(() => assertTrustedExactRevisionRuntimeV1(detachedExact, BASE)).not.toThrow();
   expect(() => assertTrustedRuntimeV1(detachedExact, session)).not.toThrow();
   expect(() => assertTrustedMainRuntimeV1(detachedExact, BASE)).toThrow();
@@ -2548,7 +2546,7 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
 test('OPEN candidate execution rejects remote-main drift even after authorization', () => {
   const session = { baseSha: BASE, trustRevision: BASE } as VerificationSessionV2;
   const proof = { currentHeadSha: BASE, currentBranch: 'main', localDefaultSha: BASE,
-    remoteDefaultSha: 'f'.repeat(40), workingTreeClean: true, tcbClosureMatched: true,
+    remoteDefaultSha: 'f'.repeat(40), workingTreeClean: true,
     runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
   expect(() => assertTrustedRuntimeV1(proof, session, false))
     .toThrow(/trusted default revision TCB/);
@@ -2704,7 +2702,7 @@ test('MERGED reachability permits detached old-base only with synchronized post-
       fixture.artifact.session.sessionRevision);
     const candidate = fixture.transport.candidate();
     const proof = { currentHeadSha: BASE, currentBranch: '', localDefaultSha: advancedMain,
-      remoteDefaultSha: advancedMain, workingTreeClean: true, tcbClosureMatched: true,
+      remoteDefaultSha: advancedMain, workingTreeClean: true,
       runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
     const input = { proof, repository: fixture.artifact.session.repository,
       prNumber: fixture.artifact.session.prNumber, baseSha: fixture.artifact.session.baseSha,
@@ -3489,6 +3487,13 @@ function withCloseoutHarnessCommands<T>(
   }
 }
 
+let closeoutTcbClosureIdentity: ReturnType<typeof compileTcbClosureIdentityV2> | null = null;
+
+function closeoutTcbModuleBlobs(): Readonly<Record<string, string>> {
+  closeoutTcbClosureIdentity ??= compileTcbClosureIdentityV2();
+  return closeoutTcbClosureIdentity.moduleBlobs;
+}
+
 function createCloseoutCliScenario(input: {
   harnessRoot: string;
   recoveryHarnessRoot: string;
@@ -3519,7 +3524,7 @@ function createCloseoutCliScenario(input: {
       '../../docs/governance/external-capability-ledger.yaml')));
   mkdirSync(commonDir, { recursive: true });
   const statePath = path.join(root, 'provider-state.json');
-  const tcbBlobs: Record<string, string> = { ...TCB_CLOSURE_LOCK.moduleBlobs };
+  const tcbBlobs: Record<string, string> = { ...closeoutTcbModuleBlobs() };
   for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.reviewedBoundaryEdges) {
     const target = edge.split(' -> ')[1];
     if (target !== undefined && tcbBlobs[target] === undefined) tcbBlobs[target] = 'd'.repeat(40);

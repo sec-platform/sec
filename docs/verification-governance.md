@@ -818,35 +818,39 @@ Tier 1变化由旧trusted owner计算affected trust closure，candidate nodes只
 内容寻址复用。只有Tier 0自身变化才进入manual break-glass。selector、docs-doctor、Provider逻辑、
 test-impact或merge policy不得逐步回流Tier 0形成bootstrap monster。
 
-trust-root policy registry只拥有static path、runtime entrypoint与reviewed boundary等人工策略输入；
-不得复制或手工维护import graph派生的causal module清单。`TCB_CLOSURE_LOCK.modules`是唯一frozen
-causal-runtime identity，runtime consumer必须把它与registry policy经同一纯compiler组合成trust-root
-view。bootstrap/release的pre-check只能从exact trusted-base generated lock读取该清单，并在后续由
-trusted runtime重算、校验；registry/lock双列表、人工同步或“补漏路径”均属于 competing owner。
-contract内用于防止关键安全面被移出closure的required-surface下界属于policy invariant，不是完整
-import-graph inventory；它不得被用于枚举closure，也不随普通依赖边扩张而同步更新。
+旧trusted owner分析candidate时必须把exact candidate Git tree当作immutable data：tree inventory与
+普通blob bytes由旧main-owned Git provider读取，module/path/test taxonomy仍由旧main合同决定，禁止
+执行candidate selector或从candidate worktree/mtime推导closure。被TypeScript真实import的machine data
+通过同一reverse dependency graph传播；无consumer、无base-owned owner且无法分类的对象继续
+`unresolved`，不能靠candidate新增路径规则自解锁。
 
-任何新privileged runtime entrypoint进入registry时，其source owner的affected-test closure必须按引用
-组合唯一`TRUSTED_VERIFIER_TCB_FAST_TESTS`，使generated-lock、trust-root与canonical CI sentinel成为
-不可遗漏的直接consumer；`declared-only` owner不得依赖import discovery补边，也不得复制一个较小的TCB
-测试清单。这只是跨owner consumer edge，不建立第二个TCB owner或手工module inventory。
+`owner-only`只截断generic reverse-import fanout，不截断验证责任。它必须来自当前trusted main中的完整
+semantic owner声明并列出独立failure-space evidence；新owner第一次进入仓库时candidate声明不具备该
+authority，仍按旧main保守closure或显式bootstrap repair验证。合入并readback后，后续相同owner编辑才
+复用精确sentinel。普通selector/docs/package control编辑不得仅因路径命中而升级为全业务slow baseline；
+package/provider、selector、documentation各消费自己的明确conformance/contract evidence。全量业务执行只作
+release/nightly、真实global fixture/runtime change或selector calibration backstop。
 
-registry发生受权变更时，显式apply writer必须能加载pure closure compiler并计算next lock，不能因模块加载
-阶段把旧lock与新registry提前组合而自锁；production trust-root延迟到首次真实消费时严格组合registry与
-checked-in lock，generator则在publication前对next closure执行同一完整校验。该延迟只解决合法迁移顺序，
-不提供lenient trust view、fallback或双owner；普通consumer读取旧组合仍立即fail closed。
+trust-root policy registry只拥有static path、runtime entrypoint、required-surface下界、reviewed boundary、
+Effect dispatcher与外部能力等人工策略输入；不得复制或手工维护import graph派生的causal module清单。
+受信base的pure compiler从immutable exact candidate Git tree一次派生module、edge、blob、content digest、
+trust revision与closure digest，并与registry组合成唯一runtime trust-root view。Git tree已经拥有每个源码
+byte的完整性，仓库不得再提交generated module/blob表、`generatedAt`或第二份lock。
 
-如果old-main generated closure lock已经落后于同一Git tree，base-first checker仍不得把它升级为
-PASS，也不得因自身lock失配而形成不可恢复死锁。它只可在failure集合严格由每个既有module的
-`blob + content digest`成对substitution以及唯一closure-digest差异构成时继续收集candidate SUT，
-并固定输出`manual-bootstrap-required`；module增删、edge、loader、dispatcher、registry或任意未知
-差异仍是hard failure。manual transition必须绑定exact base/head/tree、通过candidate lock纯检查、
-独立exact-head Review与远端tree parity，且不得伪造ordinary Session/Review/Authorization receipt。
+TCB Evidence的ActionKey至少绑定trusted compiler/policy revision、exact candidate tree与execution
+environment；同一key的PASS、known failure与in-flight分别复用、停止或join。Impact没有命中TCB closure时
+不编译、不检查、更不运行TCB测试；命中时old-main compiler读取candidate tree bytes但绝不执行candidate
+compiler。任何新privileged entrypoint仍由source owner引用唯一`TRUSTED_VERIFIER_TCB_FAST_TESTS`，这是
+consumer edge而不是第二个module inventory。
 
-Git hook是执行上下文，不是hook安装生命周期入口。所有managed hook必须显式设置同一个active
-marker；dependency bootstrap在该marker下即使首次物化依赖也不得递归安装hook。pre-push只执行
-零写imports seal与TCB closure check；generated lock仍只能由显式apply writer更新。这样普通push
-在进入provider前拦截causal-runtime/lock漂移，而break-glass仍保持独立、稀有且可审计。
+registry或Tier 1 compiler受权变化由old-main compiler形成old→new transition Evidence；candidate新增规则
+不能把自己判为PASS。只有Tier 0 transition root自身变化才需要独立manual break-glass。因为不存在与同一
+Git tree并列的checked-in generated lock，普通合法迁移不会再出现stale-lock自锁、手填时间、apply writer、
+archive/CAS恢复或merge冲突。
+
+Git hook是可替换的authoring便利层，不是TCB authority。managed hook的active marker只阻止依赖安装递归；
+commit/push不机械重算TCB closure，`--no-verify`也不能绕过effect前由Verification/Integration consumer对
+exact tree与ActionKey的强制消费。无关delta因Impact不命中而保持零TCB工作。
 
 ## Property、Fault 与 Flake
 

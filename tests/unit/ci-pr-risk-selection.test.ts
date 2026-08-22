@@ -12,9 +12,7 @@ const baselineSuites = slowTestPrRiskBaselineSuiteIds();
 
 test('bounded slow baseline is owned by shared execution lifecycle surfaces', () => {
   for (const file of [
-    'scripts/ci-pr-risk.ts',
-    'platform/shared/ci-pr-risk-selection.ts',
-    'platform/shared/test-budget-contract.ts',
+    'platform/orchestrator.ts',
     'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts',
     'tests/helpers/workspace-fixtures.ts',
     'tests/setup/runtime-deps.setup.ts',
@@ -25,13 +23,34 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
     expect(selection.slowTests).toEqual([]);
     expect(selection.owners).toContain('bounded-slow-risk');
     expect(selection.resolved).toBe(true);
-    expect(selection.reasons).toContain(
-      file.startsWith('tests/') ? 'bounded-baseline' : 'mandatory-sentinel'
-    );
+    expect(selection.reasons).toContain('bounded-baseline');
   }
 });
 
-test('documentation authority trust roots require bounded sentinels', () => {
+test('package and lock changes use their exact provider contracts instead of business baselines', () => {
+  for (const file of ['package.json', 'bun.lock']) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.owners).not.toContain('bounded-slow-risk');
+    expect(selection.reasons).not.toContain('bounded-baseline');
+    expect(selection.resolved).toBe(true);
+  }
+});
+
+test('selector trust roots use exact owner sentinels instead of unrelated slow business baselines', () => {
+  for (const file of [
+    'scripts/ci-pr-risk.ts',
+    'platform/shared/ci-pr-risk-selection.ts',
+    'platform/shared/test-budget-contract.ts'
+  ]) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.suites).toEqual([]);
+    expect(selection.owners).not.toContain('bounded-slow-risk');
+    expect(selection.reasons).toContain('mandatory-sentinel');
+    expect(selection.resolved).toBe(true);
+  }
+});
+
+test('documentation authority trust roots use exact owner sentinels', () => {
   for (const file of [
     'docs/authority.json',
     'docs/scripts/docs-doctor.ts',
@@ -41,8 +60,8 @@ test('documentation authority trust roots require bounded sentinels', () => {
     'platform/shared/documentation-authority-contract.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
-    expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
-    expect(selection.owners).toContain('bounded-slow-risk');
+    expect(selection.suites).toEqual([]);
+    expect(selection.owners).not.toContain('bounded-slow-risk');
     expect(selection.reasons).toContain('mandatory-sentinel');
     expect(selection.resolved).toBe(true);
   }
@@ -131,14 +150,13 @@ test('assertion-only testkit helpers rely on direct test impact instead of broad
   expect(selection.resolved).toBe(true);
 });
 
-test('mixed broad and direct slow changes form a stable union instead of returning early', () => {
+test('package and direct slow changes form a stable exact union instead of returning early', () => {
   const selection = selectCiPrRiskSlowSuites([
     'package.json',
     'tests/e2e/dry-run-plan.test.ts',
     'platform/compiler/verify/run-runtime-verification.ts'
   ]);
   expect(selection.suites).toEqual(expect.arrayContaining([
-    ...baselineSuites,
     'e2e-dry-run-plan',
     'e2e-verify-lock'
   ]));
@@ -147,7 +165,6 @@ test('mixed broad and direct slow changes form a stable union instead of returni
     'tests/e2e/verification.test.ts'
   ]));
   expect(selection.reasons).toEqual([
-    'bounded-baseline',
     'direct-slow-test',
     'ownership-impact'
   ]);

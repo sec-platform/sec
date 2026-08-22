@@ -4,7 +4,10 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { compilerRoot } from '../../platform/shared/paths.ts';
-import { TCB_CLOSURE_LOCK, TCB_TRUST_ROOT_V3 } from '../../platform/shared/tcb-closure-lock.ts';
+import {
+  compileTcbClosureIdentityV2,
+  TCB_TRUST_ROOT_V3
+} from '../../platform/shared/tcb-closure-lock.ts';
 import {
   createSecTrustedBootstrapTrustRootV3,
   matchSecTrustedBootstrapPathV3,
@@ -13,6 +16,8 @@ import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3,
   type SecTrustedBootstrapRegistryV3
 } from '../../platform/shared/tcb-trust-root-contract.ts';
+
+const TCB_CLOSURE_LOCK = compileTcbClosureIdentityV2();
 
 function canonicalSource(value: SecTrustedBootstrapRegistryV3 | Record<string, unknown>): string {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -45,10 +50,7 @@ test('canonical trust-root registry is structurally strict and separates static 
     'scripts/ci-workspace-fast.ts -> platform/orchestrator/verify-orchestrator.ts',
     'scripts/ci-workspace-fast.ts -> platform/orchestrator/workspace-orchestrator.ts'
   ]);
-  expect(parsed.reviewedBoundaryEdges).toEqual([
-    'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts',
-    'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
-  ]);
+  expect(parsed.reviewedBoundaryEdges).toEqual([]);
 
   expect(matchSecTrustedBootstrapPathV3('scripts/codex/repository-audit.ts', TCB_TRUST_ROOT_V3)).toBeNull();
   expect(matchSecTrustedBootstrapPathV3('scripts/codex/sec-merge-bootstrap.ts', TCB_TRUST_ROOT_V3)).toBeNull();
@@ -117,12 +119,6 @@ test('trust-root registry rejects structural ambiguity, path aliases and self-de
     }),
     mutate({
       staticExactPaths: base.staticExactPaths.filter((entry) => entry !== SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3)
-    }),
-    mutate({ reviewedBoundaryEdges: [] }),
-    mutate({
-      reviewedBoundaryEdges: base.reviewedBoundaryEdges.filter(
-        (entry) => entry !== 'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts'
-      )
     }),
     mutate({
       reviewedBoundaryEdges: ['scripts/codex/verification-session.ts -> platform/shared/ci-contract.ts']

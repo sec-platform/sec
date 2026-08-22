@@ -11,4 +11,3 @@ if ! git diff --cached --quiet HEAD --; then
 fi
 
 bun ./platform/dev-runner.ts imports:freeze
-bun ./scripts/ci-verification.ts tcb-closure-lock --mode check

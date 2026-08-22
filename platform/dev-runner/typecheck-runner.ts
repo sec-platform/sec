@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { sha256 } from '../shared/canonical-primitives.ts';
 import { compilerRoot, isPathInside } from '../shared/paths.ts';
-import { ensureCompilerDepsReady } from '../shared/project-runtime.ts';
 import {
   resolveInstalledTypecheckProviderV1,
-  typecheckProviderArguments,
+  typecheckProviderExecutionArguments,
   type TypecheckProviderV1
 } from '../toolchain/typecheck-provider.ts';
 import { runDevCommand } from './command-runner.ts';
+import { ensureFastTestDependencies } from './dependency-bootstrap.ts';
 import { pathEnvKey } from './env-manager.ts';
 
 type TypecheckDependencyContext = {
@@ -42,7 +42,7 @@ export function resolveTypecheckBuildInfoPathV1(input: Readonly<{
 }
 
 async function typecheckDependencyContext(): Promise<TypecheckDependencyContext> {
-  const compilerDeps = await ensureCompilerDepsReady();
+  const compilerDeps = await ensureFastTestDependencies();
   return {
     nodeModulesPath: compilerDeps.nodeModulesPath
   };
@@ -70,9 +70,7 @@ export async function runTypecheckWithProvider(
     process.execPath,
     [
       cliEntryPath,
-      ...typecheckProviderArguments(provider, args),
-      '--tsBuildInfoFile',
-      buildInfoFile
+      ...typecheckProviderExecutionArguments(provider, buildInfoFile, args)
     ],
     env
   );

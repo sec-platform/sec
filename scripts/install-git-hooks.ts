@@ -240,6 +240,29 @@ async function managedGenerationReady(
   return true;
 }
 
+async function managedGenerationDigestMatches(
+  generationPath: string,
+  expectedDigest: string
+): Promise<boolean> {
+  const snapshots: ManagedHookSnapshot[] = [];
+  for (const name of MANAGED_HOOKS.map((hook) => path.basename(hook))) {
+    const installedPath = path.join(generationPath, name);
+    try {
+      const [metadata, deployedBytes] = await Promise.all([
+        stat(installedPath),
+        readFile(installedPath)
+      ]);
+      if (!metadata.isFile()
+          || (process.platform !== 'win32' && (metadata.mode & 0o111) === 0)) return false;
+      snapshots.push(Object.freeze({ deployedBytes, name }));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+  }
+  return managedGenerationDigest(snapshots) === expectedDigest;
+}
+
 /**
  * Marker file lives inside the repository-common managed-hooks directory (under .git/),
  * so it is naturally untracked and never perturbs `git status` or docs-doctor census.
@@ -354,7 +377,6 @@ export async function installGitHooks(options: {
   const repoRoot = path.resolve(options.repoRoot);
   const commonGitDir = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   if (commonGitDir === null) throw new Error('Git common directory is unavailable');
-
   // Marker-based fast path: when hook source files are unchanged (stat fingerprint matches)
   // and core.hooksPath already points at the recorded generation, skip the expensive
   // managedHookSnapshots (5x git ls-files + readFile + hash) and materializeManagedGeneration.
@@ -386,6 +408,7 @@ export async function installGitHooks(options: {
       && canonicalPath(resolveGitPath(repoRoot, commonConfiguredFast)) === canonicalPath(expectedGenerationPath)
       && worktreeConfiguredFast === null
       && await pathExists(expectedGenerationPath)
+      && await managedGenerationDigestMatches(expectedGenerationPath, marker.digest)
     ) {
       return Object.freeze({
         status: 'managed',

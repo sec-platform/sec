@@ -286,6 +286,33 @@ PRE proposal的changed-record scope必须精确包含pointer、rolling、selecte
 全部base manifests；漏删任一旧manifest、修改被允许延迟保留的predecessor或加入额外package时，issuer在
 artifact/comment effect前返回`activation-scope-conflict`，不能靠候选本地测试或后续MainHealth补救。
 
+面向Agent或maintainer的控制面CLI默认只输出完成下一步裁决所需的bounded projection：exact revision、
+状态、decision、blocker、finding分类与绑定完整结果的digest。内部canonical result不因此删字段，程序化
+consumer继续直接消费其类型；完整JSON只能由显式`--full`输出，已有`--output`的命令也只在显式路径写入
+完整artifact。不得把全Issue、全catalog、逐路径coverage、重复finding实例或内部中间对象默认倾倒到
+stdout，也不得为“以后也许会看”自动保存bundle。compact projection必须有pure projector和focused test，
+保证其大小不随非决策inventory线性增长，同时不能改变退出码、fail-closed状态或完整结果digest。
+Git Hook已经通过`SEC_GIT_HOOK_ACTIVE`拥有明确automation context；其成功且零变化的依赖复用、imports
+identity seal保持stdout为空，失败仍输出恢复动作。maintainer显式执行同一命令时保留一次紧凑成功确认，
+不为静默automation复制第二套package script或业务实现。
+
+TCB只保存人工裁决的entrypoint、static boundary、Effect dispatcher与外部能力策略；causal module、edge、
+Git blob、content digest与closure digest全部由受信base compiler从immutable exact candidate Git tree派生。
+Git tree是源码bytes的唯一完整性owner，不提交第二份generated lock、时间戳、archive或恢复journal，也不注册
+merge driver或让Hook改写TCB源码。普通Git合并只处理authoring source；派生投影没有文本冲突、误删保护或
+手工恢复问题可发生。
+
+TCB编译只在Impact证明候选可能改变trust closure且对应effect确实需要该Evidence时运行。结果绑定
+`trusted compiler/policy revision + exact candidate tree + environment`进入既有ActionKey；相同subject直接
+复用，非TCB delta零执行。Hook只保留廉价authoring sentinel并不承担authority，`--no-verify`不能绕过
+Verification/Integration consumer；old-main compiler始终把candidate tree当数据，candidate compiler不能
+自证自己的trust transition。
+
+远端API-only admission只认证repository、actor、PR、base/head/tree、manifest和trusted-base registry bytes；
+它不能用entrypoint、路径前缀或tracked generated projection近似transitive TCB closure。是否实际改变trust root
+只能由trusted-base compiler在immutable base/candidate tree上编译完整closure后裁决；零trust-root delta拒绝
+bootstrap，closure或policy delta进入typed manual bootstrap，绝不因前置近似而漏掉真实transitive change。
+
 首次Phase C迁移是唯一bootstrap例外：旧rolling只含两个候选，而旧promotion要求提升后仍至少两个，
 因此不存在可执行的旧transition。本迁移在一个exact candidate中同时安装catalog、adapter、consumer与
 新projection并接受trust/control Review；进入main后不存在手工topology兼容入口。以后耗尽、补充、增删、
@@ -305,6 +332,7 @@ SEC只应自行拥有自己的工程语义、authority、identity、Contract、E
 ```text
 problem / real consumer
 → required capability and contract
+→ terminal business intent and known consumer/lifecycle horizon
 → current internal implementation and cost
 → mature external candidates / standards / platform primitives
 → exact versions, license, security and maintenance
@@ -315,6 +343,27 @@ problem / real consumer
 → duplicate code / dependency / path to remove
 → rollback, revalidation and retirement conditions
 ```
+
+`known consumer/lifecycle horizon`只包含有canonical目标、roadmap、current spec、重新激活条件或现存
+consumer支持的未来，不做开放世界猜测；它覆盖authoring、runtime、Verification、升级、替换、运维和退役，
+因此当前调用次数不能单独决定依赖或自研策略。
+
+该census必须充分，但禁止无目的扩读。先冻结本次`decision questions`、会改变裁决的unknown与required
+Evidence kinds，再由authority、dependency、causal、consumer和Impact图派生
+`SufficientInformationClosure`。任何新增读取都必须关闭一个明确frontier并可能改变一项具体裁决；不能回答
+未决问题的Issue、历史、源码或工具输出不得进入上下文。确定性全仓census可以维护图与coverage，但执行者只
+消费带provenance的相关投影。所有决定性问题闭合、最强已知反例不再改变裁决，或剩余缺口形成typed unknown
+后立即停止；禁止把“充分探究”误写成“尽量多读”。
+
+根因闭包不是给单个symptom贴标签。它至少证明可复现观察、被破坏不变量、最上游可修改因果机制、同类
+failure空间、已知consumer、唯一owner、反事实验收和旧路径退役；只能解释当前一个样例时仍是diagnostic
+finding，不能宣称根治。
+
+任何 P0/P1、重复 finding 或用户指出的同类漂移在进入实现前必须形成同一 owner 的
+`ClassRootClosure`：`rootMechanism + canonicalOwner + classInvariant + affectedEntryClosure +
+strongestCounterexample + retirement/stopCondition`。缺任一项只能保持 `diagnostic`，不能标记
+`remediation-ready`，也不能按 finding/file 顺序逐个打补丁。实现后验证的是类级不变量与最强反例，
+不是把同一句源码或文件清单复制成测试；若 affected entry 仍存在 optional/manual bypass，闭包未完成。
 
 没有上述Evidence时，不得以“更可控”“以后可能需要”“AI写起来容易”或“自己实现更统一”为由扩大自研面积。
 
@@ -542,10 +591,10 @@ public `request`/`observe`必须从clean exact-default checkout中的adapter启�
 
 activation producer和最终`skill-applicability` consumer必须同时是
 `platform/shared/ci-trust-root-registry.json`的runtime entrypoint；TCB contract强制producer、Task Capsule、
-Read Plan、Skill与Work Selection整条closure存在，generated lock只从该registry与真实imports推导。不得
+Read Plan、Skill与Work Selection整条closure存在，TCB identity只从该registry与exact-tree imports派生。不得
 只把新issuer文件加入manifest或Review范围，却让可执行authority chain落在TCB之外。
 
-registry→generated-lock迁移和production trust-root加载顺序只由`docs/verification-governance.md`拥有；
+registry→derived-identity迁移和production trust-root加载顺序只由`docs/verification-governance.md`拥有；
 activation切片不得另造bootstrap规则或绕开其strict next-closure admission。
 
 workflow必须先用GitHub live readback完成actor、default branch、exact draft PR、linear ancestry与manifest bytes
@@ -597,6 +646,12 @@ invalidationInputs
 不得为了“熟悉工程”默认读取 assistant memory、聊天历史、旧 PR/Issue comments、全部开放 Issue、
 全仓文档或全部 Skill 正文。只有一个显式 `unresolvedFrontier` 尚未闭合时，才允许读取该 frontier
 列出的 `conditionalRefs`；conditional ref 必须反向绑定同一 frontier，禁止 unrestricted search。
+
+“最小”不是最少文件，“完整”也不是读完整仓库。编译前必须明确当前decision questions与required
+Evidence kinds；每个required/conditional ref都要有`decisionWitness`，说明缺少它会让哪项owner、root cause、
+scope、mechanism、Verification或retirement裁决不完整。frontier只在新引用可能改变该裁决时扩展；所有
+决定性问题已由Evidence或反证闭合、最强已知反例不会改变结果，或缺口已成为typed unknown时立即停止。
+确定性索引、代码图和全仓census可以作为closure compiler输入，但不得等价成模型正文读取。
 
 同一 source ref 在一个有效 operation context 中只能出现一次。`readReceipts` 绑定 planned ref ID、
 canonical owner、exact revision、content digest 与 reason。它们只证明
@@ -1183,6 +1238,44 @@ metadata。Windows readonly删除只能在已经授权且仍由同一retained le
 classification、retirement与readback receipt，#186只消费settled后的同一physical subject。machine
 roadmap必须把该owner dependency编译进DAG，不能只在Issue prose中要求Agent每次手工清缓存。
 
+在开发控制面内，派生对象与执行复用不是两个问题，而是总体Engineering Semantic Graph在开发/验证领域的
+同一个**内容寻址派生节点**生命周期：
+
+```text
+Demand / Impact
+-> DerivationKey(operation revision + normalized semantic inputs + provider/environment)
+-> observe(absent | in-flight | terminal)
+-> reuse terminal | join in-flight | execute once | typed block
+-> result(identity-only | immutable evidence | rebuildable materialization | effect receipt)
+-> reachability / owner-authorized retirement / physical readback
+```
+
+`RequiredClosure ∩ MissingOrStale`只是该生命周期的需求投影；ActionKey是可复用derivation的key；执行是产生
+result的一次受控transition；cache、generation、snapshot与Evidence都是typed result。TCB closure可以只产生
+identity，TypeCheck build info产生external rebuildable materialization，dependency产生shared generation，
+import transform产生non-reusable operation child，测试产生immutable terminal Evidence。是否落盘、是否可跨
+调用复用、是否包含真实Effect由result kind与领域policy决定，不由路径、transport或调用者决定。
+
+统一的是这套状态机、identity与复用/退役不变量，不是一个吞并领域语义或effect authority的God API。调度器
+不能因看见物理对象而宣称Evidence fresh，也不能签发删除权限；物理owner不能因对象仍存在而强迫Action重跑。
+每个领域只拥有自己的语义输入、result kind、provider和retirement authority；公共物理事务由唯一
+generated-state owner实现，Workflow、CLI、Hook、文档和测试只消费或证明这张图，不构成新的迁移面。
+该段只约束开发控制面投影；全局semantic kernel、domain extension、application/port/adapter分层与跨域
+typed edges仍由system architecture owner拥有，本领域不得把physical generated-state合同提升成第二总架构。
+
+`required-at-birth`只用于拥有独立物理身份、可独立retire/dispose的generation或operation child；共享parent
+不是cleanup subject。import candidate snapshot因此以`direct-child-prefix`逐child登记并在同一producer
+finally中dispose，并发child互不夺取parent authority。会原位刷新的TestImpact cache是domain-owned mutable
+cache：generic lifecycle只分类和保护，逻辑identity是owner加canonical path，producer可用atomic replace刷新内容；
+plan/read-only selector不得为登记而产生runtime-state Effect。把mutable file的每次内容变化或inode替换误建模成
+新birth，或在pure plan后补登记，均属于边界错误。
+
+registry中的每个`required-at-birth`规则必须同时存在一个可到达的真实producer；退役producer时同一变更必须删除
+规则、缓存/Workflow投影和历史fixture，不能留下“以后也许会用”的幽灵owner。canonical repository root上的producer
+在第一次内容写入前自动取得lifecycle capability，并且不得接受caller替换；测试注入只允许非canonical临时root。
+CLI、DevRunner和Codex脚本不得复制生命周期业务或从产品层反向依赖Codex控制面。维护者清理也只能调用相同owner的
+`born/adopt -> owner-generated retirement -> quarantine/delete/readback`，不能另写raw remove路径。
+
 branch owner 只消费同一 common-dir、同一 prepare 观察到的 exact target receipts；fresh host rehydrate
 不得继承另一主机的绝对 worktree path，也不得把“当前 runner 没有该路径”解释成外部主机已完成清理。
 同一主机上只要 prepared binding 仍存在、receipt 缺失/非 completed/identity 不符，或 receipt 后 fresh
@@ -1277,7 +1370,7 @@ flowchart LR
 
 当前 private/free GitHub plan若稳定返回 ruleset/branch-protection feature unavailable，canonical integration-platform policy允许 maintainer-rooted exact-head CAS profile继续，但必须把该 observation digest写入authorization并永久声明`claimsNoBypassEnforcement=false`；transport unknown、事实漂移或错误声称no-bypass仍然阻断。未来取得ruleset/App能力时只增强这一policy owner，不复制第二套Gate。
 
-TCB 内的网络 Effect 与进程 Effect 同样采用“handwritten reviewed identity + live causal census + generated lock projection”。生产 GitHub REST 只能经过 `dispatchGitHubApiRequestV1`：它在 Effect 前把目标限制为无 URL 凭据、无 fragment、无 redirect 的 `https://api.github.com`。TCB 使用 TypeScript symbol binding 区分局部同名变量与真正的全局 `fetch`，只接受该唯一 owner 内直接 `globalThis.fetch(...)`；裸调用、别名、computed/optional member、owner/ordinal 漂移和已死亡 allowlist 条目全部在 lock generation 前拒绝。调用者测试注入 capability，不复制网络实现或源码句子。
+TCB 内的网络 Effect 与进程 Effect 同样采用“handwritten reviewed identity + exact-tree causal census + derived identity projection”。生产 GitHub REST 只能经过 `dispatchGitHubApiRequestV1`：它在 Effect 前把目标限制为无 URL 凭据、无 fragment、无 redirect 的 `https://api.github.com`。TCB 使用 TypeScript symbol binding 区分局部同名变量与真正的全局 `fetch`，只接受该唯一 owner 内直接`globalThis.fetch(...)`；裸调用、别名、computed/optional member、owner/ordinal 漂移和已死亡 allowlist 条目全部在identity compilation前拒绝。调用者测试注入capability，不复制网络实现或源码句子。
 
 ### 文件 Effect 的统一提交协议
 

@@ -11,6 +11,21 @@ const DEV_RUNNER_FAST_TESTS = [
   FAST_TEST_PROCESS_POLICY_TEST_FILE
 ];
 
+const DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS = [
+  'tests/contract/dev-runner-live-authority.test.ts'
+];
+
+const DEV_RUNNER_PROOF_IMPLEMENTATION_SLOW_TESTS = [
+  ...DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS,
+  'tests/contract/dev-runner-authority-program.test.ts'
+];
+
+const GENERATED_STATE_LIFECYCLE_FAST_TESTS = [
+  'tests/integration/compiler-dependency-installation.test.ts',
+  'tests/unit/generated-state-contract.test.ts',
+  'tests/unit/generated-state-lifecycle.test.ts'
+];
+
 const DEV_RUNNER_WORKSPACE_FAST_TESTS = [
   ...DEV_RUNNER_FAST_TESTS,
   'tests/unit/work-package-gate-execution.test.ts'
@@ -45,6 +60,12 @@ const AFFECTED_TEST_SELECTION_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts',
   'tests/unit/ci-verification-composition-execution.test.ts',
   'tests/unit/test-runner.test.ts'
+];
+
+const TEST_IMPACT_AUTHORITY_FAST_TESTS = [
+  ...AFFECTED_TEST_SELECTION_FAST_TESTS,
+  'tests/unit/ci-orchestration-git-isolation.test.ts',
+  'tests/unit/exact-git-blob.test.ts'
 ];
 
 const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
@@ -182,6 +203,21 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
 ];
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'test-impact-authority',
+    identity: { kind: 'architecture-owner', id: 'test-impact-authority' },
+    sourceFiles: [
+      'platform/shared/ci-pr-risk-selection.ts',
+      'platform/shared/ci-verification-plan.ts',
+      'platform/shared/test-budget-contract.ts',
+      'platform/shared/test-impact-contract.ts',
+      'platform/shared/test-ownership-contract.ts'
+    ],
+    sourcePrefixes: ['platform/shared/test-impact-rules/'],
+    moduleGraphImpact: 'owner-only',
+    supplementalFast: TEST_IMPACT_AUTHORITY_FAST_TESTS,
+    supplementalSlow: []
+  },
   {
     owner: 'workspace-write-lease',
     identity: { kind: 'architecture-owner', id: 'workspace-write-lease' },
@@ -323,6 +359,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     owner: 'verification-evidence-producers',
     identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },
     sourceFiles: ['scripts/ci-pr-risk.ts'],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: CI_PR_RISK_FAST_TESTS,
     supplementalSlow: []
   },
@@ -363,11 +400,30 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     supplementalSlow: []
   },
   {
+    owner: 'generated-state-registry',
+    identity: { kind: 'architecture-owner', id: 'generated-state-registry' },
+    sourceFiles: ['platform/shared/generated-state-registry.json'],
+    moduleGraphImpact: 'owner-only',
+    supplementalFast: GENERATED_STATE_LIFECYCLE_FAST_TESTS,
+    supplementalSlow: []
+  },
+  {
+    owner: 'generated-state-lifecycle',
+    identity: { kind: 'architecture-owner', id: 'generated-state-lifecycle' },
+    sourceFiles: [
+      'platform/shared/generated-state-contract.ts',
+      'tooling/sec-dev/generated-state-operations.ts',
+      'tooling/sec-dev/generated-state-lifecycle.ts'
+    ],
+    supplementalFast: GENERATED_STATE_LIFECYCLE_FAST_TESTS,
+    supplementalSlow: []
+  },
+  {
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' },
     sourceFiles: ['platform/dev-runner/dependency-bootstrap.ts'],
     supplementalFast: DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS,
-    supplementalSlow: []
+    supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
   },
   {
     owner: 'dev-runner',
@@ -378,10 +434,20 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/fast-test-policy.ts',
       'platform/dev-runner/import-organizer.ts',
       'platform/dev-runner/test-concurrency-policy.ts',
-      'platform/dev-runner/typecheck-runner.ts',
       'tests/setup/runtime-deps.setup.ts'
     ],
     supplementalFast: DEV_RUNNER_FAST_TESTS,
+    supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
+  },
+  {
+    owner: 'typecheck-provider',
+    identity: { kind: 'architecture-owner', id: 'typecheck-provider' },
+    sourceFiles: [
+      'tsconfig.json',
+      'platform/dev-runner/typecheck-runner.ts',
+      'platform/toolchain/typecheck-provider.ts'
+    ],
+    supplementalFast: ['tests/contract/typecheck-provider-boundary.test.ts'],
     supplementalSlow: []
   },
   {
@@ -392,7 +458,14 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/test-runner.ts'
     ],
     supplementalFast: DEV_RUNNER_WORKSPACE_FAST_TESTS,
-    supplementalSlow: []
+    supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
+  },
+  {
+    owner: 'dev-runner-authority-proof',
+    identity: { kind: 'architecture-owner', id: 'dev-runner-authority-proof' },
+    sourceFiles: ['tests/helpers/dev-runner-authority-proof.ts'],
+    supplementalFast: [],
+    supplementalSlow: DEV_RUNNER_PROOF_IMPLEMENTATION_SLOW_TESTS
   },
   {
     owner: 'dev-runner',

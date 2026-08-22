@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { CodexDevelopmentCreateTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
+import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import { TCB_REVIEWED_PROCESS_DISPATCHERS } from '../../platform/shared/tcb-closure-lock.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from '../../platform/shared/test-budget-contract.ts';
 import {
@@ -105,6 +106,27 @@ test('module impact follows facades and test helpers transitively', () => {
   });
 });
 
+test('imported machine data resolves through the module graph without a hand-authored path kind', () => {
+  const data = 'platform/shared/virtual-registry.json';
+  const consumer = 'platform/shared/virtual-registry-consumer.ts';
+  const selected = 'tests/unit/virtual-registry-consumer.test.ts';
+  const provider: CodexDevelopmentTestImpactSourceProviderV2 = {
+    moduleFiles: [consumer, selected],
+    testFiles: [selected],
+    readModuleSource: (moduleFile) => ({
+      [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
+      [selected]: "import { registry } from '../../platform/shared/virtual-registry-consumer.ts'; void registry;"
+    })[moduleFile] ?? null
+  };
+
+  expect(selectTestsForSources([data], provider)).toEqual({
+    fast: [selected],
+    slow: [],
+    owners: ['module-graph']
+  });
+  expect(selectCiPrRiskSlowSuites([data], provider).resolved).toBe(true);
+});
+
 test('ownership declarations contain only valid supplemental evidence', () => {
   const tests = new Set(getTestFilesSync());
 
@@ -169,6 +191,21 @@ test('Verification Action canonical owners select direct behavior and boundary e
     'tests/unit/verification-action-runner.test.ts',
     'tests/unit/verification-session-runtime.test.ts'
   ]));
+});
+
+test('generated-state machine registry selects only its behavior and producer evidence', () => {
+  const selection = selectTestsForSources([
+    'platform/shared/generated-state-registry.json'
+  ]);
+  expect(selection).toEqual({
+    fast: [
+      'tests/integration/compiler-dependency-installation.test.ts',
+      'tests/unit/generated-state-contract.test.ts',
+      'tests/unit/generated-state-lifecycle.test.ts'
+    ],
+    slow: [],
+    owners: ['generated-state-registry']
+  });
 });
 
 test('retired evidence ownership requires the exact removed transition', () => {

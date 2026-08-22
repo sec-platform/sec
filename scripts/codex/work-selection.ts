@@ -828,9 +828,68 @@ export function requireResolvedSecWorkDecisionReceiptV1(
   return result.receipt;
 }
 
+export type SecWorkSelectionCliProjectionV1 = Readonly<
+  | {
+    schema: 'sec-work-selection-cli-projection-v1';
+    status: 'resolved';
+    resultDigest: SecWorkSelectionLiveResultV1['resultDigest'];
+    exactMain: string;
+    exactMainTree: string;
+    receiptDigest: SecWorkDecisionReceiptV1['receiptDigest'];
+    decision: Readonly<{
+      status: SecWorkDecisionReceiptV1['decision']['status'];
+      selectedWorkId: string | null;
+      selectedCandidateRef: string | null;
+      decisionDigest: SecWorkDecisionReceiptV1['decision']['decisionDigest'];
+      reasonCodes: readonly string[];
+      blockedCandidateRefs: readonly string[];
+      requiredPreconditions: number;
+    }>;
+  }
+  | {
+    schema: 'sec-work-selection-cli-projection-v1';
+    status: 'unresolved';
+    resultDigest: SecWorkSelectionLiveResultV1['resultDigest'];
+    reasonCodes: readonly string[];
+    blockerRefs: readonly string[];
+  }
+>;
+
+export function projectSecWorkSelectionCliV1(
+  result: SecWorkSelectionLiveResultV1
+): SecWorkSelectionCliProjectionV1 {
+  if (result.status === 'unresolved') {
+    return Object.freeze({
+      schema: 'sec-work-selection-cli-projection-v1',
+      status: result.status,
+      resultDigest: result.resultDigest,
+      reasonCodes: result.reasonCodes,
+      blockerRefs: result.blockerRefs
+    });
+  }
+  const { receipt } = result;
+  return Object.freeze({
+    schema: 'sec-work-selection-cli-projection-v1',
+    status: result.status,
+    resultDigest: result.resultDigest,
+    exactMain: receipt.exactMain,
+    exactMainTree: receipt.exactMainTree,
+    receiptDigest: receipt.receiptDigest,
+    decision: Object.freeze({
+      status: receipt.decision.status,
+      selectedWorkId: receipt.decision.selectedWorkId,
+      selectedCandidateRef: receipt.decision.selectedCandidateRef,
+      decisionDigest: receipt.decision.decisionDigest,
+      reasonCodes: receipt.decision.reasonCodes,
+      blockedCandidateRefs: receipt.decision.blockedCandidateRefs,
+      requiredPreconditions: receipt.decision.requiredPreconditions.length
+    })
+  });
+}
+
 function usage(): string {
   return 'Usage:\n'
-    + '  bun scripts/codex/work-selection.ts observe [--json]\n'
+    + '  bun scripts/codex/work-selection.ts observe [--json] [--full]\n'
     + '  bun scripts/codex/work-selection.ts project --reviewed-on <YYYY-MM-DD> [--json]\n';
 }
 
@@ -841,7 +900,9 @@ function main(): void {
   if (jsonCount > 1) throw new Error(usage());
   const json = jsonCount === 1;
   if (command === 'observe'
-      && args.some((argument) => argument !== '--json')) throw new Error(usage());
+      && args.some((argument) => argument !== '--json' && argument !== '--full')) {
+    throw new Error(usage());
+  }
   let reviewedOn: string | undefined;
   if (command === 'project') {
     for (let index = 0; index < args.length; index += 1) {
@@ -858,7 +919,8 @@ function main(): void {
   }
   const result = observeSecWorkSelectionLiveV1({ cwd: process.cwd() });
   if (command === 'observe') {
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    const output = args.includes('--full') ? result : projectSecWorkSelectionCliV1(result);
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
     if (result.status !== 'resolved') process.exitCode = 2;
     return;
   }

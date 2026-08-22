@@ -17,6 +17,7 @@ import {
   type SecAgentSkillId,
   type SecRepositorySurfaceKind
 } from '../../platform/shared/agent-skill-contract.ts';
+import { rawSha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   CodexDevelopmentClassifyWorkPackageCensusV1,
   CodexDevelopmentParseActivePointerV2,
@@ -82,6 +83,32 @@ export interface RepositoryAuditReport {
   }>;
   surfaces: Readonly<Record<SecRepositorySurfaceKind, number>>;
   unknowns: readonly string[];
+}
+
+export interface RepositoryAuditCliProjectionV1 {
+  readonly schema: 'sec-repository-audit-cli-projection-v1';
+  readonly reportDigest: `sha256:${string}`;
+  readonly revision: RepositoryAuditReport['revision'];
+  readonly summary: RepositoryAuditReport['summary'];
+  readonly findingCodes: readonly string[];
+  readonly unknownsDigest: `sha256:${string}`;
+}
+
+/**
+ * Interactive audit output is a decision projection, not a second report.
+ * The exact full report remains available through --full or --output.
+ */
+export function projectRepositoryAuditCliV1(
+  report: RepositoryAuditReport
+): RepositoryAuditCliProjectionV1 {
+  return Object.freeze({
+    schema: 'sec-repository-audit-cli-projection-v1',
+    reportDigest: rawSha256(JSON.stringify(report)),
+    revision: report.revision,
+    summary: report.summary,
+    findingCodes: Object.freeze([...new Set(report.findings.map(({ code }) => code))].sort()),
+    unknownsDigest: rawSha256(JSON.stringify(report.unknowns))
+  });
 }
 
 export interface BehaviorCandidate {
@@ -3583,6 +3610,7 @@ export function repositoryAuditShouldFail(
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const diagnostic = args.includes('--diagnostic');
+  const full = args.includes('--full');
   const outputIndex = args.indexOf('--output');
   const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
   const failIndex = args.indexOf('--fail-on');
@@ -3608,15 +3636,9 @@ async function main(): Promise<void> {
     await mkdir(path.dirname(absoluteOutput), { recursive: true });
     await writeFile(absoluteOutput, encoded, 'utf8');
   }
-  if (args.includes('--json') || !outputPath) {
-    process.stdout.write(encoded);
-  } else {
-    process.stdout.write(
-      `Tracked ${report.summary.trackedPaths} paths; `
-      + `findings=${JSON.stringify(report.summary.findings)}; `
-      + `unknowns=${report.summary.unknowns}\n`
-    );
-  }
+  process.stdout.write(full
+    ? encoded
+    : `${JSON.stringify(projectRepositoryAuditCliV1(report), null, 2)}\n`);
 
   if (repositoryAuditShouldFail(report, {
     diagnostic,

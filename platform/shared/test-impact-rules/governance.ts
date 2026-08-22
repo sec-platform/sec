@@ -285,6 +285,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority },
     sourceKinds: ['active-documentation'],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: [...DOCUMENTATION_AUTHORITY_FAST_TESTS, ...DOCUMENT_CONTROL_PROJECTION_FAST_TESTS],
     supplementalSlow: []
   },
@@ -343,6 +344,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'scripts/codex/repository-audit.ts',
       'scripts/discover-all.ts'
     ],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: AGENT_GOVERNANCE_FAST_TESTS,
     supplementalSlow: []
   },

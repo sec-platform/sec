@@ -1,7 +1,13 @@
 import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
 
+export function shouldReportDevRunnerSuccessV1(
+  environment: Readonly<Record<string, string | undefined>> = process.env
+): boolean {
+  return environment.SEC_GIT_HOOK_ACTIVE !== '1';
+}
+
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
 
@@ -67,6 +73,25 @@ async function main(): Promise<void> {
     usage();
   }
 
+  if (target === 'generated-state:inspect' || target === 'generated-state:plan'
+      || target === 'generated-state:cleanup') {
+    const { runGeneratedStateOperationV1 } = await import('../tooling/sec-dev/generated-state-operations.ts');
+    const operation = target.slice('generated-state:'.length);
+    const result = await runGeneratedStateOperationV1([operation, ...args]);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (target === 'environment:workspace-settle') {
+    const unknown = args.filter((argument) => argument !== '--fix');
+    if (unknown.length > 0) usage();
+    const { settleEnvironmentV1 } = await import('../tooling/sec-dev/generated-state-operations.ts');
+    const result = await settleEnvironmentV1({ fix: args.includes('--fix') });
+    console.log(JSON.stringify(result, null, 2));
+    if (result.status !== 'settled') process.exitCode = 1;
+    return;
+  }
+
   if (target === 'check:affected') {
     if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) usage();
     const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
@@ -118,7 +143,9 @@ async function main(): Promise<void> {
       : target === 'deps:ensure' ? 'always' : 'if-installed'
   });
   if (target === 'deps:ensure') {
-    console.log(`Compiler dependencies ready (${dependencies.source}, ${dependencies.manifestHash}).`);
+    if (shouldReportDevRunnerSuccessV1()) {
+      console.log(`Compiler dependencies ready (${dependencies.source}, ${dependencies.manifestHash}).`);
+    }
     return;
   }
 
@@ -178,7 +205,9 @@ async function main(): Promise<void> {
       if (args.length !== 0) usage();
       const outcome = await runCandidateImportCheck();
       if (outcome.status === 'canonical') {
-        console.log('Candidate imports identity sealed (canonical).');
+        if (shouldReportDevRunnerSuccessV1()) {
+          console.log('Candidate imports identity sealed (canonical).');
+        }
         process.exitCode = 0;
       } else {
         console.error(
