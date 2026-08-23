@@ -695,7 +695,10 @@ export function captureDocsDoctorIndexTree(
     },
     repositoryRoot: resolvedRepositoryRoot
   });
-  const snapshotParent = path.join(cacheRoot, 'docs-doctor', 'index-snapshots', 'v1');
+  // Physical names stay compact because the isolated test/runtime cache root is
+  // already content-addressed. Repeating semantic owner names and UUID
+  // punctuation here only consumes the Windows child-process path budget.
+  const snapshotParent = path.join(cacheRoot, 'dd', 'i', 'v2');
   if (isPathInside(resolvedRepositoryRoot, snapshotParent)) {
     throw new Error('docs-doctor: index snapshot root must remain outside the repository');
   }
@@ -737,7 +740,7 @@ export function captureDocsDoctorIndexTree(
   const snapshotParentIdentity = cacheAuthority.directory(snapshotParent);
   const snapshotRoot = createExclusiveNoFollowDirectoryV1(
     snapshotParentIdentity,
-    `snapshot-${randomUUID()}`
+    `s-${randomUUID().replaceAll('-', '')}`
   );
   let retained = false;
   let originalObjects: RetainedNoFollowChildProcessDirectoryV1 | null = null;
