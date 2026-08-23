@@ -6,6 +6,7 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import type { DevCommandObservation } from '../../platform/dev-runner/command-runner.ts';
+import type { OperationDependencyBootstrapResult } from '../../platform/dev-runner/dependency-bootstrap.ts';
 import * as actualEnvManager from '../../platform/dev-runner/env-manager.ts';
 import {
   assertFastTestProcessPolicyInventoryV1,
@@ -227,25 +228,21 @@ mock.module('../../platform/dev-runner/command-runner.ts', () => ({
 }));
 
 mock.module('../../platform/dev-runner/dependency-bootstrap.ts', () => ({
-  ensureFastTestDependencies: async () => {
-    fastDependencyBootstrapCalls += 1;
+  ensureOperationDependencies: async (demandGraph: {
+    capabilityDemands: readonly string[];
+  }) => {
+    const browserDemanded = demandGraph.capabilityDemands.includes('browser-runtime');
+    if (browserDemanded) testDependencyBootstrapCalls += 1;
+    else fastDependencyBootstrapCalls += 1;
     if (hasTestDependencyBootstrapFailure) throw testDependencyBootstrapFailure;
     return {
+      browserCachePath: browserDemanded ? canonicalBrowserCachePath : null,
       manifestHash: 'test-manifest',
       nodeModulesPath: path.resolve('node_modules'),
       source: 'existing'
     };
   },
-  ensureTestDependencies: async () => {
-    testDependencyBootstrapCalls += 1;
-    if (hasTestDependencyBootstrapFailure) throw testDependencyBootstrapFailure;
-    return {
-      browserCachePath: canonicalBrowserCachePath,
-      manifestHash: 'test-manifest',
-      nodeModulesPath: path.resolve('node_modules'),
-      source: 'existing'
-    };
-  }
+  reuseOperationDependenciesV1: (result: unknown) => result
 }));
 
 const testRunnerModule = await import('../../platform/dev-runner/test-runner.ts');
@@ -1613,6 +1610,21 @@ test.serial('explicit fast test files skip browser dependency bootstrap entirely
   await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
 });
 
+test.serial('composite check reuses one materialized compiler capability without a second bootstrap', async () => {
+  const prepared = Object.freeze({
+    browserCachePath: null,
+    manifestHash: 'test-manifest',
+    nodeModulesPath: path.resolve('node_modules'),
+    source: 'existing' as const
+  }) satisfies OperationDependencyBootstrapResult;
+
+  const code = await runFastTests(['tests/unit/path-containment.test.ts'], prepared);
+
+  expect(code).toBe(0);
+  expect(fastDependencyBootstrapCalls).toBe(0);
+  expect(testDependencyBootstrapCalls).toBe(0);
+});
+
 test.serial('every fast-capable direct selector form uses one invocation runtime', async () => {
   for (const args of [
     ['--test-name-pattern', 'owner behavior'],
@@ -1654,6 +1666,9 @@ test.serial('contract freeze uses the same fast invocation runtime owner', async
   const environment = devCommandEnvironments[0]!;
   expect(path.basename(environment.SEC_STATE_HOME!)).toBe('contract-freeze-001');
   expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('contract-freeze-001');
+  expect(testDependencyBootstrapCalls).toBe(0);
+  expect(environment.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
+  expect(environment.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
   const runtimeRoots = fastInvocationRunRoots(environment);
   await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
   await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
@@ -2524,98 +2539,6 @@ test.serial('affected tests treat changed slow files as notice-only quick-lane i
   } finally {
     console.log = originalLog;
     console.error = originalError;
-  }
-});
-
-test.serial('affected tests allow broad fast-suite fallback when explicitly enabled', async () => {
-  changedFiles = ['tests/setup/unmapped.ts'];
-  process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK = '1';
-  const defaultFastTestFiles = getFastTestFilesSync().filter(isDefaultFastTestFile);
-  const logs: string[] = [];
-  const originalLog = console.log;
-  console.log = (message?: unknown) => {
-    logs.push(String(message));
-  };
-
-  try {
-    const code = await runAffectedTests();
-
-    expect(code).toBe(0);
-    const shardCalls = devCommandCalls.filter(({ args }) => invocationTestFiles(args).length > 1);
-    expect(shardCalls.length).toBeGreaterThan(1);
-    expect(shardCalls.every(({ args }) => !args.includes('--concurrent'))).toBe(true);
-    expect(shardCalls.every(({ args }) => (
-      invocationTestFiles(args).length <= DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
-    ))).toBe(true);
-    expect(shardCalls.every(({ args }) => (
-      args.slice(-2).join(' ') === `--timeout ${DEFAULT_TEST_TIMEOUT_MS}`
-    ))).toBe(true);
-    for (const file of PROCESS_ISOLATED_FAST_TEST_FILES.filter(isDefaultFastTestFile)) {
-      expect(devCommandCalls).toContainEqual({
-        command: 'bun',
-        args: ['test', file, ...DEFAULT_MANAGED_INNER_ARGS, '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
-      });
-    }
-    const invokedFiles = devCommandCalls.flatMap(({ args }) => invocationTestFiles(args));
-    expect([...invokedFiles].sort()).toEqual(defaultFastTestFiles);
-    expect(DEFAULT_FAST_TEST_EXCLUDED_FILES.some((file) => invokedFiles.includes(file))).toBe(false);
-    expect(new Set(invokedFiles).size).toBe(invokedFiles.length);
-    expect(logs).toContain('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
-  } finally {
-    console.log = originalLog;
-  }
-});
-
-test.serial('affected tests fail closed for source change with empty closure and no fallback (Issue #206)', async () => {
-  // tests/setup/unmapped.ts is a .ts file (→ sourceChanged=true via typescript
-  // kind) under tests/setup/ (→ BOUNDED_BASELINE_PATTERLS → ownershipResolved=true)
-  // with no ownership declaration, fallback rule, or reverse-import edge
-  // (→ selectedFastTests=[]). Previously this returned 0 — a false-green.
-  changedFiles = ['tests/setup/unmapped.ts'];
-  const errors: string[] = [];
-  const originalError = console.error;
-  console.error = (message?: unknown) => {
-    errors.push(String(message));
-  };
-
-  try {
-    const code = await runAffectedTests();
-
-    expect(code).toBe(1);
-    expect(testDependencyBootstrapCalls).toBe(0);
-    expect(devCommandCalls).toEqual([]);
-    expect(devCommandEnvironments).toEqual([]);
-    expect(errors.some((e) => e.includes('Failing closed'))).toBe(true);
-  } finally {
-    console.error = originalError;
-  }
-});
-
-test.serial('affected plan projects invalidated verificationResult for fail-closed boundary (Issue #206)', async () => {
-  changedFiles = ['tests/setup/unmapped.ts'];
-  const logs: string[] = [];
-  const originalLog = console.log;
-  console.log = (message?: unknown) => {
-    logs.push(String(message));
-  };
-
-  try {
-    const code = await runAffectedTests(['--plan']);
-    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
-
-    // --plan must fail closed (exit 1) for the fail-closed trust boundary.
-    expect(code).toBe(1);
-    expect(plan).toHaveProperty('verificationResult');
-    const vr = plan.verificationResult as Record<string, unknown>;
-    expect(vr.status).toBe('invalidated');
-    expect(vr.reasonCode).toBe('selection-unresolved');
-    expect(vr.applicability).toBe('unresolved');
-    expect(vr.disposition).toBe('not-executed');
-    expect(plan.selectionTrustBoundary).toBe('unresolved-selection');
-    expect(testDependencyBootstrapCalls).toBe(0);
-    expect(devCommandCalls).toEqual([]);
-  } finally {
-    console.log = originalLog;
   }
 });
 

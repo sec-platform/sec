@@ -1,15 +1,19 @@
 import { expect, test } from 'bun:test';
 
 import {
-  ensureDevDependencies,
-  ensureFastTestDependencies,
-  ensureTestDependencies
+  ensureOperationDependencies,
+  reuseOperationDependenciesV1
 } from '../../platform/dev-runner/dependency-bootstrap.ts';
+import { compileSecOperationDemandGraphV1 } from '../../platform/shared/operation-demand-contract.ts';
 
 for (const source of ['existing', 'installed'] as const) {
   test(`dependency bootstrap exposes the manifest-bound compiler tree (${source})`, async () => {
     const hookRoots: string[] = [];
-    const result = await ensureDevDependencies({
+    const result = await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+      operation: 'dependency-setup',
+      terminalWorkIds: [],
+      hookPolicy: 'always'
+    }), {
       ensureCompilerDeps: async () => ({
         manifestHash: 'manifest-hash',
         nodeModulesPath: 'compiler-node-modules',
@@ -23,6 +27,7 @@ for (const source of ['existing', 'installed'] as const) {
     });
 
     expect(result).toEqual({
+      browserCachePath: null,
       manifestHash: 'manifest-hash',
       nodeModulesPath: 'compiler-node-modules',
       source
@@ -34,7 +39,11 @@ for (const source of ['existing', 'installed'] as const) {
 for (const source of ['existing', 'installed'] as const) {
   test(`warmed hook policy only closes hooks after compiler installation (${source})`, async () => {
     const hookRoots: string[] = [];
-    await ensureDevDependencies({
+    await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+      operation: 'dependency-setup',
+      terminalWorkIds: [],
+      hookPolicy: 'if-installed'
+    }), {
       ensureCompilerDeps: async () => ({
         manifestHash: 'manifest-hash',
         nodeModulesPath: 'compiler-node-modules',
@@ -44,8 +53,7 @@ for (const source of ['existing', 'installed'] as const) {
       }),
       ensureHooks: async (repoRoot) => {
         hookRoots.push(repoRoot);
-      },
-      hookPolicy: 'if-installed'
+      }
     });
 
     expect(hookRoots).toEqual(source === 'installed' ? ['compiler-root'] : []);
@@ -55,7 +63,11 @@ for (const source of ['existing', 'installed'] as const) {
 for (const source of ['existing', 'installed'] as const) {
   test(`active Git hook execution never recursively installs hooks (${source})`, async () => {
     const hookRoots: string[] = [];
-    await ensureDevDependencies({
+    await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+      operation: 'dependency-setup',
+      terminalWorkIds: [],
+      hookPolicy: 'never'
+    }), {
       ensureCompilerDeps: async () => ({
         manifestHash: 'manifest-hash',
         nodeModulesPath: 'compiler-node-modules',
@@ -65,17 +77,19 @@ for (const source of ['existing', 'installed'] as const) {
       }),
       ensureHooks: async (repoRoot) => {
         hookRoots.push(repoRoot);
-      },
-      hookPolicy: 'never'
+      }
     });
 
     expect(hookRoots).toEqual([]);
   });
 }
 
-test('test dependency bootstrap composes compiler and browser readiness without hook lifecycle', async () => {
+test('operation demand materializes compiler and browser readiness without hook lifecycle', async () => {
   const calls: string[] = [];
-  const result = await ensureTestDependencies({
+  const result = await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+    operation: 'test-slow',
+    terminalWorkIds: []
+  }), {
     ensureCompilerDeps: async () => {
       calls.push('compiler');
       return {
@@ -118,9 +132,12 @@ test('test dependency bootstrap composes compiler and browser readiness without 
   expect(calls).toEqual(['compiler', 'browser:compiler-root']);
 });
 
-test('fast dependency bootstrap proves compiler readiness with zero browser or hook effect', async () => {
+test('operation demand proves compiler readiness with zero unrequested browser or hook effect', async () => {
   const calls: string[] = [];
-  const result = await ensureFastTestDependencies({
+  const result = await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+    operation: 'test-fast',
+    terminalWorkIds: []
+  }), {
     ensureCompilerDeps: async () => {
       calls.push('compiler');
       return {
@@ -134,9 +151,41 @@ test('fast dependency bootstrap proves compiler readiness with zero browser or h
   });
 
   expect(result).toEqual({
+    browserCachePath: null,
     manifestHash: 'manifest-hash',
     nodeModulesPath: 'compiler-node-modules',
     source: 'existing'
   });
   expect(calls).toEqual(['compiler']);
+});
+
+test('dependency bootstrap rejects a valid graph that does not demand compiler dependencies', async () => {
+  await expect(ensureOperationDependencies(compileSecOperationDemandGraphV1({
+    operation: 'work-selection-observe',
+    terminalWorkIds: []
+}))).rejects.toThrow('requires an operation demand for compiler-dependency-tree');
+});
+
+test('one process-local materialization is reusable only for a covered demand closure', async () => {
+  const fastGraph = compileSecOperationDemandGraphV1({
+    operation: 'test-fast',
+    terminalWorkIds: []
+  });
+  const result = await ensureOperationDependencies(fastGraph, {
+    ensureCompilerDeps: async () => ({
+      manifestHash: 'manifest-hash',
+      nodeModulesPath: 'compiler-node-modules',
+      packageManager: 'bun',
+      root: 'compiler-root',
+      source: 'existing'
+    })
+  });
+
+  expect(reuseOperationDependenciesV1(result, fastGraph)).toBe(result);
+  expect(() => reuseOperationDependenciesV1(result, compileSecOperationDemandGraphV1({
+    operation: 'test-slow',
+    terminalWorkIds: []
+  }))).toThrow('does not cover the requested capability closure');
+  expect(() => reuseOperationDependenciesV1({ ...result }, fastGraph))
+    .toThrow('was not materialized by this process');
 });

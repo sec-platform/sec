@@ -34,6 +34,10 @@ import {
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from '../../platform/shared/repository-path-contract.ts';
 import { resolveSecRuntimeCacheRootV1 } from '../../platform/shared/sec-runtime-state-contract.ts';
 import {
+  assertSecRoadmapTerminalCompactionDeltaV1,
+  parseSecRoadmapWorkCatalogV1
+} from '../../platform/shared/work-selection-live-contract.ts';
+import {
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentClassifyWorkPackageCensusV1,
   CodexDevelopmentParseActivePointerV2,
@@ -481,6 +485,37 @@ export async function scanDocumentation(
     const manifestSource = decodeUtf8(manifestBytes, 'Selected Work Package manifest');
     const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, selected);
     const packagePaths = await listControlPlanePackagePaths(options, repositoryRoot);
+    if (options.readDefaultBranchBlob !== undefined) {
+      const roadmapSource = await readControlPlaneText(
+        options,
+        'docs/roadmap.md',
+        'Roadmap Work Selection catalog'
+      );
+      const priorRoadmapBytes = await options.readDefaultBranchBlob(
+        pointer.defaultBranchRef,
+        'docs/roadmap.md'
+      );
+      if (priorRoadmapBytes === null) {
+        throw new Error('Default branch is missing the Roadmap Work Selection catalog.');
+      }
+      const priorRoadmapSource = decodeUtf8(
+        priorRoadmapBytes,
+        'Default Roadmap Work Selection catalog'
+      );
+      const priorCatalog = parseSecRoadmapWorkCatalogV1(priorRoadmapSource);
+      const priorManifestPaths = (await Promise.all(priorCatalog.items.map(async (item) => {
+        const manifestPath = `docs/work-packages/${item.packageId}.md`;
+        return await options.readDefaultBranchBlob!(pointer.defaultBranchRef, manifestPath) === null
+          ? null
+          : manifestPath;
+      }))).filter((entry): entry is string => entry !== null);
+      assertSecRoadmapTerminalCompactionDeltaV1({
+        priorRoadmapSource,
+        roadmapSource,
+        priorManifestPaths,
+        manifestPaths: packagePaths
+      });
+    }
     const nonSelectedPaths = packagePaths.filter((packagePath) => packagePath !== selected);
     const packageEntries = await Promise.all(packagePaths.map(async (packagePath) => ({
       path: packagePath,

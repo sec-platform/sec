@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { shouldReportDevRunnerSuccessV1 } from '../../platform/dev-runner.ts';
+import { compileSecOperationDemandGraphV1 } from '../../platform/shared/operation-demand-contract.ts';
 import type { SecWorkSelectionLiveResultV1 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
   projectDocumentControlPlaneStatusCliV1
@@ -49,6 +50,11 @@ describe('bounded control-plane CLI projections', () => {
   test('work selection keeps authority identity and the actionable decision only', () => {
     const result = {
       status: 'resolved', resultDigest: 'sha256:result',
+      demandGraph: compileSecOperationDemandGraphV1({
+        operation: 'work-selection-observe',
+        terminalWorkIds: []
+      }),
+      terminalCompaction: null,
       receipt: {
         exactMain: 'a'.repeat(40), exactMainTree: 'b'.repeat(40),
         receiptDigest: 'sha256:receipt',

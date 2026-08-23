@@ -25,6 +25,10 @@ import {
 import { selectCiPrRiskSlowSuites } from '../shared/ci-pr-risk-selection.ts';
 import { uniqueSorted, uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
+import {
+  compileSecOperationDemandGraphV1,
+  type SecOperationKindV1
+} from '../shared/operation-demand-contract.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommandBytes } from '../shared/process.ts';
 import { secRuntimeStateEnvironmentV1 } from '../shared/sec-runtime-state-contract.ts';
@@ -47,8 +51,9 @@ import {
   type DevCommandObservation
 } from './command-runner.ts';
 import {
-  ensureFastTestDependencies,
-  ensureTestDependencies
+  ensureOperationDependencies,
+  reuseOperationDependenciesV1,
+  type OperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
 import {
   consumeTestWorkspaceSupervisorChallengeV1,
@@ -421,24 +426,23 @@ function allowFullFastFallback(): boolean {
   return process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK === '1';
 }
 
-type DependencyContext = {
+type OperationDependencyContext = {
   binPath: string;
-  browserCachePath: string;
+  browserCachePath: string | null;
 };
 
-type FastDependencyContext = {
-  binPath: string;
-};
-
-async function withFastTestDependencies<T>(
-  callback: (context: FastDependencyContext) => Promise<T>
+async function withOperationDependencies<T>(
+  operation: Exclude<SecOperationKindV1, 'dependency-setup' | 'work-selection-observe'>,
+  callback: (context: OperationDependencyContext) => Promise<T>,
+  prepared?: OperationDependencyBootstrapResult
 ): Promise<T> {
-  const dependencies = await ensureFastTestDependencies();
-  return callback({ binPath: path.join(dependencies.nodeModulesPath, '.bin') });
-}
-
-async function withTestDependencies<T>(callback: (context: DependencyContext) => Promise<T>): Promise<T> {
-  const dependencies = await ensureTestDependencies();
+  const demandGraph = compileSecOperationDemandGraphV1({
+    operation,
+    terminalWorkIds: []
+  });
+  const dependencies = prepared === undefined
+    ? await ensureOperationDependencies(demandGraph)
+    : reuseOperationDependenciesV1(prepared, demandGraph);
   return callback({
     binPath: path.join(dependencies.nodeModulesPath, '.bin'),
     browserCachePath: dependencies.browserCachePath
@@ -828,7 +832,7 @@ export interface AffectedTestPlanV1 {
 
 export interface ResolvedAffectedTestExecutionV1 {
   readonly plan: AffectedTestPlanV1;
-  readonly run: () => Promise<number>;
+  readonly run: (preparedDependencies?: OperationDependencyBootstrapResult) => Promise<number>;
 }
 
 function computeAffectedInputDigest(files: readonly string[]): `sha256:${string}` {
@@ -908,7 +912,10 @@ function freezeAffectedTestPlan(plan: AffectedTestPlanV1): AffectedTestPlanV1 {
   });
 }
 
-async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
+async function runAffectedTestPlan(
+  plan: AffectedTestPlanV1,
+  preparedDependencies?: OperationDependencyBootstrapResult
+): Promise<number> {
   if (!plan.resolved) {
     console.error(`Affected test ownership is unresolved for changed paths: ${plan.unresolvedPaths.join(', ')}`);
     return 1;
@@ -924,7 +931,7 @@ async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
     if (selection.affectedTests.length > 0) {
       console.log(`Running changed and affected fast tests for ${selection.affectedOwners.join(', ') || 'changed sources'}: ${selectedFastTests.join(', ')}`);
     }
-    const code = await runFastTests(selectedFastTests);
+    const code = await runFastTests(selectedFastTests, preparedDependencies);
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
         fast: selectedFastTests,
@@ -953,7 +960,7 @@ async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
     }
 
     console.log('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
-    const code = await runFastTests();
+    const code = await runFastTests([], preparedDependencies);
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
         fast: [],
@@ -973,7 +980,9 @@ export async function resolveAffectedTestExecution(): Promise<ResolvedAffectedTe
   const plan = freezeAffectedTestPlan(affectedTestPlan(changed.files, changed.transitionObservation));
   return Object.freeze({
     plan,
-    run: () => runAffectedTestPlan(plan)
+    run: (preparedDependencies?: OperationDependencyBootstrapResult) => (
+      runAffectedTestPlan(plan, preparedDependencies)
+    )
   });
 }
 
@@ -1002,8 +1011,8 @@ export async function runTests(args: string[] = []): Promise<number> {
   if (args.length > 0) {
     ({ selectors } = partitionBunTestArgs(args));
     if (selectors.length > 0 && selectors.every(isFastTestFile)) {
-      await withFastTestDependencies(async ({ binPath }) => {
-        const environment = pathEnv(binPath, null);
+      await withOperationDependencies('test-direct-fast', async ({ binPath, browserCachePath }) => {
+        const environment = pathEnv(binPath, browserCachePath);
         exitCode = await runWithTestInvocationRuntimeV1(environment, (runtime) =>
           runDevCommand(
             'bun', ['test', ...args], fastInvocationEnvironment(environment, runtime, 'direct:001')
@@ -1012,7 +1021,12 @@ export async function runTests(args: string[] = []): Promise<number> {
       return exitCode;
     }
   }
-  await withTestDependencies(async ({ binPath, browserCachePath }) => {
+  const directOperation = args.length === 0
+    ? 'test-full'
+    : selectors.length > 0 && selectors.every(isSlowTestFile)
+      ? 'test-direct-slow'
+      : 'test-direct-ambiguous';
+  await withOperationDependencies(directOperation, async ({ binPath, browserCachePath }) => {
     const environment = pathEnv(binPath, browserCachePath);
     if (args.length > 0) {
       // Only an exact slow-file selection proves that Bun cannot discover a
@@ -1042,7 +1056,10 @@ export async function runTests(args: string[] = []): Promise<number> {
   return exitCode;
 }
 
-export async function runFastTests(args: string[] = []): Promise<number> {
+export async function runFastTests(
+  args: string[] = [],
+  preparedDependencies?: OperationDependencyBootstrapResult
+): Promise<number> {
   let exitCode = 1;
   const workspace = await prepareFastTestWorkspaceRun();
   const workspaceEnv = workspace.env;
@@ -1056,10 +1073,10 @@ export async function runFastTests(args: string[] = []): Promise<number> {
         environment: { ...secRuntimeStateEnvironmentV1(), ...workspaceEnv }
       });
     }
-    await withFastTestDependencies(async ({ binPath }) => {
+    await withOperationDependencies('test-fast', async ({ binPath, browserCachePath }) => {
       try {
         const plan = fastTestInvocations(args);
-        const env = pathEnv(binPath, null, workspaceEnv);
+        const env = pathEnv(binPath, browserCachePath, workspaceEnv);
         exitCode = await runBoundedFastTestInvocations(
           plan.concurrentShards,
           env,
@@ -1080,7 +1097,7 @@ export async function runFastTests(args: string[] = []): Promise<number> {
         console.error(error instanceof Error ? error.message : String(error));
         exitCode = 1;
       }
-    });
+    }, preparedDependencies);
   } catch (error) {
     hasPrimaryFailure = true;
     primaryFailure = error;
@@ -1114,7 +1131,7 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
     console.log(selection.message);
     return 0;
   }
-  await withTestDependencies(async ({ binPath, browserCachePath }) => {
+  await withOperationDependencies('test-slow', async ({ binPath, browserCachePath }) => {
     try {
       exitCode = await runDevCommand('bun', selection.args, pathEnv(binPath, browserCachePath));
     } catch (error) {
@@ -1127,7 +1144,7 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
 
 export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {
   let exitCode = 0;
-  await withTestDependencies(async ({ binPath, browserCachePath }) => {
+  await withOperationDependencies('test-contract-freeze', async ({ binPath, browserCachePath }) => {
     const environment = pathEnv(binPath, browserCachePath);
     exitCode = await runWithTestInvocationRuntimeV1(environment, async (runtime) => {
       for (const [index, invocation] of buildContractFreezeRunnerInvocations(targets).entries()) {

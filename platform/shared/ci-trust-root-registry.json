@@ -58,7 +58,7 @@
     "scripts/codex/verification-session.ts",
     "scripts/codex/work-package-contract.ts",
     "scripts/codex/worktree-physical-closeout.ts",
-    "tests/setup/runtime-deps.setup.ts"
+    "tests/setup/test-runtime.setup.ts"
   ],
   "reviewedSutEdges": [
     "scripts/ci-workspace-fast.ts -> platform/orchestrator/block-orchestrator.ts",

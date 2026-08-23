@@ -1,4 +1,5 @@
-import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
+import { ensureOperationDependencies } from './dev-runner/dependency-bootstrap.ts';
+import { compileSecOperationDemandGraphV1 } from './shared/operation-demand-contract.ts';
 
 export function shouldReportDevRunnerSuccessV1(
   environment: Readonly<Record<string, string | undefined>> = process.env
@@ -97,9 +98,10 @@ async function main(): Promise<void> {
     const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
     process.exitCode = await runRepositoryZeroWriteCommand('check:affected', () =>
       runLocalAffectedCheck(args, {
-        prepareCompilerNodeModulesPath: async () => {
-          const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
-          return dependencies.nodeModulesPath;
+        prepareCompilerDependencies: async () => {
+          return ensureOperationDependencies(
+            compileSecOperationDemandGraphV1({ operation: 'check-affected', terminalWorkIds: [] })
+          );
         }
       }));
     return;
@@ -110,9 +112,10 @@ async function main(): Promise<void> {
     const { runFastCheck } = await import('./dev-runner/check-runner.ts');
     process.exitCode = await runRepositoryZeroWriteCommand('check:fast', () =>
       runFastCheck({
-        prepareCompilerNodeModulesPath: async () => {
-          const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
-          return dependencies.nodeModulesPath;
+        prepareCompilerDependencies: async () => {
+          return ensureOperationDependencies(
+            compileSecOperationDemandGraphV1({ operation: 'check-fast', terminalWorkIds: [] })
+          );
         }
       }));
     return;
@@ -137,12 +140,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  const dependencies = await ensureDevDependencies({
-    hookPolicy: process.env.SEC_GIT_HOOK_ACTIVE === '1'
-      ? 'never'
-      : target === 'deps:ensure' ? 'always' : 'if-installed'
-  });
   if (target === 'deps:ensure') {
+    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+      operation: 'dependency-setup',
+      terminalWorkIds: [],
+      hookPolicy: process.env.SEC_GIT_HOOK_ACTIVE === '1' ? 'never' : 'always'
+    }));
     if (shouldReportDevRunnerSuccessV1()) {
       console.log(`Compiler dependencies ready (${dependencies.source}, ${dependencies.manifestHash}).`);
     }
@@ -152,6 +155,14 @@ async function main(): Promise<void> {
   if (
     target === 'imports:check' || target === 'imports:apply' || target === 'imports:freeze'
   ) {
+    await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+      operation: target === 'imports:check'
+        ? 'imports-check'
+        : target === 'imports:apply'
+          ? 'imports-apply'
+          : 'imports-freeze',
+      terminalWorkIds: []
+    }));
     const {
       runCandidateImportCheck,
       runImportCheck,
