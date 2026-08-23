@@ -55,6 +55,7 @@ const CLEANUP_DEADLINE_MS = 30_000;
 export interface GeneratedStateLifecycleOptionsV1 {
   readonly afterQuarantineEffect?: (relativePath: string) => void | Promise<void>;
   readonly afterWorktreeRetirementRelocation?: (relativePath: string) => void | Promise<void>;
+  readonly afterWorktreeRetirementProviderEffect?: (relativePath: string) => void | Promise<void>;
   readonly beforeCleanupEffect?: (relativePath: string) => void | Promise<void>;
   readonly clock?: () => Date;
   readonly environment?: NodeJS.ProcessEnv;
@@ -1033,6 +1034,7 @@ export async function settleGeneratedStateForWorktreeRetirementV1(
           planBytes: entry.providerPlanBytes,
           planDigest: entry.providerPlanDigest
         });
+        await options.afterWorktreeRetirementProviderEffect?.(entry.relativePath);
         if (providerReceipt.digest !== generatedStateDomainProviderMaterialDigestV1(
           provider.id,
           'receipt',

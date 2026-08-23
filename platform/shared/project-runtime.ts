@@ -2752,6 +2752,7 @@ const COMPILER_DEPENDENCY_LOCATOR_RECEIPT_SCHEMA = 'sec-compiler-dependency-loca
 interface CompilerDependencyLocatorRetirementPlanV1 {
   readonly schema: typeof COMPILER_DEPENDENCY_LOCATOR_PLAN_SCHEMA;
   readonly consumerRoot: string;
+  readonly consumer: GeneratedStatePhysicalIdentityV1;
   readonly relativePath: 'node_modules';
   readonly source: GeneratedStatePhysicalIdentityV1;
   readonly linkTarget: string;
@@ -2773,6 +2774,14 @@ function sameGeneratedStatePhysicalIdentityV1(
   right: GeneratedStatePhysicalIdentityV1
 ): boolean {
   return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
+}
+
+function compilerDependencyConsumerIdentityV1(consumerRoot: string): GeneratedStatePhysicalIdentityV1 {
+  const consumer = inspectNoFollowDirectoryChainV1(
+    consumerRoot,
+    'Compiler dependency locator consumer root'
+  ).target;
+  return Object.freeze({ device: consumer.device, inode: consumer.inode, objectId: consumer.objectId });
 }
 
 function compilerDependencyLocatorObservationV1(
@@ -2818,18 +2827,21 @@ function parseCompilerDependencyLocatorRetirementPlanV1(
       typeof candidate.linkTarget !== 'string' || typeof candidate.generationPath !== 'string' ||
       typeof candidate.ownerRoot !== 'string' || typeof candidate.consumerManifestHash !== 'string' ||
       typeof candidate.ownerManifestHash !== 'string' || typeof candidate.bindingDigest !== 'string' ||
-      candidate.source === undefined || candidate.generation === undefined || candidate.binding === undefined ||
+      candidate.source === undefined || candidate.consumer === undefined || candidate.generation === undefined ||
+      candidate.binding === undefined ||
       !/^sha256:[0-9a-f]{64}$/u.test(candidate.bindingDigest)) {
     throw new Error('Compiler dependency locator provider plan is malformed.');
   }
   const expectedKeys = [
-    'binding', 'bindingDigest', 'consumerManifestHash', 'consumerRoot', 'generation', 'generationPath',
+    'binding', 'bindingDigest', 'consumer', 'consumerManifestHash', 'consumerRoot', 'generation', 'generationPath',
     'linkTarget', 'ownerManifestHash', 'ownerRoot', 'relativePath', 'schema', 'source'
   ];
   if (Object.keys(candidate).sort(compareCodeUnits).join('\0') !== expectedKeys.join('\0') ||
       Object.keys(candidate.source).sort(compareCodeUnits).join('\0') !== ['device', 'inode', 'objectId'].join('\0') ||
+      Object.keys(candidate.consumer).sort(compareCodeUnits).join('\0') !== ['device', 'inode', 'objectId'].join('\0') ||
       Object.keys(candidate.generation).sort(compareCodeUnits).join('\0') !== ['device', 'inode', 'mode'].join('\0') ||
       Object.values(candidate.source).some((value) => typeof value !== 'string') ||
+      Object.values(candidate.consumer).some((value) => typeof value !== 'string') ||
       Object.values(candidate.generation).some((value) => typeof value !== 'string') ||
       generatedStateDigestV1(candidate.binding) !== candidate.bindingDigest) {
     throw new Error('Compiler dependency locator provider plan shape is invalid.');
@@ -2841,13 +2853,20 @@ async function validateCompilerDependencyLocatorPlanV1(
   plan: CompilerDependencyLocatorRetirementPlanV1,
   requireLocator: boolean,
   options: RuntimeDependencyInstallOptions
-): Promise<void> {
+): Promise<Readonly<{
+  consumer: ReturnType<typeof inspectNoFollowDirectoryChainV1>['target'];
+  locator: ReturnType<typeof compilerDependencyLocatorObservationV1>;
+}>> {
   const consumerRoot = path.resolve(plan.consumerRoot);
   const generationPath = path.resolve(plan.generationPath);
   const ownerRoot = path.resolve(plan.ownerRoot);
   if (consumerRoot !== plan.consumerRoot || generationPath !== plan.generationPath || ownerRoot !== plan.ownerRoot ||
       !sameHostPath(path.dirname(generationPath), ownerRoot) || sameHostPath(consumerRoot, ownerRoot)) {
     throw new Error('Compiler dependency locator provider plan paths are not canonical external-generation paths.');
+  }
+  const observedConsumer = compilerDependencyConsumerIdentityV1(consumerRoot);
+  if (!sameGeneratedStatePhysicalIdentityV1(observedConsumer, plan.consumer)) {
+    throw new Error('Compiler dependency locator provider consumer root identity changed.');
   }
   const [consumerIdentity, ownerIdentity, generation] = await Promise.all([
     compilerDependencyIdentity(consumerRoot),
@@ -2870,7 +2889,19 @@ async function validateCompilerDependencyLocatorPlanV1(
       generatedStateDigestV1(binding) !== plan.bindingDigest) {
     throw new Error('Compiler dependency locator provider generation binding changed.');
   }
-  if (!requireLocator) return;
+  if (!requireLocator) {
+    const finalConsumer = inspectNoFollowDirectoryChainV1(
+      consumerRoot,
+      'Compiler dependency locator final consumer root'
+    ).target;
+    if (!sameGeneratedStatePhysicalIdentityV1(
+      { device: finalConsumer.device, inode: finalConsumer.inode, objectId: finalConsumer.objectId },
+      plan.consumer
+    )) {
+      throw new Error('Compiler dependency locator provider consumer root changed during validation.');
+    }
+    return Object.freeze({ consumer: finalConsumer, locator: null });
+  }
   const locator = compilerDependencyLocatorObservationV1(consumerRoot, plan.relativePath);
   const bridgeBinding = await compilerDependencyConsumerBridgeBinding(
     consumerRoot,
@@ -2882,6 +2913,17 @@ async function validateCompilerDependencyLocatorPlanV1(
       locator.linkTarget !== plan.linkTarget || bridgeBinding === null || !canonicalEquals(bridgeBinding, plan.binding)) {
     throw new Error('Compiler dependency locator provider locator identity or target changed.');
   }
+  const finalConsumer = inspectNoFollowDirectoryChainV1(
+    consumerRoot,
+    'Compiler dependency locator final consumer root'
+  ).target;
+  if (!sameGeneratedStatePhysicalIdentityV1(
+    { device: finalConsumer.device, inode: finalConsumer.inode, objectId: finalConsumer.objectId },
+    plan.consumer
+  )) {
+    throw new Error('Compiler dependency locator provider consumer root changed during validation.');
+  }
+  return Object.freeze({ consumer: finalConsumer, locator });
 }
 
 export const compilerDependencyLocatorWorktreeRetirementProviderV1:
@@ -2889,10 +2931,14 @@ GeneratedStateWorktreeRetirementProviderV1 = Object.freeze<GeneratedStateWorktre
   id: COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID,
   async plan(input) {
     if (input.relativePath !== 'node_modules' || input.registration.phase !== 'retired' ||
-        !sameGeneratedStatePhysicalIdentityV1(input.registration.root, input.source)) {
+      !sameGeneratedStatePhysicalIdentityV1(input.registration.root, input.source)) {
       throw new Error('Compiler dependency locator provider requires one exact retired registration.');
     }
     const consumerRoot = path.resolve(input.workspaceRoot);
+    const consumer = compilerDependencyConsumerIdentityV1(consumerRoot);
+    if (!sameGeneratedStatePhysicalIdentityV1(consumer, input.registration.workspace)) {
+      throw new Error('Compiler dependency locator provider registration targets another consumer root.');
+    }
     const consumerIdentity = await compilerDependencyIdentity(consumerRoot);
     const locator = compilerDependencyLocatorObservationV1(consumerRoot, input.relativePath);
     if (locator === null || !sameGeneratedStatePhysicalIdentityV1(locator.source, input.source)) {
@@ -2913,6 +2959,7 @@ GeneratedStateWorktreeRetirementProviderV1 = Object.freeze<GeneratedStateWorktre
     const material: CompilerDependencyLocatorRetirementPlanV1 = Object.freeze({
       schema: COMPILER_DEPENDENCY_LOCATOR_PLAN_SCHEMA,
       consumerRoot,
+      consumer,
       relativePath: 'node_modules',
       source: locator.source,
       linkTarget: locator.linkTarget,
@@ -2941,8 +2988,9 @@ GeneratedStateWorktreeRetirementProviderV1 = Object.freeze<GeneratedStateWorktre
     }
     const plan = parseCompilerDependencyLocatorRetirementPlanV1(input.planBytes);
     if (path.resolve(input.workspaceRoot) !== plan.consumerRoot ||
-        !sameGeneratedStatePhysicalIdentityV1(input.source, plan.source) ||
-        !sameGeneratedStatePhysicalIdentityV1(input.registration.root, plan.source)) {
+      !sameGeneratedStatePhysicalIdentityV1(input.source, plan.source) ||
+      !sameGeneratedStatePhysicalIdentityV1(input.registration.root, plan.source) ||
+      !sameGeneratedStatePhysicalIdentityV1(input.registration.workspace, plan.consumer)) {
       throw new Error('Compiler dependency locator provider retirement binding changed.');
     }
     const locator = compilerDependencyLocatorObservationV1(plan.consumerRoot, plan.relativePath);
@@ -2951,13 +2999,9 @@ GeneratedStateWorktreeRetirementProviderV1 = Object.freeze<GeneratedStateWorktre
       await validateCompilerDependencyLocatorPlanV1(plan, false, {});
       outcome = 'resumed-absent';
     } else {
-      await validateCompilerDependencyLocatorPlanV1(plan, true, {});
-      const root = inspectNoFollowDirectoryChainV1(
-        plan.consumerRoot,
-        'Compiler dependency locator retirement consumer root'
-      ).target;
+      const validated = await validateCompilerDependencyLocatorPlanV1(plan, true, {});
       deleteRetainedNoFollowEntryV1({
-        root,
+        root: validated.consumer,
         relativePath: plan.relativePath,
         kind: 'link',
         device: locator.source.device,

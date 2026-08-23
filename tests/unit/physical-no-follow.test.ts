@@ -796,6 +796,20 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     symlinkSync(external, path.join(target, 'authorized-link'), 'junction');
     const identity = inspectNoFollowDirectoryChainV1(target, 'retained target').target;
     const entries = new Map(scanNoFollowDirectoryTreeV1(identity).map((entry) => [entry.relativePath, entry]));
+    const authorizedLink = entries.get('authorized-link')!;
+    expectPhysicalCode(
+      () => deleteRetainedNoFollowEntryV1({
+        root: identity,
+        relativePath: authorizedLink.relativePath,
+        kind: 'link',
+        device: authorizedLink.device,
+        inode: authorizedLink.inode,
+        expectedLinkTarget: `${authorizedLink.linkTarget}-retargeted`,
+        ancestorDirectories: []
+      }),
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    );
+    expect(existsSync(path.join(target, 'authorized-link'))).toBe(true);
     for (const name of ['authorized-file.txt', 'authorized-directory', 'authorized-link']) {
       const entry = entries.get(name)!;
       deleteRetainedNoFollowEntryV1({
@@ -804,6 +818,7 @@ test('Windows retained-handle deletion removes authorized file directory and rep
         kind: entry.kind,
         device: entry.device,
         inode: entry.inode,
+        ...(entry.kind === 'link' ? { expectedLinkTarget: entry.linkTarget! } : {}),
         ancestorDirectories: []
       });
       expect(existsSync(path.join(target, name))).toBe(false);

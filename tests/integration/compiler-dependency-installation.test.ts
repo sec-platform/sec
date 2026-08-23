@@ -357,6 +357,60 @@ describe('compiler dependency installation', () => {
         source,
         registration
       });
+      const parkedConsumerRoot = path.join(tempRoot, 'candidate-planned');
+      const replacementConsumerRoot = consumerRoot;
+      await fs.rename(consumerRoot, parkedConsumerRoot);
+      await fs.mkdir(replacementConsumerRoot);
+      for (const name of ['package.json', 'bun.lock', '.bun-version']) {
+        await fs.copyFile(path.join(parkedConsumerRoot, name), path.join(replacementConsumerRoot, name));
+      }
+      await fs.rename(
+        path.join(parkedConsumerRoot, 'node_modules'),
+        path.join(replacementConsumerRoot, 'node_modules')
+      );
+      await expect(compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+        operationId: `sha256:${'4'.repeat(64)}`,
+        repositoryRoot: ownerRoot,
+        workspaceRoot: replacementConsumerRoot,
+        relativePath: 'node_modules',
+        source,
+        registration,
+        planBytes: providerPlan.bytes,
+        planDigest: providerPlan.digest
+      })).rejects.toThrow('consumer root identity changed');
+      expect((await fs.lstat(path.join(replacementConsumerRoot, 'node_modules'))).isSymbolicLink()).toBeTrue();
+      expect(await fs.readFile(
+        path.join(ownerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
+        'utf8'
+      )).toBe('primary-generation:typescript\n');
+      await fs.rename(
+        path.join(replacementConsumerRoot, 'node_modules'),
+        path.join(parkedConsumerRoot, 'node_modules')
+      );
+      await fs.rm(replacementConsumerRoot, { recursive: true });
+      await fs.rename(parkedConsumerRoot, consumerRoot);
+      const parkedLocator = path.join(consumerRoot, 'node_modules.planned');
+      const replacementGeneration = path.join(tempRoot, 'replacement-generation', 'node_modules');
+      await fs.mkdir(replacementGeneration, { recursive: true });
+      await fs.rename(path.join(consumerRoot, 'node_modules'), parkedLocator);
+      await fs.symlink(
+        replacementGeneration,
+        path.join(consumerRoot, 'node_modules'),
+        process.platform === 'win32' ? 'junction' : 'dir'
+      );
+      await expect(compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+        operationId: `sha256:${'4'.repeat(64)}`,
+        repositoryRoot: ownerRoot,
+        workspaceRoot: consumerRoot,
+        relativePath: 'node_modules',
+        source,
+        registration,
+        planBytes: providerPlan.bytes,
+        planDigest: providerPlan.digest
+      })).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect(await fs.realpath(path.join(consumerRoot, 'node_modules'))).toBe(await fs.realpath(replacementGeneration));
+      await fs.unlink(path.join(consumerRoot, 'node_modules'));
+      await fs.rename(parkedLocator, path.join(consumerRoot, 'node_modules'));
       const providerReceipt = await compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
         operationId: `sha256:${'4'.repeat(64)}`,
         repositoryRoot: ownerRoot,

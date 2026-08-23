@@ -214,14 +214,26 @@ test('worktree retirement delegates an exact locator to its domain provider and 
     },
     retire: async ({ planBytes, planDigest }) => {
       expect(planDigest).toBe(generatedStateDomainProviderMaterialDigestV1(providerId, 'plan', planBytes));
-      await unlink(locatorPath);
-      const bytes = JSON.stringify(canonicalJson({ schema: 'fixture-locator-receipt-v1', outcome: 'removed' }));
+      const outcome = await absent(locatorPath) ? 'resumed-absent' : 'removed';
+      if (outcome === 'removed') await unlink(locatorPath);
+      const bytes = JSON.stringify(canonicalJson({ schema: 'fixture-locator-receipt-v1', outcome }));
       return Object.freeze({
         bytes,
         digest: generatedStateDomainProviderMaterialDigestV1(providerId, 'receipt', bytes)
       });
     }
   });
+  let interrupted = false;
+  await expect(settleGeneratedStateForWorktreeRetirementV1(input, {
+    ...fixture.options,
+    worktreeRetirementProviders: [provider],
+    afterWorktreeRetirementProviderEffect: () => {
+      if (interrupted) return;
+      interrupted = true;
+      throw new Error('fixture interruption after provider effect');
+    }
+  })).rejects.toThrow('fixture interruption after provider effect');
+  expect(await absent(locatorPath)).toBe(true);
   const receipt = await settleGeneratedStateForWorktreeRetirementV1(input, {
     ...fixture.options,
     worktreeRetirementProviders: [provider]
