@@ -403,7 +403,7 @@ export async function buildTestBudgetContract(): Promise<TestBudgetContract> {
     slowSuiteCount: slowSuites.length,
     slowSuites,
     lanes,
-    localDefault: 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates',
+    localDefault: 'bun run check:affected runs only the canonical affected closure and fails closed when ownership or selection is unresolved; use test:slow -- --suite <id>, test:full, or check:full only for explicit risk, calibration, or release runtime gates',
     fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
   };
 }

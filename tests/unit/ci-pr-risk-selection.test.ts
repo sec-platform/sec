@@ -15,7 +15,6 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
     'platform/orchestrator.ts',
     'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts',
     'tests/helpers/workspace-fixtures.ts',
-    'tests/setup/runtime-deps.setup.ts',
     'tests/testkit/workspace.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
@@ -34,6 +33,18 @@ test('package and lock changes use their exact provider contracts instead of bus
     expect(selection.reasons).not.toContain('bounded-baseline');
     expect(selection.resolved).toBe(true);
   }
+});
+
+test('process-local test setup selects no slow or business suite', () => {
+  const selection = selectCiPrRiskSlowSuites(['tests/setup/test-runtime.setup.ts']);
+  expect(selection).toMatchObject({
+    suites: [],
+    slowTests: [],
+    affectedSlowTests: [],
+    owners: ['test-process-runtime'],
+    reasons: ['ownership-impact'],
+    resolved: true
+  });
 });
 
 test('selector trust roots use exact owner sentinels instead of unrelated slow business baselines', () => {

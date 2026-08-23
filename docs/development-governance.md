@@ -134,6 +134,11 @@ already-in-main/superseded、仍有第二个未满足依赖、scope/Evidence/own
 Phase B adapter只从repository orientation、Work Package registry、closeout与conflict owner收集结构化
 facts并签发receipt；Phase C writer只把validated decision物化为一个当前包加二至五候选。人工projection
 在Phase C切换前必须明确是A0 reconciliation；与machine decision冲突时返回`reconcile`，不静默覆盖。
+Phase C的live adapter先把trusted terminal current-spec observation编译为roadmap terminal compaction，
+再以`raw roadmap revision + compaction digest + terminal observation`形成唯一selection revision；关闭的work不再
+进入候选集，也不会因manifest已先退役而锁死selection。catalog、已消费依赖边和manifest retirement构成一个
+不可拆分的candidate graph delta；document-control freeze只接受与compiler输出逐字相等的candidate tree，
+docs-doctor在prior/current边界拒绝半事务。聊天、手工删除或Issue关闭本身都不能绕过该freeze consumer。
 #349 `ExecutionWave`随后只编译selected work refs的order/conflict/resource/cost，不能复制selector、
 Issue prose、权限、Task Capsule或Verification。bounded automated action只有在下游authorization、Journal、
 rollback和真实consumer成立后才能激活；pure decision本身永远没有branch/PR/merge/write authority。
@@ -1312,6 +1317,12 @@ PR Ready只表示允许进入Review调度，不表示可以启动expensive trust
 
 开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required trusted-provider Gate。不是每个Work Package固定全跑同一套重门禁，GitHub Actions也不拥有“trusted provider”的唯一实现。
 
+selector同时编译`CapabilityDemand`。Bun preload只拥有进程级测试隔离，不准备依赖；fast/affected只请求
+compiler closure并显式屏蔽Browser，只有browser-applicable slow/full Action可调用
+`ensureBrowserTestDependencies`。未选择Browser必须保持零Playwright package/cache准备、零联网和零browser进程。
+
+测试影响传播也由semantic owner裁决：完整owner以`moduleGraphImpact=owner-only`把实现变化投影为明确的公共行为/物理Effect哨兵；只有owner尚不完整时才使用transitive import closure作为保守backstop。测试文件自身仍直接执行。不得把“被中央模块间接引用”冒充所有上层业务行为都失效，也不得用`owner-only`隐藏未登记的公共合同；owner closure的完整性由test-impact contract测试校验。
+
 相同未失效 Gate identity复用；输入和failure fingerprint未变时不重复确定性失败。无法证明不受影响不是“无需测试”。
 
 候选冻结 DAG 必须把所有 source normalizer（包括 canonical import transform）排在任何 content-addressed generated lock、blob/digest inventory 和 Evidence 之前；生成物之后只允许 read-only check。若 normalizer 仍报告 delta，生成阶段不得启动。这样一次源码归一化只触发一次下游重算，不允许用“先生成、再格式化、再生成”的命令顺序制造自我失效。
@@ -1334,6 +1345,8 @@ physicalStartsPerActionKey <= 1
 trusted-runtime container owner 必须显式创建并在启动前从 Docker identity 读回唯一 tmpfs policy：测试临时根 `/tmp` 固定为 `rw,exec,nosuid,nodev`，使测试拥有的私有 provider executable 能被真实 PATH/spawn 边界观察；`/sec-runtime` 固定为 `rw,noexec,nosuid,nodev`，只承载 trusted tree、workspace、state 与 cache 数据。二者的容量和 ownership 选项同样属于 canonical identity；Docker 隐式默认、缺失或额外 tmpfs、`/tmp=noexec`、`/sec-runtime=exec` 均 fail closed。container 同时必须启用并读回 Docker 原生 `--init`，由 daemon 提供的 init process 回收测试或 provider 遗留的孤儿进程；禁止在测试中复制 PID 1、轮询或自造第二套 teardown owner。`/tmp=exec` 与 init process 均不签发 provider、network、scope 或 completion authority；cap-drop、no-new-privileges、只读 rootfs/bundle、断网与 exact executable observation 仍分别拥有这些边界。
 
 需要可变合成仓库的测试 fixture 必须创建在 owner 提供的 OS temp，不得写入只读 compiler tree。fixture 从受信 source 只复制 exact bytes，并以自己拥有的普通可写文件承载后续 mutation；不得继承 source 的只读 mode、ACL、link、device/inode 或其他 authority metadata。若合成仓库只需读取外层已验证的依赖 generation，子 Bun 进程必须同时使用 `--no-install` 与指向该 exact physical `node_modules` generation 的显式 `NODE_PATH`；必须先解析并固定真实目录，禁止把 workspace symlink、caller 字符串或惯例路径冒充 generation identity。该引用不创建 link、不复制依赖、不触发下载，也不把依赖目录纳入 fixture 的清理 authority。显式 dependency canary 必须从 `/tmp` 真实执行这一解析边界，并把解析出的 Provider 版本与 canonical package/CLI identity 对齐；ordinary lifecycle canary 仍不准备依赖。
+
+linked worktree遵守同一引用模型：dependency owner从严格解析的`.git`/`commondir`物理关系定位同一repository的primary generation，重验owner/consumer manifest identity与generation binding后，发布一个受控`node_modules` junction。junction只解决TypeScript等不消费`NODE_PATH`、必须沿源码祖先解析包的成熟工具边界；它不复制generation、不创建`.shared-deps`、不下载依赖。bridge birth/retirement必须绑定consumer、owner generation、manifest、link/reparse target bytes与物理FileId/inode；cleanup用retained no-follow leaf deletion只删除junction本身，target发生原位重定向或身份变化时fail closed，绝不能递归进入owner generation。owner generation缺失或不兼容时才允许本worktree进入一次正常materialization。
 
 任何进入 concurrent fast-test queue 的测试不得修改进程级 `process.env`、cwd、全局 hook 或共享 singleton 来模拟边界；临时值必须通过独占子进程的显式 environment 注入。需要真实进程全局 mutation 且无法注入的测试必须由 test-process policy 分入对应串行 resource class，不能靠单独运行时偶然通过。
 

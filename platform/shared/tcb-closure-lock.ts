@@ -101,6 +101,7 @@ const TCB_BUN_SAFE_IMPORTS = new Set([
 ]);
 
 export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
+  'platform/dev-runner.ts::function-declaration:relaunchWithDependencyGenerationIfRequired::spawnSync#1',
   'platform/dev-runner/verification-action-executor.ts::function-declaration:executeVerifiedCiActionPlanV1::Bun.spawn#1',
   'platform/dev-runner/command-runner.ts::function-declaration:runDevCommand::spawn#1',
   'platform/dev-runner/import-organizer.ts::function-declaration:changedTypeScriptFiles::spawnSync#1',

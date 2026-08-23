@@ -14,6 +14,7 @@ import path from 'node:path';
 
 import { digest, rawSha256, sha256 } from '../../platform/shared/canonical-primitives.ts';
 import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
+import { assertSecRoadmapTerminalCompactionCandidateV1 } from '../../platform/shared/work-selection-live-contract.ts';
 import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
@@ -6331,6 +6332,21 @@ export async function freezeDocumentControlPlaneV1(input: {
           );
         }
         const decision = selection.receipt.decision;
+        if (selection.terminalCompaction !== null) {
+          const candidateRoadmap = readGitBlob(
+            repositoryRoot,
+            `${snapshot.treeSha}:docs/roadmap.md`
+          );
+          assertSecRoadmapTerminalCompactionCandidateV1({
+            compaction: selection.terminalCompaction,
+            roadmapSource: candidateRoadmap === undefined
+              ? ''
+              : decodeUtf8(candidateRoadmap, 'Candidate roadmap terminal compaction'),
+            presentRetiredManifestPaths: selection.terminalCompaction.retiredManifestPaths.filter(
+              (manifestPath) => readGitBlob(repositoryRoot, `${snapshot.treeSha}:${manifestPath}`) !== undefined
+            )
+          });
+        }
         const selectedCatalogItem = selection.receipt.catalog.items.find(
           ({ workId }) => workId === decision.selectedWorkId
         );

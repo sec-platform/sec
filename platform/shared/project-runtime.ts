@@ -76,8 +76,11 @@ export interface CompilerDepsReadyState {
   packageManager: 'bun';
   root: string;
   readonly runtimeMaterialization?: Readonly<RuntimeDependencyMaterializationBinding> | null;
+  readonly requiresProcessRelaunch: boolean;
   source: 'existing' | 'installed';
 }
+
+const compilerDependencyRootsMaterializedDuringProcess = new Set<string>();
 
 export interface DependencyAuthorityPaths {
   readonly browserCache: string;
@@ -136,6 +139,7 @@ export interface RuntimeDependencyInstallOptions {
     born(relativePath: string, operationId: string): Promise<void>;
     retired(relativePath: string, outcome: string): Promise<void>;
     disposed(relativePath: string, outcome: string): Promise<void>;
+    recoverDisposed?(relativePath: string, operationId: string, outcome: string): Promise<void>;
   }>;
 }
 
@@ -2439,7 +2443,7 @@ async function stageCompilerDependencyGeneration(
       }
     }
 
-    const cacheDir = path.join(root, '.shared-deps', '.bun-cache');
+    const cacheDir = path.join(stagingRoot, '.bun-cache');
     const runtimeExecutable = await currentRuntimeExecutableIdentity(true);
     if (runtimeExecutable.path !== identity.bunExecutablePath ||
       runtimeExecutable.sha256 !== identity.bunExecutableSha256) {
@@ -2733,6 +2737,117 @@ async function compilerDependencyConsumerBridgeBinding(
   }
 }
 
+async function linkedWorktreeDependencyOwnerRoot(consumerRoot: string): Promise<string | null> {
+  const markerPath = path.join(consumerRoot, '.git');
+  const marker = await fs.lstat(markerPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (marker === null || !marker.isFile() || marker.isSymbolicLink() || marker.size > 4096) return null;
+  const markerSource = await fs.readFile(markerPath, 'utf8');
+  const markerMatch = /^gitdir: ([^\r\n]+)\r?\n$/u.exec(markerSource);
+  if (markerMatch === null) return null;
+  const gitDirectory = path.resolve(consumerRoot, markerMatch[1]!);
+  const commonSource = await fs.readFile(path.join(gitDirectory, 'commondir'), 'utf8')
+    .catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+  if (commonSource === null) return null;
+  const commonMatch = /^([^\r\n]+)\r?\n$/u.exec(commonSource);
+  if (commonMatch === null) return null;
+  const commonDirectory = path.resolve(gitDirectory, commonMatch[1]!);
+  const [physicalGitDirectory, physicalCommonDirectory] = await Promise.all([
+    fs.realpath(gitDirectory),
+    fs.realpath(commonDirectory)
+  ]);
+  if (path.basename(physicalCommonDirectory).toLocaleLowerCase('en-US') !== '.git'
+      || !isPathInside(physicalCommonDirectory, physicalGitDirectory)) return null;
+  const ownerRoot = path.dirname(physicalCommonDirectory);
+  return sameHostPath(ownerRoot, consumerRoot) ? null : ownerRoot;
+}
+
+async function resolveLinkedWorktreeDependencyGeneration(input: {
+  consumerRoot: string;
+  consumerIdentity: CompilerDependencyIdentity;
+}): Promise<Readonly<{
+  binding: CompilerDepsBinding;
+  nodeModulesPath: string;
+}> | null> {
+  const ownerRoot = await linkedWorktreeDependencyOwnerRoot(input.consumerRoot);
+  if (ownerRoot === null) return null;
+  const ownerIdentity = await compilerDependencyIdentity(ownerRoot);
+  if (ownerIdentity.manifestHash !== input.consumerIdentity.manifestHash) return null;
+  const generationPath = dependencyAuthorityPaths(ownerRoot).compilerModulesRoot;
+  const ownerBinding = await compilerDependencyGenerationBinding(
+    ownerRoot,
+    generationPath,
+    path.join(generationPath, COMPILER_DEPS_BINDING_FILE),
+    ownerIdentity
+  );
+  if (ownerBinding === null) return null;
+  const [finalOwnerIdentity, finalConsumerIdentity, finalBinding] = await Promise.all([
+    compilerDependencyIdentity(ownerRoot),
+    compilerDependencyIdentity(input.consumerRoot),
+    compilerDependencyGenerationBinding(
+      ownerRoot,
+      generationPath,
+      path.join(generationPath, COMPILER_DEPS_BINDING_FILE),
+      ownerIdentity
+    )
+  ]);
+  if (finalOwnerIdentity.manifestHash !== input.consumerIdentity.manifestHash
+      || finalConsumerIdentity.manifestHash !== input.consumerIdentity.manifestHash
+      || finalBinding === null || !canonicalEquals(finalBinding, ownerBinding)) {
+    throw new CompilerError(
+      'IMPORT-AUTHORITY-004',
+      'Linked worktree dependency generation changed during validation'
+    );
+  }
+  return Object.freeze({
+    binding: finalBinding,
+    nodeModulesPath: generationPath
+  });
+}
+
+async function recoverInterruptedCompilerDependencyStaging(
+  root: string,
+  identity: CompilerDependencyIdentity,
+  options: RuntimeDependencyInstallOptions
+): Promise<void> {
+  if (options.generatedStateLifecycle?.recoverDisposed === undefined) return;
+  const stagingParent = path.join(root, '.tmp', 'dependency-installs');
+  const entries = await fs.readdir(stagingParent, { withFileTypes: true }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+  );
+  for (const entry of entries.sort((left, right) => compareCodeUnits(left.name, right.name))) {
+    if (!entry.isDirectory() || !/^c\.staging-[A-Za-z0-9]{6}$/u.test(entry.name)) continue;
+    const relativePath = `.tmp/dependency-installs/${entry.name}`;
+    await options.generatedStateLifecycle.recoverDisposed(
+      relativePath,
+      `compiler-dependency-generation:${identity.manifestHash}:${entry.name}`,
+      'interrupted-generation-recovered'
+    );
+  }
+}
+
+async function retireValidatedCompilerDependencyBridge(
+  identity: CompilerDependencyIdentity,
+  binding: Readonly<CompilerDepsBinding>,
+  options: RuntimeDependencyInstallOptions
+): Promise<void> {
+  const lifecycle = options.generatedStateLifecycle;
+  if (lifecycle === undefined) return;
+  await lifecycle.born(
+    'node_modules',
+    `compiler-dependency-bridge:${identity.manifestHash}:${digest(JSON.stringify(canonicalJson(binding)))}`
+  );
+  await lifecycle.retired('node_modules', 'external-generation-bridge-ready');
+}
+
 export async function ensureCompilerDepsReady(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot
@@ -2744,6 +2859,9 @@ export async function ensureCompilerDepsReady(
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
 
   const identity = await compilerDependencyIdentity(root);
+  await withInstallLock(installLockPath, lifecycleOptions, () => (
+    recoverInterruptedCompilerDependencyStaging(root, identity, lifecycleOptions)
+  ));
   const bridgeBinding = await compilerDependencyConsumerBridgeBinding(
     root,
     nodeModulesPath,
@@ -2751,14 +2869,83 @@ export async function ensureCompilerDepsReady(
     lifecycleOptions
   );
   if (bridgeBinding !== null) {
-    return {
-      manifestHash: identity.manifestHash,
-      nodeModulesPath,
-      packageManager: 'bun',
-      root,
-      runtimeMaterialization: bridgeBinding.runtimeMaterialization,
-      source: 'existing'
-    };
+    return withInstallLock(installLockPath, lifecycleOptions, async () => {
+      const current = await compilerDependencyConsumerBridgeBinding(
+        root,
+        nodeModulesPath,
+        identity,
+        lifecycleOptions
+      );
+      if (current === null || !canonicalEquals(current, bridgeBinding)) {
+        throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency bridge changed before lifecycle binding');
+      }
+      await retireValidatedCompilerDependencyBridge(identity, current, lifecycleOptions);
+      return {
+        manifestHash: identity.manifestHash,
+        nodeModulesPath,
+        packageManager: 'bun' as const,
+        root,
+        runtimeMaterialization: current.runtimeMaterialization,
+        requiresProcessRelaunch: compilerDependencyRootsMaterializedDuringProcess.has(root),
+        source: 'existing' as const
+      };
+    });
+  }
+  const sharedWorktreeGeneration = await resolveLinkedWorktreeDependencyGeneration({
+    consumerRoot: root,
+    consumerIdentity: identity
+  });
+  if (sharedWorktreeGeneration !== null) {
+    return withInstallLock(installLockPath, lifecycleOptions, async () => {
+      let bridgeBorn = false;
+      try {
+        await fs.symlink(
+          sharedWorktreeGeneration.nodeModulesPath,
+          nodeModulesPath,
+          process.platform === 'win32' ? 'junction' : 'dir'
+        );
+        await lifecycleOptions.generatedStateLifecycle?.born(
+          'node_modules',
+          `compiler-dependency-bridge:${identity.manifestHash}:${digest(JSON.stringify(canonicalJson(sharedWorktreeGeneration.binding)))}`
+        );
+        bridgeBorn = lifecycleOptions.generatedStateLifecycle !== undefined;
+        const binding = await compilerDependencyConsumerBridgeBinding(
+          root,
+          nodeModulesPath,
+          identity,
+          lifecycleOptions
+        );
+        if (binding === null || !canonicalEquals(binding, sharedWorktreeGeneration.binding)) {
+          throw new CompilerError('IMPORT-AUTHORITY-004', 'Published compiler dependency bridge failed exact readback');
+        }
+        await lifecycleOptions.generatedStateLifecycle?.retired(
+          'node_modules',
+          'external-generation-bridge-ready'
+        );
+        compilerDependencyRootsMaterializedDuringProcess.add(root);
+        return {
+          manifestHash: identity.manifestHash,
+          nodeModulesPath,
+          packageManager: 'bun' as const,
+          root,
+          runtimeMaterialization: binding.runtimeMaterialization,
+          requiresProcessRelaunch: true,
+          source: 'existing' as const
+        };
+      } catch (error) {
+        if (bridgeBorn) {
+          await lifecycleOptions.generatedStateLifecycle!.disposed(
+            'node_modules',
+            'external-generation-bridge-publication-failed'
+          );
+        } else {
+          await fs.unlink(nodeModulesPath).catch((cleanupError: NodeJS.ErrnoException) => {
+            if (cleanupError.code !== 'ENOENT') throw cleanupError;
+          });
+        }
+        throw error;
+      }
+    });
   }
   const ready = () => compilerDependencyGenerationBinding(
     root,
@@ -2779,6 +2966,7 @@ export async function ensureCompilerDepsReady(
       packageManager: 'bun',
       root,
       runtimeMaterialization: existing.runtimeMaterialization,
+      requiresProcessRelaunch: compilerDependencyRootsMaterializedDuringProcess.has(root),
       source: 'existing'
     };
     return readyState;
@@ -2797,6 +2985,7 @@ export async function ensureCompilerDepsReady(
         packageManager: 'bun' as const,
         root,
         runtimeMaterialization: lockedExisting.runtimeMaterialization,
+        requiresProcessRelaunch: compilerDependencyRootsMaterializedDuringProcess.has(root),
         source: 'existing' as const
       };
       return readyState;
@@ -2808,6 +2997,7 @@ export async function ensureCompilerDepsReady(
     if (published === null) {
       throw new CompilerError('IMPORT-AUTHORITY-002', 'Published compiler dependency generation failed validation');
     }
+    compilerDependencyRootsMaterializedDuringProcess.add(root);
 
     const readyState: CompilerDepsReadyState = {
       manifestHash: identity.manifestHash,
@@ -2815,6 +3005,7 @@ export async function ensureCompilerDepsReady(
       packageManager: 'bun',
       root,
       runtimeMaterialization: published.runtimeMaterialization,
+      requiresProcessRelaunch: true,
       source: 'installed'
     };
     return readyState;
@@ -3014,19 +3205,13 @@ export async function ensureProjectDependencies(
     }
     binding = sharedStamp.binding;
   } else if (options.skipSharedDepsWarmup === true) {
-    const compilerIdentity = await compilerDependencyIdentity(compilerDependencyRoot);
-    sourceNodeModulesPath = dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot;
-    const compilerBindingPath = path.join(sourceNodeModulesPath, COMPILER_DEPS_BINDING_FILE);
-    const compilerBinding = await compilerDependencyGenerationBinding(
-      compilerDependencyRoot,
-      sourceNodeModulesPath,
-      compilerBindingPath,
-      compilerIdentity
-    );
-    if (compilerBinding === null || compilerBinding.runtimeMaterialization === null) {
+    const compilerReady = await ensureCompilerDepsReady(options, compilerDependencyRoot);
+    sourceNodeModulesPath = compilerReady.nodeModulesPath;
+    if (compilerReady.runtimeMaterialization === null
+        || compilerReady.runtimeMaterialization === undefined) {
       throw new CompilerError('RUNTIME-DEPS-004', 'Canonical compiler dependency generation is unavailable');
     }
-    binding = compilerBinding.runtimeMaterialization;
+    binding = compilerReady.runtimeMaterialization;
   } else {
     const sharedDeps = await ensureSharedDepsReady(options);
     sourceNodeModulesPath = sharedDeps.nodeModulesPath;

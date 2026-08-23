@@ -22,7 +22,7 @@ export type GeneratedStateObservedClassV1 = GeneratedStateClassV1 | 'orphaned-ow
 export type GeneratedStateCleanupProfileV1 = 'automatic' | 'safe' | 'all-rebuildable';
 export type GeneratedStateRegistrationPolicyV1 = 'required-at-birth' | 'domain-owned';
 export type GeneratedStateRetirementPolicyV1 = 'domain-receipt-required';
-export type GeneratedStateRootKindV1 = 'directory' | 'file';
+export type GeneratedStateRootKindV1 = 'directory' | 'directory-or-link' | 'file';
 export type GeneratedStateScopeV1 = 'workspace' | 'operation';
 export type GeneratedStateActiveOwnerSignalV1 = 'birth-registration' | 'domain-owner-receipt';
 export type GeneratedStateContentsPolicyV1 = 'owner-bounded-tree' | 'ordinary-file' | 'opaque-protected-tree';
@@ -185,7 +185,7 @@ const CLEANUP_PROFILES = new Set<GeneratedStateCleanupProfileV1>([
 const RECONSTRUCTION = new Set<GeneratedStateReconstructionV1>([
   'producer-recompute', 'fixture-rebuild', 'rerun-diagnostic', 'owner-recovery-only'
 ]);
-const ROOT_KINDS = new Set<GeneratedStateRootKindV1>(['directory', 'file']);
+const ROOT_KINDS = new Set<GeneratedStateRootKindV1>(['directory', 'directory-or-link', 'file']);
 const SCOPES = new Set<GeneratedStateScopeV1>(['workspace', 'operation']);
 const ACTIVE_OWNER_SIGNALS = new Set<GeneratedStateActiveOwnerSignalV1>([
   'birth-registration', 'domain-owner-receipt'

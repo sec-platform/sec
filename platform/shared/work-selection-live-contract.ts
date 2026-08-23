@@ -72,6 +72,22 @@ export interface SecRoadmapWorkCatalogV1 {
   readonly catalogDigest: SecWorkDigestV1;
 }
 
+export interface SecRoadmapTerminalCompactionV1 {
+  readonly schema: 'sec-roadmap-terminal-compaction-v1';
+  readonly retiredWorkIds: readonly string[];
+  readonly retiredManifestPaths: readonly string[];
+  readonly catalog: SecRoadmapWorkCatalogV1;
+  readonly roadmapSource: string;
+  readonly compactionDigest: SecWorkDigestV1;
+}
+
+export interface SecWorkSelectionTerminalProjectionV1 {
+  readonly catalog: SecRoadmapWorkCatalogV1;
+  readonly currentSpecs: readonly SecWorkCurrentSpecObservationV1[];
+  readonly roadmapRevision: SecWorkDigestV1;
+  readonly terminalCompaction: SecRoadmapTerminalCompactionV1 | null;
+}
+
 export interface SecWorkCurrentSpecObservationV1 {
   readonly workId: string;
   readonly currentSpecRef: string;
@@ -196,6 +212,7 @@ export type SecWorkSelectionLiveResultV1 = Readonly<
     reasonCodes: readonly [];
     blockerRefs: readonly [];
     receipt: SecWorkDecisionReceiptV1;
+    terminalCompaction: SecRoadmapTerminalCompactionV1 | null;
     resultDigest: SecWorkDigestV1;
   }
   | {
@@ -204,6 +221,7 @@ export type SecWorkSelectionLiveResultV1 = Readonly<
     reasonCodes: readonly string[];
     blockerRefs: readonly string[];
     receipt: null;
+    terminalCompaction: null;
     resultDigest: SecWorkDigestV1;
   }
 >;
@@ -579,6 +597,192 @@ export function parseSecRoadmapWorkCatalogV1(source: string): SecRoadmapWorkCata
   const match = /^\r?\n```json\r?\n([\s\S]*?)\r?\n```\r?\n$/u.exec(between);
   if (match === null) fail('roadmap catalog markers must enclose exactly one JSON code block.');
   return normalizeCatalog(parseDuplicateAwareJson(match[1]!));
+}
+
+function workManifestPath(item: SecRoadmapWorkCatalogItemV1): string {
+  return `docs/work-packages/${item.packageId}.md`;
+}
+
+function renderRoadmapCatalogJson(value: unknown, depth = 0): string {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) fail('roadmap catalog renderer rejects non-finite numbers.');
+    return JSON.stringify(value);
+  }
+  const indentation = ' '.repeat(depth);
+  const nestedIndentation = ' '.repeat(depth + 2);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    if (value.every((entry) => entry === null || typeof entry !== 'object')) {
+      return `[${value.map((entry) => renderRoadmapCatalogJson(entry)).join(', ')}]`;
+    }
+    return `[\n${value.map((entry) => (
+      `${nestedIndentation}${renderRoadmapCatalogJson(entry, depth + 2)}`
+    )).join(',\n')}\n${indentation}]`;
+  }
+  if (typeof value !== 'object') fail('roadmap catalog renderer accepts only JSON values.');
+  const entries = Object.entries(value as Readonly<Record<string, unknown>>);
+  if (entries.length === 0) return '{}';
+  return `{\n${entries.map(([key, entry]) => (
+    `${nestedIndentation}${JSON.stringify(key)}: ${renderRoadmapCatalogJson(entry, depth + 2)}`
+  )).join(',\n')}\n${indentation}}`;
+}
+
+function renderRoadmapCatalogSource(
+  source: string,
+  catalog: SecRoadmapWorkCatalogV1
+): string {
+  const begin = source.indexOf(SEC_ROADMAP_WORK_CATALOG_BEGIN);
+  const end = source.indexOf(SEC_ROADMAP_WORK_CATALOG_END);
+  if (begin < 0 || end <= begin) fail('canonical roadmap catalog markers disappeared during rendering.');
+  const payload = {
+    schema: catalog.schema,
+    stageRef: catalog.stageRef,
+    items: catalog.items
+  };
+  const block = `${SEC_ROADMAP_WORK_CATALOG_BEGIN}\n\u0060\u0060\u0060json\n${renderRoadmapCatalogJson(payload)}\n\u0060\u0060\u0060\n`;
+  return `${source.slice(0, begin)}${block}${source.slice(end)}`;
+}
+
+/**
+ * Compiles terminal catalog retirement as one deterministic graph transition.
+ * The effect owner must bind each requested work id to trusted completion
+ * evidence before publishing the returned roadmap bytes and manifest deletes.
+ */
+export function compileSecRoadmapTerminalCompactionV1(input: {
+  roadmapSource: string;
+  completedWorkIds: readonly string[];
+}): SecRoadmapTerminalCompactionV1 {
+  const prior = parseSecRoadmapWorkCatalogV1(input.roadmapSource);
+  const retiredWorkIds = [...input.completedWorkIds].sort(compareCodeUnits);
+  if (retiredWorkIds.length === 0 || new Set(retiredWorkIds).size !== retiredWorkIds.length) {
+    fail('terminal compaction requires one or more unique completed work ids.');
+  }
+  const retired = new Set(retiredWorkIds);
+  const priorByWorkId = new Map(prior.items.map((item) => [item.workId, item]));
+  for (const workId of retiredWorkIds) {
+    if (!priorByWorkId.has(workId)) fail(`terminal compaction work ${workId} is absent from the catalog.`);
+  }
+  const catalog = normalizeCatalog({
+    schema: prior.schema,
+    stageRef: prior.stageRef,
+    items: prior.items
+      .filter((item) => !retired.has(item.workId))
+      .map((item) => ({
+        ...item,
+        prerequisiteWorkIds: item.prerequisiteWorkIds.filter((workId) => !retired.has(workId)),
+        orderedAfterWorkIds: item.orderedAfterWorkIds.filter((workId) => !retired.has(workId))
+      }))
+  });
+  const roadmapSource = renderRoadmapCatalogSource(input.roadmapSource, catalog);
+  const withoutDigest = deepFreeze({
+    schema: 'sec-roadmap-terminal-compaction-v1' as const,
+    retiredWorkIds,
+    retiredManifestPaths: retiredWorkIds.map((workId) => workManifestPath(priorByWorkId.get(workId)!)),
+    catalog,
+    roadmapSource
+  });
+  return deepFreeze({
+    ...withoutDigest,
+    compactionDigest: sha256(withoutDigest) as SecWorkDigestV1
+  });
+}
+
+export function compileSecWorkSelectionTerminalProjectionV1(input: {
+  roadmapSource: string;
+  currentSpecs: readonly SecWorkCurrentSpecObservationV1[];
+}): SecWorkSelectionTerminalProjectionV1 {
+  const catalog = parseSecRoadmapWorkCatalogV1(input.roadmapSource);
+  const currentSpecs = input.currentSpecs.map((entry, index) => (
+    normalizeCurrentSpecObservation(entry, `terminalProjection.currentSpecs[${index}]`)
+  ));
+  const byWorkId = new Map(currentSpecs.map((entry) => [entry.workId, entry]));
+  if (byWorkId.size !== currentSpecs.length || currentSpecs.length !== catalog.items.length
+      || catalog.items.some((item) => byWorkId.get(item.workId)?.currentSpecRef !== item.currentSpecRef)) {
+    fail('terminal projection current specs must cover the raw catalog exactly once.');
+  }
+  const terminalSpecs = currentSpecs
+    .filter(({ providerState }) => providerState === 'closed')
+    .sort((left, right) => compareCodeUnits(left.workId, right.workId));
+  if (terminalSpecs.length === 0) {
+    return deepFreeze({
+      catalog,
+      currentSpecs,
+      roadmapRevision: rawSha256(input.roadmapSource),
+      terminalCompaction: null
+    });
+  }
+  const terminalCompaction = compileSecRoadmapTerminalCompactionV1({
+    roadmapSource: input.roadmapSource,
+    completedWorkIds: terminalSpecs.map(({ workId }) => workId)
+  });
+  return deepFreeze({
+    catalog: terminalCompaction.catalog,
+    currentSpecs: currentSpecs.filter(({ providerState }) => providerState === 'open'),
+    roadmapRevision: sha256({
+      roadmapSourceRevision: rawSha256(input.roadmapSource),
+      terminalCompactionDigest: terminalCompaction.compactionDigest,
+      terminalSpecObservations: terminalSpecs
+    }) as SecWorkDigestV1,
+    terminalCompaction
+  });
+}
+
+export function assertSecRoadmapTerminalCompactionCandidateV1(input: {
+  compaction: SecRoadmapTerminalCompactionV1;
+  roadmapSource: string;
+  presentRetiredManifestPaths: readonly string[];
+}): void {
+  if (input.roadmapSource !== input.compaction.roadmapSource) {
+    fail('candidate roadmap bytes differ from the canonical terminal compaction output.');
+  }
+  const present = [...new Set(input.presentRetiredManifestPaths)].sort(compareCodeUnits);
+  if (present.length > 0) {
+    fail(`candidate tree retains terminal manifests: ${present.join(',')}.`);
+  }
+}
+
+/**
+ * Candidate-tree guard for the terminal transition. Catalog retirement,
+ * dependency-edge retirement and completion-manifest retirement must cross the
+ * Git boundary together. It also admits healing an already-orphaned base item,
+ * but never permits unrelated catalog edits to hide inside that repair.
+ */
+export function assertSecRoadmapTerminalCompactionDeltaV1(input: {
+  priorRoadmapSource: string;
+  roadmapSource: string;
+  priorManifestPaths: readonly string[];
+  manifestPaths: readonly string[];
+}): void {
+  const prior = parseSecRoadmapWorkCatalogV1(input.priorRoadmapSource);
+  const current = parseSecRoadmapWorkCatalogV1(input.roadmapSource);
+  const priorManifests = new Set(input.priorManifestPaths);
+  const currentManifests = new Set(input.manifestPaths);
+  const currentByWorkId = new Map(current.items.map((item) => [item.workId, item]));
+  const retiredWorkIds = prior.items
+    .filter((item) => !currentByWorkId.has(item.workId))
+    .map((item) => item.workId);
+  if (retiredWorkIds.length === 0) {
+    if (!canonicalEquals([...priorManifests].sort(compareCodeUnits), [...currentManifests].sort(compareCodeUnits))) {
+      fail('terminal compaction changed manifest inventory without retiring catalog work.');
+    }
+    return;
+  }
+  const compiled = compileSecRoadmapTerminalCompactionV1({
+    roadmapSource: input.priorRoadmapSource,
+    completedWorkIds: retiredWorkIds
+  });
+  if (input.roadmapSource !== compiled.roadmapSource) {
+    fail('terminal compaction roadmap bytes differ from the canonical compiler output.');
+  }
+  const expectedManifests = [...priorManifests]
+    .filter((manifestPath) => !compiled.retiredManifestPaths.includes(manifestPath))
+    .sort(compareCodeUnits);
+  if (!canonicalEquals(expectedManifests, [...currentManifests].sort(compareCodeUnits))) {
+    fail('terminal compaction manifest inventory differs from the canonical compiler output.');
+  }
 }
 
 function normalizeRollingProjectionItem(
@@ -1394,14 +1598,16 @@ function liveResultDigest(value: unknown): SecWorkDigestV1 {
 }
 
 export function resolvedSecWorkSelectionLiveResultV1(
-  receipt: SecWorkDecisionReceiptV1
+  receipt: SecWorkDecisionReceiptV1,
+  terminalCompaction: SecRoadmapTerminalCompactionV1 | null = null
 ): SecWorkSelectionLiveResultV1 {
   const withoutDigest = deepFreeze({
     schema: SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA_V1,
     status: 'resolved' as const,
     reasonCodes: [] as const,
     blockerRefs: [] as const,
-    receipt
+    receipt,
+    terminalCompaction
   });
   return deepFreeze({ ...withoutDigest, resultDigest: liveResultDigest(withoutDigest) });
 }
@@ -1422,7 +1628,8 @@ export function unresolvedSecWorkSelectionLiveResultV1(input: {
     status: 'unresolved' as const,
     reasonCodes,
     blockerRefs,
-    receipt: null
+    receipt: null,
+    terminalCompaction: null
   });
   return deepFreeze({ ...withoutDigest, resultDigest: liveResultDigest(withoutDigest) });
 }

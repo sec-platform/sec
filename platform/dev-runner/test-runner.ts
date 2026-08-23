@@ -47,8 +47,8 @@ import {
   type DevCommandObservation
 } from './command-runner.ts';
 import {
+  ensureBrowserTestDependencies,
   ensureFastTestDependencies,
-  ensureTestDependencies
 } from './dependency-bootstrap.ts';
 import {
   consumeTestWorkspaceSupervisorChallengeV1,
@@ -417,10 +417,6 @@ async function gitChangedFiles(): Promise<GitChangedFilesResult | null> {
   }
 }
 
-function allowFullFastFallback(): boolean {
-  return process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK === '1';
-}
-
 type DependencyContext = {
   binPath: string;
   browserCachePath: string;
@@ -438,7 +434,7 @@ async function withFastTestDependencies<T>(
 }
 
 async function withTestDependencies<T>(callback: (context: DependencyContext) => Promise<T>): Promise<T> {
-  const dependencies = await ensureTestDependencies();
+  const dependencies = await ensureBrowserTestDependencies();
   return callback({
     binPath: path.join(dependencies.nodeModulesPath, '.bin'),
     browserCachePath: dependencies.browserCachePath
@@ -452,6 +448,7 @@ function pathEnv(
 ): NodeJS.ProcessEnv {
   return {
     [pathEnvKey()]: `${binPath}${path.delimiter}${process.env.PATH ?? ''}`,
+    NODE_PATH: path.dirname(binPath),
     // Explicit undefined values scrub inherited browser state in runDevCommand.
     PLAYWRIGHT_BROWSERS_PATH: browserCachePath ?? undefined,
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: browserCachePath === null ? '1' : undefined,
@@ -851,8 +848,7 @@ function affectedTestPlan(
     sourceChanged: selection.sourceChanged,
     selectionResolved: selection.selectionResolved,
     unresolvedModuleFiles: selection.unresolvedModuleFiles,
-    selectedFastTestCount: selectedFastTests.length,
-    broadFallbackEnabled: allowFullFastFallback()
+    selectedFastTestCount: selectedFastTests.length
   });
   const subjectRevision = affectedTestsBaseRef() ?? 'HEAD';
   const inputDigest = computeAffectedInputDigest(files);
@@ -936,32 +932,12 @@ async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
   }
 
   if (selection.sourceChanged) {
-    if (!allowFullFastFallback()) {
-      // Issue #206: source changed but no fast tests selected and no fallback.
-      // This is a fail-closed trust boundary — the empty closure is NOT proof
-      // of "no impact". Returning 0 here would be a false-green: it would let
-      // CI treat "selector found nothing" as "change has no impact", masking
-      // both missing test coverage and selector/read failures. Fail closed
-      // with the invalidated/selection-unresolved verification result so
-      // callers must explicitly opt into broad fallback or add targeted tests.
-      console.error(
-        `Affected selection trust boundary is ${plan.selectionTrustBoundary}; `
-        + 'source changed but no fast tests selected and SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK is not set. '
-        + 'Failing closed to avoid false-green.'
-      );
-      return 1;
-    }
-
-    console.log('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
-    const code = await runFastTests();
-    if (selection.affectedSlowTests.length > 0) {
-      console.log(formatSlowImpactNotice({
-        fast: [],
-        slow: [...selection.affectedSlowTests],
-        owners: [...selection.affectedOwners]
-      }));
-    }
-    return code;
+    console.error(
+      `Affected selection trust boundary is ${plan.selectionTrustBoundary}; `
+      + 'source changed but the canonical owner graph selected no fast tests. '
+      + 'Failing closed; use check:full only as the explicit calibration or release backstop.'
+    );
+    return 1;
   }
   console.log('No affected fast test files detected.');
   return 0;
@@ -1127,8 +1103,8 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
 
 export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {
   let exitCode = 0;
-  await withTestDependencies(async ({ binPath, browserCachePath }) => {
-    const environment = pathEnv(binPath, browserCachePath);
+  await withFastTestDependencies(async ({ binPath }) => {
+    const environment = pathEnv(binPath, null);
     exitCode = await runWithTestInvocationRuntimeV1(environment, async (runtime) => {
       for (const [index, invocation] of buildContractFreezeRunnerInvocations(targets).entries()) {
         const code = await runDevCommand(

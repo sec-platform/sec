@@ -297,7 +297,7 @@ test('reparse roots and changed-after-inventory generations are protected', asyn
   expect(linked.entries[0]).toMatchObject({
     kind: 'link',
     settlement: 'protected',
-    blockers: ['registration-missing', 'root-is-link-or-reparse']
+    blockers: ['registration-missing', 'root-kind-differs-from-policy']
   });
   await unlink(fixtureRoot(repositoryRoot));
 
@@ -360,6 +360,52 @@ test('an interrupted quarantine resumes from durable intent without rediscoverin
   expect(resumed.terminal).toBe('completed');
   expect(resumed.attempts.map(({ action }) => action)).toEqual(['deleted']);
   expect(await absent(path.join(repositoryRoot, '.tmp', 'generated-state-quarantine'))).toBe(true);
+});
+
+test('a restarted producer recovers only its exact active operation and disposes the generation', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  await mkdir(generatedRoot, { recursive: true });
+  await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
+  const operationId = 'compiler-staging-operation-restarted';
+  await generatedStateProducerHooksV1({ repositoryRoot }, options)
+    .born(LIFECYCLE_FIXTURE_PATH, operationId);
+
+  const restarted = generatedStateProducerHooksV1({ repositoryRoot }, options);
+  await expect(restarted.recoverDisposed(
+    LIFECYCLE_FIXTURE_PATH,
+    'compiler-staging-operation-foreign',
+    'interrupted-generation-recovered'
+  )).rejects.toThrow('does not bind the active producer operation');
+  await restarted.recoverDisposed(
+    LIFECYCLE_FIXTURE_PATH,
+    operationId,
+    'interrupted-generation-recovered'
+  );
+
+  expect(await absent(generatedRoot)).toBe(true);
+});
+
+test('a retired dependency bridge cleanup unlinks only the retained bridge and preserves its generation', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generationRoot = path.join(repositoryRoot, 'external-generation');
+  const bridgeRoot = path.join(repositoryRoot, 'node_modules');
+  await mkdir(generationRoot);
+  await writeFile(path.join(generationRoot, 'keep.bin'), 'generation');
+  await symlink(generationRoot, bridgeRoot, process.platform === 'win32' ? 'junction' : 'dir');
+  const lifecycle = generatedStateProducerHooksV1({ repositoryRoot }, options);
+  await lifecycle.born('node_modules', 'compiler-dependency-bridge-fixture');
+  await lifecycle.retired('node_modules', 'external-generation-bridge-ready');
+
+  const receipt = await settleGeneratedStateV1({
+    repositoryRoot,
+    profile: 'automatic',
+    relativePaths: ['node_modules']
+  }, options);
+
+  expect(receipt.terminal).toBe('completed');
+  expect(await absent(bridgeRoot)).toBe(true);
+  expect(await stat(path.join(generationRoot, 'keep.bin'))).toBeDefined();
 });
 
 test('a foreign quarantine entry prevents a completed physical settlement', async () => {

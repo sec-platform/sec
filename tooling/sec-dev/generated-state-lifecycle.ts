@@ -29,6 +29,7 @@ import {
   deleteRetainedNoFollowEntryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
+  inspectNoFollowLinkEntryV1,
   inspectNoFollowOrdinaryFileEntryV1,
   relocateRetainedNoFollowDirectoryAcrossParentsV1,
   scanNoFollowDirectoryTreeMetadataV1,
@@ -81,6 +82,7 @@ type ObservedGeneratedStateRootV1 = Readonly<{
   kind: 'directory' | 'file' | 'link' | 'missing';
   identity: GeneratedStatePhysicalIdentityV1 | null;
   directory: PhysicalDirectoryIdentityV1 | null;
+  linkTarget?: string;
 }>;
 
 function canonicalBytes(value: unknown): string {
@@ -188,7 +190,21 @@ function observeRoot(workspaceRoot: string, relativePath: string): ObservedGener
     throw error;
   }
   if (metadata.isSymbolicLink()) {
-    return Object.freeze({ kind: 'link', identity: null, directory: null });
+    const parent = inspectNoFollowDirectoryChainV1(path.dirname(absolutePath), 'Generated-state link parent').target;
+    const entry = inspectNoFollowLinkEntryV1(parent, path.basename(absolutePath));
+    if (entry === null || entry.linkTarget === null) {
+      return Object.freeze({ kind: 'missing', identity: null, directory: null });
+    }
+    return Object.freeze({
+      kind: 'link',
+      identity: Object.freeze({
+        device: entry.device,
+        inode: entry.inode,
+        objectId: generatedStateDigestV1({ kind: 'link', target: entry.linkTarget })
+      }),
+      directory: null,
+      linkTarget: entry.linkTarget
+    });
   }
   if (metadata.isDirectory()) {
     const directory = inspectNoFollowDirectoryChainV1(absolutePath, 'Generated-state root').target;
@@ -299,8 +315,8 @@ async function registerGeneratedStateBirthV1(input: Readonly<{
   }
   const workspace = inspectNoFollowDirectoryChainV1(workspaceRoot, 'Generated-state workspace root').target;
   const observed = observeRoot(workspaceRoot, relativePath);
-  if (observed.identity === null || observed.kind === 'link') {
-    throw new Error('Generated-state birth requires one present ordinary physical root.');
+  if (observed.identity === null) {
+    throw new Error('Generated-state birth requires one present physically identified root.');
   }
   const observedCurrent = loadRegistration(openRuntimeStoreReadOnly(workspaceRoot, options), relativePath);
   if (observedCurrent?.phase === 'active' && sameIdentity(observedCurrent.root, observed.identity)) {
@@ -990,8 +1006,11 @@ export async function inspectGeneratedStateV1(input: Readonly<{
       }
       if (registration?.phase === 'active') blockers.push('owner-active');
     }
-    if (observed.kind === 'link') blockers.push('root-is-link-or-reparse');
-    else if (observed.kind !== 'missing' && observed.kind !== rule.rootKind) {
+    const rootKindMatches = observed.kind === 'missing'
+      || observed.kind === rule.rootKind
+      || (rule.rootKind === 'directory-or-link'
+        && (observed.kind === 'directory' || observed.kind === 'link'));
+    if (!rootKindMatches) {
       blockers.push('root-kind-differs-from-policy');
     }
     const ready = observed.identity !== null && blockers.length === 0 && registration?.phase === 'retired';
@@ -1186,7 +1205,10 @@ export async function settleGeneratedStateV1(input: Readonly<{
       const entry = before.entries.find((candidate) => candidate.relativePath === relativePath)!;
       await options.beforeCleanupEffect?.(relativePath);
       const current = observeRoot(workspaceRoot, relativePath);
-      if (current.kind !== 'directory' || current.directory === null || current.identity === null
+      const supportedDirectory = current.kind === 'directory' && current.directory !== null;
+      const supportedDirectLink = current.kind === 'link' && current.linkTarget !== undefined
+        && !relativePath.includes('/');
+      if ((!supportedDirectory && !supportedDirectLink) || current.identity === null
           || entry.physicalIdentity === null || !sameIdentity(entry.physicalIdentity, current.identity)) {
         blockers.push(`${relativePath}:changed-after-inventory-or-unsupported-kind`);
         attempts.push(Object.freeze({
@@ -1213,17 +1235,31 @@ export async function settleGeneratedStateV1(input: Readonly<{
       store.fs.replaceFsync(transactionPointerPath(store, relativePath), intentBytes);
       try {
         await store.assertCurrent();
-        const moved = relocateRetainedNoFollowDirectoryAcrossParentsV1({
-          directory: current.directory,
-          destinationParent: quarantine.directory.target,
-          tombstoneName
-        });
-        attempts.push(Object.freeze({ relativePath, action: 'quarantined', detailRef: intentDigest }));
-        await options.afterQuarantineEffect?.(relativePath);
-        deleteQuarantinedTree(moved);
-        const absent = inspectExactNoFollowDirectoryPresenceV1(
-          path.join(quarantinePath, tombstoneName), 'Generated-state quarantine readback'
-        ).state === 'absent';
+        if (supportedDirectLink) {
+          deleteRetainedNoFollowEntryV1({
+            root: workspace,
+            relativePath,
+            kind: 'link',
+            device: current.identity.device,
+            inode: current.identity.inode,
+            expectedLinkTarget: current.linkTarget,
+            ancestorDirectories: Object.freeze([])
+          });
+        } else {
+          const moved = relocateRetainedNoFollowDirectoryAcrossParentsV1({
+            directory: current.directory!,
+            destinationParent: quarantine.directory.target,
+            tombstoneName
+          });
+          attempts.push(Object.freeze({ relativePath, action: 'quarantined', detailRef: intentDigest }));
+          await options.afterQuarantineEffect?.(relativePath);
+          deleteQuarantinedTree(moved);
+        }
+        const absent = supportedDirectLink
+          ? observeRoot(workspaceRoot, relativePath).kind === 'missing'
+          : inspectExactNoFollowDirectoryPresenceV1(
+            path.join(quarantinePath, tombstoneName), 'Generated-state quarantine readback'
+          ).state === 'absent';
         if (!absent) throw new Error('Generated-state quarantine residue remains after deletion.');
         const registrationLocator = registrationPath(store, relativePath);
         if (!store.fs.deleteIfPresent(registrationLocator) || store.fs.exists(registrationLocator)) {
@@ -1317,6 +1353,7 @@ export function generatedStateProducerHooksV1(input: Readonly<{
   born(relativePath: string, operationId: string): Promise<void>;
   retired(relativePath: string, outcome: string): Promise<void>;
   disposed(relativePath: string, outcome: string): Promise<void>;
+  recoverDisposed(relativePath: string, operationId: string, outcome: string): Promise<void>;
 }> {
   const producerSession = new Map<string, `sha256:${string}`>();
   const requireProducerBinding = (relativePath: string): `sha256:${string}` => {
@@ -1361,6 +1398,30 @@ export function generatedStateProducerHooksV1(input: Readonly<{
         throw new Error(`Generated-state disposal did not close: ${receipt.settlementDigest}`);
       }
       producerSession.delete(normalized);
+    },
+    recoverDisposed: async (relativePath, operationId, outcome) => {
+      const normalized = normalizeGeneratedStateRelativePathV1(relativePath);
+      const current = loadRegistration(openRuntimeStoreReadOnly(
+        path.resolve(input.workspaceRoot ?? input.repositoryRoot),
+        options
+      ), normalized);
+      if (current === null || current.phase !== 'active' || current.operationId !== operationId) {
+        throw new Error('Generated-state recovery does not bind the active producer operation.');
+      }
+      await retireGeneratedStateV1({
+        ...input,
+        relativePath: normalized,
+        expectedRegistrationDigest: current.registrationDigest,
+        outcome
+      }, options);
+      const receipt = await settleGeneratedStateV1({
+        ...input,
+        profile: 'automatic',
+        relativePaths: [normalized]
+      }, options);
+      if (receipt.terminal !== 'completed' && receipt.terminal !== 'no-op') {
+        throw new Error(`Generated-state recovery disposal did not close: ${receipt.settlementDigest}`);
+      }
     }
   });
 }

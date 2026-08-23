@@ -7,10 +7,14 @@ import type { SecCurrentWorkLifecycleV1 } from '../../platform/shared/work-selec
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
+  assertSecRoadmapTerminalCompactionCandidateV1,
+  assertSecRoadmapTerminalCompactionDeltaV1,
   assertSecWorkDecisionReceiptV1,
+  compileSecRoadmapTerminalCompactionV1,
   compileSecWorkRollingProjectionV1,
   compileSecWorkRollingTopologyV1,
   compileSecWorkRollingTransitionProjectionV1,
+  compileSecWorkSelectionTerminalProjectionV1,
   createSecWorkCurrentSpecObservationV1,
   createSecWorkDecisionReceiptV1,
   createSecWorkRegistryObservationV1,
@@ -285,6 +289,81 @@ describe('work-selection live contract', () => {
       `"tracking": "${first.tracking}",`,
       `"tracking": "${first.tracking}",\n      "tracking": "${first.tracking}",`
     ))).toThrow(/duplicate key "tracking"/u);
+  });
+
+  test('terminal compaction derives catalog, dependency and manifest retirement as one transition', () => {
+    const prior = transitionCatalog();
+    const compaction = compileSecRoadmapTerminalCompactionV1({
+      roadmapSource: prior.source,
+      completedWorkIds: ['issue-271']
+    });
+    expect(compaction.catalog.items.map(({ workId }) => workId)).not.toContain('issue-271');
+    expect(compaction.catalog.items.find(({ workId }) => workId === 'issue-186'))
+      .toMatchObject({ prerequisiteWorkIds: ['issue-352'] });
+    expect(compaction.roadmapSource).toContain(
+      '"prerequisiteWorkIds": ["issue-352"]'
+    );
+    expect(compaction.retiredManifestPaths).toEqual([
+      'docs/work-packages/generated-ignored-state-lifecycle-v1.md'
+    ]);
+    expect(parseSecRoadmapWorkCatalogV1(compaction.roadmapSource).catalogDigest)
+      .toBe(compaction.catalog.catalogDigest);
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+      priorRoadmapSource: prior.source,
+      roadmapSource: compaction.roadmapSource,
+      priorManifestPaths: compaction.retiredManifestPaths,
+      manifestPaths: []
+    })).not.toThrow();
+  });
+
+  test('terminal selection projection binds closed provider evidence and keeps only live work', () => {
+    const prior = transitionCatalog();
+    const currentSpecs = specs(prior.catalog).map((entry) => entry.workId === 'issue-271'
+      ? createSecWorkCurrentSpecObservationV1({
+          ...entry,
+          providerState: 'closed'
+        })
+      : entry);
+    const projection = compileSecWorkSelectionTerminalProjectionV1({
+      roadmapSource: prior.source,
+      currentSpecs
+    });
+
+    expect(projection.terminalCompaction?.retiredWorkIds).toEqual(['issue-271']);
+    expect(projection.catalog.items.map(({ workId }) => workId)).not.toContain('issue-271');
+    expect(projection.currentSpecs.map(({ workId }) => workId)).not.toContain('issue-271');
+    expect(projection.roadmapRevision).not.toBe(rawSha256(prior.source));
+    expect(() => assertSecRoadmapTerminalCompactionCandidateV1({
+      compaction: projection.terminalCompaction!,
+      roadmapSource: projection.terminalCompaction!.roadmapSource,
+      presentRetiredManifestPaths: []
+    })).not.toThrow();
+    expect(() => assertSecRoadmapTerminalCompactionCandidateV1({
+      compaction: projection.terminalCompaction!,
+      roadmapSource: projection.terminalCompaction!.roadmapSource,
+      presentRetiredManifestPaths: projection.terminalCompaction!.retiredManifestPaths
+    })).toThrow(/retains terminal manifests/u);
+  });
+
+  test('terminal compaction rejects both half-transactions', () => {
+    const prior = transitionCatalog();
+    const compaction = compileSecRoadmapTerminalCompactionV1({
+      roadmapSource: prior.source,
+      completedWorkIds: ['issue-271']
+    });
+    const manifestPath = 'docs/work-packages/generated-ignored-state-lifecycle-v1.md';
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+      priorRoadmapSource: prior.source,
+      roadmapSource: prior.source,
+      priorManifestPaths: [manifestPath],
+      manifestPaths: []
+    })).toThrow(/changed manifest inventory without retiring catalog work/u);
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+      priorRoadmapSource: prior.source,
+      roadmapSource: compaction.roadmapSource,
+      priorManifestPaths: [manifestPath],
+      manifestPaths: [manifestPath]
+    })).toThrow(/manifest inventory differs from the canonical compiler output/u);
   });
 
   test('synthetic catalog revision is derived only from its exact fixture source', () => {

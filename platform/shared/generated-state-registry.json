@@ -126,7 +126,7 @@
       "stateClass": "rebuildable-derived-cache",
       "owner": "compiler-dependency-runtime",
       "producer": "ensure-compiler-deps-ready",
-      "rootKind": "directory",
+      "rootKind": "directory-or-link",
       "scope": "workspace",
       "activeOwnerSignal": "birth-registration",
       "contentsPolicy": "owner-bounded-tree",
@@ -134,7 +134,7 @@
       "settlementEffect": "generated-state-quarantine-delete-readback",
       "registration": "required-at-birth",
       "reconstruction": "producer-recompute",
-      "cleanupProfiles": ["all-rebuildable"],
+      "cleanupProfiles": ["automatic", "safe", "all-rebuildable"],
       "retirement": "domain-receipt-required"
     },
     {

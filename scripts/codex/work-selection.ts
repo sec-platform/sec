@@ -8,6 +8,7 @@ import type {
   SecWorkDigestV1
 } from '../../platform/shared/work-selection-contract.ts';
 import {
+  compileSecWorkSelectionTerminalProjectionV1,
   createSecWorkCurrentSpecObservationV1,
   createSecWorkDecisionReceiptV1,
   createSecWorkRegistryObservationV1,
@@ -712,13 +713,18 @@ export function observeSecWorkSelectionLiveV1(
     const roadmapBytes = readGitBlob(run, root, `${exactMain}:docs/roadmap.md`,
       'roadmap-unresolved');
     const roadmapSource = decodeUtf8(roadmapBytes, 'roadmap-invalid-utf8');
-    const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
-    const currentSpecs = observeCurrentSpecs({
+    const observedCatalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
+    const observedCurrentSpecs = observeCurrentSpecs({
       run,
       root,
       repository: state.resolver.repository,
-      items: catalog.items
+      items: observedCatalog.items
     });
+    const terminal = compileSecWorkSelectionTerminalProjectionV1({
+      roadmapSource,
+      currentSpecs: observedCurrentSpecs
+    });
+    const { catalog, currentSpecs, terminalCompaction } = terminal;
     const openPullRequests = observeOpenPullRequests({
       run,
       root,
@@ -796,13 +802,13 @@ export function observeSecWorkSelectionLiveV1(
       repository: state.resolver.repository,
       exactMain,
       exactMainTree,
-      roadmapRevision: rawSha256(roadmapBytes),
+      roadmapRevision: terminal.roadmapRevision,
       catalog,
       registry,
       current,
       currentSpecs
     });
-    return resolvedSecWorkSelectionLiveResultV1(receipt);
+    return resolvedSecWorkSelectionLiveResultV1(receipt, terminalCompaction);
   } catch (error) {
     if (error instanceof LiveObservationFailure) {
       return unresolvedSecWorkSelectionLiveResultV1({
@@ -836,6 +842,11 @@ export type SecWorkSelectionCliProjectionV1 = Readonly<
     exactMain: string;
     exactMainTree: string;
     receiptDigest: SecWorkDecisionReceiptV1['receiptDigest'];
+    terminalCompaction: null | Readonly<{
+      compactionDigest: SecWorkDigestV1;
+      retiredManifestPaths: readonly string[];
+      retiredWorkIds: readonly string[];
+    }>;
     decision: Readonly<{
       status: SecWorkDecisionReceiptV1['decision']['status'];
       selectedWorkId: string | null;
@@ -875,6 +886,13 @@ export function projectSecWorkSelectionCliV1(
     exactMain: receipt.exactMain,
     exactMainTree: receipt.exactMainTree,
     receiptDigest: receipt.receiptDigest,
+    terminalCompaction: result.terminalCompaction === null
+      ? null
+      : Object.freeze({
+          compactionDigest: result.terminalCompaction.compactionDigest,
+          retiredManifestPaths: result.terminalCompaction.retiredManifestPaths,
+          retiredWorkIds: result.terminalCompaction.retiredWorkIds
+        }),
     decision: Object.freeze({
       status: receipt.decision.status,
       selectedWorkId: receipt.decision.selectedWorkId,

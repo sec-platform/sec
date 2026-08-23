@@ -1,4 +1,66 @@
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+
 import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
+
+const DEPENDENCY_GENERATION_BOUND_ENV = 'SEC_DEPENDENCY_GENERATION_BOUND';
+
+export type DevRunnerDependencyRelaunchV1 = Readonly<{
+  args: readonly string[];
+  command: string;
+  environment: Readonly<NodeJS.ProcessEnv>;
+}>;
+
+export function createDevRunnerDependencyRelaunchV1(input: Readonly<{
+  dependencies: Awaited<ReturnType<typeof ensureDevDependencies>>;
+  environment: Readonly<NodeJS.ProcessEnv>;
+  executablePath: string;
+  runnerPath: string;
+  runnerArgs: readonly string[];
+}>): DevRunnerDependencyRelaunchV1 | null {
+  const generation = path.resolve(input.dependencies.nodeModulesPath);
+  const localGeneration = path.join(path.resolve(input.dependencies.root), 'node_modules');
+  if (!input.dependencies.requiresProcessRelaunch && generation === localGeneration) return null;
+  if (input.environment[DEPENDENCY_GENERATION_BOUND_ENV] === generation
+      && input.environment.NODE_PATH === generation) return null;
+  const pathKey = Object.keys(input.environment)
+    .find((key) => key.toLocaleLowerCase('en-US') === 'path') ?? 'PATH';
+  return Object.freeze({
+    args: Object.freeze([input.runnerPath, ...input.runnerArgs]),
+    command: input.executablePath,
+    environment: Object.freeze({
+      ...input.environment,
+      [DEPENDENCY_GENERATION_BOUND_ENV]: generation,
+      NODE_PATH: generation,
+      [pathKey]: `${path.join(generation, '.bin')}${path.delimiter}${input.environment[pathKey] ?? ''}`
+    })
+  });
+}
+
+function relaunchWithDependencyGenerationIfRequired(
+  dependencies: Awaited<ReturnType<typeof ensureDevDependencies>>
+): boolean {
+  const relaunch = createDevRunnerDependencyRelaunchV1({
+    dependencies,
+    environment: process.env,
+    executablePath: process.execPath,
+    runnerPath: path.join(import.meta.dir, 'dev-runner.ts'),
+    runnerArgs: process.argv.slice(2)
+  });
+  if (relaunch === null) return false;
+  const result = spawnSync(
+    relaunch.command,
+    [...relaunch.args],
+    {
+      env: { ...relaunch.environment },
+      stdio: 'inherit',
+      windowsHide: true
+    }
+  );
+  if (result.error !== undefined) throw result.error;
+  process.exitCode = result.status ?? 1;
+  return true;
+}
 
 export function shouldReportDevRunnerSuccessV1(
   environment: Readonly<Record<string, string | undefined>> = process.env
@@ -94,26 +156,24 @@ async function main(): Promise<void> {
 
   if (target === 'check:affected') {
     if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) usage();
+    const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
+    if (relaunchWithDependencyGenerationIfRequired(dependencies)) return;
     const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
     process.exitCode = await runRepositoryZeroWriteCommand('check:affected', () =>
       runLocalAffectedCheck(args, {
-        prepareCompilerNodeModulesPath: async () => {
-          const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
-          return dependencies.nodeModulesPath;
-        }
+        prepareCompilerNodeModulesPath: async () => dependencies.nodeModulesPath
       }));
     return;
   }
 
   if (target === 'check:fast') {
     if (args.length > 0) usage();
+    const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
+    if (relaunchWithDependencyGenerationIfRequired(dependencies)) return;
     const { runFastCheck } = await import('./dev-runner/check-runner.ts');
     process.exitCode = await runRepositoryZeroWriteCommand('check:fast', () =>
       runFastCheck({
-        prepareCompilerNodeModulesPath: async () => {
-          const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
-          return dependencies.nodeModulesPath;
-        }
+        prepareCompilerNodeModulesPath: async () => dependencies.nodeModulesPath
       }));
     return;
   }
@@ -142,6 +202,7 @@ async function main(): Promise<void> {
       ? 'never'
       : target === 'deps:ensure' ? 'always' : 'if-installed'
   });
+  if (relaunchWithDependencyGenerationIfRequired(dependencies)) return;
   if (target === 'deps:ensure') {
     if (shouldReportDevRunnerSuccessV1()) {
       console.log(`Compiler dependencies ready (${dependencies.source}, ${dependencies.manifestHash}).`);

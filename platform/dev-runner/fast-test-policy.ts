@@ -137,6 +137,11 @@ export function isDefaultFastTestFile(file: string): boolean {
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
+    file: 'tests/contract/docs-doctor.test.ts',
+    reason: 'production-repository-index-observation',
+    resourceClass: 'repository-worktree'
+  },
+  {
     file: 'tests/contract/repository-audit.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'

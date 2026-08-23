@@ -337,6 +337,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/local-github-actions-runner.ts',
       'scripts/codex/merge-gate.ts'
     ],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: TRUSTED_VERIFIER_TCB_FAST_TESTS,
     supplementalSlow: []
   },
@@ -415,6 +416,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'tooling/sec-dev/generated-state-operations.ts',
       'tooling/sec-dev/generated-state-lifecycle.ts'
     ],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: GENERATED_STATE_LIFECYCLE_FAST_TESTS,
     supplementalSlow: []
   },
@@ -422,6 +424,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' },
     sourceFiles: ['platform/dev-runner/dependency-bootstrap.ts'],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS,
     supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
   },
@@ -433,11 +436,23 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/command-runner.ts',
       'platform/dev-runner/fast-test-policy.ts',
       'platform/dev-runner/import-organizer.ts',
-      'platform/dev-runner/test-concurrency-policy.ts',
-      'tests/setup/runtime-deps.setup.ts'
+      'platform/dev-runner/test-concurrency-policy.ts'
     ],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: DEV_RUNNER_FAST_TESTS,
     supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
+  },
+  {
+    owner: 'test-process-runtime',
+    identity: { kind: 'architecture-owner', id: 'test-process-runtime' },
+    sourceFiles: ['bunfig.toml'],
+    sourcePrefixes: ['tests/setup/'],
+    moduleGraphImpact: 'owner-only',
+    supplementalFast: [
+      'tests/unit/test-process-temp.test.ts',
+      'tests/unit/test-runner.test.ts'
+    ],
+    supplementalSlow: []
   },
   {
     owner: 'typecheck-provider',
@@ -457,6 +472,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/env-manager.ts',
       'platform/dev-runner/test-runner.ts'
     ],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: DEV_RUNNER_WORKSPACE_FAST_TESTS,
     supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
   },
@@ -471,6 +487,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' },
     sourceFiles: ['platform/dev-runner.ts'],
+    moduleGraphImpact: 'owner-only',
     supplementalFast: DEV_RUNNER_ENTRYPOINT_FAST_TESTS,
     supplementalSlow: []
   },
