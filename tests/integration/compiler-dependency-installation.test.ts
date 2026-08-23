@@ -3,7 +3,19 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { readJson } from '../../platform/shared/fs.ts';
-import { ensureCompilerDepsReady } from '../../platform/shared/project-runtime.ts';
+import {
+  generatedStateDigestV1,
+  type GeneratedStateRegistrationV1
+} from '../../platform/shared/generated-state-contract.ts';
+import {
+  inspectNoFollowDirectoryChainV1,
+  inspectNoFollowLinkEntryV1
+} from '../../platform/shared/physical-no-follow.ts';
+import { runCommand } from '../../platform/shared/process.ts';
+import {
+  compilerDependencyLocatorWorktreeRetirementProviderV1,
+  ensureCompilerDepsReady
+} from '../../platform/shared/project-runtime.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 async function installCompilerDependencyFixture(workingDirectory: string, marker: string): Promise<void> {
   const packages = [{ name: 'commander', version: '1.0.0' }, {
@@ -255,6 +267,178 @@ describe('compiler dependency installation', () => {
         }
       }, testOnlyConsumerRoot)).source).toBe('existing');
     }, 'engineering-compiler-dev-deps-bridge-');
+  });
+
+  test('automatically reuses and provider-retires the primary worktree locator without touching its generation', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      const ownerRoot = path.join(tempRoot, 'repository');
+      const consumerRoot = path.join(tempRoot, 'candidate');
+      await fs.mkdir(ownerRoot);
+      const git = async (cwd: string, args: string[]): Promise<string> => {
+        const result = await runCommand('git', args, { cwd, timeoutMs: 10_000 });
+        if (result.code !== 0) throw new Error(result.stderr);
+        return result.stdout.trim();
+      };
+      await git(ownerRoot, ['init', '-b', 'main']);
+      await git(ownerRoot, ['config', 'user.email', 'sec@example.invalid']);
+      await git(ownerRoot, ['config', 'user.name', 'SEC Test']);
+      await git(ownerRoot, ['config', 'core.autocrlf', 'false']);
+      await writeCompilerDependencyRoot(ownerRoot);
+      await fs.writeFile(path.join(ownerRoot, '.gitignore'), 'node_modules/\n.tmp/\n');
+      await git(ownerRoot, ['add', '.gitignore', '.bun-version', 'bun.lock', 'package.json']);
+      await git(ownerRoot, ['commit', '-m', 'fixture']);
+      let installCalls = 0;
+      await ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          installCalls += 1;
+          await installCompilerDependencyFixture(command.cwd, 'primary-generation');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, ownerRoot);
+      await git(ownerRoot, ['worktree', 'add', '-b', 'candidate', consumerRoot]);
+
+      let failLifecycleBinding = true;
+      const reuseOptions = {
+        commandRunner: async () => {
+          throw new Error('Exact linked-worktree reuse must not download or install dependencies.');
+        },
+        generatedStateLifecycle: {
+          born: async () => {
+            if (failLifecycleBinding) throw new Error('fixture lifecycle interruption');
+          },
+          retired: async () => undefined,
+          disposed: async () => undefined
+        }
+      };
+      await expect(ensureCompilerDepsReady(reuseOptions, consumerRoot))
+        .rejects.toThrow('fixture lifecycle interruption');
+      expect(await fs.realpath(path.join(consumerRoot, 'node_modules')))
+        .toBe(await fs.realpath(path.join(ownerRoot, 'node_modules')));
+      failLifecycleBinding = false;
+      const ready = await ensureCompilerDepsReady(reuseOptions, consumerRoot);
+
+      expect(ready).toMatchObject({ root: consumerRoot, source: 'existing' });
+      expect(installCalls).toBe(1);
+      expect(await fs.realpath(path.join(consumerRoot, 'node_modules')))
+        .toBe(await fs.realpath(path.join(ownerRoot, 'node_modules')));
+      expect(await fs.readFile(
+        path.join(consumerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
+        'utf8'
+      )).toBe('primary-generation:typescript\n');
+
+      const consumer = inspectNoFollowDirectoryChainV1(consumerRoot, 'Fixture consumer').target;
+      const locator = inspectNoFollowLinkEntryV1(consumer, 'node_modules');
+      expect(locator).not.toBeNull();
+      const source = Object.freeze({
+        device: locator!.device,
+        inode: locator!.inode,
+        objectId: generatedStateDigestV1({ kind: 'link', target: locator!.linkTarget })
+      });
+      const registration: GeneratedStateRegistrationV1 = Object.freeze({
+        schema: 'sec-generated-state-registration-v1',
+        registrationId: `sha256:${'1'.repeat(64)}`,
+        repositoryRoot: ownerRoot,
+        workspace: { device: consumer.device, inode: consumer.inode, objectId: consumer.objectId },
+        ruleId: 'compiler-node-modules',
+        relativePath: 'node_modules',
+        root: source,
+        owner: 'compiler-dependency-runtime',
+        producer: 'ensure-compiler-deps-ready',
+        operationId: 'fixture-operation',
+        phase: 'retired',
+        retirementRef: `sha256:${'2'.repeat(64)}`,
+        generatedAt: '2026-08-23T00:00:00.000Z',
+        registrationDigest: `sha256:${'3'.repeat(64)}`
+      });
+      const providerPlan = await compilerDependencyLocatorWorktreeRetirementProviderV1.plan({
+        repositoryRoot: ownerRoot,
+        workspaceRoot: consumerRoot,
+        relativePath: 'node_modules',
+        source,
+        registration
+      });
+      const parkedConsumerRoot = path.join(tempRoot, 'candidate-planned');
+      const replacementConsumerRoot = consumerRoot;
+      await fs.rename(consumerRoot, parkedConsumerRoot);
+      await fs.mkdir(replacementConsumerRoot);
+      for (const name of ['package.json', 'bun.lock', '.bun-version']) {
+        await fs.copyFile(path.join(parkedConsumerRoot, name), path.join(replacementConsumerRoot, name));
+      }
+      await fs.rename(
+        path.join(parkedConsumerRoot, 'node_modules'),
+        path.join(replacementConsumerRoot, 'node_modules')
+      );
+      await expect(compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+        operationId: `sha256:${'4'.repeat(64)}`,
+        repositoryRoot: ownerRoot,
+        workspaceRoot: replacementConsumerRoot,
+        relativePath: 'node_modules',
+        source,
+        registration,
+        planBytes: providerPlan.bytes,
+        planDigest: providerPlan.digest
+      })).rejects.toThrow('consumer root identity changed');
+      expect((await fs.lstat(path.join(replacementConsumerRoot, 'node_modules'))).isSymbolicLink()).toBeTrue();
+      expect(await fs.readFile(
+        path.join(ownerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
+        'utf8'
+      )).toBe('primary-generation:typescript\n');
+      await fs.rename(
+        path.join(replacementConsumerRoot, 'node_modules'),
+        path.join(parkedConsumerRoot, 'node_modules')
+      );
+      await fs.rm(replacementConsumerRoot, { recursive: true });
+      await fs.rename(parkedConsumerRoot, consumerRoot);
+      const parkedLocator = path.join(consumerRoot, 'node_modules.planned');
+      const replacementGeneration = path.join(tempRoot, 'replacement-generation', 'node_modules');
+      await fs.mkdir(replacementGeneration, { recursive: true });
+      await fs.rename(path.join(consumerRoot, 'node_modules'), parkedLocator);
+      await fs.symlink(
+        replacementGeneration,
+        path.join(consumerRoot, 'node_modules'),
+        process.platform === 'win32' ? 'junction' : 'dir'
+      );
+      await expect(compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+        operationId: `sha256:${'4'.repeat(64)}`,
+        repositoryRoot: ownerRoot,
+        workspaceRoot: consumerRoot,
+        relativePath: 'node_modules',
+        source,
+        registration,
+        planBytes: providerPlan.bytes,
+        planDigest: providerPlan.digest
+      })).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect(await fs.realpath(path.join(consumerRoot, 'node_modules'))).toBe(await fs.realpath(replacementGeneration));
+      await fs.unlink(path.join(consumerRoot, 'node_modules'));
+      await fs.rename(parkedLocator, path.join(consumerRoot, 'node_modules'));
+      const providerReceipt = await compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+        operationId: `sha256:${'4'.repeat(64)}`,
+        repositoryRoot: ownerRoot,
+        workspaceRoot: consumerRoot,
+        relativePath: 'node_modules',
+        source,
+        registration,
+        planBytes: providerPlan.bytes,
+        planDigest: providerPlan.digest
+      });
+      expect(JSON.parse(providerReceipt.bytes)).toMatchObject({ outcome: 'removed' });
+      await expect(fs.lstat(path.join(consumerRoot, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await fs.readFile(
+        path.join(ownerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
+        'utf8'
+      )).toBe('primary-generation:typescript\n');
+      const resumedReceipt = await compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+        operationId: `sha256:${'4'.repeat(64)}`,
+        repositoryRoot: ownerRoot,
+        workspaceRoot: consumerRoot,
+        relativePath: 'node_modules',
+        source,
+        registration,
+        planBytes: providerPlan.bytes,
+        planDigest: providerPlan.digest
+      });
+      expect(JSON.parse(resumedReceipt.bytes)).toMatchObject({ outcome: 'resumed-absent' });
+    }, 'engineering-compiler-linked-worktree-reuse-');
   });
 
   test('repairs critical direct and transitive entry corruption before developer commands load dependencies', async () => {
