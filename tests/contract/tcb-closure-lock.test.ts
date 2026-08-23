@@ -229,6 +229,9 @@ test('TCB closure lock binds the reviewed causal module set', () => {
   expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/canonical-primitives.ts');
   expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
   expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain('platform/dev-runner/env-manager.ts -> node:net');
+  expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain(
+    'platform/shared/sec-linux-verification-environment.ts -> zod'
+  );
   expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
     .toContain('platform/dev-runner/env-manager.ts -> node:net');
 });
@@ -551,7 +554,10 @@ test('local Actions runner dispatcher binds executable domain, cwd, environment,
     expect(candidate).toContain('shell: false,');
     expect(candidate).toContain('windowsHide: true,');
     expect(candidate).toContain("stdio: ['pipe', 'pipe', 'pipe']");
-    expect(candidate).toContain('const timeoutMs = options.timeoutMs ?? 120_000;');
+    expect(candidate).toContain(
+      'const timeoutMs = options.timeoutMs ?? ENVIRONMENT.provider.timeoutsMs.commandDefault;'
+    );
+    expect(candidate).toContain('timeoutMs > ENVIRONMENT.provider.timeoutsMs.commandMaximum');
     expect(candidate).toContain('if (outputBytes > MAX_COMMAND_OUTPUT_BYTES) {');
     expect(candidate).not.toContain('env: process.env');
     expect(candidate).not.toContain('shell: true');
@@ -567,7 +573,10 @@ test('local Actions runner dispatcher binds executable domain, cwd, environment,
     ['environment', dispatcher.replace('env: childEnvironment', 'env: process.env')],
     ['credential-domain', dispatcher.replace("command !== 'gh'", "command !== 'docker'")],
     ['shell', dispatcher.replace('shell: false', 'shell: true')],
-    ['timeout', dispatcher.replace('options.timeoutMs ?? 120_000', 'options.timeoutMs ?? 0')],
+    ['timeout', dispatcher.replace(
+      'options.timeoutMs ?? ENVIRONMENT.provider.timeoutsMs.commandDefault',
+      'options.timeoutMs ?? 0'
+    )],
     ['output-bound', dispatcher.replace(
       'outputBytes > MAX_COMMAND_OUTPUT_BYTES',
       'outputBytes > MAX_COMMAND_OUTPUT_BYTES * 2'
