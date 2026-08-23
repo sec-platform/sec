@@ -10,6 +10,7 @@ import {
   createGeneratedStateWorktreeRetirementV1,
   generatedStateCleanupAllowedV1,
   generatedStateDigestV1,
+  generatedStateDomainProviderMaterialDigestV1,
   generatedStateRuleForPathV1,
   normalizeGeneratedStateRelativePathV1,
   parseGeneratedStateRegistrationV1,
@@ -17,6 +18,7 @@ import {
   type GeneratedStateCleanupProfileV1,
   type GeneratedStateInventoryEntryV1,
   type GeneratedStateInventoryV1,
+  type GeneratedStatePhysicalFormV1,
   type GeneratedStatePhysicalIdentityV1,
   type GeneratedStateRegistrationV1,
   type GeneratedStateRuleV1,
@@ -29,6 +31,7 @@ import {
   deleteRetainedNoFollowEntryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
+  inspectNoFollowLinkEntryV1,
   inspectNoFollowOrdinaryFileEntryV1,
   relocateRetainedNoFollowDirectoryAcrossParentsV1,
   scanNoFollowDirectoryTreeMetadataV1,
@@ -55,11 +58,39 @@ export interface GeneratedStateLifecycleOptionsV1 {
   readonly beforeCleanupEffect?: (relativePath: string) => void | Promise<void>;
   readonly clock?: () => Date;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly worktreeRetirementProviders?: readonly GeneratedStateWorktreeRetirementProviderV1[];
   readonly runGit?: (
     command: string,
     args: string[],
     options: Readonly<{ cwd: string }>
   ) => Promise<ByteCommandResult>;
+}
+
+export interface GeneratedStateWorktreeRetirementProviderV1 {
+  readonly id: string;
+  plan(input: Readonly<{
+    repositoryRoot: string;
+    workspaceRoot: string;
+    relativePath: string;
+    source: GeneratedStatePhysicalIdentityV1;
+    registration: GeneratedStateRegistrationV1;
+  }>): Promise<Readonly<{
+    bytes: string;
+    digest: `sha256:${string}`;
+  }>>;
+  retire(input: Readonly<{
+    operationId: `sha256:${string}`;
+    repositoryRoot: string;
+    workspaceRoot: string;
+    relativePath: string;
+    source: GeneratedStatePhysicalIdentityV1;
+    registration: GeneratedStateRegistrationV1;
+    planBytes: string;
+    planDigest: `sha256:${string}`;
+  }>): Promise<Readonly<{
+    bytes: string;
+    digest: `sha256:${string}`;
+  }>>;
 }
 
 interface GeneratedStateRuntimeStoreV1 {
@@ -81,6 +112,7 @@ type ObservedGeneratedStateRootV1 = Readonly<{
   kind: 'directory' | 'file' | 'link' | 'missing';
   identity: GeneratedStatePhysicalIdentityV1 | null;
   directory: PhysicalDirectoryIdentityV1 | null;
+  linkTarget: string | null;
 }>;
 
 function canonicalBytes(value: unknown): string {
@@ -89,6 +121,14 @@ function canonicalBytes(value: unknown): string {
 
 function identityOf(value: Pick<PhysicalDirectoryIdentityV1, 'device' | 'inode' | 'objectId'>): GeneratedStatePhysicalIdentityV1 {
   return Object.freeze({ device: value.device, inode: value.inode, objectId: value.objectId });
+}
+
+function physicalFormForObservedKindV1(
+  rule: GeneratedStateRuleV1,
+  kind: ObservedGeneratedStateRootV1['kind']
+): GeneratedStatePhysicalFormV1 | null {
+  if (kind === 'missing') return null;
+  return rule.physicalForms.find((form) => form.kind === kind) ?? null;
 }
 
 function sameIdentity(
@@ -183,21 +223,35 @@ function observeRoot(workspaceRoot: string, relativePath: string): ObservedGener
     metadata = lstatSync(absolutePath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return Object.freeze({ kind: 'missing', identity: null, directory: null });
+      return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
     }
     throw error;
   }
   if (metadata.isSymbolicLink()) {
-    return Object.freeze({ kind: 'link', identity: null, directory: null });
+    const parent = inspectNoFollowDirectoryChainV1(path.dirname(absolutePath), 'Generated-state link parent').target;
+    const entry = inspectNoFollowLinkEntryV1(parent, path.basename(absolutePath));
+    if (entry === null || entry.linkTarget === null) {
+      return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
+    }
+    return Object.freeze({
+      kind: 'link',
+      identity: Object.freeze({
+        device: entry.device,
+        inode: entry.inode,
+        objectId: generatedStateDigestV1({ kind: 'link', target: entry.linkTarget })
+      }),
+      directory: null,
+      linkTarget: entry.linkTarget
+    });
   }
   if (metadata.isDirectory()) {
     const directory = inspectNoFollowDirectoryChainV1(absolutePath, 'Generated-state root').target;
-    return Object.freeze({ kind: 'directory', identity: identityOf(directory), directory });
+    return Object.freeze({ kind: 'directory', identity: identityOf(directory), directory, linkTarget: null });
   }
-  if (!metadata.isFile()) return Object.freeze({ kind: 'link', identity: null, directory: null });
+  if (!metadata.isFile()) return Object.freeze({ kind: 'link', identity: null, directory: null, linkTarget: null });
   const parent = inspectNoFollowDirectoryChainV1(path.dirname(absolutePath), 'Generated-state file parent').target;
   const entry = inspectNoFollowOrdinaryFileEntryV1(parent, path.basename(absolutePath));
-  if (entry === null) return Object.freeze({ kind: 'missing', identity: null, directory: null });
+  if (entry === null) return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
   return Object.freeze({
     kind: 'file',
     identity: Object.freeze({
@@ -205,7 +259,8 @@ function observeRoot(workspaceRoot: string, relativePath: string): ObservedGener
       inode: entry.inode,
       objectId: `${entry.device}:${entry.inode}`
     }),
-    directory: null
+    directory: null,
+    linkTarget: null
   });
 }
 
@@ -299,8 +354,8 @@ async function registerGeneratedStateBirthV1(input: Readonly<{
   }
   const workspace = inspectNoFollowDirectoryChainV1(workspaceRoot, 'Generated-state workspace root').target;
   const observed = observeRoot(workspaceRoot, relativePath);
-  if (observed.identity === null || observed.kind === 'link') {
-    throw new Error('Generated-state birth requires one present ordinary physical root.');
+  if (observed.identity === null || physicalFormForObservedKindV1(rule, observed.kind) === null) {
+    throw new Error('Generated-state birth requires one registered physical form with exact identity.');
   }
   const observedCurrent = loadRegistration(openRuntimeStoreReadOnly(workspaceRoot, options), relativePath);
   if (observedCurrent?.phase === 'active' && sameIdentity(observedCurrent.root, observed.identity)) {
@@ -442,14 +497,28 @@ interface GeneratedStateWorktreeRetirementIntentV1 {
   readonly worktree: { readonly branch: string; readonly headSha: string; readonly treeSha: string };
   readonly statusDigest: `sha256:${string}`;
   readonly inventoryDigest: `sha256:${string}`;
-  readonly retentionRoot: { readonly path: string } & GeneratedStatePhysicalIdentityV1;
-  readonly entries: readonly Readonly<{
-    relativePath: string;
-    destinationName: string;
-    source: GeneratedStatePhysicalIdentityV1;
-    inventoryDigest: `sha256:${string}`;
-    ruleIds: readonly string[];
-  }>[];
+  readonly retentionRoot: ({ readonly path: string } & GeneratedStatePhysicalIdentityV1) | null;
+  readonly entries: readonly (
+    | Readonly<{
+        action: 'preserve';
+        relativePath: string;
+        destinationName: string;
+        source: GeneratedStatePhysicalIdentityV1;
+        inventoryDigest: `sha256:${string}`;
+        ruleIds: readonly string[];
+      }>
+    | Readonly<{
+        action: 'domain-retire';
+        relativePath: string;
+        source: GeneratedStatePhysicalIdentityV1;
+        inventoryDigest: `sha256:${string}`;
+        ruleIds: readonly string[];
+        registration: GeneratedStateRegistrationV1;
+        providerId: string;
+        providerPlanBytes: string;
+        providerPlanDigest: `sha256:${string}`;
+      }>
+  )[];
   readonly intentDigest: `sha256:${string}`;
 }
 
@@ -525,25 +594,30 @@ function rulesBelowGeneratedPathV1(relativePath: string): readonly GeneratedStat
   });
 }
 
-function exactIgnoredRootPlanV1(
+async function exactIgnoredRootPlanV1(
+  repositoryRoot: string,
   workspaceRoot: string,
   relativePath: string,
-  excludedOwnerAnchor: string | null
-): GeneratedStateWorktreeRetirementIntentV1['entries'][number] {
+  excludedOwnerAnchor: string | null,
+  store: GeneratedStateRuntimeStoreV1,
+  options: GeneratedStateLifecycleOptionsV1
+): Promise<GeneratedStateWorktreeRetirementIntentV1['entries'][number]> {
   const observed = observeRoot(workspaceRoot, relativePath);
-  if (observed.kind !== 'directory' || observed.directory === null || observed.identity === null) {
-    throw new GeneratedStateWorktreeRetirementBlockedError(
-      `Generated-state worktree retirement only preserves ordinary directory roots: ${relativePath}.`
-    );
-  }
   const withoutExcludedOwner = (rules: readonly GeneratedStateRuleV1[]) => rules.filter(({ selector }) =>
     (selector.kind === 'exact' ? selector.path : selector.parent) !== excludedOwnerAnchor
   );
   const directOwners = withoutExcludedOwner(rulesOwningGeneratedPathV1(relativePath));
+  if (observed.identity === null || directOwners.length === 0) {
+    if (observed.kind !== 'directory' || observed.directory === null) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(
+        `Generated-state worktree retirement found an unowned physical root: ${relativePath}.`
+      );
+    }
+  }
   const inventory =
     directOwners.length > 0
       ? Object.freeze([])
-      : scanNoFollowDirectoryTreeMetadataV1(observed.directory, {
+      : scanNoFollowDirectoryTreeMetadataV1(observed.directory!, {
           deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
           maximumEntries: MAXIMUM_CLEANUP_ENTRIES
         });
@@ -563,7 +637,60 @@ function exactIgnoredRootPlanV1(
     for (const rule of [...owners, ...descendants]) coveredRules.add(rule.id);
   }
   const source = observed.identity;
+  if (source === null) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement cannot identify root: ${relativePath}.`
+    );
+  }
+  const directForm = directOwners.length === 1
+    ? physicalFormForObservedKindV1(directOwners[0]!, observed.kind)
+    : null;
+  if (directOwners.length > 0 && directForm === null) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement physical form is not registered: ${relativePath}.`
+    );
+  }
+  if (directForm?.worktreeRetirement.mode === 'domain-retire') {
+    const providerId = directForm.worktreeRetirement.providerId;
+    const registration = loadRegistration(store, relativePath);
+    if (registration === null || registration.phase !== 'retired' ||
+        registration.ruleId !== directOwners[0]!.id || !sameIdentity(registration.root, source)) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(
+        `Generated-state worktree retirement lacks one exact retired domain registration: ${relativePath}.`
+      );
+    }
+    const providers = options.worktreeRetirementProviders?.filter(({ id }) =>
+      id === providerId
+    ) ?? [];
+    if (providers.length !== 1) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(
+        `Generated-state worktree retirement provider is unavailable or ambiguous: ${providerId}.`
+      );
+    }
+    const provider = providers[0]!;
+    const plan = await provider.plan({ repositoryRoot, workspaceRoot, relativePath, source, registration });
+    if (plan.digest !== generatedStateDomainProviderMaterialDigestV1(provider.id, 'plan', plan.bytes)) {
+      throw new Error(`Generated-state worktree retirement provider plan digest is invalid: ${provider.id}.`);
+    }
+    return Object.freeze({
+      action: 'domain-retire' as const,
+      relativePath,
+      source,
+      inventoryDigest: generatedStateDigestV1({ relativePath, source, providerId: provider.id, providerPlanDigest: plan.digest }),
+      ruleIds: Object.freeze([...coveredRules].sort()),
+      registration,
+      providerId: provider.id,
+      providerPlanBytes: plan.bytes,
+      providerPlanDigest: plan.digest
+    });
+  }
+  if (observed.kind !== 'directory' || observed.directory === null) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement only preserves ordinary directory roots: ${relativePath}.`
+    );
+  }
   return Object.freeze({
+    action: 'preserve' as const,
     relativePath,
     destinationName: `g-${generatedStateDigestV1({ relativePath, source }).slice('sha256:'.length)}`,
     source,
@@ -660,17 +787,22 @@ async function worktreeRetirementStatusV1(
 
 function validateWorktreeRetirementReceiptPhysicalV1(receipt: GeneratedStateWorktreeRetirementV1): GeneratedStateWorktreeRetirementV1 {
   assertGeneratedStateWorktreeRetirementV1(receipt);
-  if (receipt.retentionRoot === null) return receipt;
-  const retentionRoot = inspectNoFollowDirectoryChainV1(
-    receipt.retentionRoot.path,
-    'Generated-state worktree retirement retained root'
-  ).target;
-  if (!sameWorktreeRetirementIdentityV1(identityOf(retentionRoot), receipt.retentionRoot)) {
+  const retentionRoot = receipt.retentionRoot === null
+    ? null
+    : inspectNoFollowDirectoryChainV1(
+        receipt.retentionRoot.path,
+        'Generated-state worktree retirement retained root'
+      ).target;
+  if (retentionRoot !== null && !sameWorktreeRetirementIdentityV1(identityOf(retentionRoot), receipt.retentionRoot!)) {
     throw new Error('Generated-state worktree retirement retained root identity changed.');
   }
   for (const entry of receipt.entries) {
     if (observeRoot(receipt.workspacePath, entry.relativePath).kind !== 'missing') {
       throw new Error(`Generated-state worktree retirement source reappeared: ${entry.relativePath}.`);
+    }
+    if (entry.action === 'domain-retired') continue;
+    if (retentionRoot === null) {
+      throw new Error('Generated-state worktree retirement preserved entry lacks a retention root.');
     }
     const retained = inspectNoFollowDirectoryChainV1(
       path.join(retentionRoot.path, entry.destinationName),
@@ -782,9 +914,9 @@ export async function settleGeneratedStateForWorktreeRetirementV1(
       throw new Error('Generated-state worktree retirement active intent changed during admission.');
     }
     if (intent === null) {
-      const entries = Object.freeze(status.ignoredRoots.map(({ relativePath, excludedOwnerAnchor }) =>
-        exactIgnoredRootPlanV1(workspaceRoot, relativePath, excludedOwnerAnchor)
-      ));
+      const entries = Object.freeze(await Promise.all(status.ignoredRoots.map(({ relativePath, excludedOwnerAnchor }) =>
+        exactIgnoredRootPlanV1(repositoryRoot, workspaceRoot, relativePath, excludedOwnerAnchor, store, options)
+      )));
       const inventoryDigest = generatedStateDigestV1(entries);
       const operationId = generatedStateDigestV1(
         Object.freeze({
@@ -802,27 +934,31 @@ export async function settleGeneratedStateForWorktreeRetirementV1(
           registryDigest: GENERATED_STATE_REGISTRY_V1.registryDigest
         })
       );
-      const parent = inspectNoFollowDirectoryChainV1(
-        path.dirname(workspaceRoot),
-        'Generated-state worktree retirement retention parent'
-      ).target;
-      const retentionRootPath = path.join(
-        path.dirname(workspaceRoot),
-        `sec-generated-state-retirement-${operationId.slice('sha256:'.length)}`
-      );
-      if (inspectExactNoFollowDirectoryPresenceV1(
-        retentionRootPath,
-        'Generated-state worktree retirement new retention root'
-      ).state !== 'absent') {
-        throw new Error('Generated-state worktree retirement retention root exists without an active intent.');
-      }
-      const retentionRoot = createNoFollowOrdinaryDirectoryChainV1(parent, [path.basename(retentionRootPath)]);
-      if (retentionRoot.device !== workspace.device ||
-          scanNoFollowDirectoryTreeMetadataV1(retentionRoot, {
-            deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
-            maximumEntries: MAXIMUM_CLEANUP_ENTRIES
-          }).length !== 0) {
-        throw new Error('Generated-state worktree retirement new retention root is not one empty same-volume object.');
+      const needsRetentionRoot = entries.some(({ action }) => action === 'preserve');
+      let retentionRoot: PhysicalDirectoryIdentityV1 | null = null;
+      if (needsRetentionRoot) {
+        const parent = inspectNoFollowDirectoryChainV1(
+          path.dirname(workspaceRoot),
+          'Generated-state worktree retirement retention parent'
+        ).target;
+        const retentionRootPath = path.join(
+          path.dirname(workspaceRoot),
+          `sec-generated-state-retirement-${operationId.slice('sha256:'.length)}`
+        );
+        if (inspectExactNoFollowDirectoryPresenceV1(
+          retentionRootPath,
+          'Generated-state worktree retirement new retention root'
+        ).state !== 'absent') {
+          throw new Error('Generated-state worktree retirement retention root exists without an active intent.');
+        }
+        retentionRoot = createNoFollowOrdinaryDirectoryChainV1(parent, [path.basename(retentionRootPath)]);
+        if (retentionRoot.device !== workspace.device ||
+            scanNoFollowDirectoryTreeMetadataV1(retentionRoot, {
+              deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+              maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+            }).length !== 0) {
+          throw new Error('Generated-state worktree retirement new retention root is not one empty same-volume object.');
+        }
       }
       intent = worktreeRetirementIntentV1({
         operationId,
@@ -836,7 +972,7 @@ export async function settleGeneratedStateForWorktreeRetirementV1(
         },
         statusDigest: status.statusDigest,
         inventoryDigest,
-        retentionRoot: { path: retentionRoot.path, ...identityOf(retentionRoot) },
+        retentionRoot: retentionRoot === null ? null : { path: retentionRoot.path, ...identityOf(retentionRoot) },
         entries
       });
       store.fs.replaceFsync(activePath, canonicalBytes(intent));
@@ -851,28 +987,78 @@ export async function settleGeneratedStateForWorktreeRetirementV1(
     ) {
       throw new Error('Generated-state worktree retirement active intent belongs to another admission.');
     }
-    const retentionRoot = inspectNoFollowDirectoryChainV1(
-      intent.retentionRoot.path,
-      'Generated-state worktree retirement retention root'
-    ).target;
-    if (retentionRoot.device !== workspace.device ||
-        !sameWorktreeRetirementIdentityV1(identityOf(retentionRoot), intent.retentionRoot)) {
+    const retentionRoot = intent.retentionRoot === null
+      ? null
+      : inspectNoFollowDirectoryChainV1(
+          intent.retentionRoot.path,
+          'Generated-state worktree retirement retention root'
+        ).target;
+    if (retentionRoot !== null && (retentionRoot.device !== workspace.device ||
+        !sameWorktreeRetirementIdentityV1(identityOf(retentionRoot), intent.retentionRoot!))) {
       throw new Error('Generated-state worktree retirement retention root identity changed.');
     }
-    const knownDestinations = new Set(intent.entries.map(({ destinationName }) => destinationName));
-    const unknownRetentionEntries = scanNoFollowDirectoryTreeMetadataV1(retentionRoot, {
-      deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
-      maximumEntries: MAXIMUM_CLEANUP_ENTRIES
-    }).filter(({ relativePath }) => {
-      const top = relativePath.split('/')[0]!;
-      return !knownDestinations.has(top);
-    });
-    if (unknownRetentionEntries.length > 0) {
-      throw new Error('Generated-state worktree retirement retention root contains unknown content.');
+    if (retentionRoot !== null) {
+      const knownDestinations = new Set(intent.entries
+        .filter((entry) => entry.action === 'preserve')
+        .map(({ destinationName }) => destinationName));
+      const unknownRetentionEntries = scanNoFollowDirectoryTreeMetadataV1(retentionRoot, {
+        deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+        maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+      }).filter(({ relativePath }) => {
+        const top = relativePath.split('/')[0]!;
+        return !knownDestinations.has(top);
+      });
+      if (unknownRetentionEntries.length > 0) {
+        throw new Error('Generated-state worktree retirement retention root contains unknown content.');
+      }
     }
     const retainedEntries = [] as Array<GeneratedStateWorktreeRetirementV1['entries'][number]>;
     for (const entry of intent.entries) {
       await lease.assertOwned();
+      if (entry.action === 'domain-retire') {
+        const providers = options.worktreeRetirementProviders?.filter(({ id }) => id === entry.providerId) ?? [];
+        if (providers.length !== 1) {
+          throw new GeneratedStateWorktreeRetirementBlockedError(
+            `Generated-state worktree retirement provider is unavailable or ambiguous: ${entry.providerId}.`
+          );
+        }
+        const provider = providers[0]!;
+        const providerReceipt = await provider.retire({
+          operationId: intent.operationId,
+          repositoryRoot,
+          workspaceRoot,
+          relativePath: entry.relativePath,
+          source: entry.source,
+          registration: entry.registration,
+          planBytes: entry.providerPlanBytes,
+          planDigest: entry.providerPlanDigest
+        });
+        if (providerReceipt.digest !== generatedStateDomainProviderMaterialDigestV1(
+          provider.id,
+          'receipt',
+          providerReceipt.bytes
+        )) {
+          throw new Error(`Generated-state worktree retirement provider receipt digest is invalid: ${provider.id}.`);
+        }
+        if (observeRoot(workspaceRoot, entry.relativePath).kind !== 'missing') {
+          throw new Error(`Generated-state worktree retirement provider left source present: ${entry.relativePath}.`);
+        }
+        retainedEntries.push(Object.freeze({
+          relativePath: entry.relativePath,
+          source: entry.source,
+          inventoryDigest: entry.inventoryDigest,
+          ruleIds: entry.ruleIds,
+          action: 'domain-retired' as const,
+          providerId: entry.providerId,
+          providerPlanDigest: entry.providerPlanDigest,
+          providerReceiptBytes: providerReceipt.bytes,
+          providerReceiptDigest: providerReceipt.digest
+        }));
+        continue;
+      }
+      if (retentionRoot === null) {
+        throw new Error('Generated-state worktree retirement preserve intent lacks a retention root.');
+      }
       const source = observeRoot(workspaceRoot, entry.relativePath);
       const destinationPath = path.join(retentionRoot.path, entry.destinationName);
       const destination = inspectExactNoFollowDirectoryPresenceV1(destinationPath, `Generated-state retained ${entry.relativePath}`);
@@ -916,7 +1102,7 @@ export async function settleGeneratedStateForWorktreeRetirementV1(
       worktree: intent.worktree,
       statusDigest: intent.statusDigest,
       inventoryDigest: intent.inventoryDigest,
-      retentionRoot: { path: retentionRoot.path, ...identityOf(retentionRoot) },
+      retentionRoot: retentionRoot === null ? null : { path: retentionRoot.path, ...identityOf(retentionRoot) },
       entries: Object.freeze(retainedEntries),
       blockers: Object.freeze([])
     });
@@ -990,9 +1176,12 @@ export async function inspectGeneratedStateV1(input: Readonly<{
       }
       if (registration?.phase === 'active') blockers.push('owner-active');
     }
-    if (observed.kind === 'link') blockers.push('root-is-link-or-reparse');
-    else if (observed.kind !== 'missing' && observed.kind !== rule.rootKind) {
+    const physicalForm = physicalFormForObservedKindV1(rule, observed.kind);
+    if (observed.kind !== 'missing' && physicalForm === null) {
       blockers.push('root-kind-differs-from-policy');
+    }
+    if (physicalForm?.settlementEffect === 'domain-owner-only' && observed.kind !== 'missing') {
+      blockers.push('domain-owner-settlement-required');
     }
     const ready = observed.identity !== null && blockers.length === 0 && registration?.phase === 'retired';
     entries.push(Object.freeze({

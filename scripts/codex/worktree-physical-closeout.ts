@@ -18,6 +18,7 @@ import {
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
 import { runCommandBytes } from '../../platform/shared/process.ts';
+import { compilerDependencyLocatorWorktreeRetirementProviderV1 } from '../../platform/shared/project-runtime.ts';
 import {
   acquireWorkspaceWriteLease,
   assertWorkspaceWriteLease,
@@ -680,6 +681,10 @@ export async function prepareWorktreePhysicalCloseoutV1(
         expectedBranch: input.expectedBranch,
         expectedHeadSha: input.expectedHeadSha,
         expectedTreeSha: input.expectedTreeSha
+      }, {
+        worktreeRetirementProviders: Object.freeze([
+          compilerDependencyLocatorWorktreeRetirementProviderV1
+        ])
       });
     } catch (error) {
       if (!isGeneratedStateWorktreeRetirementBlockedV1(error)) throw error;

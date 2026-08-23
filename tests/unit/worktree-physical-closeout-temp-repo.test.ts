@@ -9,6 +9,7 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -24,6 +25,7 @@ import {
   inspectNoFollowDirectoryChainV1,
   relocateRetainedNoFollowDirectoryV1
 } from '../../platform/shared/physical-no-follow.ts';
+import { ensureCompilerDepsReady } from '../../platform/shared/project-runtime.ts';
 import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirementV1 } from '../../platform/shared/workspace-write-lease.ts';
 import {
   createWorktreePhysicalCloseoutReceiptV1,
@@ -38,6 +40,7 @@ import {
   prepareTrustedWorktreePhysicalCloseoutV1,
   prepareWorktreePhysicalCloseoutV1
 } from '../../scripts/codex/worktree-physical-closeout.ts';
+import { generatedStateProducerHooksV1 } from '../../tooling/sec-dev/generated-state-lifecycle.ts';
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });
@@ -51,7 +54,38 @@ function gitPath(value: string): string {
   return value.replaceAll('\\', '/');
 }
 
-function fixture() {
+function writeCompilerDependencyInputsV1(root: string): void {
+  writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({
+    packageManager: `bun@${process.versions.bun}`,
+    dependencies: { commander: '1.0.0' },
+    devDependencies: { 'ts-morph': '1.0.0', typescript: '1.0.0' }
+  })}\n`, 'utf8');
+  writeFileSync(path.join(root, 'bun.lock'), 'lock-v1\n', 'utf8');
+  writeFileSync(path.join(root, '.bun-version'), `${process.versions.bun}\n`, 'utf8');
+  writeFileSync(path.join(root, '.gitignore'), 'node_modules/\n.tmp/\n', 'utf8');
+}
+
+function materializeCompilerDependencyFixtureV1(root: string): void {
+  const packages = [
+    { name: 'commander', version: '1.0.0' },
+    { name: '@ts-morph/common', version: '1.0.0', main: 'dist/ts-morph-common.js' },
+    { name: 'code-block-writer', version: '1.0.0', main: './script/mod.js' },
+    { name: 'ts-morph', version: '1.0.0', main: 'dist/ts-morph.js' },
+    { name: 'typescript', version: '1.0.0', main: './lib/typescript.js' }
+  ];
+  for (const manifest of packages) {
+    const packageRoot = path.join(root, 'node_modules', manifest.name);
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(path.join(packageRoot, 'package.json'), `${JSON.stringify(manifest)}\n`, 'utf8');
+    if (manifest.main !== undefined) {
+      const entry = path.join(packageRoot, ...manifest.main.replace(/^\.\//u, '').split('/'));
+      mkdirSync(path.dirname(entry), { recursive: true });
+      writeFileSync(entry, `primary:${manifest.name}\n`, 'utf8');
+    }
+  }
+}
+
+function fixture(options: Readonly<{ compilerDependencies?: boolean }> = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-worktree-physical-closeout-'));
   const remote = path.join(root, 'remote.git');
   const repository = path.join(root, 'repository');
@@ -62,7 +96,8 @@ function fixture() {
   git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
   git(repository, ['config', 'core.autocrlf', 'false']);
   writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
-  git(repository, ['add', 'tracked.txt']);
+  if (options.compilerDependencies === true) writeCompilerDependencyInputsV1(repository);
+  git(repository, ['add', '.']);
   git(repository, ['commit', '-m', 'main']);
   git(repository, ['remote', 'add', 'origin', remote]);
   git(repository, ['push', '-u', 'origin', 'main']);
@@ -121,7 +156,8 @@ test('real registered worktree reaches registry and physical absence under one d
       expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
-    });
+});
+
     expect(existsSync(authorization.authorizationPath)).toBe(true);
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
     const receipt = await executeWorktreePhysicalCloseoutV1({
@@ -165,6 +201,71 @@ test('real registered worktree reaches registry and physical absence under one d
     rmSync(value.root, { recursive: true, force: true });
   }
 }, 30_000);
+
+test('closeout composes provider retirement for an automatically reused dependency locator', async () => {
+  const value = fixture({ compilerDependencies: true });
+  try {
+    await ensureCompilerDepsReady({
+      commandRunner: async (_command, _args, command) => {
+        materializeCompilerDependencyFixtureV1(command.cwd);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      }
+    }, value.repository);
+    const lifecycle = generatedStateProducerHooksV1({
+      repositoryRoot: value.repository,
+      workspaceRoot: value.target
+    });
+    const ready = await ensureCompilerDepsReady({
+      commandRunner: async () => {
+        throw new Error('Linked-worktree closeout fixture must reuse the exact local generation.');
+      },
+      generatedStateLifecycle: lifecycle
+    }, value.target);
+    expect(ready.source).toBe('existing');
+    expect(path.resolve(realpathSync(path.join(value.target, 'node_modules'))))
+      .toBe(path.resolve(realpathSync(path.join(value.repository, 'node_modules'))));
+
+    const authorization = await prepareWorktreePhysicalCloseoutV1({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    expect(authorization.generatedStateRetirement).toMatchObject({ terminal: 'completed' });
+    expect(authorization.generatedStateRetirement?.entries.find(
+      ({ relativePath }) => relativePath === 'node_modules'
+    )).toMatchObject({
+      relativePath: 'node_modules',
+      action: 'domain-retired',
+      providerId: 'compiler-dependency-locator'
+    });
+    expect(existsSync(path.join(value.target, 'node_modules'))).toBe(false);
+    expect(readFileSync(
+      path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
+      'utf8'
+    )).toBe('primary:typescript\n');
+
+    const receipt = await executeWorktreePhysicalCloseoutV1({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+    expect(receipt.readback).toMatchObject({ registryPresent: false, physicalPresent: false });
+    expect(readFileSync(
+      path.join(value.repository, 'node_modules', 'typescript', 'lib', 'typescript.js'),
+      'utf8'
+    )).toBe('primary:typescript\n');
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 20_000);
 
 test('Windows real closeout streams a large tracked leaf, normalizes readonly, and never traverses a junction', async () => {
   if (process.platform !== 'win32') return;

@@ -22,12 +22,25 @@ export type GeneratedStateObservedClassV1 = GeneratedStateClassV1 | 'orphaned-ow
 export type GeneratedStateCleanupProfileV1 = 'automatic' | 'safe' | 'all-rebuildable';
 export type GeneratedStateRegistrationPolicyV1 = 'required-at-birth' | 'domain-owned';
 export type GeneratedStateRetirementPolicyV1 = 'domain-receipt-required';
-export type GeneratedStateRootKindV1 = 'directory' | 'file';
+export type GeneratedStateRootKindV1 = 'directory' | 'file' | 'link';
 export type GeneratedStateScopeV1 = 'workspace' | 'operation';
 export type GeneratedStateActiveOwnerSignalV1 = 'birth-registration' | 'domain-owner-receipt';
-export type GeneratedStateContentsPolicyV1 = 'owner-bounded-tree' | 'ordinary-file' | 'opaque-protected-tree';
+export type GeneratedStateContentsPolicyV1 =
+  | 'owner-bounded-tree'
+  | 'ordinary-file'
+  | 'opaque-protected-tree'
+  | 'owner-bound-locator';
 export type GeneratedStateCapacityPolicyRefV1 = 'issue-316' | 'owner-defined-protected';
 export type GeneratedStateSettlementEffectV1 = 'generated-state-quarantine-delete-readback' | 'domain-owner-only';
+export type GeneratedStateWorktreeRetirementDispositionV1 =
+  | Readonly<{ mode: 'preserve' }>
+  | Readonly<{ mode: 'domain-retire'; providerId: string }>;
+export interface GeneratedStatePhysicalFormV1 {
+  readonly kind: GeneratedStateRootKindV1;
+  readonly contentsPolicy: GeneratedStateContentsPolicyV1;
+  readonly settlementEffect: GeneratedStateSettlementEffectV1;
+  readonly worktreeRetirement: GeneratedStateWorktreeRetirementDispositionV1;
+}
 export type GeneratedStateReconstructionV1 =
   | 'producer-recompute'
   | 'fixture-rebuild'
@@ -44,12 +57,10 @@ export interface GeneratedStateRuleV1 {
   readonly stateClass: Exclude<GeneratedStateClassV1, 'quarantine-pending-cleanup' | 'unknown-unclassified'>;
   readonly owner: string;
   readonly producer: string;
-  readonly rootKind: GeneratedStateRootKindV1;
+  readonly physicalForms: readonly GeneratedStatePhysicalFormV1[];
   readonly scope: GeneratedStateScopeV1;
   readonly activeOwnerSignal: GeneratedStateActiveOwnerSignalV1;
-  readonly contentsPolicy: GeneratedStateContentsPolicyV1;
   readonly capacityPolicyRef: GeneratedStateCapacityPolicyRefV1;
-  readonly settlementEffect: GeneratedStateSettlementEffectV1;
   readonly registration: GeneratedStateRegistrationPolicyV1;
   readonly reconstruction: GeneratedStateReconstructionV1;
   readonly cleanupProfiles: readonly GeneratedStateCleanupProfileV1[];
@@ -130,7 +141,7 @@ export interface GeneratedStateSettlementV1 {
   readonly settlementDigest: `sha256:${string}`;
 }
 
-export interface GeneratedStateWorktreeRetirementEntryV1 {
+export interface GeneratedStateWorktreePreservedEntryV1 {
   readonly relativePath: string;
   readonly destinationName: string;
   readonly source: GeneratedStatePhysicalIdentityV1;
@@ -140,13 +151,29 @@ export interface GeneratedStateWorktreeRetirementEntryV1 {
   readonly action: 'preserved';
 }
 
+export interface GeneratedStateWorktreeDomainRetiredEntryV1 {
+  readonly relativePath: string;
+  readonly source: GeneratedStatePhysicalIdentityV1;
+  readonly inventoryDigest: `sha256:${string}`;
+  readonly ruleIds: readonly string[];
+  readonly action: 'domain-retired';
+  readonly providerId: string;
+  readonly providerPlanDigest: `sha256:${string}`;
+  readonly providerReceiptBytes: string;
+  readonly providerReceiptDigest: `sha256:${string}`;
+}
+
+export type GeneratedStateWorktreeRetirementEntryV1 =
+  | GeneratedStateWorktreePreservedEntryV1
+  | GeneratedStateWorktreeDomainRetiredEntryV1;
+
 /**
  * Durable #271 handoff for an enclosing #186 worktree retirement.
  *
- * The generated-state owner never authorizes deletion here.  It proves every
- * ignored root is registry-covered, moves the exact objects outside the
- * retiring worktree on the same volume, and retains their identities for
- * Effect-start revalidation by the worktree owner.
+ * The generated-state owner never infers deletion authority here. It proves
+ * every ignored root is registry-covered, preserves ordinary roots outside
+ * the worktree, and composes exact receipts from explicitly named domain
+ * providers for locator-like physical forms.
  */
 export interface GeneratedStateWorktreeRetirementV1 {
   readonly schema: typeof GENERATED_STATE_WORKTREE_RETIREMENT_SCHEMA_V1;
@@ -185,13 +212,13 @@ const CLEANUP_PROFILES = new Set<GeneratedStateCleanupProfileV1>([
 const RECONSTRUCTION = new Set<GeneratedStateReconstructionV1>([
   'producer-recompute', 'fixture-rebuild', 'rerun-diagnostic', 'owner-recovery-only'
 ]);
-const ROOT_KINDS = new Set<GeneratedStateRootKindV1>(['directory', 'file']);
+const ROOT_KINDS = new Set<GeneratedStateRootKindV1>(['directory', 'file', 'link']);
 const SCOPES = new Set<GeneratedStateScopeV1>(['workspace', 'operation']);
 const ACTIVE_OWNER_SIGNALS = new Set<GeneratedStateActiveOwnerSignalV1>([
   'birth-registration', 'domain-owner-receipt'
 ]);
 const CONTENTS_POLICIES = new Set<GeneratedStateContentsPolicyV1>([
-  'owner-bounded-tree', 'ordinary-file', 'opaque-protected-tree'
+  'owner-bounded-tree', 'ordinary-file', 'opaque-protected-tree', 'owner-bound-locator'
 ]);
 const CAPACITY_POLICY_REFS = new Set<GeneratedStateCapacityPolicyRefV1>([
   'issue-316', 'owner-defined-protected'
@@ -266,8 +293,8 @@ export function parseGeneratedStateRegistryV1(value: unknown): GeneratedStateReg
     const rule = plainRecord(candidate, `rules[${index}]`);
     exactKeys(rule, [
       'id', 'selector', 'stateClass', 'owner', 'producer', 'registration',
-      'reconstruction', 'cleanupProfiles', 'retirement', 'rootKind', 'scope',
-      'activeOwnerSignal', 'contentsPolicy', 'capacityPolicyRef', 'settlementEffect'
+      'reconstruction', 'cleanupProfiles', 'retirement', 'physicalForms', 'scope',
+      'activeOwnerSignal', 'capacityPolicyRef'
     ], `rules[${index}]`);
     const id = stringValue(rule.id, `rules[${index}].id`);
     if (!SAFE_ID.test(id) || ids.has(id)) fail(`rules[${index}].id is invalid or duplicate.`);
@@ -296,22 +323,56 @@ export function parseGeneratedStateRegistryV1(value: unknown): GeneratedStateReg
       fail(`rules[${index}].cleanupProfiles contains duplicates.`);
     }
     if (rule.retirement !== 'domain-receipt-required') fail(`rules[${index}].retirement is invalid.`);
-    const rootKind = rule.rootKind as GeneratedStateRootKindV1;
     const scope = rule.scope as GeneratedStateScopeV1;
     const activeOwnerSignal = rule.activeOwnerSignal as GeneratedStateActiveOwnerSignalV1;
-    const contentsPolicy = rule.contentsPolicy as GeneratedStateContentsPolicyV1;
     const capacityPolicyRef = rule.capacityPolicyRef as GeneratedStateCapacityPolicyRefV1;
-    const settlementEffect = rule.settlementEffect as GeneratedStateSettlementEffectV1;
-    if (!ROOT_KINDS.has(rootKind) || !SCOPES.has(scope)
-        || !ACTIVE_OWNER_SIGNALS.has(activeOwnerSignal) || !CONTENTS_POLICIES.has(contentsPolicy)
-        || !CAPACITY_POLICY_REFS.has(capacityPolicyRef) || !SETTLEMENT_EFFECTS.has(settlementEffect)) {
+    if (!SCOPES.has(scope) || !ACTIVE_OWNER_SIGNALS.has(activeOwnerSignal)
+        || !CAPACITY_POLICY_REFS.has(capacityPolicyRef)) {
       fail(`rules[${index}] lifecycle policy is invalid.`);
     }
-    if ((rootKind === 'file') !== (contentsPolicy === 'ordinary-file')) {
-      fail(`rules[${index}] rootKind and contentsPolicy disagree.`);
+    if (!Array.isArray(rule.physicalForms) || rule.physicalForms.length === 0) {
+      fail(`rules[${index}].physicalForms must be a non-empty array.`);
     }
-    if ((cleanupProfiles.length === 0) !== (settlementEffect === 'domain-owner-only')) {
-      fail(`rules[${index}] cleanup profiles and settlementEffect disagree.`);
+    const physicalForms = rule.physicalForms.map((candidateForm, formIndex): GeneratedStatePhysicalFormV1 => {
+      const form = plainRecord(candidateForm, `rules[${index}].physicalForms[${formIndex}]`);
+      exactKeys(form, ['kind', 'contentsPolicy', 'settlementEffect', 'worktreeRetirement'], `rules[${index}].physicalForms[${formIndex}]`);
+      const kind = form.kind as GeneratedStateRootKindV1;
+      const contentsPolicy = form.contentsPolicy as GeneratedStateContentsPolicyV1;
+      const settlementEffect = form.settlementEffect as GeneratedStateSettlementEffectV1;
+      if (!ROOT_KINDS.has(kind) || !CONTENTS_POLICIES.has(contentsPolicy) || !SETTLEMENT_EFFECTS.has(settlementEffect)) {
+        fail(`rules[${index}].physicalForms[${formIndex}] lifecycle policy is invalid.`);
+      }
+      if ((kind === 'file') !== (contentsPolicy === 'ordinary-file') ||
+          (kind === 'link') !== (contentsPolicy === 'owner-bound-locator')) {
+        fail(`rules[${index}].physicalForms[${formIndex}] kind and contentsPolicy disagree.`);
+      }
+      const retirement = plainRecord(form.worktreeRetirement, `rules[${index}].physicalForms[${formIndex}].worktreeRetirement`);
+      const mode = retirement.mode;
+      if (mode === 'preserve') {
+        exactKeys(retirement, ['mode'], `rules[${index}].physicalForms[${formIndex}].worktreeRetirement`);
+        if (kind === 'link') fail(`rules[${index}].physicalForms[${formIndex}] cannot generically preserve a locator.`);
+        return Object.freeze({ kind, contentsPolicy, settlementEffect, worktreeRetirement: Object.freeze({ mode }) });
+      }
+      if (mode === 'domain-retire') {
+        exactKeys(retirement, ['mode', 'providerId'], `rules[${index}].physicalForms[${formIndex}].worktreeRetirement`);
+        const providerId = stringValue(retirement.providerId, `rules[${index}].physicalForms[${formIndex}].providerId`);
+        if (!SAFE_ID.test(providerId) || settlementEffect !== 'domain-owner-only') {
+          fail(`rules[${index}].physicalForms[${formIndex}] domain retirement is invalid.`);
+        }
+        return Object.freeze({
+          kind,
+          contentsPolicy,
+          settlementEffect,
+          worktreeRetirement: Object.freeze({ mode, providerId })
+        });
+      }
+      return fail(`rules[${index}].physicalForms[${formIndex}].worktreeRetirement is invalid.`);
+    });
+    if (new Set(physicalForms.map(({ kind }) => kind)).size !== physicalForms.length) {
+      fail(`rules[${index}].physicalForms contains duplicate kinds.`);
+    }
+    if ((cleanupProfiles.length === 0) !== physicalForms.every(({ settlementEffect }) => settlementEffect === 'domain-owner-only')) {
+      fail(`rules[${index}] cleanup profiles and physical settlement effects disagree.`);
     }
     if ((registration === 'required-at-birth') !== (activeOwnerSignal === 'birth-registration')) {
       fail(`rules[${index}] registration and activeOwnerSignal disagree.`);
@@ -322,12 +383,10 @@ export function parseGeneratedStateRegistryV1(value: unknown): GeneratedStateReg
       stateClass: stateClass as GeneratedStateRuleV1['stateClass'],
       owner: stringValue(rule.owner, `rules[${index}].owner`),
       producer: stringValue(rule.producer, `rules[${index}].producer`),
-      rootKind,
+      physicalForms: Object.freeze(physicalForms),
       scope,
       activeOwnerSignal,
-      contentsPolicy,
       capacityPolicyRef,
-      settlementEffect,
       registration,
       reconstruction,
       cleanupProfiles: Object.freeze(cleanupProfiles),
@@ -367,6 +426,18 @@ export function generatedStateCleanupAllowedV1(input: Readonly<{
 
 export function generatedStateDigestV1(value: unknown): `sha256:${string}` {
   return rawSha256(JSON.stringify(value));
+}
+
+export function generatedStateDomainProviderMaterialDigestV1(
+  providerId: string,
+  kind: 'plan' | 'receipt',
+  bytes: string
+): `sha256:${string}` {
+  return generatedStateDigestV1(Object.freeze({
+    schema: `sec-generated-state-domain-${kind}-bytes-v1`,
+    providerId,
+    bytes
+  }));
 }
 
 function physicalIdentityV1(value: unknown, label: string): GeneratedStatePhysicalIdentityV1 {
@@ -552,9 +623,6 @@ export function createGeneratedStateWorktreeRetirementV1(
   const entries = [...input.entries]
     .map((entry) => {
       const relativePath = normalizeGeneratedStateRelativePathV1(entry.relativePath);
-      if (!/^g-[0-9a-f]{64}$/u.test(entry.destinationName) || entry.action !== 'preserved') {
-        fail(`worktree retirement destination is invalid for ${relativePath}.`);
-      }
       if (!/^sha256:[0-9a-f]{64}$/u.test(entry.inventoryDigest)) {
         fail(`worktree retirement inventory digest is invalid for ${relativePath}.`);
       }
@@ -563,6 +631,34 @@ export function createGeneratedStateWorktreeRetirementV1(
       );
       if (ruleIds.length === 0 || ruleIds.some((ruleId) => !GENERATED_STATE_REGISTRY_V1.rules.some(({ id }) => id === ruleId))) {
         fail(`worktree retirement rule coverage is invalid for ${relativePath}.`);
+      }
+      if (entry.action === 'domain-retired') {
+        const providerId = stringValue(entry.providerId, `worktree retirement provider for ${relativePath}`);
+        if (!SAFE_ID.test(providerId) || !/^sha256:[0-9a-f]{64}$/u.test(entry.providerPlanDigest) ||
+            !/^sha256:[0-9a-f]{64}$/u.test(entry.providerReceiptDigest) || typeof entry.providerReceiptBytes !== 'string') {
+          fail(`worktree retirement provider receipt is invalid for ${relativePath}.`);
+        }
+        if (entry.providerReceiptDigest !== generatedStateDomainProviderMaterialDigestV1(
+          providerId,
+          'receipt',
+          entry.providerReceiptBytes
+        )) {
+          fail(`worktree retirement provider receipt digest is invalid for ${relativePath}.`);
+        }
+        return Object.freeze({
+          relativePath,
+          source: physicalIdentityV1(entry.source, `worktree retirement source ${relativePath}`),
+          inventoryDigest: entry.inventoryDigest,
+          ruleIds,
+          action: 'domain-retired' as const,
+          providerId,
+          providerPlanDigest: entry.providerPlanDigest,
+          providerReceiptBytes: entry.providerReceiptBytes,
+          providerReceiptDigest: entry.providerReceiptDigest
+        });
+      }
+      if (!/^g-[0-9a-f]{64}$/u.test(entry.destinationName) || entry.action !== 'preserved') {
+        fail(`worktree retirement destination is invalid for ${relativePath}.`);
       }
       return Object.freeze({
         relativePath,
@@ -577,7 +673,8 @@ export function createGeneratedStateWorktreeRetirementV1(
     .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   if (
     new Set(entries.map(({ relativePath }) => relativePath)).size !== entries.length ||
-    new Set(entries.map(({ destinationName }) => destinationName)).size !== entries.length
+    new Set(entries.filter((entry) => entry.action === 'preserved').map(({ destinationName }) => destinationName)).size !==
+      entries.filter((entry) => entry.action === 'preserved').length
   ) {
     fail('worktree retirement entries are not unique.');
   }
@@ -595,7 +692,8 @@ export function createGeneratedStateWorktreeRetirementV1(
             'worktree retirement retentionRoot'
           )
         });
-  if ((entries.length === 0) !== (retentionRoot === null)) {
+  const preservedEntries = entries.filter((entry) => entry.action === 'preserved');
+  if ((preservedEntries.length === 0) !== (retentionRoot === null)) {
     fail('worktree retirement retention root and entries disagree.');
   }
   const blockers = Object.freeze([...new Set(input.blockers.map((value) => stringValue(value, 'worktree retirement blocker')))].sort());

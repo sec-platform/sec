@@ -1102,6 +1102,9 @@ function windowsOpenRelativeNoFollowEntry(
     0
   );
   if (status < 0) {
+    if (status === WINDOWS_STATUS_OBJECT_NAME_NOT_FOUND || status === WINDOWS_STATUS_OBJECT_PATH_NOT_FOUND) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+    }
     throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} relative no-follow open failed (NTSTATUS ${status}).`);
   }
   const handle = handleBuffer.readBigUInt64LE(0);
@@ -2923,6 +2926,7 @@ export function deleteRetainedNoFollowEntryV1(input: {
   readonly kind: 'directory' | 'file' | 'link';
   readonly device: string;
   readonly inode: string;
+  readonly expectedLinkTarget?: string;
   readonly ancestorDirectories: readonly Readonly<{
     relativePath: string;
     device: string;
@@ -2973,6 +2977,11 @@ export function deleteRetainedNoFollowEntryV1(input: {
       const identity = windowsRetainedLeafIdentity(leafHandle, leafPath, input.kind, 'Retained deletion leaf');
       if (identity.device !== input.device || identity.inode !== input.inode) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion leaf FileId changed.');
+      }
+      if (input.kind === 'link' && input.expectedLinkTarget !== undefined
+          && windowsRetainedReparseObservationV1(leafHandle, 'Retained deletion leaf').linkTarget
+            !== input.expectedLinkTarget) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion link target changed.');
       }
       windowsMarkRetainedLeafForDelete(leafHandle, 'Retained deletion leaf');
       closeWindowsHandle(leafHandle);
@@ -3039,6 +3048,10 @@ export function deleteRetainedNoFollowEntryV1(input: {
     const kindMatches = input.kind === 'directory' ? stat.isDirectory() : input.kind === 'file' ? stat.isFile() : stat.isSymbolicLink();
     if (String(stat.dev) !== input.device || String(stat.ino) !== input.inode || !kindMatches) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion leaf identity changed.');
+    }
+    if (input.kind === 'link' && input.expectedLinkTarget !== undefined
+        && linuxReadRetainedLinkTargetV1(leafFd, 'Retained deletion leaf') !== input.expectedLinkTarget) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion link target changed.');
     }
     if (requireLinuxLibc().symbols.unlinkat(parentFd, Buffer.from(`${leaf}\0`, 'utf8'), input.kind === 'directory' ? LINUX_AT_REMOVEDIR : 0) !== 0) {
       throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `Retained unlinkat failed (errno ${linuxErrno()}).`);
@@ -3150,6 +3163,95 @@ export function inspectNoFollowOrdinaryFileEntryV1(
     }
   }
   throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow ordinary file reader backend is unavailable.');
+}
+
+/**
+ * Observes one retained link/reparse leaf without resolving its target. The
+ * target bytes/digest are part of the observation so an in-place retarget is
+ * an identity change even when the filesystem keeps the same FileId/inode.
+ */
+export function inspectNoFollowLinkEntryV1(
+  parent: PhysicalDirectoryIdentityV1,
+  name: string
+): NoFollowDirectoryTreeEntryV1 | null {
+  ensureLeafName(name);
+  const checked = assertSameNoFollowDirectoryIdentityV1(parent, 'No-follow link parent').target;
+  const target = path.join(checked.path, name);
+  if (process.platform === 'win32') {
+    let parentHandle: bigint | null = null;
+    let leafHandle: bigint | null = null;
+    try {
+      parentHandle = windowsOpenDirectory(checked.path, 'No-follow link retained parent');
+      if (!sameIdentity(checked, windowsIdentity(parentHandle, checked.path, 'No-follow link retained parent'))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow link parent changed before retained leaf open.');
+      }
+      try {
+        leafHandle = windowsOpenRelativeNoFollowEntry(
+          parentHandle, checked, name, target, 'link', 'No-follow link'
+        );
+      } catch (error) {
+        if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
+        throw error;
+      }
+      const identity = windowsRetainedLeafIdentity(leafHandle, target, 'link', 'No-follow link');
+      const reparse = windowsRetainedReparseObservationV1(leafHandle, 'No-follow link');
+      if (!sameIdentity(checked, windowsIdentity(parentHandle, checked.path, 'No-follow link retained parent readback'))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow link parent changed during retained leaf read.');
+      }
+      return Object.freeze({
+        relativePath: name,
+        kind: 'link',
+        ...identity,
+        size: reparse.size,
+        bytes: null,
+        linkTarget: reparse.linkTarget
+      });
+    } finally {
+      if (leafHandle !== null) closeWindowsHandle(leafHandle);
+      if (parentHandle !== null) closeWindowsHandle(parentHandle);
+    }
+  }
+  if (process.platform === 'linux') {
+    const retained = linuxOpenRetainedAbsoluteDirectory(checked.path, 'No-follow link parent');
+    let leafFd: number | null = null;
+    try {
+      if (!sameIdentity(checked, linuxIdentity(retained.directoryFd, checked.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow link parent changed before retained leaf open.');
+      }
+      try {
+        leafFd = linuxOpenLeafAt(retained.directoryFd, name, 'No-follow link');
+      } catch (error) {
+        if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
+        throw error;
+      }
+      const stat = fstatSync(leafFd, { bigint: true });
+      if (!stat.isSymbolicLink()) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow link is not a symbolic link.');
+      }
+      const linkTarget = linuxReadRetainedLinkTargetV1(leafFd, 'No-follow link');
+      const after = fstatSync(leafFd, { bigint: true });
+      if (stat.dev !== after.dev || stat.ino !== after.ino || !after.isSymbolicLink()) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow link retained identity changed during read.');
+      }
+      if (!sameIdentity(checked, linuxIdentity(retained.directoryFd, checked.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow link parent changed during retained leaf read.');
+      }
+      return Object.freeze({
+        relativePath: name,
+        kind: 'link',
+        device: String(stat.dev),
+        inode: String(stat.ino),
+        size: Number(stat.size),
+        bytes: null,
+        linkTarget
+      });
+    } finally {
+      if (leafFd !== null) closeSync(leafFd);
+      if (retained.directoryFd !== retained.filesystemRootFd) closeSync(retained.directoryFd);
+      closeSync(retained.filesystemRootFd);
+    }
+  }
+  throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow link reader backend is unavailable.');
 }
 
 /** Reads one ordinary leaf file below a revalidated no-follow parent, or null only for ENOENT. */
