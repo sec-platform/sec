@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import {
+  ensureBrowserTestDependencies,
   ensureDevDependencies,
   ensureFastTestDependencies,
-  ensureTestDependencies
 } from '../../platform/dev-runner/dependency-bootstrap.ts';
 
 for (const source of ['existing', 'installed'] as const) {
@@ -75,7 +75,7 @@ for (const source of ['existing', 'installed'] as const) {
 
 test('test dependency bootstrap composes compiler and browser readiness without hook lifecycle', async () => {
   const calls: string[] = [];
-  const result = await ensureTestDependencies({
+  const result = await ensureBrowserTestDependencies({
     ensureCompilerDeps: async () => {
       calls.push('compiler');
       return {

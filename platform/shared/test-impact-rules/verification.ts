@@ -433,11 +433,22 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/command-runner.ts',
       'platform/dev-runner/fast-test-policy.ts',
       'platform/dev-runner/import-organizer.ts',
-      'platform/dev-runner/test-concurrency-policy.ts',
-      'tests/setup/runtime-deps.setup.ts'
+      'platform/dev-runner/test-concurrency-policy.ts'
     ],
     supplementalFast: DEV_RUNNER_FAST_TESTS,
     supplementalSlow: DEV_RUNNER_LIVE_AUTHORITY_SLOW_TESTS
+  },
+  {
+    owner: 'test-process-runtime',
+    identity: { kind: 'architecture-owner', id: 'test-process-runtime' },
+    sourceFiles: ['bunfig.toml'],
+    sourcePrefixes: ['tests/setup/'],
+    moduleGraphImpact: 'owner-only',
+    supplementalFast: [
+      'tests/unit/test-process-temp.test.ts',
+      'tests/unit/test-runner.test.ts'
+    ],
+    supplementalSlow: []
   },
   {
     owner: 'typecheck-provider',

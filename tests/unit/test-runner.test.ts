@@ -227,20 +227,20 @@ mock.module('../../platform/dev-runner/command-runner.ts', () => ({
 }));
 
 mock.module('../../platform/dev-runner/dependency-bootstrap.ts', () => ({
-  ensureFastTestDependencies: async () => {
-    fastDependencyBootstrapCalls += 1;
+  ensureBrowserTestDependencies: async () => {
+    testDependencyBootstrapCalls += 1;
     if (hasTestDependencyBootstrapFailure) throw testDependencyBootstrapFailure;
     return {
+      browserCachePath: canonicalBrowserCachePath,
       manifestHash: 'test-manifest',
       nodeModulesPath: path.resolve('node_modules'),
       source: 'existing'
     };
   },
-  ensureTestDependencies: async () => {
-    testDependencyBootstrapCalls += 1;
+  ensureFastTestDependencies: async () => {
+    fastDependencyBootstrapCalls += 1;
     if (hasTestDependencyBootstrapFailure) throw testDependencyBootstrapFailure;
     return {
-      browserCachePath: canonicalBrowserCachePath,
       manifestHash: 'test-manifest',
       nodeModulesPath: path.resolve('node_modules'),
       source: 'existing'
@@ -1654,6 +1654,9 @@ test.serial('contract freeze uses the same fast invocation runtime owner', async
   const environment = devCommandEnvironments[0]!;
   expect(path.basename(environment.SEC_STATE_HOME!)).toBe('contract-freeze-001');
   expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('contract-freeze-001');
+  expect(testDependencyBootstrapCalls).toBe(0);
+  expect(environment.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
+  expect(environment.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
   const runtimeRoots = fastInvocationRunRoots(environment);
   await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
   await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();

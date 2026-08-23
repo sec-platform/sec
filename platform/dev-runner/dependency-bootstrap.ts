@@ -12,7 +12,7 @@ export interface DevDependencyBootstrapResult {
   readonly source: 'existing' | 'installed';
 }
 
-export interface TestDependencyBootstrapResult extends DevDependencyBootstrapResult {
+export interface BrowserTestDependencyBootstrapResult extends DevDependencyBootstrapResult {
   readonly browserCachePath: string;
 }
 
@@ -25,7 +25,7 @@ interface DevDependencyBootstrapOptions extends CompilerDependencyBootstrapOptio
   readonly hookPolicy?: 'always' | 'if-installed' | 'never';
 }
 
-interface TestDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
+interface BrowserTestDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
   readonly ensureBrowserCache?: (dependencyRoot: string) => Promise<PlaywrightBrowserCacheReadyState>;
 }
 
@@ -71,9 +71,10 @@ export async function ensureFastTestDependencies(
   );
 }
 
-export async function ensureTestDependencies(
-  options: TestDependencyBootstrapOptions = {}
-): Promise<TestDependencyBootstrapResult> {
+/** Explicitly materializes the optional browser verification capability. */
+export async function ensureBrowserTestDependencies(
+  options: BrowserTestDependencyBootstrapOptions = {}
+): Promise<BrowserTestDependencyBootstrapResult> {
   const ready = await (options.ensureCompilerDeps ?? ensureCanonicalCompilerDependencies)();
   const browser = await (options.ensureBrowserCache ?? ((dependencyRoot) =>
     ensurePlaywrightBrowserCacheReady({}, dependencyRoot)))(ready.root);

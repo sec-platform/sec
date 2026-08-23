@@ -47,8 +47,8 @@ import {
   type DevCommandObservation
 } from './command-runner.ts';
 import {
+  ensureBrowserTestDependencies,
   ensureFastTestDependencies,
-  ensureTestDependencies
 } from './dependency-bootstrap.ts';
 import {
   consumeTestWorkspaceSupervisorChallengeV1,
@@ -438,7 +438,7 @@ async function withFastTestDependencies<T>(
 }
 
 async function withTestDependencies<T>(callback: (context: DependencyContext) => Promise<T>): Promise<T> {
-  const dependencies = await ensureTestDependencies();
+  const dependencies = await ensureBrowserTestDependencies();
   return callback({
     binPath: path.join(dependencies.nodeModulesPath, '.bin'),
     browserCachePath: dependencies.browserCachePath
@@ -1127,8 +1127,8 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
 
 export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {
   let exitCode = 0;
-  await withTestDependencies(async ({ binPath, browserCachePath }) => {
-    const environment = pathEnv(binPath, browserCachePath);
+  await withFastTestDependencies(async ({ binPath }) => {
+    const environment = pathEnv(binPath, null);
     exitCode = await runWithTestInvocationRuntimeV1(environment, async (runtime) => {
       for (const [index, invocation] of buildContractFreezeRunnerInvocations(targets).entries()) {
         const code = await runDevCommand(

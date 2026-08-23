@@ -152,6 +152,19 @@ test('ownership declarations contain only valid supplemental evidence', () => {
   }
 });
 
+test('test runtime and runner owners retain their direct independent failure spaces', () => {
+  const runtime = selectTestsForSources(['bunfig.toml', 'tests/setup/test-runtime.setup.ts']);
+  expect(runtime.owners).toContain('test-process-runtime');
+  expect(runtime.fast).toEqual(expect.arrayContaining([
+    'tests/unit/test-process-temp.test.ts',
+    'tests/unit/test-runner.test.ts'
+  ]));
+
+  const runner = selectTestsForSources(['platform/dev-runner/test-runner.ts']);
+  expect(runner.owners).toContain('dev-runner');
+  expect(runner.fast).toContain('tests/unit/test-runner.test.ts');
+});
+
 test('fallback declarations contain valid evidence and never target test sources', () => {
   const tests = new Set(getTestFilesSync());
   for (const rule of testImpactFallbackRules) {

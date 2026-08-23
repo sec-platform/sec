@@ -1328,6 +1328,10 @@ PR Ready只表示允许进入Review调度，不表示可以启动expensive trust
 
 开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required trusted-provider Gate。不是每个Work Package固定全跑同一套重门禁，GitHub Actions也不拥有“trusted provider”的唯一实现。
 
+Bun test preload只拥有进程级temp/state隔离，不得准备package、Browser cache或网络能力；fast/affected/
+contract-freeze只请求compiler closure并显式屏蔽Browser。只有slow/full或明确browser-applicable Action可调用
+`ensureBrowserTestDependencies`，且未选择Browser时必须保持零Playwright准备、零下载和零browser进程。
+
 相同未失效 Gate identity复用；输入和failure fingerprint未变时不重复确定性失败。无法证明不受影响不是“无需测试”。
 
 候选冻结 DAG 必须把所有 source normalizer（包括 canonical import transform）排在任何 content-addressed generated lock、blob/digest inventory 和 Evidence 之前；生成物之后只允许 read-only check。若 normalizer 仍报告 delta，生成阶段不得启动。这样一次源码归一化只触发一次下游重算，不允许用“先生成、再格式化、再生成”的命令顺序制造自我失效。
