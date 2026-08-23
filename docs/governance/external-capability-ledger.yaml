@@ -91,8 +91,8 @@ providers:
       artifact: https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz
       artifactSha256: 04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d
       baseImage: ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea
-      imageId: sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f
-      imageBuildRevision: trust-domains-node24-python312-gh297-archive-v8
+      imageId: sha256:859df0e6886706c1c91b3b529397421ffd08a0d1ffed58df8b3019f187b859b1
+      imageBuildRevision: trust-domains-node24-python312-gh297-buildkit-v10
       nodeVersion: 24.19.0
       nodeArtifact: https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz
       nodeArtifactSha256: 14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647
@@ -142,6 +142,10 @@ providers:
       imageRetirement:
         ordinaryStopAuthority: none
         superseded:
+          - imageId: sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f
+            imageTag: sec-actions-runner:2.336.0-trust-domains-node24-python312-gh297-archive-v8
+            replacementImageId: sha256:859df0e6886706c1c91b3b529397421ffd08a0d1ffed58df8b3019f187b859b1
+            decision: superseded-by-trust-domains-node24-python312-gh297-buildkit-v10
           - imageId: sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf
             imageTag: sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7
             replacementImageId: sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f
@@ -174,6 +178,33 @@ providers:
       - actualDelta
       - canonicalImpact
       - sourceWriter
+  - id: dagger-environment-materializer
+    category: build-runtime
+    capability: environment-materialization
+    decision: watch-with-trigger
+    lifecycle: benchmarked
+    observedVersion: null
+    versionAuthority: null
+    activeRoutingProfile: null
+    surfaces:
+      cli: []
+      standingMcp: []
+    forbiddenAuthority:
+      - AgentOperationsAuthority
+      - EngineeringIR
+      - actualDelta
+      - canonicalImpact
+      - sourceWriter
+    unresolved:
+      - local-cli-not-installed
+      - measured-upstream-version-v0.21.8
+      - windows-cli-archive-22437680-bytes-sha256-7452d17f7f6b01d409fe27b8fd1655162b5b4d2cd531c704f2373e62eba512d5
+      - linux-amd64-engine-layers-371606760-compressed-bytes-99-layers
+      - default-typescript-node-runtime-56181947-compressed-bytes
+      - default-engine-requires-privileged-and-own-var-lib-dagger-cache
+      - existing-docker-buildx-cache-has-no-automatic-reuse-contract
+      - phase-1-pilot-must-retire-existing-materialization-glue-and-prove-cold-warm-offline-cache-loss-and-digest-readback
+      - measured-runner-provider-net-source-reduction-estimate-zero-to-150-loc
   - id: codegraph
     category: graph
     capability: source-context

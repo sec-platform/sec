@@ -788,6 +788,10 @@ blind replay。普通resume只查询、join或重新
 dispatch下一合法hosted transition；同一Action不重复spawn，同一Review head不重复请求，
 同一hosted Gate不重复dispatch，同一authorization不重复merge，同一closeout operation不重复发布。
 
+上下文压缩或runtime/provider重建后，checkpoint、summary、journal projection和旧status只能作为恢复hint，不能证明live child、process、cache generation、外部对象或当前权限。Effect前必须用稳定operation key重新读取对应provider并进入统一resume代数：`running -> join`，`terminal-unconsumed -> consume-once`，`authenticated-not-started + causal capability change -> retry`，`started-without-terminal | unknown | provider-unavailable -> reconcile/block`，`live-absent + no prior claim -> claim then execute once`。subagent result、exec stdout/stderr与provider event都使用provider identity、单调cursor、prefix digest和terminal digest防止重复消费或跳读。
+
+download/build/materialization不是可随意重跑的“缓存操作”。claim必须绑定EnvironmentSpec、lock/toolchain/platform/provider revision、target identity与expected output；crash发生在provider完成到SEC receipt发布之间时，先对exact OCI/image/cache/artifact generation做readback并补齐同一terminal receipt。完整generation可被认领和复用；不完整或无法证明的candidate进入unknown并fail-safe retain，不能清空cache、重新下载或用新attempt掩盖ambiguous effect。task artifact cleanup也必须消费creator operation、物理identity、preimage、live引用和当前cleanup grant，任何unknown/shared/user-mutated对象禁止删除。
+
 Trust epoch rollover是resume的强制边界而不是一个新的Verification Result：exact new-main readback后旧
 Session/Review/Evidence/authorization全部失效，长期A0立即从new-main canonical control facts重建下一
 session并继续。它不得携带旧PASS来覆盖新Requirement，也不得因为旧epoch已终止就把仍有合法下一动作的
@@ -795,6 +799,7 @@ session并继续。它不得携带旧PASS来覆盖新Requirement，也不得因�
 不可用、必须用户决策等typed blocker才允许结束自动推进。
 
 这些平台未完整实现时，分散日志、计划文档和聊天摘要不能被称为统一Ledger。
+当前resume consistency pure candidate未接入真实Session/effect路径，且无effect authority；它的单元测试只验证决策代数不会把checkpoint hint直接提升为执行许可，不能证明one-active-child、consume-once、provider-authenticated not-started、materialization认领、cleanup或merge已被机器门禁。只有真实runtime integration、journal/CAS并发测试与provider receipt forward-test通过后，才能将该状态从`RUNTIME_UNVERIFIED`升级。
 
 ## Trusted Bootstrap
 

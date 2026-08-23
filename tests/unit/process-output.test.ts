@@ -78,3 +78,36 @@ test('runCommandBytes enforces stdout and stderr byte limits before accumulation
   ], { cwd: compilerRoot, maxStdoutBytes: 4, maxStderrBytes: 4, timeoutMs: 5_000 });
   expect(exact).toEqual({ code: 0, stdout: new TextEncoder().encode('1234'), stderr: '5678' });
 });
+
+test('runCommand stall deadline advances only on admitted semantic progress', async () => {
+  const chatter = runCommand(process.execPath, [
+    '--no-env-file',
+    '--eval',
+    "setInterval(() => process.stdout.write('chatter\\n'), 15)"
+  ], {
+    cwd: compilerRoot,
+    timeoutMs: 2_000,
+    stallTimeoutMs: 500,
+    admitProgress: () => false
+  });
+  await expect(chatter).rejects.toThrow('made no admitted progress for 500ms');
+
+  const progress = await runCommand(process.execPath, [
+    '--no-env-file',
+    '--eval',
+    "let n=0; const t=setInterval(() => { process.stdout.write(String(++n)); if(n===4){clearInterval(t)} }, 100)"
+  ], {
+    cwd: compilerRoot,
+    timeoutMs: 2_000,
+    stallTimeoutMs: 500,
+    admitProgress: (chunk) => chunk.length > 0
+  });
+  expect(progress.stdout).toBe('1234');
+});
+
+test('runCommand rejects a stall deadline without a stricter absolute deadline and admission rule', async () => {
+  await expect(runCommand(process.execPath, ['--version'], {
+    cwd: compilerRoot,
+    stallTimeoutMs: 100
+  })).rejects.toThrow('stallTimeoutMs requires');
+});

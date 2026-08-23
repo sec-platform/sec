@@ -1,9 +1,14 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { lstatSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 } from '../../platform/shared/ci-verification-revision.ts';
+import {
+  compileEnvironmentMaterializationPlanV1,
+  createEnvironmentMaterializationSpecV1
+} from '../../platform/shared/environment-materialization-contract.ts';
 import {
   createNoFollowDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
@@ -14,6 +19,9 @@ import {
   readNoFollowOrdinaryFileV1,
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
+import { acquireSecRuntimeCachePhysicalAuthorityV1 } from '../../tooling/sec-dev/runtime-state-authority.ts';
+import { resolveSecWorkspaceRuntimeRootsV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
 
 export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3 =
   'sec-local-github-actions-provider-state-v3' as const;
@@ -21,87 +29,65 @@ export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3 =
 // Keep its immutable lineage label independent from later state/ledger schema
 // revisions so a control-plane migration cannot invalidate byte-identical
 // cached Linux capacity or silently demand a mutable rebuild.
-export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1 =
-  'sec-local-github-actions-provider-state-v2' as const;
 export const LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_SCHEMA_V3 =
   'sec-local-github-actions-provider-ledger-v3' as const;
-export const LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1 = '2.336.0' as const;
+const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1 = ENVIRONMENT.image.lineageSchema;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1 = ENVIRONMENT.archives.runner.version;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1 =
-  '04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d' as const;
+  ENVIRONMENT.archives.runner.digest.slice(7);
 export const LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1 =
-  'ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea' as const;
-export const LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1 = '24.19.0' as const;
+  ENVIRONMENT.ubuntu.baseReference;
+export const LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1 = ENVIRONMENT.archives.node.version;
 export const LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1 =
-  '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647' as const;
-export const LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1 = '3.12.3' as const;
-export const LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1 = '2.97.0' as const;
+  ENVIRONMENT.archives.node.digest.slice(7);
+export const LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1 = ENVIRONMENT.runtime.pythonVersion;
+export const LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1 = ENVIRONMENT.archives.githubCli.version;
 export const LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1 =
-  'a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112' as const;
+  ENVIRONMENT.archives.githubCli.digest.slice(7);
+export const LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1 = ENVIRONMENT.ubuntu.snapshot;
+export const LOCAL_GITHUB_ACTIONS_SOURCE_DATE_EPOCH_V1 = String(ENVIRONMENT.provider.sourceDateEpoch);
+export const LOCAL_GITHUB_ACTIONS_DOCKERFILE_FRONTEND_V1 =
+  ENVIRONMENT.provider.dockerfileFrontend.reference;
+export const LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_DATE_V1 = ENVIRONMENT.archives.bootstrapCa.version;
+export const LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1 =
+  ENVIRONMENT.archives.bootstrapCa.digest.slice(7);
 export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2 =
-  'trust-domains-node24-python312-gh297-archive-v8' as const;
+  ENVIRONMENT.image.buildRevision;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1 =
-  `sec-actions-runner:${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1}-${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2}` as const;
+  `${ENVIRONMENT.image.name}:${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1}-${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2}`;
 // Frozen after the canonical Dockerfile is built once. Rebuilding mutable apt
 // inputs under the same semantic provider revision must fail this identity.
 export const LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2 =
-  'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f' as const;
+  ENVIRONMENT.image.dockerProjectionDigest;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1 =
+  ENVIRONMENT.image.runtimeContentDigest;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1 =
   'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf' as const;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1 =
-  'docker-init-v1' as const;
-export const LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3 = Object.freeze([
-  Object.freeze({
-    imageId: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
-    imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7',
-    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
-    decision: 'superseded-by-trust-domains-node24-python312-gh297-archive-v8'
-  }),
-  Object.freeze({
-    imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
-    imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
-    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
-    decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-  }),
-  Object.freeze({
-    imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
-    imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
-    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
-    decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-  }),
-  Object.freeze({
-    imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
-    imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
-    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
-    decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-  })
-] as const);
-export const LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1 = Object.freeze([
-  'self-hosted',
-  'Linux',
-  'X64',
-  'sec-linux-verification-v1'
-] as const);
+  ENVIRONMENT.runtime.containerInitCapability;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1 =
+  ENVIRONMENT.provenance.receiptSchema;
+export const LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3 =
+  ENVIRONMENT.image.retirements;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1 = ENVIRONMENT.runtime.labels;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL_V1 =
   LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1[3];
-export const LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2 = Object.freeze({
-  control: 'sec-linux-verification-control-v1',
-  trusted: 'sec-linux-verification-trusted-v1',
-  sut: 'sec-linux-verification-sut-v1'
-} as const);
+export const LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2 = ENVIRONMENT.runtime.roleLabels;
 export type LocalGitHubActionsRunnerRoleV2 = keyof typeof LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2;
 const LOCAL_GITHUB_ACTIONS_RUNNER_ROLES_V2 = Object.freeze([
   'control', 'trusted', 'sut'
 ] as const satisfies readonly LocalGitHubActionsRunnerRoleV2[]);
 export const LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3 =
-  'refs/tags/sec-provider-lease-sec-linux-verification-v1' as const;
-export const LOCAL_GITHUB_ACTIONS_GITHUB_HOST_V3 = 'github.com' as const;
+  `refs/tags/sec-provider-lease-${ENVIRONMENT.environmentId}`;
+export const LOCAL_GITHUB_ACTIONS_GITHUB_HOST_V3 = ENVIRONMENT.provider.githubHost;
 
 const MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024;
-const DEFAULT_CPUS = 8;
-const DEFAULT_MEMORY = '12g';
-const SUT_CPUS = 2;
-const SUT_MEMORY = '4g';
-const SUT_PIDS = 256;
+const DEFAULT_CPUS = ENVIRONMENT.runtime.resources.control.cpus;
+const DEFAULT_MEMORY = `${ENVIRONMENT.runtime.resources.control.memoryGiB}g`;
+const SUT_CPUS = ENVIRONMENT.runtime.resources.sut.cpus;
+const SUT_MEMORY = `${ENVIRONMENT.runtime.resources.sut.memoryGiB}g`;
+const SUT_PIDS = ENVIRONMENT.runtime.resources.sut.pids;
 const SUT_CAPABILITIES = CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities;
 
 export interface LocalGitHubActionsRunnerInstanceV2 {
@@ -197,6 +183,96 @@ interface CommandResult {
   readonly stderr: Buffer;
 }
 
+export interface BuildxRawJsonProgressAdmissionV1 {
+  readonly push: (chunk: Buffer) => boolean;
+  readonly finish: () => boolean;
+}
+
+export function createBuildxRawJsonProgressAdmissionV1(): BuildxRawJsonProgressAdmissionV1 {
+  let pending = '';
+  const vertexPhases = new Set<string>();
+  const statusCurrent = new Map<string, number>();
+  const statusCompleted = new Set<string>();
+
+  const admitLine = (line: string): boolean => {
+    if (line.length === 0 || line.length > 1024 * 1024) return false;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return false;
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+    const event = parsed as Record<string, unknown>;
+    let admitted = false;
+    if (Array.isArray(event.vertexes)) {
+      for (const candidate of event.vertexes) {
+        if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+        const vertex = candidate as Record<string, unknown>;
+        if (typeof vertex.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(vertex.digest)) continue;
+        for (const phase of ['observed', 'started', 'completed', 'cached', 'error'] as const) {
+          const present = phase === 'observed'
+            || (phase === 'cached' ? vertex.cached === true : typeof vertex[phase] === 'string');
+          if (present && !vertexPhases.has(`${vertex.digest}:${phase}`)) {
+            vertexPhases.add(`${vertex.digest}:${phase}`);
+            admitted = true;
+          }
+        }
+      }
+    }
+    if (Array.isArray(event.statuses)) {
+      for (const candidate of event.statuses) {
+        if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+        const status = candidate as Record<string, unknown>;
+        if (typeof status.vertex !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(status.vertex)
+            || typeof status.id !== 'string' || status.id.length === 0 || status.id.length > 4096
+            || !Number.isSafeInteger(status.current) || (status.current as number) < 0) continue;
+        const key = `${status.vertex}:${status.id}`;
+        const previous = statusCurrent.get(key);
+        if (previous === undefined || (status.current as number) > previous) {
+          statusCurrent.set(key, status.current as number);
+          admitted = true;
+        }
+        if (typeof status.completed === 'string' && !statusCompleted.has(key)) {
+          statusCompleted.add(key);
+          admitted = true;
+        }
+      }
+    }
+    if (Array.isArray(event.logs)) {
+      admitted = event.logs.some((candidate) => {
+        if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
+        const log = candidate as Record<string, unknown>;
+        return typeof log.vertex === 'string' && /^sha256:[0-9a-f]{64}$/u.test(log.vertex)
+          && typeof log.data === 'string' && log.data.length > 0;
+      }) || admitted;
+    }
+    return admitted;
+  };
+
+  const consume = (final: boolean): boolean => {
+    const lines = pending.split(/\r?\n/u);
+    if (final) {
+      pending = '';
+      return lines.reduce((admitted, line) => admitLine(line) || admitted, false);
+    }
+    pending = lines.pop() ?? '';
+    return lines.reduce((admitted, line) => admitLine(line) || admitted, false);
+  };
+
+  return Object.freeze({
+    push: (chunk: Buffer): boolean => {
+      pending += chunk.toString('utf8');
+      if (pending.length > 2 * 1024 * 1024 && !/[\r\n]/u.test(pending)) {
+        pending = '';
+        return false;
+      }
+      return consume(false);
+    },
+    finish: (): boolean => consume(true)
+  });
+}
+
 interface GitHubApiSessionV3 {
   readonly token: string;
   readonly principal: string;
@@ -204,11 +280,13 @@ interface GitHubApiSessionV3 {
 
 const githubApiSessionsV3 = new Map<string, GitHubApiSessionV3>();
 
+export const LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS_V1 = Object.freeze([
+  'DOCKER_CONFIG', 'DOCKER_CONTEXT', 'DOCKER_HOST', 'HOME', 'PATH',
+  'PROGRAMFILES', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR'
+] as const);
+
 const COMMAND_ENV_KEYS = Object.freeze({
-  docker: Object.freeze([
-    'DOCKER_CONFIG', 'DOCKER_CONTEXT', 'DOCKER_HOST', 'HOME', 'PATH',
-    'SYSTEMROOT', 'USERPROFILE', 'WINDIR'
-  ]),
+  docker: LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS_V1,
   gh: Object.freeze([
     'APPDATA', 'GH_CONFIG_DIR', 'GH_TOKEN', 'GITHUB_TOKEN', 'HOME',
     'LOCALAPPDATA', 'PATH', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR', 'XDG_CONFIG_HOME'
@@ -474,48 +552,65 @@ export function parseLocalGitHubActionsRunnerStateV3(source: string): LocalGitHu
   return recreated;
 }
 
-export function createLocalGitHubActionsRunnerDockerfileV1(): string {
-  return `FROM ${LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1}\n`
+export function createLocalGitHubActionsRunnerDockerfileV2(): string {
+  return `# syntax=${LOCAL_GITHUB_ACTIONS_DOCKERFILE_FRONTEND_V1}\n`
+    + `ARG SOURCE_DATE_EPOCH=${LOCAL_GITHUB_ACTIONS_SOURCE_DATE_EPOCH_V1}\n`
+    + 'FROM scratch AS ca-bootstrap\n'
+    + `ADD --chmod=${ENVIRONMENT.archives.bootstrapCa.mountMode} `
+    + `--checksum=${ENVIRONMENT.archives.bootstrapCa.digest} `
+    + `${ENVIRONMENT.archives.bootstrapCa.url} `
+    + '/ca/\n'
+    + `FROM ${LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1} AS runtime\n`
     + 'ARG DEBIAN_FRONTEND=noninteractive\n'
-    + 'RUN apt-get -o Acquire::Retries=5 update '
-    + '&& apt-get -o Acquire::Retries=5 install -y --no-install-recommends '
-    + 'ca-certificates curl git jq python3 unzip xz-utils libicu74 libssl3 libkrb5-3 zlib1g '
-    + 'libasound2t64 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 libdbus-1-3 '
-    + 'libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 '
-    + 'libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 '
-    + 'libxkbcommon0 libxrandr2 '
+    + `ARG UBUNTU_SNAPSHOT=${LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1}\n`
+    + `RUN --mount=from=ca-bootstrap,source=/ca/cacert-${LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_DATE_V1}.pem,`
+    + 'target=/tmp/bootstrap-cacert.pem,ro '
+    + `--mount=type=cache,id=${ENVIRONMENT.ubuntu.aptCacheId},target=/var/cache/apt,sharing=locked `
+    + 'test -s /tmp/bootstrap-cacert.pem && test "$(stat -c %a /tmp/bootstrap-cacert.pem)" = 444 '
+    + '&& rm -f /etc/apt/apt.conf.d/docker-clean /etc/apt/sources.list '
+    + `&& printf '%s\\n' 'Types: deb' `
+    + `"URIs: ${ENVIRONMENT.ubuntu.snapshotUrl}\${UBUNTU_SNAPSHOT}" `
+    + `'Suites: ${ENVIRONMENT.ubuntu.suites.join(' ')}' `
+    + `'Components: ${ENVIRONMENT.ubuntu.components.join(' ')}' `
+    + `'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' `
+    + '> /etc/apt/sources.list.d/ubuntu.sources '
+    + `&& apt-get -o Acquire::https::CAInfo=/tmp/bootstrap-cacert.pem -o Acquire::Retries=${ENVIRONMENT.ubuntu.aptRetries} update `
+    + `&& apt-get -o Acquire::https::CAInfo=/tmp/bootstrap-cacert.pem -o Acquire::Retries=${ENVIRONMENT.ubuntu.aptRetries} install `
+    + '-y --no-install-recommends '
+    + `${ENVIRONMENT.ubuntu.packages.join(' ')} `
     + `&& test "$(python3 --version)" = "Python ${LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1}" `
     + '&& command -v unzip >/dev/null '
     + '&& python3 -c "import hashlib,json,tarfile" '
+    + '&& dpkg-query -W -f="${Package}=${Version}\\n" | LC_ALL=C sort '
+    + '> /usr/local/share/sec-environment-packages.txt '
     + '&& rm -rf /var/lib/apt/lists/*\n'
-    + `RUN curl --fail --location --proto '=https' --tlsv1.2 --retry 3 `
-    + `https://nodejs.org/dist/v${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1}/`
-    + `node-v${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1}-linux-x64.tar.xz -o node.tar.xz `
-    + `&& echo '${LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1}  node.tar.xz' | sha256sum --check --strict `
-    + '&& tar --no-same-owner -xJf node.tar.xz -C /usr/local --strip-components=1 '
-    + `&& test "$(node --version)" = "v${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1}" `
-    + '&& rm node.tar.xz\n'
+    + 'FROM scratch AS node-archive\n'
+    + `ADD --checksum=${ENVIRONMENT.archives.node.digest} `
+    + `${ENVIRONMENT.archives.node.url} /node.tar.xz\n`
+    + 'FROM runtime AS node-runtime\n'
+    + 'RUN --mount=from=node-archive,source=/node.tar.xz,target=/tmp/node.tar.xz,ro '
+    + 'tar --no-same-owner -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 '
+    + `&& test "$(node --version)" = "v${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1}"\n`
+    + 'FROM scratch AS runner-archive\n'
+    + `ADD --checksum=${ENVIRONMENT.archives.runner.digest} `
+    + `${ENVIRONMENT.archives.runner.url} /runner.tar.gz\n`
+    + 'FROM node-runtime AS runner-runtime\n'
     + 'WORKDIR /actions-runner\n'
-    + `RUN curl --fail --location --proto '=https' --tlsv1.2 --retry 3 `
-    + `https://github.com/actions/runner/releases/download/v${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1}/`
-    + `actions-runner-linux-x64-${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1}.tar.gz -o runner.tar.gz `
-    + `&& echo '${LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1}  runner.tar.gz' | sha256sum --check --strict\n`
     // GitHub publishes the archive with uid/gid 1001. The runtime deliberately drops
     // CAP_DAC_OVERRIDE, so normalize archive ownership to the fixed container root owner.
-    + 'RUN tar --no-same-owner -xzf runner.tar.gz && rm runner.tar.gz\n'
-    // Additive image capabilities are appended after the stable base/Node/runner
-    // layers, so changing this pinned tool does not redownload unrelated archives.
-    + `RUN curl --fail --location --proto '=https' --tlsv1.2 --retry 3 `
-    + `https://github.com/cli/cli/releases/download/v${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}/`
-    + `gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64.tar.gz -o gh.tar.gz `
-    + `&& echo '${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1}  gh.tar.gz' `
-    + '| sha256sum --check --strict '
-    + '&& tar --no-same-owner -xzf gh.tar.gz '
-    + `&& install -m 0755 gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64/bin/gh `
+    + 'RUN --mount=from=runner-archive,source=/runner.tar.gz,target=/tmp/runner.tar.gz,ro '
+    + 'tar --no-same-owner -xzf /tmp/runner.tar.gz\n'
+    + 'FROM scratch AS github-cli-archive\n'
+    + `ADD --checksum=${ENVIRONMENT.archives.githubCli.digest} `
+    + `${ENVIRONMENT.archives.githubCli.url} /gh.tar.gz\n`
+    + 'FROM runner-runtime\n'
+    + 'RUN --mount=from=github-cli-archive,source=/gh.tar.gz,target=/tmp/gh.tar.gz,ro '
+    + 'tar --no-same-owner -xzf /tmp/gh.tar.gz -C /tmp '
+    + `&& install -m 0755 /tmp/gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64/bin/gh `
     + '/usr/local/bin/gh '
     + `&& gh --version | head -n 1 | grep -E '^gh version ${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1.replaceAll('.', '\\.')}`
     + " ' "
-    + `&& rm -rf gh.tar.gz gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64\n`
+    + `&& rm -rf /tmp/gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64\n`
     + `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1} `
     + `sec.local-runner.image-revision=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2} `
     + `sec.local-runner.runner-version=${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1} `
@@ -523,9 +618,95 @@ export function createLocalGitHubActionsRunnerDockerfileV1(): string {
     + `sec.local-runner.node-archive-sha256=${LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1} `
     + `sec.local-runner.github-cli-version=${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1} `
     + `sec.local-runner.github-cli-archive-sha256=${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1} `
-    + `sec.local-runner.python-version=${LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1}\n`
+    + `sec.local-runner.python-version=${LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1} `
+    + `sec.local-runner.ubuntu-snapshot=${LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1} `
+    + `sec.local-runner.bootstrap-ca-bundle-sha256=${LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1} `
+    + `sec.local-runner.dockerfile-frontend=${LOCAL_GITHUB_ACTIONS_DOCKERFILE_FRONTEND_V1}\n`
     + 'ENV RUNNER_ALLOW_RUNASROOT=1\n'
     + 'ENTRYPOINT ["/bin/bash","-lc"]\n';
+}
+
+export function createLocalGitHubActionsRunnerEnvironmentSpecV1() {
+  return createEnvironmentMaterializationSpecV1({
+    imageName: LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1,
+    acceptedImageDigest: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    sourcePolicyRevision: ENVIRONMENT.provider.sourcePolicyRevision,
+    providerRequirement: ENVIRONMENT.provider.requirement,
+    components: [
+      {
+        id: 'base-image',
+        version: `ubuntu-${ENVIRONMENT.ubuntu.version}`,
+        sourceDigest: ENVIRONMENT.ubuntu.baseDigest
+      },
+      {
+        id: 'bootstrap-ca-bundle',
+        version: LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_DATE_V1,
+        sourceDigest: ENVIRONMENT.archives.bootstrapCa.digest
+      },
+      {
+        id: 'dockerfile-frontend',
+        version: ENVIRONMENT.provider.dockerfileFrontend.version,
+        sourceDigest: ENVIRONMENT.provider.dockerfileFrontend.digest
+      },
+      {
+        id: 'github-cli',
+        version: LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1,
+        sourceDigest: ENVIRONMENT.archives.githubCli.digest
+      },
+      {
+        id: 'node',
+        version: LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1,
+        sourceDigest: ENVIRONMENT.archives.node.digest
+      },
+      {
+        id: 'runner',
+        version: LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
+        sourceDigest: ENVIRONMENT.archives.runner.digest
+      }
+    ]
+  });
+}
+
+export function createLocalGitHubActionsRunnerOciBakeDefinitionV1(candidatePath: string): string {
+  const retainedCandidatePath = path.resolve(boundedText(candidatePath, 'OCI candidate path', 32_768));
+  // Bake interpolates `${...}` in string values before forwarding the inline Dockerfile.
+  // Escape only that grammar. Shell command substitutions such as `$(stat ...)` must
+  // retain one dollar sign or the resulting Dockerfile changes execution semantics.
+  const dockerfileInline = createLocalGitHubActionsRunnerDockerfileV2().replaceAll('${', () => '$${');
+  return `${JSON.stringify({
+    group: { default: { targets: ['runner-oci'] } },
+    target: {
+      'runner-oci': {
+        context: '.',
+        'dockerfile-inline': dockerfileInline,
+        args: { SOURCE_DATE_EPOCH: LOCAL_GITHUB_ACTIONS_SOURCE_DATE_EPOCH_V1 },
+        platforms: [ENVIRONMENT.platform],
+        output: [
+          `type=oci,dest=${retainedCandidatePath},tar=false,rewrite-timestamp=true,name=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1}`
+        ],
+        attest: [`type=provenance,mode=${ENVIRONMENT.provenance.materializationMode}`]
+      }
+    }
+  })}\n`;
+}
+
+export function createLocalGitHubActionsRunnerProjectionBuildxArgsV1(
+  layoutPath: string
+): readonly string[] {
+  const retainedLayoutPath = path.resolve(boundedText(layoutPath, 'OCI layout path', 32_768));
+  const retainedLayoutUriPath = retainedLayoutPath.split(path.sep).join('/');
+  return Object.freeze([
+    'buildx', 'build',
+    '--build-context',
+    `runtime=oci-layout://${retainedLayoutUriPath}@${LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1}`,
+    '--file', '-',
+    '--platform', ENVIRONMENT.platform,
+    '--tag', LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1,
+    '--output', 'type=docker',
+    '--provenance=false',
+    `--progress=${ENVIRONMENT.provider.progressMode}`,
+    '.'
+  ]);
 }
 
 async function runCommand(
@@ -536,12 +717,20 @@ async function runCommand(
     input?: Buffer;
     acceptedCodes?: readonly number[];
     timeoutMs?: number;
+    stallTimeoutMs?: number;
+    admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
     githubToken?: string;
   }>
 ): Promise<CommandResult> {
-  const timeoutMs = options.timeoutMs ?? 120_000;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 1_200_000) {
+  const timeoutMs = options.timeoutMs ?? ENVIRONMENT.provider.timeoutsMs.commandDefault;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1
+      || timeoutMs > ENVIRONMENT.provider.timeoutsMs.commandMaximum) {
     fail('command timeout is invalid');
+  }
+  const stallTimeoutMs = options.stallTimeoutMs;
+  if (stallTimeoutMs !== undefined && (!Number.isSafeInteger(stallTimeoutMs)
+      || stallTimeoutMs < 1 || stallTimeoutMs > timeoutMs || options.admitProgress === undefined)) {
+    fail('command stall timeout is invalid');
   }
   const childEnvironment = commandEnvironment(command);
   if (options.githubToken !== undefined) {
@@ -562,43 +751,72 @@ async function runCommand(
     const stderr: Buffer[] = [];
     let outputBytes = 0;
     let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill();
-      reject(new Error(`Local GitHub Actions runner: ${command} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    const rejectOnce = (error: Error): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      child.kill();
-      reject(error);
+    let terminationError: Error | null = null;
+    let settlementTimer: ReturnType<typeof setTimeout> | null = null;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearTimers = (): void => {
+      clearTimeout(absoluteTimer);
+      if (stallTimer !== null) clearTimeout(stallTimer);
+      if (settlementTimer !== null) clearTimeout(settlementTimer);
     };
+    const terminate = (error: Error): void => {
+      if (settled || terminationError !== null) return;
+      terminationError = error;
+      if (stallTimer !== null) clearTimeout(stallTimer);
+      child.kill();
+      settlementTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        child.kill('SIGKILL');
+        clearTimers();
+        reject(error);
+      }, 30_000);
+    };
+    const absoluteTimer = setTimeout(() => terminate(new Error(
+      `Local GitHub Actions runner: ${command} exceeded absolute timeout ${timeoutMs}ms`
+    )), timeoutMs);
+    const armStallTimer = (): void => {
+      if (stallTimeoutMs === undefined) return;
+      if (stallTimer !== null) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => terminate(new Error(
+        `Local GitHub Actions runner: ${command} made no admitted progress for ${stallTimeoutMs}ms`
+      )), stallTimeoutMs);
+    };
+    armStallTimer();
     const collect = (target: Buffer[], chunk: Buffer) => {
+      if (options.admitProgress?.(chunk, target === stdout ? 'stdout' : 'stderr') === true) {
+        armStallTimer();
+      }
       outputBytes += chunk.length;
       if (outputBytes > MAX_COMMAND_OUTPUT_BYTES) {
-        rejectOnce(new Error(`Local GitHub Actions runner: ${command} output exceeded bound`));
+        terminate(new Error(`Local GitHub Actions runner: ${command} output exceeded bound`));
         return;
       }
       target.push(Buffer.from(chunk));
     };
     child.stdout.on('data', (chunk: Buffer) => collect(stdout, chunk));
     child.stderr.on('data', (chunk: Buffer) => collect(stderr, chunk));
-    child.once('error', rejectOnce);
+    child.once('error', (error) => terminate(error));
     child.once('close', (code) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimers();
+      if (terminationError !== null) {
+        reject(terminationError);
+        return;
+      }
       const result = Object.freeze({
         code: code ?? -1,
         stdout: Buffer.concat(stdout),
         stderr: Buffer.concat(stderr)
       });
       if (!(options.acceptedCodes ?? [0]).includes(result.code)) {
+        const stderrText = result.stderr.toString('utf8');
+        const stderrEvidence = stderrText.length <= 8192
+          ? stderrText
+          : `${stderrText.slice(0, 2048)}\n...[stderr middle omitted]...\n${stderrText.slice(-6144)}`;
         reject(new Error(
-          `Local GitHub Actions runner: ${command} failed with ${result.code}: `
-          + result.stderr.toString('utf8').slice(0, 4096)
+          `Local GitHub Actions runner: ${command} failed with ${result.code}: ${stderrEvidence}`
         ));
         return;
       }
@@ -649,7 +867,14 @@ export function dockerEndpointCommandArgsV3(
 async function runDockerCommand(
   endpoint: DockerEndpointIdentityV3,
   args: readonly string[],
-  options: Readonly<{ cwd: string; input?: Buffer; acceptedCodes?: readonly number[]; timeoutMs?: number }>
+  options: Readonly<{
+    cwd: string;
+    input?: Buffer;
+    acceptedCodes?: readonly number[];
+    timeoutMs?: number;
+    stallTimeoutMs?: number;
+    admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
+  }>
 ): Promise<CommandResult> {
   return await runCommand('docker', dockerCommandArgs(endpoint, args), options);
 }
@@ -1029,7 +1254,8 @@ function assertOwnedContainer(
     fail('container capability boundary changed and is preserved');
   }
   if (input.role === 'sut' &&
-      (host.PidsLimit !== SUT_PIDS || host.Memory !== 4 * 1024 * 1024 * 1024 ||
+      (host.PidsLimit !== SUT_PIDS
+        || host.Memory !== ENVIRONMENT.runtime.resources.sut.memoryGiB * 1024 * 1024 * 1024 ||
         host.NanoCpus !== SUT_CPUS * 1_000_000_000)) {
     fail('SUT container resource boundary changed and is preserved');
   }
@@ -1333,7 +1559,12 @@ export function assertLocalGitHubActionsRunnerImageIdentityV1(
         !== LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1
       || record['sec.local-runner.github-cli-archive-sha256']
         !== LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1
-      || record['sec.local-runner.python-version'] !== LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1) {
+      || record['sec.local-runner.python-version'] !== LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1
+      || record['sec.local-runner.ubuntu-snapshot'] !== LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1
+      || record['sec.local-runner.bootstrap-ca-bundle-sha256']
+        !== LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1
+      || record['sec.local-runner.dockerfile-frontend']
+        !== LOCAL_GITHUB_ACTIONS_DOCKERFILE_FRONTEND_V1) {
     fail('cached runner image labels differ from the frozen provider revision');
   }
 }
@@ -1388,17 +1619,231 @@ async function inspectImageById(
   return parsed[0] as Record<string, unknown>;
 }
 
+interface LocalGitHubActionsRunnerOciReceiptV1 {
+  readonly schema: typeof LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1;
+  readonly specDigest: `sha256:${string}`;
+  readonly runtimeManifestDigest: typeof LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1;
+  readonly dockerProjectionDigest: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
+  readonly provenanceArtifactDigest: `sha256:${string}`;
+  readonly layoutName: 'layout';
+}
+
+interface LocalGitHubActionsRunnerOciCacheV1 {
+  readonly directory: PhysicalDirectoryIdentityV1;
+  readonly layoutPath: string;
+  readonly receipt: LocalGitHubActionsRunnerOciReceiptV1 | null;
+  readonly state: 'absent' | 'matching' | 'mismatched';
+}
+
+function parseOciReceiptV1(source: Uint8Array, specDigest: `sha256:${string}`): LocalGitHubActionsRunnerOciReceiptV1 {
+  const parsed = JSON.parse(Buffer.from(source).toString('utf8')) as unknown;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) fail('OCI cache receipt is invalid');
+  const value = parsed as Record<string, unknown>;
+  exactKeys(value, [
+    'schema', 'specDigest', 'runtimeManifestDigest', 'dockerProjectionDigest',
+    'provenanceArtifactDigest', 'layoutName'
+  ], 'OCI cache receipt');
+  if (value.schema !== LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1
+      || value.specDigest !== specDigest
+      || value.runtimeManifestDigest !== LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1
+      || value.dockerProjectionDigest !== LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
+      || !/^sha256:[0-9a-f]{64}$/u.test(String(value.provenanceArtifactDigest))
+      || value.layoutName !== 'layout') {
+    fail('OCI cache receipt identity is invalid');
+  }
+  const receipt = Object.freeze(value as unknown as LocalGitHubActionsRunnerOciReceiptV1);
+  if (!Buffer.from(source).equals(Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'))) {
+    fail('OCI cache receipt bytes are not canonical');
+  }
+  return receipt;
+}
+
+function readOciLayoutProvenanceDigestV1(layoutPath: string): `sha256:${string}` {
+  const layout = inspectNoFollowDirectoryChainV1(layoutPath, 'OCI cache layout').target;
+  const layoutBytes = readNoFollowOrdinaryFileV1(layout, 'oci-layout');
+  const indexBytes = readNoFollowOrdinaryFileV1(layout, 'index.json');
+  if (layoutBytes === null || indexBytes === null
+      || Buffer.from(layoutBytes).toString('utf8').trim() !== '{"imageLayoutVersion":"1.0.0"}') {
+    fail('OCI cache layout framing is invalid');
+  }
+  const index = JSON.parse(Buffer.from(indexBytes).toString('utf8')) as unknown;
+  if (index === null || typeof index !== 'object' || Array.isArray(index)) fail('OCI cache index is invalid');
+  const record = index as Record<string, unknown>;
+  const manifests = record.manifests;
+  if (record.schemaVersion !== 2 || !Array.isArray(manifests) || manifests.length !== 1
+      || manifests[0] === null || typeof manifests[0] !== 'object' || Array.isArray(manifests[0])) {
+    fail('OCI cache index descriptor is invalid');
+  }
+  const digest = (manifests[0] as Record<string, unknown>).digest;
+  if (typeof digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(digest)) {
+    fail('OCI cache provenance artifact digest is invalid');
+  }
+  const blobs = inspectNoFollowDirectoryChainV1(
+    path.join(layout.path, 'blobs', 'sha256'), 'OCI cache blob directory'
+  ).target;
+  if (readNoFollowOrdinaryFileV1(
+    blobs, LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1.slice(7)
+  ) === null) {
+    fail('OCI cache does not contain the accepted runtime manifest');
+  }
+  return digest as `sha256:${string}`;
+}
+
+async function inspectRunnerOciCacheV1(cwd: string): Promise<LocalGitHubActionsRunnerOciCacheV1> {
+  const context = await resolveRepositoryContext(cwd);
+  const roots = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot: context.repositoryRoot });
+  const spec = createLocalGitHubActionsRunnerEnvironmentSpecV1();
+  const directoryPath = path.join(
+    roots.cacheRoot, 'environment-materialization', 'oci', 'v1', spec.specDigest.slice(7)
+  );
+  const authority = acquireSecRuntimeCachePhysicalAuthorityV1({
+    repositoryRoot: context.repositoryRoot,
+    cacheRoot: roots.cacheRoot,
+    requiredDirectories: [directoryPath]
+  });
+  const directory = authority.directory(directoryPath);
+  const layoutPath = path.join(directory.path, 'layout');
+  const receiptBytes = readNoFollowOrdinaryFileV1(directory, 'receipt.json');
+  const layoutPresent = (() => {
+    try {
+      const metadata = lstatSync(layoutPath);
+      return metadata.isDirectory() && !metadata.isSymbolicLink();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+  })();
+  if (receiptBytes === null && !layoutPresent) {
+    return Object.freeze({ directory, layoutPath, receipt: null, state: 'absent' as const });
+  }
+  if (receiptBytes === null || !layoutPresent) {
+    return Object.freeze({ directory, layoutPath, receipt: null, state: 'mismatched' as const });
+  }
+  const receipt = parseOciReceiptV1(receiptBytes, spec.specDigest);
+  const provenanceArtifactDigest = readOciLayoutProvenanceDigestV1(layoutPath);
+  return Object.freeze({
+    directory,
+    layoutPath,
+    receipt,
+    state: provenanceArtifactDigest === receipt.provenanceArtifactDigest
+      ? 'matching' as const
+      : 'mismatched' as const
+  });
+}
+
+async function projectRunnerOciLayoutV1(
+  cache: LocalGitHubActionsRunnerOciCacheV1,
+  cwd: string,
+  endpoint: DockerEndpointIdentityV3
+): Promise<void> {
+  const progress = createBuildxRawJsonProgressAdmissionV1();
+  if (ENVIRONMENT.provenance.dockerProjectionMode !== 'disabled') {
+    fail('unsupported Docker projection provenance policy');
+  }
+  await runDockerCommand(endpoint, createLocalGitHubActionsRunnerProjectionBuildxArgsV1(
+    cache.layoutPath
+  ), {
+    cwd: cache.directory.path,
+    input: Buffer.from('FROM runtime\n', 'utf8'),
+    timeoutMs: ENVIRONMENT.provider.timeoutsMs.projectionAbsolute,
+    stallTimeoutMs: ENVIRONMENT.provider.timeoutsMs.projectionStall,
+    admitProgress: (chunk, stream) => stream === 'stderr' && progress.push(chunk)
+  });
+  progress.finish();
+  const present = await inspectImage(cwd, endpoint);
+  if (present?.Id !== LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2) {
+    fail('OCI cache projection differs from the accepted Docker manifest');
+  }
+}
+
+function publishRunnerOciLayoutV1(input: Readonly<{
+  cache: LocalGitHubActionsRunnerOciCacheV1;
+  candidatePath: string;
+  provenanceArtifactDigest: `sha256:${string}`;
+}>): void {
+  try {
+    renameSync(input.candidatePath, input.cache.layoutPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    fail('OCI cache layout already exists without a matching receipt');
+  }
+  const receipt = Object.freeze({
+    schema: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1,
+    specDigest: createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest,
+    runtimeManifestDigest: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
+    dockerProjectionDigest: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    provenanceArtifactDigest: input.provenanceArtifactDigest,
+    layoutName: 'layout' as const
+  });
+  publishExclusiveDurableCanonicalFileV1({
+    parent: input.cache.directory,
+    name: 'receipt.json',
+    bytes: Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'),
+    validate: (bytes) => { parseOciReceiptV1(bytes, receipt.specDigest); }
+  });
+}
+
 async function ensureImage(cwd: string, endpoint: DockerEndpointIdentityV3): Promise<void> {
   let present = await inspectImage(cwd, endpoint);
-  if (present === null) {
-    await runDockerCommand(endpoint, ['build', '--tag', LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1, '-'], {
+  const spec = createLocalGitHubActionsRunnerEnvironmentSpecV1();
+  const cache = present === null ? await inspectRunnerOciCacheV1(cwd) : null;
+  const observedImageId = present === null ? null : present.Id;
+  const plan = compileEnvironmentMaterializationPlanV1({
+    spec,
+    observation: {
+      localTag: present === null
+        ? 'absent'
+        : observedImageId === LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
+          ? 'matching'
+          : 'mismatched',
+      localImageDigest: present === null
+        ? null
+        : /^sha256:[0-9a-f]{64}$/u.test(String(observedImageId))
+          ? observedImageId as `sha256:${string}`
+          : fail('runner image readback has an invalid identity'),
+      localArtifact: cache?.state ?? 'absent',
+      immutableBuildInputs: 'available',
+      providerCapability: 'available'
+    }
+  });
+  if (plan.disposition === 'blocked') {
+    fail(`environment materialization is blocked: ${plan.reason}`);
+  }
+  if (plan.disposition === 'restore-local') {
+    await projectRunnerOciLayoutV1(cache!, cwd, endpoint);
+    present = await inspectImage(cwd, endpoint);
+  }
+  if (plan.disposition === 'materialize') {
+    const materializationCache = cache ?? await inspectRunnerOciCacheV1(cwd);
+    const candidatePath = path.join(
+      materializationCache.directory.path,
+      `candidate-${randomBytes(16).toString('hex')}`
+    );
+    const progress = createBuildxRawJsonProgressAdmissionV1();
+    await runDockerCommand(endpoint, [
+      'buildx', 'bake', '--file', '-',
+      `--progress=${ENVIRONMENT.provider.progressMode}`,
+    ], {
       cwd,
-      input: Buffer.from(createLocalGitHubActionsRunnerDockerfileV1(), 'utf8'),
-      timeoutMs: 1_200_000
+      input: Buffer.from(createLocalGitHubActionsRunnerOciBakeDefinitionV1(candidatePath), 'utf8'),
+      timeoutMs: ENVIRONMENT.provider.timeoutsMs.materializeAbsolute,
+      stallTimeoutMs: ENVIRONMENT.provider.timeoutsMs.materializeStall,
+      admitProgress: (chunk, stream) => stream === 'stderr' && progress.push(chunk)
     });
+    progress.finish();
+    const provenanceArtifactDigest = readOciLayoutProvenanceDigestV1(candidatePath);
+    publishRunnerOciLayoutV1({
+      cache: materializationCache,
+      candidatePath,
+      provenanceArtifactDigest
+    });
+    const publishedCache = await inspectRunnerOciCacheV1(cwd);
+    if (publishedCache.state !== 'matching') fail('published OCI cache has no exact readback');
+    await projectRunnerOciLayoutV1(publishedCache, cwd, endpoint);
     present = await inspectImage(cwd, endpoint);
     if (present === null) fail('runner image build has no exact readback');
   }
+  if (present === null) fail('runner image materialization has no exact readback');
   assertLocalGitHubActionsRunnerImageIdentityV1(present);
 }
 
@@ -1974,7 +2419,7 @@ async function startRunnerInstanceV3(input: Readonly<{
       ? SUT_CAPABILITIES.flatMap((capability) => ['--cap-add', capability])
       : []),
     '--security-opt', 'no-new-privileges:true',
-    '--pids-limit', String(input.role === 'sut' ? SUT_PIDS : 4096),
+    '--pids-limit', String(ENVIRONMENT.runtime.resources[input.role].pids),
     '--memory', input.role === 'sut' ? SUT_MEMORY : input.memory,
     '--cpus', String(input.role === 'sut' ? SUT_CPUS : input.cpus),
     '--label', `sec.local-runner.schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3}`,

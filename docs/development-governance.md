@@ -338,6 +338,12 @@ SEC只应自行拥有自己的工程语义、authority、identity、Contract、E
 
 “轮子优先”不是“发现开源仓库就必须采用”。正式裁决必须以真实consumer和同条件Evidence为基础。
 
+新增依赖、运行时或外部Provider不得因依赖数量、品牌、直觉体积或需要安装而先验接受或拒绝。Capability Census必须比较exact acquisition与retained footprint、cold/warm latency、offline restart、既有cache复用与重复cache、常驻进程/权限、升级与故障面，以及能够退休的内部代码、脚本、状态机和运维业务；裁决优化的是替换后的总系统成本，不是只看新增项成本或当前自研代码量。
+
+所有预期会升级或按环境变化的版本、URL、digest、package集合、time/resource bound、provider identity、label和feature policy只在一个版本化data authority中维护。Contract logic、provider adapter、runtime topology和动态observation/receipt各自消费其最小投影，不复制字面值，也不能把统一治理误实现为一个全量失效key；content、provider projection、provenance、runtime resource和Evidence按真实依赖边独立求值与失效。
+
+长时provider operation同时具有absolute deadline与stall deadline。只有结构化且单调的新vertex、phase、byte/status advancement可以刷新stall deadline；重复状态、presentation log、心跳或无法归属的输出不能无限续命。timeout/cancellation后必须等待bounded child settlement并做资源absence或retained-state readback，不能只凭父进程退出声明清理完成。
+
 ### Capability Census
 
 新增或扩大自定义通用基础设施前，Work Package必须提供最小充分的 capability census：
@@ -1469,6 +1475,35 @@ resume verification；Epoch/Failure、Verification Result、Action/Evidence、Re
 IntegrationAuthorization、status 或 merge authority；future event/webhook adapter 也只能提供 typed
 invalidation fact。未外化的“已经做过”仍视为 unknown，identity、instruction、authority 或 trust fence
 不一致时停止而不猜测继续。
+
+### Compaction / Resume Consistency Protocol
+
+上下文摘要、聊天、旧status输出、child名称、PID、cwd字符串、branch/tag/cache路径、presentation log与“应该已经执行”的叙述都只是hint。它们只能选择最小live probe，不能授权`spawn | exec | download | build | external-write | cleanup | merge`。checkpoint保存最后已知引用和digest；live provider证明当前世界；pure resume compiler只从两者的reconciliation产生`join-existing | consume-terminal | execute-new | wait | reconcile | seal-epoch | blocked`，不能输出无前置证明的泛化`continue`。
+
+同一逻辑任务跨压缩保持稳定`runId`；WorkDecision、scope、authority、trust、EnvironmentSpec、provider capability或用户授权变化形成新的`resumeEpoch`；一次恢复竞争只使用`resumeAttemptNonce`；物理重试使用独立attempt nonce。所有副作用以`runId + logical owner/role + operation kind + semantic input digest + target identity + provider boundary`形成稳定operation key，attempt nonce不得替代幂等identity。已有claim/start marker但无terminal receipt时必须readback或阻断，不能blind replay；只有provider签发authenticated `not-started` receipt且出现明确causal capability epoch变化时，才可对同一operation key重新尝试。
+
+恢复admission必须重新读取当前事实，而不是把checkpoint observation当live proof：
+
+| Domain | Required live readback |
+|---|---|
+| subagent | parent/child lineage、logical role、provider child id、live status、result cursor/prefix digest、terminal result |
+| exec | session/process tree identity、PID start/object identity、start marker、settlement、stdout/stderr cursor、terminal receipt |
+| workspace | repository/workspace physical identity、cwd、worktree registry、ref/HEAD/tree/parents、tracked/untracked/index与ownership classification |
+| control | active manifest/pointer、WorkDecision/current spec、authority closure、Task Capsule/Read Plan、trust/main/base epoch |
+| authorization | current user/scope/effect grant、revocation epoch、tool/provider capability与permission revision |
+| materialization | EnvironmentSpec、lock/toolchain/platform/provider digest、exact cache/image/output generation与in-flight build/download |
+| external effect | stable operation marker、target/preimage、provider live object、terminal receipt与post-effect readback |
+| artifact | creator operation、content与physical identity、owner/retention、external mutation、active references与cleanup claim |
+
+任一required live owner为`unknown | unavailable | stale | conflicting`时，resume结果为typed reconciliation blocker，而不是`absent`。同一`runId + logicalRoleKey + epoch`最多一个active child：running只能join，terminal未消费只能按单调cursor consume，failed在输入/fingerprint未变化时复用failure，claim存在但provider不可查询时保留unknown；只有live provider明确absent且one-active-child CAS成功后才能spawn。exec、download、build和外部写采用同一代数。崩溃发生在download/build之后而receipt之前时，先按provider/output digest认领完整generation；不能证明完整时保留candidate并reconcile，不重复下载或构建。
+
+任务创建的每个artifact在effect前登记intent，成功后记录creator operation、exact bytes/digest、physical identity、owner、retention和引用。清理必须同时证明当前run创建、物理identity和preimage未变、无live child/exec/provider引用、当前epoch仍有cleanup authority、删除后absence readback；未登记、owner不明、用户修改、共享cache/image/volume或unknown对象一律保留。用户撤权立即阻断新effect；已有进程只由其合法provider cancellation owner处理，重新授权必须进入新epoch，不能复活旧grant。
+
+Durable resume checkpoint位于仓库外canonical SEC Runtime State，以内容寻址object、append-only journal、workspace locator与CAS active pointer发布。最小记录包含`runId/sessionRevision/checkpointGeneration/previousDigest/resumeEpoch/attemptNonce`、control引用、workspace identity、child/exec/effect/artifact records及单调stream cursor。pointer只作locator，不是authority；损坏、部分发布、provider不可用或并发resume均fail safe retain。Compaction hook可用时必须先冻结新effect、发布并readback checkpoint再生成summary；hook不可用时，恢复方必须把checkpoint之后的一切未登记变化视为unknown。
+
+当前机器边界仍有一个必须显式保留的capability gap：SEC仓库可以拥有resume contract、Runtime State、operation/effect/artifact ledger和provider adapter，但不能凭仓库代码读取Codex Desktop内部subagent tree或证明`code-mode host exited during handshake`发生在child creation前。只有Codex宿主提供authenticated live-subagent adapter和`not-started | started | terminal` exec receipt后，才能把这些域从manual live reconciliation升级为全机器门禁；在此之前必须调用宿主live tools重新读取，不能声称摘要问题已被完全机器化解决。
+
+当前`platform/shared/verification-session-resume-consistency-contract.ts`明确是`unwired-candidate`，没有被VerificationSession runtime、journal、CAS或effect provider消费，也永远输出`effectAuthority=none`。它的`claim-required`只表示下一步必须由仓库外durable ledger执行expected-revision CAS；绝不等价于`execute`。其中`live-provider`字段在authenticated provider receipt parser接入前仍是caller projection，不能签发absent、running、terminal、not-started或完成事实。正式接线必须先补齐run/session/epoch/role/target/provider identity、operation-key重算、claim/start/terminal receipt、cursor consume CAS、domain-specific cleanup/merge authority以及真实effect-path integration tests；在此前完整协议状态是`DESIGNED / RUNTIME_UNVERIFIED`。
 
 ## Merge 与收口
 

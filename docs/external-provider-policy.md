@@ -40,6 +40,8 @@ SUT污染trusted容器。
 
 该 Adapter 必须同时满足：
 
+- 镜像与OCI物化图采用Docker Buildx Bake/BuildKit；真正包含多个长期service/profile/health/dependency的本地运行拓扑以Docker Compose为唯一候选owner。当前v3 runner lifecycle仍是待迁移的raw Docker adapter，只有一次性registration token不落盘、三角色identity/lease/readback与故障恢复能被Compose投影等价证明后才能切换，不能先写Compose文档再宣称已实现。单镜像Buildx物化不为形式统一套Compose。Kubernetes不在当前本地开发和Verification capability closure内，不安装、不生成manifest、不建立第二编排owner；未来只有受治理resolution证明Compose能力不足且迁移总收益成立时才能改变该边界；
+
 - runner release、archive digest、Node LTS官方archive digest、GitHub CLI官方archive digest、Python archive-inspection runtime、Ubuntu base image digest、最终Docker image ID、
   三角色label profile与lifecycle owner全部进入
   `docs/governance/external-capability-ledger.yaml`；
@@ -50,6 +52,8 @@ SUT污染trusted容器。
   mutable apt结果静默冒充旧revision。Action/Evidence所消费的hosted provider revision必须显式绑定同一
   GitHub CLI version、archive SHA-256与final image ID；focused CI contract直接把runner owner常量与revision projection比较，
   禁止ledger、image、revision或测试fixture只更新其中一部分；
+- runner环境的稳定身份拆为OCI runtime content digest与Docker image-store projection digest；BuildKit provenance按受治理policy生成，其每次materialization artifact digest只进入动态receipt，不能充当稳定runtime identity。仓库外canonical SEC Runtime Cache保存绑定spec digest的完整OCI layout与canonical receipt；Docker tag/image缺失时先用该layout经Buildx本地投影恢复并readback，只有layout也缺失且provider plan明确为materialize时才允许remote solve。删除Docker image本身不得导致联网，OCI、Docker projection、provenance与runtime resource profile按各自依赖粒度独立失效；
+- Dagger v0.21.8是已测量、未安装的`environment-materialization`候选，不因体积或依赖数量先验拒绝：Windows CLI 22,437,680 bytes，linux/amd64 Engine压缩layers 371,606,760 bytes，默认TypeScript Node runtime再增加56,181,947 bytes，冷启动已知下限约394 MB/450 MB。裁决门槛是默认privileged Engine、独立`/var/lib/dagger` cache与现有Buildx cache无自动复用合同，以及真实runner provider首次接入净源码收益仅约0–150 LOC。Phase 1 pilot只能位于SEC-owned EnvironmentSpec/materialization plan/receipt之下，必须用同一输入证明cold/warm/offline/cache-loss/digest/provenance/progress并真实退休旧glue；Dagger digest、Engine state或task success不得成为SEC identity、trust root、Verification PASS或closeout authority；
 - 注册 token 只经进程 stdin 进入一次性配置，不进入argv、environment、image、日志或durable state；
 - container 不挂载host path或Docker socket，不接收repository secret目录；
 - 三个持久runner container均由Docker `--init`提供PID-1 child reaper；start与每次readback都必须验证

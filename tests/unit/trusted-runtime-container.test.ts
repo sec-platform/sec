@@ -1,9 +1,11 @@
+import path from 'node:path';
+
 import { describe, expect, test } from 'bun:test';
 
 import { parseDockerEndpointIdentityV3 } from '../../scripts/codex/local-github-actions-runner.ts';
 import {
   TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1,
-  TRUSTED_RUNTIME_CONTAINER_BUN_IMAGE_MANIFEST_V1,
+  TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256_V1,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1,
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
   TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2,
@@ -21,6 +23,7 @@ import {
   createTrustedRuntimeDependencyCacheMarkerV1,
   createTrustedRuntimeDependencyCacheVolumeSpecV1,
   createTrustedRuntimeHostCommandEnvironmentV1,
+  createTrustedRuntimeImageBuildPlanV1,
   createTrustedRuntimeMainHealthBaselineObservationV2,
   createTrustedRuntimeMainHealthGatePlansV1,
   createTrustedRuntimeMainHealthReceiptV2,
@@ -48,7 +51,7 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
       Labels: {
         'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1',
         'sec.trusted-runtime.base-image-id': TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1,
-        'sec.trusted-runtime.bun-image-manifest': TRUSTED_RUNTIME_CONTAINER_BUN_IMAGE_MANIFEST_V1,
+        'sec.trusted-runtime.bun-archive-sha256': TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256_V1,
         'sec.trusted-runtime.bun-version': '1.3.14',
         ...overrides
       }
@@ -57,6 +60,16 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('builds through Buildx with authority-owned absolute and semantic stall deadlines', () => {
+    const plan = createTrustedRuntimeImageBuildPlanV1(
+      path.resolve('scripts/codex/trusted-runtime.Dockerfile')
+    );
+    expect(plan.args.slice(0, 2)).toEqual(['buildx', 'build']);
+    expect(plan.args).toContain('--load');
+    expect(plan.args).toContain('--progress=rawjson');
+    expect(plan.stallTimeoutMs).toBeLessThan(plan.absoluteTimeoutMs);
+  });
+
   test('admits only the canonical executable test tmpfs and non-executable runtime state', () => {
     const container = {
       Id: '4'.repeat(64),
