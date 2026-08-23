@@ -24,7 +24,8 @@ function affectedPlan(
     sourceChanged,
     selectionResolved: true,
     unresolvedModuleFiles: [],
-    selectedFastTestCount: selectedFastTests.length
+    selectedFastTestCount: selectedFastTests.length,
+    broadFallbackEnabled: false
   });
   return {
     schema: 'sec-affected-test-plan-v1',

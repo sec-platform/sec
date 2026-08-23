@@ -33,6 +33,7 @@ const BOUNDED_BASELINE_PATTERNS = [
   /^platform\/orchestrator\.ts$/,
   /^tests\/helpers\/semantic-mutation-runtime-target-swap-runner\.ts$/,
   /^tests\/helpers\/workspace-fixtures\.ts$/,
+  /^tests\/setup\//,
   /^tests\/testkit\/workspace\.ts$/
 ];
 

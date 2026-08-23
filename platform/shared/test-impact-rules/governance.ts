@@ -181,7 +181,6 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'platform/shared/work-selection-live-contract.ts',
       'scripts/codex/work-selection.ts'
     ],
-    moduleGraphImpact: 'owner-only',
     supplementalFast: [
       'tests/unit/agent-operation-activation.test.ts',
       'tests/contract/docs-doctor.test.ts',

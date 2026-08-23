@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os';
 
+import { ensureTestDependencies } from '../../platform/dev-runner/dependency-bootstrap.ts';
 import { createTestProcessTempRootV1 } from '../../platform/dev-runner/test-process-temp.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 
@@ -22,11 +23,13 @@ async function configureTestTempRoot(): Promise<void> {
   }
 }
 
-export default async function configureBunTestRuntime(): Promise<void> {
-  // A Bun preload owns process-local isolation only. Dependency and browser
-  // materialization belong to the explicit dev-runner capability plan.
+export default async function prewarmSharedRuntimeDeps(): Promise<void> {
+  if (process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1') {
+    const dependencies = await ensureTestDependencies();
+    process.env.PLAYWRIGHT_BROWSERS_PATH = dependencies.browserCachePath;
+  }
   await configureTestTempRoot();
 }
 
 // Bun test compat: execute immediately
-await configureBunTestRuntime();
+await prewarmSharedRuntimeDeps();

@@ -114,6 +114,8 @@ const AFFECTED_SELECTION_VERIFICATION_GATE_RESULT_SCHEMA = 'sec-verification-gat
  *   source could not be read or a local code target could not be resolved. The
  *   affected closure may be incomplete; an empty selection is NOT proof of
  *   "no impact".
+ * - `broad-fallback`: SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1 triggered a
+ *   broad fast-suite run because no targeted closure matched.
  * - `applicable-with-tests`: one or more fast tests were selected for
  *   execution.
  * - `applicable-no-tests`: no source change required test impact AND no fast
@@ -125,6 +127,7 @@ export type AffectedSelectionTrustBoundary =
   | 'applicable-with-tests'
   | 'unresolved-selection'
   | 'unresolved-module-graph'
+  | 'broad-fallback'
   | 'unresolved-ownership'
   | 'unresolved-git';
 
@@ -146,6 +149,8 @@ export interface AffectedSelectionClassificationInput {
   unresolvedModuleFiles: readonly string[];
   /** Number of selected fast tests (changed + affected). */
   selectedFastTestCount: number;
+  /** SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1. */
+  broadFallbackEnabled: boolean;
 }
 
 /**
@@ -156,14 +161,15 @@ export interface AffectedSelectionClassificationInput {
  *    without changed paths).
  * 2. ownership failure dominates selection failure (ownership is a stricter,
  *    earlier gate).
- * 3. sourceChanged + empty closure → fail closed. In the quick lane, an
+ * 3. sourceChanged + empty closure + no fallback → fail closed. In PR quick
  *    lane, an empty closure for a source change is a risk signal: either test
  *    coverage is missing, or the selector failed silently. The runner must
  *    NOT treat this as "no impact". When module-source read failures are
  *    present, report `unresolved-module-graph` for diagnostics; otherwise
  *    `unresolved-selection`.
- * 4. fast tests selected → applicable-with-tests.
- * 5. no source change and no fast tests → applicable-no-tests (legitimate
+ * 4. broad fallback explicitly enabled for source change with empty closure.
+ * 5. fast tests selected → applicable-with-tests.
+ * 6. no source change and no fast tests → applicable-no-tests (legitimate
  *    "no impact": only slow tests, docs, or data changed).
  */
 export function classifyAffectedSelectionTrustBoundary(
@@ -171,13 +177,20 @@ export function classifyAffectedSelectionTrustBoundary(
 ): AffectedSelectionTrustBoundary {
   if (input.gitDiscoveryFailed) return 'unresolved-git';
   if (!input.ownershipResolved) return 'unresolved-ownership';
-  // Source changed but no fast tests selected.
+  // Source changed but no fast tests selected and no broad fallback.
   // This is the core Issue #206 false-green scenario: fail closed.
   if (input.sourceChanged
-    && input.selectedFastTestCount === 0) {
+    && input.selectedFastTestCount === 0
+    && !input.broadFallbackEnabled) {
     return input.unresolvedModuleFiles.length > 0
       ? 'unresolved-module-graph'
       : 'unresolved-selection';
+  }
+  // Broad fallback explicitly enabled for source change with empty closure.
+  if (input.broadFallbackEnabled
+    && input.sourceChanged
+    && input.selectedFastTestCount === 0) {
+    return 'broad-fallback';
   }
   if (input.selectedFastTestCount > 0) return 'applicable-with-tests';
   return 'applicable-no-tests';
@@ -228,7 +241,7 @@ export function defaultAffectedSelectionProjectionContext(
  *
  * This projection is for the PLAN phase (before test execution). Execution
  * outcome (passed/failed) is NOT represented here — `applicable-with-tests`
- * project to `not-run/not-dispatched` because no test
+ * and `broad-fallback` project to `not-run/not-dispatched` because no test
  * has run yet. After execution, the runner constructs a fresh result with
  * the actual exit code; that path is outside this contract.
  *
@@ -285,6 +298,7 @@ export function projectAffectedSelectionToVerificationGateResult(
         disposition: 'not-executed',
         reasonCode: 'selection-unresolved'
       };
+    case 'broad-fallback':
     case 'applicable-with-tests':
       // Plan phase: tests are selected but have not executed yet.
       return {

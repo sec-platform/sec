@@ -9,12 +9,10 @@ import {
 export interface DevDependencyBootstrapResult {
   readonly manifestHash: string;
   readonly nodeModulesPath: string;
-  readonly requiresProcessRelaunch: boolean;
-  readonly root: string;
   readonly source: 'existing' | 'installed';
 }
 
-export interface BrowserTestDependencyBootstrapResult extends DevDependencyBootstrapResult {
+export interface TestDependencyBootstrapResult extends DevDependencyBootstrapResult {
   readonly browserCachePath: string;
 }
 
@@ -27,7 +25,7 @@ interface DevDependencyBootstrapOptions extends CompilerDependencyBootstrapOptio
   readonly hookPolicy?: 'always' | 'if-installed' | 'never';
 }
 
-interface BrowserTestDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
+interface TestDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
   readonly ensureBrowserCache?: (dependencyRoot: string) => Promise<PlaywrightBrowserCacheReadyState>;
 }
 
@@ -41,8 +39,6 @@ function dependencyBootstrapResult(ready: CompilerDepsReadyState): DevDependency
   return {
     manifestHash: ready.manifestHash,
     nodeModulesPath: ready.nodeModulesPath,
-    requiresProcessRelaunch: ready.requiresProcessRelaunch,
-    root: ready.root,
     source: ready.source
   };
 }
@@ -75,14 +71,9 @@ export async function ensureFastTestDependencies(
   );
 }
 
-/**
- * Materializes the optional browser capability. The explicit name is part of
- * the demand boundary: Core/CLI/unit callers cannot accidentally pay for
- * Playwright by asking for generic "test dependencies".
- */
-export async function ensureBrowserTestDependencies(
-  options: BrowserTestDependencyBootstrapOptions = {}
-): Promise<BrowserTestDependencyBootstrapResult> {
+export async function ensureTestDependencies(
+  options: TestDependencyBootstrapOptions = {}
+): Promise<TestDependencyBootstrapResult> {
   const ready = await (options.ensureCompilerDeps ?? ensureCanonicalCompilerDependencies)();
   const browser = await (options.ensureBrowserCache ?? ((dependencyRoot) =>
     ensurePlaywrightBrowserCacheReady({}, dependencyRoot)))(ready.root);

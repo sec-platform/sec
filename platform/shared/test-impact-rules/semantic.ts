@@ -175,7 +175,6 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     owner: "project-runtime-authority",
     identity: { kind: "architecture-owner", id: "project-runtime-authority" },
     sourceFiles: ["platform/shared/project-runtime.ts"],
-    moduleGraphImpact: "owner-only",
     supplementalFast: PROJECT_RUNTIME_AUTHORITY_FAST_TESTS,
     supplementalSlow: SHARED_RUNTIME_DEPENDENCY_SLOW_TESTS,
   },

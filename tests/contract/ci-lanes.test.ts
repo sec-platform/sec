@@ -312,12 +312,17 @@ test('CI PR risk gate reserves bounded fallback for unknown input and uses exact
     reasons: ['bounded-baseline'],
     resolved: true
   });
-  expect(selectCiPrRiskSlowSuites(['tests/setup/test-runtime.setup.ts'])).toMatchObject({
-    suites: [],
-    slowTests: [],
-    affectedSlowTests: [],
-    owners: ['test-process-runtime'],
-    reasons: ['ownership-impact'],
+  expect(selectCiPrRiskSlowSuites(['tests/setup/runtime-deps.setup.ts'])).toMatchObject({
+    suites: [
+      'contract-dev-runner-live-authority',
+      'e2e-artifacts',
+      'e2e-compiler-smoke',
+      'e2e-provenance',
+      'e2e-verify-lock',
+      'e2e-workspace'
+    ],
+    owners: ['bounded-slow-risk', 'dev-runner'],
+    reasons: ['bounded-baseline', 'ownership-impact'],
     resolved: true
   });
   const sharedTestkit = selectCiPrRiskSlowSuites(['tests/testkit/workspace.ts']);
