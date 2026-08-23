@@ -295,9 +295,6 @@ export function createBranchCloseoutPreparation(input: Omit<
     if (input.expectedPrHeadSha === null) {
       throw new Error('absent-ref closeout requires the exact PR-recorded head SHA.');
     }
-    if (input.expectedLocalSha !== null) {
-      throw new Error('absent-ref closeout cannot bind a surviving local ref.');
-    }
   } else if (input.expectedPrHeadSha !== null) {
     throw new Error('expectedPrHeadSha is only valid for absent-ref closeout.');
   }
@@ -449,17 +446,8 @@ export function authorizeBranchCloseout(input: {
     const currentRemote = current.remoteBranches.find(
       ({ branch }) => branch === preparation.branch
     );
-    const beforeLocal = before.localBranches.find(
-      ({ branch }) => branch === preparation.branch
-    );
-    const currentLocal = current.localBranches.find(
-      ({ branch }) => branch === preparation.branch
-    );
     if (beforeRemote !== undefined || currentRemote !== undefined) {
       blockers.push('absent-ref closeout observed a surviving remote ref');
-    }
-    if (beforeLocal !== undefined || currentLocal !== undefined) {
-      blockers.push('absent-ref closeout observed a surviving local ref');
     }
     const pr = currentPullRequest(current, preparation.pullRequestNumber ?? -1);
     if (pr) {

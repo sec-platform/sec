@@ -127,14 +127,17 @@ function repositoryFixture(): Readonly<{
   return Object.freeze({ root, remote, repository, branch, headSha, mainSha });
 }
 
-function installGitHubObservationShim(fixture: ReturnType<typeof repositoryFixture>): () => void {
+function installGitHubObservationShim(
+  fixture: ReturnType<typeof repositoryFixture>,
+  pullRequests: readonly Readonly<Record<string, unknown>>[] = []
+): () => void {
   const shimRoot = path.join(fixture.root, 'command-shims');
   mkdirSync(shimRoot, { recursive: true });
   const program = path.join(shimRoot, 'gh-shim.ts');
   writeFileSync(program, `
 const args = process.argv.slice(2);
 if (args[0] === 'pr' && args[1] === 'list') {
-  process.stdout.write('[]');
+  process.stdout.write(${JSON.stringify(JSON.stringify(pullRequests))});
   process.exit(0);
 }
 if (args[0] === 'api' && args[1] === '/repos/sec-platform/sec') {
@@ -188,6 +191,51 @@ test('V6 branch preparation is recovery-only and leaves exact local/remote refs 
       .toBe(fixture.headSha);
     expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
       .toContain(fixture.headSha);
+  } finally {
+    restorePath();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180_000);
+
+test('remote-absent preparation recovers the exact local branch without mutating either ref', () => {
+  const fixture = repositoryFixture();
+  git(fixture.repository, ['push', 'origin', '--delete', fixture.branch]);
+  const restorePath = installGitHubObservationShim(fixture, [{
+    number: 42,
+    headRefName: fixture.branch,
+    headRefOid: fixture.headSha,
+    baseRefName: 'main',
+    baseRefOid: fixture.mainSha,
+    state: 'MERGED',
+    isDraft: false,
+    isCrossRepository: false,
+    url: 'https://github.com/sec-platform/sec/pull/42'
+  }]);
+  try {
+    const prepared = prepareBranchCloseout({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      recoveryRoot: path.join(fixture.root, 'recovery')
+    }, {
+      branch: fixture.branch,
+      refState: 'absent',
+      expectedHeadSha: fixture.headSha,
+      pullRequestNumber: 42,
+      expectedPrHeadSha: fixture.headSha
+    });
+    expect(prepared.preparation.expectedLocalSha).toBe(fixture.headSha);
+    expect(prepared.preparation.recovery).not.toBeNull();
+    const recovery = prepared.preparation.recovery;
+    if (recovery === null) throw new Error('Expected exact local recovery authority.');
+    expect(existsSync(recovery.path)).toBe(true);
+    expect(git(fixture.repository, ['bundle', 'list-heads', recovery.path]))
+      .toContain(fixture.headSha);
+    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
+      .toBe(fixture.headSha);
+    expect(git(fixture.repository, [
+      'ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`
+    ])).toBe('');
   } finally {
     restorePath();
     rmSync(fixture.root, { recursive: true, force: true });
