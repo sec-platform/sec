@@ -102,11 +102,14 @@ test('inspect is zero-write and protects one ignored unknown root', async () => 
 
 test('worktree retirement preserves every registry-covered ignored root outside the target and binds Effect-start identity', async () => {
   const fixture = await registeredWorktreeFixture();
+  await mkdir(path.join(fixture.workspaceRoot, '.sec', 'import-transform-transactions', 'accepted'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, '.sec', 'import-transform-transactions', 'accepted', 'journal.jsonl'), '{}');
   await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
   await writeFile(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'), 'cache');
   await mkdir(path.join(fixture.workspaceRoot, 'node_modules', 'pkg'), { recursive: true });
   await writeFile(path.join(fixture.workspaceRoot, 'node_modules', 'pkg', 'index.js'), 'module');
   await mkdir(path.join(fixture.workspaceRoot, '.tmp', 'dependency-installs', 'compiler-backups'), { recursive: true });
+  await mkdir(path.join(fixture.workspaceRoot, '.tmp', 'codex'), { recursive: true });
   await writeFile(path.join(fixture.workspaceRoot, '.tmp', 'test-impact-cache.json'), '{}');
 
   const receipt = await settleGeneratedStateForWorktreeRetirementV1(
@@ -122,9 +125,11 @@ test('worktree retirement preserves every registry-covered ignored root outside 
 
   expect(receipt).not.toBeNull();
   expect(receipt).toMatchObject({ terminal: 'completed' });
-  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['.shared-deps', '.tmp', 'node_modules']);
+  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual([
+    '.sec/import-transform-transactions', '.shared-deps', '.tmp', 'node_modules'
+  ]);
   const persistedReceipt = JSON.parse(JSON.stringify(canonicalJson(receipt))) as NonNullable<typeof receipt>;
-  for (const relativePath of ['.shared-deps', '.tmp', 'node_modules']) {
+  for (const relativePath of ['.sec/import-transform-transactions', '.shared-deps', '.tmp', 'node_modules']) {
     expect(await absent(path.join(fixture.workspaceRoot, relativePath))).toBe(true);
   }
   expect(() =>
@@ -185,8 +190,10 @@ test('worktree retirement resumes the exact durable intent after interruption be
 
 test('worktree retirement blocks one unknown ignored descendant before moving any root', async () => {
   const fixture = await registeredWorktreeFixture();
-  await mkdir(path.join(fixture.workspaceRoot, '.tmp', 'mystery'), { recursive: true });
-  await writeFile(path.join(fixture.workspaceRoot, '.tmp', 'mystery', 'keep.txt'), 'keep');
+  await mkdir(path.join(fixture.workspaceRoot, '.sec', 'foreign-dir'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, '.sec', 'foreign-dir', 'keep.txt'), 'foreign');
+  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'), 'cache');
 
   await expect(
     settleGeneratedStateForWorktreeRetirementV1(
@@ -199,8 +206,9 @@ test('worktree retirement blocks one unknown ignored descendant before moving an
       },
       fixture.options
     )
-  ).rejects.toThrow('unknown content');
-  expect(await absent(path.join(fixture.workspaceRoot, '.tmp', 'mystery', 'keep.txt'))).toBe(false);
+  ).rejects.toThrow('unknown ignored root');
+  expect(await absent(path.join(fixture.workspaceRoot, '.sec', 'foreign-dir', 'keep.txt'))).toBe(false);
+  expect(await absent(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'))).toBe(false);
 });
 
 test('birth and retirement are owner-generated and make only the exact retired root selectable', async () => {
