@@ -345,7 +345,7 @@ describe('work-selection live contract', () => {
     })).toThrow(/retains terminal manifests/u);
   });
 
-  test('terminal compaction rejects both half-transactions', () => {
+  test('terminal compaction owns only its retired manifest subgraph', () => {
     const prior = transitionCatalog();
     const compaction = compileSecRoadmapTerminalCompactionV1({
       roadmapSource: prior.source,
@@ -356,14 +356,26 @@ describe('work-selection live contract', () => {
       priorRoadmapSource: prior.source,
       roadmapSource: prior.source,
       priorManifestPaths: [manifestPath],
-      manifestPaths: []
-    })).toThrow(/changed manifest inventory without retiring catalog work/u);
+      manifestPaths: [manifestPath, 'docs/work-packages/new-selected-v1.md']
+    })).not.toThrow();
     expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath],
       manifestPaths: [manifestPath]
-    })).toThrow(/manifest inventory differs from the canonical compiler output/u);
+    })).toThrow(/manifest subgraph differs from the canonical compiler output/u);
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+      priorRoadmapSource: prior.source,
+      roadmapSource: compaction.roadmapSource,
+      priorManifestPaths: [manifestPath, 'docs/work-packages/survivor-v1.md'],
+      manifestPaths: ['docs/work-packages/new-selected-v1.md']
+    })).toThrow(/manifest subgraph differs from the canonical compiler output/u);
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+      priorRoadmapSource: prior.source,
+      roadmapSource: compaction.roadmapSource,
+      priorManifestPaths: [manifestPath],
+      manifestPaths: ['docs/work-packages/new-selected-v1.md']
+    })).not.toThrow();
   });
 
   test('synthetic catalog revision is derived only from its exact fixture source', () => {

@@ -764,12 +764,7 @@ export function assertSecRoadmapTerminalCompactionDeltaV1(input: {
   const retiredWorkIds = prior.items
     .filter((item) => !currentByWorkId.has(item.workId))
     .map((item) => item.workId);
-  if (retiredWorkIds.length === 0) {
-    if (!canonicalEquals([...priorManifests].sort(compareCodeUnits), [...currentManifests].sort(compareCodeUnits))) {
-      fail('terminal compaction changed manifest inventory without retiring catalog work.');
-    }
-    return;
-  }
+  if (retiredWorkIds.length === 0) return;
   const compiled = compileSecRoadmapTerminalCompactionV1({
     roadmapSource: input.priorRoadmapSource,
     completedWorkIds: retiredWorkIds
@@ -777,11 +772,17 @@ export function assertSecRoadmapTerminalCompactionDeltaV1(input: {
   if (input.roadmapSource !== compiled.roadmapSource) {
     fail('terminal compaction roadmap bytes differ from the canonical compiler output.');
   }
-  const expectedManifests = [...priorManifests]
-    .filter((manifestPath) => !compiled.retiredManifestPaths.includes(manifestPath))
-    .sort(compareCodeUnits);
-  if (!canonicalEquals(expectedManifests, [...currentManifests].sort(compareCodeUnits))) {
-    fail('terminal compaction manifest inventory differs from the canonical compiler output.');
+  const retainedPriorManifests = [...priorManifests].filter(
+    (manifestPath) => !compiled.retiredManifestPaths.includes(manifestPath)
+  );
+  const missingRetainedManifests = retainedPriorManifests.filter(
+    (manifestPath) => !currentManifests.has(manifestPath)
+  );
+  const presentRetiredManifests = compiled.retiredManifestPaths.filter(
+    (manifestPath) => currentManifests.has(manifestPath)
+  );
+  if (missingRetainedManifests.length > 0 || presentRetiredManifests.length > 0) {
+    fail('terminal compaction manifest subgraph differs from the canonical compiler output.');
   }
 }
 

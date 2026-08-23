@@ -137,8 +137,10 @@ facts并签发receipt；Phase C writer只把validated decision物化为一个当
 Phase C的live adapter先把trusted terminal current-spec observation编译为roadmap terminal compaction，
 再以`raw roadmap revision + compaction digest + terminal observation`形成唯一selection revision；关闭的work不再
 进入候选集，也不会因manifest已先退役而锁死selection。catalog、已消费依赖边和manifest retirement构成一个
-不可拆分的candidate graph delta；document-control freeze只接受与compiler输出逐字相等的candidate tree，
-docs-doctor在prior/current边界拒绝半事务。聊天、手工删除或Issue关闭本身都不能绕过该freeze consumer。
+不可拆分的candidate graph delta；document-control freeze只接受与compiler输出逐字相等的terminal subgraph。
+新增selected manifest与delayed predecessor仍由既有package census拥有，terminal owner只拒绝自身退休对象残留或
+既有非退休manifest丢失，不得用whole-inventory equality覆盖另一个合法生命周期。聊天、手工删除或Issue关闭
+本身都不能绕过这些consumer。
 #349 `ExecutionWave`随后只编译selected work refs的order/conflict/resource/cost，不能复制selector、
 Issue prose、权限、Task Capsule或Verification。bounded automated action只有在下游authorization、Journal、
 rollback和真实consumer成立后才能激活；pure decision本身永远没有branch/PR/merge/write authority。
