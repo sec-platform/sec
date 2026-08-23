@@ -33,6 +33,7 @@ import {
 
 import {
   createBranchLifecycleGitChildEnvironmentV1,
+  createBranchLifecycleGitHubCredentialArgsV1,
   decodeBranchLifecycleChildErrorV1,
   decodeBranchLifecycleChildStdoutV1
 } from './branch-lifecycle-command.ts';
@@ -384,6 +385,7 @@ export function createRecoveryBundle(input: {
         throw new Error(`recovery repository initialization failed: ${decodeBranchLifecycleChildErrorV1(initialize)}`);
       }
       const fetch = runRecoveryGit(temporaryRepository, [
+        ...createBranchLifecycleGitHubCredentialArgsV1(),
         'fetch',
         '--no-tags',
         inventory.repository.remoteUrl,
