@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
 
+import {
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1,
+  type SecLinuxVerificationEnvironmentAuthorityV1
+} from './sec-linux-verification-environment.ts';
+
 export const CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION = 'ci-verification-v8' as const;
 
 /** Active trusted hosted lane. V2/V3 evidence revisions remain reader-only. */
@@ -40,8 +45,23 @@ export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2 = Object.freeze([
   'bunfig.toml',
   'package.json'
 ] as const);
+export function createCiVerificationHostedProviderRevisionV2(
+  authority: SecLinuxVerificationEnvironmentAuthorityV1
+): string {
+  return `github-actions:self-hosted:ubuntu-${authority.ubuntu.version}:x64:`
+    + `${authority.environmentId}:roles-control-trusted-sut-v1:`
+    + `runner-${authority.archives.runner.version}:node-${authority.archives.node.version}:`
+    + `python-${authority.runtime.pythonVersion}:unzip-6.00:`
+    + `gh-${authority.archives.githubCli.version}:`
+    + `gh-archive-sha256-${authority.archives.githubCli.digest.slice(7)}:`
+    + `image-sha256-${authority.image.dockerProjectionDigest.slice(7)}:`
+    + `container-init-v1:bun-${authority.trustedRuntime.bunVersion}:action-producer-v2:sandbox-v5`;
+}
+
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
-  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:gh-2.97.0:gh-archive-sha256-a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112:image-sha256-418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f:container-init-v1:bun-1.3.14:action-producer-v2:sandbox-v5' as const;
+  createCiVerificationHostedProviderRevisionV2(
+    SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1
+  );
 
 /**
  * The hosted SUT isolation policy is part of Action identity through

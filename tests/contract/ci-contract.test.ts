@@ -31,9 +31,11 @@ import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1,
   CI_VERIFICATION_SESSION_CONTRACT_REVISION,
   createCiMainHealthRequestOperationIdV1,
+  createCiVerificationHostedProviderRevisionV2,
   matchesCiCompilerWorkflowRunIdentityV1,
   matchesCiWorkflowRunIdentityV1
 } from '../../platform/shared/ci-verification-revision.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 import { TCB_TRUST_ROOT_V3 } from '../../platform/shared/tcb-closure-lock.ts';
 import {
   matchSecTrustedBootstrapPathV3,
@@ -164,6 +166,9 @@ test('all hosted workflow-run consumers exclude mutable provider name from ident
 });
 
 test('hosted provider revision binds the exact trusted runtime profile', () => {
+  const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1;
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2)
+    .toBe(createCiVerificationHostedProviderRevisionV2(authority));
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(
     'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0'
   );
@@ -178,6 +183,15 @@ test('hosted provider revision binds the exact trusted runtime profile', () => {
     'a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf'
   );
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':container-init-v1:');
+  const hostileProjectionDigest = `sha256:${'f'.repeat(64)}` as `sha256:${string}`;
+  expect(createCiVerificationHostedProviderRevisionV2({
+    ...authority,
+    image: { ...authority.image, dockerProjectionDigest: hostileProjectionDigest }
+  })).toContain(`:image-${hostileProjectionDigest.replace(':', '-')}:`);
+  expect(createCiVerificationHostedProviderRevisionV2({
+    ...authority,
+    image: { ...authority.image, dockerProjectionDigest: hostileProjectionDigest }
+  })).not.toBe(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2);
 });
 
 test('persistent runners never load a workflow or repository bytes from a caller-selected ref', async () => {
