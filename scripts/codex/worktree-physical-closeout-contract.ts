@@ -1,4 +1,8 @@
 import { canonicalJson, sha256 } from '../../platform/shared/canonical-primitives.ts';
+import {
+  assertGeneratedStateWorktreeRetirementV1,
+  type GeneratedStateWorktreeRetirementV1
+} from '../../platform/shared/generated-state-contract.ts';
 
 export const WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA_V1 = 'sec-worktree-cleanup-authorization-v1' as const;
 export const WORKTREE_PHYSICAL_CLOSEOUT_RECEIPT_SCHEMA_V1 = 'sec-worktree-cleanup-receipt-v1' as const;
@@ -28,6 +32,13 @@ export interface WorktreePorcelainRecordV1 {
   readonly bare: boolean;
   readonly locked: boolean;
   readonly prunable: boolean;
+}
+
+export interface WorktreeStatusPorcelainRecordV1 {
+  readonly index: string;
+  readonly worktree: string;
+  readonly path: string;
+  readonly originalPath: string | null;
 }
 
 export type WorktreePhysicalEntryKind = 'directory' | 'file' | 'symlink';
@@ -90,6 +101,8 @@ export interface WorktreePhysicalCloseoutAuthorizationV1 {
   readonly proofRoot: { readonly path: string; readonly device: string; readonly inode: string; };
   readonly registryBeforeDigest: Digest;
   readonly workingStateDigest: Digest;
+  /** #271-owned preservation receipt; null only when no ignored derived state existed. */
+  readonly generatedStateRetirement: GeneratedStateWorktreeRetirementV1 | null;
   readonly inventory: WorktreePhysicalInventoryV1;
   /** Deterministic same-parent retained relocation name; never caller chosen. */
   readonly tombstoneName: string;
@@ -276,6 +289,64 @@ export function parseWorktreePorcelainZV1(source: Buffer | Uint8Array): Worktree
   return records;
 }
 
+/** Strict parser for `git status --porcelain=v1 -z` machine records. */
+export function parseWorktreeStatusPorcelainZV1(source: Buffer | Uint8Array): WorktreeStatusPorcelainRecordV1[] {
+  const bytes = Buffer.from(source);
+  if (bytes.length === 0) return [];
+  if (bytes[bytes.length - 1] !== 0) fail('status porcelain-z input must end with NUL.');
+  let decoded: string;
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return fail('status porcelain-z input contains invalid UTF-8.');
+  }
+  const fields = decoded.split('\0');
+  fields.pop();
+  const records: WorktreeStatusPorcelainRecordV1[] = [];
+  const allowed = new Set([' ', 'M', 'T', 'A', 'D', 'R', 'C', 'U', '?', '!']);
+  const canonicalPath = (value: string, label: string): string => {
+    const normalized = value.replaceAll('\\', '/').replace(/\/+$/u, '');
+    if (
+      normalized.length === 0 ||
+      normalized.startsWith('/') ||
+      /^[A-Za-z]:\//u.test(normalized) ||
+      normalized.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
+    ) {
+      fail(`${label} is not one repository-relative path.`);
+    }
+    return normalized;
+  };
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index]!;
+    if (field.length < 4 || field[2] !== ' ' || !allowed.has(field[0]!) || !allowed.has(field[1]!)) {
+      fail(`unsupported status porcelain field: ${field}`);
+    }
+    const status = field.slice(0, 2);
+    if (status === '  ' || (status.includes('?') && status !== '??') || (status.includes('!') && status !== '!!')) {
+      fail(`unsupported status pair: ${status}`);
+    }
+    const renamed = status.includes('R') || status.includes('C');
+    const originalPath = renamed
+      ? canonicalPath(fields[++index] ?? fail('rename/copy status lacks its original path.'), 'status originalPath')
+      : null;
+    records.push(
+      Object.freeze({
+        index: status[0]!,
+        worktree: status[1]!,
+        path: canonicalPath(field.slice(3), 'status path'),
+        originalPath
+      })
+    );
+  }
+  const identities = new Set<string>();
+  for (const record of records) {
+    const identity = `${record.index}${record.worktree}\0${record.path}\0${record.originalPath ?? ''}`;
+    if (identities.has(identity)) fail(`duplicate status record: ${record.path}`);
+    identities.add(identity);
+  }
+  return records;
+}
+
 export function createWorktreePhysicalInventoryV1(entries: readonly WorktreePhysicalEntryV1[]): WorktreePhysicalInventoryV1 {
   const sorted = [...entries].sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   const relativePaths = new Set<string>();
@@ -358,6 +429,7 @@ export function createWorktreePhysicalCloseoutAuthorizationV1(
     target: input.target,
     registryBeforeDigest: input.registryBeforeDigest,
     workingStateDigest: input.workingStateDigest,
+    generatedStateRetirementDigest: input.generatedStateRetirement?.receiptDigest ?? null,
     inventoryDigest: input.inventory.inventoryDigest,
     registryAdmin: {
       relativePath: input.registryAdmin.relativePath,
@@ -382,6 +454,19 @@ export function createWorktreePhysicalCloseoutAuthorizationV1(
   }
   if (!/^worktree-closeout-tombstone-[0-9a-f]{64}$/u.test(input.tombstoneName)) {
     fail('tombstoneName is not a canonical operation-bound same-parent leaf.');
+  }
+  if (input.generatedStateRetirement !== null) {
+    assertGeneratedStateWorktreeRetirementV1(input.generatedStateRetirement);
+    if (
+      input.generatedStateRetirement.terminal !== 'completed' ||
+      input.generatedStateRetirement.repositoryRoot !== input.repository.root ||
+      input.generatedStateRetirement.workspacePath !== input.target.path ||
+      input.generatedStateRetirement.worktree.branch !== input.target.branch ||
+      input.generatedStateRetirement.worktree.headSha !== input.target.headSha ||
+      input.generatedStateRetirement.worktree.treeSha !== input.target.treeSha
+    ) {
+      fail('generatedStateRetirement does not bind this target authorization.');
+    }
   }
   const withoutDigest = {
     schema: WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA_V1,
@@ -417,6 +502,7 @@ export function assertWorktreePhysicalCloseoutAuthorizationV1(
     proofRoot: value.proofRoot,
     registryBeforeDigest: value.registryBeforeDigest,
     workingStateDigest: value.workingStateDigest,
+    generatedStateRetirement: value.generatedStateRetirement,
     inventory: createWorktreePhysicalInventoryV1(value.inventory.entries),
     tombstoneName: value.tombstoneName,
     authorizationPath: value.authorizationPath,

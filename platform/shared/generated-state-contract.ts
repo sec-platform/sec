@@ -6,6 +6,7 @@ export const GENERATED_STATE_REGISTRY_SCHEMA_V1 = 'sec-generated-state-registry-
 export const GENERATED_STATE_REGISTRATION_SCHEMA_V1 = 'sec-generated-state-registration-v1' as const;
 export const GENERATED_STATE_INVENTORY_SCHEMA_V1 = 'sec-generated-state-inventory-v1' as const;
 export const GENERATED_STATE_SETTLEMENT_SCHEMA_V1 = 'sec-generated-state-settlement-v1' as const;
+export const GENERATED_STATE_WORKTREE_RETIREMENT_SCHEMA_V1 = "sec-generated-state-worktree-retirement-v1" as const;
 
 export type GeneratedStateClassV1 =
   | 'rebuildable-derived-cache'
@@ -127,6 +128,45 @@ export interface GeneratedStateSettlementV1 {
   readonly blockers: readonly string[];
   readonly generatedAt: string;
   readonly settlementDigest: `sha256:${string}`;
+}
+
+export interface GeneratedStateWorktreeRetirementEntryV1 {
+  readonly relativePath: string;
+  readonly destinationName: string;
+  readonly source: GeneratedStatePhysicalIdentityV1;
+  readonly retained: GeneratedStatePhysicalIdentityV1;
+  readonly inventoryDigest: `sha256:${string}`;
+  readonly ruleIds: readonly string[];
+  readonly action: 'preserved';
+}
+
+/**
+ * Durable #271 handoff for an enclosing #186 worktree retirement.
+ *
+ * The generated-state owner never authorizes deletion here.  It proves every
+ * ignored root is registry-covered, moves the exact objects outside the
+ * retiring worktree on the same volume, and retains their identities for
+ * Effect-start revalidation by the worktree owner.
+ */
+export interface GeneratedStateWorktreeRetirementV1 {
+  readonly schema: typeof GENERATED_STATE_WORKTREE_RETIREMENT_SCHEMA_V1;
+  readonly operationId: `sha256:${string}`;
+  readonly repositoryRoot: string;
+  readonly workspacePath: string;
+  readonly workspace: GeneratedStatePhysicalIdentityV1;
+  readonly worktree: {
+    readonly branch: string;
+    readonly headSha: string;
+    readonly treeSha: string;
+  };
+  readonly registryDigest: `sha256:${string}`;
+  readonly statusDigest: `sha256:${string}`;
+  readonly inventoryDigest: `sha256:${string}`;
+  readonly retentionRoot: ({ readonly path: string } & GeneratedStatePhysicalIdentityV1) | null;
+  readonly entries: readonly GeneratedStateWorktreeRetirementEntryV1[];
+  readonly blockers: readonly string[];
+  readonly terminal: 'completed' | 'residue';
+  readonly receiptDigest: `sha256:${string}`;
 }
 
 const STATE_CLASSES = new Set<GeneratedStateClassV1>([
@@ -497,4 +537,99 @@ export function createGeneratedStateSettlementV1(input: Omit<
     generatedAt: (options.clock ?? (() => new Date()))().toISOString()
   });
   return Object.freeze({ ...material, settlementDigest: generatedStateDigestV1(material) });
+}
+
+export function createGeneratedStateWorktreeRetirementV1(
+  input: Omit<GeneratedStateWorktreeRetirementV1, 'schema' | 'registryDigest' | 'terminal' | 'receiptDigest'>
+): GeneratedStateWorktreeRetirementV1 {
+  if (!/^[0-9a-f]{40}$/u.test(input.worktree.headSha) || !/^[0-9a-f]{40}$/u.test(input.worktree.treeSha)) {
+    fail('worktree retirement Git identity is invalid.');
+  }
+  const branch = stringValue(input.worktree.branch, 'worktree retirement branch');
+  if (/[/\\]$/u.test(branch) || branch.includes('..') || branch.includes('@{') || /[\u0000-\u0020~^:?*\[\\\u007f]/u.test(branch)) {
+    fail('worktree retirement branch is invalid.');
+  }
+  const entries = [...input.entries]
+    .map((entry) => {
+      const relativePath = normalizeGeneratedStateRelativePathV1(entry.relativePath);
+      if (!/^g-[0-9a-f]{64}$/u.test(entry.destinationName) || entry.action !== 'preserved') {
+        fail(`worktree retirement destination is invalid for ${relativePath}.`);
+      }
+      if (!/^sha256:[0-9a-f]{64}$/u.test(entry.inventoryDigest)) {
+        fail(`worktree retirement inventory digest is invalid for ${relativePath}.`);
+      }
+      const ruleIds = Object.freeze(
+        [...new Set(entry.ruleIds.map((value) => stringValue(value, `worktree retirement rule for ${relativePath}`)))].sort()
+      );
+      if (ruleIds.length === 0 || ruleIds.some((ruleId) => !GENERATED_STATE_REGISTRY_V1.rules.some(({ id }) => id === ruleId))) {
+        fail(`worktree retirement rule coverage is invalid for ${relativePath}.`);
+      }
+      return Object.freeze({
+        relativePath,
+        destinationName: entry.destinationName,
+        source: physicalIdentityV1(entry.source, `worktree retirement source ${relativePath}`),
+        retained: physicalIdentityV1(entry.retained, `worktree retirement retained ${relativePath}`),
+        inventoryDigest: entry.inventoryDigest,
+        ruleIds,
+        action: 'preserved' as const
+      });
+    })
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  if (
+    new Set(entries.map(({ relativePath }) => relativePath)).size !== entries.length ||
+    new Set(entries.map(({ destinationName }) => destinationName)).size !== entries.length
+  ) {
+    fail('worktree retirement entries are not unique.');
+  }
+  const retentionRoot =
+    input.retentionRoot === null
+      ? null
+      : Object.freeze({
+          path: stringValue(input.retentionRoot.path, 'worktree retirement retentionRoot.path'),
+          ...physicalIdentityV1(
+            {
+              device: input.retentionRoot.device,
+              inode: input.retentionRoot.inode,
+              objectId: input.retentionRoot.objectId
+            },
+            'worktree retirement retentionRoot'
+          )
+        });
+  if ((entries.length === 0) !== (retentionRoot === null)) {
+    fail('worktree retirement retention root and entries disagree.');
+  }
+  const blockers = Object.freeze([...new Set(input.blockers.map((value) => stringValue(value, 'worktree retirement blocker')))].sort());
+  const material = Object.freeze({
+    schema: GENERATED_STATE_WORKTREE_RETIREMENT_SCHEMA_V1,
+    operationId: digestValue(input.operationId, 'worktree retirement operationId'),
+    repositoryRoot: stringValue(input.repositoryRoot, 'worktree retirement repositoryRoot'),
+    workspacePath: stringValue(input.workspacePath, 'worktree retirement workspacePath'),
+    workspace: physicalIdentityV1(input.workspace, 'worktree retirement workspace'),
+    worktree: Object.freeze({ branch, headSha: input.worktree.headSha, treeSha: input.worktree.treeSha }),
+    registryDigest: GENERATED_STATE_REGISTRY_V1.registryDigest,
+    statusDigest: digestValue(input.statusDigest, 'worktree retirement statusDigest'),
+    inventoryDigest: digestValue(input.inventoryDigest, 'worktree retirement inventoryDigest'),
+    retentionRoot,
+    entries: Object.freeze(entries),
+    blockers,
+    terminal: blockers.length === 0 ? ('completed' as const) : ('residue' as const)
+  });
+  return Object.freeze({ ...material, receiptDigest: generatedStateDigestV1(material) });
+}
+
+export function assertGeneratedStateWorktreeRetirementV1(value: GeneratedStateWorktreeRetirementV1): GeneratedStateWorktreeRetirementV1 {
+  if (value.schema !== GENERATED_STATE_WORKTREE_RETIREMENT_SCHEMA_V1) {
+    fail('worktree retirement schema is invalid.');
+  }
+  const { schema: ignoredSchema, registryDigest, terminal, receiptDigest, ...input } = value;
+  const rebuilt = createGeneratedStateWorktreeRetirementV1(input);
+  if (
+    registryDigest !== rebuilt.registryDigest ||
+    terminal !== rebuilt.terminal ||
+    receiptDigest !== rebuilt.receiptDigest ||
+    generatedStateDigestV1(value) !== generatedStateDigestV1(rebuilt)
+  ) {
+    fail('worktree retirement receipt is not canonical.');
+  }
+  return value;
 }
