@@ -10,8 +10,8 @@ last-reviewed: 2026-08-23
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/generated-ignored-state-lifecycle-v1.md
-manifestDigest: sha256:2e0fcb016363545d98be86961b14eac8168d5ddfb1c3f6ade55c352716d544de
+manifest: docs/work-packages/git-worktree-physical-closeout-v1.md
+manifestDigest: sha256:54c1f6cb8f103093cd9481021e470eec85cfccbffbe858ae7058683fe4fbcaf4
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

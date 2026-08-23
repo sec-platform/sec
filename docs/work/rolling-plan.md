@@ -12,55 +12,55 @@ last-reviewed: 2026-08-23
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:2e0fcb016363545d98be86961b14eac8168d5ddfb1c3f6ade55c352716d544de",
-    "manifestPath": "docs/work-packages/generated-ignored-state-lifecycle-v1.md",
-    "packageId": "generated-ignored-state-lifecycle-v1",
-    "tracking": "issue-271"
+    "manifestDigest": "sha256:54c1f6cb8f103093cd9481021e470eec85cfccbffbe858ae7058683fe4fbcaf4",
+    "manifestPath": "docs/work-packages/git-worktree-physical-closeout-v1.md",
+    "packageId": "git-worktree-physical-closeout-v1",
+    "tracking": "issue-186"
   },
   "authority": {
     "kind": "committed-candidate-replan",
-    "sourceHead": "8ce841fc8178d2f5ec140d8daf122b9cc65bf80b",
-    "sourceManifestDigest": "sha256:2e0fcb016363545d98be86961b14eac8168d5ddfb1c3f6ade55c352716d544de",
-    "sourcePointerRevision": "sha256:d818fb813410b88e928fc88dca6979ccc60ff31de5fc5dc6079ef43437511e3c",
-    "sourceRollingRevision": "sha256:35801b27bf4f1b6fb70b83fee2b3fbb202a9bd1dbf6d1cba6f72594843fdf143",
-    "sourceTree": "c36dba6b292c90fc35d435b4bd3e92e86beb2dae"
+    "sourceHead": "1a7ffe0845265757bc77db2fa50c5ade8e12dff9",
+    "sourceManifestDigest": "sha256:74a319caa07ec283b4af6fe4bb1cbc5232b683d009de5ebec70a2c406a2e1602",
+    "sourcePointerRevision": "sha256:fd6a3879810fb38d97e2efdac2ffe4a43de432736de62f1eb9caa11969bf6b08",
+    "sourceRollingRevision": "sha256:ba6adb96718a562c869f3e5b6bc2887eda5c6fcfd5e67fee45957528adae7117",
+    "sourceTree": "c335a3463416f2d4a6d229a973c9ef9d6b215851"
   },
   "candidates": [
     "operation-read-plan-authority-canary-v1",
-    "git-worktree-physical-closeout-v1",
+    "sec-static-convergence-v1",
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "cf59ef7b1e166fa184592ab870fa5788466e2df9",
-  "exactMainTree": "92fb08917f7bffac00e63ce64e2fd761ddeab7e8",
-  "projectionDigest": "sha256:2c207317fe556992b66e770a41024af715d3ad7f5c445fe039c615322038b8c3",
+  "exactMain": "489518c3bd8b28753473e43ecb2e236452dee0b9",
+  "exactMainTree": "2078e2accab07775ce0da60ef3c93aafe0b11a09",
+  "projectionDigest": "sha256:19da89774266731d19e3b2b6e5c5db7d2a7dc4336e1b37a72ce0bee49e78b9ce",
   "schema": "sec-work-rolling-transition-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### generated-ignored-state-lifecycle-v1
+### git-worktree-physical-closeout-v1
 
-Existing active package replan bound to exact source head `8ce841fc8178d2f5ec140d8daf122b9cc65bf80b`, source tree `c36dba6b292c90fc35d435b4bd3e92e86beb2dae`, manifest `sha256:2e0fcb016363545d98be86961b14eac8168d5ddfb1c3f6ade55c352716d544de`, and authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Existing active package replan bound to exact source head `1a7ffe0845265757bc77db2fa50c5ade8e12dff9`, source tree `c335a3463416f2d4a6d229a973c9ef9d6b215851`, manifest `sha256:54c1f6cb8f103093cd9481021e470eec85cfccbffbe858ae7058683fe4fbcaf4`, and authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
 
 ## 候选 Work Package
 
 ### 1. operation-read-plan-authority-canary-v1
 
-Retained ordered candidate from transition authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Retained ordered candidate from transition authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
 
-### 2. git-worktree-physical-closeout-v1
+### 2. sec-static-convergence-v1
 
-Retained ordered candidate from transition authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Retained ordered candidate from transition authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
 
 ### 3. candidate-control-transaction-v1
 
-Retained ordered candidate from transition authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Retained ordered candidate from transition authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
 
 ### 4. typescript-7-checker-acceleration-v1
 
-Retained ordered candidate from transition authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Retained ordered candidate from transition authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
 
 ## 重新规划硬触发器
 
