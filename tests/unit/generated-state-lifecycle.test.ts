@@ -110,6 +110,7 @@ test('worktree retirement preserves every registry-covered ignored root outside 
   await writeFile(path.join(fixture.workspaceRoot, 'node_modules', 'pkg', 'index.js'), 'module');
   await mkdir(path.join(fixture.workspaceRoot, '.tmp', 'dependency-installs', 'compiler-backups'), { recursive: true });
   await mkdir(path.join(fixture.workspaceRoot, '.tmp', 'codex'), { recursive: true });
+  await mkdir(path.join(fixture.workspaceRoot, '.tmp', 'import-candidate-snapshots'), { recursive: true });
   await writeFile(path.join(fixture.workspaceRoot, '.tmp', 'test-impact-cache.json'), '{}');
 
   const receipt = await settleGeneratedStateForWorktreeRetirementV1(
