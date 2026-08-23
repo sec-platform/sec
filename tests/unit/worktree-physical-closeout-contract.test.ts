@@ -11,6 +11,7 @@ import {
   createWorktreePhysicalInventoryV1,
   detailDigestV1,
   parseWorktreePorcelainZV1,
+  parseWorktreeStatusPorcelainZV1,
   type WorktreePhysicalEntryV1
 } from '../../scripts/codex/worktree-physical-closeout-contract.ts';
 
@@ -72,6 +73,7 @@ function authorization(proofLeaf = 'sec-worktree-closeout-proof-0000000000000000
     proofRoot: { path: `/repo-parent/${proofLeaf}`, device: '7', inode: `proof-${proofLeaf.slice(-4)}` },
     registryBeforeDigest: detailDigestV1('registry-before'),
     workingStateDigest: detailDigestV1('clean'),
+    generatedStateRetirement: null,
     inventory,
     tombstoneName: 'worktree-closeout-tombstone-0000000000000000000000000000000000000000000000000000000000000000',
     authorizationPath: '/repo/.git/sec-worktree-closeout/operation/authorization.json',
@@ -157,6 +159,16 @@ test('strict porcelain-z parser rejects truncation unknown duplicate and conflic
       Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0\0worktree /repo\0HEAD ${HEAD}\0branch refs/heads/other\0\0`)
     )
   ).toThrow('duplicate worktree path');
+});
+
+test('strict status porcelain-z parser preserves ignored and rename identities without presentation parsing', () => {
+  expect(parseWorktreeStatusPorcelainZV1(Buffer.from('!! .shared-deps/\0R  renamed.ts\0original.ts\0?? note.txt\0', 'utf8'))).toEqual([
+    { index: '!', worktree: '!', path: '.shared-deps', originalPath: null },
+    { index: 'R', worktree: ' ', path: 'renamed.ts', originalPath: 'original.ts' },
+    { index: '?', worktree: '?', path: 'note.txt', originalPath: null }
+  ]);
+  expect(() => parseWorktreeStatusPorcelainZV1(Buffer.from('!! cache'))).toThrow('must end with NUL');
+  expect(() => parseWorktreeStatusPorcelainZV1(Buffer.from([0xff, 0x00]))).toThrow('invalid UTF-8');
 });
 
 test('authorization binds exact repository target inventory and durable recovery paths', () => {

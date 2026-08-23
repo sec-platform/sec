@@ -3,10 +3,13 @@ import { mkdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from 'no
 import os from 'node:os';
 import path from 'node:path';
 
+import { runCommandBytes } from '../../platform/shared/process.ts';
 import {
+  assertGeneratedStateWorktreeRetirementEffectStartV1,
   generatedStateProducerHooksV1,
   inspectGeneratedStateV1,
   planGeneratedStateCleanupV1,
+  settleGeneratedStateForWorktreeRetirementV1,
   settleGeneratedStateV1
 } from '../../tooling/sec-dev/generated-state-lifecycle.ts';
 
@@ -47,6 +50,40 @@ async function absent(target: string): Promise<boolean> {
   });
 }
 
+async function git(cwd: string, args: string[]): Promise<void> {
+  const result = await runCommandBytes('git', args, { cwd });
+  if (result.code !== 0) {
+    throw new Error(Buffer.from(result.stderr).toString('utf8'));
+  }
+}
+
+async function registeredWorktreeFixture() {
+  const hostRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-generated-worktree-retirement-'));
+  roots.push(hostRoot);
+  const repositoryRoot = path.join(hostRoot, 'repository');
+  const workspaceRoot = path.join(hostRoot, 'candidate');
+  const stateRoot = path.join(hostRoot, 'state');
+  const cacheRoot = path.join(hostRoot, 'cache');
+  await mkdir(repositoryRoot);
+  await git(repositoryRoot, ['init', '-b', 'main']);
+  await git(repositoryRoot, ['config', 'user.email', 'sec@example.invalid']);
+  await git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
+  await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules/\n');
+  await writeFile(path.join(repositoryRoot, 'tracked.txt'), 'tracked\n');
+  await git(repositoryRoot, ['add', '.gitignore', 'tracked.txt']);
+  await git(repositoryRoot, ['commit', '-m', 'fixture']);
+  await git(repositoryRoot, ['worktree', 'add', '-b', 'candidate', workspaceRoot]);
+  const head = await runCommandBytes('git', ['rev-parse', 'HEAD'], { cwd: workspaceRoot });
+  const tree = await runCommandBytes('git', ['rev-parse', 'HEAD^{tree}'], { cwd: workspaceRoot });
+  return {
+    repositoryRoot,
+    workspaceRoot,
+    headSha: Buffer.from(head.stdout).toString('utf8').trim(),
+    treeSha: Buffer.from(tree.stdout).toString('utf8').trim(),
+    options: { environment: { ...process.env, SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot } }
+  } as const;
+}
+
 test('inspect is zero-write and protects one ignored unknown root', async () => {
   const { cacheRoot, options, repositoryRoot, stateRoot } = await fixture();
   await mkdir(path.join(repositoryRoot, '.tmp', 'mystery'), { recursive: true });
@@ -60,6 +97,108 @@ test('inspect is zero-write and protects one ignored unknown root', async () => 
   });
   expect(await absent(stateRoot)).toBe(true);
   expect(await absent(cacheRoot)).toBe(true);
+});
+
+test('worktree retirement preserves every registry-covered ignored root outside the target and binds Effect-start identity', async () => {
+  const fixture = await registeredWorktreeFixture();
+  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'), 'cache');
+  await mkdir(path.join(fixture.workspaceRoot, 'node_modules', 'pkg'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, 'node_modules', 'pkg', 'index.js'), 'module');
+  await mkdir(path.join(fixture.workspaceRoot, '.tmp', 'dependency-installs', 'compiler-backups'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, '.tmp', 'test-impact-cache.json'), '{}');
+
+  const receipt = await settleGeneratedStateForWorktreeRetirementV1(
+    {
+      repositoryRoot: fixture.repositoryRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      expectedBranch: 'candidate',
+      expectedHeadSha: fixture.headSha,
+      expectedTreeSha: fixture.treeSha
+    },
+    fixture.options
+  );
+
+  expect(receipt).not.toBeNull();
+  expect(receipt).toMatchObject({ terminal: 'completed' });
+  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['.shared-deps', '.tmp', 'node_modules']);
+  for (const relativePath of ['.shared-deps', '.tmp', 'node_modules']) {
+    expect(await absent(path.join(fixture.workspaceRoot, relativePath))).toBe(true);
+  }
+  expect(() =>
+    assertGeneratedStateWorktreeRetirementEffectStartV1({
+      receipt: receipt!,
+      repositoryRoot: fixture.repositoryRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      expectedBranch: 'candidate',
+      expectedHeadSha: fixture.headSha,
+      expectedTreeSha: fixture.treeSha
+    })
+  ).not.toThrow();
+
+  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'));
+  expect(() =>
+    assertGeneratedStateWorktreeRetirementEffectStartV1({
+      receipt: receipt!,
+      repositoryRoot: fixture.repositoryRoot,
+      workspaceRoot: fixture.workspaceRoot,
+      expectedBranch: 'candidate',
+      expectedHeadSha: fixture.headSha,
+      expectedTreeSha: fixture.treeSha
+    })
+  ).toThrow('source reappeared');
+});
+
+test('worktree retirement resumes the exact durable intent after interruption between root relocations', async () => {
+  const fixture = await registeredWorktreeFixture();
+  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'), 'cache');
+  await mkdir(path.join(fixture.workspaceRoot, 'node_modules', 'pkg'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, 'node_modules', 'pkg', 'index.js'), 'module');
+  const input = {
+    repositoryRoot: fixture.repositoryRoot,
+    workspaceRoot: fixture.workspaceRoot,
+    expectedBranch: 'candidate',
+    expectedHeadSha: fixture.headSha,
+    expectedTreeSha: fixture.treeSha
+  } as const;
+  let interrupted = false;
+
+  await expect(settleGeneratedStateForWorktreeRetirementV1(input, {
+    ...fixture.options,
+    afterWorktreeRetirementRelocation: (relativePath) => {
+      if (!interrupted) {
+        interrupted = true;
+        throw new Error(`fixture interruption after ${relativePath}`);
+      }
+    }
+  })).rejects.toThrow('fixture interruption');
+
+  const receipt = await settleGeneratedStateForWorktreeRetirementV1(input, fixture.options);
+  expect(receipt).toMatchObject({ terminal: 'completed' });
+  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['.shared-deps', 'node_modules']);
+  expect(await absent(path.join(fixture.workspaceRoot, '.shared-deps'))).toBe(true);
+  expect(await absent(path.join(fixture.workspaceRoot, 'node_modules'))).toBe(true);
+});
+
+test('worktree retirement blocks one unknown ignored descendant before moving any root', async () => {
+  const fixture = await registeredWorktreeFixture();
+  await mkdir(path.join(fixture.workspaceRoot, '.tmp', 'mystery'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, '.tmp', 'mystery', 'keep.txt'), 'keep');
+
+  await expect(
+    settleGeneratedStateForWorktreeRetirementV1(
+      {
+        repositoryRoot: fixture.repositoryRoot,
+        workspaceRoot: fixture.workspaceRoot,
+        expectedBranch: 'candidate',
+        expectedHeadSha: fixture.headSha,
+        expectedTreeSha: fixture.treeSha
+      },
+      fixture.options
+    )
+  ).rejects.toThrow('unknown content');
+  expect(await absent(path.join(fixture.workspaceRoot, '.tmp', 'mystery', 'keep.txt'))).toBe(false);
 });
 
 test('birth and retirement are owner-generated and make only the exact retired root selectable', async () => {

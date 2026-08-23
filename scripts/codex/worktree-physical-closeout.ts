@@ -29,6 +29,11 @@ import {
   withWorkspaceWriteLease,
   type WorkspaceWriteLeaseRetirementReceipt
 } from '../../platform/shared/workspace-write-lease.ts';
+import {
+  assertGeneratedStateWorktreeRetirementEffectStartV1,
+  isGeneratedStateWorktreeRetirementBlockedV1,
+  settleGeneratedStateForWorktreeRetirementV1
+} from '../../tooling/sec-dev/generated-state-lifecycle.ts';
 import { createBranchLifecycleGitChildEnvironmentV1 } from './branch-lifecycle-command.ts';
 import {
   assertStableWorktreePhysicalWorkingStateV1,
@@ -40,6 +45,7 @@ import {
   createWorktreePhysicalInventoryV1,
   detailDigestV1,
   parseWorktreePorcelainZV1,
+  parseWorktreeStatusPorcelainZV1,
   type Digest,
   type WorktreePhysicalCloseoutAttemptV1,
   type WorktreePhysicalCloseoutAuthorizationV1,
@@ -322,26 +328,38 @@ async function observeWorkingState(
   targetPath: string,
   leaseOwnedRelativePath: string | null = null
 ): Promise<{ digest: Digest; blocker: string | null }> {
-  const status = await runRepositoryGit(
-    repositoryRoot,
-    ['-C', targetPath, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching'],
-  );
+  const status = await runRepositoryGit(repositoryRoot, [
+    '-C',
+    targetPath,
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=all',
+    '--ignored=matching'
+  ]);
   if (status.status !== 0) {
     return {
       digest: detailDigestV1({ status: status.status, stderr: status.stderr.toString('utf8') }),
       blocker: 'working-state-unresolved'
     };
   }
-  const records = status.stdout.toString('utf8').split('\0').filter(Boolean);
+  let records: ReturnType<typeof parseWorktreeStatusPorcelainZV1>;
+  try {
+    records = parseWorktreeStatusPorcelainZV1(status.stdout);
+  } catch (error) {
+    return {
+      digest: detailDigestV1(error instanceof Error ? error.message : String(error)),
+      blocker: 'working-state-unresolved'
+    };
+  }
   // A held target lease creates exactly this untracked control subtree.  Do
   // not observe it before acquisition (that has a write-race); instead remove
   // only this exact own namespace from the lease-held cleanliness snapshot.
   // Every other status record, including `.sec` siblings, remains a blocker.
   const retained = records.filter((entry) => {
     if (leaseOwnedRelativePath === null) return true;
-    const candidate = entry.startsWith('?? ') || entry.startsWith('!! ')
-      ? entry.slice(3).replaceAll('\\', '/').replace(/\/+$/u, '')
-      : null;
+    const candidate =
+      (entry.index === '?' && entry.worktree === '?') || (entry.index === '!' && entry.worktree === '!') ? entry.path : null;
     if (candidate === null) return true;
     if (candidate === leaseOwnedRelativePath || candidate.startsWith(`${leaseOwnedRelativePath}/`)) {
       return false;
@@ -360,13 +378,10 @@ async function observeWorkingState(
       ).target;
       const ownedSuffix = leaseOwnedRelativePath.slice(candidate.length + 1);
       const entries = scanNoFollowDirectoryTreeV1(ancestor);
-      return !entries.some((observed) => (
-        observed.relativePath === ownedSuffix
-        || observed.relativePath.startsWith(`${ownedSuffix}/`)
-      )) || entries.some((observed) => (
-        observed.relativePath !== ownedSuffix
-        && !observed.relativePath.startsWith(`${ownedSuffix}/`)
-      ));
+      return (
+        !entries.some((observed) => observed.relativePath === ownedSuffix || observed.relativePath.startsWith(`${ownedSuffix}/`)) ||
+        entries.some((observed) => observed.relativePath !== ownedSuffix && !observed.relativePath.startsWith(`${ownedSuffix}/`))
+      );
     } catch {
       return true;
     }
@@ -378,9 +393,9 @@ async function observeWorkingState(
   let ignored = 0;
   let unknown = 0;
   for (const entry of retained) {
-    if (entry.startsWith('?? ')) untracked += 1;
-    else if (entry.startsWith('!! ')) ignored += 1;
-    else if (entry.length >= 3 && entry[2] === ' ') tracked += 1;
+    if (entry.index === '?' && entry.worktree === '?') untracked += 1;
+    else if (entry.index === '!' && entry.worktree === '!') ignored += 1;
+    else if (entry.index !== '!' && entry.worktree !== '!') tracked += 1;
     else unknown += 1;
   }
   return {
@@ -632,7 +647,46 @@ function validateExpectedRecord(
   return blockers;
 }
 
-export async function prepareWorktreePhysicalCloseoutV1(input: PrepareWorktreePhysicalCloseoutInputV1): Promise<WorktreePhysicalCloseoutAuthorizationV1> {
+async function assertWorktreeCloseoutAdmissionBeforeGeneratedStateV1(input: PrepareWorktreePhysicalCloseoutInputV1): Promise<void> {
+  const repository = await repositoryFacts(input.repositoryRoot);
+  const targetPath = normalizedAbsolute(input.targetPath);
+  physicalDirectory(targetPath, 'Registered target worktree');
+  const registry = await observeRegistry(repository.root);
+  const record = findTargetRecord(registry.records, targetPath);
+  if (record === null) {
+    throw new Error('Target is not registered; unknown historical orphans cannot be adopted.');
+  }
+  const blockers = validateExpectedRecord(record, { ...input, targetPath }, repository.defaultBranch, repository.root);
+  const actualTree = shaValue(
+    await requireRepositoryGit(repository.root, ['-C', targetPath, 'rev-parse', 'HEAD^{tree}'], 'Resolve target tree'),
+    'Target tree'
+  );
+  if (actualTree !== input.expectedTreeSha) blockers.push('expected-tree-mismatch');
+  if (blockers.length > 0) {
+    throw new Error(`Worktree closeout preparation blocked: ${[...new Set(blockers)].sort().join(',')}`);
+  }
+}
+
+export async function prepareWorktreePhysicalCloseoutV1(
+  input: PrepareWorktreePhysicalCloseoutInputV1
+): Promise<WorktreePhysicalCloseoutAuthorizationV1> {
+  await assertWorktreeCloseoutAdmissionBeforeGeneratedStateV1(input);
+  let generatedStateRetirement: Awaited<ReturnType<typeof settleGeneratedStateForWorktreeRetirementV1>> = null;
+  if (!input.expectedBranch.startsWith(DETACHED_BRANCH_PREFIX)) {
+    try {
+      generatedStateRetirement = await settleGeneratedStateForWorktreeRetirementV1({
+        repositoryRoot: input.repositoryRoot,
+        workspaceRoot: input.targetPath,
+        expectedBranch: input.expectedBranch,
+        expectedHeadSha: input.expectedHeadSha,
+        expectedTreeSha: input.expectedTreeSha
+      });
+    } catch (error) {
+      if (!isGeneratedStateWorktreeRetirementBlockedV1(error)) throw error;
+      // The generated-state owner made no Effect.  Preserve its fail-closed
+      // classification and let #186 emit the canonical working-state blocker.
+    }
+  }
   const repository = await repositoryFacts(input.repositoryRoot);
   const repositoryLease = await acquireWorkspaceWriteLease(repository.root);
   try {
@@ -642,7 +696,7 @@ export async function prepareWorktreePhysicalCloseoutV1(input: PrepareWorktreePh
       await targetLease.assertOwned();
       const ownedNamespace = await targetLease.ownedNamespace();
       const leaseHeldWorking = await observeWorkingState(repository.root, input.targetPath, ownedNamespace.relativePath);
-      return await prepareWorktreePhysicalCloseoutUnderLeaseV1(input, repository, targetLease, leaseHeldWorking);
+      return await prepareWorktreePhysicalCloseoutUnderLeaseV1(input, repository, targetLease, leaseHeldWorking, generatedStateRetirement);
     } finally {
       await targetLease.release();
     }
@@ -655,7 +709,8 @@ async function prepareWorktreePhysicalCloseoutUnderLeaseV1(
   input: PrepareWorktreePhysicalCloseoutInputV1,
   repository: Awaited<ReturnType<typeof repositoryFacts>>,
   targetLease: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>>,
-  working: Awaited<ReturnType<typeof observeWorkingState>>
+  working: Awaited<ReturnType<typeof observeWorkingState>>,
+  generatedStateRetirement: Awaited<ReturnType<typeof settleGeneratedStateForWorktreeRetirementV1>>
 ): Promise<WorktreePhysicalCloseoutAuthorizationV1> {
   const targetPath = normalizedAbsolute(input.targetPath);
   const targetIdentity = physicalPresence(targetPath, 'Registered target worktree');
@@ -714,6 +769,7 @@ async function prepareWorktreePhysicalCloseoutUnderLeaseV1(
     },
     registryBeforeDigest: registry.digest,
     workingStateDigest: working.digest,
+    generatedStateRetirement,
     inventory,
     tombstoneName: 'worktree-closeout-tombstone-0000000000000000000000000000000000000000000000000000000000000000',
     authorizationPath: '<pending>',
@@ -743,6 +799,7 @@ async function prepareWorktreePhysicalCloseoutUnderLeaseV1(
     proofRoot: { path: proofRoot.path, device: proofRoot.device, inode: proofRoot.inode },
     registryBeforeDigest: registry.digest,
     workingStateDigest: working.digest,
+    generatedStateRetirement,
     inventory,
     tombstoneName: `worktree-closeout-tombstone-${provisional.operationId.slice('sha256:'.length)}`,
     authorizationPath: path.join(recoveryRoot.path, 'authorization.json'),
@@ -1025,6 +1082,16 @@ async function executeWorktreePhysicalCloseoutUnderLeaseV1(
     repository.commonDirInode !== authorization.repository.commonDirInode
   ) {
     throw new Error('Repository or Git common-dir physical identity changed after authorization.');
+  }
+  if (authorization.generatedStateRetirement !== null) {
+    assertGeneratedStateWorktreeRetirementEffectStartV1({
+      receipt: authorization.generatedStateRetirement,
+      repositoryRoot: authorization.repository.root,
+      workspaceRoot: authorization.target.path,
+      expectedBranch: authorization.target.branch,
+      expectedHeadSha: authorization.target.headSha,
+      expectedTreeSha: authorization.target.treeSha
+    });
   }
   const prior = loadLatestReceiptGenerationV1(expectedRecoveryRoot);
   if (prior !== null) {
