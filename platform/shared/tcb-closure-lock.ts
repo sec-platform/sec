@@ -68,6 +68,7 @@ export const TCB_REVIEWED_EXTERNAL_IMPORTS = new Set([
   'platform/shared/heavy-verification-gate-lease.ts -> bun:ffi',
   'platform/shared/physical-no-follow.ts -> bun:ffi',
   'platform/shared/process.ts -> node:string_decoder',
+  'platform/shared/sec-linux-verification-environment.ts -> zod',
   'platform/shared/windows-host-filesystem-authority.ts -> bun:ffi',
 ]);
 
