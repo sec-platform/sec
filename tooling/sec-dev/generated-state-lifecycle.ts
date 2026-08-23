@@ -3,9 +3,11 @@ import path from 'node:path';
 
 import {
   GENERATED_STATE_REGISTRY_V1,
+  assertGeneratedStateWorktreeRetirementV1,
   createGeneratedStateInventoryV1,
   createGeneratedStateRegistrationV1,
   createGeneratedStateSettlementV1,
+  createGeneratedStateWorktreeRetirementV1,
   generatedStateCleanupAllowedV1,
   generatedStateDigestV1,
   generatedStateRuleForPathV1,
@@ -18,7 +20,8 @@ import {
   type GeneratedStatePhysicalIdentityV1,
   type GeneratedStateRegistrationV1,
   type GeneratedStateRuleV1,
-  type GeneratedStateSettlementV1
+  type GeneratedStateSettlementV1,
+  type GeneratedStateWorktreeRetirementV1
 } from '../../platform/shared/generated-state-contract.ts';
 import {
   PhysicalNoFollowError,
@@ -32,7 +35,11 @@ import {
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
 import { runCommandBytes, type ByteCommandResult } from '../../platform/shared/process.ts';
-import { parseWorktreePorcelainZV1 } from '../../scripts/codex/worktree-physical-closeout-contract.ts';
+import { acquireWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
+import {
+  parseWorktreePorcelainZV1,
+  parseWorktreeStatusPorcelainZV1
+} from '../../scripts/codex/worktree-physical-closeout-contract.ts';
 import { acquireSecRuntimeStatePhysicalAuthorityV1 } from './runtime-state-authority.ts';
 import { createRuntimeStateJournalFileSystemV1 } from './runtime-state-journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRootsV1 } from './runtime-state-paths.ts';
@@ -43,6 +50,7 @@ const CLEANUP_DEADLINE_MS = 30_000;
 
 export interface GeneratedStateLifecycleOptionsV1 {
   readonly afterQuarantineEffect?: (relativePath: string) => void | Promise<void>;
+  readonly afterWorktreeRetirementRelocation?: (relativePath: string) => void | Promise<void>;
   readonly beforeCleanupEffect?: (relativePath: string) => void | Promise<void>;
   readonly clock?: () => Date;
   readonly environment?: NodeJS.ProcessEnv;
@@ -421,6 +429,485 @@ async function workspaceRegistrationState(
     ) ? 'registered' : 'absent';
   } catch {
     return 'unresolved';
+  }
+}
+
+interface GeneratedStateWorktreeRetirementIntentV1 {
+  readonly schema: 'sec-generated-state-worktree-retirement-intent-v1';
+  readonly operationId: `sha256:${string}`;
+  readonly repositoryRoot: string;
+  readonly workspacePath: string;
+  readonly workspace: GeneratedStatePhysicalIdentityV1;
+  readonly worktree: { readonly branch: string; readonly headSha: string; readonly treeSha: string };
+  readonly statusDigest: `sha256:${string}`;
+  readonly inventoryDigest: `sha256:${string}`;
+  readonly retentionRoot: { readonly path: string } & GeneratedStatePhysicalIdentityV1;
+  readonly entries: readonly Readonly<{
+    relativePath: string;
+    destinationName: string;
+    source: GeneratedStatePhysicalIdentityV1;
+    inventoryDigest: `sha256:${string}`;
+    ruleIds: readonly string[];
+  }>[];
+  readonly intentDigest: `sha256:${string}`;
+}
+
+const WORKTREE_RETIREMENT_ACTIVE_POINTER = 'worktree-retirement-active.json';
+const WORKTREE_RETIREMENT_LATEST_POINTER = 'worktree-retirement-latest.json';
+
+export class GeneratedStateWorktreeRetirementBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeneratedStateWorktreeRetirementBlockedError';
+  }
+}
+
+export function isGeneratedStateWorktreeRetirementBlockedV1(error: unknown): error is GeneratedStateWorktreeRetirementBlockedError {
+  return error instanceof GeneratedStateWorktreeRetirementBlockedError;
+}
+
+function worktreeRetirementIntentV1(
+  input: Omit<GeneratedStateWorktreeRetirementIntentV1, 'schema' | 'intentDigest'>
+): GeneratedStateWorktreeRetirementIntentV1 {
+  const material = Object.freeze({
+    schema: 'sec-generated-state-worktree-retirement-intent-v1' as const,
+    ...input,
+    entries: Object.freeze([...input.entries].sort((left, right) => left.relativePath.localeCompare(right.relativePath)))
+  });
+  return Object.freeze({ ...material, intentDigest: generatedStateDigestV1(material) });
+}
+
+function parseWorktreeRetirementIntentV1(value: unknown): GeneratedStateWorktreeRetirementIntentV1 {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Generated-state worktree retirement intent is not an object.');
+  }
+  const candidate = value as GeneratedStateWorktreeRetirementIntentV1;
+  if (
+    candidate.schema !== 'sec-generated-state-worktree-retirement-intent-v1' ||
+    !Array.isArray(candidate.entries) ||
+    typeof candidate.intentDigest !== 'string'
+  ) {
+    throw new Error('Generated-state worktree retirement intent is malformed.');
+  }
+  const rebuilt = worktreeRetirementIntentV1({
+    operationId: candidate.operationId,
+    repositoryRoot: candidate.repositoryRoot,
+    workspacePath: candidate.workspacePath,
+    workspace: candidate.workspace,
+    worktree: candidate.worktree,
+    statusDigest: candidate.statusDigest,
+    inventoryDigest: candidate.inventoryDigest,
+    retentionRoot: candidate.retentionRoot,
+    entries: candidate.entries
+  });
+  if (rebuilt.intentDigest !== candidate.intentDigest || generatedStateDigestV1(rebuilt) !== generatedStateDigestV1(candidate)) {
+    throw new Error('Generated-state worktree retirement intent digest is invalid.');
+  }
+  return candidate;
+}
+
+function rulesOwningGeneratedPathV1(relativePath: string): readonly GeneratedStateRuleV1[] {
+  return GENERATED_STATE_REGISTRY_V1.rules.filter(({ selector }) => {
+    if (selector.kind === 'exact') {
+      return relativePath === selector.path || relativePath.startsWith(`${selector.path}/`);
+    }
+    if (!relativePath.startsWith(`${selector.parent}/`)) return false;
+    const child = relativePath.slice(selector.parent.length + 1).split('/')[0]!;
+    return child.startsWith(selector.prefix);
+  });
+}
+
+function rulesBelowGeneratedPathV1(relativePath: string): readonly GeneratedStateRuleV1[] {
+  return GENERATED_STATE_REGISTRY_V1.rules.filter(({ selector }) => {
+    const anchor = selector.kind === 'exact' ? selector.path : selector.parent;
+    return anchor.startsWith(`${relativePath}/`);
+  });
+}
+
+function exactIgnoredRootPlanV1(workspaceRoot: string, relativePath: string): GeneratedStateWorktreeRetirementIntentV1['entries'][number] {
+  const observed = observeRoot(workspaceRoot, relativePath);
+  if (observed.kind !== 'directory' || observed.directory === null || observed.identity === null) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement only preserves ordinary directory roots: ${relativePath}.`
+    );
+  }
+  const directOwners = rulesOwningGeneratedPathV1(relativePath);
+  const inventory =
+    directOwners.length > 0
+      ? Object.freeze([])
+      : scanNoFollowDirectoryTreeMetadataV1(observed.directory, {
+          deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+          maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+        });
+  const coveredRules = new Set(directOwners.map(({ id }) => id));
+  if (directOwners.length === 0 && rulesBelowGeneratedPathV1(relativePath).length === 0) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement found an unknown ignored root: ${relativePath}.`
+    );
+  }
+  for (const entry of inventory) {
+    const childPath = `${relativePath}/${entry.relativePath}`;
+    const owners = rulesOwningGeneratedPathV1(childPath);
+    const descendants = rulesBelowGeneratedPathV1(childPath);
+    if (owners.length === 0 && descendants.length === 0) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(`Generated-state worktree retirement found unknown content: ${childPath}.`);
+    }
+    for (const rule of [...owners, ...descendants]) coveredRules.add(rule.id);
+  }
+  const source = observed.identity;
+  return Object.freeze({
+    relativePath,
+    destinationName: `g-${generatedStateDigestV1({ relativePath, source }).slice('sha256:'.length)}`,
+    source,
+    inventoryDigest: generatedStateDigestV1({ relativePath, source, inventory }),
+    ruleIds: Object.freeze([...coveredRules].sort())
+  });
+}
+
+async function worktreeRetirementGitV1(options: GeneratedStateLifecycleOptionsV1, cwd: string, args: string[]): Promise<ByteCommandResult> {
+  return (options.runGit ?? ((command, commandArgs, runOptions) => runCommandBytes(command, commandArgs, { cwd: runOptions.cwd })))(
+    'git',
+    args,
+    { cwd }
+  );
+}
+
+function sameWorktreeRetirementIdentityV1(left: GeneratedStatePhysicalIdentityV1, right: GeneratedStatePhysicalIdentityV1): boolean {
+  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
+}
+
+async function worktreeRetirementStatusV1(
+  repositoryRoot: string,
+  workspaceRoot: string,
+  ownedLeaseRelativePath: string,
+  options: GeneratedStateLifecycleOptionsV1
+): Promise<
+  Readonly<{
+    statusDigest: `sha256:${string}`;
+    ignoredRoots: readonly string[];
+    blockedByOrdinaryState: boolean;
+  }>
+> {
+  const status = await worktreeRetirementGitV1(options, repositoryRoot, [
+    '-C',
+    workspaceRoot,
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=all',
+    '--ignored=matching'
+  ]);
+  if (status.code !== 0) throw new Error('Generated-state worktree retirement cannot observe Git status.');
+  const records = parseWorktreeStatusPorcelainZV1(status.stdout);
+  const retained = records.filter((record) => {
+    const generatedProjection = (record.index === '!' && record.worktree === '!') || (record.index === '?' && record.worktree === '?');
+    if (!generatedProjection) return true;
+    if (record.path === ownedLeaseRelativePath || record.path.startsWith(`${ownedLeaseRelativePath}/`)) return false;
+    if (!ownedLeaseRelativePath.startsWith(`${record.path}/`)) return true;
+    const root = inspectNoFollowDirectoryChainV1(
+      path.join(workspaceRoot, ...record.path.split('/')),
+      'Generated-state worktree retirement lease ancestor'
+    ).target;
+    const suffix = ownedLeaseRelativePath.slice(record.path.length + 1);
+    const inventory = scanNoFollowDirectoryTreeMetadataV1(root, {
+      deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+      maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+    });
+    return (
+      !inventory.some(({ relativePath }) => relativePath === suffix || relativePath.startsWith(`${suffix}/`)) ||
+      inventory.some(({ relativePath }) => relativePath !== suffix && !relativePath.startsWith(`${suffix}/`))
+    );
+  });
+  const nonIgnored = retained.filter(({ index, worktree }) => index !== '!' || worktree !== '!');
+  const ignoredRoots = retained.map(({ path: relativePath }) => normalizeGeneratedStateRelativePathV1(relativePath)).sort();
+  for (let index = 0; index < ignoredRoots.length; index += 1) {
+    if (ignoredRoots.some((candidate, candidateIndex) => candidateIndex !== index && ignoredRoots[index]!.startsWith(`${candidate}/`))) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(
+        `Generated-state worktree retirement ignored roots overlap: ${ignoredRoots[index]}.`
+      );
+    }
+  }
+  return Object.freeze({
+    statusDigest: generatedStateDigestV1({ records: retained }),
+    ignoredRoots: Object.freeze(ignoredRoots),
+    blockedByOrdinaryState:
+      nonIgnored.length > 0 || ignoredRoots.some((relativePath) => ownedLeaseRelativePath.startsWith(`${relativePath}/`))
+  });
+}
+
+function validateWorktreeRetirementReceiptPhysicalV1(receipt: GeneratedStateWorktreeRetirementV1): GeneratedStateWorktreeRetirementV1 {
+  assertGeneratedStateWorktreeRetirementV1(receipt);
+  if (receipt.retentionRoot === null) return receipt;
+  const retentionRoot = inspectNoFollowDirectoryChainV1(
+    receipt.retentionRoot.path,
+    'Generated-state worktree retirement retained root'
+  ).target;
+  if (!sameWorktreeRetirementIdentityV1(identityOf(retentionRoot), receipt.retentionRoot)) {
+    throw new Error('Generated-state worktree retirement retained root identity changed.');
+  }
+  for (const entry of receipt.entries) {
+    if (observeRoot(receipt.workspacePath, entry.relativePath).kind !== 'missing') {
+      throw new Error(`Generated-state worktree retirement source reappeared: ${entry.relativePath}.`);
+    }
+    const retained = inspectNoFollowDirectoryChainV1(
+      path.join(retentionRoot.path, entry.destinationName),
+      `Generated-state worktree retirement retained ${entry.relativePath}`
+    ).target;
+    if (
+      !sameWorktreeRetirementIdentityV1(identityOf(retained), entry.retained) ||
+      !sameWorktreeRetirementIdentityV1(entry.source, entry.retained)
+    ) {
+      throw new Error(`Generated-state worktree retirement retained identity changed: ${entry.relativePath}.`);
+    }
+  }
+  return receipt;
+}
+
+export function assertGeneratedStateWorktreeRetirementEffectStartV1(
+  input: Readonly<{
+    receipt: GeneratedStateWorktreeRetirementV1;
+    repositoryRoot: string;
+    workspaceRoot: string;
+    expectedBranch: string;
+    expectedHeadSha: string;
+    expectedTreeSha: string;
+  }>
+): GeneratedStateWorktreeRetirementV1 {
+  const receipt = validateWorktreeRetirementReceiptPhysicalV1(input.receipt);
+  if (
+    path.resolve(input.repositoryRoot) !== receipt.repositoryRoot ||
+    path.resolve(input.workspaceRoot) !== receipt.workspacePath ||
+    input.expectedBranch !== receipt.worktree.branch ||
+    input.expectedHeadSha !== receipt.worktree.headSha ||
+    input.expectedTreeSha !== receipt.worktree.treeSha ||
+    receipt.terminal !== 'completed'
+  ) {
+    throw new Error('Generated-state worktree retirement Effect-start binding changed.');
+  }
+  return receipt;
+}
+
+export async function settleGeneratedStateForWorktreeRetirementV1(
+  input: Readonly<{
+    repositoryRoot: string;
+    workspaceRoot: string;
+    expectedBranch: string;
+    expectedHeadSha: string;
+    expectedTreeSha: string;
+  }>,
+  options: GeneratedStateLifecycleOptionsV1 = {}
+): Promise<GeneratedStateWorktreeRetirementV1 | null> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot);
+  const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+  try {
+    await lease.assertOwned();
+    const ownedNamespace = await lease.ownedNamespace();
+    const workspace = inspectNoFollowDirectoryChainV1(workspaceRoot, 'Generated-state worktree retirement workspace').target;
+    const worktrees = await worktreeRetirementGitV1(options, repositoryRoot, ['worktree', 'list', '--porcelain', '-z']);
+    if (worktrees.code !== 0) throw new Error('Generated-state worktree retirement cannot observe worktree registry.');
+    const records = parseWorktreePorcelainZV1(worktrees.stdout);
+    const workspaceKey = workspaceRoot.toLocaleLowerCase('en-US');
+    const record = records.find((candidate) => path.resolve(candidate.path).toLocaleLowerCase('en-US') === workspaceKey);
+    if (
+      record === undefined ||
+      records[0] === record ||
+      record.bare ||
+      record.detached ||
+      record.locked ||
+      record.prunable ||
+      record.branch !== input.expectedBranch ||
+      record.headSha !== input.expectedHeadSha
+    ) {
+      throw new Error('Generated-state worktree retirement admission does not match one ordinary linked worktree.');
+    }
+    const tree = await worktreeRetirementGitV1(options, repositoryRoot, ['-C', workspaceRoot, 'rev-parse', 'HEAD^{tree}']);
+    if (tree.code !== 0 || Buffer.from(tree.stdout).toString('utf8').trim() !== input.expectedTreeSha) {
+      throw new Error('Generated-state worktree retirement tree changed before admission.');
+    }
+    const readOnlyStore = openRuntimeStoreReadOnly(workspaceRoot, options);
+    const readOnlyActivePath =
+      readOnlyStore === null ? null : path.join(readOnlyStore.transactionsRoot, WORKTREE_RETIREMENT_ACTIVE_POINTER);
+    const readOnlyLatestPath = readOnlyStore === null ? null : path.join(readOnlyStore.settlementsRoot, WORKTREE_RETIREMENT_LATEST_POINTER);
+    const observedActive =
+      readOnlyStore !== null && readOnlyActivePath !== null && readOnlyStore.fs.exists(readOnlyActivePath)
+        ? parseWorktreeRetirementIntentV1(JSON.parse(readOnlyStore.fs.readText(readOnlyActivePath)) as unknown)
+        : null;
+    const status = await worktreeRetirementStatusV1(repositoryRoot, workspaceRoot, ownedNamespace.relativePath, options);
+    if (status.blockedByOrdinaryState) return null;
+    if (observedActive === null && status.ignoredRoots.length === 0) {
+      if (readOnlyStore === null || readOnlyLatestPath === null || !readOnlyStore.fs.exists(readOnlyLatestPath)) {
+        return null;
+      }
+      const receipt = validateWorktreeRetirementReceiptPhysicalV1(
+        assertGeneratedStateWorktreeRetirementV1(
+          JSON.parse(readOnlyStore.fs.readText(readOnlyLatestPath)) as GeneratedStateWorktreeRetirementV1
+        )
+      );
+      await readOnlyStore.assertCurrent();
+      return receipt;
+    }
+    const store = await openRuntimeStore(workspaceRoot, options);
+    await store.assertCurrent();
+    const activePath = path.join(store.transactionsRoot, WORKTREE_RETIREMENT_ACTIVE_POINTER);
+    const latestPath = path.join(store.settlementsRoot, WORKTREE_RETIREMENT_LATEST_POINTER);
+    let intent = store.fs.exists(activePath) ? parseWorktreeRetirementIntentV1(JSON.parse(store.fs.readText(activePath)) as unknown) : null;
+    if (
+      (observedActive === null) !== (intent === null) ||
+      (observedActive !== null && intent !== null && observedActive.intentDigest !== intent.intentDigest)
+    ) {
+      throw new Error('Generated-state worktree retirement active intent changed during admission.');
+    }
+    if (intent === null) {
+      const entries = Object.freeze(status.ignoredRoots.map((relativePath) => exactIgnoredRootPlanV1(workspaceRoot, relativePath)));
+      const inventoryDigest = generatedStateDigestV1(entries);
+      const operationId = generatedStateDigestV1(
+        Object.freeze({
+          schema: 'sec-generated-state-worktree-retirement-operation-v1',
+          repositoryRoot,
+          workspacePath: workspaceRoot,
+          workspace: identityOf(workspace),
+          worktree: {
+            branch: input.expectedBranch,
+            headSha: input.expectedHeadSha,
+            treeSha: input.expectedTreeSha
+          },
+          statusDigest: status.statusDigest,
+          inventoryDigest,
+          registryDigest: GENERATED_STATE_REGISTRY_V1.registryDigest
+        })
+      );
+      const parent = inspectNoFollowDirectoryChainV1(
+        path.dirname(workspaceRoot),
+        'Generated-state worktree retirement retention parent'
+      ).target;
+      const retentionRootPath = path.join(
+        path.dirname(workspaceRoot),
+        `sec-generated-state-retirement-${operationId.slice('sha256:'.length)}`
+      );
+      if (inspectExactNoFollowDirectoryPresenceV1(
+        retentionRootPath,
+        'Generated-state worktree retirement new retention root'
+      ).state !== 'absent') {
+        throw new Error('Generated-state worktree retirement retention root exists without an active intent.');
+      }
+      const retentionRoot = createNoFollowOrdinaryDirectoryChainV1(parent, [path.basename(retentionRootPath)]);
+      if (retentionRoot.device !== workspace.device ||
+          scanNoFollowDirectoryTreeMetadataV1(retentionRoot, {
+            deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+            maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+          }).length !== 0) {
+        throw new Error('Generated-state worktree retirement new retention root is not one empty same-volume object.');
+      }
+      intent = worktreeRetirementIntentV1({
+        operationId,
+        repositoryRoot,
+        workspacePath: workspaceRoot,
+        workspace: identityOf(workspace),
+        worktree: {
+          branch: input.expectedBranch,
+          headSha: input.expectedHeadSha,
+          treeSha: input.expectedTreeSha
+        },
+        statusDigest: status.statusDigest,
+        inventoryDigest,
+        retentionRoot: { path: retentionRoot.path, ...identityOf(retentionRoot) },
+        entries
+      });
+      store.fs.replaceFsync(activePath, canonicalBytes(intent));
+    }
+    if (
+      intent.repositoryRoot !== repositoryRoot ||
+      intent.workspacePath !== workspaceRoot ||
+      !sameWorktreeRetirementIdentityV1(intent.workspace, identityOf(workspace)) ||
+      intent.worktree.branch !== input.expectedBranch ||
+      intent.worktree.headSha !== input.expectedHeadSha ||
+      intent.worktree.treeSha !== input.expectedTreeSha
+    ) {
+      throw new Error('Generated-state worktree retirement active intent belongs to another admission.');
+    }
+    const retentionRoot = inspectNoFollowDirectoryChainV1(
+      intent.retentionRoot.path,
+      'Generated-state worktree retirement retention root'
+    ).target;
+    if (retentionRoot.device !== workspace.device ||
+        !sameWorktreeRetirementIdentityV1(identityOf(retentionRoot), intent.retentionRoot)) {
+      throw new Error('Generated-state worktree retirement retention root identity changed.');
+    }
+    const knownDestinations = new Set(intent.entries.map(({ destinationName }) => destinationName));
+    const unknownRetentionEntries = scanNoFollowDirectoryTreeMetadataV1(retentionRoot, {
+      deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+      maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+    }).filter(({ relativePath }) => {
+      const top = relativePath.split('/')[0]!;
+      return !knownDestinations.has(top);
+    });
+    if (unknownRetentionEntries.length > 0) {
+      throw new Error('Generated-state worktree retirement retention root contains unknown content.');
+    }
+    const retainedEntries = [] as Array<GeneratedStateWorktreeRetirementV1['entries'][number]>;
+    for (const entry of intent.entries) {
+      await lease.assertOwned();
+      const source = observeRoot(workspaceRoot, entry.relativePath);
+      const destinationPath = path.join(retentionRoot.path, entry.destinationName);
+      const destination = inspectExactNoFollowDirectoryPresenceV1(destinationPath, `Generated-state retained ${entry.relativePath}`);
+      let retained: PhysicalDirectoryIdentityV1;
+      if (
+        source.kind === 'directory' &&
+        source.directory !== null &&
+        source.identity !== null &&
+        sameWorktreeRetirementIdentityV1(source.identity, entry.source) &&
+        destination.state === 'absent'
+      ) {
+        retained = relocateRetainedNoFollowDirectoryAcrossParentsV1({
+          directory: source.directory,
+          destinationParent: retentionRoot,
+          tombstoneName: entry.destinationName
+        });
+        await options.afterWorktreeRetirementRelocation?.(entry.relativePath);
+      } else if (
+        source.kind === 'missing' &&
+        destination.state === 'present' &&
+        sameWorktreeRetirementIdentityV1(identityOf(destination.directory.target), entry.source)
+      ) {
+        retained = destination.directory.target;
+      } else {
+        throw new Error(`Generated-state worktree retirement cannot resume exact root: ${entry.relativePath}.`);
+      }
+      retainedEntries.push(
+        Object.freeze({
+          ...entry,
+          retained: identityOf(retained),
+          action: 'preserved' as const
+        })
+      );
+    }
+    await lease.assertOwned();
+    const receipt = createGeneratedStateWorktreeRetirementV1({
+      operationId: intent.operationId,
+      repositoryRoot,
+      workspacePath: workspaceRoot,
+      workspace: identityOf(workspace),
+      worktree: intent.worktree,
+      statusDigest: intent.statusDigest,
+      inventoryDigest: intent.inventoryDigest,
+      retentionRoot: { path: retentionRoot.path, ...identityOf(retentionRoot) },
+      entries: Object.freeze(retainedEntries),
+      blockers: Object.freeze([])
+    });
+    const receiptPath = path.join(store.settlementsRoot, `worktree-retirement-${receipt.receiptDigest.slice('sha256:'.length)}.json`);
+    const bytes = canonicalBytes(receipt);
+    if (!store.fs.createExclusiveFsync(receiptPath, bytes) && store.fs.readText(receiptPath) !== bytes) {
+      throw new Error('Generated-state worktree retirement receipt collides with different bytes.');
+    }
+    store.fs.replaceFsync(latestPath, bytes);
+    if (!store.fs.deleteIfPresent(activePath) && store.fs.exists(activePath)) {
+      throw new Error('Generated-state worktree retirement active intent remains after completion.');
+    }
+    await store.assertCurrent();
+    return validateWorktreeRetirementReceiptPhysicalV1(receipt);
+  } finally {
+    await lease.release();
   }
 }
 
