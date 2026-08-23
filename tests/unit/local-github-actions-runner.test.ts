@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 } from '../../platform/shared/ci-verification-revision.ts';
+import { acquirePhysicalMutationLeaseV1 } from '../../platform/shared/physical-mutation-lease.ts';
+import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 import {
   assertExactLocalGitHubActionsRunnerProfileContainersV3,
@@ -15,9 +21,11 @@ import {
   createBuildxRawJsonProgressAdmissionV1,
   createLocalGitHubActionsProviderLedgerCommitBytesV3,
   createLocalGitHubActionsProviderLedgerV3,
+  createLocalGitHubActionsRunnerBuildInputProjectionV1,
   createLocalGitHubActionsRunnerDockerfileV2,
   createLocalGitHubActionsRunnerEnvironmentSpecV1,
   createLocalGitHubActionsRunnerOciBakeDefinitionV1,
+  createLocalGitHubActionsRunnerOciCandidateBindingV1,
   createLocalGitHubActionsRunnerProjectionBuildxArgsV1,
   createLocalGitHubActionsRunnerStateV3,
   LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1,
@@ -49,6 +57,9 @@ import {
   parseLocalGitHubActionsProviderLedgerCommitV3,
   parseLocalGitHubActionsProviderLedgerV3,
   parseLocalGitHubActionsRunnerStateV3,
+  readValidatedRunnerOciLayoutIdentityV1,
+  reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1,
+  retireLocalGitHubActionsRunnerOciCandidateV1,
   type DockerEndpointIdentityV3,
   type GitHubEndpointIdentityV3,
   type LocalGitHubActionsRunnerInstanceV2,
@@ -59,6 +70,64 @@ const repository = 'sec-platform/sec';
 const providerName = 'sec-main-health-1';
 const operationLabel = `sec-operation-${'b'.repeat(64)}`;
 const roles = ['control', 'trusted', 'sut'] as const;
+
+function createOciFixture() {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-oci-'));
+  const blobs = path.join(root, 'blobs', 'sha256');
+  mkdirSync(blobs, { recursive: true });
+  const add = (value: Uint8Array | Record<string, unknown>) => {
+    const bytes = value instanceof Uint8Array ? Buffer.from(value) : Buffer.from(JSON.stringify(value), 'utf8');
+    const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
+    writeFileSync(path.join(blobs, digest.slice(7)), bytes);
+    return Object.freeze({ digest, size: bytes.byteLength });
+  };
+  const config = add(Buffer.from('{}', 'utf8'));
+  const layer = add(Buffer.from('runtime-layer', 'utf8'));
+  const runtime = add({
+    schemaVersion: 2,
+    mediaType: 'application/vnd.oci.image.manifest.v1+json',
+    config: { mediaType: 'application/vnd.oci.image.config.v1+json', ...config },
+    layers: [{ mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip', ...layer }]
+  });
+  const provenance = add(Buffer.from('{"_type":"https://in-toto.io/Statement/v1"}', 'utf8'));
+  const attestation = add({
+    schemaVersion: 2,
+    mediaType: 'application/vnd.oci.image.manifest.v1+json',
+    artifactType: 'application/vnd.docker.attestation.manifest.v1+json',
+    config: { mediaType: 'application/vnd.oci.empty.v1+json', ...config, data: 'e30=' },
+    layers: [{
+      mediaType: 'application/vnd.in-toto+json',
+      ...provenance,
+      annotations: { 'in-toto.io/predicate-type': 'https://slsa.dev/provenance/v1' }
+    }],
+    subject: { mediaType: 'application/vnd.oci.image.manifest.v1+json', ...runtime }
+  });
+  const nested = add({
+    schemaVersion: 2,
+    mediaType: 'application/vnd.oci.image.index.v1+json',
+    manifests: [
+      {
+        mediaType: 'application/vnd.oci.image.manifest.v1+json', ...runtime,
+        platform: { architecture: 'amd64', os: 'linux' }
+      },
+      {
+        mediaType: 'application/vnd.oci.image.manifest.v1+json', ...attestation,
+        annotations: {
+          'vnd.docker.reference.digest': runtime.digest,
+          'vnd.docker.reference.type': 'attestation-manifest'
+        },
+        platform: { architecture: 'unknown', os: 'unknown' }
+      }
+    ]
+  });
+  writeFileSync(path.join(root, 'oci-layout'), '{"imageLayoutVersion":"1.0.0"}\n');
+  writeFileSync(path.join(root, 'index.json'), JSON.stringify({
+    schemaVersion: 2,
+    mediaType: 'application/vnd.oci.image.index.v1+json',
+    manifests: [{ mediaType: 'application/vnd.oci.image.index.v1+json', ...nested }]
+  }));
+  return Object.freeze({ root, blobs, runtime, nested, layer, provenance, attestation });
+}
 
 const dockerEndpoint: DockerEndpointIdentityV3 = Object.freeze({
   schema: 'sec-docker-endpoint-identity-v1',
@@ -214,6 +283,11 @@ describe('local GitHub Actions runner contract', () => {
       .toBe(authority.image.runtimeContentDigest);
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2)
       .toBe(authority.image.dockerProjectionDigest);
+    expect(createLocalGitHubActionsRunnerEnvironmentSpecV1().components.map(({ id }) => id))
+      .toEqual(expect.arrayContaining([
+        'authority-input-closure',
+        'runner-build-input-closure'
+      ]));
     expect(LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS_V1).toContain('PROGRAMFILES');
     expect(LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3.map(({ imageId }) => imageId))
       .toEqual(authority.image.retirements.map(({ imageId }) => imageId));
@@ -275,10 +349,17 @@ describe('local GitHub Actions runner contract', () => {
     expect(environmentSpec.providerRequirement)
       .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1.provider.requirement);
     expect(environmentSpec.components.map(({ id }) => id)).toEqual([
-      'base-image', 'bootstrap-ca-bundle', 'dockerfile-frontend', 'github-cli', 'node', 'runner'
+      'authority-input-closure', 'base-image', 'bootstrap-ca-bundle', 'dockerfile-frontend',
+      'github-cli', 'node', 'runner', 'runner-build-input-closure'
     ]);
 
     const ociBake = JSON.parse(createLocalGitHubActionsRunnerOciBakeDefinitionV1('D:\\cache\\candidate'));
+    const buildInputProjection = createLocalGitHubActionsRunnerBuildInputProjectionV1();
+    expect(JSON.stringify(buildInputProjection)).toContain('<candidate-layout>');
+    expect(JSON.stringify(buildInputProjection)).toContain('<layout>');
+    expect(JSON.stringify(buildInputProjection)).toContain(
+      LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1
+    );
     expect(ociBake.group.default.targets).toEqual(['runner-oci']);
     expect(ociBake.target['runner-oci'].attest).toEqual(['type=provenance,mode=max']);
     expect(ociBake.target['runner-oci'].output[0]).toContain('type=oci');
@@ -375,7 +456,112 @@ describe('local GitHub Actions runner contract', () => {
     expect(progress.push(Buffer.from(status(1)))).toBe(true);
     expect(progress.push(Buffer.from(status(1)))).toBe(false);
     expect(progress.push(Buffer.from(status(2)))).toBe(true);
+    expect(progress.push(Buffer.from(`${JSON.stringify({
+      logs: [{ vertex: digest, data: 'presentation chatter' }]
+    })}\n`))).toBe(false);
+    const unknownVertexStatus = JSON.stringify({
+      statuses: [{ id: 'download', vertex: `sha256:${'b'.repeat(64)}`, current: 1 }]
+    });
+    expect(progress.push(Buffer.from(`${unknownVertexStatus}\n`))).toBe(false);
+    expect(progress.push(Buffer.from(`${JSON.stringify({
+      statuses: [{ id: 'random-id-does-not-advance', vertex: digest, current: 2 }]
+    })}\n`))).toBe(false);
+    expect(progress.push(Buffer.from(`${JSON.stringify({
+      statuses: [{ id: 'random-id-advances', vertex: digest, current: 3 }]
+    })}\n`))).toBe(true);
+    expect(progress.push(Buffer.from(`${JSON.stringify({
+      statuses: [{ id: 'first-completion', vertex: digest, current: 3, completed: 'now' }]
+    })}\n`))).toBe(true);
+    expect(progress.push(Buffer.from(`${JSON.stringify({
+      statuses: [{ id: 'second-completion', vertex: digest, current: 3, completed: 'later' }]
+    })}\n`))).toBe(false);
     expect(progress.push(Buffer.from('presentation output\n'))).toBe(false);
+  });
+
+  test('recursively validates the complete OCI runtime and provenance closure', () => {
+    const fixture = createOciFixture();
+    try {
+      expect(readValidatedRunnerOciLayoutIdentityV1(
+        fixture.root, fixture.runtime.digest
+      )).toBe(fixture.nested.digest);
+      writeFileSync(path.join(fixture.blobs, fixture.layer.digest.slice(7)), 'corrupt-layer');
+      expect(() => readValidatedRunnerOciLayoutIdentityV1(
+        fixture.root, fixture.runtime.digest
+      )).toThrow('runtime layer 0 blob identity is invalid');
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+
+    const missingProvenance = createOciFixture();
+    try {
+      unlinkSync(path.join(missingProvenance.blobs, missingProvenance.provenance.digest.slice(7)));
+      expect(() => readValidatedRunnerOciLayoutIdentityV1(
+        missingProvenance.root, missingProvenance.runtime.digest
+      )).toThrow('provenance layer blob identity is invalid');
+    } finally {
+      rmSync(missingProvenance.root, { recursive: true, force: true });
+    }
+  });
+
+  test('leases candidate generations, protects live owners, and retires abandoned bytes no-follow', () => {
+    const specDigest = createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest;
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-candidate-'));
+    const generationPath = path.join(root, specDigest.slice(7));
+    mkdirSync(generationPath);
+    const directory = inspectNoFollowDirectoryChainV1(
+      generationPath, 'Runner OCI candidate lifecycle fixture'
+    ).target;
+    const oldLease = acquirePhysicalMutationLeaseV1(directory, 'materialization-lease.json', {
+      now: () => 1_000,
+      ownerHost: 'candidate-test-host',
+      ownerPid: 41_001,
+      processNonce: randomUUID(),
+      processAlive: () => 'alive'
+    });
+    expect(oldLease).not.toBeNull();
+    const oldBinding = createLocalGitHubActionsRunnerOciCandidateBindingV1(
+      specDigest, oldLease!.owner
+    );
+    const oldCandidatePath = path.join(generationPath, oldBinding.candidateName);
+    mkdirSync(path.join(oldCandidatePath, 'partial', 'nested'), { recursive: true });
+    writeFileSync(path.join(oldCandidatePath, 'partial', 'nested', 'layer'), 'partial-build-output');
+
+    const blocked = acquirePhysicalMutationLeaseV1(directory, 'materialization-lease.json', {
+      now: () => 2_000,
+      ownerHost: 'candidate-test-host',
+      ownerPid: 41_002,
+      processNonce: randomUUID(),
+      processAlive: () => 'alive'
+    });
+    expect(blocked).toBeNull();
+    expect(existsSync(oldCandidatePath)).toBe(true);
+
+    const successor = acquirePhysicalMutationLeaseV1(directory, 'materialization-lease.json', {
+      now: () => 3_000,
+      ownerHost: 'candidate-test-host',
+      ownerPid: 41_003,
+      processNonce: randomUUID(),
+      processAlive: (pid) => pid === oldLease!.owner.pid ? 'dead' : 'alive'
+    });
+    expect(successor).not.toBeNull();
+    expect(successor!.reclaimedOwner).toEqual(oldLease!.owner);
+    expect(reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1({
+      directory,
+      specDigest,
+      owner: successor!.reclaimedOwner!
+    })).toBe('retired-invalid');
+    expect(existsSync(oldCandidatePath)).toBe(false);
+
+    const currentBinding = createLocalGitHubActionsRunnerOciCandidateBindingV1(
+      specDigest, successor!.owner
+    );
+    const currentCandidatePath = path.join(generationPath, currentBinding.candidateName);
+    mkdirSync(path.join(currentCandidatePath, 'failed-validation'), { recursive: true });
+    writeFileSync(path.join(currentCandidatePath, 'failed-validation', 'blob'), 'invalid');
+    retireLocalGitHubActionsRunnerOciCandidateV1(directory, currentBinding);
+    expect(existsSync(currentCandidatePath)).toBe(false);
+    successor!.release();
+    rmSync(root, { recursive: true, force: true });
   });
 
   test('remote CAS ledger is the authority and local state is only its exact projection', () => {

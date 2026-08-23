@@ -1183,7 +1183,7 @@ test('freeze projection admits only the exact degraded-main repair and preserves
       }
     });
     const decision = compileMainHealthRepairDecisionV1({
-      ledger,
+      observation: { kind: 'available', ledger },
       now: observedAt,
       expectedRepository: 'sec-platform/sec',
       expectedDefaultBranch: 'main',

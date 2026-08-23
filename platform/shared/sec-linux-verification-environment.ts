@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { sha256 } from './canonical-primitives.ts';
 import source from './environment-specs/sec-linux-verification-v1.json' with { type: 'json' };
 
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/u)
@@ -87,8 +88,7 @@ const authoritySchema = z.object({
     imageSchema: boundedText,
     bunVersion: boundedText,
     bunArchiveUrl: httpsUrl,
-    bunArchiveDigest: digest,
-    bunArchiveBytes: positiveInteger
+    bunArchiveDigest: digest
   }).strict(),
   runtime: z.object({
     pythonVersion: boundedText,
@@ -108,6 +108,30 @@ const authoritySchema = z.object({
 }).strict();
 
 export type SecLinuxVerificationEnvironmentAuthorityV1 = z.infer<typeof authoritySchema>;
+
+export function computeSecLinuxVerificationRunnerInputDigestV1(
+  value: SecLinuxVerificationEnvironmentAuthorityV1
+): `sha256:${string}` {
+  return sha256(Object.freeze({
+    schema: 'sec-linux-verification-runner-input-v1',
+    environmentId: value.environmentId,
+    platform: value.platform,
+    image: Object.freeze({
+      name: value.image.name,
+      buildRevision: value.image.buildRevision,
+      lineageSchema: value.image.lineageSchema
+    }),
+    provider: Object.freeze({
+      sourcePolicyRevision: value.provider.sourcePolicyRevision,
+      sourceDateEpoch: value.provider.sourceDateEpoch,
+      dockerfileFrontend: value.provider.dockerfileFrontend
+    }),
+    provenance: value.provenance,
+    ubuntu: value.ubuntu,
+    archives: value.archives,
+    runtime: Object.freeze({ pythonVersion: value.runtime.pythonVersion })
+  })) as `sha256:${string}`;
+}
 
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -154,6 +178,24 @@ export function parseSecLinuxVerificationEnvironmentAuthorityV1(
   if (!value.trustedRuntime.bunArchiveUrl.includes(`bun-v${value.trustedRuntime.bunVersion}/`)) {
     fail('trusted runtime Bun archive URL must bind its declared version');
   }
+  if (value.provider.githubHost !== 'github.com') {
+    fail('GitHub provider host must remain github.com');
+  }
+  const exactSources = [
+    [value.ubuntu.snapshotUrl, 'snapshot.ubuntu.com', '/ubuntu/'],
+    [value.archives.bootstrapCa.url, 'curl.se', '/ca/'],
+    [value.archives.node.url, 'nodejs.org', `/dist/v${value.archives.node.version}/`],
+    [value.archives.runner.url, 'github.com', `/actions/runner/releases/download/v${value.archives.runner.version}/`],
+    [value.archives.githubCli.url, 'github.com', `/cli/cli/releases/download/v${value.archives.githubCli.version}/`],
+    [value.trustedRuntime.bunArchiveUrl, 'github.com', `/oven-sh/bun/releases/download/bun-v${value.trustedRuntime.bunVersion}/`]
+  ] as const;
+  for (const [sourceUrl, expectedHost, expectedPathPrefix] of exactSources) {
+    const parsed = new URL(sourceUrl);
+    if (parsed.hostname !== expectedHost || !parsed.pathname.startsWith(expectedPathPrefix)
+        || parsed.username !== '' || parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') {
+      fail(`source URL is outside the governed trust domain: ${sourceUrl}`);
+    }
+  }
   if (value.provider.timeoutsMs.commandDefault > value.provider.timeoutsMs.commandMaximum
       || value.provider.timeoutsMs.materializeAbsolute > value.provider.timeoutsMs.commandMaximum
       || value.provider.timeoutsMs.projectionAbsolute > value.provider.timeoutsMs.commandMaximum
@@ -181,3 +223,7 @@ export function parseSecLinuxVerificationEnvironmentAuthorityV1(
 
 export const SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 =
   parseSecLinuxVerificationEnvironmentAuthorityV1(source);
+export const SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1 =
+  computeSecLinuxVerificationRunnerInputDigestV1(
+    SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1
+  );

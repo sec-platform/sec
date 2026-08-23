@@ -80,6 +80,20 @@ Resolver 无法确定 default ref、target repository/workspace、active pointer
 
 Dynamic SHA、run、failure tail 和临时候选不复制进 stable docs。Evidence 可以保存架构裁决、实验和历史计划，但不得自称当前状态源或长期路线 owner。
 
+### 跨任务原则闭包与 Work Package 边界
+
+任务中发现或接受的规则先归一为`task-only | canonicalized | partially-covered | missing | historical-only`。
+`task-only`只进入当前Work Package的frozen scope、acceptance、tests与exact decision；其余可跨任务复用的
+架构、Provider、Verification、环境、恢复或协作语义必须在同一治理闭包内进入既有canonical domain owner，
+可观察部分再进入类型、Schema、validator、test、Hook或CI。Work Package可以授权修改canonical owner并引用
+`authorityRefs`，但不得拥有全局原则、长期架构、Provider catalog或行为策略的第二份正文。
+
+聊天、summary、Issue comment、旧Work Package、Evidence locator、archive和模型记忆只提供发现线索。固化审计
+必须从当前canonical owner反向做bounded census，逐项报告上述分类；`partially-covered | missing`必须迁入唯一
+owner或保留typed blocker，不能因最新turn已写一段AGENTS/WP prose就声明完成。AGENTS只保留触发与路由；
+canonical文档拥有原理，机器合同拥有拒绝规则。对当前任务构成阻塞且在授权写集内的问题，先修复最上游可修改
+根因恢复任务，再把同类不变量同步到canonical owner；不得借全局原则扩大当前授权。
+
 ## 发现收敛、current spec 与 WorkDecision
 
 一次执行中发现的问题只有在进入既有canonical owner或一个聚焦work identity后才是durable work；
@@ -1163,6 +1177,15 @@ authority与MissingOrStale closure，但源码/工具链/环境和输入闭包�
 
 当前默认：一个 formal active Work Package。只读 research、census和Evidence发现可以并行，但不能同时写 canonical owner、`docs/work/**`、package/lock、workflow、Skill registry或同一 state/artifact。
 
+每个operation必须对已识别的bounded subtask产生`delegated | no-delegation`裁决证据。边界清晰、可独立完成且
+并行能实质改善速度、质量或上下文隔离时必须委派；`no-delegation`只能使用`no-independent-subtask |
+shared-canonical-writer | dependency-not-closed | parallel-benefit-not-material | provider-unavailable`等typed
+reason。主线程始终保留最新用户授权、canonical owner与架构决策、单一集成写者、跨流冲突裁决、最终验证和
+closeout；子任务只能保持或收窄权限，并绑定parent operation/epoch、scope digest、authority、owned/forbidden
+paths、resources和dependency。disjoint/ordered proof复用既有parallel conflict owner；child名称、summary或
+caller JSON不能证明已委派、仍运行或已完成。production delegate/no-delegation owner尚未接线时，A0必须显式
+记录裁决并用宿主live tools读回child状态，不能把Skill prose当机器receipt。
+
 目标并行 resolver只有机器证明以下全部成立后才允许同一 Integration Epoch 内多个正式包：
 
 - authority write-set、canonical types和writer不重叠；
@@ -1503,7 +1526,7 @@ Durable resume checkpoint位于仓库外canonical SEC Runtime State，以内容�
 
 当前机器边界仍有一个必须显式保留的capability gap：SEC仓库可以拥有resume contract、Runtime State、operation/effect/artifact ledger和provider adapter，但不能凭仓库代码读取Codex Desktop内部subagent tree或证明`code-mode host exited during handshake`发生在child creation前。只有Codex宿主提供authenticated live-subagent adapter和`not-started | started | terminal` exec receipt后，才能把这些域从manual live reconciliation升级为全机器门禁；在此之前必须调用宿主live tools重新读取，不能声称摘要问题已被完全机器化解决。
 
-当前`platform/shared/verification-session-resume-consistency-contract.ts`明确是`unwired-candidate`，没有被VerificationSession runtime、journal、CAS或effect provider消费，也永远输出`effectAuthority=none`。它的`claim-required`只表示下一步必须由仓库外durable ledger执行expected-revision CAS；绝不等价于`execute`。其中`live-provider`字段在authenticated provider receipt parser接入前仍是caller projection，不能签发absent、running、terminal、not-started或完成事实。正式接线必须先补齐run/session/epoch/role/target/provider identity、operation-key重算、claim/start/terminal receipt、cursor consume CAS、domain-specific cleanup/merge authority以及真实effect-path integration tests；在此前完整协议状态是`DESIGNED / RUNTIME_UNVERIFIED`。
+不得用无消费者的pure resume状态机代替这套协议。正式接线必须同时补齐run/session/epoch/role/target/provider identity、operation-key重算、authenticated claim/start/terminal receipt、cursor consume CAS、domain-specific cleanup/merge authority以及真实effect-path integration tests；任何只消费caller projection、checkpoint或summary的候选都只能是`DESIGNED / RUNTIME_UNVERIFIED`，不能签发absent、running、terminal、not-started、完成或Effect authority。
 
 ## Merge 与收口
 

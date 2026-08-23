@@ -34,10 +34,11 @@ import {
   assertDockerEndpointIdentityV3,
   createBuildxRawJsonProgressAdmissionV1,
   dockerEndpointCommandArgsV3,
-  ensureLocalGitHubActionsRunnerToolchainImageV1,
+  ensureLocalGitHubActionsRunnerToolchainMaterializationV1,
   observeDockerEndpointIdentityV3,
   parseDockerEndpointIdentityV3,
-  type DockerEndpointIdentityV3
+  type DockerEndpointIdentityV3,
+  type LocalGitHubActionsRunnerToolchainMaterializationV1
 } from './local-github-actions-runner.ts';
 import type { VerificationSessionHostedEnvelopeV1 } from './verification-session-runtime.ts';
 
@@ -74,13 +75,20 @@ export interface TrustedRuntimeImageBuildPlanV1 {
 }
 
 export function createTrustedRuntimeImageBuildPlanV1(
-  dockerfile: string
+  dockerfile: string,
+  toolchain: LocalGitHubActionsRunnerToolchainMaterializationV1
 ): TrustedRuntimeImageBuildPlanV1 {
   if (!path.isAbsolute(dockerfile)) fail('trusted runtime Dockerfile path must be absolute');
+  if (!path.isAbsolute(toolchain.layoutPath)
+      || toolchain.runtimeManifestDigest !== ENVIRONMENT.image.runtimeContentDigest
+      || toolchain.dockerProjectionDigest !== ENVIRONMENT.image.dockerProjectionDigest) {
+    fail('trusted runtime toolchain materialization is invalid');
+  }
+  const layoutUriPath = path.resolve(toolchain.layoutPath).split(path.sep).join('/');
   return Object.freeze({
     args: Object.freeze([
       'buildx', 'build', '--pull=false', '--network', 'none', '--provenance=false',
-      '--build-arg', `SEC_RUNNER_IMAGE=${ENVIRONMENT.image.name}:${ENVIRONMENT.archives.runner.version}-${ENVIRONMENT.image.buildRevision}`,
+      '--build-context', `runner=oci-layout://${layoutUriPath}@${toolchain.runtimeManifestDigest}`,
       '--build-arg', `SEC_TRUSTED_RUNTIME_SCHEMA=${ENVIRONMENT.trustedRuntime.imageSchema}`,
       '--build-arg', `SEC_RUNNER_IMAGE_ID=${ENVIRONMENT.image.dockerProjectionDigest}`,
       '--build-arg', `SEC_BUN_ARCHIVE_URL=${ENVIRONMENT.trustedRuntime.bunArchiveUrl}`,
@@ -977,13 +985,13 @@ async function ensureImage(
     maxStderrBytes: 4 * 1024 * 1024
   });
   if (inspected.code === 0) return imageObservation(inspected.stdout);
-  const baseImageId = await ensureLocalGitHubActionsRunnerToolchainImageV1(repositoryRoot);
+  const toolchain = await ensureLocalGitHubActionsRunnerToolchainMaterializationV1(repositoryRoot);
   await assertDockerEndpointIdentityV3(dockerEndpoint, repositoryRoot);
-  if (baseImageId !== TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1) {
+  if (toolchain.dockerProjectionDigest !== TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1) {
     fail('trusted toolchain base image identity drifted');
   }
   const dockerfile = path.join(import.meta.dir, 'trusted-runtime.Dockerfile');
-  const plan = createTrustedRuntimeImageBuildPlanV1(dockerfile);
+  const plan = createTrustedRuntimeImageBuildPlanV1(dockerfile, toolchain);
   const progress = createBuildxRawJsonProgressAdmissionV1();
   const built = await runCommand('docker', [...dockerEndpointCommandArgsV3(
     dockerEndpoint,
@@ -1525,7 +1533,9 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
         '--init',
         '--read-only',
-        '--pids-limit', '1024', '--cpus', '8', '--memory', '12g',
+        '--pids-limit', String(ENVIRONMENT.runtime.resources.trusted.pids),
+        '--cpus', String(ENVIRONMENT.runtime.resources.trusted.cpus),
+        '--memory', `${ENVIRONMENT.runtime.resources.trusted.memoryGiB}g`,
         '--tmpfs', TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1,
         '--tmpfs', TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1,
         '--mount', `type=bind,source=${path.resolve(bundle)},target=${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1},readonly`,

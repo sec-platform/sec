@@ -799,7 +799,7 @@ session并继续。它不得携带旧PASS来覆盖新Requirement，也不得因�
 不可用、必须用户决策等typed blocker才允许结束自动推进。
 
 这些平台未完整实现时，分散日志、计划文档和聊天摘要不能被称为统一Ledger。
-当前resume consistency pure candidate未接入真实Session/effect路径，且无effect authority；它的单元测试只验证决策代数不会把checkpoint hint直接提升为执行许可，不能证明one-active-child、consume-once、provider-authenticated not-started、materialization认领、cleanup或merge已被机器门禁。只有真实runtime integration、journal/CAS并发测试与provider receipt forward-test通过后，才能将该状态从`RUNTIME_UNVERIFIED`升级。
+不得把pure decision单测当成resume完成证据：它最多证明决策代数没有把checkpoint hint直接提升为执行许可，不能证明one-active-child、consume-once、provider-authenticated not-started、materialization认领、cleanup或merge已被机器门禁。只有真实runtime integration、journal/CAS并发测试与provider receipt forward-test通过后，才能将该状态从`RUNTIME_UNVERIFIED`升级；在此前不建立无真实consumer的平行resume contract。
 
 ## Trusted Bootstrap
 

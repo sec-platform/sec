@@ -6,6 +6,7 @@ import {
   rawSha256,
   sha256
 } from './canonical-primitives.ts';
+import { createMainHealthRepairWorkPackagePathV1 } from './main-health-contract.ts';
 import {
   compileSecOperationDemandGraphV1,
   type SecOperationDemandGraphV1
@@ -191,6 +192,24 @@ export type SecWorkRollingTransitionAuthorityV1 = Readonly<
     failureFingerprints: readonly SecWorkDigestV1[];
     publishedActivePackageId: string | null;
   }
+  | {
+    /**
+     * Historical projection for the final explicitly authorized bootstrap
+     * bridge. No document-control effect API produces this variant; it only
+     * lets the digest-bound rolling record preserve the exact external
+     * observation without pretending that a missing provider issued a ledger
+     * or repair decision.
+     */
+    kind: 'manual-main-health-bootstrap';
+    repository: string;
+    defaultBranch: string;
+    owner: string;
+    healthRevision: SecWorkDigestV1;
+    bootstrapObservationDigest: SecWorkDigestV1;
+    failureFingerprints: readonly SecWorkDigestV1[];
+    publishedActivePackageId: string;
+    retirementPolicy: 'exact-new-main-readback';
+  }
 >;
 
 export interface SecWorkRollingTransitionActiveV1 {
@@ -281,6 +300,11 @@ const CANDIDATE_REPLAN_AUTHORITY_KEYS = [
 const MAIN_HEALTH_REPAIR_AUTHORITY_KEYS = [
   'kind', 'decisionDigest', 'healthRevision', 'ledgerDigest',
   'failureFingerprints', 'publishedActivePackageId'
+] as const;
+const MANUAL_MAIN_HEALTH_BOOTSTRAP_AUTHORITY_KEYS = [
+  'kind', 'repository', 'defaultBranch', 'owner', 'healthRevision',
+  'bootstrapObservationDigest', 'failureFingerprints',
+  'publishedActivePackageId', 'retirementPolicy'
 ] as const;
 
 function fail(message: string): never {
@@ -1011,6 +1035,36 @@ function normalizeTransitionAuthority(
           )
     });
   }
+  if (authority.kind === 'manual-main-health-bootstrap') {
+    exactKeys(authority, MANUAL_MAIN_HEALTH_BOOTSTRAP_AUTHORITY_KEYS, 'rolling transition authority');
+    if (!Array.isArray(authority.failureFingerprints) || authority.failureFingerprints.length === 0) {
+      fail('rolling transition authority.failureFingerprints must be non-empty.');
+    }
+    const failureFingerprints = authority.failureFingerprints.map((entry, index) => digest(
+      entry, `rolling transition authority.failureFingerprints[${index}]`
+    )).sort(compareCodeUnits);
+    if (new Set(failureFingerprints).size !== failureFingerprints.length
+        || authority.retirementPolicy !== 'exact-new-main-readback') {
+      fail('manual MainHealth bootstrap authority identity is invalid.');
+    }
+    return deepFreeze({
+      kind: 'manual-main-health-bootstrap' as const,
+      repository: text(authority.repository, 'rolling transition authority.repository'),
+      defaultBranch: token(authority.defaultBranch, 'rolling transition authority.defaultBranch'),
+      owner: text(authority.owner, 'rolling transition authority.owner'),
+      healthRevision: digest(authority.healthRevision, 'rolling transition authority.healthRevision'),
+      bootstrapObservationDigest: digest(
+        authority.bootstrapObservationDigest,
+        'rolling transition authority.bootstrapObservationDigest'
+      ),
+      failureFingerprints,
+      publishedActivePackageId: packageId(
+        authority.publishedActivePackageId,
+        'rolling transition authority.publishedActivePackageId'
+      ),
+      retirementPolicy: 'exact-new-main-readback' as const
+    });
+  }
   return fail('rolling transition authority.kind is unsupported.');
 }
 
@@ -1042,16 +1096,30 @@ function normalizeSecWorkRollingTransitionProjectionV1(
   const authority = normalizeTransitionAuthority(raw.authority);
   const active = normalizeTransitionActive(raw.active);
   const candidates = orderedPackageIds(raw.candidates, 'rolling transition projection.candidates');
+  const exactMain = gitSha(raw.exactMain, 'rolling transition projection.exactMain');
+  const exactMainTree = gitSha(raw.exactMainTree, 'rolling transition projection.exactMainTree');
   if (candidates.includes(active.packageId)) {
     fail('rolling transition active package cannot also be a candidate.');
   }
-  if (authority.kind === 'main-health-repair' && active.tracking !== 'none') {
-    fail('MainHealth repair rolling transition must use tracking none.');
+  if ((authority.kind === 'main-health-repair'
+      || authority.kind === 'manual-main-health-bootstrap') && active.tracking !== 'none') {
+    fail('MainHealth repair or bootstrap rolling transition must use tracking none.');
+  }
+  if (authority.kind === 'manual-main-health-bootstrap'
+      && active.manifestPath !== createMainHealthRepairWorkPackagePathV1({
+        repository: authority.repository,
+        defaultBranch: authority.defaultBranch,
+        mainSha: exactMain,
+        mainTreeSha: exactMainTree,
+        owner: authority.owner,
+        failureFingerprints: authority.failureFingerprints
+      })) {
+    fail('manual MainHealth bootstrap manifest is not the canonical content-addressed repair path.');
   }
   const withoutDigest = deepFreeze({
     schema: SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA_V1,
-    exactMain: gitSha(raw.exactMain, 'rolling transition projection.exactMain'),
-    exactMainTree: gitSha(raw.exactMainTree, 'rolling transition projection.exactMainTree'),
+    exactMain,
+    exactMainTree,
     authority,
     active,
     candidates
@@ -1670,9 +1738,14 @@ export function renderSecWorkRollingTransitionPlanV1(input: Readonly<{
     ? `Existing active package replan bound to exact source head `
       + `\`${projection.authority.sourceHead}\`, source tree \`${projection.authority.sourceTree}\`, `
       + `manifest \`${projection.active.manifestDigest}\`, and authority \`${authorityDigest}\`.`
-    : `Exact MainHealth repair bound to decision \`${projection.authority.decisionDigest}\`, health `
-      + `\`${projection.authority.healthRevision}\`, manifest \`${projection.active.manifestDigest}\`, `
-      + `and authority \`${authorityDigest}\`.`;
+    : projection.authority.kind === 'main-health-repair'
+      ? `Exact MainHealth repair bound to decision \`${projection.authority.decisionDigest}\`, health `
+        + `\`${projection.authority.healthRevision}\`, manifest \`${projection.active.manifestDigest}\`, `
+        + `and authority \`${authorityDigest}\`.`
+      : `Final manual MainHealth bootstrap bound to observation `
+        + `\`${projection.authority.bootstrapObservationDigest}\`, health `
+        + `\`${projection.authority.healthRevision}\`, manifest \`${projection.active.manifestDigest}\`, `
+        + `and authority \`${authorityDigest}\`; it retires only after exact new-main readback.`;
   return renderRollingPlanDocumentV1({
     reviewedOn: input.reviewedOn,
     projection,

@@ -2,7 +2,10 @@ import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
-import { parseDockerEndpointIdentityV3 } from '../../scripts/codex/local-github-actions-runner.ts';
+import {
+  LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
+  parseDockerEndpointIdentityV3
+} from '../../scripts/codex/local-github-actions-runner.ts';
 import {
   TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1,
   TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256_V1,
@@ -62,11 +65,23 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 describe('provider-neutral trusted runtime container', () => {
   test('builds through Buildx with authority-owned absolute and semantic stall deadlines', () => {
     const plan = createTrustedRuntimeImageBuildPlanV1(
-      path.resolve('scripts/codex/trusted-runtime.Dockerfile')
+      path.resolve('scripts/codex/trusted-runtime.Dockerfile'),
+      Object.freeze({
+        specDigest: `sha256:${'1'.repeat(64)}` as const,
+        layoutPath: path.resolve('.tmp/runner-layout'),
+        runtimeManifestDigest: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
+        dockerProjectionDigest: TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1,
+        provenanceArtifactDigest: `sha256:${'2'.repeat(64)}` as const
+      })
     );
     expect(plan.args.slice(0, 2)).toEqual(['buildx', 'build']);
     expect(plan.args).toContain('--load');
     expect(plan.args).toContain('--progress=rawjson');
+    expect(plan.args.some((value) => new RegExp(
+      `^runner=oci-layout://.*@${LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1}$`, 'u'
+    ).test(value))).toBe(true);
+    expect(plan.args).not.toContain(expect.stringContaining('SEC_RUNNER_IMAGE='));
+    expect(plan.args).toContain(`SEC_RUNNER_IMAGE_ID=${TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1}`);
     expect(plan.stallTimeoutMs).toBeLessThan(plan.absoluteTimeoutMs);
   });
 

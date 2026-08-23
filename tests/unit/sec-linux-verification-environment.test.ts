@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  computeSecLinuxVerificationRunnerInputDigestV1,
   parseSecLinuxVerificationEnvironmentAuthorityV1,
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1
 } from '../../platform/shared/sec-linux-verification-environment.ts';
@@ -26,9 +27,18 @@ describe('SEC Linux verification environment authority', () => {
 
   test('keeps independently invalidated runtime resources outside image identities', () => {
     const value = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1);
+    const originalInputDigest = computeSecLinuxVerificationRunnerInputDigestV1(value);
     value.runtime.resources.sut.cpus += 1;
-    expect(parseSecLinuxVerificationEnvironmentAuthorityV1(value).image)
+    const parsed = parseSecLinuxVerificationEnvironmentAuthorityV1(value);
+    expect(parsed.image)
       .toEqual(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1.image);
+    expect(computeSecLinuxVerificationRunnerInputDigestV1(parsed)).toBe(originalInputDigest);
+
+    const changedPackage = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1);
+    changedPackage.ubuntu.packages = [...changedPackage.ubuntu.packages, 'make'];
+    expect(computeSecLinuxVerificationRunnerInputDigestV1(
+      parseSecLinuxVerificationEnvironmentAuthorityV1(changedPackage)
+    )).not.toBe(originalInputDigest);
   });
 
   test('rejects cross-field drift and unknown parallel owners', () => {
@@ -40,5 +50,12 @@ describe('SEC Linux verification environment authority', () => {
     const parallelOwner = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1) as unknown as Record<string, unknown>;
     parallelOwner.imageDigest = `sha256:${'a'.repeat(64)}`;
     expect(() => parseSecLinuxVerificationEnvironmentAuthorityV1(parallelOwner)).toThrow();
+
+    const untrustedArchive = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1);
+    untrustedArchive.archives.node.url = untrustedArchive.archives.node.url.replace(
+      'nodejs.org', 'mirror.example'
+    );
+    expect(() => parseSecLinuxVerificationEnvironmentAuthorityV1(untrustedArchive))
+      .toThrow('outside the governed trust domain');
   });
 });

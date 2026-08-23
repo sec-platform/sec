@@ -12,7 +12,8 @@ import {
 } from '../../scripts/codex/trusted-runtime-container.ts';
 import {
   observeCanonicalMainHealthForRepairV1,
-  observeCanonicalMainHealthForWorkSelectionV1
+  observeCanonicalMainHealthForWorkSelectionV1,
+  resolveWorkSelectionMainHealthProvidersV1
 } from '../../scripts/codex/work-selection-main-health.ts';
 import { resolveSecRuntimeStateForRepositoryV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
 
@@ -90,6 +91,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
       .toMatchObject({ status: 'blocked', routingState: 'ordinary-only' });
     rmSync(receiptPath);
     expect(observeCanonicalMainHealthForWorkSelectionV1(input).state).toBe('unresolved');
+
   } finally {
     for (const [name, value] of [
       ['SEC_STATE_HOME', previous.stateHome],
@@ -104,4 +106,35 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     rmSync(cacheHome, { recursive: true, force: true });
     rmSync(binHome, { recursive: true, force: true });
   }
+});
+
+test('provider resolution preserves missing, unavailable, and invalid dispositions for repair', () => {
+  const base = {
+    repository: 'sec-platform/sec',
+    defaultBranch: 'main',
+    mainSha: MAIN,
+    mainTreeSha: TREE,
+    now: new Date().toISOString()
+  } as const;
+  const missing = resolveWorkSelectionMainHealthProvidersV1({
+    ...base,
+    local: { kind: 'absent' },
+    hosted: { kind: 'absent' }
+  });
+  expect(missing.repairObservation.kind).toBe('provider-missing');
+  expect(missing.projection.state).toBe('unresolved');
+
+  const unavailable = resolveWorkSelectionMainHealthProvidersV1({
+    ...base,
+    local: { kind: 'absent' },
+    hosted: { kind: 'unavailable', ref: `sha256:${'4'.repeat(64)}` }
+  });
+  expect(unavailable.repairObservation.kind).toBe('provider-unavailable');
+
+  const invalid = resolveWorkSelectionMainHealthProvidersV1({
+    ...base,
+    local: { kind: 'invalid', ref: `sha256:${'5'.repeat(64)}` },
+    hosted: { kind: 'absent' }
+  });
+  expect(invalid.repairObservation.kind).toBe('provider-invalid');
 });

@@ -8,7 +8,8 @@ import {
 } from '../../platform/shared/main-health-contract.ts';
 import {
   compileMainHealthRepairDecisionV1,
-  type MainHealthRepairDecisionV1
+  type MainHealthRepairDecisionV1,
+  type MainHealthRepairObservationV1
 } from '../../platform/shared/main-health-repair-contract.ts';
 import {
   inspectExactNoFollowDirectoryPresenceV1,
@@ -36,7 +37,7 @@ import {
 const WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1 =
   'sec-work-selection-main-health-providers-v1' as const;
 
-type ProviderObservationV1 =
+export type WorkSelectionMainHealthProviderObservationV1 =
   | Readonly<{ kind: 'available'; ledger: MainHealthLedgerV1 }>
   | Readonly<{ kind: 'absent' }>
   | Readonly<{ kind: 'unavailable'; ref: SecWorkDigestV1 }>
@@ -110,7 +111,7 @@ function observeTrustedLocalProvider(input: Readonly<{
   mainSha: string;
   mainTreeSha: string;
   now: string;
-}>): ProviderObservationV1 {
+}>): WorkSelectionMainHealthProviderObservationV1 {
   let receiptBytes: Uint8Array | null = null;
   try {
     const layout = resolveSecRuntimeStateForRepositoryV1({
@@ -199,7 +200,7 @@ function observeHostedProvider(input: Readonly<{
   now: string;
   expiresAt: string;
   observation: HostedMainHealthObservationV1;
-}>): ProviderObservationV1 {
+}>): WorkSelectionMainHealthProviderObservationV1 {
   if (input.observation.kind === 'invalid') return input.observation;
   if (input.observation.kind === 'unavailable') return input.observation;
   const checks = input.observation.checks;
@@ -228,32 +229,35 @@ function observeHostedProvider(input: Readonly<{
   return Object.freeze({ kind: 'available', ledger: ledgers[0]! });
 }
 
-type CanonicalProviderResolutionV1 = Readonly<{
+export type CanonicalMainHealthProviderResolutionV1 = Readonly<{
   projection: WorkSelectionMainHealthProjectionV1;
   ledger: MainHealthLedgerV1 | null;
+  repairObservation: MainHealthRepairObservationV1;
 }>;
 
-function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
+export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
   repository: string;
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
   now: string;
-  local: ProviderObservationV1;
-  hosted: ProviderObservationV1;
-}>): CanonicalProviderResolutionV1 {
+  local: WorkSelectionMainHealthProviderObservationV1;
+  hosted: WorkSelectionMainHealthProviderObservationV1;
+}>): CanonicalMainHealthProviderResolutionV1 {
   if (input.local.kind === 'invalid' || input.hosted.kind === 'invalid') {
+    const ref = digestRef(Object.freeze({
+      schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
+      status: 'provider-invalid',
+      local: input.local.kind === 'invalid' ? input.local.ref : input.local.kind,
+      hosted: input.hosted.kind === 'invalid' ? input.hosted.ref : input.hosted.kind
+    }));
     return Object.freeze({
       projection: Object.freeze({
         state: 'unresolved',
-        ref: digestRef(Object.freeze({
-          schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
-          status: 'provider-invalid',
-          local: input.local.kind === 'invalid' ? input.local.ref : input.local.kind,
-          hosted: input.hosted.kind === 'invalid' ? input.hosted.ref : input.hosted.kind
-        }))
+        ref
       }),
-      ledger: null
+      ledger: null,
+      repairObservation: Object.freeze({ kind: 'provider-invalid', observationRef: ref })
     });
   }
 
@@ -261,17 +265,19 @@ function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
   const hostedLedger = input.hosted.kind === 'available' ? input.hosted.ledger : null;
   if (localLedger !== null && hostedLedger !== null
       && localLedger.healthRevision !== hostedLedger.healthRevision) {
+    const ref = digestRef(Object.freeze({
+      schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
+      status: 'provider-conflict',
+      localHealthRevision: localLedger.healthRevision,
+      hostedHealthRevision: hostedLedger.healthRevision
+    }));
     return Object.freeze({
       projection: Object.freeze({
         state: 'unresolved',
-        ref: digestRef(Object.freeze({
-          schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
-          status: 'provider-conflict',
-          localHealthRevision: localLedger.healthRevision,
-          hostedHealthRevision: hostedLedger.healthRevision
-        }))
+        ref
       }),
-      ledger: null
+      ledger: null,
+      repairObservation: Object.freeze({ kind: 'provider-conflict', observationRef: ref })
     });
   }
 
@@ -286,26 +292,33 @@ function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
         mainSha: input.mainSha,
         mainTreeSha: input.mainTreeSha
       }),
-      ledger: selected
+      ledger: selected,
+      repairObservation: Object.freeze({ kind: 'available', ledger: selected })
     });
   }
 
+  const ref = digestRef(Object.freeze({
+    schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
+    status: 'provider-missing-or-unavailable',
+    local: input.local.kind,
+    hosted: input.hosted.kind,
+    hostedRef: input.hosted.kind === 'unavailable' ? input.hosted.ref : null,
+    repository: input.repository,
+    defaultBranch: input.defaultBranch,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha
+  }));
+  const unavailable = input.local.kind === 'unavailable' || input.hosted.kind === 'unavailable';
   return Object.freeze({
     projection: Object.freeze({
       state: 'unresolved',
-      ref: digestRef(Object.freeze({
-        schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
-        status: 'provider-missing-or-unavailable',
-        local: input.local.kind,
-        hosted: input.hosted.kind,
-        hostedRef: input.hosted.kind === 'unavailable' ? input.hosted.ref : null,
-        repository: input.repository,
-        defaultBranch: input.defaultBranch,
-        mainSha: input.mainSha,
-        mainTreeSha: input.mainTreeSha
-      }))
+      ref
     }),
-    ledger: null
+    ledger: null,
+    repairObservation: Object.freeze({
+      kind: unavailable ? 'provider-unavailable' : 'provider-missing',
+      observationRef: ref
+    })
   });
 }
 
@@ -342,7 +355,7 @@ function observeCanonicalMainHealthProvidersV1(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-}>): Readonly<{ observedAt: string; resolution: CanonicalProviderResolutionV1 }> {
+}>): Readonly<{ observedAt: string; resolution: CanonicalMainHealthProviderResolutionV1 }> {
   const observedAt = new Date().toISOString();
   const hostedExpiresAt = new Date(
     Date.parse(observedAt) + TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS_V1
@@ -396,9 +409,7 @@ export function observeCanonicalMainHealthForRepairV1(input: Readonly<{
 }>): MainHealthRepairDecisionV1 {
   const observation = observeCanonicalMainHealthProvidersV1(input);
   return compileMainHealthRepairDecisionV1({
-    ledger: observation.resolution.ledger ?? Object.freeze({
-      providerObservationRef: observation.resolution.projection.ref
-    }),
+    observation: observation.resolution.repairObservation,
     now: observation.observedAt,
     expectedRepository: input.repository,
     expectedDefaultBranch: input.defaultBranch,

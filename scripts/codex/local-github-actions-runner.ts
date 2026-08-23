@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
@@ -10,16 +10,27 @@ import {
   createEnvironmentMaterializationSpecV1
 } from '../../platform/shared/environment-materialization-contract.ts';
 import {
+  acquirePhysicalMutationLeaseV1,
+  type PhysicalMutationLeaseHandleV1,
+  type PhysicalMutationLeaseOwnerV1
+} from '../../platform/shared/physical-mutation-lease.ts';
+import {
   createNoFollowDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
+  inspectNoFollowDirectoryChildV1,
+  inspectNoFollowOrdinaryFileDigestV1,
   inspectNoFollowOrdinaryFileEntryV1,
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
+  scanNoFollowDirectoryTreeMetadataV1,
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
+import {
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1,
+  SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1
+} from '../../platform/shared/sec-linux-verification-environment.ts';
 import { acquireSecRuntimeCachePhysicalAuthorityV1 } from '../../tooling/sec-dev/runtime-state-authority.ts';
 import { resolveSecWorkspaceRuntimeRootsV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
 
@@ -63,7 +74,14 @@ export const LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2 =
 export const LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1 =
   ENVIRONMENT.image.runtimeContentDigest;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1 =
-  'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf' as const;
+  (() => {
+    const retirement = ENVIRONMENT.image.retirements.find(({ imageTag }) =>
+      imageTag.endsWith('-archive-v7'));
+    if (retirement === undefined) {
+      throw new Error('SEC Linux verification environment authority lacks the v7 retirement identity.');
+    }
+    return retirement.imageId;
+  })();
 export const LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1 =
   ENVIRONMENT.runtime.containerInitCapability;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1 =
@@ -89,6 +107,10 @@ const SUT_CPUS = ENVIRONMENT.runtime.resources.sut.cpus;
 const SUT_MEMORY = `${ENVIRONMENT.runtime.resources.sut.memoryGiB}g`;
 const SUT_PIDS = ENVIRONMENT.runtime.resources.sut.pids;
 const SUT_CAPABILITIES = CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities;
+const RUNNER_OCI_MATERIALIZATION_LEASE_NAME_V1 = 'materialization-lease.json';
+const RUNNER_OCI_CANDIDATE_PREFIX_V1 = 'candidate-';
+const RUNNER_OCI_CLEANUP_MAXIMUM_ENTRIES_V1 = 1_000_000;
+const RUNNER_OCI_CLEANUP_BUDGET_MS_V1 = 5 * 60_000;
 
 export interface LocalGitHubActionsRunnerInstanceV2 {
   readonly role: LocalGitHubActionsRunnerRoleV2;
@@ -191,7 +213,7 @@ export interface BuildxRawJsonProgressAdmissionV1 {
 export function createBuildxRawJsonProgressAdmissionV1(): BuildxRawJsonProgressAdmissionV1 {
   let pending = '';
   const vertexPhases = new Set<string>();
-  const statusCurrent = new Map<string, number>();
+  const statusCurrentByVertex = new Map<string, number>();
   const statusCompleted = new Set<string>();
 
   const admitLine = (line: string): boolean => {
@@ -226,27 +248,25 @@ export function createBuildxRawJsonProgressAdmissionV1(): BuildxRawJsonProgressA
         const status = candidate as Record<string, unknown>;
         if (typeof status.vertex !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(status.vertex)
             || typeof status.id !== 'string' || status.id.length === 0 || status.id.length > 4096
-            || !Number.isSafeInteger(status.current) || (status.current as number) < 0) continue;
-        const key = `${status.vertex}:${status.id}`;
-        const previous = statusCurrent.get(key);
+            || !Number.isSafeInteger(status.current) || (status.current as number) < 0
+            || !vertexPhases.has(`${status.vertex}:observed`)) continue;
+        // `status.id` is provider presentation state and is not a semantic
+        // frontier. A provider may mint an unbounded series of IDs for the
+        // same vertex; only monotonic aggregate work for that vertex may keep
+        // the stall deadline alive.
+        const previous = statusCurrentByVertex.get(status.vertex);
         if (previous === undefined || (status.current as number) > previous) {
-          statusCurrent.set(key, status.current as number);
+          statusCurrentByVertex.set(status.vertex, status.current as number);
           admitted = true;
         }
-        if (typeof status.completed === 'string' && !statusCompleted.has(key)) {
-          statusCompleted.add(key);
+        if (typeof status.completed === 'string' && !statusCompleted.has(status.vertex)) {
+          statusCompleted.add(status.vertex);
           admitted = true;
         }
       }
     }
-    if (Array.isArray(event.logs)) {
-      admitted = event.logs.some((candidate) => {
-        if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) return false;
-        const log = candidate as Record<string, unknown>;
-        return typeof log.vertex === 'string' && /^sha256:[0-9a-f]{64}$/u.test(log.vertex)
-          && typeof log.data === 'string' && log.data.length > 0;
-      }) || admitted;
-    }
+    // BuildKit logs are presentation evidence. They never prove monotonic work
+    // and therefore cannot refresh the semantic stall deadline.
     return admitted;
   };
 
@@ -627,12 +647,20 @@ export function createLocalGitHubActionsRunnerDockerfileV2(): string {
 }
 
 export function createLocalGitHubActionsRunnerEnvironmentSpecV1() {
+  const buildInputClosureDigest = sha256(
+    createLocalGitHubActionsRunnerBuildInputProjectionV1()
+  ) as `sha256:${string}`;
   return createEnvironmentMaterializationSpecV1({
     imageName: LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1,
     acceptedImageDigest: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
     sourcePolicyRevision: ENVIRONMENT.provider.sourcePolicyRevision,
     providerRequirement: ENVIRONMENT.provider.requirement,
     components: [
+      {
+        id: 'authority-input-closure',
+        version: ENVIRONMENT.environmentId,
+        sourceDigest: SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1
+      },
       {
         id: 'base-image',
         version: `ubuntu-${ENVIRONMENT.ubuntu.version}`,
@@ -662,18 +690,22 @@ export function createLocalGitHubActionsRunnerEnvironmentSpecV1() {
         id: 'runner',
         version: LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
         sourceDigest: ENVIRONMENT.archives.runner.digest
+      },
+      {
+        id: 'runner-build-input-closure',
+        version: ENVIRONMENT.image.buildRevision,
+        sourceDigest: buildInputClosureDigest
       }
     ]
   });
 }
 
-export function createLocalGitHubActionsRunnerOciBakeDefinitionV1(candidatePath: string): string {
-  const retainedCandidatePath = path.resolve(boundedText(candidatePath, 'OCI candidate path', 32_768));
+function createLocalGitHubActionsRunnerOciBakeRequestV1(candidatePath: string): Readonly<Record<string, unknown>> {
   // Bake interpolates `${...}` in string values before forwarding the inline Dockerfile.
   // Escape only that grammar. Shell command substitutions such as `$(stat ...)` must
   // retain one dollar sign or the resulting Dockerfile changes execution semantics.
   const dockerfileInline = createLocalGitHubActionsRunnerDockerfileV2().replaceAll('${', () => '$${');
-  return `${JSON.stringify({
+  return Object.freeze({
     group: { default: { targets: ['runner-oci'] } },
     target: {
       'runner-oci': {
@@ -682,19 +714,17 @@ export function createLocalGitHubActionsRunnerOciBakeDefinitionV1(candidatePath:
         args: { SOURCE_DATE_EPOCH: LOCAL_GITHUB_ACTIONS_SOURCE_DATE_EPOCH_V1 },
         platforms: [ENVIRONMENT.platform],
         output: [
-          `type=oci,dest=${retainedCandidatePath},tar=false,rewrite-timestamp=true,name=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1}`
+          `type=oci,dest=${candidatePath},tar=false,rewrite-timestamp=true,name=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1}`
         ],
         attest: [`type=provenance,mode=${ENVIRONMENT.provenance.materializationMode}`]
       }
     }
-  })}\n`;
+  });
 }
 
-export function createLocalGitHubActionsRunnerProjectionBuildxArgsV1(
-  layoutPath: string
+function createLocalGitHubActionsRunnerProjectionBuildxArgsForUriV1(
+  retainedLayoutUriPath: string
 ): readonly string[] {
-  const retainedLayoutPath = path.resolve(boundedText(layoutPath, 'OCI layout path', 32_768));
-  const retainedLayoutUriPath = retainedLayoutPath.split(path.sep).join('/');
   return Object.freeze([
     'buildx', 'build',
     '--build-context',
@@ -707,6 +737,37 @@ export function createLocalGitHubActionsRunnerProjectionBuildxArgsV1(
     `--progress=${ENVIRONMENT.provider.progressMode}`,
     '.'
   ]);
+}
+
+/**
+ * Exact provider-owned artifact input closure. Runtime paths are replaced by
+ * fixed semantic placeholders; every byte sent to Buildx that can change the
+ * OCI artifact or its Docker projection is otherwise represented verbatim.
+ */
+export function createLocalGitHubActionsRunnerBuildInputProjectionV1() {
+  return Object.freeze({
+    schema: 'sec-local-runner-build-input-projection-v1' as const,
+    authorityInputDigest: SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1,
+    dockerfileSource: createLocalGitHubActionsRunnerDockerfileV2(),
+    bakeRequest: createLocalGitHubActionsRunnerOciBakeRequestV1('<candidate-layout>'),
+    projectionArgs: createLocalGitHubActionsRunnerProjectionBuildxArgsForUriV1('<layout>'),
+    projectionStdin: 'FROM runtime\n',
+    runtimeManifestDigest: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
+    dockerProjectionDigest: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
+  });
+}
+
+export function createLocalGitHubActionsRunnerOciBakeDefinitionV1(candidatePath: string): string {
+  const retainedCandidatePath = path.resolve(boundedText(candidatePath, 'OCI candidate path', 32_768));
+  return `${JSON.stringify(createLocalGitHubActionsRunnerOciBakeRequestV1(retainedCandidatePath))}\n`;
+}
+
+export function createLocalGitHubActionsRunnerProjectionBuildxArgsV1(
+  layoutPath: string
+): readonly string[] {
+  const retainedLayoutPath = path.resolve(boundedText(layoutPath, 'OCI layout path', 32_768));
+  const retainedLayoutUriPath = retainedLayoutPath.split(path.sep).join('/');
+  return createLocalGitHubActionsRunnerProjectionBuildxArgsForUriV1(retainedLayoutUriPath);
 }
 
 async function runCommand(
@@ -1635,6 +1696,109 @@ interface LocalGitHubActionsRunnerOciCacheV1 {
   readonly state: 'absent' | 'matching' | 'mismatched';
 }
 
+export interface LocalGitHubActionsRunnerOciCandidateBindingV1 {
+  readonly schema: 'sec-local-github-actions-runner-oci-candidate-binding-v1';
+  readonly specDigest: `sha256:${string}`;
+  readonly leaseName: typeof RUNNER_OCI_MATERIALIZATION_LEASE_NAME_V1;
+  readonly candidateName: string;
+  readonly owner: PhysicalMutationLeaseOwnerV1;
+}
+
+export function createLocalGitHubActionsRunnerOciCandidateBindingV1(
+  specDigest: `sha256:${string}`,
+  owner: PhysicalMutationLeaseOwnerV1
+): LocalGitHubActionsRunnerOciCandidateBindingV1 {
+  if (!/^sha256:[0-9a-f]{64}$/u.test(specDigest)) fail('OCI candidate spec digest is invalid');
+  const token = owner.token.replaceAll('-', '');
+  if (!/^[0-9a-f]{32}$/u.test(token)) fail('OCI candidate lease token is invalid');
+  return Object.freeze({
+    schema: 'sec-local-github-actions-runner-oci-candidate-binding-v1' as const,
+    specDigest,
+    leaseName: RUNNER_OCI_MATERIALIZATION_LEASE_NAME_V1,
+    candidateName: `${RUNNER_OCI_CANDIDATE_PREFIX_V1}${token}`,
+    owner
+  });
+}
+
+export function retireLocalGitHubActionsRunnerOciCandidateV1(
+  directory: PhysicalDirectoryIdentityV1,
+  binding: LocalGitHubActionsRunnerOciCandidateBindingV1
+): void {
+  if (path.basename(directory.path) !== binding.specDigest.slice(7)) {
+    fail('OCI candidate cleanup generation differs from its spec');
+  }
+  const candidate = inspectNoFollowDirectoryChildV1(
+    directory, binding.candidateName, 'Runner OCI materialization candidate'
+  );
+  if (candidate === null) return;
+  const inventory = scanNoFollowDirectoryTreeMetadataV1(candidate, {
+    deadlineAtMs: performance.now() + RUNNER_OCI_CLEANUP_BUDGET_MS_V1,
+    maximumEntries: RUNNER_OCI_CLEANUP_MAXIMUM_ENTRIES_V1
+  });
+  const directories = new Map(inventory
+    .filter((entry) => entry.kind === 'directory')
+    .map((entry) => [entry.relativePath, entry]));
+  const depth = (relativePath: string): number => relativePath.split('/').length;
+  for (const entry of [...inventory].sort((left, right) =>
+    depth(right.relativePath) - depth(left.relativePath)
+      || right.relativePath.localeCompare(left.relativePath))) {
+    const parts = entry.relativePath.split('/');
+    parts.pop();
+    const ancestorDirectories = parts.map((_, index) => {
+      const relativePath = parts.slice(0, index + 1).join('/');
+      const ancestor = directories.get(relativePath);
+      if (ancestor === undefined) fail('OCI candidate cleanup inventory is incomplete');
+      return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
+    });
+    deleteRetainedNoFollowEntryV1({
+      root: candidate,
+      relativePath: entry.relativePath,
+      kind: entry.kind,
+      device: entry.device,
+      inode: entry.inode,
+      expectedLinkTarget: entry.linkTarget ?? undefined,
+      ancestorDirectories
+    });
+  }
+  deleteRetainedNoFollowEntryV1({
+    root: directory,
+    relativePath: binding.candidateName,
+    kind: 'directory',
+    device: candidate.device,
+    inode: candidate.inode,
+    ancestorDirectories: []
+  });
+  if (inspectExactNoFollowDirectoryPresenceV1(
+    path.join(directory.path, binding.candidateName), 'Runner OCI candidate cleanup readback'
+  ).state !== 'absent') fail('OCI candidate cleanup readback is not absent');
+}
+
+function createRunnerOciReceiptV1(
+  specDigest: `sha256:${string}`,
+  provenanceArtifactDigest: `sha256:${string}`
+): LocalGitHubActionsRunnerOciReceiptV1 {
+  return Object.freeze({
+    schema: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1,
+    specDigest,
+    runtimeManifestDigest: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
+    dockerProjectionDigest: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    provenanceArtifactDigest,
+    layoutName: 'layout' as const
+  });
+}
+
+function publishRunnerOciReceiptV1(
+  directory: PhysicalDirectoryIdentityV1,
+  receipt: LocalGitHubActionsRunnerOciReceiptV1
+): void {
+  publishExclusiveDurableCanonicalFileV1({
+    parent: directory,
+    name: 'receipt.json',
+    bytes: Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'),
+    validate: (bytes) => { parseOciReceiptV1(bytes, receipt.specDigest); }
+  });
+}
+
 function parseOciReceiptV1(source: Uint8Array, specDigest: `sha256:${string}`): LocalGitHubActionsRunnerOciReceiptV1 {
   const parsed = JSON.parse(Buffer.from(source).toString('utf8')) as unknown;
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) fail('OCI cache receipt is invalid');
@@ -1658,7 +1822,73 @@ function parseOciReceiptV1(source: Uint8Array, specDigest: `sha256:${string}`): 
   return receipt;
 }
 
-function readOciLayoutProvenanceDigestV1(layoutPath: string): `sha256:${string}` {
+interface OciDescriptorV1 {
+  readonly mediaType: string;
+  readonly digest: `sha256:${string}`;
+  readonly size: number;
+  readonly annotations?: Readonly<Record<string, unknown>>;
+  readonly platform?: Readonly<Record<string, unknown>>;
+}
+
+function parseOciDescriptorV1(value: unknown, label: string): OciDescriptorV1 {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail(`${label} is invalid`);
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.mediaType !== 'string' || record.mediaType.length === 0
+      || typeof record.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(record.digest)
+      || !Number.isSafeInteger(record.size) || (record.size as number) < 0) {
+    fail(`${label} identity is invalid`);
+  }
+  return record as unknown as OciDescriptorV1;
+}
+
+function validateOciBlobV1(
+  blobs: PhysicalDirectoryIdentityV1,
+  descriptor: OciDescriptorV1,
+  label: string
+): void {
+  const observed = inspectNoFollowOrdinaryFileDigestV1(blobs, descriptor.digest.slice(7));
+  if (observed === null || observed.size !== descriptor.size || observed.byteDigest !== descriptor.digest) {
+    fail(`${label} blob identity is invalid`);
+  }
+}
+
+function readOciJsonBlobV1(
+  blobs: PhysicalDirectoryIdentityV1,
+  descriptor: OciDescriptorV1,
+  expectedMediaType: string,
+  label: string
+): Record<string, unknown> {
+  if (descriptor.mediaType !== expectedMediaType) fail(`${label} media type is invalid`);
+  validateOciBlobV1(blobs, descriptor, label);
+  const bytes = readNoFollowOrdinaryFileV1(blobs, descriptor.digest.slice(7));
+  if (bytes === null || bytes.byteLength !== descriptor.size
+      || `sha256:${createHash('sha256').update(bytes).digest('hex')}` !== descriptor.digest) {
+    fail(`${label} JSON blob identity changed during readback`);
+  }
+  const parsed = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    fail(`${label} JSON is invalid`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function assertOciIndexFramingV1(value: Record<string, unknown>, label: string): readonly unknown[] {
+  if (value.schemaVersion !== 2 || value.mediaType !== 'application/vnd.oci.image.index.v1+json'
+      || !Array.isArray(value.manifests)) {
+    fail(`${label} framing is invalid`);
+  }
+  return value.manifests;
+}
+
+export function readValidatedRunnerOciLayoutIdentityV1(
+  layoutPath: string,
+  expectedRuntimeManifestDigest: `sha256:${string}` = LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1
+): `sha256:${string}` {
+  if (!/^sha256:[0-9a-f]{64}$/u.test(expectedRuntimeManifestDigest)) {
+    fail('OCI cache expected runtime manifest digest is invalid');
+  }
   const layout = inspectNoFollowDirectoryChainV1(layoutPath, 'OCI cache layout').target;
   const layoutBytes = readNoFollowOrdinaryFileV1(layout, 'oci-layout');
   const indexBytes = readNoFollowOrdinaryFileV1(layout, 'index.json');
@@ -1668,28 +1898,96 @@ function readOciLayoutProvenanceDigestV1(layoutPath: string): `sha256:${string}`
   }
   const index = JSON.parse(Buffer.from(indexBytes).toString('utf8')) as unknown;
   if (index === null || typeof index !== 'object' || Array.isArray(index)) fail('OCI cache index is invalid');
-  const record = index as Record<string, unknown>;
-  const manifests = record.manifests;
-  if (record.schemaVersion !== 2 || !Array.isArray(manifests) || manifests.length !== 1
-      || manifests[0] === null || typeof manifests[0] !== 'object' || Array.isArray(manifests[0])) {
+  const manifests = assertOciIndexFramingV1(index as Record<string, unknown>, 'OCI cache index');
+  if (manifests.length !== 1) {
     fail('OCI cache index descriptor is invalid');
   }
-  const digest = (manifests[0] as Record<string, unknown>).digest;
-  if (typeof digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(digest)) {
-    fail('OCI cache provenance artifact digest is invalid');
-  }
+  const nestedDescriptor = parseOciDescriptorV1(manifests[0], 'OCI cache nested index descriptor');
   const blobs = inspectNoFollowDirectoryChainV1(
     path.join(layout.path, 'blobs', 'sha256'), 'OCI cache blob directory'
   ).target;
-  if (readNoFollowOrdinaryFileV1(
-    blobs, LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1.slice(7)
-  ) === null) {
-    fail('OCI cache does not contain the accepted runtime manifest');
+  const nested = readOciJsonBlobV1(
+    blobs, nestedDescriptor, 'application/vnd.oci.image.index.v1+json', 'OCI cache nested index'
+  );
+  const nestedManifests = assertOciIndexFramingV1(nested, 'OCI cache nested index');
+  if (nestedManifests.length !== 2) fail('OCI cache must contain one runtime and one attestation manifest');
+  const descriptors = nestedManifests.map((value, index) =>
+    parseOciDescriptorV1(value, `OCI cache nested descriptor ${index}`));
+  const runtimeDescriptor = descriptors.find((descriptor) =>
+    descriptor.platform?.os === 'linux' && descriptor.platform.architecture === 'amd64');
+  const attestationDescriptor = descriptors.find((descriptor) =>
+    descriptor.annotations?.['vnd.docker.reference.type'] === 'attestation-manifest');
+  if (runtimeDescriptor === undefined || attestationDescriptor === undefined
+      || runtimeDescriptor === attestationDescriptor
+      || runtimeDescriptor.digest !== expectedRuntimeManifestDigest
+      || attestationDescriptor.annotations?.['vnd.docker.reference.digest'] !== runtimeDescriptor.digest) {
+    fail('OCI cache runtime or attestation identity is invalid');
   }
-  return digest as `sha256:${string}`;
+  const manifestMediaType = 'application/vnd.oci.image.manifest.v1+json';
+  const runtime = readOciJsonBlobV1(blobs, runtimeDescriptor, manifestMediaType, 'OCI cache runtime manifest');
+  if (runtime.schemaVersion !== 2 || runtime.mediaType !== manifestMediaType
+      || !Array.isArray(runtime.layers)) fail('OCI cache runtime manifest framing is invalid');
+  const runtimeConfig = parseOciDescriptorV1(runtime.config, 'OCI cache runtime config descriptor');
+  if (runtimeConfig.mediaType !== 'application/vnd.oci.image.config.v1+json') {
+    fail('OCI cache runtime config media type is invalid');
+  }
+  validateOciBlobV1(blobs, runtimeConfig, 'OCI cache runtime config');
+  for (const [index, value] of runtime.layers.entries()) {
+    const layer = parseOciDescriptorV1(value, `OCI cache runtime layer ${index}`);
+    if (!/^application\/vnd\.(?:oci\.image|docker\.image\.rootfs)\.layer\./u.test(layer.mediaType)) {
+      fail(`OCI cache runtime layer ${index} media type is invalid`);
+    }
+    validateOciBlobV1(blobs, layer, `OCI cache runtime layer ${index}`);
+  }
+  const attestation = readOciJsonBlobV1(
+    blobs, attestationDescriptor, manifestMediaType, 'OCI cache attestation manifest'
+  );
+  const subject = parseOciDescriptorV1(attestation.subject, 'OCI cache attestation subject');
+  if (attestation.schemaVersion !== 2 || attestation.mediaType !== manifestMediaType
+      || attestation.artifactType !== 'application/vnd.docker.attestation.manifest.v1+json'
+      || subject.mediaType !== runtimeDescriptor.mediaType
+      || subject.digest !== runtimeDescriptor.digest || subject.size !== runtimeDescriptor.size
+      || !Array.isArray(attestation.layers) || attestation.layers.length !== 1) {
+    fail('OCI cache attestation subject is invalid');
+  }
+  const attestationConfig = parseOciDescriptorV1(attestation.config, 'OCI cache attestation config');
+  if (attestationConfig.mediaType !== 'application/vnd.oci.empty.v1+json') {
+    fail('OCI cache attestation config media type is invalid');
+  }
+  validateOciBlobV1(blobs, attestationConfig, 'OCI cache attestation config');
+  const provenanceLayer = parseOciDescriptorV1(attestation.layers[0], 'OCI cache provenance layer');
+  if (provenanceLayer.mediaType !== 'application/vnd.in-toto+json'
+      || provenanceLayer.annotations?.['in-toto.io/predicate-type'] !== 'https://slsa.dev/provenance/v1') {
+    fail('OCI cache provenance layer identity is invalid');
+  }
+  validateOciBlobV1(blobs, provenanceLayer, 'OCI cache provenance layer');
+  return nestedDescriptor.digest;
 }
 
-async function inspectRunnerOciCacheV1(cwd: string): Promise<LocalGitHubActionsRunnerOciCacheV1> {
+export function recoverValidatedRunnerOciReceiptV1(
+  directory: PhysicalDirectoryIdentityV1,
+  specDigest: `sha256:${string}`
+): LocalGitHubActionsRunnerOciReceiptV1 {
+  if (!/^sha256:[0-9a-f]{64}$/u.test(specDigest)) fail('OCI cache recovery spec digest is invalid');
+  const layoutPath = path.join(directory.path, 'layout');
+  const provenanceArtifactDigest = readValidatedRunnerOciLayoutIdentityV1(layoutPath);
+  const expected = createRunnerOciReceiptV1(specDigest, provenanceArtifactDigest);
+  const existing = readNoFollowOrdinaryFileV1(directory, 'receipt.json');
+  if (existing === null) publishRunnerOciReceiptV1(directory, expected);
+  const readback = readNoFollowOrdinaryFileV1(directory, 'receipt.json');
+  if (readback === null) fail('recovered OCI cache receipt has no durable readback');
+  const receipt = parseOciReceiptV1(readback, specDigest);
+  if (!Buffer.from(readback).equals(Buffer.from(`${JSON.stringify(expected)}\n`, 'utf8'))) {
+    fail('OCI cache recovery receipt conflicts with the validated layout');
+  }
+  return receipt;
+}
+
+async function resolveRunnerOciCacheDirectoryV1(cwd: string): Promise<Readonly<{
+  directory: PhysicalDirectoryIdentityV1;
+  layoutPath: string;
+  specDigest: `sha256:${string}`;
+}>> {
   const context = await resolveRepositoryContext(cwd);
   const roots = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot: context.repositoryRoot });
   const spec = createLocalGitHubActionsRunnerEnvironmentSpecV1();
@@ -1702,7 +2000,19 @@ async function inspectRunnerOciCacheV1(cwd: string): Promise<LocalGitHubActionsR
     requiredDirectories: [directoryPath]
   });
   const directory = authority.directory(directoryPath);
-  const layoutPath = path.join(directory.path, 'layout');
+  return Object.freeze({
+    directory,
+    layoutPath: path.join(directory.path, 'layout'),
+    specDigest: spec.specDigest
+  });
+}
+
+function inspectRunnerOciCacheDirectoryV1(input: Readonly<{
+  directory: PhysicalDirectoryIdentityV1;
+  layoutPath: string;
+  specDigest: `sha256:${string}`;
+}>): LocalGitHubActionsRunnerOciCacheV1 {
+  const { directory, layoutPath, specDigest } = input;
   const receiptBytes = readNoFollowOrdinaryFileV1(directory, 'receipt.json');
   const layoutPresent = (() => {
     try {
@@ -1716,11 +2026,19 @@ async function inspectRunnerOciCacheV1(cwd: string): Promise<LocalGitHubActionsR
   if (receiptBytes === null && !layoutPresent) {
     return Object.freeze({ directory, layoutPath, receipt: null, state: 'absent' as const });
   }
-  if (receiptBytes === null || !layoutPresent) {
+  if (!layoutPresent) {
     return Object.freeze({ directory, layoutPath, receipt: null, state: 'mismatched' as const });
   }
-  const receipt = parseOciReceiptV1(receiptBytes, spec.specDigest);
-  const provenanceArtifactDigest = readOciLayoutProvenanceDigestV1(layoutPath);
+  if (receiptBytes === null) {
+    // Recovery point for a crash after the validated layout rename and before
+    // receipt publication. The layout is a content-addressed immutable object;
+    // complete recursive revalidation deterministically reconstructs the only
+    // admissible receipt instead of leaving a permanent dead cache state.
+    const receipt = recoverValidatedRunnerOciReceiptV1(directory, specDigest);
+    return Object.freeze({ directory, layoutPath, receipt, state: 'matching' as const });
+  }
+  const receipt = parseOciReceiptV1(receiptBytes, specDigest);
+  const provenanceArtifactDigest = readValidatedRunnerOciLayoutIdentityV1(layoutPath);
   return Object.freeze({
     directory,
     layoutPath,
@@ -1729,6 +2047,10 @@ async function inspectRunnerOciCacheV1(cwd: string): Promise<LocalGitHubActionsR
       ? 'matching' as const
       : 'mismatched' as const
   });
+}
+
+async function inspectRunnerOciCacheV1(cwd: string): Promise<LocalGitHubActionsRunnerOciCacheV1> {
+  return inspectRunnerOciCacheDirectoryV1(await resolveRunnerOciCacheDirectoryV1(cwd));
 }
 
 async function projectRunnerOciLayoutV1(
@@ -1758,93 +2080,222 @@ async function projectRunnerOciLayoutV1(
 
 function publishRunnerOciLayoutV1(input: Readonly<{
   cache: LocalGitHubActionsRunnerOciCacheV1;
-  candidatePath: string;
+  binding: LocalGitHubActionsRunnerOciCandidateBindingV1;
   provenanceArtifactDigest: `sha256:${string}`;
 }>): void {
+  const candidatePath = path.join(input.cache.directory.path, input.binding.candidateName);
+  if (input.binding.specDigest !== createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest
+      || path.basename(input.cache.directory.path) !== input.binding.specDigest.slice(7)) {
+    fail('OCI candidate binding differs from its cache generation');
+  }
   try {
-    renameSync(input.candidatePath, input.cache.layoutPath);
+    renameSync(candidatePath, input.cache.layoutPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    fail('OCI cache layout already exists without a matching receipt');
+    const existingDigest = readValidatedRunnerOciLayoutIdentityV1(input.cache.layoutPath);
+    if (existingDigest !== input.provenanceArtifactDigest) {
+      fail('OCI cache layout already exists with another identity');
+    }
+    retireLocalGitHubActionsRunnerOciCandidateV1(input.cache.directory, input.binding);
   }
-  const receipt = Object.freeze({
-    schema: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1,
-    specDigest: createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest,
-    runtimeManifestDigest: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
-    dockerProjectionDigest: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
-    provenanceArtifactDigest: input.provenanceArtifactDigest,
-    layoutName: 'layout' as const
-  });
-  publishExclusiveDurableCanonicalFileV1({
-    parent: input.cache.directory,
-    name: 'receipt.json',
-    bytes: Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'),
-    validate: (bytes) => { parseOciReceiptV1(bytes, receipt.specDigest); }
-  });
+  const receipt = createRunnerOciReceiptV1(
+    createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest,
+    input.provenanceArtifactDigest
+  );
+  const existing = readNoFollowOrdinaryFileV1(input.cache.directory, 'receipt.json');
+  if (existing === null) publishRunnerOciReceiptV1(input.cache.directory, receipt);
+  else if (!Buffer.from(existing).equals(Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'))) {
+    fail('OCI cache receipt conflicts with the validated layout');
+  }
+}
+
+function recoverReclaimedRunnerOciCandidateV1(
+  cache: LocalGitHubActionsRunnerOciCacheV1,
+  binding: LocalGitHubActionsRunnerOciCandidateBindingV1
+): 'absent' | 'published' | 'retired-invalid' {
+  const candidatePath = path.join(cache.directory.path, binding.candidateName);
+  const candidate = inspectNoFollowDirectoryChildV1(
+    cache.directory, binding.candidateName, 'Reclaimed runner OCI materialization candidate'
+  );
+  if (candidate === null) return 'absent';
+  let provenanceArtifactDigest: `sha256:${string}`;
+  try {
+    provenanceArtifactDigest = readValidatedRunnerOciLayoutIdentityV1(candidatePath);
+  } catch {
+    retireLocalGitHubActionsRunnerOciCandidateV1(cache.directory, binding);
+    return 'retired-invalid';
+  }
+  try {
+    publishRunnerOciLayoutV1({ cache, binding, provenanceArtifactDigest });
+    return 'published';
+  } catch (error) {
+    // The candidate belongs to the exact dead owner generation reclaimed by
+    // the held lease. Preserve any conflicting published layout, but never
+    // retain a second full copy of this operation-owned candidate.
+    retireLocalGitHubActionsRunnerOciCandidateV1(cache.directory, binding);
+    throw error;
+  }
+}
+
+export function reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1(input: Readonly<{
+  directory: PhysicalDirectoryIdentityV1;
+  specDigest: `sha256:${string}`;
+  owner: PhysicalMutationLeaseOwnerV1;
+}>): 'absent' | 'published' | 'retired-invalid' {
+  if (path.basename(input.directory.path) !== input.specDigest.slice(7)) {
+    fail('Reclaimed OCI candidate cache generation differs from its spec');
+  }
+  return recoverReclaimedRunnerOciCandidateV1(
+    Object.freeze({
+      directory: input.directory,
+      layoutPath: path.join(input.directory.path, 'layout'),
+      receipt: null,
+      state: 'absent' as const
+    }),
+    createLocalGitHubActionsRunnerOciCandidateBindingV1(input.specDigest, input.owner)
+  );
+}
+
+function acquireRunnerOciMaterializationLeaseV1(
+  cache: LocalGitHubActionsRunnerOciCacheV1,
+  specDigest: `sha256:${string}`
+): Readonly<{
+  lease: PhysicalMutationLeaseHandleV1;
+  binding: LocalGitHubActionsRunnerOciCandidateBindingV1;
+}> {
+  if (path.basename(cache.directory.path) !== specDigest.slice(7)) {
+    fail('OCI cache directory differs from the materialization spec');
+  }
+  const lease = acquirePhysicalMutationLeaseV1(
+    cache.directory,
+    RUNNER_OCI_MATERIALIZATION_LEASE_NAME_V1,
+    { ttlMs: ENVIRONMENT.provider.timeoutsMs.materializeAbsolute
+        + ENVIRONMENT.provider.timeoutsMs.projectionAbsolute + 60_000 }
+  );
+  if (lease === null) fail('OCI materialization is owned by another live or unverified process');
+  try {
+    if (lease.reclaimedOwner !== null) {
+      reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1({
+        directory: cache.directory,
+        specDigest,
+        owner: lease.reclaimedOwner
+      });
+    }
+    return Object.freeze({
+      lease,
+      binding: createLocalGitHubActionsRunnerOciCandidateBindingV1(specDigest, lease.owner)
+    });
+  } catch (error) {
+    lease.release();
+    throw error;
+  }
 }
 
 async function ensureImage(cwd: string, endpoint: DockerEndpointIdentityV3): Promise<void> {
   let present = await inspectImage(cwd, endpoint);
   const spec = createLocalGitHubActionsRunnerEnvironmentSpecV1();
-  const cache = present === null ? await inspectRunnerOciCacheV1(cwd) : null;
-  const observedImageId = present === null ? null : present.Id;
-  const plan = compileEnvironmentMaterializationPlanV1({
-    spec,
-    observation: {
-      localTag: present === null
-        ? 'absent'
-        : observedImageId === LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
-          ? 'matching'
-          : 'mismatched',
-      localImageDigest: present === null
-        ? null
-        : /^sha256:[0-9a-f]{64}$/u.test(String(observedImageId))
-          ? observedImageId as `sha256:${string}`
-          : fail('runner image readback has an invalid identity'),
-      localArtifact: cache?.state ?? 'absent',
-      immutableBuildInputs: 'available',
-      providerCapability: 'available'
+  const cacheDirectory = present === null ? await resolveRunnerOciCacheDirectoryV1(cwd) : null;
+  const materialization = cacheDirectory === null
+    ? null
+    : acquireRunnerOciMaterializationLeaseV1(Object.freeze({
+      directory: cacheDirectory.directory,
+      layoutPath: cacheDirectory.layoutPath,
+      receipt: null,
+      state: 'absent' as const
+    }), spec.specDigest);
+  let cache: LocalGitHubActionsRunnerOciCacheV1 | null = null;
+  try {
+    if (materialization !== null) cache = inspectRunnerOciCacheDirectoryV1(cacheDirectory!);
+    const observedImageId = present === null ? null : present.Id;
+    const plan = compileEnvironmentMaterializationPlanV1({
+      spec,
+      observation: {
+        localTag: present === null
+          ? 'absent'
+          : observedImageId === LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
+            ? 'matching'
+            : 'mismatched',
+        localImageDigest: present === null
+          ? null
+          : /^sha256:[0-9a-f]{64}$/u.test(String(observedImageId))
+            ? observedImageId as `sha256:${string}`
+            : fail('runner image readback has an invalid identity'),
+        localArtifact: cache?.state ?? 'absent',
+        immutableBuildInputs: 'available',
+        providerCapability: 'available'
+      }
+    });
+    if (plan.disposition === 'blocked') {
+      fail(`environment materialization is blocked: ${plan.reason}`);
     }
+    if (plan.disposition === 'restore-local') {
+      await projectRunnerOciLayoutV1(cache!, cwd, endpoint);
+      present = await inspectImage(cwd, endpoint);
+    }
+    if (plan.disposition === 'materialize') {
+      if (cache === null || materialization === null) fail('OCI materialization has no acquired cache lease');
+      const candidatePath = path.join(cache.directory.path, materialization.binding.candidateName);
+      const progress = createBuildxRawJsonProgressAdmissionV1();
+      await runDockerCommand(endpoint, [
+        'buildx', 'bake', '--file', '-',
+        `--progress=${ENVIRONMENT.provider.progressMode}`,
+      ], {
+        cwd,
+        input: Buffer.from(createLocalGitHubActionsRunnerOciBakeDefinitionV1(candidatePath), 'utf8'),
+        timeoutMs: ENVIRONMENT.provider.timeoutsMs.materializeAbsolute,
+        stallTimeoutMs: ENVIRONMENT.provider.timeoutsMs.materializeStall,
+        admitProgress: (chunk, stream) => stream === 'stderr' && progress.push(chunk)
+      });
+      progress.finish();
+      const provenanceArtifactDigest = readValidatedRunnerOciLayoutIdentityV1(candidatePath);
+      publishRunnerOciLayoutV1({
+        cache,
+        binding: materialization.binding,
+        provenanceArtifactDigest
+      });
+      const publishedCache = await inspectRunnerOciCacheV1(cwd);
+      if (publishedCache.state !== 'matching') fail('published OCI cache has no exact readback');
+      await projectRunnerOciLayoutV1(publishedCache, cwd, endpoint);
+      present = await inspectImage(cwd, endpoint);
+      if (present === null) fail('runner image build has no exact readback');
+    }
+    if (present === null) fail('runner image materialization has no exact readback');
+    assertLocalGitHubActionsRunnerImageIdentityV1(present);
+  } finally {
+    if (materialization !== null) {
+      try {
+        retireLocalGitHubActionsRunnerOciCandidateV1(cache!.directory, materialization.binding);
+      } finally {
+        materialization.lease.release();
+      }
+    }
+  }
+}
+
+export interface LocalGitHubActionsRunnerToolchainMaterializationV1 {
+  readonly specDigest: `sha256:${string}`;
+  readonly layoutPath: string;
+  readonly runtimeManifestDigest: typeof LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1;
+  readonly dockerProjectionDigest: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
+  readonly provenanceArtifactDigest: `sha256:${string}`;
+}
+
+export async function ensureLocalGitHubActionsRunnerToolchainMaterializationV1(
+  cwd: string
+): Promise<LocalGitHubActionsRunnerToolchainMaterializationV1> {
+  const endpoint = await observeDockerEndpointIdentityV3(cwd);
+  await ensureImage(cwd, endpoint);
+  const cache = await inspectRunnerOciCacheV1(cwd);
+  if (cache.state !== 'matching' || cache.receipt === null) {
+    fail('toolchain image has no exact reusable OCI materialization');
+  }
+  return Object.freeze({
+    specDigest: cache.receipt.specDigest,
+    layoutPath: cache.layoutPath,
+    runtimeManifestDigest: cache.receipt.runtimeManifestDigest,
+    dockerProjectionDigest: cache.receipt.dockerProjectionDigest,
+    provenanceArtifactDigest: cache.receipt.provenanceArtifactDigest
   });
-  if (plan.disposition === 'blocked') {
-    fail(`environment materialization is blocked: ${plan.reason}`);
-  }
-  if (plan.disposition === 'restore-local') {
-    await projectRunnerOciLayoutV1(cache!, cwd, endpoint);
-    present = await inspectImage(cwd, endpoint);
-  }
-  if (plan.disposition === 'materialize') {
-    const materializationCache = cache ?? await inspectRunnerOciCacheV1(cwd);
-    const candidatePath = path.join(
-      materializationCache.directory.path,
-      `candidate-${randomBytes(16).toString('hex')}`
-    );
-    const progress = createBuildxRawJsonProgressAdmissionV1();
-    await runDockerCommand(endpoint, [
-      'buildx', 'bake', '--file', '-',
-      `--progress=${ENVIRONMENT.provider.progressMode}`,
-    ], {
-      cwd,
-      input: Buffer.from(createLocalGitHubActionsRunnerOciBakeDefinitionV1(candidatePath), 'utf8'),
-      timeoutMs: ENVIRONMENT.provider.timeoutsMs.materializeAbsolute,
-      stallTimeoutMs: ENVIRONMENT.provider.timeoutsMs.materializeStall,
-      admitProgress: (chunk, stream) => stream === 'stderr' && progress.push(chunk)
-    });
-    progress.finish();
-    const provenanceArtifactDigest = readOciLayoutProvenanceDigestV1(candidatePath);
-    publishRunnerOciLayoutV1({
-      cache: materializationCache,
-      candidatePath,
-      provenanceArtifactDigest
-    });
-    const publishedCache = await inspectRunnerOciCacheV1(cwd);
-    if (publishedCache.state !== 'matching') fail('published OCI cache has no exact readback');
-    await projectRunnerOciLayoutV1(publishedCache, cwd, endpoint);
-    present = await inspectImage(cwd, endpoint);
-    if (present === null) fail('runner image build has no exact readback');
-  }
-  if (present === null) fail('runner image materialization has no exact readback');
-  assertLocalGitHubActionsRunnerImageIdentityV1(present);
 }
 
 /**
@@ -1856,12 +2307,8 @@ async function ensureImage(cwd: string, endpoint: DockerEndpointIdentityV3): Pro
 export async function ensureLocalGitHubActionsRunnerToolchainImageV1(
   cwd: string
 ): Promise<typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2> {
-  const endpoint = await observeDockerEndpointIdentityV3(cwd);
-  await ensureImage(cwd, endpoint);
-  const present = await inspectImage(cwd, endpoint);
-  if (present === null) fail('toolchain image bootstrap has no exact readback');
-  assertLocalGitHubActionsRunnerImageIdentityV1(present);
-  return LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
+  const materialization = await ensureLocalGitHubActionsRunnerToolchainMaterializationV1(cwd);
+  return materialization.dockerProjectionDigest;
 }
 
 function providerResourceState(value: unknown): LocalGitHubActionsProviderResourceStateV3 {

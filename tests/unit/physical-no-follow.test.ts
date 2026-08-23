@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   closeSync,
@@ -36,6 +37,7 @@ import {
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
   inspectNoFollowDirectoryChildV1,
+  inspectNoFollowOrdinaryFileDigestV1,
   inspectNoFollowOrdinaryFileEntryV1,
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
@@ -676,6 +678,10 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     expect(first.get('small.txt')?.contentDigest).toBe(
       sha256({ bytes: smallBytes.toString('hex') }) as `sha256:${string}`
     );
+    expect(inspectNoFollowOrdinaryFileDigestV1(identity, 'small.txt')).toEqual({
+      size: smallBytes.byteLength,
+      byteDigest: `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
+    });
     expect(first.get('large.bin')).toMatchObject({ kind: 'file', size: largeSize });
     expect(first.get('large.bin')?.contentDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(second.get('large.bin')?.contentDigest).toBe(first.get('large.bin')?.contentDigest);
