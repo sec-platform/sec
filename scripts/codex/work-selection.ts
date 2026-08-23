@@ -808,7 +808,7 @@ export function observeSecWorkSelectionLiveV1(
       current,
       currentSpecs
     });
-    return resolvedSecWorkSelectionLiveResultV1(receipt, terminalCompaction);
+    return resolvedSecWorkSelectionLiveResultV1(receipt, terminal.demandGraph, terminalCompaction);
   } catch (error) {
     if (error instanceof LiveObservationFailure) {
       return unresolvedSecWorkSelectionLiveResultV1({
@@ -842,6 +842,12 @@ export type SecWorkSelectionCliProjectionV1 = Readonly<
     exactMain: string;
     exactMainTree: string;
     receiptDigest: SecWorkDecisionReceiptV1['receiptDigest'];
+    demandGraph: Readonly<{
+      graphDigest: `sha256:${string}`;
+      capabilityDemands: readonly string[];
+      transitionDemands: readonly string[];
+      verificationObligations: readonly string[];
+    }>;
     terminalCompaction: null | Readonly<{
       compactionDigest: SecWorkDigestV1;
       retiredManifestPaths: readonly string[];
@@ -886,6 +892,12 @@ export function projectSecWorkSelectionCliV1(
     exactMain: receipt.exactMain,
     exactMainTree: receipt.exactMainTree,
     receiptDigest: receipt.receiptDigest,
+    demandGraph: Object.freeze({
+      graphDigest: result.demandGraph.graphDigest,
+      capabilityDemands: result.demandGraph.capabilityDemands,
+      transitionDemands: result.demandGraph.transitionDemands,
+      verificationObligations: result.demandGraph.verificationObligations
+    }),
     terminalCompaction: result.terminalCompaction === null
       ? null
       : Object.freeze({

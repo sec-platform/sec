@@ -1,5 +1,9 @@
 import { installGitHooks } from '../../scripts/install-git-hooks.ts';
 import {
+  assertSecOperationDemandGraphV1,
+  type SecOperationDemandGraphV1
+} from '../shared/operation-demand-contract.ts';
+import {
   ensureCompilerDepsReady,
   ensurePlaywrightBrowserCacheReady,
   type CompilerDepsReadyState,
@@ -12,21 +16,22 @@ export interface DevDependencyBootstrapResult {
   readonly source: 'existing' | 'installed';
 }
 
-export interface BrowserTestDependencyBootstrapResult extends DevDependencyBootstrapResult {
-  readonly browserCachePath: string;
+export interface OperationDependencyBootstrapResult extends DevDependencyBootstrapResult {
+  readonly browserCachePath: string | null;
 }
+
+const materializedOperationDemands = new WeakMap<
+  OperationDependencyBootstrapResult,
+  SecOperationDemandGraphV1
+>();
 
 interface CompilerDependencyBootstrapOptions {
   readonly ensureCompilerDeps?: () => Promise<CompilerDepsReadyState>;
 }
 
-interface DevDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
-  readonly ensureHooks?: (repoRoot: string) => Promise<void>;
-  readonly hookPolicy?: 'always' | 'if-installed' | 'never';
-}
-
-interface BrowserTestDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
+interface OperationDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
   readonly ensureBrowserCache?: (dependencyRoot: string) => Promise<PlaywrightBrowserCacheReadyState>;
+  readonly ensureHooks?: (repoRoot: string) => Promise<void>;
 }
 
 async function ensureManagedHooks(repoRoot: string): Promise<void> {
@@ -43,43 +48,69 @@ function dependencyBootstrapResult(ready: CompilerDepsReadyState): DevDependency
   };
 }
 
+function publishOperationDependencyResult(
+  demandGraph: SecOperationDemandGraphV1,
+  result: OperationDependencyBootstrapResult
+): OperationDependencyBootstrapResult {
+  const published = Object.freeze(result);
+  materializedOperationDemands.set(published, demandGraph);
+  return published;
+}
+
+export function reuseOperationDependenciesV1(
+  result: OperationDependencyBootstrapResult,
+  demandGraph: SecOperationDemandGraphV1
+): OperationDependencyBootstrapResult {
+  assertSecOperationDemandGraphV1(demandGraph);
+  const materializedDemand = materializedOperationDemands.get(result);
+  if (materializedDemand === undefined) {
+    throw new Error('Operation dependency result was not materialized by this process.');
+  }
+  if (demandGraph.capabilityDemands.some(
+    (capability) => !materializedDemand.capabilityDemands.includes(capability)
+  )) {
+    throw new Error('Operation dependency result does not cover the requested capability closure.');
+  }
+  return result;
+}
+
 function ensureCanonicalCompilerDependencies(): Promise<CompilerDepsReadyState> {
   return ensureCompilerDepsReady();
 }
 
-export async function ensureDevDependencies(
-  options: DevDependencyBootstrapOptions = {}
-): Promise<DevDependencyBootstrapResult> {
-  const ready = await (options.ensureCompilerDeps ?? ensureCanonicalCompilerDependencies)();
-  if (options.hookPolicy !== 'never'
-    && (options.hookPolicy !== 'if-installed' || ready.source === 'installed')) {
-    await (options.ensureHooks ?? ensureManagedHooks)(ready.root);
-  }
-  return dependencyBootstrapResult(ready);
-}
-
 /**
- * Fast/affected tests are contract and unit closures. They need the exact compiler
- * dependency tree but must not materialize the conditional browser capability or
- * mutate the managed hook lifecycle.
+ * Materializes exactly the capability closure compiled by the canonical
+ * operation-demand graph. There is intentionally no fast/browser convenience
+ * entrypoint: an ambient caller cannot select a dependency effect by function
+ * name, installed package, cache presence or environment state.
  */
-export async function ensureFastTestDependencies(
-  options: CompilerDependencyBootstrapOptions = {}
-): Promise<DevDependencyBootstrapResult> {
-  return dependencyBootstrapResult(
-    await (options.ensureCompilerDeps ?? ensureCanonicalCompilerDependencies)()
-  );
-}
-
-/** Explicitly materializes the optional browser verification capability. */
-export async function ensureBrowserTestDependencies(
-  options: BrowserTestDependencyBootstrapOptions = {}
-): Promise<BrowserTestDependencyBootstrapResult> {
+export async function ensureOperationDependencies(
+  demandGraph: SecOperationDemandGraphV1,
+  options: OperationDependencyBootstrapOptions = {}
+): Promise<OperationDependencyBootstrapResult> {
+  assertSecOperationDemandGraphV1(demandGraph);
+  if (!demandGraph.capabilityDemands.includes('compiler-dependency-tree')) {
+    throw new Error('Dependency bootstrap requires an operation demand for compiler-dependency-tree.');
+  }
   const ready = await (options.ensureCompilerDeps ?? ensureCanonicalCompilerDependencies)();
+  if (demandGraph.capabilityDemands.includes('managed-git-hooks')) {
+    if (demandGraph.input.operation !== 'dependency-setup') {
+      throw new Error('Managed Git hook demand must originate from dependency-setup.');
+    }
+    if (demandGraph.input.hookPolicy !== 'if-installed' || ready.source === 'installed') {
+      await (options.ensureHooks ?? ensureManagedHooks)(ready.root);
+    }
+  }
+  if (!demandGraph.capabilityDemands.includes('browser-runtime')) {
+    return publishOperationDependencyResult(demandGraph, {
+      ...dependencyBootstrapResult(ready),
+      browserCachePath: null
+    });
+  }
   const browser = await (options.ensureBrowserCache ?? ((dependencyRoot) =>
     ensurePlaywrightBrowserCacheReady({}, dependencyRoot)))(ready.root);
-  return {
+  return publishOperationDependencyResult(demandGraph, {
     ...dependencyBootstrapResult(ready),
     browserCachePath: browser.browserCachePath
-  };
+  });
 }

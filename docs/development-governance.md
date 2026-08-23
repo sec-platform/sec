@@ -1096,6 +1096,10 @@ trusted base/head及tree、完整changed-path set、目标control-plane root cau
 grant bytes/digest、exact candidate、独立Review和live main preimage，集成后立即在new main readback并退役grant。
 旧main尚未实现该consumer时，第一次采用只能明确标记为maintainer-governed genesis transition，不能伪装成
 旧ScopeGrant PASS；进入new main后，后续同类修复必须走机器consumer，genesis路径永久consumer-zero。
+bootstrap closure只绑定一个由validated root facts编译的Operation Demand Graph；terminal topology、dependency
+materialization、验证义务及其所有changed paths都是该图的原子派生闭包，不得按文件面、失败现象或下游owner拆成
+多个“因果必包”。Grant只为这一完整图签发一次，Review和new-main readback也绑定同一个graph digest；若图输入、
+需求闭包或exact tree变化，整份grant失效并从新图重新签发，不能给其中一个派生面追加旁路授权。
 
 授权与 candidate transport 分两层：`ScopeGrantId` 绑定 trust epoch、manifest semantic revision、
 owned/forbidden paths、capability/resource bounds 与 base authority；trusted resolver 再为每个 exact
@@ -1328,9 +1332,14 @@ PR Ready只表示允许进入Review调度，不表示可以启动expensive trust
 
 开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required trusted-provider Gate。不是每个Work Package固定全跑同一套重门禁，GitHub Actions也不拥有“trusted provider”的唯一实现。
 
-Bun test preload只拥有进程级temp/state隔离，不得准备package、Browser cache或网络能力；fast/affected/
-contract-freeze只请求compiler closure并显式屏蔽Browser。只有slow/full或明确browser-applicable Action可调用
-`ensureBrowserTestDependencies`，且未选择Browser时必须保持零Playwright准备、零下载和零browser进程。
+Bun test preload只拥有进程级temp/state隔离，不得准备package、Browser cache或网络能力。每个测试入口先由
+唯一Operation Demand Graph从selected operation编译完整需求，再由`ensureOperationDependencies`重算图并只物化
+其中的能力；不存在fast/browser两套依赖入口。fast/affected/contract-freeze图只需求compiler closure，slow/full
+或无法证明不含slow consumer的direct selection才需求Browser；图未需求Browser时必须保持零Playwright准备、
+零下载和零browser进程。`deps:ensure`、check、imports、typecheck与test也不得在DevRunner分派前经过通用
+dependency bootstrap；它们各自编译同一图，只有`dependency-setup`可需求managed Git hooks。复合check首次
+物化的process-local capability由同一进程以不可伪造receipt向其nested typecheck/test消费，所需capability不是
+父图子集时拒绝复用；禁止同一logical operation再次观察、安装或链接同一dependency generation。
 
 相同未失效 Gate identity复用；输入和failure fingerprint未变时不重复确定性失败。无法证明不受影响不是“无需测试”。
 
@@ -1340,6 +1349,10 @@ contract-freeze只请求compiler closure并显式屏蔽Browser。只有slow/full
 not-applicable 全部跳过，fresh terminal PASS/FAIL 全部复用，authenticated in-flight 只 join，
 unknown physical outcome block，只有 missing/stale Action 才允许 physical start。同一个
 ActionKey 的 physical start 不得超过一次；Impact unresolved 时扩大 closure 或停止，不能假装
+无影响。source path的owner、fast/slow Evidence与cross-lane risk policy只在TestImpact declaration登记一次；
+CI risk只消费该owner closure，禁止再维护`BOUNDED_BASELINE`、mandatory-sentinel或测试fixture专用的第二套
+路径正则。新增owner后，旧的“unmapped”fixture若已变为机器不可达状态必须删除；typed trust-boundary本身只由
+纯合同测试证明，不得用伪造仓库路径重复制造集成覆盖。
 不适用。性能预算限制重复物理工作而不是合法 generation：
 
 ```text

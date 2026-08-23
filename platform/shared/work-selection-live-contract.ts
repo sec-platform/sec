@@ -7,6 +7,10 @@ import {
   sha256
 } from './canonical-primitives.ts';
 import {
+  compileSecOperationDemandGraphV1,
+  type SecOperationDemandGraphV1
+} from './operation-demand-contract.ts';
+import {
   SEC_WORK_PRIORITY_CLASSES,
   SEC_WORK_SELECTION_POLICY_REVISION,
   assertSecWorkDecisionV1,
@@ -78,10 +82,12 @@ export interface SecRoadmapTerminalCompactionV1 {
   readonly retiredManifestPaths: readonly string[];
   readonly catalog: SecRoadmapWorkCatalogV1;
   readonly roadmapSource: string;
+  readonly demandGraphDigest: `sha256:${string}`;
   readonly compactionDigest: SecWorkDigestV1;
 }
 
 export interface SecWorkSelectionTerminalProjectionV1 {
+  readonly demandGraph: SecOperationDemandGraphV1;
   readonly catalog: SecRoadmapWorkCatalogV1;
   readonly currentSpecs: readonly SecWorkCurrentSpecObservationV1[];
   readonly roadmapRevision: SecWorkDigestV1;
@@ -212,6 +218,7 @@ export type SecWorkSelectionLiveResultV1 = Readonly<
     reasonCodes: readonly [];
     blockerRefs: readonly [];
     receipt: SecWorkDecisionReceiptV1;
+    demandGraph: SecOperationDemandGraphV1;
     terminalCompaction: SecRoadmapTerminalCompactionV1 | null;
     resultDigest: SecWorkDigestV1;
   }
@@ -221,6 +228,7 @@ export type SecWorkSelectionLiveResultV1 = Readonly<
     reasonCodes: readonly string[];
     blockerRefs: readonly string[];
     receipt: null;
+    demandGraph: null;
     terminalCompaction: null;
     resultDigest: SecWorkDigestV1;
   }
@@ -661,6 +669,13 @@ export function compileSecRoadmapTerminalCompactionV1(input: {
     fail('terminal compaction requires one or more unique completed work ids.');
   }
   const retired = new Set(retiredWorkIds);
+  const demandGraph = compileSecOperationDemandGraphV1({
+    operation: 'work-selection-observe',
+    terminalWorkIds: retiredWorkIds
+  });
+  if (!demandGraph.transitionDemands.includes('roadmap-terminal-compaction')) {
+    fail('terminal compaction is absent from the canonical operation demand graph.');
+  }
   const priorByWorkId = new Map(prior.items.map((item) => [item.workId, item]));
   for (const workId of retiredWorkIds) {
     if (!priorByWorkId.has(workId)) fail(`terminal compaction work ${workId} is absent from the catalog.`);
@@ -682,7 +697,8 @@ export function compileSecRoadmapTerminalCompactionV1(input: {
     retiredWorkIds,
     retiredManifestPaths: retiredWorkIds.map((workId) => workManifestPath(priorByWorkId.get(workId)!)),
     catalog,
-    roadmapSource
+    roadmapSource,
+    demandGraphDigest: demandGraph.graphDigest
   });
   return deepFreeze({
     ...withoutDigest,
@@ -706,8 +722,13 @@ export function compileSecWorkSelectionTerminalProjectionV1(input: {
   const terminalSpecs = currentSpecs
     .filter(({ providerState }) => providerState === 'closed')
     .sort((left, right) => compareCodeUnits(left.workId, right.workId));
+  const demandGraph = compileSecOperationDemandGraphV1({
+    operation: 'work-selection-observe',
+    terminalWorkIds: terminalSpecs.map(({ workId }) => workId)
+  });
   if (terminalSpecs.length === 0) {
     return deepFreeze({
+      demandGraph,
       catalog,
       currentSpecs,
       roadmapRevision: rawSha256(input.roadmapSource),
@@ -718,7 +739,11 @@ export function compileSecWorkSelectionTerminalProjectionV1(input: {
     roadmapSource: input.roadmapSource,
     completedWorkIds: terminalSpecs.map(({ workId }) => workId)
   });
+  if (terminalCompaction.demandGraphDigest !== demandGraph.graphDigest) {
+    fail('terminal compaction is not bound to the canonical operation demand graph.');
+  }
   return deepFreeze({
+    demandGraph,
     catalog: terminalCompaction.catalog,
     currentSpecs: currentSpecs.filter(({ providerState }) => providerState === 'open'),
     roadmapRevision: sha256({
@@ -1600,6 +1625,7 @@ function liveResultDigest(value: unknown): SecWorkDigestV1 {
 
 export function resolvedSecWorkSelectionLiveResultV1(
   receipt: SecWorkDecisionReceiptV1,
+  demandGraph: SecOperationDemandGraphV1,
   terminalCompaction: SecRoadmapTerminalCompactionV1 | null = null
 ): SecWorkSelectionLiveResultV1 {
   const withoutDigest = deepFreeze({
@@ -1608,6 +1634,7 @@ export function resolvedSecWorkSelectionLiveResultV1(
     reasonCodes: [] as const,
     blockerRefs: [] as const,
     receipt,
+    demandGraph,
     terminalCompaction
   });
   return deepFreeze({ ...withoutDigest, resultDigest: liveResultDigest(withoutDigest) });
@@ -1630,6 +1657,7 @@ export function unresolvedSecWorkSelectionLiveResultV1(input: {
     reasonCodes,
     blockerRefs,
     receipt: null,
+    demandGraph: null,
     terminalCompaction: null
   });
   return deepFreeze({ ...withoutDigest, resultDigest: liveResultDigest(withoutDigest) });

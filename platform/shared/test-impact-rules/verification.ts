@@ -1,3 +1,4 @@
+import type { SecOperationVerificationObligationV1 } from '../operation-demand-contract.ts';
 import {
   DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE,
   FAST_TEST_PROCESS_POLICY_TEST_FILE
@@ -37,6 +38,35 @@ const DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS = [
   'tests/unit/dev-runner-dependency-bootstrap.test.ts',
   'tests/unit/test-runner.test.ts'
 ];
+
+const OPERATION_DEMAND_OBLIGATION_TESTS: Readonly<Record<
+  SecOperationVerificationObligationV1,
+  readonly string[]
+>> = {
+  'browser-runtime-materialization': [
+    'tests/unit/dev-runner-dependency-bootstrap.test.ts',
+    'tests/unit/test-runner.test.ts'
+  ],
+  'git-hook-lifecycle': [
+    'tests/contract/dev-runner-contract.test.ts',
+    'tests/unit/dev-runner-dependency-bootstrap.test.ts'
+  ],
+  'operation-demand-integrity': [
+    'tests/contract/test-impact.test.ts',
+    'tests/contract/typecheck-provider-boundary.test.ts',
+    'tests/unit/operation-demand-contract.test.ts',
+    'tests/unit/dev-runner-dependency-bootstrap.test.ts'
+  ],
+  'roadmap-terminal-topology': [
+    'tests/unit/control-cli-projection.test.ts',
+    'tests/unit/work-selection-live.test.ts'
+  ],
+  'test-process-isolation': ['tests/unit/test-runner.test.ts']
+};
+
+const OPERATION_DEMAND_GRAPH_FAST_TESTS = [...new Set(
+  Object.values(OPERATION_DEMAND_OBLIGATION_TESTS).flat()
+)].sort();
 
 const IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS = ['tests/unit/import-transform-transaction.test.ts'];
 
@@ -203,6 +233,29 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
 ];
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'bounded-slow-risk',
+    identity: { kind: 'architecture-owner', id: 'bounded-slow-risk' },
+    sourceFiles: [
+      'platform/orchestrator.ts',
+      'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts',
+      'tests/helpers/workspace-fixtures.ts',
+      'tests/testkit/workspace.ts'
+    ],
+    sourcePrefixes: ['tests/setup/'],
+    riskPolicies: ['slow-risk-baseline'],
+    impactProjection: 'risk-only',
+    supplementalFast: [],
+    supplementalSlow: []
+  },
+  {
+    owner: 'operation-demand-graph',
+    identity: { kind: 'architecture-owner', id: 'operation-demand-graph' },
+    sourceFiles: ['platform/shared/operation-demand-contract.ts'],
+    moduleGraphImpact: 'owner-only',
+    supplementalFast: OPERATION_DEMAND_GRAPH_FAST_TESTS,
+    supplementalSlow: []
+  },
   {
     owner: 'test-impact-authority',
     identity: { kind: 'architecture-owner', id: 'test-impact-authority' },

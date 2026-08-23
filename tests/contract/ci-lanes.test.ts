@@ -152,10 +152,7 @@ test('documentation trust roots select exact sentinels without unrelated slow ba
     expect(selection.suites).toEqual([]);
     expect(selection.owners).toContain('agent-governance');
     expect(selection.owners).not.toContain('bounded-slow-risk');
-    expect(selection.reasons).toEqual(expect.arrayContaining([
-      'mandatory-sentinel',
-      'ownership-impact'
-    ]));
+    expect(selection.reasons).toContain('ownership-impact');
     expect(selection.resolved).toBe(true);
   }
 
@@ -312,16 +309,15 @@ test('CI PR risk gate reserves bounded fallback for unknown input and uses exact
     reasons: ['bounded-baseline'],
     resolved: true
   });
-  expect(selectCiPrRiskSlowSuites(['tests/setup/runtime-deps.setup.ts'])).toMatchObject({
+  expect(selectCiPrRiskSlowSuites(['tests/setup/test-runtime.setup.ts'])).toMatchObject({
     suites: [
-      'contract-dev-runner-live-authority',
       'e2e-artifacts',
       'e2e-compiler-smoke',
       'e2e-provenance',
       'e2e-verify-lock',
       'e2e-workspace'
     ],
-    owners: ['bounded-slow-risk', 'dev-runner'],
+    owners: ['bounded-slow-risk', 'test-process-runtime'],
     reasons: ['bounded-baseline', 'ownership-impact'],
     resolved: true
   });

@@ -306,6 +306,7 @@ describe('work-selection live contract', () => {
     expect(compaction.retiredManifestPaths).toEqual([
       'docs/work-packages/generated-ignored-state-lifecycle-v1.md'
     ]);
+    expect(compaction.demandGraphDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(parseSecRoadmapWorkCatalogV1(compaction.roadmapSource).catalogDigest)
       .toBe(compaction.catalog.catalogDigest);
     expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
@@ -330,6 +331,10 @@ describe('work-selection live contract', () => {
     });
 
     expect(projection.terminalCompaction?.retiredWorkIds).toEqual(['issue-271']);
+    expect(projection.demandGraph.transitionDemands).toEqual(['roadmap-terminal-compaction']);
+    expect(projection.demandGraph.capabilityDemands).toEqual([]);
+    expect(projection.terminalCompaction?.demandGraphDigest)
+      .toBe(projection.demandGraph.graphDigest);
     expect(projection.catalog.items.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(projection.currentSpecs.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(projection.roadmapRevision).not.toBe(rawSha256(prior.source));

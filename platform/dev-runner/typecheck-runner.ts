@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { sha256 } from '../shared/canonical-primitives.ts';
+import { compileSecOperationDemandGraphV1 } from '../shared/operation-demand-contract.ts';
 import { compilerRoot, isPathInside } from '../shared/paths.ts';
 import {
   resolveInstalledTypecheckProviderV1,
@@ -9,7 +10,7 @@ import {
   type TypecheckProviderV1
 } from '../toolchain/typecheck-provider.ts';
 import { runDevCommand } from './command-runner.ts';
-import { ensureFastTestDependencies } from './dependency-bootstrap.ts';
+import { ensureOperationDependencies } from './dependency-bootstrap.ts';
 import { pathEnvKey } from './env-manager.ts';
 
 type TypecheckDependencyContext = {
@@ -42,7 +43,10 @@ export function resolveTypecheckBuildInfoPathV1(input: Readonly<{
 }
 
 async function typecheckDependencyContext(): Promise<TypecheckDependencyContext> {
-  const compilerDeps = await ensureFastTestDependencies();
+  const compilerDeps = await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+    operation: 'typecheck',
+    terminalWorkIds: []
+  }));
   return {
     nodeModulesPath: compilerDeps.nodeModulesPath
   };

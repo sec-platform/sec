@@ -14,6 +14,7 @@ import {
   matchesTestOwnershipDeclaration,
   resolveDeclaredTestOwnership,
   type ResolvedTestOwnership,
+  type TestImpactRiskPolicy,
   type TestOwnershipDeclaration
 } from './test-ownership-contract.ts';
 
@@ -822,6 +823,15 @@ export function resolveTestOwnership(
   return resolveDeclaredTestOwnership(files, testOwnershipDeclarations, transition);
 }
 
+export function resolveTestImpactRiskPolicies(
+  files: readonly string[],
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
+): TestImpactRiskPolicy[] {
+  return uniqueSorted(files.flatMap((file) => testOwnershipDeclarations
+    .filter((declaration) => matchesTestOwnershipDeclaration(declaration, file, transition))
+    .flatMap((declaration) => declaration.riskPolicies ?? [])));
+}
+
 export function selectTestsForSources(
   files: string[],
   provider?: CodexDevelopmentTestImpactSourceProviderV2,
@@ -832,9 +842,12 @@ export function selectTestsForSources(
   const owners = new Set<string>();
 
   for (const file of files) {
-    const declarations = testOwnershipDeclarations.filter((declaration) => (
+    const matchedDeclarations = testOwnershipDeclarations.filter((declaration) => (
       matchesTestOwnershipDeclaration(declaration, file, transition)
     ));
+    const declarations = matchedDeclarations.filter(
+      ({ impactProjection }) => impactProjection !== 'risk-only'
+    );
     const ownerOnly = declarations.length > 0 && declarations.every(
       ({ moduleGraphImpact }) => moduleGraphImpact === 'owner-only'
     );

@@ -7,6 +7,7 @@ import { getTestFilesSync, isFastTestFile, isSlowTestFile } from '../../platform
 import {
   classifyTestImpactSource,
   readRepositoryModuleGraphV1,
+  resolveTestImpactRiskPolicies,
   resolveTestImpactSelectionTrustBoundary,
   selectTestsForSources,
   testImpactFallbackRules,
@@ -139,7 +140,8 @@ test('ownership declarations contain only valid supplemental evidence', () => {
     ).toBe(true);
     expectUnique(declaration.supplementalFast);
     expectUnique(declaration.supplementalSlow);
-    expect(declaration.supplementalFast.filter((file) => declaration.supplementalSlow.includes(file)))
+    const slowEvidence = new Set<string>(declaration.supplementalSlow);
+    expect(declaration.supplementalFast.filter((file) => slowEvidence.has(file)))
       .toEqual([]);
     for (const file of declaration.supplementalFast) {
       expect(tests.has(file), `${declaration.owner} references missing fast evidence ${file}`).toBe(true);
@@ -163,6 +165,17 @@ test('test runtime and runner owners retain their direct independent failure spa
   const runner = selectTestsForSources(['platform/dev-runner/test-runner.ts']);
   expect(runner.owners).toContain('dev-runner');
   expect(runner.fast).toContain('tests/unit/test-runner.test.ts');
+});
+
+test('cross-lane risk is derived from the source owner without inventing test evidence', () => {
+  const source = 'tests/helpers/workspace-fixtures.ts';
+  expect(resolveTestImpactRiskPolicies([source])).toEqual(['slow-risk-baseline']);
+  expect(selectTestsForSources([source])).toEqual({ fast: [], slow: [], owners: [] });
+  expect(selectCiPrRiskSlowSuites([source])).toMatchObject({
+    owners: ['bounded-slow-risk'],
+    reasons: ['bounded-baseline'],
+    resolved: true
+  });
 });
 
 test('fallback declarations contain valid evidence and never target test sources', () => {

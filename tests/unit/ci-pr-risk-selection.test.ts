@@ -15,7 +15,7 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
     'platform/orchestrator.ts',
     'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts',
     'tests/helpers/workspace-fixtures.ts',
-    'tests/setup/runtime-deps.setup.ts',
+    'tests/setup/test-runtime.setup.ts',
     'tests/testkit/workspace.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
@@ -45,7 +45,7 @@ test('selector trust roots use exact owner sentinels instead of unrelated slow b
     const selection = selectCiPrRiskSlowSuites([file]);
     expect(selection.suites).toEqual([]);
     expect(selection.owners).not.toContain('bounded-slow-risk');
-    expect(selection.reasons).toContain('mandatory-sentinel');
+    expect(selection.reasons).toContain('ownership-impact');
     expect(selection.resolved).toBe(true);
   }
 });
@@ -62,7 +62,7 @@ test('documentation authority trust roots use exact owner sentinels', () => {
     const selection = selectCiPrRiskSlowSuites([file]);
     expect(selection.suites).toEqual([]);
     expect(selection.owners).not.toContain('bounded-slow-risk');
-    expect(selection.reasons).toContain('mandatory-sentinel');
+    expect(selection.reasons).toContain('ownership-impact');
     expect(selection.resolved).toBe(true);
   }
 });
@@ -90,7 +90,7 @@ test('dev-runner mandatory ownership rejects CLI prefix collisions', () => {
     const selection = selectCiPrRiskSlowSuites([file]);
     expect(selection.resolved).toBe(false);
     expect(selection.reasons).toContain('changed-files-unresolved');
-    expect(selection.reasons).not.toContain('mandatory-sentinel');
+    expect(selection.reasons).toContain('changed-files-unresolved');
   }
 });
 

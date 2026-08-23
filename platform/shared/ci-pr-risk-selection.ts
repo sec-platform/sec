@@ -11,6 +11,7 @@ import {
 } from './test-budget-contract.ts';
 import {
   hasTestImpactForFile,
+  resolveTestImpactRiskPolicies,
   type CodexDevelopmentTestImpactSourceProviderV2
 } from './test-impact-contract.ts';
 
@@ -23,31 +24,10 @@ export type CiPrRiskSlowSuiteSelection = {
     'bounded-baseline'
     | 'changed-files-unresolved'
     | 'direct-slow-test'
-    | 'mandatory-sentinel'
     | 'ownership-impact'
   >;
   resolved: boolean;
 };
-
-const BOUNDED_BASELINE_PATTERNS = [
-  /^platform\/orchestrator\.ts$/,
-  /^tests\/helpers\/semantic-mutation-runtime-target-swap-runner\.ts$/,
-  /^tests\/helpers\/workspace-fixtures\.ts$/,
-  /^tests\/setup\//,
-  /^tests\/testkit\/workspace\.ts$/
-];
-
-const MANDATORY_SENTINEL_PATTERNS = [
-  /^\.github\/workflows\//,
-  /^docs\/authority\.json$/,
-  /^docs\/scripts\/docs-doctor(?:-[^/]+)?\.ts$/,
-  /^scripts\/ci-[^/]+\.ts$/,
-  /^scripts\/codex\/(?:merge-gate|work-package-contract)\.ts$/,
-  /^platform\/shared\/(?:active-documentation|documentation-authority)-contract\.ts$/,
-  /^platform\/shared\/ci-[^/]+\.ts$/,
-  /^platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$/,
-  /^platform\/shared\/test-impact-rules\//
-];
 
 function baselineSlowSuiteIds(): string[] {
   return slowTestPrRiskBaselineSuiteIds();
@@ -78,12 +58,8 @@ export function selectCiPrRiskSlowSuites(
     };
   }
 
-  const boundedBaselineRequired = files.some((file) =>
-    BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file))
-  );
-  const mandatorySentinelsRequired = files.some((file) =>
-    MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
-  );
+  const boundedBaselineRequired = resolveTestImpactRiskPolicies(files, transition)
+    .includes('slow-risk-baseline');
   const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(files, provider, transition);
   const directlyChangedSlowTests = inventory.changedSlowTests;
   // Use the batch inventory + hasTestImpactForFile (which leverages the
@@ -95,8 +71,6 @@ export function selectCiPrRiskSlowSuites(
       CodexDevelopmentIsActiveDocumentationPathV1(file)
       || isFastTestFile(file)
       || isSlowTestFile(file)
-      || BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file))
-      || MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
     ) return false;
     return !hasTestImpactForFile(file, provider, transition);
   });
@@ -119,7 +93,6 @@ export function selectCiPrRiskSlowSuites(
     ...(boundedBaselineRequired ? ['bounded-baseline' as const] : []),
     ...(!selectionResolved ? ['changed-files-unresolved' as const] : []),
     ...(directlyChangedSlowTests.length > 0 ? ['direct-slow-test' as const] : []),
-    ...(mandatorySentinelsRequired ? ['mandatory-sentinel' as const] : []),
     ...(inventory.affectedOwners.length > 0 || inventory.affectedSlowTests.length > 0
       ? ['ownership-impact' as const]
       : [])
