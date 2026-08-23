@@ -1117,7 +1117,7 @@ const READ_DEPENDENCY_CACHE_MARKER_DIGEST_SCRIPT_V1 = [
   'printf \'sha256:%s\\n\' "$actual"'
 ].join('\n');
 
-const SETUP_SCRIPT = [
+export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1 = [
   'set -euo pipefail',
   'base="$1"',
   'head="$2"',
@@ -1128,10 +1128,14 @@ const SETUP_SCRIPT = [
   `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} fetch --quiet ${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1} refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
   `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} reset --hard --quiet refs/sec/base`,
   `[ "$(git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} rev-parse HEAD)" = "$base" ]`,
+  `git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} update-ref refs/remotes/origin/main "$base"`,
+  `[ "$(git -C ${TRUSTED_RUNTIME_TRUSTED_TREE_V1} rev-parse refs/remotes/origin/main)" = "$base" ]`,
   `git init --quiet ${TRUSTED_RUNTIME_WORKSPACE_V1}`,
   `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} fetch --quiet ${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1} refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head`,
   `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} reset --hard --quiet refs/sec/head`,
   `[ "$(git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} rev-parse HEAD)" = "$head" ]`,
+  `git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} update-ref refs/remotes/origin/main "$base"`,
+  `[ "$(git -C ${TRUSTED_RUNTIME_WORKSPACE_V1} rev-parse refs/remotes/origin/main)" = "$base" ]`,
   'if [ "$mode" != "lifecycle-canary" ]; then',
   `  cd ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`,
   '  mkdir -p .shared-deps',
@@ -1591,7 +1595,7 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
       await command('docker', [
         'container', 'exec', '--user', '1000:1000',
         ...createTrustedRuntimeCommandEnvironmentArgsV1({ HOME: '/home/ubuntu' }),
-        containerTarget, '/bin/bash', '-lc', SETUP_SCRIPT, '--',
+        containerTarget, '/bin/bash', '-lc', TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1, '--',
         baseSha, headSha, input.setupMode
       ], repositoryRoot, 30 * 60_000, dockerEndpoint);
       if (dependencyCacheMarkerFileDigest !== null) {
