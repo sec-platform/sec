@@ -62,6 +62,24 @@ canonical state
 
 UI、CLI、HTTP、AI Adapter 和 Provider 都只能通过同一个产品 adapter 消费该回路，不能各自维护写路径、实现选择、兼容性或成功状态。
 
+### 统一工程语义图与 identity
+
+上述链不是并列 pipeline，而是同一张 typed Engineering Semantic Graph 的不同需求投影：
+
+```text
+Fact / Intent / Policy / Capability
+→ authority + identity + revision
+→ sufficient causal / dependency / consumer closure
+→ Decision / Plan
+→ authorized Effect
+→ Observation / Evidence
+→ next graph revision
+```
+
+内容寻址只适用于 canonical bytes 能由完整输入确定的派生节点、不可变 Evidence、materialization和receipt；它是去重、复用、并发 join 与reachability retirement机制，不是全架构的唯一identity。外部可变事实必须保留Provider identity、observed revision和freshness，Authoring/Canonical对象使用stable semantic identity与revision，Effect使用operation/subject/CAS identity。不得为了统一而把这些不同身份压成一个digest，也不得让路径、时间、缓存命中或外部对象存在冒充语义事实。
+
+全局统一的是最小semantic kernel、typed edge、authority/revision/effect/evidence不变量与依赖方向；领域业务仍由各自extension/interface拥有。任何领域节点都必须能投影回这张图，但不得建立吞并测试、源码、容器、依赖、Review、发布或清理语义的God schema。探索也不是全量读取：只扩展到当前目标的authority、causal、dependency、consumer、risk与unknown闭包，闭包外信息保持未读，反例再扩图而不是机械全仓重跑。
+
 ## 四种不同身份
 
 - **Authority**：谁有权声明、修改或裁决输入和策略。

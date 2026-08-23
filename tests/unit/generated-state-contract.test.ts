@@ -2,10 +2,13 @@ import { expect, test } from 'bun:test';
 
 import {
   GENERATED_STATE_REGISTRY_V1,
+  createGeneratedStateInventoryV1,
   generatedStateCleanupAllowedV1,
   generatedStateRuleForPathV1,
   parseGeneratedStateRegistryV1,
-  type GeneratedStateInventoryEntryV1
+  projectGeneratedStateEnclosingWorkspaceRetirementV1,
+  type GeneratedStateInventoryEntryV1,
+  type GeneratedStateInventoryV1
 } from '../../platform/shared/generated-state-contract.ts';
 
 function entry(
@@ -72,6 +75,76 @@ test('registration and retirement are required before any cleanup profile can au
     entry: entry('active-ephemeral-workspace', 'retired', 'ready', ['automatic', 'safe']),
     profile: 'automatic'
   })).toBeTrue();
+});
+
+test('enclosing workspace retirement admits only recomputable roots and empty recovery containers', () => {
+  const entries: GeneratedStateInventoryV1['entries'] = Object.freeze([
+    {
+      ...entry('external-provider-cache', 'missing', 'protected', ['all-rebuildable']),
+      relativePath: '.shared-deps',
+      ruleId: 'shared-dependency-cache',
+      owner: 'project-runtime',
+      blockers: Object.freeze(['registration-missing'])
+    },
+    {
+      ...entry('rebuildable-derived-cache', 'active', 'protected', ['all-rebuildable']),
+      blockers: Object.freeze(['owner-active'])
+    },
+    {
+      ...entry('recovery-authority', 'not-required', 'protected', []),
+      relativePath: '.tmp/dependency-installs/compiler-backups',
+      ruleId: 'compiler-dependency-backups',
+      owner: 'compiler-dependency-runtime',
+      registrationDigest: null
+    },
+    {
+      ...entry('rebuildable-derived-cache', 'not-required', 'protected', []),
+      relativePath: '.tmp/test-impact-cache.json',
+      kind: 'file',
+      ruleId: 'test-impact-cache',
+      owner: 'semantic-test-impact',
+      registrationDigest: null
+    }
+  ]);
+  const inventory = createGeneratedStateInventoryV1({
+    repositoryRoot: 'D:/Project/sec',
+    workspace: { device: '1', inode: '2', objectId: '3' },
+    workspaceRegistration: 'registered' as const,
+    entries,
+    blockers: Object.freeze(['.shared-deps:registration-missing'])
+  });
+  const ready = projectGeneratedStateEnclosingWorkspaceRetirementV1({
+    inventory,
+    ignoredRoots: ['.shared-deps', '.tmp', 'node_modules'],
+    physicallyEmptyRoots: ['.tmp/dependency-installs/compiler-backups']
+  });
+  expect(ready.status).toBe('ready');
+  expect(ready.admitted.map(({ relativePath }) => relativePath)).toEqual([
+    '.shared-deps',
+    '.tmp/dependency-installs/compiler-backups',
+    '.tmp/test-impact-cache.json',
+    'node_modules'
+  ]);
+  const blocked = projectGeneratedStateEnclosingWorkspaceRetirementV1({
+    inventory: createGeneratedStateInventoryV1({
+      repositoryRoot: inventory.repositoryRoot,
+      workspace: inventory.workspace,
+      workspaceRegistration: inventory.workspaceRegistration,
+      entries: Object.freeze([...entries, {
+        ...entry('unknown-unclassified', 'missing', 'blocked', []),
+        relativePath: '.tmp/unknown',
+        ruleId: null,
+        owner: null,
+        blockers: Object.freeze(['unknown-generated-state']),
+        registrationDigest: null
+      }]),
+      blockers: inventory.blockers
+    }),
+    ignoredRoots: ['.tmp'],
+    physicallyEmptyRoots: ['.tmp/dependency-installs/compiler-backups']
+  });
+  expect(blocked.status).toBe('blocked');
+  expect(blocked.blockers).toContain('.tmp/unknown:unknown-or-unbound');
 });
 
 test('registry parser rejects ambiguous selectors, unknown fields and invented cleanup profiles', () => {

@@ -109,6 +109,124 @@ export interface GeneratedStateInventoryV1 {
   readonly inventoryDigest: `sha256:${string}`;
 }
 
+export const GENERATED_STATE_ENCLOSING_WORKSPACE_RETIREMENT_SCHEMA_V1 =
+  'sec-generated-state-enclosing-workspace-retirement-v1' as const;
+
+export interface GeneratedStateEnclosingWorkspaceRetirementV1 {
+  readonly schema: typeof GENERATED_STATE_ENCLOSING_WORKSPACE_RETIREMENT_SCHEMA_V1;
+  readonly registryDigest: `sha256:${string}`;
+  readonly inventoryDigest: `sha256:${string}`;
+  readonly ignoredRoots: readonly string[];
+  readonly admitted: readonly Readonly<{
+    relativePath: string;
+    disposition: 'recomputable-with-enclosing-workspace' | 'empty-recovery-container';
+  }>[];
+  readonly blockers: readonly string[];
+  readonly status: 'ready' | 'blocked';
+  readonly projectionDigest: `sha256:${string}`;
+}
+
+/**
+ * Projects the generated-state owner's contribution to an enclosing Git
+ * worktree retirement. This never authorizes standalone generated-state
+ * cleanup: the caller must separately own the exact enclosing workspace
+ * Effect and supply no-follow observations for physically empty recovery
+ * containers.
+ */
+export function projectGeneratedStateEnclosingWorkspaceRetirementV1(input: Readonly<{
+  inventory: GeneratedStateInventoryV1;
+  ignoredRoots: readonly string[];
+  physicallyEmptyRoots?: readonly string[];
+}>): GeneratedStateEnclosingWorkspaceRetirementV1 {
+  const rebuiltInventory = createGeneratedStateInventoryV1({
+    repositoryRoot: input.inventory.repositoryRoot,
+    workspace: input.inventory.workspace,
+    workspaceRegistration: input.inventory.workspaceRegistration,
+    entries: input.inventory.entries,
+    blockers: input.inventory.blockers
+  });
+  if (rebuiltInventory.inventoryDigest !== input.inventory.inventoryDigest) {
+    fail('enclosing workspace retirement inventory digest mismatch.');
+  }
+  const ignoredRoots = [...new Set(input.ignoredRoots.map(normalizeGeneratedStateRelativePathV1))]
+    .sort((left, right) => left.localeCompare(right));
+  const emptyRoots = new Set(
+    (input.physicallyEmptyRoots ?? []).map(normalizeGeneratedStateRelativePathV1)
+  );
+  const admitted = new Map<string, GeneratedStateEnclosingWorkspaceRetirementV1['admitted'][number]>();
+  const blockers: string[] = [];
+  if (input.inventory.registryDigest !== GENERATED_STATE_REGISTRY_V1.registryDigest) {
+    blockers.push('registry-digest-mismatch');
+  }
+  if (input.inventory.workspaceRegistration !== 'registered') {
+    blockers.push(`workspace-${input.inventory.workspaceRegistration}`);
+  }
+  for (const ignoredRoot of ignoredRoots) {
+    const covered = input.inventory.entries.filter(({ kind, relativePath }) => (
+      kind !== 'missing'
+      && (
+        relativePath === ignoredRoot
+        || relativePath.startsWith(`${ignoredRoot}/`)
+        || ignoredRoot.startsWith(`${relativePath}/`)
+      )
+    ));
+    if (covered.length === 0) {
+      blockers.push(`${ignoredRoot}:unclassified-ignored-root`);
+      continue;
+    }
+    for (const entry of covered) {
+      if (admitted.has(entry.relativePath)) continue;
+      const rule = generatedStateRuleForPathV1(entry.relativePath);
+      if (rule === null || entry.ruleId !== rule.id || entry.physicalIdentity === null) {
+        blockers.push(`${entry.relativePath}:unknown-or-unbound`);
+        continue;
+      }
+      const recomputable = rule.scope === 'workspace'
+        && rule.reconstruction === 'producer-recompute'
+        && (entry.stateClass === 'rebuildable-derived-cache'
+          || entry.stateClass === 'external-provider-cache')
+        && entry.blockers.every((blocker) => (
+          blocker === 'owner-active' || blocker === 'registration-missing'
+        ));
+      if (recomputable) {
+        admitted.set(entry.relativePath, Object.freeze({
+          relativePath: entry.relativePath,
+          disposition: 'recomputable-with-enclosing-workspace' as const
+        }));
+        continue;
+      }
+      const emptyRecoveryContainer = rule.scope === 'workspace'
+        && entry.kind === 'directory'
+        && entry.stateClass === 'recovery-authority'
+        && emptyRoots.has(entry.relativePath)
+        && entry.blockers.length === 0;
+      if (emptyRecoveryContainer) {
+        admitted.set(entry.relativePath, Object.freeze({
+          relativePath: entry.relativePath,
+          disposition: 'empty-recovery-container' as const
+        }));
+        continue;
+      }
+      blockers.push(`${entry.relativePath}:owner-retirement-required`);
+    }
+  }
+  const material = Object.freeze({
+    schema: GENERATED_STATE_ENCLOSING_WORKSPACE_RETIREMENT_SCHEMA_V1,
+    registryDigest: input.inventory.registryDigest,
+    inventoryDigest: input.inventory.inventoryDigest,
+    ignoredRoots: Object.freeze(ignoredRoots),
+    admitted: Object.freeze([...admitted.values()].sort((left, right) => (
+      left.relativePath.localeCompare(right.relativePath)
+    ))),
+    blockers: Object.freeze([...new Set(blockers)].sort((left, right) => left.localeCompare(right)))
+  });
+  return Object.freeze({
+    ...material,
+    status: material.blockers.length === 0 ? 'ready' as const : 'blocked' as const,
+    projectionDigest: generatedStateDigestV1(material)
+  });
+}
+
 export interface GeneratedStateSettlementV1 {
   readonly schema: typeof GENERATED_STATE_SETTLEMENT_SCHEMA_V1;
   readonly repositoryRoot: string;

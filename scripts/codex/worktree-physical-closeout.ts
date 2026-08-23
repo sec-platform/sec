@@ -4,6 +4,9 @@ import path from 'node:path';
 
 import { canonicalJson, sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
+  projectGeneratedStateEnclosingWorkspaceRetirementV1
+} from '../../platform/shared/generated-state-contract.ts';
+import {
   createNoFollowDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
   inspectExactNoFollowDirectoryPresenceV1,
@@ -29,6 +32,7 @@ import {
   withWorkspaceWriteLease,
   type WorkspaceWriteLeaseRetirementReceipt
 } from '../../platform/shared/workspace-write-lease.ts';
+import { inspectGeneratedStateV1 } from '../../tooling/sec-dev/generated-state-lifecycle.ts';
 import { createBranchLifecycleGitChildEnvironmentV1 } from './branch-lifecycle-command.ts';
 import {
   assertStableWorktreePhysicalWorkingStateV1,
@@ -371,7 +375,48 @@ async function observeWorkingState(
       return true;
     }
   });
-  const digest = detailDigestV1({ records: retained });
+  const ordinaryRecords = retained.filter((entry) => !entry.startsWith('!! '));
+  const ignoredRoots = retained.flatMap((entry) => entry.startsWith('!! ')
+    ? [entry.slice(3).replaceAll('\\', '/').replace(/\/+$/u, '')]
+    : []);
+  let generatedStateRetirement: ReturnType<
+    typeof projectGeneratedStateEnclosingWorkspaceRetirementV1
+  > | null = null;
+  if (ignoredRoots.length > 0 && ordinaryRecords.length === 0) {
+    try {
+      const inventory = await inspectGeneratedStateV1({
+        repositoryRoot,
+        workspaceRoot: targetPath
+      });
+      const physicallyEmptyRoots = inventory.entries.flatMap((entry) => {
+        if (entry.kind !== 'directory' || entry.physicalIdentity === null) return [];
+        try {
+          const directory = inspectNoFollowDirectoryChainV1(
+            path.join(targetPath, ...entry.relativePath.split('/')),
+            'Generated-state retirement empty-root observation'
+          ).target;
+          if (directory.device !== entry.physicalIdentity.device
+            || directory.inode !== entry.physicalIdentity.inode) return [];
+          return scanNoFollowDirectoryTreeV1(directory).length === 0
+            ? [entry.relativePath]
+            : [];
+        } catch {
+          return [];
+        }
+      });
+      generatedStateRetirement = projectGeneratedStateEnclosingWorkspaceRetirementV1({
+        inventory,
+        ignoredRoots,
+        physicallyEmptyRoots
+      });
+    } catch {
+      generatedStateRetirement = null;
+    }
+  }
+  const digest = detailDigestV1({
+    records: ordinaryRecords,
+    generatedStateRetirement
+  });
   if (retained.length === 0) return { digest, blocker: null };
   let tracked = 0;
   let untracked = 0;
@@ -383,9 +428,21 @@ async function observeWorkingState(
     else if (entry.length >= 3 && entry[2] === ' ') tracked += 1;
     else unknown += 1;
   }
+  if (
+    tracked === 0
+    && untracked === 0
+    && unknown === 0
+    && ignored > 0
+    && generatedStateRetirement?.status === 'ready'
+  ) {
+    return { digest, blocker: null };
+  }
   return {
     digest,
     blocker: `working-state-not-clean:tracked=${tracked},untracked=${untracked},ignored=${ignored},unknown=${unknown}`
+      + (ignored > 0
+        ? `,generated-state=${generatedStateRetirement?.projectionDigest ?? 'unresolved'}`
+        : '')
   };
 }
 

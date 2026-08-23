@@ -343,6 +343,52 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
   }
 }, 60_000);
 
+test('enclosing worktree retirement consumes exact generated-state classification once', async () => {
+  const value = fixture();
+  try {
+    writeFileSync(
+      path.join(value.target, '.gitignore'),
+      '.shared-deps/\n.tmp/\nnode_modules/\n',
+      'utf8'
+    );
+    git(value.target, ['add', '.gitignore']);
+    git(value.target, ['commit', '-m', 'ignore derived workspace state']);
+    value.headSha = git(value.target, ['rev-parse', 'HEAD']);
+    value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
+    mkdirSync(path.join(value.target, '.shared-deps'), { recursive: true });
+    writeFileSync(path.join(value.target, '.shared-deps', 'cache.bin'), 'cache\n', 'utf8');
+    mkdirSync(path.join(value.target, 'node_modules', 'fixture'), { recursive: true });
+    writeFileSync(path.join(value.target, 'node_modules', 'fixture', 'index.js'), 'export {};\n', 'utf8');
+    mkdirSync(
+      path.join(value.target, '.tmp', 'dependency-installs', 'compiler-backups'),
+      { recursive: true }
+    );
+    writeFileSync(path.join(value.target, '.tmp', 'test-impact-cache.json'), '{}\n', 'utf8');
+
+    const authorization = await prepareWorktreePhysicalCloseoutV1({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const receipt = await executeWorktreePhysicalCloseoutV1({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+    expect(existsSync(value.target)).toBe(false);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test('self-signed unregister receipt cannot elevate a token without this-process retained admin effect', async () => {
   const value = fixture();
   try {
