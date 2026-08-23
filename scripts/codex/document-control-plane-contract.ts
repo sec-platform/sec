@@ -324,6 +324,8 @@ export interface CodexDevelopmentFreezeProjectionV1 {
   readonly manifest: CodexDevelopmentWorkPackageManifest;
   readonly manifestPath: string;
   readonly manifestDigest: `sha256:${string}`;
+  /** Old pointer-bound manifest retired by the same successor candidate tree. */
+  readonly retiredManifestPath: string | null;
   readonly pointerSource: string;
   readonly rollingPlanSource: string;
 }
@@ -1142,6 +1144,9 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
   if (manifest.id === currentManifest.id && manifest.tracking !== currentManifest.tracking) {
     throw new Error('Same-package freeze cannot replace the exact tracking identity.');
   }
+  if (manifest.id !== currentManifest.id && manifestPath === currentPointer.manifest) {
+    throw new Error('A successor package must use a distinct canonical manifest path.');
+  }
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
     input.manifestBytes
   ) as `sha256:${string}`;
@@ -1295,7 +1300,14 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
   if (CodexDevelopmentParseRollingPlanV1(rollingPlanSource).activePackageId !== manifest.id) {
     throw new Error('Freeze projection rolling-plan readback failed.');
   }
-  return Object.freeze({ manifest, manifestPath, manifestDigest, pointerSource, rollingPlanSource });
+  return Object.freeze({
+    manifest,
+    manifestPath,
+    manifestDigest,
+    retiredManifestPath: manifest.id === currentManifest.id ? null : currentPointer.manifest,
+    pointerSource,
+    rollingPlanSource
+  });
 }
 
 export function CodexDevelopmentResolveActiveWorkPackageV1(input: {

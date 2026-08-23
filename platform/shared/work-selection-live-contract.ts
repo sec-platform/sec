@@ -76,14 +76,31 @@ export interface SecRoadmapWorkCatalogV1 {
   readonly catalogDigest: SecWorkDigestV1;
 }
 
-export interface SecRoadmapTerminalCompactionV1 {
-  readonly schema: 'sec-roadmap-terminal-compaction-v1';
+export interface SecRoadmapTerminalCompactionV2 {
+  readonly schema: 'sec-roadmap-terminal-compaction-v2';
   readonly retiredWorkIds: readonly string[];
-  readonly retiredManifestPaths: readonly string[];
+  /**
+   * A terminal catalog transition cannot delete the manifest still named by
+   * the active pointer.  The successor freeze retires these paths atomically
+   * with publication of the new manifest, pointer and rolling projection.
+   */
+  readonly delayedManifestRetirementPaths: readonly string[];
   readonly catalog: SecRoadmapWorkCatalogV1;
   readonly roadmapSource: string;
   readonly demandGraphDigest: `sha256:${string}`;
   readonly compactionDigest: SecWorkDigestV1;
+}
+
+export interface SecRoadmapTerminalCompactionCandidateV2 {
+  readonly schema: 'sec-roadmap-terminal-compaction-candidate-v2';
+  readonly repository: string;
+  readonly prNumber: number;
+  readonly baseSha: string;
+  readonly headSha: string;
+  readonly headTreeSha: string;
+  readonly compactionDigest: SecWorkDigestV1;
+  readonly retiredWorkIds: readonly string[];
+  readonly bindingDigest: SecWorkDigestV1;
 }
 
 export interface SecWorkSelectionTerminalProjectionV1 {
@@ -91,7 +108,7 @@ export interface SecWorkSelectionTerminalProjectionV1 {
   readonly catalog: SecRoadmapWorkCatalogV1;
   readonly currentSpecs: readonly SecWorkCurrentSpecObservationV1[];
   readonly roadmapRevision: SecWorkDigestV1;
-  readonly terminalCompaction: SecRoadmapTerminalCompactionV1 | null;
+  readonly terminalCompaction: SecRoadmapTerminalCompactionV2 | null;
 }
 
 export interface SecWorkCurrentSpecObservationV1 {
@@ -219,7 +236,7 @@ export type SecWorkSelectionLiveResultV1 = Readonly<
     blockerRefs: readonly [];
     receipt: SecWorkDecisionReceiptV1;
     demandGraph: SecOperationDemandGraphV1;
-    terminalCompaction: SecRoadmapTerminalCompactionV1 | null;
+    terminalCompaction: SecRoadmapTerminalCompactionV2 | null;
     resultDigest: SecWorkDigestV1;
   }
   | {
@@ -657,12 +674,14 @@ function renderRoadmapCatalogSource(
 /**
  * Compiles terminal catalog retirement as one deterministic graph transition.
  * The effect owner must bind each requested work id to trusted completion
- * evidence before publishing the returned roadmap bytes and manifest deletes.
+ * evidence before publishing the returned roadmap bytes.  The still-bound
+ * manifest is deliberately retained until the successor freeze can replace
+ * the complete active-control tuple atomically.
  */
-export function compileSecRoadmapTerminalCompactionV1(input: {
+export function compileSecRoadmapTerminalCompactionV2(input: {
   roadmapSource: string;
   completedWorkIds: readonly string[];
-}): SecRoadmapTerminalCompactionV1 {
+}): SecRoadmapTerminalCompactionV2 {
   const prior = parseSecRoadmapWorkCatalogV1(input.roadmapSource);
   const retiredWorkIds = [...input.completedWorkIds].sort(compareCodeUnits);
   if (retiredWorkIds.length === 0 || new Set(retiredWorkIds).size !== retiredWorkIds.length) {
@@ -693,9 +712,11 @@ export function compileSecRoadmapTerminalCompactionV1(input: {
   });
   const roadmapSource = renderRoadmapCatalogSource(input.roadmapSource, catalog);
   const withoutDigest = deepFreeze({
-    schema: 'sec-roadmap-terminal-compaction-v1' as const,
+    schema: 'sec-roadmap-terminal-compaction-v2' as const,
     retiredWorkIds,
-    retiredManifestPaths: retiredWorkIds.map((workId) => workManifestPath(priorByWorkId.get(workId)!)),
+    delayedManifestRetirementPaths: retiredWorkIds.map(
+      (workId) => workManifestPath(priorByWorkId.get(workId)!)
+    ),
     catalog,
     roadmapSource,
     demandGraphDigest: demandGraph.graphDigest
@@ -735,7 +756,7 @@ export function compileSecWorkSelectionTerminalProjectionV1(input: {
       terminalCompaction: null
     });
   }
-  const terminalCompaction = compileSecRoadmapTerminalCompactionV1({
+  const terminalCompaction = compileSecRoadmapTerminalCompactionV2({
     roadmapSource: input.roadmapSource,
     completedWorkIds: terminalSpecs.map(({ workId }) => workId)
   });
@@ -755,27 +776,27 @@ export function compileSecWorkSelectionTerminalProjectionV1(input: {
   });
 }
 
-export function assertSecRoadmapTerminalCompactionCandidateV1(input: {
-  compaction: SecRoadmapTerminalCompactionV1;
+export function assertSecRoadmapTerminalCompactionCandidateV2(input: {
+  compaction: SecRoadmapTerminalCompactionV2;
   roadmapSource: string;
-  presentRetiredManifestPaths: readonly string[];
+  presentDelayedManifestPaths: readonly string[];
 }): void {
   if (input.roadmapSource !== input.compaction.roadmapSource) {
     fail('candidate roadmap bytes differ from the canonical terminal compaction output.');
   }
-  const present = [...new Set(input.presentRetiredManifestPaths)].sort(compareCodeUnits);
-  if (present.length > 0) {
-    fail(`candidate tree retains terminal manifests: ${present.join(',')}.`);
+  const present = [...new Set(input.presentDelayedManifestPaths)].sort(compareCodeUnits);
+  if (!canonicalEquals(present, input.compaction.delayedManifestRetirementPaths)) {
+    fail('candidate tree must retain every pointer-bound manifest until successor freeze.');
   }
 }
 
 /**
- * Candidate-tree guard for the terminal transition. Catalog retirement,
- * dependency-edge retirement and completion-manifest retirement must cross the
- * Git boundary together. It also admits healing an already-orphaned base item,
- * but never permits unrelated catalog edits to hide inside that repair.
+ * Candidate-tree guard for the terminal transition. Catalog and dependency
+ * retirement cross this Git boundary while the manifest set remains byte-for-
+ * byte addressable.  Manifest retirement belongs to the successor freeze that
+ * replaces manifest, pointer and rolling projection together.
  */
-export function assertSecRoadmapTerminalCompactionDeltaV1(input: {
+export function assertSecRoadmapTerminalCompactionDeltaV2(input: {
   priorRoadmapSource: string;
   roadmapSource: string;
   priorManifestPaths: readonly string[];
@@ -790,25 +811,71 @@ export function assertSecRoadmapTerminalCompactionDeltaV1(input: {
     .filter((item) => !currentByWorkId.has(item.workId))
     .map((item) => item.workId);
   if (retiredWorkIds.length === 0) return;
-  const compiled = compileSecRoadmapTerminalCompactionV1({
+  const compiled = compileSecRoadmapTerminalCompactionV2({
     roadmapSource: input.priorRoadmapSource,
     completedWorkIds: retiredWorkIds
   });
   if (input.roadmapSource !== compiled.roadmapSource) {
     fail('terminal compaction roadmap bytes differ from the canonical compiler output.');
   }
-  const retainedPriorManifests = [...priorManifests].filter(
-    (manifestPath) => !compiled.retiredManifestPaths.includes(manifestPath)
-  );
-  const missingRetainedManifests = retainedPriorManifests.filter(
-    (manifestPath) => !currentManifests.has(manifestPath)
-  );
-  const presentRetiredManifests = compiled.retiredManifestPaths.filter(
-    (manifestPath) => currentManifests.has(manifestPath)
-  );
-  if (missingRetainedManifests.length > 0 || presentRetiredManifests.length > 0) {
-    fail('terminal compaction manifest subgraph differs from the canonical compiler output.');
+  const missing = [...priorManifests].filter((manifestPath) => !currentManifests.has(manifestPath));
+  const added = [...currentManifests].filter((manifestPath) => !priorManifests.has(manifestPath));
+  if (missing.length > 0 || added.length > 0) {
+    fail('terminal compaction cannot mutate the manifest set before successor freeze.');
   }
+}
+
+/**
+ * Binds one open PR to terminal-compaction semantics from exact tree facts.
+ * PR prose and branch names are deliberately absent: they are transports, not
+ * operation identity or completion authority.
+ */
+export function createSecRoadmapTerminalCompactionCandidateV2(input: {
+  repository: string;
+  exactMain: string;
+  compaction: SecRoadmapTerminalCompactionV2;
+  priorRoadmapSource: string;
+  roadmapSource: string;
+  priorManifestPaths: readonly string[];
+  manifestPaths: readonly string[];
+  prNumber: number;
+  baseSha: string;
+  headSha: string;
+  headTreeSha: string;
+}): SecRoadmapTerminalCompactionCandidateV2 {
+  const repository = text(input.repository, 'terminalCandidate.repository');
+  const exactMain = gitSha(input.exactMain, 'terminalCandidate.exactMain');
+  const baseSha = gitSha(input.baseSha, 'terminalCandidate.baseSha');
+  if (baseSha !== exactMain) fail('terminal candidate base must equal exact main.');
+  const prNumber = nonNegativeInteger(input.prNumber, 'terminalCandidate.prNumber');
+  if (prNumber === 0) fail('terminal candidate PR number must be positive.');
+  assertSecRoadmapTerminalCompactionCandidateV2({
+    compaction: input.compaction,
+    roadmapSource: input.roadmapSource,
+    presentDelayedManifestPaths: input.compaction.delayedManifestRetirementPaths.filter(
+      (manifestPath) => input.manifestPaths.includes(manifestPath)
+    )
+  });
+  assertSecRoadmapTerminalCompactionDeltaV2({
+    priorRoadmapSource: input.priorRoadmapSource,
+    roadmapSource: input.roadmapSource,
+    priorManifestPaths: input.priorManifestPaths,
+    manifestPaths: input.manifestPaths
+  });
+  const withoutDigest = deepFreeze({
+    schema: 'sec-roadmap-terminal-compaction-candidate-v2' as const,
+    repository,
+    prNumber,
+    baseSha,
+    headSha: gitSha(input.headSha, 'terminalCandidate.headSha'),
+    headTreeSha: gitSha(input.headTreeSha, 'terminalCandidate.headTreeSha'),
+    compactionDigest: input.compaction.compactionDigest,
+    retiredWorkIds: input.compaction.retiredWorkIds
+  });
+  return deepFreeze({
+    ...withoutDigest,
+    bindingDigest: sha256(withoutDigest) as SecWorkDigestV1
+  });
 }
 
 function normalizeRollingProjectionItem(
@@ -1626,7 +1693,7 @@ function liveResultDigest(value: unknown): SecWorkDigestV1 {
 export function resolvedSecWorkSelectionLiveResultV1(
   receipt: SecWorkDecisionReceiptV1,
   demandGraph: SecOperationDemandGraphV1,
-  terminalCompaction: SecRoadmapTerminalCompactionV1 | null = null
+  terminalCompaction: SecRoadmapTerminalCompactionV2 | null = null
 ): SecWorkSelectionLiveResultV1 {
   const withoutDigest = deepFreeze({
     schema: SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA_V1,

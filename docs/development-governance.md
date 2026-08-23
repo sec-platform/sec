@@ -136,11 +136,16 @@ facts并签发receipt；Phase C writer只把validated decision物化为一个当
 在Phase C切换前必须明确是A0 reconciliation；与machine decision冲突时返回`reconcile`，不静默覆盖。
 Phase C的live adapter先把trusted terminal current-spec observation编译为roadmap terminal compaction，
 再以`raw roadmap revision + compaction digest + terminal observation`形成唯一selection revision；关闭的work不再
-进入候选集，也不会因manifest已先退役而锁死selection。catalog、已消费依赖边和manifest retirement构成一个
-不可拆分的candidate graph delta；document-control freeze只接受与compiler输出逐字相等的terminal subgraph。
-新增selected manifest与delayed predecessor仍由既有package census拥有，terminal owner只拒绝自身退休对象残留或
-既有非退休manifest丢失，不得用whole-inventory equality覆盖另一个合法生命周期。聊天、手工删除或Issue关闭
-本身都不能绕过这些consumer。
+进入候选集。terminal compaction只原子发布catalog item与已满足依赖边的退休；仍被active pointer和rolling
+projection引用的manifest必须保持逐字可解析，不能在同一transition提前删除。fresh MainHealth与#221随后选择
+successor；successor freeze再以一个candidate tree同时发布新manifest、pointer、rolling projection并退休旧
+pointer-bound manifest。document-control consumer分别逐字验证两个compiler输出，任何中间revision都必须是完整
+合法状态。新增selected manifest、delayed predecessor与retirement仍由既有package census拥有，不得用
+whole-inventory equality覆盖另一个合法生命周期；聊天、手工删除或Issue关闭本身都不能绕过这些consumer。
+open PR的operation identity同样从exact base/head/tree上的canonical transition重算；Work Package manifest、PR body
+locator和branch名只适用于各自transport/binding，不能成为所有operation的强制身份。terminal compaction PR没有
+新增manifest时，registry必须以V2 compaction candidate绑定其exact semantic tree并把它从manifest registry分流；
+partial roadmap、manifest集合漂移或base/head不等立即unresolved，禁止靠补一份虚构manifest解锁。
 #349 `ExecutionWave`随后只编译selected work refs的order/conflict/resource/cost，不能复制selector、
 Issue prose、权限、Task Capsule或Verification。bounded automated action只有在下游authorization、Journal、
 rollback和真实consumer成立后才能激活；pure decision本身永远没有branch/PR/merge/write authority。
@@ -268,11 +273,12 @@ stateDiagram-v2
   Reconcile --> [*]
 ```
 
-Catalog采用一项延迟删除handoff：本轮选中的manifest进入main后仍存在，下一次adapter把该项投影为
-`already-in-main`并用它满足直接后继；下一纵切片才删除该旧manifest和已消费catalog item，同时把近端
-窗口补足到能继续生成二至五候选。这样不保留tombstone/history文件，也不会因manifest先删除而把已完成
-前置重新解释为未完成。catalog最多保存七条近端记录，live adapter只做一次bounded Issue GraphQL和
-既有owner投影，不扫描Issue历史、comment或全backlog。
+Catalog采用一项有序handoff：本轮选中的manifest进入main后仍存在；terminal compaction只删除已消费
+catalog item及其已满足依赖边，并保留仍由pointer/rolling绑定的旧manifest。fresh MainHealth与下一次#221
+消费该稳定baseline后，successor freeze才同时删除旧manifest、发布新manifest并切换pointer/rolling，把近端
+窗口补足到能继续生成二至五候选。这样每个Git tree都可独立解析，不保留tombstone/history文件，也不会因
+manifest先删除而把已完成前置重新解释为未完成。catalog最多保存七条近端记录，live adapter只做一次bounded
+Issue GraphQL和既有owner投影，不扫描Issue历史、comment或全backlog。
 
 Work Package manifest只代表一次已经消费的activation slice，不等同于Program Issue整体完成。若一次
 slice进入main后current spec仍明确保留未完成验收或新的依赖边界，下一次handoff删除已消费manifest，
@@ -289,8 +295,8 @@ package census，不能复制第二套“仅一个manifest”算法。exact tree
 published predecessor。第二个匹配项、非catalog文件、byte drift或普通tracked package下的额外manifest
 全部fail closed。下一ordinary slice必须同时删除recovery manifest、已消费predecessor及对应catalog item；
 Git历史承担审计，不把旧manifest复制到`docs/evidence/**`或另建tombstone。
-PRE proposal的changed-record scope必须精确包含pointer、rolling、selected manifest和census判定应删除的
-全部base manifests；漏删任一旧manifest、修改被允许延迟保留的predecessor或加入额外package时，issuer在
+PRE proposal的changed-record scope必须精确包含pointer、rolling、selected manifest和successor freeze判定应删除的
+旧pointer-bound manifest；漏删该旧manifest、修改被允许延迟保留的predecessor或加入额外package时，issuer在
 artifact/comment effect前返回`activation-scope-conflict`，不能靠候选本地测试或后续MainHealth补救。
 
 面向Agent或maintainer的控制面CLI默认只输出完成下一步裁决所需的bounded projection：exact revision、

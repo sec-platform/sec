@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { digest, rawSha256, sha256 } from '../../platform/shared/canonical-primitives.ts';
 import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
-import { assertSecRoadmapTerminalCompactionCandidateV1 } from '../../platform/shared/work-selection-live-contract.ts';
+import { assertSecRoadmapTerminalCompactionCandidateV2 } from '../../platform/shared/work-selection-live-contract.ts';
 import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
@@ -317,7 +317,7 @@ interface ControlIndexSnapshotV1 {
   readonly stateSource: string;
   readonly pointerSource: string;
   readonly rollingPlanSource: string;
-  readonly candidateManifestBlob: Buffer;
+  readonly candidateManifestBlob: Buffer | undefined;
   readonly targetManifestBlob: Buffer | undefined;
   readonly stagedPaths: readonly string[];
   readonly worktreeStatus: string;
@@ -2790,10 +2790,7 @@ async function captureControlIndexSnapshot(
       const pointerSource = decodeUtf8(pointerBytes, 'Active pointer');
       const rollingPlanSource = decodeUtf8(rollingPlanBytes, 'Rolling plan');
       const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
-      const candidateManifestBlob = requireSnapshotBlob(
-        pointer.manifest,
-        'Candidate Work Package manifest'
-      );
+      const candidateManifestBlob = readBlob(`:${pointer.manifest}`);
       const targetManifestBlob = options.targetManifestPath === undefined
         ? undefined
         : readBlob(`:${options.targetManifestPath}`);
@@ -2805,7 +2802,10 @@ async function captureControlIndexSnapshot(
         ));
         if (unmerged.length > 0) throw new Error('Document control freeze rejects an unmerged Git index.');
         stagedPaths = Object.freeze(parseNulList(requireCommandOutput(
-          runScratch(['diff', '--cached', '--name-only', '-z', options.stagedBaseSha, '--']),
+          runScratch([
+            'diff', '--cached', '--no-ext-diff', '--no-textconv', '--no-renames',
+            '--name-only', '-z', options.stagedBaseSha, '--'
+          ]),
           'Staged external index snapshot inventory'
         )));
       }
@@ -5460,6 +5460,7 @@ async function assertInitialFreezeObservationFence(input: {
     expectedBytes: Buffer;
     label: string;
   }>[];
+  absentWorktreePaths?: readonly string[];
 }): Promise<void> {
   const headReadback = shaValue(
     requireCommand(run('git', ['rev-parse', 'HEAD'], input.repositoryRoot), 'Pre-journal candidate HEAD readback'),
@@ -5493,14 +5494,59 @@ async function assertInitialFreezeObservationFence(input: {
       label: `Pre-journal ${file.label} readback`
     })).equals(file.expectedBytes)
   )))).every(Boolean);
+  const absentWorktreeStable = (await Promise.all((input.absentWorktreePaths ?? []).map(
+    async (repositoryPath) => (await inspectSafePath({
+      boundaryRoot: input.repositoryRoot,
+      candidatePath: path.join(input.repositoryRoot, ...repositoryPath.split('/')),
+      label: `Pre-journal retired manifest ${repositoryPath}`,
+      finalKind: 'file',
+      allowMissing: true
+    })) === null
+  ))).every(Boolean);
   if (
     headReadback !== input.headSha
     || localDefaultReadback !== input.localDefaultSha
     || !indexStable
     || !worktreeStable
+    || !absentWorktreeStable
   ) {
     throw new Error('Document control freeze inputs changed before initial journal publication.');
   }
+}
+
+function freezeRetiredManifestPathV1(
+  repositoryRoot: string,
+  journal: FreezeJournalV4
+): string | null {
+  const basePointer = CodexDevelopmentParseActivePointerV2(decodeUtf8(requireGitBlob(
+    repositoryRoot,
+    `${journal.baseSha}:${ActivePointerPath}`,
+    'Freeze base active pointer'
+  ), 'Freeze base active pointer'));
+  const nextPointer = CodexDevelopmentParseActivePointerV2(decodeUtf8(fromBase64(
+    journal.files.pointer.next,
+    'Freeze pointer NEXT retirement binding'
+  ), 'Freeze pointer NEXT retirement binding'));
+  return basePointer.manifest === nextPointer.manifest ? null : basePointer.manifest;
+}
+
+async function assertFreezeRetiredManifestAbsentV1(input: Readonly<{
+  repositoryRoot: string;
+  repositoryPath: string;
+  treeSha: string;
+  label: string;
+}>): Promise<void> {
+  if (readGitBlob(input.repositoryRoot, `${input.treeSha}:${input.repositoryPath}`) !== undefined) {
+    throw new Error(`${input.label} remains in the candidate tree.`);
+  }
+  const remaining = await inspectSafePath({
+    boundaryRoot: input.repositoryRoot,
+    candidatePath: path.join(input.repositoryRoot, ...input.repositoryPath.split('/')),
+    label: input.label,
+    finalKind: 'file',
+    allowMissing: true
+  });
+  if (remaining !== null) throw new Error(`${input.label} remains in the worktree.`);
 }
 
 async function advanceFreezeJournal(input: {
@@ -5621,6 +5667,15 @@ async function advanceFreezeJournal(input: {
         .equals(rollingBytes)) {
     throw new Error('Candidate tree control bytes do not match the freeze NEXT images.');
   }
+  const retiredManifestPath = freezeRetiredManifestPathV1(input.repositoryRoot, journal);
+  if (retiredManifestPath !== null) {
+    await assertFreezeRetiredManifestAbsentV1({
+      repositoryRoot: input.repositoryRoot,
+      repositoryPath: retiredManifestPath,
+      treeSha: readback.treeSha,
+      label: 'Freeze successor retired manifest'
+    });
+  }
   const pointer = CodexDevelopmentParseActivePointerV2(decodeUtf8(pointerBytes, 'Freeze pointer NEXT'));
   const rolling = CodexDevelopmentParseRollingPlanV1(decodeUtf8(rollingBytes, 'Freeze rolling-plan NEXT'));
   CodexDevelopmentAssertControlPlaneBindingV1({
@@ -5714,6 +5769,15 @@ async function verifyTerminalFreezeJournal(input: {
   requireTerminalTreeBlob(journal.manifestPath, manifestNext, 'Terminal freeze manifest');
   requireTerminalTreeBlob(ActivePointerPath, pointerNext, 'Terminal freeze active pointer');
   requireTerminalTreeBlob(RollingPlanPath, rollingNext, 'Terminal freeze rolling plan');
+  const retiredManifestPath = freezeRetiredManifestPathV1(input.repositoryRoot, journal);
+  if (retiredManifestPath !== null) {
+    await assertFreezeRetiredManifestAbsentV1({
+      repositoryRoot: input.repositoryRoot,
+      repositoryPath: retiredManifestPath,
+      treeSha,
+      label: 'Terminal freeze successor retired manifest'
+    });
+  }
 
   const manifestPath = await assertRegularRepositoryFile(input.repositoryRoot, journal.manifestPath);
   const pointerPath = await assertRegularRepositoryFile(input.repositoryRoot, ActivePointerPath);
@@ -6123,7 +6187,18 @@ export async function freezeDocumentControlPlaneV1(input: {
     // This complete local authority preflight uses an external object directory;
     // no repository object, index, journal, or control publication is permitted
     // before both it and the sole live-default admission have succeeded.
-    const targets = [input.manifestPath, ActivePointerPath, RollingPlanPath] as const;
+    const headPointerSource = decodeUtf8(requireGitBlob(
+      repositoryRoot,
+      `${headSha}:${ActivePointerPath}`,
+      'Immutable candidate active pointer preflight'
+    ), 'Immutable candidate active pointer preflight');
+    const headPointer = CodexDevelopmentParseActivePointerV2(headPointerSource);
+    const targets = Object.freeze([...new Set([
+      input.manifestPath,
+      headPointer.manifest,
+      ActivePointerPath,
+      RollingPlanPath
+    ])]);
     const targetSet = new Set<string>(targets);
     const snapshot = await captureControlIndexSnapshot(repositoryRoot, {
       targetManifestPath: input.manifestPath,
@@ -6164,7 +6239,11 @@ export async function freezeDocumentControlPlaneV1(input: {
       'Immutable candidate current Work Package manifest'
     );
 
-    const currentManifestBlob = snapshot.candidateManifestBlob;
+    // A successor freeze may stage deletion of the old pointer-bound manifest.
+    // Its immutable HEAD bytes remain the semantic PRE image; absence from the
+    // candidate index is the demanded retirement Effect, not missing authority.
+    const currentManifestBlob = snapshot.candidateManifestBlob
+      ?? immutableCurrentManifestBytes;
     const currentDefaultManifestBlob = readGitBlob(
       repositoryRoot,
       `${localDefaultSha}:${pointer.manifest}`
@@ -6337,12 +6416,13 @@ export async function freezeDocumentControlPlaneV1(input: {
             repositoryRoot,
             `${snapshot.treeSha}:docs/roadmap.md`
           );
-          assertSecRoadmapTerminalCompactionCandidateV1({
+          assertSecRoadmapTerminalCompactionCandidateV2({
             compaction: selection.terminalCompaction,
             roadmapSource: candidateRoadmap === undefined
               ? ''
               : decodeUtf8(candidateRoadmap, 'Candidate roadmap terminal compaction'),
-            presentRetiredManifestPaths: selection.terminalCompaction.retiredManifestPaths.filter(
+            presentDelayedManifestPaths:
+              selection.terminalCompaction.delayedManifestRetirementPaths.filter(
               (manifestPath) => readGitBlob(repositoryRoot, `${snapshot.treeSha}:${manifestPath}`) !== undefined
             )
           });
@@ -6388,6 +6468,42 @@ export async function freezeDocumentControlPlaneV1(input: {
       baseTreeSha,
       reviewedOn: input.reviewedOn
     });
+    if (projection.retiredManifestPath === null) {
+      if (snapshot.candidateManifestBlob === undefined) {
+        throw new Error('Same-package freeze cannot retire its pointer-bound manifest.');
+      }
+    } else {
+      const indexedRetiredManifest = readGitBlob(
+        repositoryRoot,
+        `${snapshot.treeSha}:${projection.retiredManifestPath}`
+      );
+      if (projection.retiredManifestPath !== immutablePointer.manifest) {
+        throw new Error('Successor freeze retirement differs from the immutable prior pointer.');
+      }
+      if (indexedRetiredManifest !== undefined) {
+        throw new Error('Successor freeze retained the prior pointer manifest in the candidate index.');
+      }
+      if (!snapshot.stagedPaths.includes(projection.retiredManifestPath)) {
+        throw new Error(
+          'Successor freeze prior pointer manifest deletion is not staged against exact HEAD; '
+          + `observed staged paths: ${snapshot.stagedPaths.join(',') || 'none'}.`
+        );
+      }
+      const retiredWorktreePath = path.join(
+        repositoryRoot,
+        ...projection.retiredManifestPath.split('/')
+      );
+      const remaining = await inspectSafePath({
+        boundaryRoot: repositoryRoot,
+        candidatePath: retiredWorktreePath,
+        label: 'Successor freeze retired manifest',
+        finalKind: 'file',
+        allowMissing: true
+      });
+      if (remaining !== null) {
+        throw new Error('Successor freeze prior manifest must be absent from the worktree.');
+      }
+    }
     const pointerNext = Buffer.from(projection.pointerSource, 'utf8');
     const rollingPlanNext = Buffer.from(projection.rollingPlanSource, 'utf8');
     const indexPaths = await resolveIndexPaths(repositoryRoot);
@@ -6497,7 +6613,8 @@ export async function freezeDocumentControlPlaneV1(input: {
       && indexedTargetManifest.equals(manifestBytes)
       && pointerPre.equals(pointerNext)
       && rollingPlanPre.equals(rollingPlanNext)
-      && rollingPlanWorktree.equals(rollingPlanNext);
+      && rollingPlanWorktree.equals(rollingPlanNext)
+      && projection.retiredManifestPath === null;
     if (projectionAlreadyCurrent) {
       const noop = createFreezeOperation(snapshot.treeSha, indexPre);
       await input.beforeInitialJournalFence?.();
@@ -6514,7 +6631,10 @@ export async function freezeDocumentControlPlaneV1(input: {
           { filePath: manifestFile, expectedBytes: manifestBytes, label: 'manifest' },
           { filePath: pointerFile, expectedBytes: pointerPre, label: 'active pointer' },
           { filePath: rollingPlanFile, expectedBytes: rollingPlanWorktree, label: 'rolling plan' }
-        ]
+        ],
+        absentWorktreePaths: projection.retiredManifestPath === null
+          ? []
+          : [projection.retiredManifestPath]
       });
       return noop.result;
     }
@@ -6528,6 +6648,13 @@ export async function freezeDocumentControlPlaneV1(input: {
         { path: RollingPlanPath, pre: rollingPlanPre, bytes: rollingPlanNext }
       ]
     });
+    if (projection.retiredManifestPath !== null
+        && readGitBlob(
+          repositoryRoot,
+          `${built.treeSha}:${projection.retiredManifestPath}`
+        ) !== undefined) {
+      throw new Error('Successor freeze candidate tree retained the prior pointer manifest.');
+    }
     const operation = createFreezeOperation(built.treeSha, built.bytes);
     await input.beforeInitialJournalFence?.();
     await assertInitialFreezeObservationFence({
@@ -6543,7 +6670,10 @@ export async function freezeDocumentControlPlaneV1(input: {
         { filePath: manifestFile, expectedBytes: manifestBytes, label: 'manifest' },
         { filePath: pointerFile, expectedBytes: pointerPre, label: 'active pointer' },
         { filePath: rollingPlanFile, expectedBytes: rollingPlanWorktree, label: 'rolling plan' }
-      ]
+      ],
+      absentWorktreePaths: projection.retiredManifestPath === null
+        ? []
+        : [projection.retiredManifestPath]
     });
     const journalBytes = await writeFreezeJournal(
       repositoryRoot,
@@ -6900,6 +7030,9 @@ export async function resolveLiveControlPlane(
   );
 
   const candidateManifestBlob = snapshot.candidateManifestBlob;
+  if (candidateManifestBlob === undefined) {
+    throw new Error('Rolling transition active manifest is absent from the candidate index.');
+  }
   if (rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1') {
     const candidateManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
       decodeUtf8(candidateManifestBlob, 'Rolling transition active manifest'),
