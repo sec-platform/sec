@@ -37,6 +37,35 @@ export interface BranchLifecycleSelectionPullRequestV1 {
   readonly baseSha: string;
 }
 
+function physicalBranchIdentityKey(branch: string, headSha: string): string {
+  return `${branch}\0${headSha}`;
+}
+
+/**
+ * Retain every live PR plus only historical PRs whose exact head still has a
+ * physical local-ref, remote-ref, or attached-worktree consumer. Historical
+ * PR comments cannot authorize or diagnose an absent branch, so loading them
+ * would turn a bounded physical inventory into an unbounded repository-history
+ * scan without adding lifecycle evidence.
+ */
+export function selectBranchLifecyclePullRequestsV1(
+  pullRequests: readonly BranchPullRequestObservation[],
+  physicalBranchIdentities: readonly Readonly<{ branch: string; headSha: string }>[]
+): BranchPullRequestObservation[] {
+  const physical = new Set(
+    physicalBranchIdentities.map(({ branch, headSha }) => (
+      physicalBranchIdentityKey(branch, headSha)
+    ))
+  );
+  return pullRequests.filter((pullRequest) => (
+    pullRequest.state === 'open'
+    || (
+      pullRequest.headSha !== null
+      && physical.has(physicalBranchIdentityKey(pullRequest.headBranch, pullRequest.headSha))
+    )
+  ));
+}
+
 export interface BranchLifecycleProspectiveTransportV1 {
   readonly branch: string;
   readonly headSha: string;

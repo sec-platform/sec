@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import { projectBranchLifecycleForWorkSelectionV1 } from '../../scripts/codex/branch-lifecycle-audit.ts';
+import {
+  projectBranchLifecycleForWorkSelectionV1,
+  selectBranchLifecyclePullRequestsV1
+} from '../../scripts/codex/branch-lifecycle-audit.ts';
 import {
   createBranchLifecycleGitChildEnvironmentV1,
   createBranchLifecycleGitHubCredentialArgsV1,
@@ -22,6 +25,55 @@ const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const RACE_SHA = '3333333333333333333333333333333333333333';
 const WORKTREE_REF = `sha256:${'a'.repeat(64)}` as const;
+
+test('lifecycle inventory retains live PRs and only exact physical historical heads', () => {
+  const pullRequests = [
+    {
+      number: 1,
+      headBranch: 'feat/open',
+      headSha: null,
+      baseBranch: 'main',
+      state: 'open' as const,
+      isDraft: true,
+      isCrossRepository: false,
+      url: null
+    },
+    {
+      number: 2,
+      headBranch: 'fix/residue',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      state: 'merged' as const,
+      isDraft: false,
+      isCrossRepository: false,
+      url: null
+    },
+    {
+      number: 3,
+      headBranch: 'fix/residue',
+      headSha: RACE_SHA,
+      baseBranch: 'main',
+      state: 'closed' as const,
+      isDraft: false,
+      isCrossRepository: false,
+      url: null
+    },
+    {
+      number: 4,
+      headBranch: 'docs/absent',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      state: 'closed' as const,
+      isDraft: false,
+      isCrossRepository: false,
+      url: null
+    }
+  ];
+
+  expect(selectBranchLifecyclePullRequestsV1(pullRequests, [
+    { branch: 'fix/residue', headSha: HEAD_SHA }
+  ]).map(({ number }) => number)).toEqual([1, 2]);
+});
 
 test('canonical bounded GitHub credential helper is deterministic', () => {
   expect(createBranchLifecycleGitHubCredentialArgsV1()).toEqual([
