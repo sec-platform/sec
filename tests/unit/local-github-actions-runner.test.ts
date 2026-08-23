@@ -374,11 +374,11 @@ describe('local GitHub Actions runner contract', () => {
     expect(bakeDockerfile).not.toContain('$$(python3');
     expect(bakeDockerfile).not.toContain('$$(node');
     expect(bakeDockerfile).not.toContain('$$UBUNTU_SNAPSHOT');
-    const projectionArgs = createLocalGitHubActionsRunnerProjectionBuildxArgsV1(
-      'D:\\cache\\layout'
-    );
+    const providerLayoutPath = path.resolve('cache', 'layout');
+    const projectionArgs = createLocalGitHubActionsRunnerProjectionBuildxArgsV1(providerLayoutPath);
     expect(projectionArgs).toContain(
-      `runtime=oci-layout://D:/cache/layout@${LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1}`
+      `runtime=oci-layout://${providerLayoutPath.split(path.sep).join('/')}@`
+        + LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1
     );
     expect(projectionArgs).toContain('type=docker');
     expect(projectionArgs).toContain('--provenance=false');
