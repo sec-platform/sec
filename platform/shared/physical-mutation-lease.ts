@@ -23,6 +23,8 @@ export interface PhysicalMutationLeaseOwnerV1 {
 
 export interface PhysicalMutationLeaseHandleV1 {
   readonly owner: PhysicalMutationLeaseOwnerV1;
+  /** Exact dead local owner whose durable generation was retired while acquiring this lease. */
+  readonly reclaimedOwner: PhysicalMutationLeaseOwnerV1 | null;
   release(): void;
 }
 
@@ -114,6 +116,7 @@ export function acquirePhysicalMutationLeaseV1(
   const isProcessAlive = options.processAlive ?? processLiveness;
 
   let acquired = false;
+  let reclaimedOwner: PhysicalMutationLeaseOwnerV1 | null = null;
   for (let attempt = 0; attempt < 4 && !acquired; attempt += 1) {
     try {
       publishExclusiveDurableCanonicalFileV1({ parent, name, bytes, validate: () => undefined });
@@ -136,6 +139,7 @@ export function acquirePhysicalMutationLeaseV1(
         inode: confirmed!.inode,
         ancestorDirectories: []
       });
+      reclaimedOwner = existingOwner;
     }
   }
   if (!acquired) return null;
@@ -143,6 +147,7 @@ export function acquirePhysicalMutationLeaseV1(
   let released = false;
   return Object.freeze({
     owner,
+    reclaimedOwner,
     release(): void {
       if (released) return;
       const current = inspectNoFollowOrdinaryFileEntryV1(parent, name);

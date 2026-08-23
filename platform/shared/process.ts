@@ -24,12 +24,14 @@ export interface ByteCommandResult {
 }
 
 export interface RunCommandOptions {
+  admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
   beforeSpawn?: CommitFence;
   cwd: string;
   env?: NodeJS.ProcessEnv;
   envMode?: 'inherit' | 'replace';
   maxStderrBytes?: number;
   maxStdoutBytes?: number;
+  stallTimeoutMs?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -175,6 +177,16 @@ async function runCommandCapture(
       throw new Error(`${label} must be a non-negative safe integer`);
     }
   }
+  if (options.stallTimeoutMs !== undefined && (
+    !Number.isSafeInteger(options.stallTimeoutMs) || options.stallTimeoutMs < 1
+    || !Number.isSafeInteger(options.timeoutMs) || (options.timeoutMs ?? 0) < 1
+    || options.stallTimeoutMs >= (options.timeoutMs ?? 0)
+    || options.admitProgress === undefined
+  )) {
+    throw new Error(
+      'stallTimeoutMs requires a shorter positive semantic-progress deadline and an absolute timeout'
+    );
+  }
   const inheritedEnv = options.envMode === 'replace' ? {} : process.env;
   const env = Object.fromEntries(
     Object.entries({
@@ -204,9 +216,11 @@ async function runCommandCapture(
     let settled = false;
     let terminating = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let stallTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = (): void => {
       if (timeoutId) clearTimeout(timeoutId);
+      if (stallTimeoutId) clearTimeout(stallTimeoutId);
       options.signal?.removeEventListener('abort', onAbort);
     };
     const settleReject = (error: Error): void => {
@@ -236,9 +250,33 @@ async function runCommandCapture(
       }, options.timeoutMs);
     }
 
+    const armStallTimeout = (): void => {
+      if (options.stallTimeoutMs === undefined) return;
+      if (stallTimeoutId) clearTimeout(stallTimeoutId);
+      stallTimeoutId = setTimeout(() => {
+        terminateAndReject(
+          `Command "${command}" made no admitted progress for ${options.stallTimeoutMs}ms`
+        );
+      }, options.stallTimeoutMs);
+    };
+    const admitProgress = (chunk: Buffer, stream: 'stdout' | 'stderr'): boolean => {
+      if (options.admitProgress === undefined) return true;
+      try {
+        return options.admitProgress(chunk, stream);
+      } catch (error) {
+        terminateAndReject(
+          `Command "${command}" progress admission failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+        return false;
+      }
+    };
+    armStallTimeout();
+
     child.stdout.on('data', (chunk) => {
       if (settled || terminating) return;
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (admitProgress(bytes, 'stdout')) armStallTimeout();
+      if (terminating) return;
       if (options.maxStdoutBytes !== undefined && stdoutBytes + bytes.byteLength > options.maxStdoutBytes) {
         terminateAndReject(`Command "${command}" stdout exceeded ${options.maxStdoutBytes} bytes`);
         return;
@@ -253,6 +291,8 @@ async function runCommandCapture(
     child.stderr.on('data', (chunk) => {
       if (settled || terminating) return;
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (admitProgress(bytes, 'stderr')) armStallTimeout();
+      if (terminating) return;
       if (options.maxStderrBytes !== undefined && stderrBytes + bytes.byteLength > options.maxStderrBytes) {
         terminateAndReject(`Command "${command}" stderr exceeded ${options.maxStderrBytes} bytes`);
         return;

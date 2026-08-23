@@ -1,0 +1,135 @@
+{
+  "schema": "sec-linux-verification-environment-authority-v1",
+  "environmentId": "sec-linux-verification-v1",
+  "platform": "linux/amd64",
+  "image": {
+    "name": "sec-actions-runner",
+    "buildRevision": "trust-domains-node24-python312-gh297-buildkit-v10",
+    "lineageSchema": "sec-local-github-actions-provider-state-v2",
+    "runtimeContentDigest": "sha256:703ab55cdd87cfadd8bca77adc6ba858d1bc44b7314c5ead3fbc3676e6817017",
+    "dockerProjectionDigest": "sha256:859df0e6886706c1c91b3b529397421ffd08a0d1ffed58df8b3019f187b859b1",
+    "retirements": [
+      {
+        "imageId": "sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f",
+        "imageTag": "sec-actions-runner:2.336.0-trust-domains-node24-python312-gh297-archive-v8",
+        "replacementImageId": "sha256:859df0e6886706c1c91b3b529397421ffd08a0d1ffed58df8b3019f187b859b1",
+        "decision": "superseded-by-trust-domains-node24-python312-gh297-buildkit-v10"
+      },
+      {
+        "imageId": "sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf",
+        "imageTag": "sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7",
+        "replacementImageId": "sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f",
+        "decision": "superseded-by-trust-domains-node24-python312-gh297-archive-v8"
+      },
+      {
+        "imageId": "sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e",
+        "imageTag": "sec-actions-runner:2.336.0-trust-domains-node24-python312-v6",
+        "replacementImageId": "sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf",
+        "decision": "superseded-by-trust-domains-node24-python312-archive-v7"
+      },
+      {
+        "imageId": "sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209",
+        "imageTag": "sec-actions-runner:2.336.0-trust-domains-node24-python312-v4",
+        "replacementImageId": "sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf",
+        "decision": "superseded-by-trust-domains-node24-python312-archive-v7"
+      },
+      {
+        "imageId": "sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a",
+        "imageTag": "sec-actions-runner:2.336.0-trust-domains-node24-v3",
+        "replacementImageId": "sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf",
+        "decision": "superseded-by-trust-domains-node24-python312-archive-v7"
+      }
+    ]
+  },
+  "provider": {
+    "requirement": "docker-buildx-bake-buildkit-rawjson-oci-export-v1",
+    "sourcePolicyRevision": "ubuntu-snapshot-checksum-v1",
+    "githubHost": "github.com",
+    "sourceDateEpoch": 1787482800,
+    "dockerfileFrontend": {
+      "version": "1.19.0",
+      "reference": "docker/dockerfile:1.19.0@sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6",
+      "digest": "sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6"
+    },
+    "progressMode": "rawjson",
+    "progressAdmission": "buildkit-monotonic-v1",
+    "timeoutsMs": {
+      "commandDefault": 120000,
+      "commandMaximum": 7200000,
+      "materializeAbsolute": 7200000,
+      "materializeStall": 600000,
+      "projectionAbsolute": 600000,
+      "projectionStall": 120000
+    }
+  },
+  "provenance": {
+    "materializationMode": "max",
+    "dockerProjectionMode": "disabled",
+    "receiptSchema": "sec-environment-oci-cache-receipt-v2"
+  },
+  "ubuntu": {
+    "version": "24.04",
+    "baseReference": "ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+    "baseDigest": "sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+    "snapshot": "20260823T110000Z",
+    "snapshotUrl": "https://snapshot.ubuntu.com/ubuntu/",
+    "suites": ["noble", "noble-updates", "noble-backports", "noble-security"],
+    "components": ["main", "universe", "restricted", "multiverse"],
+    "aptCacheId": "sec-ubuntu-noble-apt-cache-v1",
+    "aptRetries": 5,
+    "packages": [
+      "ca-certificates", "curl", "git", "jq", "python3", "unzip", "xz-utils",
+      "libicu74", "libssl3", "libkrb5-3", "zlib1g", "libasound2t64",
+      "libatk-bridge2.0-0", "libatk1.0-0", "libcairo2", "libcups2",
+      "libdbus-1-3", "libdrm2", "libgbm1", "libglib2.0-0t64", "libnspr4",
+      "libnss3", "libpango-1.0-0", "libx11-6", "libxcb1", "libxcomposite1",
+      "libxdamage1", "libxext6", "libxfixes3", "libxkbcommon0", "libxrandr2"
+    ]
+  },
+  "archives": {
+    "bootstrapCa": {
+      "version": "2026-08-13",
+      "url": "https://curl.se/ca/cacert-2026-08-13.pem",
+      "digest": "sha256:f66dff1bdf8f96060b8177976f8b7d9254bc89bc4db933d769f7384d28480bc9",
+      "mountMode": "0444"
+    },
+    "node": {
+      "version": "24.19.0",
+      "url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz",
+      "digest": "sha256:14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647"
+    },
+    "runner": {
+      "version": "2.336.0",
+      "url": "https://github.com/actions/runner/releases/download/v2.336.0/actions-runner-linux-x64-2.336.0.tar.gz",
+      "digest": "sha256:04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d"
+    },
+    "githubCli": {
+      "version": "2.97.0",
+      "url": "https://github.com/cli/cli/releases/download/v2.97.0/gh_2.97.0_linux_amd64.tar.gz",
+      "digest": "sha256:a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112"
+    }
+  },
+  "trustedRuntime": {
+    "imageName": "sec-trusted-runtime:bun-1.3.14-v2",
+    "imageDigest": "sha256:3b7d40b2efadd6570a2536224cc05b1b2342785d855805620b5b428abb428109",
+    "imageSchema": "sec-trusted-runtime-container-v1",
+    "bunVersion": "1.3.14",
+    "bunArchiveUrl": "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip",
+    "bunArchiveDigest": "sha256:951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+  },
+  "runtime": {
+    "pythonVersion": "3.12.3",
+    "containerInitCapability": "docker-init-v1",
+    "labels": ["self-hosted", "Linux", "X64", "sec-linux-verification-v1"],
+    "roleLabels": {
+      "control": "sec-linux-verification-control-v1",
+      "trusted": "sec-linux-verification-trusted-v1",
+      "sut": "sec-linux-verification-sut-v1"
+    },
+    "resources": {
+      "control": { "cpus": 8, "memoryGiB": 12, "pids": 4096 },
+      "trusted": { "cpus": 8, "memoryGiB": 12, "pids": 4096 },
+      "sut": { "cpus": 2, "memoryGiB": 4, "pids": 256 }
+    }
+  }
+}

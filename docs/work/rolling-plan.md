@@ -12,18 +12,23 @@ last-reviewed: 2026-08-23
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:54c1f6cb8f103093cd9481021e470eec85cfccbffbe858ae7058683fe4fbcaf4",
-    "manifestPath": "docs/work-packages/git-worktree-physical-closeout-v1.md",
-    "packageId": "git-worktree-physical-closeout-v1",
-    "tracking": "issue-186"
+    "manifestDigest": "sha256:f3002db74f403fc5b6c0efd7b37b5db1b50c5d5f510cebe3f8d6ad9857cf4910",
+    "manifestPath": "docs/work-packages/default-branch-health-repair-4291ea94f26858c6570144f6632100a568832039-9606c61e638edb6562dd98421c5442fd28aca119c1fd8a9f472d74c1f606c010.md",
+    "packageId": "default-branch-health-repair-4291ea94f26858c6570144f6632100a568832039-9606c61e638edb6562dd98421c5442fd28aca119c1fd8a9f472d74c1f606c010",
+    "tracking": "none"
   },
   "authority": {
-    "kind": "committed-candidate-replan",
-    "sourceHead": "1a7ffe0845265757bc77db2fa50c5ade8e12dff9",
-    "sourceManifestDigest": "sha256:74a319caa07ec283b4af6fe4bb1cbc5232b683d009de5ebec70a2c406a2e1602",
-    "sourcePointerRevision": "sha256:fd6a3879810fb38d97e2efdac2ffe4a43de432736de62f1eb9caa11969bf6b08",
-    "sourceRollingRevision": "sha256:ba6adb96718a562c869f3e5b6bc2887eda5c6fcfd5e67fee45957528adae7117",
-    "sourceTree": "c335a3463416f2d4a6d229a973c9ef9d6b215851"
+    "bootstrapObservationDigest": "sha256:73d8afcd21593ff06f4298177eb8d12fd75852b7012429772bcbe5ebb6ef4317",
+    "defaultBranch": "main",
+    "failureFingerprints": [
+      "sha256:73d8afcd21593ff06f4298177eb8d12fd75852b7012429772bcbe5ebb6ef4317"
+    ],
+    "healthRevision": "sha256:5451991bcaa00c527ca761d9d34256ebed6182043cbfb10727f44dc5942346e6",
+    "kind": "manual-main-health-bootstrap",
+    "owner": "ci-verification-maintainer",
+    "publishedActivePackageId": "git-worktree-physical-closeout-v1",
+    "repository": "sec-platform/sec",
+    "retirementPolicy": "exact-new-main-readback"
   },
   "candidates": [
     "operation-read-plan-authority-canary-v1",
@@ -31,36 +36,36 @@ last-reviewed: 2026-08-23
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "489518c3bd8b28753473e43ecb2e236452dee0b9",
-  "exactMainTree": "2078e2accab07775ce0da60ef3c93aafe0b11a09",
-  "projectionDigest": "sha256:19da89774266731d19e3b2b6e5c5db7d2a7dc4336e1b37a72ce0bee49e78b9ce",
+  "exactMain": "4291ea94f26858c6570144f6632100a568832039",
+  "exactMainTree": "352af4cbae1b76276b312372b8c12170452ac3d7",
+  "projectionDigest": "sha256:0768c547a0442c41d2cf715533a6c91f1fbb9cce46f4e2dc5fb06a930e503fcc",
   "schema": "sec-work-rolling-transition-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### git-worktree-physical-closeout-v1
+### default-branch-health-repair-4291ea94f26858c6570144f6632100a568832039-9606c61e638edb6562dd98421c5442fd28aca119c1fd8a9f472d74c1f606c010
 
-Existing active package replan bound to exact source head `1a7ffe0845265757bc77db2fa50c5ade8e12dff9`, source tree `c335a3463416f2d4a6d229a973c9ef9d6b215851`, manifest `sha256:54c1f6cb8f103093cd9481021e470eec85cfccbffbe858ae7058683fe4fbcaf4`, and authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
+Final manual MainHealth bootstrap bound to observation `sha256:73d8afcd21593ff06f4298177eb8d12fd75852b7012429772bcbe5ebb6ef4317`, health `sha256:5451991bcaa00c527ca761d9d34256ebed6182043cbfb10727f44dc5942346e6`, manifest `sha256:f3002db74f403fc5b6c0efd7b37b5db1b50c5d5f510cebe3f8d6ad9857cf4910`, and authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`; it retires only after exact new-main readback.
 
 ## 候选 Work Package
 
 ### 1. operation-read-plan-authority-canary-v1
 
-Retained ordered candidate from transition authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
+Retained ordered candidate from transition authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`.
 
 ### 2. sec-static-convergence-v1
 
-Retained ordered candidate from transition authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
+Retained ordered candidate from transition authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`.
 
 ### 3. candidate-control-transaction-v1
 
-Retained ordered candidate from transition authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
+Retained ordered candidate from transition authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`.
 
 ### 4. typescript-7-checker-acceleration-v1
 
-Retained ordered candidate from transition authority `sha256:7d1eb4756eb43a407c3ad3d591f421a9bdd95ae42e345d5505c2b92587e0592f`.
+Retained ordered candidate from transition authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`.
 
 ## 重新规划硬触发器
 

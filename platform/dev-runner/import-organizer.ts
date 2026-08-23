@@ -599,7 +599,11 @@ async function materializeCandidateIndex(
     }
     await beforeWrite?.(snapshotRoot);
     const prefix = `${retainedSnapshot.childPath.replace(/\\/gu, '/')}/`;
-    const args = ['checkout-index', '--all', '--force', `--prefix=${prefix}`];
+    // The index may contain canonical content-addressed owner names whose
+    // absolute snapshot path exceeds Win32's legacy MAX_PATH. Keep this
+    // invocation self-contained instead of relying on mutable repository or
+    // machine Git configuration.
+    const args = ['-c', 'core.longpaths=true', 'checkout-index', '--all', '--force', `--prefix=${prefix}`];
     gitBytes(
       projectRoot,
       args,

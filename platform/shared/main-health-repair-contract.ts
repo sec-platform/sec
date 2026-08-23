@@ -10,6 +10,10 @@ export const MAIN_HEALTH_REPAIR_DECISION_SCHEMA_V1 =
 
 export type MainHealthRepairReasonCodeV1 =
   | 'repair-ready'
+  | 'repair-provider-missing'
+  | 'repair-provider-unavailable'
+  | 'repair-provider-invalid'
+  | 'repair-provider-conflict'
   | 'repair-ledger-invalid'
   | 'repair-ledger-expired'
   | 'repair-ledger-identity-drift'
@@ -46,6 +50,14 @@ export interface MainHealthRepairDecisionV1 {
   readonly decisionDigest: MainHealthDigest;
 }
 
+export type MainHealthRepairObservationV1 = Readonly<
+  | { kind: 'available'; ledger: unknown }
+  | { kind: 'provider-missing'; observationRef: MainHealthDigest }
+  | { kind: 'provider-unavailable'; observationRef: MainHealthDigest }
+  | { kind: 'provider-invalid'; observationRef: MainHealthDigest }
+  | { kind: 'provider-conflict'; observationRef: MainHealthDigest }
+>;
+
 function blocked(
   reasonCode: Exclude<MainHealthRepairReasonCodeV1, 'repair-ready'>,
   observationDigest: MainHealthDigest,
@@ -63,7 +75,7 @@ function blocked(
 }
 
 export function compileMainHealthRepairDecisionV1(input: Readonly<{
-  ledger: unknown;
+  observation: MainHealthRepairObservationV1;
   now: string;
   expectedRepository: string;
   expectedDefaultBranch: string;
@@ -71,9 +83,19 @@ export function compileMainHealthRepairDecisionV1(input: Readonly<{
   expectedMainTreeSha: string;
   expectedTrustRevision: string;
 }>): MainHealthRepairDecisionV1 {
-  const observationDigest = sha256(input.ledger) as MainHealthDigest;
+  const observationDigest = sha256(input.observation) as MainHealthDigest;
+  if (input.observation.kind !== 'available') {
+    const reasonCode = input.observation.kind === 'provider-missing'
+      ? 'repair-provider-missing'
+      : input.observation.kind === 'provider-unavailable'
+        ? 'repair-provider-unavailable'
+        : input.observation.kind === 'provider-conflict'
+          ? 'repair-provider-conflict'
+          : 'repair-provider-invalid';
+    return blocked(reasonCode, observationDigest, 'locked');
+  }
   const lane = resolveRepairMainHealthLaneV1({
-    ledger: input.ledger,
+    ledger: input.observation.ledger,
     now: input.now,
     expectedRepository: input.expectedRepository,
     expectedDefaultBranch: input.expectedDefaultBranch,

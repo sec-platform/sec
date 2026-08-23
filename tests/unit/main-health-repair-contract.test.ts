@@ -58,7 +58,7 @@ function decide(value: unknown, overrides: Partial<{
   expectedMainSha: string;
 }> = {}) {
   return compileMainHealthRepairDecisionV1({
-    ledger: value,
+    observation: { kind: 'available', ledger: value },
     now: overrides.now ?? OBSERVED_AT,
     expectedRepository: overrides.expectedRepository ?? 'sec-platform/sec',
     expectedDefaultBranch: 'main',
@@ -90,6 +90,27 @@ test('degraded exact-main repair decision binds the whole routing identity', () 
   expect(result.decisionDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(Object.isFrozen(result)).toBe(true);
   expect(Object.isFrozen(result.binding)).toBe(true);
+});
+
+test('provider absence, transport failure, invalidity, and conflict remain distinct locked states', () => {
+  for (const [kind, reasonCode] of [
+    ['provider-missing', 'repair-provider-missing'],
+    ['provider-unavailable', 'repair-provider-unavailable'],
+    ['provider-invalid', 'repair-provider-invalid'],
+    ['provider-conflict', 'repair-provider-conflict']
+  ] as const) {
+    const result = compileMainHealthRepairDecisionV1({
+      observation: { kind, observationRef: SOURCE },
+      now: OBSERVED_AT,
+      expectedRepository: 'sec-platform/sec',
+      expectedDefaultBranch: 'main',
+      expectedMainSha: MAIN,
+      expectedMainTreeSha: TREE,
+      expectedTrustRevision: MAIN
+    });
+    expect(result).toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode });
+    expect(result.binding).toBeNull();
+  }
 });
 
 test('repair routing distinguishes ineligible, expired, drifted, malformed, and invalid identities', () => {

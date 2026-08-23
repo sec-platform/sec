@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { createMainHealthRepairWorkPackagePathV1 } from '../../platform/shared/main-health-contract.ts';
 import type { SecCurrentWorkLifecycleV1 } from '../../platform/shared/work-selection-contract.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
@@ -468,7 +469,10 @@ describe('work-selection live contract', () => {
     const fixtureParent = mkdtempSync(path.join(tmpdir(), 'sec-terminal-provider-replay-'));
     const root = path.join(fixtureParent, 'repository');
     try {
-      const clone = spawnSync('git', ['clone', '--quiet', '--shared', process.cwd(), root], {
+      const clone = spawnSync('git', [
+        '-c', 'core.longpaths=true',
+        'clone', '--quiet', '--shared', process.cwd(), root
+      ], {
         encoding: 'buffer',
         windowsHide: true
       });
@@ -480,8 +484,56 @@ describe('work-selection live contract', () => {
       runFixtureGit(root, ['checkout', '--quiet', '-B', 'main', 'HEAD']);
 
       const prior = transitionCatalog();
+      const seedSha = fixtureGitSha(root, 'HEAD');
+      const seedTree = fixtureGitSha(root, 'HEAD^{tree}');
+      const packageId = 'git-worktree-physical-closeout-v1';
+      const manifestPath = `docs/work-packages/${packageId}.md`;
+      const manifestSource = `---\n`
+        + `schema: codex-development-work-package-v1\n`
+        + `id: ${packageId}\ntracking: issue-186\nbase: ${seedSha}\n`
+        + `manifestState: frozen\nrequiredProfile: quick\nciRevision: ci-verification-v19\n`
+        + `authorityRefs:\n  - development-governance\n`
+        + `tasks:\n  - id: terminal-fixture\n    owner: development-governance-owner\n`
+        + `    ownedPaths:\n      - ${manifestPath}\n`
+        + `forbiddenPaths:\n  - package.json\n`
+        + `acceptance:\n  - terminal fixture remains self contained\n`
+        + `tests:\n  - tests/unit/work-selection-live.test.ts\n---\n`;
+      const manifestDirectory = path.join(root, 'docs', 'work-packages');
+      rmSync(manifestDirectory, { recursive: true, force: true });
+      mkdirSync(manifestDirectory, { recursive: true });
+      writeFileSync(path.join(root, manifestPath), manifestSource, 'utf8');
+      const manifestDigest = rawSha256(manifestSource);
+      writeFileSync(path.join(root, 'docs', 'work', 'active-work-package.md'), `---\n`
+        + `schema: sec-active-work-package-pointer-v2\nstatus: conditional\nlast-reviewed: 2026-08-23\n---\n\n`
+        + `# 当前唯一 Active Work Package\n\n\`\`\`yaml\n`
+        + `selectionMode: exact-manifest-not-on-default-branch-v1\n`
+        + `defaultBranchRef: refs/remotes/origin/main\n`
+        + `defaultRefFreshness: live-platform-match-required\nmanifest: ${manifestPath}\n`
+        + `manifestDigest: ${manifestDigest}\ndigestBytes: git-blob\n`
+        + `unavailableDefaultRef: unresolved\nmatchingDefaultBlob: none\n\`\`\`\n`, 'utf8');
+      const priorRolling = compileSecWorkRollingTransitionProjectionV1({
+        exactMain: seedSha,
+        exactMainTree: seedTree,
+        authority: {
+          kind: 'committed-candidate-replan',
+          sourceHead: seedSha,
+          sourceTree: seedTree,
+          sourceManifestDigest: manifestDigest,
+          sourcePointerRevision: rawSha256('terminal-fixture-pointer'),
+          sourceRollingRevision: rawSha256('terminal-fixture-rolling')
+        },
+        active: { packageId, tracking: 'issue-186', manifestPath, manifestDigest },
+        candidates: [
+          'operation-read-plan-authority-canary-v1',
+          'sec-static-convergence-v1',
+          'candidate-control-transaction-v1',
+          'typescript-7-checker-acceleration-v1'
+        ]
+      });
+      writeFileSync(path.join(root, 'docs', 'work', 'rolling-plan.md'),
+        renderSecWorkRollingTransitionPlanV1({ projection: priorRolling, reviewedOn: '2026-08-23' }), 'utf8');
       writeFileSync(path.join(root, 'docs', 'roadmap.md'), prior.source, 'utf8');
-      runFixtureGit(root, ['add', '--', 'docs/roadmap.md']);
+      runFixtureGit(root, ['add', '--', 'docs/roadmap.md', 'docs/work', 'docs/work-packages']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal base']);
       const baseSha = fixtureGitSha(root, 'HEAD');
       const baseTreeSha = fixtureGitSha(root, 'HEAD^{tree}');
@@ -747,6 +799,61 @@ describe('work-selection live contract', () => {
       /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
       `"projectionDigest": "sha256:${'0'.repeat(64)}"`
     ))).toThrow(/does not bind/u);
+  });
+
+  test('manual bootstrap projection records the final external observation without forging a repair ledger', () => {
+    const failureFingerprint = rawSha256('materialization-failure');
+    const manifestPath = createMainHealthRepairWorkPackagePathV1({
+      repository: 'sec-platform/sec',
+      defaultBranch: 'main',
+      mainSha: exactMain,
+      mainTreeSha: exactMainTree,
+      owner: 'ci-verification-maintainer',
+      failureFingerprints: [failureFingerprint]
+    });
+    const packageId = manifestPath.slice('docs/work-packages/'.length, -'.md'.length);
+    const projection = compileSecWorkRollingTransitionProjectionV1({
+      exactMain,
+      exactMainTree,
+      authority: {
+        kind: 'manual-main-health-bootstrap',
+        repository: 'sec-platform/sec',
+        defaultBranch: 'main',
+        owner: 'ci-verification-maintainer',
+        healthRevision: rawSha256('provider-missing-health'),
+        bootstrapObservationDigest: rawSha256('exact-materialization-observation'),
+        failureFingerprints: [failureFingerprint],
+        publishedActivePackageId: 'published-active-v1',
+        retirementPolicy: 'exact-new-main-readback'
+      },
+      active: {
+        packageId,
+        tracking: 'none',
+        manifestPath,
+        manifestDigest: rawSha256('bootstrap-manifest')
+      },
+      candidates: ['candidate-two-v1', 'candidate-three-v1']
+    });
+    const rendered = renderSecWorkRollingTransitionPlanV1({ projection, reviewedOn: '2026-08-23' });
+    const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
+    expect(machine).toBeDefined();
+    expect(parseSecWorkRollingMachineProjectionV1(machine!)).toEqual(projection);
+    expect(rendered).toContain('Final manual MainHealth bootstrap bound to observation');
+    expect(rendered).not.toContain('bound to decision');
+    expect(() => compileSecWorkRollingTransitionProjectionV1({
+      ...projection,
+      authority: {
+        kind: 'manual-main-health-bootstrap',
+        repository: 'sec-platform/sec',
+        defaultBranch: 'main',
+        owner: 'ci-verification-maintainer',
+        healthRevision: rawSha256('provider-missing-health'),
+        bootstrapObservationDigest: rawSha256('exact-materialization-observation'),
+        failureFingerprints: [rawSha256('materialization-failure')],
+        publishedActivePackageId: 'published-active-v1',
+        retirementPolicy: 'never' as never
+      }
+    })).toThrow('manual MainHealth bootstrap authority identity is invalid');
   });
 
   test('#352 completion evidence is the stable prerequisite transition for #186', () => {

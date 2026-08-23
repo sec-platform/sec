@@ -42,6 +42,12 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     git(repoRoot, ['config', 'core.autocrlf', 'false']);
     git(repoRoot, ['config', 'core.hooksPath', '.git/hooks']);
+    const workPackageDirectory = path.join(repoRoot, 'docs', 'work-packages');
+    await mkdir(workPackageDirectory, { recursive: true });
+    const longCanonicalOwner = path.join(
+      workPackageDirectory,
+      `default-branch-health-repair-${'a'.repeat(120)}-${'b'.repeat(64)}.md`
+    );
     await Promise.all([
       writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
         compilerOptions: {
@@ -54,9 +60,10 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
         include: ['**/*.ts']
       }, null, 2)}\n`, 'utf8'),
       writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
-      writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8')
+      writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8'),
+      writeFile(longCanonicalOwner, 'canonical owner fixture\n', 'utf8')
     ]);
-    git(repoRoot, ['add', '--all']);
+    git(repoRoot, ['-c', 'core.longpaths=true', 'add', '--all']);
     git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
     const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
 

@@ -12,6 +12,7 @@ import {
   parseDocumentationAuthorityRegistry,
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 
@@ -902,31 +903,31 @@ test('every package version authority binds package.json and bun.lock exact iden
 test('external runner release authority binds exact primary-source archive and base image digests', async () => {
   await withLedgerFixture(async (root, registry) => {
     const base = fixtureState();
+    const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1;
     const localRunner = {
       id: 'github-actions-local-runner',
       category: 'workflow-runtime',
       capability: 'workflow-execution',
       decision: 'integrate-adapter',
       lifecycle: 'active',
-      observedVersion: '2.336.0',
+      observedVersion: environment.archives.runner.version,
       versionAuthority: {
         kind: 'external-release',
-        release: 'https://github.com/actions/runner/releases/tag/v2.336.0',
-        artifact: 'https://github.com/actions/runner/releases/download/v2.336.0/'
-          + 'actions-runner-linux-x64-2.336.0.tar.gz',
-        artifactSha256: '04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d',
-        baseImage: 'ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea',
-        imageId: 'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f',
-        imageBuildRevision: 'trust-domains-node24-python312-gh297-archive-v8',
-        nodeVersion: '24.19.0',
-        nodeArtifact: 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz',
-        nodeArtifactSha256: '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
-        githubCliVersion: '2.97.0',
-        githubCliArtifact: 'https://github.com/cli/cli/releases/download/v2.97.0/gh_2.97.0_linux_amd64.tar.gz',
-        githubCliArtifactSha256: 'a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112',
-        pythonVersion: '3.12.3',
+        release: `https://github.com/actions/runner/releases/tag/v${environment.archives.runner.version}`,
+        artifact: environment.archives.runner.url,
+        artifactSha256: environment.archives.runner.digest.slice(7),
+        baseImage: environment.ubuntu.baseReference,
+        imageId: environment.image.dockerProjectionDigest,
+        imageBuildRevision: environment.image.buildRevision,
+        nodeVersion: environment.archives.node.version,
+        nodeArtifact: environment.archives.node.url,
+        nodeArtifactSha256: environment.archives.node.digest.slice(7),
+        githubCliVersion: environment.archives.githubCli.version,
+        githubCliArtifact: environment.archives.githubCli.url,
+        githubCliArtifactSha256: environment.archives.githubCli.digest.slice(7),
+        pythonVersion: environment.runtime.pythonVersion,
         zipExtractionCapability: 'info-zip-unzip-6.00',
-        containerInitCapability: 'docker-init-v1',
+        containerInitCapability: environment.runtime.containerInitCapability,
         sandboxRevision: 'sandbox-v4',
         outerSutContainerCapabilities: [
           'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
@@ -939,12 +940,8 @@ test('external runner release authority binds exact primary-source archive and b
           memoryBytes: 4_294_967_296,
           pids: 256
         },
-        roleProfiles: [
-          'sec-linux-verification-control-v1',
-          'sec-linux-verification-sut-v1',
-          'sec-linux-verification-trusted-v1'
-        ],
-        providerLeaseRef: 'refs/tags/sec-provider-lease-sec-linux-verification-v1',
+        roleProfiles: Object.values(environment.runtime.roleLabels).sort(),
+        providerLeaseRef: `refs/tags/sec-provider-lease-${environment.environmentId}`,
         providerLedgerSchema: 'sec-local-github-actions-provider-ledger-v3',
         providerLedgerAuthority: 'remote-cas-immutable-generations',
         providerLedgerObjectModel: 'git-commit-parent-chain-with-canonical-ledger-tree',
@@ -958,32 +955,7 @@ test('external runner release authority binds exact primary-source archive and b
         },
         imageRetirement: {
           ordinaryStopAuthority: 'none',
-          superseded: [
-            {
-              imageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-              imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7',
-              replacementImageId: 'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f',
-              decision: 'superseded-by-trust-domains-node24-python312-gh297-archive-v8'
-            },
-            {
-              imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
-              imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
-              replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-              decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-            },
-            {
-              imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
-              imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
-              replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-              decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-            },
-            {
-              imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
-              imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
-              replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-              decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-            }
-          ],
+          superseded: structuredClone(environment.image.retirements),
           requires: [
             'canonical-superseded-decision',
             'exact-daemon-zero-reference-readback',
