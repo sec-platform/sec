@@ -1,6 +1,6 @@
 import registrySource from './generated-state-registry.json' with { type: 'json' };
 
-import { rawSha256 } from './canonical-primitives.ts';
+import { canonicalEquals, rawSha256 } from './canonical-primitives.ts';
 
 export const GENERATED_STATE_REGISTRY_SCHEMA_V1 = 'sec-generated-state-registry-v1' as const;
 export const GENERATED_STATE_REGISTRATION_SCHEMA_V1 = 'sec-generated-state-registration-v1' as const;
@@ -627,7 +627,7 @@ export function assertGeneratedStateWorktreeRetirementV1(value: GeneratedStateWo
     registryDigest !== rebuilt.registryDigest ||
     terminal !== rebuilt.terminal ||
     receiptDigest !== rebuilt.receiptDigest ||
-    generatedStateDigestV1(value) !== generatedStateDigestV1(rebuilt)
+    !canonicalEquals(value, rebuilt)
   ) {
     fail('worktree retirement receipt is not canonical.');
   }

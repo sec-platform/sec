@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from 'no
 import os from 'node:os';
 import path from 'node:path';
 
+import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
 import { runCommandBytes } from '../../platform/shared/process.ts';
 import {
   assertGeneratedStateWorktreeRetirementEffectStartV1,
@@ -122,12 +123,13 @@ test('worktree retirement preserves every registry-covered ignored root outside 
   expect(receipt).not.toBeNull();
   expect(receipt).toMatchObject({ terminal: 'completed' });
   expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['.shared-deps', '.tmp', 'node_modules']);
+  const persistedReceipt = JSON.parse(JSON.stringify(canonicalJson(receipt))) as NonNullable<typeof receipt>;
   for (const relativePath of ['.shared-deps', '.tmp', 'node_modules']) {
     expect(await absent(path.join(fixture.workspaceRoot, relativePath))).toBe(true);
   }
   expect(() =>
     assertGeneratedStateWorktreeRetirementEffectStartV1({
-      receipt: receipt!,
+      receipt: persistedReceipt,
       repositoryRoot: fixture.repositoryRoot,
       workspaceRoot: fixture.workspaceRoot,
       expectedBranch: 'candidate',
@@ -139,7 +141,7 @@ test('worktree retirement preserves every registry-covered ignored root outside 
   await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'));
   expect(() =>
     assertGeneratedStateWorktreeRetirementEffectStartV1({
-      receipt: receipt!,
+      receipt: persistedReceipt,
       repositoryRoot: fixture.repositoryRoot,
       workspaceRoot: fixture.workspaceRoot,
       expectedBranch: 'candidate',
