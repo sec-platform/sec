@@ -7,6 +7,7 @@ import {
   documentationRecordByPath,
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 import {
   createVerificationProviderAvailabilityEpochV1,
   type VerificationProviderCapabilityInputV1
@@ -133,6 +134,7 @@ const EXTERNAL_PROVIDER_CAPABILITIES: Readonly<Record<string, {
   'security-analysis': { category: 'security', routingProfiles: ['security'] },
   'conformance-check': { category: 'conformance', routingProfiles: [] },
   'runtime-observation': { category: 'runtime', routingProfiles: [] },
+  'environment-materialization': { category: 'build-runtime', routingProfiles: [] },
   'workflow-execution': {
     category: 'workflow-runtime',
     routingProfiles: ['sec-linux-verification-v1']
@@ -221,51 +223,50 @@ function validateVersionAuthority(
         || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(observedVersion)) {
       throw new Error(`${label}.observedVersion must be an exact semantic version.`);
     }
-    const expectedPrefix = 'https://github.com/actions/runner/releases/';
-    if (authority.release !== `${expectedPrefix}tag/v${observedVersion}`
-        || authority.artifact !== `${expectedPrefix}download/v${observedVersion}/`
-          + `actions-runner-linux-x64-${observedVersion}.tar.gz`) {
+    const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1;
+    if (observedVersion !== environment.archives.runner.version
+        || authority.release !== `https://github.com/actions/runner/releases/tag/v${observedVersion}`
+        || authority.artifact !== environment.archives.runner.url) {
       throw new Error(`${label}.versionAuthority GitHub Actions runner release identity is invalid.`);
     }
     if (authority.artifactSha256
-        !== '04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d') {
+        !== environment.archives.runner.digest.slice(7)) {
       throw new Error(`${label}.versionAuthority.artifactSha256 must be an exact SHA-256 digest.`);
     }
     if (authority.baseImage
-        !== 'ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea') {
+        !== environment.ubuntu.baseReference) {
       throw new Error(`${label}.versionAuthority.baseImage must be an exact Ubuntu image digest.`);
     }
     if (authority.imageId
-        !== 'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f') {
+        !== environment.image.dockerProjectionDigest) {
       throw new Error(`${label}.versionAuthority.imageId must be an exact built image digest.`);
     }
-    if (authority.imageBuildRevision !== 'trust-domains-node24-python312-gh297-archive-v8') {
+    if (authority.imageBuildRevision !== environment.image.buildRevision) {
       throw new Error(`${label}.versionAuthority.imageBuildRevision must bind the image recipe revision.`);
     }
-    if (authority.nodeVersion !== '24.19.0') {
+    if (authority.nodeVersion !== environment.archives.node.version) {
       throw new Error(`${label}.versionAuthority.nodeVersion must bind the observed shell Node runtime.`);
     }
-    if (authority.nodeArtifact !== 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz') {
+    if (authority.nodeArtifact !== environment.archives.node.url) {
       throw new Error(`${label}.versionAuthority.nodeArtifact must bind the official Node.js binary.`);
     }
     if (authority.nodeArtifactSha256
-        !== '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647') {
+        !== environment.archives.node.digest.slice(7)) {
       throw new Error(`${label}.versionAuthority.nodeArtifactSha256 must bind the exact Node.js binary.`);
     }
-    if (authority.githubCliVersion !== '2.97.0'
-        || authority.githubCliArtifact
-          !== 'https://github.com/cli/cli/releases/download/v2.97.0/gh_2.97.0_linux_amd64.tar.gz'
+    if (authority.githubCliVersion !== environment.archives.githubCli.version
+        || authority.githubCliArtifact !== environment.archives.githubCli.url
         || authority.githubCliArtifactSha256
-          !== 'a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112') {
+          !== environment.archives.githubCli.digest.slice(7)) {
       throw new Error(`${label}.versionAuthority GitHub CLI identity is invalid.`);
     }
-    if (authority.pythonVersion !== '3.12.3') {
+    if (authority.pythonVersion !== environment.runtime.pythonVersion) {
       throw new Error(`${label}.versionAuthority.pythonVersion must bind the archive-inspection runtime.`);
     }
     if (authority.zipExtractionCapability !== 'info-zip-unzip-6.00') {
       throw new Error(`${label}.versionAuthority.zipExtractionCapability must bind setup archive extraction.`);
     }
-    if (authority.containerInitCapability !== 'docker-init-v1') {
+    if (authority.containerInitCapability !== environment.runtime.containerInitCapability) {
       throw new Error(`${label}.versionAuthority.containerInitCapability must bind persistent child reaping.`);
     }
     if (authority.sandboxRevision !== 'sandbox-v4') {
@@ -292,25 +293,22 @@ function validateVersionAuthority(
       'cpus', 'wallSeconds', 'aggregateCpuSeconds', 'perProcessCpuSeconds', 'memoryBytes', 'pids'
     ],
       `${label}.versionAuthority.sutResources`);
-    if ((sutResources as Record<string, unknown>).cpus !== 2 ||
+    if ((sutResources as Record<string, unknown>).cpus !== environment.runtime.resources.sut.cpus ||
         (sutResources as Record<string, unknown>).wallSeconds !== 3_600 ||
         (sutResources as Record<string, unknown>).aggregateCpuSeconds !== 7_200 ||
         (sutResources as Record<string, unknown>).perProcessCpuSeconds !== 7_200 ||
-        (sutResources as Record<string, unknown>).memoryBytes !== 4_294_967_296 ||
-        (sutResources as Record<string, unknown>).pids !== 256) {
+        (sutResources as Record<string, unknown>).memoryBytes
+          !== environment.runtime.resources.sut.memoryGiB * 1024 * 1024 * 1024 ||
+        (sutResources as Record<string, unknown>).pids !== environment.runtime.resources.sut.pids) {
       throw new Error(`${label}.versionAuthority.sutResources must bind the exact cgroup limits.`);
     }
     const roleProfiles = uniqueStrings(authority.roleProfiles, `${label}.versionAuthority.roleProfiles`);
-    const expectedRoles = [
-      'sec-linux-verification-control-v1',
-      'sec-linux-verification-sut-v1',
-      'sec-linux-verification-trusted-v1'
-    ];
+    const expectedRoles = Object.values(environment.runtime.roleLabels).sort();
     if (roleProfiles.length !== expectedRoles.length
         || roleProfiles.some((role, index) => role !== expectedRoles[index])) {
       throw new Error(`${label}.versionAuthority.roleProfiles must bind the exact trust-domain roles.`);
     }
-    if (authority.providerLeaseRef !== 'refs/tags/sec-provider-lease-sec-linux-verification-v1') {
+    if (authority.providerLeaseRef !== `refs/tags/sec-provider-lease-${environment.environmentId}`) {
       throw new Error(`${label}.versionAuthority.providerLeaseRef must bind the atomic provider lease.`);
     }
     if (authority.providerLedgerSchema !== 'sec-local-github-actions-provider-ledger-v3'
@@ -353,35 +351,12 @@ function validateVersionAuthority(
     exactKeys(imageRetirement, ['ordinaryStopAuthority', 'superseded', 'requires'],
       `${label}.versionAuthority.imageRetirement`);
     const superseded = imageRetirement.superseded;
-    if (!Array.isArray(superseded) || superseded.length !== 4) {
-      throw new Error(`${label}.versionAuthority.imageRetirement.superseded must bind four decisions.`);
+    const expectedSuperseded = environment.image.retirements;
+    if (!Array.isArray(superseded) || superseded.length !== expectedSuperseded.length) {
+      throw new Error(
+        `${label}.versionAuthority.imageRetirement.superseded must bind the canonical decisions.`
+      );
     }
-    const expectedSuperseded = [
-      {
-        imageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-        imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7',
-        replacementImageId: 'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f',
-        decision: 'superseded-by-trust-domains-node24-python312-gh297-archive-v8'
-      },
-      {
-        imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
-        imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
-        replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-        decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-      },
-      {
-        imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
-        imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
-        replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-        decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-      },
-      {
-        imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
-        imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
-        replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-        decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
-      }
-    ];
     for (const [index, entry] of superseded.entries()) {
       const decision = recordValue(entry, `${label}.versionAuthority.imageRetirement.superseded[${index}]`);
       exactKeys(decision, ['imageId', 'imageTag', 'replacementImageId', 'decision'],

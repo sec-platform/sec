@@ -1439,11 +1439,16 @@ function streamCanonicalHexContentDigestV1(
   readChunk: (chunk: Buffer) => number,
   expectedSize: bigint,
   label: string
-): Readonly<{ size: number; contentDigest: `sha256:${string}` }> {
+): Readonly<{
+  size: number;
+  contentDigest: `sha256:${string}`;
+  byteDigest: `sha256:${string}`;
+}> {
   if (expectedSize < 0n || expectedSize > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} size is outside the exact inventory number domain.`);
   }
   const hash = createHash('sha256');
+  const byteHash = createHash('sha256');
   // This is exactly JSON.stringify(canonicalJson({ bytes: lowerHex })).
   // Keep the framing here so streaming and historical in-memory inventory
   // generations remain byte-identical.
@@ -1460,13 +1465,18 @@ function streamCanonicalHexContentDigestV1(
     if (!Number.isSafeInteger(total) || BigInt(total) > expectedSize) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} grew during retained streaming inventory.`);
     }
+    byteHash.update(chunk.subarray(0, count));
     hash.update(chunk.subarray(0, count).toString('hex'));
   }
   if (BigInt(total) !== expectedSize) {
     throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} size changed during retained streaming inventory.`);
   }
   hash.update('"}');
-  return Object.freeze({ size: total, contentDigest: `sha256:${hash.digest('hex')}` });
+  return Object.freeze({
+    size: total,
+    contentDigest: `sha256:${hash.digest('hex')}`,
+    byteDigest: `sha256:${byteHash.digest('hex')}`
+  });
 }
 
 function windowsRetainedFileSnapshotV1(
@@ -1492,7 +1502,11 @@ function digestWindowsRetainedFile(
   absolutePath: string,
   identity: Readonly<{ device: string; inode: string }>,
   label: string
-): Readonly<{ size: number; contentDigest: `sha256:${string}` }> {
+): Readonly<{
+  size: number;
+  contentDigest: `sha256:${string}`;
+  byteDigest: `sha256:${string}`;
+}> {
   const beforeIdentity = windowsRetainedLeafIdentity(handle, absolutePath, 'file', label);
   if (beforeIdentity.device !== identity.device || beforeIdentity.inode !== identity.inode) {
     throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} identity changed before retained streaming inventory.`);
@@ -1564,7 +1578,11 @@ function digestRetainedOrdinaryFileFdV1(
   fd: number,
   expected: Readonly<{ device: string; inode: string }>,
   label: string
-): Readonly<{ size: number; contentDigest: `sha256:${string}` }> {
+): Readonly<{
+  size: number;
+  contentDigest: `sha256:${string}`;
+  byteDigest: `sha256:${string}`;
+}> {
   const before = fstatSync(fd, { bigint: true });
   if (!before.isFile() || String(before.dev) !== expected.device || String(before.ino) !== expected.inode) {
     throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} identity changed before retained streaming inventory.`);
@@ -3163,6 +3181,90 @@ export function inspectNoFollowOrdinaryFileEntryV1(
     }
   }
   throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow ordinary file reader backend is unavailable.');
+}
+
+export interface NoFollowOrdinaryFileDigestV1 {
+  readonly size: number;
+  /** Raw SHA-256 over the retained ordinary-file bytes. */
+  readonly byteDigest: `sha256:${string}`;
+}
+
+/**
+ * Streams one arbitrarily large ordinary leaf through a retained no-follow
+ * handle. This is the raw-byte counterpart of the canonical inventory digest
+ * and is intended for external CAS/OCI descriptor verification.
+ */
+export function inspectNoFollowOrdinaryFileDigestV1(
+  parent: PhysicalDirectoryIdentityV1,
+  name: string
+): NoFollowOrdinaryFileDigestV1 | null {
+  ensureLeafName(name);
+  const checked = assertSameNoFollowDirectoryIdentityV1(parent, 'No-follow digest parent').target;
+  const target = path.join(checked.path, name);
+  if (process.platform === 'win32') {
+    let parentHandle: bigint | null = null;
+    let leafHandle: bigint | null = null;
+    try {
+      parentHandle = windowsOpenDirectory(checked.path, 'No-follow digest retained parent');
+      if (!sameIdentity(checked, windowsIdentity(parentHandle, checked.path, 'No-follow digest retained parent'))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow digest parent changed before retained leaf open.');
+      }
+      leafHandle = windowsOpenRelativeLeaf(
+        parentHandle, checked, name, target, WINDOWS_GENERIC_READ, WINDOWS_FILE_OPEN, 'No-follow digest file', true
+      );
+      if (leafHandle === null) return null;
+      const identity = windowsRetainedLeafIdentity(leafHandle, target, 'file', 'No-follow digest file');
+      const result = digestWindowsRetainedFile(leafHandle, target, identity, 'No-follow digest file');
+      if (!sameIdentity(checked, windowsIdentity(parentHandle, checked.path, 'No-follow digest retained parent readback'))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow digest parent changed during retained leaf read.');
+      }
+      return Object.freeze({ size: result.size, byteDigest: result.byteDigest });
+    } catch (error) {
+      if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED') {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow digest file is not a stable ordinary leaf.', error);
+      }
+      throw error;
+    } finally {
+      if (leafHandle !== null) closeWindowsHandle(leafHandle);
+      if (parentHandle !== null) closeWindowsHandle(parentHandle);
+    }
+  }
+  if (process.platform === 'linux') {
+    const rootFd = linuxOpenRoot('No-follow digest parent');
+    let parentFd = rootFd;
+    let leafFd: number | null = null;
+    try {
+      const segments = checked.path.slice(path.parse(checked.path).root.length).split('/').filter(Boolean);
+      for (const segment of segments) {
+        const next = linuxOpenAt(parentFd, segment, 'No-follow digest parent');
+        if (parentFd !== rootFd) closeSync(parentFd);
+        parentFd = next;
+      }
+      if (!sameIdentity(checked, linuxIdentity(parentFd, checked.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow digest parent changed before retained leaf open.');
+      }
+      try {
+        leafFd = linuxOpenReadableLeafAt(parentFd, name, 'No-follow digest file');
+      } catch (error) {
+        if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
+        throw error;
+      }
+      const stat = fstatSync(leafFd, { bigint: true });
+      if (!stat.isFile()) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow digest file is not ordinary.');
+      const result = digestRetainedOrdinaryFileFdV1(leafFd, {
+        device: String(stat.dev), inode: String(stat.ino)
+      }, 'No-follow digest file');
+      if (!sameIdentity(checked, linuxIdentity(parentFd, checked.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow digest parent changed during retained leaf read.');
+      }
+      return Object.freeze({ size: result.size, byteDigest: result.byteDigest });
+    } finally {
+      if (leafFd !== null) closeSync(leafFd);
+      if (parentFd !== rootFd) closeSync(parentFd);
+      closeSync(rootFd);
+    }
+  }
+  throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow ordinary file digest backend is unavailable.');
 }
 
 /**
