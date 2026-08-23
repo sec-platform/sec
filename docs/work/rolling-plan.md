@@ -7,60 +7,92 @@ last-reviewed: 2026-08-23
 
 # SEC 滚动近期计划
 
-本文件由唯一rolling projection compiler生成。普通选择与非普通transition使用同一机器拓扑和同一全文renderer；digest只证明规范化内容完整性，effectful owner仍必须在发布前重验其WorkDecision、committed-candidate或MainHealth authority。禁止单独修改标题、prose、JSON字段或digest。
+本文件是validated WorkDecision的只读投影，不是roadmap、registry、current spec或selection authority。
+任何选择变化都从exact main重新观察；Issue/comment prose、AI评分、wall-clock、caller JSON和本文件自身
+均不能成为输入。receipt只能用于replay；effectful consumer必须调用trusted live adapter重新推导。
 
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:2e0fcb016363545d98be86961b14eac8168d5ddfb1c3f6ade55c352716d544de",
-    "manifestPath": "docs/work-packages/generated-ignored-state-lifecycle-v1.md",
-    "packageId": "generated-ignored-state-lifecycle-v1",
-    "tracking": "issue-271"
-  },
-  "authority": {
-    "kind": "committed-candidate-replan",
-    "sourceHead": "8ce841fc8178d2f5ec140d8daf122b9cc65bf80b",
-    "sourceManifestDigest": "sha256:2e0fcb016363545d98be86961b14eac8168d5ddfb1c3f6ade55c352716d544de",
-    "sourcePointerRevision": "sha256:d818fb813410b88e928fc88dca6979ccc60ff31de5fc5dc6079ef43437511e3c",
-    "sourceRollingRevision": "sha256:35801b27bf4f1b6fb70b83fee2b3fbb202a9bd1dbf6d1cba6f72594843fdf143",
-    "sourceTree": "c36dba6b292c90fc35d435b4bd3e92e86beb2dae"
+    "currentSpecRef": "github:issue/186",
+    "currentSpecRevision": "sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a",
+    "decisionStatus": "selected",
+    "packageId": "git-worktree-physical-closeout-v1",
+    "tracking": "issue-186",
+    "workId": "issue-186"
   },
   "candidates": [
-    "operation-read-plan-authority-canary-v1",
-    "git-worktree-physical-closeout-v1",
-    "candidate-control-transaction-v1",
-    "typescript-7-checker-acceleration-v1"
+    {
+      "currentSpecRef": "github:issue/346",
+      "currentSpecRevision": "sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729",
+      "decisionStatus": "eligible",
+      "packageId": "operation-read-plan-authority-canary-v1",
+      "tracking": "issue-346",
+      "workId": "issue-346"
+    },
+    {
+      "currentSpecRef": "github:issue/311",
+      "currentSpecRevision": "sha256:1bfd0d0be75c12566a7d08e976684539a87a83b89cf99e699c76483e53e97db3",
+      "decisionStatus": "rejected",
+      "packageId": "sec-static-convergence-v1",
+      "tracking": "issue-311",
+      "workId": "issue-311"
+    },
+    {
+      "currentSpecRef": "github:issue/321",
+      "currentSpecRevision": "sha256:60f0760b2354f9042db2f4e06144a4d9a4c2a6b8851779b4d35a47acd0ebc96a",
+      "decisionStatus": "eligible",
+      "packageId": "candidate-control-transaction-v1",
+      "tracking": "issue-321",
+      "workId": "issue-321-candidate-control"
+    },
+    {
+      "currentSpecRef": "github:issue/312",
+      "currentSpecRevision": "sha256:8ea6f8ab0ac40bffa4d337e61f1ddf199b73a4600865e5d3fd9b395012198f9b",
+      "decisionStatus": "rejected",
+      "packageId": "typescript-7-checker-acceleration-v1",
+      "tracking": "issue-312",
+      "workId": "issue-312"
+    }
   ],
-  "exactMain": "cf59ef7b1e166fa184592ab870fa5788466e2df9",
-  "exactMainTree": "92fb08917f7bffac00e63ce64e2fd761ddeab7e8",
-  "projectionDigest": "sha256:2c207317fe556992b66e770a41024af715d3ad7f5c445fe039c615322038b8c3",
-  "schema": "sec-work-rolling-transition-projection-v1"
+  "catalogDigest": "sha256:9be5866dd0db2ff633b39d587149589f831081ffa03ac0c870d78d09f8fdb876",
+  "decisionDigest": "sha256:07ca11f2eaccab6d8dc695e65cfd2cfe2761a2f07cf11ae7a9bc5dc014900b69",
+  "exactMain": "489518c3bd8b28753473e43ecb2e236452dee0b9",
+  "projectionDigest": "sha256:02663d8b6d9a09b6c9730c4c7d75e57f487b27f0f2bdc170f9b1ee3dd9ec604e",
+  "receiptDigest": "sha256:f3f3a87e2f884084eb22aacd3786b07da5b12efeb46445f83335d50fc9fb2a7f",
+  "roadmapRevision": "sha256:c340463122d44ce950d1da5387aaf722e1a0bdf6ec30c0b71085de5deffdf4f8",
+  "schema": "sec-work-rolling-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### generated-ignored-state-lifecycle-v1
+### git-worktree-physical-closeout-v1
 
-Existing active package replan bound to exact source head `8ce841fc8178d2f5ec140d8daf122b9cc65bf80b`, source tree `c36dba6b292c90fc35d435b4bd3e92e86beb2dae`, manifest `sha256:2e0fcb016363545d98be86961b14eac8168d5ddfb1c3f6ade55c352716d544de`, and authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Work identity `issue-186`; current spec `github:issue/186` at
+`sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a`; decision `sha256:07ca11f2eaccab6d8dc695e65cfd2cfe2761a2f07cf11ae7a9bc5dc014900b69`.
 
 ## 候选 Work Package
 
 ### 1. operation-read-plan-authority-canary-v1
 
-Retained ordered candidate from transition authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Work identity `issue-346`; current spec `github:issue/346` at
+`sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729`; current decision status `eligible`.
 
-### 2. git-worktree-physical-closeout-v1
+### 2. sec-static-convergence-v1
 
-Retained ordered candidate from transition authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Work identity `issue-311`; current spec `github:issue/311` at
+`sha256:1bfd0d0be75c12566a7d08e976684539a87a83b89cf99e699c76483e53e97db3`; current decision status `rejected`.
 
 ### 3. candidate-control-transaction-v1
 
-Retained ordered candidate from transition authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Work identity `issue-321-candidate-control`; current spec `github:issue/321` at
+`sha256:60f0760b2354f9042db2f4e06144a4d9a4c2a6b8851779b4d35a47acd0ebc96a`; current decision status `eligible`.
 
 ### 4. typescript-7-checker-acceleration-v1
 
-Retained ordered candidate from transition authority `sha256:fef0e7bd23080fc8806f7dec0cb37ed028890d38936bc706e3834d77b227d1ec`.
+Work identity `issue-312`; current spec `github:issue/312` at
+`sha256:8ea6f8ab0ac40bffa4d337e61f1ddf199b73a4600865e5d3fd9b395012198f9b`; current decision status `rejected`.
 
 ## 重新规划硬触发器
 
