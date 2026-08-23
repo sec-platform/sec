@@ -34,7 +34,7 @@ import {
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from '../../platform/shared/repository-path-contract.ts';
 import { resolveSecRuntimeCacheRootV1 } from '../../platform/shared/sec-runtime-state-contract.ts';
 import {
-  assertSecRoadmapTerminalCompactionDeltaV1,
+  assertSecRoadmapTerminalCompactionDeltaV2,
   parseSecRoadmapWorkCatalogV1
 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
@@ -509,7 +509,7 @@ export async function scanDocumentation(
           ? null
           : manifestPath;
       }))).filter((entry): entry is string => entry !== null);
-      assertSecRoadmapTerminalCompactionDeltaV1({
+      assertSecRoadmapTerminalCompactionDeltaV2({
         priorRoadmapSource,
         roadmapSource,
         priorManifestPaths,

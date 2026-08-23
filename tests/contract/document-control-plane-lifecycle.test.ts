@@ -615,6 +615,8 @@ tests:
   const targetPath = path.join(repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, targetManifest, 'utf8');
+  runGit(repositoryRoot, ['add', FREEZE_TARGET_PATH]);
+  runGit(repositoryRoot, ['rm', '--quiet', CURRENT_ACTIVE_PATH]);
   return {
     parent,
     repositoryRoot,
@@ -948,6 +950,7 @@ test('freeze projection promotes one unique candidate without rewriting candidat
     expect(projection.manifestDigest).toBe(
       CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`
     );
+    expect(projection.retiredManifestPath).toBe(CURRENT_ACTIVE_PATH);
     expect(CodexDevelopmentParseRollingPlanV1(projection.rollingPlanSource)).toEqual({
       activePackageId: FREEZE_TARGET_ID,
       candidatePackageIds: ['candidate-two-v1', 'candidate-three-v1']
@@ -1034,6 +1037,17 @@ test('same-package freeze preserves the exact current tracking identity', async 
       baseSha: fixture.baseSha,
       reviewedOn: '2026-08-09'
     })).toThrow('cannot replace the exact tracking identity');
+    const samePackage = CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes,
+      manifestPath: CURRENT_ACTIVE_PATH,
+      manifestBytes: currentManifestBytes,
+      baseSha: '0'.repeat(40),
+      reviewedOn: '2026-08-09'
+    });
+    expect(samePackage.retiredManifestPath).toBeNull();
   } finally {
     await fixture.dispose();
   }
@@ -1370,6 +1384,12 @@ test('freeze rejects a manually staged pointer and rolling-plan selection baseli
 test('freeze publishes one exact index tree, projects worktree bytes, and is idempotent', async () => {
   const fixture = await createFreezeFixture();
   try {
+    expect(runGit(fixture.repositoryRoot, ['ls-tree', '-r', '--name-only', 'HEAD', '--', CURRENT_ACTIVE_PATH]))
+      .toBe(CURRENT_ACTIVE_PATH);
+    expect(runGit(fixture.repositoryRoot, ['diff', '--cached', '--no-renames', '--name-only'])).toBe([
+      CURRENT_ACTIVE_PATH,
+      FREEZE_TARGET_PATH
+    ].sort().join('\n'));
     const result = await freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -1414,7 +1434,8 @@ test('freeze publishes one exact index tree, projects worktree bytes, and is ide
     expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH))).toEqual(pointerBeforeNoop);
     expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'))).toEqual(rollingBeforeNoop);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
-    expect(runGit(fixture.repositoryRoot, ['diff', '--cached', '--name-only'])).toBe([
+    expect(runGit(fixture.repositoryRoot, ['diff', '--cached', '--no-renames', '--name-only'])).toBe([
+      CURRENT_ACTIVE_PATH,
       POINTER_PATH,
       'docs/work/rolling-plan.md',
       FREEZE_TARGET_PATH
@@ -3723,7 +3744,7 @@ test('freeze fails closed for stale main, symlink-mode targets, and index CAS co
   }
 }, 60_000);
 
-for (const raceKind of ['head', 'local-default', 'index'] as const) {
+for (const raceKind of ['head', 'local-default', 'index', 'retired-manifest'] as const) {
   test(`freeze rejects ${raceKind} drift at the post-admission local fence`, async () => {
     const fixture = await createFreezeFixture();
     try {
@@ -3744,9 +3765,14 @@ for (const raceKind of ['head', 'local-default', 'index'] as const) {
             runGit(fixture.repositoryRoot, ['update-ref', 'HEAD', alternate]);
           } else if (raceKind === 'local-default') {
             runGit(fixture.repositoryRoot, ['update-ref', 'refs/remotes/origin/main', alternate]);
-          } else {
+          } else if (raceKind === 'index') {
             await writeFile(path.join(fixture.repositoryRoot, 'pre-journal-index-race.txt'), 'race\n', 'utf8');
             runGit(fixture.repositoryRoot, ['add', 'pre-journal-index-race.txt']);
+          } else {
+            await writeFile(
+              path.join(fixture.repositoryRoot, ...CURRENT_ACTIVE_PATH.split('/')),
+              currentActiveManifestSource()
+            );
           }
         }
       })).rejects.toThrow('Document control freeze inputs changed before initial journal publication.');

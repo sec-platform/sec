@@ -1,4 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
@@ -7,14 +10,15 @@ import type { SecCurrentWorkLifecycleV1 } from '../../platform/shared/work-selec
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
-  assertSecRoadmapTerminalCompactionCandidateV1,
-  assertSecRoadmapTerminalCompactionDeltaV1,
+  assertSecRoadmapTerminalCompactionCandidateV2,
+  assertSecRoadmapTerminalCompactionDeltaV2,
   assertSecWorkDecisionReceiptV1,
-  compileSecRoadmapTerminalCompactionV1,
+  compileSecRoadmapTerminalCompactionV2,
   compileSecWorkRollingProjectionV1,
   compileSecWorkRollingTopologyV1,
   compileSecWorkRollingTransitionProjectionV1,
   compileSecWorkSelectionTerminalProjectionV1,
+  createSecRoadmapTerminalCompactionCandidateV2,
   createSecWorkCurrentSpecObservationV1,
   createSecWorkDecisionReceiptV1,
   createSecWorkRegistryObservationV1,
@@ -31,7 +35,10 @@ import {
 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
   isExactWorkSelectionActiveIdentityV1,
-  isWorkSelectionProspectiveTransportV1
+  isWorkSelectionProspectiveTransportV1,
+  observeSecRoadmapTerminalCompactionCandidateV2,
+  observeSecWorkSelectionWithProviderV1,
+  type SecWorkSelectionProviderV1
 } from '../../scripts/codex/work-selection.ts';
 
 const exactMain = 'a'.repeat(40);
@@ -50,6 +57,22 @@ function observeCatalog(source: string): CatalogObservationV1 {
     roadmapRevision: rawSha256(source),
     catalog: parseSecRoadmapWorkCatalogV1(source)
   });
+}
+
+function runFixtureGit(root: string, args: readonly string[]): Buffer {
+  const result = spawnSync('git', [...args], {
+    cwd: root,
+    encoding: 'buffer',
+    windowsHide: true
+  });
+  if (result.status !== 0) {
+    throw new Error(Buffer.from(result.stderr ?? '').toString('utf8'));
+  }
+  return Buffer.from(result.stdout ?? '');
+}
+
+function fixtureGitSha(root: string, ref: string): string {
+  return runFixtureGit(root, ['rev-parse', ref]).toString('utf8').trim();
 }
 
 function transitionCatalog(): CatalogObservationV1 {
@@ -291,9 +314,9 @@ describe('work-selection live contract', () => {
     ))).toThrow(/duplicate key "tracking"/u);
   });
 
-  test('terminal compaction derives catalog, dependency and manifest retirement as one transition', () => {
+  test('terminal compaction retires catalog and dependencies while delaying bound-manifest retirement', () => {
     const prior = transitionCatalog();
-    const compaction = compileSecRoadmapTerminalCompactionV1({
+    const compaction = compileSecRoadmapTerminalCompactionV2({
       roadmapSource: prior.source,
       completedWorkIds: ['issue-271']
     });
@@ -303,18 +326,18 @@ describe('work-selection live contract', () => {
     expect(compaction.roadmapSource).toContain(
       '"prerequisiteWorkIds": ["issue-352"]'
     );
-    expect(compaction.retiredManifestPaths).toEqual([
+    expect(compaction.delayedManifestRetirementPaths).toEqual([
       'docs/work-packages/generated-ignored-state-lifecycle-v1.md'
     ]);
     expect(compaction.demandGraphDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(parseSecRoadmapWorkCatalogV1(compaction.roadmapSource).catalogDigest)
       .toBe(compaction.catalog.catalogDigest);
-    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV2({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
-      priorManifestPaths: compaction.retiredManifestPaths,
+      priorManifestPaths: compaction.delayedManifestRetirementPaths,
       manifestPaths: []
-    })).not.toThrow();
+    })).toThrow(/cannot mutate the manifest set/u);
   });
 
   test('terminal selection projection binds closed provider evidence and keeps only live work', () => {
@@ -338,50 +361,291 @@ describe('work-selection live contract', () => {
     expect(projection.catalog.items.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(projection.currentSpecs.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(projection.roadmapRevision).not.toBe(rawSha256(prior.source));
-    expect(() => assertSecRoadmapTerminalCompactionCandidateV1({
+    expect(() => assertSecRoadmapTerminalCompactionCandidateV2({
       compaction: projection.terminalCompaction!,
       roadmapSource: projection.terminalCompaction!.roadmapSource,
-      presentRetiredManifestPaths: []
+      presentDelayedManifestPaths:
+        projection.terminalCompaction!.delayedManifestRetirementPaths
     })).not.toThrow();
-    expect(() => assertSecRoadmapTerminalCompactionCandidateV1({
+    expect(() => assertSecRoadmapTerminalCompactionCandidateV2({
       compaction: projection.terminalCompaction!,
       roadmapSource: projection.terminalCompaction!.roadmapSource,
-      presentRetiredManifestPaths: projection.terminalCompaction!.retiredManifestPaths
-    })).toThrow(/retains terminal manifests/u);
+      presentDelayedManifestPaths: []
+    })).toThrow(/must retain every pointer-bound manifest/u);
   });
 
-  test('terminal compaction owns only its retired manifest subgraph', () => {
+  test('terminal compaction preserves the exact manifest subgraph for successor freeze', () => {
     const prior = transitionCatalog();
-    const compaction = compileSecRoadmapTerminalCompactionV1({
+    const compaction = compileSecRoadmapTerminalCompactionV2({
       roadmapSource: prior.source,
       completedWorkIds: ['issue-271']
     });
     const manifestPath = 'docs/work-packages/generated-ignored-state-lifecycle-v1.md';
-    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV2({
       priorRoadmapSource: prior.source,
       roadmapSource: prior.source,
       priorManifestPaths: [manifestPath],
       manifestPaths: [manifestPath, 'docs/work-packages/new-selected-v1.md']
     })).not.toThrow();
-    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV2({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath],
       manifestPaths: [manifestPath]
-    })).toThrow(/manifest subgraph differs from the canonical compiler output/u);
-    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+    })).not.toThrow();
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV2({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath, 'docs/work-packages/survivor-v1.md'],
       manifestPaths: ['docs/work-packages/new-selected-v1.md']
-    })).toThrow(/manifest subgraph differs from the canonical compiler output/u);
-    expect(() => assertSecRoadmapTerminalCompactionDeltaV1({
+    })).toThrow(/cannot mutate the manifest set/u);
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV2({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath],
       manifestPaths: ['docs/work-packages/new-selected-v1.md']
-    })).not.toThrow();
+    })).toThrow(/cannot mutate the manifest set/u);
   });
+
+  test('terminal candidate identity is derived from exact semantic trees, not PR prose or branch names', () => {
+    const prior = transitionCatalog();
+    const compaction = compileSecRoadmapTerminalCompactionV2({
+      roadmapSource: prior.source,
+      completedWorkIds: ['issue-271']
+    });
+    const manifestPaths = [
+      'docs/work-packages/generated-ignored-state-lifecycle-v1.md',
+      'docs/work-packages/survivor-v1.md'
+    ];
+    const candidate = createSecRoadmapTerminalCompactionCandidateV2({
+      repository: 'sec-platform/sec',
+      exactMain,
+      compaction,
+      priorRoadmapSource: prior.source,
+      roadmapSource: compaction.roadmapSource,
+      priorManifestPaths: manifestPaths,
+      manifestPaths,
+      prNumber: 557,
+      baseSha: exactMain,
+      headSha: 'c'.repeat(40),
+      headTreeSha: 'd'.repeat(40)
+    });
+    expect(candidate).toMatchObject({
+      schema: 'sec-roadmap-terminal-compaction-candidate-v2',
+      retiredWorkIds: ['issue-271'],
+      compactionDigest: compaction.compactionDigest
+    });
+    expect(candidate.bindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(() => createSecRoadmapTerminalCompactionCandidateV2({
+      repository: 'sec-platform/sec',
+      exactMain,
+      compaction,
+      priorRoadmapSource: prior.source,
+      roadmapSource: compaction.roadmapSource,
+      priorManifestPaths: manifestPaths,
+      manifestPaths: manifestPaths.slice(1),
+      prNumber: 557,
+      baseSha: exactMain,
+      headSha: 'c'.repeat(40),
+      headTreeSha: 'd'.repeat(40)
+    })).toThrow(/retain every pointer-bound manifest/u);
+    expect(() => createSecRoadmapTerminalCompactionCandidateV2({
+      repository: 'sec-platform/sec',
+      exactMain,
+      compaction,
+      priorRoadmapSource: prior.source,
+      roadmapSource: compaction.roadmapSource,
+      priorManifestPaths: manifestPaths,
+      manifestPaths,
+      prNumber: 557,
+      baseSha: 'e'.repeat(40),
+      headSha: 'c'.repeat(40),
+      headTreeSha: 'd'.repeat(40)
+    })).toThrow(/base must equal exact main/u);
+  });
+
+  test.serial('live provider replay binds the exact terminal PR and rejects unavailable or path-drifted heads', () => {
+    const fixtureParent = mkdtempSync(path.join(tmpdir(), 'sec-terminal-provider-replay-'));
+    const root = path.join(fixtureParent, 'repository');
+    try {
+      const clone = spawnSync('git', ['clone', '--quiet', '--shared', process.cwd(), root], {
+        encoding: 'buffer',
+        windowsHide: true
+      });
+      if (clone.status !== 0) {
+        throw new Error(Buffer.from(clone.stderr ?? '').toString('utf8'));
+      }
+      runFixtureGit(root, ['config', 'user.name', 'SEC Test']);
+      runFixtureGit(root, ['config', 'user.email', 'sec-test@example.invalid']);
+      runFixtureGit(root, ['checkout', '--quiet', '-B', 'main', 'HEAD']);
+
+      const prior = transitionCatalog();
+      writeFileSync(path.join(root, 'docs', 'roadmap.md'), prior.source, 'utf8');
+      runFixtureGit(root, ['add', '--', 'docs/roadmap.md']);
+      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal base']);
+      const baseSha = fixtureGitSha(root, 'HEAD');
+      const baseTreeSha = fixtureGitSha(root, 'HEAD^{tree}');
+      runFixtureGit(root, ['update-ref', 'refs/remotes/origin/main', baseSha]);
+      runFixtureGit(root, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+
+      const compaction = compileSecRoadmapTerminalCompactionV2({
+        roadmapSource: prior.source,
+        completedWorkIds: ['issue-186']
+      });
+      runFixtureGit(root, ['checkout', '--quiet', '-b', 'terminal-compaction']);
+      writeFileSync(path.join(root, 'docs', 'roadmap.md'), compaction.roadmapSource, 'utf8');
+      runFixtureGit(root, ['add', '--', 'docs/roadmap.md']);
+      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal candidate']);
+      const headSha = fixtureGitSha(root, 'HEAD');
+      const headTreeSha = fixtureGitSha(root, 'HEAD^{tree}');
+
+      const issueRecords = Object.fromEntries(prior.catalog.items.map((item, index) => [
+        `i${index}`,
+        {
+          number: Number(item.currentSpecRef.slice('github:issue/'.length)),
+          id: `fixture-node-${item.tracking}`,
+          state: item.workId === 'issue-186' ? 'CLOSED' : 'OPEN',
+          body: `fixture current spec ${item.tracking}`
+        }
+      ]));
+      const pullRequest = {
+        number: 557,
+        headRefName: 'terminal-compaction',
+        headRefOid: headSha,
+        baseRefName: 'main',
+        baseRefOid: baseSha,
+        body: 'presentation is not operation identity'
+      };
+      const provider = ((command, args, cwd, environment) => {
+        if (command === 'gh') {
+          const value = args[0] === 'api'
+            ? { data: { repository: issueRecords } }
+            : [pullRequest];
+          return {
+            status: 0,
+            stdout: Buffer.from(JSON.stringify(value)),
+            stderr: Buffer.alloc(0)
+          };
+        }
+        if (args.includes('ls-remote') && args.includes('--heads')) {
+          return {
+            status: 0,
+            stdout: Buffer.from(
+              `${baseSha}\trefs/heads/main\n${headSha}\trefs/heads/terminal-compaction\n`
+            ),
+            stderr: Buffer.alloc(0)
+          };
+        }
+        const result = spawnSync('git', [...args], {
+          cwd,
+          encoding: 'buffer',
+          windowsHide: true,
+          env: environment === undefined ? process.env : { ...process.env, ...environment }
+        });
+        return {
+          status: result.status,
+          stdout: Buffer.from(result.stdout ?? ''),
+          stderr: Buffer.from(result.stderr ?? result.error?.message ?? '')
+        };
+      }) satisfies SecWorkSelectionProviderV1;
+      const normalizedPullRequest = [{
+        number: pullRequest.number,
+        headBranch: pullRequest.headRefName,
+        headSha: pullRequest.headRefOid,
+        baseBranch: pullRequest.baseRefName,
+        baseSha: pullRequest.baseRefOid,
+        body: pullRequest.body
+      }];
+
+      const terminal = observeSecRoadmapTerminalCompactionCandidateV2({
+        run: provider,
+        root,
+        repository: 'sec-platform/sec',
+        defaultBranch: 'main',
+        exactMain: baseSha,
+        roadmapSource: prior.source,
+        terminalCompaction: compaction,
+        openPullRequests: normalizedPullRequest
+      });
+      if (terminal.status !== 'resolved') {
+        throw new Error(`expected resolved terminal fixture: ${JSON.stringify(terminal)}`);
+      }
+      expect(terminal.candidate).toMatchObject({
+        baseSha,
+        headSha,
+        headTreeSha,
+        compactionDigest: compaction.compactionDigest,
+        retiredWorkIds: ['issue-186']
+      });
+
+      const observed = observeSecWorkSelectionWithProviderV1({
+        cwd: root,
+        exactMain: baseSha,
+        exactMainTree: baseTreeSha
+      }, provider);
+      expect(observed.status).toBe('resolved');
+      if (observed.status !== 'resolved') throw new Error('expected resolved live fixture');
+      expect(observed.receipt.input.current).toMatchObject({
+        activeWorkId: 'issue-186',
+        activeRef: terminal.candidate.bindingDigest,
+        activeState: 'incomplete',
+        activeLegality: 'legal'
+      });
+      expect(observed.receipt.registry.entries.some(({ source }) => source === 'open-pr'))
+        .toBe(false);
+      expect(observed.reasonCodes).toEqual([]);
+
+      const missingHead = 'f'.repeat(40);
+      const unavailable = observeSecWorkSelectionWithProviderV1({
+        cwd: root,
+        exactMain: baseSha,
+        exactMainTree: baseTreeSha
+      }, (command, args, cwd, environment) => {
+        if (command === 'gh' && args[0] !== 'api') {
+          return {
+            status: 0,
+            stdout: Buffer.from(JSON.stringify([{ ...pullRequest, headRefOid: missingHead }])),
+            stderr: Buffer.alloc(0)
+          };
+        }
+        return provider(command, args, cwd, environment);
+      });
+      expect(unavailable).toMatchObject({
+        status: 'unresolved',
+        reasonCodes: ['terminal-candidate-roadmap-unresolved'],
+        receipt: null
+      });
+
+      writeFileSync(
+        path.join(root, 'docs', 'work-packages', 'provider-replay-drift.md'),
+        '# unauthorized manifest path drift\n',
+        'utf8'
+      );
+      runFixtureGit(root, ['add', '--', 'docs/work-packages/provider-replay-drift.md']);
+      runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: manifest path drift']);
+      const driftedHead = fixtureGitSha(root, 'HEAD');
+      const drifted = observeSecRoadmapTerminalCompactionCandidateV2({
+        run: provider,
+        root,
+        repository: 'sec-platform/sec',
+        defaultBranch: 'main',
+        exactMain: baseSha,
+        roadmapSource: prior.source,
+        terminalCompaction: compaction,
+        openPullRequests: [{
+          ...normalizedPullRequest[0]!,
+          headSha: driftedHead
+        }]
+      });
+      expect(drifted).toMatchObject({
+        status: 'unresolved',
+        reasonCode: 'terminal-compaction-candidate-invalid',
+        candidate: null
+      });
+    } finally {
+      rmSync(fixtureParent, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test('synthetic catalog revision is derived only from its exact fixture source', () => {
     const observation = transitionCatalog();

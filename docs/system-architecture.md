@@ -270,9 +270,19 @@ verification obligation 与 graph digest；下游在 Effect 前重算并逐字�
 运行器的 compiler/browser materialization现由同一 Demand Graph compiler裁决；它们不再各自拥有一套入口启发式。
 
 一个 canonical semantic transition 可以派生多个物理对象；这些对象必须由同一 compiler 一次产生完整
-write/delete set、依赖边变化、验证需求和 Evidence identity，并由一个事务 owner 发布。任何单独手改派生对象、
-保留已消费依赖边、只删除一半生命周期对象或让 Projection 反向补事实都属于非法 partial transition。Git commit
-的原子性不能替代 transition compiler 的语义完整性；候选边界必须比较 prior/current graph 并拒绝半事务。
+write/delete set、依赖边变化、验证需求和 Evidence identity，并由一个事务 owner 发布。若外部authority或下一
+decision尚不可得，compiler必须把生命周期拆成有明确顺序的多个semantic transition，并保证每个中间revision
+自身可解析；不能把跨revision的最终对象集合误当成一个立即Effect。任何单独手改派生对象、保留已消费依赖边、
+只执行半个transition或让Projection反向补事实都属于非法partial transition。Git commit的原子性不能替代
+transition compiler的语义完整性；候选边界必须比较prior/current graph并拒绝半事务。
+
+流程与实现沿此边界解耦：pure process compiler只消费validated facts并输出transition、precondition、Effect
+intent与readback obligation；Git index、文件系统、GitHub、container或其他replaceable Provider只执行已授权
+intent并返回typed receipt，不能重算业务顺序、扩大scope或签发completion。Provider替换只改变capability与
+Evidence binding，不改变状态机语义。terminal work是首个完整canary：terminal compaction退休catalog/依赖边但
+保留仍被pointer绑定的manifest；successor freeze随后在一个candidate tree中发布新manifest/pointer/rolling并
+退休旧manifest。open PR identity也直接由exact base/head/tree与该transition digest重算，不要求每类operation
+伪装成Work Package或依赖PR prose locator。两个边界都由compiler定义，Git/文件/PR Provider只物化并观察它们。
 
 ## Workspace 状态与路径类别
 
