@@ -1088,6 +1088,15 @@ write lease，再持有 parent/target fd，在effect前最后一次 `openat(O_NO
 
 Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发的ScopeGrant与trusted resolver为当前exact base/head/tree产生的CandidateScopeAttestation共同成立时，才允许冻结Session。候选修改manifest或write set不能给自己扩权。
 
+若故障恰好位于WorkDecision/ScopeGrant issuer本身，使then-current trusted main无法为修复签发普通grant，
+不得由candidate新增例外、自造receipt或把Issue/聊天解释成健康的机器授权。唯一bootstrap trust transition必须
+由仓库外maintainer principal在受信Provider发布一个不可变、一次性的exact grant，至少绑定repository、
+trusted base/head及tree、完整changed-path set、目标control-plane root cause、expiry和provider resource digest；
+候选作者、实现进程与Review principal不能充当该grant的独立验证者。集成前必须重验maintainer permission、
+grant bytes/digest、exact candidate、独立Review和live main preimage，集成后立即在new main readback并退役grant。
+旧main尚未实现该consumer时，第一次采用只能明确标记为maintainer-governed genesis transition，不能伪装成
+旧ScopeGrant PASS；进入new main后，后续同类修复必须走机器consumer，genesis路径永久consumer-zero。
+
 授权与 candidate transport 分两层：`ScopeGrantId` 绑定 trust epoch、manifest semantic revision、
 owned/forbidden paths、capability/resource bounds 与 base authority；trusted resolver 再为每个 exact
 head/tree 签发 `CandidateScopeAttestation`，证明 changed paths 与 effects 仍是 ScopeGrant 的子集。
