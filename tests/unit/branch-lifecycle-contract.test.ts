@@ -277,6 +277,60 @@ function preparation(
   });
 }
 
+test('remote absence and exact local residue are independently authorized', () => {
+  const mergedPullRequest = {
+    number: 42,
+    headBranch: 'feat/example',
+    headSha: HEAD_SHA,
+    baseBranch: 'main',
+    state: 'merged' as const,
+    isDraft: false,
+    isCrossRepository: false,
+    url: null
+  };
+  const snapshot = inventory({
+    localBranches: [
+      { branch: 'feat/example', sha: HEAD_SHA },
+      { branch: 'main', sha: MAIN_SHA }
+    ],
+    pullRequests: [mergedPullRequest]
+  });
+  const prepared = createBranchCloseoutPreparation({
+    preparedAt: '2026-08-04T00:01:00.000Z',
+    repository: snapshot.repository,
+    branch: 'feat/example',
+    refState: 'absent',
+    expectedHeadSha: HEAD_SHA,
+    expectedRemoteSha: HEAD_SHA,
+    expectedLocalSha: HEAD_SHA,
+    expectedPrHeadSha: HEAD_SHA,
+    pullRequestNumber: 42,
+    pullRequestStateAtPreparation: 'merged',
+    recovery: {
+      kind: 'bundle',
+      path: '/recovery/sec-example.bundle',
+      sha256: `sha256:${'a'.repeat(64)}`,
+      verified: true,
+      verifyOutput: 'verified'
+    },
+    worktreePathsAtPreparation: []
+  });
+
+  const authorization = authorizeBranchCloseout({
+    preparation: prepared,
+    request: {
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      disposition: 'merged',
+      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
+    },
+    before: snapshot,
+    current: snapshot
+  });
+  expect(authorization.blockers).toEqual([]);
+  expect(authorization.remoteAction).toBe('already-absent');
+  expect(authorization.localAction).toBe('delete-exact');
+});
+
 test('idle lifecycle is clean only when the remote contains main', () => {
   const report = auditBranchLifecycle(inventory());
   expect(report.status).toBe('clean');

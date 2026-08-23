@@ -87,9 +87,9 @@ export interface PreparedBranchCloseoutEnvelope {
 export interface PrepareBranchCloseoutInput {
   branch: string;
   /**
-   * `present` (default) binds an existing remote ref. `absent` settles a ref
-   * that is already gone while its exact head is durably covered by a verified
-   * recovery bundle or (merged PR) pull-ref recovery.
+   * Remote-ref state at preparation. `present` (default) binds the live remote
+   * ref. `absent` binds its absence while local ref/worktree state remains an
+   * independent, exact closeout input.
    */
   refState?: 'present' | 'absent';
   expectedHeadSha?: string;
@@ -402,9 +402,6 @@ export function prepareBranchCloseout(
     if (before.remoteBranches.some(({ branch }) => branch === input.branch)) {
       throw new Error(`Absent-ref preparation observed surviving remote branch ${input.branch}.`);
     }
-    if (before.localBranches.some(({ branch }) => branch === input.branch)) {
-      throw new Error(`Absent-ref preparation observed surviving local branch ${input.branch}.`);
-    }
   }
   const remote = before.remoteBranches.find(({ branch }) => branch === input.branch);
   if (refState === 'present') {
@@ -482,7 +479,12 @@ export function prepareBranchCloseout(
     if (remote === undefined) throw new Error(`Remote branch ${input.branch} is absent.`);
     expectedHeadSha = remote.sha;
   }
-  const localSha = refState === 'absent' ? null : local?.sha ?? null;
+  if (local !== undefined && local.sha !== expectedHeadSha) {
+    throw new Error(
+      `Local branch SHA mismatch: expected ${expectedHeadSha}, observed ${local.sha}.`
+    );
+  }
+  const localSha = local?.sha ?? null;
   const expectedPrHeadSha = refState === 'absent'
     ? (input.expectedPrHeadSha ?? pullRequest?.headSha ?? null)
     : null;
@@ -493,7 +495,8 @@ export function prepareBranchCloseout(
         inventory: before,
         branch: input.branch,
         expectedSha: expectedHeadSha,
-        recoveryRoot: scope.recoveryRoot
+        recoveryRoot: scope.recoveryRoot,
+        refSource: { kind: 'remote-branch' }
       });
   const preparation = createBranchCloseoutPreparation({
     preparedAt: new Date().toISOString(),
@@ -544,6 +547,17 @@ function prepareAbsentRefRecovery(
       throw new Error(`Reused recovery bundle failed live revalidation: ${live.detail}`);
     }
     return { recovery: existing, attempts };
+  }
+  if (inventory.localBranches.some((entry) => (
+    entry.branch === branch && entry.sha === expectedSha
+  ))) {
+    return createRecoveryBundle({
+      inventory,
+      branch,
+      expectedSha,
+      recoveryRoot: scope.recoveryRoot,
+      refSource: { kind: 'local-branch' }
+    });
   }
   if (pullRequestNumber !== null) {
     return createRecoveryBundle({
