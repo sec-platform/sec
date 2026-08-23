@@ -7,6 +7,7 @@ import {
   parsePublishedBranchCloseoutReceiptComments,
   resolveBranchCloseoutReceiptObservation
 } from './branch-closeout-receipt.ts';
+import { selectBranchLifecyclePullRequestsV1 } from './branch-lifecycle-audit.ts';
 import {
   createBranchLifecycleGitChildEnvironmentV1,
   createBranchLifecycleGitHubCredentialArgsV1,
@@ -514,6 +515,7 @@ function listPullRequests(
   ctx: InventoryRuntime,
   repositoryRoot: string,
   repositoryFullName: string,
+  physicalBranchIdentities: readonly Readonly<{ branch: string; headSha: string }>[],
   unknowns: string[]
 ): BranchPullRequestObservation[] {
   const result = runInventoryCommand(ctx, 'gh', [
@@ -537,11 +539,15 @@ function listPullRequests(
     if (observations.length >= 1000) {
       unknowns.push('PR inventory reached its bounded 1000-item limit');
     }
+    const relevant = selectBranchLifecyclePullRequestsV1(
+      observations,
+      physicalBranchIdentities
+    );
     return bindCloseoutReceiptObservations(
       ctx,
       repositoryRoot,
       repositoryFullName,
-      observations
+      relevant
     );
   } catch (error) {
     unknowns.push(
@@ -677,9 +683,16 @@ export function collectBranchLifecycleInventory(
   }
 
   const worktrees = listWorktrees(ctx, repositoryRoot, unknowns);
+  const physicalBranchIdentities = [
+    ...localBranches.map(({ branch, sha }) => ({ branch, headSha: sha })),
+    ...remoteBranches.map(({ branch, sha }) => ({ branch, headSha: sha })),
+    ...worktrees.flatMap(({ branch, headSha }) => (
+      branch === null || headSha === null ? [] : [{ branch, headSha }]
+    ))
+  ];
   const pullRequests = fullName.startsWith('<unknown>')
     ? []
-    : listPullRequests(ctx, repositoryRoot, fullName, unknowns);
+    : listPullRequests(ctx, repositoryRoot, fullName, physicalBranchIdentities, unknowns);
   const activeWorkPackage = resolveActiveWorkPackage(
     ctx,
     repositoryRoot,
