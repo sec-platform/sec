@@ -17,6 +17,7 @@ import {
   TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1,
   TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1,
   TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1,
+  TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1,
   assertTrustedRuntimeContainerImageV1,
   assertTrustedRuntimeDependencyCacheVolumeV1,
   assertTrustedRuntimeMainHealthCarryForwardBaselineV2,
@@ -63,6 +64,19 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('projects the exact base as the offline default-branch ref in both trees', () => {
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1).toContain(
+      'git -C /sec-runtime/trusted update-ref refs/remotes/origin/main "$base"'
+    );
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1).toContain(
+      'git -C /sec-runtime/workspace update-ref refs/remotes/origin/main "$base"'
+    );
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1.match(
+      /rev-parse refs\/remotes\/origin\/main/gu
+    )).toHaveLength(2);
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1).not.toContain('git fetch origin');
+  });
+
   test('builds through Buildx with authority-owned absolute and semantic stall deadlines', () => {
     const plan = createTrustedRuntimeImageBuildPlanV1(
       path.resolve('scripts/codex/trusted-runtime.Dockerfile'),
