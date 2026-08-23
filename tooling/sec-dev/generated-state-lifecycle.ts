@@ -521,7 +521,7 @@ function rulesOwningGeneratedPathV1(relativePath: string): readonly GeneratedSta
 function rulesBelowGeneratedPathV1(relativePath: string): readonly GeneratedStateRuleV1[] {
   return GENERATED_STATE_REGISTRY_V1.rules.filter(({ selector }) => {
     const anchor = selector.kind === 'exact' ? selector.path : selector.parent;
-    return anchor.startsWith(`${relativePath}/`);
+    return anchor === relativePath || anchor.startsWith(`${relativePath}/`);
   });
 }
 
