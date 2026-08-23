@@ -499,7 +499,7 @@ test('production docs-doctor ignores ambient index redirection and captures the 
       : path.resolve(process.cwd(), gitIndexCandidate);
     const isolatedIndex = path.join(temporaryRoot, 'index');
     await copyFile(gitIndexPath, isolatedIndex);
-    const environment = { ...process.env, GIT_INDEX_FILE: isolatedIndex };
+    const environment: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: isolatedIndex };
     const pointerResult = spawnSync('git', ['show', ':docs/work/active-work-package.md'], {
       cwd: process.cwd(),
       encoding: 'utf8',
@@ -528,6 +528,21 @@ test('production docs-doctor ignores ambient index redirection and captures the 
       env: environment
     });
     expect(update.status).toBe(0);
+    const longCacheRoot = path.join(
+      temporaryRoot,
+      `cache-segment-${'x'.repeat(80)}`
+    );
+    if (process.platform === 'win32') {
+      expect(path.join(
+        longCacheRoot,
+        'docs-doctor', 'index-snapshots', 'v1', `snapshot-${'0'.repeat(36)}`, 'index.lock'
+      ).length).toBeGreaterThan(259);
+      expect(path.join(
+        longCacheRoot,
+        'dd', 'i', 'v2', `s-${'0'.repeat(32)}`, 'index.lock'
+      ).length).toBeLessThanOrEqual(259);
+    }
+    environment.SEC_CACHE_HOME = longCacheRoot;
     const cli = spawnSync(process.execPath, [path.resolve('docs/scripts/docs-doctor.ts')], {
       cwd: process.cwd(),
       encoding: 'utf8',
@@ -535,7 +550,7 @@ test('production docs-doctor ignores ambient index redirection and captures the 
       env: environment,
       timeout: 60_000
     });
-    expect(cli.status).toBe(0);
+    expect(cli.status, `${cli.stderr}\n${cli.stdout}`).toBe(0);
     expect(`${cli.stderr}\n${cli.stdout}`).not.toContain(
       'Active pointer manifest digest does not match candidate manifest bytes.'
     );
