@@ -33,7 +33,11 @@ test('registry maps stable producer roots without a catch-all tmp rule', () => {
   expect(generatedStateRuleForPathV1('node_modules')?.id).toBe('compiler-node-modules');
   expect(generatedStateRuleForPathV1('.tmp/dependency-installs/c.staging-real')?.id)
     .toBe('compiler-dependency-staging');
-  expect(generatedStateRuleForPathV1('.tmp/codex')).toBeNull();
+  expect(generatedStateRuleForPathV1('.tmp/codex')).toMatchObject({
+    id: 'codex-control-plane-state',
+    registration: 'domain-owned',
+    settlementEffect: 'domain-owner-only'
+  });
   expect(generatedStateRuleForPathV1('.tmp/import-candidate-snapshots')).toBeNull();
   expect(generatedStateRuleForPathV1(
     '.tmp/import-candidate-snapshots/snapshot-operation-1'
