@@ -385,7 +385,10 @@ test('an untracked recovery package retains exactly one byte-exact catalog prede
         ? Buffer.from(catalogSource(), 'utf8')
         : readFile(path.join(fixture.repositoryRoot, ...repositoryPath.split('/')))
     );
-    const exactDefault = new Map([[predecessorPath, predecessorBytes]]);
+    const exactDefault = new Map<string, Uint8Array>([
+      ['docs/roadmap.md', Buffer.from(catalogSource(), 'utf8')],
+      [predecessorPath, predecessorBytes]
+    ]);
     const readDefaultBranchBlob = async (
       defaultBranchRef: string,
       repositoryPath: string

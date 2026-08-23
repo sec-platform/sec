@@ -19,14 +19,15 @@ export type TestOwnershipIdentity =
   | { kind: 'pass'; id: PassId }
   | { kind: 'contract'; id: string };
 
-export type TestOwnershipDeclaration = {
+export type TestImpactRiskPolicy = 'slow-risk-baseline';
+
+type TestOwnershipDeclarationBase = {
   owner: string;
   identity: TestOwnershipIdentity;
   /**
    * A complete semantic owner may replace generic reverse-import fanout with
    * its explicit requirement evidence. The default remains conservative.
    */
-  moduleGraphImpact?: 'include' | 'owner-only';
   sourceFiles?: readonly string[];
   excludedSourceFiles?: readonly string[];
   sourcePrefixes?: readonly string[];
@@ -37,11 +38,27 @@ export type TestOwnershipDeclaration = {
     baseMode: '100644' | '100755';
     baseBlobSha: string;
   }>[];
-  /** Behavior/physical evidence that cannot be inferred from module imports. */
-  supplementalFast: readonly string[];
-  /** Slow behavior/physical evidence that cannot be inferred from module imports. */
-  supplementalSlow: readonly string[];
 };
+
+export type TestOwnershipDeclaration = TestOwnershipDeclarationBase & (
+  | {
+    impactProjection?: 'include';
+    moduleGraphImpact?: 'include' | 'owner-only';
+    riskPolicies?: readonly TestImpactRiskPolicy[];
+    /** Behavior/physical evidence that cannot be inferred from module imports. */
+    supplementalFast: readonly string[];
+    /** Slow behavior/physical evidence that cannot be inferred from module imports. */
+    supplementalSlow: readonly string[];
+  }
+  | {
+    /** Resolves cross-lane applicability but cannot invent direct test evidence. */
+    impactProjection: 'risk-only';
+    moduleGraphImpact?: never;
+    riskPolicies: readonly [TestImpactRiskPolicy, ...TestImpactRiskPolicy[]];
+    supplementalFast: readonly [];
+    supplementalSlow: readonly [];
+  }
+);
 
 export type ResolvedTestOwnership = {
   source: string;

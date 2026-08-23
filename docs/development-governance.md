@@ -134,6 +134,13 @@ already-in-main/superseded、仍有第二个未满足依赖、scope/Evidence/own
 Phase B adapter只从repository orientation、Work Package registry、closeout与conflict owner收集结构化
 facts并签发receipt；Phase C writer只把validated decision物化为一个当前包加二至五候选。人工projection
 在Phase C切换前必须明确是A0 reconciliation；与machine decision冲突时返回`reconcile`，不静默覆盖。
+Phase C的live adapter先把trusted terminal current-spec observation编译为roadmap terminal compaction，
+再以`raw roadmap revision + compaction digest + terminal observation`形成唯一selection revision；关闭的work不再
+进入候选集，也不会因manifest已先退役而锁死selection。catalog、已消费依赖边和manifest retirement构成一个
+不可拆分的candidate graph delta；document-control freeze只接受与compiler输出逐字相等的terminal subgraph。
+新增selected manifest与delayed predecessor仍由既有package census拥有，terminal owner只拒绝自身退休对象残留或
+既有非退休manifest丢失，不得用whole-inventory equality覆盖另一个合法生命周期。聊天、手工删除或Issue关闭
+本身都不能绕过这些consumer。
 #349 `ExecutionWave`随后只编译selected work refs的order/conflict/resource/cost，不能复制selector、
 Issue prose、权限、Task Capsule或Verification。bounded automated action只有在下游authorization、Journal、
 rollback和真实consumer成立后才能激活；pure decision本身永远没有branch/PR/merge/write authority。
@@ -1081,6 +1088,19 @@ write lease，再持有 parent/target fd，在effect前最后一次 `openat(O_NO
 
 Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发的ScopeGrant与trusted resolver为当前exact base/head/tree产生的CandidateScopeAttestation共同成立时，才允许冻结Session。候选修改manifest或write set不能给自己扩权。
 
+若故障恰好位于WorkDecision/ScopeGrant issuer本身，使then-current trusted main无法为修复签发普通grant，
+不得由candidate新增例外、自造receipt或把Issue/聊天解释成健康的机器授权。唯一bootstrap trust transition必须
+由仓库外maintainer principal在受信Provider发布一个不可变、一次性的exact grant，至少绑定repository、
+trusted base/head及tree、完整changed-path set、目标control-plane root cause、expiry和provider resource digest；
+候选作者、实现进程与Review principal不能充当该grant的独立验证者。集成前必须重验maintainer permission、
+grant bytes/digest、exact candidate、独立Review和live main preimage，集成后立即在new main readback并退役grant。
+旧main尚未实现该consumer时，第一次采用只能明确标记为maintainer-governed genesis transition，不能伪装成
+旧ScopeGrant PASS；进入new main后，后续同类修复必须走机器consumer，genesis路径永久consumer-zero。
+bootstrap closure只绑定一个由validated root facts编译的Operation Demand Graph；terminal topology、dependency
+materialization、验证义务及其所有changed paths都是该图的原子派生闭包，不得按文件面、失败现象或下游owner拆成
+多个“因果必包”。Grant只为这一完整图签发一次，Review和new-main readback也绑定同一个graph digest；若图输入、
+需求闭包或exact tree变化，整份grant失效并从新图重新签发，不能给其中一个派生面追加旁路授权。
+
 授权与 candidate transport 分两层：`ScopeGrantId` 绑定 trust epoch、manifest semantic revision、
 owned/forbidden paths、capability/resource bounds 与 base authority；trusted resolver 再为每个 exact
 head/tree 签发 `CandidateScopeAttestation`，证明 changed paths 与 effects 仍是 ScopeGrant 的子集。
@@ -1312,6 +1332,15 @@ PR Ready只表示允许进入Review调度，不表示可以启动expensive trust
 
 开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required trusted-provider Gate。不是每个Work Package固定全跑同一套重门禁，GitHub Actions也不拥有“trusted provider”的唯一实现。
 
+Bun test preload只拥有进程级temp/state隔离，不得准备package、Browser cache或网络能力。每个测试入口先由
+唯一Operation Demand Graph从selected operation编译完整需求，再由`ensureOperationDependencies`重算图并只物化
+其中的能力；不存在fast/browser两套依赖入口。fast/affected/contract-freeze图只需求compiler closure，slow/full
+或无法证明不含slow consumer的direct selection才需求Browser；图未需求Browser时必须保持零Playwright准备、
+零下载和零browser进程。`deps:ensure`、check、imports、typecheck与test也不得在DevRunner分派前经过通用
+dependency bootstrap；它们各自编译同一图，只有`dependency-setup`可需求managed Git hooks。复合check首次
+物化的process-local capability由同一进程以不可伪造receipt向其nested typecheck/test消费，所需capability不是
+父图子集时拒绝复用；禁止同一logical operation再次观察、安装或链接同一dependency generation。
+
 相同未失效 Gate identity复用；输入和failure fingerprint未变时不重复确定性失败。无法证明不受影响不是“无需测试”。
 
 候选冻结 DAG 必须把所有 source normalizer（包括 canonical import transform）排在任何 content-addressed generated lock、blob/digest inventory 和 Evidence 之前；生成物之后只允许 read-only check。若 normalizer 仍报告 delta，生成阶段不得启动。这样一次源码归一化只触发一次下游重算，不允许用“先生成、再格式化、再生成”的命令顺序制造自我失效。
@@ -1320,6 +1349,10 @@ PR Ready只表示允许进入Review调度，不表示可以启动expensive trust
 not-applicable 全部跳过，fresh terminal PASS/FAIL 全部复用，authenticated in-flight 只 join，
 unknown physical outcome block，只有 missing/stale Action 才允许 physical start。同一个
 ActionKey 的 physical start 不得超过一次；Impact unresolved 时扩大 closure 或停止，不能假装
+无影响。source path的owner、fast/slow Evidence与cross-lane risk policy只在TestImpact declaration登记一次；
+CI risk只消费该owner closure，禁止再维护`BOUNDED_BASELINE`、mandatory-sentinel或测试fixture专用的第二套
+路径正则。新增owner后，旧的“unmapped”fixture若已变为机器不可达状态必须删除；typed trust-boundary本身只由
+纯合同测试证明，不得用伪造仓库路径重复制造集成覆盖。
 不适用。性能预算限制重复物理工作而不是合法 generation：
 
 ```text

@@ -244,6 +244,36 @@ Workbench 只拥有 view/inspector、interaction、transport/session 和 bounded
 
 Projection 可以过滤、布局和聚合，但必须保留 stable references、revision、authority、unknown 和 Evidence freshness，不能复制或重算上游裁决。实现视图可以解释选了什么、为什么、精确版本、淘汰原因、Binding变化和升级影响，但不能把用户点击或AI建议直接变成Binding、Delta或Compatibility Decision。
 
+### 12. Operation Demand Graph
+
+内容寻址不是一套平行架构，而是统一 Engineering Semantic Graph 中确定性节点的 identity/reuse 机制。所有开发环节遵守同一条闭环：
+
+```text
+validated Fact / Intent / Policy / Capability
+→ selected Operation
+→ Operation Demand Graph
+→ required semantic transitions / capabilities / verification obligations
+→ authorized owner Effects
+→ Observation / Evidence
+→ next graph revision
+```
+
+`platform/shared/operation-demand-contract.ts` 是开发控制面中该图的唯一机器 owner。一个 selected
+Operation 与其 validated facts 必须由该 owner 一次编译出完整 transition demand、capability demand、
+verification obligation 与 graph digest；下游在 Effect 前重算并逐字比较，不能自行补 demand。多个物理改动面若
+来自同一上游 operation，只是同一图节点的派生闭包，不得拆成多个 bootstrap 因果包、多个授权或多个互相漂移的
+手工清单。各领域 effect owner仍只执行自己的 transition，公共图不吞并权限。
+
+能力是图上的显式需求，不是入口默认副作用。`not-demanded` 必须产生零 package preparation、零缓存探测、
+零下载、零进程和零网络。共享 preload、通用 command 名称、ambient executable/cache、调用者字段或“以后也许
+会用”不能索取 Browser、Container、Network 等能力。WorkSelection 的 terminal topology transition 与测试
+运行器的 compiler/browser materialization现由同一 Demand Graph compiler裁决；它们不再各自拥有一套入口启发式。
+
+一个 canonical semantic transition 可以派生多个物理对象；这些对象必须由同一 compiler 一次产生完整
+write/delete set、依赖边变化、验证需求和 Evidence identity，并由一个事务 owner 发布。任何单独手改派生对象、
+保留已消费依赖边、只删除一半生命周期对象或让 Projection 反向补事实都属于非法 partial transition。Git commit
+的原子性不能替代 transition compiler 的语义完整性；候选边界必须比较 prior/current graph 并拒绝半事务。
+
 ## Workspace 状态与路径类别
 
 路径只是物理 binding，不是跨域 identity。一个 workspace 至少区分：

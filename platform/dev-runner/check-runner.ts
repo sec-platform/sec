@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { CodexDevelopmentIsActiveDocumentationPathV1 } from '../shared/active-documentation-contract.ts';
 import { isAffectedSelectionFailClosed } from '../shared/affected-test-inventory.ts';
+import type { OperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
 import {
   type AffectedTestPlanV1,
   type ResolvedAffectedTestExecutionV1,
@@ -30,7 +31,7 @@ export interface LocalAffectedCheckPlanV1 {
 }
 
 interface LocalAffectedCheckExecutionOptions {
-  readonly prepareCompilerNodeModulesPath?: () => Promise<string>;
+  readonly prepareCompilerDependencies?: () => Promise<OperationDependencyBootstrapResult>;
 }
 
 const TYPECHECK_AUTHORITY_PATHS = new Set([
@@ -98,7 +99,7 @@ export function buildLocalAffectedCheckPlan(
 async function executeLocalAffectedGate(
   step: LocalAffectedGateStepV1,
   affectedExecution: ResolvedAffectedTestExecutionV1,
-  compilerNodeModulesPath: string | undefined
+  compilerDependencies: OperationDependencyBootstrapResult | undefined
 ): Promise<number> {
   if (step.id === 'imports:check') {
     const { runImportCheck } = await import('./import-organizer.ts');
@@ -112,8 +113,8 @@ async function executeLocalAffectedGate(
   }
   if (step.id === 'typecheck') {
     const { runTypecheck, runTypecheckWithBinPath } = await import('./typecheck-runner.ts');
-    return compilerNodeModulesPath
-      ? runTypecheckWithBinPath(path.join(compilerNodeModulesPath, '.bin'))
+    return compilerDependencies
+      ? runTypecheckWithBinPath(path.join(compilerDependencies.nodeModulesPath, '.bin'))
       : runTypecheck();
   }
   if (step.id === 'docs:doctor') {
@@ -124,7 +125,7 @@ async function executeLocalAffectedGate(
   const { withHeavyVerificationGateLease } = await import('../shared/heavy-verification-gate-lease.ts');
   return withHeavyVerificationGateLease(
     'test:affected',
-    affectedExecution.run
+    () => affectedExecution.run(compilerDependencies)
   );
 }
 
@@ -161,33 +162,33 @@ export async function runLocalAffectedCheck(
   const compilerGateSelected = plan.gates.some(({ id }) => (
     id === 'imports:check' || id === 'typecheck'
   ));
-  if (compilerGateSelected && !options.prepareCompilerNodeModulesPath) {
+  if (compilerGateSelected && !options.prepareCompilerDependencies) {
     console.error('Local affected compiler Gates require the canonical dependency preparation capability.');
     return 1;
   }
-  const compilerNodeModulesPath = compilerGateSelected
-    ? await options.prepareCompilerNodeModulesPath!()
+  const compilerDependencies = compilerGateSelected
+    ? await options.prepareCompilerDependencies!()
     : undefined;
 
   console.log(`Running local affected Gate union once: ${plan.gates.map(({ id }) => id).join(' -> ')}`);
   for (const step of plan.gates) {
-    const code = await executeLocalAffectedGate(step, affectedExecution, compilerNodeModulesPath);
+    const code = await executeLocalAffectedGate(step, affectedExecution, compilerDependencies);
     if (code !== 0) return code;
   }
   return 0;
 }
 
 interface FastCheckExecutionOptions {
-  readonly prepareCompilerNodeModulesPath?: () => Promise<string>;
+  readonly prepareCompilerDependencies?: () => Promise<OperationDependencyBootstrapResult>;
 }
 
 export async function runFastCheck(options: FastCheckExecutionOptions = {}): Promise<number> {
-  if (!options.prepareCompilerNodeModulesPath) {
+  if (!options.prepareCompilerDependencies) {
     console.error('Fast check requires the canonical dependency preparation capability.');
     return 1;
   }
 
-  const compilerNodeModulesPath = await options.prepareCompilerNodeModulesPath();
+  const compilerDependencies = await options.prepareCompilerDependencies();
 
   console.log('Running fast check: imports:check -> docs:doctor + typecheck (parallel) -> test:fast');
 
@@ -202,10 +203,10 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
   }
 
   const { runDevCommand } = await import('./command-runner.ts');
-  const { runTypecheck, runTypecheckWithBinPath } = await import('./typecheck-runner.ts');
-  const typecheck = compilerNodeModulesPath
-    ? () => runTypecheckWithBinPath(path.join(compilerNodeModulesPath, '.bin'))
-    : () => runTypecheck();
+  const { runTypecheckWithBinPath } = await import('./typecheck-runner.ts');
+  const typecheck = () => runTypecheckWithBinPath(
+    path.join(compilerDependencies.nodeModulesPath, '.bin')
+  );
 
   const [docsCode, typecheckCode] = await Promise.all([
     runDevCommand('bun', ['docs/scripts/docs-doctor.ts'], {}),
@@ -216,7 +217,7 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   const { withHeavyVerificationGateLease } = await import('../shared/heavy-verification-gate-lease.ts');
   const { runFastTests } = await import('./test-runner.ts');
-  return withHeavyVerificationGateLease('test:fast', () => runFastTests(), {
+  return withHeavyVerificationGateLease('test:fast', () => runFastTests([], compilerDependencies), {
     namespace: 'test:fast',
     waitTimeoutMs: 5000
   });
