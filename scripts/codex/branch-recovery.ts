@@ -341,10 +341,10 @@ export function createRecoveryBundle(input: {
   branch: string;
   expectedSha: string;
   recoveryRoot?: string;
-  refSource?: { kind: 'branch' } | { kind: 'pull'; number: number };
+  refSource: { kind: 'local-branch' | 'remote-branch' } | { kind: 'pull'; number: number };
 }): { recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] } {
   const { inventory, branch, expectedSha } = input;
-  const refSource = input.refSource ?? { kind: 'branch' as const };
+  const refSource = input.refSource;
   assertGitBranchName(branch);
   assertGitSha(expectedSha, 'recovery expected SHA');
   if (
@@ -366,40 +366,52 @@ export function createRecoveryBundle(input: {
     : `refs/heads/${branch}`;
   const sourceLabel = refSource.kind === 'pull'
     ? `pull/${refSource.number} head`
-    : `remote branch ${branch}`;
-  const temporaryRepository = mkdtempSync(path.join(recoveryRoot, '.sec-recovery-fetch-'));
+    : `${refSource.kind === 'local-branch' ? 'local' : 'remote'} branch ${branch}`;
+  const temporaryRepository = refSource.kind === 'local-branch'
+    ? null
+    : mkdtempSync(path.join(recoveryRoot, '.sec-recovery-fetch-'));
 
   try {
-    const initialize = runRecoveryGit(temporaryRepository, ['init', '--bare', '.']);
-    if (initialize.status !== 0) {
-      throw new Error(`recovery repository initialization failed: ${decodeBranchLifecycleChildErrorV1(initialize)}`);
+    let bundleSourceRoot: string;
+    let bundleSourceRef: string;
+    if (refSource.kind === 'local-branch') {
+      bundleSourceRoot = repositoryRoot;
+      bundleSourceRef = sourceSpec;
+    } else {
+      if (temporaryRepository === null) throw new Error('Remote recovery workspace is unavailable.');
+      const initialize = runRecoveryGit(temporaryRepository, ['init', '--bare', '.']);
+      if (initialize.status !== 0) {
+        throw new Error(`recovery repository initialization failed: ${decodeBranchLifecycleChildErrorV1(initialize)}`);
+      }
+      const fetch = runRecoveryGit(temporaryRepository, [
+        'fetch',
+        '--no-tags',
+        inventory.repository.remoteUrl,
+        `+${sourceSpec}:refs/heads/recovery`
+      ]);
+      if (fetch.status !== 0) {
+        throw new Error(
+          `recovery fetch failed (${sourceLabel}): ${decodeBranchLifecycleChildErrorV1(fetch)}`
+        );
+      }
+      bundleSourceRoot = temporaryRepository;
+      bundleSourceRef = 'refs/heads/recovery';
     }
-    const fetch = runRecoveryGit(temporaryRepository, [
-      'fetch',
-      '--no-tags',
-      inventory.repository.remoteUrl,
-      `+${sourceSpec}:refs/heads/recovery`
-    ]);
-    if (fetch.status !== 0) {
-      throw new Error(
-        `recovery fetch failed (${sourceLabel}): ${decodeBranchLifecycleChildErrorV1(fetch)}`
-      );
-    }
-    const fetchedSha = requireRecoveryGitText(
-      temporaryRepository,
-      ['rev-parse', '--verify', 'refs/heads/recovery'],
+    const resolvedSha = requireRecoveryGitText(
+      bundleSourceRoot,
+      ['rev-parse', '--verify', bundleSourceRef],
       'recovery source resolution'
     );
-    if (fetchedSha !== expectedSha) {
+    if (resolvedSha !== expectedSha) {
       throw new Error(
-        `${sourceLabel} SHA raced during recovery preparation: expected ${expectedSha}, fetched ${fetchedSha}`
+        `${sourceLabel} SHA raced during recovery preparation: expected ${expectedSha}, resolved ${resolvedSha}`
       );
     }
 
     const partialBundlePath = `${bundlePath}.${process.pid}.partial`;
     const create = runRecoveryGit(
-      temporaryRepository,
-      ['bundle', 'create', partialBundlePath, 'refs/heads/recovery']
+      bundleSourceRoot,
+      ['bundle', 'create', partialBundlePath, bundleSourceRef]
     );
     if (create.status !== 0) {
       try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
@@ -408,6 +420,17 @@ export function createRecoveryBundle(input: {
     if (statSync(partialBundlePath).size <= 0) {
       try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
       throw new Error('recovery bundle is empty');
+    }
+    const bundleHeads = requireRecoveryGitText(
+      repositoryRoot,
+      ['bundle', 'list-heads', partialBundlePath],
+      'recovery bundle head readback'
+    );
+    if (!bundleHeads.split(/\r?\n/u).some((line) => line.startsWith(`${expectedSha} `))) {
+      try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
+      throw new Error(
+        `${sourceLabel} changed while the recovery bundle was created; expected head ${expectedSha} is absent.`
+      );
     }
     fsyncPath(partialBundlePath);
     renameSync(partialBundlePath, bundlePath);
@@ -452,7 +475,9 @@ export function createRecoveryBundle(input: {
     });
     return { recovery, attempts };
   } finally {
-    rmSync(temporaryRepository, { recursive: true, force: true });
+    if (temporaryRepository !== null) {
+      rmSync(temporaryRepository, { recursive: true, force: true });
+    }
   }
 }
 
