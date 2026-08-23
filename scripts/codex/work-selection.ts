@@ -9,6 +9,7 @@ import type {
 } from '../../platform/shared/work-selection-contract.ts';
 import {
   compileSecWorkSelectionTerminalProjectionV1,
+  createSecRoadmapTerminalCompactionCandidateV2,
   createSecWorkCurrentSpecObservationV1,
   createSecWorkDecisionReceiptV1,
   createSecWorkRegistryObservationV1,
@@ -17,6 +18,8 @@ import {
   renderSecWorkRollingPlanV1,
   resolvedSecWorkSelectionLiveResultV1,
   unresolvedSecWorkSelectionLiveResultV1,
+  type SecRoadmapTerminalCompactionCandidateV2,
+  type SecRoadmapTerminalCompactionV2,
   type SecRoadmapWorkCatalogItemV1,
   type SecWorkCurrentSpecObservationV1,
   type SecWorkDecisionReceiptV1,
@@ -50,18 +53,20 @@ import {
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
 
-interface CommandResultV1 {
+export interface SecWorkSelectionProviderCommandResultV1 {
   readonly status: number | null;
   readonly stdout: Buffer;
   readonly stderr: Buffer;
 }
 
-type CommandRunnerV1 = (
+export type SecWorkSelectionProviderV1 = (
   command: 'gh' | 'git',
   args: readonly string[],
   cwd: string,
   environment?: Readonly<NodeJS.ProcessEnv>
-) => CommandResultV1;
+) => SecWorkSelectionProviderCommandResultV1;
+
+type CommandRunnerV1 = SecWorkSelectionProviderV1;
 
 export interface ObserveSecWorkSelectionLiveInputV1 {
   readonly cwd: string;
@@ -89,7 +94,7 @@ function runDefault(
   args: readonly string[],
   cwd: string,
   environment?: Readonly<NodeJS.ProcessEnv>
-): CommandResultV1 {
+): SecWorkSelectionProviderCommandResultV1 {
   if (args.some((argument) => argument.includes('\0'))) {
     throw new LiveObservationFailure('command-argument-invalid', command);
   }
@@ -112,7 +117,7 @@ function runDefault(
   };
 }
 
-function combinedFailureBytes(result: CommandResultV1): Buffer {
+function combinedFailureBytes(result: SecWorkSelectionProviderCommandResultV1): Buffer {
   return Buffer.concat([result.stdout, Buffer.from('\0'), result.stderr]);
 }
 
@@ -397,6 +402,103 @@ function observeRegistry(input: {
   });
 }
 
+function exactManifestPaths(
+  run: CommandRunnerV1,
+  root: string,
+  ref: string,
+  label: string
+): readonly string[] {
+  const bytes = requireCommand(run, 'git', [
+    'ls-tree', '-r', '--name-only', '-z', '--full-tree', ref, '--', 'docs/work-packages'
+  ], root, `${label}-unresolved`);
+  const source = decodeUtf8(bytes, `${label}-invalid-utf8`);
+  if (source.length === 0) return Object.freeze([]);
+  if (!source.endsWith('\0')) throw new LiveObservationFailure(`${label}-truncated`, source);
+  const paths = source.slice(0, -1).split('\0');
+  if (paths.some((candidate) => !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(candidate))
+      || new Set(paths).size !== paths.length) {
+    throw new LiveObservationFailure(`${label}-malformed`, source);
+  }
+  return Object.freeze(paths.sort());
+}
+
+export type SecRoadmapTerminalCompactionCandidateObservationV2 = Readonly<
+  | { status: 'not-applicable'; candidate: null }
+  | { status: 'resolved'; candidate: SecRoadmapTerminalCompactionCandidateV2 }
+  | { status: 'unresolved'; candidate: null; reasonCode: string; blockerRef: SecWorkDigestV1 }
+>;
+
+/**
+ * Provider adapter for one terminal-compaction candidate.  The caller supplies
+ * normalized PR facts, while every Git blob, tree and manifest-path fact is
+ * re-observed from the exact object database.  This function produces no
+ * authorization or effect authority.
+ */
+export function observeSecRoadmapTerminalCompactionCandidateV2(input: {
+  run: CommandRunnerV1;
+  root: string;
+  repository: string;
+  defaultBranch: string;
+  exactMain: string;
+  roadmapSource: string;
+  terminalCompaction: SecRoadmapTerminalCompactionV2 | null;
+  openPullRequests: ReturnType<typeof parseOpenPullRequestList>;
+}): SecRoadmapTerminalCompactionCandidateObservationV2 {
+  if (input.terminalCompaction === null || input.openPullRequests.length !== 1) {
+    return Object.freeze({ status: 'not-applicable', candidate: null });
+  }
+  const pullRequest = input.openPullRequests[0]!;
+  if (pullRequest.baseBranch !== input.defaultBranch || pullRequest.baseSha !== input.exactMain) {
+    return Object.freeze({ status: 'not-applicable', candidate: null });
+  }
+  try {
+    const candidateRoadmapSource = decodeUtf8(readGitBlob(
+      input.run,
+      input.root,
+      `${pullRequest.headSha}:docs/roadmap.md`,
+      'terminal-candidate-roadmap-unresolved'
+    ), 'terminal-candidate-roadmap-invalid-utf8');
+    if (candidateRoadmapSource !== input.terminalCompaction.roadmapSource) {
+      return Object.freeze({ status: 'not-applicable', candidate: null });
+    }
+    const headTreeSha = gitSha(decodeUtf8(requireCommand(input.run, 'git', [
+      'rev-parse', `${pullRequest.headSha}^{tree}`
+    ], input.root, 'terminal-candidate-tree-unresolved'), 'terminal-candidate-tree-invalid-utf8'),
+    'terminal-candidate-tree-invalid');
+    const candidate = createSecRoadmapTerminalCompactionCandidateV2({
+      repository: input.repository,
+      exactMain: input.exactMain,
+      compaction: input.terminalCompaction,
+      priorRoadmapSource: input.roadmapSource,
+      roadmapSource: candidateRoadmapSource,
+      priorManifestPaths: exactManifestPaths(
+        input.run, input.root, input.exactMain, 'terminal-candidate-base-manifests'
+      ),
+      manifestPaths: exactManifestPaths(
+        input.run, input.root, pullRequest.headSha, 'terminal-candidate-head-manifests'
+      ),
+      prNumber: pullRequest.number,
+      baseSha: pullRequest.baseSha,
+      headSha: pullRequest.headSha,
+      headTreeSha
+    });
+    return Object.freeze({ status: 'resolved', candidate });
+  } catch (error) {
+    const failure = error instanceof LiveObservationFailure
+      ? error
+      : new LiveObservationFailure(
+          'terminal-compaction-candidate-invalid',
+          error instanceof Error ? error.message : String(error)
+        );
+    return Object.freeze({
+      status: 'unresolved',
+      candidate: null,
+      reasonCode: failure.reasonCode,
+      blockerRef: failure.blockerRef
+    });
+  }
+}
+
 function parseRefLines(source: string): Array<{ branch: string; sha: string }> {
   return source.split(/\r?\n/u).filter(Boolean).map((line) => {
     const [branch, sha] = line.split('\0');
@@ -604,7 +706,39 @@ function currentLifecycle(input: {
   branchLifecycle: ReturnType<typeof projectBranchLifecycleForWorkSelectionV1>;
   mainHealth: ReturnType<typeof observeCanonicalMainHealth>;
   control: ReturnType<typeof observeCanonicalControl>;
+  terminalCandidate: SecRoadmapTerminalCompactionCandidateV2 | null;
 }): SecCurrentWorkLifecycleV1 {
+  if (input.terminalCandidate !== null) {
+    const pullRequest = input.openPullRequests.find(
+      ({ number }) => number === input.terminalCandidate!.prNumber
+    )!;
+    const exactActiveIdentity = isExactWorkSelectionActiveIdentityV1({
+      activeState: input.branchLifecycle.activeState,
+      activeBranch: input.branchLifecycle.activeBranch,
+      activeHeadSha: input.branchLifecycle.activeHeadSha,
+      activeLegality: input.branchLifecycle.activeLegality,
+      pullRequestHeadBranch: pullRequest.headBranch,
+      pullRequestHeadSha: pullRequest.headSha,
+      registryHeadSha: input.terminalCandidate.headSha,
+      registryBaseSha: input.terminalCandidate.baseSha,
+      pullRequestBaseSha: pullRequest.baseSha
+    });
+    const activeWorkId = input.terminalCandidate.retiredWorkIds.length === 1
+      ? input.terminalCandidate.retiredWorkIds[0]!
+      : `terminal-compaction-${input.terminalCandidate.compactionDigest.slice('sha256:'.length, 17)}`;
+    return {
+      activeWorkId,
+      activeRef: input.terminalCandidate.bindingDigest,
+      activeState: 'incomplete',
+      activeLegality: exactActiveIdentity ? 'legal' : 'invalid',
+      mainHealthState: input.mainHealth.state,
+      mainHealthRef: input.mainHealth.ref,
+      closeoutState: input.branchLifecycle.closeoutState,
+      closeoutRef: input.branchLifecycle.projectionDigest,
+      controlState: input.control.state,
+      controlRef: input.control.ref
+    };
+  }
   const openEntries = input.registry.entries.filter(({ source }) => source === 'open-pr');
   if (input.openPullRequests.length > 0) {
     const entry = openEntries.length === 1 ? openEntries[0] : undefined;
@@ -675,10 +809,10 @@ function currentLifecycle(input: {
   };
 }
 
-export function observeSecWorkSelectionLiveV1(
-  input: ObserveSecWorkSelectionLiveInputV1
+export function observeSecWorkSelectionWithProviderV1(
+  input: ObserveSecWorkSelectionLiveInputV1,
+  run: SecWorkSelectionProviderV1
 ): SecWorkSelectionLiveResultV1 {
-  const run = runDefault;
   try {
     const root = repositoryRoot(run, input.cwd);
     const defaultProjection = resolveCanonicalDefaultProjection({ run, root });
@@ -743,13 +877,32 @@ export function observeSecWorkSelectionLiveV1(
         })))
       );
     }
+    const terminalObservation = observeSecRoadmapTerminalCompactionCandidateV2({
+      run,
+      root,
+      repository: state.resolver.repository,
+      defaultBranch: state.resolver.defaultBranch,
+      exactMain,
+      roadmapSource,
+      terminalCompaction,
+      openPullRequests
+    });
+    if (terminalObservation.status === 'unresolved') {
+      return unresolvedSecWorkSelectionLiveResultV1({
+        reasonCodes: [terminalObservation.reasonCode],
+        blockerRefs: [terminalObservation.blockerRef]
+      });
+    }
+    const terminalCandidate = terminalObservation.candidate;
     const registry = observeRegistry({
       root,
       repository: state.resolver.repository,
       defaultBranch: state.resolver.defaultBranch,
       exactMain,
       exactMainTree,
-      openPullRequests
+      openPullRequests: terminalCandidate === null
+        ? openPullRequests
+        : openPullRequests.filter(({ number }) => number !== terminalCandidate.prNumber)
     });
     const branchLifecycle = observeCanonicalBranchLifecycle({
       run,
@@ -796,7 +949,8 @@ export function observeSecWorkSelectionLiveV1(
       openPullRequests,
       branchLifecycle,
       mainHealth,
-      control
+      control,
+      terminalCandidate
     });
     const receipt = createSecWorkDecisionReceiptV1({
       repository: state.resolver.repository,
@@ -821,6 +975,13 @@ export function observeSecWorkSelectionLiveV1(
       blockerRefs: [rawSha256(error instanceof Error ? error.message : String(error))]
     });
   }
+}
+
+/** Standard trusted composition root for production callers. */
+export function observeSecWorkSelectionLiveV1(
+  input: ObserveSecWorkSelectionLiveInputV1
+): SecWorkSelectionLiveResultV1 {
+  return observeSecWorkSelectionWithProviderV1(input, runDefault);
 }
 
 export function requireResolvedSecWorkDecisionReceiptV1(
@@ -850,7 +1011,7 @@ export type SecWorkSelectionCliProjectionV1 = Readonly<
     }>;
     terminalCompaction: null | Readonly<{
       compactionDigest: SecWorkDigestV1;
-      retiredManifestPaths: readonly string[];
+      delayedManifestRetirementPaths: readonly string[];
       retiredWorkIds: readonly string[];
     }>;
     decision: Readonly<{
@@ -902,7 +1063,8 @@ export function projectSecWorkSelectionCliV1(
       ? null
       : Object.freeze({
           compactionDigest: result.terminalCompaction.compactionDigest,
-          retiredManifestPaths: result.terminalCompaction.retiredManifestPaths,
+          delayedManifestRetirementPaths:
+            result.terminalCompaction.delayedManifestRetirementPaths,
           retiredWorkIds: result.terminalCompaction.retiredWorkIds
         }),
     decision: Object.freeze({

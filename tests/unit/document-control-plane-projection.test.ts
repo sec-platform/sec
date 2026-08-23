@@ -276,6 +276,7 @@ stableFacts:
     baseTreeSha: exactMainTree,
     reviewedOn: '2026-08-21'
   });
+  expect(result.retiredManifestPath).toBeNull();
   expect(CodexDevelopmentParseRollingMachineProjectionV1(result.rollingPlanSource)).toMatchObject({
     authority,
     active: {
@@ -305,6 +306,7 @@ stableFacts:
     baseTreeSha: exactMainTree,
     reviewedOn: '2026-08-21'
   });
+  expect(refreshed.retiredManifestPath).toBeNull();
   expect(CodexDevelopmentParseRollingMachineProjectionV1(refreshed.rollingPlanSource)).toMatchObject({
     authority: refreshedAuthority,
     active: { manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest) }
