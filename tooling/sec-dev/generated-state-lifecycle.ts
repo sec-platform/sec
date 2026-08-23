@@ -38,7 +38,8 @@ import { runCommandBytes, type ByteCommandResult } from '../../platform/shared/p
 import { acquireWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 import {
   parseWorktreePorcelainZV1,
-  parseWorktreeStatusPorcelainZV1
+  parseWorktreeStatusPorcelainZV1,
+  type WorktreeStatusPorcelainRecordV1
 } from '../../scripts/codex/worktree-physical-closeout-contract.ts';
 import { acquireSecRuntimeStatePhysicalAuthorityV1 } from './runtime-state-authority.ts';
 import { createRuntimeStateJournalFileSystemV1 } from './runtime-state-journal-filesystem.ts';
@@ -524,14 +525,21 @@ function rulesBelowGeneratedPathV1(relativePath: string): readonly GeneratedStat
   });
 }
 
-function exactIgnoredRootPlanV1(workspaceRoot: string, relativePath: string): GeneratedStateWorktreeRetirementIntentV1['entries'][number] {
+function exactIgnoredRootPlanV1(
+  workspaceRoot: string,
+  relativePath: string,
+  excludedOwnerAnchor: string | null
+): GeneratedStateWorktreeRetirementIntentV1['entries'][number] {
   const observed = observeRoot(workspaceRoot, relativePath);
   if (observed.kind !== 'directory' || observed.directory === null || observed.identity === null) {
     throw new GeneratedStateWorktreeRetirementBlockedError(
       `Generated-state worktree retirement only preserves ordinary directory roots: ${relativePath}.`
     );
   }
-  const directOwners = rulesOwningGeneratedPathV1(relativePath);
+  const withoutExcludedOwner = (rules: readonly GeneratedStateRuleV1[]) => rules.filter(({ selector }) =>
+    (selector.kind === 'exact' ? selector.path : selector.parent) !== excludedOwnerAnchor
+  );
+  const directOwners = withoutExcludedOwner(rulesOwningGeneratedPathV1(relativePath));
   const inventory =
     directOwners.length > 0
       ? Object.freeze([])
@@ -540,15 +548,15 @@ function exactIgnoredRootPlanV1(workspaceRoot: string, relativePath: string): Ge
           maximumEntries: MAXIMUM_CLEANUP_ENTRIES
         });
   const coveredRules = new Set(directOwners.map(({ id }) => id));
-  if (directOwners.length === 0 && rulesBelowGeneratedPathV1(relativePath).length === 0) {
+  if (directOwners.length === 0 && withoutExcludedOwner(rulesBelowGeneratedPathV1(relativePath)).length === 0) {
     throw new GeneratedStateWorktreeRetirementBlockedError(
       `Generated-state worktree retirement found an unknown ignored root: ${relativePath}.`
     );
   }
   for (const entry of inventory) {
     const childPath = `${relativePath}/${entry.relativePath}`;
-    const owners = rulesOwningGeneratedPathV1(childPath);
-    const descendants = rulesBelowGeneratedPathV1(childPath);
+    const owners = withoutExcludedOwner(rulesOwningGeneratedPathV1(childPath));
+    const descendants = withoutExcludedOwner(rulesBelowGeneratedPathV1(childPath));
     if (owners.length === 0 && descendants.length === 0) {
       throw new GeneratedStateWorktreeRetirementBlockedError(`Generated-state worktree retirement found unknown content: ${childPath}.`);
     }
@@ -584,7 +592,7 @@ async function worktreeRetirementStatusV1(
 ): Promise<
   Readonly<{
     statusDigest: `sha256:${string}`;
-    ignoredRoots: readonly string[];
+    ignoredRoots: readonly Readonly<{ relativePath: string; excludedOwnerAnchor: string | null }>[];
     blockedByOrdinaryState: boolean;
   }>
 > {
@@ -599,31 +607,46 @@ async function worktreeRetirementStatusV1(
   ]);
   if (status.code !== 0) throw new Error('Generated-state worktree retirement cannot observe Git status.');
   const records = parseWorktreeStatusPorcelainZV1(status.stdout);
-  const retained = records.filter((record) => {
+  type ProjectedStatusRecord = Readonly<{
+    record: WorktreeStatusPorcelainRecordV1;
+    excludedOwnerAnchor: string | null;
+  }>;
+  const retained = records.flatMap<ProjectedStatusRecord>((record): ProjectedStatusRecord[] => {
     const generatedProjection = (record.index === '!' && record.worktree === '!') || (record.index === '?' && record.worktree === '?');
-    if (!generatedProjection) return true;
-    if (record.path === ownedLeaseRelativePath || record.path.startsWith(`${ownedLeaseRelativePath}/`)) return false;
-    if (!ownedLeaseRelativePath.startsWith(`${record.path}/`)) return true;
+    if (!generatedProjection) return [Object.freeze({ record, excludedOwnerAnchor: null })];
+    if (record.path === ownedLeaseRelativePath || record.path.startsWith(`${ownedLeaseRelativePath}/`)) return [];
+    if (!ownedLeaseRelativePath.startsWith(`${record.path}/`)) {
+      return [Object.freeze({ record, excludedOwnerAnchor: null })];
+    }
     const root = inspectNoFollowDirectoryChainV1(
       path.join(workspaceRoot, ...record.path.split('/')),
       'Generated-state worktree retirement lease ancestor'
     ).target;
     const suffix = ownedLeaseRelativePath.slice(record.path.length + 1);
+    const leaseChild = suffix.split('/')[0]!;
     const inventory = scanNoFollowDirectoryTreeMetadataV1(root, {
       deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
       maximumEntries: MAXIMUM_CLEANUP_ENTRIES
     });
-    return (
-      !inventory.some(({ relativePath }) => relativePath === suffix || relativePath.startsWith(`${suffix}/`)) ||
-      inventory.some(({ relativePath }) => relativePath !== suffix && !relativePath.startsWith(`${suffix}/`))
-    );
+    return [...new Set(inventory.map(({ relativePath }) => relativePath.split('/')[0]!))]
+      .filter((topLevel) => topLevel !== leaseChild)
+      .sort()
+      .map((topLevel) => Object.freeze({
+        record: Object.freeze({ ...record, path: `${record.path}/${topLevel}` }),
+        excludedOwnerAnchor: record.path
+      }));
   });
-  const nonIgnored = retained.filter(({ index, worktree }) => index !== '!' || worktree !== '!');
-  const ignoredRoots = retained.map(({ path: relativePath }) => normalizeGeneratedStateRelativePathV1(relativePath)).sort();
+  const nonIgnored = retained.filter(({ record: { index, worktree } }) => index !== '!' || worktree !== '!');
+  const ignoredRoots = retained.map(({ record: { path: relativePath }, excludedOwnerAnchor }) => Object.freeze({
+    relativePath: normalizeGeneratedStateRelativePathV1(relativePath),
+    excludedOwnerAnchor
+  })).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   for (let index = 0; index < ignoredRoots.length; index += 1) {
-    if (ignoredRoots.some((candidate, candidateIndex) => candidateIndex !== index && ignoredRoots[index]!.startsWith(`${candidate}/`))) {
+    if (ignoredRoots.some((candidate, candidateIndex) =>
+      candidateIndex !== index && ignoredRoots[index]!.relativePath.startsWith(`${candidate.relativePath}/`)
+    )) {
       throw new GeneratedStateWorktreeRetirementBlockedError(
-        `Generated-state worktree retirement ignored roots overlap: ${ignoredRoots[index]}.`
+        `Generated-state worktree retirement ignored roots overlap: ${ignoredRoots[index]!.relativePath}.`
       );
     }
   }
@@ -631,7 +654,7 @@ async function worktreeRetirementStatusV1(
     statusDigest: generatedStateDigestV1({ records: retained }),
     ignoredRoots: Object.freeze(ignoredRoots),
     blockedByOrdinaryState:
-      nonIgnored.length > 0 || ignoredRoots.some((relativePath) => ownedLeaseRelativePath.startsWith(`${relativePath}/`))
+      nonIgnored.length > 0 || ignoredRoots.some(({ relativePath }) => ownedLeaseRelativePath.startsWith(`${relativePath}/`))
   });
 }
 
@@ -759,7 +782,9 @@ export async function settleGeneratedStateForWorktreeRetirementV1(
       throw new Error('Generated-state worktree retirement active intent changed during admission.');
     }
     if (intent === null) {
-      const entries = Object.freeze(status.ignoredRoots.map((relativePath) => exactIgnoredRootPlanV1(workspaceRoot, relativePath)));
+      const entries = Object.freeze(status.ignoredRoots.map(({ relativePath, excludedOwnerAnchor }) =>
+        exactIgnoredRootPlanV1(workspaceRoot, relativePath, excludedOwnerAnchor)
+      ));
       const inventoryDigest = generatedStateDigestV1(entries);
       const operationId = generatedStateDigestV1(
         Object.freeze({
