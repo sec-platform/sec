@@ -44,6 +44,7 @@ tasks:
       - docs/development-governance.md
       - docs/work/active-work-package.md
       - docs/work/rolling-plan.md
+      - docs/work-packages/generated-ignored-state-lifecycle-v1.md
       - docs/work-packages/git-worktree-physical-closeout-v1.md
       - platform/shared/test-impact-rules/verification.ts
       - platform/shared/tcb-closure-lock.ts
@@ -76,6 +77,7 @@ acceptance:
   - only focused contract, failure-injection, physical and consumer tests exist for this slice; unrelated business, browser and full-suite tests are not selected
   - verification executes RequiredClosure intersect MissingOrStale for the frozen exact tree and reuses unchanged exact ActionKey evidence; it never reruns merely because main or the session name changed
   - no second worktree cleanup script, state machine, path heuristic or branch-prefix authority remains, and completion is followed by independent exact-head review, merge, new-main readback and branch/worktree closeout through the same owners
+  - the selected projection retires the completed predecessor manifest so stale scope cannot remain as a second active execution authority
 tests:
   - tests/unit/worktree-physical-closeout-contract.test.ts
   - tests/unit/worktree-physical-closeout-crash-recovery.test.ts

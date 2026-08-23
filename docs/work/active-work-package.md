@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/git-worktree-physical-closeout-v1.md
-manifestDigest: sha256:74a319caa07ec283b4af6fe4bb1cbc5232b683d009de5ebec70a2c406a2e1602
+manifestDigest: sha256:54c1f6cb8f103093cd9481021e470eec85cfccbffbe858ae7058683fe4fbcaf4
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
