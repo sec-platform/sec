@@ -1293,6 +1293,13 @@ metadata。Windows readonly删除只能在已经授权且仍由同一retained le
 classification、retirement与readback receipt，#186只消费settled后的同一physical subject。machine
 roadmap必须把该owner dependency编译进DAG，不能只在Issue prose中要求Agent每次手工清缓存。
 
+domain provider plan 的 canonical envelope digest 与领域对象的 semantic digest 是两个边界：parser只验证
+canonical bytes、Schema、字段闭包和digest形状，不能把canonical projection解码后的对象重新序列化来冒充
+领域owner的semantic digest。canonical encoder可能重排嵌套对象键，而既有领域digest可能绑定owner构造的
+确定性字节顺序；Effect前必须由领域owner从当前authority重新构造对象，同时验证semantic equality与原始
+digest，随后才允许消费plan。这样plan编码归一化不会使自己的合法receipt不可恢复，伪造或stale binding仍会
+在effect-before-authority边界失败。
+
 在开发控制面内，派生对象与执行复用不是两个问题，而是总体Engineering Semantic Graph在开发/验证领域的
 同一个**内容寻址派生节点**生命周期：
 
