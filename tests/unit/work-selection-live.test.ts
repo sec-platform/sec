@@ -135,8 +135,8 @@ function transitionCatalog(): CatalogObservationV1 {
     },
     {
       packageId: 'candidate-control-transaction-v1',
-      workId: 'issue-321-candidate-control', tracking: 'issue-321',
-      currentSpecRef: 'github:issue/321', ownerRef: 'github:issue/321#candidate-control-transaction',
+      workId: 'issue-321', tracking: 'issue-321',
+      currentSpecRef: 'github:issue/321', ownerRef: 'github:issue/321',
       kind: 'focused', disposition: 'active', priorityClass: 'active-critical-path',
       priorityEvidenceRefs: ['fixture:candidate-control'], prerequisiteWorkIds: ['issue-275'],
       orderedAfterWorkIds: [], reproductionOrEvidenceFreshness: 'fresh',
@@ -301,6 +301,14 @@ describe('work-selection live contract', () => {
       `"currentSpecRef": "${first.currentSpecRef}"`,
       '"currentSpecRef": "github:issue/999"'
     ))).toThrow(/must bind the same Issue identity/u);
+    expect(() => parseSecRoadmapWorkCatalogV1(roadmapSource.replace(
+      `"workId": "${first.workId}"`,
+      `"workId": "${first.workId}-slice"`
+    ))).toThrow(/workId must equal its canonical tracking identity/u);
+    expect(() => parseSecRoadmapWorkCatalogV1(roadmapSource.replace(
+      `"ownerRef": "${first.ownerRef}"`,
+      `"ownerRef": "${first.ownerRef}#slice"`
+    ))).toThrow(/ownerRef must equal its canonical currentSpecRef/u);
     expect(() => parseSecRoadmapWorkCatalogV1(roadmapSource.replace(
       '"prerequisiteWorkIds": [],\n      "orderedAfterWorkIds": []',
       `"prerequisiteWorkIds": ["${last.workId}"],\n      "orderedAfterWorkIds": []`

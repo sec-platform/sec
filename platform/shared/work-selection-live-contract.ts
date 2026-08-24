@@ -450,6 +450,12 @@ function parseCatalogItem(value: unknown, index: number): SecRoadmapWorkCatalogI
   if (parsed.currentSpecRef !== `github:issue/${parsed.tracking.slice('issue-'.length)}`) {
     fail(`${label}.tracking and currentSpecRef must bind the same Issue identity.`);
   }
+  if (parsed.workId !== parsed.tracking) {
+    fail(`${label}.workId must equal its canonical tracking identity.`);
+  }
+  if (parsed.ownerRef !== parsed.currentSpecRef) {
+    fail(`${label}.ownerRef must equal its canonical currentSpecRef.`);
+  }
   if (parsed.priorityClass === 'near-term-acceleration' && parsed.nearTermConsumerRef === null) {
     fail(`${label} near-term acceleration requires one consumer ref.`);
   }
