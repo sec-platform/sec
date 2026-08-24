@@ -6,6 +6,7 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
+  captureDocsDoctorIndexTree,
   DOCUMENT_AUTHORITY_REGISTRY_PATH,
   parseCapturedGitTreeBlobFrameV1,
   readCapturedGitTreeBlob,
@@ -13,6 +14,10 @@ import {
   type DocsDoctorResult
 } from '../../docs/scripts/docs-doctor.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-plan.ts';
+import {
+  compileDocsDoctorIndexSnapshotLayoutV3,
+  DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3
+} from '../../platform/shared/docs-doctor-index-snapshot-contract.ts';
 import {
   DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
   parseDocumentationAuthorityRegistry,
@@ -537,10 +542,26 @@ test('production docs-doctor ignores ambient index redirection and captures the 
         longCacheRoot,
         'docs-doctor', 'index-snapshots', 'v1', `snapshot-${'0'.repeat(36)}`, 'index.lock'
       ).length).toBeGreaterThan(259);
-      expect(path.join(
-        longCacheRoot,
-        'dd', 'i', 'v2', `s-${'0'.repeat(32)}`, 'index.lock'
-      ).length).toBeLessThanOrEqual(259);
+      const layout = compileDocsDoctorIndexSnapshotLayoutV3({
+        cacheRoot: longCacheRoot,
+        objectFormat: 'sha1',
+        platform: process.platform,
+        snapshotToken: '0'.repeat(
+          DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.snapshotTokenHexLength
+        )
+      });
+      expect(layout.childProcessPathBudget.longestPathLength)
+        .toBeLessThanOrEqual(DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.windowsLegacyChildPathMax);
+      expect(layout.childProcessPathBudget.longestPath)
+        .toContain(`${path.sep}${DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.objectDirectoryName}${path.sep}`);
+      expect(() => compileDocsDoctorIndexSnapshotLayoutV3({
+        cacheRoot: longCacheRoot,
+        objectFormat: 'sha256',
+        platform: process.platform,
+        snapshotToken: '0'.repeat(
+          DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.snapshotTokenHexLength
+        )
+      })).toThrow(/Windows legacy child-process limit/u);
     }
     environment.SEC_CACHE_HOME = longCacheRoot;
     const cli = spawnSync(process.execPath, [path.resolve('docs/scripts/docs-doctor.ts')], {
@@ -570,6 +591,14 @@ test('captured-tree reader validates complete batch framing and reads a deep con
     Buffer.from('\n', 'ascii')
   ]);
   expect(parseCapturedGitTreeBlobFrameV1(validFrame, repositoryPath)).toEqual(payload);
+  const sha256ObjectId = 'c'.repeat(64);
+  expect(parseCapturedGitTreeBlobFrameV1(Buffer.concat([
+    Buffer.from(`${sha256ObjectId} blob ${payload.length}\n`, 'ascii'),
+    payload,
+    Buffer.from('\n', 'ascii')
+  ]), repositoryPath, 'sha256')).toEqual(payload);
+  expect(() => parseCapturedGitTreeBlobFrameV1(validFrame, repositoryPath, 'sha256'))
+    .toThrow('object id is invalid');
   expect(() => parseCapturedGitTreeBlobFrameV1(
     Buffer.from(`${objectSha} blob ${payload.length}\n`, 'ascii'),
     repositoryPath
@@ -627,6 +656,48 @@ test('captured-tree reader validates complete batch framing and reads a deep con
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
+
+test('captured index tree propagates SHA-256 object identity through write-tree and blob framing', async () => {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'sec-docs-doctor-sha256-'));
+  const repositoryRoot = path.join(temporaryRoot, 'repository');
+  const repositoryPath = 'docs/work-packages/sha256-captured-tree.md';
+  const payload = Buffer.from('sha256 captured tree\n', 'utf8');
+  let snapshot: ReturnType<typeof captureDocsDoctorIndexTree> | undefined;
+  try {
+    await mkdir(path.dirname(path.join(repositoryRoot, repositoryPath)), { recursive: true });
+    await writeFile(path.join(repositoryRoot, repositoryPath), payload);
+    const init = spawnSync('git', ['init', '--quiet', '--object-format=sha256'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(init.status, init.stderr).toBe(0);
+    const add = spawnSync('git', ['add', '--', repositoryPath], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(add.status, add.stderr).toBe(0);
+    snapshot = captureDocsDoctorIndexTree(repositoryRoot, {
+      ...process.env,
+      SEC_CACHE_HOME: path.join(temporaryRoot, 'cache')
+    });
+    expect(snapshot.objectFormat).toBe('sha256');
+    expect(snapshot.treeSha).toMatch(/^[0-9a-f]{64}$/u);
+    expect(readCapturedGitTreeBlob(
+      repositoryRoot,
+      snapshot.treeSha,
+      repositoryPath,
+      'blob-bytes',
+      snapshot.gitEnvironment,
+      snapshot.gitStdio,
+      snapshot.objectFormat
+    )).toEqual(payload);
+  } finally {
+    snapshot?.dispose();
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test('machine ledger version drift is rejected against package authority', async () => {
   const fixture = await createFixture();
