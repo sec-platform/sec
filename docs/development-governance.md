@@ -889,7 +889,7 @@ Worker只在 frozen Envelope 和 owned seam内实现，不自授权跨 owner、�
 
 ### Reviewer
 
-Reviewer只读 exact base/head/tree、authority、Evidence和真实diff。它寻找范围越界、第二owner、遗漏consumer、弱化assertion、临时probe、自证、生成物漂移和无法恢复路径。Head变化立即使Review stale；Reviewer不替Worker改码。
+Reviewer只读 exact base/head/tree、authority、Evidence和真实diff。ReviewReport的确定性完整性归`docs/verification-governance.md`与#252，主动追根因、画受影响状态图、审查冗余和文档闭包的方法只归`sec-exact-head-review` Skill；这里不复制第二份检查表。Head变化立即使Review stale；Reviewer不替Worker改码。缺少prior-constraint、unique-root-cause、state-graph、redundancy、documentation/diagram或unknown closure时不得PASS。
 
 涉及外部库或自研基础设施时，Reviewer还必须检查：真实consumer、替代候选、版本/许可证/安全、Adapter边界、direct import graph、duplicate removal、fallback真实性、升级/退役和package/lock唯一writer。
 

@@ -774,6 +774,44 @@ external Verification Action；provider selection/availability与receipt freshne
 cross-boundary Impact以减少重复读取，但每个新 `ReviewSubjectId` 必须由独立principal签发新的
 full-candidate exact-head ReviewReceipt。旧approved hunks与新delta不得由机器拼装成新批准。
 
+ReviewReport的required surface不止是changed line。#252唯一拥有报告完整性与terminal语义；Reviewer必须把
+exact delta放回受影响owner closure，形成以下无竞争证据图。图中的产品状态都只是对各canonical owner的
+typed reference，ReviewReport不取得第二产品状态机：
+
+```mermaid
+flowchart TD
+  B["Exact binding<br/>base + head + tree + reviewer principal"]
+  S["Required surface closure<br/>authority + producer + consumer + Effect + recovery + docs"]
+  P["Prior-constraint ledger<br/>finding / incident / failed window -> owner invariant"]
+  R["Unique root-cause chains<br/>symptom -> mechanism -> invariant -> owner -> root repair"]
+  G["Affected-system graph<br/>admission / current / invalid-unknown / effect / failure / recovery / terminal-retirement"]
+  D["Redundancy census<br/>second truth / state machine / adapter / observer / cache / docs / diagrams"]
+  C["Canonical documentation closure<br/>one vocabulary + one diagram owner + stale duplicate retirement"]
+  U["Unknown and residual ledger<br/>unsupported platform/provider/effect + retained migration"]
+  V{"Complete and internally consistent?"}
+  X["blocked<br/>open blocking finding"]
+  I["incomplete / unresolved<br/>missing closure or unknown capability"]
+  T["stale<br/>head/tree/owner revision changed"]
+  O["clear<br/>zero blocking finding and zero hidden unknown"]
+
+  B --> S --> P --> R --> G --> D --> C --> U --> V
+  V -->|blocking finding| X
+  V -->|required evidence absent| I
+  V -->|identity drift| T
+  V -->|all closure proven| O
+```
+
+每个candidate-specific affected-system graph必须标注节点/边的canonical owner、authority input、Effect
+principal、receipt/readback，并在状态/架构改变时显示before/after及非法转换的machine rejection。叶节点
+只有在exact authority/consumer/state census证明状态、Effect、recovery、public contract和canonical文档均
+不变时才能引用既有canonical graph并标`not-applicable`。PR body、Skill和Review prose只承载locator/解释，
+不能成为图或字段表的第二authority；任一prior constraint、冗余保留项或unknown没有owner/retirement结论时，
+Review terminal不能是`clear`。
+
+prior-constraint输入必须是manifest/ReviewSubject、未结finding和各owner发布的bounded digest-bound set；相同
+未失效projection复用，不能让每次Review重新扫描全部Issue、PR、聊天或repository history。缺少canonical
+prior index是显式`unknown/incomplete`和owner修复需求，不授权Reviewer用O(history)考古生成第二事实集。
+
 VerificationSession记录run/capsule/event/transition/resume；Verification Evidence记录proof。二者必须通过
 typed references连接，不能把Session/Action journal变成第二Verification Result，也不能把Evidence文件
 当作当前执行状态。journal丢失最多损失resume能力，不能制造、删除或改写Verification Result。
