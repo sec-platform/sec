@@ -36,7 +36,7 @@ description: 用于 frozen exact head 的独立架构、根因、状态图、证
 7. 主动寻找反向因果、遗漏consumer、弱化断言、临时probe、生成物漂移、自证路径、effect-before-authority、receipt无界增长和无法恢复路径。
 8. 建立`unknown / residual ledger`：未覆盖surface、不可用provider、未验证platform/Effect、retained migration与未满足retirement obligation全部显式列出。unknown不能被“未发现”吞掉。
 9. 叶节点只有在diff、authority/consumer closure和状态census共同证明不改变状态、Effect、recovery、公共contract或canonical文档时，才可把新图标记为not-applicable；仍须引用复用的canonical graph并给出不变性证据。
-10. 将Review绑定exact head；head/tree/required owner revision变化立即标记STALE。区分COMMENT、APPROVE、CHANGES_REQUESTED和未解决thread。
+10. 将Review绑定exact head、ReviewSubject内required owner revisions和本次review method revision；只有该subject的head/tree或已绑定required owner revision变化才标记STALE。Reviewer环境中的无关dirty、新main或后来发布但未进入ReviewSubject的Skill/owner revision不能污染已冻结candidate，也不能制造机械重审。区分COMMENT、APPROVE、CHANGES_REQUESTED和未解决thread。
 
 Reviewer报告必须按以下顺序给出；任一required section缺失或只靠作者prose自证时，terminal只能是`incomplete`或`unresolved`：
 
@@ -51,7 +51,7 @@ Reviewer报告必须按以下顺序给出；任一required section缺失或只�
 9. P0/P1/P2/advisory findings、threads和terminal verdict。
 
 ## 完成证据
-- 绑定exact base/head/tree和review method revision的Review state、findings、threads、REQUEST_CHANGES。
+- 绑定exact base/head/tree、ReviewSubject required owner revisions和review method revision的Review state、findings、threads、REQUEST_CHANGES。
 - 上述九段报告齐全；状态图中的每个节点/边可追溯到canonical owner/receipt，prior constraint无悬空项，冗余清单为zero或含明确consumer/retirement evidence，文档/图无竞争authority。
 
 ## 停止与恢复

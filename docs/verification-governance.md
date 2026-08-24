@@ -812,6 +812,10 @@ prior-constraint输入必须是manifest/ReviewSubject、未结finding和各owner
 未失效projection复用，不能让每次Review重新扫描全部Issue、PR、聊天或repository history。缺少canonical
 prior index是显式`unknown/incomplete`和owner修复需求，不授权Reviewer用O(history)考古生成第二事实集。
 
+Review staleness只由ReviewSubject绑定的head/tree或required owner revision漂移触发；Reviewer当前checkout中的
+无关dirty、新main、后来发布但未进入该ReviewSubject的Skill或owner revision不能污染frozen candidate。报告同时
+记录本次review method revision用于复现，但后续方法演进不追溯抹除已经按当时合同签发的exact-head Review。
+
 VerificationSession记录run/capsule/event/transition/resume；Verification Evidence记录proof。二者必须通过
 typed references连接，不能把Session/Action journal变成第二Verification Result，也不能把Evidence文件
 当作当前执行状态。journal丢失最多损失resume能力，不能制造、删除或改写Verification Result。
