@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import {
   generatedStateDigestV1,
@@ -14,7 +15,8 @@ import {
 import { runCommand } from '../../platform/shared/process.ts';
 import {
   compilerDependencyLocatorWorktreeRetirementProviderV1,
-  ensureCompilerDepsReady
+  ensureCompilerDepsReady,
+  parseCompilerDependencyLocatorRetirementPlanV1
 } from '../../platform/shared/project-runtime.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 async function installCompilerDependencyFixture(workingDirectory: string, marker: string): Promise<void> {
@@ -64,6 +66,38 @@ async function writeCompilerDependencyRoot(
 }
 
 describe('compiler dependency installation', () => {
+  test('defers binding digest validation until the dependency owner reconstructs the binding', () => {
+    const ownerBinding = {
+      architecture: 'x64',
+      runtimeMaterialization: {
+        packages: [],
+        rootPackages: [],
+        revision: `sha256:${'7'.repeat(64)}`
+      }
+    };
+    const bindingDigest = generatedStateDigestV1(ownerBinding);
+    const plan = {
+      schema: 'sec-compiler-dependency-locator-retirement-plan-v1',
+      consumerRoot: 'C:\\candidate',
+      consumer: { device: '1', inode: '2', objectId: '3' },
+      relativePath: 'node_modules',
+      source: { device: '4', inode: '5', objectId: '6' },
+      linkTarget: 'target',
+      generationPath: 'C:\\owner\\node_modules',
+      generation: { device: '7', inode: '8', mode: '9' },
+      ownerRoot: 'C:\\owner',
+      consumerManifestHash: 'consumer',
+      ownerManifestHash: 'owner',
+      binding: ownerBinding,
+      bindingDigest
+    };
+    const canonicalPlanBytes = JSON.stringify(canonicalJson(plan));
+
+    expect(generatedStateDigestV1(JSON.parse(canonicalPlanBytes).binding)).not.toBe(bindingDigest);
+    expect(parseCompilerDependencyLocatorRetirementPlanV1(canonicalPlanBytes).bindingDigest)
+      .toBe(bindingDigest);
+  });
+
   test('serializes immutable generations and invalidates the binding on lockfile or runtime changes', async () => {
     await withTempWorkspace(async (tempRoot) => {
       await writeCompilerDependencyRoot(tempRoot);

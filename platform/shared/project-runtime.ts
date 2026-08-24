@@ -2818,7 +2818,17 @@ async function compilerDependencyGenerationIdentityV1(
   });
 }
 
-function parseCompilerDependencyLocatorRetirementPlanV1(
+/**
+ * Parse only the canonical plan envelope and its structural fields.
+ *
+ * `bindingDigest` is produced from the dependency owner's reconstructed
+ * binding.  Canonical plan encoding sorts nested object keys, so recomputing
+ * that digest from the decoded projection can change the byte order without
+ * changing the binding.  The effect path validates the digest against the
+ * freshly reconstructed owner binding in
+ * `validateCompilerDependencyLocatorPlanV1` before it mutates the locator.
+ */
+export function parseCompilerDependencyLocatorRetirementPlanV1(
   bytes: string
 ): CompilerDependencyLocatorRetirementPlanV1 {
   const candidate = JSON.parse(bytes) as Partial<CompilerDependencyLocatorRetirementPlanV1>;
@@ -2842,8 +2852,7 @@ function parseCompilerDependencyLocatorRetirementPlanV1(
       Object.keys(candidate.generation).sort(compareCodeUnits).join('\0') !== ['device', 'inode', 'mode'].join('\0') ||
       Object.values(candidate.source).some((value) => typeof value !== 'string') ||
       Object.values(candidate.consumer).some((value) => typeof value !== 'string') ||
-      Object.values(candidate.generation).some((value) => typeof value !== 'string') ||
-      generatedStateDigestV1(candidate.binding) !== candidate.bindingDigest) {
+      Object.values(candidate.generation).some((value) => typeof value !== 'string')) {
     throw new Error('Compiler dependency locator provider plan shape is invalid.');
   }
   return candidate as CompilerDependencyLocatorRetirementPlanV1;
