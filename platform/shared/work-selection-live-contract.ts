@@ -830,9 +830,13 @@ export function assertSecRoadmapTerminalCompactionDeltaV2(input: {
   const current = parseSecRoadmapWorkCatalogV1(input.roadmapSource);
   const priorManifests = new Set(input.priorManifestPaths);
   const currentManifests = new Set(input.manifestPaths);
-  const currentByWorkId = new Map(current.items.map((item) => [item.workId, item]));
+  // Terminality belongs to the canonical provider subject, not to a mutable
+  // slice/package label. A catalog record that still binds the same Issue is
+  // a live identity migration, not a completed work item. The current catalog
+  // parser remains responsible for the shape of the replacement record.
+  const currentByTracking = new Map(current.items.map((item) => [item.tracking, item]));
   const retiredWorkIds = prior.items
-    .filter((item) => !currentByWorkId.has(item.workId))
+    .filter((item) => !currentByTracking.has(item.tracking))
     .map((item) => item.workId);
   if (retiredWorkIds.length === 0) return;
   const compiled = compileSecRoadmapTerminalCompactionV2({

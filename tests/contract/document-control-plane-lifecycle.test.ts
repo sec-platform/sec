@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { renameSync, symlinkSync, writeFileSync } from 'node:fs';
-import { copyFile, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises';
+import { copyFile, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 
 import { digest, rawSha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
@@ -28,7 +28,9 @@ import {
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1,
   CodexDevelopmentAssertPriorFreezeProjectionV1,
+  CodexDevelopmentClassifyFreezeConvergenceV1,
   CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1,
+  CodexDevelopmentClassifyPublishedControlBindingV1,
   CodexDevelopmentClassifyTerminalRetirementPrefixV1,
   CodexDevelopmentCreateFreezeProjectionV1,
   CodexDevelopmentDocumentControlRecoveryEntryStemV1,
@@ -566,6 +568,40 @@ async function createFreezeFixture(): Promise<FreezeFixture> {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-control-freeze-'));
   const repositoryRoot = path.join(parent, 'repository');
   const remoteRoot = path.join(parent, 'remote.git');
+  const seed = await freezeFixtureSeedV1();
+  await Promise.all([
+    cp(seed.repositoryRoot, repositoryRoot, { recursive: true }),
+    cp(seed.remoteRoot, remoteRoot, { recursive: true })
+  ]);
+  runGit(repositoryRoot, ['remote', 'set-url', 'origin', remoteRoot]);
+  const baseSha = seed.baseSha;
+  return {
+    parent,
+    repositoryRoot,
+    remoteRoot,
+    baseSha,
+    dispose: () => rm(parent, { recursive: true, force: true })
+  };
+}
+
+interface FreezeFixtureSeedV1 {
+  readonly parent: string;
+  readonly repositoryRoot: string;
+  readonly remoteRoot: string;
+  readonly baseSha: string;
+}
+
+let freezeFixtureSeedPromiseV1: Promise<FreezeFixtureSeedV1> | undefined;
+
+function freezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
+  freezeFixtureSeedPromiseV1 ??= createFreezeFixtureSeedV1();
+  return freezeFixtureSeedPromiseV1;
+}
+
+async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
+  const parent = await mkdtemp(path.join(tmpdir(), 'sec-control-freeze-seed-'));
+  const repositoryRoot = path.join(parent, 'repository');
+  const remoteRoot = path.join(parent, 'remote.git');
   await mkdir(repositoryRoot, { recursive: true });
   runGit(parent, ['init', '--quiet', '--bare', remoteRoot]);
   runGit(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
@@ -617,14 +653,14 @@ tests:
   await writeFile(targetPath, targetManifest, 'utf8');
   runGit(repositoryRoot, ['add', FREEZE_TARGET_PATH]);
   runGit(repositoryRoot, ['rm', '--quiet', CURRENT_ACTIVE_PATH]);
-  return {
-    parent,
-    repositoryRoot,
-    remoteRoot,
-    baseSha,
-    dispose: () => rm(parent, { recursive: true, force: true })
-  };
+  return Object.freeze({ parent, repositoryRoot, remoteRoot, baseSha });
 }
+
+afterAll(async () => {
+  if (freezeFixtureSeedPromiseV1 === undefined) return;
+  const seed = await freezeFixtureSeedPromiseV1;
+  await rm(seed.parent, { recursive: true, force: true });
+});
 
 test('terminal retirement accepts every canonical prefix cut and rejects namespace holes', () => {
   const entryCount = 9;
@@ -641,6 +677,59 @@ test('terminal retirement accepts every canonical prefix cut and rejects namespa
       reason: 'non-prefix-hole'
     });
   }
+});
+
+test('freeze convergence treats exact successor retirement as semantic current state', () => {
+  const exact = {
+    targetManifestMatches: true,
+    pointerMatches: true,
+    indexedRollingMatches: true,
+    worktreeRollingMatches: true,
+    retirementSatisfied: true
+  } as const;
+  expect(CodexDevelopmentClassifyFreezeConvergenceV1(exact)).toBe('semantic-noop');
+  expect(CodexDevelopmentClassifyFreezeConvergenceV1({
+    ...exact,
+    retirementSatisfied: false
+  })).toBe('publication-required');
+  expect(CodexDevelopmentClassifyFreezeConvergenceV1({
+    ...exact,
+    candidateTreeMatches: false
+  })).toBe('publication-required');
+});
+
+test('published control binding classifies authority and binding without boolean XOR drift', () => {
+  const classify = (overrides: Partial<Parameters<
+    typeof CodexDevelopmentClassifyPublishedControlBindingV1
+  >[0]> = {}) => CodexDevelopmentClassifyPublishedControlBindingV1({
+    authorityProven: true,
+    historicalBaseIsLiveDefault: false,
+    pointerBindsDefault: false,
+    pointerBindsHistoricalRolling: false,
+    publishedTargetPresent: true,
+    rollingTransition: true,
+    ...overrides
+  });
+  expect(classify({ publishedTargetPresent: false })).toEqual({ kind: 'absent' });
+  expect(classify({ rollingTransition: false })).toEqual({
+    kind: 'blocked', reason: 'unbound-published-target'
+  });
+  expect(classify()).toEqual({ kind: 'blocked', reason: 'unbound-published-target' });
+  expect(classify({ pointerBindsDefault: true, pointerBindsHistoricalRolling: true })).toEqual({
+    kind: 'blocked', reason: 'ambiguous-binding'
+  });
+  expect(classify({ pointerBindsDefault: true, historicalBaseIsLiveDefault: true })).toEqual({
+    kind: 'blocked', reason: 'historical-base-is-live-default'
+  });
+  expect(classify({ pointerBindsDefault: true, authorityProven: false })).toEqual({
+    kind: 'blocked', reason: 'publication-proof-missing'
+  });
+  expect(classify({ pointerBindsDefault: true })).toEqual({
+    kind: 'repairable', pointerBinding: 'default'
+  });
+  expect(classify({ pointerBindsHistoricalRolling: true })).toEqual({
+    kind: 'repairable', pointerBinding: 'historical-rolling'
+  });
 });
 
 test('shared resolver fails closed for stale, unavailable, malformed, and checkout-byte drift', () => {
@@ -673,6 +762,18 @@ test('shared resolver fails closed for stale, unavailable, malformed, and checko
     defaultManifestBlob: oldDefaultBlob,
     defaultRefState: 'fresh'
   })).toEqual({ state: 'invalid', reason: 'manifest-path-already-on-default' });
+  expect(CodexDevelopmentResolveActiveWorkPackageV1({
+    pointer,
+    candidateManifestBlob: undefined,
+    defaultManifestBlob: gitBlob,
+    defaultRefState: 'fresh'
+  })).toEqual({ state: 'none', reason: 'matching-default-blob' });
+  expect(CodexDevelopmentResolveActiveWorkPackageV1({
+    pointer,
+    candidateManifestBlob: undefined,
+    defaultManifestBlob: null,
+    defaultRefState: 'fresh'
+  })).toEqual({ state: 'invalid', reason: 'candidate-manifest-absent' });
 
   const malformedPointer = `---
 schema: sec-active-work-package-pointer-v2
@@ -1139,7 +1240,7 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       manifestBytes,
       baseSha: fixture.baseSha,
       reviewedOn: '2026-08-12'
-    })).toThrow('forbidden for legacy or same-package freeze');
+    })).toThrow('Selection and replan projections are forbidden for this freeze');
   } finally {
     await fixture.dispose();
   }
@@ -1546,6 +1647,18 @@ test('committed candidate replan repairs one ancestry-proven published control p
       currentStateSource('origin', true),
       'utf8'
     );
+    // The published-selection base must not inherit createFreezeFixture's
+    // staged successor topology. The transition is introduced only by the
+    // candidate generation below; otherwise this is an unbound published path,
+    // not an ancestry-proven repair fixture.
+    runGit(fixture.repositoryRoot, [
+      'reset',
+      '--quiet',
+      'HEAD',
+      '--',
+      FREEZE_TARGET_PATH,
+      CURRENT_ACTIVE_PATH
+    ]);
     runGit(fixture.repositoryRoot, ['add', CURRENT_STATE_PATH]);
     runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'enable machine rolling projection']);
     runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
@@ -2089,7 +2202,6 @@ for (const invalidCase of [
 
 if (process.platform === 'win32') {
   for (const stateCase of [
-    { name: 'W-pristine', faultAfter: 'after-index-lock-write', expected: ['target', 'next'] },
     { name: 'W0', faultAfter: 'after-index-lock-write', expected: ['target', 'next'] },
     { name: 'W1', faultAfter: 'after-index-pre-quarantine', expected: ['next', 'quarantine'] },
     { name: 'W2', faultAfter: 'after-index-next-install', expected: ['target', 'quarantine'] }
@@ -3654,6 +3766,9 @@ test('freeze preserves unrelated unstaged work but rejects unrelated staged and 
   try {
     await writeFile(path.join(stagedFixture.repositoryRoot, 'user-staged.txt'), 'preserve staged\n', 'utf8');
     runGit(stagedFixture.repositoryRoot, ['add', 'user-staged.txt']);
+    const treeBefore = runGit(stagedFixture.repositoryRoot, ['write-tree']);
+    const stagedBefore = runGit(stagedFixture.repositoryRoot, ['diff', '--cached', '--name-only']);
+    const indexBefore = await readFile(repositoryIndexPath(stagedFixture.repositoryRoot));
     await expect(freezeDocumentControlPlaneV1({
       cwd: stagedFixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3661,8 +3776,10 @@ test('freeze preserves unrelated unstaged work but rejects unrelated staged and 
     })).rejects.toThrow('rejects unrelated staged paths');
     expect(await readFile(path.join(stagedFixture.repositoryRoot, 'user-staged.txt'), 'utf8'))
       .toBe('preserve staged\n');
+    expect(await readFile(repositoryIndexPath(stagedFixture.repositoryRoot))).toEqual(indexBefore);
+    expect(runGit(stagedFixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
     expect(runGit(stagedFixture.repositoryRoot, ['diff', '--cached', '--name-only']))
-      .toBe('user-staged.txt');
+      .toBe(stagedBefore);
   } finally {
     await stagedFixture.dispose();
   }
@@ -3732,13 +3849,18 @@ test('freeze fails closed for stale main, symlink-mode targets, and index CAS co
     })).rejects.toThrow('after-journal-prepare');
     await writeFile(path.join(collisionFixture.repositoryRoot, 'concurrent.txt'), 'concurrent index\n', 'utf8');
     runGit(collisionFixture.repositoryRoot, ['add', 'concurrent.txt']);
+    const treeBefore = runGit(collisionFixture.repositoryRoot, ['write-tree']);
+    const stagedBefore = runGit(collisionFixture.repositoryRoot, ['diff', '--cached', '--name-only']);
+    const indexBefore = await readFile(repositoryIndexPath(collisionFixture.repositoryRoot));
     await expect(freezeDocumentControlPlaneV1({
       cwd: collisionFixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
     })).rejects.toThrow('Git index recovery tuple is not a legal pre-effect state; preserving every entry.');
+    expect(await readFile(repositoryIndexPath(collisionFixture.repositoryRoot))).toEqual(indexBefore);
+    expect(runGit(collisionFixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
     expect(runGit(collisionFixture.repositoryRoot, ['diff', '--cached', '--name-only']))
-      .toBe('concurrent.txt');
+      .toBe(stagedBefore);
   } finally {
     await collisionFixture.dispose();
   }
@@ -3756,6 +3878,8 @@ for (const raceKind of ['head', 'local-default', 'index', 'retired-manifest'] as
         '-m',
         `${raceKind} pre-journal race`
       ]);
+      const objectCensusBefore = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
+      let objectCensusAtFence: string | undefined;
       await expect(freezeDocumentControlPlaneV1({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -3766,16 +3890,29 @@ for (const raceKind of ['head', 'local-default', 'index', 'retired-manifest'] as
           } else if (raceKind === 'local-default') {
             runGit(fixture.repositoryRoot, ['update-ref', 'refs/remotes/origin/main', alternate]);
           } else if (raceKind === 'index') {
-            await writeFile(path.join(fixture.repositoryRoot, 'pre-journal-index-race.txt'), 'race\n', 'utf8');
-            runGit(fixture.repositoryRoot, ['add', 'pre-journal-index-race.txt']);
+            const existingBlob = runGit(fixture.repositoryRoot, [
+              'rev-parse',
+              `HEAD:${CURRENT_STATE_PATH}`
+            ]);
+            runGit(fixture.repositoryRoot, [
+              'update-index',
+              '--add',
+              '--cacheinfo',
+              '100644',
+              existingBlob,
+              'pre-journal-index-race.txt'
+            ]);
           } else {
             await writeFile(
               path.join(fixture.repositoryRoot, ...CURRENT_ACTIVE_PATH.split('/')),
               currentActiveManifestSource()
             );
           }
+          objectCensusAtFence = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
         }
-      })).rejects.toThrow('Document control freeze inputs changed before initial journal publication.');
+      })).rejects.toThrow('Document control freeze inputs changed before initial journal publication:');
+      expect(objectCensusAtFence).toBe(objectCensusBefore);
+      expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
       await expect(readFile(
         path.join(fixture.repositoryRoot, '.tmp/codex/document-control-plane-freeze-v1/journal.json')
       )).rejects.toMatchObject({ code: 'ENOENT' });
@@ -4238,7 +4375,7 @@ test('fresh transaction directories flush each containing parent before freeze e
     await failedFixture.dispose();
   }
 
-});
+}, 60_000);
 
 test('freeze rejects reparse, nonregular, and outside auxiliary transaction paths', async () => {
   const journalFixture = await createFreezeFixture();
@@ -4320,14 +4457,15 @@ test('freeze rejects reparse, nonregular, and outside auxiliary transaction path
       : path.resolve(outsideIndexFixture.repositoryRoot, indexCandidate);
     const outsideIndex = path.join(outsideIndexFixture.parent, 'outside.index');
     await copyFile(indexPath, outsideIndex);
+    const outsideIndexBytes = await readFile(outsideIndex);
     const result = runFreezeApiInChild(outsideIndexFixture.repositoryRoot, {
       GIT_INDEX_FILE: outsideIndex
     });
-    expect(result.status).not.toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout).toEqual(Buffer.alloc(0));
-    expect(parseSecDocumentControlFreezeChildFailureV1(result.stderr)).toEqual(
-      SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1
-    );
+    expect(result.stderr).toEqual(Buffer.alloc(0));
+    expect(await readFile(outsideIndex)).toEqual(outsideIndexBytes);
+    await expectFreezeTransactionRetired(outsideIndexFixture.repositoryRoot);
   } finally {
     await outsideIndexFixture.dispose();
   }

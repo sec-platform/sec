@@ -37,7 +37,10 @@ export type CodexDevelopmentActiveWorkPackageResolution =
   | { state: 'active'; manifest: string; manifestDigest: string }
   | {
       state: 'invalid';
-      reason: 'candidate-digest-mismatch' | 'manifest-path-already-on-default';
+      reason:
+        | 'candidate-digest-mismatch'
+        | 'candidate-manifest-absent'
+        | 'manifest-path-already-on-default';
     }
   | { state: 'none'; reason: 'matching-default-blob' }
   | {
@@ -60,6 +63,83 @@ export interface CodexDevelopmentCurrentStateSpecV1 {
     requireRemoteMatch: boolean;
   };
   stableFacts: Record<string, unknown>;
+}
+
+export type CodexDevelopmentFreezeConvergenceV1 =
+  | 'publication-required'
+  | 'semantic-noop';
+
+export type CodexDevelopmentPublishedControlBindingBlockReasonV1 =
+  | 'ambiguous-binding'
+  | 'historical-base-is-live-default'
+  | 'publication-proof-missing'
+  | 'unbound-published-target';
+
+export type CodexDevelopmentPublishedControlBindingClassificationV1 =
+  | Readonly<{ kind: 'absent' }>
+  | Readonly<{
+      kind: 'repairable';
+      pointerBinding: 'default' | 'historical-rolling';
+    }>
+  | Readonly<{
+      kind: 'blocked';
+      reason: CodexDevelopmentPublishedControlBindingBlockReasonV1;
+    }>;
+
+/**
+ * Canonical pure owner for published-manifest repair admission. Presence alone
+ * never authorizes repair: one ancestry-validated transition authority and
+ * exactly one pointer binding are required.
+ */
+export function CodexDevelopmentClassifyPublishedControlBindingV1(input: Readonly<{
+  authorityProven: boolean;
+  historicalBaseIsLiveDefault: boolean;
+  pointerBindsDefault: boolean;
+  pointerBindsHistoricalRolling: boolean;
+  publishedTargetPresent: boolean;
+  rollingTransition: boolean;
+}>): CodexDevelopmentPublishedControlBindingClassificationV1 {
+  if (!input.publishedTargetPresent) return Object.freeze({ kind: 'absent' });
+  if (!input.rollingTransition
+      || (!input.pointerBindsDefault && !input.pointerBindsHistoricalRolling)) {
+    return Object.freeze({ kind: 'blocked', reason: 'unbound-published-target' });
+  }
+  if (input.historicalBaseIsLiveDefault) {
+    return Object.freeze({ kind: 'blocked', reason: 'historical-base-is-live-default' });
+  }
+  if (input.pointerBindsDefault && input.pointerBindsHistoricalRolling) {
+    return Object.freeze({ kind: 'blocked', reason: 'ambiguous-binding' });
+  }
+  if (!input.authorityProven) {
+    return Object.freeze({ kind: 'blocked', reason: 'publication-proof-missing' });
+  }
+  return Object.freeze({
+    kind: 'repairable',
+    pointerBinding: input.pointerBindsDefault ? 'default' : 'historical-rolling'
+  });
+}
+
+/**
+ * Pure convergence owner for one already-recovered freeze operation. A
+ * retirement intent is satisfied by proven candidate absence; it need not
+ * disappear from the immutable-HEAD projection that originally demanded it.
+ */
+export function CodexDevelopmentClassifyFreezeConvergenceV1(input: Readonly<{
+  candidateTreeMatches?: boolean;
+  indexedRollingMatches: boolean;
+  pointerMatches: boolean;
+  retirementSatisfied: boolean;
+  targetManifestMatches: boolean;
+  worktreeRollingMatches: boolean;
+}>): CodexDevelopmentFreezeConvergenceV1 {
+  return input.targetManifestMatches
+      && input.pointerMatches
+      && input.indexedRollingMatches
+      && input.worktreeRollingMatches
+      && input.retirementSatisfied
+      && input.candidateTreeMatches !== false
+    ? 'semantic-noop'
+    : 'publication-required';
 }
 
 export interface CodexDevelopmentActivePointerV2 {
@@ -1312,7 +1392,7 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
 
 export function CodexDevelopmentResolveActiveWorkPackageV1(input: {
   pointer: CodexDevelopmentActivePointerV2;
-  candidateManifestBlob: Uint8Array;
+  candidateManifestBlob: Uint8Array | undefined;
   defaultManifestBlob: Uint8Array | null;
   defaultRefState: CodexDevelopmentDefaultRefState;
 }): CodexDevelopmentActiveWorkPackageResolution {
@@ -1324,13 +1404,18 @@ export function CodexDevelopmentResolveActiveWorkPackageV1(input: {
         : 'default-ref-unavailable'
     };
   }
+  if (input.defaultManifestBlob !== null
+      && CodexDevelopmentWorkPackageManifestDigest(input.defaultManifestBlob)
+        === input.pointer.manifestDigest) {
+    return { state: 'none', reason: 'matching-default-blob' };
+  }
+  if (input.candidateManifestBlob === undefined) {
+    return { state: 'invalid', reason: 'candidate-manifest-absent' };
+  }
   if (CodexDevelopmentWorkPackageManifestDigest(input.candidateManifestBlob) !== input.pointer.manifestDigest) {
     return { state: 'invalid', reason: 'candidate-digest-mismatch' };
   }
   if (input.defaultManifestBlob !== null) {
-    if (CodexDevelopmentWorkPackageManifestDigest(input.defaultManifestBlob) === input.pointer.manifestDigest) {
-      return { state: 'none', reason: 'matching-default-blob' };
-    }
     return { state: 'invalid', reason: 'manifest-path-already-on-default' };
   }
   return { state: 'active', manifest: input.pointer.manifest, manifestDigest: input.pointer.manifestDigest };
