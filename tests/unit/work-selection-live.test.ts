@@ -408,6 +408,21 @@ describe('work-selection live contract', () => {
     })).toThrow(/cannot mutate the manifest set/u);
   });
 
+  test('a stable Issue subject identity migration is not misclassified as terminal work', () => {
+    const prior = transitionCatalog();
+    const migrated = prior.source
+      .replace('"workId": "issue-321-candidate-control"', '"workId": "issue-321"')
+      .replace('"ownerRef": "github:issue/321#candidate-control-transaction"',
+        '"ownerRef": "github:issue/321"')
+      .replaceAll('"github:issue/321#candidate-control-transaction"', '"github:issue/321"');
+    expect(() => assertSecRoadmapTerminalCompactionDeltaV2({
+      priorRoadmapSource: prior.source,
+      roadmapSource: migrated,
+      priorManifestPaths: [],
+      manifestPaths: []
+    })).not.toThrow();
+  });
+
   test('terminal candidate identity is derived from exact semantic trees, not PR prose or branch names', () => {
     const prior = transitionCatalog();
     const compaction = compileSecRoadmapTerminalCompactionV2({

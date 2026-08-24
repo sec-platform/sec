@@ -21,7 +21,9 @@ import {
   CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1,
   CodexDevelopmentAssertPriorFreezeProjectionV1,
   CodexDevelopmentAssertRollingMachineBaseBindingV1,
+  CodexDevelopmentClassifyFreezeConvergenceV1,
   CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1,
+  CodexDevelopmentClassifyPublishedControlBindingV1,
   CodexDevelopmentClassifyTerminalRetirementPrefixV1,
   CodexDevelopmentCreateFreezeProjectionV1,
   CodexDevelopmentDocumentControlRecoveryEntryStemV1,
@@ -2484,7 +2486,7 @@ function assertRecord(value: unknown, label: string): asserts value is Record<st
 
 function run(command: string, args: string[], cwd: string, options: CommandOptions = {}): CommandResult {
   const environment = command === 'git'
-    ? isolatedGitReadEnvironment(options.environment)
+    ? isolatedGitReadEnvironment(options.environment ?? {}, process.env)
     : {
         ...process.env,
         ...options.environment,
@@ -2533,7 +2535,7 @@ function readGitBlob(
     windowsHide: true,
     timeout: ExternalCommandTimeoutMs,
     maxBuffer: ExternalCommandMaxBufferBytes,
-    env: isolatedGitReadEnvironment(environment)
+    env: isolatedGitReadEnvironment(environment, process.env)
   });
   return result.status === 0 ? result.stdout : undefined;
 }
@@ -2555,7 +2557,7 @@ function createReadOnlyResolverGit(
     args: readonly string[],
     environment: Readonly<Record<string, string>> | undefined
   ): Readonly<Record<string, string>> => {
-    const forced = Object.freeze(isolatedGitReadEnvironment(environment));
+    const forced = Object.freeze(isolatedGitReadEnvironment(environment ?? {}, process.env));
     observer?.(Object.freeze({ args: Object.freeze([...args]), environment: forced }));
     return forced;
   };
@@ -5104,6 +5106,7 @@ async function buildNextIndex(input: {
   gitDirectory: string;
   indexPath: string;
   targets: readonly Readonly<{ path: string; pre: Buffer | undefined; bytes: Buffer }>[];
+  absentPaths: readonly string[];
 }): Promise<Readonly<{ bytes: Buffer; treeSha: string }>> {
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-freeze-index-'));
   try {
@@ -5120,6 +5123,15 @@ async function buildNextIndex(input: {
       label: 'Git index source'
     });
     const scratchIndex = path.join(canonicalScratchRoot, 'index');
+    const scratchObjects = path.join(canonicalScratchRoot, 'objects');
+    await mkdir(scratchObjects);
+    const repositoryObjectsCandidate = requireCommand(
+      run('git', ['rev-parse', '--git-path', 'objects'], input.repositoryRoot),
+      'Repository object directory path'
+    );
+    const repositoryObjects = await realpath(path.isAbsolute(repositoryObjectsCandidate)
+      ? repositoryObjectsCandidate
+      : path.resolve(input.repositoryRoot, repositoryObjectsCandidate));
     await createSafeRegularFileExclusive({
       boundaryRoot: canonicalScratchRoot,
       filePath: scratchIndex,
@@ -5127,13 +5139,21 @@ async function buildNextIndex(input: {
       label: 'External freeze scratch Git index',
       durability: {}
     });
-    const environment = { GIT_INDEX_FILE: scratchIndex };
+    const environment = {
+      GIT_INDEX_FILE: scratchIndex,
+      GIT_OBJECT_DIRECTORY: scratchObjects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjects,
+      GIT_OPTIONAL_LOCKS: '0'
+    };
     const indexUpdates: string[] = [];
     for (const target of input.targets) {
       if (target.pre !== undefined && target.pre.equals(target.bytes)) continue;
       const blobSha = requireCommand(
-        run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, { input: target.bytes }),
-        `Git blob publication for ${target.path}`
+        run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, {
+          environment,
+          input: target.bytes
+        }),
+        `Scratch Git blob materialization for ${target.path}`
       );
       indexUpdates.push(`100644 ${blobSha}\t${target.path}\0`);
     }
@@ -5150,8 +5170,14 @@ async function buildNextIndex(input: {
       'Candidate tree'
     );
     for (const target of input.targets) {
-      const treeBytes = requireGitBlob(input.repositoryRoot, `${treeSha}:${target.path}`, `Candidate ${target.path}`);
+      const treeBytes = readGitBlob(input.repositoryRoot, `${treeSha}:${target.path}`, environment);
+      if (treeBytes === undefined) throw new Error(`Candidate ${target.path} is absent from the scratch tree.`);
       if (!treeBytes.equals(target.bytes)) throw new Error(`Candidate tree bytes drifted for ${target.path}.`);
+    }
+    for (const absentPath of input.absentPaths) {
+      if (readGitBlob(input.repositoryRoot, `${treeSha}:${absentPath}`, environment) !== undefined) {
+        throw new Error(`Candidate tree retained the retired path ${absentPath}.`);
+      }
     }
     const bytes = await readSafeRegularFile({
       boundaryRoot: canonicalScratchRoot,
@@ -5166,6 +5192,79 @@ async function buildNextIndex(input: {
       (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
     );
     if (!removed) throw new Error('External freeze scratch Git index root remained after cleanup.');
+  }
+}
+
+async function materializeFreezeCandidateObjectsV1(input: Readonly<{
+  repositoryRoot: string;
+  gitDirectory: string;
+  journal: FreezeJournalV4;
+}>): Promise<void> {
+  const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-materialize-index-'));
+  try {
+    const canonicalScratchRoot = await realpath(scratchRoot);
+    const canonicalRepositoryRoot = await realpath(input.repositoryRoot);
+    const canonicalGitDirectory = await realpath(input.gitDirectory);
+    if (pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalRepositoryRoot)}${path.sep}`)
+        || pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalGitDirectory)}${path.sep}`)) {
+      throw new Error('Freeze object materialization scratch root must remain outside the repository and Git directory.');
+    }
+    const scratchIndex = path.join(canonicalScratchRoot, 'index');
+    await createSafeRegularFileExclusive({
+      boundaryRoot: canonicalScratchRoot,
+      filePath: scratchIndex,
+      bytes: fromBase64(input.journal.index.next, 'Freeze journal index NEXT object materialization'),
+      label: 'Freeze object materialization scratch Git index',
+      durability: {}
+    });
+    const environment = {
+      GIT_INDEX_FILE: scratchIndex,
+      GIT_OPTIONAL_LOCKS: '0'
+    };
+    const nextFiles = [
+      [input.journal.manifestPath, input.journal.files.manifest.next],
+      [ActivePointerPath, input.journal.files.pointer.next],
+      [RollingPlanPath, input.journal.files.rollingPlan.next]
+    ] as const;
+    const indexUpdates: string[] = [];
+    for (const [repositoryPath, encodedBytes] of nextFiles) {
+      const blobSha = requireCommand(run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, {
+        input: fromBase64(encodedBytes, `Freeze ${repositoryPath} NEXT object materialization`)
+      }), `Freeze ${repositoryPath} object materialization`);
+      indexUpdates.push(`100644 ${blobSha}\t${repositoryPath}\0`);
+    }
+    requireCommand(run(
+      'git',
+      ['update-index', '-z', '--index-info'],
+      input.repositoryRoot,
+      { environment, input: Buffer.from(indexUpdates.join(''), 'utf8') }
+    ), 'Freeze object materialization scratch index refresh');
+    const materializedTreeSha = shaValue(requireCommand(
+      run('git', ['write-tree'], input.repositoryRoot, { environment }),
+      'Freeze candidate tree object materialization'
+    ), 'Freeze materialized candidate tree');
+    if (materializedTreeSha !== input.journal.candidateTreeSha) {
+      throw new Error('Materialized freeze candidate tree does not equal the journal candidate tree.');
+    }
+    for (const [repositoryPath, encodedBytes] of nextFiles) {
+      const expected = fromBase64(encodedBytes, `Freeze ${repositoryPath} NEXT object readback`);
+      const actual = readGitBlob(input.repositoryRoot, `${materializedTreeSha}:${repositoryPath}`);
+      if (actual === undefined || !actual.equals(expected)) {
+        throw new Error(`Materialized freeze candidate ${repositoryPath} does not equal the journal NEXT image.`);
+      }
+    }
+    const retiredManifestPath = freezeRetiredManifestPathV1(input.repositoryRoot, input.journal);
+    if (retiredManifestPath !== null
+        && readGitBlob(input.repositoryRoot, `${materializedTreeSha}:${retiredManifestPath}`) !== undefined) {
+      throw new Error('Materialized freeze candidate retained the prior pointer manifest.');
+    }
+  } finally {
+    await rm(scratchRoot, { recursive: true, force: true });
+    const removed = await lstat(scratchRoot).then(
+      () => false,
+      (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    );
+    if (!removed) throw new Error('Freeze object materialization scratch root remained after cleanup.');
   }
 }
 
@@ -5412,11 +5511,17 @@ function assertCommittedCandidateReplanAuthorityV1(input: {
     const pointerBindsDefault = defaultManifestDigest === pointer.manifestDigest;
     const pointerBindsRolling = rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
       && rollingMachine.active.manifestDigest === pointer.manifestDigest;
-    if (rollingMachine?.schema !== 'sec-work-rolling-transition-projection-v1'
-        || rollingMachine.exactMain === input.trustedDefaultSha
-        || pointerBindsDefault === pointerBindsRolling) {
+    const binding = CodexDevelopmentClassifyPublishedControlBindingV1({
+      authorityProven: true,
+      historicalBaseIsLiveDefault: rollingMachine?.exactMain === input.trustedDefaultSha,
+      pointerBindsDefault,
+      pointerBindsHistoricalRolling: pointerBindsRolling,
+      publishedTargetPresent: true,
+      rollingTransition: rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
+    });
+    if (binding.kind !== 'repairable') {
       throw new Error(
-        'Published projection drift repair requires the active pointer to bind exactly one of rolling or default.'
+        `Published projection drift repair is blocked: ${binding.kind === 'blocked' ? binding.reason : 'absent'}.`
       );
     }
     const defaultManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
@@ -5480,11 +5585,13 @@ async function assertInitialFreezeObservationFence(input: {
   });
   let indexStable = indexReadback.identity === input.indexSnapshot.identity
     && indexReadback.bytes.equals(input.indexSnapshot.bytes);
+  let semanticIndexTreeReadback: string | null = null;
   if (!indexStable && input.allowSemanticIndexDrift) {
     const semanticReadback = await captureRepositoryIndexTreeThroughExternalScratch({
       repositoryRoot: input.repositoryRoot,
       resolverGit: createReadOnlyResolverGit()
     });
+    semanticIndexTreeReadback = semanticReadback.treeSha;
     indexStable = semanticReadback.treeSha === input.expectedIndexTreeSha;
   }
   const worktreeStable = (await Promise.all(input.worktreeFiles.map(async (file) => (
@@ -5503,14 +5610,21 @@ async function assertInitialFreezeObservationFence(input: {
       allowMissing: true
     })) === null
   ))).every(Boolean);
-  if (
-    headReadback !== input.headSha
-    || localDefaultReadback !== input.localDefaultSha
-    || !indexStable
-    || !worktreeStable
-    || !absentWorktreeStable
-  ) {
-    throw new Error('Document control freeze inputs changed before initial journal publication.');
+  const changedInputs = [
+    headReadback === input.headSha ? null : 'head',
+    localDefaultReadback === input.localDefaultSha ? null : 'local-default',
+    indexStable
+      ? null
+      : semanticIndexTreeReadback === null
+        ? 'index'
+        : `index-tree:${input.expectedIndexTreeSha}->${semanticIndexTreeReadback}`,
+    worktreeStable ? null : 'worktree',
+    absentWorktreeStable ? null : 'retired-manifest'
+  ].filter((entry): entry is string => entry !== null);
+  if (changedInputs.length > 0) {
+    throw new Error(
+      `Document control freeze inputs changed before initial journal publication: ${changedInputs.join(',')}.`
+    );
   }
 }
 
@@ -5569,6 +5683,11 @@ async function advanceFreezeJournal(input: {
       label: 'Freeze Git index semantic NOOP'
     });
   } else {
+    await materializeFreezeCandidateObjectsV1({
+      repositoryRoot: input.repositoryRoot,
+      gitDirectory: indexPaths.gitDirectory,
+      journal
+    });
     await publishIndexCas({
       ...indexPaths,
       pre: indexPre,
@@ -6287,16 +6406,19 @@ export async function freezeDocumentControlPlaneV1(input: {
     const immutableRollingMachine = CodexDevelopmentParseRollingMachineProjectionV1(
       immutableRollingPlanSource
     );
-    const publishedManifestDriftRepair = defaultTargetManifest !== undefined
-      && committedCandidateReplanAuthority !== undefined
-      && immutableRollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
-      && (
-        CodexDevelopmentWorkPackageManifestDigest(defaultTargetManifest) === immutablePointer.manifestDigest
-      ) !== (
-        immutableRollingMachine.active.manifestDigest === immutablePointer.manifestDigest
-      );
-    if (defaultTargetManifest !== undefined && !publishedManifestDriftRepair) {
-      throw new Error('Work Package manifest path is already published on the live default ref.');
+    const publishedBinding = CodexDevelopmentClassifyPublishedControlBindingV1({
+      authorityProven: committedCandidateReplanAuthority !== undefined,
+      historicalBaseIsLiveDefault: immutableRollingMachine?.exactMain === localDefaultSha,
+      pointerBindsDefault: defaultTargetManifest !== undefined
+        && CodexDevelopmentWorkPackageManifestDigest(defaultTargetManifest) === immutablePointer.manifestDigest,
+      pointerBindsHistoricalRolling:
+        immutableRollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
+        && immutableRollingMachine.active.manifestDigest === immutablePointer.manifestDigest,
+      publishedTargetPresent: defaultTargetManifest !== undefined,
+      rollingTransition: immutableRollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
+    });
+    if (publishedBinding.kind === 'blocked') {
+      throw new Error(`Published Work Package binding is blocked: ${publishedBinding.reason}.`);
     }
 
     const indexedControlMatchesImmutableHead = snapshot.pointerSource === immutablePointerSource
@@ -6609,13 +6731,20 @@ export async function freezeDocumentControlPlaneV1(input: {
         result
       });
     };
-    const projectionAlreadyCurrent = indexedTargetManifest !== undefined
-      && indexedTargetManifest.equals(manifestBytes)
-      && pointerPre.equals(pointerNext)
-      && rollingPlanPre.equals(rollingPlanNext)
-      && rollingPlanWorktree.equals(rollingPlanNext)
-      && projection.retiredManifestPath === null;
-    if (projectionAlreadyCurrent) {
+    const retirementSatisfied = projection.retiredManifestPath === null
+      || readGitBlob(
+        repositoryRoot,
+        `${snapshot.treeSha}:${projection.retiredManifestPath}`
+      ) === undefined;
+    const convergence = CodexDevelopmentClassifyFreezeConvergenceV1({
+      targetManifestMatches: indexedTargetManifest !== undefined
+        && indexedTargetManifest.equals(manifestBytes),
+      pointerMatches: pointerPre.equals(pointerNext),
+      indexedRollingMatches: rollingPlanPre.equals(rollingPlanNext),
+      worktreeRollingMatches: rollingPlanWorktree.equals(rollingPlanNext),
+      retirementSatisfied
+    });
+    if (convergence === 'semantic-noop') {
       const noop = createFreezeOperation(snapshot.treeSha, indexPre);
       await input.beforeInitialJournalFence?.();
       await assertInitialFreezeObservationFence({
@@ -6646,16 +6775,39 @@ export async function freezeDocumentControlPlaneV1(input: {
         { path: input.manifestPath, pre: indexedTargetManifest, bytes: manifestBytes },
         { path: ActivePointerPath, pre: pointerPre, bytes: pointerNext },
         { path: RollingPlanPath, pre: rollingPlanPre, bytes: rollingPlanNext }
-      ]
+      ],
+      absentPaths: projection.retiredManifestPath === null
+        ? []
+        : [projection.retiredManifestPath]
     });
-    if (projection.retiredManifestPath !== null
-        && readGitBlob(
-          repositoryRoot,
-          `${built.treeSha}:${projection.retiredManifestPath}`
-        ) !== undefined) {
-      throw new Error('Successor freeze candidate tree retained the prior pointer manifest.');
-    }
     const operation = createFreezeOperation(built.treeSha, built.bytes);
+    const builtConvergence = CodexDevelopmentClassifyFreezeConvergenceV1({
+      candidateTreeMatches: built.treeSha === snapshot.treeSha,
+      targetManifestMatches: true,
+      pointerMatches: pointerWorktree.equals(pointerNext),
+      indexedRollingMatches: true,
+      worktreeRollingMatches: rollingPlanWorktree.equals(rollingPlanNext),
+      retirementSatisfied
+    });
+    if (builtConvergence === 'semantic-noop') {
+      await input.beforeInitialJournalFence?.();
+      await assertInitialFreezeObservationFence({
+        repositoryRoot,
+        defaultRef: spec.resolver.defaultRef,
+        headSha,
+        localDefaultSha,
+        indexPaths,
+        indexSnapshot: indexReadback,
+        expectedIndexTreeSha: snapshot.treeSha,
+        allowSemanticIndexDrift: true,
+        worktreeFiles: [
+          { filePath: manifestFile, expectedBytes: manifestBytes, label: 'manifest' },
+          { filePath: pointerFile, expectedBytes: pointerNext, label: 'active pointer' },
+          { filePath: rollingPlanFile, expectedBytes: rollingPlanNext, label: 'rolling plan' }
+        ]
+      });
+      return operation.result;
+    }
     await input.beforeInitialJournalFence?.();
     await assertInitialFreezeObservationFence({
       repositoryRoot,
@@ -7030,19 +7182,6 @@ export async function resolveLiveControlPlane(
   );
 
   const candidateManifestBlob = snapshot.candidateManifestBlob;
-  if (candidateManifestBlob === undefined) {
-    throw new Error('Rolling transition active manifest is absent from the candidate index.');
-  }
-  if (rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1') {
-    const candidateManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
-      decodeUtf8(candidateManifestBlob, 'Rolling transition active manifest'),
-      pointer.manifest
-    );
-    if (candidateManifest.id !== rollingMachine.active.packageId
-        || candidateManifest.tracking !== rollingMachine.active.tracking) {
-      throw new Error('Rolling transition projection does not bind the exact active manifest identity.');
-    }
-  }
   const defaultManifestBlob = defaultRefState === 'fresh'
     ? resolverGit.readBlob(repositoryRoot, `${localDefaultSha}:${pointer.manifest}`) ?? null
     : null;
@@ -7053,7 +7192,17 @@ export async function resolveLiveControlPlane(
       defaultManifestBlob,
       defaultRefState
     });
-
+  if (candidateManifestBlob !== undefined
+      && rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1') {
+    const candidateManifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(
+      decodeUtf8(candidateManifestBlob, 'Rolling transition active manifest'),
+      pointer.manifest
+    );
+    if (candidateManifest.id !== rollingMachine.active.packageId
+        || candidateManifest.tracking !== rollingMachine.active.tracking) {
+      throw new Error('Rolling transition projection does not bind the exact active manifest identity.');
+    }
+  }
   const mainTree = defaultRefState === 'fresh'
     ? shaValue(
         requireCommand(

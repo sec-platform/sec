@@ -6,6 +6,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  compileDocsDoctorIndexSnapshotLayoutV3,
+  DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3,
+  isDocsDoctorGitObjectIdV3,
+  type DocsDoctorGitObjectFormatV3
+} from '../../platform/shared/docs-doctor-index-snapshot-contract.ts';
+import {
   activeDocumentationPaths,
   documentationRecordByPath,
   parseDocumentationAuthorityRegistry,
@@ -52,12 +58,11 @@ import { acquireSecRuntimeCachePhysicalAuthorityV1 } from '../../tooling/sec-dev
 import { scanMachineLedgers } from './docs-doctor-ledgers.ts';
 import {
   ACTIVE_POINTER_STATUS,
+  activeCandidatePath,
   CONTROL_PATHS,
   DEPRECATED_TOKENS,
   DOCUMENT_AUTHORITY_REGISTRY_PATH,
   DYNAMIC_FACT_PATTERNS,
-  VALID_STATUS,
-  activeCandidatePath,
   exists,
   extractBacktickFilePaths,
   extractFileLinks,
@@ -69,6 +74,7 @@ import {
   repositoryPathForInline,
   repositoryPathForLink,
   statusMatches,
+  VALID_STATUS,
   walk,
   type DocsDoctorIssue,
   type DocsDoctorResult,
@@ -595,6 +601,7 @@ function resolveChangedDocumentPathsSince(
 }
 
 export interface DocsDoctorIndexTreeSnapshotV1 {
+  readonly objectFormat: DocsDoctorGitObjectFormatV3;
   readonly treeSha: string;
   readonly gitEnvironment: NodeJS.ProcessEnv;
   readonly gitStdio: StdioOptions;
@@ -695,29 +702,40 @@ export function captureDocsDoctorIndexTree(
     },
     repositoryRoot: resolvedRepositoryRoot
   });
-  // Physical names stay compact because the isolated test/runtime cache root is
-  // already content-addressed. Repeating semantic owner names and UUID
-  // punctuation here only consumes the Windows child-process path budget.
-  const snapshotParent = path.join(cacheRoot, 'dd', 'i', 'v2');
-  if (isPathInside(resolvedRepositoryRoot, snapshotParent)) {
-    throw new Error('docs-doctor: index snapshot root must remain outside the repository');
-  }
   const baseEnvironment = isolatedGitReadEnvironment({}, sourceEnvironment);
-  const paths = spawnSync('git', ['rev-parse', '--git-path', 'index', '--git-path', 'objects'], {
+  const paths = spawnSync('git', [
+    'rev-parse', '--git-path', 'index', '--git-path', 'objects', '--show-object-format'
+  ], {
     cwd: resolvedRepositoryRoot,
     encoding: 'utf8',
     env: baseEnvironment,
     windowsHide: true
   });
   const pathLines = paths.stdout?.trim().split(/\r?\n/u) ?? [];
-  if (paths.error || paths.status !== 0 || pathLines.length !== 2) {
+  if (paths.error || paths.status !== 0 || pathLines.length !== 3) {
     const detail = paths.error?.message ?? paths.stderr?.trim() ?? `exit ${paths.status ?? 1}`;
     throw new Error(`docs-doctor: canonical Git index/object paths failed: ${detail}`);
   }
   const indexPath = canonicalGitPath(resolvedRepositoryRoot, pathLines[0]!, 'index path');
   const objectDirectory = canonicalGitPath(resolvedRepositoryRoot, pathLines[1]!, 'object path');
+  const objectFormat = pathLines[2];
+  if (objectFormat !== 'sha1' && objectFormat !== 'sha256') {
+    throw new Error(`docs-doctor: unsupported canonical Git object format ${objectFormat ?? 'absent'}`);
+  }
   if (objectDirectory.includes(path.delimiter)) {
     throw new Error('docs-doctor: canonical Git index/object paths have an unsafe physical identity');
+  }
+  const snapshotToken = randomUUID().replaceAll('-', '')
+    .slice(0, DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.snapshotTokenHexLength);
+  const snapshotLayout = compileDocsDoctorIndexSnapshotLayoutV3({
+    cacheRoot,
+    objectFormat,
+    platform: process.platform,
+    snapshotToken
+  });
+  const { snapshotParent } = snapshotLayout;
+  if (isPathInside(resolvedRepositoryRoot, snapshotParent)) {
+    throw new Error('docs-doctor: index snapshot root must remain outside the repository');
   }
 
   const indexParent = inspectNoFollowDirectoryChainV1(
@@ -740,17 +758,20 @@ export function captureDocsDoctorIndexTree(
   const snapshotParentIdentity = cacheAuthority.directory(snapshotParent);
   const snapshotRoot = createExclusiveNoFollowDirectoryV1(
     snapshotParentIdentity,
-    `s-${randomUUID().replaceAll('-', '')}`
+    snapshotLayout.snapshotName
   );
   let retained = false;
   let originalObjects: RetainedNoFollowChildProcessDirectoryV1 | null = null;
   let snapshotObjects: RetainedNoFollowChildProcessDirectoryV1 | null = null;
   let snapshotIndexFile: RetainedNoFollowChildProcessFileV1 | null = null;
   try {
-    const snapshotIndex = path.join(snapshotRoot.path, 'index');
+    const snapshotIndex = path.join(
+      snapshotRoot.path,
+      DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.indexName
+    );
     const publishedIndex = publishExclusiveDurableCanonicalFileV1({
       parent: snapshotRoot,
-      name: 'index',
+      name: DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.indexName,
       bytes: indexBytes,
       validate: (observed) => {
         if (!Buffer.from(observed).equals(Buffer.from(indexBytes))) {
@@ -765,7 +786,10 @@ export function captureDocsDoctorIndexTree(
       snapshotRoot.path,
       'docs-doctor snapshot root'
     );
-    const publishedIndexEntry = inspectNoFollowOrdinaryFileEntryV1(snapshotRoot, 'index');
+    const publishedIndexEntry = inspectNoFollowOrdinaryFileEntryV1(
+      snapshotRoot,
+      DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.indexName
+    );
     if (publishedIndexEntry === null || publishedIndexEntry.kind !== 'file'
         || publishedIndexEntry.bytes === null
         || !Buffer.from(publishedIndexEntry.bytes).equals(Buffer.from(indexBytes))) {
@@ -773,7 +797,7 @@ export function captureDocsDoctorIndexTree(
     }
     const snapshotObjectIdentity = createNoFollowOrdinaryDirectoryChainV1(
       snapshotRoot,
-      ['objects']
+      [DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.objectDirectoryName]
     );
     originalObjects = retainNoFollowDirectoryForChildProcessV1(
       objectChain,
@@ -808,13 +832,14 @@ export function captureDocsDoctorIndexTree(
       windowsHide: true
     });
     const treeSha = result.stdout?.trim() ?? '';
-    if (result.error || result.status !== 0 || !/^[0-9a-f]{40}$/u.test(treeSha)) {
+    if (result.error || result.status !== 0 || !isDocsDoctorGitObjectIdV3(treeSha, objectFormat)) {
       const detail = result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status ?? 1}`;
       throw new Error(`docs-doctor: immutable Git index tree capture failed: ${detail}`);
     }
     let disposed = false;
     retained = true;
     return Object.freeze({
+      objectFormat,
       treeSha,
       gitEnvironment: Object.freeze({ ...gitEnvironment }),
       gitStdio,
@@ -854,7 +879,8 @@ export function captureDocsDoctorIndexTree(
  */
 export function parseCapturedGitTreeBlobFrameV1(
   source: Uint8Array,
-  repositoryPath: string
+  repositoryPath: string,
+  objectFormat: DocsDoctorGitObjectFormatV3 = 'sha1'
 ): Buffer {
   if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) {
     throw new Error(`docs-doctor: captured-tree path is noncanonical: ${repositoryPath}`);
@@ -865,7 +891,10 @@ export function parseCapturedGitTreeBlobFrameV1(
     throw new Error(`docs-doctor: captured-tree blob header is incomplete for ${repositoryPath}.`);
   }
   const header = frame.subarray(0, headerEnd).toString('ascii');
-  const match = /^([0-9a-f]{40}) blob ([1-9][0-9]*|0)$/u.exec(header);
+  const match = /^([0-9a-f]+) blob ([1-9][0-9]*|0)$/u.exec(header);
+  if (match !== null && !isDocsDoctorGitObjectIdV3(match[1]!, objectFormat)) {
+    throw new Error(`docs-doctor: captured-tree blob object id is invalid for ${repositoryPath}.`);
+  }
   if (match === null) {
     throw new Error(`docs-doctor: captured-tree blob header is invalid for ${repositoryPath}.`);
   }
@@ -886,9 +915,11 @@ export function readCapturedGitTreeBlob(
   repositoryPath: string,
   observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes',
   gitEnvironment: NodeJS.ProcessEnv = isolatedGitReadEnvironment(),
-  gitStdio?: StdioOptions
+  gitStdio?: StdioOptions,
+  objectFormat: DocsDoctorGitObjectFormatV3 = 'sha1'
 ): Buffer {
-  if (!/^(?:[0-9a-f]{40}|refs\/remotes\/[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]+)$/u.test(treeSha)) {
+  const remoteRef = /^refs\/remotes\/[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]+$/u.test(treeSha);
+  if (!remoteRef && !isDocsDoctorGitObjectIdV3(treeSha, objectFormat)) {
     throw new Error(`docs-doctor: captured-tree revision is noncanonical: ${treeSha}`);
   }
   if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) {
@@ -920,7 +951,7 @@ export function readCapturedGitTreeBlob(
     throw new Error(`docs-doctor: captured-tree object read failed for ${repositoryPath}: ${detail}`);
   }
   if (observationKind === 'direct-entry-names') return result.stdout;
-  return parseCapturedGitTreeBlobFrameV1(result.stdout, repositoryPath);
+  return parseCapturedGitTreeBlobFrameV1(result.stdout, repositoryPath, objectFormat);
 }
 
 function listCapturedWorkPackagePaths(
@@ -935,7 +966,8 @@ function listCapturedWorkPackagePaths(
       packageRoot,
       'direct-entry-names',
       snapshot.gitEnvironment,
-      snapshot.gitStdio
+      snapshot.gitStdio,
+      snapshot.objectFormat
     ),
     'Captured Work Package tree listing'
   );
@@ -1021,7 +1053,8 @@ if (import.meta.main) {
           repositoryPath,
           'blob-bytes',
           capturedIndexTree.gitEnvironment,
-          capturedIndexTree.gitStdio
+          capturedIndexTree.gitStdio,
+          capturedIndexTree.objectFormat
         ),
       listControlPlanePackagePaths: async () =>
         listCapturedWorkPackagePaths(repositoryRoot, capturedIndexTree),
@@ -1036,7 +1069,8 @@ if (import.meta.main) {
             repositoryPath,
             'blob-bytes',
             capturedIndexTree.gitEnvironment,
-            capturedIndexTree.gitStdio
+            capturedIndexTree.gitStdio,
+            capturedIndexTree.objectFormat
           );
         } catch {
           return null;
