@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -7,6 +6,17 @@ import path from 'node:path';
 import ts from 'typescript';
 import { parse as parseYaml } from 'yaml';
 
+import {
+  CodexDevelopmentReadExactGitBlobV1,
+  readBlobEntryBatch,
+  readCommitTreeInventory,
+  readGitChangedRecords,
+  readGitCommitLogTextV1,
+  readGitRevision,
+  readGitTreeRevision,
+  readGitWorkingTreeStatus,
+  type GitTreeBlobEntry
+} from '../../platform/git/objects.ts';
 import {
   classifySecRepositorySurface,
   resolveSecMarkdownSkillCoverage,
@@ -18,6 +28,11 @@ import {
   type SecRepositorySurfaceKind
 } from '../../platform/shared/agent-skill-contract.ts';
 import { rawSha256 } from '../../platform/shared/canonical-primitives.ts';
+import type { VerificationActionPlanV2 } from '../../platform/shared/verification-action-contract.ts';
+import {
+  consumeDevelopmentCriticalPathStaticAnalysisAuthorityV2,
+  type DevelopmentCriticalPathStaticAnalysisAuthorityV2
+} from '../../tooling/sec-dev/development-critical-path.ts';
 import {
   CodexDevelopmentClassifyWorkPackageCensusV1,
   CodexDevelopmentParseActivePointerV2,
@@ -27,7 +42,6 @@ import {
 const DEFAULT_REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const MAX_TEXT_FILE_BYTES = 2_000_000;
 const GIT_BATCH_BYTE_BUDGET = 16 * 1024 * 1024;
-const GIT_BATCH_OUTPUT_OVERHEAD = 2 * 1024 * 1024;
 const HEURISTIC_MARKER = /(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|优先|默认|触发|停止|回退|重算|fail[- ]?closed|DO NOT MERGE|reload_if|gate_owner|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)/iu;
 const AGENT_CONTEXT_MARKER = /(?:\bAgent\b|\bCodex\b|\bWork\s+Package\b|\bTask\s+Envelope\b|\bSkill\b|\bReview\b|\bCI\b|\bGate\b|\bmerge\b|\bbranch\b|\btool\b|工具|文档|验证|仓库|上下文|恢复|分派|权限|\bowner\b|\bauthority\b)/iu;
 const STRONG_AGENT_CONTEXT_MARKER = /(?<![/\\])\b(?:Agent|Codex)\b/iu;
@@ -59,6 +73,7 @@ export interface RepositoryAuditReport {
   behaviorRoutes: typeof SEC_REPOSITORY_BEHAVIOR_ROUTES;
   contentCoverage: readonly RepositoryContentCoverage[];
   findings: readonly RepositoryAuditFinding[];
+  inventoryCoverage: RepositoryAuditInventoryCoverage;
   informationLifecycle: InformationLifecycleReport;
   optimizations: readonly string[];
   revision: Readonly<{
@@ -70,6 +85,7 @@ export interface RepositoryAuditReport {
     tree: string;
     worktree: 'clean' | 'dirty' | 'unresolved';
   }>;
+  semanticAssurance: RepositoryAuditSemanticAssurance;
   schema: 'sec-repository-audit-v2';
   summary: Readonly<{
     activeMarkdown: number;
@@ -85,13 +101,142 @@ export interface RepositoryAuditReport {
   unknowns: readonly string[];
 }
 
+/**
+ * Inventory enumeration and semantic analysis are different claims.  A
+ * complete byte census only says that every tracked entry received a bounded
+ * content classification; it does not say that the repository's semantic
+ * owners, consumers, effects, or retirement edges were analysed.
+ */
+export type RepositoryAuditAssuranceStatus = 'passed' | 'incomplete' | 'failed';
+export type RepositoryAuditAnalyzerStatus = 'passed' | 'not-run' | 'failed';
+
+export interface RepositoryAuditInventoryCoverage {
+  readonly excluded: number;
+  readonly scanned: number;
+  readonly status: RepositoryAuditAssuranceStatus;
+  readonly total: number;
+  readonly unknown: number;
+}
+
+export interface RepositoryAuditRequiredAnalyzer {
+  readonly detail: string | null;
+  readonly id: string;
+  readonly status: RepositoryAuditAnalyzerStatus;
+}
+
+export interface RepositoryAuditSemanticAssurance {
+  readonly blockingFindingCount: number;
+  readonly findingCount: number;
+  readonly requiredAnalyzers: readonly RepositoryAuditRequiredAnalyzer[];
+  readonly status: RepositoryAuditAssuranceStatus;
+  readonly unknownCount: number;
+}
+
 export interface RepositoryAuditCliProjectionV1 {
   readonly schema: 'sec-repository-audit-cli-projection-v1';
   readonly reportDigest: `sha256:${string}`;
   readonly revision: RepositoryAuditReport['revision'];
   readonly summary: RepositoryAuditReport['summary'];
+  readonly inventoryCoverage: RepositoryAuditInventoryCoverage;
+  readonly semanticAssurance: RepositoryAuditSemanticAssurance;
   readonly findingCodes: readonly string[];
   readonly unknownsDigest: `sha256:${string}`;
+}
+
+export const REPOSITORY_AUDIT_REQUIRED_ANALYZER_V1: RepositoryAuditRequiredAnalyzer = Object.freeze({
+  id: 'tooling/sec-dev/development-critical-path.ts',
+  status: 'not-run',
+  detail: 'no bound Verification Action plan was supplied to repository-audit'
+});
+
+function normalizeCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function deriveInventoryCoverageV1(input: Readonly<{
+  total: unknown;
+  scanned: unknown;
+  excluded: unknown;
+  unknown: unknown;
+  contentCoverageLength?: unknown;
+}>): RepositoryAuditInventoryCoverage {
+  const total = normalizeCount(input.total);
+  const scanned = normalizeCount(input.scanned);
+  const excluded = normalizeCount(input.excluded);
+  const unknown = normalizeCount(input.unknown);
+  const contentCoverageLength = input.contentCoverageLength === undefined
+    ? null
+    : normalizeCount(input.contentCoverageLength);
+  const countsValid = total !== null && scanned !== null && excluded !== null && unknown !== null;
+  const countSumMatches = countsValid && scanned + excluded + unknown === total;
+  const inventoryMatches = contentCoverageLength === null || contentCoverageLength === total;
+  const safeTotal = total ?? 0;
+  const safeScanned = scanned ?? 0;
+  const safeExcluded = excluded ?? 0;
+  const safeUnknown = unknown ?? 0;
+  const status: RepositoryAuditAssuranceStatus = !countsValid || !countSumMatches || !inventoryMatches
+    ? 'failed'
+    : safeTotal === 0 || safeUnknown > 0
+      ? 'incomplete'
+      : 'passed';
+  return Object.freeze({
+    excluded: safeExcluded,
+    scanned: safeScanned,
+    status,
+    total: safeTotal,
+    unknown: safeUnknown
+  });
+}
+
+export function summarizeRepositoryAuditSemanticAssuranceV1(input: Readonly<{
+  findings: readonly RepositoryAuditFinding[];
+  requiredAnalyzers?: readonly RepositoryAuditRequiredAnalyzer[];
+  unknownCount: number;
+}>): RepositoryAuditSemanticAssurance {
+  const requiredAnalyzers = Object.freeze([...(input.requiredAnalyzers ?? [
+    REPOSITORY_AUDIT_REQUIRED_ANALYZER_V1
+  ])].map((analyzer) => Object.freeze({
+    detail: analyzer.detail ?? null,
+    id: analyzer.id,
+    status: analyzer.status
+  })));
+  const blockingFindingCount = input.findings.filter(({ severity }) =>
+    severity === 'critical' || severity === 'high'
+  ).length;
+  const findingCount = input.findings.length;
+  const unknownCount = normalizeCount(input.unknownCount) ?? 0;
+  const hasInvalidAnalyzer = requiredAnalyzers.some(({ id, status }) =>
+    id.trim().length === 0
+    || (status !== 'passed' && status !== 'not-run' && status !== 'failed')
+  );
+  const hasFailedAnalyzer = requiredAnalyzers.some(({ status }) => status === 'failed');
+  const hasUnrunAnalyzer = requiredAnalyzers.some(({ status }) => status === 'not-run');
+  const status: RepositoryAuditAssuranceStatus = hasInvalidAnalyzer
+    || hasFailedAnalyzer
+    || blockingFindingCount > 0
+    ? 'failed'
+    : hasUnrunAnalyzer || findingCount > 0 || unknownCount > 0
+      ? 'incomplete'
+      : 'passed';
+  return Object.freeze({
+    blockingFindingCount,
+    findingCount,
+    requiredAnalyzers,
+    status,
+    unknownCount
+  });
+}
+
+function deriveReportInventoryCoverageV1(
+  report: Pick<RepositoryAuditReport, 'contentCoverage' | 'summary'>
+): RepositoryAuditInventoryCoverage {
+  return deriveInventoryCoverageV1({
+    total: report.summary.trackedPaths,
+    scanned: report.summary.contentCoverage.scanned,
+    excluded: report.summary.contentCoverage.excluded,
+    unknown: report.summary.contentCoverage.unknown,
+    contentCoverageLength: report.contentCoverage.length
+  });
 }
 
 /**
@@ -101,11 +246,23 @@ export interface RepositoryAuditCliProjectionV1 {
 export function projectRepositoryAuditCliV1(
   report: RepositoryAuditReport
 ): RepositoryAuditCliProjectionV1 {
+  // Recompute both claims from their source evidence at the projection
+  // boundary.  A stale or hand-built report cannot self-assert `passed` by
+  // copying a status field while retaining an unknown inventory or an
+  // unexecuted required analyzer.
+  const inventoryCoverage = deriveReportInventoryCoverageV1(report);
+  const semanticAssurance = summarizeRepositoryAuditSemanticAssuranceV1({
+    findings: report.findings,
+    requiredAnalyzers: report.semanticAssurance?.requiredAnalyzers,
+    unknownCount: report.unknowns.length
+  });
   return Object.freeze({
     schema: 'sec-repository-audit-cli-projection-v1',
     reportDigest: rawSha256(JSON.stringify(report)),
     revision: report.revision,
     summary: report.summary,
+    inventoryCoverage,
+    semanticAssurance,
     findingCodes: Object.freeze([...new Set(report.findings.map(({ code }) => code))].sort()),
     unknownsDigest: rawSha256(JSON.stringify(report.unknowns))
   });
@@ -1569,10 +1726,6 @@ export function classifyInformationLifecyclePath(repositoryPath: string): Inform
   return 'unknown';
 }
 
-interface GitOptions {
-  allowFailure?: boolean;
-}
-
 interface GitTreeEntry {
   mode: string;
   object: string;
@@ -1592,65 +1745,38 @@ type HeuristicLine = Readonly<{
   raw: string;
 }>;
 
-function runGitBytes(
-  repositoryRoot: string,
-  args: readonly string[],
-  options: GitOptions = {}
-): Buffer | null {
-  const result = spawnSync('git', [...args], {
-    cwd: repositoryRoot,
-    windowsHide: true
-  });
-  if (result.error) {
-    if (options.allowFailure) return null;
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    if (options.allowFailure) return null;
-    const stderr = Buffer.isBuffer(result.stderr)
-      ? result.stderr.toString('utf8').trim()
-      : String(result.stderr).trim();
-    throw new Error(`git ${args.join(' ')} failed: ${stderr}`);
-  }
-  if (!Buffer.isBuffer(result.stdout)) {
-    return Buffer.from(String(result.stdout), 'utf8');
-  }
-  return result.stdout;
-}
-
-function runGitText(
-  repositoryRoot: string,
-  args: readonly string[],
-  options: GitOptions = {}
-): string | null {
-  return runGitBytes(repositoryRoot, args, options)?.toString('utf8').trim() ?? null;
-}
-
 function revisionTreeEntries(
   repositoryRoot: string,
   revision: string
 ): GitTreeEntry[] {
-  const raw = runGitBytes(repositoryRoot, [
-    'ls-tree', '-r', '-z', '-l', '--full-tree', revision
-  ]);
-  if (raw === null) throw new Error(`git ls-tree returned no output for ${revision}`);
+  const commit = readGitRevision(repositoryRoot, `${revision}^{commit}`);
+  if (commit === null) throw new Error(`Git revision is not one resolvable commit: ${revision}`);
+  return readCommitTreeInventory(repositoryRoot, commit)
+    .map((entry): GitTreeEntry => Object.freeze({
+      mode: entry.mode,
+      object: entry.objectId,
+      path: entry.path,
+      size: entry.byteSize,
+      type: entry.type
+    }));
+}
 
-  const entries = raw.toString('utf8').split('\0').filter(Boolean).map((record) => {
-    const separator = record.indexOf('\t');
-    if (separator < 0) throw new Error(`Malformed git ls-tree record: ${record}`);
-    const metadata = record.slice(0, separator);
-    const repositoryPath = record.slice(separator + 1);
-    const match = /^([0-7]{6}) (blob|commit) ([0-9a-f]{40,64})\s+(-|\d+)$/u.exec(metadata);
-    if (!match) throw new Error(`Malformed git ls-tree metadata: ${metadata}`);
-    return Object.freeze({
-      mode: match[1]!,
-      object: match[3]!,
-      path: repositoryPath,
-      size: match[4] === '-' ? null : Number.parseInt(match[4]!, 10),
-      type: match[2] as 'blob' | 'commit'
-    });
-  });
-  return entries.sort((left, right) => left.path.localeCompare(right.path));
+function readOptionalRevisionBlob(
+  repositoryRoot: string,
+  revision: string,
+  repositoryPath: string
+): Buffer | null {
+  const commit = readGitRevision(repositoryRoot, `${revision}^{commit}`);
+  if (commit === null) return null;
+  try {
+    return Buffer.from(CodexDevelopmentReadExactGitBlobV1({
+      repositoryRoot,
+      commitSha: commit,
+      repositoryPath
+    }).bytes);
+  } catch {
+    return null;
+  }
 }
 
 export function trackedRepositoryFiles(
@@ -1700,66 +1826,30 @@ function readBatchGitBlobs(
   }
 
   for (const objectIds of stableObjectBatches(expectedSizes)) {
-    const expectedBatchBytes = objectIds.reduce(
-      (sum, objectId) => sum + expectedSizes.get(objectId)!,
-      0
-    );
-    const result = spawnSync('git', ['cat-file', '--batch'], {
-      cwd: repositoryRoot,
-      input: Buffer.from(`${objectIds.join('\n')}\n`, 'utf8'),
-      maxBuffer: expectedBatchBytes + GIT_BATCH_OUTPUT_OVERHEAD,
-      windowsHide: true
-    });
     const markBatchUnavailable = (reason: string): void => {
       for (const objectId of objectIds) {
         blobs.set(objectId, { bytes: null, reason });
       }
     };
-    if (result.error) {
-      markBatchUnavailable(`blob-unavailable:${result.error.message}`);
-      continue;
-    }
-    if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
-      const stderr = Buffer.isBuffer(result.stderr)
-        ? result.stderr.toString('utf8').trim()
-        : String(result.stderr).trim();
-      markBatchUnavailable(`blob-unavailable:${stderr || `exit-${result.status ?? 'null'}`}`);
-      continue;
-    }
-
     try {
-      let offset = 0;
-      for (const requestedObject of objectIds) {
-        const headerEnd = result.stdout.indexOf(0x0a, offset);
-        if (headerEnd < 0) throw new Error(`missing-header:${requestedObject}`);
-        const header = result.stdout.subarray(offset, headerEnd).toString('utf8');
-        if (header === `${requestedObject} missing`) {
-          blobs.set(requestedObject, { bytes: null, reason: 'blob-unavailable:missing' });
-          offset = headerEnd + 1;
-          continue;
-        }
-        const match = /^([0-9a-f]{40,64}) blob (\d+)$/u.exec(header);
-        if (!match || match[1] !== requestedObject) {
-          throw new Error(`unexpected-header:${requestedObject}:${header}`);
-        }
-        const size = Number.parseInt(match[2]!, 10);
-        const contentStart = headerEnd + 1;
-        const contentEnd = contentStart + size;
-        if (contentEnd >= result.stdout.length || result.stdout[contentEnd] !== 0x0a) {
-          throw new Error(`truncated-content:${requestedObject}`);
-        }
-        const expectedSize = expectedSizes.get(requestedObject)!;
-        if (size !== expectedSize) {
-          blobs.set(requestedObject, { bytes: null, reason: 'blob-size-mismatch' });
+      const batchEntries = objectIds.map((objectId): GitTreeBlobEntry => {
+        const source = entries.find((entry) => entry.object === objectId)!;
+        return Object.freeze({
+          mode: source.mode,
+          objectId,
+          byteSize: expectedSizes.get(objectId)!,
+          path: source.path
+        });
+      });
+      const observed = readBlobEntryBatch(repositoryRoot, batchEntries);
+      for (const objectId of objectIds) {
+        const bytes = observed.get(objectId);
+        if (bytes === undefined || bytes.byteLength !== expectedSizes.get(objectId)) {
+          blobs.set(objectId, { bytes: null, reason: 'blob-size-mismatch' });
         } else {
-          blobs.set(requestedObject, {
-            bytes: Buffer.from(result.stdout.subarray(contentStart, contentEnd)),
-            reason: null
-          });
+          blobs.set(objectId, { bytes: Buffer.from(bytes), reason: null });
         }
-        offset = contentEnd + 1;
       }
-      if (offset !== result.stdout.length) throw new Error('unconsumed-output');
     } catch (error) {
       markBatchUnavailable(
         `blob-unavailable:${error instanceof Error ? error.message : String(error)}`
@@ -1976,12 +2066,11 @@ function revisionTextCandidates(
 function repositoryWorktreeState(
   repositoryRoot: string
 ): 'clean' | 'dirty' | 'unresolved' {
-  const status = runGitBytes(repositoryRoot, [
-    '-c', 'core.quotepath=false',
-    'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
-  ], { allowFailure: true });
-  if (status === null) return 'unresolved';
-  return status.length === 0 ? 'clean' : 'dirty';
+  try {
+    return readGitWorkingTreeStatus(repositoryRoot).length === 0 ? 'clean' : 'dirty';
+  } catch {
+    return 'unresolved';
+  }
 }
 
 function markdownStatus(source: string): string | null {
@@ -2262,6 +2351,7 @@ interface DeletedBlobGitFact {
   oldBlob: string;
   bytes: number;
   lineCount: number;
+  rawDigest: string;
 }
 
 function parseDeletedTransition(
@@ -2272,67 +2362,69 @@ function parseDeletedTransition(
   deletedPaths: readonly string[];
   renamedPaths: Readonly<Record<string, string>>;
 }> | null {
-  const diffText = runGitText(
-    repositoryRoot,
-    ['-c', 'core.quotepath=false', 'diff', '--name-status', oldRevision, nextRevision],
-    { allowFailure: true }
-  );
-  if (diffText === null) return null;
-  const deletedPaths: string[] = [];
-  const renamedPaths: Record<string, string> = {};
-  for (const line of diffText.split(/\r?\n/u)) {
-    const rename = /^R\d+\t(.+)\t(.+)$/u.exec(line);
-    if (rename) {
-      renamedPaths[rename[1]!] = rename[2]!;
-      continue;
+  try {
+    const deletedPaths: string[] = [];
+    const renamedPaths: Record<string, string> = {};
+    for (const record of readGitChangedRecords(repositoryRoot, oldRevision, nextRevision)) {
+      if (record.status === 'renamed') {
+        renamedPaths[record.previousPath!] = record.path;
+      } else if (record.status === 'removed') {
+        deletedPaths.push(record.path);
+      }
     }
-    const deleted = /^D\t(.+)$/u.exec(line);
-    if (deleted) deletedPaths.push(deleted[1]!);
+    return Object.freeze({
+      deletedPaths: Object.freeze(deletedPaths.sort()),
+      renamedPaths: Object.freeze(renamedPaths)
+    });
+  } catch {
+    return null;
   }
-  return Object.freeze({
-    deletedPaths: Object.freeze(deletedPaths.sort()),
-    renamedPaths: Object.freeze(renamedPaths)
-  });
 }
 
-function revisionBlobMap(
+type RevisionBlobCensus = Readonly<{
+  byPath: ReadonlyMap<string, GitTreeEntry>;
+  blobs: ReadonlyMap<string, GitBlobRead>;
+}>;
+
+/**
+ * Capture one immutable revision/path census with one tree read and bounded
+ * `cat-file --batch` transports.  Historical lifecycle validation must never
+ * restart Git once per manifest row: every fact below is a pure lookup from
+ * this exact revision snapshot.
+ */
+function revisionBlobCensus(
   repositoryRoot: string,
-  revision: string
-): Readonly<Record<string, string>> | null {
-  const raw = runGitBytes(repositoryRoot, [
-    'ls-tree', '-r', '-z', '-l', '--full-tree', revision
-  ], { allowFailure: true });
-  if (raw === null) return null;
-  const blobByPath: Record<string, string> = {};
-  for (const record of raw.toString('utf8').split('\0').filter(Boolean)) {
-    const separator = record.indexOf('\t');
-    if (separator < 0) continue;
-    const match = /^([0-7]{6}) (blob) ([0-9a-f]{40,64})\s+(?:-|\d+)$/u.exec(record.slice(0, separator));
-    if (!match) continue;
-    blobByPath[record.slice(separator + 1)] = match[3]!;
+  revision: string,
+  requiredPaths: ReadonlySet<string>,
+  includeBytes: boolean
+): RevisionBlobCensus | null {
+  try {
+    const selected = revisionTreeEntries(repositoryRoot, revision)
+      .filter((entry) => requiredPaths.has(entry.path));
+    const byPath = new Map(selected.map((entry) => [entry.path, entry] as const));
+    return Object.freeze({
+      byPath,
+      blobs: includeBytes ? readBatchGitBlobs(repositoryRoot, selected) : new Map()
+    });
+  } catch {
+    return null;
   }
-  return Object.freeze(blobByPath);
 }
 
 function deletedBlobGitFact(
-  repositoryRoot: string,
-  oldRevision: string,
+  census: RevisionBlobCensus,
   oldPath: string
 ): DeletedBlobGitFact | null {
-  const bytes = runGitBytes(repositoryRoot, ['cat-file', 'blob', `${oldRevision}:${oldPath}`], {
-    allowFailure: true
-  });
-  if (bytes === null) return null;
-  const blobSha = runGitText(
-    repositoryRoot,
-    ['rev-parse', '--verify', `${oldRevision}:${oldPath}`],
-    { allowFailure: true }
-  );
-  const lineCount = bytes.length === 0 ? 0 : bytes.toString('utf8').split(/\r?\n/u).length;
+  const entry = census.byPath.get(oldPath);
+  if (entry === undefined || entry.type !== 'blob' || entry.size === null) return null;
+  const read = census.blobs.get(entry.object);
+  if (read?.bytes === null || read?.bytes === undefined) return null;
+  const bytes = read.bytes;
   return Object.freeze({
-    oldBlob: blobSha ?? 'unavailable',
+    oldBlob: entry.object,
     bytes: bytes.length,
-    lineCount
+    lineCount: bytes.length === 0 ? 0 : bytes.toString('utf8').split(/\r?\n/u).length,
+    rawDigest: createHash('sha256').update(bytes).digest('hex')
   });
 }
 
@@ -2637,11 +2729,16 @@ function informationLifecycleDetectors(
   // meaninglessNewCommitSubjects + ungovernedAiAttributionTrailers: candidate commit hygiene.
   const MEANINGLESS_SUBJECT = /^(?:update|fix|wip|sync|tmp|stuff|xxx|asdf|foo|bar|test|commit|merge|rebase|clean|cleanup|chore|docs|refactor|n\/a|na)\s*$|^.{0,4}$|^[\s\p{P}]+$/iu;
   const UNGOVERNED_AI_TRAILER = /(?:Co-authored-by|Authored-by|Signed-off-by):\s*(?:(?:gpt|copilot|claude|openai|gemini|bard|deepseek|qwen|mistral|llama)[-\w]*\s*<[^>]+>)/iu;
-  const commitListing = runGitText(
-    repositoryRoot,
-    ['log', '--format=%H%x09%s%n%b', `${defaultRef}..HEAD`],
-    { allowFailure: true }
-  );
+  const defaultCommit = readGitRevision(repositoryRoot, `${defaultRef}^{commit}`);
+  const candidateCommit = readGitRevision(repositoryRoot, 'HEAD^{commit}');
+  let commitListing: string | null = null;
+  if (defaultCommit !== null && candidateCommit !== null) {
+    try {
+      commitListing = readGitCommitLogTextV1(repositoryRoot, defaultCommit, candidateCommit);
+    } catch {
+      commitListing = null;
+    }
+  }
   if (commitListing !== null) {
     const commits = commitListing.split(/(?=\b[0-9a-f]{40}\t)/u).filter((entry) => entry.includes('\t'));
     for (const entry of commits) {
@@ -2936,12 +3033,25 @@ export async function auditInformationLifecycle(
       ));
       unknowns.push('deleted-blob machine manifest mismatch with exact Git transition');
     }
-    const oldBlobMap = revisionBlobMap(repositoryRoot, INFORMATION_LIFECYCLE_TRANSITION.old);
-    const nextBlobMap = revisionBlobMap(repositoryRoot, INFORMATION_LIFECYCLE_TRANSITION.next);
-    if (oldBlobMap !== null && nextBlobMap !== null) {
+    const oldPaths = new Set(manifestEntries.map(([oldPath]) => oldPath));
+    const nextPaths = new Set(manifestEntries.flatMap(([, tuple]) =>
+      tuple[0] === 'R' ? [tuple[5]!] : []));
+    const oldCensus = revisionBlobCensus(
+      repositoryRoot,
+      INFORMATION_LIFECYCLE_TRANSITION.old,
+      oldPaths,
+      true
+    );
+    const nextCensus = revisionBlobCensus(
+      repositoryRoot,
+      INFORMATION_LIFECYCLE_TRANSITION.next,
+      nextPaths,
+      false
+    );
+    if (oldCensus !== null && nextCensus !== null) {
       let verified = true;
       for (const [oldPath, tuple] of manifestEntries) {
-        const liveOldBlob = oldBlobMap[oldPath];
+        const liveOldBlob = oldCensus.byPath.get(oldPath)?.object;
         if (liveOldBlob !== tuple[1]) {
           verified = false;
           pushFinding(findings, detectorFinding(
@@ -2953,7 +3063,7 @@ export async function auditInformationLifecycle(
         }
         if (tuple[0] === 'R') {
           const newPath = tuple[5]!;
-          if (nextBlobMap[newPath] !== tuple[1]) {
+          if (nextCensus.byPath.get(newPath)?.object !== tuple[1]) {
             verified = false;
             pushFinding(findings, detectorFinding(
               'information-lifecycle-census-blob-drift',
@@ -2963,11 +3073,7 @@ export async function auditInformationLifecycle(
             ));
           }
         }
-        const fact = deletedBlobGitFact(
-          repositoryRoot,
-          INFORMATION_LIFECYCLE_TRANSITION.old,
-          oldPath
-        );
+        const fact = deletedBlobGitFact(oldCensus, oldPath);
         if (fact !== null) {
           if (fact.bytes !== tuple[3]) {
             verified = false;
@@ -2987,24 +3093,14 @@ export async function auditInformationLifecycle(
               'critical'
             ));
           }
-          if (fact.oldBlob !== 'unavailable') {
-            const rawBytes = runGitBytes(
-              repositoryRoot,
-              ['cat-file', 'blob', fact.oldBlob],
-              { allowFailure: true }
-            );
-            if (rawBytes !== null) {
-              const liveDigest = createHash('sha256').update(rawBytes).digest('hex');
-              if (liveDigest !== tuple[2]) {
-                verified = false;
-                pushFinding(findings, detectorFinding(
-                  'information-lifecycle-census-blob-drift',
-                  `old blob sha256 drift for ${oldPath}`,
-                  oldPath,
-                  'critical'
-                ));
-              }
-            }
+          if (fact.rawDigest !== tuple[2]) {
+            verified = false;
+            pushFinding(findings, detectorFinding(
+              'information-lifecycle-census-blob-drift',
+              `old blob sha256 drift for ${oldPath}`,
+              oldPath,
+              'critical'
+            ));
           }
         }
       }
@@ -3291,11 +3387,7 @@ async function auditControlPlane(
     });
   }
 
-  const defaultManifestBytes = runGitBytes(
-    repositoryRoot,
-    ['show', `${defaultRef}:${manifestPath}`],
-    { allowFailure: true }
-  );
+  const defaultManifestBytes = readOptionalRevisionBlob(repositoryRoot, defaultRef, manifestPath);
   // The active-phase manifest is frozen on the default branch by the activation
   // commit; docs/work/README.md keeps it `conditional` while the pointer selects
   // it. Being present on default is the designed state, not a violation.
@@ -3324,7 +3416,7 @@ async function auditControlPlane(
         candidateBytes,
         defaultBytes: packagePath === manifestPath
           ? null
-          : runGitBytes(repositoryRoot, ['show', `${defaultRef}:${packagePath}`], { allowFailure: true })
+          : readOptionalRevisionBlob(repositoryRoot, defaultRef, packagePath)
       };
     });
     const roadmapSource = textByPath.get('docs/roadmap.md');
@@ -3364,7 +3456,14 @@ async function auditControlPlane(
 
 export async function auditRepository(
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
-  options: { defaultRef?: string } = {}
+  options: {
+    defaultRef?: string;
+    semanticAnalyzer?: Readonly<{
+      authority: DevelopmentCriticalPathStaticAnalysisAuthorityV2;
+      plan: VerificationActionPlanV2;
+      actionPlanClosureDigest: `sha256:${string}`;
+    }>;
+  } = {}
 ): Promise<RepositoryAuditReport> {
   const defaultRefInput = options.defaultRef ?? process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF ?? 'refs/remotes/origin/main';
   const isExactSha = /^[0-9a-f]{40}$/u.test(defaultRefInput);
@@ -3373,10 +3472,37 @@ export async function auditRepository(
   const defaultRef = isExactSha ? `${defaultRefInput}^{commit}` : defaultRefInput;
   const findings: RepositoryAuditFinding[] = [];
   const unknowns: string[] = [];
-  const head = runGitText(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}']);
-  const tree = runGitText(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{tree}']);
+  const head = readGitRevision(repositoryRoot, 'HEAD^{commit}');
+  const tree = readGitTreeRevision(repositoryRoot);
   if (head === null || tree === null) {
     throw new Error('Repository audit requires a resolvable HEAD commit and tree');
+  }
+  let requiredAnalyzers: readonly RepositoryAuditRequiredAnalyzer[] | undefined;
+  if (options.semanticAnalyzer !== undefined) {
+    try {
+      const readback = consumeDevelopmentCriticalPathStaticAnalysisAuthorityV2(
+        options.semanticAnalyzer.authority,
+        {
+          plan: options.semanticAnalyzer.plan,
+          expectedActionPlanClosureDigest: options.semanticAnalyzer.actionPlanClosureDigest
+        }
+      );
+      requiredAnalyzers = Object.freeze([Object.freeze({
+        id: REPOSITORY_AUDIT_REQUIRED_ANALYZER_V1.id,
+        status: readback.repository.headSha === head && readback.repository.headTreeSha === tree
+          ? 'passed' as const
+          : 'failed' as const,
+        detail: readback.repository.headSha === head && readback.repository.headTreeSha === tree
+          ? readback.readbackDigest
+          : 'bound analyzer exact head/tree differs from repository audit subject'
+      })]);
+    } catch (error) {
+      requiredAnalyzers = Object.freeze([Object.freeze({
+        id: REPOSITORY_AUDIT_REQUIRED_ANALYZER_V1.id,
+        status: 'failed' as const,
+        detail: error instanceof Error ? error.message.slice(0, 1024) : String(error).slice(0, 1024)
+      })]);
+    }
   }
   const initialWorktree = repositoryWorktreeState(repositoryRoot);
   if (initialWorktree !== 'clean') {
@@ -3394,11 +3520,7 @@ export async function auditRepository(
       unknowns.push(`content coverage unknown: ${coverage.path} [${coverage.reason}]`);
     }
   }
-  const defaultHead = runGitText(
-    repositoryRoot,
-    ['rev-parse', '--verify', defaultRef],
-    { allowFailure: true }
-  );
+  const defaultHead = readGitRevision(repositoryRoot, defaultRef);
   if (defaultHead === null) {
     unknowns.push(`default ref unavailable: ${defaultRefInput}`);
   }
@@ -3506,8 +3628,8 @@ export async function auditRepository(
     controlPlane.pointerManifestOnDefault
   );
 
-  const finalHead = runGitText(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}']);
-  const finalTree = runGitText(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{tree}']);
+  const finalHead = readGitRevision(repositoryRoot, 'HEAD^{commit}');
+  const finalTree = readGitTreeRevision(repositoryRoot);
   const finalWorktree = repositoryWorktreeState(repositoryRoot);
   if (finalHead !== head || finalTree !== tree) {
     unknowns.push(
@@ -3539,11 +3661,25 @@ export async function auditRepository(
     || (left.line ?? 0) - (right.line ?? 0)
     || left.code.localeCompare(right.code));
 
+  const inventoryCoverage = deriveInventoryCoverageV1({
+    total: tracked.length,
+    scanned: contentCoverage.filter(({ status }) => status === 'scanned').length,
+    excluded: contentCoverage.filter(({ status }) => status === 'excluded').length,
+    unknown: contentCoverage.filter(({ status }) => status === 'unknown').length,
+    contentCoverageLength: contentCoverage.length
+  });
+  const semanticAssurance = summarizeRepositoryAuditSemanticAssuranceV1({
+    findings,
+    requiredAnalyzers,
+    unknownCount: unknowns.length
+  });
+
   return Object.freeze({
     behaviorCandidates: Object.freeze([...candidates]),
     behaviorRoutes: SEC_REPOSITORY_BEHAVIOR_ROUTES,
     contentCoverage,
     findings: Object.freeze(findings),
+    inventoryCoverage,
     informationLifecycle,
     optimizations: Object.freeze([
       '把未覆盖的 Agent 行为交给 sec-heuristic-governance，不在原文件追加孤立指令。',
@@ -3575,6 +3711,7 @@ export async function auditRepository(
       trackedPaths: tracked.length,
       unknowns: unknowns.length
     }),
+    semanticAssurance,
     surfaces: Object.freeze({ ...surfaceCounts }),
     unknowns: Object.freeze(unknowns.sort())
   });
@@ -3594,7 +3731,9 @@ function severityFails(
 }
 
 export function repositoryAuditShouldFail(
-  report: Pick<RepositoryAuditReport, 'findings' | 'unknowns'>,
+  report: Pick<RepositoryAuditReport, 'findings' | 'unknowns'>
+    & Partial<Pick<RepositoryAuditReport,
+      'contentCoverage' | 'inventoryCoverage' | 'semanticAssurance' | 'summary'>>,
   options: {
     diagnostic?: boolean;
     failOn?: RepositoryAuditSeverity | 'none';
@@ -3602,7 +3741,48 @@ export function repositoryAuditShouldFail(
 ): boolean {
   const diagnostic = options.diagnostic ?? false;
   const failOn = options.failOn ?? 'high';
-  if (!diagnostic && report.unknowns.length > 0) return true;
+  if (!diagnostic) {
+    // A caller that cannot supply both explicit assurance projections is not
+    // allowed to turn an old zero-finding DTO into a healthy result.  Missing
+    // semantic evidence is itself incomplete evidence.
+    const inventoryCoverage = report.summary !== undefined && report.contentCoverage !== undefined
+      ? deriveReportInventoryCoverageV1(report as Pick<RepositoryAuditReport, 'contentCoverage' | 'summary'>)
+      : report.inventoryCoverage;
+    const semanticAssurance = summarizeRepositoryAuditSemanticAssuranceV1({
+      findings: report.findings,
+      requiredAnalyzers: report.semanticAssurance?.requiredAnalyzers,
+      unknownCount: report.unknowns.length
+    });
+    if (inventoryCoverage?.status !== 'passed'
+      || semanticAssurance.status !== 'passed'
+      || report.unknowns.length > 0) return true;
+  }
+  return failOn !== 'none'
+    && report.findings.some((finding) => severityFails(finding.severity, failOn));
+}
+
+/**
+ * Inventory-only admission is used when semantic assurance is independently
+ * produced by the VerificationAction static-analysis boundary.  It does not
+ * reinterpret a missing semantic analyzer as success; the caller must bind
+ * this process result to that separate Action Evidence.
+ */
+export function repositoryAuditInventoryShouldFail(
+  report: Pick<RepositoryAuditReport, 'findings' | 'unknowns'>
+    & Partial<Pick<RepositoryAuditReport, 'contentCoverage' | 'inventoryCoverage' | 'summary'>>,
+  options: {
+    diagnostic?: boolean;
+    failOn?: RepositoryAuditSeverity | 'none';
+  } = {}
+): boolean {
+  const diagnostic = options.diagnostic ?? false;
+  const failOn = options.failOn ?? 'high';
+  if (!diagnostic) {
+    const inventoryCoverage = report.summary !== undefined && report.contentCoverage !== undefined
+      ? deriveReportInventoryCoverageV1(report as Pick<RepositoryAuditReport, 'contentCoverage' | 'summary'>)
+      : report.inventoryCoverage;
+    if (inventoryCoverage?.status !== 'passed' || report.unknowns.length > 0) return true;
+  }
   return failOn !== 'none'
     && report.findings.some((finding) => severityFails(finding.severity, failOn));
 }
@@ -3611,6 +3791,7 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const diagnostic = args.includes('--diagnostic');
   const full = args.includes('--full');
+  const inventoryOnly = args.includes('--inventory-only');
   const outputIndex = args.indexOf('--output');
   const outputPath = outputIndex >= 0 ? args[outputIndex + 1] : undefined;
   const failIndex = args.indexOf('--fail-on');
@@ -3640,7 +3821,8 @@ async function main(): Promise<void> {
     ? encoded
     : `${JSON.stringify(projectRepositoryAuditCliV1(report), null, 2)}\n`);
 
-  if (repositoryAuditShouldFail(report, {
+  const shouldFail = inventoryOnly ? repositoryAuditInventoryShouldFail : repositoryAuditShouldFail;
+  if (shouldFail(report, {
     diagnostic,
     failOn: failOn ?? 'high'
   })) {

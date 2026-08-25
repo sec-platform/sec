@@ -1,6 +1,10 @@
 import path from 'node:path';
 
 import {
+  CodexDevelopmentReadExactGitBlobV1,
+  type CodexDevelopmentExactGitBlobReadOptionsV1
+} from '../platform/git/objects.ts';
+import {
   CodexDevelopmentFinalizeVerificationEvidenceV2,
   CodexDevelopmentPrepareVerificationEvidenceTarget,
   CodexDevelopmentVerificationArtifactRetentionDays,
@@ -18,6 +22,7 @@ import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selectio
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-verification-plan.ts';
 import { withHeavyVerificationGateLease } from '../platform/shared/heavy-verification-gate-lease.ts';
 import { getSlowTestSuitesSync, slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
+import { VERIFICATION_ACTION_EXPENSIVE_EXECUTION_BUDGET_V1 } from '../platform/shared/verification-action-contract.ts';
 import {
   CodexDevelopmentChangedFilesFromRecordsV1,
   CodexDevelopmentCreateNotRunGateV2,
@@ -28,10 +33,6 @@ import {
   CodexDevelopmentRunGateProcessV1,
   type CodexDevelopmentGateProcessResultV1
 } from './codex/ci-orchestration-core.ts';
-import {
-  CodexDevelopmentReadExactGitBlobV1,
-  type CodexDevelopmentExactGitBlobReadOptionsV1
-} from './codex/exact-git-blob.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
@@ -196,7 +197,11 @@ export async function CodexDevelopmentCiPrRiskMain(
   const changedRecordResolver = options.changedRecords;
   const readExactGitBlob = options.readExactGitBlob ?? CodexDevelopmentReadExactGitBlobV1;
   const runGate = options.runGate
-    ?? ((step) => CodexDevelopmentRunGateProcessV1(repositoryRoot, step));
+    ?? ((step) => CodexDevelopmentRunGateProcessV1(repositoryRoot, {
+      ...step,
+      budget: VERIFICATION_ACTION_EXPENSIVE_EXECUTION_BUDGET_V1,
+      signal: new AbortController().signal
+    }));
   const writeEvidence = options.writeEvidence ?? CodexDevelopmentWriteVerificationEvidenceAtomic;
   const evidencePath = path.resolve(env.SEC_CI_RISK_EVIDENCE_PATH ?? '.tmp/ci-risk-batch-evidence.json');
   let slowSuites: string[] = [];

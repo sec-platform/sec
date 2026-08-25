@@ -7,11 +7,18 @@ import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
 import { generatedStateDomainProviderMaterialDigestV1 } from '../../platform/shared/generated-state-contract.ts';
 import { runCommandBytes } from '../../platform/shared/process.ts';
 import {
+  addGeneratedStateResourceConsumerV1,
   assertGeneratedStateWorktreeRetirementEffectStartV1,
+  bindGeneratedStateResourceIdentityV1,
   generatedStateProducerHooksV1,
   inspectGeneratedStateV1,
+  markGeneratedStateOperationalTerminalV1,
+  observeGeneratedStateResourceV1,
   planGeneratedStateCleanupV1,
+  registerGeneratedStateResourceBirthV1,
+  removeGeneratedStateResourceConsumerV1,
   settleGeneratedStateForWorktreeRetirementV1,
+  settleGeneratedStateResourceV1,
   settleGeneratedStateV1,
   type GeneratedStateWorktreeRetirementProviderV1
 } from '../../tooling/sec-dev/generated-state-lifecycle.ts';
@@ -449,3 +456,517 @@ test('a foreign quarantine entry prevents a completed physical settlement', asyn
   expect(await absent(generatedRoot)).toBe(true);
   expect(await absent(path.join(quarantineRoot, 'foreign-residue', 'keep.txt'))).toBe(false);
 });
+
+test('resource birth is durable before effect, then reaches operational terminal and consumer-zero physical clean', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-spine';
+  const root = fixtureRoot(repositoryRoot).replace('c.staging-lifecycle-fixture', 'c.staging-resource-spine');
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-spine-operation'
+  }, options);
+  expect(born).toMatchObject({
+    phase: 'active',
+    root: null,
+    lease: { state: 'held' },
+    retention: { policy: 'consumer-zero', consumers: [] },
+    terminalObligation: { state: 'open' }
+  });
+
+  await mkdir(root, { recursive: true });
+  await writeFile(path.join(root, 'cache.bin'), 'resource-cache');
+  const bound = await bindGeneratedStateResourceIdentityV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId
+  }, options);
+  expect(bound.root).not.toBeNull();
+
+  const activeReceipt = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, options);
+  expect(activeReceipt).toMatchObject({
+    phase: 'active',
+    operationalTerminal: false,
+    physicalClean: false,
+    gcPending: false,
+    reclaimability: 'blocked'
+  });
+
+  const withConsumer = await addGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    consumerId: 'verification-action:resource-spine'
+  }, options);
+  const terminal = await markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'owner-settled'
+  }, options);
+  expect(terminal).toMatchObject({
+    phase: 'operational-terminal',
+    lease: { state: 'released' },
+    terminalObligation: { state: 'satisfied' }
+  });
+
+  const retained = await observeGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, options);
+  expect(retained).toMatchObject({
+    operationalTerminal: true,
+    physicalClean: false,
+    gcPending: false,
+    reclaimability: 'blocked',
+    blockers: ['consumer-active']
+  });
+
+  await removeGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    consumerId: 'verification-action:resource-spine',
+    consumerCredential: withConsumer.retention.consumers[0]!.credential
+  }, options);
+  const clean = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, options);
+  expect(clean).toMatchObject({
+    operationalTerminal: true,
+    physicalClean: true,
+    gcPending: false,
+    reclaimability: 'eligible'
+  });
+  expect(await absent(root)).toBe(true);
+  expect((await observeGeneratedStateResourceV1({ repositoryRoot, relativePath }, options)).reclaimability)
+    .toBe('unknown');
+}, 20_000);
+
+test('resource delete crash resumes from the current registration without a receipt history scan', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-crash';
+  const root = path.join(repositoryRoot, ...relativePath.split('/'));
+  await mkdir(root, { recursive: true });
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-crash-operation'
+  }, options);
+  const terminal = await markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'owner-settled'
+  }, options);
+  let interrupted = false;
+  await expect(settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, {
+    ...options,
+    afterResourceDeleteEffect: () => {
+      if (interrupted) return;
+      interrupted = true;
+      throw new Error('resource crash after physical delete');
+    }
+  })).rejects.toThrow('resource crash after physical delete');
+  expect(await absent(root)).toBe(true);
+  const resumed = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: terminal.resourceId
+  }, options);
+  expect(resumed).toMatchObject({ physicalClean: true, gcPending: false });
+  expect((await observeGeneratedStateResourceV1({ repositoryRoot, relativePath }, options)).registration)
+    .toBeNull();
+}, 20_000);
+
+test('eligible resource residue is bounded as GC pending and retries from the current receipt', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-gc-pending';
+  const root = path.join(repositoryRoot, ...relativePath.split('/'));
+  await mkdir(root, { recursive: true });
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-gc-pending-operation'
+  }, options);
+  await markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'owner-settled'
+  }, options);
+  const pending = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, {
+    ...options,
+    beforeResourceDeleteEffect: () => {
+      throw new Error('temporary physical delete failure');
+    }
+  });
+  expect(pending).toMatchObject({
+    operationalTerminal: true,
+    physicalClean: false,
+    gcPending: true,
+    reclaimability: 'eligible'
+  });
+  expect(await absent(root)).toBe(false);
+  const resumed = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, options);
+  expect(resumed).toMatchObject({ physicalClean: true, gcPending: false });
+  expect(await absent(root)).toBe(true);
+}, 20_000);
+
+test('resource no-follow uncertainty retains an unbound terminal registration', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-null-root-nofollow';
+  const parent = path.join(repositoryRoot, '.tmp', 'dependency-installs');
+  await mkdir(parent, { recursive: true });
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-null-root-nofollow-operation'
+  }, options);
+  const withConsumer = await addGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    consumerId: 'consumer:null-root-nofollow'
+  }, options);
+  await markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'owner-settled'
+  }, options);
+  await removeGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    consumerId: 'consumer:null-root-nofollow',
+    consumerCredential: withConsumer.retention.consumers[0]!.credential
+  }, options);
+
+  const retainedParent = path.join(repositoryRoot, '.tmp', 'dependency-installs-retained');
+  await rename(parent, retainedParent);
+  const outside = path.join(repositoryRoot, '.tmp', 'dependency-installs-outside');
+  await mkdir(outside, { recursive: true });
+  await writeFile(path.join(outside, 'must-retain.txt'), 'retain');
+  await symlink(outside, parent, process.platform === 'win32' ? 'junction' : 'dir');
+
+  const observed = await observeGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, options);
+  expect(observed).toMatchObject({
+    registration: { root: null },
+    reclaimability: 'unknown',
+    operationalTerminal: true,
+    physicalClean: false,
+    gcPending: false,
+    blockers: ['physical-identity-unknown']
+  });
+  const settled = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, options);
+  expect(settled).toMatchObject({
+    reclaimability: 'unknown',
+    physicalClean: false,
+    gcPending: false,
+    blockers: ['physical-identity-unknown']
+  });
+  expect((await observeGeneratedStateResourceV1({ repositoryRoot, relativePath }, options)).registration)
+    .not.toBeNull();
+  expect(await absent(path.join(outside, 'must-retain.txt'))).toBe(false);
+}, 20_000);
+
+test('resource GC pending cannot survive a no-follow identity failure as eligible', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-bound-root-nofollow';
+  const parent = path.join(repositoryRoot, '.tmp', 'dependency-installs');
+  const root = path.join(repositoryRoot, ...relativePath.split('/'));
+  await mkdir(parent, { recursive: true });
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-bound-root-nofollow-operation'
+  }, options);
+  await mkdir(root, { recursive: true });
+  const bound = await bindGeneratedStateResourceIdentityV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId
+  }, options);
+  await markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'owner-settled'
+  }, options);
+  const pending = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId
+  }, {
+    ...options,
+    beforeResourceDeleteEffect: () => {
+      throw new Error('temporary physical delete failure');
+    }
+  });
+  expect(pending).toMatchObject({
+    reclaimability: 'eligible',
+    physicalClean: false,
+    gcPending: true
+  });
+  const retainedParent = path.join(repositoryRoot, '.tmp', 'dependency-installs-retained');
+  await rename(parent, retainedParent);
+  const outside = path.join(repositoryRoot, '.tmp', 'dependency-installs-outside');
+  await mkdir(outside, { recursive: true });
+  await writeFile(path.join(outside, 'must-retain-bound.txt'), 'retain');
+  await symlink(outside, parent, process.platform === 'win32' ? 'junction' : 'dir');
+
+  const observed = await observeGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: bound.resourceId
+  }, options);
+  expect(observed).toMatchObject({
+    reclaimability: 'unknown',
+    physicalClean: false,
+    gcPending: false,
+    blockers: ['physical-identity-unknown']
+  });
+  const retained = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: bound.resourceId
+  }, options);
+  expect(retained).toMatchObject({
+    reclaimability: 'unknown',
+    physicalClean: false,
+    gcPending: false,
+    blockers: ['physical-identity-unknown']
+  });
+  expect((await observeGeneratedStateResourceV1({ repositoryRoot, relativePath }, options)).registration)
+    .not.toBeNull();
+  expect(await absent(path.join(outside, 'must-retain-bound.txt'))).toBe(false);
+}, 20_000);
+
+test('resource current transitions reject a stale concurrent registration update', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-cas';
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-cas-operation'
+  }, options);
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  let firstEnteredResolve!: () => void;
+  const firstEntered = new Promise<void>((resolve) => { firstEnteredResolve = resolve; });
+  let paused = false;
+  const firstOptions = {
+    ...options,
+    beforeResourceRegistrationCommitEffect: async () => {
+      if (paused) return;
+      paused = true;
+      firstEnteredResolve();
+      await firstGate;
+    }
+  };
+  const firstAttempt = addGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    consumerId: 'consumer:first'
+  }, firstOptions);
+  await firstEntered;
+  const second = await addGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    consumerId: 'consumer:second'
+  }, options);
+  releaseFirst();
+  await expect(firstAttempt).rejects.toThrow(/current CAS/u);
+  expect(second.retention.consumers.map(({ consumerId }) => consumerId)).toEqual(['consumer:second']);
+}, 20_000);
+
+test('resource consumer removal requires the owner-issued release credential', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-consumer-credential';
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-consumer-credential-operation'
+  }, options);
+  const withConsumer = await addGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    consumerId: 'consumer:credential-bound'
+  }, options);
+  await expect(removeGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    consumerId: 'consumer:credential-bound',
+    consumerCredential: `sha256:${'f'.repeat(64)}`
+  }, options)).rejects.toThrow(/owner-issued/u);
+  const released = await removeGeneratedStateResourceConsumerV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    consumerId: 'consumer:credential-bound',
+    consumerCredential: withConsumer.retention.consumers[0]!.credential
+  }, options);
+  expect(released.retention.consumers).toEqual([]);
+}, 20_000);
+
+test('resource terminal retries are idempotent only for the same outcome digest', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-terminal-conflict';
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-terminal-conflict-operation'
+  }, options);
+  const terminal = await markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'owner-settled'
+  }, options);
+  const retry = await markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'owner-settled'
+  }, options);
+  expect(retry.registrationDigest).toBe(terminal.registrationDigest);
+  await expect(markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'different-owner-outcome'
+  }, options)).rejects.toThrow(/conflicts with the current outcome/u);
+}, 20_000);
+
+test('legacy and resource registration are fail-closed until the legacy consumer-zero cutover', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const resourceFirstPath = '.tmp/dependency-installs/c.staging-resource-authority-first';
+  const legacyFirstPath = '.tmp/dependency-installs/c.staging-legacy-authority-first';
+  await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath: resourceFirstPath,
+    operationId: 'resource-authority-first-operation'
+  }, options);
+  await mkdir(path.join(repositoryRoot, ...resourceFirstPath.split('/')), { recursive: true });
+  const hooks = generatedStateProducerHooksV1({ repositoryRoot }, options);
+  await expect(hooks.born(resourceFirstPath, 'legacy-after-resource')).rejects
+    .toThrow(/legacy admission is blocked/u);
+
+  const legacyRoot = path.join(repositoryRoot, ...legacyFirstPath.split('/'));
+  await mkdir(legacyRoot, { recursive: true });
+  await hooks.born(legacyFirstPath, 'legacy-authority-first-operation');
+  await expect(registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath: legacyFirstPath,
+    operationId: 'resource-after-legacy'
+  }, options)).rejects.toThrow(/legacy registration reaches consumer-zero/u);
+}, 20_000);
+
+test('resource retirement keeps the registration anchor through pointer-delete crashes', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const relativePath = '.tmp/dependency-installs/c.staging-resource-anchor-recovery';
+  const root = path.join(repositoryRoot, ...relativePath.split('/'));
+  await mkdir(root, { recursive: true });
+  const born = await registerGeneratedStateResourceBirthV1({
+    repositoryRoot,
+    relativePath,
+    operationId: 'resource-anchor-recovery-operation'
+  }, options);
+  const terminal = await markGeneratedStateOperationalTerminalV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: born.resourceId,
+    leaseId: born.lease.leaseId,
+    outcome: 'owner-settled'
+  }, options);
+  let intentFaulted = false;
+  await expect(settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: terminal.resourceId
+  }, {
+    ...options,
+    afterResourceAnchorRetirementEffect: (phase) => {
+      if (phase === 'intent' && !intentFaulted) {
+        intentFaulted = true;
+        throw new Error('fixture crash after intent retirement');
+      }
+    }
+  })).rejects.toThrow('fixture crash after intent retirement');
+  expect((await observeGeneratedStateResourceV1({ repositoryRoot, relativePath }, options)).registration)
+    .not.toBeNull();
+
+  let receiptFaulted = false;
+  await expect(settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: terminal.resourceId
+  }, {
+    ...options,
+    afterResourceAnchorRetirementEffect: (phase) => {
+      if (phase === 'receipt' && !receiptFaulted) {
+        receiptFaulted = true;
+        throw new Error('fixture crash after receipt retirement');
+      }
+    }
+  })).rejects.toThrow('fixture crash after receipt retirement');
+  expect((await observeGeneratedStateResourceV1({ repositoryRoot, relativePath }, options)).registration)
+    .not.toBeNull();
+
+  const recovered = await settleGeneratedStateResourceV1({
+    repositoryRoot,
+    relativePath,
+    resourceId: terminal.resourceId
+  }, options);
+  expect(recovered).toMatchObject({ physicalClean: true, gcPending: false });
+  expect((await observeGeneratedStateResourceV1({ repositoryRoot, relativePath }, options)).registration)
+    .toBeNull();
+  expect(await absent(root)).toBe(true);
+}, 30_000);

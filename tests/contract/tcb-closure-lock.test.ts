@@ -230,7 +230,7 @@ test('TCB closure lock binds the reviewed causal module set', () => {
   expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
   expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain('platform/dev-runner/env-manager.ts -> node:net');
   expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain(
-    'platform/shared/sec-linux-verification-environment.ts -> zod'
+    'platform/runtime/environments/sec-linux-verification-v1/authority.ts -> zod'
   );
   expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
     .toContain('platform/dev-runner/env-manager.ts -> node:net');
@@ -682,7 +682,9 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
     'hostile-mutation'
   );
   expect(captureSource.match(/spawnSync\(/gu)).toHaveLength(2);
-  expect(captureSource).toContain("['rev-parse', '--git-path', 'index', '--git-path', 'objects']");
+  expect(captureSource).toMatch(
+    /\[\s*'rev-parse',\s*'--git-path',\s*'index',\s*'--git-path',\s*'objects',\s*'--show-object-format'\s*\]/u
+  );
   expect(captureSource).toContain("spawnSync('git', ['write-tree'], {");
   expect(captureSource).toContain('cwd: resolvedRepositoryRoot');
   expect(captureSource).toContain('env: baseEnvironment');
@@ -705,7 +707,8 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
     'parseCapturedGitTreeBlobFrameV1',
     'hostile-mutation'
   );
-  expect(parserSource).toContain('/^([0-9a-f]{40}) blob ([1-9][0-9]*|0)$/u.exec(header)');
+  expect(parserSource).toContain('/^([0-9a-f]+) blob ([1-9][0-9]*|0)$/u.exec(header)');
+  expect(parserSource).toContain('isDocsDoctorGitObjectIdV3(match[1]!, objectFormat)');
   expect(parserSource).toContain('bodyEnd + 1 !== frame.length');
   expect(parserSource).toContain('frame[bodyEnd] !== 0x0a');
   expect(parserSource).toContain('return frame.subarray(bodyStart, bodyEnd);');
@@ -730,7 +733,9 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   expect(readerSource).toContain("Buffer.from(`${objectExpression}\\n`, 'utf8')");
   expect(readerSource).toContain('windowsHide: true');
   expect(readerSource).toContain('maxBuffer: 8 * 1024 * 1024');
-  expect(readerSource).toContain('return parseCapturedGitTreeBlobFrameV1(result.stdout, repositoryPath);');
+  expect(readerSource).toContain(
+    'return parseCapturedGitTreeBlobFrameV1(result.stdout, repositoryPath, objectFormat);'
+  );
   expect(readerSource).toContain('env: gitEnvironment');
   expect(readerSource).not.toContain('shell:');
   expect(readerSource).not.toContain("['show'");

@@ -6,6 +6,7 @@ import { canonicalJson, sha256 } from '../../platform/shared/canonical-primitive
 import {
   createNoFollowDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
+  deleteRetainedNoFollowInventoryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
   publishExclusiveDurableCanonicalFileV1,
@@ -894,65 +895,45 @@ function removeAuthorizedResidue(
   inventory: WorktreePhysicalInventoryV1,
   attempts: WorktreePhysicalCloseoutAttemptV1[]
 ): void {
-  const ordered = [...inventory.entries].sort((left, right) => {
-    const depth = (value: string) => value.split('/').length;
-    return depth(right.relativePath) - depth(left.relativePath) || right.relativePath.localeCompare(left.relativePath);
-  });
-  const inventoriedDirectories = new Map(
-    inventory.entries.filter((entry) => entry.kind === 'directory')
-      .map((entry) => [entry.relativePath, entry] as const)
-  );
-  // The caller has already compared one complete no-follow inventory to the
-  // authorization.  Do not rescan the whole tree for every leaf: that turns
-  // a bounded retained cleanup into O(n²).  Each delete still reopens its
-  // retained root/parent/leaf and fences the exact device/inode; newly added
-  // or changed siblings are never selected and are caught by final readback.
-  for (const entry of ordered) {
-    let removed = false;
-    let lastError = 'unknown';
-    for (let index = 0; index < MAX_CLEANUP_ATTEMPTS; index += 1) {
-      boundedWait(BACKOFF_MILLISECONDS[index]!);
-      try {
-        const target = physicalDirectory(targetPath, 'Residue cleanup root');
-        const components = entry.relativePath.split('/');
-        components.pop();
-        const ancestorDirectories = components.map((_, index) => {
-          const relativePath = components.slice(0, index + 1).join('/');
-          const ancestor = inventoriedDirectories.get(relativePath);
-          if (ancestor === undefined) throw new Error(`Authorized cleanup ancestor is absent from inventory: ${relativePath}`);
-          return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
-        });
-        deleteRetainedNoFollowEntryV1({
-          root: target,
-          relativePath: entry.relativePath,
-          kind: entry.kind === 'symlink' ? 'link' : entry.kind,
-          device: entry.device,
-          inode: entry.inode,
-          ancestorDirectories
-        });
+  const batchInventory = inventory.entries.map((entry) => Object.freeze({
+    relativePath: entry.relativePath,
+    kind: entry.kind === 'symlink' ? 'link' : entry.kind,
+    device: entry.device,
+    inode: entry.inode,
+    size: entry.size,
+    linkTarget: entry.linkTarget
+  }));
+  let removed = false;
+  let lastError = 'unknown';
+  for (let index = 0; index < MAX_CLEANUP_ATTEMPTS; index += 1) {
+    boundedWait(BACKOFF_MILLISECONDS[index]!);
+    try {
+      const target = physicalDirectory(targetPath, 'Residue cleanup root');
+      deleteRetainedNoFollowInventoryV1({ root: target, inventory: batchInventory });
+      for (const entry of inventory.entries) {
         attempts.push({
           operation: 'physical-cleanup',
           status: 'success',
           relativePath: entry.relativePath,
-          detailDigest: detailDigestV1({ attempt: index + 1, kind: entry.kind })
+          detailDigest: detailDigestV1({ attempt: index + 1, kind: entry.kind, batch: true })
         });
-        removed = true;
-        break;
-      } catch (error) {
-        const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'unknown';
-        lastError = code;
-        if (!['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY', 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'].includes(code)) break;
       }
+      removed = true;
+      break;
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'unknown';
+      lastError = code;
+      if (!['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY', 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'].includes(code)) break;
     }
-    if (!removed) {
-      attempts.push({
-        operation: 'physical-cleanup',
-        status: 'failed',
-        relativePath: entry.relativePath,
-        detailDigest: detailDigestV1({ code: lastError, attempts: MAX_CLEANUP_ATTEMPTS })
-      });
-      return;
-    }
+  }
+  if (!removed) {
+    attempts.push({
+      operation: 'physical-cleanup',
+      status: 'failed',
+      relativePath: null,
+      detailDigest: detailDigestV1({ code: lastError, attempts: MAX_CLEANUP_ATTEMPTS, batch: true })
+    });
+    return;
   }
   for (let index = 0; index < MAX_CLEANUP_ATTEMPTS && physicalPresence(targetPath, 'Residue cleanup root') !== null; index += 1) {
     boundedWait(BACKOFF_MILLISECONDS[index]!);

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { sha256 } from './canonical-primitives.ts';
-import source from './environment-specs/sec-linux-verification-v1.json' with { type: 'json' };
+import { sha256 } from '../../../shared/canonical-primitives.ts';
+import source from './spec.json' with { type: 'json' };
 
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/u)
   .transform((value) => value as `sha256:${string}`);
@@ -50,6 +50,18 @@ const authoritySchema = z.object({
     }).strict(),
     progressMode: z.literal('rawjson'),
     progressAdmission: z.literal('buildkit-monotonic-v1'),
+    buildx: z.object({
+      builderName: boundedText.regex(/^[a-z0-9][a-z0-9-]{0,62}$/u),
+      nodeName: boundedText.regex(/^[a-z0-9][a-z0-9-]{0,62}$/u),
+      driver: z.literal('docker-container'),
+      buildkitImage: boundedText,
+      buildkitImageId: digest,
+      cacheNamespace: boundedText.regex(/^[a-z0-9][a-z0-9-]{0,62}$/u),
+      allowNetworkHost: z.literal(true),
+      gcPolicy: z.literal('provider-native-content-addressed-v1'),
+      keepStorageMegabytes: z.literal(21_475),
+      gcSweepTimeoutMs: z.literal(120_000)
+    }).strict(),
     timeoutsMs: z.object({
       commandDefault: positiveInteger,
       commandMaximum: positiveInteger,
@@ -124,7 +136,8 @@ export function computeSecLinuxVerificationRunnerInputDigestV1(
     provider: Object.freeze({
       sourcePolicyRevision: value.provider.sourcePolicyRevision,
       sourceDateEpoch: value.provider.sourceDateEpoch,
-      dockerfileFrontend: value.provider.dockerfileFrontend
+      dockerfileFrontend: value.provider.dockerfileFrontend,
+      buildx: value.provider.buildx
     }),
     provenance: value.provenance,
     ubuntu: value.ubuntu,
@@ -175,6 +188,9 @@ export function parseSecLinuxVerificationEnvironmentAuthorityV1(
   if (!value.provider.dockerfileFrontend.reference.endsWith(
     `@${value.provider.dockerfileFrontend.digest}`
   )) fail('Dockerfile frontend reference must bind its declared digest');
+  if (!value.provider.buildx.buildkitImage.endsWith(
+    `@${value.provider.buildx.buildkitImageId}`
+  )) fail('Buildx BuildKit image reference must bind its declared digest');
   if (!value.trustedRuntime.bunArchiveUrl.includes(`bun-v${value.trustedRuntime.bunVersion}/`)) {
     fail('trusted runtime Bun archive URL must bind its declared version');
   }

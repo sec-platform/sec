@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
+import { isolatedGitReadEnvironment } from '../../platform/git/read-environment.ts';
 import {
   inspectNoFollowDirectoryChainV1,
   inspectNoFollowOrdinaryFileEntryV1,

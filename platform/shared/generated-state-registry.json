@@ -42,6 +42,26 @@
       "retirement": "domain-receipt-required"
     },
     {
+      "id": "import-authoring-freeze",
+      "selector": { "kind": "exact", "path": ".sec/import-authoring-freeze" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "import-organizer",
+      "producer": "import-authoring-freeze",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "opaque-protected-tree",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "workspace",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "producer-recompute",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
       "id": "codex-control-plane-state",
       "selector": { "kind": "exact", "path": ".tmp/codex" },
       "stateClass": "identity-bound-control-state",
@@ -254,26 +274,6 @@
       "registration": "required-at-birth",
       "reconstruction": "producer-recompute",
       "cleanupProfiles": ["automatic", "safe"],
-      "retirement": "domain-receipt-required"
-    },
-    {
-      "id": "test-impact-cache",
-      "selector": { "kind": "exact", "path": ".tmp/test-impact-cache.json" },
-      "stateClass": "rebuildable-derived-cache",
-      "owner": "semantic-test-impact",
-      "producer": "test-impact-selector",
-      "physicalForms": [{
-        "kind": "file",
-        "contentsPolicy": "ordinary-file",
-        "settlementEffect": "domain-owner-only",
-        "worktreeRetirement": { "mode": "preserve" }
-      }],
-      "scope": "workspace",
-      "activeOwnerSignal": "domain-owner-receipt",
-      "capacityPolicyRef": "issue-316",
-      "registration": "domain-owned",
-      "reconstruction": "producer-recompute",
-      "cleanupProfiles": [],
       "retirement": "domain-receipt-required"
     }
   ]

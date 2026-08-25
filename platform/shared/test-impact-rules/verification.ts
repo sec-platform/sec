@@ -115,6 +115,25 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/verification-action-github-provider.test.ts'
 ];
 
+// Deletion-impact only. The retired helper's behavior now has one owner in
+// platform/git/objects.ts. Matching requires the exact base commit,
+// blob and removal observation, so the historical path never becomes a
+// standing second owner or a broad path fallback.
+export const RETIRED_SEC_DEV_GIT_READ_TRANSITIONS = [
+  {
+    path: 'tooling/sec-dev/git/git-read.ts',
+    baseSha: '36b174ebc783bb2b2e0c079d58fb825f0966b60b',
+    baseMode: '100644',
+    baseBlobSha: '371a324872e7dc48977077af055d1badb8f4384d'
+  }
+] as const;
+
+const GIT_OBSERVER_CONSOLIDATION_FAST_TESTS = [
+  ...VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+  'tests/integration/sec-dev-git-observation.test.ts',
+  'tests/unit/sec-dev-git-read-batching.test.ts'
+];
+
 const CI_PR_RISK_FAST_TESTS = [...VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS, 'tests/unit/heavy-verification-gate-lease.test.ts'];
 
 const DEV_RUNNER_ENTRYPOINT_FAST_TESTS = [
@@ -141,6 +160,9 @@ const VERIFICATION_ACTION_RUNTIME_FAST_TESTS = [
   'tests/unit/verification-action-runner.test.ts',
   'tests/unit/verification-session-runtime.test.ts'
 ];
+
+const DEVELOPMENT_CRITICAL_PATH_EXACT_TREE_CANARY =
+  'tests/integration/development-critical-path-exact-tree.canary.test.ts';
 
 const TRUSTED_RUNTIME_CLOSEOUT_FAST_TESTS = [
   'tests/contract/sec-merge-gate.test.ts',
@@ -400,12 +422,17 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/shared/ci-evidence-contract.ts',
       'platform/shared/ci-hosted-sut-observation-contract.ts',
       'platform/shared/ci-verification-revision.ts',
+      'platform/git/attributes.ts',
+      'platform/git/authoring.ts',
+      'platform/git/objects.ts',
+      'platform/git/read-environment.ts',
+      'platform/git/transport.ts',
       'scripts/codex/ci-orchestration-core.ts',
       'scripts/ci-verification.ts',
-      'scripts/codex/exact-git-blob.ts',
       'scripts/codex/verification-action-github-provider.ts'
     ],
-    supplementalFast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+    removedSourceTransitions: RETIRED_SEC_DEV_GIT_READ_TRANSITIONS,
+    supplementalFast: GIT_OBSERVER_CONSOLIDATION_FAST_TESTS,
     supplementalSlow: []
   },
   {
@@ -431,7 +458,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'tooling/sec-dev/verification-action-runner.ts'
     ],
     supplementalFast: VERIFICATION_ACTION_RUNTIME_FAST_TESTS,
-    supplementalSlow: []
+    supplementalSlow: [DEVELOPMENT_CRITICAL_PATH_EXACT_TREE_CANARY]
   },
   {
     owner: 'verification-truth',

@@ -53,6 +53,18 @@
     },
     "progressMode": "rawjson",
     "progressAdmission": "buildkit-monotonic-v1",
+    "buildx": {
+      "builderName": "sec-linux-verification-buildx-v1",
+      "nodeName": "sec-linux-verification-buildx-node-v1",
+      "driver": "docker-container",
+      "buildkitImage": "moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8",
+      "buildkitImageId": "sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8",
+      "cacheNamespace": "sec-linux-verification-buildx-cache-v1",
+      "allowNetworkHost": true,
+      "gcPolicy": "provider-native-content-addressed-v1",
+      "keepStorageMegabytes": 21475,
+      "gcSweepTimeoutMs": 120000
+    },
     "timeoutsMs": {
       "commandDefault": 120000,
       "commandMaximum": 7200000,

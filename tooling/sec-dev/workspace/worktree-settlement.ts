@@ -1,5 +1,17 @@
 import path from 'node:path';
 
+import { withIsolatedTextAttributeReader } from '../../../platform/git/attributes.ts';
+import {
+  chunkBlobEntries,
+  chunkByCount,
+  readBlobEntryBatch,
+  readCommitBlobInventory,
+  readGitConfig,
+  readGitVersion,
+  readGitWorkingTreeStatus,
+  resolveExactHeadCommit,
+  type GitTreeBlobEntry
+} from '../../../platform/git/objects.ts';
 import {
   inspectNoFollowDirectoryChainV1,
   readNoFollowOrdinaryFileV1,
@@ -12,19 +24,6 @@ import {
   type WorktreeMaterializationEntry,
   type WorktreeSettlementReceipt
 } from '../../../platform/shared/worktree-settlement-contract.ts';
-import {
-  chunkBlobEntries,
-  chunkByCount,
-  gitReadBytes,
-  gitReadText,
-  parseNulUtf8,
-  readBlobEntryBatch,
-  readCommitBlobInventory,
-  readOptionalGitConfig,
-  resolveExactHeadCommit,
-  withIsolatedTextAttributeReader,
-  type GitTreeBlobEntry
-} from '../git/git-read.ts';
 
 const DEFAULT_REPOSITORY_ROOT = process.cwd();
 const SETTLEMENT_ATTRIBUTE_BATCH_MAX_ITEMS = 2048;
@@ -44,14 +43,8 @@ type GovernedSelection = Readonly<{
 }>;
 
 function getPorcelainStatus(repositoryRoot: string): PorcelainStatus {
-  const fields = parseNulUtf8(
-    gitReadBytes(
-      repositoryRoot,
-      ['status', '--porcelain=v1', '--untracked-files=all', '-z'],
-      { maxBuffer: 32 * 1024 * 1024, label: 'git status' }
-    ),
-    'git status'
-  );
+  const observation = readGitWorkingTreeStatus(repositoryRoot);
+  const fields = observation;
   let dirty = 0;
   let untracked = 0;
   for (let index = 0; index < fields.length;) {
@@ -232,9 +225,9 @@ export async function runSettlement(
   options: { fix?: boolean } = {}
 ): Promise<WorktreeSettlementReceipt> {
   const root = path.resolve(repositoryRoot);
-  const gitVersion = gitReadText(root, ['--version'], { maxBuffer: 1024, label: 'git --version' }).trim();
-  const coreAutocrlf = readOptionalGitConfig(root, 'core.autocrlf');
-  const coreEol = readOptionalGitConfig(root, 'core.eol');
+  const gitVersion = readGitVersion(root);
+  const coreAutocrlf = readGitConfig(root, 'core.autocrlf') ?? '<unset>';
+  const coreEol = readGitConfig(root, 'core.eol') ?? '<unset>';
   let initialStatus: PorcelainStatus;
   try {
     initialStatus = getPorcelainStatus(root);

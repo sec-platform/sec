@@ -19,11 +19,33 @@ import {
   createVerificationActionPlanV2,
   encodeVerificationActionDataV2,
   parseVerificationActionPlanV2,
+  VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1,
+  VERIFICATION_ACTION_EXPENSIVE_EXECUTION_BUDGET_V1,
+  type VerificationActionEffectProviderV1,
   type VerificationActionExecutionClassV2,
   type VerificationActionInputRefV2,
   type VerificationActionKeyDigest,
   type VerificationActionPlanV2
 } from './verification-action-contract.ts';
+
+export type CiVerificationActionEffectProviderV1 = VerificationActionEffectProviderV1;
+
+export function assertCiVerificationActionEffectProviderV1(
+  value: unknown,
+  expectedProviderRevision: string
+): asserts value is CiVerificationActionEffectProviderV1 {
+  if (value === null || typeof value !== 'object' ||
+      typeof (value as { issue?: unknown }).issue !== 'function' ||
+      typeof (value as { execute?: unknown }).execute !== 'function' ||
+      typeof (value as { observe?: unknown }).observe !== 'function' ||
+      typeof (value as { release?: unknown }).release !== 'function' ||
+      typeof (value as { providerRevision?: unknown }).providerRevision !== 'string') {
+    throw new Error('CI VerificationAction Effect provider interface is not wired.');
+  }
+  if ((value as { providerRevision: string }).providerRevision !== expectedProviderRevision) {
+    throw new Error('CI VerificationAction Effect provider revision does not match the producer Action environment.');
+  }
+}
 
 export const CI_VERIFICATION_ACTION_PRODUCER_REVISION_V2 =
   'sec-ci-verification-action-producer-v2' as const;
@@ -926,11 +948,15 @@ export function buildCiVerificationActionPlanV1(options: {
     environment: {
       toolchainRevision: options.candidate.toolchainRevision,
       providerRevision: normalizedOperation.candidate.executionEnvironmentRevision,
-      contractRevision: options.candidate.contractRevision
+      contractRevision: options.candidate.contractRevision,
+      executionBudget: normalizedOperation.phase === 'quick'
+        ? VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1
+        : VERIFICATION_ACTION_EXPENSIVE_EXECUTION_BUDGET_V1
     },
     requiredCheapPreflightActionKeys: options.requiredCheapPreflightActionKeys ?? [],
     upstreamActionKeys: options.upstreamActionKeys ?? [],
-    resultSchemaRevision: 'sec-verification-gate-result-v1'
+    resultSchemaRevision: 'sec-verification-gate-result-v1',
+    staticProofRequirement: 'bounded-action-admission'
   });
   return createVerificationActionPlanV2({
     action,

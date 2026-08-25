@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -23,6 +23,30 @@ export interface ByteCommandResult {
   stderr: string;
 }
 
+/**
+ * The only synchronous process boundary used by semantic observers.
+ *
+ * Synchronous callers are deliberately kept at this transport edge.  They
+ * receive bytes, status, and a start error only; command meaning, argument
+ * construction, and fail-closed interpretation belong to the semantic owner
+ * above this module.
+ */
+export interface SyncCommandResult {
+  readonly code: number;
+  readonly status: number | null;
+  readonly stdout: Uint8Array;
+  readonly stderr: Uint8Array;
+  readonly error?: Error;
+}
+
+export interface RunCommandSyncOptions {
+  readonly cwd: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly envMode?: 'inherit' | 'replace';
+  readonly input?: Uint8Array;
+  readonly maxBuffer?: number;
+}
+
 export interface RunCommandOptions {
   admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
   beforeSpawn?: CommitFence;
@@ -31,9 +55,31 @@ export interface RunCommandOptions {
   envMode?: 'inherit' | 'replace';
   maxStderrBytes?: number;
   maxStdoutBytes?: number;
+  onOutput?: (chunk: Buffer, stream: 'stdout' | 'stderr') => void;
+  retainOutput?: boolean;
+  /** Total bounded wait for descendant/process-group termination and close readback. */
+  processTreeSettlementTimeoutMs?: number;
   stallTimeoutMs?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+export type CommandTerminationReasonV1 =
+  | 'aborted'
+  | 'absolute-timeout'
+  | 'stall-timeout'
+  | 'output-limit'
+  | 'observer-failure';
+
+/** Machine-readable process-tree settlement failure; presentation text is not control flow. */
+export class CommandTerminationErrorV1 extends Error {
+  readonly reason: CommandTerminationReasonV1;
+
+  constructor(reason: CommandTerminationReasonV1, message: string) {
+    super(message);
+    this.name = 'CommandTerminationErrorV1';
+    this.reason = reason;
+  }
 }
 
 const ISOLATED_READ_ONLY_ENV_KEYS = [
@@ -49,6 +95,56 @@ const ISOLATED_ADDITIONAL_ENV_KEYS = new Set([
   'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD',
   'TEST_PORT'
 ]);
+
+function boundedMaxBuffer(value: number | undefined): number {
+  const maxBuffer = value ?? 128 * 1024 * 1024;
+  if (!Number.isSafeInteger(maxBuffer) || maxBuffer < 0) {
+    throw new Error('maxBuffer must be a non-negative safe integer');
+  }
+  return maxBuffer;
+}
+
+function commandEnvironment(
+  options: Readonly<{ env?: NodeJS.ProcessEnv; envMode?: 'inherit' | 'replace' }>
+): NodeJS.ProcessEnv {
+  const inheritedEnv = options.envMode === 'replace' ? {} : process.env;
+  return Object.fromEntries(
+    Object.entries({ ...inheritedEnv, ...options.env })
+      .filter(([, value]) => value !== undefined)
+  ) as NodeJS.ProcessEnv;
+}
+
+export function runCommandSync(
+  command: string,
+  args: readonly string[],
+  options: RunCommandSyncOptions
+): SyncCommandResult {
+  if (command.length === 0 || command.includes('\0')) {
+    throw new Error('Synchronous command executable must be non-empty and NUL-free');
+  }
+  if (args.some((argument) => argument.includes('\0'))) {
+    throw new Error('Synchronous command arguments must be NUL-free');
+  }
+  const result = spawnSync(command, [...args], {
+    cwd: options.cwd,
+    encoding: 'buffer',
+    env: commandEnvironment(options),
+    input: options.input === undefined ? undefined : Buffer.from(options.input),
+    maxBuffer: boundedMaxBuffer(options.maxBuffer),
+    windowsHide: true
+  });
+  return Object.freeze({
+    code: result.status ?? 1,
+    status: result.status,
+    stdout: Buffer.isBuffer(result.stdout)
+      ? new Uint8Array(result.stdout)
+      : new TextEncoder().encode(String(result.stdout ?? '')),
+    stderr: Buffer.isBuffer(result.stderr)
+      ? new Uint8Array(result.stderr)
+      : new TextEncoder().encode(String(result.stderr ?? '')),
+    ...(result.error === undefined ? {} : { error: result.error })
+  });
+}
 
 export interface IsolatedProcessDirectories {
   readonly appData: string;
@@ -116,9 +212,40 @@ export function buildIsolatedProcessEnvironment(
   return env;
 }
 
-async function terminateCommandProcessTree(child: ChildProcess): Promise<void> {
-  if (process.platform !== 'win32' || !child.pid) {
+function waitForCommandProcessClose(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (closed: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.removeListener('close', onClose);
+      resolve(closed);
+    };
+    const onClose = (): void => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.once('close', onClose);
+  });
+}
+
+async function terminateCommandProcessTree(child: ChildProcess, settlementTimeoutMs: number): Promise<void> {
+  const firstStageTimeoutMs = Math.max(1, Math.floor(settlementTimeoutMs / 2));
+  const finalStageTimeoutMs = Math.max(1, settlementTimeoutMs - firstStageTimeoutMs);
+  if (!child.pid) {
     child.kill('SIGTERM');
+    if (!await waitForCommandProcessClose(child, settlementTimeoutMs)) {
+      throw new Error('Command process did not settle after direct termination.');
+    }
+    return;
+  }
+  if (process.platform !== 'win32') {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch {}
+    if (await waitForCommandProcessClose(child, firstStageTimeoutMs)) return;
+    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+    if (!await waitForCommandProcessClose(child, finalStageTimeoutMs)) {
+      throw new Error('Command process group did not settle after SIGKILL.');
+    }
     return;
   }
   const configuredRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? String.raw`C:\Windows`;
@@ -144,11 +271,13 @@ async function terminateCommandProcessTree(child: ChildProcess): Promise<void> {
     const timeout = setTimeout(() => {
       killer.kill('SIGKILL');
       finish();
-    }, 5_000);
+    }, firstStageTimeoutMs);
     killer.once('error', finish);
     killer.once('close', finish);
   });
-  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  if (!await waitForCommandProcessClose(child, finalStageTimeoutMs)) {
+    throw new Error('Windows command process tree did not settle after taskkill.');
+  }
 }
 
 function runCommandCapture(
@@ -177,6 +306,11 @@ async function runCommandCapture(
       throw new Error(`${label} must be a non-negative safe integer`);
     }
   }
+  const processTreeSettlementTimeoutMs = options.processTreeSettlementTimeoutMs ?? 10_000;
+  if (!Number.isSafeInteger(processTreeSettlementTimeoutMs) || processTreeSettlementTimeoutMs < 1
+      || processTreeSettlementTimeoutMs > 10 * 60_000) {
+    throw new Error('processTreeSettlementTimeoutMs must be a positive bounded safe integer');
+  }
   if (options.stallTimeoutMs !== undefined && (
     !Number.isSafeInteger(options.stallTimeoutMs) || options.stallTimeoutMs < 1
     || !Number.isSafeInteger(options.timeoutMs) || (options.timeoutMs ?? 0) < 1
@@ -187,29 +321,25 @@ async function runCommandCapture(
       'stallTimeoutMs requires a shorter positive semantic-progress deadline and an absolute timeout'
     );
   }
-  const inheritedEnv = options.envMode === 'replace' ? {} : process.env;
-  const env = Object.fromEntries(
-    Object.entries({
-      ...inheritedEnv,
-      ...options.env
-    }).filter(([, value]) => value !== undefined)
-  ) as NodeJS.ProcessEnv;
+  const env = commandEnvironment(options);
 
   options.signal?.throwIfAborted();
   await options.beforeSpawn?.();
   options.signal?.throwIfAborted();
   return new Promise<CommandResult | ByteCommandResult>((resolve, reject) => {
+    const retainOutput = options.retainOutput ?? true;
     const child = spawn(command, args, {
       cwd: options.cwd,
       env,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
     let stdout = '';
     const stdoutChunks: Buffer[] = [];
     let stderr = '';
-    const stdoutDecoder = stdoutMode === 'text' ? new StringDecoder('utf8') : null;
-    const stderrDecoder = new StringDecoder('utf8');
+    const stdoutDecoder = stdoutMode === 'text' && retainOutput ? new StringDecoder('utf8') : null;
+    const stderrDecoder = retainOutput ? new StringDecoder('utf8') : null;
     let stdoutBytes = 0;
     let stderrBytes = 0;
 
@@ -229,16 +359,16 @@ async function runCommandCapture(
       cleanup();
       reject(error);
     };
-    const terminateAndReject = (message: string): void => {
+    const terminateAndReject = (reason: CommandTerminationReasonV1, message: string): void => {
       if (settled || terminating) return;
       terminating = true;
-      void terminateCommandProcessTree(child).then(
-        () => settleReject(new Error(message)),
-        () => settleReject(new Error(message))
+      void terminateCommandProcessTree(child, processTreeSettlementTimeoutMs).then(
+        () => settleReject(new CommandTerminationErrorV1(reason, message)),
+        () => settleReject(new CommandTerminationErrorV1(reason, message))
       );
     };
     const onAbort = (): void => {
-      terminateAndReject(`Command "${command}" was aborted`);
+      terminateAndReject('aborted', `Command "${command}" was aborted`);
     };
 
     options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -246,7 +376,7 @@ async function runCommandCapture(
 
     if (options.timeoutMs && options.timeoutMs > 0) {
       timeoutId = setTimeout(() => {
-        terminateAndReject(`Command "${command}" timed out after ${options.timeoutMs}ms`);
+        terminateAndReject('absolute-timeout', `Command "${command}" timed out after ${options.timeoutMs}ms`);
       }, options.timeoutMs);
     }
 
@@ -255,6 +385,7 @@ async function runCommandCapture(
       if (stallTimeoutId) clearTimeout(stallTimeoutId);
       stallTimeoutId = setTimeout(() => {
         terminateAndReject(
+          'stall-timeout',
           `Command "${command}" made no admitted progress for ${options.stallTimeoutMs}ms`
         );
       }, options.stallTimeoutMs);
@@ -265,9 +396,20 @@ async function runCommandCapture(
         return options.admitProgress(chunk, stream);
       } catch (error) {
         terminateAndReject(
+          'observer-failure',
           `Command "${command}" progress admission failed: ${error instanceof Error ? error.message : String(error)}`
         );
         return false;
+      }
+    };
+    const emitOutput = (chunk: Buffer, stream: 'stdout' | 'stderr'): void => {
+      try {
+        options.onOutput?.(chunk, stream);
+      } catch (error) {
+        terminateAndReject(
+          'observer-failure',
+          `Command "${command}" output observation failed: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     };
     armStallTimeout();
@@ -278,10 +420,13 @@ async function runCommandCapture(
       if (admitProgress(bytes, 'stdout')) armStallTimeout();
       if (terminating) return;
       if (options.maxStdoutBytes !== undefined && stdoutBytes + bytes.byteLength > options.maxStdoutBytes) {
-        terminateAndReject(`Command "${command}" stdout exceeded ${options.maxStdoutBytes} bytes`);
+        terminateAndReject('output-limit', `Command "${command}" stdout exceeded ${options.maxStdoutBytes} bytes`);
         return;
       }
+      emitOutput(bytes, 'stdout');
+      if (terminating) return;
       stdoutBytes += bytes.byteLength;
+      if (!retainOutput) return;
       if (stdoutMode === 'bytes') {
         stdoutChunks.push(bytes);
       } else {
@@ -294,11 +439,13 @@ async function runCommandCapture(
       if (admitProgress(bytes, 'stderr')) armStallTimeout();
       if (terminating) return;
       if (options.maxStderrBytes !== undefined && stderrBytes + bytes.byteLength > options.maxStderrBytes) {
-        terminateAndReject(`Command "${command}" stderr exceeded ${options.maxStderrBytes} bytes`);
+        terminateAndReject('output-limit', `Command "${command}" stderr exceeded ${options.maxStderrBytes} bytes`);
         return;
       }
+      emitOutput(bytes, 'stderr');
+      if (terminating) return;
       stderrBytes += bytes.byteLength;
-      stderr += stderrDecoder.write(bytes);
+      if (retainOutput) stderr += stderrDecoder!.write(bytes);
     });
     child.on('error', (error) => {
       if (!terminating) settleReject(error);
@@ -307,15 +454,15 @@ async function runCommandCapture(
       if (settled || terminating) return;
       settled = true;
       cleanup();
-      stderr += stderrDecoder.end();
+      if (retainOutput) stderr += stderrDecoder!.end();
       if (stdoutMode === 'bytes') {
         resolve({
           code: code ?? 1,
-          stdout: new Uint8Array(Buffer.concat(stdoutChunks)),
+          stdout: retainOutput ? new Uint8Array(Buffer.concat(stdoutChunks)) : new Uint8Array(),
           stderr
         });
       } else {
-        stdout += stdoutDecoder!.end();
+        if (retainOutput) stdout += stdoutDecoder!.end();
         resolve({
           code: code ?? 1,
           stdout,

@@ -126,6 +126,13 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
     { parallelSafe: true, resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
+    'integration-development-critical-path-exact-tree',
+    'tests/integration/development-critical-path-exact-tree.canary.test.ts',
+    'verification-action-runtime',
+    45_000,
+    { parallelSafe: true, resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
     'contract-document-control-plane-lifecycle',
     DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE,
     'document-control-plane-lifecycle',

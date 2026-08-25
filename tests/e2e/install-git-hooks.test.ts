@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path, { delimiter } from 'node:path';
 
@@ -9,7 +9,7 @@ import { installGitHooks, installGitHooksMain } from '../../scripts/install-git-
 
 // Real repository, linked-worktree, and managed-hook lifecycle acceptance belongs to the slow lane.
 
-const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
+const managedHookNames = ['pre-commit'] as const;
 const depsEnsureCommand = 'bun ./platform/dev-runner.ts deps:ensure';
 const importsFreezeCommand = 'bun ./platform/dev-runner.ts imports:freeze';
 
@@ -20,7 +20,7 @@ function runtimeBoundCommand(command: string): string {
 }
 
 function managedHookSource(hook: typeof managedHookNames[number]): string {
-  return hook === 'pre-commit' || hook === 'pre-push'
+  return hook === 'pre-commit'
     ? `#!/usr/bin/env sh\nset -eu\n\n${importsFreezeCommand}\n`
     : '#!/usr/bin/env sh\nexit 0\n';
 }
@@ -46,19 +46,15 @@ function configuredManagedHooksPath(repoRoot: string): string {
 async function expectManagedHooksMirror(repoRoot: string, configured: string): Promise<void> {
   for (const hook of managedHookNames) {
     const source = await readFile(path.join(repoRoot, '.githooks', hook), 'utf8');
-    const injected = hook === 'pre-commit' || hook === 'pre-push'
-      ? source.replace(importsFreezeCommand, `${depsEnsureCommand}\n${importsFreezeCommand}`)
-      : source;
-    const expected = injected
+    const expected = source
       .replaceAll(depsEnsureCommand, runtimeBoundCommand(depsEnsureCommand))
       .replaceAll(importsFreezeCommand, runtimeBoundCommand(importsFreezeCommand));
     const installed = await readFile(path.join(configured, hook), 'utf8');
     expect(installed).toBe(expected);
     expect(installed).not.toMatch(/(?:^|\n)bun \.\/platform\/dev-runner\.ts/u);
-    if (hook === 'pre-commit' || hook === 'pre-push') {
-      expect(source).not.toContain(depsEnsureCommand);
-      expect(installed.indexOf(runtimeBoundCommand(depsEnsureCommand)))
-        .toBeLessThan(installed.indexOf(runtimeBoundCommand(importsFreezeCommand)));
+    if (hook === 'pre-commit') {
+      expect(installed).not.toContain(runtimeBoundCommand(depsEnsureCommand));
+      expect(installed).toContain(runtimeBoundCommand(importsFreezeCommand));
     }
   }
 }
@@ -104,6 +100,19 @@ test('hook installer repairs mutated installed bytes instead of trusting its mar
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     const repaired = configuredManagedHooksPath(repoRoot);
     expect(repaired).not.toBe(configured);
+    await expectManagedHooksMirror(repoRoot, repaired);
+  });
+});
+
+test('hook installer rejects a generation that retains an unowned hook', async () => {
+  await withRepository(async (repoRoot) => {
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    const contaminated = configuredManagedHooksPath(repoRoot);
+    await writeFile(path.join(contaminated, 'post-rewrite'), '#!/usr/bin/env sh\nexit 0\n', 'utf8');
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    const repaired = configuredManagedHooksPath(repoRoot);
+    expect(repaired).not.toBe(contaminated);
+    expect((await readdir(repaired)).sort()).toEqual(['pre-commit']);
     await expectManagedHooksMirror(repoRoot, repaired);
   });
 });
@@ -163,7 +172,7 @@ test('managed hooks execute the installed Bun identity without inheriting its PA
       windowsHide: true
     });
     expect(committed.status).toBe(0);
-    expect(await readFile(`${marker}.deps-ensure`, 'utf8')).toBe(process.execPath);
+    await expect(readFile(`${marker}.deps-ensure`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(`${marker}.imports-freeze`, 'utf8')).toBe(process.execPath);
   });
 });
@@ -303,57 +312,6 @@ test('hook installer repairs shared stale authority with one common generation',
     expect(path.resolve(git(linkedRoot, ['config', '--get', 'core.hooksPath']))).toBe(configured);
     expect(path.resolve(git(repoRoot, ['config', '--get', 'core.hooksPath']))).toBe(configured);
     await expectManagedHooksMirror(linkedRoot, configured);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('repository-common hook generation runs when an older worktree creates the first checkout', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-hooks-first-checkout-'));
-  const repoRoot = path.join(root, 'main');
-  const olderRoot = path.join(root, 'older');
-  const linkedRoot = path.join(root, 'linked');
-  try {
-    await mkdir(repoRoot);
-    git(repoRoot, ['init', '--quiet']);
-    git(repoRoot, ['config', 'user.email', 'tests@example.com']);
-    git(repoRoot, ['config', 'user.name', 'SEC Tests']);
-    await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
-    git(repoRoot, ['add', 'README.md']);
-    git(repoRoot, ['commit', '--quiet', '-m', 'older checkout without managed hooks']);
-    const olderHead = git(repoRoot, ['rev-parse', 'HEAD']);
-
-    await mkdir(path.join(repoRoot, '.githooks'));
-    await writeFile(path.join(repoRoot, '.gitattributes'), '/.githooks/* text eol=lf\n', 'utf8');
-    await Promise.all(managedHookNames.map(async (hook) => {
-      const hookPath = path.join(repoRoot, '.githooks', hook);
-      await writeFile(
-        hookPath,
-        hook === 'post-checkout'
-          ? '#!/usr/bin/env sh\nset -eu\nprintf first-checkout > .dependency-bootstrap-marker\n'
-          : managedHookSource(hook),
-        'utf8'
-      );
-      await chmod(hookPath, 0o755);
-    }));
-    git(repoRoot, ['add', '.gitattributes', 'README.md', '.githooks']);
-    for (const hook of managedHookNames) {
-      git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
-    }
-    git(repoRoot, ['commit', '--quiet', '-m', 'install managed hooks']);
-    const managedHead = git(repoRoot, ['rev-parse', 'HEAD']);
-
-    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
-    const configured = configuredManagedHooksPath(repoRoot);
-    git(repoRoot, ['worktree', 'add', '--quiet', '--detach', olderRoot, olderHead]);
-    await rm(path.join(olderRoot, '.dependency-bootstrap-marker'), { force: true });
-    expect(() => git(olderRoot, ['ls-files', '--error-unmatch', '.githooks/post-checkout'])).toThrow();
-
-    git(olderRoot, ['worktree', 'add', '--quiet', '-b', 'linked-first-checkout', linkedRoot, managedHead]);
-
-    expect(await readFile(path.join(linkedRoot, '.dependency-bootstrap-marker'), 'utf8')).toBe('first-checkout');
-    expect(path.resolve(git(linkedRoot, ['config', '--local', '--get', 'core.hooksPath']))).toBe(configured);
-    expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

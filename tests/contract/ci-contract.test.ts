@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/runtime/environments/sec-linux-verification-v1/authority.ts';
 import {
   assertCiExpectedHead,
   buildCiContract,
@@ -35,7 +36,6 @@ import {
   matchesCiCompilerWorkflowRunIdentityV1,
   matchesCiWorkflowRunIdentityV1
 } from '../../platform/shared/ci-verification-revision.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 import { TCB_TRUST_ROOT_V3 } from '../../platform/shared/tcb-closure-lock.ts';
 import {
   matchSecTrustedBootstrapPathV3,

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
   buildBenchmarkTaskSuiteContract,
+  buildDevelopmentCriticalPathPerformanceContractV1,
   formatBenchmarkTaskSuiteContract
 } from '../../platform/shared/benchmark-contract.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
@@ -21,6 +22,22 @@ import {
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const expectedTestBudgetLocalDefault = 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates';
+
+test('development critical path has host-independent zero-history performance bounds', () => {
+  expect(buildDevelopmentCriticalPathPerformanceContractV1()).toEqual({
+    schema: 'sec-development-critical-path-performance-v1',
+    observationScope: 'current-owner-closure',
+    historyDependentReads: 0,
+    unboundedOwnerListings: 0,
+    globalPrunes: 0,
+    physicalStartsPerActionKey: 1,
+    knownFailureReuse: true,
+    authenticatedInFlightJoin: true,
+    retainedDeletionAncestorReopens: 0,
+    expensiveEvidenceIdentity: 'frozen-tree-environment-action-key',
+    schedulerClassAuthority: 'resource-projection-only'
+  });
+});
 
 test('CLI exposes benchmark task-suite as text and JSON contracts', async () => {
   const contract = buildBenchmarkTaskSuiteContract();

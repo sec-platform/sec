@@ -19,6 +19,8 @@ import { CompilerError } from '../shared/errors.ts';
 import { ensureDir } from '../shared/fs.ts';
 import { compilerRoot, relativePosixPath } from '../shared/paths.ts';
 import {
+  currentImportAuthoringFreezeReceiptMatchesV1,
+  publishImportAuthoringFreezeReceiptV1,
   publishImportTransformTransactionV1,
   type ImportTransformTransactionTestHooksV1
 } from './import-transform-transaction.ts';
@@ -111,6 +113,25 @@ export type ImportApplyOutcomeV1 =
     journalPath: string;
     reasonCode: string;
   }>;
+
+export type ImportAuthoringFreezeOutcomeV1 = Readonly<{
+  schema: 'sec-import-authoring-freeze-outcome-v1';
+  status: 'canonical';
+  authoringBase: string;
+  workingTreePlanDigest: `sha256:${string}`;
+  workingTreeWriteStatus: 'noop' | 'accepted';
+  workingTreeFiles: readonly string[];
+  freezeReceiptDigest: `sha256:${string}`;
+}> | Readonly<{
+  schema: 'sec-import-authoring-freeze-outcome-v1';
+  status: 'blocked';
+  authoringBase: string;
+  workingTreePlanDigest: `sha256:${string}`;
+  workingTreeWriteStatus: 'rolled-back' | 'recovery-required';
+  workingTreeFiles: readonly string[];
+  reasonCode: string;
+  journalPath: string;
+}>;
 
 interface StagedIndexEntry {
   readonly mode: string;
@@ -447,6 +468,17 @@ export function resolveCandidateImportBase(
         'Candidate import base is unavailable; supply --candidate-base or SEC_CHANGED_BASE after trusted default readback'
       );
     })();
+}
+
+export function resolveAuthoringImportBase(
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): string {
+  return tryResolveGitCommit(
+    projectRoot,
+    ['rev-parse', '--verify', 'HEAD^{commit}'],
+    pureGitReadEnvironment(env)
+  ) ?? (() => { throw new Error('Authoring import base HEAD is unavailable'); })();
 }
 
 function stagedTypeScriptTargets(
@@ -1095,6 +1127,75 @@ export async function runCandidateImportCheck(
 ): Promise<ImportCheckOutcomeV1> {
   const candidateBase = resolveCandidateImportBase(projectRoot, undefined, env);
   return runStagedImportCheck(projectRoot, testHooks, { candidateBase });
+}
+
+export async function runAuthoringImportCheckV1(
+  projectRoot = compilerRoot,
+  testHooks: StagedImportOrganizerTestHooks = {},
+  env: ImportSelectionEnvironment = process.env
+): Promise<ImportCheckOutcomeV1> {
+  const authoringBase = resolveAuthoringImportBase(projectRoot, env);
+  if (await currentImportAuthoringFreezeReceiptMatchesV1(projectRoot, `typescript@${ts.version}`)) {
+    return Object.freeze({
+      schema: 'sec-import-check-outcome-v1' as const,
+      status: 'canonical' as const,
+      files: Object.freeze([])
+    });
+  }
+  return runStagedImportCheck(projectRoot, testHooks, { candidateBase: authoringBase });
+}
+
+/**
+ * Canonical mutable-authoring freeze. Working-tree and staged snapshots are
+ * intentionally transformed as two independent transactions so partial
+ * staging is preserved: neither snapshot can silently acquire the other's
+ * semantic edits. The final staged readback is the commit-bound identity seal.
+ * Git hooks must call runAuthoringImportCheckV1 instead; they are zero-write
+ * sentinels and never invoke this authoring operation.
+ */
+export async function runImportAuthoringFreezeV1(
+  projectRoot = compilerRoot,
+  testHooks: StagedImportOrganizerTestHooks = {},
+  env: ImportSelectionEnvironment = process.env
+): Promise<ImportAuthoringFreezeOutcomeV1> {
+  const authoringBase = resolveAuthoringImportBase(projectRoot, env);
+  const workingTree = await runImportApply({ candidateBase: authoringBase }, projectRoot, env);
+  if (workingTree.status === 'rolled-back' || workingTree.status === 'recovery-required') {
+    return Object.freeze({
+      schema: 'sec-import-authoring-freeze-outcome-v1' as const,
+      status: 'blocked' as const,
+      authoringBase,
+      workingTreePlanDigest: workingTree.planDigest,
+      workingTreeWriteStatus: workingTree.status,
+      workingTreeFiles: workingTree.files,
+      reasonCode: workingTree.reasonCode,
+      journalPath: workingTree.journalPath
+    });
+  }
+
+  await runStagedImportOrganizer(projectRoot, testHooks, { candidateBase: authoringBase });
+  const readback = await runStagedImportCheck(projectRoot, testHooks, { candidateBase: authoringBase });
+  if (readback.status !== 'canonical') {
+    throw new CompilerError(
+      'IMPORT-TRANSFORM-003',
+      `Import authoring freeze readback remained non-canonical: ${readback.files.join(', ')}`,
+      { files: readback.files }
+    );
+  }
+  const receipt = await publishImportAuthoringFreezeReceiptV1({
+    projectRoot,
+    authoringBase,
+    providerRevision: `typescript@${ts.version}`
+  });
+  return Object.freeze({
+    schema: 'sec-import-authoring-freeze-outcome-v1' as const,
+    status: 'canonical' as const,
+    authoringBase,
+    workingTreePlanDigest: workingTree.planDigest,
+    workingTreeWriteStatus: workingTree.status,
+    workingTreeFiles: workingTree.files,
+    freezeReceiptDigest: receipt.receiptDigest
+  });
 }
 
 async function compileImportOperationExecutionV1(

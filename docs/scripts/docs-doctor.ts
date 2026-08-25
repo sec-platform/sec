@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 /** Registry-backed documentation policy scanner. */
 import { spawnSync, type SpawnSyncReturns, type StdioOptions } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { isolatedGitReadEnvironment } from '../../platform/git/read-environment.ts';
 import {
   compileDocsDoctorIndexSnapshotLayoutV3,
   DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3,
@@ -18,7 +19,6 @@ import {
   renderDocumentationIndex,
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
-import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
 import { isPathInside } from '../../platform/shared/paths.ts';
 import {
   createExclusiveNoFollowDirectoryV1,
@@ -164,6 +164,322 @@ function isRepositoryLikeInlinePath(reference: string): boolean {
     .test(normalized);
 }
 
+const DEVELOPMENT_CRITICAL_PATH_GRAPH_ANCHOR =
+  '### Development Critical Path Spine 的唯一跨领域图' as const;
+const DEVELOPMENT_CRITICAL_PATH_GRAPH_REQUIRED_NODES = Object.freeze([
+  'authoringEpoch',
+  'authoringStatic',
+  'frozenTree',
+  'validationSet',
+  'staticGeneration',
+  'actionAdmission',
+  'targetStatic',
+  'requiredScope',
+  'staticEnough',
+  'staticTerminal',
+  'liveAuthority',
+  'claim',
+  'lease',
+  'start',
+  'capabilityGrant',
+  'physicalEffect',
+  'effectEvidence',
+  'journalTerminal',
+  'agreement',
+  'release'
+]);
+const DEVELOPMENT_CRITICAL_PATH_GRAPH_REQUIRED_EDGES = Object.freeze([
+  'authoringEpoch --> frozenTree',
+  'authoringEpoch --> authoringStatic',
+  'frozenTree --> demand',
+  'frozenTree --> staticGeneration',
+  'demand --> validationSet',
+  'validationSet --> actionAdmission',
+  'staticGeneration --> actionAdmission',
+  'staticClosure --> requiredScope',
+  'requiredScope -->|exact required scope closed| staticReceipt',
+  'execute --> liveAuthority',
+  'liveAuthority -->|current operation-specific grant| claim',
+  'claim --> lease',
+  'lease --> start',
+  'start --> capabilityGrant',
+  'capabilityGrant --> physicalEffect',
+  'physicalEffect --> effectEvidence',
+  'effectEvidence --> journalTerminal',
+  'journalTerminal --> agreement',
+  'agreement --> release',
+  'release --> receipt'
+]);
+const DEVELOPMENT_CRITICAL_PATH_DECISION_IDS = Object.freeze(
+  Array.from({ length: 28 }, (_value, index) => `D${String(index + 1).padStart(2, '0')}`)
+);
+const DEVELOPMENT_CRITICAL_PATH_RESOURCE_IDS = Object.freeze(
+  Array.from({ length: 24 }, (_value, index) => `R${String(index + 1).padStart(2, '0')}`)
+);
+const DEVELOPMENT_ENGINEERING_PRINCIPLE_IDS = Object.freeze(
+  Array.from({ length: 16 }, (_value, index) => `DG${String(index + 1).padStart(2, '0')}`)
+);
+const DEVELOPMENT_ENGINEERING_PRINCIPLE_GRAPH_BINDINGS = Object.freeze([
+  ['DG01', 'DG01 类级根因', 'Droot'],
+  ['DG02', 'DG02 PreEffectStaticClosure', 'R09'],
+  ['DG03', 'DG03 dynamic-to-static', 'R10'],
+  ['DG04', 'DG04 statically computable architecture', 'R06'],
+  ['DG05', 'DG05 one logical validation cost', 'D03'],
+  ['DG06', 'DG06 mature capability census', 'D09'],
+  ['DG07', 'DG07 host/dependency reuse', 'R13'],
+  ['DG08', 'DG08 resource lifecycle', 'R21'],
+  ['DG09', 'DG09 frozen content, live permission', 'R20'],
+  ['DG10', 'DG10 hard authority entry', 'D06'],
+  ['DG11', 'DG11 one main graph + projections', 'R22'],
+  ['DG12', 'DG12 independent exact-head review', 'R22'],
+  ['DG13', 'DG13 bounded subagent analysis<br/>external live-resource binding: typed unknown', 'R23'],
+  ['DG14', 'DG14 non-misleading projection', 'D20'],
+  ['DG15', 'DG15 place every business before implementation', 'D28'],
+  ['DG16', 'DG16 documentation closure before completion', 'R22']
+] as const);
+const DEVELOPMENT_CRITICAL_PATH_DOMAIN_PROJECTION_MARKERS = Object.freeze([
+  '`D03/D04/D21`的代际发布与消费时序',
+  '`D05/D11/D12/D22/D23`的Provider阶段、预算、信号与settlement',
+  '`D08/D17`的宿主和三root选择',
+  '`D10/D12/D13/D14/D24/D25`的release、crash recovery和GC',
+  '`D09/D19/D25/D26`的实际宿主与外部资源边界',
+  '`DG02/DG03/DG05/DG09/DG10/DG12/DG14`的Verification投影',
+  '`DG03/DG07/DG08/DG09`的Runtime与distribution投影',
+  '`DG06/DG07/DG08/DG10`的external capability投影'
+]);
+const IMPORT_AUTHORING_DOCUMENTATION_MARKERS = Object.freeze([
+  '#### R24 Import authoring 的完整状态、资源与恢复投影',
+  'sec-import-authoring-freeze-receipt-v1',
+  '.sec/import-authoring-freeze/current.json',
+  'unplanned --> planning',
+  'workingTreeCanonical --> indexCanonical',
+  'indexCanonical --> receiptCurrent',
+  'receiptCurrent --> committedTree',
+  'receiptCurrent --> receiptStale',
+  'receiptStale --> hookFallback',
+  'R24-I01..R24-I10'
+]);
+const VERIFICATION_SETTLEMENT_DOCUMENTATION_MARKERS = Object.freeze([
+  'durable settlement 的 current receipt 是单调状态',
+  'Settled --> ReusedWithoutProviderEffect',
+  'Settled --> BindingMismatchBlocked',
+  '`actionKey`、`executionBindingDigest`、`evidenceDigest`和`providerRevision`',
+  '`candidate-implemented-local-focused-verified`',
+  'process-tree物理settlement的全production consumer接线仍是另一条未完成边'
+]);
+const VERIFICATION_TEST_SPLIT_DOCUMENTATION_MARKERS = Object.freeze([
+  'tests/integration/development-critical-path-exact-tree.canary.test.ts',
+  'logical root identity',
+  'zero Git、zero directory birth、zero Runtime State fsync、zero process',
+  'reserved semantic inputs、whole-delta、census reuse',
+  'hostile Git隔离、index零刷新、首次execute、settled reuse零execute、journal readback',
+  '`integration-development-critical-path-exact-tree`唯一suite拥有'
+]);
+const VERIFICATION_DEADLINE_DOCUMENTATION_MARKERS = Object.freeze([
+  'deadline是调度transport，不是settlement authority',
+  'ProviderStarted --> DeadlineFired',
+  'DeadlineFired --> SignalAborted',
+  'SignalAborted --> RunningUnknown',
+  'SignalAborted --> TerminalSettlementPending',
+  '`phase`、`timeoutMs`、`AbortSignal.aborted`和owner生成的`timeoutError`',
+  'deadline port不读取或写入journal'
+]);
+
+/**
+ * Validate the one human-facing graph as a projection of the machine state
+ * order.  This does not make Markdown an authority: it prevents the canonical
+ * document from silently omitting or reordering already-owned transitions.
+ */
+export function validateDevelopmentCriticalPathCanonicalGraphV1(
+  source: string,
+  principleRegistrySemanticDigest: `sha256:${string}`
+): void {
+  const anchorCount = source.split(DEVELOPMENT_CRITICAL_PATH_GRAPH_ANCHOR).length - 1;
+  if (anchorCount !== 1) {
+    throw new Error('Development Critical Path canonical graph anchor must occur exactly once.');
+  }
+  const afterAnchor = source.slice(source.indexOf(DEVELOPMENT_CRITICAL_PATH_GRAPH_ANCHOR));
+  const graphStart = afterAnchor.indexOf('```mermaid');
+  const graphEnd = graphStart < 0 ? -1 : afterAnchor.indexOf('```', graphStart + '```mermaid'.length);
+  if (graphStart < 0 || graphEnd < 0) {
+    throw new Error('Development Critical Path canonical Mermaid graph is missing or unterminated.');
+  }
+  const graph = afterAnchor.slice(graphStart, graphEnd);
+  for (const node of DEVELOPMENT_CRITICAL_PATH_GRAPH_REQUIRED_NODES) {
+    if (!new RegExp(`^\\s*${node}(?:\\[|\\{)`, 'mu').test(graph)) {
+      throw new Error(`Development Critical Path canonical graph is missing node ${node}.`);
+    }
+  }
+  for (const edge of DEVELOPMENT_CRITICAL_PATH_GRAPH_REQUIRED_EDGES) {
+    if (!graph.includes(edge)) {
+      throw new Error(`Development Critical Path canonical graph is missing ordered edge ${edge}.`);
+    }
+  }
+  if (!graph.includes('class targetStatic partial;') || !graph.includes('stroke-dasharray')) {
+    throw new Error('Development Critical Path whole-delta node must remain visibly partial while domain receipts are missing.');
+  }
+  if (/(?:^|\n)\s*(?:staticPlan|hostWriter)(?:\[|\{)/u.test(graph)) {
+    throw new Error('Development Critical Path canonical graph contains a retired ambiguous node.');
+  }
+  for (const decisionId of DEVELOPMENT_CRITICAL_PATH_DECISION_IDS) {
+    if (!new RegExp(`\\b${decisionId}\\b`, 'u').test(source)) {
+      throw new Error(`Development Critical Path causal atlas is missing decision ${decisionId}.`);
+    }
+  }
+  for (const resourceId of DEVELOPMENT_CRITICAL_PATH_RESOURCE_IDS) {
+    const occurrences = source.match(new RegExp(`\\b${resourceId}\\b`, 'gu'))?.length ?? 0;
+    if (occurrences < 2) {
+      throw new Error(
+        `Development Critical Path resource atlas must index and graph ${resourceId}.`
+      );
+    }
+  }
+  for (const marker of IMPORT_AUTHORING_DOCUMENTATION_MARKERS) {
+    if (!source.includes(marker)) {
+      throw new Error(`Development Critical Path import authoring documentation is missing ${marker}.`);
+    }
+  }
+  const principleAnchor = '#### 顶层原则到因果与资源图的不可丢失映射';
+  const principleSection = source.slice(source.indexOf(principleAnchor));
+  const principleGraphStart = principleSection.indexOf('```mermaid');
+  const principleGraphEnd = principleGraphStart < 0
+    ? -1
+    : principleSection.indexOf('```', principleGraphStart + '```mermaid'.length);
+  if (source.indexOf(principleAnchor) < 0 || principleGraphStart < 0 || principleGraphEnd < 0) {
+    throw new Error('Development Critical Path principle projection graph is missing.');
+  }
+  const principleGraph = principleSection.slice(principleGraphStart, principleGraphEnd);
+  if (!source.includes(`principleRegistrySemanticDigest: ${principleRegistrySemanticDigest}`)) {
+    throw new Error('Development Critical Path principle graph does not bind the canonical registry semantic digest.');
+  }
+  if (/^\s*P\d{2}\s*(?:\[|\{)/mu.test(source)) {
+    throw new Error('Development Critical Path local graph nodes must not occupy global Pxx principle identities.');
+  }
+  for (const principleId of DEVELOPMENT_ENGINEERING_PRINCIPLE_IDS) {
+    if (!new RegExp(`^\\s*${principleId}\\["${principleId}\\s`, 'mu').test(principleGraph)) {
+      throw new Error(`Development Critical Path principle projection is missing ${principleId}.`);
+    }
+  }
+  for (const [principleId, title, target] of DEVELOPMENT_ENGINEERING_PRINCIPLE_GRAPH_BINDINGS) {
+    const expected = `${principleId}["${title}"] --> ${target}`;
+    if (!principleGraph.includes(expected)) {
+      throw new Error(`Development Critical Path principle projection has an invalid title or edge for ${principleId}.`);
+    }
+  }
+}
+
+export function validateDevelopmentCriticalPathDomainProjectionGraphsV1(input: Readonly<{
+  verification: string;
+  runtime: string;
+  externalProvider: string;
+}>): void {
+  const sources = `${input.verification}\n${input.runtime}\n${input.externalProvider}`;
+  for (const marker of DEVELOPMENT_CRITICAL_PATH_DOMAIN_PROJECTION_MARKERS) {
+    if (!sources.includes(marker)) {
+      throw new Error(`Development Critical Path domain graph is missing projection marker ${marker}.`);
+    }
+  }
+  for (const marker of VERIFICATION_SETTLEMENT_DOCUMENTATION_MARKERS) {
+    if (!input.verification.includes(marker)) {
+      throw new Error(`Development Critical Path settlement documentation is missing ${marker}.`);
+    }
+  }
+  for (const marker of VERIFICATION_TEST_SPLIT_DOCUMENTATION_MARKERS) {
+    if (!input.verification.includes(marker)) {
+      throw new Error(`Development Critical Path test split documentation is missing ${marker}.`);
+    }
+  }
+  for (const marker of VERIFICATION_DEADLINE_DOCUMENTATION_MARKERS) {
+    if (!input.verification.includes(marker)) {
+      throw new Error(`Development Critical Path deadline documentation is missing ${marker}.`);
+    }
+  }
+  for (const [source, minimum] of [
+    [input.verification, 3],
+    [input.runtime, 3],
+    [input.externalProvider, 2]
+  ] as const) {
+    const mermaidCount = source.split('```mermaid').length - 1;
+    if (mermaidCount < minimum) {
+      throw new Error('Development Critical Path domain projection must retain its detailed Mermaid graphs.');
+    }
+  }
+}
+
+export type DevelopmentEngineeringPrincipleRegistryV1 = Readonly<{
+  schema: 'sec-development-engineering-principle-registry-v1';
+  owner: 'development-governance';
+  principles: readonly Readonly<{ id: string; title: string; statement: string }>[];
+  semanticDigest: `sha256:${string}`;
+}>;
+
+export function parseDevelopmentEngineeringPrincipleRegistryV1(
+  source: string
+): DevelopmentEngineeringPrincipleRegistryV1 {
+  const anchor = '## 工程顶层原则的合取闭包';
+  if (source.split(anchor).length - 1 !== 1) {
+    throw new Error('Development engineering principle conjunction must have exactly one canonical anchor.');
+  }
+  const nextHeading = source.indexOf('\n## ', source.indexOf(anchor) + anchor.length);
+  const section = source.slice(source.indexOf(anchor), nextHeading < 0 ? source.length : nextHeading);
+  const candidatePrincipleIds = [...section.matchAll(/^\s*\|\s*((?:DG|P)\d{2})\s*\|/gmu)]
+    .map((match) => match[1]!);
+  const globalIdentity = candidatePrincipleIds.find((id) => /^P\d{2}$/u.test(id));
+  if (globalIdentity !== undefined) {
+    throw new Error(`Development engineering principle conjunction must not redefine global ${globalIdentity} identity.`);
+  }
+  const unknownIdentity = candidatePrincipleIds.find((id) =>
+    id.startsWith('DG') && !DEVELOPMENT_ENGINEERING_PRINCIPLE_IDS.includes(id)
+  );
+  if (unknownIdentity !== undefined) {
+    throw new Error(`Development engineering principle conjunction contains unknown identity ${unknownIdentity}.`);
+  }
+  for (const principleId of DEVELOPMENT_ENGINEERING_PRINCIPLE_IDS) {
+    if (candidatePrincipleIds.filter((id) => id === principleId).length !== 1) {
+      throw new Error(`Development engineering principle conjunction must define ${principleId} exactly once.`);
+    }
+  }
+  const principleRows = [...section.matchAll(/^\| (DG\d{2}) \| ([^|\r\n]+) \| ([^\r\n]+) \|$/gmu)]
+    .map((match) => Object.freeze({
+      id: match[1]!,
+      title: match[2]!.trim(),
+      statement: match[3]!.trim()
+    }));
+  if (principleRows.length !== DEVELOPMENT_ENGINEERING_PRINCIPLE_IDS.length) {
+    throw new Error('Development engineering principle conjunction must define exactly sixteen structured rows.');
+  }
+  for (const [index, principleId] of DEVELOPMENT_ENGINEERING_PRINCIPLE_IDS.entries()) {
+    if (principleRows[index]?.id !== principleId) {
+      throw new Error(`Development engineering principle conjunction must define ${principleId} exactly once and in canonical order.`);
+    }
+  }
+  for (const requiredBoundary of [
+    '新增原则只能加入合取',
+    '不能覆盖、折叠、降级',
+    '原生Bun/Git/Docker命令可以保留为非authority诊断能力',
+    'A0保留统一决策、集成与验证',
+    'candidate不等于selected',
+    'documentation-closure-missing'
+  ]) {
+    if (!section.includes(requiredBoundary)) {
+      throw new Error(`Development engineering principle conjunction is missing boundary: ${requiredBoundary}.`);
+    }
+  }
+  const material = Object.freeze({
+    schema: 'sec-development-engineering-principle-registry-v1' as const,
+    owner: 'development-governance' as const,
+    principles: Object.freeze(principleRows)
+  });
+  return Object.freeze({
+    ...material,
+    semanticDigest: `sha256:${createHash('sha256').update(JSON.stringify(material)).digest('hex')}`
+  });
+}
+
+export function validateDevelopmentEngineeringPrincipleConjunctionV1(source: string): void {
+  parseDevelopmentEngineeringPrincipleRegistryV1(source);
+}
+
 async function loadRegistry(
   repositoryRoot: string,
   issues: DocsDoctorIssue[]
@@ -238,6 +554,65 @@ export async function scanDocumentation(
   };
 
   const registeredPaths = new Set(activeDocumentationPaths(registry));
+  if (registeredPaths.has('docs/system-architecture.md')) {
+    try {
+      const principleRegistry = parseDevelopmentEngineeringPrincipleRegistryV1(
+        await fs.readFile(path.join(repositoryRoot, 'docs/development-governance.md'), 'utf8')
+      );
+      validateDevelopmentCriticalPathCanonicalGraphV1(
+        await fs.readFile(path.join(repositoryRoot, 'docs/system-architecture.md'), 'utf8'),
+        principleRegistry.semanticDigest
+      );
+    } catch (error) {
+      pushIssue(issues, {
+        level: 'error',
+        code: 'development-critical-path-graph-invalid',
+        file: 'docs/system-architecture.md',
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  if (registeredPaths.has('docs/development-governance.md')) {
+    try {
+      validateDevelopmentEngineeringPrincipleConjunctionV1(
+        await fs.readFile(path.join(repositoryRoot, 'docs/development-governance.md'), 'utf8')
+      );
+    } catch (error) {
+      pushIssue(issues, {
+        level: 'error',
+        code: 'development-engineering-principle-conjunction-invalid',
+        file: 'docs/development-governance.md',
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  if (registeredPaths.has('docs/verification-governance.md')
+      && registeredPaths.has('docs/runtime-and-distribution.md')
+      && registeredPaths.has('docs/external-provider-policy.md')) {
+    try {
+      validateDevelopmentCriticalPathDomainProjectionGraphsV1({
+        verification: await fs.readFile(
+          path.join(repositoryRoot, 'docs/verification-governance.md'),
+          'utf8'
+        ),
+        runtime: await fs.readFile(
+          path.join(repositoryRoot, 'docs/runtime-and-distribution.md'),
+          'utf8'
+        ),
+        externalProvider: await fs.readFile(
+          path.join(repositoryRoot, 'docs/external-provider-policy.md'),
+          'utf8'
+        )
+      });
+    } catch (error) {
+      pushIssue(issues, {
+        level: 'error',
+        code: 'development-critical-path-domain-graph-invalid',
+        file: 'docs/system-architecture.md',
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
   for (const record of registry.documents) {
     const target = path.join(repositoryRoot, ...record.path.split('/'));
     if (!(await exists(target))) {

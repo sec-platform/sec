@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   closeSync,
   existsSync,
   constants as fsConstants,
@@ -15,7 +16,15 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { executeVerifiedCiActionPlanV1 } from '../platform/dev-runner/verification-action-executor.ts';
+import {
+  createVerificationActionCallbackEffectProviderV1,
+  executeVerifiedCiActionPlanV1
+} from '../platform/dev-runner/verification-action-executor.ts';
+import {
+  CodexDevelopmentReadExactGitBlobV1,
+  type CodexDevelopmentExactGitBlobReadOptionsV1
+} from '../platform/git/objects.ts';
+import { SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1 } from '../platform/runtime/environments/sec-linux-verification-v1/authority.ts';
 import {
   aggregateV4Status,
   CodexDevelopmentAssertVerificationActionTerminalArtifactV2,
@@ -78,13 +87,34 @@ import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../platform/shared/ci-verification-revision.ts';
 import {
+  createEnvironmentDependencyCacheHandleV1,
+  createEnvironmentDependencyCacheIdentityV1,
+  createEnvironmentDependencyCachePhysicalReceiptV2,
+  createEnvironmentDependencyClosureV1,
+  parseEnvironmentDependencyCachePhysicalReceiptV2,
+  type EnvironmentDependencyCacheHandleV1,
+  type EnvironmentDependencyCacheIdentityV1,
+  type EnvironmentDependencyClosureV1
+} from '../platform/shared/environment-materialization-contract.ts';
+import { acquirePhysicalMutationLeaseV1 } from '../platform/shared/physical-mutation-lease.ts';
+import {
   assertSameNoFollowDirectoryIdentityV1,
+  deleteRetainedNoFollowEntryV1,
+  deleteRetainedNoFollowInventoryV1,
   inspectNoFollowDirectoryChainV1,
+  inspectNoFollowDirectoryChildV1,
+  inspectNoFollowOrdinaryFileDigestV1,
+  publishExclusiveDurableCanonicalFileV1,
+  readNoFollowOrdinaryFileV1,
   scanNoFollowDirectoryTreeInventoryV1,
+  scanNoFollowDirectoryTreeMetadataV1,
   type NoFollowDirectoryTreeInventoryEntryV1,
+  type PhysicalDirectoryChainV1,
   type PhysicalDirectoryIdentityV1
 } from '../platform/shared/physical-no-follow.ts';
+import { resolveSecRuntimeCacheLayoutV1 } from '../platform/shared/sec-runtime-state-contract.ts';
 import {
+  assertCiVerificationActionEffectProviderV1,
   buildCiVerificationActionPlanClosureV1,
   CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
   ciVerificationActionParentDispatchPlanArtifactNameV2,
@@ -109,11 +139,14 @@ import {
   type CiVerificationProducerGateV1
 } from '../platform/shared/verification-action-ci-contract.ts';
 import {
+  createVerificationActionPlanClosureV1,
   createVerificationActionTerminalV2,
   encodeVerificationActionDataV2,
   isVerificationActionRunnableV2,
   parseVerificationActionPlanV2,
   type VerificationActionDependencyResolutionV2,
+  type VerificationActionEffectProviderV1,
+  type VerificationActionEvidenceV1,
   type VerificationActionKeyDigest,
   type VerificationActionPlanV2
 } from '../platform/shared/verification-action-contract.ts';
@@ -143,6 +176,13 @@ import {
   type VerificationGateResultV1
 } from '../platform/shared/verification-result-contract.ts';
 import {
+  enforceEnvironmentDependencyCacheBudgetV2,
+  ENVIRONMENT_DEPENDENCY_CACHE_LIFECYCLE_POLICY_V2,
+  openEnvironmentDependencyCacheLifecycleV2,
+  type EnvironmentDependencyCacheLifecycleV2
+} from '../tooling/sec-dev/environment-cache-lifecycle.ts';
+import { acquireSecRuntimeCachePhysicalAuthorityV1 } from '../tooling/sec-dev/runtime-state-authority.ts';
+import {
   writeVerificationActionStartMarkerV2Atomic,
   writeVerificationActionTerminalStatusAnchorV2Atomic
 } from '../tooling/sec-dev/verification-action-journal.ts';
@@ -161,10 +201,6 @@ import {
   CodexDevelopmentRunGateProcessV1,
   type CodexDevelopmentGateProcessResultV1
 } from './codex/ci-orchestration-core.ts';
-import {
-  CodexDevelopmentReadExactGitBlobV1,
-  type CodexDevelopmentExactGitBlobReadOptionsV1
-} from './codex/exact-git-blob.ts';
 import {
   ensureVerificationActionGitHubProviderTransactionV2,
   type VerificationActionGitHubProviderSnapshotV2
@@ -232,6 +268,9 @@ const CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_REF_PREFIX_V1 =
 const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD_V1 = 3;
 const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1 =
   `/proc/self/fd/${HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD_V1}` as const;
+const HOSTED_SUT_RETAINED_DEPENDENCY_ARCHIVE_CHILD_FD_V1 = 4;
+const HOSTED_SUT_RETAINED_DEPENDENCY_ARCHIVE_CHILD_PATH_V1 =
+  `/proc/self/fd/${HOSTED_SUT_RETAINED_DEPENDENCY_ARCHIVE_CHILD_FD_V1}` as const;
 
 export type CodexDevelopmentHostedSutSandboxCommandPlanV1 = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA_V1;
@@ -240,14 +279,66 @@ export type CodexDevelopmentHostedSutSandboxCommandPlanV1 = Readonly<{
   unitName: string;
   command: '/usr/bin/unshare' | '/usr/bin/bash';
   argv: readonly string[];
+  operations: readonly CodexDevelopmentHostedSutSandboxOperationV1[];
   candidateEnvironmentNames: readonly string[];
   executionAuthorizationDigest: VerificationActionKeyDigest | null;
   physicalCommandProjectionDigest: VerificationActionKeyDigest | null;
+  /** Exact compiler binding from typed operations to the one canonical shell transport. */
+  rendererBindingDigest: VerificationActionKeyDigest;
   planDigest: VerificationActionKeyDigest;
 }>;
 
+export type CodexDevelopmentHostedSutSandboxOperationV1 =
+  | Readonly<{
+      kind: 'namespace';
+      namespaces: readonly ['mount', 'pid', 'network'];
+      killChildOnSupervisorExit: true;
+    }>
+  | Readonly<{
+      kind: 'runtime-copy-closure';
+      policyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1;
+      hostDirectoryBindAllowed: false;
+    }>
+  | Readonly<{
+      kind: 'retained-input-bind';
+      role: 'candidate' | 'dependency';
+      childDescriptor: 3 | 4;
+      childPath: '/proc/self/fd/3' | '/proc/self/fd/4';
+      targetPath: '/authenticated-input/prepared-candidate.tar' | '/authenticated-input/dependencies.tar';
+      readOnly: true;
+      mountFlags: readonly ['bind', 'ro', 'nosuid', 'nodev', 'noexec'];
+    }>
+  | Readonly<{
+      kind: 'ephemeral-filesystems';
+      root: 'tmpfs-chroot';
+      workspace: 'tmpfs';
+      hostSocketExposure: false;
+    }>
+  | Readonly<{
+      kind: 'privilege-drop';
+      uid: 65532;
+      gid: 65532;
+      noNewPrivileges: true;
+      capabilityBoundingSet: 'empty';
+    }>
+  | Readonly<{
+      kind: 'bounded-runtime-exec';
+      runtime: 'bun';
+      environment: 'empty-then-allowlist';
+    }>
+  | Readonly<{
+      kind: 'exact-residue-cleanup';
+      rootKind: 'sandbox-unit';
+      parentPath: '/tmp';
+      targetIdentity: 'unit-name-bound';
+      noFollow: true;
+      absenceReadback: true;
+      trigger: 'finally' | 'explicit-readback';
+    }>;
+
 export type CodexDevelopmentHostedSutSandboxProcessObservationV1 =
   CodexDevelopmentGateProcessResultV1 & Readonly<{
+    termination: NonNullable<CodexDevelopmentGateProcessResultV1['termination']>;
     commandStarted: boolean;
     stdoutDigest: VerificationActionKeyDigest;
     stderrDigest: VerificationActionKeyDigest;
@@ -258,7 +349,8 @@ export type CodexDevelopmentHostedSutSandboxProcessObservationV1 =
 
 export type CodexDevelopmentHostedSutSandboxProcessV1 = (
   plan: CodexDevelopmentHostedSutSandboxCommandPlanV1,
-  retainedArchive?: CodexDevelopmentRetainedHostedSutArchiveV1
+  retainedArchive?: CodexDevelopmentRetainedHostedSutArchiveV1,
+  retainedDependencyArchive?: CodexDevelopmentRetainedHostedSutArchiveV1
 ) => Promise<CodexDevelopmentHostedSutSandboxProcessObservationV1>;
 
 /** Compatibility type name for the single canonical internal Action proposal. */
@@ -338,6 +430,28 @@ export type CodexDevelopmentHostedActionDispatchPlanV2 = Readonly<{
 
 function ciActionDigest(value: unknown): VerificationActionKeyDigest {
   return CodexDevelopmentVerificationDigest(value) as VerificationActionKeyDigest;
+}
+
+function deleteExactOwnedDirectoryGenerationV1(
+  generation: PhysicalDirectoryChainV1,
+  label: string
+): void {
+  const inventory = scanNoFollowDirectoryTreeMetadataV1(generation.target, {
+    deadlineAtMs: performance.now() + 30_000,
+    maximumEntries: 100_000
+  });
+  deleteRetainedNoFollowInventoryV1({ root: generation.target, inventory });
+  const parent = generation.ancestors.at(-2);
+  if (parent === undefined) throw new Error(`${label} has no retained parent identity.`);
+  deleteRetainedNoFollowEntryV1({
+    root: parent,
+    relativePath: path.basename(generation.target.path),
+    kind: 'directory',
+    device: generation.target.device,
+    inode: generation.target.inode,
+    ancestorDirectories: []
+  });
+  if (existsSync(generation.target.path)) throw new Error(`${label} remains after exact cleanup.`);
 }
 
 function exactObject(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
@@ -1202,12 +1316,13 @@ export function CodexDevelopmentAssertHostedDependencyArchiveProjectionV1(input:
 
 const HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT_V3 = [
   'import os, posixpath, stat, sys, tarfile',
-  'candidate_root, dependency_root, output_root, output_name = sys.argv[1:5]',
-  'candidate_dev, candidate_ino, dependency_dev, dependency_ino, output_dev, output_ino = sys.argv[5:11]',
-  'max_entries, max_bytes = int(sys.argv[11]), int(sys.argv[12])',
+  'source_root, output_root, output_name = sys.argv[1:4]',
+  'source_dev, source_ino, output_dev, output_ino = sys.argv[4:8]',
+  'max_entries, max_bytes = int(sys.argv[8]), int(sys.argv[9])',
+  'archive_mode = sys.argv[10]',
+  'if archive_mode not in ("candidate", "dependency"): raise RuntimeError("invalid archive mode")',
   'flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)',
-  'candidate_fd = os.open(candidate_root, flags)',
-  'dependency_fd = os.open(dependency_root, flags)',
+  'source_fd = os.open(source_root, flags)',
   'output_fd = os.open(output_root, flags)',
   'output_leaf_fd = None',
   'output_identity = None',
@@ -1229,7 +1344,7 @@ const HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT_V3 = [
   '  return (left.st_dev, left.st_ino, left.st_mode, left.st_size, left.st_mtime_ns, left.st_ctime_ns) == (right.st_dev, right.st_ino, right.st_mode, right.st_size, right.st_mtime_ns, right.st_ctime_ns)',
   'def normalized_dependency_link(archive_name, raw_target):',
   '  if "\\x00" in raw_target or "\\\\" in raw_target: raise RuntimeError("dependency link is non-POSIX")',
-  '  root = dependency_root.rstrip("/")',
+  '  root = source_root.rstrip("/")',
   '  if posixpath.isabs(raw_target):',
   '    normalized = posixpath.normpath(raw_target)',
   '    if normalized == root or not normalized.startswith(root + "/"): raise RuntimeError("dependency link escapes exact root")',
@@ -1288,24 +1403,24 @@ const HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT_V3 = [
   '    else: raise RuntimeError("unsupported source entry")',
   '  if not same_stat(before_directory, os.fstat(directory_fd)): raise RuntimeError("directory changed during enumeration")',
   'try:',
-  '  require_identity(candidate_fd, candidate_dev, candidate_ino, "candidate root")',
-  '  require_identity(dependency_fd, dependency_dev, dependency_ino, "dependency root")',
+  '  require_identity(source_fd, source_dev, source_ino, "archive source root")',
   '  require_identity(output_fd, output_dev, output_ino, "output root")',
   '  output_leaf_fd = os.open(output_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600, dir_fd=output_fd)',
   '  output_identity = identity(output_leaf_fd)',
   '  with os.fdopen(output_leaf_fd, "wb", closefd=True) as output_stream:',
   '    output_leaf_fd = None',
   '    with tarfile.open(fileobj=output_stream, mode="w:", format=tarfile.PAX_FORMAT, dereference=False) as archive:',
-  '      seen = {}; add_tree(archive, candidate_fd, "", False, True)',
-  '      dependency_stat = os.fstat(dependency_fd)',
-  '      archive.addfile(tar_info("node_modules", dependency_stat, tarfile.DIRTYPE))',
-  '      entries += 1',
-  '      if entries > max_entries: raise RuntimeError("archive entry bound exceeded")',
-  '      seen = {}; add_tree(archive, dependency_fd, "node_modules", True, True)',
+  '      if archive_mode != "dependency":',
+  '        seen = {}; add_tree(archive, source_fd, "", False, True)',
+  '      if archive_mode != "candidate":',
+  '        dependency_stat = os.fstat(source_fd)',
+  '        archive.addfile(tar_info("node_modules", dependency_stat, tarfile.DIRTYPE))',
+  '        entries += 1',
+  '        if entries > max_entries: raise RuntimeError("archive entry bound exceeded")',
+  '        seen = {}; add_tree(archive, source_fd, "node_modules", True, True)',
   '    output_stream.flush(); os.fsync(output_stream.fileno())',
   '  os.fsync(output_fd)',
-  '  require_identity(candidate_fd, candidate_dev, candidate_ino, "candidate root")',
-  '  require_identity(dependency_fd, dependency_dev, dependency_ino, "dependency root")',
+  '  require_identity(source_fd, source_dev, source_ino, "archive source root")',
   '  require_identity(output_fd, output_dev, output_ino, "output root")',
   '  completed = True',
   'finally:',
@@ -1316,53 +1431,92 @@ const HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT_V3 = [
   '      if (str(current.st_dev), str(current.st_ino)) == output_identity:',
   '        os.unlink(output_name, dir_fd=output_fd); os.fsync(output_fd)',
   '    except FileNotFoundError: pass',
-  '  os.close(output_fd); os.close(dependency_fd); os.close(candidate_fd)'
+  '  os.close(output_fd); os.close(source_fd)'
 ].join('\n');
 
-export function CodexDevelopmentMaterializeTrustedBootstrapArchiveV3(input: Readonly<{
-  candidateRoot: string;
-  dependencySnapshot: CodexDevelopmentHostedDependencyPhysicalSnapshotV1;
-  outputDirectory: string;
-}>): string {
-  if (process.platform !== 'linux') {
-    throw new Error('Trusted bootstrap retained archive projection requires the Linux provider.');
+type TrustedBootstrapSplitArchiveInputV1 =
+  | Readonly<{
+      mode: 'candidate';
+      candidateRoot: string;
+      outputDirectory: string;
+      archiveName: 'prepared-candidate.tar';
+    }>
+  | Readonly<{
+      mode: 'dependency';
+      dependencySnapshot: CodexDevelopmentHostedDependencyPhysicalSnapshotV1;
+      outputDirectory: string;
+      archiveName: 'dependencies.tar';
+    }>;
+
+function materializeTrustedBootstrapSplitArchiveV1(
+  input: TrustedBootstrapSplitArchiveInputV1
+): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,96}$/u.test(input.archiveName)) {
+    throw new Error('Trusted bootstrap split archive name is invalid.');
   }
-  const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
-  const dependencyRoot = realpathSync.native(path.resolve(input.dependencySnapshot.root.path));
+  const sourceRoot = realpathSync.native(path.resolve(input.mode === 'candidate'
+    ? input.candidateRoot
+    : input.dependencySnapshot.root.path));
   const outputDirectory = realpathSync.native(path.resolve(input.outputDirectory));
-  const candidate = inspectNoFollowDirectoryChainV1(
-    candidateRoot, 'Trusted bootstrap archive candidate root'
-  ).target;
-  const dependency = assertSameNoFollowDirectoryIdentityV1(
-    input.dependencySnapshot.root, 'Trusted bootstrap archive dependency root'
-  ).target;
+  const source = input.mode === 'candidate'
+    ? inspectNoFollowDirectoryChainV1(
+        sourceRoot, 'Trusted bootstrap candidate archive source root'
+      ).target
+    : assertSameNoFollowDirectoryIdentityV1(
+        input.dependencySnapshot.root, 'Trusted bootstrap dependency archive source root'
+      ).target;
   const output = inspectNoFollowDirectoryChainV1(
-    outputDirectory, 'Trusted bootstrap archive output root'
+    outputDirectory, 'Trusted bootstrap split archive output root'
   ).target;
-  if (dependency.path !== dependencyRoot) {
-    throw new Error('Trusted bootstrap archive dependency snapshot root is not canonical.');
+  if (source.path !== sourceRoot) {
+    throw new Error('Trusted bootstrap split archive source root is not canonical.');
   }
-  const archiveName = 'prepared-candidate.tar';
-  const archivePath = path.resolve(outputDirectory, archiveName);
+  const archivePath = path.resolve(outputDirectory, input.archiveName);
   if (existsSync(archivePath)) {
-    throw new Error('Trusted bootstrap prepared candidate archive already exists.');
+    throw new Error('Trusted bootstrap split archive already exists.');
   }
   runHostedMaterializerCommandV2('/usr/bin/python3', [
     '-c', HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT_V3,
-    candidate.path, dependency.path, output.path, archiveName,
-    candidate.device, candidate.inode, dependency.device, dependency.inode,
-    output.device, output.inode,
+    source.path, output.path, input.archiveName,
+    source.device, source.inode, output.device, output.inode,
     String(HOSTED_ACTION_ARCHIVE_MAX_ENTRIES_V2),
-    String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes)
-  ], 'Trusted bootstrap retained archive projection');
-  assertSameNoFollowDirectoryIdentityV1(candidate, 'Trusted bootstrap archive candidate root');
-  assertSameNoFollowDirectoryIdentityV1(dependency, 'Trusted bootstrap archive dependency root');
-  assertSameNoFollowDirectoryIdentityV1(output, 'Trusted bootstrap archive output root');
+    String(input.mode === 'dependency'
+      ? ENVIRONMENT_DEPENDENCY_CACHE_LIFECYCLE_POLICY_V2.maxTotalBytes
+      : CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes),
+    input.mode
+  ], `Trusted bootstrap ${input.mode} archive materialization`);
+  assertSameNoFollowDirectoryIdentityV1(source, 'Trusted bootstrap split archive source root');
+  assertSameNoFollowDirectoryIdentityV1(output, 'Trusted bootstrap split archive output root');
   const archive = lstatSync(archivePath);
   if (!archive.isFile() || archive.isSymbolicLink() || realpathSync.native(archivePath) !== archivePath) {
-    throw new Error('Trusted bootstrap retained archive projection did not publish one ordinary output.');
+    throw new Error('Trusted bootstrap split archive did not publish one ordinary output.');
   }
+  chmodSync(archivePath, 0o444);
   return archivePath;
+}
+
+/** Candidate/head-specific input: it intentionally contains no node_modules. */
+export function CodexDevelopmentMaterializeTrustedBootstrapCandidateArchiveV1(input: Readonly<{
+  candidateRoot: string;
+  outputDirectory: string;
+}>): string {
+  return materializeTrustedBootstrapSplitArchiveV1({
+    ...input,
+    archiveName: 'prepared-candidate.tar',
+    mode: 'candidate'
+  });
+}
+
+/** Content-addressed dependency input: it contains only the frozen node_modules tree. */
+export function CodexDevelopmentMaterializeDependencyCacheArchiveV1(input: Readonly<{
+  dependencySnapshot: CodexDevelopmentHostedDependencyPhysicalSnapshotV1;
+  outputDirectory: string;
+}>): string {
+  return materializeTrustedBootstrapSplitArchiveV1({
+    ...input,
+    archiveName: 'dependencies.tar',
+    mode: 'dependency'
+  });
 }
 
 const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V3 = [
@@ -1646,8 +1800,8 @@ function runHostedMaterializerCommandV2(
 }
 
 export type CodexDevelopmentDependencyMaterializationRecoveryV1 = Readonly<{
-  attempts: 1 | 2;
-  recoveredFrom: 'none' | 'bun-tarball-extraction';
+  attempts: 0 | 1 | 2;
+  recoveredFrom: 'exact-cache' | 'none' | 'bun-tarball-extraction';
 }>;
 
 function dependencyMaterializationFailureDiagnosticV1(error: unknown): string {
@@ -1724,6 +1878,11 @@ export function CodexDevelopmentPrepareHostedActionInputsV2(input: Readonly<{
         (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
   }
   mkdirSync(trustedInputDirectory, { recursive: false });
+  const trustedInputGeneration = inspectNoFollowDirectoryChainV1(
+    trustedInputDirectory,
+    'Hosted Action reserved input generation'
+  );
+  try {
   const dependencyClosurePath = path.resolve(trustedInputDirectory, 'dependency-closure.json');
   writeHostedActionJson(dependencyClosurePath, dependencyClosure);
   const baseDependencyClosureDigest = hostedActionFileDigestV2(dependencyClosurePath);
@@ -1775,6 +1934,12 @@ export function CodexDevelopmentPrepareHostedActionInputsV2(input: Readonly<{
     baseDependencyClosureDigest,
     authenticatedGitClosureDigest
   });
+  } finally {
+    deleteExactOwnedDirectoryGenerationV1(
+      trustedInputGeneration,
+      'Hosted Action reserved input generation'
+    );
+  }
 }
 
 export type CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 = Readonly<{
@@ -1787,7 +1952,325 @@ export type CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 = Readonly<{
   totalFileBytes: number;
   dependencyMaterialization: CodexDevelopmentDependencyMaterializationRecoveryV1;
   dependencyArchiveProjection: CodexDevelopmentHostedDependencyArchiveProjectionV1;
+  environmentDependencyClosure: EnvironmentDependencyClosureV1;
+  dependencyCacheIdentity: EnvironmentDependencyCacheIdentityV1;
+  dependencyArchive: string;
+  dependencyArchiveDigest: VerificationActionKeyDigest;
+  dependencyCacheHandle: EnvironmentDependencyCacheHandleV1;
 }>;
+
+function trustedBootstrapEnvironmentDependencyClosureV1(input: Readonly<{
+  dependencyClosure: ReturnType<typeof hostedActionDependencyClosureV1>;
+}>): EnvironmentDependencyClosureV1 {
+  const lock = input.dependencyClosure.authority.find((entry) => entry.path === 'bun.lock');
+  const toolchain = input.dependencyClosure.authority.find((entry) => entry.path === '.bun-version');
+  if (lock === undefined || toolchain === undefined) {
+    throw new Error('Trusted bootstrap dependency closure lacks lock/toolchain authority.');
+  }
+  return createEnvironmentDependencyClosureV1({
+    environmentSpecDigest: SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1,
+    lockDigest: lock.bytesDigest as `sha256:${string}`,
+    toolchainDigest: toolchain.bytesDigest as `sha256:${string}`,
+    providerRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2,
+    authority: input.dependencyClosure.authority.map((entry) => Object.freeze({
+      path: entry.path,
+      bytesDigest: entry.bytesDigest as `sha256:${string}`
+    }))
+  });
+}
+
+function trustedBootstrapRepositoryIdentityV1(): string {
+  const repository = process.env.GITHUB_REPOSITORY ?? '';
+  if (!/^[^/\s]+\/[^/\s]+$/u.test(repository)) {
+    throw new Error('GITHUB_REPOSITORY must bind the trusted dependency cache owner.');
+  }
+  return repository;
+}
+
+function trustedBootstrapReadPublishedDependencyCacheV1(input: Readonly<{
+  paths: Readonly<{ archive: string; receipt: string }>;
+  parent: PhysicalDirectoryIdentityV1;
+  identity: EnvironmentDependencyCacheIdentityV1;
+  ownerHandle: EnvironmentDependencyCacheHandleV1;
+}>): EnvironmentDependencyCacheHandleV1 | null {
+  const archivePresent = existsSync(input.paths.archive);
+  const receiptPresent = existsSync(input.paths.receipt);
+  if (!archivePresent && !receiptPresent) return null;
+  if (!archivePresent) {
+    throw new Error(`typed-block:dependency-cache-generation-crashed:${input.identity.identityDigest}`);
+  }
+  if (!lstatSync(input.paths.archive).isFile() ||
+      realpathSync.native(input.paths.archive) !== input.paths.archive ||
+      (lstatSync(input.paths.archive).mode & 0o222) !== 0 ||
+      (receiptPresent && (!lstatSync(input.paths.receipt).isFile() ||
+      realpathSync.native(input.paths.receipt) !== input.paths.receipt ||
+      (lstatSync(input.paths.receipt).mode & 0o222) !== 0))) {
+    throw new Error('typed-block:dependency-cache-digest-conflict:identity');
+  }
+  const receiptBytes = receiptPresent
+    ? readNoFollowOrdinaryFileV1(input.parent, path.basename(input.paths.receipt))
+    : null;
+  if (receiptPresent && receiptBytes === null) {
+    throw new Error('typed-block:dependency-cache-digest-conflict:receipt-identity');
+  }
+  const receipt = receiptBytes !== null
+    ? parseEnvironmentDependencyCachePhysicalReceiptV2(Buffer.from(receiptBytes).toString('utf8'))
+    : null;
+  if (receipt !== null && (receipt.resourceId !== input.ownerHandle.resourceId ||
+      receipt.identityDigest !== input.identity.identityDigest ||
+      receipt.closureDigest !== input.identity.closureDigest ||
+      receipt.archiveDigest !== input.ownerHandle.archiveDigest ||
+      receipt.archiveBytes !== input.ownerHandle.archiveBytes ||
+      receipt.sourceSnapshotDigest !== input.ownerHandle.sourceSnapshotDigest ||
+      receipt.archiveProjectionDigest !== input.ownerHandle.archiveProjectionDigest)) {
+    throw new Error('typed-block:dependency-cache-digest-conflict:binding');
+  }
+  const observedArchive = inspectNoFollowOrdinaryFileDigestV1(
+    input.parent, path.basename(input.paths.archive)
+  );
+  if (observedArchive === null || observedArchive.byteDigest !== input.ownerHandle.archiveDigest ||
+      observedArchive.size !== input.ownerHandle.archiveBytes) {
+    throw new Error('typed-block:dependency-cache-digest-conflict:archive');
+  }
+  return input.ownerHandle;
+}
+
+function trustedBootstrapPublishedArchiveProjectionV1(
+  handle: EnvironmentDependencyCacheHandleV1,
+  archiveEntries: readonly HostedActionArchiveInventoryEntryV2[]
+): CodexDevelopmentHostedDependencyArchiveProjectionV1 {
+  const entries = archiveEntries.filter(
+    (entry) => entry.path === 'node_modules' || entry.path.startsWith('node_modules/')
+  );
+  const canonical = Object.freeze([...entries]
+    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  const archiveProjectionDigest = ciActionDigest(canonical);
+  if (archiveProjectionDigest !== handle.archiveProjectionDigest ||
+      entries.length === 0 || entries[0]?.path !== 'node_modules') {
+    throw new Error('typed-block:dependency-cache-digest-conflict:projection');
+  }
+  return Object.freeze({
+    schema: 'sec-hosted-dependency-archive-projection-v1',
+    entriesObserved: entries.length - 1,
+    linksProjected: entries.filter(({ type }) => type === 'symlink').length,
+    sourceSnapshotDigest: handle.sourceSnapshotDigest,
+    archiveProjectionDigest
+  });
+}
+
+function trustedBootstrapRetireCrashedDependencyCacheV1(
+  parent: PhysicalDirectoryIdentityV1,
+  paths: Readonly<{ archive: string; receipt: string; leaseName: string }>
+): void {
+  const allowed = new Set([path.basename(paths.archive), path.basename(paths.receipt), paths.leaseName]);
+  const entries = scanNoFollowDirectoryTreeMetadataV1(parent, {
+    maximumEntries: 4,
+    deadlineAtMs: performance.now() + 5_000
+  });
+  if (entries.some((entry) => !allowed.has(entry.relativePath) || entry.kind !== 'file')) {
+    throw new Error('typed-block:dependency-cache-recovery-foreign-residue');
+  }
+  for (const entry of entries) {
+    if (entry.relativePath === paths.leaseName) continue;
+    deleteRetainedNoFollowEntryV1({
+      root: parent,
+      relativePath: entry.relativePath,
+      kind: 'file',
+      device: entry.device,
+      inode: entry.inode,
+      ancestorDirectories: []
+    });
+  }
+}
+
+async function trustedBootstrapPublishDependencyCacheV1(input: Readonly<{
+  repositoryRoot: string;
+  dependencyClosure: EnvironmentDependencyClosureV1;
+  materialize: (input: Readonly<{ recovering: boolean }>) => Readonly<{
+    snapshot: CodexDevelopmentHostedDependencyPhysicalSnapshotV1;
+    recovery: CodexDevelopmentDependencyMaterializationRecoveryV1;
+  }>;
+}>): Promise<Readonly<{
+  archive: string;
+  handle: EnvironmentDependencyCacheHandleV1;
+  identity: EnvironmentDependencyCacheIdentityV1;
+  projection: CodexDevelopmentHostedDependencyArchiveProjectionV1;
+  materialization: CodexDevelopmentDependencyMaterializationRecoveryV1;
+}>> {
+  const identity = createEnvironmentDependencyCacheIdentityV1({ closure: input.dependencyClosure });
+  const repository = trustedBootstrapRepositoryIdentityV1();
+  const lifecycle = await openEnvironmentDependencyCacheLifecycleV2({
+    repository,
+    repositoryRoot: input.repositoryRoot,
+    identity,
+    providerRevision: input.dependencyClosure.providerRevision,
+    platform: input.dependencyClosure.platform
+  });
+  const paths = Object.freeze({
+    entry: lifecycle.locators.cacheEntryPath,
+    archive: lifecycle.locators.cacheArchivePath,
+    receipt: lifecycle.locators.cacheReceiptPath,
+    leaseName: lifecycle.locators.cacheMutationLeaseName
+  });
+  let ownerCurrent = lifecycle.recoverDeadConsumers().current;
+  let recovering = false;
+  if (ownerCurrent.phase === 'materializing') {
+    if (Date.parse(ownerCurrent.leaseExpiresAt) > Date.now()) {
+      throw new Error(`typed-block:dependency-cache-generation-in-flight:${identity.identityDigest}`);
+    }
+    recovering = true;
+  } else if (ownerCurrent.phase !== 'registered' && ownerCurrent.phase !== 'published') {
+    throw new Error(`typed-block:dependency-cache-${ownerCurrent.phase}:${identity.identityDigest}`);
+  }
+  const cacheLayout = resolveSecRuntimeCacheLayoutV1({
+    platform: 'linux',
+    environment: Object.freeze({
+      SEC_STATE_HOME: process.env.SEC_STATE_HOME,
+      SEC_CACHE_HOME: process.env.SEC_CACHE_HOME,
+      LOCALAPPDATA: process.env.LOCALAPPDATA,
+      XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+      XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
+      HOME: process.env.HOME
+    }),
+    repositoryRoot: input.repositoryRoot
+  });
+  const cacheRootAuthority = acquireSecRuntimeCachePhysicalAuthorityV1({
+    repositoryRoot: input.repositoryRoot,
+    cacheRoot: cacheLayout.cacheRoot,
+    requiredDirectories: [path.dirname(paths.entry)]
+  });
+  cacheRootAuthority.assertCurrent();
+  if (ownerCurrent.phase === 'published') {
+    const cacheEntry = inspectNoFollowDirectoryChildV1(
+      cacheRootAuthority.directory(path.dirname(paths.entry)),
+      path.basename(paths.entry),
+      'trusted bootstrap published dependency cache entry'
+    );
+    if (cacheEntry === null) {
+      throw new Error(`typed-block:dependency-cache-published-bytes-absent:${identity.identityDigest}`);
+    }
+    const ownerHandle = createEnvironmentDependencyCacheHandleV1({ current: ownerCurrent });
+    const existing = trustedBootstrapReadPublishedDependencyCacheV1({
+      paths, parent: cacheEntry, identity, ownerHandle
+    });
+    if (existing === null) {
+      throw new Error(`typed-block:dependency-cache-published-bytes-absent:${identity.identityDigest}`);
+    }
+    if (!existsSync(paths.receipt)) {
+      const physicalReceipt = createEnvironmentDependencyCachePhysicalReceiptV2({
+        current: ownerCurrent
+      });
+      publishExclusiveDurableCanonicalFileV1({
+        parent: cacheEntry,
+        name: path.basename(paths.receipt),
+        bytes: Buffer.from(`${encodeVerificationActionDataV2(physicalReceipt)}\n`, 'utf8'),
+        unixMode: 0o400,
+        validate: (bytes) => {
+          const parsed = parseEnvironmentDependencyCachePhysicalReceiptV2(
+            Buffer.from(bytes).toString('utf8')
+          );
+          if (parsed.receiptDigest !== physicalReceipt.receiptDigest) {
+            throw new Error('Dependency cache physical receipt differs from owner current.');
+          }
+        }
+      });
+    }
+    const inventory = CodexDevelopmentInspectHostedActionArchiveInventoryV3(
+      paths.archive, 'Trusted bootstrap dependency cache reuse inventory'
+    );
+    await enforceEnvironmentDependencyCacheBudgetV2({
+      repository,
+      repositoryRoot: input.repositoryRoot,
+      protectedIdentityDigest: identity.identityDigest,
+      platform: input.dependencyClosure.platform
+    });
+    return Object.freeze({
+      archive: paths.archive,
+      handle: existing,
+      identity,
+      projection: trustedBootstrapPublishedArchiveProjectionV1(existing, inventory.entries),
+      materialization: Object.freeze({ attempts: 0, recoveredFrom: 'exact-cache' })
+    });
+  }
+  ownerCurrent = recovering
+    ? lifecycle.recoverMaterialization()
+    : lifecycle.beginMaterialization();
+  const cacheAuthority = acquireSecRuntimeCachePhysicalAuthorityV1({
+    repositoryRoot: input.repositoryRoot,
+    cacheRoot: cacheLayout.cacheRoot,
+    requiredDirectories: [path.dirname(paths.entry), paths.entry]
+  });
+  cacheAuthority.assertCurrent();
+  const physicalLease = acquirePhysicalMutationLeaseV1(
+    cacheAuthority.directory(paths.entry), paths.leaseName
+  );
+  if (physicalLease === null) {
+    throw new Error(`typed-block:dependency-cache-generation-in-flight:${identity.identityDigest}`);
+  }
+  try {
+    if (existsSync(paths.archive) || existsSync(paths.receipt)) {
+      trustedBootstrapRetireCrashedDependencyCacheV1(cacheAuthority.directory(paths.entry), paths);
+    }
+    const materialized = input.materialize({ recovering });
+    const archive = CodexDevelopmentMaterializeDependencyCacheArchiveV1({
+      dependencySnapshot: materialized.snapshot,
+      outputDirectory: paths.entry
+    });
+    chmodSync(archive, 0o444);
+    const archiveBytes = lstatSync(archive).size;
+    const archiveDigest = hostedActionFileDigestV2(archive);
+    const after = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(
+      materialized.snapshot.root.path
+    );
+    const inventory = CodexDevelopmentInspectHostedActionArchiveInventoryV3(
+      archive, 'Trusted bootstrap dependency cache publication inventory'
+    );
+    const projection = CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+      before: materialized.snapshot,
+      after,
+      archiveEntries: inventory.entries
+    });
+    ownerCurrent = lifecycle.publishPhysical({
+      sourceSnapshotDigest: projection.sourceSnapshotDigest,
+      archiveProjectionDigest: projection.archiveProjectionDigest
+    });
+    const handle = createEnvironmentDependencyCacheHandleV1({ current: ownerCurrent });
+    const physicalReceipt = createEnvironmentDependencyCachePhysicalReceiptV2({
+      current: ownerCurrent
+    });
+    publishExclusiveDurableCanonicalFileV1({
+      parent: cacheAuthority.directory(paths.entry),
+      name: path.basename(paths.receipt),
+      bytes: Buffer.from(`${encodeVerificationActionDataV2(physicalReceipt)}\n`, 'utf8'),
+      unixMode: 0o400,
+      validate: (bytes) => {
+        const parsed = parseEnvironmentDependencyCachePhysicalReceiptV2(
+          Buffer.from(bytes).toString('utf8')
+        );
+        if (parsed.receiptDigest !== physicalReceipt.receiptDigest) {
+          throw new Error('Dependency cache physical receipt durable readback mismatch.');
+        }
+      }
+    });
+    const readback = trustedBootstrapReadPublishedDependencyCacheV1({
+      paths, parent: cacheAuthority.directory(paths.entry), identity, ownerHandle: handle
+    });
+    if (readback === null || readback.handleDigest !== handle.handleDigest) {
+      throw new Error('Trusted bootstrap dependency cache handle readback mismatch.');
+    }
+    await enforceEnvironmentDependencyCacheBudgetV2({
+      repository,
+      repositoryRoot: input.repositoryRoot,
+      protectedIdentityDigest: identity.identityDigest,
+      platform: input.dependencyClosure.platform
+    });
+    return Object.freeze({
+      archive, handle, identity, projection, materialization: materialized.recovery
+    });
+  } finally {
+    physicalLease.release();
+  }
+}
 
 export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1(input: Readonly<{
   baseRoot: string;
@@ -1811,9 +2294,13 @@ export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1(
   const baseStatusArgs = candidateIsContained
     ? [
         'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--', '.',
-        `:(top,exclude,literal)${relativeCandidateRoot.split(path.sep).join('/')}`
+        `:(top,exclude,literal)${relativeCandidateRoot.split(path.sep).join('/')}`,
+        ':(top,exclude,literal)node_modules'
       ]
-    : ['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'];
+    : [
+        'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--', '.',
+        ':(top,exclude,literal)node_modules'
+      ];
   if (gitCandidateBytesV2(baseRoot, baseStatusArgs).length !== 0 ||
       gitCandidateBytesV2(candidateRoot, [
         'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'
@@ -1822,17 +2309,20 @@ export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1(
   }
 }
 
-export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readonly<{
+export async function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readonly<{
   baseRoot: string;
   candidateRoot: string;
   outputDirectory: string;
   baseSha: string;
   headSha: string;
   treeSha: string;
-}>): CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 {
-  if (process.platform !== 'linux' || !/^[0-9a-f]{40}$/u.test(input.baseSha) ||
+}>): Promise<CodexDevelopmentPreparedTrustedBootstrapSutInputsV1> {
+  if (process.platform !== 'linux') {
+    throw new Error('typed-block:unsafe-host-capability:linux-provider-required');
+  }
+  if (!/^[0-9a-f]{40}$/u.test(input.baseSha) ||
       !/^[0-9a-f]{40}$/u.test(input.headSha) || !/^[0-9a-f]{40}$/u.test(input.treeSha)) {
-    throw new Error('Trusted bootstrap SUT input identity is invalid or unsupported on this host.');
+    throw new Error('Trusted bootstrap SUT input identity is invalid.');
   }
   const baseRoot = realpathSync.native(path.resolve(input.baseRoot));
   const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
@@ -1853,25 +2343,8 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
   const dependencyClosure = hostedActionDependencyClosureV1({
     baseRoot, candidateRoot, baseSha: input.baseSha
   });
-  const materializerEnvironment = CodexDevelopmentHostedDependencyMaterializerEnvironmentV1();
-  mkdirSync(materializerEnvironment.BUN_INSTALL_CACHE_DIR!, { recursive: true });
-  mkdirSync(materializerEnvironment.HOME!, { recursive: true });
-  mkdirSync(materializerEnvironment.TMPDIR!, { recursive: true });
-  const dependencyMaterialization = CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
-    runHostedMaterializerCommandV2(
-      realpathSync.native(process.execPath),
-      ['install', '--frozen-lockfile', '--ignore-scripts'],
-      'Trusted bootstrap exact-base dependency materialization',
-      { cwd: baseRoot, env: materializerEnvironment }
-    );
-  });
   const baseNodeModules = path.resolve(baseRoot, 'node_modules');
   const candidateNodeModules = path.resolve(candidateRoot, 'node_modules');
-  if (!lstatSync(baseNodeModules).isDirectory() || realpathSync.native(baseNodeModules) !== baseNodeModules) {
-    throw new Error('Trusted bootstrap exact-base dependency materialization has no ordinary node_modules.');
-  }
-  const dependencyPhysicalBefore =
-    CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(baseNodeModules);
   if (existsSync(candidateNodeModules)) {
     throw new Error('Trusted bootstrap candidate node_modules already exists.');
   }
@@ -1880,11 +2353,47 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
   if (!lstatSync(outputDirectory).isDirectory() || realpathSync.native(outputDirectory) !== outputDirectory) {
     throw new Error('Trusted bootstrap transport root is not one ordinary directory.');
   }
+  const environmentDependencyClosure = trustedBootstrapEnvironmentDependencyClosureV1({ dependencyClosure });
+  const dependencyCache = await trustedBootstrapPublishDependencyCacheV1({
+    repositoryRoot: baseRoot,
+    dependencyClosure: environmentDependencyClosure,
+    materialize: ({ recovering }) => {
+      if (!recovering && existsSync(baseNodeModules)) {
+        throw new Error('typed-block:dependency-cache-unowned-base-node-modules');
+      }
+      const materializerEnvironment = CodexDevelopmentHostedDependencyMaterializerEnvironmentV1();
+      mkdirSync(materializerEnvironment.BUN_INSTALL_CACHE_DIR!, { recursive: true });
+      mkdirSync(materializerEnvironment.HOME!, { recursive: true });
+      mkdirSync(materializerEnvironment.TMPDIR!, { recursive: true });
+      const recovery = CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
+        runHostedMaterializerCommandV2(
+          realpathSync.native(process.execPath),
+          ['install', '--frozen-lockfile', '--ignore-scripts'],
+          'Trusted bootstrap exact-base dependency materialization',
+          { cwd: baseRoot, env: materializerEnvironment }
+        );
+      });
+      if (!lstatSync(baseNodeModules).isDirectory() ||
+          realpathSync.native(baseNodeModules) !== baseNodeModules) {
+        throw new Error('Trusted bootstrap exact-base dependency materialization has no ordinary node_modules.');
+      }
+      return Object.freeze({
+        snapshot: CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(baseNodeModules),
+        recovery
+      });
+    }
+  });
+  const dependencyMaterialization = dependencyCache.materialization;
+  const dependencyArchiveProjection = dependencyCache.projection;
   const trustedInputDirectory = path.resolve(candidateRoot, '.sec-trusted-input');
   if (existsSync(trustedInputDirectory)) {
     throw new Error('Trusted bootstrap candidate collides with the reserved trusted-input directory.');
   }
   mkdirSync(trustedInputDirectory, { recursive: false });
+  const trustedInputGeneration = inspectNoFollowDirectoryChainV1(
+    trustedInputDirectory,
+    'Trusted bootstrap reserved input generation'
+  );
   const dependencyClosurePath = path.resolve(trustedInputDirectory, 'dependency-closure.json');
   const gitBundlePath = path.resolve(trustedInputDirectory, 'candidate.bundle');
   const preparedCandidateArchive = path.resolve(outputDirectory, 'prepared-candidate.tar');
@@ -1912,9 +2421,8 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
       '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'verify', gitBundlePath],
       'Trusted bootstrap authenticated candidate Git bundle verification'
     );
-    const materializedArchive = CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({
+    const materializedArchive = CodexDevelopmentMaterializeTrustedBootstrapCandidateArchiveV1({
       candidateRoot,
-      dependencySnapshot: dependencyPhysicalBefore,
       outputDirectory
     });
     if (materializedArchive !== preparedCandidateArchive) {
@@ -1936,13 +2444,10 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
         dependencyEntry?.type !== 'file' || dependencyEntry.contentDigest !== dependencyClosureDigest) {
       throw new Error('Trusted bootstrap archive lost its authenticated Git or dependency closure.');
     }
-    const dependencyPhysicalAfter =
-      CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(baseNodeModules);
-    const dependencyArchiveProjection = CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
-      before: dependencyPhysicalBefore,
-      after: dependencyPhysicalAfter,
-      archiveEntries: validated.entries
-    });
+    if (validated.entries.some((entry) => entry.path === 'node_modules' ||
+        entry.path.startsWith('node_modules/'))) {
+      throw new Error('Trusted bootstrap candidate archive must not contain node_modules.');
+    }
     return Object.freeze({
       preparedCandidateArchive,
       archiveDigest: hostedActionFileDigestV2(preparedCandidateArchive),
@@ -1952,10 +2457,18 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
       entryCount: validated.entries.length,
       totalFileBytes: validated.totalFileBytes,
       dependencyMaterialization,
-      dependencyArchiveProjection
+      dependencyArchiveProjection,
+      environmentDependencyClosure,
+      dependencyCacheIdentity: dependencyCache.identity,
+      dependencyArchive: dependencyCache.archive,
+      dependencyArchiveDigest: dependencyCache.handle.archiveDigest,
+      dependencyCacheHandle: dependencyCache.handle
     });
   } finally {
-    rmSync(trustedInputDirectory, { recursive: true, force: true });
+    deleteExactOwnedDirectoryGenerationV1(
+      trustedInputGeneration,
+      'Trusted bootstrap reserved input generation'
+    );
   }
 }
 
@@ -2070,42 +2583,59 @@ const HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2 = Object.freeze([
   )
 ]);
 
-const HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1 = [
+function hostedSutChrootExecutionScriptV1(includeDependencyArchive: boolean): string {
+  return [
   'expected_archive_digest="$1"',
-  'base_sha="$2"',
-  'head_sha="$3"',
-  'environment_count="$4"',
-  'shift 4',
+  ...(includeDependencyArchive ? ['expected_dependency_archive_digest="$2"'] : []),
+  `base_sha="$${includeDependencyArchive ? 3 : 2}"`,
+  `head_sha="$${includeDependencyArchive ? 4 : 3}"`,
+  `environment_count="$${includeDependencyArchive ? 5 : 4}"`,
+  `shift ${includeDependencyArchive ? 5 : 4}`,
   'environment=()',
   'while [ "$environment_count" -gt 0 ]; do environment+=("$1"); shift; environment_count=$((environment_count-1)); done',
   '[ "$#" -ge 1 ]',
   'mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc',
   '[ "sha256:$(/usr/bin/sha256sum /authenticated-input/prepared-candidate.tar | /usr/bin/cut -d " " -f 1)" = "$expected_archive_digest" ]',
+  ...(includeDependencyArchive ? [
+    '[ "sha256:$(/usr/bin/sha256sum /authenticated-input/dependencies.tar | /usr/bin/cut -d " " -f 1)" = "$expected_dependency_archive_digest" ]'
+  ] : []),
   '/usr/bin/tar --extract --file=/authenticated-input/prepared-candidate.tar --directory=/workspace --no-same-owner --no-same-permissions --delay-directory-restore',
-  'rm -f /authenticated-input/prepared-candidate.tar',
-  'rmdir /authenticated-input',
+  ...(includeDependencyArchive ? [
+    '/usr/bin/tar --extract --file=/authenticated-input/dependencies.tar --directory=/workspace --no-same-owner --no-same-permissions --delay-directory-restore'
+  ] : []),
   '[ -f /workspace/.sec-trusted-input/candidate.bundle ]',
   '/usr/bin/git -C /workspace init --quiet',
   '/usr/bin/git -C /workspace -c protocol.file.allow=always fetch --quiet /workspace/.sec-trusted-input/candidate.bundle refs/sec/base:refs/sec/base refs/sec/head:refs/sec/head',
   '[ "$(/usr/bin/git -C /workspace rev-parse refs/sec/base)" = "$base_sha" ]',
   '[ "$(/usr/bin/git -C /workspace rev-parse refs/sec/head)" = "$head_sha" ]',
   '/usr/bin/git -C /workspace reset --hard --quiet refs/sec/head',
-  'rm -rf -- /workspace/.sec-trusted-input',
+  'rm -f -- /workspace/.sec-trusted-input/candidate.bundle /workspace/.sec-trusted-input/dependency-closure.json',
+  'rmdir -- /workspace/.sec-trusted-input',
   '[ -z "$(/usr/bin/git -C /workspace config --local --get-regexp \u0027^(credential\\.|remote\\.|http\\.|core\\.(worktree|sshCommand)|include)\u0027 || true)" ]',
   `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} /workspace`,
   'cd /workspace',
   `exec /usr/bin/setpriv --reuid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid} --regid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all /usr/bin/prlimit --cpu=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.perProcessCpuSeconds} --as=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.addressSpaceBytes} --fsize=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.fileSizeBytes} --nofile=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.openFiles} --nproc=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.processes} -- /usr/bin/env -i "\${environment[@]}" /tool/bin/bun "$@"`
-].join('\n');
+  ].join('\n');
+}
 
-const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
+function hostedSutNamespaceScriptV1(includeDependencyArchive: boolean): string {
+  const bunPosition = includeDependencyArchive ? 6 : 4;
+  const basePosition = includeDependencyArchive ? 7 : 5;
+  const headPosition = includeDependencyArchive ? 8 : 6;
+  const environmentCountPosition = includeDependencyArchive ? 9 : 7;
+  return [
   'unit_name="$1"',
   'candidate_archive="$2"',
   'expected_archive_digest="$3"',
-  'bun_host="$4"',
-  'base_sha="$5"',
-  'head_sha="$6"',
-  'environment_count="$7"',
-  'shift 7',
+  ...(includeDependencyArchive ? [
+    'dependency_archive="$4"',
+    'expected_dependency_archive_digest="$5"'
+  ] : []),
+  `bun_host="$${bunPosition}"`,
+  `base_sha="$${basePosition}"`,
+  `head_sha="$${headPosition}"`,
+  `environment_count="$${environmentCountPosition}"`,
+  `shift ${environmentCountPosition}`,
   'environment=()',
   'while [ "$environment_count" -gt 0 ]; do environment+=("$1"); shift; environment_count=$((environment_count-1)); done',
   '[ "$#" -ge 2 ]',
@@ -2115,14 +2645,27 @@ const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
   'root="/tmp/$unit_name"',
   '[ ! -e "$root" ]',
   'mkdir -- "$root"',
-  'trap \u0027umount -R "$root" >/dev/null 2>&1 || true; rm -rf -- "$root" >/dev/null 2>&1 || true\u0027 EXIT',
+  'trap \u0027umount -R "$root" >/dev/null 2>&1 || true; rmdir -- "$root" >/dev/null 2>&1 || true\u0027 EXIT',
   `mount -t tmpfs -o nodev,nosuid,mode=0755,size=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes} tmpfs "$root"`,
   'mkdir -p "$root/tool/bin" "$root/authenticated-input" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/etc"',
   ...HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2,
   '[ "$candidate_archive" = "/proc/self/fd/3" ]',
-  '/usr/bin/cat -- "$candidate_archive" > "$root/authenticated-input/prepared-candidate.tar"',
+  ...(includeDependencyArchive ? ['[ "$dependency_archive" = "/proc/self/fd/4" ]'] : []),
+  `/usr/bin/touch "$root/authenticated-input/prepared-candidate.tar"${includeDependencyArchive ? ' "$root/authenticated-input/dependencies.tar"' : ''}`,
+  '/usr/bin/mount --bind "$candidate_archive" "$root/authenticated-input/prepared-candidate.tar"',
+  '/usr/bin/mount -o remount,bind,ro,nosuid,nodev,noexec "$root/authenticated-input/prepared-candidate.tar"',
+  ...(includeDependencyArchive ? [
+    '/usr/bin/mount --bind "$dependency_archive" "$root/authenticated-input/dependencies.tar"',
+    '/usr/bin/mount -o remount,bind,ro,nosuid,nodev,noexec "$root/authenticated-input/dependencies.tar"'
+  ] : []),
+  `/usr/bin/awk -v target="$root/authenticated-input/prepared-candidate.tar" '$5 == target && $6 ~ /(^|,)ro(,|$)/ { found += 1 } END { exit found == 1 ? 0 : 1 }' /proc/self/mountinfo`,
+  ...(includeDependencyArchive ? [
+    `/usr/bin/awk -v target="$root/authenticated-input/dependencies.tar" '$5 == target && $6 ~ /(^|,)ro(,|$)/ { found += 1 } END { exit found == 1 ? 0 : 1 }' /proc/self/mountinfo`
+  ] : []),
   '[ "sha256:$(/usr/bin/sha256sum "$root/authenticated-input/prepared-candidate.tar" | /usr/bin/cut -d " " -f 1)" = "$expected_archive_digest" ]',
-  '/usr/bin/chmod 0400 "$root/authenticated-input/prepared-candidate.tar"',
+  ...(includeDependencyArchive ? [
+    '[ "sha256:$(/usr/bin/sha256sum "$root/authenticated-input/dependencies.tar" | /usr/bin/cut -d " " -f 1)" = "$expected_dependency_archive_digest" ]'
+  ] : []),
   'mount -t tmpfs -o nodev,nosuid,mode=0755,size=' +
     CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes + ' tmpfs "$root/workspace"',
   'mount -t tmpfs -o nodev,nosuid,noexec,mode=1777,size=268435456 tmpfs "$root/tmp"',
@@ -2138,8 +2681,9 @@ const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
   'printf \u0027sut:x:65532:\\n\u0027 > "$root/etc/group"',
   `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} "$root/workspace" "$root/home/sut" "$root/tmp"`,
   'for fd_path in /proc/self/fd/*; do fd="${fd_path##*/}"; if [ "$fd" -gt 2 ] 2>/dev/null; then eval "exec ${fd}>&-"; fi; done',
-  `/usr/sbin/chroot "$root" /usr/bin/bash -ceu ${shellSingleQuoteV1(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1)} sec-hosted-sut-root "$expected_archive_digest" "$base_sha" "$head_sha" "\${#environment[@]}" "\${environment[@]}" "$@"`
-].join('\n');
+  `/usr/sbin/chroot "$root" /usr/bin/bash -ceu ${shellSingleQuoteV1(hostedSutChrootExecutionScriptV1(includeDependencyArchive))} sec-hosted-sut-root "$expected_archive_digest"${includeDependencyArchive ? ' "$expected_dependency_archive_digest"' : ''} "$base_sha" "$head_sha" "\${#environment[@]}" "\${environment[@]}" "$@"`
+  ].join('\n');
+}
 
 const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS_V1 = Object.freeze([
   'tests/unit/tcb-trust-root-contract.test.ts',
@@ -2211,7 +2755,6 @@ export const CodexDevelopmentTrustedBootstrapSutHarnessV1 = [
   `  await execute("focused-tests", ${JSON.stringify([
     'bun', 'test', '--timeout', '180000', ...TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS_V1
   ])});`,
-  '  await execute("repository-audit", ["bun", "scripts/codex/repository-audit.ts", "--json"]);',
   '  await execute("affected-plan", ["bun", "run", "check:affected", "--plan"]);',
   '  await execute("affected-tests", ["bun", "run", "test:affected"]);',
   '  const worktree = await execute("worktree-readback", ["git", "status", "--porcelain=v1"]);',
@@ -2248,7 +2791,7 @@ export const CodexDevelopmentHostedSutCapabilityAssertionV1 = [
   'if (JSON.stringify(actualUsrBin) !== JSON.stringify(expectedUsrBin)) fail("runtime-binary-closure");',
   'if (JSON.stringify(fs.readdirSync("/tool/bin").sort()) !== JSON.stringify(["bun", "node"])) fail("runtime-tool-aliases");',
   'if (!fs.statSync("/usr/lib/git-core").isDirectory()) fail("git-runtime-closure");',
-  'for (const descriptor of fs.readdirSync("/proc/self/fd")) { try { const target = fs.readlinkSync(`/proc/self/fd/${descriptor}`); if (/\\/(?:actions-runner|home\\/runner|runner\\/_work|run|var\\/run|workspace)|\\.oldroot|prepared-candidate\\.tar/u.test(target)) fail(`inherited-fd:${descriptor}`); } catch {} }',
+  'for (const descriptor of fs.readdirSync("/proc/self/fd")) { try { const target = fs.readlinkSync(`/proc/self/fd/${descriptor}`); if (/\\/(?:actions-runner|home\\/runner|runner\\/_work|run|var\\/run|workspace)|\\.oldroot|prepared-candidate\\.tar|dependencies\\.tar/u.test(target)) fail(`inherited-fd:${descriptor}`); } catch {} }',
   'const cgroup = JSON.parse(fs.readFileSync("/capability/cgroup.json", "utf8"));',
   'if (cgroup.memoryMax !== "4294967296" || cgroup.pidsMax !== "256" || cgroup.cpuMax !== "200000 100000") fail("cgroup-limits");',
   'const softLimit = (name) => execFileSync("/usr/bin/prlimit", ["--pid", String(process.pid), `--${name}`, "--noheadings", "--output", "SOFT"], { encoding: "utf8" }).trim();',
@@ -2276,7 +2819,7 @@ const HOSTED_SUT_CAPABILITY_SCRIPT_V1 = [
   'root="/tmp/$unit_name"',
   '[ ! -e "$root" ]',
   'mkdir -- "$root"',
-  'trap \u0027umount -R "$root" >/dev/null 2>&1 || true; rm -rf -- "$root" >/dev/null 2>&1 || true; rm -f -- /tmp/sec-host-sentinel\u0027 EXIT',
+  'trap \u0027umount -R "$root" >/dev/null 2>&1 || true; rmdir -- "$root" >/dev/null 2>&1 || true; rm -f -- /tmp/sec-host-sentinel\u0027 EXIT',
   'mount -t tmpfs -o nodev,nosuid,mode=0755,size=268435456 tmpfs "$root"',
   'mkdir -p "$root/tool/bin" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/capability"',
   ...HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2,
@@ -2316,6 +2859,127 @@ function hostedSutSandboxUnitNameV1(actionKey: VerificationActionKeyDigest, nonc
   return `sec-sut-${actionKey.slice('sha256:'.length, 'sha256:'.length + 16)}-${nonce}`;
 }
 
+function hostedSutSandboxOperationsV1(
+  phase: CodexDevelopmentHostedSutSandboxCommandPlanV1['phase']
+): readonly CodexDevelopmentHostedSutSandboxOperationV1[] {
+  if (phase === 'teardown') {
+    return Object.freeze([{
+      kind: 'exact-residue-cleanup',
+      rootKind: 'sandbox-unit',
+      parentPath: '/tmp',
+      targetIdentity: 'unit-name-bound',
+      noFollow: true,
+      absenceReadback: true,
+      trigger: 'explicit-readback'
+    }] as const);
+  }
+  const operations: CodexDevelopmentHostedSutSandboxOperationV1[] = [
+    Object.freeze({
+      kind: 'namespace',
+      namespaces: Object.freeze(['mount', 'pid', 'network'] as const),
+      killChildOnSupervisorExit: true
+    }),
+    Object.freeze({
+      kind: 'runtime-copy-closure',
+      policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
+      hostDirectoryBindAllowed: false
+    }),
+    Object.freeze({
+      kind: 'ephemeral-filesystems',
+      root: 'tmpfs-chroot',
+      workspace: 'tmpfs',
+      hostSocketExposure: false
+    })
+  ];
+  if (phase === 'execute' || phase === 'bootstrap-execute') {
+    operations.push(Object.freeze({
+      kind: 'retained-input-bind',
+      role: 'candidate',
+      childDescriptor: 3,
+      childPath: HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1,
+      targetPath: '/authenticated-input/prepared-candidate.tar',
+      readOnly: true,
+      mountFlags: Object.freeze(['bind', 'ro', 'nosuid', 'nodev', 'noexec'] as const)
+    }));
+    if (phase === 'bootstrap-execute') {
+      operations.push(Object.freeze({
+        kind: 'retained-input-bind',
+        role: 'dependency',
+        childDescriptor: 4,
+        childPath: HOSTED_SUT_RETAINED_DEPENDENCY_ARCHIVE_CHILD_PATH_V1,
+        targetPath: '/authenticated-input/dependencies.tar',
+        readOnly: true,
+        mountFlags: Object.freeze(['bind', 'ro', 'nosuid', 'nodev', 'noexec'] as const)
+      }));
+    }
+  }
+  operations.push(
+    Object.freeze({
+      kind: 'privilege-drop',
+      uid: 65532,
+      gid: 65532,
+      noNewPrivileges: true,
+      capabilityBoundingSet: 'empty'
+    }),
+    Object.freeze({
+      kind: 'bounded-runtime-exec',
+      runtime: 'bun',
+      environment: 'empty-then-allowlist'
+    }),
+    Object.freeze({
+      kind: 'exact-residue-cleanup',
+      rootKind: 'sandbox-unit',
+      parentPath: '/tmp',
+      targetIdentity: 'unit-name-bound',
+      noFollow: true,
+      absenceReadback: true,
+      trigger: 'finally'
+    })
+  );
+  return Object.freeze(operations);
+}
+
+function hostedSutSandboxRendererV1(
+  phase: CodexDevelopmentHostedSutSandboxCommandPlanV1['phase']
+): Readonly<{
+  command: '/usr/bin/unshare' | '/usr/bin/bash';
+  prefix: readonly string[];
+  script: string;
+  label: string;
+}> {
+  if (phase === 'teardown') {
+    return Object.freeze({
+      command: '/usr/bin/bash',
+      prefix: Object.freeze(['-ceu']),
+      script: HOSTED_SUT_TEARDOWN_SCRIPT_V1,
+      label: 'sec-hosted-teardown'
+    });
+  }
+  return Object.freeze({
+    command: '/usr/bin/unshare',
+    prefix: Object.freeze([
+      '--mount', '--pid', '--fork', '--kill-child=KILL', '--net', '/usr/bin/bash', '-ceu'
+    ]),
+    script: phase === 'capability-self-test'
+      ? HOSTED_SUT_CAPABILITY_SCRIPT_V1
+      : hostedSutNamespaceScriptV1(phase === 'bootstrap-execute'),
+    label: phase === 'capability-self-test' ? 'sec-hosted-capability' : 'sec-hosted-sut'
+  });
+}
+
+function hostedSutSandboxRendererBindingDigestV1(
+  phase: CodexDevelopmentHostedSutSandboxCommandPlanV1['phase'],
+  operations: readonly CodexDevelopmentHostedSutSandboxOperationV1[]
+): VerificationActionKeyDigest {
+  const renderer = hostedSutSandboxRendererV1(phase);
+  return ciActionDigest(Object.freeze({
+    schema: 'sec-hosted-sut-operation-renderer-binding-v1',
+    phase,
+    operations,
+    renderer
+  }));
+}
+
 function finalizeHostedSutSandboxCommandPlanV1(input: Readonly<{
   phase: CodexDevelopmentHostedSutSandboxCommandPlanV1['phase'];
   command: CodexDevelopmentHostedSutSandboxCommandPlanV1['command'];
@@ -2334,6 +2998,7 @@ function finalizeHostedSutSandboxCommandPlanV1(input: Readonly<{
       candidateEnvironmentNames.some((name) => !/^[A-Z][A-Z0-9_]*$/u.test(name))) {
     throw new Error('Hosted SUT sandbox candidate environment allowlist is invalid.');
   }
+  const operations = hostedSutSandboxOperationsV1(input.phase);
   const withoutDigest = Object.freeze({
     schema: CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA_V1,
     policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
@@ -2341,9 +3006,11 @@ function finalizeHostedSutSandboxCommandPlanV1(input: Readonly<{
     unitName: input.unitName,
     command: input.command,
     argv: Object.freeze([...input.argv]),
+    operations,
     candidateEnvironmentNames,
     executionAuthorizationDigest: input.executionAuthorizationDigest,
-    physicalCommandProjectionDigest: input.physicalCommandProjectionDigest
+    physicalCommandProjectionDigest: input.physicalCommandProjectionDigest,
+    rendererBindingDigest: hostedSutSandboxRendererBindingDigestV1(input.phase, operations)
   });
   return Object.freeze({ ...withoutDigest, planDigest: ciActionDigest(withoutDigest) });
 }
@@ -2352,9 +3019,9 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
   plan: CodexDevelopmentHostedSutSandboxCommandPlanV1
 ): void {
   const value = exactObject(plan, [
-    'schema', 'policyDigest', 'phase', 'unitName', 'command', 'argv',
+    'schema', 'policyDigest', 'phase', 'unitName', 'command', 'argv', 'operations',
     'candidateEnvironmentNames', 'executionAuthorizationDigest',
-    'physicalCommandProjectionDigest', 'planDigest'
+    'physicalCommandProjectionDigest', 'rendererBindingDigest', 'planDigest'
   ], 'Hosted SUT sandbox command plan V1');
   const phase = String(value.phase);
   const commandMatchesPhase = phase === 'teardown'
@@ -2367,6 +3034,7 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
       typeof value.unitName !== 'string' ||
       !/^sec-sut-[0-9a-f]{16}-[A-Za-z0-9_.-]{1,32}$/u.test(value.unitName) ||
       !Array.isArray(value.argv) || value.argv.some((entry) => typeof entry !== 'string') ||
+      !Array.isArray(value.operations) ||
       !Array.isArray(value.candidateEnvironmentNames) ||
       value.candidateEnvironmentNames.some((entry) => typeof entry !== 'string') ||
       (value.executionAuthorizationDigest !== null &&
@@ -2375,12 +3043,31 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
       (value.physicalCommandProjectionDigest !== null &&
         (typeof value.physicalCommandProjectionDigest !== 'string' ||
           !/^sha256:[0-9a-f]{64}$/u.test(value.physicalCommandProjectionDigest))) ||
+      typeof value.rendererBindingDigest !== 'string' ||
+      !/^sha256:[0-9a-f]{64}$/u.test(value.rendererBindingDigest) ||
       typeof value.planDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.planDigest)) {
     throw new Error('Hosted SUT sandbox command plan identity is invalid.');
   }
   const { planDigest, ...withoutDigest } = value;
   if (planDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted SUT sandbox command plan digest mismatch.');
+  }
+  if (encodeVerificationActionDataV2(value.operations) !==
+      encodeVerificationActionDataV2(hostedSutSandboxOperationsV1(phase as CodexDevelopmentHostedSutSandboxCommandPlanV1['phase']))) {
+    throw new Error('Hosted SUT sandbox structured operation graph differs from its phase policy.');
+  }
+  const canonicalPhase = phase as CodexDevelopmentHostedSutSandboxCommandPlanV1['phase'];
+  const renderer = hostedSutSandboxRendererV1(canonicalPhase);
+  const prefix = value.argv.slice(0, renderer.prefix.length);
+  const scriptIndex = renderer.prefix.length;
+  if (value.command !== renderer.command ||
+      encodeVerificationActionDataV2(prefix) !== encodeVerificationActionDataV2(renderer.prefix) ||
+      value.argv[scriptIndex] !== renderer.script || value.argv[scriptIndex + 1] !== renderer.label ||
+      value.rendererBindingDigest !== hostedSutSandboxRendererBindingDigestV1(
+        canonicalPhase,
+        value.operations as CodexDevelopmentHostedSutSandboxOperationV1[]
+      )) {
+    throw new Error('Hosted SUT sandbox transport is not the canonical typed-operation renderer projection.');
   }
   if (value.phase === 'execute' || value.phase === 'bootstrap-execute') {
     if (value.phase === 'execute' &&
@@ -2392,18 +3079,6 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
       throw new Error('Trusted bootstrap SUT command plan cannot claim Action authorization.');
     }
     const encoded = encodeVerificationActionDataV2(value.argv);
-    for (const invariant of [
-      '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      '/usr/sbin/chroot', 'mount -t proc', '--no-new-privs', '--bounding-set=-all',
-      '/usr/bin/env -i', '/authenticated-input/prepared-candidate.tar',
-      HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1, '/usr/bin/sha256sum',
-      '/usr/bin/cat --', '$candidate_archive',
-      'copy_runtime /usr/bin/bash /usr/bin/bash',
-      'copy_runtime /usr/bin/tar /usr/bin/tar',
-      'runtime-binary-closure'
-    ]) {
-      if (!encoded.includes(invariant)) throw new Error(`Hosted SUT sandbox command plan omits ${invariant}.`);
-    }
     for (const forbidden of [
       'GITHUB_OUTPUT', 'GITHUB_ENV', 'GITHUB_STEP_SUMMARY', 'ACTIONS_RUNTIME_TOKEN',
       '/var/run/docker.sock', '/run/docker.sock', '${RUNNER_TEMP}', 'mount --bind /usr',
@@ -2479,7 +3154,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlanV1(input: Readon
     physicalCommandProjectionDigest: authorization.physicalCommand.projectionDigest,
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT_V1, 'sec-hosted-sut',
+      '/usr/bin/bash', '-ceu', hostedSutNamespaceScriptV1(false), 'sec-hosted-sut',
       unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1, input.candidateArchiveDigest,
       input.bunExecutable, input.baseSha, input.headSha,
       String(environment.length),
@@ -2493,6 +3168,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlanV1(input: Readon
 export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1(input: Readonly<{
   bootstrapDigest: VerificationActionKeyDigest;
   candidateArchiveDigest: VerificationActionKeyDigest;
+  dependencyArchiveDigest: VerificationActionKeyDigest;
   bunExecutable: string;
   baseSha: string;
   headSha: string;
@@ -2501,6 +3177,7 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1(inp
 }>): CodexDevelopmentHostedSutSandboxCommandPlanV1 {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.bootstrapDigest) ||
       !/^sha256:[0-9a-f]{64}$/u.test(input.candidateArchiveDigest) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(input.dependencyArchiveDigest) ||
       !path.isAbsolute(input.bunExecutable) ||
       !/^[0-9a-f]{40}$/u.test(input.baseSha) || !/^[0-9a-f]{40}$/u.test(input.headSha)) {
     throw new Error('Trusted bootstrap SUT sandbox execution input is invalid.');
@@ -2518,8 +3195,9 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1(inp
     physicalCommandProjectionDigest: null,
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT_V1, 'sec-hosted-sut',
+      '/usr/bin/bash', '-ceu', hostedSutNamespaceScriptV1(true), 'sec-hosted-sut',
       unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1, input.candidateArchiveDigest,
+      HOSTED_SUT_RETAINED_DEPENDENCY_ARCHIVE_CHILD_PATH_V1, input.dependencyArchiveDigest,
       input.bunExecutable, input.baseSha, input.headSha,
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`),
@@ -2576,17 +3254,29 @@ function hostedSutTeardownCommandPlanV1(input: Readonly<{
 
 function defaultHostedSutSandboxProcessV1(
   plan: CodexDevelopmentHostedSutSandboxCommandPlanV1,
-  retainedArchive?: CodexDevelopmentRetainedHostedSutArchiveV1
+  retainedArchive?: CodexDevelopmentRetainedHostedSutArchiveV1,
+  retainedDependencyArchive?: CodexDevelopmentRetainedHostedSutArchiveV1
 ): Promise<CodexDevelopmentHostedSutSandboxProcessObservationV1> {
   const consumesArchive = plan.phase === 'execute' || plan.phase === 'bootstrap-execute';
   if (consumesArchive !== (retainedArchive !== undefined)) {
     throw new Error('Hosted SUT process has a missing or extraneous retained archive descriptor.');
+  }
+  const consumesDependencyArchive = plan.phase === 'bootstrap-execute';
+  if (consumesDependencyArchive !== (retainedDependencyArchive !== undefined)) {
+    throw new Error('Trusted bootstrap SUT process has a missing or extraneous dependency archive descriptor.');
   }
   if (retainedArchive !== undefined) {
     assertRetainedHostedSutArchiveV1(retainedArchive);
     if (plan.argv.filter((entry) => entry === HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1).length !== 1 ||
         plan.argv.filter((entry) => entry === retainedArchive.archiveDigest).length !== 1) {
       throw new Error('Hosted SUT process plan differs from its retained archive binding.');
+    }
+  }
+  if (retainedDependencyArchive !== undefined) {
+    assertRetainedHostedSutArchiveV1(retainedDependencyArchive);
+    if (plan.argv.filter((entry) => entry === HOSTED_SUT_RETAINED_DEPENDENCY_ARCHIVE_CHILD_PATH_V1).length !== 1 ||
+        plan.argv.filter((entry) => entry === retainedDependencyArchive.archiveDigest).length !== 1) {
+      throw new Error('Trusted bootstrap SUT process plan differs from its retained dependency archive binding.');
     }
   }
   const outputByteLimit = CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT_V1;
@@ -2597,7 +3287,10 @@ function defaultHostedSutSandboxProcessV1(
       env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
       stdio: retainedArchive === undefined
         ? ['ignore', 'pipe', 'pipe']
-        : ['ignore', 'pipe', 'pipe', retainedArchive.fileDescriptor],
+        : retainedDependencyArchive === undefined
+          ? ['ignore', 'pipe', 'pipe', retainedArchive.fileDescriptor]
+          : ['ignore', 'pipe', 'pipe', retainedArchive.fileDescriptor,
+              retainedDependencyArchive.fileDescriptor],
       windowsHide: true
     });
     const streams = {
@@ -2650,6 +3343,9 @@ function defaultHostedSutSandboxProcessV1(
         code: wallTimedOut ? 124 : outputTruncated ? 125 : code,
         rawOutputDigest: ciActionDigest({ ...outputProjection, wallTimedOut }),
         failureTail,
+        termination: wallTimedOut ? 'timeout' as const
+          : outputTruncated ? 'cancelled' as const
+            : 'completed' as const,
         ...outputProjection
       }));
     };
@@ -2683,7 +3379,8 @@ function syntheticHostedSutSandboxProcessObservationV1(
     stdoutBytesObserved: 0,
     stderrBytesObserved: Buffer.byteLength(diagnostic, 'utf8'),
     outputTruncated: false,
-    commandStarted: false
+    commandStarted: false,
+    termination: 'transport-failed'
   });
 }
 
@@ -2699,6 +3396,91 @@ const TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES_V1 = Object.freeze([
   ['affected-tests.log', 'affected-tests'],
   ['tcb-lock-post.json', 'tcb-lock-post']
 ] as const);
+
+async function trustedBootstrapBoundRepositoryAuditV1(input: Readonly<{
+  candidateRoot: string;
+  baseSha: string;
+  headSha: string;
+  treeSha: string;
+  manifestPath: string;
+}>): Promise<CodexDevelopmentVerificationGateEvidenceV4> {
+  const baseTreeSha = CodexDevelopmentDefaultGitRevisionV1(input.candidateRoot, `${input.baseSha}^{tree}`);
+  if (baseTreeSha === null) throw new Error('Trusted bootstrap semantic audit base tree is unavailable.');
+  const fileDigest = (repositoryPath: string): VerificationActionKeyDigest => {
+    const filePath = path.resolve(input.candidateRoot, ...repositoryPath.split('/'));
+    return `sha256:${createHash('sha256').update(readFileSync(filePath)).digest('hex')}`;
+  };
+  const executionEnvironment = createCiVerificationLocalExecutionEnvironmentV2({
+    os: process.platform,
+    arch: process.arch,
+    bunVersion: Bun.version
+  });
+  const candidate: CiVerificationActionCandidateV1 = {
+    baseSha: input.baseSha,
+    baseTreeSha,
+    headSha: input.headSha,
+    headTreeSha: input.treeSha,
+    manifestPath: input.manifestPath,
+    manifestDigest: fileDigest(input.manifestPath),
+    scopeAuthorizationRevision: ciActionDigest({
+      schema: 'sec-trusted-bootstrap-repository-audit-scope-v1',
+      headSha: input.headSha,
+      treeSha: input.treeSha,
+      manifestPath: input.manifestPath
+    }),
+    profile: 'quick',
+    toolchainRevision: executionEnvironment.toolchainRevision,
+    providerRevision: executionEnvironment.executionEnvironmentRevision,
+    contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
+    requiredBlobs: CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2.map((repositoryPath) => ({
+      path: repositoryPath,
+      digest: fileDigest(repositoryPath)
+    }))
+  };
+  const gate: CiVerificationProducerGateV1 = {
+    id: 'repository-audit',
+    phase: 'quick',
+    argv: [
+      'bun',
+      'scripts/codex/repository-audit.ts',
+      '--inventory-only',
+      '--default-ref',
+      input.baseSha
+    ],
+    runtime: 'bun',
+    environment: {},
+    coveredScopeIds: ['repository-semantic-assurance']
+  };
+  const closure = buildCiVerificationActionPlanClosureV1({ candidate, gates: [gate] });
+  const execution = await CodexDevelopmentExecuteCiActionClosureV1({
+    runtimeStateRepositoryRoot: input.candidateRoot,
+    staticAuthorityRepositoryRoot: input.candidateRoot,
+    physicalExecutionRepositoryRoot: input.candidateRoot,
+    actionPlan: closure,
+    gates: [{
+      gate,
+      env: CodexDevelopmentCandidateProcessEnvironmentV2({}, {
+        SEC_REPOSITORY_AUDIT_DEFAULT_REF: input.baseSha,
+        SEC_WORK_PACKAGE_MANIFEST_PATH: input.manifestPath
+      })
+    }],
+    headSha: input.headSha,
+    now: () => new Date()
+  });
+  const evidence = execution.gates[0];
+  if (evidence === undefined || execution.failed || evidence.result.status !== 'passed') {
+    throw new Error(
+      `Trusted bootstrap bound repository audit Action failed: ${JSON.stringify({
+        actionPlanDigest: execution.actionPlan.actionPlanDigest,
+        failed: execution.failed,
+        status: evidence?.result.status ?? 'missing-evidence',
+        reasonCode: evidence?.result.reasonCode ?? null,
+        diagnostic: evidence?.result.diagnostic ?? null
+      })}`
+    );
+  }
+  return evidence;
+}
 
 export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readonly<{
   baseRoot: string;
@@ -2716,17 +3498,51 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
   if (!/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]{1,1024}$/u.test(input.manifestPath)) {
     throw new Error('Trusted bootstrap SUT manifest path is invalid.');
   }
+  const preCapabilityActionKey = ciActionDigest(Object.freeze({
+    schema: 'sec-trusted-bootstrap-sut-pre-capability-v1',
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    treeSha: input.treeSha,
+    manifestPath: input.manifestPath,
+    sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1
+  }));
+  const preCapability = await CodexDevelopmentProbeHostedSutSandboxCapabilityV1({
+    actionKey: preCapabilityActionKey
+  });
+  if (preCapability.state !== 'supported') {
+    throw new Error(
+      `trusted-bootstrap-provider-pre-admission-${preCapability.state}: ${
+        preCapability.diagnostic ?? 'sandbox capability is unavailable'}`.slice(0, 2048)
+    );
+  }
   const outputDirectory = path.resolve(input.outputDirectory);
   if (existsSync(outputDirectory) && readdirSync(outputDirectory).length !== 0) {
     throw new Error('Trusted bootstrap SUT evidence root must begin empty.');
   }
   mkdirSync(outputDirectory, { recursive: true });
+  const hostRepositoryAudit = await trustedBootstrapBoundRepositoryAuditV1({
+    candidateRoot: input.candidateRoot,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    treeSha: input.treeSha,
+    manifestPath: input.manifestPath
+  });
   const transportDirectory = path.resolve(outputDirectory, '.transport');
-  const candidateNodeModules = path.resolve(input.candidateRoot, 'node_modules');
+  mkdirSync(transportDirectory, { recursive: false });
+  const transportGeneration = inspectNoFollowDirectoryChainV1(
+    transportDirectory,
+    'Trusted bootstrap transport generation'
+  );
   let prepared: CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 | null = null;
   let retainedArchive: CodexDevelopmentRetainedHostedSutArchiveV1 | null = null;
+  let retainedDependencyArchive: CodexDevelopmentRetainedHostedSutArchiveV1 | null = null;
+  let dependencyCacheConsumer: Readonly<{
+    lifecycle: EnvironmentDependencyCacheLifecycleV2;
+    consumerId: string;
+    acquireCredentialDigest: `sha256:${string}`;
+  }> | null = null;
   try {
-    prepared = CodexDevelopmentPrepareTrustedBootstrapSutInputsV1({
+    prepared = await CodexDevelopmentPrepareTrustedBootstrapSutInputsV1({
       baseRoot: input.baseRoot,
       candidateRoot: input.candidateRoot,
       outputDirectory: transportDirectory,
@@ -2744,6 +3560,12 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
       archiveInventoryDigest: prepared.archiveInventoryDigest,
       dependencyMaterialization: prepared.dependencyMaterialization,
       dependencyArchiveProjection: prepared.dependencyArchiveProjection,
+      environmentDependencyClosure: prepared.environmentDependencyClosure,
+      dependencyCacheIdentity: prepared.dependencyCacheIdentity,
+      dependencyCacheHandleDigest: prepared.dependencyCacheHandle.handleDigest,
+      dependencyArchiveDigest: prepared.dependencyArchiveDigest,
+      preCapabilityPlanDigest: preCapability.commandPlanDigest,
+      preCapabilityOutputDigest: preCapability.outputDigest,
       sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1
     }));
     const candidateEnvironment = CodexDevelopmentCandidateProcessEnvironmentV2({}, {
@@ -2765,13 +3587,33 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
     let teardown = syntheticHostedSutSandboxProcessObservationV1(1, 'sandbox-not-started');
     let retainedArchiveStable = false;
     if (capability.state === 'supported') {
+      const lifecycle = await openEnvironmentDependencyCacheLifecycleV2({
+        repository: trustedBootstrapRepositoryIdentityV1(),
+        repositoryRoot: input.baseRoot,
+        identity: prepared.dependencyCacheIdentity,
+        providerRevision: prepared.environmentDependencyClosure.providerRevision,
+        platform: prepared.environmentDependencyClosure.platform
+      });
+      lifecycle.recoverDeadConsumers();
+      const consumerId = `trusted-bootstrap:${bootstrapDigest}`;
+      const acquired = lifecycle.acquire({ consumerId });
+      dependencyCacheConsumer = Object.freeze({
+        lifecycle,
+        consumerId,
+        acquireCredentialDigest: acquired.handle.acquireCredentialDigest!
+      });
       retainedArchive = retainHostedSutArchiveV1(
         prepared.preparedCandidateArchive,
         prepared.archiveDigest
       );
+      retainedDependencyArchive = retainHostedSutArchiveV1(
+        prepared.dependencyArchive,
+        prepared.dependencyArchiveDigest
+      );
       commandPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1({
         bootstrapDigest,
         candidateArchiveDigest: retainedArchive.archiveDigest,
+        dependencyArchiveDigest: retainedDependencyArchive.archiveDigest,
         bunExecutable: realpathSync.native(process.execPath),
         baseSha: input.baseSha,
         headSha: input.headSha,
@@ -2779,7 +3621,9 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
         unitNonce: `${process.pid}-${Date.now()}`.slice(0, 32)
       });
       try {
-        execution = await defaultHostedSutSandboxProcessV1(commandPlan, retainedArchive);
+        execution = await defaultHostedSutSandboxProcessV1(
+          commandPlan, retainedArchive, retainedDependencyArchive
+        );
       } finally {
         try {
           teardown = await defaultHostedSutSandboxProcessV1(hostedSutTeardownCommandPlanV1({
@@ -2790,9 +3634,14 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
           try {
             retainedArchiveStable =
               assertRetainedHostedSutArchiveV1(retainedArchive) === prepared.archiveDigest;
+            const retainedDependencyArchiveStable =
+              assertRetainedHostedSutArchiveV1(retainedDependencyArchive!) === prepared.dependencyArchiveDigest;
+            retainedArchiveStable = retainedArchiveStable && retainedDependencyArchiveStable;
           } finally {
             closeSync(retainedArchive.fileDescriptor);
             retainedArchive = null;
+            closeSync(retainedDependencyArchive!.fileDescriptor);
+            retainedDependencyArchive = null;
           }
         }
       }
@@ -2811,6 +3660,14 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
           entry !== null && typeof entry === 'object' && !Array.isArray(entry))
       : [];
     const resultByLabel = new Map(results.map((result) => [String(result.label), result] as const));
+    resultByLabel.set('repository-audit', {
+      label: 'repository-audit',
+      status: hostRepositoryAudit.result.status,
+      actionKey: hostRepositoryAudit.action.actionKey,
+      evidenceDigest: CodexDevelopmentVerificationDigest(hostRepositoryAudit),
+      reasonCode: hostRepositoryAudit.result.reasonCode,
+      evidenceRefs: hostRepositoryAudit.result.evidenceRefs
+    });
     for (const [fileName, label] of TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES_V1) {
       writeHostedActionJson(path.resolve(outputDirectory, fileName), Object.freeze({
         schema: 'sec-trusted-bootstrap-sandbox-step-observation-v1',
@@ -2847,6 +3704,9 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
       commandPlanDigest: commandPlan?.planDigest ?? null,
       archiveDigest: prepared.archiveDigest,
       archiveInventoryDigest: prepared.archiveInventoryDigest,
+      dependencyArchiveDigest: prepared.dependencyArchiveDigest,
+      dependencyCacheIdentityDigest: prepared.dependencyCacheIdentity.identityDigest,
+      dependencyCacheHandleDigest: prepared.dependencyCacheHandle.handleDigest,
       executionOutputDigest: execution.rawOutputDigest,
       residueReadbackDigest: teardown.rawOutputDigest
     });
@@ -2865,11 +3725,18 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
     return Object.freeze({ status, bootstrapDigest, receiptDigest });
   } finally {
     if (retainedArchive !== null) closeSync(retainedArchive.fileDescriptor);
-    if (prepared !== null && existsSync(prepared.preparedCandidateArchive)) {
-      rmSync(prepared.preparedCandidateArchive, { force: true });
+    if (retainedDependencyArchive !== null) closeSync(retainedDependencyArchive.fileDescriptor);
+    if (dependencyCacheConsumer !== null) {
+      dependencyCacheConsumer.lifecycle.release({
+        consumerId: dependencyCacheConsumer.consumerId,
+        acquireCredentialDigest: dependencyCacheConsumer.acquireCredentialDigest
+      });
+      dependencyCacheConsumer = null;
     }
-    if (existsSync(transportDirectory)) rmSync(transportDirectory, { recursive: true, force: true });
-    if (existsSync(candidateNodeModules)) rmSync(candidateNodeModules, { recursive: true, force: true });
+    deleteExactOwnedDirectoryGenerationV1(
+      transportGeneration,
+      'Trusted bootstrap transport generation'
+    );
   }
 }
 
@@ -2892,7 +3759,7 @@ type HostedSutSandboxCapabilityObservationV1 = Readonly<{
   teardownExitCode: number | null;
   residueMarkerObserved: boolean;
   residueReadbackDigest: VerificationActionKeyDigest;
-  cgroupEmpty: boolean;
+  sandboxRootAbsent: boolean;
   diagnostic: string | null;
 }>;
 
@@ -2911,7 +3778,7 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapabilityV1(input: R
       commandStarted: false, exitCode: null, markerObserved: false,
       outputDigest: ciActionDigest(diagnostic),
       teardownCommandStarted: false, teardownExitCode: null, residueMarkerObserved: false,
-      residueReadbackDigest: ciActionDigest('no-unshare-process'), cgroupEmpty: true, diagnostic
+      residueReadbackDigest: ciActionDigest('no-unshare-process'), sandboxRootAbsent: true, diagnostic
     });
   }
   const run = input.runSandboxProcess ?? defaultHostedSutSandboxProcessV1;
@@ -2938,12 +3805,12 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapabilityV1(input: R
       1, error instanceof Error ? error.message : String(error)
     );
   }
-  const selfTestPassed = observed.commandStarted && observed.code === 0 &&
+  const selfTestPassed = observed.commandStarted && observed.termination === 'completed' && observed.code === 0 &&
     observed.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER_V1);
   const directProcessClosed = teardown.failureTail.includes(
     `${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:direct-process-closed`
   );
-  const residuePassed = teardown.commandStarted && teardown.code === 0 &&
+  const residuePassed = teardown.commandStarted && teardown.termination === 'completed' && teardown.code === 0 &&
     directProcessClosed && observed.commandStarted;
   if (selfTestPassed && residuePassed) {
     return Object.freeze({
@@ -2955,7 +3822,7 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapabilityV1(input: R
       teardownCommandStarted: teardown.commandStarted, teardownExitCode: teardown.code,
       residueMarkerObserved: teardown.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1),
       residueReadbackDigest: teardown.rawOutputDigest as VerificationActionKeyDigest,
-      cgroupEmpty: true, diagnostic: null
+      sandboxRootAbsent: true, diagnostic: null
     });
   }
   const failure = `${observed.failureTail}\n${teardown.failureTail}`.trim();
@@ -2971,7 +3838,7 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapabilityV1(input: R
     teardownCommandStarted: teardown.commandStarted, teardownExitCode: teardown.code,
     residueMarkerObserved: teardown.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1),
     residueReadbackDigest: teardown.rawOutputDigest as VerificationActionKeyDigest,
-    cgroupEmpty: residuePassed,
+    sandboxRootAbsent: residuePassed,
     diagnostic: failure.length > 0 ? hostedSutDiagnosticV1(
       failure,
       'Hosted SUT sandbox capability self-test failed.'
@@ -3030,7 +3897,7 @@ function hostedSutCapabilityReceiptV1(
     teardownCommandStarted: capability.teardownCommandStarted,
     teardownExitCode: capability.teardownExitCode,
     residueMarkerObserved: capability.residueMarkerObserved,
-    cgroupEmpty: capability.cgroupEmpty,
+    sandboxRootAbsent: capability.sandboxRootAbsent,
     residueReadbackDigest: capability.residueReadbackDigest,
     diagnostic: capability.diagnostic
   });
@@ -3144,11 +4011,11 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
         boundedFailureTailDigest: ciActionDigest(capability.diagnostic ?? '')
       }),
       reap: Object.freeze({
-        namespacePid1Exited: false, killChildEnabled: true,
-        unshareProcessClosed: capability.cgroupEmpty
+        supervisorExitObserved: false, killChildPolicyBound: true,
+        supervisorClosed: capability.sandboxRootAbsent
       }),
       residue: Object.freeze({
-        cgroupEmpty: capability.cgroupEmpty,
+        sandboxRootAbsent: capability.sandboxRootAbsent,
         hostReadbackDigest: capability.residueReadbackDigest
       }),
       diagnostic: capability.diagnostic
@@ -3219,7 +4086,7 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
   const directProcessClosed = teardown.failureTail.includes(
     `${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:direct-process-closed`
   );
-  const residuePassed = teardown.commandStarted && teardown.code === 0 &&
+  const residuePassed = teardown.commandStarted && teardown.termination === 'completed' && teardown.code === 0 &&
     directProcessClosed && processResult.commandStarted;
   let postExecutionArchiveDigest: VerificationActionKeyDigest | null = null;
   let archiveReadbackDiagnostic: string | null = null;
@@ -3282,12 +4149,12 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
       boundedFailureTailDigest: ciActionDigest(processResult.failureTail)
     }),
     reap: Object.freeze({
-      namespacePid1Exited: processResult.commandStarted,
-      killChildEnabled: true,
-      unshareProcessClosed: residuePassed
+      supervisorExitObserved: processResult.termination === 'completed',
+      killChildPolicyBound: true,
+      supervisorClosed: processResult.termination === 'completed' && residuePassed
     }),
     residue: Object.freeze({
-      cgroupEmpty: residuePassed,
+      sandboxRootAbsent: residuePassed,
       hostReadbackDigest: teardown.rawOutputDigest as VerificationActionKeyDigest
     }),
     diagnostic
@@ -3722,22 +4589,21 @@ export type CodexDevelopmentCiVerificationMainOptions = {
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   repositoryRoot?: string;
+  /** Optional role split for adapters/tests whose durable state is not the exact Git authority. */
+  runtimeStateRepositoryRoot?: string;
+  staticAuthorityRepositoryRoot?: string;
+  physicalExecutionRepositoryRoot?: string;
   gitRevision?: (ref: string) => string | null;
   trackedTreeIsClean?: () => boolean;
   changedFiles?: (baseRef: string) => string[] | null;
   changedRecords?: (baseRef: string) => CodexDevelopmentGitChangedRecordV1[] | null;
   transitionObservation?: CodexDevelopmentTestImpactTransitionObservationV1;
   readGitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobBytesV1 | null;
-  runGate?: (
-    step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }
-  ) => Promise<CodexDevelopmentGateProcessResultV1>;
+  /** Provider-issued Effect/Evidence authority. Required outside test seams. */
+  effectProvider?: VerificationActionEffectProviderV1;
   writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV2) => void;
   writeEvidenceV4?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV4) => void;
   actionRunner?: VerificationActionRunnerV2;
-  readDurableActionResult?: (actionKey: VerificationActionKeyDigest) => Readonly<{
-    result: VerificationGateResultV1;
-    evidenceRefs: readonly string[];
-  }> | null;
   readExactGitBlob?: typeof CodexDevelopmentReadExactGitBlobV1;
 };
 
@@ -3747,8 +4613,49 @@ export interface CodexDevelopmentCiActionExecutionV1 {
   readonly failed: boolean;
 }
 
+export type CodexDevelopmentCiPhysicalExecutionBindingV1 = Readonly<{
+  canonicalRoot: string;
+  headSha: string;
+  headTreeSha: string;
+  trackedClean: true;
+}>;
+
+/**
+ * Physical cwd admission is independent from static Git-object authority.
+ * It is observed immediately before and after a fresh Effect; callers cannot
+ * claim the binding with DTO fields.
+ */
+export function CodexDevelopmentObserveCiPhysicalExecutionBindingV1(
+  repositoryRoot: string
+): CodexDevelopmentCiPhysicalExecutionBindingV1 {
+  const canonicalRoot = realpathSync.native(path.resolve(repositoryRoot));
+  const headSha = CodexDevelopmentDefaultGitRevisionV1(canonicalRoot, 'HEAD');
+  const headTreeSha = CodexDevelopmentDefaultGitRevisionV1(canonicalRoot, 'HEAD^{tree}');
+  if (headSha === null || headTreeSha === null ||
+      !CodexDevelopmentDefaultTrackedTreeIsCleanV1(canonicalRoot)) {
+    throw new Error('physical-execution-binding-unresolved: cwd must be one clean exact Git worktree');
+  }
+  return Object.freeze({ canonicalRoot, headSha, headTreeSha, trackedClean: true });
+}
+
+function assertCiPhysicalExecutionBindingV1(
+  repositoryRoot: string,
+  expected: Readonly<{ headSha: string; headTreeSha: string }>
+): CodexDevelopmentCiPhysicalExecutionBindingV1 {
+  const binding = CodexDevelopmentObserveCiPhysicalExecutionBindingV1(repositoryRoot);
+  if (binding.headSha !== expected.headSha || binding.headTreeSha !== expected.headTreeSha) {
+    throw new Error('physical-execution-binding-mismatch: cwd does not match the authorized Action head/tree');
+  }
+  return binding;
+}
+
 export async function CodexDevelopmentExecuteCiActionClosureV1(options: {
-  readonly repositoryRoot: string;
+  /** Durable Runtime State authority; it is not a source-code or process cwd claim. */
+  readonly runtimeStateRepositoryRoot: string;
+  /** Exact Git read root from which static admission authority is produced. */
+  readonly staticAuthorityRepositoryRoot: string;
+  /** Physical cwd used by the bounded process provider after static admission. */
+  readonly physicalExecutionRepositoryRoot: string;
   readonly actionPlan: CiVerificationActionPlanClosureV1;
   readonly gates: readonly Readonly<{
     gate: CiVerificationProducerGateV1;
@@ -3756,13 +4663,8 @@ export async function CodexDevelopmentExecuteCiActionClosureV1(options: {
   }>[];
   readonly headSha: string;
   readonly now: () => Date;
-  readonly runGate: (step: {
-    id: string;
-    argv: string[];
-    env: NodeJS.ProcessEnv;
-  }) => Promise<CodexDevelopmentGateProcessResultV1>;
+  readonly effectProvider?: VerificationActionEffectProviderV1;
   readonly actionRunner?: VerificationActionRunnerV2;
-  readonly readDurableActionResult?: CodexDevelopmentCiVerificationMainOptions['readDurableActionResult'];
 }): Promise<CodexDevelopmentCiActionExecutionV1> {
   const actionPlan = parseCiVerificationActionPlanClosureV1(
     encodeVerificationActionDataV2(options.actionPlan)
@@ -3771,6 +4673,90 @@ export async function CodexDevelopmentExecuteCiActionClosureV1(options: {
     throw new Error('CI Action executor gate/plan cardinality mismatch.');
   }
   const runner = options.actionRunner ?? createVerificationActionRunnerV2();
+  const producerActionPlanClosure = createVerificationActionPlanClosureV1({
+    producer: {
+      identity: 'sec-ci-verification-action-plan-closure',
+      revision: actionPlan.producerRevision
+    },
+    plans: actionPlan.actions
+  });
+  const firstProviderRevision = actionPlan.actions[0]?.action.environment.providerRevision ?? 'unwired';
+  if (options.effectProvider !== undefined) {
+    assertCiVerificationActionEffectProviderV1(options.effectProvider, firstProviderRevision);
+  }
+  // The ordinary CLI owns exactly one process provider.  It resolves the
+  // normalized operation and descriptor from the frozen producer closure,
+  // then routes the bounded process transport through the provider factory so
+  // the runner still controls start receipt, one-shot capability, Evidence,
+  // terminal journal projection, observation and release.  A caller callback
+  // is not an execution authority; alternate providers must arrive through
+  // the explicit provider contract.
+  const usesDefaultPhysicalProvider = options.effectProvider === undefined;
+  if (usesDefaultPhysicalProvider) {
+    const firstOperation = actionPlan.normalizedOperations[0];
+    if (firstOperation === undefined || firstOperation.candidate.headSha !== options.headSha ||
+        actionPlan.normalizedOperations.some((operation) =>
+          operation.candidate.headSha !== firstOperation.candidate.headSha ||
+          operation.candidate.headTreeSha !== firstOperation.candidate.headTreeSha)) {
+      throw new Error('physical-execution-binding-mismatch: Action closure has no single exact candidate');
+    }
+    assertCiPhysicalExecutionBindingV1(options.physicalExecutionRepositoryRoot, {
+      headSha: firstOperation.candidate.headSha,
+      headTreeSha: firstOperation.candidate.headTreeSha
+    });
+  }
+  const effectProvider = options.effectProvider ?? createVerificationActionCallbackEffectProviderV1({
+    providerRevision: firstProviderRevision,
+    execute: async ({ action, signal }) => {
+      const index = actionPlan.actions.findIndex((entry) => entry.action.actionKey === action.actionKey);
+      const descriptor = index < 0 ? undefined : options.gates[index];
+      const operation = index < 0 ? undefined : actionPlan.normalizedOperations[index];
+      if (descriptor === undefined || operation === undefined) {
+        throw new Error('CI process provider received an Action outside the authorized closure.');
+      }
+      assertCiPhysicalExecutionBindingV1(options.physicalExecutionRepositoryRoot, {
+        headSha: operation.candidate.headSha,
+        headTreeSha: operation.candidate.headTreeSha
+      });
+      const startedAt = options.now();
+      const processResult = await CodexDevelopmentRunGateProcessV1(options.physicalExecutionRepositoryRoot, {
+        id: operation.gateId,
+        argv: [...ciVerificationNormalizedOperationArgvV2(operation)],
+        env: descriptor.env,
+        budget: action.environment.executionBudget,
+        signal
+      });
+      const finishedAt = options.now();
+      assertCiPhysicalExecutionBindingV1(options.physicalExecutionRepositoryRoot, {
+        headSha: operation.candidate.headSha,
+        headTreeSha: operation.candidate.headTreeSha
+      });
+      return {
+        terminal: createVerificationActionTerminalV2({
+          status: processResult.code === 0
+            ? 'passed'
+            : processResult.termination === 'cancelled'
+              ? 'invalidated'
+              : 'failed',
+          reasonCode: processResult.code === 0
+            ? 'executed-success'
+            : processResult.termination === 'timeout'
+              ? 'timeout'
+              : processResult.termination === 'cancelled'
+                ? 'cancelled'
+                : 'executed-failure',
+          resultDigest: processResult.rawOutputDigest as VerificationActionKeyDigest
+        }),
+        evidenceRefs: [
+          `verification-action-run:${processResult.rawOutputDigest}`,
+          `verification-action-termination:${processResult.termination}`,
+          `verification-action-failure-tail:${ciActionDigest(processResult.failureTail)}`
+        ],
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString()
+      };
+    }
+  });
   const evidence: CodexDevelopmentVerificationGateEvidenceV4[] = [];
   let failed = false;
   for (let index = 0; index < actionPlan.actions.length; index += 1) {
@@ -3823,37 +4809,34 @@ export async function CodexDevelopmentExecuteCiActionClosureV1(options: {
       });
       continue;
     }
-    let physical: CodexDevelopmentGateProcessResultV1 | null = null;
-    let gateStarted: Date | null = null;
-    let gateFinished: Date | null = null;
     const outcome: VerificationActionRunOutcomeV2 = await runner.execute({
-      repositoryRoot: options.repositoryRoot,
+      runtimeStateRepositoryRoot: options.runtimeStateRepositoryRoot,
+      staticAuthorityRepositoryRoot: options.staticAuthorityRepositoryRoot,
+      physicalExecutionRepositoryRoot: options.physicalExecutionRepositoryRoot,
       action: plan.action,
       plan,
+      actionPlanClosure: producerActionPlanClosure,
       executionDomain: 'hosted-ci',
-      executor: async () => {
-        gateStarted = options.now();
-        physical = await options.runGate({
-          id: operation.gateId,
-          argv: [...authorizedArgv],
-          env: descriptor.env
-        });
-        gateFinished = options.now();
-        return createVerificationActionTerminalV2({
-          status: physical.code === 0 ? 'passed' : 'failed',
-          reasonCode: physical.code === 0 ? 'executed-success' : 'executed-failure',
-          resultDigest: physical.rawOutputDigest
-        });
-      }
+      effectProvider
     });
     let result: VerificationGateResultV1;
     if (outcome.physicalExecution) {
-      if (physical === null || gateStarted === null || gateFinished === null || outcome.terminal === null) {
-        throw new Error(`CI Action ${plan.action.actionKey} lost its physical terminal observation.`);
+      if (outcome.terminal === null || outcome.evidence === null) {
+        throw new Error(
+          `CI Action ${plan.action.actionKey} lost its physical terminal observation: `
+          + `${outcome.disposition}; ${outcome.reason ?? 'no diagnostic'}`
+        );
       }
-      const processResult = physical as CodexDevelopmentGateProcessResultV1;
-      const started = gateStarted as Date;
-      const finished = gateFinished as Date;
+      const started = new Date(outcome.evidence.startedAt);
+      const finished = new Date(outcome.evidence.finishedAt);
+      const outputDigest = outcome.evidence.terminal.resultDigest ??
+        (CodexDevelopmentVerificationDigest(outcome.evidence) as VerificationActionKeyDigest);
+      const exitCode = outcome.terminal.status === 'passed' ? 0 : 1;
+      const settlementBlocked = outcome.disposition === 'blocked';
+      const failureTail =
+        settlementBlocked
+          ? outcome.reason ?? 'Provider terminal settlement remains pending.'
+          : (exitCode === 0 ? '' : `Provider terminal Evidence reported ${outcome.terminal.status}.`);
       result = CodexDevelopmentBuildVerificationGateResultV1({
         gateId: descriptor.gate.id,
         gateRevision: plan.action.operation.revision,
@@ -3862,9 +4845,11 @@ export async function CodexDevelopmentExecuteCiActionClosureV1(options: {
         subjectRevision: options.headSha,
         inputDigest: plan.action.actionKey,
         applicability: 'required',
-        status: processResult.code === 0 ? 'passed' : 'failed',
+        status: settlementBlocked ? 'failed' : outcome.terminal.status,
         disposition: 'executed',
-        reasonCode: processResult.code === 0 ? 'executed-success' : 'executed-failure',
+        reasonCode: settlementBlocked
+          ? 'process-settlement-failed'
+          : outcome.terminal.reasonCode,
         requiredForClaims: [`gate:${descriptor.gate.id}`],
         supportedClaims: [`gate:${descriptor.gate.id}`],
         environment: {
@@ -3881,28 +4866,79 @@ export async function CodexDevelopmentExecuteCiActionClosureV1(options: {
           startedAt: started.toISOString(),
           finishedAt: finished.toISOString(),
           durationMs: Math.max(0, finished.getTime() - started.getTime()),
-          exitCode: processResult.code,
-          outputDigest: processResult.rawOutputDigest,
-          failureFingerprint: processResult.code === 0 ? null : processResult.rawOutputDigest
+          exitCode,
+          outputDigest,
+          failureFingerprint: settlementBlocked || exitCode !== 0 ? outputDigest : null
         },
+        evidenceRefs: [...outcome.evidence.evidenceRefs],
+        invalidationRules: ['ActionKey, session, scope, review, main health, or trust revision changes'],
+        diagnostic: !settlementBlocked && exitCode === 0
+          ? null
+          : CodexDevelopmentFailureTailV1(failureTail, `${descriptor.gate.id} failed.`)
+      });
+    } else if (outcome.disposition === 'blocked') {
+      result = CodexDevelopmentBuildVerificationGateResultV1({
+        gateId: descriptor.gate.id,
+        gateRevision: plan.action.operation.revision,
+        owner: 'ci-verification-maintainer',
+        requirementKey: `gate:${descriptor.gate.id}`,
+        subjectRevision: options.headSha,
+        inputDigest: plan.action.actionKey,
+        applicability: 'required',
+        status: 'not-run',
+        disposition: 'not-executed',
+        reasonCode: 'not-dispatched',
+        requiredForClaims: [`gate:${descriptor.gate.id}`],
+        supportedClaims: [`gate:${descriptor.gate.id}`],
+        environment: null,
+        execution: null,
         evidenceRefs: [],
         invalidationRules: ['ActionKey, session, scope, review, main health, or trust revision changes'],
-        diagnostic: processResult.code === 0
-          ? null
-          : CodexDevelopmentFailureTailV1(processResult.failureTail, `${descriptor.gate.id} failed.`)
+        diagnostic: CodexDevelopmentFailureTailV1(
+          outcome.reason ?? 'VerificationAction admission blocked before Effect.',
+          `${descriptor.gate.id} was not dispatched.`
+        )
       });
     } else {
-      const durable = options.readDurableActionResult?.(plan.action.actionKey) ?? null;
-      if (durable === null || durable.evidenceRefs.length === 0 ||
-          durable.result.inputDigest !== plan.action.actionKey ||
-          durable.result.subjectRevision !== options.headSha) {
+      const observedEvidence = outcome.evidence;
+      if (observedEvidence === null || observedEvidence.evidenceRefs.length === 0 ||
+          observedEvidence.actionKey !== plan.action.actionKey) {
         throw new Error(`CI Action ${plan.action.actionKey} ${outcome.disposition} without independently readable durable Evidence.`);
       }
+      const baseResult = CodexDevelopmentBuildVerificationGateResultV1({
+        gateId: descriptor.gate.id,
+        gateRevision: plan.action.operation.revision,
+        owner: 'ci-verification-maintainer',
+        requirementKey: `gate:${descriptor.gate.id}`,
+        subjectRevision: options.headSha,
+        inputDigest: plan.action.actionKey,
+        applicability: 'required',
+        status: observedEvidence.terminal.status,
+        disposition: 'reused',
+        reasonCode: observedEvidence.terminal.reasonCode,
+        requiredForClaims: [`gate:${descriptor.gate.id}`],
+        supportedClaims: [`gate:${descriptor.gate.id}`],
+        environment: {
+          runtime: operation.runtime,
+          os: process.platform,
+          arch: process.arch,
+          filesystem: null,
+          capabilities: [],
+          toolchainRevision: plan.action.environment.toolchainRevision,
+          providerRevisions: [plan.action.environment.providerRevision]
+        },
+        execution: null,
+        evidenceRefs: [...observedEvidence.evidenceRefs],
+        invalidationRules: ['ActionKey, session, scope, review, main health, or trust revision changes'],
+        diagnostic: observedEvidence.terminal.status === 'failed'
+          ? `Provider terminal Evidence reported failure for ${descriptor.gate.id}.`
+          : null
+      });
       result = CodexDevelopmentBuildVerificationGateResultV1({
-        ...durable.result,
+        ...baseResult,
         disposition: 'reused',
         execution: null,
-        evidenceRefs: [...durable.evidenceRefs]
+        evidenceRefs: [...observedEvidence.evidenceRefs]
       });
     }
     evidence.push({
@@ -4110,8 +5146,6 @@ export async function CodexDevelopmentCiVerificationMain(
   const readGitBlob = options.readGitBlob
     ?? ((ref: string, file: string) =>
       defaultReadGitBlob(repositoryRoot, readExactGitBlob, ref, file));
-  const runGate = options.runGate
-    ?? ((step) => CodexDevelopmentRunGateProcessV1(repositoryRoot, step));
   const writeEvidence = options.writeEvidence;
   const writeEvidenceV4 = options.writeEvidenceV4;
   const evidencePath = path.resolve(env.SEC_CI_VERIFICATION_EVIDENCE_PATH ?? VERIFICATION_EVIDENCE_PATH);
@@ -4297,21 +5331,15 @@ export async function CodexDevelopmentCiVerificationMain(
       throw new Error('Formal hosted Action plan digest differs from the trusted dispatcher reconstruction.');
     }
     const actionExecution = await CodexDevelopmentExecuteCiActionClosureV1({
-      repositoryRoot,
+      runtimeStateRepositoryRoot: path.resolve(options.runtimeStateRepositoryRoot ?? repositoryRoot),
+      staticAuthorityRepositoryRoot: path.resolve(options.staticAuthorityRepositoryRoot ?? repositoryRoot),
+      physicalExecutionRepositoryRoot: path.resolve(options.physicalExecutionRepositoryRoot ?? repositoryRoot),
       actionPlan,
       gates: descriptors,
       headSha,
       now,
-      runGate: async (descriptor) => {
-        console.log(`::group::SEC verification: ${descriptor.id}`);
-        try {
-          return await runGate(descriptor);
-        } finally {
-          console.log('::endgroup::');
-        }
-      },
-      actionRunner: options.actionRunner,
-      readDurableActionResult: options.readDurableActionResult
+      effectProvider: options.effectProvider,
+      actionRunner: options.actionRunner
     });
     actionGates = actionExecution.gates;
     if (actionExecution.failed) {

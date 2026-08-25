@@ -12,8 +12,8 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { isolatedGitReadEnvironment } from '../../platform/git/read-environment.ts';
 import { digest, rawSha256, sha256 } from '../../platform/shared/canonical-primitives.ts';
-import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
 import { assertSecRoadmapTerminalCompactionCandidateV2 } from '../../platform/shared/work-selection-live-contract.ts';
 import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 import {

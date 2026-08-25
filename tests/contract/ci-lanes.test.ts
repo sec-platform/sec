@@ -24,6 +24,7 @@ import {
   slowTestPrRiskBaselineSuiteIds,
   slowTestSuiteIds
 } from '../../platform/shared/test-budget-contract.ts';
+import { VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1 } from '../../platform/shared/verification-action-contract.ts';
 import {
   CodexDevelopmentBuildVerificationScopeInventoryV1
 } from '../../platform/shared/verification-scope-inventory.ts';
@@ -390,12 +391,15 @@ test('shared CI orchestration preserves child cwd, raw output digest and V2 not-
     const result = await CodexDevelopmentRunGateProcessV1(repositoryRoot, {
       id: 'cwd-sentinel',
       argv: [process.execPath, '-e', 'console.log(process.cwd())'],
-      env: process.env
+      env: process.env,
+      budget: VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1,
+      signal: new AbortController().signal
     });
     expect(result).toEqual({
       code: 0,
       rawOutputDigest: `sha256:${createHash('sha256').update(output).digest('hex')}`,
-      failureTail: repositoryRoot
+      failureTail: repositoryRoot,
+      termination: 'completed'
     });
     expect(CodexDevelopmentCreateNotRunGateV2({
       id: 'not-run-sentinel',
@@ -412,6 +416,28 @@ test('shared CI orchestration preserves child cwd, raw output digest and V2 not-
       rawOutputDigest: null,
       notRunReason: 'Gate was not reached because preflight or an earlier fail-fast gate did not complete.'
     });
+  } finally {
+    await fs.rm(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('shared CI process transport enforces the Action absolute/stall budget and settles the child tree', async () => {
+  const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-ci-timeout-'));
+  try {
+    const result = await CodexDevelopmentRunGateProcessV1(repositoryRoot, {
+      id: 'timeout-sentinel',
+      argv: [process.execPath, '-e', 'setInterval(() => {}, 1000)'],
+      env: process.env,
+      budget: {
+        ...VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1,
+        absoluteTimeoutMs: 250,
+        stallTimeoutMs: 100
+      },
+      signal: new AbortController().signal
+    });
+    expect(result.code).toBe(1);
+    expect(result.termination).toBe('timeout');
+    expect(result.failureTail).toMatch(/no admitted progress|timed out/);
   } finally {
     await fs.rm(repositoryRoot, { recursive: true, force: true });
   }

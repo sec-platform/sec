@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { isolatedGitReadEnvironment } from '../shared/git-read-environment.ts';
+import { isolatedGitReadEnvironment } from '../git/read-environment.ts';
 
 const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 const GIT_LFS_POINTER_PREFIX = Buffer.from('version https://git-lfs.github.com/spec/v1\n', 'utf8');

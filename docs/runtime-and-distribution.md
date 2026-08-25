@@ -11,6 +11,17 @@ last-reviewed: 2026-08-06
 
 Fact/Binding Delta与Impact由`docs/delta-and-impact.md`拥有；Compatibility与Migration由`docs/change-management.md`拥有；Verification Result由`docs/verification-governance.md`拥有。Runtime只产生物理capability、materialization、package/install/runtime和support Evidence，不建立第二Resolver、Comparator或Compatibility evaluator。
 
+Runtime在`docs/system-architecture.md`的唯一Development Critical Path Spine图中只拥有EnvironmentSpec/
+dependency closure的物理实现、materialization capability和对应receipt；Verification Action、MainHealth、
+closeout与GC仍由其领域owner拥有。本文的platform或materialization图是该总图的局部投影，不得新增
+第二套跨领域状态、current pointer或retirement authority。
+
+EnvironmentSpec同时是provider resource profile与Buildx create/observe flags的唯一semantic source；具体provider
+只能产生derived desired、physical observation和单一bounded active/terminal receipt。Runtime Cache capability拥有
+cache root的no-follow目录身份、atomic publication与readback，但不拥有TestImpact等领域cache的内容语义；领域
+writer不得绕过该capability直接写路径。provider terminal settlement必须在删除active current前可崩溃恢复，
+且最终absence由exact readback证明，不能由command exit code推断。
+
 精确版本、release schedule、当前支持矩阵、依赖清单、可执行路径、协议字段和 physical Gate 结果由 package metadata、代码合同、release/support profile 与 Evidence 拥有。
 
 ## 正交轴
@@ -192,8 +203,10 @@ WSL/Linux Evidence不替代Windows native，Windows Evidence也不替代Linux/ma
 派生dependency root只允许保存canonical manifest投影、materialized modules、cache、lease与readiness
 stamp；它不是第二个package authority，不能持有lockfile、package-manager config或workspace config。
 唯一resolution effect由根`package.json + bun.lock + bunfig.toml + canonical Bun executable/version`生成compiler dependency
-generation；shared/project root不得再次调用package manager，只能从该generation复制完整有界closure或建立
-exact bridge。Materialization binding必须同时绑定lock、根manifest与install config raw digest、Bun物理可执行文件与digest、
+generation；shared/project root不得再次调用package manager。只读host consumer必须用exact junction/symlink locator直接
+复用该generation，不得递归复制package tree；没有生产consumer的host writable-copy mode必须退役，不能因测试fixture
+保留第二套materializer。需要可写隔离的container consumer由EnvironmentSpec选择BuildKit bind/cache/overlay能力，
+不在NTFS host上模拟CoW，也不把Docker/BuildKit cache提升为dependency authority。Materialization binding必须同时绑定lock、根manifest与install config raw digest、Bun物理可执行文件与digest、
 platform/architecture、每个direct/transitive package manifest和resolution edge。首次publish必须验证source
 generation与staged projection，后续cache hit只验证current root/toolchain、strict stamp与目标tree，不重复扫描
 已不参与运行的source generation。任何竞争authority残留一律保留并typed-block；只有显式
@@ -201,8 +214,145 @@ generation-retirement transaction拥有删除权，readiness不得借自动clean
 Compiler generation本身的binding是唯一可复用identity；不得再用`.tmp` stamp复制并自签package、lock、
 toolchain或readiness facts。Shared/project stamp只缓存已验证的完整materialization binding，不能替代source与
 target whole-object readback。
+Windows canonical generation调用Bun时必须显式使用`copyfile` backend：Bun cache仍负责解析结果与下载复用，但
+活动generation不得与cache共享可写hardlink inode；否则consumer或测试的一次写入会反向污染cache并使后续重建
+重新签发错误内容。同一manifest/lock/install-config/toolchain identity已有旧binding时，repair generation的runtime
+revision必须相同，否则在publish前typed-block；只有上述输入identity变化才允许新的materialization revision。
 允许生成的manifest/stamp也必须以non-reparse physical file与retained-handle identity读写；名称或inode漂移
 必须typed-block，不能沿路径重查后写入替换对象。
+
+宿主策略不是“总是link”或“总是copy”，而是由consumer mutation语义和已证明的filesystem/provider capability
+决定唯一物理投影：
+
+| consumer | canonical projection | 必须拒绝的伪优化 |
+| --- | --- | --- |
+| 同一宿主、只读 | exact generation locator；Windows可用经过no-follow/physical identity验证的junction，POSIX可用同等验证的symlink | 递归复制、重新install、把locator字符串当generation identity |
+| 同卷、需要可写隔离 | 仅在provider证明reflink/block-clone/overlay且target为独立physical object时采用 | hardlink共享inode、junction/symlink写穿source、把NTFS普通copy称为CoW |
+| 容器、需要可写隔离 | BuildKit只读bind提供source，cache mount复用下载/编译cache，overlay/private writable layer承载mutation | 把host `node_modules` tar后每次展开、把BuildKit cache当dependency authority、挂载canonical Runtime State |
+| 跨宿主或无共享filesystem | 每个generation至多一次content-addressed archive，先验证bytes/entry/link policy再在私有target展开 | 每个Action重复打包/复制、未经验证直接展开、archive成功冒充materialization current |
+| 无安全隔离能力 | typed `materialization-capability-unavailable`，或选择已验证container provider | 静默退化为无界recursive copy、复用可写hardlink、临时联网重装 |
+
+因此此前的缓慢复制不是“软/硬链接没有用上”这么简单：只读consumer应直接locator复用；可写consumer若使用
+symlink/junction会写穿source，hardlink会共享inode并污染Bun cache。真正需要消除的是把不同consumer语义都塞进
+同一archive/recursive-copy路径，以及每个Action重复支付同一个generation的跨边界物化。
+
+本领域是`DG03/DG07/DG08/DG09`的Runtime与distribution投影；原则身份和合取关系仍由`docs/development-governance.md`拥有。
+
+`D08/D17`的宿主和三root选择必须先于任何物化Effect。下图同时记录实际目录资源、允许行为和
+禁止回退；路径字符串本身从不等于资源identity：
+
+```mermaid
+flowchart TB
+  demand["consumer demand<br/>read-only / writable / container / cross-host"] --> roots["three explicit roots"]
+  roots --> runtimeRoot["RuntimeState root<br/>journal/current/lease only"]
+  roots --> staticRoot["StaticAuthority root<br/>exact Git objects; no Runtime fallback"]
+  roots --> physicalRoot["PhysicalExecution root<br/>provider cwd + exact physical identity"]
+  demand --> capability["host capability observation<br/>filesystem / process / container / network"]
+  capability --> route{"consumer mutation semantics + proven capability"}
+  route -->|same-host read-only| locator["exact generation locator<br/>junction/symlink only with no-follow identity"]
+  route -->|writable; independent object proven| clone["reflink / block clone / overlay"]
+  route -->|container writable| view["BuildKit read-only bind + cache + private layer"]
+  route -->|cross-host| archive["once-per-generation content-addressed archive"]
+  route -->|unknown / unsafe| blocked["materialization-capability-unavailable<br/>zero mkdir/download/install"]
+  locator --> binding["generation binding + exact readback"]
+  clone --> binding
+  view --> binding
+  archive --> binding
+  runtimeRoot -. "FORBIDDEN: execute here" .-> physicalRoot
+  staticRoot -. "FORBIDDEN: store journal/current here" .-> runtimeRoot
+  locator -. "FORBIDDEN: writable link-through" .-> clone
+  binding -. "FORBIDDEN: cache hit or path string becomes authority" .-> runtimeRoot
+```
+
+trusted bootstrap 的具体路由同样遵守该表。EnvironmentSpec/lock/toolchain closure先查询Runtime/Dependency owner在
+canonical Runtime State发布的cache-resource current；exact hit直接复用，不得先运行Bun install再“命中缓存”。cache
+namespace按repository + EnvironmentSpec/closure派生，不能按candidate worktree分裂。跨主机archive只生成一次并由
+owner receipt绑定source snapshot、archive bytes和canonical projection；父provider retain的immutable archive fd在private
+mount namespace中投影成`ro,nosuid,nodev,noexec` file bind，禁止再用`cat`整包复制到tmpfs。archive extract仍是portable
+fallback的物理成本；只有owner-issued retained directory/overlay route连通consumer lease、mount readback和terminal GC后
+才能进一步消除，不能由shell脚本根据路径存在自行切换。
+
+下面是Runtime/Dependency owner的唯一物化状态机局部投影；它不拥有Verification Action或GC的跨域终态：
+
+```mermaid
+stateDiagram-v2
+  [*] --> Demand
+  Demand --> Classified: bind EnvironmentSpec / lock / toolchain / platform / consumer mutation
+  Classified --> Blocked: capability unknown or unsafe projection
+  Classified --> LocalLocator: same-host read-only + exact generation current
+  Classified --> WritableClone: same-volume writable + proven reflink/block-clone/overlay
+  Classified --> ContainerView: container writable + BuildKit bind/cache/overlay
+  Classified --> ArchiveLookup: cross-host or no shared filesystem
+
+  ArchiveLookup --> ArchiveReuse: exact content-addressed archive current
+  ArchiveLookup --> Materializing: archive absent + provider grant current
+  Materializing --> Published: install/acquire only missing closure, then publish once
+  Published --> ArchiveReuse
+
+  LocalLocator --> Bound
+  WritableClone --> Bound
+  ContainerView --> Bound
+  ArchiveReuse --> Bound
+  Bound --> Leased: owner-issued consumer credential
+  Leased --> Released: consumer terminal agreement
+  Released --> Retained: retention budget not expired or shared consumers remain
+  Released --> GcPending: consumer-zero + owner retirement intent
+  GcPending --> PhysicalClean: exact no-follow/provider-native absence readback
+  Retained --> GcPending: later zero reachability + policy eligible
+
+  Blocked --> [*]
+  PhysicalClean --> [*]
+```
+
+`D10/D12/D13/D14/D24/D25`的release、crash recovery和GC展开如下。它只投影各资源
+owner的同名阶段；不存在一个按`.tmp`、`.sec`、Docker前缀或image tag做全局删除的GC：
+
+```mermaid
+flowchart TB
+  birth["durable generation birth / intent"] --> current["single bounded current<br/>desired generation + exact physical identity"]
+  current --> acquire["credentialed consumer acquire<br/>canonical sorted consumer set"]
+  acquire --> active["active lease<br/>host + boot + pid + process-start identity"]
+  active --> terminal["consumer terminal agreement"]
+  terminal --> release["CAS release + current readback"]
+  release --> zero{"consumer set exactly zero?"}
+  zero -->|no| retained["retained / shared / active"]
+  zero -->|yes| intent["resource-scoped retirement intent<br/>persisted before cleanup Effect"]
+  intent --> closeHandles["settle process tree / streams / retained handles"]
+  closeHandles --> identity["re-read no-follow physical identity<br/>or provider-native immutable ID"]
+  identity --> remove["exact owner delete / stop / remove"]
+  remove --> absence{"target, descendants and current absent?"}
+  absence -->|yes| settled["settlement receipt + physical-clean"]
+  absence -->|busy / unknown / replacement| pending["cleanup-pending / retain-and-block"]
+  pending --> recovery{"authenticated owner death and same intent current?"}
+  recovery -->|yes| closeHandles
+  recovery -->|no / remote unknown| retained
+  retained --> zero
+
+  tag["mutable tag / path prefix / caller count / timeout alone"] -. "FORBIDDEN ownership proof" .-> remove
+  rootClose["root child close only"] -. "FORBIDDEN terminal proof" .-> closeHandles
+  exitHook["process.exit / competing finally"] -. "FORBIDDEN second cleanup writer" .-> remove
+  remoteEmpty["unbound endpoint reports empty"] -. "FORBIDDEN absence proof" .-> absence
+```
+
+`LocalLocator`不复制；`WritableClone`只有filesystem/provider明确证明独立physical object时存在；
+普通NTFS copy不是CoW，hardlink和junction也不是可写隔离。`ContainerView`复用BuildKit cache但不把cache升级为
+dependency authority。`ArchiveReuse`只为跨边界兼容性付一次archive/extract成本，同一generation的后续Action
+直接复用published handle。任何route变化都来自capability observation和新的binding receipt，shell不得按路径存在
+偷偷在link/copy/archive之间切换。
+
+仓库外dependency archive不进入repository generated-state registry。其唯一semantic lifecycle owner是Runtime/Dependency：
+durable birth必须早于Bun/archive Effect，canonical Runtime State只保存registration/current/settlement object，Runtime Cache
+capability只执行no-follow publish/read/delete。consumer acquire/release、aggregate retention budget、`gc-pending`和
+`physical-clean`均由同一owner做expected-current transition；cache-local receipt、物理mutation lock、文件描述符close或
+command exit都不能单独证明consumer-zero、terminal或GC完成。materializer与consumer lease必须绑定
+`host + boot identity + pid + process-start identity`；deadline只使death observation到期可检查，绝不单独授权steal。
+同宿主只有boot已替换、PID已消失或PID的process-start identity已替换时才能CAS recovery；远端宿主或liveness unknown
+保持typed block。resource generation拥有独立物理目录，identity-scoped current只选择resource；读取与GC只获取父目录
+authority，不能为了检查missing先创建空entry。GC先证明首次archive binding、再持久化resource-scoped intent、再精确
+删除并readback absence；任一cutpoint由同一intent续跑，`physical-clean`之后缺失settlement也必须可补写。birth/rebirth
+同样以identity-scoped intent可重放，不能把registration已写/current未写误报为普通contention。immutable retired
+registration/settlement history由aggregate reconciler在不再被current引用后按同一retention policy成对压缩，不能在
+rebirth事务中制造跨记录删除cutpoint。
 
 引入、升级或删除依赖前必须检查：
 

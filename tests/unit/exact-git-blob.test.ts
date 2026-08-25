@@ -15,8 +15,9 @@ import {
   CodexDevelopmentListExactGitTreeEntriesV1,
   CodexDevelopmentReadExactGitBlobV1,
   CodexDevelopmentReadExactGitTextBlobsBatchV1,
-  type CodexDevelopmentExactGitBlobCommandResultV1
-} from '../../scripts/codex/exact-git-blob.ts';
+  parseExactGitBlobBytesV1,
+  parseExactGitTextBatchHeaderV1
+} from '../../platform/git/objects.ts';
 
 function git(
   repositoryRoot: string,
@@ -161,31 +162,9 @@ test('exact Git blob reader rejects invalid, missing, nonordinary, and oversized
   }
 });
 
-test('exact Git blob reader rejects a cat-file byte-count mismatch', () => {
-  const repositoryRoot = path.resolve(tmpdir());
-  const commitSha = '1'.repeat(40);
-  const blobSha = '2'.repeat(40);
-  const runGit = (
-    _root: string,
-    args: readonly string[]
-  ): CodexDevelopmentExactGitBlobCommandResultV1 => {
-    let stdout: Buffer;
-    if (args[0] === 'ls-tree') {
-      stdout = Buffer.from(`100644 blob ${blobSha}\tfixture\0`, 'utf8');
-    } else if (args[1] === '-s') {
-      stdout = Buffer.from('4\n', 'utf8');
-    } else {
-      stdout = Buffer.from('abc', 'utf8');
-    }
-    return { status: 0, stderr: Buffer.alloc(0), stdout };
-  };
-
-  expect(() => CodexDevelopmentReadExactGitBlobV1({
-    repositoryRoot,
-    commitSha,
-    repositoryPath: 'fixture',
-    runGit
-  })).toThrow('size mismatch');
+test('exact Git blob parser rejects a cat-file byte-count mismatch', () => {
+  expect(() => parseExactGitBlobBytesV1(Buffer.from('abc'), 4, 'fixture'))
+    .toThrow('size mismatch');
 });
 
 test('exact Git text batch preserves path-to-blob identity and rejects malformed output', () => {
@@ -206,15 +185,11 @@ test('exact Git text batch preserves path-to-blob identity and rejects malformed
       ['second.ts', 'export const second = 2;\n']
     ]);
 
-    expect(() => CodexDevelopmentReadExactGitTextBlobsBatchV1({
-      repositoryRoot,
-      entries: [entries[0]!],
-      runGitBatch: () => ({
-        status: 0,
-        stderr: Buffer.alloc(0),
-        stdout: Buffer.from(`${'f'.repeat(40)} blob 1\nx\n`, 'utf8')
-      })
-    })).toThrow('header does not match');
+    expect(() => parseExactGitTextBatchHeaderV1(
+      Buffer.from(`${'f'.repeat(40)} blob 1\nx\n`, 'utf8'),
+      entries[0]!.blobSha,
+      entries[0]!.repositoryPath
+    )).toThrow('header does not match');
   } finally {
     rmSync(repositoryRoot, { force: true, recursive: true });
   }

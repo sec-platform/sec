@@ -9,6 +9,7 @@ import { compilerRoot } from '../shared/paths.ts';
 import {
   createNoFollowDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
+  deleteRetainedNoFollowInventoryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
   inspectNoFollowDirectoryChildV1,
@@ -18,6 +19,7 @@ import {
 } from '../shared/physical-no-follow.ts';
 import {
   currentSecRuntimePlatformV1,
+  encodeSecRuntimeSha256PathTokenV1,
   resolveSecRuntimeCacheRootV1,
   secRuntimeStateEnvironmentV1
 } from '../shared/sec-runtime-state-contract.ts';
@@ -27,6 +29,7 @@ export const TEST_WORKSPACE_NAMESPACE_ENV = 'SEC_TEST_WORKSPACE_NAMESPACE';
 export const TEST_WORKSPACE_RUN_CHILD_ENV = 'SEC_TEST_WORKSPACE_RUN_CHILD';
 export const TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV = 'SEC_TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT';
 export const TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV = 'SEC_TEST_WORKSPACE_BOUND_CHILD_LOCATOR';
+export const MAX_WINDOWS_TEST_WORKSPACE_CACHE_LOCATOR_LENGTH_V1 = 200;
 export const TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_SCHEMA_V1 = 'sec-test-workspace-run-child-assignment-v1';
 export const TEST_WORKSPACE_SUPERVISOR_LEASE_SCHEMA_V1 = 'sec-test-workspace-supervisor-lease-v1';
 const TEST_WORKSPACE_SUPERVISOR_CHALLENGE_SCHEMA_V1 = 'sec-test-workspace-supervisor-challenge-v1';
@@ -745,20 +748,53 @@ export function getTestWorkspaceTempRoot(env: NodeJS.ProcessEnv = process.env): 
           'v1',
           rawSha256(physicalCompilerRoot).slice('sha256:'.length)
         )
-    : path.join(
-        resolveSecRuntimeCacheRootV1({
-          platform: currentSecRuntimePlatformV1(),
-          environment: secRuntimeStateEnvironmentV1(effectiveEnvironment),
-          repositoryRoot: physicalCompilerRoot
-        }),
-        'test-workspaces',
-        'v1',
-        rawSha256(process.platform === 'win32'
-          ? physicalCompilerRoot.toLocaleLowerCase('en-US')
-          : physicalCompilerRoot).slice('sha256:'.length)
-      );
+    : testWorkspaceCacheRootV1(effectiveEnvironment, physicalCompilerRoot, namespace !== undefined);
   if (!namespace) return root;
-  return runChild ? path.join(root, namespace, runChild) : path.join(root, namespace);
+  if (hasBoundGateChild) return runChild ? path.join(root, namespace, runChild) : path.join(root, namespace);
+  const namespaceRoot = path.join(root, compactTestWorkspaceLocatorSegmentV1('n', namespace));
+  const target = runChild === undefined
+    ? namespaceRoot
+    : path.join(namespaceRoot, compactTestWorkspaceLocatorSegmentV1('r', runChild));
+  if (process.platform === 'win32' && target.length > MAX_WINDOWS_TEST_WORKSPACE_CACHE_LOCATOR_LENGTH_V1) {
+    throw new Error(
+      'Test workspace cache locator exceeds the static Windows descendant-path budget: ' +
+      `${target.length} > ${MAX_WINDOWS_TEST_WORKSPACE_CACHE_LOCATOR_LENGTH_V1}`
+    );
+  }
+  return target;
+}
+
+function compactTestWorkspaceLocatorSegmentV1(kind: 'n' | 'r', identity: string): string {
+  // Locator compression is not semantic identity, but it still preserves the
+  // complete SHA-256 collision boundary instead of relying on a truncated
+  // parent path. The full source identity remains in the assignment/lease.
+  const digest = rawSha256(JSON.stringify({
+    schema: 'sec-test-workspace-locator-segment-v1',
+    kind,
+    identity
+  }));
+  return `${kind}-${encodeSecRuntimeSha256PathTokenV1(digest)}`;
+}
+
+function testWorkspaceCacheRootV1(
+  environment: NodeJS.ProcessEnv,
+  physicalCompilerRoot: string,
+  namespaced: boolean
+): string {
+  const cacheRoot = resolveSecRuntimeCacheRootV1({
+    platform: currentSecRuntimePlatformV1(),
+    environment: secRuntimeStateEnvironmentV1(environment),
+    repositoryRoot: physicalCompilerRoot
+  });
+  if (namespaced) return path.join(cacheRoot, 'w', '1');
+  return path.join(
+    cacheRoot,
+    'test-workspaces',
+    'v1',
+    rawSha256(process.platform === 'win32'
+      ? physicalCompilerRoot.toLocaleLowerCase('en-US')
+      : physicalCompilerRoot).slice('sha256:'.length)
+  );
 }
 
 export function getTestWorkspaceTemplateRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -848,31 +884,7 @@ export function settlePreparedTestWorkspaceRunV1(token: PreparedTestWorkspaceRun
     deadlineAtMs: performance.now() + TEST_WORKSPACE_CLEANUP_SCAN_BUDGET_MS,
     maximumEntries: 100_000
   });
-  const directories = new Map(inventory
-    .filter((entry) => entry.kind === 'directory')
-    .map((entry) => [entry.relativePath, entry]));
-  for (const entry of [...inventory].sort((left, right) => {
-    const depth = (value: string): number => value.split('/').length;
-    return depth(right.relativePath) - depth(left.relativePath) ||
-      right.relativePath.localeCompare(left.relativePath);
-  })) {
-    const components = entry.relativePath.split('/');
-    components.pop();
-    const ancestorDirectories = components.map((_, index) => {
-      const relativePath = components.slice(0, index + 1).join('/');
-      const ancestor = directories.get(relativePath);
-      if (ancestor === undefined) throw new Error('Test workspace run cleanup ancestor inventory is incomplete');
-      return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
-    });
-    deleteRetainedNoFollowEntryV1({
-      root: state.target,
-      relativePath: entry.relativePath,
-      kind: entry.kind,
-      device: entry.device,
-      inode: entry.inode,
-      ancestorDirectories
-    });
-  }
+  deleteRetainedNoFollowInventoryV1({ root: state.target, inventory });
   deleteRetainedNoFollowEntryV1({
     root: state.parent,
     relativePath: path.basename(state.target.path),

@@ -13,6 +13,7 @@ import {
   deriveTestWorkspaceRunNamespaceV1,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
+  MAX_WINDOWS_TEST_WORKSPACE_CACHE_LOCATOR_LENGTH_V1,
   parseTestWorkspaceRunChildAssignmentV1,
   prepareTestWorkspaceRunV1,
   resolveTestWorkspaceNamespace,
@@ -38,15 +39,27 @@ test('test workspace roots honor a safe CI lane namespace', () => {
 
   const relativeToRepository = path.relative(compilerRoot, defaultRoot);
   expect(path.isAbsolute(relativeToRepository) || relativeToRepository.startsWith('..')).toBe(true);
-  expect(getTestWorkspaceTempRoot({
+  const namespacedRoot = getTestWorkspaceTempRoot({
     ...isolatedTestWorkspaceEnvironment,
     SEC_TEST_WORKSPACE_NAMESPACE: 'pr-risk-slow-suite-e2e-artifacts'
-  })).toBe(path.join(defaultRoot, 'pr-risk-slow-suite-e2e-artifacts'));
-  expect(getTestWorkspaceTempRoot({
+  });
+  expect(path.basename(namespacedRoot)).toMatch(/^n-[a-z2-7]{52}$/u);
+  expect(namespacedRoot).not.toContain('pr-risk-slow-suite-e2e-artifacts');
+  const childRoot = getTestWorkspaceTempRoot({
     ...isolatedTestWorkspaceEnvironment,
     [TEST_WORKSPACE_NAMESPACE_ENV]: 'verification-gate',
     [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'a'.repeat(64)}`
-  })).toBe(path.join(defaultRoot, 'verification-gate', `fast-${'a'.repeat(64)}`));
+  });
+  const parentRoot = getTestWorkspaceTempRoot({
+    ...isolatedTestWorkspaceEnvironment,
+    [TEST_WORKSPACE_NAMESPACE_ENV]: 'verification-gate'
+  });
+  expect(path.dirname(childRoot)).toBe(parentRoot);
+  expect(path.basename(parentRoot)).toMatch(/^n-[a-z2-7]{52}$/u);
+  expect(path.basename(childRoot)).toMatch(/^r-[a-z2-7]{52}$/u);
+  if (process.platform === 'win32') {
+    expect(childRoot.length).toBeLessThanOrEqual(MAX_WINDOWS_TEST_WORKSPACE_CACHE_LOCATOR_LENGTH_V1);
+  }
   expect(getTestWorkspaceTemplateRoot()).toBe(path.join(defaultRoot, '.templates'));
 });
 

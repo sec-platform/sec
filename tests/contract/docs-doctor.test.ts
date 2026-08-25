@@ -9,8 +9,12 @@ import {
   captureDocsDoctorIndexTree,
   DOCUMENT_AUTHORITY_REGISTRY_PATH,
   parseCapturedGitTreeBlobFrameV1,
+  parseDevelopmentEngineeringPrincipleRegistryV1,
   readCapturedGitTreeBlob,
   scanDocumentation,
+  validateDevelopmentCriticalPathCanonicalGraphV1,
+  validateDevelopmentCriticalPathDomainProjectionGraphsV1,
+  validateDevelopmentEngineeringPrincipleConjunctionV1,
   type DocsDoctorResult
 } from '../../docs/scripts/docs-doctor.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-plan.ts';
@@ -367,6 +371,119 @@ matchingDefaultBlob: none
     write
   };
 }
+
+test('the canonical critical-path graph preserves current/partial and Effect ordering', async () => {
+  const source = await readFile(path.resolve('docs/system-architecture.md'), 'utf8');
+  const principleRegistry = parseDevelopmentEngineeringPrincipleRegistryV1(
+    await readFile(path.resolve('docs/development-governance.md'), 'utf8')
+  );
+  const validate = (candidate: string) => validateDevelopmentCriticalPathCanonicalGraphV1(
+    candidate, principleRegistry.semanticDigest
+  );
+  expect(() => validate(source)).not.toThrow();
+  expect(() => validateDevelopmentCriticalPathCanonicalGraphV1(
+    source.replace('start --> capabilityGrant', 'start --> physicalEffect'),
+    principleRegistry.semanticDigest
+  )).toThrow(/missing ordered edge start --> capabilityGrant/u);
+  expect(() => validateDevelopmentCriticalPathCanonicalGraphV1(
+    source.replace('class targetStatic partial;', ''), principleRegistry.semanticDigest
+  )).toThrow(/visibly partial/u);
+  expect(() => validateDevelopmentCriticalPathCanonicalGraphV1(
+    source.replaceAll('D28', 'retired-decision'), principleRegistry.semanticDigest
+  )).toThrow(/missing decision D28/u);
+  expect(() => validateDevelopmentCriticalPathCanonicalGraphV1(
+    source.replaceAll('R24', 'retired-resource'), principleRegistry.semanticDigest
+  )).toThrow(/index and graph R24/u);
+  expect(() => validate(source.replace(
+    'receiptCurrent --> receiptStale',
+    'receiptCurrent --> ignoredDrift'
+  ))).toThrow(/import authoring documentation is missing receiptCurrent --> receiptStale/u);
+  expect(() => validateDevelopmentCriticalPathCanonicalGraphV1(
+    source.replaceAll('DG13', 'retired-principle'), principleRegistry.semanticDigest
+  )).toThrow(/missing DG13/u);
+  expect(() => validateDevelopmentCriticalPathCanonicalGraphV1(
+    source.replace('  DG13["DG13 ', '  P13["P13 '), principleRegistry.semanticDigest
+  )).toThrow(/must not occupy global Pxx/u);
+  expect(() => validate(source.replace(
+    'DG06["DG06 mature capability census"] --> D09',
+    'DG06["DG06 use every dependency"] --> R09'
+  ))).toThrow(/invalid title or edge for DG06/u);
+  expect(() => validate(source.replace(
+    principleRegistry.semanticDigest,
+    `sha256:${'0'.repeat(64)}`
+  ))).toThrow(/does not bind the canonical registry/u);
+});
+
+test('critical-path domain projections retain detailed static, Effect and resource graphs', async () => {
+  const verification = await readFile(path.resolve('docs/verification-governance.md'), 'utf8');
+  const runtime = await readFile(path.resolve('docs/runtime-and-distribution.md'), 'utf8');
+  const externalProvider = await readFile(path.resolve('docs/external-provider-policy.md'), 'utf8');
+  expect(() => validateDevelopmentCriticalPathDomainProjectionGraphsV1({
+    verification, runtime, externalProvider
+  }))
+    .not.toThrow();
+  expect(() => validateDevelopmentCriticalPathDomainProjectionGraphsV1({
+    verification: verification.replace(
+      '`D05/D11/D12/D22/D23`的Provider阶段、预算、信号与settlement',
+      'retired provider graph'
+    ),
+    runtime,
+    externalProvider
+  })).toThrow(/missing projection marker/u);
+  expect(() => validateDevelopmentCriticalPathDomainProjectionGraphsV1({
+    verification: verification.replace(
+      'Settled --> ReusedWithoutProviderEffect',
+      'Settled --> RepeatProviderEffects'
+    ),
+    runtime,
+    externalProvider
+  })).toThrow(/settlement documentation is missing Settled --> ReusedWithoutProviderEffect/u);
+  expect(() => validateDevelopmentCriticalPathDomainProjectionGraphsV1({
+    verification: verification.replace(
+      'zero Git、zero directory birth、zero Runtime State fsync、zero process',
+      'implicit physical setup'
+    ),
+    runtime,
+    externalProvider
+  })).toThrow(/test split documentation is missing zero Git/u);
+  expect(() => validateDevelopmentCriticalPathDomainProjectionGraphsV1({
+    verification: verification.replace(
+      'SignalAborted --> TerminalSettlementPending',
+      'SignalAborted --> Settled'
+    ),
+    runtime,
+    externalProvider
+  })).toThrow(/deadline documentation is missing SignalAborted --> TerminalSettlementPending/u);
+});
+
+test('development engineering principles remain one complete conjunction', async () => {
+  const source = await readFile(path.resolve('docs/development-governance.md'), 'utf8');
+  const registry = parseDevelopmentEngineeringPrincipleRegistryV1(source);
+  expect(registry).toMatchObject({
+    schema: 'sec-development-engineering-principle-registry-v1',
+    owner: 'development-governance'
+  });
+  expect(registry.principles).toHaveLength(16);
+  expect(registry.semanticDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(() => validateDevelopmentEngineeringPrincipleConjunctionV1(
+    source.replace('| DG13 |', '| retired-principle |')
+  )).toThrow(/define DG13 exactly once/u);
+  expect(() => validateDevelopmentEngineeringPrincipleConjunctionV1(
+    source.replace('candidate不等于selected', 'candidate is selected')
+  )).toThrow(/missing boundary/u);
+  expect(() => validateDevelopmentEngineeringPrincipleConjunctionV1(
+    source.replace('| DG13 |', '| P13 |')
+  )).toThrow(/must not redefine global P13/u);
+  expect(() => validateDevelopmentEngineeringPrincipleConjunctionV1(
+    source.replace('| DG14 |', '  | P14 | injected | stale |\n| DG14 |')
+  )).toThrow(/must not redefine global P14/u);
+  expect(() => validateDevelopmentEngineeringPrincipleConjunctionV1(
+    source.replace('| DG14 |', '| DG17 | injected | stale |\n| DG14 |')
+  )).toThrow(/unknown identity DG17/u);
+  expect(() => validateDevelopmentEngineeringPrincipleConjunctionV1(
+    source.replace('| DG14 |', '| DG13 | duplicate | stale |\n| DG14 |')
+  )).toThrow(/define DG13 exactly once/u);
+});
 
 test('registry-backed documentation fixture passes', async () => {
   const fixture = await createFixture();

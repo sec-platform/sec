@@ -15,7 +15,10 @@ import {
   hardenExistingWindowsHostDirectoryAuthorityV1,
   type WindowsHostDirectoryAuthority
 } from '../../platform/shared/windows-host-filesystem-authority.ts';
-import { resolveSecWorkspaceRuntimeRootsV1 } from './runtime-state-paths.ts';
+import {
+  resolveSecWorkspaceRuntimeRootsV1,
+  resolveVerificationActionDurableRootV1
+} from './runtime-state-paths.ts';
 
 export interface SecRuntimeStatePhysicalAuthorityV1 {
   readonly stateRoot: PhysicalDirectoryIdentityV1;
@@ -397,7 +400,10 @@ export async function acquireSecRuntimeJournalAuthorityV1(input: Readonly<{
     cacheRoot: roots.cacheRoot,
     requiredDirectories: [
       roots.workspaceStateRoot,
-      path.join(roots.workspaceStateRoot, 'verification-actions', 'v2'),
+      resolveVerificationActionDurableRootV1({
+        repositoryRoot: input.repositoryRoot,
+        environment: input.environment
+      }),
       path.join(roots.workspaceStateRoot, 'verification-sessions', 'v2')
     ]
   });

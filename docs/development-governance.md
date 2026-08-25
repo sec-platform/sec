@@ -156,6 +156,11 @@ successor；successor freeze再以一个candidate tree同时发布新manifest、
 pointer-bound manifest。document-control consumer分别逐字验证两个compiler输出，任何中间revision都必须是完整
 合法状态。新增selected manifest、delayed predecessor与retirement仍由既有package census拥有，不得用
 whole-inventory equality覆盖另一个合法生命周期；聊天、手工删除或Issue关闭本身都不能绕过这些consumer。
+successor freeze的scope必须显式取`new manifest + pointer/projection targets + every retired pointer-bound
+manifest source endpoint`的并集；source deletion不是新manifest路径的隐含副作用。任何handoff或continuation
+checkpoint都必须保留`manifest.base -> exact candidate head`的whole-delta changed-record ownership，不能用
+checkpoint自身的start head截断已经发生的control transition。缺任一source endpoint时必须在expensive
+Verification前返回typed ownership blocker。
 open PR的operation identity同样从exact base/head/tree上的canonical transition重算；Work Package manifest、PR body
 locator和branch名只适用于各自transport/binding，不能成为所有operation的强制身份。terminal compaction PR没有
 新增manifest时，registry必须以V2 compaction candidate绑定其exact semantic tree并把它从manifest registry分流；
@@ -205,6 +210,12 @@ HEAD symbolic projection定位default ref，再读取exact-main current-state；
 repository/remote/default branch。required projection规则由pure freeze contract再次强制，CLI wiring不是
 唯一门禁。roadmap catalog不保存可从依赖图推导的successor count或`roadmapDirect` bit：两者由compiler
 计算，避免人工derived-state漂移。
+
+一次Work Package实现只能有一个直接以live default为parent的authoring generation：先在该generation内稳定产品、
+manifest与文档，再由canonical freeze transaction一次发布并读回`manifest + active pointer + rolling projection`，最后才
+提交这一代。不得先提交产品、再提交控制面或让freeze跨两个candidate commit“追认”；任何旧digest、独立staging或第二代
+commit都在Effect前拒绝。恢复方式是把同一任务字节无损展开回live-default authoring generation后重新freeze，不重做已通过
+且输入未变的业务验证。
 Phase B只在current lifecycle证明没有active candidate、closeout residue、control conflict或unhealthy main时，
 把候选的#207 pairwise conflict投影为`clear`：此时不存在第二个并行subject。只要存在并行subject或其
 身份不完整，selector先返回`continue-active | closeout | reconcile | unresolved`，不得硬编码clear；真正
@@ -309,6 +320,10 @@ package census，不能复制第二套“仅一个manifest”算法。exact tree
 published predecessor。第二个匹配项、非catalog文件、byte drift或普通tracked package下的额外manifest
 全部fail closed。下一ordinary slice必须同时删除recovery manifest、已消费predecessor及对应catalog item；
 Git历史承担审计，不把旧manifest复制到`docs/evidence/**`或另建tombstone。
+
+Repository audit必须分别发布`inventoryCoverage`与`semanticAssurance`，二者都不是对方的fallback。控制面binding drift可以是
+semantic finding的上游根因，但在exact freeze/readback成功前不得把finding降级、隐藏或写成零；若readback后finding仍存在，
+继续沿其canonical owner追根，而不是重复全仓命令或修改严重度阈值。
 PRE proposal的changed-record scope必须精确包含pointer、rolling、selected manifest和successor freeze判定应删除的
 旧pointer-bound manifest；漏删该旧manifest、修改被允许延迟保留的predecessor或加入额外package时，issuer在
 artifact/comment effect前返回`activation-scope-conflict`，不能靠候选本地测试或后续MainHealth补救。
@@ -345,6 +360,35 @@ bootstrap，closure或policy delta进入typed manual bootstrap，绝不因前置
 新projection并接受trust/control Review；进入main后不存在手工topology兼容入口。以后耗尽、补充、增删、
 排序或selected identity变化必须由live WorkDecision产生，否则freeze在任何repository object/index/
 journal/control effect前拒绝。
+
+## 工程顶层原则的合取闭包
+
+下列稳定ID是`development-governance`领域新增跨任务工程约束的**合取索引**，并与`public-docs/principles.md`所投影的全仓`P01..P41`及其他canonical domain invariants共同生效；它不是第二份全仓原则、计划、提示词清单或较弱摘要。每项原则分别成立才算整体成立；新增原则只能加入合取，不能覆盖、折叠、降级或以“统一”为名删除既有原则。详细机制仍由本文件后续条款及其注册的领域owner拥有，索引只提供稳定身份、快速入口和机器防遗漏锚点。
+
+| ID | 顶层不变量 | 必须产生的系统结果 |
+| --- | --- | --- |
+| DG01 | 唯一根因与类级根治 | 从现象追到最上游可修改机制、完整同类failure空间、唯一owner、反事实验收与旧路径退役；只修当前反例不得称为根治。 |
+| DG02 | Effect前的完整静态闭包 | exact tracked closure中可由类型、Schema、依赖/consumer图、状态机、资源图和不可变输入确定的缺陷，必须一次扫描、按缺陷类在首次昂贵Effect前消除；测试失败不能成为本可静态发现缺陷的发现authority。 |
+| DG03 | 动态事实持续静态化 | 无法静态证明的真实Effect在其明确`subject/provider/validity-window/invalidation`边界内只观察一次，随即发布内容寻址且带provenance的静态projection；内容证明可跨会话复用，live permission、lease/expiry、process/daemon、remote generation和recovery boundary到达失效边时必须重新观察。 |
+| DG04 | 为可计算性设计代码架构 | 语义只写入唯一public contract；closed union、parser、pure compiler、typed port和Effect shell分层，非法状态不可表示，consumer、resource、transition、recovery和retirement边可枚举并可生成。 |
+| DG05 | 正确变更的全生命周期成本最小 | 一个logical authoring epoch只做受delta影响的廉价增量哨兵；frozen exact tree只计算一次`RequiredClosure ∩ MissingOrStale`，每个ActionKey只允许reuse、join、execute-once或typed block，禁止逐文件重复`rg`、冷typecheck、测试和provider探针。 |
+| DG06 | 成熟能力优先且实测裁决 | Git、Bun/TypeScript、Docker/BuildKit、Compose、Dagger等先走external capability census并优先消费最窄稳定machine interface；只有新增SEC invariant、authority、Effect、兼容或安全价值时才允许薄Adapter，品牌或“轮子”身份都不能代替同条件实测。 |
+| DG07 | 宿主与依赖的分层复用 | 依赖获取固定为local exact generation→offline content-addressed cache→remote acquisition；只读同宿主优先locator/link，隔离写优先reflink/block clone/overlay，跨宿主用内容寻址archive/OCI/BuildKit cache，禁止无理由递归复制或重复下载。 |
+| DG08 | 所有实际资源都具备唯一生命周期 | repository、Runtime State、cache、worktree/ref、process、file handle、Docker/BuildKit/OCI对象、receipt和remote object都必须有identity、唯一owner、birth/acquire/use/release、crash recovery、retention、GC及exact absence/readback；命令退出不等于settlement。 |
+| DG09 | 冻结内容不冻结实时权限 | immutable plan、tree、generation或receipt只能冻结内容；principal、permission、scope、lease、preimage、expiry和physical binding必须在Effect前由各live owner重验，旧grant、聊天或caller字段不得扩权。 |
+| DG10 | 硬约束落在真实authority入口 | 能机器判断的规则必须由类型、parser、validator、hook、CI或canonical dispatcher拒绝；原生Bun/Git/Docker命令可以保留为非authority诊断能力，但不得绕过完整业务入口签发Evidence、状态或完成。若必须禁止某原生命令，唯一owner必须先提供覆盖全部合法业务需求的正式入口再硬拒绝旁路。 |
+| DG11 | 一张主图与完整领域投影 | 唯一跨域状态图拥有总顺序；每个领域子图必须投影实际资源、行为、owner、principal、pre/post condition、Evidence、failure/recovery/GC，并记录每次被故障迫使改变设计的因果、禁止边、替代方案与当前实现状态，文档不得用概念图掩盖物理事实。 |
+| DG12 | 独立exact-head审查是类级闭包 | Reviewer在frozen exact head上同时攻击prior constraints、唯一根因、状态图/资源图、代码与文档一致性、零冗余、静态closure、dynamic-to-static、Evidence、权限和retirement；缺一项、存在unknown或只修当前反例均不得PASS。 |
+| DG13 | 旁支静态分析隔离但约束不降级 | 与主线closure不相交的读重问题交给只读subagent，继承完整`DG01..DG16`合取做bounded census，只回传provenance、类级finding、unknown和解除条件；subagent不得取得writer、scope、Gate或完成authority，A0保留统一决策、集成与验证。provider child identity、lineage、live status、result cursor与cleanup receipt尚无machine owner时必须显式保持typed unknown。 |
+| DG14 | 所有投影必须非误导 | `observed→inferred→planned→implemented→locally-verified→independently-reviewed→merged→new-main-readback`各阶段不可互换；candidate不等于selected，command/test PASS不等于Evidence或settlement，future design不等于implemented。 |
+| DG15 | 任何业务先定位再实现 | 任何新业务、约束、Effect、测试、hook或恢复路径在写代码前必须先映射到唯一主图节点、领域projection、实际资源ID、canonical owner、contract、Evidence、failure/recovery与retirement；找不到合法位置就先做architecture evolution并保留typed unknown，禁止实现后再靠hook、测试失败或文档补图追认其位置。 |
+| DG16 | 文档闭包是解决状态的硬前置 | 每个finding在投影`resolved/implemented/complete`前必须同步唯一canonical文档中的不变量、根因与设计选择、主图/子图节点、实际资源与变量、行为/owner、失败恢复、验证边界和真实阶段；缺任一项统一返回`documentation-closure-missing`。Agent、Worker、Reviewer与closeout必须消费该结果并提醒补齐，聊天、代码或测试PASS不能替代。 |
+
+`DG`前缀表示`development-governance`作用域；它不占用`public-docs/principles.md`现有全仓`P01..P41`身份。任何其他owner不得定义`DGxx`，本表也不得重定义全仓`Pxx`。这些ID必须同时出现在唯一主状态图的因果决策图集、相关领域投影和machine validator中。独立Review receipt的principle-registry digest字段属于当前Work Package明确禁止修改的`review-stability-contract` owner；cutover前本表和docs-doctor只能提供Review输入并保持`review-receipt-principle-binding-unwired` typed gap，不能冒充Review准入已经机器化。领域文档可引用ID并展开自己的资源与状态，不得重定义其含义；实现成熟度不足时保留typed unknown和真实阶段，不能删除原则或写成已经完成。
+
+同理，Task Capsule/delegation canonical owner不在本Work Package的owned closure；在它正式增加并验证
+`principleClosureDigest`前，所有subagent继承只能标记`delegation-principle-binding-unwired`，由A0在prompt、scope、
+result reconciliation中人工保持完整`DG01..DG16`合取，不能宣称capsule已经机器保证继承。
 
 ## 成熟轮子与通用基础设施治理
 
@@ -397,6 +441,126 @@ finding，不能宣称根治。
 strongestCounterexample + retirement/stopCondition`。缺任一项只能保持 `diagnostic`，不能标记
 `remediation-ready`，也不能按 finding/file 顺序逐个打补丁。实现后验证的是类级不变量与最强反例，
 不是把同一句源码或文件清单复制成测试；若 affected entry 仍存在 optional/manual bypass，闭包未完成。
+
+`PreEffectStaticClosure`是所有工程工作的顶层准入，不是测试失败后的补救步骤。对exact tracked owner closure，
+实现前必须一次派生并闭合public type/schema、import与reverse consumer、dependency、state/transition、Effect
+capability、storage/current pointer、resource/budget/timeout、retention/retirement及unknown；其中任何可由现有源码、
+合同或不可变输入确定的非法状态、竞争owner、无consumer结果、无界集合、重复算法、缺失失效边或未退役路径，
+都必须在第一次昂贵Effect前按缺陷类统一修复。测试失败不是这些静态可知缺陷的发现authority；若一次动态
+canary暴露了新的静态可判定维度，必须回到同一closure对全类重算，禁止只修当前反例后继续碰运气。
+机器合同`sec-development-critical-path-static-closure-v1`固定覆盖public contract、authority owner、imports/consumers、
+dependency、state、Effect、storage/current、resource/budget/timeout、retention/retirement、dynamic-to-static publication、
+documentation projection及unknown ledger十二个独立维度；每维必须恰好一次绑定Evidence digest。缺维、重复维、open
+defect class、unknown或digest/status漂移都只能生成`blocked`，不能进入physical Action。
+该closure不是调用者可填写、也不是Action plan可以自证的审查表：唯一read-only analyzer绑定exact immutable Git HEAD/tree对象，
+对完整tracked blob inventory、Action input bytes、Work Package manifest、`docs/authority.json` owner closure与TestImpact
+reverse module graph做一次有界census，随后pure contract再绑定parser-validated Action plan、environment binding与journal
+dependency Evidence，派生逐维input/evidence digest、coverage、stop condition、invalidation和retirement。runner在取得claim、
+写入`queued/running`或调用domain Effect之前，把effect-admission closure发布为Runtime State中的immutable content object，
+并以ActionKey current pointer做exact durable readback。closeout只能消费该publication；缺失、损坏、tree/plan/readback漂移
+一律typed block，禁止从artifact plan事后重算。结构准入与Effect准入是同一receipt schema的两个阶段，不是两套owner；
+后一阶段缺少任一required static-analysis terminal时不得执行。
+
+上述段落定义目标不变量，不是当前实现成熟度声明。当前
+`sec-development-critical-path-static-analyzer-v3`只拥有exact immutable Git HEAD/tree对象、tracked inventory与input bytes、
+manifest/document authority closure、受支持的TypeScript module graph、Action plan及dependency terminal的
+bounded admission。其machine status因此只能使用`bounded-census-complete`、`bounded-verified-complete`与
+`bounded-closed`；它们不能被别名化为全仓defect-class complete。producer/consumer fixed point、
+whole-delta add/change/delete/rename/copy端点、workflow/config/provider edge、canonical owner-signed projection、
+重复writer/receipt/GC census和documentation graph anti-drift仍是当前#398的typed Unknown与后续producer义务，
+不能被挪到第二Work Package来伪装当前闭合。
+任何presentation、Review或closeout必须显式保留这些gap；禁止用路径匹配到一个owner文件、空
+`defectClasses`或局部测试PASS声称顶层`PreEffectStaticClosure`已经完整实现。
+该边界同时被receipt中的`proofScope=bounded-action-admission`纳入digest并由parser硬拒绝漂移，不能由
+presentation把它提升为`repository-wide-complete`。
+
+代码架构必须主动提高这种闭包的可计算性：业务语义写在唯一public contract和closed discriminated union，
+parser/validator、pure compiler与Effect shell分层，依赖方向、consumer edge、资源需求、状态转换和retirement
+显式可枚举；能由owner事实生成的图、projection和测试选择不得由第二份路径表或人工期望维护。反射、动态import、
+presentation string、拼接命令/路径或隐式全局状态若会隐藏semantic edge，必须改为typed registry或显式capability；
+确实只能动态观察的Git、filesystem、process、provider或外部平台事实保持typed unknown并在Effect前阻断，不能伪造
+静态确定性。该规则保持自己的名称、准入条件、Evidence和失败语义，并与当前Work Package、全工程roadmap、唯一
+lifecycle图及全部既有原则共同约束每次工程决策；“共同生效”不等于归并、折叠或建立平行“静态优化计划”。
+
+动态事实必须持续编译成静态、内容寻址且带provenance的projection。一次真实Effect只负责取得无法静态证明的
+物理观察；producer随即发布canonical digest/schema、适用closure、失效条件、terminal/failure与settlement identity，
+后续consumer先消费该静态结果并执行`RequiredClosure ∩ MissingOrStale`。只有输入、environment、provider、policy或
+physical binding实际漂移才重新观察；wall-clock、会话重启、聊天丢失或consumer进程变化不得把已证明事实重新动态化。
+
+编辑与验证不得形成“每保存一个文件就重新扫描、重新typecheck、重新跑测试”的隐式循环。一个logical change只创建一个
+authoring epoch：epoch处于mutable时只允许长驻增量静态服务、编辑器级pure sentinel，以及按真实写入失效的一次性bounded
+identity/read probe；禁止把冷启动Git/全仓compiler/test/container/network/权限探针当成每次保存后的验证。需要产生Evidence的
+动态动作必须等待candidate tree冻结，由同一Impact producer一次计算
+`RequiredClosure ∩ MissingOrStale`。每个所得ActionKey在该epoch内只能`reuse-pass | reuse-failure | join | execute-once | block`，
+不得被文件保存次数、Agent调用次数或命令入口名称重复启动。失败输入和failure tail不变时复用失败；修复delta只使其实际影响的
+ActionKey stale。`rg`等bounded discovery不是PASS；ad-hoc typecheck、test或provider probe也不能绕过这条冻结、预算、身份和复用纪律。
+
+Import canonicalization属于同一authoring epoch的静态派生，不属于commit Effect后的补救。canonical import owner必须先从
+本轮`HEAD→mutable snapshot`的实际source delta派生一次import graph与edit plan；正常的`imports:freeze`入口先对working-tree snapshot执行至多一次
+`imports:apply` transaction，再对staged snapshot执行独立的index transaction并做exact readback；两者分开保持partial
+staging的语义边界，任一阶段中断后重跑只补齐缺失阶段。commit hook保留为所有原生Git入口共享的
+read-only最后sentinel：它只能返回`needs-import-transform`并退回同一epoch，不能在commit中隐式改文件，也不应成为正常
+流程第一次发现import drift的地方。pre-push不再重复启动compiler/import计算；若hook首次发现，必须按`D28/R24`
+登记为pipeline finding并修正前置选择，而不是把重复commit当作标准工作流。
+成功freeze把`HEAD + exact Git index bytes + TypeScript provider revision`发布为no-follow durable workspace receipt；
+pre-commit先做该身份readback，命中时零compiler执行，只有身份漂移或receipt缺失时才退回只读静态检查。
+hook installer不得在receipt readback前无条件注入`deps:ensure`；fallback static check已拥有自己的dependency demand，
+因此正常commit不启动dependency provider。
+checkout、merge与rewrite也不再通过Git hook eager执行dependency materialization；每个真实operation从同一demand graph
+先复用本地generation，只在缺失时ensure。Git状态变化本身不是下载、复制或重建依赖的理由。
+managed hook generation的readback要求目录内容与canonical hook集合精确相等；多余旧hook是typed stale generation，
+不能因所有“应有文件”仍存在就复用，避免已退役Effect继续潜伏执行。
+
+Import authoring以`R24-I01..R24-I10`作为不可拆分合取：I01正常入口自动化；I02 working tree与index语义隔离；
+I03 partial staging保持；I04 mutation只在显式freeze；I05 hook zero-write；I06 authoring只选`HEAD→mutable`；
+I07 whole candidate只在immutable final Evidence选择；I08 receipt只作性能projection且exact identity漂移即失效；
+I09 managed hook generation exact-set、无retired residue；I10 checkout/merge/rewrite/push零eager dependency/import工作。
+任何实现、文档或Review只满足其中一部分都不能声称import lifecycle完成。
+最终candidate相对trusted base的全闭包只在frozen tree/hosted check计算一次；不得在每次amend时把已由前序HEAD
+证明的历史delta重新送入TypeScript provider。
+
+每项新约束都保持独立、不可丢失的顶层不变量，并与仓库全部既有哲学做逻辑合取；整体的成立条件是每项不变量分别
+成立后的conjunction，不是把若干要求聚合成一个较弱的新口号。任何一项都不能被“统一”解释为替代、折叠或降低
+另一项。类级根治必须同时收敛产品语义、代码架构、开发路径、验证成本、运行性能、恢复退役以及
+人类洞察面。canonical文档和唯一状态图应让用户从一个入口快速定位owner、invariant、state/edge、Effect principal、
+Evidence、unknown、recovery与retirement，不能让正确性只存在于代码、聊天或某次Review记忆。
+
+`NonMisleadingProjection`是另一项独立顶层不变量。所有面向用户或下游机器的提示、状态、日志、PR/Issue文本、文档与
+图必须携带其真实阶段和Evidence边界：`observed | inferred | planned | implemented | locally-verified |
+independently-reviewed | merged | new-main-readback`不得互相代替。future design不能写成implemented，candidate或局部
+test不能写成完成，cache hit不能写成业务PASS，provider command成功不能写成physical settlement，动态flight仍在运行
+不能写成terminal。producer必须从canonical state投影阶段，presentation不得自行升格；缺少所声明阶段的receipt时只能
+降级为较弱状态或typed unknown。该不变量保持自己的identity、validator、Review条目与失败语义，并与其余原则做合取，
+不能被“根因治理”“统一架构”或自然语言免责声明吸收。
+`platform/shared/development-critical-path-contract.ts`唯一拥有`NonMisleadingProjection` schema、receipt kind、
+pure compiler、parser与typed gap；它不签发领域receipt，也不能从command exit、candidate字段或缺失前置阶段推导完成。
+当前尚未cutover统一presentation adapter，因此所有提示、PR/Issue文本与文档仍必须消费该projection和各canonical
+owner的source receipt，不能自行重算阶段或把contract存在写成业务已完成。
+
+旁支finding若与当前Work Package的owner/consumer/acceptance closure不相交，A0不得把其全量源码和历史灌入主
+上下文；应委派边界清晰的只读subagent，对exact tracked closure执行同样受`PreEffectStaticClosure`约束的静态
+census，并只回传provenance、类级finding、unknown和最小解除条件。subagent不取得canonical writer、scope、Gate或
+完成authority；主线相关finding仍由A0统一owner、实现、验证和收口。
+
+静态分析流程本身也必须静态化：decision questions、tracked input closure、owner/consumer coverage、unknown ledger、
+stop condition和输出schema由机器合同一次派生；既有约束按identity进入同一conjunction，禁止用提示词顺序、重复
+清单或reviewer自由发挥制造竞争哲学。新增顶层原则分别进入已有canonical owner、roadmap投影和Review准入，不能
+形成第二套计划，也不能只固化其中一个方便实现的子集。
+
+跨任务统一只允许一个小而稳定的协议核，不允许把领域语义收进全能计划对象。协议核只包含
+identity/revision、Claim、Authority、Provenance、Evidence、Unknown与transition receipt；Environment、Provider、
+Verification、MainHealth、Review、promotion和cleanup分别保留bounded semantic world、canonical owner与consumer-owned
+port。Issue是来源/provenance载体，WorkDecision选中的scope-bound WorkClaim才是计划原子。隔离authoring、只读分析和
+候选delta可以自由产生；只有触及共享Runtime State、外部provider或promotion reality时才需要Effect grant。
+“只验证一次”指一个logical Evidence Aggregate中每个exact ActionKey最多一次物理执行并可join/reuse，不是把所有
+checks塞进一个巨型进程。成熟工具继续作为provider；SEC只拥有跨工具确有新增价值的binding、Effect、readback、
+recovery与retirement seam。
+
+trusted-runtime 的容器边界同样服从此协议：host runner保留唯一Action/journal writer，container是bounded Effect
+provider。任何让container-local journal、raw artifact copy或canonical-state mount成为第二authority的实现都必须在
+静态closure阶段按竞争owner拒绝。static publication进入terminal后仍需独立证明closeout/provider consumers归零、
+retention满足、pointer精确退休、object零引用和physical-clean；否则只能是retained、unknown或gc-pending，不能用
+Action PASS、journal删除或容器退出码投影为完成。
 
 没有上述Evidence时，不得以“更可控”“以后可能需要”“AI写起来容易”或“自己实现更统一”为由扩大自研面积。
 
@@ -889,7 +1053,7 @@ Worker只在 frozen Envelope 和 owned seam内实现，不自授权跨 owner、�
 
 ### Reviewer
 
-Reviewer只读 exact base/head/tree、authority、Evidence和真实diff。ReviewReport的确定性完整性归`docs/verification-governance.md`与#252，主动追根因、画受影响状态图、审查冗余和文档闭包的方法只归`sec-exact-head-review` Skill；这里不复制第二份检查表。Head变化立即使Review stale；Reviewer不替Worker改码。缺少prior-constraint、unique-root-cause、state-graph、redundancy、documentation/diagram或unknown closure时不得PASS。
+Reviewer只读 exact base/head/tree、authority、Evidence和真实diff。ReviewReport的确定性完整性归`docs/verification-governance.md`与#252，主动追根因、画受影响状态图、审查冗余和文档闭包的方法只归`sec-exact-head-review` Skill；这里不复制第二份检查表。Head变化立即使Review stale；Reviewer不替Worker改码。缺少prior-constraint、unique-root-cause、state-graph、redundancy、documentation/diagram、unknown closure、`PreEffectStaticClosure`或dynamic-to-static publication/invalidation proof时不得PASS；只证明当前反例已修而未证明同类static census闭合时也不得PASS。
 
 涉及外部库或自研基础设施时，Reviewer还必须检查：真实consumer、替代候选、版本/许可证/安全、Adapter边界、direct import graph、duplicate removal、fallback真实性、升级/退役和package/lock唯一writer。
 
@@ -1017,7 +1181,7 @@ manifest还必须保持同一package、tracking和path，
 repair命令。
 仍分别保持`invalid`/`unresolved`，不能借历史化放宽。
 document-control的全部Git子进程（包括blob、index、tree、ref与remote observation）统一消费
-`platform/shared/git-read-environment.ts`的isolated read environment；cwd/argv与resolver显式生成的
+`platform/git/read-environment.ts`的isolated read environment；cwd/argv与resolver显式生成的
 scratch index/object/alternate overrides是唯一可进入的repository selection输入。宿主进程继承的
 object directory、alternate、replace ref、Git config、prompt/askpass与SSH变量必须被清除，且caller
 不能覆盖no-replace、no-lazy-fetch、no-prompt与null global/system config约束。Resolver不得再维护
@@ -1133,6 +1297,49 @@ head/tree 签发 `CandidateScopeAttestation`，证明 changed paths 与 effects 
 内容、scope 或 authority 未变而只是等价 Git commit 重新 materialize 时，ScopeGrant 保持稳定；
 exact attestation、Review 与 Promotion 必须重绑新 head。
 
+#### 语义责任授权与物理路径投影
+
+`ownedPaths`只能是一次candidate generation的物理防护投影，不能同时充当模块划分、目录设计、
+新文件命名许可或完成证明。授权的canonical subject是稳定语义责任与其Effect/资源边界：
+
+```text
+ScopeGrant {
+  responsibilityRefs
+  allowedOperations / forbiddenOperations
+  effectClasses / principals / targetResources
+  publicContractClosure / consumerClosure
+  compatibilityAndRetirementObligations
+}
+        ↓ pure ArchitecturePlacement compiler
+ProposedImplementationClosure {
+  definitions / contracts / kernels / ports / providers / consumers / tests / docs
+  proposedPaths / retiredPaths / importEdges / resourceEdges
+  unknowns
+}
+        ↓ exact owner + collision + forbidden + whole-delta validation
+CandidateScopeAttestation {
+  exact base/head/tree
+  semantic closure digest
+  exact physical write set
+  deletion/rename facts
+}
+        ↓ write Effect
+FINAL whole-delta re-attestation
+```
+
+路径不得反向选择架构：如果旧manifest已列出`platform/shared/x.ts`，但唯一责任边界要求
+`platform/<domain>/contract.ts`，系统只能得到`scope-replan-required`，不能为了命中旧列表把新owner塞回
+`shared`，也不能偷偷写出列表。合法replan由同一ScopeGrant的responsibility closure派生successor
+generation；它必须保留既有forbidden owner、用户dirty保护、并发writer和Effect上限，并在首次写入前
+由trusted issuer签发新的attestation。跨responsibility、扩大Effect/资源/principal或改变public
+compatibility义务仍需新的ScopeGrant，不能用path replan扩权。
+
+当前`codex-development-work-package-v1`仍以枚举`ownedPaths`作为主要写入防护，尚未拥有上述
+`ArchitecturePlacement`与semantic-closure attestation。因此它的路径集合继续硬拒绝越界，但只应被
+解释为当前generation的安全上限；发现路径与正确架构冲突时必须保留typed
+`scope-replan-required`，不能把旧路径提升为架构authority。本缺口关闭前，任何“路径已经授权所以
+架构正确”的claim均为无效。
+
 一个 logical run 默认只有一个 mutable implementation worktree和一个 active candidate PR ref。
 Review finding 在同一 worktree 修复并 materialize 新 generation，以provider支持的expected-old CAS
 更新同一 ref（remote non-fast-forward只有ruleset明确允许时才使用force-with-lease）；旧 generation 用
@@ -1182,7 +1389,11 @@ authority与MissingOrStale closure，但源码/工具链/环境和输入闭包�
 shared-canonical-writer | dependency-not-closed | parallel-benefit-not-material | provider-unavailable`等typed
 reason。主线程始终保留最新用户授权、canonical owner与架构决策、单一集成写者、跨流冲突裁决、最终验证和
 closeout；子任务只能保持或收窄权限，并绑定parent operation/epoch、scope digest、authority、owned/forbidden
-paths、resources和dependency。disjoint/ordered proof复用既有parallel conflict owner；child名称、summary或
+paths、resources和dependency。每个Task Envelope还必须显式绑定物理workspace/worktree、candidate branch、
+exact起始head/tree和manifest digest；执行者必须先在该物理workspace读回这些binding，不能从父进程最近一次
+命令的cwd、聊天、branch名称或同名remote-tracking ref推断。binding不符时返回typed
+`missing-frozen-task-envelope | candidate-binding-drift`且零写入；不得自行回到default checkout重跑全局orientation。
+disjoint/ordered proof复用既有parallel conflict owner；child名称、summary或
 caller JSON不能证明已委派、仍运行或已完成。production delegate/no-delegation owner尚未接线时，A0必须显式
 记录裁决并用宿主live tools读回child状态，不能把Skill prose当机器receipt。
 
@@ -1303,6 +1514,20 @@ digest，随后才允许消费plan。这样plan编码归一化不会使自己的
 在开发控制面内，派生对象与执行复用不是两个问题，而是总体Engineering Semantic Graph在开发/验证领域的
 同一个**内容寻址派生节点**生命周期：
 
+跨领域的唯一节点/边/owner图由`docs/system-architecture.md`的“Development Critical Path Spine
+的唯一跨领域图”拥有。下面只说明Development领域对该图中derivation节点的投影，不增加第二个provider、
+receipt、cleanup或终态定义。
+
+TestImpact的typed module graph是可重建projection，物理位置只由
+`sec-runtime-cache-layout-v1/repositories/<repository-key>/test-impact/v4/current.json`派生；仓库内
+`.tmp/test-impact-cache.json`不再是读写面或兼容owner。源码bytes、parser/contract revision和source digest
+共同决定命中，cache损坏只导致重建，不能改变测试选择。semantic owner只能消费Runtime Cache owner签发的
+no-follow physical capability做atomic replace/readback，不能自行`mkdir/write/rename`路径；每次完整module
+observation都以current inventory淘汰已删除或重命名entry，并对entry count与envelope bytes应用有界预算，
+禁止让历史path churn进入startup closure。结构性能预算由
+`sec-development-critical-path-performance-v1`固定为current-owner closure、zero history read、zero global
+prune、每个ActionKey最多一次physical start；`fast/slow`仍只影响资源调度。
+
 ```text
 Demand / Impact
 -> DerivationKey(operation revision + normalized semantic inputs + provider/environment)
@@ -1331,6 +1556,15 @@ finally中dispose，并发child互不夺取parent authority。会原位刷新的
 cache：generic lifecycle只分类和保护，逻辑identity是owner加canonical path，producer可用atomic replace刷新内容；
 plan/read-only selector不得为登记而产生runtime-state Effect。把mutable file的每次内容变化或inode替换误建模成
 新birth，或在pure plan后补登记，均属于边界错误。
+
+generated resource的mutable registration只允许一个schema/owner writer。领域semantic owner与共享physical
+capability必须分离：例如`.shared-deps`仍由真实producer `project-runtime`拥有，Runtime Cache只提供路径、
+no-follow publication与readback，不能把capability名称写成registry semantic owner。bind、consumer acquire/release、terminal
+和retirement全部以`resourceId + expected registration digest/epoch + owner-issued credential`执行CAS；terminal
+outcome进入durable transition identity，冲突retry必须拒绝。cleanup intent/receipt先完成retirement或形成可恢复
+terminal current，registration recovery anchor最后删除；任意crash window都能从尚存的同一owner current恢复，
+不能留下无registration归属的receipt/intent。legacy registration与successor resource registration在birth admission
+即互斥，不能等inspect事后报告`multiple-registration-authorities`。
 
 registry中的每个`required-at-birth`规则必须同时存在一个可到达的真实producer；退役producer时同一变更必须删除
 规则、缓存/Workflow投影和历史fixture，不能留下“以后也许会用”的幽灵owner。canonical repository root上的producer
@@ -1408,13 +1642,20 @@ physicalStartsPerActionKey <= 1
 
 trusted-runtime container owner 必须显式创建并在启动前从 Docker identity 读回唯一 tmpfs policy：测试临时根 `/tmp` 固定为 `rw,exec,nosuid,nodev`，使测试拥有的私有 provider executable 能被真实 PATH/spawn 边界观察；`/sec-runtime` 固定为 `rw,noexec,nosuid,nodev`，只承载 trusted tree、workspace、state 与 cache 数据。二者的容量和 ownership 选项同样属于 canonical identity；Docker 隐式默认、缺失或额外 tmpfs、`/tmp=noexec`、`/sec-runtime=exec` 均 fail closed。container 同时必须启用并读回 Docker 原生 `--init`，由 daemon 提供的 init process 回收测试或 provider 遗留的孤儿进程；禁止在测试中复制 PID 1、轮询或自造第二套 teardown owner。`/tmp=exec` 与 init process 均不签发 provider、network、scope 或 completion authority；cap-drop、no-new-privileges、只读 rootfs/bundle、断网与 exact executable observation 仍分别拥有这些边界。
 
-需要可变合成仓库的测试 fixture 必须创建在 owner 提供的 OS temp，不得写入只读 compiler tree。fixture 从受信 source 只复制 exact bytes，并以自己拥有的普通可写文件承载后续 mutation；不得继承 source 的只读 mode、ACL、link、device/inode 或其他 authority metadata。若合成仓库只需读取外层已验证的依赖 generation，子 Bun 进程必须同时使用 `--no-install` 与指向该 exact physical `node_modules` generation 的显式 `NODE_PATH`；必须先解析并固定真实目录，禁止把 workspace symlink、caller 字符串或惯例路径冒充 generation identity。该引用不创建 link、不复制依赖、不触发下载，也不把依赖目录纳入 fixture 的清理 authority。显式 dependency canary 必须从 `/tmp` 真实执行这一解析边界，并把解析出的 Provider 版本与 canonical package/CLI identity 对齐；ordinary lifecycle canary 仍不准备依赖。
+需要可变合成仓库的测试 fixture 必须创建在 owner 提供的 OS temp，不得写入只读 compiler tree。fixture 从受信 source 只复制 exact bytes，并以自己拥有的普通可写文件承载后续 mutation；不得继承 source 的只读 mode、ACL、link、device/inode 或其他 authority metadata。私有隔离投影优先使用平台原生copy-on-write clone/reflink并验证普通独立target identity，不支持时才退化为exact byte copy；symlink/junction会让mutation写穿source，hardlink共享inode，二者都不能冒充隔离。整个test closure只保留一次真实cold physical projection canary；其余parser、binding、drift、residue和failure-space用由该canary发布的manifest-complete静态projection证明，禁止为每个负例重复复制大对象。若合成仓库只需读取外层已验证的依赖 generation，子 Bun 进程必须同时使用 `--no-install` 与指向该 exact physical `node_modules` generation 的显式 `NODE_PATH`；必须先解析并固定真实目录，禁止把 workspace symlink、caller 字符串或惯例路径冒充 generation identity。该引用不创建 link、不复制依赖、不触发下载，也不把依赖目录纳入 fixture 的清理 authority。显式 dependency canary 必须从 `/tmp` 真实执行这一解析边界，并把解析出的 Provider 版本与 canonical package/CLI identity 对齐；ordinary lifecycle canary 仍不准备依赖。
 
 任何进入 concurrent fast-test queue 的测试不得修改进程级 `process.env`、cwd、全局 hook 或共享 singleton 来模拟边界；临时值必须通过独占子进程的显式 environment 注入。需要真实进程全局 mutation 且无法注入的测试必须由 test-process policy 分入对应串行 resource class，不能靠单独运行时偶然通过。
 
 只读 rootfs 中的每个 trusted-runtime command 必须从唯一 container owner 自动取得 `/sec-runtime/output/state` 与 `/sec-runtime/output/cache` 这对物理分离的可写 sibling roots；不得依赖 Linux HOME 缺省 state，也不得让 test preload 回填 authority。
 
 普通测试 workspace 从 canonical `SEC_CACHE_HOME` 自动派生，并按物理 worktree identity 分区；但进程 `TMP`/`TEMP` 不是 cache/state authority domain。preload 必须先以 no-follow physical identity 证明 owner 提供的 OS temp/tmpfs 与 repository、Runtime State、Runtime Cache 不相交，再通过平台原生 `mkdtemp` 为每个测试进程创建独占随机根；缺省 state/cache 仍由 canonical runtime-state owner解析，禁止把它们回填到 process temp。退出时只对父目录及子 generation 均仍匹配原始 physical identity、ordinary-directory、parent 与 prefix 的同一对象做 best-effort cleanup。把 `TMP` 放进 `SEC_CACHE_HOME` 会使测试创建的临时 repository 物理嵌套于 cache，破坏 repository/state/cache disjoint invariant；把它放进 repository 又会破坏只读 exact tree，因此两者都禁止。只保留 Work Package Gate 已由 supervisor lease、snapshot identity 与一次性 challenge 绑定的 snapshot-local child：path shape、namespace 或可序列化 assignment 都不是 effect credential；challenge 成功只在当前 runner process 铸造一次性 opaque cleanup capability，传给测试子进程的 bound locator 只允许在 live supervisor、exact lease 及 namespace/child device+inode 全部仍匹配时定位同一个 child，不能签发清理。run-owned cleanup 继续持有 retained no-follow target/parent identity，只删除自己创建且物理 identity 未变化的 child；replacement、sibling、unknown 或 caller-owned namespace 一律保留并失败，不因 cache 分类扩大删除权限。
+
+Windows测试locator必须在任何Git/child Effect前通过静态descendant-path预算：通用workspace parent最多200字符，
+为普通descendant保留60字符；Git或更深资源还必须由其owner按真实最大后缀证明更强预算。完整repository、invocation、namespace、
+run-child语义identity保留在receipt/assignment/lease，不得逐层复制进物理path。外部Runtime State/Cache generation以
+retained identity和exclusive creation拥有碰撞安全；其物理segment使用完整SHA-256的lowercase base32 opaque locator，不以
+截断digest概率代替parent隔离。普通unbound test cache压缩generation/invocation/namespace locator，
+trusted snapshot-bound Gate仍使用其issuer-bound路径；两者都不能靠启用Git global longpaths掩盖无界path amplification。
 
 `check:affected` 的 plan 不是第二套 Gate owner：MainHealth 只把 plan 中已经选择的 Gate 编译为独立 ActionKey。每个 Gate 的 terminal 完成后立即写入仓库外 VerificationAction journal；中途失败、进程重启或 MainHealth 总 receipt 尚未形成时，后续调用只消费同一 ActionKey 的 terminal 并执行 MissingOrStale，已知 failure 也停止该无效路径而不盲目重跑。容器内重型 Gate 的互斥 lease 只能从同一 canonical `SEC_CACHE_HOME` 自动派生，并按物理 worktree identity 隔离；它不得把可变锁写进只读 repository tree，也不要求调用者传路径。
 
@@ -1461,6 +1702,11 @@ TCB 内的网络 Effect 与进程 Effect 同样采用“handwritten reviewed ide
 ## Failure、重试与 Proof Reset
 
 Failure首先分类：root cause、owner、violated invariant、minimal reproduction、exact inputs、invalidated Evidence、cleanup state和unique next action。
+测试的正确调用面同样属于execution identity：raw `bun test`的默认5秒timeout不能替代DevRunner对
+slow/resource-class文件编译出的canonical timeout、lease和并发计划。raw union timeout后仍在运行的child只证明
+调度调用错误，不能立即改业务timeout或把异步cleanup tail归因成产品失败；先在同一ActionKey的canonical resource
+lane最小复核。若canonical lane通过但物理耗时仍超预算，则修复重复fixture、dependency copy/hash、provider setup、
+workspace census或未复用terminal的唯一owner，不能用mock Effect、全局cache清空或永久提高timeout掩盖。
 
 环境瞬态只有在因果输入明确变化时受限重试。重复运行同一失败、扩大timeout、清缓存碰运气、删除断言或创建successor branch而不改变root input都不构成修复。
 

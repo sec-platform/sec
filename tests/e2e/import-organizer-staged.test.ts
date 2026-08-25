@@ -5,15 +5,19 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import pLimit from 'p-limit';
+import ts from 'typescript';
 
 import {
+  runAuthoringImportCheckV1,
   runCandidateImportCheck,
   runCandidateImportOrganizer,
   runImportApply,
+  runImportAuthoringFreezeV1,
   runImportCheck,
   runStagedImportOrganizer,
   workingTreeTypeScriptTargets
 } from '../../platform/dev-runner/import-organizer.ts';
+import { currentImportAuthoringFreezeReceiptMatchesV1 } from '../../platform/dev-runner/import-transform-transaction.ts';
 
 function git(
   repoRoot: string,
@@ -484,6 +488,47 @@ test.concurrent('freeze seals identity by pure compare and never publishes to th
     expect(git(repoRoot, ['count-objects', '-v'])).toBe(afterTransformObjects);
   });
 });
+
+test.concurrent('authoring freeze canonicalizes working tree and index without collapsing partial staging', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
+
+    const staged = `${source('unsorted')}export const stagedMeaning = answer;\n`;
+    await writeFile(fixturePath, staged, 'utf8');
+    git(repoRoot, ['add', 'fixture.ts']);
+    const working = `${source('unsorted')}export const workingMeaning = answer;\n`;
+    await writeFile(fixturePath, working, 'utf8');
+
+    const frozen = await runImportAuthoringFreezeV1(repoRoot, {}, {});
+    expect(frozen).toMatchObject({
+      schema: 'sec-import-authoring-freeze-outcome-v1',
+      status: 'canonical',
+      authoringBase: candidateBase,
+      workingTreeWriteStatus: 'accepted',
+      workingTreeFiles: ['fixture.ts']
+    });
+    const stagedReadback = String(git(repoRoot, ['show', ':fixture.ts']));
+    const workingReadback = await readFile(fixturePath, 'utf8');
+    expect(stagedReadback.startsWith(source('sorted'))).toBe(true);
+    expect(stagedReadback).toContain('stagedMeaning');
+    expect(stagedReadback).not.toContain('workingMeaning');
+    expect(workingReadback.startsWith(source('sorted'))).toBe(true);
+    expect(workingReadback).toContain('workingMeaning');
+    expect(workingReadback).not.toContain('stagedMeaning');
+    expect((await runAuthoringImportCheckV1(repoRoot, {
+      candidateContext: () => { throw new Error('receipt reuse must not rebuild the compiler snapshot'); }
+    }, {})).status).toBe('canonical');
+
+    await writeFile(fixturePath, `${source('unsorted')}export const afterFreeze = answer;\n`, 'utf8');
+    git(repoRoot, ['add', 'fixture.ts']);
+    expect(await currentImportAuthoringFreezeReceiptMatchesV1(
+      repoRoot,
+      `typescript@${ts.version}`
+    )).toBe(false);
+  });
+}, 10_000);
 
 test.concurrent('freeze returns typed needs-import-transform on a non-canonical staged state without index writes', async () => {
   await withRepository(async (repoRoot) => {

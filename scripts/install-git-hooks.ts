@@ -10,11 +10,7 @@ const DEPS_ENSURE_COMMAND = 'bun ./platform/dev-runner.ts deps:ensure';
 const IMPORTS_FREEZE_COMMAND = 'bun ./platform/dev-runner.ts imports:freeze';
 const MANAGED_PRE_COMMIT = `${MANAGED_HOOKS_PATH}/pre-commit`;
 const MANAGED_HOOKS = [
-  MANAGED_PRE_COMMIT,
-  `${MANAGED_HOOKS_PATH}/pre-push`,
-  `${MANAGED_HOOKS_PATH}/post-checkout`,
-  `${MANAGED_HOOKS_PATH}/post-merge`,
-  `${MANAGED_HOOKS_PATH}/post-rewrite`
+  MANAGED_PRE_COMMIT
 ] as const;
 const MARKER_FILE_NAME = '.last-install';
 
@@ -155,15 +151,11 @@ function bindHookCommandToRuntime(command: string, runtimeExecutable: string): s
 function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
   const source = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes);
   let deployed = source;
-  if (name === 'pre-commit' || name === 'pre-push') {
+  if (name === 'pre-commit') {
     const firstFreeze = source.indexOf(IMPORTS_FREEZE_COMMAND);
     if (firstFreeze < 0 || firstFreeze !== source.lastIndexOf(IMPORTS_FREEZE_COMMAND)) {
       throw new Error(`${name} must contain exactly one canonical imports:freeze command`);
     }
-    deployed = source.replace(
-      IMPORTS_FREEZE_COMMAND,
-      `${DEPS_ENSURE_COMMAND}\n${IMPORTS_FREEZE_COMMAND}`
-    );
   }
   return Buffer.from(deployed
     .replaceAll(DEPS_ENSURE_COMMAND, bindHookCommandToRuntime(DEPS_ENSURE_COMMAND, process.execPath))
@@ -216,10 +208,28 @@ function managedGenerationDigest(snapshots: readonly ManagedHookSnapshot[]): str
   return hash.digest('hex');
 }
 
+async function managedGenerationContainsExactly(
+  generationPath: string,
+  snapshots: readonly ManagedHookSnapshot[]
+): Promise<boolean> {
+  try {
+    const entries = await readdir(generationPath, { withFileTypes: true });
+    const actual = entries.map((entry) => entry.name).sort();
+    const expected = snapshots.map((snapshot) => snapshot.name).sort();
+    return entries.every((entry) => entry.isFile())
+      && actual.length === expected.length
+      && actual.every((name, index) => name === expected[index]);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
 async function managedGenerationReady(
   generationPath: string,
   snapshots: readonly ManagedHookSnapshot[]
 ): Promise<boolean> {
+  if (!await managedGenerationContainsExactly(generationPath, snapshots)) return false;
   for (const snapshot of snapshots) {
     const installedPath = path.join(generationPath, snapshot.name);
     try {
@@ -260,7 +270,8 @@ async function managedGenerationDigestMatches(
       throw error;
     }
   }
-  return managedGenerationDigest(snapshots) === expectedDigest;
+  return await managedGenerationContainsExactly(generationPath, snapshots)
+    && managedGenerationDigest(snapshots) === expectedDigest;
 }
 
 /**

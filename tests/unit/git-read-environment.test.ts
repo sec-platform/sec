@@ -5,7 +5,7 @@ import { expect, test } from 'bun:test';
 import {
   isolatedGitChildEnvironment,
   isolatedGitReadEnvironment
-} from '../../platform/shared/git-read-environment.ts';
+} from '../../platform/git/read-environment.ts';
 
 /**
  * Mirror of the implementation's empty config sink: Windows cannot open

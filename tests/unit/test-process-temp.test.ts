@@ -91,7 +91,7 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
       repositoryRoot,
       environment: { SEC_STATE_HOME: stateAlias, SEC_CACHE_HOME: cacheRoot }
     })).rejects.toThrow();
-    expect(existsSync(path.join(repositoryRoot, 'test-invocation-runs'))).toBe(false);
+    expect(existsSync(path.join(repositoryRoot, 't'))).toBe(false);
 
     const owned = await createTestInvocationRuntimeRootsV1({
       repositoryRoot,
@@ -99,6 +99,7 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
     });
     expect(owned.stateRoot).not.toBe(owned.cacheRoot);
     expect(path.basename(owned.stateRoot)).toBe(path.basename(owned.cacheRoot));
+    expect(path.basename(owned.stateRoot)).toMatch(/^r-[a-z2-7]{26}$/u);
     if (process.platform === 'linux') {
       expect(lstatSync(owned.stateRoot).mode & 0o077).toBe(0);
       expect(lstatSync(owned.cacheRoot).mode & 0o077).toBe(0);

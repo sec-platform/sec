@@ -1,12 +1,18 @@
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
 import {
+  createVerificationActionExecutionBindingV1,
   createVerificationActionKeyV2,
+  createVerificationActionPlanClosureV1,
   createVerificationActionPlanV2,
   createVerificationActionTerminalV2,
   encodeVerificationActionDataV2,
   isVerificationActionRunnableV2,
+  parseVerificationActionExecutionBindingV1,
   parseVerificationActionKeyV2,
+  parseVerificationActionPlanClosureV1,
+  VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1,
   verificationActionDependsOnChangedInputsV2,
   type VerificationActionKeyInputV2
 } from '../../platform/shared/verification-action-contract.ts';
@@ -18,6 +24,48 @@ import {
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
 const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;
+
+test('execution binding makes three physical roots and producer closure one immutable identity', () => {
+  const physical = (name: string) => Object.freeze({
+    schema: 'sec-physical-no-follow-v1' as const,
+    path: path.resolve('fixture', name),
+    finalPath: path.resolve('fixture', name),
+    device: '1',
+    inode: name,
+    objectId: `object-${name}`
+  });
+  const input = {
+    actionKey: DIGEST_A,
+    actionPlanDigest: DIGEST_B,
+    actionPlanClosureDigest: DIGEST_C,
+    staticClosureDigest: DIGEST_A,
+    staticGenerationDigest: DIGEST_B,
+    runtimeStateRoot: physical('runtime'),
+    staticAuthorityRoot: {
+      physical: physical('static'),
+      headSha: 'a'.repeat(40),
+      headTreeSha: 'b'.repeat(40)
+    },
+    physicalExecutionRoot: {
+      physical: physical('execution'),
+      headSha: 'a'.repeat(40),
+      headTreeSha: 'b'.repeat(40)
+    },
+    providerRevision: 'provider-v1'
+  } as const;
+  const binding = createVerificationActionExecutionBindingV1(input);
+  expect(parseVerificationActionExecutionBindingV1(
+    encodeVerificationActionDataV2(binding)
+  )).toEqual(binding);
+  expect(createVerificationActionExecutionBindingV1({
+    ...input,
+    runtimeStateRoot: physical('runtime-replaced')
+  }).bindingDigest).not.toBe(binding.bindingDigest);
+  expect(createVerificationActionExecutionBindingV1({
+    ...input,
+    actionPlanClosureDigest: DIGEST_A
+  }).bindingDigest).not.toBe(binding.bindingDigest);
+});
 
 function actionInput(overrides: Partial<VerificationActionKeyInputV2> = {}): VerificationActionKeyInputV2 {
   return {
@@ -37,8 +85,10 @@ function actionInput(overrides: Partial<VerificationActionKeyInputV2> = {}): Ver
     environment: {
       toolchainRevision: 'bun@1.3.14',
       providerRevision: 'local-windows',
-      contractRevision: 'verification-result-v1'
+      contractRevision: 'verification-result-v1',
+      executionBudget: VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1
     },
+    staticProofRequirement: 'bounded-action-admission',
     requiredCheapPreflightActionKeys: [DIGEST_A],
     upstreamActionKeys: [DIGEST_C],
     resultSchemaRevision: 'sec-verification-result-v1',
@@ -84,6 +134,21 @@ test('ActionKey canonicalizes set-like closure and excludes scheduler lane ident
   expect(planFor(first).executionClass).toBe('expensive');
 });
 
+test('plan closure binds producer identity and exact Action membership', () => {
+  const plan = planFor(createVerificationActionKeyV2(actionInput()));
+  const closure = createVerificationActionPlanClosureV1({
+    producer: { identity: 'sec-test-plan-producer', revision: 'v1' },
+    plans: [plan]
+  });
+  expect(parseVerificationActionPlanClosureV1(encodeVerificationActionDataV2(closure)))
+    .toEqual(closure);
+  expect(closure.plans[0]?.action.actionKey).toBe(plan.action.actionKey);
+  expect(() => parseVerificationActionPlanClosureV1(encodeVerificationActionDataV2({
+    ...closure,
+    closureDigest: DIGEST_A
+  }))).toThrow(/digest mismatch/u);
+});
+
 test('semantic closure, producer, provider and contract changes change ActionKey', () => {
   const baseline = createVerificationActionKeyV2(actionInput());
   expect(createVerificationActionKeyV2(actionInput({
@@ -105,7 +170,8 @@ test('semantic closure, producer, provider and contract changes change ActionKey
     environment: {
       toolchainRevision: 'bun@1.3.15',
       providerRevision: 'local-windows',
-      contractRevision: 'verification-result-v1'
+      contractRevision: 'verification-result-v1',
+      executionBudget: VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1
     }
   })).actionKey).not.toBe(baseline.actionKey);
   expect(createVerificationActionKeyV2(actionInput({

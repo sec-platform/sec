@@ -8,22 +8,48 @@ import {
   type CodexDevelopmentVerificationSessionArtifactV2
 } from '../../platform/shared/ci-evidence-contract.ts';
 import {
+  compileDevelopmentCriticalPathMainDeltaV1,
+  type DevelopmentCriticalPathMainDeltaV1,
+  type DevelopmentCriticalPathMainIdentityV1
+} from '../../platform/shared/development-critical-path-contract.ts';
+import {
   parseGitHubClosingKeywordOccurrencesV1
 } from '../../platform/shared/issue-disposition-contract.ts';
 import { createMainHealthLedgerV1 } from '../../platform/shared/main-health-contract.ts';
 import {
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
+  replaceDurableCanonicalFileV1,
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
 import { runCommand } from '../../platform/shared/process.ts';
 import { renderIndependentReviewTrailerV1 } from '../../platform/shared/review-stability-contract.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
 import {
+  bindTestImpactCachePhysicalCapabilityV1
+} from '../../platform/shared/test-impact-contract.ts';
+import {
+  createVerificationActionTerminalV2,
+  encodeVerificationActionDataV2,
+  type VerificationActionKeyDigest
+} from '../../platform/shared/verification-action-contract.ts';
+import {
+  composeDevelopmentCriticalPathV1
+} from '../../tooling/sec-dev/development-critical-path.ts';
+import {
+  acquireSecRuntimeJournalAuthorityV1,
   acquireSecRuntimeStatePhysicalAuthorityV1,
   type SecRuntimeStatePhysicalAuthorityV1
 } from '../../tooling/sec-dev/runtime-state-authority.ts';
-import { resolveSecRuntimeStateForRepositoryV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
+import { createRuntimeStateJournalFileSystemV1 } from '../../tooling/sec-dev/runtime-state-journal-filesystem.ts';
+import {
+  resolveSecRuntimeStateForRepositoryV1,
+  resolveSecWorkspaceRuntimeRootsV1
+} from '../../tooling/sec-dev/runtime-state-paths.ts';
+import {
+  readVerificationActionJournalV2,
+  readVerificationActionRetainedStaticClosureV1,
+  retireVerificationActionStaticClosureAfterTrustedSettlementV1
+} from '../../tooling/sec-dev/verification-action-journal.ts';
 import {
   dispatchGitHubApiRequestV1,
   integrationAuthorizationStatusMergeMarkersV1,
@@ -85,6 +111,10 @@ import {
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
 
+/** Machine-visible closeout blocker; it is not a caller-supplied proof field. */
+export const TRUSTED_RUNTIME_CRITICAL_PATH_RETIREMENT_BLOCKER_V1 =
+  'NO_PRODUCTION_CONSUMER' as const;
+
 const TRUSTED_RUNTIME_ACTION_BUNDLE_SCHEMA_V1 =
   'sec-trusted-runtime-action-bundle-v1' as const;
 type Digest = `sha256:${string}`;
@@ -104,6 +134,68 @@ function fail(message: string): never {
 
 function hash(value: unknown): Digest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionDataV2(value)).digest('hex')}`;
+}
+
+/**
+ * Bind the post-merge MainHealth reuse proposal to the exact verified
+ * candidate closure and the physical new-main tree.  Squash changes commit
+ * identity, so neither ancestry nor commit SHA participates in the semantic
+ * equality claim; every policy/toolchain/provider/environment/Action closure
+ * revision does.
+ */
+export type TrustedRuntimePostMergeMainIdentityFactsV1 = Readonly<{
+  readonly treeSha: string | null;
+  readonly policyRevision: Digest | null;
+  readonly toolchainRevision: Digest | null;
+  readonly providerRevision: Digest | null;
+  readonly environmentRevision: Digest | null;
+  readonly closureDigest: Digest | null;
+  readonly unknowns: readonly string[];
+}>;
+
+/**
+ * Join two independently observed MainIdentity owner facts.  The closeout
+ * consumer is not allowed to manufacture the new-main side by copying the
+ * candidate closure: absent owner facts are passed as unknown and therefore
+ * force a physical MainHealth run.
+ */
+export function compileTrustedRuntimePostMergeMainDeltaV1(input: Readonly<{
+  transition: Readonly<{
+    candidate: TrustedRuntimePostMergeMainIdentityFactsV1;
+    main: TrustedRuntimePostMergeMainIdentityFactsV1;
+    transitionDigest: Digest;
+  }>;
+}>): DevelopmentCriticalPathMainDeltaV1 {
+  if (input.transition.main.treeSha === null) {
+    fail('post-merge identity transition requires one exact main tree');
+  }
+  const rebuilt = createTrustedRuntimePostMergeMainIdentityTransitionV1({
+    candidate: input.transition.candidate,
+    exactMainTreeSha: input.transition.main.treeSha
+  });
+  if (rebuilt.transitionDigest !== digest(
+      input.transition.transitionDigest,
+      'post-merge identity transition digest'
+    ) || encodeVerificationActionDataV2(rebuilt.main)
+      !== encodeVerificationActionDataV2(input.transition.main)) {
+    fail('post-merge identity transition is not canonical');
+  }
+  const normalize = (
+    value: TrustedRuntimePostMergeMainIdentityFactsV1,
+    label: string
+  ): DevelopmentCriticalPathMainIdentityV1 => Object.freeze({
+    treeSha: value.treeSha === null ? null : gitSha(value.treeSha, `${label} tree SHA`),
+    policyRevision: value.policyRevision === null ? null : digest(value.policyRevision, `${label} policy revision`),
+    toolchainRevision: value.toolchainRevision === null ? null : digest(value.toolchainRevision, `${label} toolchain revision`),
+    providerRevision: value.providerRevision === null ? null : digest(value.providerRevision, `${label} provider revision`),
+    environmentRevision: value.environmentRevision === null ? null : digest(value.environmentRevision, `${label} environment revision`),
+    closureDigest: value.closureDigest === null ? null : digest(value.closureDigest, `${label} closure digest`),
+    unknowns: Object.freeze([...value.unknowns])
+  });
+  return compileDevelopmentCriticalPathMainDeltaV1({
+    main: normalize(input.transition.main, 'exact new-main'),
+    candidate: normalize(input.transition.candidate, 'verified candidate')
+  });
 }
 
 function digest(value: unknown, label: string): Digest {
@@ -310,6 +402,314 @@ function readCanonical<T>(input: Readonly<{
     fail(`durable ${input.name} bytes are not canonical`);
   }
   return value;
+}
+
+function createTrustedRuntimeCandidateMainIdentityFactsV1(input: Readonly<{
+  artifact: CodexDevelopmentVerificationSessionArtifactV2;
+  containerReceipt: TrustedRuntimeContainerReceiptV1;
+  treeSha: string;
+  carriedActionKeys?: readonly Digest[];
+}>): TrustedRuntimePostMergeMainIdentityFactsV1 {
+  const carriedActionKeys = input.carriedActionKeys ?? Object.freeze([]);
+  return Object.freeze({
+    treeSha: gitSha(input.treeSha, 'candidate identity tree SHA'),
+    policyRevision: digest(input.artifact.evidence.actionPlan.actionPlanDigest, 'candidate Action plan revision'),
+    toolchainRevision: digest(input.containerReceipt.producerSourceDigest, 'candidate toolchain revision'),
+    providerRevision: hash(Object.freeze({
+      schema: 'sec-trusted-runtime-provider-revision-v1',
+      dockerEndpoint: input.containerReceipt.dockerEndpoint
+    })),
+    environmentRevision: hash(Object.freeze({
+      schema: 'sec-trusted-runtime-environment-revision-v1',
+      imageId: input.containerReceipt.imageId,
+      executionEnvironment: TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1
+    })),
+    closureDigest: hash(Object.freeze({
+      schema: 'sec-trusted-runtime-main-closure-v1',
+      evidenceDigest: digest(input.artifact.evidence.evidenceDigest, 'verification evidence digest'),
+      manifestDigest: digest(input.artifact.session.manifestDigest, 'manifest digest'),
+      carriedActionKeys: Object.freeze(carriedActionKeys.map((value) =>
+        digest(value, 'carried ActionKey')).sort())
+    })),
+    unknowns: Object.freeze([])
+  });
+}
+
+function createTrustedRuntimeUnknownMainIdentityFactsV1(treeSha: string):
+  TrustedRuntimePostMergeMainIdentityFactsV1 {
+  return Object.freeze({
+    treeSha: gitSha(treeSha, 'exact new-main identity tree SHA'),
+    policyRevision: null,
+    toolchainRevision: null,
+    providerRevision: null,
+    environmentRevision: null,
+    closureDigest: null,
+    unknowns: Object.freeze([
+      'exact-new-main-policy-revision-unobserved',
+      'exact-new-main-toolchain-revision-unobserved',
+      'exact-new-main-provider-revision-unobserved',
+      'exact-new-main-environment-revision-unobserved',
+      'exact-new-main-closure-unobserved'
+    ])
+  });
+}
+
+/**
+ * Transfer authenticated candidate Evidence to exact new main only through an
+ * independently observed Git tree equality. Git tree identity commits to all
+ * repository bytes, while the carried revisions describe the authenticated
+ * verification closure for those bytes. A different tree receives no copied
+ * revision and therefore cannot be self-certified.
+ */
+export function createTrustedRuntimePostMergeMainIdentityTransitionV1(input: Readonly<{
+  candidate: TrustedRuntimePostMergeMainIdentityFactsV1;
+  exactMainTreeSha: string;
+}>): Readonly<{
+  candidate: TrustedRuntimePostMergeMainIdentityFactsV1;
+  main: TrustedRuntimePostMergeMainIdentityFactsV1;
+  transitionDigest: Digest;
+}> {
+  const exactMainTreeSha = gitSha(input.exactMainTreeSha, 'post-merge exact main tree SHA');
+  const candidateTreeSha = input.candidate.treeSha === null
+    ? null
+    : gitSha(input.candidate.treeSha, 'post-merge candidate tree SHA');
+  const main = candidateTreeSha === exactMainTreeSha
+    ? Object.freeze({ ...input.candidate, treeSha: exactMainTreeSha })
+    : createTrustedRuntimeUnknownMainIdentityFactsV1(exactMainTreeSha);
+  return Object.freeze({
+    candidate: input.candidate,
+    main,
+    transitionDigest: hash(Object.freeze({
+      schema: 'sec-trusted-runtime-main-identity-transition-v1',
+      candidateTreeSha,
+      exactMainTreeSha,
+      candidateClosureDigest: input.candidate.closureDigest,
+      disposition: candidateTreeSha === exactMainTreeSha
+        ? 'content-addressed-transfer'
+        : 'blocked-tree-drift'
+    }))
+  });
+}
+
+function trustedRuntimeArtifactActionObservationV1(
+  artifact: CodexDevelopmentVerificationSessionArtifactV2,
+  actionKey: VerificationActionKeyDigest
+) {
+  const matches = artifact.evidence.gates.filter((gate) => gate.action.actionKey === actionKey);
+  if (matches.length !== 1) {
+    fail(`verified Evidence must contain exactly one gate for ActionKey ${actionKey}`);
+  }
+  const result = matches[0]!.result;
+  const terminal = createVerificationActionTerminalV2({
+    status: result.status,
+    reasonCode: result.reasonCode,
+    resultDigest: result.execution?.outputDigest ?? null
+  });
+  return Object.freeze({
+    actionKey,
+    state: 'terminal' as const,
+    observationDigest: hash(Object.freeze({
+      schema: 'sec-trusted-runtime-evidence-action-observation-v1',
+      artifactDigest: digest(artifact.artifactDigest, 'verification artifact digest'),
+      actionKey,
+      terminal
+    })),
+    terminal
+  });
+}
+
+function assertJournalAndArtifactTerminalAgreeV1(
+  journal: ReturnType<typeof readVerificationActionJournalV2>,
+  artifactObservation: ReturnType<typeof trustedRuntimeArtifactActionObservationV1>
+): void {
+  if (journal.latestState !== 'terminal' && journal.latestState !== 'reused') return;
+  if (journal.terminal === null
+      || encodeVerificationActionDataV2(journal.terminal)
+        !== encodeVerificationActionDataV2(artifactObservation.terminal)) {
+    fail(`VerificationAction journal conflicts with immutable Evidence for ${artifactObservation.actionKey}`);
+  }
+}
+
+function resolveTrustedRuntimeActionObservationV1(
+  journal: ReturnType<typeof readVerificationActionJournalV2>,
+  artifactObservation: ReturnType<typeof trustedRuntimeArtifactActionObservationV1>
+) {
+  assertJournalAndArtifactTerminalAgreeV1(journal, artifactObservation);
+  // The artifact parser has already revalidated the exact session/head/plan.
+  // A local non-terminal journal may be an earlier or cross-host projection;
+  // it cannot invalidate a later immutable FINAL artifact for the same key.
+  return artifactObservation;
+}
+
+function readTrustedRuntimeDependencyResolutionV1(
+  fs: ReturnType<typeof createRuntimeStateJournalFileSystemV1>,
+  artifact: CodexDevelopmentVerificationSessionArtifactV2,
+  actionKey: Digest
+): Readonly<{
+  actionKey: Digest;
+  state: 'queued' | 'running' | 'terminal-passed' | 'terminal-failed' | 'not-run'
+    | 'unsupported' | 'invalidated' | 'cancelled' | 'unknown';
+  observationDigest: Digest | null;
+}> {
+  const journal = readVerificationActionJournalV2(fs, actionKey);
+  const artifactObservation = trustedRuntimeArtifactActionObservationV1(artifact, actionKey);
+  assertJournalAndArtifactTerminalAgreeV1(journal, artifactObservation);
+  const observationDigest = journal.events.at(-1)?.eventDigest ?? null;
+  if (journal.latestState === 'terminal' || journal.latestState === 'reused') {
+    if (journal.terminal?.status === 'passed') {
+      return Object.freeze({ actionKey, state: 'terminal-passed', observationDigest });
+    }
+    if (journal.terminal?.status === 'failed') {
+      return Object.freeze({ actionKey, state: 'terminal-failed', observationDigest });
+    }
+    return Object.freeze({ actionKey, state: 'not-run', observationDigest });
+  }
+  // Immutable Evidence is the durable terminal owner when a local journal has
+  // already been retired or was produced on another host.
+  return Object.freeze({
+    actionKey,
+    state: artifactObservation.terminal.status === 'passed'
+      ? 'terminal-passed' as const
+      : 'terminal-failed' as const,
+    observationDigest: artifactObservation.observationDigest
+  });
+}
+
+/**
+ * Consume the existing Action plan/journal without starting an Action.  The
+ * returned digest is settlement evidence only; ActionKey identity, runner
+ * execution/join/reuse, MainHealth and provider effects remain with their
+ * existing owners.
+ */
+async function composeTrustedRuntimeCriticalPathSettlementDigestV1(input: Readonly<{
+  repositoryRoot: string;
+  candidate: GitHubCandidateObservationV1;
+  actionBundle: TrustedRuntimeActionBundleV1;
+  identities: ReturnType<typeof createTrustedRuntimePostMergeMainIdentityTransitionV1>;
+}>): Promise<Readonly<{
+  digest: Digest;
+  allReusable: boolean;
+  retirement: Readonly<{
+    status: 'blocked' | 'retired';
+    reasonCode: typeof TRUSTED_RUNTIME_CRITICAL_PATH_RETIREMENT_BLOCKER_V1 | null;
+  }>;
+}>> {
+  if (input.candidate.mergeCommitTreeSha === null) {
+    fail('critical-path settlement requires the exact merged main tree');
+  }
+  const mergedMainTreeSha = input.candidate.mergeCommitTreeSha;
+  const authority = await acquireSecRuntimeJournalAuthorityV1({
+    repositoryRoot: input.repositoryRoot
+  });
+  await authority.assertCurrent();
+  const roots = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot: input.repositoryRoot });
+  const journalFs = createRuntimeStateJournalFileSystemV1(
+    authority.directory(roots.workspaceStateRoot)
+  );
+  const actionPlans = input.actionBundle.artifact.evidence.actionPlan.actions;
+  const projectionClosures = actionPlans.map((plan) => {
+    const dependencies = plan.dependencies.map((dependency) =>
+      readTrustedRuntimeDependencyResolutionV1(
+        journalFs,
+        input.actionBundle.artifact,
+        dependency.actionKey as Digest
+      ));
+    const journal = readVerificationActionJournalV2(journalFs, plan.action.actionKey as Digest);
+    if (journal.evidence === null || journal.evidence === undefined) {
+      fail(`critical-path settlement is missing durable provider Evidence for ${plan.action.actionKey}`);
+    }
+    const staticClosure = readVerificationActionRetainedStaticClosureV1(
+      journalFs,
+      plan.action.actionKey as Digest
+    );
+    if (staticClosure === null) {
+      fail(`critical-path settlement is missing durable static closure for ${plan.action.actionKey}`);
+    }
+    if (staticClosure.analysisReadback.repository.headTreeSha !== mergedMainTreeSha) {
+      fail(`critical-path static closure tree differs for ${plan.action.actionKey}`);
+    }
+    const artifactObservation = trustedRuntimeArtifactActionObservationV1(
+      input.actionBundle.artifact,
+      plan.action.actionKey
+    );
+    const actionObservation = resolveTrustedRuntimeActionObservationV1(journal, artifactObservation);
+    const projection = composeDevelopmentCriticalPathV1({
+      // Consume the exact pre-effect analyzer publication. Closeout never
+      // recomputes a static proof from the plan or manufactures post-hoc PASS.
+      staticClosure,
+      action: plan.action,
+      plan,
+      observation: actionObservation,
+      dependencies,
+      main: input.identities.main,
+      candidate: input.identities.candidate,
+      mainHealth: {
+        ledger: input.actionBundle.artifact.mainHealth,
+        now: new Date().toISOString(),
+        expectedRepository: input.actionBundle.artifact.session.repository,
+        expectedDefaultBranch: input.candidate.baseBranch,
+        expectedMainSha: input.candidate.mergeCommitSha ?? input.candidate.headSha,
+        expectedMainTreeSha: mergedMainTreeSha,
+        expectedTrustRevision: input.actionBundle.artifact.session.trustRevision
+      },
+      environment: {
+        plan: null,
+        spec: null,
+        observation: null,
+        environmentRevision: null,
+        unknowns: ['closeout-environment-owner-not-joined']
+      },
+      provider: {
+        required: false,
+        capability: null,
+        unknowns: []
+      }
+    });
+    return Object.freeze({
+      projection,
+      staticClosure,
+      terminalEvidenceDigest: journal.evidence.evidenceDigest
+    });
+  });
+  const projections = projectionClosures.map(({ projection }) => projection);
+  await authority.assertCurrent();
+  const allReusable = projections.every((projection) => projection.overallDisposition === 'reuse-pass');
+  const digestValue = hash(Object.freeze({
+    schema: 'sec-trusted-runtime-development-critical-path-settlement-v1',
+    sessionRevision: input.actionBundle.sessionRevision,
+    artifactDigest: input.actionBundle.artifact.artifactDigest,
+    mainTreeSha: input.candidate.mergeCommitTreeSha,
+    actionPlanDigest: input.actionBundle.actionPlanDigest,
+    identityTransitionDigest: input.identities.transitionDigest,
+    projections: Object.freeze(projectionClosures.map(({ projection, staticClosure, terminalEvidenceDigest }) =>
+      Object.freeze({
+        actionKey: projection.action.actionKey,
+        semanticDigest: projection.semanticDigest,
+        closureDigest: staticClosure.closureDigest,
+        terminalEvidenceDigest
+      })))
+  }));
+  const retirements = projectionClosures.map(({ staticClosure }) =>
+    retireVerificationActionStaticClosureAfterTrustedSettlementV1({
+      fs: journalFs,
+      actionKey: staticClosure.actionKey,
+      sessionRevision: input.actionBundle.artifact.session.sessionRevision as Digest,
+      artifactDigest: input.actionBundle.artifact.artifactDigest as Digest,
+      settlementDigest: digestValue
+    })
+  );
+  await authority.assertCurrent();
+  if (retirements.some((retirement) => retirement.disposition !== 'retired')) {
+    fail('critical-path static closure pointer retirement did not complete');
+  }
+  return Object.freeze({
+    digest: digestValue,
+    allReusable,
+    retirement: Object.freeze({
+      status: 'retired' as const,
+      reasonCode: null
+    })
+  });
 }
 
 export async function ensureTrustedRuntimeMainHealthReceiptV2(input: Readonly<{
@@ -676,10 +1076,41 @@ async function finalizeMergedTrustedRuntimeV1(input: Readonly<{
     }
     return matching[0]!.action.actionKey as Digest;
   });
-  const carryForwardAllowed = trustedRuntimeMainHealthCarryForwardBaselineMatchesV2(
-    mergedBaseline,
-    { baselineSha: candidate.baseSha, baselineTreeSha: candidate.baseTreeSha }
-  );
+  const candidateMainIdentity = createTrustedRuntimeCandidateMainIdentityFactsV1({
+    artifact,
+    containerReceipt: actionBundle.containerReceipt,
+    treeSha: candidate.headTreeSha,
+    carriedActionKeys
+  });
+  // The remote main tree was independently read above. Exact Git-tree equality
+  // is the content-addressed proof that permits the authenticated candidate
+  // Evidence closure to transition; no commit ancestry or candidate-authored
+  // main observation participates.
+  const identityTransition = createTrustedRuntimePostMergeMainIdentityTransitionV1({
+    candidate: candidateMainIdentity,
+    exactMainTreeSha: candidate.mergeCommitTreeSha
+  });
+  const criticalPathSettlement = await composeTrustedRuntimeCriticalPathSettlementDigestV1({
+    repositoryRoot: input.repositoryRoot,
+    candidate,
+    actionBundle,
+    identities: identityTransition
+  });
+  if (criticalPathSettlement.retirement.status !== 'retired') {
+    fail(
+      `${TRUSTED_RUNTIME_CRITICAL_PATH_RETIREMENT_BLOCKER_V1}: static closure retirement is blocked until an independent ` +
+      `provider consumer and retention readback is wired (${criticalPathSettlement.retirement.reasonCode})`
+    );
+  }
+  const mainDelta = compileTrustedRuntimePostMergeMainDeltaV1({
+    transition: identityTransition
+  });
+  const carryForwardAllowed = mainDelta.disposition === 'tree-equivalent'
+    && criticalPathSettlement.allReusable
+    && trustedRuntimeMainHealthCarryForwardBaselineMatchesV2(
+      mergedBaseline,
+      { baselineSha: candidate.baseSha, baselineTreeSha: candidate.baseTreeSha }
+    );
   const nextMainHealth = carryForwardAllowed
     ? createTrustedRuntimeMainHealthReceiptV2({
         origin: 'verified-candidate-transition',
@@ -701,6 +1132,8 @@ async function finalizeMergedTrustedRuntimeV1(input: Readonly<{
             baselineObservationDigest: mergedBaseline.observationDigest,
             mainSha: candidate.mergeCommitSha,
             mainTreeSha: candidate.mergeCommitTreeSha,
+            mainDeltaDecisionDigest: mainDelta.decisionDigest,
+            developmentCriticalPathDecisionDigest: criticalPathSettlement.digest,
             carriedActionKeys
           }))
         })],
@@ -740,6 +1173,9 @@ async function finalizeMergedTrustedRuntimeV1(input: Readonly<{
     mergeCommitSha: candidate.mergeCommitSha,
     mergeCommitTreeSha: candidate.mergeCommitTreeSha,
     nextMainHealthReceiptDigest: nextMainHealthReadback.receiptDigest,
+    mainDeltaDecisionDigest: mainDelta.decisionDigest,
+    mainDeltaDisposition: mainDelta.disposition,
+    developmentCriticalPathDecisionDigest: criticalPathSettlement.digest,
     platformEnforcement: gateReadback.platformObservation.status,
     claimsNoBypassEnforcement: false
   });
@@ -856,6 +1292,14 @@ export async function closeoutWithTrustedRuntimeV1(input: Readonly<{
   const manifestSource = github.readBlobText(input.repository, candidate.headSha, manifestPath);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestSource) as Digest;
   const manifest = CodexDevelopmentParseCurrentWorkPackageManifestV1(manifestSource, manifestPath);
+  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
+    repository: input.repository,
+    repositoryRoot
+  });
+  await bindTestImpactCachePhysicalCapabilityV1({
+    repositoryRoot,
+    cacheRoot: runtimeLayout.cacheRoot
+  });
   const changed = observeVerificationSessionChangedSelectionV1({ repositoryRoot,
     repository: input.repository, prNumber: input.prNumber, candidate, github });
   CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changed.changedPaths]);
@@ -870,10 +1314,6 @@ export async function closeoutWithTrustedRuntimeV1(input: Readonly<{
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) });
   const observedAt = new Date().toISOString();
   const runtimeRef = `${CodexDevelopmentMergeGateProducerIdentityV2}@${candidate.baseSha}`;
-  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
-    repository: input.repository,
-    repositoryRoot
-  });
   const mainHealthRoot = path.join(
     runtimeLayout.repositoryStateRoot,
     'trusted-main-health',

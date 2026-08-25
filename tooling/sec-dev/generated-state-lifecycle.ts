@@ -3,17 +3,25 @@ import path from 'node:path';
 
 import {
   GENERATED_STATE_REGISTRY_V1,
+  GENERATED_STATE_RESOURCE_REGISTRATION_SCHEMA_V1,
+  assertGeneratedStateResourceReceiptV1,
+  assertGeneratedStateResourceRegistrationV1,
   assertGeneratedStateWorktreeRetirementV1,
   createGeneratedStateInventoryV1,
   createGeneratedStateRegistrationV1,
+  createGeneratedStateResourceReceiptV1,
+  createGeneratedStateResourceRegistrationV1,
   createGeneratedStateSettlementV1,
   createGeneratedStateWorktreeRetirementV1,
   generatedStateCleanupAllowedV1,
   generatedStateDigestV1,
   generatedStateDomainProviderMaterialDigestV1,
+  generatedStateResourceConsumerCredentialV1,
+  generatedStateResourceReclaimabilityV1,
   generatedStateRuleForPathV1,
   normalizeGeneratedStateRelativePathV1,
   parseGeneratedStateRegistrationV1,
+  parseGeneratedStateResourceRegistrationV1,
   retireGeneratedStateRegistrationV1,
   type GeneratedStateCleanupProfileV1,
   type GeneratedStateInventoryEntryV1,
@@ -21,14 +29,18 @@ import {
   type GeneratedStatePhysicalFormV1,
   type GeneratedStatePhysicalIdentityV1,
   type GeneratedStateRegistrationV1,
+  type GeneratedStateResourceReceiptV1,
+  type GeneratedStateResourceRegistrationV1,
   type GeneratedStateRuleV1,
   type GeneratedStateSettlementV1,
   type GeneratedStateWorktreeRetirementV1
 } from '../../platform/shared/generated-state-contract.ts';
+import { acquirePhysicalMutationLeaseV1 } from '../../platform/shared/physical-mutation-lease.ts';
 import {
   PhysicalNoFollowError,
   createNoFollowOrdinaryDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
+  deleteRetainedNoFollowInventoryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
   inspectNoFollowLinkEntryV1,
@@ -44,7 +56,9 @@ import {
   parseWorktreeStatusPorcelainZV1,
   type WorktreeStatusPorcelainRecordV1
 } from '../../scripts/codex/worktree-physical-closeout-contract.ts';
-import { acquireSecRuntimeStatePhysicalAuthorityV1 } from './runtime-state-authority.ts';
+import {
+  acquireSecRuntimeStatePhysicalAuthorityV1
+} from './runtime-state-authority.ts';
 import { createRuntimeStateJournalFileSystemV1 } from './runtime-state-journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRootsV1 } from './runtime-state-paths.ts';
 
@@ -54,6 +68,16 @@ const CLEANUP_DEADLINE_MS = 30_000;
 
 export interface GeneratedStateLifecycleOptionsV1 {
   readonly afterQuarantineEffect?: (relativePath: string) => void | Promise<void>;
+  readonly afterResourceDeleteEffect?: (relativePath: string) => void | Promise<void>;
+  readonly beforeResourceRegistrationCommitEffect?: (
+    relativePath: string,
+    expectedTransitionEpoch: number
+  ) => void | Promise<void>;
+  readonly afterResourceAnchorRetirementEffect?: (
+    phase: 'intent' | 'receipt' | 'registration',
+    relativePath: string
+  ) => void | Promise<void>;
+  readonly beforeResourceDeleteEffect?: (relativePath: string) => void | Promise<void>;
   readonly afterWorktreeRetirementRelocation?: (relativePath: string) => void | Promise<void>;
   readonly afterWorktreeRetirementProviderEffect?: (relativePath: string) => void | Promise<void>;
   readonly beforeCleanupEffect?: (relativePath: string) => void | Promise<void>;
@@ -219,6 +243,16 @@ function openRuntimeStoreReadOnly(
 
 function observeRoot(workspaceRoot: string, relativePath: string): ObservedGeneratedStateRootV1 {
   const absolutePath = path.join(workspaceRoot, ...normalizeGeneratedStateRelativePathV1(relativePath).split('/'));
+  // Prove the complete parent chain before classifying an ENOENT as an
+  // explicit missing root.  Without this read, a dangling/reparse parent can
+  // make ordinary lstat(ENOENT) look like a safe absent generation.
+  const parentPresence = inspectExactNoFollowDirectoryPresenceV1(
+    path.dirname(absolutePath),
+    'Generated-state root parent'
+  );
+  if (parentPresence.state === 'absent') {
+    return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
+  }
   let metadata: ReturnType<typeof lstatSync>;
   try {
     metadata = lstatSync(absolutePath);
@@ -271,6 +305,211 @@ function registrationPath(store: GeneratedStateRuntimeStoreV1, relativePath: str
 
 function transactionPointerPath(store: GeneratedStateRuntimeStoreV1, relativePath: string): string {
   return path.join(store.transactionsRoot, `current-${registrationKey(relativePath)}.json`);
+}
+
+function resourceKey(relativePath: string): string {
+  return registrationKey(relativePath);
+}
+
+function resourceRegistrationPath(
+  store: GeneratedStateRuntimeStoreV1,
+  relativePath: string
+): string {
+  return path.join(store.registrationsRoot, `resource-current-${resourceKey(relativePath)}.json`);
+}
+
+function resourceReceiptPath(
+  store: GeneratedStateRuntimeStoreV1,
+  relativePath: string
+): string {
+  return path.join(store.settlementsRoot, `resource-current-${resourceKey(relativePath)}.json`);
+}
+
+function resourceCleanupIntentPath(
+  store: GeneratedStateRuntimeStoreV1,
+  relativePath: string
+): string {
+  return path.join(store.transactionsRoot, `resource-current-${resourceKey(relativePath)}.json`);
+}
+
+interface GeneratedStateResourceCleanupIntentV1 {
+  readonly schema: 'sec-generated-state-resource-cleanup-intent-v1';
+  readonly relativePath: string;
+  readonly registrationDigest: `sha256:${string}`;
+  readonly root: GeneratedStatePhysicalIdentityV1 | null;
+  readonly rootKind: 'directory' | 'file' | 'link' | null;
+  readonly linkTarget: string | null;
+  readonly intentDigest: `sha256:${string}`;
+}
+
+function resourceCleanupIntentV1(input: Omit<
+  GeneratedStateResourceCleanupIntentV1,
+  'schema' | 'intentDigest'
+>): GeneratedStateResourceCleanupIntentV1 {
+  const material = Object.freeze({
+    schema: 'sec-generated-state-resource-cleanup-intent-v1' as const,
+    ...input
+  });
+  return Object.freeze({ ...material, intentDigest: generatedStateDigestV1(material) });
+}
+
+function loadResourceCleanupIntent(
+  store: GeneratedStateRuntimeStoreV1,
+  relativePath: string
+): GeneratedStateResourceCleanupIntentV1 | null {
+  const locator = resourceCleanupIntentPath(store, relativePath);
+  if (!store.fs.exists(locator)) return null;
+  const value = JSON.parse(store.fs.readText(locator)) as Partial<GeneratedStateResourceCleanupIntentV1>;
+  if (value.schema !== 'sec-generated-state-resource-cleanup-intent-v1' ||
+      value.relativePath !== normalizeGeneratedStateRelativePathV1(relativePath) ||
+      typeof value.registrationDigest !== 'string' ||
+      !/^sha256:[0-9a-f]{64}$/u.test(value.registrationDigest) ||
+      (value.root !== null && value.root === undefined) ||
+      (value.rootKind !== null && value.rootKind !== 'directory' && value.rootKind !== 'file' && value.rootKind !== 'link') ||
+      (value.linkTarget !== null && typeof value.linkTarget !== 'string') ||
+      typeof value.intentDigest !== 'string') {
+    throw new Error('Generated-state resource cleanup intent pointer is malformed.');
+  }
+  const material = resourceCleanupIntentV1({
+    relativePath: value.relativePath,
+    registrationDigest: value.registrationDigest as `sha256:${string}`,
+    root: value.root === null || value.root === undefined ? null : value.root as GeneratedStatePhysicalIdentityV1,
+    rootKind: value.rootKind ?? null,
+    linkTarget: value.linkTarget ?? null
+  });
+  if (material.intentDigest !== value.intentDigest) {
+    throw new Error('Generated-state resource cleanup intent digest is invalid.');
+  }
+  return material;
+}
+
+function loadResourceRegistration(
+  store: GeneratedStateRuntimeStoreV1 | null,
+  relativePath: string
+): GeneratedStateResourceRegistrationV1 | null {
+  if (store === null) return null;
+  const locator = resourceRegistrationPath(store, relativePath);
+  if (!store.fs.exists(locator)) return null;
+  return parseGeneratedStateResourceRegistrationV1(JSON.parse(store.fs.readText(locator)) as unknown);
+}
+
+function resourceTransitionLeaseNameV1(relativePath: string): string {
+  return `.resource-transition-${resourceKey(relativePath)}.lock`;
+}
+
+async function withResourceTransitionLeaseV1<T>(
+  store: GeneratedStateRuntimeStoreV1,
+  relativePath: string,
+  operation: () => T | Promise<T>
+): Promise<T> {
+  const parent = inspectNoFollowDirectoryChainV1(
+    store.registrationsRoot,
+    'Generated-state resource transition lease parent'
+  ).target;
+  const lease = acquirePhysicalMutationLeaseV1(
+    parent,
+    resourceTransitionLeaseNameV1(relativePath)
+  );
+  if (lease === null) {
+    throw new Error('Generated-state resource transition lease is contended.');
+  }
+  try {
+    return await operation();
+  } finally {
+    lease.release();
+  }
+}
+
+function assertResourceCurrentExpectedV1(
+  actual: GeneratedStateResourceRegistrationV1 | null,
+  expected: GeneratedStateResourceRegistrationV1 | null
+): void {
+  if (expected === null) {
+    if (actual !== null) throw new Error('Generated-state resource current CAS failed: current already exists.');
+    return;
+  }
+  if (actual === null || actual.registrationDigest !== expected.registrationDigest ||
+      actual.transitionEpoch !== expected.transitionEpoch) {
+    throw new Error('Generated-state resource current CAS failed: registration digest or transition epoch changed.');
+  }
+}
+
+function persistResourceRegistrationUnderLeaseV1(
+  store: GeneratedStateRuntimeStoreV1,
+  registration: GeneratedStateResourceRegistrationV1,
+  expectedCurrent: GeneratedStateResourceRegistrationV1 | null
+): void {
+  const current = loadResourceRegistration(store, registration.relativePath);
+  assertResourceCurrentExpectedV1(current, expectedCurrent);
+  // Remove evidence bound to the previous generation before replacing the
+  // authority record.  A crash in this gap leaves the old current record
+  // recoverable and never leaves a receipt bound to a new digest.
+  store.fs.deleteIfPresent(resourceReceiptPath(store, registration.relativePath));
+  assertResourceCurrentExpectedV1(loadResourceRegistration(store, registration.relativePath), expectedCurrent);
+  store.fs.replaceFsync(resourceRegistrationPath(store, registration.relativePath), canonicalBytes(registration));
+}
+
+function persistResourceRegistration(
+  store: GeneratedStateRuntimeStoreV1,
+  registration: GeneratedStateResourceRegistrationV1,
+  expectedCurrent: GeneratedStateResourceRegistrationV1 | null,
+  options: GeneratedStateLifecycleOptionsV1 = {}
+): Promise<void> {
+  const expectedTransitionEpoch = expectedCurrent?.transitionEpoch ?? -1;
+  const beforeCommit = options.beforeResourceRegistrationCommitEffect;
+  const prepare = beforeCommit === undefined
+    ? Promise.resolve()
+    : Promise.resolve(beforeCommit(registration.relativePath, expectedTransitionEpoch));
+  return prepare.then(() => withResourceTransitionLeaseV1(store, registration.relativePath, () => {
+    persistResourceRegistrationUnderLeaseV1(store, registration, expectedCurrent);
+  }));
+}
+
+function loadResourceReceipt(
+  store: GeneratedStateRuntimeStoreV1 | null,
+  relativePath: string
+): GeneratedStateResourceReceiptV1 | null {
+  if (store === null) return null;
+  const locator = resourceReceiptPath(store, relativePath);
+  if (!store.fs.exists(locator)) return null;
+  return assertGeneratedStateResourceReceiptV1(
+    JSON.parse(store.fs.readText(locator)) as GeneratedStateResourceReceiptV1
+  );
+}
+
+function persistResourceReceipt(
+  store: GeneratedStateRuntimeStoreV1,
+  receipt: GeneratedStateResourceReceiptV1
+): void {
+  store.fs.replaceFsync(resourceReceiptPath(store, receipt.relativePath), canonicalBytes(receipt));
+}
+
+function rebuildResourceRegistrationV1(input: Omit<
+  GeneratedStateResourceRegistrationV1,
+  'schema' | 'registrationDigest'
+>): GeneratedStateResourceRegistrationV1 {
+  const material = Object.freeze({ schema: GENERATED_STATE_RESOURCE_REGISTRATION_SCHEMA_V1, ...input });
+  return assertGeneratedStateResourceRegistrationV1(Object.freeze({
+    ...material,
+    registrationDigest: generatedStateDigestV1(material)
+  }));
+}
+
+function generatedStateResourceIdV1(input: Readonly<{
+  repositoryRoot: string;
+  workspace: GeneratedStatePhysicalIdentityV1;
+  relativePath: string;
+  operationId: string;
+  root: GeneratedStatePhysicalIdentityV1 | null;
+}>): `sha256:${string}` {
+  return generatedStateDigestV1(Object.freeze({
+    schema: 'sec-generated-state-resource-id-v1',
+    repositoryRoot: path.resolve(input.repositoryRoot),
+    workspace: input.workspace,
+    relativePath: normalizeGeneratedStateRelativePathV1(input.relativePath),
+    operationId: input.operationId,
+    root: input.root
+  }));
 }
 
 interface GeneratedStateCleanupIntentV1 {
@@ -340,6 +579,26 @@ function requireRule(relativePath: string): GeneratedStateRuleV1 {
   return rule;
 }
 
+function assertNoDualGeneratedStateAuthorityV1(
+  store: GeneratedStateRuntimeStoreV1,
+  relativePath: string,
+  authority: 'legacy' | 'resource'
+): void {
+  const legacy = loadRegistration(store, relativePath);
+  const resource = loadResourceRegistration(store, relativePath);
+  if (authority === 'resource' && legacy !== null) {
+    throw new Error(
+      'Generated-state resource admission is blocked until the legacy registration reaches consumer-zero physical settlement.'
+    );
+  }
+  if (authority === 'legacy' && resource !== null) {
+    throw new Error('Generated-state legacy admission is blocked while a resource current authority exists.');
+  }
+  if (legacy !== null && resource !== null) {
+    throw new Error('Generated-state path has conflicting legacy and resource authorities.');
+  }
+}
+
 async function registerGeneratedStateBirthV1(input: Readonly<{
   repositoryRoot: string;
   workspaceRoot?: string;
@@ -364,6 +623,7 @@ async function registerGeneratedStateBirthV1(input: Readonly<{
   }
   const store = await openRuntimeStore(workspaceRoot, options);
   await store.assertCurrent();
+  assertNoDualGeneratedStateAuthorityV1(store, relativePath, 'legacy');
   const current = loadRegistration(store, relativePath);
   if (current !== null && current.phase === 'active') {
     if (sameIdentity(current.root, observed.identity)) return current;
@@ -395,6 +655,7 @@ async function retireGeneratedStateV1(input: Readonly<{
   const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
   const store = await openRuntimeStore(workspaceRoot, options);
   await store.assertCurrent();
+  assertNoDualGeneratedStateAuthorityV1(store, relativePath, 'legacy');
   const current = loadRegistration(store, relativePath);
   if (current === null) throw new Error('Generated-state retirement has no birth registration.');
   if (current.registrationDigest !== input.expectedRegistrationDigest) {
@@ -424,6 +685,729 @@ async function retireGeneratedStateV1(input: Readonly<{
   return parseGeneratedStateRegistrationV1(JSON.parse(store.fs.readText(
     registrationPath(store, relativePath)
   )) as unknown);
+}
+
+export interface GeneratedStateResourceObservationV1 {
+  readonly registration: GeneratedStateResourceRegistrationV1 | null;
+  readonly receipt: GeneratedStateResourceReceiptV1 | null;
+  readonly observedRoot: GeneratedStatePhysicalIdentityV1 | null;
+  readonly observedKind: 'directory' | 'file' | 'link' | 'missing' | null;
+  readonly reclaimability: 'eligible' | 'blocked' | 'unknown';
+  readonly operationalTerminal: boolean;
+  readonly physicalClean: boolean;
+  readonly gcPending: boolean;
+  readonly blockers: readonly string[];
+}
+
+function resourceLeaseMatchesV1(
+  registration: GeneratedStateResourceRegistrationV1,
+  leaseId: `sha256:${string}`
+): boolean {
+  return registration.lease.leaseId === leaseId && registration.lease.state === 'held';
+}
+
+function resourceRegistrationWithStateV1(
+  registration: GeneratedStateResourceRegistrationV1,
+  input: Readonly<{
+    root?: GeneratedStatePhysicalIdentityV1 | null;
+    rootKind?: 'directory' | 'file' | 'link' | null;
+    linkTarget?: string | null;
+    lease?: GeneratedStateResourceRegistrationV1['lease'];
+    retention?: GeneratedStateResourceRegistrationV1['retention'];
+    terminalObligation?: GeneratedStateResourceRegistrationV1['terminalObligation'];
+    phase?: GeneratedStateResourceRegistrationV1['phase'];
+  }>
+): GeneratedStateResourceRegistrationV1 {
+  return rebuildResourceRegistrationV1({
+    resourceId: registration.resourceId,
+    repositoryRoot: registration.repositoryRoot,
+    workspace: registration.workspace,
+    ruleId: registration.ruleId,
+    relativePath: registration.relativePath,
+    root: input.root === undefined ? registration.root : input.root,
+    rootKind: input.rootKind === undefined ? registration.rootKind : input.rootKind,
+    linkTarget: input.linkTarget === undefined ? registration.linkTarget : input.linkTarget,
+    owner: registration.owner,
+    producer: registration.producer,
+    operationId: registration.operationId,
+    lease: input.lease ?? registration.lease,
+    retention: input.retention ?? registration.retention,
+    terminalObligation: input.terminalObligation ?? registration.terminalObligation,
+    phase: input.phase ?? registration.phase,
+    transitionEpoch: registration.transitionEpoch + 1
+  });
+}
+
+function requireResourceRegistrationV1(
+  store: GeneratedStateRuntimeStoreV1 | null,
+  relativePath: string,
+  resourceId?: `sha256:${string}`
+): GeneratedStateResourceRegistrationV1 {
+  const registration = loadResourceRegistration(store, relativePath);
+  if (registration === null) throw new Error(`Generated-state resource birth is absent: ${relativePath}`);
+  if (resourceId !== undefined && registration.resourceId !== resourceId) {
+    throw new Error('Generated-state resource identity changed.');
+  }
+  return registration;
+}
+
+export async function registerGeneratedStateResourceBirthV1(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  operationId: string;
+  resourceId?: `sha256:${string}`;
+}>, options: GeneratedStateLifecycleOptionsV1 = {}): Promise<GeneratedStateResourceRegistrationV1> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  const rule = requireRule(relativePath);
+  if (rule.registration !== 'required-at-birth') {
+    throw new Error(`Generated-state rule ${rule.id} is registered by its domain owner, not this lifecycle.`);
+  }
+  const workspace = inspectNoFollowDirectoryChainV1(workspaceRoot, 'Generated-state resource workspace root').target;
+  const store = await openRuntimeStore(workspaceRoot, options);
+  await store.assertCurrent();
+  return withResourceTransitionLeaseV1(store, relativePath, async () => {
+    assertNoDualGeneratedStateAuthorityV1(store, relativePath, 'resource');
+    const observed = observeRoot(workspaceRoot, relativePath);
+    const current = loadResourceRegistration(store, relativePath);
+    if (current !== null && current.phase === 'active') {
+      if (current.operationId !== input.operationId) {
+        throw new Error(`Generated-state resource already has an active owner: ${relativePath}`);
+      }
+      if (input.resourceId !== undefined && current.resourceId !== input.resourceId) {
+        throw new Error('Generated-state resource identity changed during duplicate birth admission.');
+      }
+      if (observed.identity !== null && (current.root === null || !sameIdentity(current.root, observed.identity))) {
+        throw new Error('Generated-state resource active root identity changed.');
+      }
+      return current;
+    }
+    if (current !== null && (current.retention.consumers.length > 0 || observed.identity !== null)) {
+      throw new Error('Generated-state resource cannot be reborn before consumer-zero physical settlement.');
+    }
+    const resourceId = input.resourceId ?? generatedStateResourceIdV1({
+      repositoryRoot,
+      workspace: identityOf(workspace),
+      relativePath,
+      operationId: input.operationId,
+      root: observed.identity
+    });
+    const registration = createGeneratedStateResourceRegistrationV1({
+      resourceId,
+      repositoryRoot,
+      workspace: identityOf(workspace),
+      rule,
+      relativePath,
+      root: observed.identity,
+      rootKind: observed.kind === 'missing' ? null : observed.kind,
+      linkTarget: observed.linkTarget,
+      operationId: input.operationId
+    });
+    if (current !== null) {
+      // The old terminal record is the recovery anchor until both subordinate
+      // pointers are retired; only then is the current record replaced.
+      store.fs.deleteIfPresent(resourceCleanupIntentPath(store, relativePath));
+      store.fs.deleteIfPresent(resourceReceiptPath(store, relativePath));
+    }
+    persistResourceRegistrationUnderLeaseV1(store, registration, current);
+    await store.assertCurrent();
+    return requireResourceRegistrationV1(store, relativePath, resourceId);
+  });
+}
+
+export async function bindGeneratedStateResourceIdentityV1(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  resourceId: `sha256:${string}`;
+  leaseId: `sha256:${string}`;
+}>, options: GeneratedStateLifecycleOptionsV1 = {}): Promise<GeneratedStateResourceRegistrationV1> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  const store = await openRuntimeStore(workspaceRoot, options);
+  await store.assertCurrent();
+  assertNoDualGeneratedStateAuthorityV1(store, relativePath, 'resource');
+  const current = requireResourceRegistrationV1(store, relativePath, input.resourceId);
+  if (!resourceLeaseMatchesV1(current, input.leaseId)) {
+    throw new Error('Generated-state resource lease is not current.');
+  }
+  if (current.phase !== 'active') throw new Error('Generated-state resource is already operational-terminal.');
+  const observed = observeRoot(workspaceRoot, relativePath);
+  if (observed.identity === null || observed.kind === 'missing') {
+    throw new Error('Generated-state resource identity binding requires a present physical root.');
+  }
+  if (current.root !== null && !sameIdentity(current.root, observed.identity)) {
+    throw new Error('Generated-state resource physical identity changed during binding.');
+  }
+  const bound = resourceRegistrationWithStateV1(current, {
+    root: observed.identity,
+    rootKind: observed.kind,
+    linkTarget: observed.linkTarget
+  });
+  await persistResourceRegistration(store, bound, current, options);
+  await store.assertCurrent();
+  return requireResourceRegistrationV1(store, relativePath, input.resourceId);
+}
+
+export async function addGeneratedStateResourceConsumerV1(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  resourceId: `sha256:${string}`;
+  leaseId: `sha256:${string}`;
+  consumerId: string;
+}>, options: GeneratedStateLifecycleOptionsV1 = {}): Promise<GeneratedStateResourceRegistrationV1> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  const consumerId = input.consumerId.trim();
+  if (consumerId.length === 0) throw new Error('Generated-state resource consumerId is empty.');
+  const store = await openRuntimeStore(workspaceRoot, options);
+  await store.assertCurrent();
+  assertNoDualGeneratedStateAuthorityV1(store, relativePath, 'resource');
+  const current = requireResourceRegistrationV1(store, relativePath, input.resourceId);
+  if (!resourceLeaseMatchesV1(current, input.leaseId)) throw new Error('Generated-state resource lease is not current.');
+  if (current.phase !== 'active') throw new Error('Generated-state resource cannot acquire a consumer after terminal.');
+  if (current.retention.consumers.some(({ consumerId: existingId }) => existingId === consumerId)) return current;
+  const credential = generatedStateResourceConsumerCredentialV1({
+    resourceId: current.resourceId,
+    owner: current.owner,
+    leaseId: current.lease.leaseId,
+    consumerId
+  });
+  const consumers = Object.freeze([
+    ...current.retention.consumers,
+    Object.freeze({ consumerId, credential })
+  ].sort((left, right) => left.consumerId.localeCompare(right.consumerId)));
+  const updated = resourceRegistrationWithStateV1(current, {
+    retention: Object.freeze({ ...current.retention, consumers })
+  });
+  await persistResourceRegistration(store, updated, current, options);
+  await store.assertCurrent();
+  return requireResourceRegistrationV1(store, relativePath, input.resourceId);
+}
+
+export async function removeGeneratedStateResourceConsumerV1(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  resourceId: `sha256:${string}`;
+  consumerId: string;
+  consumerCredential: `sha256:${string}`;
+}> , options: GeneratedStateLifecycleOptionsV1 = {}): Promise<GeneratedStateResourceRegistrationV1> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  const consumerId = input.consumerId.trim();
+  if (consumerId.length === 0) throw new Error('Generated-state resource consumerId is empty.');
+  const store = await openRuntimeStore(workspaceRoot, options);
+  await store.assertCurrent();
+  assertNoDualGeneratedStateAuthorityV1(store, relativePath, 'resource');
+  const current = requireResourceRegistrationV1(store, relativePath, input.resourceId);
+  const expectedCredential = generatedStateResourceConsumerCredentialV1({
+    resourceId: current.resourceId,
+    owner: current.owner,
+    leaseId: current.lease.leaseId,
+    consumerId
+  });
+  if (input.consumerCredential !== expectedCredential) {
+    throw new Error('Generated-state resource consumer release credential is not owner-issued.');
+  }
+  const existing = current.retention.consumers.find(({ consumerId: existingId }) => existingId === consumerId);
+  if (existing === undefined) return current;
+  if (existing.credential !== input.consumerCredential) {
+    throw new Error('Generated-state resource consumer release credential does not bind the current consumer.');
+  }
+  const consumers = Object.freeze(current.retention.consumers
+    .filter(({ consumerId: existingId }) => existingId !== consumerId)
+    .sort((left, right) => left.consumerId.localeCompare(right.consumerId)));
+  const updated = resourceRegistrationWithStateV1(current, {
+    retention: Object.freeze({ ...current.retention, consumers })
+  });
+  await persistResourceRegistration(store, updated, current, options);
+  await store.assertCurrent();
+  return requireResourceRegistrationV1(store, relativePath, input.resourceId);
+}
+
+export async function markGeneratedStateOperationalTerminalV1(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  resourceId: `sha256:${string}`;
+  leaseId: `sha256:${string}`;
+  outcome: string;
+}>, options: GeneratedStateLifecycleOptionsV1 = {}): Promise<GeneratedStateResourceRegistrationV1> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  const outcome = input.outcome.trim();
+  if (outcome.length === 0) throw new Error('Generated-state resource terminal outcome is empty.');
+  const store = await openRuntimeStore(workspaceRoot, options);
+  await store.assertCurrent();
+  assertNoDualGeneratedStateAuthorityV1(store, relativePath, 'resource');
+  const current = requireResourceRegistrationV1(store, relativePath, input.resourceId);
+  const outcomeDigest = generatedStateDigestV1(Object.freeze({
+    schema: 'sec-generated-state-resource-terminal-outcome-v1',
+    resourceId: current.resourceId,
+    outcome
+  }));
+  if (current.phase === 'operational-terminal') {
+    // The terminal record is the durable idempotency barrier.  Its original
+    // outcome digest is the idempotency key.  A different terminal outcome is
+    // a conflicting retry, never a new generation.
+    if (input.leaseId !== current.lease.leaseId) {
+      throw new Error('Generated-state resource terminal retry is not bound to the owner lease.');
+    }
+    if (current.terminalObligation.outcomeDigest !== outcomeDigest) {
+      throw new Error('Generated-state resource terminal retry conflicts with the current outcome.');
+    }
+    return current;
+  }
+  if (!resourceLeaseMatchesV1(current, input.leaseId)) throw new Error('Generated-state resource lease is not current.');
+  const settlementRef = generatedStateDigestV1(Object.freeze({
+    schema: 'sec-generated-state-resource-terminal-v1',
+    resourceId: current.resourceId,
+    registrationDigest: current.registrationDigest,
+    outcomeDigest
+  }));
+  const terminal = resourceRegistrationWithStateV1(current, {
+    lease: Object.freeze({ ...current.lease, state: 'released' }),
+    terminalObligation: Object.freeze({ state: 'satisfied', settlementRef, outcomeDigest }),
+    phase: 'operational-terminal'
+  });
+  await persistResourceRegistration(store, terminal, current, options);
+  await store.assertCurrent();
+  return requireResourceRegistrationV1(store, relativePath, input.resourceId);
+}
+
+function resourceReceiptForObservationV1(
+  registration: GeneratedStateResourceRegistrationV1,
+  observation: Readonly<{
+    observedRoot: GeneratedStatePhysicalIdentityV1 | null;
+    observedKind: 'directory' | 'file' | 'link' | 'missing' | null;
+    reclaimability: 'eligible' | 'blocked' | 'unknown';
+    physicalClean: boolean;
+    gcPending: boolean;
+    blockers: readonly string[];
+  }>
+): GeneratedStateResourceReceiptV1 {
+  return createGeneratedStateResourceReceiptV1({
+    resourceId: registration.resourceId,
+    registrationDigest: registration.registrationDigest,
+    repositoryRoot: registration.repositoryRoot,
+    workspace: registration.workspace,
+    relativePath: registration.relativePath,
+    phase: registration.phase,
+    operationalTerminal: registration.phase === 'operational-terminal',
+    physicalClean: observation.physicalClean,
+    gcPending: observation.gcPending,
+    reclaimability: observation.reclaimability,
+    consumerCount: registration.retention.consumers.length,
+    observedRoot: observation.observedRoot,
+    blockers: observation.blockers
+  });
+}
+
+function resourceReceiptForUnknownPhysicalObservationV1(
+  registration: GeneratedStateResourceRegistrationV1
+): GeneratedStateResourceReceiptV1 {
+  return resourceReceiptForObservationV1(registration, {
+    observedRoot: null,
+    observedKind: null,
+    reclaimability: 'unknown',
+    physicalClean: false,
+    gcPending: false,
+    blockers: ['physical-identity-unknown']
+  });
+}
+
+export async function observeGeneratedStateResourceV1(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  resourceId?: `sha256:${string}`;
+}>, options: GeneratedStateLifecycleOptionsV1 = {}): Promise<GeneratedStateResourceObservationV1> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  const store = openRuntimeStoreReadOnly(workspaceRoot, options);
+  const registration = loadResourceRegistration(store, relativePath);
+  if (registration !== null && input.resourceId !== undefined && registration.resourceId !== input.resourceId) {
+    throw new Error('Generated-state resource identity changed.');
+  }
+  let observedRoot: GeneratedStatePhysicalIdentityV1 | null = null;
+  let observedKind: GeneratedStateResourceObservationV1['observedKind'] = null;
+  try {
+    const observed = observeRoot(workspaceRoot, relativePath);
+    observedRoot = observed.identity;
+    observedKind = observed.kind;
+  } catch (error) {
+    if (!(error instanceof PhysicalNoFollowError)) throw error;
+    observedKind = null;
+  }
+  const receipt = loadResourceReceipt(store, relativePath);
+  if (registration === null) {
+    return Object.freeze({
+      registration: null,
+      receipt,
+      observedRoot,
+      observedKind,
+      reclaimability: 'unknown' as const,
+      operationalTerminal: false,
+      physicalClean: false,
+      gcPending: false,
+      blockers: Object.freeze(['resource-registration-unknown'])
+    });
+  }
+  if (receipt !== null && (receipt.resourceId !== registration.resourceId ||
+      receipt.registrationDigest !== registration.registrationDigest)) {
+    throw new Error('Generated-state resource current receipt is not bound to the current registration.');
+  }
+  const reclaimability = generatedStateResourceReclaimabilityV1({
+    registration,
+    observedRoot,
+    observedKind
+  });
+  const blockers: string[] = [];
+  if (registration.phase === 'active') blockers.push('owner-active');
+  if (registration.retention.consumers.length > 0) blockers.push('consumer-active');
+  if (reclaimability === 'unknown') blockers.push('physical-identity-unknown');
+  const operationalTerminal = registration.phase === 'operational-terminal';
+  // Physical cleanliness is a physical fact, not a reclaimability result:
+  // an operationally-terminal resource may already be absent while a live
+  // consumer still keeps its current receipt/registration retained.
+  const physicalClean = operationalTerminal && observedKind === 'missing' && observedRoot === null;
+  // A prior eligible residue receipt cannot make a newly unresolved physical
+  // observation GC-eligible.  Keep the registration/receipt retained and
+  // expose the current unknown state until a fresh exact observation exists.
+  const gcPending = receipt?.gcPending === true && reclaimability === 'eligible' && !physicalClean;
+  return Object.freeze({
+    registration,
+    receipt,
+    observedRoot,
+    observedKind,
+    reclaimability,
+    operationalTerminal,
+    physicalClean,
+    gcPending,
+    blockers: Object.freeze([...new Set(blockers)].sort())
+  });
+}
+
+/** Singular compatibility name for callers that inspect one supported resource. */
+export const inspectGeneratedStateResourceV1 = observeGeneratedStateResourceV1;
+
+function resourceAncestorInventoryV1(
+  workspaceRoot: string,
+  relativePath: string
+): Readonly<{
+  root: PhysicalDirectoryIdentityV1;
+  ancestors: readonly Readonly<{ relativePath: string; device: string; inode: string }>[];
+}> {
+  const root = inspectNoFollowDirectoryChainV1(workspaceRoot, 'Generated-state resource delete root').target;
+  const absolutePath = path.join(workspaceRoot, ...relativePath.split('/'));
+  const parent = inspectNoFollowDirectoryChainV1(
+    path.dirname(absolutePath),
+    'Generated-state resource delete parent'
+  );
+  const workspacePath = path.resolve(workspaceRoot);
+  const ancestors = parent.ancestors
+    .map((entry) => {
+      const relative = path.relative(workspacePath, entry.path).replaceAll('\\', '/');
+      return Object.freeze({
+        relativePath: relative,
+        device: entry.device,
+        inode: entry.inode
+      });
+    })
+    .filter(({ relativePath }) => relativePath.length > 0 &&
+      !relativePath.split('/').some((segment) => segment === '..'))
+    .filter(({ relativePath }) => relativePath !== '.')
+    .map((entry) => entry as Readonly<{ relativePath: string; device: string; inode: string }>);
+  return Object.freeze({ root, ancestors: Object.freeze(ancestors) });
+}
+
+function deleteGeneratedStateResourcePhysicalV1(
+  workspaceRoot: string,
+  registration: GeneratedStateResourceRegistrationV1,
+  observed: ObservedGeneratedStateRootV1
+): void {
+  if (observed.identity === null || observed.kind === 'missing' || observed.kind === 'directory' && observed.directory === null) {
+    throw new Error('Generated-state resource delete lacks one exact physical preimage.');
+  }
+  if (registration.root === null || !sameIdentity(registration.root, observed.identity)) {
+    throw new Error('Generated-state resource delete physical identity changed.');
+  }
+  if (registration.rootKind !== observed.kind) throw new Error('Generated-state resource delete kind changed.');
+  if (observed.kind === 'directory' && observed.directory !== null) {
+    const descendants = scanNoFollowDirectoryTreeMetadataV1(observed.directory, {
+      deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+      maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+    });
+    deleteRetainedNoFollowInventoryV1({
+      root: observed.directory,
+      inventory: descendants
+    });
+  }
+  const inventory = resourceAncestorInventoryV1(workspaceRoot, registration.relativePath);
+  deleteRetainedNoFollowEntryV1({
+    root: inventory.root,
+    relativePath: registration.relativePath,
+    kind: observed.kind,
+    device: observed.identity.device,
+    inode: observed.identity.inode,
+    ...(observed.kind === 'link' && observed.linkTarget !== null
+      ? { expectedLinkTarget: observed.linkTarget }
+      : {}),
+    ancestorDirectories: inventory.ancestors
+  });
+}
+
+async function retireResourceCurrentV1(
+  store: GeneratedStateRuntimeStoreV1,
+  registration: GeneratedStateResourceRegistrationV1,
+  options: GeneratedStateLifecycleOptionsV1
+): Promise<void> {
+  if (registration.retention.consumers.length > 0) return;
+  const registrationLocator = resourceRegistrationPath(store, registration.relativePath);
+  const receiptLocator = resourceReceiptPath(store, registration.relativePath);
+  const intentLocator = resourceCleanupIntentPath(store, registration.relativePath);
+  const current = loadResourceRegistration(store, registration.relativePath);
+  if (current === null) {
+    if (store.fs.exists(intentLocator) || store.fs.exists(receiptLocator)) {
+      throw new Error('Generated-state resource retirement lost its recovery anchor.');
+    }
+    return;
+  }
+  if (current.registrationDigest !== registration.registrationDigest ||
+      current.transitionEpoch !== registration.transitionEpoch) {
+    throw new Error('Generated-state resource retirement current CAS failed.');
+  }
+  // The registration is the recovery anchor and is retired last.  Each
+  // subordinate pointer is independently idempotent so a crash after any
+  // callback leaves enough authority for the next settlement to resume.
+  let intentRetired = false;
+  if (store.fs.exists(intentLocator)) {
+    store.fs.deleteIfPresent(intentLocator);
+    if (store.fs.exists(intentLocator)) {
+      throw new Error('Generated-state resource cleanup intent remains after physical settlement.');
+    }
+    intentRetired = true;
+  }
+  if (intentRetired) await options.afterResourceAnchorRetirementEffect?.('intent', registration.relativePath);
+  let receiptRetired = false;
+  if (store.fs.exists(receiptLocator)) {
+    store.fs.deleteIfPresent(receiptLocator);
+    if (store.fs.exists(receiptLocator)) {
+      throw new Error('Generated-state resource current receipt remains after consumer-zero retirement.');
+    }
+    receiptRetired = true;
+  }
+  if (receiptRetired) await options.afterResourceAnchorRetirementEffect?.('receipt', registration.relativePath);
+  const beforeAnchorRetirement = loadResourceRegistration(store, registration.relativePath);
+  if (beforeAnchorRetirement === null || beforeAnchorRetirement.registrationDigest !== registration.registrationDigest ||
+      beforeAnchorRetirement.transitionEpoch !== registration.transitionEpoch) {
+    throw new Error('Generated-state resource retirement current CAS failed before anchor retirement.');
+  }
+  let registrationRetired = false;
+  if (store.fs.exists(registrationLocator)) {
+    store.fs.deleteIfPresent(registrationLocator);
+    if (store.fs.exists(registrationLocator)) {
+      throw new Error('Generated-state resource retired registration remains after physical settlement.');
+    }
+    registrationRetired = true;
+  }
+  if (registrationRetired) await options.afterResourceAnchorRetirementEffect?.('registration', registration.relativePath);
+  if (store.fs.exists(intentLocator) || store.fs.exists(receiptLocator) || store.fs.exists(registrationLocator)) {
+    throw new Error('Generated-state resource retirement left one or more current pointers.');
+  }
+}
+
+async function settleGeneratedStateResourceWithoutLeaseV1(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  resourceId?: `sha256:${string}`;
+}>, options: GeneratedStateLifecycleOptionsV1 = {},
+storeOverride?: GeneratedStateRuntimeStoreV1
+): Promise<GeneratedStateResourceReceiptV1 | null> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  const store = storeOverride ?? await openRuntimeStore(workspaceRoot, options);
+  await store.assertCurrent();
+  assertNoDualGeneratedStateAuthorityV1(store, relativePath, 'resource');
+  const registration = requireResourceRegistrationV1(
+    store,
+    relativePath,
+    input.resourceId
+  );
+  const durableIntent = loadResourceCleanupIntent(store, relativePath);
+  if (durableIntent !== null && (
+    durableIntent.registrationDigest !== registration.registrationDigest ||
+    durableIntent.rootKind !== registration.rootKind ||
+    (durableIntent.root === null) !== (registration.root === null) ||
+    (durableIntent.root !== null && registration.root !== null && !sameIdentity(durableIntent.root, registration.root)) ||
+    durableIntent.linkTarget !== registration.linkTarget
+  )) {
+    throw new Error('Generated-state resource cleanup intent is not bound to the current registration.');
+  }
+  let observed: ObservedGeneratedStateRootV1;
+  try {
+    observed = observeRoot(workspaceRoot, relativePath);
+  } catch (error) {
+    if (!(error instanceof PhysicalNoFollowError)) throw error;
+    const receipt = resourceReceiptForUnknownPhysicalObservationV1(registration);
+    persistResourceReceipt(store, receipt);
+    await store.assertCurrent();
+    return receipt;
+  }
+  let reclaimability = generatedStateResourceReclaimabilityV1({
+    registration,
+    observedRoot: observed.identity,
+    observedKind: observed.kind
+  });
+  const initialPhysicalClean = registration.phase === 'operational-terminal' &&
+    observed.kind === 'missing' && observed.identity === null;
+  if (registration.phase === 'active' || reclaimability === 'blocked' || reclaimability === 'unknown') {
+    const blockers = registration.phase === 'active'
+      ? ['owner-active']
+      : registration.retention.consumers.length > 0
+        ? ['consumer-active']
+        : ['physical-identity-unknown'];
+    const receipt = resourceReceiptForObservationV1(registration, {
+      observedRoot: observed.identity,
+      observedKind: observed.kind,
+      reclaimability,
+      physicalClean: false,
+      gcPending: false,
+      blockers
+    });
+    persistResourceReceipt(store, receipt);
+    await store.assertCurrent();
+    return receipt;
+  }
+  if (initialPhysicalClean) {
+    const receipt = resourceReceiptForObservationV1(registration, {
+      observedRoot: null,
+      observedKind: 'missing',
+      reclaimability,
+      physicalClean: true,
+      gcPending: false,
+      blockers: registration.retention.consumers.length > 0 ? ['consumer-active'] : []
+    });
+    persistResourceReceipt(store, receipt);
+    if (registration.retention.consumers.length === 0) await retireResourceCurrentV1(store, registration, options);
+    await store.assertCurrent();
+    return receipt;
+  }
+  const intent = resourceCleanupIntentV1({
+    relativePath,
+    registrationDigest: registration.registrationDigest,
+    root: registration.root,
+    rootKind: registration.rootKind,
+    linkTarget: registration.linkTarget
+  });
+  store.fs.replaceFsync(resourceCleanupIntentPath(store, relativePath), canonicalBytes(intent));
+  try {
+    await options.beforeResourceDeleteEffect?.(relativePath);
+    deleteGeneratedStateResourcePhysicalV1(workspaceRoot, registration, observed);
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError) {
+      const receipt = resourceReceiptForUnknownPhysicalObservationV1(registration);
+      persistResourceReceipt(store, receipt);
+      await store.assertCurrent();
+      return receipt;
+    }
+    let current: ObservedGeneratedStateRootV1;
+    try {
+      current = observeRoot(workspaceRoot, relativePath);
+    } catch (observationError) {
+      if (!(observationError instanceof PhysicalNoFollowError)) throw observationError;
+      const receipt = resourceReceiptForUnknownPhysicalObservationV1(registration);
+      persistResourceReceipt(store, receipt);
+      await store.assertCurrent();
+      return receipt;
+    }
+    reclaimability = generatedStateResourceReclaimabilityV1({
+      registration,
+      observedRoot: current.identity,
+      observedKind: current.kind
+    });
+    const receipt = resourceReceiptForObservationV1(registration, {
+      observedRoot: current.identity,
+      observedKind: current.kind,
+      reclaimability,
+      physicalClean: false,
+      gcPending: reclaimability === 'eligible',
+      blockers: [
+        ...(reclaimability === 'unknown' ? ['physical-identity-unknown'] : []),
+        error instanceof Error ? error.message : String(error)
+      ]
+    });
+    persistResourceReceipt(store, receipt);
+    await store.assertCurrent();
+    return receipt;
+  }
+  await store.assertCurrent();
+  await options.afterResourceDeleteEffect?.(relativePath);
+  try {
+    observed = observeRoot(workspaceRoot, relativePath);
+  } catch (error) {
+    if (!(error instanceof PhysicalNoFollowError)) throw error;
+    const receipt = resourceReceiptForUnknownPhysicalObservationV1(registration);
+    persistResourceReceipt(store, receipt);
+    await store.assertCurrent();
+    return receipt;
+  }
+  const readbackReclaimability = generatedStateResourceReclaimabilityV1({
+    registration,
+    observedRoot: observed.identity,
+    observedKind: observed.kind
+  });
+  if (observed.kind !== 'missing' || observed.identity !== null || readbackReclaimability !== 'eligible') {
+    const receipt = resourceReceiptForObservationV1(registration, {
+      observedRoot: observed.identity,
+      observedKind: observed.kind,
+      reclaimability: readbackReclaimability,
+      physicalClean: false,
+      gcPending: readbackReclaimability === 'eligible',
+      blockers: [
+        readbackReclaimability === 'eligible'
+          ? 'physical-absence-readback-failed'
+          : 'physical-identity-unknown'
+      ]
+    });
+    persistResourceReceipt(store, receipt);
+    return receipt;
+  }
+  const receipt = resourceReceiptForObservationV1(registration, {
+    observedRoot: null,
+    observedKind: 'missing',
+    reclaimability: 'eligible',
+    physicalClean: true,
+    gcPending: false,
+    blockers: registration.retention.consumers.length > 0 ? ['consumer-active'] : []
+  });
+  persistResourceReceipt(store, receipt);
+  if (registration.retention.consumers.length === 0) await retireResourceCurrentV1(store, registration, options);
+  else store.fs.deleteIfPresent(resourceCleanupIntentPath(store, relativePath));
+  await store.assertCurrent();
+  return receipt;
+}
+
+export async function settleGeneratedStateResourceV1(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  resourceId?: `sha256:${string}`;
+}>, options: GeneratedStateLifecycleOptionsV1 = {}): Promise<GeneratedStateResourceReceiptV1 | null> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  const store = await openRuntimeStore(workspaceRoot, options);
+  await store.assertCurrent();
+  return withResourceTransitionLeaseV1(
+    store,
+    relativePath,
+    () => settleGeneratedStateResourceWithoutLeaseV1(input, options, store)
+  );
 }
 
 function knownPathOrAncestor(relativePath: string): boolean {
@@ -1157,6 +2141,8 @@ export async function inspectGeneratedStateV1(input: Readonly<{
       continue;
     }
     let registration: GeneratedStateRegistrationV1 | null = null;
+    const resourceRegistration = loadResourceRegistration(store, relativePath);
+    const resourceManaged = resourceRegistration !== null;
     let registrationState: GeneratedStateInventoryEntryV1['registrationState'] = 'not-required';
     const blockers: string[] = [];
     if (rule.registration === 'required-at-birth') {
@@ -1178,6 +2164,20 @@ export async function inspectGeneratedStateV1(input: Readonly<{
       }
       if (registration?.phase === 'active') blockers.push('owner-active');
     }
+    if (resourceRegistration !== null) {
+      if (registration !== null) blockers.push('multiple-registration-authorities');
+      registrationState = resourceRegistration.phase === 'active' ? 'active' : 'retired';
+      if (resourceRegistration.phase === 'active') blockers.push('owner-active');
+      if (resourceRegistration.root === null && observed.kind !== 'missing') {
+        blockers.push('resource-root-identity-unbound');
+      }
+      if (resourceRegistration.root !== null && observed.identity !== null &&
+          !sameIdentity(resourceRegistration.root, observed.identity)) {
+        blockers.push('resource-root-identity-changed');
+      }
+      if (resourceRegistration.retention.consumers.length > 0) blockers.push('consumer-active');
+      blockers.push('resource-lifecycle-owner');
+    }
     const physicalForm = physicalFormForObservedKindV1(rule, observed.kind);
     if (observed.kind !== 'missing' && physicalForm === null) {
       blockers.push('root-kind-differs-from-policy');
@@ -1185,7 +2185,7 @@ export async function inspectGeneratedStateV1(input: Readonly<{
     if (physicalForm?.settlementEffect === 'domain-owner-only' && observed.kind !== 'missing') {
       blockers.push('domain-owner-settlement-required');
     }
-    const ready = observed.identity !== null && blockers.length === 0 && registration?.phase === 'retired';
+    const ready = !resourceManaged && observed.identity !== null && blockers.length === 0 && registration?.phase === 'retired';
     entries.push(Object.freeze({
       relativePath,
       kind: observed.kind,
@@ -1197,7 +2197,8 @@ export async function inspectGeneratedStateV1(input: Readonly<{
       settlement: ready ? 'ready' : 'protected',
       blockers: Object.freeze(blockers.sort()),
       physicalIdentity: observed.identity,
-      registrationDigest: registration?.registrationDigest ?? null
+      registrationDigest: resourceRegistration?.registrationDigest ?? registration?.registrationDigest ?? null,
+      resourceManaged
     }));
   }
   const blockers = entries.flatMap((entry) => entry.blockers

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { compilerRoot } from '../../platform/shared/paths.ts';
-import { runCommand, runCommandBytes } from '../../platform/shared/process.ts';
+import { runCommand, runCommandBytes, runCommandSync } from '../../platform/shared/process.ts';
 
 const splitUtf8Script = [
   "const chunks = [Buffer.from('docs/'), Buffer.from([0xe4]), Buffer.from([0xb8]), Buffer.from([0xad]), Buffer.from('.md\\0')];",
@@ -110,4 +110,41 @@ test('runCommand rejects a stall deadline without a stricter absolute deadline a
     cwd: compilerRoot,
     stallTimeoutMs: 100
   })).rejects.toThrow('stallTimeoutMs requires');
+});
+
+test('runCommandSync is the bounded byte transport and supports a replacement environment', () => {
+  const result = runCommandSync(process.execPath, [
+    '--no-env-file',
+    '--eval',
+    "process.stdout.write(process.env.SEC_SYNC_PROBE ?? 'missing')"
+  ], {
+    cwd: compilerRoot,
+    env: { SEC_SYNC_PROBE: 'sync-output' },
+    envMode: 'replace',
+    maxBuffer: 1024
+  });
+
+  expect(result.status).toBe(0);
+  expect(result.code).toBe(0);
+  expect(result.error).toBeUndefined();
+  expect(new TextDecoder().decode(result.stdout)).toBe('sync-output');
+  expect(result.stderr).toEqual(new Uint8Array());
+});
+
+test('runCommand can observe bounded output without retaining a second copy', async () => {
+  const observed: string[] = [];
+  const result = await runCommand(process.execPath, [
+    '--no-env-file',
+    '--eval',
+    "process.stdout.write('streamed')"
+  ], {
+    cwd: compilerRoot,
+    maxStdoutBytes: 1024,
+    retainOutput: false,
+    onOutput: (chunk, stream) => observed.push(`${stream}:${chunk.toString('utf8')}`),
+    timeoutMs: 5_000
+  });
+
+  expect(result).toEqual({ code: 0, stdout: '', stderr: '' });
+  expect(observed).toEqual(['stdout:streamed']);
 });

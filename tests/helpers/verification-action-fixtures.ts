@@ -95,7 +95,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
       teardownCommandStarted: true,
       teardownExitCode: 0,
       residueMarkerObserved: true,
-      cgroupEmpty: true,
+      sandboxRootAbsent: true,
       residueReadbackDigest: residueDigest,
       diagnostic: unsupportedDiagnostic
     }),
@@ -137,12 +137,12 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
       boundedFailureTailDigest: outputDigest
     }),
     reap: Object.freeze({
-      namespacePid1Exited: false,
-      killChildEnabled: true,
-      unshareProcessClosed: true
+      supervisorExitObserved: false,
+      killChildPolicyBound: true,
+      supervisorClosed: true
     }),
     residue: Object.freeze({
-      cgroupEmpty: true,
+      sandboxRootAbsent: true,
       hostReadbackDigest: residueDigest
     }),
     diagnostic: unsupportedDiagnostic

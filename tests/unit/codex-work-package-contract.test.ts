@@ -250,6 +250,18 @@ test('Work Package ownership rejects unowned and forbidden changed paths', () =>
   expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['scripts\\codex\\merge-gate.ts'])).toThrow('normalized POSIX');
 });
 
+test('successor freeze must own a retired manifest source endpoint', () => {
+  const parsed = CodexDevelopmentParseWorkPackageManifestV1(manifest());
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [{
+    status: 'removed',
+    path: 'docs/work-packages/prior.md'
+  }])).toThrow('exactly one');
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [{
+    status: 'removed',
+    path: 'scripts/codex/prior-package.md'
+  }])).not.toThrow();
+});
+
 test('Work Package literal paths allow framework brackets but reject Windows and Unicode collisions', () => {
   const bracketed = manifest().replace(
     '      - scripts/codex/',

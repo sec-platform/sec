@@ -42,9 +42,36 @@ describe('bounded control-plane CLI projections', () => {
     } as unknown as RepositoryAuditReport;
     const projected = projectRepositoryAuditCliV1(report);
     expect(projected.findingCodes).toEqual(['one-root-class']);
+    expect(projected.inventoryCoverage).toMatchObject({ status: 'passed', total: 500, unknown: 0 });
+    expect(projected.semanticAssurance).toMatchObject({ status: 'failed', findingCount: 500 });
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');
     expect(JSON.stringify(projected).length).toBeLessThan(1_500);
+  });
+
+  test('zero inventory unknowns cannot project semantic health without the required analyzer', () => {
+    const report = {
+      schema: 'sec-repository-audit-v2',
+      revision: {
+        defaultHead: 'a'.repeat(40), defaultRef: 'main', defaultRefInput: 'main',
+        defaultRefMode: 'ref', head: 'b'.repeat(40), tree: 'c'.repeat(40), worktree: 'clean'
+      },
+      summary: {
+        activeMarkdown: 0, behaviorCandidates: 0,
+        contentCoverage: { excluded: 0, scanned: 1, unknown: 0 },
+        findings: { critical: 0, high: 0, medium: 0, low: 0 },
+        markdown: 0, skills: 0, trackedPaths: 1, unknowns: 0
+      },
+      findings: [], unknowns: [], behaviorCandidates: [],
+      contentCoverage: [{ path: 'README.md' }]
+    } as unknown as RepositoryAuditReport;
+    const projected = projectRepositoryAuditCliV1(report);
+    expect(projected.inventoryCoverage.status).toBe('passed');
+    expect(projected.inventoryCoverage.unknown).toBe(0);
+    expect(projected.semanticAssurance.status).toBe('incomplete');
+    expect(projected.semanticAssurance.requiredAnalyzers).toEqual([
+      expect.objectContaining({ status: 'not-run' })
+    ]);
   });
 
   test('work selection keeps authority identity and the actionable decision only', () => {

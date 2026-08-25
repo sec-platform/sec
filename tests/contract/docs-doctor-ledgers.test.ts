@@ -8,11 +8,11 @@ import { stringify as stringifyYaml } from 'yaml';
 
 import { scanMachineLedgers } from '../../docs/scripts/docs-doctor-ledgers.ts';
 import type { DocsDoctorIssue } from '../../docs/scripts/docs-doctor.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/runtime/environments/sec-linux-verification-v1/authority.ts';
 import {
   parseDocumentationAuthorityRegistry,
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 

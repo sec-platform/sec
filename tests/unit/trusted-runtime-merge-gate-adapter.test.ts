@@ -5,9 +5,18 @@ import {
   createTrustedRuntimeArtifactObservationV1,
   createTrustedRuntimeMergeGateProvenanceV1
 } from '../../scripts/codex/merge-gate.ts';
+import {
+  compileTrustedRuntimePostMergeMainDeltaV1,
+  createTrustedRuntimePostMergeMainIdentityTransitionV1,
+  TRUSTED_RUNTIME_CRITICAL_PATH_RETIREMENT_BLOCKER_V1
+} from '../../scripts/codex/trusted-runtime-closeout.ts';
 
 const BASE = '1'.repeat(40);
 const D = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
+
+test('generic caller retirement remains blocked outside the trusted closeout consumer', () => {
+  expect(TRUSTED_RUNTIME_CRITICAL_PATH_RETIREMENT_BLOCKER_V1).toBe('NO_PRODUCTION_CONSUMER');
+});
 
 test('trusted runtime provenance binds the exact trusted merge-gate revision', () => {
   const provenance = createTrustedRuntimeMergeGateProvenanceV1({
@@ -69,4 +78,58 @@ test('trusted runtime artifact observation rejects Actions-style or stale readba
     producerSourceDigest: D('b'),
     readbackTransport: 'github-actions-artifact-api' as 'trusted-runtime-durable-file'
   })).toThrow('readback transport is not canonical');
+});
+
+test('post-merge MainDelta reuses only the exact verified tree and semantic closure', () => {
+  const candidate = {
+    treeSha: '2'.repeat(40),
+    policyRevision: D('a'),
+    toolchainRevision: D('b'),
+    providerRevision: D('c'),
+    environmentRevision: D('d'),
+    closureDigest: D('e'),
+    unknowns: Object.freeze([])
+  } as const;
+  const transition = createTrustedRuntimePostMergeMainIdentityTransitionV1({
+    candidate,
+    exactMainTreeSha: candidate.treeSha
+  });
+  const equivalent = compileTrustedRuntimePostMergeMainDeltaV1({ transition });
+  expect(equivalent.disposition).toBe('tree-equivalent');
+  expect(equivalent.mainHealthRequired).toBe(false);
+
+  const changed = compileTrustedRuntimePostMergeMainDeltaV1({
+    transition: createTrustedRuntimePostMergeMainIdentityTransitionV1({
+      candidate,
+      exactMainTreeSha: '3'.repeat(40)
+    })
+  });
+  expect(changed.disposition).toBe('blocked');
+  expect(changed.reasonCode).toBe('unknown-identity');
+  expect(changed.mainHealthRequired).toBe(true);
+});
+
+test('post-merge MainDelta rejects a forged copied or drifted main transition', () => {
+  const candidate = {
+    treeSha: '2'.repeat(40),
+    policyRevision: D('a'),
+    toolchainRevision: D('b'),
+    providerRevision: D('c'),
+    environmentRevision: D('d'),
+    closureDigest: D('e'),
+    unknowns: Object.freeze([])
+  } as const;
+  const transition = createTrustedRuntimePostMergeMainIdentityTransitionV1({
+    candidate,
+    exactMainTreeSha: candidate.treeSha
+  });
+  expect(() => compileTrustedRuntimePostMergeMainDeltaV1({
+    transition: {
+      ...transition,
+      main: { ...transition.main, toolchainRevision: D('f') }
+    }
+  })).toThrow(/transition is not canonical/);
+  expect(() => compileTrustedRuntimePostMergeMainDeltaV1({
+    transition: { ...transition, transitionDigest: D('f') }
+  })).toThrow(/transition is not canonical/);
 });

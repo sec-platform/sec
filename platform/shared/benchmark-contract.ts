@@ -28,6 +28,46 @@ export type BenchmarkTaskSuiteContract = {
   scoreDimensions: string[];
 };
 
+export const DEVELOPMENT_CRITICAL_PATH_PERFORMANCE_SCHEMA_V1 =
+  'sec-development-critical-path-performance-v1' as const;
+
+/**
+ * Structural performance budget for the development spine.  These bounds are
+ * deliberately independent of host speed: a slower machine may take longer,
+ * but no caller may recover performance by scanning history, duplicating a
+ * physical Action, or pruning an ambient provider namespace.
+ */
+export type DevelopmentCriticalPathPerformanceContractV1 = Readonly<{
+  schema: typeof DEVELOPMENT_CRITICAL_PATH_PERFORMANCE_SCHEMA_V1;
+  observationScope: 'current-owner-closure';
+  historyDependentReads: 0;
+  unboundedOwnerListings: 0;
+  globalPrunes: 0;
+  physicalStartsPerActionKey: 1;
+  knownFailureReuse: true;
+  authenticatedInFlightJoin: true;
+  retainedDeletionAncestorReopens: 0;
+  expensiveEvidenceIdentity: 'frozen-tree-environment-action-key';
+  schedulerClassAuthority: 'resource-projection-only';
+}>;
+
+export function buildDevelopmentCriticalPathPerformanceContractV1():
+DevelopmentCriticalPathPerformanceContractV1 {
+  return Object.freeze({
+    schema: DEVELOPMENT_CRITICAL_PATH_PERFORMANCE_SCHEMA_V1,
+    observationScope: 'current-owner-closure',
+    historyDependentReads: 0,
+    unboundedOwnerListings: 0,
+    globalPrunes: 0,
+    physicalStartsPerActionKey: 1,
+    knownFailureReuse: true,
+    authenticatedInFlightJoin: true,
+    retainedDeletionAncestorReopens: 0,
+    expensiveEvidenceIdentity: 'frozen-tree-environment-action-key',
+    schedulerClassAuthority: 'resource-projection-only'
+  });
+}
+
 const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocusCount'>> = [
   {
     id: 'add-block',

@@ -27,6 +27,11 @@ import { applyDefaultFastTestConcurrency } from '../../platform/dev-runner/test-
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../platform/dev-runner/test-execution-policy.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
+import {
+  currentSecRuntimePlatformV1,
+  resolveSecRuntimeCacheRootV1,
+  secRuntimeStateEnvironmentV1
+} from '../../platform/shared/sec-runtime-state-contract.ts';
 import { FAST_TEST_PROCESS_POLICY_TEST_FILE } from '../../platform/shared/test-budget-contract.ts';
 
 const actualCommandRunner = await import('../../platform/dev-runner/command-runner.ts');
@@ -164,10 +169,19 @@ mock.module('../../platform/dev-runner/test-process-temp.ts', () => ({
   testInvocationRuntimeIsolationModeForPlatformV1: (platform: NodeJS.Platform) =>
     platform === 'win32' || platform === 'linux' ? 'retained' : 'unavailable',
   createTestInvocationRuntimeRootsV1: async () => {
-    const runRoot = mkdtempSync(path.join(tmpdir(), 'sec-test-runner-invocation-'));
-    const generation = path.basename(runRoot);
-    const stateRoot = path.join(runRoot, 'state-authority', generation);
-    const cacheRoot = path.join(runRoot, 'cache-authority', generation);
+    // The unit capability owns a fresh generation under the canonical host
+    // cache root. It must not recursively copy the outer runner's scoped
+    // SEC_CACHE_HOME path: that would make test nesting a path amplifier that
+    // the production runtime contract does not authorize as semantic identity.
+    const runtimeParent = resolveSecRuntimeCacheRootV1({
+      platform: currentSecRuntimePlatformV1(),
+      environment: secRuntimeStateEnvironmentV1({ ...process.env, SEC_CACHE_HOME: undefined }),
+      repositoryRoot: compilerRoot
+    });
+    mkdirSync(runtimeParent, { recursive: true });
+    const runRoot = mkdtempSync(path.join(runtimeParent, 'm-'));
+    const stateRoot = path.join(runRoot, 's');
+    const cacheRoot = path.join(runRoot, 'c');
     mkdirSync(stateRoot, { recursive: true });
     mkdirSync(cacheRoot, { recursive: true });
     return Object.freeze({
@@ -269,13 +283,13 @@ function fastInvocationRunRoots(environment: NodeJS.ProcessEnv): Readonly<{
   const stateHome = environment.SEC_STATE_HOME;
   const cacheHome = environment.SEC_CACHE_HOME;
   if (stateHome === undefined || cacheHome === undefined || path.basename(stateHome) !== path.basename(cacheHome) ||
-    path.basename(path.dirname(stateHome)) !== 'invocation-runtime' ||
-    path.basename(path.dirname(cacheHome)) !== 'invocation-runtime') {
+    path.basename(path.dirname(stateHome)) !== 'i' ||
+    path.basename(path.dirname(cacheHome)) !== 'i') {
     throw new Error('Fast invocation runtime environment is malformed');
   }
   const stateRoot = path.dirname(path.dirname(stateHome));
   const cacheRoot = path.dirname(path.dirname(cacheHome));
-  if (path.basename(stateRoot) !== path.basename(cacheRoot) || stateRoot === cacheRoot) {
+  if (path.dirname(stateRoot) !== path.dirname(cacheRoot) || stateRoot === cacheRoot) {
     throw new Error('Fast invocation State/Cache generations are not disjoint peers');
   }
   return Object.freeze({ stateRoot, cacheRoot });
@@ -625,9 +639,9 @@ test('complete fast process-global hazards have unique typed isolation and singl
     'tests/unit/branch-lifecycle-temp-repo.test.ts',
     'tests/unit/ci-orchestration-git-isolation.test.ts',
     'tests/unit/exact-git-blob.test.ts',
+    'tests/unit/local-github-actions-runner.test.ts',
     'tests/unit/physical-no-follow.test.ts',
     'tests/unit/verification-action-github-provider.test.ts',
-    'tests/unit/verification-action-runner.test.ts',
     'tests/unit/verification-session-runtime.test.ts'
   ];
   const lockedHazardFiles = [
@@ -789,12 +803,8 @@ test.serial('targeted fast tests preserve ordinary sequential semantics', async 
   expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
   expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{64}$/u);
   expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
-  expect(devCommandEnvironments[0]?.SEC_STATE_HOME).toMatch(
-    /[\\/]invocation-runtime[\\/]concurrent-shard-001$/u
-  );
-  expect(devCommandEnvironments[0]?.SEC_CACHE_HOME).toMatch(
-    /[\\/]invocation-runtime[\\/]concurrent-shard-001$/u
-  );
+  expect(devCommandEnvironments[0]?.SEC_STATE_HOME).toMatch(/[\\/]i[\\/]c1$/u);
+  expect(devCommandEnvironments[0]?.SEC_CACHE_HOME).toMatch(/[\\/]i[\\/]c1$/u);
   expect(devCommandCalls).toEqual([
     {
       command: 'bun',
@@ -878,8 +888,8 @@ test.serial('fast tests preserve options across process shards and isolated invo
   expect(new Set(devCommandEnvironments.map((env) => env.SEC_CACHE_HOME)).size)
     .toBe(devCommandEnvironments.length);
   for (const environment of devCommandEnvironments) {
-    expect(environment.SEC_STATE_HOME).toMatch(/[\\/]invocation-runtime[\\/][^\\/]+$/u);
-    expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]invocation-runtime[\\/][^\\/]+$/u);
+    expect(environment.SEC_STATE_HOME).toMatch(/[\\/]i[\\/][a-z]+[1-9][0-9]{0,2}$/u);
+    expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]i[\\/][a-z]+[1-9][0-9]{0,2}$/u);
     expect(path.basename(environment.SEC_STATE_HOME!)).toBe(path.basename(environment.SEC_CACHE_HOME!));
     expect(path.dirname(environment.SEC_STATE_HOME!)).not.toBe(path.dirname(environment.SEC_CACHE_HOME!));
   }
@@ -1581,8 +1591,8 @@ test.serial('full test planning retains every default-excluded fast owner', asyn
     const files = invocationTestFiles(call.args);
     const environment = devCommandEnvironments[index]!;
     if (files.length > 0 && files.every((file) => fastFiles.has(file))) {
-      expect(environment.SEC_STATE_HOME).toMatch(/[\\/]invocation-runtime[\\/][^\\/]+$/u);
-      expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]invocation-runtime[\\/][^\\/]+$/u);
+      expect(environment.SEC_STATE_HOME).toMatch(/[\\/]i[\\/][a-z]+[1-9][0-9]{0,2}$/u);
+      expect(environment.SEC_CACHE_HOME).toMatch(/[\\/]i[\\/][a-z]+[1-9][0-9]{0,2}$/u);
     } else {
       expect(environment.SEC_STATE_HOME).toBeUndefined();
       expect(environment.SEC_CACHE_HOME).toBeUndefined();
@@ -1603,8 +1613,8 @@ test.serial('explicit fast test files skip browser dependency bootstrap entirely
   const environment = devCommandEnvironments[0]!;
   expect(environment.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
   expect(environment.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
-  expect(path.basename(environment.SEC_STATE_HOME!)).toBe('direct-001');
-  expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('direct-001');
+  expect(path.basename(environment.SEC_STATE_HOME!)).toBe('d1');
+  expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('d1');
   const runtimeRoots = fastInvocationRunRoots(environment);
   await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
   await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
@@ -1636,9 +1646,12 @@ test.serial('every fast-capable direct selector form uses one invocation runtime
 
     expect(code).toBe(0);
     expect(devCommandCalls).toHaveLength(priorCalls + 1);
+    expect(devCommandCalls.at(-1)?.args.slice(-2)).toEqual([
+      '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
+    ]);
     const environment = devCommandEnvironments.at(-1)!;
-    expect(path.basename(environment.SEC_STATE_HOME!)).toBe('direct-001');
-    expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('direct-001');
+    expect(path.basename(environment.SEC_STATE_HOME!)).toBe('d1');
+    expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('d1');
     const runtimeRoots = fastInvocationRunRoots(environment);
     await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
     await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
@@ -1647,6 +1660,9 @@ test.serial('every fast-capable direct selector form uses one invocation runtime
   const priorCalls = devCommandCalls.length;
   expect(await runTests(['tests/e2e/workspace.test.ts'])).toBe(0);
   expect(devCommandCalls).toHaveLength(priorCalls + 1);
+  expect(devCommandCalls.at(-1)?.args).toEqual([
+    'test', 'tests/e2e/workspace.test.ts', '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
+  ]);
   expect(devCommandEnvironments.at(-1)?.SEC_STATE_HOME).toBeUndefined();
   expect(devCommandEnvironments.at(-1)?.SEC_CACHE_HOME).toBeUndefined();
 });
@@ -1664,8 +1680,8 @@ test.serial('contract freeze uses the same fast invocation runtime owner', async
     args: ['test', 'tests/contract/contract-freeze.test.ts', '--timeout', '180000']
   }]);
   const environment = devCommandEnvironments[0]!;
-  expect(path.basename(environment.SEC_STATE_HOME!)).toBe('contract-freeze-001');
-  expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('contract-freeze-001');
+  expect(path.basename(environment.SEC_STATE_HOME!)).toBe('cf1');
+  expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('cf1');
   expect(testDependencyBootstrapCalls).toBe(0);
   expect(environment.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
   expect(environment.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
@@ -1699,9 +1715,18 @@ test.serial('fast tests preserve the caller namespace and clean only a unique ru
   await fs.writeFile(sentinelPath, 'caller-owned', 'utf8');
 
   try {
-    const code = await runFastTests(['tests/unit/path-containment.test.ts']);
+    const cleanupDiagnostics: string[] = [];
+    const originalConsoleError = console.error;
+    console.error = (message?: unknown) => cleanupDiagnostics.push(String(message));
+    let code: number;
+    try {
+      code = await runFastTests(['tests/unit/path-containment.test.ts']);
+    } finally {
+      console.error = originalConsoleError;
+    }
     const workspaceEnv = devCommandEnvironments[0]!;
 
+    expect(cleanupDiagnostics).toEqual([]);
     expect(code).toBe(0);
     expect(workspaceEnv[TEST_WORKSPACE_NAMESPACE_ENV]).toBe(parentNamespace);
     expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ENV]).toMatch(/^fast-[0-9a-f]{64}$/u);

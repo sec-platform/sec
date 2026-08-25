@@ -42,6 +42,7 @@ import {
   type SecTrustedBootstrapTrustRootV3
 } from './tcb-trust-root-contract.ts';
 import {
+  VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1,
   createVerificationActionKeyV2,
   createVerificationActionPlanV2,
   createVerificationActionTerminalV2,
@@ -68,7 +69,7 @@ export const TCB_REVIEWED_EXTERNAL_IMPORTS = new Set([
   'platform/shared/heavy-verification-gate-lease.ts -> bun:ffi',
   'platform/shared/physical-no-follow.ts -> bun:ffi',
   'platform/shared/process.ts -> node:string_decoder',
-  'platform/shared/sec-linux-verification-environment.ts -> zod',
+  'platform/runtime/environments/sec-linux-verification-v1/authority.ts -> zod',
   'platform/shared/windows-host-filesystem-authority.ts -> bun:ffi',
 ]);
 
@@ -109,6 +110,7 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'platform/dev-runner/import-organizer.ts::function-declaration:gitText::spawnSync#1',
   'platform/dev-runner/import-organizer.ts::function-declaration:tryResolveGitCommit::spawnSync#1',
   'platform/shared/process.ts::function-declaration:runCommandCapture::spawn#1',
+  'platform/shared/process.ts::function-declaration:runCommandSync::spawnSync#1',
   'platform/shared/process.ts::function-declaration:terminateCommandProcessTree::spawn#1',
   'scripts/ci-verification.ts::function-declaration:inspectHostedActionArchiveMetadataV2::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:defaultHostedSutSandboxProcessV1::spawn#1',
@@ -120,11 +122,6 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'scripts/codex/branch-closeout.ts::function-declaration:runCloseoutGit::spawnSync#1',
   'scripts/codex/branch-lifecycle-inventory.ts::function-declaration:runInventoryCommand::spawnSync#1',
   'scripts/codex/branch-recovery.ts::function-declaration:runRecoveryGit::spawnSync#1',
-  'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultChangedPathsV1::spawnSync#1',
-  'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultGitRevisionV1::spawnSync#1',
-  'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultTrackedTreeIsCleanV1::spawnSync#1',
-  'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentRunGateProcessV1::spawn#1',
-  'scripts/codex/exact-git-blob.ts::function-declaration:runGit::spawnSync#1',
   'scripts/codex/issue-disposition-github.ts::function-declaration:gh::spawnSync#1',
   'scripts/codex/local-github-actions-runner.ts::function-declaration:runCommand::spawn#1',
   'scripts/codex/skill-applicability.ts::function-declaration:gitOutput::spawnSync#1',
@@ -1659,11 +1656,13 @@ export function createTcbClosureActionPlanV1(input: Readonly<{
     environment: {
       toolchainRevision,
       providerRevision,
-      contractRevision: TCB_CLOSURE_ACTION_PRODUCER_REVISION_V1
+      contractRevision: TCB_CLOSURE_ACTION_PRODUCER_REVISION_V1,
+      executionBudget: VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1
     },
     requiredCheapPreflightActionKeys: [],
     upstreamActionKeys,
-    resultSchemaRevision: TCB_CLOSURE_ACTION_RESULT_SCHEMA_V1
+    resultSchemaRevision: TCB_CLOSURE_ACTION_RESULT_SCHEMA_V1,
+    staticProofRequirement: 'required-producer-bound'
   });
   return createVerificationActionPlanV2({
     action,

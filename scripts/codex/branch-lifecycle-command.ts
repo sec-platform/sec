@@ -1,4 +1,4 @@
-import { isolatedGitChildEnvironment } from '../../platform/shared/git-read-environment.ts';
+import { isolatedGitChildEnvironment } from '../../platform/git/read-environment.ts';
 
 type ChildProcessResultLike = Readonly<{
   status: number | null;

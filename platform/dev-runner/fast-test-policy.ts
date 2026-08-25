@@ -232,6 +232,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/local-github-actions-runner.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/manifest-cache-activation.test.ts',
     reason: 'module-global-manifest-cache',
     resourceClass: 'independent-process'
@@ -263,11 +268,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   },
   {
     file: 'tests/unit/verification-action-github-provider.test.ts',
-    reason: 'process-global-environment',
-    resourceClass: 'independent-process'
-  },
-  {
-    file: 'tests/unit/verification-action-runner.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },

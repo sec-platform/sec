@@ -3,11 +3,19 @@ import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
+import {
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1,
+  SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1
+} from '../../platform/runtime/environments/sec-linux-verification-v1/authority.ts';
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 } from '../../platform/shared/ci-verification-revision.ts';
 import {
   compileEnvironmentMaterializationPlanV1,
-  createEnvironmentMaterializationSpecV1
+  createEnvironmentMaterializationGenerationV1,
+  createEnvironmentMaterializationSpecV1,
+  parseEnvironmentMaterializationGenerationV1,
+  transitionEnvironmentMaterializationGenerationV1,
+  type EnvironmentMaterializationGenerationV1
 } from '../../platform/shared/environment-materialization-contract.ts';
 import {
   acquirePhysicalMutationLeaseV1,
@@ -24,15 +32,23 @@ import {
   inspectNoFollowOrdinaryFileEntryV1,
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
+  replaceDurableCanonicalFileV1,
   scanNoFollowDirectoryTreeMetadataV1,
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
 import {
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1,
-  SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1
-} from '../../platform/shared/sec-linux-verification-environment.ts';
-import { acquireSecRuntimeCachePhysicalAuthorityV1 } from '../../tooling/sec-dev/runtime-state-authority.ts';
-import { resolveSecWorkspaceRuntimeRootsV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
+  currentSecRuntimePlatformV1,
+  resolveSecRuntimeCacheLayoutV1,
+  secRuntimeStateEnvironmentV1
+} from '../../platform/shared/sec-runtime-state-contract.ts';
+import {
+  acquireSecRuntimeCachePhysicalAuthorityV1,
+  acquireSecRuntimeStatePhysicalAuthorityV1
+} from '../../tooling/sec-dev/runtime-state-authority.ts';
+import {
+  resolveSecRuntimeStateForRepositoryV1,
+  resolveSecWorkspaceRuntimeRootsV1
+} from '../../tooling/sec-dev/runtime-state-paths.ts';
 
 export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3 =
   'sec-local-github-actions-provider-state-v3' as const;
@@ -42,6 +58,16 @@ export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3 =
 // cached Linux capacity or silently demand a mutable rebuild.
 export const LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_SCHEMA_V3 =
   'sec-local-github-actions-provider-ledger-v3' as const;
+export const LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_INTENT_SCHEMA_V1 =
+  'sec-local-github-actions-provider-ensure-intent-v1' as const;
+export const LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_RECEIPT_SCHEMA_V2 =
+  'sec-local-github-actions-provider-ensure-receipt-v2' as const;
+export const LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2 = 'provider-ensure/v2' as const;
+export const LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_INTENT_SCHEMA_V1 =
+  'sec-local-github-actions-provider-settlement-intent-v1' as const;
+export const LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_RECEIPT_SCHEMA_V1 =
+  'sec-local-github-actions-provider-settlement-receipt-v1' as const;
+export const LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_LAYOUT_V1 = 'settlement' as const;
 const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1 = ENVIRONMENT.image.lineageSchema;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1 = ENVIRONMENT.archives.runner.version;
@@ -60,6 +86,35 @@ export const LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1 = ENVIRONMENT.ubuntu.snapsh
 export const LOCAL_GITHUB_ACTIONS_SOURCE_DATE_EPOCH_V1 = String(ENVIRONMENT.provider.sourceDateEpoch);
 export const LOCAL_GITHUB_ACTIONS_DOCKERFILE_FRONTEND_V1 =
   ENVIRONMENT.provider.dockerfileFrontend.reference;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1 =
+  ENVIRONMENT.provider.buildx.builderName;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_NODE_NAME_V1 =
+  ENVIRONMENT.provider.buildx.nodeName;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_DRIVER_V1 = ENVIRONMENT.provider.buildx.driver;
+export const LOCAL_GITHUB_ACTIONS_BUILDKIT_IMAGE_V1 = ENVIRONMENT.provider.buildx.buildkitImage;
+export const LOCAL_GITHUB_ACTIONS_BUILDKIT_IMAGE_ID_V1 = ENVIRONMENT.provider.buildx.buildkitImageId;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_CACHE_NAMESPACE_V1 =
+  ENVIRONMENT.provider.buildx.cacheNamespace;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_ALLOW_NETWORK_HOST_V1 =
+  ENVIRONMENT.provider.buildx.allowNetworkHost;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_GC_POLICY_V1 = ENVIRONMENT.provider.buildx.gcPolicy;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_KEEP_STORAGE_MEGABYTES_V1 =
+  ENVIRONMENT.provider.buildx.keepStorageMegabytes;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_KEEP_STORAGE_BYTES_V1 =
+  LOCAL_GITHUB_ACTIONS_BUILDX_KEEP_STORAGE_MEGABYTES_V1 * 1_000_000;
+export const LOCAL_GITHUB_ACTIONS_BUILDX_GC_SWEEP_TIMEOUT_MS_V1 =
+  ENVIRONMENT.provider.buildx.gcSweepTimeoutMs;
+
+export function createLocalGitHubActionsBuildxBuildkitdFlagsV1(): readonly string[] {
+  return Object.freeze([
+    '--oci-worker-gc',
+    '--oci-worker-gc-keepstorage',
+    String(LOCAL_GITHUB_ACTIONS_BUILDX_KEEP_STORAGE_MEGABYTES_V1),
+    ...(LOCAL_GITHUB_ACTIONS_BUILDX_ALLOW_NETWORK_HOST_V1
+      ? ['--allow-insecure-entitlement=network.host']
+      : [])
+  ]);
+}
 export const LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_DATE_V1 = ENVIRONMENT.archives.bootstrapCa.version;
 export const LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1 =
   ENVIRONMENT.archives.bootstrapCa.digest.slice(7);
@@ -101,16 +156,58 @@ export const LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3 =
 export const LOCAL_GITHUB_ACTIONS_GITHUB_HOST_V3 = ENVIRONMENT.provider.githubHost;
 
 const MAX_COMMAND_OUTPUT_BYTES = 16 * 1024 * 1024;
-const DEFAULT_CPUS = ENVIRONMENT.runtime.resources.control.cpus;
-const DEFAULT_MEMORY = `${ENVIRONMENT.runtime.resources.control.memoryGiB}g`;
-const SUT_CPUS = ENVIRONMENT.runtime.resources.sut.cpus;
-const SUT_MEMORY = `${ENVIRONMENT.runtime.resources.sut.memoryGiB}g`;
-const SUT_PIDS = ENVIRONMENT.runtime.resources.sut.pids;
 const SUT_CAPABILITIES = CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities;
 const RUNNER_OCI_MATERIALIZATION_LEASE_NAME_V1 = 'materialization-lease.json';
+/**
+ * One provider-wide mutation fence.  It is deliberately kept beside the
+ * replaceable provider receipt rather than beside any individual effect so
+ * ensure, consumer transitions, stop and recovery serialize on the same
+ * identity.  The OCI lease remains a nested lower-level fence.
+ */
+export const LOCAL_GITHUB_ACTIONS_PROVIDER_MUTATION_LEASE_NAME_V1 =
+  'provider-mutation-lease.json' as const;
 const RUNNER_OCI_CANDIDATE_PREFIX_V1 = 'candidate-';
+const RUNNER_OCI_GENERATION_FILE_NAME_V1 = 'generation.json';
 const RUNNER_OCI_CLEANUP_MAXIMUM_ENTRIES_V1 = 1_000_000;
 const RUNNER_OCI_CLEANUP_BUDGET_MS_V1 = 5 * 60_000;
+
+export function createLocalGitHubActionsProviderResourceBindingV1():
+LocalGitHubActionsProviderResourceBindingV1 {
+  const roles = Object.freeze(LOCAL_GITHUB_ACTIONS_RUNNER_ROLES_V2.map((role) => {
+    const resources = ENVIRONMENT.runtime.resources[role];
+    return Object.freeze({
+      role,
+      cpus: resources.cpus,
+      memoryBytes: resources.memoryGiB * 1024 * 1024 * 1024,
+      pids: resources.pids,
+      capAdd: Object.freeze(role === 'sut'
+        ? SUT_CAPABILITIES.map((capability) => `CAP_${capability}`).sort()
+        : [])
+    });
+  }));
+  const material = Object.freeze({
+    schema: 'sec-local-github-actions-provider-resource-binding-v1' as const,
+    roles
+  });
+  return Object.freeze({
+    ...material,
+    digest: sha256(material) as `sha256:${string}`
+  });
+}
+
+export interface LocalGitHubActionsProviderResourceRoleV1 {
+  readonly role: LocalGitHubActionsRunnerRoleV2;
+  readonly cpus: number;
+  readonly memoryBytes: number;
+  readonly pids: number;
+  readonly capAdd: readonly string[];
+}
+
+export interface LocalGitHubActionsProviderResourceBindingV1 {
+  readonly schema: 'sec-local-github-actions-provider-resource-binding-v1';
+  readonly roles: readonly LocalGitHubActionsProviderResourceRoleV1[];
+  readonly digest: `sha256:${string}`;
+}
 
 export interface LocalGitHubActionsRunnerInstanceV2 {
   readonly role: LocalGitHubActionsRunnerRoleV2;
@@ -166,6 +263,7 @@ export interface LocalGitHubActionsProviderLedgerV3 {
   readonly dockerEndpoint: DockerEndpointIdentityV3;
   readonly githubEndpoint: GitHubEndpointIdentityV3;
   readonly imageId: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
+  readonly resourceBinding: LocalGitHubActionsProviderResourceBindingV1;
   readonly lifecycle: LocalGitHubActionsProviderLifecycleV3;
   readonly generation: number;
   readonly predecessorObjectSha: string | null;
@@ -187,6 +285,7 @@ export interface LocalGitHubActionsRunnerStateV3 {
   readonly githubEndpoint: GitHubEndpointIdentityV3;
   readonly image: typeof LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1;
   readonly imageId: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
+  readonly resourceBinding: LocalGitHubActionsProviderResourceBindingV1;
   readonly runnerVersion: typeof LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1;
   readonly runnerArchiveSha256: typeof LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1;
   readonly baseImage: typeof LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1;
@@ -197,6 +296,134 @@ export interface LocalGitHubActionsRunnerStateV3 {
   readonly instances: readonly LocalGitHubActionsRunnerInstanceV2[];
   readonly startedAt: string;
   readonly stateDigest: `sha256:${string}`;
+}
+
+/** Exact current provider state consumed by an ensure receipt. */
+export interface LocalGitHubActionsProviderEnsureDesiredV1 {
+  readonly schema: 'sec-local-github-actions-provider-ensure-desired-v1';
+  readonly repository: string;
+  readonly providerName: string;
+  readonly operationLabel: string;
+  readonly providerLedgerRef: typeof LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3;
+  readonly providerLedgerObjectSha: string;
+  readonly providerLedgerDigest: `sha256:${string}`;
+  readonly generation: number;
+  readonly dockerEndpoint: DockerEndpointIdentityV3;
+  readonly githubEndpoint: GitHubEndpointIdentityV3;
+  readonly imageId: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
+  readonly resourceBinding: LocalGitHubActionsProviderResourceBindingV1;
+  readonly instances: readonly LocalGitHubActionsRunnerInstanceV2[];
+  readonly stateDigest: `sha256:${string}`;
+  readonly desiredDigest: `sha256:${string}`;
+}
+
+/**
+ * Durable pre-effect claim.  It is intentionally not an effect authority by
+ * itself; the provider still re-observes and validates every endpoint before
+ * the first Docker/GitHub mutation.
+ */
+export interface LocalGitHubActionsProviderEnsureIntentV1 {
+  readonly schema: typeof LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_INTENT_SCHEMA_V1;
+  readonly repository: string;
+  readonly providerName: string;
+  readonly dockerEndpoint: DockerEndpointIdentityV3;
+  readonly githubEndpoint: GitHubEndpointIdentityV3;
+  readonly imageId: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
+  readonly resourceBinding: LocalGitHubActionsProviderResourceBindingV1;
+  readonly environmentInputDigest: `sha256:${string}`;
+  readonly desiredDigest: `sha256:${string}`;
+  readonly issuedAt: string;
+  readonly intentDigest: `sha256:${string}`;
+}
+
+/** One replaceable current receipt; no immutable receipt history is emitted. */
+export interface LocalGitHubActionsProviderConsumerBindingV1 {
+  readonly consumerId: string;
+  readonly acquiredFromReceiptDigest: `sha256:${string}`;
+  readonly acquiredAtEpoch: number;
+  readonly leaseId: `sha256:${string}`;
+  readonly credential: `sha256:${string}`;
+}
+
+export interface LocalGitHubActionsProviderEnsureReceiptV2 {
+  readonly schema: typeof LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_RECEIPT_SCHEMA_V2;
+  readonly repository: string;
+  readonly providerName: string;
+  readonly outcome: 'started-fresh' | 'already-healthy' | 'reconciled';
+  readonly desired: LocalGitHubActionsProviderEnsureDesiredV1;
+  readonly resourceBinding: LocalGitHubActionsProviderResourceBindingV1;
+  readonly intentDigest: `sha256:${string}`;
+  readonly endpointDigest: `sha256:${string}`;
+  readonly builderObservationDigest: `sha256:${string}`;
+  readonly ociBinding: LocalGitHubActionsRunnerOciProviderBindingV1;
+  readonly reconciledContainers: readonly string[];
+  readonly leaseId: `sha256:${string}`;
+  readonly transitionEpoch: number;
+  readonly consumers: readonly LocalGitHubActionsProviderConsumerBindingV1[];
+  readonly consumerCount: number;
+  readonly observedAt: string;
+  readonly receiptDigest: `sha256:${string}`;
+}
+
+export type LocalGitHubActionsProviderSettlementReasonV1 =
+  'stop' | 'recover' | 'start-failure';
+
+export interface LocalGitHubActionsProviderSettlementIntentV1 {
+  readonly schema: typeof LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_INTENT_SCHEMA_V1;
+  readonly repository: string;
+  readonly providerName: string;
+  readonly operationLabel: string | null;
+  readonly desiredDigest: `sha256:${string}` | null;
+  readonly providerLedgerObjectSha: string | null;
+  readonly dockerEndpoint: DockerEndpointIdentityV3;
+  readonly githubEndpoint: GitHubEndpointIdentityV3;
+  readonly resourceBinding: LocalGitHubActionsProviderResourceBindingV1;
+  readonly reason: LocalGitHubActionsProviderSettlementReasonV1;
+  readonly issuedAt: string;
+  readonly intentDigest: `sha256:${string}`;
+}
+
+export interface LocalGitHubActionsProviderSettlementReceiptV1 {
+  readonly schema: typeof LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_RECEIPT_SCHEMA_V1;
+  readonly repository: string;
+  readonly providerName: string;
+  readonly operationLabel: string | null;
+  readonly desiredDigest: `sha256:${string}` | null;
+  readonly providerLedgerObjectSha: string | null;
+  readonly dockerEndpoint: DockerEndpointIdentityV3;
+  readonly githubEndpoint: GitHubEndpointIdentityV3;
+  readonly resourceBinding: LocalGitHubActionsProviderResourceBindingV1;
+  readonly reason: LocalGitHubActionsProviderSettlementReasonV1;
+  readonly intentIssuedAt: string;
+  readonly intentDigest: `sha256:${string}`;
+  readonly runnersAbsent: true;
+  readonly containersAbsent: true;
+  readonly providerLedgerAbsent: true;
+  readonly stateProjectionAbsent: true;
+  readonly ensureCurrentAbsent: true;
+  readonly ensureIntentAbsent: true;
+  readonly imageRetained: true;
+  readonly ociGenerationDigest: `sha256:${string}` | null;
+  readonly ociReceiptDigest: `sha256:${string}` | null;
+  readonly observedAt: string;
+  readonly receiptDigest: `sha256:${string}`;
+}
+
+export interface LocalGitHubActionsBuildxBuilderObservationV1 {
+  readonly schema: 'sec-local-github-actions-buildx-builder-observation-v1';
+  readonly builderName: typeof LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1;
+  readonly driver: typeof LOCAL_GITHUB_ACTIONS_BUILDX_DRIVER_V1;
+  readonly cacheNamespace: typeof LOCAL_GITHUB_ACTIONS_BUILDX_CACHE_NAMESPACE_V1;
+  readonly gcPolicy: typeof LOCAL_GITHUB_ACTIONS_BUILDX_GC_POLICY_V1;
+  readonly buildkitdFlags: readonly string[];
+  readonly dockerEndpointDigest: `sha256:${string}`;
+  readonly nodes: readonly Readonly<{
+    name: string;
+    status: 'running';
+    version: string;
+    gcPolicyDigest: `sha256:${string}`;
+  }>[];
+  readonly observationDigest: `sha256:${string}`;
 }
 
 interface CommandResult {
@@ -330,6 +557,30 @@ function commandEnvironment(command: keyof typeof COMMAND_ENV_KEYS): NodeJS.Proc
 
 function fail(message: string): never {
   throw new Error(`Local GitHub Actions runner: ${message}`);
+}
+
+function providerResourceRoleV1(
+  role: LocalGitHubActionsRunnerRoleV2
+): LocalGitHubActionsProviderResourceRoleV1 {
+  const entry = createLocalGitHubActionsProviderResourceBindingV1().roles.find(
+    (candidate) => candidate.role === role
+  );
+  if (entry === undefined) fail(`resource binding lacks role ${role}`);
+  return entry;
+}
+
+function assertCanonicalProviderResourceBindingV1(
+  value: unknown,
+  label = 'provider resource binding'
+): LocalGitHubActionsProviderResourceBindingV1 {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail(`${label} is invalid`);
+  }
+  const expected = createLocalGitHubActionsProviderResourceBindingV1();
+  if (JSON.stringify(value) !== JSON.stringify(expected)) {
+    fail(`${label} differs from EnvironmentSpec`);
+  }
+  return expected;
 }
 
 function boundedText(value: unknown, label: string, maximum = 512): string {
@@ -480,10 +731,222 @@ function githubEndpointIdentity(input: GitHubEndpointIdentityV3): GitHubEndpoint
   });
 }
 
+function settlementReasonV1(value: unknown): LocalGitHubActionsProviderSettlementReasonV1 {
+  if (value !== 'stop' && value !== 'recover' && value !== 'start-failure') {
+    fail('provider settlement reason is invalid');
+  }
+  return value;
+}
+
+function nullableDigestV1(value: unknown, label: string): `sha256:${string}` | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
+    fail(`${label} must be a SHA-256 digest or null`);
+  }
+  return value as `sha256:${string}`;
+}
+
+function nullableGitObjectShaV1(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) {
+    fail(`${label} must be a Git object SHA or null`);
+  }
+  return value;
+}
+
+export function createLocalGitHubActionsProviderSettlementIntentV1(
+  input: Omit<LocalGitHubActionsProviderSettlementIntentV1,
+    'schema' | 'resourceBinding' | 'intentDigest'>
+): LocalGitHubActionsProviderSettlementIntentV1 {
+  const operation = input.operationLabel === null ? null : operationLabel(input.operationLabel);
+  const material = Object.freeze({
+    schema: LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_INTENT_SCHEMA_V1,
+    repository: repositoryName(input.repository),
+    providerName: providerBaseName(input.providerName),
+    operationLabel: operation,
+    desiredDigest: nullableDigestV1(input.desiredDigest, 'provider settlement desiredDigest'),
+    providerLedgerObjectSha: nullableGitObjectShaV1(
+      input.providerLedgerObjectSha, 'provider settlement providerLedgerObjectSha'
+    ),
+    dockerEndpoint: dockerEndpointIdentity(input.dockerEndpoint),
+    githubEndpoint: githubEndpointIdentity(input.githubEndpoint),
+    resourceBinding: createLocalGitHubActionsProviderResourceBindingV1(),
+    reason: settlementReasonV1(input.reason),
+    issuedAt: (() => {
+      const issuedAt = new Date(input.issuedAt).toISOString();
+      if (issuedAt !== input.issuedAt) fail('provider settlement intent issuedAt is not canonical');
+      return issuedAt;
+    })()
+  });
+  return Object.freeze({
+    ...material,
+    intentDigest: sha256(material) as `sha256:${string}`
+  });
+}
+
+export function parseLocalGitHubActionsProviderSettlementIntentV1(
+  source: string
+): LocalGitHubActionsProviderSettlementIntentV1 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    fail('provider settlement intent is not valid JSON');
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    fail('provider settlement intent shape is invalid');
+  }
+  const value = parsed as Record<string, unknown>;
+  exactKeys(value, [
+    'schema', 'repository', 'providerName', 'operationLabel', 'desiredDigest',
+    'providerLedgerObjectSha', 'dockerEndpoint', 'githubEndpoint', 'resourceBinding',
+    'reason', 'issuedAt', 'intentDigest'
+  ], 'provider settlement intent');
+  if (value.schema !== LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_INTENT_SCHEMA_V1) {
+    fail('provider settlement intent schema is invalid');
+  }
+  const intent = createLocalGitHubActionsProviderSettlementIntentV1({
+    repository: value.repository as string,
+    providerName: value.providerName as string,
+    operationLabel: value.operationLabel as string | null,
+    desiredDigest: value.desiredDigest as `sha256:${string}` | null,
+    providerLedgerObjectSha: value.providerLedgerObjectSha as string | null,
+    dockerEndpoint: value.dockerEndpoint as DockerEndpointIdentityV3,
+    githubEndpoint: value.githubEndpoint as GitHubEndpointIdentityV3,
+    reason: value.reason as LocalGitHubActionsProviderSettlementReasonV1,
+    issuedAt: value.issuedAt as string
+  });
+  assertCanonicalProviderResourceBindingV1(value.resourceBinding, 'provider settlement intent resource binding');
+  if (intent.intentDigest !== value.intentDigest) fail('provider settlement intent digest mismatch');
+  return intent;
+}
+
+export function createLocalGitHubActionsProviderSettlementReceiptV1(
+  input: Omit<LocalGitHubActionsProviderSettlementReceiptV1,
+    'schema' | 'resourceBinding' | 'receiptDigest'>
+): LocalGitHubActionsProviderSettlementReceiptV1 {
+  const operation = input.operationLabel === null ? null : operationLabel(input.operationLabel);
+  if (!input.runnersAbsent || !input.containersAbsent || !input.providerLedgerAbsent
+      || !input.stateProjectionAbsent || !input.ensureCurrentAbsent || !input.ensureIntentAbsent
+      || !input.imageRetained) {
+    fail('provider settlement receipt must prove exact cleanup and image retention');
+  }
+  const observedAt = new Date(input.observedAt).toISOString();
+  if (observedAt !== input.observedAt) fail('provider settlement receipt observedAt is not canonical');
+  const material = Object.freeze({
+    schema: LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_RECEIPT_SCHEMA_V1,
+    repository: repositoryName(input.repository),
+    providerName: providerBaseName(input.providerName),
+    operationLabel: operation,
+    desiredDigest: nullableDigestV1(input.desiredDigest, 'provider settlement receipt desiredDigest'),
+    providerLedgerObjectSha: nullableGitObjectShaV1(
+      input.providerLedgerObjectSha, 'provider settlement receipt providerLedgerObjectSha'
+    ),
+    dockerEndpoint: dockerEndpointIdentity(input.dockerEndpoint),
+    githubEndpoint: githubEndpointIdentity(input.githubEndpoint),
+    resourceBinding: createLocalGitHubActionsProviderResourceBindingV1(),
+    reason: settlementReasonV1(input.reason),
+    intentIssuedAt: (() => {
+      const issuedAt = new Date(input.intentIssuedAt).toISOString();
+      if (issuedAt !== input.intentIssuedAt) {
+        fail('provider settlement receipt intentIssuedAt is not canonical');
+      }
+      return issuedAt;
+    })(),
+    intentDigest: input.intentDigest,
+    runnersAbsent: true as const,
+    containersAbsent: true as const,
+    providerLedgerAbsent: true as const,
+    stateProjectionAbsent: true as const,
+    ensureCurrentAbsent: true as const,
+    ensureIntentAbsent: true as const,
+    imageRetained: true as const,
+    ociGenerationDigest: nullableDigestV1(
+      input.ociGenerationDigest, 'provider settlement receipt ociGenerationDigest'
+    ),
+    ociReceiptDigest: nullableDigestV1(
+      input.ociReceiptDigest, 'provider settlement receipt ociReceiptDigest'
+    ),
+    observedAt
+  });
+  if (!/^sha256:[0-9a-f]{64}$/u.test(material.intentDigest)) {
+    fail('provider settlement receipt intentDigest is invalid');
+  }
+  const intent = createLocalGitHubActionsProviderSettlementIntentV1({
+    repository: material.repository,
+    providerName: material.providerName,
+    operationLabel: material.operationLabel,
+    desiredDigest: material.desiredDigest,
+    providerLedgerObjectSha: material.providerLedgerObjectSha,
+    dockerEndpoint: material.dockerEndpoint,
+    githubEndpoint: material.githubEndpoint,
+    reason: material.reason,
+    issuedAt: material.intentIssuedAt
+  });
+  if (intent.intentDigest !== material.intentDigest) {
+    fail('provider settlement receipt intent binding is invalid');
+  }
+  const { observedAt: _observedAt, ...stableMaterial } = material;
+  return Object.freeze({
+    ...material,
+    receiptDigest: sha256(Object.freeze(stableMaterial)) as `sha256:${string}`
+  });
+}
+
+export function parseLocalGitHubActionsProviderSettlementReceiptV1(
+  source: string
+): LocalGitHubActionsProviderSettlementReceiptV1 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    fail('provider settlement receipt is not valid JSON');
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    fail('provider settlement receipt shape is invalid');
+  }
+  const value = parsed as Record<string, unknown>;
+  exactKeys(value, [
+    'schema', 'repository', 'providerName', 'operationLabel', 'desiredDigest',
+    'providerLedgerObjectSha', 'dockerEndpoint', 'githubEndpoint', 'resourceBinding',
+    'reason', 'intentIssuedAt', 'intentDigest', 'runnersAbsent', 'containersAbsent', 'providerLedgerAbsent',
+    'stateProjectionAbsent', 'ensureCurrentAbsent', 'ensureIntentAbsent', 'imageRetained',
+    'ociGenerationDigest', 'ociReceiptDigest', 'observedAt', 'receiptDigest'
+  ], 'provider settlement receipt');
+  if (value.schema !== LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_RECEIPT_SCHEMA_V1) {
+    fail('provider settlement receipt schema is invalid');
+  }
+  const receipt = createLocalGitHubActionsProviderSettlementReceiptV1({
+    repository: value.repository as string,
+    providerName: value.providerName as string,
+    operationLabel: value.operationLabel as string | null,
+    desiredDigest: value.desiredDigest as `sha256:${string}` | null,
+    providerLedgerObjectSha: value.providerLedgerObjectSha as string | null,
+    dockerEndpoint: value.dockerEndpoint as DockerEndpointIdentityV3,
+    githubEndpoint: value.githubEndpoint as GitHubEndpointIdentityV3,
+    reason: value.reason as LocalGitHubActionsProviderSettlementReasonV1,
+    intentIssuedAt: value.intentIssuedAt as string,
+    intentDigest: value.intentDigest as `sha256:${string}`,
+    runnersAbsent: value.runnersAbsent as true,
+    containersAbsent: value.containersAbsent as true,
+    providerLedgerAbsent: value.providerLedgerAbsent as true,
+    stateProjectionAbsent: value.stateProjectionAbsent as true,
+    ensureCurrentAbsent: value.ensureCurrentAbsent as true,
+    ensureIntentAbsent: value.ensureIntentAbsent as true,
+    imageRetained: value.imageRetained as true,
+    ociGenerationDigest: value.ociGenerationDigest as `sha256:${string}` | null,
+    ociReceiptDigest: value.ociReceiptDigest as `sha256:${string}` | null,
+    observedAt: value.observedAt as string
+  });
+  assertCanonicalProviderResourceBindingV1(value.resourceBinding, 'provider settlement receipt resource binding');
+  if (receipt.receiptDigest !== value.receiptDigest) fail('provider settlement receipt digest mismatch');
+  return receipt;
+}
+
 export function createLocalGitHubActionsRunnerStateV3(
   input: Omit<LocalGitHubActionsRunnerStateV3, 'schema' | 'image' | 'imageId' | 'runnerVersion'
     | 'runnerArchiveSha256' | 'baseImage' | 'nodeVersion' | 'nodeArchiveSha256'
-    | 'labels' | 'roleLabels' | 'stateDigest'>
+    | 'labels' | 'roleLabels' | 'resourceBinding' | 'stateDigest'>
 ): LocalGitHubActionsRunnerStateV3 {
   const startedAt = new Date(input.startedAt).toISOString();
   if (startedAt !== input.startedAt) fail('startedAt must be a canonical ISO instant');
@@ -511,6 +974,7 @@ export function createLocalGitHubActionsRunnerStateV3(
     githubEndpoint: githubEndpointIdentity(input.githubEndpoint),
     image: LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1,
     imageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    resourceBinding: createLocalGitHubActionsProviderResourceBindingV1(),
     runnerVersion: LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
     runnerArchiveSha256: LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1,
     baseImage: LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1,
@@ -536,7 +1000,7 @@ export function parseLocalGitHubActionsRunnerStateV3(source: string): LocalGitHu
     'providerLedgerRef', 'providerLedgerObjectSha', 'providerLedgerDigest',
     'dockerEndpoint', 'githubEndpoint', 'image', 'imageId', 'runnerVersion',
     'runnerArchiveSha256', 'baseImage', 'nodeVersion', 'nodeArchiveSha256',
-    'labels', 'roleLabels', 'instances', 'startedAt', 'stateDigest'
+    'labels', 'roleLabels', 'resourceBinding', 'instances', 'startedAt', 'stateDigest'
   ], 'state');
   if (value.schema !== LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3
       || value.image !== LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1
@@ -568,8 +1032,467 @@ export function parseLocalGitHubActionsRunnerStateV3(source: string): LocalGitHu
     instances: value.instances as LocalGitHubActionsRunnerInstanceV2[],
     startedAt: value.startedAt as string
   });
+  assertCanonicalProviderResourceBindingV1(value.resourceBinding, 'state resource binding');
   if (recreated.stateDigest !== value.stateDigest) fail('state digest mismatch');
   return recreated;
+}
+
+export function providerEnsureEndpointDigestV1(input: Readonly<{
+  dockerEndpoint: DockerEndpointIdentityV3;
+  githubEndpoint: GitHubEndpointIdentityV3;
+}>): `sha256:${string}` {
+  return sha256(Object.freeze({
+    schema: 'sec-local-github-actions-provider-endpoint-binding-v1',
+    dockerEndpoint: dockerEndpointIdentity(input.dockerEndpoint),
+    githubEndpoint: githubEndpointIdentity(input.githubEndpoint)
+  })) as `sha256:${string}`;
+}
+
+function providerEnsureDesiredMaterialV1(
+  input: Omit<LocalGitHubActionsProviderEnsureDesiredV1,
+    'schema' | 'desiredDigest' | 'resourceBinding'>
+): Omit<LocalGitHubActionsProviderEnsureDesiredV1, 'desiredDigest'> {
+  const repository = repositoryName(input.repository);
+  const providerName = providerBaseName(input.providerName);
+  if (!/^[0-9a-f]{40}$/u.test(input.providerLedgerObjectSha)) {
+    fail('provider ensure desired ledger object identity is invalid');
+  }
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.providerLedgerDigest)
+      || !/^sha256:[0-9a-f]{64}$/u.test(input.stateDigest)) {
+    fail('provider ensure desired digest identity is invalid');
+  }
+  if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
+    fail('provider ensure desired generation is invalid');
+  }
+  const instances = input.instances.map(runnerInstance);
+  if (instances.length !== LOCAL_GITHUB_ACTIONS_RUNNER_ROLES_V2.length
+      || LOCAL_GITHUB_ACTIONS_RUNNER_ROLES_V2.some((role, index) => instances[index]?.role !== role)) {
+    fail('provider ensure desired instances are not one ordered role closure');
+  }
+  return Object.freeze({
+    schema: 'sec-local-github-actions-provider-ensure-desired-v1' as const,
+    repository,
+    providerName,
+    operationLabel: operationLabel(input.operationLabel),
+    providerLedgerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+    providerLedgerObjectSha: input.providerLedgerObjectSha,
+    providerLedgerDigest: input.providerLedgerDigest,
+    generation: input.generation,
+    dockerEndpoint: dockerEndpointIdentity(input.dockerEndpoint),
+    githubEndpoint: githubEndpointIdentity(input.githubEndpoint),
+    imageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    resourceBinding: createLocalGitHubActionsProviderResourceBindingV1(),
+    instances: Object.freeze(instances),
+    stateDigest: input.stateDigest
+  });
+}
+
+export function createLocalGitHubActionsProviderEnsureDesiredV1(
+  input: Omit<LocalGitHubActionsProviderEnsureDesiredV1,
+    'schema' | 'desiredDigest' | 'resourceBinding'>
+): LocalGitHubActionsProviderEnsureDesiredV1 {
+  const material = providerEnsureDesiredMaterialV1(input);
+  return Object.freeze({
+    ...material,
+    desiredDigest: sha256(material) as `sha256:${string}`
+  });
+}
+
+export function createLocalGitHubActionsProviderEnsureIntentV1(
+  input: Omit<LocalGitHubActionsProviderEnsureIntentV1,
+    'schema' | 'resourceBinding' | 'desiredDigest' | 'intentDigest'>
+): LocalGitHubActionsProviderEnsureIntentV1 {
+  const issuedAt = new Date(input.issuedAt).toISOString();
+  if (issuedAt !== input.issuedAt) fail('provider ensure intent issuedAt is not canonical');
+  const dockerEndpoint = dockerEndpointIdentity(input.dockerEndpoint);
+  const githubEndpoint = githubEndpointIdentity(input.githubEndpoint);
+  const repository = repositoryName(input.repository);
+  const providerName = providerBaseName(input.providerName);
+  if (input.imageId !== LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2) {
+    fail('provider ensure intent image identity is invalid');
+  }
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.environmentInputDigest)) {
+    fail('provider ensure intent environment input digest is invalid');
+  }
+  const material = Object.freeze({
+    schema: LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_INTENT_SCHEMA_V1,
+    repository,
+    providerName,
+    dockerEndpoint,
+    githubEndpoint,
+    imageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    resourceBinding: createLocalGitHubActionsProviderResourceBindingV1(),
+    environmentInputDigest: input.environmentInputDigest,
+    desiredDigest: sha256(Object.freeze({
+      schema: 'sec-local-github-actions-provider-ensure-desired-input-v1',
+      repository,
+      providerName,
+      dockerEndpoint,
+      githubEndpoint,
+      imageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+      resourceBinding: createLocalGitHubActionsProviderResourceBindingV1(),
+      environmentInputDigest: input.environmentInputDigest
+    })) as `sha256:${string}`,
+    issuedAt
+  });
+  return Object.freeze({
+    ...material,
+    intentDigest: sha256(material) as `sha256:${string}`
+  });
+}
+
+export function parseLocalGitHubActionsProviderEnsureIntentV1(
+  source: string
+): LocalGitHubActionsProviderEnsureIntentV1 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    fail('provider ensure intent is not valid JSON');
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    fail('provider ensure intent shape is invalid');
+  }
+  const value = parsed as Record<string, unknown>;
+  exactKeys(value, [
+    'schema', 'repository', 'providerName', 'dockerEndpoint', 'githubEndpoint', 'imageId',
+    'resourceBinding', 'environmentInputDigest', 'desiredDigest', 'issuedAt', 'intentDigest'
+  ], 'provider ensure intent');
+  if (value.schema !== LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_INTENT_SCHEMA_V1) {
+    fail('provider ensure intent schema is invalid');
+  }
+  const intent = createLocalGitHubActionsProviderEnsureIntentV1({
+    repository: value.repository as string,
+    providerName: value.providerName as string,
+    dockerEndpoint: value.dockerEndpoint as DockerEndpointIdentityV3,
+    githubEndpoint: value.githubEndpoint as GitHubEndpointIdentityV3,
+    imageId: value.imageId as typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    environmentInputDigest: value.environmentInputDigest as `sha256:${string}`,
+    issuedAt: value.issuedAt as string
+  });
+  assertCanonicalProviderResourceBindingV1(value.resourceBinding, 'provider ensure intent resource binding');
+  if (intent.desiredDigest !== value.desiredDigest || intent.intentDigest !== value.intentDigest) {
+    fail('provider ensure intent digest mismatch');
+  }
+  return intent;
+}
+
+function providerEnsureIntentMatchesInputV1(
+  intent: LocalGitHubActionsProviderEnsureIntentV1,
+  input: Readonly<{
+    repository: string;
+    providerName: string;
+    dockerEndpoint: DockerEndpointIdentityV3;
+    githubEndpoint: GitHubEndpointIdentityV3;
+  }>
+): boolean {
+  return intent.repository === repositoryName(input.repository)
+    && intent.providerName === providerBaseName(input.providerName)
+    && JSON.stringify(intent.dockerEndpoint) === JSON.stringify(dockerEndpointIdentity(input.dockerEndpoint))
+    && JSON.stringify(intent.githubEndpoint) === JSON.stringify(githubEndpointIdentity(input.githubEndpoint))
+    && intent.imageId === LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
+    && JSON.stringify(intent.resourceBinding) === JSON.stringify(createLocalGitHubActionsProviderResourceBindingV1())
+    && intent.environmentInputDigest === SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1;
+}
+
+function boundedProviderConsumerIdV1(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 128 ||
+      value.trim() !== value || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value)) {
+    fail('provider consumerId is not canonical');
+  }
+  return value;
+}
+
+function providerConsumerCredentialV1(input: Readonly<{
+  repository: string;
+  providerName: string;
+  resourceBinding: LocalGitHubActionsProviderResourceBindingV1;
+  consumerId: string;
+  acquiredFromReceiptDigest: `sha256:${string}`;
+  acquiredAtEpoch: number;
+  leaseId: `sha256:${string}`;
+}>): `sha256:${string}` {
+  return sha256(Object.freeze({
+    schema: 'sec-local-github-actions-provider-consumer-credential-v1',
+    repository: input.repository,
+    providerName: input.providerName,
+    resourceBinding: input.resourceBinding,
+    consumerId: boundedProviderConsumerIdV1(input.consumerId),
+    acquiredFromReceiptDigest: input.acquiredFromReceiptDigest,
+    acquiredAtEpoch: input.acquiredAtEpoch,
+    leaseId: input.leaseId
+  })) as `sha256:${string}`;
+}
+
+function assertCanonicalRunnerOciProviderBindingV1(
+  value: LocalGitHubActionsRunnerOciProviderBindingV1,
+  desired: LocalGitHubActionsProviderEnsureDesiredV1
+): LocalGitHubActionsRunnerOciProviderBindingV1 {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('provider ensure OCI binding is invalid');
+  }
+  exactKeys(value as unknown as Record<string, unknown>, [
+    'schema', 'specDigest', 'generation', 'generationDigest', 'receiptDigest', 'providerRef',
+    'providerLedgerObjectSha', 'providerLedgerDigest', 'providerGeneration',
+    'provenanceArtifactDigest'
+  ], 'provider ensure OCI binding');
+  if (value.schema !== 'sec-local-github-actions-runner-oci-provider-binding-v1'
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.specDigest)
+      || !Number.isSafeInteger(value.generation) || value.generation < 0
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.generationDigest)
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.receiptDigest)
+      || value.providerRef !== LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3
+      || !/^[0-9a-f]{40}$/u.test(value.providerLedgerObjectSha)
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.providerLedgerDigest)
+      || !Number.isSafeInteger(value.providerGeneration) || value.providerGeneration < 0
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.provenanceArtifactDigest)
+      || value.specDigest !== createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest
+      || value.providerLedgerObjectSha !== desired.providerLedgerObjectSha
+      || value.providerLedgerDigest !== desired.providerLedgerDigest
+      || value.providerGeneration !== desired.generation) {
+    fail('provider ensure OCI binding is not bound to the current provider generation');
+  }
+  return Object.freeze(value);
+}
+
+function providerEnsureReceiptMaterialV1(
+  input: Omit<LocalGitHubActionsProviderEnsureReceiptV2,
+    'schema' | 'resourceBinding' | 'leaseId' | 'consumerCount' | 'receiptDigest'>
+): Omit<LocalGitHubActionsProviderEnsureReceiptV2, 'receiptDigest'> {
+  const observedAt = new Date(input.observedAt).toISOString();
+  if (observedAt !== input.observedAt) fail('provider ensure receipt observedAt is not canonical');
+  if (input.outcome !== 'started-fresh' && input.outcome !== 'already-healthy'
+      && input.outcome !== 'reconciled') {
+    fail('provider ensure receipt outcome is invalid');
+  }
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.intentDigest)
+      || !/^sha256:[0-9a-f]{64}$/u.test(input.endpointDigest)
+      || !/^sha256:[0-9a-f]{64}$/u.test(input.builderObservationDigest)) {
+    fail('provider ensure receipt binding digest is invalid');
+  }
+  if (!Number.isSafeInteger(input.transitionEpoch) || input.transitionEpoch < 0) {
+    fail('provider ensure receipt transition epoch is invalid');
+  }
+  const desired = createLocalGitHubActionsProviderEnsureDesiredV1(input.desired);
+  if (desired.desiredDigest !== input.desired.desiredDigest) {
+    fail('provider ensure receipt desired digest mismatch');
+  }
+  if (desired.repository !== repositoryName(input.repository)
+      || desired.providerName !== providerBaseName(input.providerName)
+      || providerEnsureEndpointDigestV1(desired) !== input.endpointDigest) {
+    fail('provider ensure receipt desired state is not endpoint-bound');
+  }
+  const ociBinding = assertCanonicalRunnerOciProviderBindingV1(input.ociBinding, desired);
+  const reconciledContainers = input.reconciledContainers.map((entry) => runnerName(entry));
+  const canonicalContainers = [...new Set(reconciledContainers)].sort();
+  if (canonicalContainers.length !== reconciledContainers.length
+      || canonicalContainers.some((entry, index) => entry !== reconciledContainers[index])) {
+    fail('provider ensure receipt reconciled containers must be unique and canonical');
+  }
+  const resourceBinding = createLocalGitHubActionsProviderResourceBindingV1();
+  const leaseId = sha256(Object.freeze({
+    schema: 'sec-local-github-actions-provider-consumer-lease-v1',
+    repository: desired.repository,
+    providerName: desired.providerName,
+    desiredDigest: desired.desiredDigest,
+    intentDigest: input.intentDigest,
+    endpointDigest: input.endpointDigest,
+    resourceBinding
+  })) as `sha256:${string}`;
+  const normalizedConsumers = input.consumers.map((entry, index) => {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`provider ensure receipt consumers[${index}] is invalid`);
+    }
+    const consumerId = boundedProviderConsumerIdV1(entry.consumerId);
+    if (!/^sha256:[0-9a-f]{64}$/u.test(entry.acquiredFromReceiptDigest)
+        || !Number.isSafeInteger(entry.acquiredAtEpoch) || entry.acquiredAtEpoch < 0
+        || entry.leaseId !== leaseId) {
+      fail(`provider ensure receipt consumers[${index}] binding is invalid`);
+    }
+    const credential = providerConsumerCredentialV1({
+      repository: desired.repository,
+      providerName: desired.providerName,
+      resourceBinding,
+      consumerId,
+      acquiredFromReceiptDigest: entry.acquiredFromReceiptDigest,
+      acquiredAtEpoch: entry.acquiredAtEpoch,
+      leaseId
+    });
+    if (entry.credential !== credential) {
+      fail(`provider ensure receipt consumers[${index}] credential is invalid`);
+    }
+    return Object.freeze({
+      consumerId,
+      acquiredFromReceiptDigest: entry.acquiredFromReceiptDigest,
+      acquiredAtEpoch: entry.acquiredAtEpoch,
+      leaseId,
+      credential
+    });
+  });
+  const consumers = [...normalizedConsumers]
+    .sort((left, right) => left.consumerId.localeCompare(right.consumerId, 'en-US'));
+  if (new Set(consumers.map(({ consumerId }) => consumerId)).size !== consumers.length ||
+      consumers.some((entry, index) => entry.consumerId !== normalizedConsumers[index]?.consumerId)) {
+    fail('provider ensure receipt consumers must be unique and canonical');
+  }
+  return Object.freeze({
+    schema: LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_RECEIPT_SCHEMA_V2,
+    repository: repositoryName(input.repository),
+    providerName: providerBaseName(input.providerName),
+    outcome: input.outcome,
+    desired,
+    resourceBinding,
+    intentDigest: input.intentDigest,
+    endpointDigest: input.endpointDigest,
+    builderObservationDigest: input.builderObservationDigest,
+    ociBinding,
+    reconciledContainers: Object.freeze(canonicalContainers),
+    leaseId,
+    transitionEpoch: input.transitionEpoch,
+    consumers: Object.freeze(consumers),
+    consumerCount: consumers.length,
+    observedAt
+  });
+}
+
+export function acquireLocalGitHubActionsProviderConsumerReceiptV1(input: Readonly<{
+  current: LocalGitHubActionsProviderEnsureReceiptV2;
+  consumerId: string;
+  observedAt: string;
+}>): Readonly<{
+  receipt: LocalGitHubActionsProviderEnsureReceiptV2;
+  binding: LocalGitHubActionsProviderConsumerBindingV1;
+}> {
+  const current = parseLocalGitHubActionsProviderEnsureReceiptV2(JSON.stringify(input.current));
+  const consumerId = boundedProviderConsumerIdV1(input.consumerId);
+  const existing = current.consumers.find((entry) => entry.consumerId === consumerId);
+  if (existing !== undefined) return Object.freeze({ receipt: current, binding: existing });
+  const bindingMaterial = {
+    repository: current.repository,
+    providerName: current.providerName,
+    resourceBinding: current.resourceBinding,
+    consumerId,
+    acquiredFromReceiptDigest: current.receiptDigest,
+    acquiredAtEpoch: current.transitionEpoch,
+    leaseId: current.leaseId
+  } as const;
+  const binding = Object.freeze({
+    consumerId,
+    acquiredFromReceiptDigest: current.receiptDigest,
+    acquiredAtEpoch: current.transitionEpoch,
+    leaseId: current.leaseId,
+    credential: providerConsumerCredentialV1(bindingMaterial)
+  });
+  const receipt = createLocalGitHubActionsProviderEnsureReceiptV2({
+    repository: current.repository,
+    providerName: current.providerName,
+    outcome: current.outcome,
+    desired: current.desired,
+    intentDigest: current.intentDigest,
+    endpointDigest: current.endpointDigest,
+    builderObservationDigest: current.builderObservationDigest,
+    ociBinding: current.ociBinding,
+    reconciledContainers: current.reconciledContainers,
+    transitionEpoch: current.transitionEpoch + 1,
+    consumers: [...current.consumers, binding]
+      .sort((left, right) => left.consumerId.localeCompare(right.consumerId, 'en-US')),
+    observedAt: input.observedAt
+  });
+  return Object.freeze({ receipt, binding });
+}
+
+export function releaseLocalGitHubActionsProviderConsumerReceiptV1(input: Readonly<{
+  current: LocalGitHubActionsProviderEnsureReceiptV2;
+  consumerId: string;
+  credential: `sha256:${string}`;
+  expectedReceiptDigest: `sha256:${string}`;
+  expectedLeaseId: `sha256:${string}`;
+  expectedEpoch: number;
+  observedAt: string;
+}>): LocalGitHubActionsProviderEnsureReceiptV2 {
+  const current = parseLocalGitHubActionsProviderEnsureReceiptV2(JSON.stringify(input.current));
+  if (current.receiptDigest !== input.expectedReceiptDigest ||
+      current.leaseId !== input.expectedLeaseId || current.transitionEpoch !== input.expectedEpoch) {
+    fail('provider consumer release current CAS binding changed');
+  }
+  const consumerId = boundedProviderConsumerIdV1(input.consumerId);
+  const binding = current.consumers.find((entry) => entry.consumerId === consumerId);
+  if (binding === undefined || binding.credential !== input.credential) {
+    fail('provider consumer release credential is invalid');
+  }
+  return createLocalGitHubActionsProviderEnsureReceiptV2({
+    repository: current.repository,
+    providerName: current.providerName,
+    outcome: current.outcome,
+    desired: current.desired,
+    intentDigest: current.intentDigest,
+    endpointDigest: current.endpointDigest,
+    builderObservationDigest: current.builderObservationDigest,
+    ociBinding: current.ociBinding,
+    reconciledContainers: current.reconciledContainers,
+    transitionEpoch: current.transitionEpoch + 1,
+    consumers: current.consumers.filter((entry) => entry.consumerId !== consumerId),
+    observedAt: input.observedAt
+  });
+}
+
+export function createLocalGitHubActionsProviderEnsureReceiptV2(
+  input: Omit<LocalGitHubActionsProviderEnsureReceiptV2,
+    'schema' | 'resourceBinding' | 'leaseId' | 'consumerCount' | 'receiptDigest'>
+): LocalGitHubActionsProviderEnsureReceiptV2 {
+  const material = providerEnsureReceiptMaterialV1(input);
+  const { observedAt: _observedAt, ...stableMaterial } = material;
+  return Object.freeze({
+    ...material,
+    // observedAt is deliberately excluded from the digest material by the
+    // current-pointer protocol: a healthy ensure can return the same receipt
+    // without manufacturing a new immutable generation.
+    receiptDigest: sha256(Object.freeze(stableMaterial)) as `sha256:${string}`
+  });
+}
+
+export function parseLocalGitHubActionsProviderEnsureReceiptV2(
+  source: string
+): LocalGitHubActionsProviderEnsureReceiptV2 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    fail('provider ensure receipt is not valid JSON');
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    fail('provider ensure receipt shape is invalid');
+  }
+  const value = parsed as Record<string, unknown>;
+  exactKeys(value, [
+    'schema', 'repository', 'providerName', 'outcome', 'desired', 'resourceBinding', 'intentDigest',
+    'endpointDigest', 'builderObservationDigest', 'ociBinding', 'reconciledContainers', 'leaseId',
+    'transitionEpoch', 'consumers', 'consumerCount', 'observedAt', 'receiptDigest'
+  ], 'provider ensure receipt');
+  if (value.schema !== LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_RECEIPT_SCHEMA_V2
+      || !Array.isArray(value.reconciledContainers) || !Array.isArray(value.consumers)) {
+    fail('provider ensure receipt schema is invalid');
+  }
+  const receipt = createLocalGitHubActionsProviderEnsureReceiptV2({
+    repository: value.repository as string,
+    providerName: value.providerName as string,
+    outcome: value.outcome as LocalGitHubActionsProviderEnsureReceiptV2['outcome'],
+    desired: value.desired as LocalGitHubActionsProviderEnsureDesiredV1,
+    intentDigest: value.intentDigest as `sha256:${string}`,
+    endpointDigest: value.endpointDigest as `sha256:${string}`,
+    builderObservationDigest: value.builderObservationDigest as `sha256:${string}`,
+    ociBinding: value.ociBinding as LocalGitHubActionsRunnerOciProviderBindingV1,
+    reconciledContainers: value.reconciledContainers as string[],
+    transitionEpoch: value.transitionEpoch as number,
+    consumers: value.consumers as LocalGitHubActionsProviderConsumerBindingV1[],
+    observedAt: value.observedAt as string
+  });
+  assertCanonicalProviderResourceBindingV1(value.resourceBinding, 'provider ensure receipt resource binding');
+  if (receipt.receiptDigest !== value.receiptDigest || receipt.leaseId !== value.leaseId ||
+      receipt.consumerCount !== value.consumerCount) {
+    fail('provider ensure receipt digest or derived consumer binding mismatch');
+  }
+  return receipt;
 }
 
 export function createLocalGitHubActionsRunnerDockerfileV2(): string {
@@ -726,7 +1649,7 @@ function createLocalGitHubActionsRunnerProjectionBuildxArgsForUriV1(
   retainedLayoutUriPath: string
 ): readonly string[] {
   return Object.freeze([
-    'buildx', 'build',
+    'buildx', 'build', '--builder', LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1,
     '--build-context',
     `runtime=oci-layout://${retainedLayoutUriPath}@${LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1}`,
     '--file', '-',
@@ -925,6 +1848,84 @@ export function dockerEndpointCommandArgsV3(
   return dockerCommandArgs(endpoint, args);
 }
 
+export const LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_LOCK_V1 =
+  '/tmp/sec-actions-runner-supervisor-v1' as const;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_LOG_PATH_V1 =
+  '/tmp/sec-actions-runner.log' as const;
+
+/**
+ * The runner process is owned by one in-container supervisor.  The directory
+ * lock is deliberately independent of the GitHub online projection: a live
+ * process with a temporarily offline API must never be mistaken for an
+ * absent process and started a second time.
+ */
+export function createLocalGitHubActionsRunnerSupervisorScriptV1(): string {
+  return [
+    'set -eu',
+    `lock=${LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_LOCK_V1}`,
+    'if ! (umask 077 && mkdir "$lock") 2>/dev/null; then',
+    '  pid="$(cat "$lock/pid" 2>/dev/null || true)"',
+    '  if test -n "$pid" && kill -0 "$pid" 2>/dev/null; then exit 42; fi',
+    '  exit 43',
+    'fi',
+    'printf "%s\\n" "$$" > "$lock/pid"',
+    'cleanup() { rm -rf "$lock"; }',
+    'trap cleanup EXIT INT TERM',
+    `./run.sh > ${LOCAL_GITHUB_ACTIONS_RUNNER_LOG_PATH_V1} 2>&1`
+  ].join('\n');
+}
+
+export function createLocalGitHubActionsRunnerProcessWitnessScriptV1(): string {
+  return [
+    'set -eu',
+    `lock=${LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_LOCK_V1}`,
+    'if test -d "$lock"; then',
+    '  if test -f "$lock/pid"; then',
+    '    pid="$(cat "$lock/pid" 2>/dev/null || true)"',
+    '    if test -n "$pid" && kill -0 "$pid" 2>/dev/null; then exit 10; fi',
+    '  fi',
+    '  rm -rf "$lock"',
+    'fi',
+    'fi',
+    'if ! command -v pgrep >/dev/null 2>&1; then exit 90; fi',
+    'matches="$(pgrep -f "[R]unner[.]Listener" || true)"',
+    'count="$(printf "%s\\n" "$matches" | sed "/^[[:space:]]*$/d" | wc -l | tr -d "[:space:]")"',
+    'case "$count" in',
+    '  0) exit 0 ;;',
+    '  1) exit 10 ;;',
+    '  *) exit 11 ;;',
+    'esac'
+  ].join('\n');
+}
+
+export type LocalGitHubActionsRunnerProcessWitnessV1 =
+  'absent' | 'alive' | 'ambiguous' | 'unavailable';
+
+export function classifyLocalGitHubActionsRunnerProcessWitnessExitCodeV1(
+  code: number
+): LocalGitHubActionsRunnerProcessWitnessV1 {
+  if (code === 0) return 'absent';
+  if (code === 10) return 'alive';
+  if (code === 11) return 'ambiguous';
+  if (code === 90 || code === 91) return 'unavailable';
+  fail(`runner process witness returned unexpected exit code ${code}`);
+}
+
+async function observeLocalGitHubActionsRunnerProcessWitnessV1(input: Readonly<{
+  cwd: string;
+  endpoint: DockerEndpointIdentityV3;
+  containerId: string;
+}>): Promise<LocalGitHubActionsRunnerProcessWitnessV1> {
+  const result = await runDockerCommand(input.endpoint, [
+    'exec', input.containerId, 'bash', '-lc',
+    createLocalGitHubActionsRunnerProcessWitnessScriptV1()
+  ], {
+    cwd: input.cwd,
+    acceptedCodes: [0, 10, 11, 90, 91]
+  });
+  return classifyLocalGitHubActionsRunnerProcessWitnessExitCodeV1(result.code);
+}
+
 async function runDockerCommand(
   endpoint: DockerEndpointIdentityV3,
   args: readonly string[],
@@ -938,6 +1939,98 @@ async function runDockerCommand(
   }>
 ): Promise<CommandResult> {
   return await runCommand('docker', dockerCommandArgs(endpoint, args), options);
+}
+
+export async function observeLocalGitHubActionsBuildxBuilderV1(
+  cwd: string,
+  endpoint: DockerEndpointIdentityV3
+): Promise<LocalGitHubActionsBuildxBuilderObservationV1 | null> {
+  await assertDockerEndpointIdentityV3(endpoint, cwd);
+  const builder = await runDockerCommand(endpoint, [
+    'buildx', 'inspect', LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1
+  ], {
+    cwd,
+    acceptedCodes: [0, 1],
+    timeoutMs: LOCAL_GITHUB_ACTIONS_BUILDX_GC_SWEEP_TIMEOUT_MS_V1
+  });
+  if (builder.code !== 0) return null;
+  const containerName = `buildx_buildkit_${LOCAL_GITHUB_ACTIONS_BUILDX_NODE_NAME_V1}`;
+  const container = await runDockerCommand(endpoint, [
+    'container', 'inspect', containerName, '--format', '{{json .}}'
+  ], { cwd, acceptedCodes: [0, 1] });
+  if (container.code !== 0) fail('Buildx builder metadata exists without its exact governed node');
+  const value = JSON.parse(container.stdout.toString('utf8').trim()) as unknown;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('Buildx builder node inspection is invalid');
+  }
+  const record = value as Record<string, unknown>;
+  const config = record.Config;
+  const hostConfig = record.HostConfig;
+  const state = record.State;
+  if (config === null || typeof config !== 'object' || Array.isArray(config)
+      || hostConfig === null || typeof hostConfig !== 'object' || Array.isArray(hostConfig)
+      || state === null || typeof state !== 'object' || Array.isArray(state)) {
+    fail('Buildx builder node configuration is invalid');
+  }
+  const configRecord = config as Record<string, unknown>;
+  const hostRecord = hostConfig as Record<string, unknown>;
+  const stateRecord = state as Record<string, unknown>;
+  const expectedArgs = createLocalGitHubActionsBuildxBuildkitdFlagsV1();
+  if (record.Name !== `/${containerName}`
+      || record.Image !== LOCAL_GITHUB_ACTIONS_BUILDKIT_IMAGE_ID_V1
+      || configRecord.Image !== LOCAL_GITHUB_ACTIONS_BUILDKIT_IMAGE_V1
+      || JSON.stringify(record.Args) !== JSON.stringify(expectedArgs)
+      || stateRecord.Running !== true || stateRecord.Status !== 'running'
+      || hostRecord.Privileged !== true || hostRecord.Init !== true) {
+    fail('Buildx builder node identity, budget, privilege or liveness differs from EnvironmentSpec');
+  }
+  const node = Object.freeze({
+    name: LOCAL_GITHUB_ACTIONS_BUILDX_NODE_NAME_V1,
+    status: 'running' as const,
+    version: LOCAL_GITHUB_ACTIONS_BUILDKIT_IMAGE_ID_V1,
+    gcPolicyDigest: sha256(expectedArgs) as `sha256:${string}`
+  });
+  const material = Object.freeze({
+    schema: 'sec-local-github-actions-buildx-builder-observation-v1' as const,
+    builderName: LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1,
+    driver: LOCAL_GITHUB_ACTIONS_BUILDX_DRIVER_V1,
+    cacheNamespace: LOCAL_GITHUB_ACTIONS_BUILDX_CACHE_NAMESPACE_V1,
+    gcPolicy: LOCAL_GITHUB_ACTIONS_BUILDX_GC_POLICY_V1,
+    buildkitdFlags: expectedArgs,
+    dockerEndpointDigest: sha256(dockerEndpointIdentity(endpoint)) as `sha256:${string}`,
+    nodes: Object.freeze([node])
+  });
+  return Object.freeze({ ...material, observationDigest: sha256(material) as `sha256:${string}` });
+}
+
+async function ensureLocalGitHubActionsBuildxBuilderAfterIntentV1(
+  cwd: string,
+  endpoint: DockerEndpointIdentityV3
+): Promise<LocalGitHubActionsBuildxBuilderObservationV1> {
+  await assertDockerEndpointIdentityV3(endpoint, cwd);
+  const bootstrap = await runDockerCommand(endpoint, [
+    'buildx', 'inspect', LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1, '--bootstrap'
+  ], {
+    cwd,
+    acceptedCodes: [0, 1],
+    timeoutMs: LOCAL_GITHUB_ACTIONS_BUILDX_GC_SWEEP_TIMEOUT_MS_V1
+  });
+  if (bootstrap.code !== 0) {
+    await assertDockerEndpointIdentityV3(endpoint, cwd);
+    await runDockerCommand(endpoint, [
+      'buildx', 'create',
+      '--name', LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1,
+      '--node', LOCAL_GITHUB_ACTIONS_BUILDX_NODE_NAME_V1,
+      '--driver', LOCAL_GITHUB_ACTIONS_BUILDX_DRIVER_V1,
+      '--driver-opt', `image=${LOCAL_GITHUB_ACTIONS_BUILDKIT_IMAGE_V1}`,
+      '--buildkitd-flags',
+      createLocalGitHubActionsBuildxBuildkitdFlagsV1().join(' '),
+      '--bootstrap'
+    ], { cwd, timeoutMs: LOCAL_GITHUB_ACTIONS_BUILDX_GC_SWEEP_TIMEOUT_MS_V1 });
+  }
+  const observed = await observeLocalGitHubActionsBuildxBuilderV1(cwd, endpoint);
+  if (observed === null) fail('Buildx builder create has no exact machine readback');
+  return observed;
 }
 
 export async function observeDockerEndpointIdentityV3(cwd: string): Promise<DockerEndpointIdentityV3> {
@@ -1302,23 +2395,21 @@ function assertOwnedContainer(
     fail('container host configuration is invalid and is preserved');
   }
   const host = hostConfig as Record<string, unknown>;
+  const resources = providerResourceRoleV1(input.role);
   const observedCapabilities = Array.isArray(host.CapAdd)
     ? host.CapAdd.map(String).sort()
     : [];
-  const expectedCapabilities = input.role === 'sut'
-    ? SUT_CAPABILITIES.map((entry) => `CAP_${entry}`).sort()
-    : [];
+  const expectedCapabilities = [...resources.capAdd].sort();
   if (JSON.stringify(observedCapabilities) !== JSON.stringify(expectedCapabilities)
       || !Array.isArray(host.CapDrop) || JSON.stringify(host.CapDrop) !== JSON.stringify(['ALL'])
       || !Array.isArray(host.SecurityOpt) || !host.SecurityOpt.includes('no-new-privileges:true')
       || host.Init !== true || host.Privileged !== false || host.Binds !== null) {
     fail('container capability boundary changed and is preserved');
   }
-  if (input.role === 'sut' &&
-      (host.PidsLimit !== SUT_PIDS
-        || host.Memory !== ENVIRONMENT.runtime.resources.sut.memoryGiB * 1024 * 1024 * 1024 ||
-        host.NanoCpus !== SUT_CPUS * 1_000_000_000)) {
-    fail('SUT container resource boundary changed and is preserved');
+  if (host.PidsLimit !== resources.pids
+      || host.Memory !== resources.memoryBytes
+      || host.NanoCpus !== resources.cpus * 1_000_000_000) {
+    fail(`${input.role} container resource boundary changed and is preserved`);
   }
   if (input.containerId !== undefined && value.Id !== input.containerId) {
     fail('container identity changed and is preserved');
@@ -1680,21 +2771,44 @@ async function inspectImageById(
   return parsed[0] as Record<string, unknown>;
 }
 
-interface LocalGitHubActionsRunnerOciReceiptV1 {
+export interface LocalGitHubActionsRunnerOciProviderBindingV1 {
+  readonly schema: 'sec-local-github-actions-runner-oci-provider-binding-v1';
+  readonly specDigest: `sha256:${string}`;
+  readonly generation: number;
+  readonly generationDigest: `sha256:${string}`;
+  readonly receiptDigest: `sha256:${string}`;
+  readonly providerRef: string;
+  readonly providerLedgerObjectSha: string;
+  readonly providerLedgerDigest: `sha256:${string}`;
+  readonly providerGeneration: number;
+  readonly provenanceArtifactDigest: `sha256:${string}`;
+}
+
+export interface LocalGitHubActionsRunnerOciReceiptV1 {
   readonly schema: typeof LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1;
   readonly specDigest: `sha256:${string}`;
   readonly runtimeManifestDigest: typeof LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1;
   readonly dockerProjectionDigest: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
   readonly provenanceArtifactDigest: `sha256:${string}`;
+  readonly generation: number;
+  readonly generationDigest: `sha256:${string}`;
+  readonly providerRef: string;
+  readonly providerLedgerObjectSha: string;
+  readonly providerLedgerDigest: `sha256:${string}`;
+  readonly providerGeneration: number;
   readonly layoutName: 'layout';
+  readonly receiptDigest: `sha256:${string}`;
 }
 
 interface LocalGitHubActionsRunnerOciCacheV1 {
   readonly directory: PhysicalDirectoryIdentityV1;
   readonly layoutPath: string;
+  readonly generation: LocalGitHubActionsRunnerOciGenerationV1 | null;
   readonly receipt: LocalGitHubActionsRunnerOciReceiptV1 | null;
   readonly state: 'absent' | 'matching' | 'mismatched';
 }
+
+type LocalGitHubActionsRunnerOciGenerationV1 = EnvironmentMaterializationGenerationV1;
 
 export interface LocalGitHubActionsRunnerOciCandidateBindingV1 {
   readonly schema: 'sec-local-github-actions-runner-oci-candidate-binding-v1';
@@ -1718,6 +2832,48 @@ export function createLocalGitHubActionsRunnerOciCandidateBindingV1(
     candidateName: `${RUNNER_OCI_CANDIDATE_PREFIX_V1}${token}`,
     owner
   });
+}
+
+export interface LocalGitHubActionsRunnerOciProviderCurrentV1 {
+  readonly providerRef: string;
+  readonly providerLedgerObjectSha: string;
+  readonly providerLedgerDigest: `sha256:${string}`;
+  readonly providerGeneration: number;
+  readonly providerName: string;
+  readonly operationLabel: string;
+}
+
+function assertOciProviderCurrentV1(
+  input: LocalGitHubActionsRunnerOciProviderCurrentV1
+): void {
+  if (!/^[0-9a-f]{40}$/u.test(input.providerLedgerObjectSha)
+      || !/^sha256:[0-9a-f]{64}$/u.test(input.providerLedgerDigest)
+      || !Number.isSafeInteger(input.providerGeneration) || input.providerGeneration < 0) {
+    fail('OCI provider current identity is invalid');
+  }
+  providerBaseName(input.providerName);
+  operationLabel(input.operationLabel);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u.test(input.providerRef)) {
+    fail('OCI provider current reference is invalid');
+  }
+}
+
+function ociLeaseIdV1(
+  specDigest: `sha256:${string}`,
+  provider: LocalGitHubActionsRunnerOciProviderCurrentV1,
+  owner: PhysicalMutationLeaseOwnerV1
+): `sha256:${string}` {
+  return sha256(Object.freeze({
+    schema: 'sec-local-github-actions-runner-oci-materialization-lease-v1',
+    specDigest,
+    providerRef: provider.providerRef,
+    providerLedgerObjectSha: provider.providerLedgerObjectSha,
+    providerLedgerDigest: provider.providerLedgerDigest,
+    providerGeneration: provider.providerGeneration,
+    providerName: provider.providerName,
+    operationLabel: provider.operationLabel,
+    ownerToken: owner.token
+  })) as `sha256:${string}`;
 }
 
 export function retireLocalGitHubActionsRunnerOciCandidateV1(
@@ -1773,17 +2929,155 @@ export function retireLocalGitHubActionsRunnerOciCandidateV1(
   ).state !== 'absent') fail('OCI candidate cleanup readback is not absent');
 }
 
-function createRunnerOciReceiptV1(
+function runnerOciGenerationCanonicalBytesV1(
+  generation: LocalGitHubActionsRunnerOciGenerationV1
+): Buffer {
+  return Buffer.from(`${JSON.stringify(generation)}\n`, 'utf8');
+}
+
+function readRunnerOciGenerationV1(
+  directory: PhysicalDirectoryIdentityV1
+): LocalGitHubActionsRunnerOciGenerationV1 | null {
+  const bytes = readNoFollowOrdinaryFileV1(directory, RUNNER_OCI_GENERATION_FILE_NAME_V1);
+  if (bytes === null) return null;
+  const generation = parseEnvironmentMaterializationGenerationV1(
+    Buffer.from(bytes).toString('utf8')
+  );
+  if (!runnerOciGenerationCanonicalBytesV1(generation).equals(Buffer.from(bytes))) {
+    fail('OCI generation bytes are not canonical');
+  }
+  return generation;
+}
+
+function persistRunnerOciGenerationV1(
+  directory: PhysicalDirectoryIdentityV1,
+  generation: LocalGitHubActionsRunnerOciGenerationV1
+): void {
+  const bytes = runnerOciGenerationCanonicalBytesV1(generation);
+  const existing = readNoFollowOrdinaryFileV1(directory, RUNNER_OCI_GENERATION_FILE_NAME_V1);
+  const publish = existing === null ? publishExclusiveDurableCanonicalFileV1 : replaceDurableCanonicalFileV1;
+  publish({
+    parent: directory,
+    name: RUNNER_OCI_GENERATION_FILE_NAME_V1,
+    bytes,
+    validate: (candidate) => {
+      const parsed = parseEnvironmentMaterializationGenerationV1(
+        Buffer.from(candidate).toString('utf8')
+      );
+      if (parsed.lifecycleDigest !== generation.lifecycleDigest
+          || !runnerOciGenerationCanonicalBytesV1(parsed).equals(Buffer.from(candidate))) {
+        fail('OCI generation readback differs from the staged lifecycle');
+      }
+    }
+  });
+}
+
+function runnerOciGenerationMatchesProviderV1(
+  generation: LocalGitHubActionsRunnerOciGenerationV1,
   specDigest: `sha256:${string}`,
-  provenanceArtifactDigest: `sha256:${string}`
-): LocalGitHubActionsRunnerOciReceiptV1 {
+  provider: LocalGitHubActionsRunnerOciProviderCurrentV1
+): boolean {
+  return generation.specDigest === specDigest
+    && generation.providerRef === provider.providerRef
+    && generation.providerObjectSha === provider.providerLedgerObjectSha
+    && generation.providerDigest === provider.providerLedgerDigest
+    && generation.providerGeneration === provider.providerGeneration;
+}
+
+function createRunnerOciGenerationV1(input: Readonly<{
+  directory: PhysicalDirectoryIdentityV1;
+  specDigest: `sha256:${string}`;
+  provider: LocalGitHubActionsRunnerOciProviderCurrentV1;
+  owner: PhysicalMutationLeaseOwnerV1;
+  previous: LocalGitHubActionsRunnerOciGenerationV1 | null;
+}>): LocalGitHubActionsRunnerOciGenerationV1 {
+  assertOciProviderCurrentV1(input.provider);
+  const generation = input.previous === null ? 0 : input.previous.generation + 1;
+  return createEnvironmentMaterializationGenerationV1({
+    specDigest: input.specDigest,
+    generation,
+    providerRef: input.provider.providerRef,
+    providerObjectSha: input.provider.providerLedgerObjectSha,
+    providerDigest: input.provider.providerLedgerDigest,
+    providerGeneration: input.provider.providerGeneration,
+    leaseId: ociLeaseIdV1(input.specDigest, input.provider, input.owner),
+    phase: 'provisioning',
+    retention: 'provider-current',
+    terminalObligation: 'provider-absent-and-consumer-zero',
+    receiptDigest: null,
+    createdAt: new Date().toISOString(),
+    terminalAt: null
+  });
+}
+
+function bindRunnerOciReceiptToGenerationV1(
+  receipt: LocalGitHubActionsRunnerOciReceiptV1,
+  generation: LocalGitHubActionsRunnerOciGenerationV1
+): LocalGitHubActionsRunnerOciProviderBindingV1 {
+  if (receipt.specDigest !== generation.specDigest
+      || receipt.generation !== generation.generation
+      || receipt.generationDigest !== generation.generationDigest
+      || receipt.providerRef !== generation.providerRef
+      || receipt.providerLedgerObjectSha !== generation.providerObjectSha
+      || receipt.providerLedgerDigest !== generation.providerDigest
+      || receipt.providerGeneration !== generation.providerGeneration) {
+    fail('OCI receipt is not bound to its provider-owned generation');
+  }
   return Object.freeze({
+    schema: 'sec-local-github-actions-runner-oci-provider-binding-v1' as const,
+    specDigest: receipt.specDigest,
+    generation: receipt.generation,
+    generationDigest: receipt.generationDigest,
+    receiptDigest: receipt.receiptDigest,
+    providerRef: receipt.providerRef,
+    providerLedgerObjectSha: receipt.providerLedgerObjectSha,
+    providerLedgerDigest: receipt.providerLedgerDigest,
+    providerGeneration: receipt.providerGeneration,
+    provenanceArtifactDigest: receipt.provenanceArtifactDigest
+  });
+}
+
+function assertRunnerOciProviderBindingV1(
+  binding: LocalGitHubActionsRunnerOciProviderBindingV1,
+  provider: LocalGitHubActionsRunnerOciProviderCurrentV1
+): void {
+  assertOciProviderCurrentV1(provider);
+  if (binding.providerRef !== provider.providerRef
+      || binding.providerLedgerObjectSha !== provider.providerLedgerObjectSha
+      || binding.providerLedgerDigest !== provider.providerLedgerDigest
+      || binding.providerGeneration !== provider.providerGeneration) {
+    fail('OCI provider binding differs from the current provider generation');
+  }
+}
+
+function createRunnerOciReceiptV1(
+  input: Readonly<{
+    specDigest: `sha256:${string}`;
+    provenanceArtifactDigest: `sha256:${string}`;
+    generation: LocalGitHubActionsRunnerOciGenerationV1;
+  }>
+): LocalGitHubActionsRunnerOciReceiptV1 {
+  if (input.generation.specDigest !== input.specDigest
+      || input.generation.phase === 'gc-pending') {
+    fail('OCI receipt generation identity is invalid');
+  }
+  const body = Object.freeze({
     schema: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1,
-    specDigest,
+    specDigest: input.specDigest,
     runtimeManifestDigest: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
     dockerProjectionDigest: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
-    provenanceArtifactDigest,
+    provenanceArtifactDigest: input.provenanceArtifactDigest,
+    generation: input.generation.generation,
+    generationDigest: input.generation.generationDigest,
+    providerRef: input.generation.providerRef,
+    providerLedgerObjectSha: input.generation.providerObjectSha,
+    providerLedgerDigest: input.generation.providerDigest,
+    providerGeneration: input.generation.providerGeneration,
     layoutName: 'layout' as const
+  });
+  return Object.freeze({
+    ...body,
+    receiptDigest: sha256(body) as `sha256:${string}`
   });
 }
 
@@ -1805,18 +3099,30 @@ function parseOciReceiptV1(source: Uint8Array, specDigest: `sha256:${string}`): 
   const value = parsed as Record<string, unknown>;
   exactKeys(value, [
     'schema', 'specDigest', 'runtimeManifestDigest', 'dockerProjectionDigest',
-    'provenanceArtifactDigest', 'layoutName'
+    'provenanceArtifactDigest', 'generation', 'generationDigest', 'providerRef',
+    'providerLedgerObjectSha', 'providerLedgerDigest', 'providerGeneration', 'layoutName',
+    'receiptDigest'
   ], 'OCI cache receipt');
   if (value.schema !== LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1
       || value.specDigest !== specDigest
       || value.runtimeManifestDigest !== LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1
       || value.dockerProjectionDigest !== LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
       || !/^sha256:[0-9a-f]{64}$/u.test(String(value.provenanceArtifactDigest))
+      || !Number.isSafeInteger(value.generation) || (value.generation as number) < 0
+      || !/^sha256:[0-9a-f]{64}$/u.test(String(value.generationDigest))
+      || typeof value.providerRef !== 'string'
+      || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u.test(value.providerRef)
+      || !/^[0-9a-f]{40}$/u.test(String(value.providerLedgerObjectSha))
+      || !/^sha256:[0-9a-f]{64}$/u.test(String(value.providerLedgerDigest))
+      || !Number.isSafeInteger(value.providerGeneration) || (value.providerGeneration as number) < 0
+      || !/^sha256:[0-9a-f]{64}$/u.test(String(value.receiptDigest))
       || value.layoutName !== 'layout') {
     fail('OCI cache receipt identity is invalid');
   }
   const receipt = Object.freeze(value as unknown as LocalGitHubActionsRunnerOciReceiptV1);
-  if (!Buffer.from(source).equals(Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'))) {
+  const { receiptDigest, ...body } = receipt;
+  if (receiptDigest !== sha256(body)
+      || !Buffer.from(source).equals(Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'))) {
     fail('OCI cache receipt bytes are not canonical');
   }
   return receipt;
@@ -1966,12 +3272,16 @@ export function readValidatedRunnerOciLayoutIdentityV1(
 
 export function recoverValidatedRunnerOciReceiptV1(
   directory: PhysicalDirectoryIdentityV1,
-  specDigest: `sha256:${string}`
+  specDigest: `sha256:${string}`,
+  generation: LocalGitHubActionsRunnerOciGenerationV1 | null = readRunnerOciGenerationV1(directory)
 ): LocalGitHubActionsRunnerOciReceiptV1 {
   if (!/^sha256:[0-9a-f]{64}$/u.test(specDigest)) fail('OCI cache recovery spec digest is invalid');
+  if (generation === null || generation.specDigest !== specDigest) {
+    fail('OCI cache recovery has no exact provider-owned generation');
+  }
   const layoutPath = path.join(directory.path, 'layout');
   const provenanceArtifactDigest = readValidatedRunnerOciLayoutIdentityV1(layoutPath);
-  const expected = createRunnerOciReceiptV1(specDigest, provenanceArtifactDigest);
+  const expected = createRunnerOciReceiptV1({ specDigest, provenanceArtifactDigest, generation });
   const existing = readNoFollowOrdinaryFileV1(directory, 'receipt.json');
   if (existing === null) publishRunnerOciReceiptV1(directory, expected);
   const readback = readNoFollowOrdinaryFileV1(directory, 'receipt.json');
@@ -1980,6 +3290,14 @@ export function recoverValidatedRunnerOciReceiptV1(
   if (!Buffer.from(readback).equals(Buffer.from(`${JSON.stringify(expected)}\n`, 'utf8'))) {
     fail('OCI cache recovery receipt conflicts with the validated layout');
   }
+  const published = transitionEnvironmentMaterializationGenerationV1({
+    current: generation,
+    phase: 'published',
+    retention: 'provider-current',
+    receiptDigest: expected.receiptDigest,
+    terminalAt: null
+  });
+  persistRunnerOciGenerationV1(directory, published);
   return receipt;
 }
 
@@ -1989,14 +3307,18 @@ async function resolveRunnerOciCacheDirectoryV1(cwd: string): Promise<Readonly<{
   specDigest: `sha256:${string}`;
 }>> {
   const context = await resolveRepositoryContext(cwd);
-  const roots = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot: context.repositoryRoot });
+  const cacheLayout = resolveSecRuntimeCacheLayoutV1({
+    platform: currentSecRuntimePlatformV1(),
+    environment: secRuntimeStateEnvironmentV1(),
+    repositoryRoot: context.repositoryRoot
+  });
   const spec = createLocalGitHubActionsRunnerEnvironmentSpecV1();
   const directoryPath = path.join(
-    roots.cacheRoot, 'environment-materialization', 'oci', 'v1', spec.specDigest.slice(7)
+    cacheLayout.environmentMaterializationRoot, 'oci', spec.specDigest.slice(7)
   );
   const authority = acquireSecRuntimeCachePhysicalAuthorityV1({
     repositoryRoot: context.repositoryRoot,
-    cacheRoot: roots.cacheRoot,
+    cacheRoot: cacheLayout.cacheRoot,
     requiredDirectories: [directoryPath]
   });
   const directory = authority.directory(directoryPath);
@@ -2013,6 +3335,7 @@ function inspectRunnerOciCacheDirectoryV1(input: Readonly<{
   specDigest: `sha256:${string}`;
 }>): LocalGitHubActionsRunnerOciCacheV1 {
   const { directory, layoutPath, specDigest } = input;
+  const generation = readRunnerOciGenerationV1(directory);
   const receiptBytes = readNoFollowOrdinaryFileV1(directory, 'receipt.json');
   const layoutPresent = (() => {
     try {
@@ -2024,24 +3347,37 @@ function inspectRunnerOciCacheDirectoryV1(input: Readonly<{
     }
   })();
   if (receiptBytes === null && !layoutPresent) {
-    return Object.freeze({ directory, layoutPath, receipt: null, state: 'absent' as const });
+    return Object.freeze({ directory, layoutPath, generation, receipt: null, state: 'absent' as const });
   }
   if (!layoutPresent) {
-    return Object.freeze({ directory, layoutPath, receipt: null, state: 'mismatched' as const });
+    return Object.freeze({ directory, layoutPath, generation, receipt: null, state: 'mismatched' as const });
   }
   if (receiptBytes === null) {
     // Recovery point for a crash after the validated layout rename and before
     // receipt publication. The layout is a content-addressed immutable object;
     // complete recursive revalidation deterministically reconstructs the only
     // admissible receipt instead of leaving a permanent dead cache state.
-    const receipt = recoverValidatedRunnerOciReceiptV1(directory, specDigest);
-    return Object.freeze({ directory, layoutPath, receipt, state: 'matching' as const });
+    if (generation === null) {
+      return Object.freeze({ directory, layoutPath, generation, receipt: null, state: 'mismatched' as const });
+    }
+    const receipt = recoverValidatedRunnerOciReceiptV1(directory, specDigest, generation);
+    return Object.freeze({ directory, layoutPath, generation: readRunnerOciGenerationV1(directory), receipt, state: 'matching' as const });
   }
   const receipt = parseOciReceiptV1(receiptBytes, specDigest);
   const provenanceArtifactDigest = readValidatedRunnerOciLayoutIdentityV1(layoutPath);
+  if (generation === null) {
+    return Object.freeze({ directory, layoutPath, generation, receipt, state: 'mismatched' as const });
+  }
+  if (generation.phase !== 'provisioning'
+      && (generation.receiptDigest !== receipt.receiptDigest
+        || receipt.generationDigest !== generation.generationDigest)) {
+    return Object.freeze({ directory, layoutPath, generation, receipt, state: 'mismatched' as const });
+  }
+  if (generation.phase !== 'provisioning') bindRunnerOciReceiptToGenerationV1(receipt, generation);
   return Object.freeze({
     directory,
     layoutPath,
+    generation,
     receipt,
     state: provenanceArtifactDigest === receipt.provenanceArtifactDigest
       ? 'matching' as const
@@ -2082,11 +3418,16 @@ function publishRunnerOciLayoutV1(input: Readonly<{
   cache: LocalGitHubActionsRunnerOciCacheV1;
   binding: LocalGitHubActionsRunnerOciCandidateBindingV1;
   provenanceArtifactDigest: `sha256:${string}`;
+  generation: LocalGitHubActionsRunnerOciGenerationV1;
 }>): void {
   const candidatePath = path.join(input.cache.directory.path, input.binding.candidateName);
   if (input.binding.specDigest !== createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest
       || path.basename(input.cache.directory.path) !== input.binding.specDigest.slice(7)) {
     fail('OCI candidate binding differs from its cache generation');
+  }
+  if (input.generation.phase !== 'provisioning'
+      || input.generation.specDigest !== input.binding.specDigest) {
+    fail('OCI candidate publish requires a provisioning generation');
   }
   try {
     renameSync(candidatePath, input.cache.layoutPath);
@@ -2098,20 +3439,63 @@ function publishRunnerOciLayoutV1(input: Readonly<{
     }
     retireLocalGitHubActionsRunnerOciCandidateV1(input.cache.directory, input.binding);
   }
-  const receipt = createRunnerOciReceiptV1(
-    createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest,
-    input.provenanceArtifactDigest
-  );
+  const receipt = createRunnerOciReceiptV1({
+    specDigest: createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest,
+    provenanceArtifactDigest: input.provenanceArtifactDigest,
+    generation: input.generation
+  });
   const existing = readNoFollowOrdinaryFileV1(input.cache.directory, 'receipt.json');
   if (existing === null) publishRunnerOciReceiptV1(input.cache.directory, receipt);
   else if (!Buffer.from(existing).equals(Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'))) {
     fail('OCI cache receipt conflicts with the validated layout');
   }
+  persistRunnerOciGenerationV1(input.cache.directory, transitionEnvironmentMaterializationGenerationV1({
+    current: input.generation,
+    phase: 'published',
+    retention: 'provider-current',
+    receiptDigest: receipt.receiptDigest,
+    terminalAt: null
+  }));
+}
+
+function publishExistingRunnerOciReceiptV1(input: Readonly<{
+  cache: LocalGitHubActionsRunnerOciCacheV1;
+  generation: LocalGitHubActionsRunnerOciGenerationV1;
+}>): LocalGitHubActionsRunnerOciReceiptV1 {
+  if (input.generation.phase !== 'provisioning'
+      || input.generation.specDigest !== createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest) {
+    fail('OCI existing-layout rebind requires a provisioning generation');
+  }
+  const provenanceArtifactDigest = readValidatedRunnerOciLayoutIdentityV1(input.cache.layoutPath);
+  const receipt = createRunnerOciReceiptV1({
+    specDigest: input.generation.specDigest,
+    provenanceArtifactDigest,
+    generation: input.generation
+  });
+  const existing = readNoFollowOrdinaryFileV1(input.cache.directory, 'receipt.json');
+  if (existing === null) publishRunnerOciReceiptV1(input.cache.directory, receipt);
+  else if (!Buffer.from(existing).equals(Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'))) {
+    replaceDurableCanonicalFileV1({
+      parent: input.cache.directory,
+      name: 'receipt.json',
+      bytes: Buffer.from(`${JSON.stringify(receipt)}\n`, 'utf8'),
+      validate: (candidate) => { parseOciReceiptV1(candidate, input.generation.specDigest); }
+    });
+  }
+  persistRunnerOciGenerationV1(input.cache.directory, transitionEnvironmentMaterializationGenerationV1({
+    current: input.generation,
+    phase: 'published',
+    retention: 'provider-current',
+    receiptDigest: receipt.receiptDigest,
+    terminalAt: null
+  }));
+  return receipt;
 }
 
 function recoverReclaimedRunnerOciCandidateV1(
   cache: LocalGitHubActionsRunnerOciCacheV1,
-  binding: LocalGitHubActionsRunnerOciCandidateBindingV1
+  binding: LocalGitHubActionsRunnerOciCandidateBindingV1,
+  generation: LocalGitHubActionsRunnerOciGenerationV1
 ): 'absent' | 'published' | 'retired-invalid' {
   const candidatePath = path.join(cache.directory.path, binding.candidateName);
   const candidate = inspectNoFollowDirectoryChildV1(
@@ -2126,7 +3510,7 @@ function recoverReclaimedRunnerOciCandidateV1(
     return 'retired-invalid';
   }
   try {
-    publishRunnerOciLayoutV1({ cache, binding, provenanceArtifactDigest });
+    publishRunnerOciLayoutV1({ cache, binding, provenanceArtifactDigest, generation });
     return 'published';
   } catch (error) {
     // The candidate belongs to the exact dead owner generation reclaimed by
@@ -2141,27 +3525,52 @@ export function reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1(input: 
   directory: PhysicalDirectoryIdentityV1;
   specDigest: `sha256:${string}`;
   owner: PhysicalMutationLeaseOwnerV1;
+  generation?: LocalGitHubActionsRunnerOciGenerationV1;
 }>): 'absent' | 'published' | 'retired-invalid' {
   if (path.basename(input.directory.path) !== input.specDigest.slice(7)) {
     fail('Reclaimed OCI candidate cache generation differs from its spec');
+  }
+  if (input.generation === undefined) {
+    const candidate = inspectNoFollowDirectoryChildV1(
+      input.directory,
+      createLocalGitHubActionsRunnerOciCandidateBindingV1(input.specDigest, input.owner).candidateName,
+      'Reclaimed OCI candidate without provider generation'
+    );
+    if (candidate !== null) {
+      try {
+        readValidatedRunnerOciLayoutIdentityV1(candidate.path);
+        fail('reclaimed OCI candidate has no provider-owned generation');
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('no provider-owned generation')) throw error;
+      }
+    }
+    retireLocalGitHubActionsRunnerOciCandidateV1(
+      input.directory,
+      createLocalGitHubActionsRunnerOciCandidateBindingV1(input.specDigest, input.owner)
+    );
+    return 'retired-invalid';
   }
   return recoverReclaimedRunnerOciCandidateV1(
     Object.freeze({
       directory: input.directory,
       layoutPath: path.join(input.directory.path, 'layout'),
-      receipt: null,
+       generation: input.generation,
+       receipt: null,
       state: 'absent' as const
     }),
-    createLocalGitHubActionsRunnerOciCandidateBindingV1(input.specDigest, input.owner)
+    createLocalGitHubActionsRunnerOciCandidateBindingV1(input.specDigest, input.owner),
+    input.generation
   );
 }
 
 function acquireRunnerOciMaterializationLeaseV1(
   cache: LocalGitHubActionsRunnerOciCacheV1,
-  specDigest: `sha256:${string}`
+  specDigest: `sha256:${string}`,
+  provider: LocalGitHubActionsRunnerOciProviderCurrentV1
 ): Readonly<{
   lease: PhysicalMutationLeaseHandleV1;
   binding: LocalGitHubActionsRunnerOciCandidateBindingV1;
+  generation: LocalGitHubActionsRunnerOciGenerationV1;
 }> {
   if (path.basename(cache.directory.path) !== specDigest.slice(7)) {
     fail('OCI cache directory differs from the materialization spec');
@@ -2178,12 +3587,37 @@ function acquireRunnerOciMaterializationLeaseV1(
       reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1({
         directory: cache.directory,
         specDigest,
-        owner: lease.reclaimedOwner
+        owner: lease.reclaimedOwner,
+        generation: cache.generation ?? undefined
       });
     }
+    let previous = readRunnerOciGenerationV1(cache.directory);
+    if (previous !== null && !runnerOciGenerationMatchesProviderV1(previous, specDigest, provider)) {
+      const terminal = transitionEnvironmentMaterializationGenerationV1({
+        current: previous,
+        phase: 'terminal',
+        retention: 'provider-terminal',
+        receiptDigest: previous.receiptDigest,
+        terminalAt: new Date().toISOString()
+      });
+      persistRunnerOciGenerationV1(cache.directory, terminal);
+      previous = terminal;
+    }
+    const generation = previous !== null && runnerOciGenerationMatchesProviderV1(previous, specDigest, provider)
+      && previous.phase === 'provisioning'
+      ? previous
+      : createRunnerOciGenerationV1({
+        directory: cache.directory,
+        specDigest,
+        provider,
+        owner: lease.owner,
+        previous
+      });
+    persistRunnerOciGenerationV1(cache.directory, generation);
     return Object.freeze({
       lease,
-      binding: createLocalGitHubActionsRunnerOciCandidateBindingV1(specDigest, lease.owner)
+      binding: createLocalGitHubActionsRunnerOciCandidateBindingV1(specDigest, lease.owner),
+      generation
     });
   } catch (error) {
     lease.release();
@@ -2191,53 +3625,76 @@ function acquireRunnerOciMaterializationLeaseV1(
   }
 }
 
-async function ensureImage(cwd: string, endpoint: DockerEndpointIdentityV3): Promise<void> {
+async function ensureImage(
+  cwd: string,
+  endpoint: DockerEndpointIdentityV3,
+  provider: LocalGitHubActionsRunnerOciProviderCurrentV1
+): Promise<LocalGitHubActionsRunnerOciProviderBindingV1> {
+  assertOciProviderCurrentV1(provider);
   let present = await inspectImage(cwd, endpoint);
   const spec = createLocalGitHubActionsRunnerEnvironmentSpecV1();
-  const cacheDirectory = present === null ? await resolveRunnerOciCacheDirectoryV1(cwd) : null;
-  const materialization = cacheDirectory === null
-    ? null
-    : acquireRunnerOciMaterializationLeaseV1(Object.freeze({
-      directory: cacheDirectory.directory,
-      layoutPath: cacheDirectory.layoutPath,
-      receipt: null,
-      state: 'absent' as const
-    }), spec.specDigest);
-  let cache: LocalGitHubActionsRunnerOciCacheV1 | null = null;
+  const cacheDirectory = await resolveRunnerOciCacheDirectoryV1(cwd);
+  let cache = inspectRunnerOciCacheDirectoryV1(cacheDirectory);
+  const compileCurrentPlan = () => compileEnvironmentMaterializationPlanV1({
+    spec,
+    observation: {
+      localTag: present === null
+        ? 'absent'
+        : present.Id === LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
+          ? 'matching'
+          : 'mismatched',
+      localImageDigest: present === null
+        ? null
+        : /^sha256:[0-9a-f]{64}$/u.test(String(present.Id))
+          ? present.Id as `sha256:${string}`
+          : fail('runner image readback has an invalid identity'),
+      offlineArtifact: cache.state,
+      immutableBuildInputs: 'available',
+      providerCapability: 'available'
+    }
+  });
+  let plan = compileCurrentPlan();
+  const needsProviderRebind = cache.state !== 'matching' || cache.generation === null
+    || cache.receipt === null || !runnerOciGenerationMatchesProviderV1(
+      cache.generation, spec.specDigest, provider
+    ) || cache.generation.phase !== 'published';
+  const materialization = plan.disposition === 'materialize' || needsProviderRebind
+    ? acquireRunnerOciMaterializationLeaseV1(cache, spec.specDigest, provider)
+    : null;
   try {
-    if (materialization !== null) cache = inspectRunnerOciCacheDirectoryV1(cacheDirectory!);
-    const observedImageId = present === null ? null : present.Id;
-    const plan = compileEnvironmentMaterializationPlanV1({
-      spec,
-      observation: {
-        localTag: present === null
-          ? 'absent'
-          : observedImageId === LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
-            ? 'matching'
-            : 'mismatched',
-        localImageDigest: present === null
-          ? null
-          : /^sha256:[0-9a-f]{64}$/u.test(String(observedImageId))
-            ? observedImageId as `sha256:${string}`
-            : fail('runner image readback has an invalid identity'),
-        localArtifact: cache?.state ?? 'absent',
-        immutableBuildInputs: 'available',
-        providerCapability: 'available'
-      }
-    });
+    if (materialization !== null) {
+      // The lease is the mutation fence, not an excuse to trust the earlier
+      // observation.  Re-read both projections and recompile before Buildx.
+      cache = inspectRunnerOciCacheDirectoryV1(cacheDirectory);
+      present = await inspectImage(cwd, endpoint);
+      plan = compileCurrentPlan();
+    }
     if (plan.disposition === 'blocked') {
       fail(`environment materialization is blocked: ${plan.reason}`);
+    }
+    if (materialization !== null && plan.disposition !== 'materialize') {
+      if (cache.layoutPath === undefined || cache.state === 'mismatched') {
+        fail('OCI provider rebind has no exact reusable layout');
+      }
+      const generation = materialization.generation;
+      const rebound = publishExistingRunnerOciReceiptV1({ cache, generation });
+      cache = Object.freeze({
+        ...cache,
+        generation: readRunnerOciGenerationV1(cache.directory),
+        receipt: rebound,
+        state: 'matching' as const
+      });
     }
     if (plan.disposition === 'restore-local') {
       await projectRunnerOciLayoutV1(cache!, cwd, endpoint);
       present = await inspectImage(cwd, endpoint);
     }
     if (plan.disposition === 'materialize') {
-      if (cache === null || materialization === null) fail('OCI materialization has no acquired cache lease');
+      if (materialization === null) fail('OCI materialization has no acquired cache lease');
       const candidatePath = path.join(cache.directory.path, materialization.binding.candidateName);
       const progress = createBuildxRawJsonProgressAdmissionV1();
       await runDockerCommand(endpoint, [
-        'buildx', 'bake', '--file', '-',
+        'buildx', 'bake', '--builder', LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1, '--file', '-',
         `--progress=${ENVIRONMENT.provider.progressMode}`,
       ], {
         cwd,
@@ -2251,7 +3708,8 @@ async function ensureImage(cwd: string, endpoint: DockerEndpointIdentityV3): Pro
       publishRunnerOciLayoutV1({
         cache,
         binding: materialization.binding,
-        provenanceArtifactDigest
+        provenanceArtifactDigest,
+        generation: materialization.generation
       });
       const publishedCache = await inspectRunnerOciCacheV1(cwd);
       if (publishedCache.state !== 'matching') fail('published OCI cache has no exact readback');
@@ -2261,15 +3719,214 @@ async function ensureImage(cwd: string, endpoint: DockerEndpointIdentityV3): Pro
     }
     if (present === null) fail('runner image materialization has no exact readback');
     assertLocalGitHubActionsRunnerImageIdentityV1(present);
+    const finalCache = inspectRunnerOciCacheDirectoryV1(cacheDirectory);
+    if (finalCache.state !== 'matching' || finalCache.receipt === null
+        || finalCache.generation === null || finalCache.generation.phase !== 'published') {
+      fail('runner image materialization has no exact OCI closure readback');
+    }
+    const providerBinding = bindRunnerOciReceiptToGenerationV1(
+      finalCache.receipt,
+      finalCache.generation
+    );
+    assertRunnerOciProviderBindingV1(providerBinding, provider);
+    return providerBinding;
   } finally {
     if (materialization !== null) {
       try {
-        retireLocalGitHubActionsRunnerOciCandidateV1(cache!.directory, materialization.binding);
+        retireLocalGitHubActionsRunnerOciCandidateV1(cache.directory, materialization.binding);
       } finally {
+        const generation = readRunnerOciGenerationV1(cache.directory);
+        if (generation !== null && generation.phase === 'provisioning') {
+          persistRunnerOciGenerationV1(cache.directory, transitionEnvironmentMaterializationGenerationV1({
+            current: generation,
+            phase: 'terminal',
+            retention: 'provider-terminal',
+            receiptDigest: generation.receiptDigest,
+            terminalAt: new Date().toISOString()
+          }));
+        }
         materialization.lease.release();
       }
     }
   }
+}
+
+export interface LocalGitHubActionsRunnerOciSettlementV1 {
+  readonly schema: 'sec-local-github-actions-runner-oci-settlement-v1';
+  readonly specDigest: `sha256:${string}`;
+  readonly generation: number;
+  readonly generationDigest: `sha256:${string}`;
+  readonly receiptDigest: `sha256:${string}` | null;
+  readonly providerLedgerObjectSha: string;
+  readonly providerGeneration: number;
+  readonly providerLedgerAbsent: true;
+  readonly consumerCount: 0;
+  readonly terminal: true;
+  readonly retainedLayout: true;
+}
+
+function assertProviderEnsureConsumerZeroV1(
+  authority: LocalGitHubActionsRuntimeAuthorityV1,
+  repositoryStateRoot: string,
+  expectedRepository?: string,
+  expectedProviderName?: string
+): LocalGitHubActionsProviderEnsureReceiptV2 | null {
+  const current = readProviderEnsureReceiptV2(
+    providerEnsureReceiptDirectoryV1(authority, repositoryStateRoot)
+  );
+  if (current !== null && current.consumerCount !== 0) {
+    fail('OCI generation settlement requires canonical provider ensure consumer-zero current');
+  }
+  if (current !== null && expectedRepository !== undefined
+      && current.repository.toLowerCase() !== expectedRepository.toLowerCase()) {
+    fail('provider ensure current belongs to another repository and is preserved');
+  }
+  if (current !== null && expectedProviderName !== undefined
+      && current.providerName !== expectedProviderName) {
+    fail('provider ensure current belongs to another provider and is preserved');
+  }
+  return current;
+}
+
+/**
+ * Close one OCI generation only after the provider ledger is absent and the
+ * provider ensure current has zero consumers.  The provider mutation lease is
+ * held by the caller, and this function acquires the nested OCI lease before
+ * touching the generation.  A raw caller-supplied consumer count is
+ * intentionally impossible: zero is derived from the canonical current
+ * receipt while both leases are held.
+ */
+async function settleLocalGitHubActionsRunnerOciGenerationV1Unlocked(input: Readonly<{
+  cwd: string;
+  repository: string;
+  provider: LocalGitHubActionsRunnerOciProviderCurrentV1;
+  authority: LocalGitHubActionsRuntimeAuthorityV1;
+  repositoryStateRoot: string;
+}>): Promise<LocalGitHubActionsRunnerOciSettlementV1 | null> {
+  assertOciProviderCurrentV1(input.provider);
+  if (!input.provider.providerRef.startsWith('refs/')) {
+    fail('OCI generation settlement requires a ref-backed provider identity');
+  }
+  assertProviderEnsureConsumerZeroV1(
+    input.authority,
+    input.repositoryStateRoot,
+    input.repository,
+    input.provider.providerName
+  );
+  const resolved = await resolveRunnerOciCacheDirectoryV1(input.cwd);
+  const ociLease = acquirePhysicalMutationLeaseV1(
+    resolved.directory,
+    RUNNER_OCI_MATERIALIZATION_LEASE_NAME_V1,
+    { ttlMs: ENVIRONMENT.provider.timeoutsMs.materializeAbsolute
+        + ENVIRONMENT.provider.timeoutsMs.projectionAbsolute + 60_000 }
+  );
+  if (ociLease === null) fail('OCI generation is owned by another live or unverified process');
+  try {
+    // Re-read every lower-level projection only after acquiring the nested
+    // lease.  This closes the zero-race between an ensure materialization and
+    // provider teardown.
+    if (await observeRemoteRefSha(input.cwd, input.provider.providerRef) !== null) {
+      fail('OCI generation settlement requires an absent provider ledger');
+    }
+    if (ociLease.reclaimedOwner !== null) {
+      // A dead materializer may have left a candidate tree behind.  Provider
+      // teardown never publishes that uncommitted candidate; it retires the
+      // exact dead-owner bytes while the OCI fence is held.
+      retireLocalGitHubActionsRunnerOciCandidateV1(
+        resolved.directory,
+        createLocalGitHubActionsRunnerOciCandidateBindingV1(
+          resolved.specDigest,
+          ociLease.reclaimedOwner
+        )
+      );
+    }
+    const current = assertProviderEnsureConsumerZeroV1(
+      input.authority,
+      input.repositoryStateRoot,
+      input.repository,
+      input.provider.providerName
+    );
+    const refreshed = readRunnerOciGenerationV1(resolved.directory);
+    if (refreshed === null) return null;
+    if (!runnerOciGenerationMatchesProviderV1(refreshed, resolved.specDigest, input.provider)) {
+      fail('OCI generation provider identity changed and is preserved');
+    }
+    if (current !== null && current.consumerCount !== 0) {
+      fail('OCI generation settlement lost canonical provider ensure consumer-zero proof');
+    }
+    const terminal = refreshed.phase === 'terminal' || refreshed.phase === 'gc-pending'
+      ? refreshed
+      : transitionEnvironmentMaterializationGenerationV1({
+        current: refreshed,
+        phase: 'terminal',
+        retention: 'provider-terminal',
+        receiptDigest: refreshed.receiptDigest,
+        terminalAt: new Date().toISOString()
+      });
+    if (terminal !== refreshed) persistRunnerOciGenerationV1(resolved.directory, terminal);
+    await input.authority.assertCurrent();
+    assertProviderEnsureConsumerZeroV1(
+      input.authority,
+      input.repositoryStateRoot,
+      input.repository,
+      input.provider.providerName
+    );
+    return Object.freeze({
+      schema: 'sec-local-github-actions-runner-oci-settlement-v1' as const,
+      specDigest: terminal.specDigest,
+      generation: terminal.generation,
+      generationDigest: terminal.generationDigest,
+      receiptDigest: terminal.receiptDigest,
+      providerLedgerObjectSha: terminal.providerObjectSha,
+      providerGeneration: terminal.providerGeneration,
+      providerLedgerAbsent: true as const,
+      consumerCount: 0 as const,
+      terminal: true as const,
+      retainedLayout: true as const
+    });
+  } finally {
+    ociLease.release();
+  }
+}
+
+/**
+ * Public settlement entry point.  It establishes the required authority and
+ * provider lease itself; lifecycle callers already holding that lease use the
+ * unlocked helper above to avoid re-entry.
+ */
+export async function settleLocalGitHubActionsRunnerOciGenerationV1(input: Readonly<{
+  cwd: string;
+  repository: string;
+  provider: LocalGitHubActionsRunnerOciProviderCurrentV1;
+}>): Promise<LocalGitHubActionsRunnerOciSettlementV1 | null> {
+  const repository = repositoryName(input.repository);
+  const context = await resolveRepositoryContext(input.cwd);
+  await assertOriginRepositoryIdentityV2(context.repositoryRoot, repository);
+  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
+    repository,
+    repositoryRoot: context.repositoryRoot
+  });
+  const receiptRoot = path.join(
+    runtimeLayout.repositoryStateRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2
+  );
+  const authority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: context.repositoryRoot,
+    stateRoot: runtimeLayout.stateRoot,
+    cacheRoot: runtimeLayout.cacheRoot,
+    requiredDirectories: [receiptRoot]
+  });
+  return await withProviderMutationLeaseV1({
+    authority,
+    repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+    operation: async () => await settleLocalGitHubActionsRunnerOciGenerationV1Unlocked({
+      cwd: context.repositoryRoot,
+      repository,
+      provider: input.provider,
+      authority,
+      repositoryStateRoot: runtimeLayout.repositoryStateRoot
+    })
+  });
 }
 
 export interface LocalGitHubActionsRunnerToolchainMaterializationV1 {
@@ -2284,7 +3941,19 @@ export async function ensureLocalGitHubActionsRunnerToolchainMaterializationV1(
   cwd: string
 ): Promise<LocalGitHubActionsRunnerToolchainMaterializationV1> {
   const endpoint = await observeDockerEndpointIdentityV3(cwd);
-  await ensureImage(cwd, endpoint);
+  const builder = await ensureLocalGitHubActionsBuildxBuilderAfterIntentV1(cwd, endpoint);
+  const provider: LocalGitHubActionsRunnerOciProviderCurrentV1 = Object.freeze({
+    providerRef: `buildx://${builder.builderName}`,
+    providerLedgerObjectSha: builder.observationDigest.slice(7, 47),
+    providerLedgerDigest: builder.observationDigest,
+    providerGeneration: 0,
+    providerName: 'buildx',
+    operationLabel: `sec-operation-${sha256(Object.freeze({
+      schema: 'sec-local-github-actions-runner-toolchain-provider-v1',
+      builderObservationDigest: builder.observationDigest
+    })).slice(7)}`
+  });
+  await ensureImage(cwd, endpoint, provider);
   const cache = await inspectRunnerOciCacheV1(cwd);
   if (cache.state !== 'matching' || cache.receipt === null) {
     fail('toolchain image has no exact reusable OCI materialization');
@@ -2365,7 +4034,8 @@ function ledgerInstance(
 }
 
 export function createLocalGitHubActionsProviderLedgerV3(
-  input: Omit<LocalGitHubActionsProviderLedgerV3, 'schema' | 'profileLabel' | 'imageId' | 'ledgerDigest'>
+  input: Omit<LocalGitHubActionsProviderLedgerV3,
+    'schema' | 'profileLabel' | 'imageId' | 'resourceBinding' | 'ledgerDigest'>
 ): LocalGitHubActionsProviderLedgerV3 {
   const expectedMainSha = boundedText(input.expectedMainSha, 'expected main SHA', 40);
   if (!/^[0-9a-f]{40}$/u.test(expectedMainSha)) fail('expected main SHA is invalid');
@@ -2412,6 +4082,7 @@ export function createLocalGitHubActionsProviderLedgerV3(
     dockerEndpoint,
     githubEndpoint,
     imageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    resourceBinding: createLocalGitHubActionsProviderResourceBindingV1(),
     lifecycle,
     generation: input.generation,
     predecessorObjectSha: input.predecessorObjectSha,
@@ -2427,7 +4098,7 @@ export function parseLocalGitHubActionsProviderLedgerV3(source: string): LocalGi
   exactKeys(value, [
     'schema', 'repository', 'providerName', 'profileLabel', 'operationLabel',
     'expectedMainSha', 'createdAt', 'dockerEndpoint', 'githubEndpoint', 'imageId',
-    'lifecycle', 'generation', 'predecessorObjectSha', 'instances', 'ledgerDigest'
+    'resourceBinding', 'lifecycle', 'generation', 'predecessorObjectSha', 'instances', 'ledgerDigest'
   ], 'provider ledger');
   if (value.schema !== LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_SCHEMA_V3
       || value.profileLabel !== LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL_V1) {
@@ -2447,6 +4118,7 @@ export function parseLocalGitHubActionsProviderLedgerV3(source: string): LocalGi
     predecessorObjectSha: value.predecessorObjectSha as string | null,
     instances: value.instances as LocalGitHubActionsProviderLedgerInstanceV3[]
   });
+  assertCanonicalProviderResourceBindingV1(value.resourceBinding, 'provider ledger resource binding');
   if (recreated.ledgerDigest !== value.ledgerDigest) fail('provider ledger digest mismatch');
   return recreated;
 }
@@ -2462,7 +4134,8 @@ function providerLedgerStableIdentityV3(ledger: LocalGitHubActionsProviderLedger
     createdAt: ledger.createdAt,
     dockerEndpoint: ledger.dockerEndpoint,
     githubEndpoint: ledger.githubEndpoint,
-    imageId: ledger.imageId
+    imageId: ledger.imageId,
+    resourceBinding: ledger.resourceBinding
   });
 }
 
@@ -2552,9 +4225,22 @@ export function assertLocalGitHubActionsProviderLedgerTransitionV3(
 }
 
 async function observeRemoteRefSha(cwd: string, ref: string): Promise<string | null> {
-  const result = await runCommand('git', [
-    'ls-remote', '--exit-code', '--refs', 'origin', ref
-  ], { cwd, acceptedCodes: [0, 2] });
+  let result: CommandResult | null = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      result = await runCommand('git', [
+        'ls-remote', '--exit-code', '--refs', 'origin', ref
+      ], { cwd, acceptedCodes: [0, 2] });
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const transient = /TLS connect error:.*unexpected eof|connection reset|Failed to connect|Could not resolve host/iu
+        .test(message);
+      if (!transient || attempt === 3) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+    }
+  }
+  if (result === null) fail(`remote ref ${ref} observation produced no result`);
   if (result.code === 2) return null;
   const lines = result.stdout.toString('utf8').trim().split(/\r?\n/u).filter(Boolean);
   if (lines.length !== 1) fail(`remote ref ${ref} is ambiguous`);
@@ -2844,8 +4530,6 @@ async function startRunnerInstanceV3(input: Readonly<{
   cwd: string;
   cursor: ProviderLedgerCursorV3;
   role: LocalGitHubActionsRunnerRoleV2;
-  cpus: number;
-  memory: string;
 }>): Promise<LocalGitHubActionsRunnerInstanceV2> {
   const retained = input.cursor.ledger.instances.find((instance) => instance.role === input.role)!;
   const name = retained.name;
@@ -2858,17 +4542,18 @@ async function startRunnerInstanceV3(input: Readonly<{
   if (await inspectContainerByName(name, input.cwd, input.cursor.ledger.dockerEndpoint) !== null) {
     fail(`Docker container ${name} already exists and is preserved`);
   }
+  const resources = providerResourceRoleV1(input.role);
   const args = [
     'run', '--detach', '--init', '--name', name,
     '--entrypoint', '/usr/bin/sleep', '--user', '0',
     '--cap-drop', 'ALL',
-    ...(input.role === 'sut'
-      ? SUT_CAPABILITIES.flatMap((capability) => ['--cap-add', capability])
-      : []),
+    ...resources.capAdd.flatMap((capability) => [
+      '--cap-add', capability.replace(/^CAP_/u, '')
+    ]),
     '--security-opt', 'no-new-privileges:true',
-    '--pids-limit', String(ENVIRONMENT.runtime.resources[input.role].pids),
-    '--memory', input.role === 'sut' ? SUT_MEMORY : input.memory,
-    '--cpus', String(input.role === 'sut' ? SUT_CPUS : input.cpus),
+    '--pids-limit', String(resources.pids),
+    '--memory', String(resources.memoryBytes),
+    '--cpus', String(resources.cpus),
     '--label', `sec.local-runner.schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3}`,
     '--label', `sec.local-runner.repository=${input.cursor.ledger.repository}`,
     '--label', `sec.local-runner.provider-name=${input.cursor.ledger.providerName}`,
@@ -2924,7 +4609,7 @@ async function startRunnerInstanceV3(input: Readonly<{
   });
   await runDockerCommand(input.cursor.ledger.dockerEndpoint, [
     'exec', '--detach', containerId, 'bash', '-lc',
-    'exec ./run.sh > /tmp/sec-actions-runner.log 2>&1'
+    createLocalGitHubActionsRunnerSupervisorScriptV1()
   ], { cwd: input.cwd });
   const runner = await waitForRunner(input.cursor.ledger.repository, name, input.cwd, 60);
   const runnerId = assertOwnedLocalGitHubActionsRunnerV2(runner, {
@@ -2949,19 +4634,17 @@ async function startRunnerInstanceV3(input: Readonly<{
   });
 }
 
-export async function startLocalGitHubActionsProviderV3(input: Readonly<{
+async function startLocalGitHubActionsProviderAfterIntentV3(input: Readonly<{
   cwd: string;
   repository: string;
   name: string;
-  cpus?: number;
-  memory?: string;
+  authority: LocalGitHubActionsRuntimeAuthorityV1;
+  repositoryStateRoot: string;
+  expectedDockerEndpoint?: DockerEndpointIdentityV3;
+  expectedGitHubEndpoint?: GitHubEndpointIdentityV3;
 }>): Promise<LocalGitHubActionsRunnerStateV3> {
   const repository = repositoryName(input.repository);
   const providerName = providerBaseName(input.name);
-  const cpus = input.cpus ?? DEFAULT_CPUS;
-  const memory = input.memory ?? DEFAULT_MEMORY;
-  if (!Number.isSafeInteger(cpus) || cpus < 1 || cpus > 64) fail('cpus is invalid');
-  if (!/^[1-9][0-9]{0,2}[gGmM]$/u.test(memory)) fail('memory is invalid');
   const context = await resolveRepositoryContext(input.cwd);
   await assertOriginRepositoryIdentityV2(context.repositoryRoot, repository);
   if (readStateProjection(context.commonDirectory) !== null) {
@@ -2969,7 +4652,14 @@ export async function startLocalGitHubActionsProviderV3(input: Readonly<{
   }
   const dockerEndpoint = await observeDockerEndpointIdentityV3(context.repositoryRoot);
   const githubEndpoint = await observeGitHubEndpointIdentityV3(context.repositoryRoot, repository);
-  await ensureImage(context.repositoryRoot, dockerEndpoint);
+  if (input.expectedDockerEndpoint !== undefined
+      && JSON.stringify(dockerEndpoint) !== JSON.stringify(input.expectedDockerEndpoint)) {
+    fail('Docker endpoint changed after provider ensure intent and before effect');
+  }
+  if (input.expectedGitHubEndpoint !== undefined
+      && JSON.stringify(githubEndpoint) !== JSON.stringify(input.expectedGitHubEndpoint)) {
+    fail('GitHub endpoint changed after provider ensure intent and before effect');
+  }
   const startedAt = new Date().toISOString();
   const retainedOperationLabel = `sec-operation-${randomBytes(32).toString('hex')}`;
   const cursor = await publishProviderLedgerV3({
@@ -2983,6 +4673,14 @@ export async function startLocalGitHubActionsProviderV3(input: Readonly<{
   });
   const created: LocalGitHubActionsRunnerInstanceV2[] = [];
   try {
+    await ensureImage(context.repositoryRoot, dockerEndpoint, {
+      providerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+      providerLedgerObjectSha: cursor.objectSha,
+      providerLedgerDigest: cursor.ledger.ledgerDigest,
+      providerGeneration: cursor.ledger.generation,
+      providerName,
+      operationLabel: retainedOperationLabel
+    });
     const existingProfile = (await listRepositoryRunners(repository, context.repositoryRoot))
       .filter(isProviderProfileEligibleRunnerV2);
     const existingProfileContainers = await listProviderProfileContainersV3(
@@ -2995,9 +4693,7 @@ export async function startLocalGitHubActionsProviderV3(input: Readonly<{
       created.push(await startRunnerInstanceV3({
         cwd: context.repositoryRoot,
         cursor,
-        role,
-        cpus,
-        memory
+        role
       }));
     }
     assertExactLocalGitHubActionsRunnerProfileInventoryV3({
@@ -3072,6 +4768,20 @@ export async function startLocalGitHubActionsProviderV3(input: Readonly<{
           objectSha: cursor.objectSha,
           ledger: cursor.ledger
         });
+        await settleLocalGitHubActionsRunnerOciGenerationV1Unlocked({
+          cwd: context.repositoryRoot,
+          repository,
+          provider: {
+            providerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+            providerLedgerObjectSha: cursor.objectSha,
+            providerLedgerDigest: cursor.ledger.ledgerDigest,
+            providerGeneration: cursor.ledger.generation,
+            providerName,
+            operationLabel: retainedOperationLabel
+          },
+          authority: input.authority,
+          repositoryStateRoot: input.repositoryStateRoot
+        });
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);
       }
@@ -3102,6 +4812,7 @@ function assertProviderLedgerMatchesState(
       || ledger.ledgerDigest !== state.providerLedgerDigest
       || JSON.stringify(ledger.dockerEndpoint) !== JSON.stringify(state.dockerEndpoint)
       || JSON.stringify(ledger.githubEndpoint) !== JSON.stringify(state.githubEndpoint)
+      || JSON.stringify(ledger.resourceBinding) !== JSON.stringify(state.resourceBinding)
       || JSON.stringify(instances) !== JSON.stringify(state.instances)) {
     fail('remote provider ledger differs from local projection');
   }
@@ -3135,6 +4846,7 @@ function assertStateProjectionBoundToLedgerV3(
       || state.operationLabel !== ledger.operationLabel
       || JSON.stringify(state.dockerEndpoint) !== JSON.stringify(ledger.dockerEndpoint)
       || JSON.stringify(state.githubEndpoint) !== JSON.stringify(ledger.githubEndpoint)
+      || JSON.stringify(state.resourceBinding) !== JSON.stringify(ledger.resourceBinding)
       || JSON.stringify(state.instances) !== JSON.stringify(retained)) {
     fail('local state projection is not bound to the remote provider ledger');
   }
@@ -3237,6 +4949,998 @@ async function loadCurrentProviderLedgerCursorV3(
   };
 }
 
+function providerEnsureCanonicalBytesV1(value: unknown): Buffer {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function providerEnsureReceiptDirectoryV1(
+  authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthorityV1>>,
+  repositoryStateRoot: string
+): PhysicalDirectoryIdentityV1 {
+  return authority.directory(path.join(repositoryStateRoot, LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2));
+}
+
+function providerSettlementDirectoryV1(
+  authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthorityV1>>,
+  repositoryStateRoot: string
+): PhysicalDirectoryIdentityV1 {
+  return authority.directory(path.join(
+    repositoryStateRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_LAYOUT_V1
+  ));
+}
+
+type LocalGitHubActionsRuntimeAuthorityV1 =
+  Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthorityV1>>;
+
+function acquireProviderMutationLeaseV1(
+  authority: LocalGitHubActionsRuntimeAuthorityV1,
+  repositoryStateRoot: string,
+  allowReclaim = false
+): PhysicalMutationLeaseHandleV1 {
+  // Authority is always issued before this lease.  All Docker/GitHub and OCI
+  // effects happen below this fence; callers must not acquire it after a
+  // lower-level effect lease.
+  const directory = providerEnsureReceiptDirectoryV1(authority, repositoryStateRoot);
+  const ttlMs = ENVIRONMENT.provider.timeoutsMs.materializeAbsolute
+    + ENVIRONMENT.provider.timeoutsMs.projectionAbsolute + 60_000;
+  const lease = acquirePhysicalMutationLeaseV1(
+    directory,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_MUTATION_LEASE_NAME_V1,
+    allowReclaim
+      ? { ttlMs }
+      : { ttlMs, processAlive: () => 'alive' as const }
+  );
+  if (lease === null) fail('provider mutation is owned by another live or unverified process');
+  return lease;
+}
+
+async function withProviderMutationLeaseV1<T>(input: Readonly<{
+  authority: LocalGitHubActionsRuntimeAuthorityV1;
+  repositoryStateRoot: string;
+  allowReclaim?: boolean;
+  operation: () => Promise<T>;
+}>): Promise<T> {
+  const lease = acquireProviderMutationLeaseV1(
+    input.authority,
+    input.repositoryStateRoot,
+    input.allowReclaim === true
+  );
+  try {
+    await input.authority.assertCurrent();
+    return await input.operation();
+  } finally {
+    lease.release();
+  }
+}
+
+function readProviderEnsureIntentV1(
+  directory: PhysicalDirectoryIdentityV1
+): LocalGitHubActionsProviderEnsureIntentV1 | null {
+  const bytes = readNoFollowOrdinaryFileV1(directory, 'intent.json');
+  return bytes === null ? null : parseLocalGitHubActionsProviderEnsureIntentV1(
+    Buffer.from(bytes).toString('utf8')
+  );
+}
+
+function readProviderEnsureReceiptV2(
+  directory: PhysicalDirectoryIdentityV1
+): LocalGitHubActionsProviderEnsureReceiptV2 | null {
+  const bytes = readNoFollowOrdinaryFileV1(directory, 'current.json');
+  return bytes === null ? null : parseLocalGitHubActionsProviderEnsureReceiptV2(
+    Buffer.from(bytes).toString('utf8')
+  );
+}
+
+function readProviderSettlementIntentV1(
+  directory: PhysicalDirectoryIdentityV1
+): LocalGitHubActionsProviderSettlementIntentV1 | null {
+  const bytes = readNoFollowOrdinaryFileV1(directory, 'intent.json');
+  return bytes === null ? null : parseLocalGitHubActionsProviderSettlementIntentV1(
+    Buffer.from(bytes).toString('utf8')
+  );
+}
+
+function readProviderSettlementReceiptV1(
+  directory: PhysicalDirectoryIdentityV1
+): LocalGitHubActionsProviderSettlementReceiptV1 | null {
+  const bytes = readNoFollowOrdinaryFileV1(directory, 'current.json');
+  return bytes === null ? null : parseLocalGitHubActionsProviderSettlementReceiptV1(
+    Buffer.from(bytes).toString('utf8')
+  );
+}
+
+export type LocalGitHubActionsProviderSettlementObservationV1 =
+  | Readonly<{ status: 'absent' }>
+  | Readonly<{ receipt: LocalGitHubActionsProviderSettlementReceiptV1; status: 'present' }>;
+
+export type LocalGitHubActionsProviderEnsureObservationV1 =
+  | Readonly<{ status: 'absent' }>
+  | Readonly<{ receipt: LocalGitHubActionsProviderEnsureReceiptV2; status: 'present' }>;
+
+/** Read the one canonical ensure current pointer without scanning history. */
+async function observeLocalGitHubActionsProviderEnsureV2Unlocked(input: Readonly<{
+  authority: LocalGitHubActionsRuntimeAuthorityV1;
+  repositoryStateRoot: string;
+}>): Promise<LocalGitHubActionsProviderEnsureObservationV1> {
+  const { authority, repositoryStateRoot } = input;
+  const directory = providerEnsureReceiptDirectoryV1(authority, repositoryStateRoot);
+  await authority.assertCurrent();
+  const bytes = readNoFollowOrdinaryFileV1(directory, 'current.json');
+  if (bytes === null) return Object.freeze({ status: 'absent' });
+  const receipt = parseLocalGitHubActionsProviderEnsureReceiptV2(Buffer.from(bytes).toString('utf8'));
+  if (!Buffer.from(bytes).equals(providerEnsureCanonicalBytesV1(receipt))) {
+    fail('provider ensure current receipt is not canonical');
+  }
+  await authority.assertCurrent();
+  return Object.freeze({ status: 'present', receipt });
+}
+
+export async function observeLocalGitHubActionsProviderEnsureV2(input: Readonly<{
+  repository: string;
+  repositoryRoot: string;
+}>): Promise<LocalGitHubActionsProviderEnsureObservationV1> {
+  const layout = resolveSecRuntimeStateForRepositoryV1(input);
+  const receiptRoot = path.join(layout.repositoryStateRoot, LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2);
+  if (inspectExactNoFollowDirectoryPresenceV1(
+    receiptRoot,
+    'Provider ensure observation read root'
+  ).state === 'absent') {
+    return Object.freeze({ status: 'absent' });
+  }
+  const authority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: input.repositoryRoot,
+    stateRoot: layout.stateRoot,
+    cacheRoot: layout.cacheRoot,
+    requiredDirectories: [receiptRoot]
+  });
+  return await withProviderMutationLeaseV1({
+    authority,
+    repositoryStateRoot: layout.repositoryStateRoot,
+    operation: async () => await observeLocalGitHubActionsProviderEnsureV2Unlocked({
+      authority,
+      repositoryStateRoot: layout.repositoryStateRoot
+    })
+  });
+}
+
+async function mutateLocalGitHubActionsProviderConsumerV1<T>(input: Readonly<{
+  repository: string;
+  repositoryRoot: string;
+  mutate: (current: LocalGitHubActionsProviderEnsureReceiptV2) => Readonly<{
+    receipt: LocalGitHubActionsProviderEnsureReceiptV2;
+    result: T;
+  }>;
+}>): Promise<T> {
+  const layout = resolveSecRuntimeStateForRepositoryV1(input);
+  const receiptRoot = path.join(layout.repositoryStateRoot, LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2);
+  const authority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: input.repositoryRoot,
+    stateRoot: layout.stateRoot,
+    cacheRoot: layout.cacheRoot,
+    requiredDirectories: [receiptRoot]
+  });
+  return await withProviderMutationLeaseV1({
+    authority,
+    repositoryStateRoot: layout.repositoryStateRoot,
+    operation: async () => {
+      const directory = providerEnsureReceiptDirectoryV1(authority, layout.repositoryStateRoot);
+      await authority.assertCurrent();
+      const current = readProviderEnsureReceiptV2(directory);
+      if (current === null) fail('provider consumer mutation requires one current ensure receipt');
+      const transition = input.mutate(current);
+      if (transition.receipt.receiptDigest !== current.receiptDigest) {
+        const reread = readProviderEnsureReceiptV2(directory);
+        if (reread?.receiptDigest !== current.receiptDigest ||
+            reread.transitionEpoch !== current.transitionEpoch) {
+          fail('provider consumer current CAS failed');
+        }
+        persistProviderEnsureReceiptV2(directory, transition.receipt);
+      }
+      await authority.assertCurrent();
+      return transition.result;
+    }
+  });
+}
+
+export async function acquireLocalGitHubActionsProviderConsumerV1(input: Readonly<{
+  repository: string;
+  repositoryRoot: string;
+  consumerId: string;
+}>): Promise<Readonly<{
+  receipt: LocalGitHubActionsProviderEnsureReceiptV2;
+  binding: LocalGitHubActionsProviderConsumerBindingV1;
+}>> {
+  return await mutateLocalGitHubActionsProviderConsumerV1({
+    ...input,
+    mutate: (current) => {
+      const acquired = acquireLocalGitHubActionsProviderConsumerReceiptV1({
+        current, consumerId: input.consumerId, observedAt: new Date().toISOString()
+      });
+      return Object.freeze({ receipt: acquired.receipt, result: acquired });
+    }
+  });
+}
+
+export async function releaseLocalGitHubActionsProviderConsumerV1(input: Readonly<{
+  repository: string;
+  repositoryRoot: string;
+  consumerId: string;
+  credential: `sha256:${string}`;
+  expectedReceiptDigest: `sha256:${string}`;
+  expectedLeaseId: `sha256:${string}`;
+  expectedEpoch: number;
+}>): Promise<LocalGitHubActionsProviderEnsureReceiptV2> {
+  return await mutateLocalGitHubActionsProviderConsumerV1({
+    ...input,
+    mutate: (current) => {
+      const receipt = releaseLocalGitHubActionsProviderConsumerReceiptV1({
+        current,
+        consumerId: input.consumerId,
+        credential: input.credential,
+        expectedReceiptDigest: input.expectedReceiptDigest,
+        expectedLeaseId: input.expectedLeaseId,
+        expectedEpoch: input.expectedEpoch,
+        observedAt: new Date().toISOString()
+      });
+      return Object.freeze({ receipt, result: receipt });
+    }
+  });
+}
+
+async function observeLocalGitHubActionsProviderSettlementV1Unlocked(input: Readonly<{
+  authority: LocalGitHubActionsRuntimeAuthorityV1;
+  repositoryStateRoot: string;
+  settlementRoot: string;
+}>): Promise<LocalGitHubActionsProviderSettlementObservationV1> {
+  const { authority, repositoryStateRoot, settlementRoot } = input;
+  if (inspectExactNoFollowDirectoryPresenceV1(
+    settlementRoot,
+    'Provider settlement current read root'
+  ).state === 'absent') {
+    return Object.freeze({ status: 'absent' });
+  }
+  const directory = providerSettlementDirectoryV1(authority, repositoryStateRoot);
+  await authority.assertCurrent();
+  const bytes = readNoFollowOrdinaryFileV1(directory, 'current.json');
+  if (bytes === null) {
+    await authority.assertCurrent();
+    return Object.freeze({ status: 'absent' });
+  }
+  const receipt = parseLocalGitHubActionsProviderSettlementReceiptV1(
+    Buffer.from(bytes).toString('utf8')
+  );
+  if (!Buffer.from(bytes).equals(providerEnsureCanonicalBytesV1(receipt))) {
+    fail('provider settlement current receipt is not canonical');
+  }
+  await authority.assertCurrent();
+  return Object.freeze({ status: 'present', receipt });
+}
+
+/**
+ * Read-only settlement consumer surface.  Callers identify the repository;
+ * the Runtime State layout and physical authority derive the sole
+ * `settlement/current.json` location.  No writer, path, intent history or
+ * alternate provider projection is exposed to consumers.
+ */
+export async function observeLocalGitHubActionsProviderSettlementV1(input: Readonly<{
+  repository: string;
+  repositoryRoot: string;
+}>): Promise<LocalGitHubActionsProviderSettlementObservationV1> {
+  const layout = resolveSecRuntimeStateForRepositoryV1({
+    repository: input.repository,
+    repositoryRoot: input.repositoryRoot
+  });
+  const receiptRoot = path.join(layout.repositoryStateRoot, LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2);
+  const settlementRoot = path.join(receiptRoot, LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_LAYOUT_V1);
+  if (inspectExactNoFollowDirectoryPresenceV1(
+    receiptRoot,
+    'Provider settlement observation read root'
+  ).state === 'absent'
+      || inspectExactNoFollowDirectoryPresenceV1(
+        settlementRoot,
+        'Provider settlement observation current root'
+      ).state === 'absent') {
+    return Object.freeze({ status: 'absent' });
+  }
+  const authority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: input.repositoryRoot,
+    stateRoot: layout.stateRoot,
+    cacheRoot: layout.cacheRoot,
+    requiredDirectories: [receiptRoot]
+  });
+  return await withProviderMutationLeaseV1({
+    authority,
+    repositoryStateRoot: layout.repositoryStateRoot,
+    operation: async () => await observeLocalGitHubActionsProviderSettlementV1Unlocked({
+      authority,
+      repositoryStateRoot: layout.repositoryStateRoot,
+      settlementRoot
+    })
+  });
+}
+
+function persistProviderEnsureIntentV1(
+  directory: PhysicalDirectoryIdentityV1,
+  intent: LocalGitHubActionsProviderEnsureIntentV1
+): void {
+  const bytes = providerEnsureCanonicalBytesV1(intent);
+  replaceDurableCanonicalFileV1({
+    parent: directory,
+    name: 'intent.json',
+    bytes,
+    validate: (candidate) => {
+      const parsed = parseLocalGitHubActionsProviderEnsureIntentV1(
+        Buffer.from(candidate).toString('utf8')
+      );
+      if (parsed.intentDigest !== intent.intentDigest) {
+        fail('provider ensure intent readback differs from the staged intent');
+      }
+    }
+  });
+}
+
+function persistProviderEnsureReceiptV2(
+  directory: PhysicalDirectoryIdentityV1,
+  receipt: LocalGitHubActionsProviderEnsureReceiptV2
+): void {
+  const bytes = providerEnsureCanonicalBytesV1(receipt);
+  replaceDurableCanonicalFileV1({
+    parent: directory,
+    name: 'current.json',
+    bytes,
+    validate: (candidate) => {
+      const parsed = parseLocalGitHubActionsProviderEnsureReceiptV2(
+        Buffer.from(candidate).toString('utf8')
+      );
+      if (parsed.receiptDigest !== receipt.receiptDigest) {
+        fail('provider ensure receipt readback differs from the current receipt');
+      }
+    }
+  });
+}
+
+function persistProviderSettlementIntentV1(
+  directory: PhysicalDirectoryIdentityV1,
+  intent: LocalGitHubActionsProviderSettlementIntentV1
+): void {
+  const bytes = providerEnsureCanonicalBytesV1(intent);
+  replaceDurableCanonicalFileV1({
+    parent: directory,
+    name: 'intent.json',
+    bytes,
+    validate: (candidate) => {
+      const parsed = parseLocalGitHubActionsProviderSettlementIntentV1(
+        Buffer.from(candidate).toString('utf8')
+      );
+      if (parsed.intentDigest !== intent.intentDigest) {
+        fail('provider settlement intent readback differs from the staged intent');
+      }
+    }
+  });
+}
+
+function persistProviderSettlementReceiptV1(
+  directory: PhysicalDirectoryIdentityV1,
+  receipt: LocalGitHubActionsProviderSettlementReceiptV1
+): void {
+  const bytes = providerEnsureCanonicalBytesV1(receipt);
+  replaceDurableCanonicalFileV1({
+    parent: directory,
+    name: 'current.json',
+    bytes,
+    validate: (candidate) => {
+      const parsed = parseLocalGitHubActionsProviderSettlementReceiptV1(
+        Buffer.from(candidate).toString('utf8')
+      );
+      if (parsed.receiptDigest !== receipt.receiptDigest) {
+        fail('provider settlement receipt readback differs from the current receipt');
+      }
+    }
+  });
+}
+
+function deleteProviderEnsureFileIfPresentV1(
+  directory: PhysicalDirectoryIdentityV1,
+  name: 'intent.json' | 'current.json'
+): void {
+  const entry = inspectNoFollowOrdinaryFileEntryV1(directory, name);
+  if (entry === null) return;
+  deleteRetainedNoFollowEntryV1({
+    root: directory,
+    relativePath: name,
+    kind: 'file',
+    device: entry.device,
+    inode: entry.inode,
+    ancestorDirectories: []
+  });
+  if (readNoFollowOrdinaryFileV1(directory, name) !== null) {
+    fail(`provider ensure ${name} remains after consumer-zero retirement`);
+  }
+}
+
+function deleteProviderSettlementIntentIfPresentV1(
+  directory: PhysicalDirectoryIdentityV1
+): void {
+  const entry = inspectNoFollowOrdinaryFileEntryV1(directory, 'intent.json');
+  if (entry === null) return;
+  deleteRetainedNoFollowEntryV1({
+    root: directory,
+    relativePath: 'intent.json',
+    kind: 'file',
+    device: entry.device,
+    inode: entry.inode,
+    ancestorDirectories: []
+  });
+  if (readNoFollowOrdinaryFileV1(directory, 'intent.json') !== null) {
+    fail('provider settlement intent remains after exact cleanup');
+  }
+}
+
+function deleteProviderSettlementReceiptIfPresentV1(
+  directory: PhysicalDirectoryIdentityV1
+): void {
+  const entry = inspectNoFollowOrdinaryFileEntryV1(directory, 'current.json');
+  if (entry === null) return;
+  deleteRetainedNoFollowEntryV1({
+    root: directory,
+    relativePath: 'current.json',
+    kind: 'file',
+    device: entry.device,
+    inode: entry.inode,
+    ancestorDirectories: []
+  });
+  if (readNoFollowOrdinaryFileV1(directory, 'current.json') !== null) {
+    fail('provider settlement current remains after a new active ensure generation');
+  }
+}
+
+function retireProviderEnsureCurrentV2(
+  authority: LocalGitHubActionsRuntimeAuthorityV1,
+  repositoryStateRoot: string
+): void {
+  const directory = providerEnsureReceiptDirectoryV1(authority, repositoryStateRoot);
+  const current = readProviderEnsureReceiptV2(directory);
+  if (current !== null && current.consumerCount !== 0) {
+    fail('provider ensure current has active consumers and cannot retire');
+  }
+  deleteProviderEnsureFileIfPresentV1(directory, 'current.json');
+  deleteProviderEnsureFileIfPresentV1(directory, 'intent.json');
+}
+
+function providerSettlementIntentFromStateV1(
+  state: LocalGitHubActionsRunnerStateV3,
+  reason: LocalGitHubActionsProviderSettlementReasonV1,
+  generation?: number
+): LocalGitHubActionsProviderSettlementIntentV1 {
+  return createLocalGitHubActionsProviderSettlementIntentV1({
+    repository: state.repository,
+    providerName: state.providerName,
+    operationLabel: state.operationLabel,
+    desiredDigest: generation === undefined
+      ? state.stateDigest
+      : providerEnsureDesiredFromStateV1(state, generation).desiredDigest,
+    providerLedgerObjectSha: state.providerLedgerObjectSha,
+    dockerEndpoint: state.dockerEndpoint,
+    githubEndpoint: state.githubEndpoint,
+    reason,
+    issuedAt: new Date().toISOString()
+  });
+}
+
+function providerSettlementIntentFromIdentityV1(input: Readonly<{
+  repository: string;
+  providerName: string;
+  dockerEndpoint: DockerEndpointIdentityV3;
+  githubEndpoint: GitHubEndpointIdentityV3;
+  reason: LocalGitHubActionsProviderSettlementReasonV1;
+  operationLabel?: string | null;
+  desiredDigest?: `sha256:${string}` | null;
+  providerLedgerObjectSha?: string | null;
+}>): LocalGitHubActionsProviderSettlementIntentV1 {
+  return createLocalGitHubActionsProviderSettlementIntentV1({
+    repository: input.repository,
+    providerName: input.providerName,
+    operationLabel: input.operationLabel ?? null,
+    desiredDigest: input.desiredDigest ?? null,
+    providerLedgerObjectSha: input.providerLedgerObjectSha ?? null,
+    dockerEndpoint: input.dockerEndpoint,
+    githubEndpoint: input.githubEndpoint,
+    reason: input.reason,
+    issuedAt: new Date().toISOString()
+  });
+}
+
+async function publishProviderSettlementAfterExactCleanupV1(input: Readonly<{
+  repositoryRoot: string;
+  commonDirectory: string;
+  repository: string;
+  intent: LocalGitHubActionsProviderSettlementIntentV1;
+  authority: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthorityV1>>;
+  retireActiveEnsure?: boolean;
+  ociSettlement?: LocalGitHubActionsRunnerOciSettlementV1 | null;
+}>): Promise<LocalGitHubActionsProviderSettlementReceiptV1> {
+  const activeDirectory = providerEnsureReceiptDirectoryV1(
+    input.authority,
+    resolveSecRuntimeStateForRepositoryV1({
+      repository: input.repository,
+      repositoryRoot: input.repositoryRoot
+    }).repositoryStateRoot
+  );
+  const settlementDirectory = providerSettlementDirectoryV1(
+    input.authority,
+    resolveSecRuntimeStateForRepositoryV1({
+      repository: input.repository,
+      repositoryRoot: input.repositoryRoot
+    }).repositoryStateRoot
+  );
+  await input.authority.assertCurrent();
+  if (readStateProjection(input.commonDirectory) !== null) {
+    fail('provider settlement requires an absent local state projection');
+  }
+  if (await observeRemoteRefSha(
+    input.repositoryRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3
+  ) !== null) {
+    fail('provider settlement requires an absent remote provider ledger');
+  }
+  const exactNames = new Set(LOCAL_GITHUB_ACTIONS_RUNNER_ROLES_V2.map((role) =>
+    instanceName(input.intent.providerName, role)));
+  const runners = await listRepositoryRunners(input.repository, input.repositoryRoot);
+  if (runners.some((runner) => exactNames.has(String(runner.name))
+      || isProviderProfileEligibleRunnerV2(runner))) {
+    fail('provider settlement runner inventory is not absent');
+  }
+  const containers = await listProviderProfileContainersV3(
+    input.repository,
+    input.repositoryRoot,
+    input.intent.dockerEndpoint
+  );
+  if (containers.length !== 0) fail('provider settlement container inventory is not absent');
+  const namedContainers = await Promise.all([...exactNames].map((name) =>
+    inspectContainerByName(name, input.repositoryRoot, input.intent.dockerEndpoint)));
+  if (namedContainers.some((container) => container !== null)) {
+    fail('provider settlement exact container inventory is not absent');
+  }
+  assertProviderEnsureConsumerZeroV1(
+    input.authority,
+    resolveSecRuntimeStateForRepositoryV1({
+      repository: input.repository,
+      repositoryRoot: input.repositoryRoot
+    }).repositoryStateRoot,
+    input.repository,
+    input.intent.providerName
+  );
+  const ociResolved = await resolveRunnerOciCacheDirectoryV1(input.repositoryRoot);
+  const ociReadbackLease = acquirePhysicalMutationLeaseV1(
+    ociResolved.directory,
+    RUNNER_OCI_MATERIALIZATION_LEASE_NAME_V1,
+    { ttlMs: ENVIRONMENT.provider.timeoutsMs.materializeAbsolute
+        + ENVIRONMENT.provider.timeoutsMs.projectionAbsolute + 60_000 }
+  );
+  if (ociReadbackLease === null) {
+    fail('provider settlement OCI readback is owned by another live or unverified process');
+  }
+  let ociGeneration: LocalGitHubActionsRunnerOciGenerationV1 | null;
+  try {
+    ociGeneration = readRunnerOciGenerationV1(ociResolved.directory);
+    if (ociGeneration !== null
+        && ociGeneration.phase !== 'terminal'
+        && ociGeneration.phase !== 'gc-pending') {
+      fail('provider settlement OCI generation is not terminal after cleanup');
+    }
+    if (input.ociSettlement !== undefined
+        && input.ociSettlement !== null
+        && (ociGeneration === null
+          || ociGeneration.generationDigest !== input.ociSettlement.generationDigest
+          || ociGeneration.receiptDigest !== input.ociSettlement.receiptDigest)) {
+      fail('provider settlement OCI generation changed before final readback');
+    }
+  if (input.retireActiveEnsure === true) {
+    deleteProviderEnsureFileIfPresentV1(activeDirectory, 'current.json');
+    deleteProviderEnsureFileIfPresentV1(activeDirectory, 'intent.json');
+  } else if (readProviderEnsureReceiptV2(activeDirectory) !== null
+      || readProviderEnsureIntentV1(activeDirectory) !== null) {
+    fail('provider settlement active ensure projection is not absent');
+  }
+  const receipt = createLocalGitHubActionsProviderSettlementReceiptV1({
+    repository: input.intent.repository,
+    providerName: input.intent.providerName,
+    operationLabel: input.intent.operationLabel,
+    desiredDigest: input.intent.desiredDigest,
+    providerLedgerObjectSha: input.intent.providerLedgerObjectSha,
+    dockerEndpoint: input.intent.dockerEndpoint,
+    githubEndpoint: input.intent.githubEndpoint,
+    reason: input.intent.reason,
+    intentIssuedAt: input.intent.issuedAt,
+    intentDigest: input.intent.intentDigest,
+    runnersAbsent: true,
+    containersAbsent: true,
+    providerLedgerAbsent: true,
+    stateProjectionAbsent: true,
+    ensureCurrentAbsent: true,
+    ensureIntentAbsent: true,
+    imageRetained: true,
+    ociGenerationDigest: ociGeneration?.generationDigest ?? null,
+    ociReceiptDigest: ociGeneration?.receiptDigest ?? null,
+    observedAt: new Date().toISOString()
+  });
+  persistProviderSettlementReceiptV1(settlementDirectory, receipt);
+  deleteProviderSettlementIntentIfPresentV1(settlementDirectory);
+  await input.authority.assertCurrent();
+  const readback = readProviderSettlementReceiptV1(settlementDirectory);
+  if (readback === null || readback.receiptDigest !== receipt.receiptDigest) {
+    fail('provider settlement receipt readback is absent or changed');
+  }
+  return receipt;
+  } finally {
+    ociReadbackLease.release();
+  }
+}
+
+function providerEnsureDesiredFromStateV1(
+  state: LocalGitHubActionsRunnerStateV3,
+  generation: number
+): LocalGitHubActionsProviderEnsureDesiredV1 {
+  return createLocalGitHubActionsProviderEnsureDesiredV1({
+    repository: state.repository,
+    providerName: state.providerName,
+    operationLabel: state.operationLabel,
+    providerLedgerRef: state.providerLedgerRef,
+    providerLedgerObjectSha: state.providerLedgerObjectSha,
+    providerLedgerDigest: state.providerLedgerDigest,
+    generation,
+    dockerEndpoint: state.dockerEndpoint,
+    githubEndpoint: state.githubEndpoint,
+    imageId: state.imageId,
+    instances: state.instances,
+    stateDigest: state.stateDigest
+  });
+}
+
+async function loadProviderEnsureDesiredV1(
+  repositoryRoot: string,
+  repository: string,
+  state: LocalGitHubActionsRunnerStateV3
+): Promise<LocalGitHubActionsProviderEnsureDesiredV1> {
+  const cursor = await loadCurrentProviderLedgerCursorV3(repositoryRoot, repository);
+  if (cursor === null) fail('provider ensure current state has no remote generation authority');
+  assertProviderLedgerMatchesState(cursor.ledger, state);
+  if (cursor.objectSha !== state.providerLedgerObjectSha
+      || cursor.ledger.ledgerDigest !== state.providerLedgerDigest) {
+    fail('provider ensure current state is stale against the remote generation');
+  }
+  return providerEnsureDesiredFromStateV1(state, cursor.ledger.generation);
+}
+
+async function reconcileProviderContainersV1(
+  repositoryRoot: string,
+  repository: string,
+  providerName: string,
+  state: LocalGitHubActionsRunnerStateV3
+): Promise<readonly string[]> {
+  await assertDockerEndpointIdentityV3(state.dockerEndpoint, repositoryRoot);
+  await assertGitHubEndpointIdentityV3(state.githubEndpoint, repositoryRoot);
+  assertExactLocalGitHubActionsRunnerProfileContainersV3({
+    containers: await listProviderProfileContainersV3(repository, repositoryRoot, state.dockerEndpoint),
+    instances: state.instances,
+    repository,
+    providerName,
+    operationLabel: state.operationLabel
+  });
+  const reconciled: string[] = [];
+  for (const instance of state.instances) {
+    const container = await inspectContainerById(instance.containerId, repositoryRoot, state.dockerEndpoint);
+    if (container === null || container.Id !== instance.containerId) {
+      fail(`provider container ${instance.containerName} identity drifted and is preserved`);
+    }
+    const containerState = container.State;
+    let running = containerState !== null && typeof containerState === 'object'
+      && !Array.isArray(containerState)
+      && (containerState as Record<string, unknown>).Running === true;
+    if (!running) {
+      await runDockerCommand(state.dockerEndpoint, ['start', instance.containerId], {
+        cwd: repositoryRoot
+      });
+      const restarted = await inspectContainerById(instance.containerId, repositoryRoot, state.dockerEndpoint);
+      if (restarted === null || restarted.Id !== instance.containerId) {
+        fail(`provider container ${instance.containerName} identity disappeared after start`);
+      }
+      const restartedState = restarted.State;
+      running = restartedState !== null && typeof restartedState === 'object'
+        && !Array.isArray(restartedState)
+        && (restartedState as Record<string, unknown>).Running === true;
+      if (!running) fail(`provider container ${instance.containerName} did not become running`);
+    }
+    const processWitness = await observeLocalGitHubActionsRunnerProcessWitnessV1({
+      cwd: repositoryRoot,
+      endpoint: state.dockerEndpoint,
+      containerId: instance.containerId
+    });
+    const online = (await listRepositoryRunners(repository, repositoryRoot))
+      .some((runner) => runner.name === instance.name && runner.status === 'online');
+    if (processWitness === 'alive') {
+      if (online) continue;
+      fail(`provider runner ${instance.name} process is alive while GitHub is offline; restart is refused`);
+    }
+    if (processWitness !== 'absent') {
+      fail(`provider runner ${instance.name} process witness is ${processWitness}; restart is refused`);
+    }
+    const configured = await runDockerCommand(state.dockerEndpoint, [
+      'exec', instance.containerId, 'bash', '-lc', 'test -f .runner'
+    ], { cwd: repositoryRoot });
+    if (configured.code !== 0) {
+      fail(`provider container ${instance.containerName} lost its runner configuration; rebuild via stop/start`);
+    }
+    await runDockerCommand(state.dockerEndpoint, [
+      'exec', '--detach', instance.containerId, 'bash', '-lc',
+      createLocalGitHubActionsRunnerSupervisorScriptV1()
+    ], { cwd: repositoryRoot });
+    const runner = await waitForRunner(repository, instance.name, repositoryRoot, 60);
+    assertOwnedLocalGitHubActionsRunnerV2(runner, {
+      name: instance.name,
+      role: instance.role,
+      operationLabel: state.operationLabel,
+      runnerId: instance.runnerId
+    });
+    reconciled.push(instance.containerName);
+  }
+  assertExactLocalGitHubActionsRunnerProfileInventoryV3({
+    runners: await listRepositoryRunners(repository, repositoryRoot),
+    instances: state.instances,
+    operationLabel: state.operationLabel
+  });
+  return Object.freeze([...reconciled].sort());
+}
+
+/**
+ * Ensure the exact provider state and publish one replaceable current receipt.
+ * The intent is written before any Docker/GitHub effect; equivalent healthy
+ * calls only read and return `current.json`, so observation does not grow a
+ * receipt history.  Older receipt generations are deliberately not scanned.
+ */
+export async function ensureLocalGitHubActionsProviderV3(input: Readonly<{
+  cwd: string;
+  repository: string;
+  name: string;
+}>): Promise<LocalGitHubActionsProviderEnsureReceiptV2> {
+  const repository = repositoryName(input.repository);
+  const providerName = providerBaseName(input.name);
+  const context = await resolveRepositoryContext(input.cwd);
+  await assertOriginRepositoryIdentityV2(context.repositoryRoot, repository);
+  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
+    repository,
+    repositoryRoot: context.repositoryRoot
+  });
+  const receiptRoot = path.join(runtimeLayout.repositoryStateRoot, LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2);
+  const settlementRoot = path.join(
+    receiptRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_LAYOUT_V1
+  );
+  const runtimeAuthority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: context.repositoryRoot,
+    stateRoot: runtimeLayout.stateRoot,
+    cacheRoot: runtimeLayout.cacheRoot,
+    requiredDirectories: [receiptRoot, settlementRoot]
+  });
+  const receiptDirectory = providerEnsureReceiptDirectoryV1(runtimeAuthority, runtimeLayout.repositoryStateRoot);
+  const settlementDirectory = providerSettlementDirectoryV1(
+    runtimeAuthority,
+    runtimeLayout.repositoryStateRoot
+  );
+  const providerLease = acquireProviderMutationLeaseV1(
+    runtimeAuthority,
+    runtimeLayout.repositoryStateRoot
+  );
+  try {
+    await runtimeAuthority.assertCurrent();
+  const projection = readStateProjection(context.commonDirectory);
+  if (projection === null) {
+    const dockerEndpoint = await observeDockerEndpointIdentityV3(context.repositoryRoot);
+    const githubEndpoint = await observeGitHubEndpointIdentityV3(context.repositoryRoot, repository);
+    const orphans = await listProviderProfileContainersV3(repository, context.repositoryRoot, dockerEndpoint);
+    if (orphans.length !== 0) fail('provider containers exist without a state projection and are preserved');
+    const settlementIntent = providerSettlementIntentFromIdentityV1({
+      repository,
+      providerName,
+      dockerEndpoint,
+      githubEndpoint,
+      reason: 'start-failure'
+    });
+    persistProviderSettlementIntentV1(settlementDirectory, settlementIntent);
+    await runtimeAuthority.assertCurrent();
+    const intent = createLocalGitHubActionsProviderEnsureIntentV1({
+      repository,
+      providerName,
+      dockerEndpoint,
+      githubEndpoint,
+      imageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+      environmentInputDigest: SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1,
+      issuedAt: new Date().toISOString()
+    });
+    persistProviderEnsureIntentV1(receiptDirectory, intent);
+    await runtimeAuthority.assertCurrent();
+    let started: LocalGitHubActionsRunnerStateV3;
+    try {
+      await ensureLocalGitHubActionsBuildxBuilderAfterIntentV1(context.repositoryRoot, dockerEndpoint);
+      await runtimeAuthority.assertCurrent();
+      started = await startLocalGitHubActionsProviderAfterIntentV3({
+        ...input,
+        authority: runtimeAuthority,
+        repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+        expectedDockerEndpoint: dockerEndpoint,
+        expectedGitHubEndpoint: githubEndpoint
+      });
+    } catch (error) {
+      try {
+        await publishProviderSettlementAfterExactCleanupV1({
+          repositoryRoot: context.repositoryRoot,
+          commonDirectory: context.commonDirectory,
+          repository,
+          intent: settlementIntent,
+          authority: runtimeAuthority,
+          retireActiveEnsure: true
+        });
+      } catch (settlementError) {
+        throw new AggregateError([error, settlementError],
+          'provider start failed and bounded settlement is unresolved');
+      }
+      throw error;
+    }
+    await runtimeAuthority.assertCurrent();
+    const desired = await loadProviderEnsureDesiredV1(context.repositoryRoot, repository, started);
+    const builder = await observeLocalGitHubActionsBuildxBuilderV1(
+      context.repositoryRoot, started.dockerEndpoint
+    );
+    if (builder === null) fail('provider ensure lost its Buildx builder before receipt publication');
+    const ociBinding = await ensureImage(context.repositoryRoot, started.dockerEndpoint, {
+      providerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+      providerLedgerObjectSha: started.providerLedgerObjectSha,
+      providerLedgerDigest: started.providerLedgerDigest,
+      providerGeneration: desired.generation,
+      providerName: started.providerName,
+      operationLabel: started.operationLabel
+    });
+    await runtimeAuthority.assertCurrent();
+    const publishCurrent = readProviderEnsureReceiptV2(receiptDirectory);
+    if (publishCurrent !== null) {
+      fail('provider ensure current appeared before first receipt publication');
+    }
+    const receipt = createLocalGitHubActionsProviderEnsureReceiptV2({
+      repository,
+      providerName: started.providerName,
+      outcome: 'started-fresh',
+      desired,
+      intentDigest: intent.intentDigest,
+      endpointDigest: providerEnsureEndpointDigestV1(desired),
+      builderObservationDigest: builder.observationDigest,
+      ociBinding,
+      reconciledContainers: [],
+      transitionEpoch: 0,
+      consumers: [],
+      observedAt: new Date().toISOString()
+    });
+    persistProviderEnsureReceiptV2(receiptDirectory, receipt);
+    deleteProviderSettlementIntentIfPresentV1(settlementDirectory);
+    deleteProviderSettlementReceiptIfPresentV1(settlementDirectory);
+    return receipt;
+  }
+  const state = projection.state;
+  if (state.repository !== repository || state.providerName !== providerName) {
+    fail('provider state projection belongs to another provider and is preserved');
+  }
+  const pendingSettlement = readProviderSettlementIntentV1(settlementDirectory);
+  if (pendingSettlement !== null) {
+    if (pendingSettlement.reason !== 'start-failure') {
+      fail('provider settlement intent conflicts with an active state projection');
+    }
+    deleteProviderSettlementIntentIfPresentV1(settlementDirectory);
+  }
+  const desired = await loadProviderEnsureDesiredV1(context.repositoryRoot, repository, state);
+  const current = readProviderEnsureReceiptV2(receiptDirectory);
+  const previousIntent = readProviderEnsureIntentV1(receiptDirectory);
+  const intent = previousIntent !== null && providerEnsureIntentMatchesInputV1(previousIntent, {
+    repository,
+    providerName,
+    dockerEndpoint: state.dockerEndpoint,
+    githubEndpoint: state.githubEndpoint
+  }) ? previousIntent : createLocalGitHubActionsProviderEnsureIntentV1({
+    repository,
+    providerName,
+    dockerEndpoint: state.dockerEndpoint,
+    githubEndpoint: state.githubEndpoint,
+    imageId: state.imageId,
+    environmentInputDigest: SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST_V1,
+    issuedAt: new Date().toISOString()
+  });
+  persistProviderEnsureIntentV1(receiptDirectory, intent);
+  await runtimeAuthority.assertCurrent();
+  const builder = await ensureLocalGitHubActionsBuildxBuilderAfterIntentV1(
+    context.repositoryRoot, state.dockerEndpoint
+  );
+  await runtimeAuthority.assertCurrent();
+  const ociBinding = await ensureImage(context.repositoryRoot, state.dockerEndpoint, {
+    providerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+    providerLedgerObjectSha: state.providerLedgerObjectSha,
+    providerLedgerDigest: state.providerLedgerDigest,
+    providerGeneration: desired.generation,
+    providerName: state.providerName,
+    operationLabel: state.operationLabel
+  });
+  const observation = await observeLocalGitHubActionsProviderV3Unlocked({
+    context,
+    repository,
+    authority: runtimeAuthority,
+    repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+    receiptRoot,
+    settlementRoot
+  });
+  if (observation.status === 'online' && current !== null
+      && current.intentDigest === intent.intentDigest
+       && current.builderObservationDigest === builder.observationDigest
+       && JSON.stringify(current.ociBinding) === JSON.stringify(ociBinding)
+      && current.receiptDigest === createLocalGitHubActionsProviderEnsureReceiptV2({
+        repository,
+        providerName,
+        outcome: current.outcome,
+        desired,
+        intentDigest: current.intentDigest,
+         endpointDigest: providerEnsureEndpointDigestV1(desired),
+         builderObservationDigest: builder.observationDigest,
+         ociBinding,
+        reconciledContainers: current.reconciledContainers,
+        transitionEpoch: current.transitionEpoch,
+        consumers: current.consumers,
+        observedAt: current.observedAt
+      }).receiptDigest
+      && current.desired.desiredDigest === desired.desiredDigest) {
+    deleteProviderSettlementReceiptIfPresentV1(settlementDirectory);
+    return current;
+  }
+  const reconciled = await reconcileProviderContainersV1(
+    context.repositoryRoot, repository, providerName, state
+  );
+  await runtimeAuthority.assertCurrent();
+  const refreshed = readStateProjection(context.commonDirectory)?.state;
+  if (refreshed === undefined || refreshed.stateDigest !== state.stateDigest) {
+    fail('provider ensure state projection changed during reconciliation');
+  }
+  const refreshedDesired = await loadProviderEnsureDesiredV1(context.repositoryRoot, repository, refreshed);
+  const refreshedBuilder = await observeLocalGitHubActionsBuildxBuilderV1(
+    context.repositoryRoot, refreshed.dockerEndpoint
+  );
+  if (refreshedBuilder === null) fail('provider ensure lost its Buildx builder during reconciliation');
+  await runtimeAuthority.assertCurrent();
+  const publishCurrent = readProviderEnsureReceiptV2(receiptDirectory);
+  if ((current === null) !== (publishCurrent === null)
+      || (current !== null && publishCurrent !== null
+        && (current.receiptDigest !== publishCurrent.receiptDigest
+          || current.transitionEpoch !== publishCurrent.transitionEpoch))) {
+    fail('provider ensure current changed before receipt publication');
+  }
+  const receipt = createLocalGitHubActionsProviderEnsureReceiptV2({
+    repository,
+    providerName,
+    outcome: reconciled.length === 0 ? 'already-healthy' : 'reconciled',
+    desired: refreshedDesired,
+    intentDigest: intent.intentDigest,
+    endpointDigest: providerEnsureEndpointDigestV1(refreshedDesired),
+    builderObservationDigest: refreshedBuilder.observationDigest,
+    ociBinding,
+    reconciledContainers: reconciled,
+    transitionEpoch: publishCurrent?.transitionEpoch ?? 0,
+    consumers: publishCurrent?.consumers ?? [],
+    observedAt: new Date().toISOString()
+  });
+  persistProviderEnsureReceiptV2(receiptDirectory, receipt);
+  deleteProviderSettlementReceiptIfPresentV1(settlementDirectory);
+  return receipt;
+  } finally {
+    providerLease.release();
+  }
+}
+
 export async function stopLocalGitHubActionsProviderV3(input: Readonly<{
   cwd: string;
 }>): Promise<Readonly<{
@@ -3248,6 +5952,9 @@ export async function stopLocalGitHubActionsProviderV3(input: Readonly<{
   containersAbsent: true;
   providerLedgerAbsent: true;
   imageRetained: true;
+  ociGenerationDigest: `sha256:${string}` | null;
+  ociReceiptDigest: `sha256:${string}` | null;
+  settlementReceiptDigest: `sha256:${string}`;
 }>> {
   const context = await resolveRepositoryContext(input.cwd);
   const projection = readStateProjection(context.commonDirectory);
@@ -3257,24 +5964,95 @@ export async function stopLocalGitHubActionsProviderV3(input: Readonly<{
     fail('state repository identity drifted');
   }
   await assertOriginRepositoryIdentityV2(context.repositoryRoot, state.repository);
-  const cursor = await loadCurrentProviderLedgerCursorV3(context.repositoryRoot, state.repository);
-  if (cursor === null) fail('remote provider ledger is absent while local projection remains');
-  await assertDockerEndpointIdentityV3(cursor.ledger.dockerEndpoint, context.repositoryRoot);
-  await assertGitHubEndpointIdentityV3(cursor.ledger.githubEndpoint, context.repositoryRoot);
-  assertStateProjectionBoundToLedgerV3(state, cursor.ledger);
-  if (cursor.ledger.lifecycle === 'active') {
-    if (cursor.objectSha !== state.providerLedgerObjectSha
-        || cursor.ledger.ledgerDigest !== state.providerLedgerDigest) {
-      fail('active remote provider ledger differs from local projection generation');
+  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
+    repository: state.repository,
+    repositoryRoot: context.repositoryRoot
+  });
+  const receiptRoot = path.join(
+    runtimeLayout.repositoryStateRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2
+  );
+  const settlementRoot = path.join(
+    receiptRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_LAYOUT_V1
+  );
+  const runtimeAuthority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: context.repositoryRoot,
+    stateRoot: runtimeLayout.stateRoot,
+    cacheRoot: runtimeLayout.cacheRoot,
+    requiredDirectories: [receiptRoot, settlementRoot]
+  });
+  const settlementDirectory = providerSettlementDirectoryV1(
+    runtimeAuthority,
+    runtimeLayout.repositoryStateRoot
+  );
+  const receiptDirectory = providerEnsureReceiptDirectoryV1(
+    runtimeAuthority,
+    runtimeLayout.repositoryStateRoot
+  );
+  const providerLease = acquireProviderMutationLeaseV1(
+    runtimeAuthority,
+    runtimeLayout.repositoryStateRoot
+  );
+  try {
+    // The lease starts before the first remote ledger/inventory observation and
+    // stays held through effects, OCI settlement and durable readback.
+    const lockedProjection = readStateProjection(context.commonDirectory);
+    if (lockedProjection === null || lockedProjection.state.stateDigest !== state.stateDigest) {
+      fail('provider state projection changed before stop acquired its mutation fence');
     }
-    assertProviderLedgerMatchesState(cursor.ledger, state);
+    const cursor = await loadCurrentProviderLedgerCursorV3(context.repositoryRoot, state.repository);
+    if (cursor === null) fail('remote provider ledger is absent while local projection remains');
+    await assertDockerEndpointIdentityV3(cursor.ledger.dockerEndpoint, context.repositoryRoot);
+    await assertGitHubEndpointIdentityV3(cursor.ledger.githubEndpoint, context.repositoryRoot);
+    assertStateProjectionBoundToLedgerV3(state, cursor.ledger);
+    if (cursor.ledger.lifecycle === 'active') {
+      if (cursor.objectSha !== state.providerLedgerObjectSha
+          || cursor.ledger.ledgerDigest !== state.providerLedgerDigest) {
+        fail('active remote provider ledger differs from local projection generation');
+      }
+      assertProviderLedgerMatchesState(cursor.ledger, state);
+    }
+  const currentEnsure = readProviderEnsureReceiptV2(receiptDirectory);
+  if (currentEnsure !== null && currentEnsure.consumerCount !== 0) {
+    fail('provider stop is blocked by active ensure consumers');
   }
+  const settlementIntent = providerSettlementIntentFromStateV1(
+    state,
+    'stop',
+    cursor.ledger.generation
+  );
+  persistProviderSettlementIntentV1(settlementDirectory, settlementIntent);
+  await runtimeAuthority.assertCurrent();
   await convergeProviderLedgerToTerminalV3(cursor, context.repositoryRoot);
   deleteStateProjection(context.commonDirectory, state);
   await deleteProviderLedgerV3({
     cwd: context.repositoryRoot,
     objectSha: cursor.objectSha,
     ledger: cursor.ledger
+  });
+  const ociSettlement = await settleLocalGitHubActionsRunnerOciGenerationV1Unlocked({
+    cwd: context.repositoryRoot,
+    repository: state.repository,
+    provider: {
+      providerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+      providerLedgerObjectSha: cursor.objectSha,
+      providerLedgerDigest: cursor.ledger.ledgerDigest,
+      providerGeneration: cursor.ledger.generation,
+      providerName: state.providerName,
+      operationLabel: state.operationLabel
+    },
+    authority: runtimeAuthority,
+    repositoryStateRoot: runtimeLayout.repositoryStateRoot
+  });
+  retireProviderEnsureCurrentV2(runtimeAuthority, runtimeLayout.repositoryStateRoot);
+  const settlement = await publishProviderSettlementAfterExactCleanupV1({
+    repositoryRoot: context.repositoryRoot,
+    commonDirectory: context.commonDirectory,
+    repository: state.repository,
+    intent: settlementIntent,
+    authority: runtimeAuthority,
+    ociSettlement
   });
   return Object.freeze({
     schema: 'sec-local-github-actions-provider-stop-v3' as const,
@@ -3284,8 +6062,14 @@ export async function stopLocalGitHubActionsProviderV3(input: Readonly<{
     runnersAbsent: true as const,
     containersAbsent: true as const,
     providerLedgerAbsent: true as const,
-    imageRetained: true as const
+    imageRetained: true as const,
+    ociGenerationDigest: ociSettlement?.generationDigest ?? null,
+    ociReceiptDigest: ociSettlement?.receiptDigest ?? null,
+    settlementReceiptDigest: settlement.receiptDigest
   });
+  } finally {
+    providerLease.release();
+  }
 }
 
 export async function recoverLocalGitHubActionsProviderV3(input: Readonly<{
@@ -3299,18 +6083,68 @@ export async function recoverLocalGitHubActionsProviderV3(input: Readonly<{
   runnersAbsent: true;
   containersAbsent: true;
   providerLedgerAbsent: true;
+  ociGenerationDigest: `sha256:${string}` | null;
+  ociReceiptDigest: `sha256:${string}` | null;
+  settlementReceiptDigest: `sha256:${string}`;
 }>> {
   const repository = repositoryName(input.repository);
   const providerName = providerBaseName(input.name);
   const context = await resolveRepositoryContext(input.cwd);
   await assertOriginRepositoryIdentityV2(context.repositoryRoot, repository);
   const projection = readStateProjection(context.commonDirectory);
-  const cursor = await loadCurrentProviderLedgerCursorV3(context.repositoryRoot, repository);
+  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
+    repository,
+    repositoryRoot: context.repositoryRoot
+  });
+  const receiptRoot = path.join(
+    runtimeLayout.repositoryStateRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2
+  );
+  const settlementRoot = path.join(
+    receiptRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_LAYOUT_V1
+  );
+  const runtimeAuthority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: context.repositoryRoot,
+    stateRoot: runtimeLayout.stateRoot,
+    cacheRoot: runtimeLayout.cacheRoot,
+    requiredDirectories: [receiptRoot, settlementRoot]
+  });
+  const settlementDirectory = providerSettlementDirectoryV1(
+    runtimeAuthority,
+    runtimeLayout.repositoryStateRoot
+  );
+  const receiptDirectory = providerEnsureReceiptDirectoryV1(
+    runtimeAuthority,
+    runtimeLayout.repositoryStateRoot
+  );
+  const providerLease = acquireProviderMutationLeaseV1(
+    runtimeAuthority,
+    runtimeLayout.repositoryStateRoot,
+    true
+  );
+  try {
+    // Hold the provider fence from the first remote observation through
+    // physical cleanup, OCI settlement and receipt readback.
+    const cursor = await loadCurrentProviderLedgerCursorV3(context.repositoryRoot, repository);
+    const lockedProjection = readStateProjection(context.commonDirectory);
+    if ((projection === null) !== (lockedProjection === null)
+        || (projection !== null && lockedProjection !== null
+          && projection.state.stateDigest !== lockedProjection.state.stateDigest)) {
+      fail('provider state projection changed before recovery acquired its mutation fence');
+    }
+  const currentEnsure = readProviderEnsureReceiptV2(receiptDirectory);
+  if (currentEnsure !== null && currentEnsure.consumerCount !== 0) {
+    fail('provider recovery is blocked by active ensure consumers');
+  }
+  let settlementIntent = readProviderSettlementIntentV1(settlementDirectory);
+  const currentSettlement = readProviderSettlementReceiptV1(settlementDirectory);
+  let ociSettlement: LocalGitHubActionsRunnerOciSettlementV1 | null = null;
   if (cursor === null) {
     if (projection !== null) {
       fail('local state projection remains without remote destructive identity authority');
     }
-    await observeGitHubEndpointIdentityV3(context.repositoryRoot, repository);
+    const githubEndpoint = await observeGitHubEndpointIdentityV3(context.repositoryRoot, repository);
     const dockerEndpoint = await observeDockerEndpointIdentityV3(context.repositoryRoot);
     const exactNames = new Set(LOCAL_GITHUB_ACTIONS_RUNNER_ROLES_V2.map((role) =>
       instanceName(providerName, role)));
@@ -3325,6 +6159,44 @@ export async function recoverLocalGitHubActionsProviderV3(input: Readonly<{
         || namedContainers.some((container) => container !== null)) {
       fail('provider residue exists without remote exact-ID ledger authority and is preserved');
     }
+    if (settlementIntent === null) {
+      if (currentSettlement !== null) {
+        if (currentSettlement.repository !== repository
+            || currentSettlement.providerName !== providerName
+            || JSON.stringify(currentSettlement.dockerEndpoint) !== JSON.stringify(dockerEndpoint)
+            || JSON.stringify(currentSettlement.githubEndpoint) !== JSON.stringify(githubEndpoint)) {
+          fail('provider settlement current belongs to another operation and is preserved');
+        }
+        // Reconstruct the exact original intent from the bounded receipt. The
+        // subsequent physical absence readback may refresh observedAt, but the
+        // stable receipt digest and intent identity remain unchanged.
+        settlementIntent = createLocalGitHubActionsProviderSettlementIntentV1({
+          repository: currentSettlement.repository,
+          providerName: currentSettlement.providerName,
+          operationLabel: currentSettlement.operationLabel,
+          desiredDigest: currentSettlement.desiredDigest,
+          providerLedgerObjectSha: currentSettlement.providerLedgerObjectSha,
+          dockerEndpoint: currentSettlement.dockerEndpoint,
+          githubEndpoint: currentSettlement.githubEndpoint,
+          reason: currentSettlement.reason,
+          issuedAt: currentSettlement.intentIssuedAt
+        });
+      } else {
+        settlementIntent = providerSettlementIntentFromIdentityV1({
+          repository,
+          providerName,
+          dockerEndpoint,
+          githubEndpoint,
+          reason: 'recover'
+        });
+        persistProviderSettlementIntentV1(settlementDirectory, settlementIntent);
+      }
+    } else if (settlementIntent.repository !== repository
+        || settlementIntent.providerName !== providerName
+        || JSON.stringify(settlementIntent.dockerEndpoint) !== JSON.stringify(dockerEndpoint)
+        || JSON.stringify(settlementIntent.githubEndpoint) !== JSON.stringify(githubEndpoint)) {
+      fail('provider settlement intent belongs to another operation and is preserved');
+    }
   } else {
     if (cursor.ledger.repository !== repository || cursor.ledger.providerName !== providerName) {
       fail('remote provider ledger belongs to another operation and is preserved');
@@ -3338,6 +6210,33 @@ export async function recoverLocalGitHubActionsProviderV3(input: Readonly<{
       }
       assertStateProjectionBoundToLedgerV3(projection.state, cursor.ledger);
     }
+    if (settlementIntent === null) {
+      settlementIntent = projection === null
+        ? providerSettlementIntentFromIdentityV1({
+          repository,
+          providerName,
+          dockerEndpoint: cursor.ledger.dockerEndpoint,
+          githubEndpoint: cursor.ledger.githubEndpoint,
+          operationLabel: cursor.ledger.operationLabel,
+          providerLedgerObjectSha: cursor.objectSha,
+          reason: 'recover'
+        })
+        : providerSettlementIntentFromStateV1(
+          projection.state,
+          'recover',
+          cursor.ledger.generation
+        );
+      persistProviderSettlementIntentV1(settlementDirectory, settlementIntent);
+    } else if (settlementIntent.repository !== repository
+        || settlementIntent.providerName !== providerName
+        || JSON.stringify(settlementIntent.dockerEndpoint) !== JSON.stringify(cursor.ledger.dockerEndpoint)
+        || JSON.stringify(settlementIntent.githubEndpoint) !== JSON.stringify(cursor.ledger.githubEndpoint)
+        || (settlementIntent.operationLabel !== null
+          && settlementIntent.operationLabel !== cursor.ledger.operationLabel)
+        || (settlementIntent.providerLedgerObjectSha !== null
+          && settlementIntent.providerLedgerObjectSha !== cursor.objectSha)) {
+      fail('provider settlement intent belongs to another operation and is preserved');
+    }
     await convergeProviderLedgerToTerminalV3(cursor, context.repositoryRoot);
     if (projection !== null) deleteStateProjection(context.commonDirectory, projection.state);
     await deleteProviderLedgerV3({
@@ -3345,20 +6244,85 @@ export async function recoverLocalGitHubActionsProviderV3(input: Readonly<{
       objectSha: cursor.objectSha,
       ledger: cursor.ledger
     });
+    ociSettlement = await settleLocalGitHubActionsRunnerOciGenerationV1Unlocked({
+      cwd: context.repositoryRoot,
+      repository,
+      provider: {
+        providerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+        providerLedgerObjectSha: cursor.objectSha,
+        providerLedgerDigest: cursor.ledger.ledgerDigest,
+        providerGeneration: cursor.ledger.generation,
+        providerName,
+        operationLabel: cursor.ledger.operationLabel
+      },
+      authority: runtimeAuthority,
+      repositoryStateRoot: runtimeLayout.repositoryStateRoot
+    });
   }
+  if (ociSettlement === null) {
+    const ociResolved = await resolveRunnerOciCacheDirectoryV1(context.repositoryRoot);
+    const ociGeneration = readRunnerOciGenerationV1(ociResolved.directory);
+    if (ociGeneration !== null) {
+      ociSettlement = await settleLocalGitHubActionsRunnerOciGenerationV1Unlocked({
+        cwd: context.repositoryRoot,
+        repository,
+        provider: {
+          providerRef: ociGeneration.providerRef,
+          providerLedgerObjectSha: ociGeneration.providerObjectSha,
+          providerLedgerDigest: ociGeneration.providerDigest,
+          providerGeneration: ociGeneration.providerGeneration,
+          providerName,
+          operationLabel: settlementIntent?.operationLabel ?? `sec-operation-${'0'.repeat(64)}`
+        },
+        authority: runtimeAuthority,
+        repositoryStateRoot: runtimeLayout.repositoryStateRoot
+      });
+    }
+  }
+  retireProviderEnsureCurrentV2(runtimeAuthority, runtimeLayout.repositoryStateRoot);
+  if (settlementIntent === null) {
+    fail('provider recovery has no settlement intent');
+  }
+  const settlement = await publishProviderSettlementAfterExactCleanupV1({
+    repositoryRoot: context.repositoryRoot,
+    commonDirectory: context.commonDirectory,
+    repository,
+    intent: settlementIntent,
+    authority: runtimeAuthority,
+    ociSettlement
+  });
   return Object.freeze({
     schema: 'sec-local-github-actions-provider-recovery-v3' as const,
     repository,
     providerName,
     runnersAbsent: true as const,
     containersAbsent: true as const,
-    providerLedgerAbsent: true as const
+    providerLedgerAbsent: true as const,
+    ociGenerationDigest: ociSettlement?.generationDigest ?? null,
+    ociReceiptDigest: ociSettlement?.receiptDigest ?? null,
+    settlementReceiptDigest: settlement.receiptDigest
   });
+  } finally {
+    providerLease.release();
+  }
 }
 
-export async function observeLocalGitHubActionsProviderV3(input: Readonly<{ cwd: string }>) {
-  const context = await resolveRepositoryContext(input.cwd);
-  const repository = await assertOriginRepositoryIdentityV2(context.repositoryRoot);
+async function observeLocalGitHubActionsProviderV3Unlocked(input: Readonly<{
+  context: Awaited<ReturnType<typeof resolveRepositoryContext>>;
+  repository: string;
+  authority: LocalGitHubActionsRuntimeAuthorityV1 | null;
+  repositoryStateRoot: string | null;
+  receiptRoot: string;
+  settlementRoot: string;
+}>) {
+  const { context, repository, authority, repositoryStateRoot, receiptRoot, settlementRoot } = input;
+  if (authority === null
+      && inspectExactNoFollowDirectoryPresenceV1(
+        receiptRoot,
+        'Provider observation read root before census'
+      ).state !== 'absent') {
+    fail('provider receipt root appeared before zero-write observation census');
+  }
   const projection = readStateProjection(context.commonDirectory);
   const cursor = await loadCurrentProviderLedgerCursorV3(context.repositoryRoot, repository);
   if (cursor === null) {
@@ -3378,10 +6342,18 @@ export async function observeLocalGitHubActionsProviderV3(input: Readonly<{ cwd:
       repository, context.repositoryRoot, dockerEndpoint
     );
     if (profileRunners.length === 0 && profileContainers.length === 0) {
+      const settlement = authority === null || repositoryStateRoot === null
+        ? Object.freeze({ status: 'absent' as const })
+        : await observeLocalGitHubActionsProviderSettlementV1Unlocked({
+          authority,
+          repositoryStateRoot,
+          settlementRoot
+        });
       return Object.freeze({
         status: 'absent' as const,
         statePath: statePath(context.commonDirectory),
-        repository
+        repository,
+        settlement
       });
     }
     return Object.freeze({
@@ -3453,6 +6425,61 @@ export async function observeLocalGitHubActionsProviderV3(input: Readonly<{ cwd:
   });
 }
 
+export async function observeLocalGitHubActionsProviderV3(input: Readonly<{ cwd: string }>) {
+  const context = await resolveRepositoryContext(input.cwd);
+  const repository = await assertOriginRepositoryIdentityV2(context.repositoryRoot);
+  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
+    repository,
+    repositoryRoot: context.repositoryRoot
+  });
+  const receiptRoot = path.join(
+    runtimeLayout.repositoryStateRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2
+  );
+  const settlementRoot = path.join(
+    receiptRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_LAYOUT_V1
+  );
+  if (inspectExactNoFollowDirectoryPresenceV1(
+    receiptRoot,
+    'Provider observation read root'
+  ).state === 'absent') {
+    const result = await observeLocalGitHubActionsProviderV3Unlocked({
+      context,
+      repository,
+      authority: null,
+      repositoryStateRoot: null,
+      receiptRoot,
+      settlementRoot
+    });
+    if (inspectExactNoFollowDirectoryPresenceV1(
+      receiptRoot,
+      'Provider observation read root readback'
+    ).state !== 'absent') {
+      fail('provider receipt root appeared during zero-write observation; rerun under provider lease');
+    }
+    return result;
+  }
+  const authority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: context.repositoryRoot,
+    stateRoot: runtimeLayout.stateRoot,
+    cacheRoot: runtimeLayout.cacheRoot,
+    requiredDirectories: [receiptRoot]
+  });
+  return await withProviderMutationLeaseV1({
+    authority,
+    repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+    operation: async () => await observeLocalGitHubActionsProviderV3Unlocked({
+      context,
+      repository,
+      authority,
+      repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+      receiptRoot,
+      settlementRoot
+    })
+  });
+}
+
 export async function retireSupersededLocalGitHubActionsRunnerImageV3(input: Readonly<{
   cwd: string;
   imageId: string;
@@ -3469,47 +6496,71 @@ export async function retireSupersededLocalGitHubActionsRunnerImageV3(input: Rea
   );
   if (decision === undefined) fail('image is not covered by a canonical superseded decision');
   const context = await resolveRepositoryContext(input.cwd);
-  await assertOriginRepositoryIdentityV2(context.repositoryRoot);
-  if (await observeRemoteRefSha(
-    context.repositoryRoot,
-    LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3
-  ) !== null) {
-    fail('image retirement is blocked while the provider ledger is active');
-  }
-  const endpoint = await observeDockerEndpointIdentityV3(context.repositoryRoot);
-  const replacement = await inspectImageById(
-    decision.replacementImageId,
-    context.repositoryRoot,
-    endpoint
+  const repository = await assertOriginRepositoryIdentityV2(context.repositoryRoot);
+  const runtimeLayout = resolveSecRuntimeStateForRepositoryV1({
+    repository,
+    repositoryRoot: context.repositoryRoot
+  });
+  const receiptRoot = path.join(
+    runtimeLayout.repositoryStateRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_ENSURE_LAYOUT_V2
   );
-  if (replacement === null) fail('superseding frozen image is absent');
-  assertLocalGitHubActionsRunnerReplacementImageIdentityV3(replacement, decision.replacementImageId);
-  const references = await listContainerIdentityRows(context.repositoryRoot, endpoint, [
-    '--filter', `ancestor=${decision.imageId}`
-  ]);
-  if (references.length !== 0) {
-    fail('superseded image still has container references and is preserved');
-  }
-  if (await inspectImageById(decision.imageId, context.repositoryRoot, endpoint) !== null) {
-    await assertDockerEndpointIdentityV3(endpoint, context.repositoryRoot);
-    await runDockerCommand(endpoint, ['image', 'rm', decision.imageId], {
-      cwd: context.repositoryRoot
-    });
-  }
-  if (await inspectImageById(decision.imageId, context.repositoryRoot, endpoint) !== null
-      || (await listContainerIdentityRows(context.repositoryRoot, endpoint, [
+  const settlementRoot = path.join(
+    receiptRoot,
+    LOCAL_GITHUB_ACTIONS_PROVIDER_SETTLEMENT_LAYOUT_V1
+  );
+  const runtimeAuthority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+    repositoryRoot: context.repositoryRoot,
+    stateRoot: runtimeLayout.stateRoot,
+    cacheRoot: runtimeLayout.cacheRoot,
+    requiredDirectories: [receiptRoot, settlementRoot]
+  });
+  return await withProviderMutationLeaseV1({
+    authority: runtimeAuthority,
+    repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+    operation: async () => {
+      if (await observeRemoteRefSha(
+        context.repositoryRoot,
+        LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3
+      ) !== null) {
+        fail('image retirement is blocked while the provider ledger is active');
+      }
+      const endpoint = await observeDockerEndpointIdentityV3(context.repositoryRoot);
+      const replacement = await inspectImageById(
+        decision.replacementImageId,
+        context.repositoryRoot,
+        endpoint
+      );
+      if (replacement === null) fail('superseding frozen image is absent');
+      assertLocalGitHubActionsRunnerReplacementImageIdentityV3(replacement, decision.replacementImageId);
+      const references = await listContainerIdentityRows(context.repositoryRoot, endpoint, [
         '--filter', `ancestor=${decision.imageId}`
-      ])).length !== 0) {
-    fail('superseded image retirement readback is not absent');
-  }
-  await assertDockerEndpointIdentityV3(endpoint, context.repositoryRoot);
-  return Object.freeze({
-    schema: 'sec-local-github-actions-image-retirement-v3' as const,
-    imageId: decision.imageId,
-    replacementImageId: decision.replacementImageId,
-    decision: decision.decision,
-    zeroContainerReferences: true as const,
-    imageAbsent: true as const
+      ]);
+      if (references.length !== 0) {
+        fail('superseded image still has container references and is preserved');
+      }
+      if (await inspectImageById(decision.imageId, context.repositoryRoot, endpoint) !== null) {
+        await assertDockerEndpointIdentityV3(endpoint, context.repositoryRoot);
+        await runDockerCommand(endpoint, ['image', 'rm', decision.imageId], {
+          cwd: context.repositoryRoot
+        });
+      }
+      if (await inspectImageById(decision.imageId, context.repositoryRoot, endpoint) !== null
+          || (await listContainerIdentityRows(context.repositoryRoot, endpoint, [
+            '--filter', `ancestor=${decision.imageId}`
+          ])).length !== 0) {
+        fail('superseded image retirement readback is not absent');
+      }
+      await assertDockerEndpointIdentityV3(endpoint, context.repositoryRoot);
+      return Object.freeze({
+        schema: 'sec-local-github-actions-image-retirement-v3' as const,
+        imageId: decision.imageId,
+        replacementImageId: decision.replacementImageId,
+        decision: decision.decision,
+        zeroContainerReferences: true as const,
+        imageAbsent: true as const
+      });
+    }
   });
 }
 
@@ -3529,16 +6580,29 @@ async function main(): Promise<void> {
     const repository = option(args, '--repository');
     const name = option(args, '--name');
     if (repository === undefined || name === undefined) fail('start requires --repository and --name');
-    const cpus = option(args, '--cpus');
-    const memory = option(args, '--memory');
-    const state = await startLocalGitHubActionsProviderV3({
+    if (args.includes('--cpus') || args.includes('--memory')) {
+      fail('caller resource overrides are retired; change the EnvironmentSpec resource revision');
+    }
+    const state = await ensureLocalGitHubActionsProviderV3({
       cwd,
       repository,
-      name,
-      cpus: cpus === undefined ? undefined : Number(cpus),
-      memory
+      name
     });
     process.stdout.write(`${JSON.stringify(state, null, 2)}\n`);
+    return;
+  }
+  if (command === 'ensure') {
+    const repository = option(args, '--repository');
+    const name = option(args, '--name');
+    if (repository === undefined || name === undefined) fail('ensure requires --repository and --name');
+    if (args.includes('--cpus') || args.includes('--memory')) {
+      fail('caller resource overrides are retired; change the EnvironmentSpec resource revision');
+    }
+    process.stdout.write(`${JSON.stringify(await ensureLocalGitHubActionsProviderV3({
+      cwd,
+      repository,
+      name
+    }), null, 2)}\n`);
     return;
   }
   if (command === 'status') {
@@ -3570,7 +6634,7 @@ async function main(): Promise<void> {
     }), null, 2)}\n`);
     return;
   }
-  fail('usage: start --repository owner/name --name provider-name [--workspace path] [--cpus n] [--memory 12g] | status [--workspace path] | stop [--workspace path] | recover --repository owner/name --name provider-name [--workspace path] | retire-superseded-image --image-id sha256:... [--workspace path]');
+  fail('usage: start|ensure --repository owner/name --name provider-name [--workspace path] | status [--workspace path] | stop [--workspace path] | recover --repository owner/name --name provider-name [--workspace path] | retire-superseded-image --image-id sha256:... [--workspace path]');
 }
 
 if (import.meta.main) await main();

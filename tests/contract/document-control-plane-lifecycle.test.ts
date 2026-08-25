@@ -465,6 +465,25 @@ last-reviewed: 2026-08-08
 `;
 }
 
+function workSelectionIdentityFixture(tracking: string): Readonly<{
+  workId: string;
+  tracking: string;
+  currentSpecRef: string;
+  ownerRef: string;
+}> {
+  const issueNumber = tracking.match(/^issue-(\d+)$/u)?.[1];
+  if (issueNumber === undefined) {
+    throw new Error(`fixture tracking must be canonical issue identity: ${tracking}`);
+  }
+  const currentSpecRef = `github:issue/${issueNumber}`;
+  return Object.freeze({
+    workId: tracking,
+    tracking,
+    currentSpecRef,
+    ownerRef: currentSpecRef
+  });
+}
+
 function workSelectionReceiptFixture(input: {
   exactMain: string;
   exactMainTree: string;
@@ -482,8 +501,7 @@ function workSelectionReceiptFixture(input: {
     priorityClass: 'active-critical-path' | 'defer';
   }) => ({
     ...value,
-    currentSpecRef: `github:issue/${value.tracking.slice('issue-'.length)}`,
-    ownerRef: `github:${value.tracking}`,
+    ...workSelectionIdentityFixture(value.tracking),
     kind: 'focused',
     priorityEvidenceRefs: value.priorityClass === 'defer' ? [] : ['fixture:priority'],
     reproductionOrEvidenceFreshness: 'fresh',
@@ -563,6 +581,18 @@ ${SEC_ROADMAP_WORK_CATALOG_END}`;
     }))
   });
 }
+
+test('work-selection fixture derives one canonical tracking/current-spec identity', () => {
+  const receipt = workSelectionReceiptFixture({
+    exactMain: 'a'.repeat(40),
+    exactMainTree: 'b'.repeat(40),
+    targetTracking: 'issue-311'
+  });
+  for (const item of receipt.catalog.items) {
+    expect(item.workId).toBe(item.tracking);
+    expect(item.ownerRef).toBe(item.currentSpecRef);
+  }
+});
 
 async function createFreezeFixture(): Promise<FreezeFixture> {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-control-freeze-'));

@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
 import {
   currentSecRuntimePlatformV1,
@@ -6,6 +8,10 @@ import {
   secRuntimeStateEnvironmentV1,
   type SecRuntimeStateLayoutV1
 } from '../../platform/shared/sec-runtime-state-contract.ts';
+
+/** One canonical durable namespace for start receipts, Evidence and journals. */
+export const VERIFICATION_ACTION_DURABLE_ROOT_RELATIVE_V1 =
+  path.join('verification-actions', 'v2');
 
 function workspacePhysicalIdentity(repositoryRoot: string) {
   const identity = inspectNoFollowDirectoryChainV1(
@@ -43,4 +49,12 @@ export function resolveSecRuntimeStateForRepositoryV1(input: Readonly<{
     repositoryRoot: input.repositoryRoot,
     workspacePhysicalIdentity: workspacePhysicalIdentity(input.repositoryRoot)
   });
+}
+
+export function resolveVerificationActionDurableRootV1(input: Readonly<{
+  repositoryRoot: string;
+  environment?: NodeJS.ProcessEnv;
+}>): string {
+  const roots = resolveSecWorkspaceRuntimeRootsV1(input);
+  return path.join(roots.workspaceStateRoot, VERIFICATION_ACTION_DURABLE_ROOT_RELATIVE_V1);
 }

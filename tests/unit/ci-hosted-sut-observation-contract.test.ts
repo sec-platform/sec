@@ -115,7 +115,7 @@ function receipt(input: Readonly<{
       teardownCommandStarted: capability !== 'invalidated',
       teardownExitCode: capability === 'invalidated' ? null : 0,
       residueMarkerObserved: capability !== 'invalidated',
-      cgroupEmpty: clean,
+      sandboxRootAbsent: clean,
       residueReadbackDigest: digest('0'),
       diagnostic: capability === 'supported' ? null
         : capability === 'unsupported' ? 'unshare: operation not permitted'
@@ -152,11 +152,11 @@ function receipt(input: Readonly<{
       boundedFailureTailDigest: digest('d')
     }),
     reap: Object.freeze({
-      namespacePid1Exited: executed,
-      killChildEnabled: true,
-      unshareProcessClosed: clean
+      supervisorExitObserved: executed,
+      killChildPolicyBound: true,
+      supervisorClosed: clean
     }),
-    residue: Object.freeze({ cgroupEmpty: clean, hostReadbackDigest: digest('e') }),
+    residue: Object.freeze({ sandboxRootAbsent: clean, hostReadbackDigest: digest('e') }),
     diagnostic: executed && (input.exitCode ?? 0) === 0 ? null
       : capability === 'unsupported' ? 'sandbox unsupported'
         : capability === 'invalidated' ? 'sandbox observation lost' : 'gate failed'
@@ -329,10 +329,10 @@ test('physical command authorization and PASS settlement reject recomputed contr
         .postExecutionInputDigest = null;
     },
     (observation: CodexDevelopmentHostedActionRawResultV2) => {
-      (observation.sandboxReceipt.reap as { namespacePid1Exited: boolean }).namespacePid1Exited = false;
+      (observation.sandboxReceipt.reap as { supervisorExitObserved: boolean }).supervisorExitObserved = false;
     },
     (observation: CodexDevelopmentHostedActionRawResultV2) => {
-      (observation.sandboxReceipt.residue as { cgroupEmpty: boolean }).cgroupEmpty = false;
+      (observation.sandboxReceipt.residue as { sandboxRootAbsent: boolean }).sandboxRootAbsent = false;
     }
   ]) {
     expect(reduce(forgedObservation(mutate)).result.status).toBe('invalidated');

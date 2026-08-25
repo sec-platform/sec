@@ -189,7 +189,7 @@ export type CodexDevelopmentHostedSutSandboxCapabilityObservationV1 = Readonly<{
   teardownCommandStarted: boolean;
   teardownExitCode: number | null;
   residueMarkerObserved: boolean;
-  cgroupEmpty: boolean;
+  sandboxRootAbsent: boolean;
   residueReadbackDigest: VerificationActionKeyDigest;
   diagnostic: string | null;
 }>;
@@ -237,12 +237,12 @@ export type CodexDevelopmentHostedSutSandboxReceiptV1 = Readonly<{
     boundedFailureTailDigest: VerificationActionKeyDigest;
   }>;
   reap: Readonly<{
-    namespacePid1Exited: boolean;
-    killChildEnabled: boolean;
-    unshareProcessClosed: boolean;
+    supervisorExitObserved: boolean;
+    killChildPolicyBound: boolean;
+    supervisorClosed: boolean;
   }>;
   residue: Readonly<{
-    cgroupEmpty: boolean;
+    sandboxRootAbsent: boolean;
     hostReadbackDigest: VerificationActionKeyDigest;
   }>;
   diagnostic: string | null;
@@ -334,7 +334,7 @@ export function CodexDevelopmentParseHostedSutSandboxReceiptV1(
   }
   const capability = exactObject(receipt.capability, [
     'commandPlanDigest', 'commandStarted', 'exitCode', 'markerObserved', 'outputDigest',
-    'teardownCommandStarted', 'teardownExitCode', 'residueMarkerObserved', 'cgroupEmpty',
+    'teardownCommandStarted', 'teardownExitCode', 'residueMarkerObserved', 'sandboxRootAbsent',
     'residueReadbackDigest', 'diagnostic'
   ], 'sandbox capability observation');
   if ((capability.commandPlanDigest !== null && (typeof capability.commandPlanDigest !== 'string' ||
@@ -347,7 +347,7 @@ export function CodexDevelopmentParseHostedSutSandboxReceiptV1(
       (capability.teardownExitCode !== null && (!Number.isSafeInteger(capability.teardownExitCode) ||
         Number(capability.teardownExitCode) < 0 || Number(capability.teardownExitCode) > 255)) ||
       typeof capability.residueMarkerObserved !== 'boolean' ||
-      typeof capability.cgroupEmpty !== 'boolean' ||
+      typeof capability.sandboxRootAbsent !== 'boolean' ||
       (capability.diagnostic !== null && typeof capability.diagnostic !== 'string')) {
     fail('sandbox capability primitive observation is invalid.');
   }
@@ -415,11 +415,11 @@ export function CodexDevelopmentParseHostedSutSandboxReceiptV1(
     digest(execution[key], `execution ${key}`);
   }
   const reap = exactObject(receipt.reap, [
-    'namespacePid1Exited', 'killChildEnabled', 'unshareProcessClosed'
+    'supervisorExitObserved', 'killChildPolicyBound', 'supervisorClosed'
   ], 'reap observation');
-  const residue = exactObject(receipt.residue, ['cgroupEmpty', 'hostReadbackDigest'], 'residue observation');
-  if (typeof reap.namespacePid1Exited !== 'boolean' || typeof reap.killChildEnabled !== 'boolean' ||
-      typeof reap.unshareProcessClosed !== 'boolean' || typeof residue.cgroupEmpty !== 'boolean') {
+  const residue = exactObject(receipt.residue, ['sandboxRootAbsent', 'hostReadbackDigest'], 'residue observation');
+  if (typeof reap.supervisorExitObserved !== 'boolean' || typeof reap.killChildPolicyBound !== 'boolean' ||
+      typeof reap.supervisorClosed !== 'boolean' || typeof residue.sandboxRootAbsent !== 'boolean') {
     fail('reap or residue primitive observation is invalid.');
   }
   digest(residue.hostReadbackDigest, 'residue host readback');
@@ -740,9 +740,9 @@ export function CodexDevelopmentReduceHostedSutObservationV1(input: Readonly<{
     receipt.capability.commandStarted && receipt.capability.exitCode === 0 &&
     receipt.capability.markerObserved && receipt.capability.teardownCommandStarted &&
     receipt.capability.teardownExitCode === 0 && receipt.capability.residueMarkerObserved &&
-    receipt.capability.cgroupEmpty && receipt.capability.diagnostic === null;
+    receipt.capability.sandboxRootAbsent && receipt.capability.diagnostic === null;
   const capabilityUnsupported = !capabilitySupported && receipt.capability.commandStarted &&
-    receipt.capability.teardownCommandStarted && receipt.capability.cgroupEmpty &&
+    receipt.capability.teardownCommandStarted && receipt.capability.sandboxRootAbsent &&
     /not found|no such file|operation not permitted|failed to connect to bus|unshare failed|unknown option/iu
       .test(receipt.capability.diagnostic ?? '');
   if (capabilitySupported && command === null) {
@@ -762,14 +762,14 @@ export function CodexDevelopmentReduceHostedSutObservationV1(input: Readonly<{
     receipt.execution.postExecutionReadbackErrorDigest === null &&
     Number.isSafeInteger(receipt.execution.exitCode) &&
     outputBound &&
-    receipt.reap.namespacePid1Exited && receipt.reap.killChildEnabled &&
-    receipt.reap.unshareProcessClosed && receipt.residue.cgroupEmpty;
+    receipt.reap.supervisorExitObserved && receipt.reap.killChildPolicyBound &&
+    receipt.reap.supervisorClosed && receipt.residue.sandboxRootAbsent;
   const unsupported = capabilityUnsupported && command === null &&
     !receipt.execution.started && !receipt.execution.commandStarted &&
     receipt.execution.exitCode === null && receipt.execution.authenticatedInputDigest === null &&
     receipt.execution.postExecutionInputDigest === null &&
     receipt.execution.postExecutionReadbackErrorDigest === null &&
-    receipt.reap.killChildEnabled && receipt.reap.unshareProcessClosed && receipt.residue.cgroupEmpty;
+    receipt.reap.killChildPolicyBound && receipt.reap.supervisorClosed && receipt.residue.sandboxRootAbsent;
   const cleanPass = executionClean && receipt.execution.exitCode === 0 && receipt.diagnostic === null;
   const status = unsupported ? 'unsupported' as const
     : cleanPass ? 'passed' as const

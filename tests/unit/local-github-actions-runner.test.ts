@@ -1,14 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/runtime/environments/sec-linux-verification-v1/authority.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 } from '../../platform/shared/ci-verification-revision.ts';
 import { acquirePhysicalMutationLeaseV1 } from '../../platform/shared/physical-mutation-lease.ts';
 import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 import {
+  acquireLocalGitHubActionsProviderConsumerReceiptV1,
   assertExactLocalGitHubActionsRunnerProfileContainersV3,
   assertExactLocalGitHubActionsRunnerProfileInventoryV3,
   assertInitialLocalGitHubActionsProviderLedgerV3,
@@ -19,16 +20,26 @@ import {
   assertRepositoryIdentityMatchesOriginV2,
   assertRepositoryIdentityMatchesRemoteUrlsV2,
   createBuildxRawJsonProgressAdmissionV1,
+  createLocalGitHubActionsBuildxBuildkitdFlagsV1,
+  createLocalGitHubActionsProviderEnsureDesiredV1,
+  createLocalGitHubActionsProviderEnsureIntentV1,
+  createLocalGitHubActionsProviderEnsureReceiptV2,
   createLocalGitHubActionsProviderLedgerCommitBytesV3,
   createLocalGitHubActionsProviderLedgerV3,
+  createLocalGitHubActionsProviderResourceBindingV1,
+  createLocalGitHubActionsProviderSettlementIntentV1,
+  createLocalGitHubActionsProviderSettlementReceiptV1,
   createLocalGitHubActionsRunnerBuildInputProjectionV1,
   createLocalGitHubActionsRunnerDockerfileV2,
   createLocalGitHubActionsRunnerEnvironmentSpecV1,
   createLocalGitHubActionsRunnerOciBakeDefinitionV1,
   createLocalGitHubActionsRunnerOciCandidateBindingV1,
+  createLocalGitHubActionsRunnerProcessWitnessScriptV1,
   createLocalGitHubActionsRunnerProjectionBuildxArgsV1,
   createLocalGitHubActionsRunnerStateV3,
+  createLocalGitHubActionsRunnerSupervisorScriptV1,
   LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1,
+  LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1,
   LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS_V1,
   LOCAL_GITHUB_ACTIONS_DOCKERFILE_FRONTEND_V1,
   LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1,
@@ -37,6 +48,7 @@ import {
   LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1,
   LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1,
   LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+  LOCAL_GITHUB_ACTIONS_PROVIDER_MUTATION_LEASE_NAME_V1,
   LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1,
@@ -54,17 +66,27 @@ import {
   LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
   LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3,
   LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1,
+  observeLocalGitHubActionsProviderEnsureV2,
+  observeLocalGitHubActionsProviderV3,
+  parseLocalGitHubActionsProviderEnsureIntentV1,
+  parseLocalGitHubActionsProviderEnsureReceiptV2,
   parseLocalGitHubActionsProviderLedgerCommitV3,
   parseLocalGitHubActionsProviderLedgerV3,
+  parseLocalGitHubActionsProviderSettlementIntentV1,
+  parseLocalGitHubActionsProviderSettlementReceiptV1,
   parseLocalGitHubActionsRunnerStateV3,
+  providerEnsureEndpointDigestV1,
   readValidatedRunnerOciLayoutIdentityV1,
   reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1,
+  releaseLocalGitHubActionsProviderConsumerReceiptV1,
   retireLocalGitHubActionsRunnerOciCandidateV1,
   type DockerEndpointIdentityV3,
   type GitHubEndpointIdentityV3,
   type LocalGitHubActionsRunnerInstanceV2,
   type LocalGitHubActionsRunnerRoleV2
 } from '../../scripts/codex/local-github-actions-runner.ts';
+import { acquireSecRuntimeStatePhysicalAuthorityV1 } from '../../tooling/sec-dev/runtime-state-authority.ts';
+import { resolveSecRuntimeStateForRepositoryV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
 
 const repository = 'sec-platform/sec';
 const providerName = 'sec-main-health-1';
@@ -376,6 +398,9 @@ describe('local GitHub Actions runner contract', () => {
     expect(bakeDockerfile).not.toContain('$$UBUNTU_SNAPSHOT');
     const providerLayoutPath = path.resolve('cache', 'layout');
     const projectionArgs = createLocalGitHubActionsRunnerProjectionBuildxArgsV1(providerLayoutPath);
+    expect(projectionArgs.slice(0, 4)).toEqual([
+      'buildx', 'build', '--builder', LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1
+    ]);
     expect(projectionArgs).toContain(
       `runtime=oci-layout://${providerLayoutPath.split(path.sep).join('/')}@`
         + LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1
@@ -441,6 +466,36 @@ describe('local GitHub Actions runner contract', () => {
         Config: { Labels: labels }
       })).toThrow('cached runner image labels differ from the frozen provider revision');
     }
+  });
+
+  test('derives one resource binding and one Buildx flag vector from EnvironmentSpec', () => {
+    const binding = createLocalGitHubActionsProviderResourceBindingV1();
+    expect(binding.roles.map(({ role }) => role)).toEqual(['control', 'trusted', 'sut']);
+    for (const role of roles) {
+      const resources = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1.runtime.resources[role];
+      expect(binding.roles.find((entry) => entry.role === role)).toMatchObject({
+        cpus: resources.cpus,
+        memoryBytes: resources.memoryGiB * 1024 * 1024 * 1024,
+        pids: resources.pids
+      });
+    }
+    expect(createLocalGitHubActionsBuildxBuildkitdFlagsV1()).toEqual([
+      '--oci-worker-gc',
+      '--oci-worker-gc-keepstorage',
+      '21475',
+      '--allow-insecure-entitlement=network.host'
+    ]);
+  });
+
+  test('uses a single supervisor/process witness and refuses ambiguous process states', () => {
+    const supervisor = createLocalGitHubActionsRunnerSupervisorScriptV1();
+    expect(supervisor).toContain('mkdir "$lock"');
+    expect(supervisor).toContain('./run.sh > /tmp/sec-actions-runner.log 2>&1');
+    const witness = createLocalGitHubActionsRunnerProcessWitnessScriptV1();
+    expect(witness).toContain('pgrep -f "[R]unner[.]Listener"');
+    expect(witness).toContain('  0) exit 0');
+    expect(witness).toContain('  1) exit 10');
+    expect(witness).toContain('  *) exit 11');
   });
 
   test('admits only monotonic structured BuildKit progress', () => {
@@ -564,6 +619,125 @@ describe('local GitHub Actions runner contract', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test('provider mutation lease serializes contenders and only reclaims a dead owner', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-provider-mutation-'));
+    try {
+      const directoryPath = path.join(root, 'provider-ensure');
+      mkdirSync(directoryPath);
+      const directory = inspectNoFollowDirectoryChainV1(
+        directoryPath, 'Provider mutation lease fixture'
+      ).target;
+      const owner = acquirePhysicalMutationLeaseV1(
+        directory,
+        LOCAL_GITHUB_ACTIONS_PROVIDER_MUTATION_LEASE_NAME_V1,
+        {
+          ownerHost: 'provider-lease-test-host',
+          ownerPid: 42_001,
+          processNonce: randomUUID(),
+          processAlive: () => 'alive'
+        }
+      );
+      expect(owner).not.toBeNull();
+      const busy = acquirePhysicalMutationLeaseV1(
+        directory,
+        LOCAL_GITHUB_ACTIONS_PROVIDER_MUTATION_LEASE_NAME_V1,
+        {
+          ownerHost: 'provider-lease-test-host',
+          ownerPid: 42_002,
+          processNonce: randomUUID(),
+          processAlive: () => 'alive'
+        }
+      );
+      expect(busy).toBeNull();
+
+      const reclaimed = acquirePhysicalMutationLeaseV1(
+        directory,
+        LOCAL_GITHUB_ACTIONS_PROVIDER_MUTATION_LEASE_NAME_V1,
+        {
+          ownerHost: 'provider-lease-test-host',
+          ownerPid: 42_003,
+          processNonce: randomUUID(),
+          processAlive: (pid) => pid === owner!.owner.pid ? 'dead' : 'alive'
+        }
+      );
+      expect(reclaimed).not.toBeNull();
+      expect(reclaimed!.reclaimedOwner).toEqual(owner!.owner);
+      expect(() => owner!.release()).toThrow('ownership changed');
+      reclaimed!.release();
+
+      const successor = acquirePhysicalMutationLeaseV1(
+        directory,
+        LOCAL_GITHUB_ACTIONS_PROVIDER_MUTATION_LEASE_NAME_V1,
+        {
+          ownerHost: 'provider-lease-test-host',
+          ownerPid: 42_004,
+          processNonce: randomUUID(),
+          processAlive: () => 'alive'
+        }
+      );
+      expect(successor).not.toBeNull();
+      successor!.release();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('ordinary provider observation fails closed on a retained dead-owner lease', async () => {
+    const stateHome = mkdtempSync(path.join(tmpdir(), 'sec-provider-state-'));
+    const cacheHome = mkdtempSync(path.join(tmpdir(), 'sec-provider-cache-'));
+    const previousStateHome = process.env.SEC_STATE_HOME;
+    const previousCacheHome = process.env.SEC_CACHE_HOME;
+    const repositoryRoot = path.resolve(import.meta.dir, '../..');
+    const observedRepository = 'sec-platform/sec';
+    process.env.SEC_STATE_HOME = stateHome;
+    process.env.SEC_CACHE_HOME = cacheHome;
+    try {
+      const layout = resolveSecRuntimeStateForRepositoryV1({
+        repository: observedRepository,
+        repositoryRoot
+      });
+      const receiptRoot = path.join(
+        layout.repositoryStateRoot,
+        'provider-ensure',
+        'v2'
+      );
+      const settlementRoot = path.join(receiptRoot, 'settlement');
+      expect(existsSync(receiptRoot)).toBe(false);
+      expect(await observeLocalGitHubActionsProviderEnsureV2({
+        repository: observedRepository,
+        repositoryRoot
+      })).toEqual({ status: 'absent' });
+      expect(existsSync(receiptRoot)).toBe(false);
+      const authority = await acquireSecRuntimeStatePhysicalAuthorityV1({
+        repositoryRoot,
+        stateRoot: layout.stateRoot,
+        cacheRoot: layout.cacheRoot,
+        requiredDirectories: [receiptRoot, settlementRoot]
+      });
+      const receiptDirectory = authority.directory(receiptRoot);
+      const stale = acquirePhysicalMutationLeaseV1(
+        receiptDirectory,
+        LOCAL_GITHUB_ACTIONS_PROVIDER_MUTATION_LEASE_NAME_V1,
+        {
+          ownerHost: hostname(),
+          ownerPid: 42_099,
+          processNonce: randomUUID(),
+          processAlive: () => 'dead'
+        }
+      );
+      expect(stale).not.toBeNull();
+      await expect(observeLocalGitHubActionsProviderV3({ cwd: repositoryRoot }))
+        .rejects.toThrow('provider mutation is owned by another live or unverified process');
+    } finally {
+      if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
+      else process.env.SEC_STATE_HOME = previousStateHome;
+      if (previousCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+      else process.env.SEC_CACHE_HOME = previousCacheHome;
+      rmSync(stateHome, { recursive: true, force: true });
+      rmSync(cacheHome, { recursive: true, force: true });
+    }
+  });
+
   test('remote CAS ledger is the authority and local state is only its exact projection', () => {
     const initial = initialLedger();
     expect(() => assertInitialLocalGitHubActionsProviderLedgerV3(initial)).not.toThrow();
@@ -643,6 +817,10 @@ describe('local GitHub Actions runner contract', () => {
       ...ledger,
       dockerEndpoint: { ...ledger.dockerEndpoint, extra: true }
     }))).toThrow('keys are invalid');
+    const tamperedLedger = JSON.parse(JSON.stringify(ledger)) as Record<string, any>;
+    tamperedLedger.resourceBinding.roles[0].cpus += 1;
+    expect(() => parseLocalGitHubActionsProviderLedgerV3(JSON.stringify(tamperedLedger)))
+      .toThrow('resource binding');
     expect(() => createLocalGitHubActionsProviderLedgerV3({
       ...ledger,
       dockerEndpoint: { ...ledger.dockerEndpoint, endpointHost: 'tcp://remote.example:2376' }
@@ -668,9 +846,221 @@ describe('local GitHub Actions runner contract', () => {
       ...state,
       providerLedgerObjectSha: 'e'.repeat(40)
     }))).toThrow('digest mismatch');
+    const tamperedState = JSON.parse(JSON.stringify(state)) as Record<string, any>;
+    tamperedState.resourceBinding.roles[0].memoryBytes += 1;
+    expect(() => parseLocalGitHubActionsRunnerStateV3(JSON.stringify(tamperedState)))
+      .toThrow('resource binding');
     expect(() => parseLocalGitHubActionsRunnerStateV3(JSON.stringify({ ...state, token: 'secret' })))
       .toThrow('keys are invalid');
     expect(JSON.stringify(state)).not.toContain('token');
+  });
+
+  test('provider ensure intent and current receipt are typed, endpoint/state bound, and replaceable', () => {
+    const ledger = activeLedger();
+    const state = createLocalGitHubActionsRunnerStateV3({
+      repository,
+      repositoryRoot: 'D:/Project/sec',
+      commonDirectory: 'D:/Project/sec/.git',
+      providerName,
+      operationLabel,
+      providerLedgerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+      providerLedgerObjectSha: 'd'.repeat(40),
+      providerLedgerDigest: ledger.ledgerDigest,
+      dockerEndpoint,
+      githubEndpoint,
+      instances,
+      startedAt: '2026-08-14T08:00:00.000Z'
+    });
+    const desired = createLocalGitHubActionsProviderEnsureDesiredV1({
+      repository: state.repository,
+      providerName: state.providerName,
+      operationLabel: state.operationLabel,
+      providerLedgerRef: state.providerLedgerRef,
+      providerLedgerObjectSha: state.providerLedgerObjectSha,
+      providerLedgerDigest: state.providerLedgerDigest,
+      generation: ledger.generation,
+      dockerEndpoint: state.dockerEndpoint,
+      githubEndpoint: state.githubEndpoint,
+      imageId: state.imageId,
+      instances: state.instances,
+      stateDigest: state.stateDigest
+    });
+    const intent = createLocalGitHubActionsProviderEnsureIntentV1({
+      repository,
+      providerName,
+      dockerEndpoint,
+      githubEndpoint,
+      imageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+      environmentInputDigest: `sha256:${'e'.repeat(64)}`,
+      issuedAt: '2026-08-14T08:00:00.000Z'
+    });
+    expect(parseLocalGitHubActionsProviderEnsureIntentV1(JSON.stringify(intent))).toEqual(intent);
+
+    const ociBinding = {
+      schema: 'sec-local-github-actions-runner-oci-provider-binding-v1' as const,
+      specDigest: createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest,
+      generation: 2,
+      generationDigest: `sha256:${'b'.repeat(64)}` as const,
+      receiptDigest: `sha256:${'c'.repeat(64)}` as const,
+      providerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+      providerLedgerObjectSha: 'd'.repeat(40),
+      providerLedgerDigest: ledger.ledgerDigest,
+      providerGeneration: ledger.generation,
+      provenanceArtifactDigest: `sha256:${'e'.repeat(64)}` as const
+    };
+    const receiptInput = {
+      repository,
+      providerName,
+      outcome: 'already-healthy' as const,
+      desired,
+      intentDigest: intent.intentDigest,
+      endpointDigest: providerEnsureEndpointDigestV1(desired),
+      builderObservationDigest: `sha256:${'a'.repeat(64)}` as const,
+      ociBinding,
+      reconciledContainers: instances.map(({ containerName }) => containerName).sort(),
+      transitionEpoch: 0,
+      consumers: [],
+      observedAt: '2026-08-14T08:01:00.000Z'
+    };
+    const receipt = createLocalGitHubActionsProviderEnsureReceiptV2(receiptInput);
+    expect(parseLocalGitHubActionsProviderEnsureReceiptV2(JSON.stringify(receipt))).toEqual(receipt);
+    expect(createLocalGitHubActionsProviderEnsureReceiptV2({
+      ...receiptInput,
+      observedAt: '2026-08-14T09:01:00.000Z'
+    }).receiptDigest).toBe(receipt.receiptDigest);
+
+    const first = acquireLocalGitHubActionsProviderConsumerReceiptV1({
+      current: receipt,
+      consumerId: 'verification-session:one',
+      observedAt: '2026-08-14T08:02:00.000Z'
+    });
+    expect(first.receipt.consumerCount).toBe(1);
+    expect(first.receipt.consumers).toEqual([first.binding]);
+    expect(first.receipt.transitionEpoch).toBe(1);
+    const idempotent = acquireLocalGitHubActionsProviderConsumerReceiptV1({
+      current: first.receipt,
+      consumerId: 'verification-session:one',
+      observedAt: '2026-08-14T08:03:00.000Z'
+    });
+    expect(idempotent.receipt.receiptDigest).toBe(first.receipt.receiptDigest);
+    const second = acquireLocalGitHubActionsProviderConsumerReceiptV1({
+      current: first.receipt,
+      consumerId: 'trusted-closeout:two',
+      observedAt: '2026-08-14T08:04:00.000Z'
+    });
+    expect(second.receipt.consumerCount).toBe(2);
+    expect(() => releaseLocalGitHubActionsProviderConsumerReceiptV1({
+      current: second.receipt,
+      consumerId: first.binding.consumerId,
+      credential: first.binding.credential,
+      expectedReceiptDigest: first.receipt.receiptDigest,
+      expectedLeaseId: second.receipt.leaseId,
+      expectedEpoch: second.receipt.transitionEpoch,
+      observedAt: '2026-08-14T08:05:00.000Z'
+    })).toThrow('current CAS binding changed');
+    const afterFirstRelease = releaseLocalGitHubActionsProviderConsumerReceiptV1({
+      current: second.receipt,
+      consumerId: first.binding.consumerId,
+      credential: first.binding.credential,
+      expectedReceiptDigest: second.receipt.receiptDigest,
+      expectedLeaseId: second.receipt.leaseId,
+      expectedEpoch: second.receipt.transitionEpoch,
+      observedAt: '2026-08-14T08:05:00.000Z'
+    });
+    expect(afterFirstRelease.consumerCount).toBe(1);
+    const afterSecondRelease = releaseLocalGitHubActionsProviderConsumerReceiptV1({
+      current: afterFirstRelease,
+      consumerId: second.binding.consumerId,
+      credential: second.binding.credential,
+      expectedReceiptDigest: afterFirstRelease.receiptDigest,
+      expectedLeaseId: afterFirstRelease.leaseId,
+      expectedEpoch: afterFirstRelease.transitionEpoch,
+      observedAt: '2026-08-14T08:06:00.000Z'
+    });
+    expect(afterSecondRelease.consumerCount).toBe(0);
+    expect(afterSecondRelease.consumers).toEqual([]);
+
+    const forgedConsumers = JSON.parse(JSON.stringify(first.receipt)) as Record<string, any>;
+    forgedConsumers.consumers[0].credential = `sha256:${'f'.repeat(64)}`;
+    expect(() => parseLocalGitHubActionsProviderEnsureReceiptV2(JSON.stringify(forgedConsumers)))
+      .toThrow('credential is invalid');
+
+    const tamperedReceipt = JSON.parse(JSON.stringify(receipt)) as Record<string, unknown>;
+    tamperedReceipt.receiptDigest = `sha256:${'f'.repeat(64)}`;
+    expect(() => parseLocalGitHubActionsProviderEnsureReceiptV2(JSON.stringify(tamperedReceipt)))
+      .toThrow(/receipt digest|derived consumer binding/);
+
+    const semanticallyRebound = JSON.parse(JSON.stringify(receipt)) as Record<string, any>;
+    semanticallyRebound.desired = {
+      ...semanticallyRebound.desired,
+      dockerEndpoint: { ...semanticallyRebound.desired.dockerEndpoint, daemonId: 'foreign-daemon' }
+    };
+    expect(() => parseLocalGitHubActionsProviderEnsureReceiptV2(JSON.stringify(semanticallyRebound)))
+      .toThrow('desired digest mismatch');
+
+    const staleBuilderObservation = JSON.parse(JSON.stringify(receipt)) as Record<string, unknown>;
+    staleBuilderObservation.builderObservationDigest = `sha256:${'b'.repeat(64)}`;
+    expect(() => parseLocalGitHubActionsProviderEnsureReceiptV2(
+      JSON.stringify(staleBuilderObservation)
+    )).toThrow(/receipt digest|derived consumer binding/);
+
+    const tamperedIntent = JSON.parse(JSON.stringify(intent)) as Record<string, unknown>;
+    tamperedIntent.desiredDigest = `sha256:${'f'.repeat(64)}`;
+    expect(() => parseLocalGitHubActionsProviderEnsureIntentV1(JSON.stringify(tamperedIntent)))
+      .toThrow('intent digest mismatch');
+  });
+
+  test('settlement is one bounded current pointer with a typed cleanup intent', () => {
+    const intent = createLocalGitHubActionsProviderSettlementIntentV1({
+      repository,
+      providerName,
+      operationLabel,
+      desiredDigest: `sha256:${'d'.repeat(64)}`,
+      providerLedgerObjectSha: 'e'.repeat(40),
+      dockerEndpoint,
+      githubEndpoint,
+      reason: 'stop',
+      issuedAt: '2026-08-14T08:00:00.000Z'
+    });
+    expect(parseLocalGitHubActionsProviderSettlementIntentV1(JSON.stringify(intent)))
+      .toEqual(intent);
+    const receipt = createLocalGitHubActionsProviderSettlementReceiptV1({
+      repository,
+      providerName,
+      operationLabel,
+      desiredDigest: intent.desiredDigest,
+      providerLedgerObjectSha: intent.providerLedgerObjectSha,
+      dockerEndpoint,
+      githubEndpoint,
+      reason: intent.reason,
+      intentIssuedAt: intent.issuedAt,
+      intentDigest: intent.intentDigest,
+      runnersAbsent: true,
+      containersAbsent: true,
+      providerLedgerAbsent: true,
+      stateProjectionAbsent: true,
+      ensureCurrentAbsent: true,
+      ensureIntentAbsent: true,
+      imageRetained: true,
+      ociGenerationDigest: null,
+      ociReceiptDigest: null,
+      observedAt: '2026-08-14T08:01:00.000Z'
+    });
+    expect(parseLocalGitHubActionsProviderSettlementReceiptV1(JSON.stringify(receipt)))
+      .toEqual(receipt);
+    expect(createLocalGitHubActionsProviderSettlementReceiptV1({
+      ...receipt,
+      observedAt: '2026-08-14T09:01:00.000Z'
+    }).receiptDigest).toBe(receipt.receiptDigest);
+
+    const tamperedIntent = JSON.parse(JSON.stringify(intent)) as Record<string, any>;
+    tamperedIntent.resourceBinding.roles[0].cpus += 1;
+    expect(() => parseLocalGitHubActionsProviderSettlementIntentV1(JSON.stringify(tamperedIntent)))
+      .toThrow('resource binding');
+    const tamperedReceipt = JSON.parse(JSON.stringify(receipt)) as Record<string, any>;
+    tamperedReceipt.providerLedgerObjectSha = 'f'.repeat(40);
+    expect(() => parseLocalGitHubActionsProviderSettlementReceiptV1(JSON.stringify(tamperedReceipt)))
+      .toThrow('intent binding');
   });
 
   test('requires one exact runner identity for every trust role', () => {

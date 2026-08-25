@@ -15,6 +15,7 @@ import {
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
   replaceDurableCanonicalFileV1,
+  scanNoFollowDirectoryTreeMetadataV1,
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
 
@@ -25,6 +26,9 @@ export interface RuntimeStateJournalFileSystemV1 {
   ensureDirectory(directoryPath: string): void;
   appendFsyncCas(filePath: string, expectedText: string, text: string): boolean;
   createExclusiveFsync(filePath: string, text: string): boolean;
+  replaceFsyncCas(filePath: string, expectedText: string | null, text: string): boolean;
+  deleteFsyncCas(filePath: string, expectedText: string): boolean;
+  listOrdinaryFiles(directoryPath: string, maximumEntries: number): readonly string[];
   replaceFsync(filePath: string, text: string): void;
   deleteIfPresent(filePath: string): boolean;
 }
@@ -159,6 +163,57 @@ export function createRuntimeStateJournalFileSystemV1(
             && readNoFollowOrdinaryFileV1(retained.parent, retained.name) !== null) return false;
         throw error;
       }
+    },
+    replaceFsyncCas(filePath: string, expectedText: string | null, text: string): boolean {
+      return withMutationLease(filePath, () => {
+        const current = readBytes(filePath);
+        if (expectedText === null ? current !== null : current?.toString('utf8') !== expectedText) {
+          return false;
+        }
+        const retained = fileParent(filePath, true)!;
+        const bytes = Buffer.from(text, 'utf8');
+        replaceDurableCanonicalFileV1({
+          parent: retained.parent,
+          name: retained.name,
+          bytes,
+          validate: exactBytes(bytes)
+        });
+        return true;
+      }) ?? false;
+    },
+    deleteFsyncCas(filePath: string, expectedText: string): boolean {
+      return withMutationLease(filePath, () => {
+        const current = readBytes(filePath);
+        if (current?.toString('utf8') !== expectedText) return false;
+        const retained = fileParent(filePath, false);
+        if (retained === null) return false;
+        const entry = inspectNoFollowOrdinaryFileEntryV1(retained.parent, retained.name);
+        if (entry === null) return false;
+        deleteRetainedNoFollowEntryV1({
+          root: retained.parent,
+          relativePath: entry.relativePath,
+          kind: 'file',
+          device: entry.device,
+          inode: entry.inode,
+          ancestorDirectories: []
+        });
+        return true;
+      }) ?? false;
+    },
+    listOrdinaryFiles(directoryPath: string, maximumEntries: number): readonly string[] {
+      if (!Number.isSafeInteger(maximumEntries) || maximumEntries <= 0) {
+        throw new Error('Runtime State journal file census bound is invalid.');
+      }
+      const directory = existingDirectory(directoryPath);
+      if (directory === null) return Object.freeze([]);
+      const entries = scanNoFollowDirectoryTreeMetadataV1(directory, {
+        maximumEntries,
+        deadlineAtMs: performance.now() + 5_000
+      });
+      if (entries.some((entry) => entry.kind !== 'file' || entry.relativePath.includes('/'))) {
+        throw new Error('Runtime State journal directory contains foreign nested residue.');
+      }
+      return Object.freeze(entries.map((entry) => path.join(directoryPath, entry.relativePath)).sort());
     },
     replaceFsync(filePath: string, text: string): void {
       const replaced = withMutationLease(filePath, () => {

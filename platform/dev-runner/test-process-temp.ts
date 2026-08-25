@@ -9,6 +9,7 @@ import {
   assertSameNoFollowDirectoryIdentityV1,
   createExclusiveNoFollowDirectoryV1,
   deleteRetainedNoFollowEntryV1,
+  deleteRetainedNoFollowInventoryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
   physicallyContainsDirectoryChainV1,
@@ -16,6 +17,7 @@ import {
   scanNoFollowDirectoryTreeMetadataV1,
   type PhysicalDirectoryChainV1
 } from '../shared/physical-no-follow.ts';
+import { encodeSecRuntimeOpaquePathTokenV1 } from '../shared/sec-runtime-state-contract.ts';
 export interface TestProcessTempRootV1 {
   readonly processRoot: string;
   readonly tempRoot: string;
@@ -50,31 +52,7 @@ function deleteOwnedDirectoryGenerationV1(
     deadlineAtMs: performance.now() + TEST_RUNTIME_CLEANUP_SCAN_BUDGET_MS,
     maximumEntries: 100_000
   });
-  const directories = new Map(inventory
-    .filter((entry) => entry.kind === 'directory')
-    .map((entry) => [entry.relativePath, entry]));
-  for (const entry of [...inventory].sort((left, right) => {
-    const depth = (value: string): number => value.split('/').length;
-    return depth(right.relativePath) - depth(left.relativePath) ||
-      right.relativePath.localeCompare(left.relativePath);
-  })) {
-    const components = entry.relativePath.split('/');
-    components.pop();
-    const ancestorDirectories = components.map((_, index) => {
-      const relativePath = components.slice(0, index + 1).join('/');
-      const ancestor = directories.get(relativePath);
-      if (ancestor === undefined) throw new Error(`${label} cleanup inventory is incomplete.`);
-      return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
-    });
-    deleteRetainedNoFollowEntryV1({
-      root: generation.target,
-      relativePath: entry.relativePath,
-      kind: entry.kind,
-      device: entry.device,
-      inode: entry.inode,
-      ancestorDirectories
-    });
-  }
+  deleteRetainedNoFollowInventoryV1({ root: generation.target, inventory });
   const parent = generation.ancestors.at(-2);
   if (parent === undefined) throw new Error(`${label} has no retained parent.`);
   deleteRetainedNoFollowEntryV1({
@@ -255,9 +233,12 @@ export async function createTestInvocationRuntimeRootsV1(input: Readonly<{
 }>): Promise<TestInvocationRuntimeRootsV1> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const roots = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot, environment: input.environment });
-  const generationName = `run-${randomBytes(32).toString('hex')}`;
-  const stateParentPath = path.join(roots.stateRoot, 'test-invocation-runs', 'v1');
-  const cacheParentPath = path.join(roots.cacheRoot, 'test-invocation-runs', 'v1');
+  // The retained physical identity, not the presentation path, owns this
+  // generation. 128 random bits plus exclusive creation preserve collision
+  // safety without consuming the Windows descendant-path budget twice.
+  const generationName = `r-${encodeSecRuntimeOpaquePathTokenV1(randomBytes(16))}`;
+  const stateParentPath = path.join(roots.stateRoot, 't', '1');
+  const cacheParentPath = path.join(roots.cacheRoot, 't', '1');
 
   let state: PhysicalDirectoryChainV1 | null = null;
   let cache: PhysicalDirectoryChainV1 | null = null;

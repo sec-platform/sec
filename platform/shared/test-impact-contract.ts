@@ -4,6 +4,15 @@ import path from 'node:path';
 import { rawSha256 } from './canonical-primitives.ts';
 import type { CodexDevelopmentTestImpactTransitionObservationV1 } from './ci-git-changed-files.ts';
 import { uniqueSorted } from './collections.ts';
+import {
+  readNoFollowOrdinaryFileV1,
+  replaceDurableCanonicalFileV1
+} from './physical-no-follow.ts';
+import {
+  currentSecRuntimePlatformV1,
+  resolveSecRuntimeCacheLayoutV1,
+  secRuntimeStateEnvironmentV1
+} from './sec-runtime-state-contract.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
 import { governanceTestOwnershipDeclarations } from './test-impact-rules/governance.ts';
 import { pipelineTestOwnershipDeclarations } from './test-impact-rules/pipeline.ts';
@@ -407,7 +416,159 @@ type TestImpactCacheEnvelope = {
   entries: Record<string, TestModuleImportsCacheEntry>;
 };
 
-const TEST_IMPACT_CACHE_FILE = path.join(compilerRoot, '.tmp', 'test-impact-cache.json');
+/**
+ * Narrow physical capability supplied by the runtime-cache owner.
+ *
+ * The semantic TestImpact owner deliberately does not acquire filesystem
+ * authority or implement a second replacement protocol.  Production callers
+ * bind this capability to `acquireSecRuntimeCachePhysicalAuthorityV1`; test
+ * callers may provide an isolated fixture capability.  `replace` is required
+ * to perform the no-follow atomic replacement and durable readback before it
+ * returns, while `assertCurrent` revalidates the retained directory identity.
+ */
+export interface TestImpactCachePhysicalCapabilityV1 {
+  readonly read: (cacheFile: string) => Uint8Array | null;
+  readonly replace: (cacheFile: string, bytes: Uint8Array) => void;
+  readonly assertCurrent: () => void;
+}
+
+const TEST_IMPACT_CACHE_NAMESPACE_V1 = 'test-impact/v4' as const;
+let testImpactCacheFileOverride: string | null = null;
+let testImpactCacheBoundFile: string | null = null;
+let testImpactCachePhysicalCapability: TestImpactCachePhysicalCapabilityV1 | null = null;
+let testImpactCacheRepositoryBinding: string | null = null;
+
+export const TEST_IMPACT_CACHE_MAX_ENTRIES_V1 = 4_096;
+export const TEST_IMPACT_CACHE_MAX_BYTES_V1 = 4 * 1024 * 1024;
+
+/**
+ * Resolve the disposable TestImpact projection inside the one versioned SEC
+ * Runtime Cache.  The cache remains a performance projection: repository
+ * bytes and the typed cache envelope are the only semantic authorities.
+ */
+export function resolveTestImpactCacheFileV1(
+  environment: NodeJS.ProcessEnv = process.env,
+  repository?: string
+): string {
+  if (testImpactCacheFileOverride !== null) return testImpactCacheFileOverride;
+  if (testImpactCacheBoundFile !== null) return testImpactCacheBoundFile;
+  const layout = resolveSecRuntimeCacheLayoutV1({
+    platform: currentSecRuntimePlatformV1(),
+    environment: secRuntimeStateEnvironmentV1(environment),
+    repositoryRoot: compilerRoot,
+    ...(repository === undefined && testImpactCacheRepositoryBinding === null
+      ? {}
+      : { repository: repository ?? testImpactCacheRepositoryBinding! })
+  });
+  return path.join(layout.repositoryCacheRoot, TEST_IMPACT_CACHE_NAMESPACE_V1, 'current.json');
+}
+
+/** Internal sink used only by the canonical Runtime Cache binder below. */
+function configureTestImpactCachePhysicalCapabilityV1(
+  capability: TestImpactCachePhysicalCapabilityV1 | null,
+  options?: Readonly<{ repository?: string; cacheFile?: string }>
+): void {
+  const nextBoundFile = capability === null || options?.cacheFile === undefined
+    ? null
+    : path.resolve(options.cacheFile);
+  const nextRepositoryBinding = capability === null
+    ? null
+    : options?.repository ?? null;
+  const bindingChanged = testImpactCacheBoundFile !== nextBoundFile
+    || testImpactCacheRepositoryBinding !== nextRepositoryBinding;
+  testImpactCachePhysicalCapability = capability === null ? null : Object.freeze(capability);
+  testImpactCacheBoundFile = nextBoundFile;
+  testImpactCacheRepositoryBinding = nextRepositoryBinding;
+  if (bindingChanged) {
+    testModuleImportsCache.clear();
+    reverseImportMapCache = null;
+    repositoryModuleFilesCache = null;
+  }
+  persistentCacheLoaded = false;
+}
+
+/**
+ * Bind the semantic TestImpact cache to the one Runtime Cache physical owner.
+ *
+ * This is the only production adapter.  Both ordinary developer selection and
+ * trusted closeout call it before their first graph observation, so they cannot
+ * silently split into in-memory versus persistent cache behavior or invent a
+ * second replacement protocol.
+ */
+export async function bindTestImpactCachePhysicalCapabilityV1(input: Readonly<{
+  repositoryRoot: string;
+  repository?: string;
+  environment?: NodeJS.ProcessEnv;
+  cacheRoot?: string;
+}>): Promise<Readonly<{
+  cacheFile: string;
+  repositoryKey: `sha256:${string}`;
+}>> {
+  const environment = input.environment ?? process.env;
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const layout = resolveSecRuntimeCacheLayoutV1({
+    platform: currentSecRuntimePlatformV1(),
+    environment: secRuntimeStateEnvironmentV1(environment),
+    repositoryRoot,
+    ...(input.repository === undefined ? {} : { repository: input.repository })
+  });
+  if (input.cacheRoot !== undefined && path.resolve(input.cacheRoot) !== path.resolve(layout.cacheRoot)) {
+    throw new Error('TestImpact cache physical binding differs from the canonical Runtime Cache root.');
+  }
+  const cacheFile = path.resolve(resolveTestImpactCacheFileV1(environment, input.repository));
+  const cacheDirectory = path.dirname(cacheFile);
+  if (path.resolve(cacheDirectory).startsWith(`${path.resolve(layout.repositoryCacheRoot)}${path.sep}`) === false) {
+    throw new Error('TestImpact cache physical binding escapes the canonical repository cache namespace.');
+  }
+  const { acquireSecRuntimeCachePhysicalAuthorityV1 } = await import(
+    '../../tooling/sec-dev/runtime-state-authority.ts'
+  );
+  const authority = acquireSecRuntimeCachePhysicalAuthorityV1({
+    repositoryRoot,
+    cacheRoot: layout.cacheRoot,
+    requiredDirectories: [cacheDirectory]
+  });
+  const directory = authority.directory(cacheDirectory);
+  const cacheName = path.basename(cacheFile);
+  const assertTarget = (target: string): void => {
+    if (path.resolve(target) !== cacheFile) {
+      throw new Error('TestImpact cache capability target differs from the canonical cache file.');
+    }
+  };
+  authority.assertCurrent();
+  configureTestImpactCachePhysicalCapabilityV1({
+    read: (target): Uint8Array | null => {
+      assertTarget(target);
+      authority.assertCurrent();
+      return readNoFollowOrdinaryFileV1(directory, cacheName);
+    },
+    replace: (target, bytes): void => {
+      assertTarget(target);
+      authority.assertCurrent();
+      const expected = Buffer.from(bytes);
+      replaceDurableCanonicalFileV1({
+        parent: directory,
+        name: cacheName,
+        bytes: expected,
+        validate: (readback) => {
+          if (!Buffer.from(readback).equals(expected)) {
+            throw new Error('TestImpact cache capability durable readback differs.');
+          }
+        }
+      });
+      const readback = readNoFollowOrdinaryFileV1(directory, cacheName);
+      if (readback === null || !Buffer.from(readback).equals(expected)) {
+        throw new Error('TestImpact cache capability readback disappeared or differs.');
+      }
+      authority.assertCurrent();
+    },
+    assertCurrent: authority.assertCurrent
+  }, {
+    cacheFile,
+    ...(input.repository === undefined ? {} : { repository: input.repository })
+  });
+  return Object.freeze({ cacheFile, repositoryKey: layout.repositoryKey });
+}
 
 const testModuleImportsCache = new Map<string, TestModuleImportsCacheEntry>();
 let persistentCacheLoaded = false;
@@ -428,24 +589,50 @@ function isCacheEntry(value: unknown): value is TestModuleImportsCacheEntry {
     && typeof entry.mtimeMs === 'number' && typeof entry.size === 'number';
 }
 
+function currentModuleInventory(): ReadonlySet<string> {
+  return new Set(repositoryModuleFilesSync());
+}
+
+function pruneTestImpactCacheEntries(moduleFiles: ReadonlySet<string>): boolean {
+  let changed = false;
+  for (const moduleFile of testModuleImportsCache.keys()) {
+    if (!moduleFiles.has(moduleFile)) {
+      testModuleImportsCache.delete(moduleFile);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function loadPersistentTestImpactCache(): void {
   if (persistentCacheLoaded) return;
   persistentCacheLoaded = true;
-  let raw: string;
-  try {
-    raw = fs.readFileSync(TEST_IMPACT_CACHE_FILE, 'utf8');
-  } catch {
-    return; // absent cache — normal, no warning
+  const capability = testImpactCachePhysicalCapability;
+  if (capability === null) return;
+  capability.assertCurrent();
+  const currentFiles = currentModuleInventory();
+  if (pruneTestImpactCacheEntries(currentFiles)) persistentCacheDirty = true;
+  const rawBytes = capability.read(resolveTestImpactCacheFileV1());
+  if (rawBytes === null) return;
+  if (rawBytes.byteLength > TEST_IMPACT_CACHE_MAX_BYTES_V1) {
+    persistentCacheDirty = true;
+    console.warn('[test-impact] Cache envelope exceeds the bounded byte budget; rebuilding.');
+    return;
   }
+  let raw: string;
+  const cacheFile = resolveTestImpactCacheFileV1();
+  raw = Buffer.from(rawBytes).toString('utf8');
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    console.warn(`[test-impact] Cache file at ${TEST_IMPACT_CACHE_FILE} is corrupt (invalid JSON); rebuilding.`);
+    persistentCacheDirty = true;
+    console.warn(`[test-impact] Cache file at ${cacheFile} is corrupt (invalid JSON); rebuilding.`);
     return;
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    console.warn(`[test-impact] Cache file at ${TEST_IMPACT_CACHE_FILE} has unknown shape; rebuilding.`);
+    persistentCacheDirty = true;
+    console.warn(`[test-impact] Cache file at ${cacheFile} has unknown shape; rebuilding.`);
     return;
   }
   const envelope = parsed as Record<string, unknown>;
@@ -456,17 +643,28 @@ function loadPersistentTestImpactCache(): void {
     || envelope.contractRevision !== TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision
   ) {
     // Schema/parser/contract revision mismatch — discard entire cache atomically.
+    persistentCacheDirty = true;
     console.warn(`[test-impact] Cache envelope revision mismatch; rebuilding.`);
     return;
   }
   const entries = envelope.entries;
   if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    persistentCacheDirty = true;
     console.warn(`[test-impact] Cache envelope entries field is invalid; rebuilding.`);
     return;
   }
-  for (const [testFile, entry] of Object.entries(entries as Record<string, unknown>)) {
+  const entryPairs = Object.entries(entries as Record<string, unknown>).sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0);
+  if (entryPairs.length > TEST_IMPACT_CACHE_MAX_ENTRIES_V1) persistentCacheDirty = true;
+  for (const [index, [testFile, entry]] of entryPairs.entries()) {
+    if (index >= TEST_IMPACT_CACHE_MAX_ENTRIES_V1) break;
     if (!isCacheEntry(entry)) {
+      persistentCacheDirty = true;
       console.warn(`[test-impact] Cache entry for ${testFile} is invalid; skipping.`);
+      continue;
+    }
+    if (!currentFiles.has(testFile)) {
+      persistentCacheDirty = true;
       continue;
     }
     // Don't overwrite a fresh in-process entry with a persisted one.
@@ -474,6 +672,7 @@ function loadPersistentTestImpactCache(): void {
       testModuleImportsCache.set(testFile, entry);
     }
   }
+  if (pruneTestImpactCacheEntries(currentFiles)) persistentCacheDirty = true;
 }
 
 function schedulePersistentTestImpactCacheSave(): void {
@@ -482,26 +681,38 @@ function schedulePersistentTestImpactCacheSave(): void {
 
 export function flushPersistentTestImpactCache(): void {
   if (!persistentCacheDirty) return;
-  persistentCacheDirty = false;
-  try {
-    const envelope: TestImpactCacheEnvelope = {
-      schema: TEST_IMPACT_CACHE_IDENTITY_V1.schema,
-      parserRuntimeIdentity: TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity,
-      parserOptionsDigest: TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest,
-      contractRevision: TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision,
-      entries: {}
-    };
-    for (const [testFile, entry] of testModuleImportsCache) {
-      envelope.entries[testFile] = entry;
-    }
-    const dir = path.dirname(TEST_IMPACT_CACHE_FILE);
-    fs.mkdirSync(dir, { recursive: true });
-    const tmpPath = `${TEST_IMPACT_CACHE_FILE}.${process.pid}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(envelope), 'utf8');
-    fs.renameSync(tmpPath, TEST_IMPACT_CACHE_FILE);
-  } catch {
-    // Best-effort persistence — cache will be rebuilt on next run.
+  const capability = testImpactCachePhysicalCapability;
+  if (capability === null) return;
+  capability.assertCurrent();
+  if (pruneTestImpactCacheEntries(currentModuleInventory())) persistentCacheDirty = true;
+  const envelope: TestImpactCacheEnvelope = {
+    schema: TEST_IMPACT_CACHE_IDENTITY_V1.schema,
+    parserRuntimeIdentity: TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity,
+    parserOptionsDigest: TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest,
+    contractRevision: TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision,
+    entries: {}
+  };
+  const emptyEnvelopeBytes = Buffer.byteLength(JSON.stringify(envelope), 'utf8');
+  let entryBodyBytes = 0;
+  let entryCount = 0;
+  for (const testFile of [...testModuleImportsCache.keys()].sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0)) {
+    if (entryCount >= TEST_IMPACT_CACHE_MAX_ENTRIES_V1) break;
+    const entry = testModuleImportsCache.get(testFile);
+    if (entry === undefined) continue;
+    const propertyBytes = Buffer.byteLength(JSON.stringify({ [testFile]: entry }), 'utf8') - 2;
+    const projectedBytes = emptyEnvelopeBytes + entryBodyBytes
+      + (entryCount === 0 ? 0 : 1) + propertyBytes;
+    if (projectedBytes > TEST_IMPACT_CACHE_MAX_BYTES_V1) break;
+    envelope.entries[testFile] = entry;
+    entryBodyBytes += (entryCount === 0 ? 0 : 1) + propertyBytes;
+    entryCount += 1;
   }
+  const cacheFile = resolveTestImpactCacheFileV1();
+  const bytes = Buffer.from(JSON.stringify(envelope), 'utf8');
+  capability.replace(cacheFile, bytes);
+  capability.assertCurrent();
+  persistentCacheDirty = false;
 }
 
 /** Result of reading one repository module's compiler-observed imports. */
@@ -640,6 +851,9 @@ function buildReverseImportMap(
   const map = new Map<string, string[]>();
   const unresolvedModuleFiles: string[] = [];
   const moduleFiles = provider?.moduleFiles ?? repositoryModuleFilesSync();
+  if (!provider && pruneTestImpactCacheEntries(new Set(moduleFiles.map(normalizeRepoPath)))) {
+    persistentCacheDirty = true;
+  }
   const moduleFileSet = new Set(moduleFiles.map(normalizeRepoPath));
   const references: RepositoryModuleReferenceV1[] = [];
   for (const moduleFile of moduleFiles) {
@@ -761,8 +975,10 @@ export function resolveTestImpactSelectionTrustBoundary(
  * selection and architecture constraints. Consumers must not build a second
  * parser or path-resolution inventory for the same facts.
  */
-export function readRepositoryModuleGraphV1(): RepositoryModuleGraphV1 {
-  return buildReverseImportMap().graph;
+export function readRepositoryModuleGraphV1(
+  provider?: CodexDevelopmentTestImpactSourceProviderV2
+): RepositoryModuleGraphV1 {
+  return buildReverseImportMap(provider).graph;
 }
 
 export function deriveTestsForSourcesV1(
@@ -808,7 +1024,25 @@ export function hasTestImpactForFile(
 }
 
 /** @internal Reset all caches — for tests verifying persistence across processes. */
-export function __resetTestImpactCachesForTesting(): void {
+export function __resetTestImpactCachesForTesting(input?: Readonly<{
+  cacheFile: string | null;
+  physicalCapability?: TestImpactCachePhysicalCapabilityV1 | null;
+  repository?: string | null;
+}>): void {
+  if (input !== undefined) {
+    testImpactCacheFileOverride = input.cacheFile === null
+      ? null
+      : path.resolve(input.cacheFile);
+  }
+  if (input?.physicalCapability !== undefined) {
+    testImpactCachePhysicalCapability = input.physicalCapability === null
+      ? null
+      : Object.freeze(input.physicalCapability);
+    testImpactCacheBoundFile = null;
+    testImpactCacheRepositoryBinding = input.physicalCapability === null
+      ? null
+      : input.repository ?? null;
+  }
   testModuleImportsCache.clear();
   reverseImportMapCache = null;
   repositoryModuleFilesCache = null;

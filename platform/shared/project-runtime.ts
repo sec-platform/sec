@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
-import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import type { GeneratedStateWorktreeRetirementProviderV1 } from '../../tooling/sec-dev/generated-state-lifecycle.ts';
 import { loadCanonicalBunRuntimeVersion } from './bun-runtime-version.ts';
@@ -34,12 +33,14 @@ import { compilerRoot, isPathInside } from './paths.ts';
 import {
   deleteRetainedNoFollowEntryV1,
   inspectNoFollowDirectoryChainV1,
-  inspectNoFollowLinkEntryV1
+  inspectNoFollowLinkEntryV1,
+  inspectNoFollowOrdinaryFileEntryV1,
+  PhysicalNoFollowError,
+  type NoFollowDirectoryTreeEntryV1,
+  type PhysicalDirectoryIdentityV1
 } from './physical-no-follow.ts';
 import {
   buildIsolatedProcessEnvironment,
-  ensureIsolatedProcessDirectories,
-  ISOLATED_VERIFICATION_ENV_KEY,
   pathEnvKey,
   runCommand,
   type CommandResult
@@ -129,7 +130,7 @@ const COMPILER_DEPS_BINDING_FILE = '.sec-compiler-deps-binding-v4.json' as const
 export interface RuntimeDependencyInstallOptions {
   beforeCommit?: CommitFence;
   commandRunner?: typeof runCommand;
-  installMode?: 'allow' | 'offline-copy-only' | 'prebound-only';
+  installMode?: 'allow' | 'prebound-only';
   lockTimeoutMs?: number;
   now?: () => string;
   pollIntervalMs?: number;
@@ -144,6 +145,9 @@ export interface RuntimeDependencyInstallOptions {
     stage: 'binding-observed' | 'final-binding-observed'
   ) => void | Promise<void>;
   testCompilerRename?: (source: string, target: string) => Promise<void>;
+  testInstallLockReclaimHook?: (
+    stage: 'lock-observed' | 'lock-revalidated'
+  ) => void | Promise<void>;
   generatedStateLifecycle?: Readonly<{
     born(relativePath: string, operationId: string): Promise<void>;
     retired(relativePath: string, outcome: string): Promise<void>;
@@ -572,6 +576,20 @@ async function compilerDependencyGenerationBinding(
   bindingPath: string,
   identity: CompilerDependencyIdentity
 ): Promise<Readonly<CompilerDepsBinding> | null> {
+  const cacheKey = compilerDependencyGenerationCacheKey({
+    bindingPath,
+    identity,
+    nodeModulesPath,
+    root
+  });
+  const cached = compilerDependencyGenerationCache.get(cacheKey);
+  if (cached !== undefined) {
+    if (await compilerDependencySourceProofMatches(cached.proof)) {
+      cacheCompilerDependencyGeneration(cacheKey, cached);
+      return cached.binding;
+    }
+    compilerDependencyGenerationCache.delete(cacheKey);
+  }
   const binding = await readJson<CompilerDepsBinding>(bindingPath).catch(() => null);
   if (binding === null ||
     (binding.formatVersion !== 'compiler-deps-binding-v4' &&
@@ -620,7 +638,59 @@ async function compilerDependencyGenerationBinding(
     platform: identity.platform,
     runtimeMaterialization
   } satisfies CompilerDepsBinding;
-  return canonicalEquals(binding, expected) ? Object.freeze(expected) : null;
+  if (!canonicalEquals(binding, expected)) return null;
+  const canonical = Object.freeze(expected);
+  const proof = await captureCompilerDependencySourceProof({
+    binding: canonical,
+    bindingPath,
+    nodeModulesPath
+  });
+  cacheCompilerDependencyGeneration(cacheKey, Object.freeze({
+    binding: canonical,
+    bindingPath,
+    identityKey: identity.manifestHash,
+    nodeModulesPath,
+    proof,
+    root: path.resolve(root)
+  }));
+  return canonical;
+}
+
+type PriorCompilerMaterializationV1 = Readonly<{
+  packages: readonly CompilerDependencyPackageBinding[];
+  runtimeMaterialization: Readonly<RuntimeDependencyMaterializationBinding> | null;
+}>;
+
+async function priorCompilerMaterializationForSameInputs(
+  bindingPath: string,
+  identity: CompilerDependencyIdentity
+): Promise<PriorCompilerMaterializationV1 | null> {
+  const binding = await readJson<CompilerDepsBinding>(bindingPath).catch(() => null);
+  if (binding === null ||
+    (binding.formatVersion !== 'compiler-deps-binding-v4' &&
+      binding.formatVersion !== 'compiler-deps-binding-v5')) return null;
+  const legacy = binding.formatVersion === 'compiler-deps-binding-v4';
+  const expectedInstallConfigSha256 = legacy
+    ? identity.legacyInstallConfigSha256
+    : identity.installConfigSha256;
+  const expectedManifestHash = legacy ? identity.legacyManifestHash : identity.manifestHash;
+  if (binding.architecture !== identity.architecture ||
+    binding.bunExecutablePath !== identity.bunExecutablePath ||
+    binding.bunExecutableSha256 !== identity.bunExecutableSha256 ||
+    binding.bunVersion !== identity.bunVersion ||
+    binding.declaredBunVersion !== identity.declaredBunVersion ||
+    binding.dependencyManifestSha256 !== identity.dependencyManifestSha256 ||
+    binding.installConfigSha256 !== expectedInstallConfigSha256 ||
+    binding.lockSha256 !== identity.lockSha256 ||
+    binding.manifestHash !== expectedManifestHash ||
+    binding.platform !== identity.platform ||
+    !Array.isArray(binding.packages) ||
+    (binding.runtimeMaterialization !== null &&
+      !isRuntimeDependencyMaterializationBinding(binding.runtimeMaterialization))) return null;
+  return Object.freeze({
+    packages: binding.packages,
+    runtimeMaterialization: binding.runtimeMaterialization
+  });
 }
 
 async function compilerRuntimeMaterializationBinding(
@@ -1211,6 +1281,24 @@ async function runtimeDependencyTreeMatchesBinding(input: Readonly<{
   }
 }
 
+async function runtimeDependencySourceMatchesBinding(input: Readonly<{
+  expected: Readonly<RuntimeDependencyMaterializationBinding>;
+  nodeModulesPath: string;
+  root: string;
+  runtimeSpec: RuntimeDependencySpec;
+}>): Promise<boolean> {
+  try {
+    return canonicalEquals(await observeRuntimeDependencyMaterializationBinding({
+      nodeModulesPath: input.nodeModulesPath,
+      root: input.root,
+      runtimeSpec: input.runtimeSpec,
+      toolchain: input.expected.toolchain
+    }), input.expected);
+  } catch {
+    return false;
+  }
+}
+
 async function sharedDependencyAuthorityResidue(sharedDepsRoot: string): Promise<string[]> {
   const observed = await Promise.all(SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES.map(async (name) => {
     try {
@@ -1338,7 +1426,6 @@ async function assertNoSharedDependencyAuthorityResidue(sharedDepsRoot: string):
   }
 }
 
-type PhysicalTreeCopyRoot = Readonly<{ source: string; target: string }>;
 type PhysicalTreeEntryIdentity = Readonly<{
   dev: string;
   ino: string;
@@ -1346,10 +1433,29 @@ type PhysicalTreeEntryIdentity = Readonly<{
   mtimeNs: string;
   size: string;
 }>;
-type PhysicalTreeDirectorySnapshot = Readonly<
-  PhysicalTreeCopyRoot & { identity: PhysicalTreeEntryIdentity; names: readonly string[] }
->;
-type PhysicalTreeFileSnapshot = Readonly<PhysicalTreeCopyRoot & { identity: PhysicalTreeEntryIdentity }>;
+
+type CompilerDependencySourceProof = Readonly<{
+  paths: readonly Readonly<{ identity: PhysicalTreeEntryIdentity; path: string }>[];
+}>;
+type CompilerDependencyGenerationCacheEntry = Readonly<{
+  binding: Readonly<CompilerDepsBinding>;
+  bindingPath: string;
+  identityKey: string;
+  nodeModulesPath: string;
+  proof: CompilerDependencySourceProof;
+  root: string;
+}>;
+const MAX_COMPILER_DEPENDENCY_GENERATION_CACHE_ENTRIES = 2;
+const compilerDependencyGenerationCache = new Map<string, CompilerDependencyGenerationCacheEntry>();
+
+/** Preserve POSIX case-sensitive physical identity; only Windows case-folds paths. */
+export function canonicalRuntimeDependencyCachePathV1(
+  value: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  const resolved = path.resolve(value);
+  return platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved;
+}
 
 function physicalTreeEntryIdentity(
   metadata: Awaited<ReturnType<typeof fs.lstat>>
@@ -1370,6 +1476,89 @@ function physicalTreeEntryIdentity(
   });
 }
 
+function compilerDependencyGenerationCacheKey(input: Readonly<{
+  bindingPath: string;
+  identity: CompilerDependencyIdentity;
+  nodeModulesPath: string;
+  root: string;
+}>): string {
+  return [
+    canonicalRuntimeDependencyCachePathV1(input.root),
+    canonicalRuntimeDependencyCachePathV1(input.nodeModulesPath),
+    canonicalRuntimeDependencyCachePathV1(input.bindingPath),
+    input.identity.manifestHash
+  ].join('|');
+}
+
+function compilerDependencySourceProofPaths(input: Readonly<{
+  binding: Readonly<CompilerDepsBinding>;
+  bindingPath: string;
+  nodeModulesPath: string;
+}>): readonly string[] {
+  const paths = new Set<string>([path.resolve(input.bindingPath)]);
+  for (const packageBinding of input.binding.packages) {
+    const packageRoot = path.dirname(dependencyPackagePath(input.nodeModulesPath, packageBinding.name));
+    paths.add(path.join(packageRoot, 'package.json'));
+    if (packageBinding.entry !== undefined) paths.add(path.join(packageRoot, packageBinding.entry.path));
+  }
+  for (const packageBinding of input.binding.runtimeMaterialization?.packages ?? []) {
+    paths.add(path.join(
+      input.nodeModulesPath,
+      ...packageBinding.relativePath.split('/'),
+      'package.json'
+    ));
+  }
+  return Object.freeze([...paths].sort(compareCodeUnits));
+}
+
+async function captureCompilerDependencySourceProof(
+  input: Readonly<{
+    binding: Readonly<CompilerDepsBinding>;
+    bindingPath: string;
+    nodeModulesPath: string;
+  }>
+): Promise<CompilerDependencySourceProof> {
+  const paths = compilerDependencySourceProofPaths(input);
+  const entries = await Promise.all(paths.map(async (filePath) => {
+    const metadata = await fs.lstat(filePath, { bigint: true });
+    if (!metadata.isFile() || metadata.isSymbolicLink() ||
+      !sameHostPath(await fs.realpath(filePath), filePath)) {
+      throw new CompilerError('IMPORT-AUTHORITY-002', `Compiler dependency source is not one physical file: ${filePath}`);
+    }
+    return Object.freeze({ path: filePath, identity: physicalTreeEntryIdentity(metadata) });
+  }));
+  return Object.freeze({ paths: Object.freeze(entries) });
+}
+
+async function compilerDependencySourceProofMatches(
+  proof: CompilerDependencySourceProof
+): Promise<boolean> {
+  try {
+    const results = await Promise.all(proof.paths.map(async (entry) => {
+      const metadata = await fs.lstat(entry.path, { bigint: true });
+      return metadata.isFile() && !metadata.isSymbolicLink() &&
+        sameHostPath(await fs.realpath(entry.path), entry.path) &&
+        samePhysicalTreeEntryIdentity(entry.identity, physicalTreeEntryIdentity(metadata));
+    }));
+    return results.every(Boolean);
+  } catch {
+    return false;
+  }
+}
+
+function cacheCompilerDependencyGeneration(
+  key: string,
+  entry: CompilerDependencyGenerationCacheEntry
+): void {
+  compilerDependencyGenerationCache.delete(key);
+  compilerDependencyGenerationCache.set(key, entry);
+  while (compilerDependencyGenerationCache.size > MAX_COMPILER_DEPENDENCY_GENERATION_CACHE_ENTRIES) {
+    const oldest = compilerDependencyGenerationCache.keys().next().value;
+    if (oldest === undefined) break;
+    compilerDependencyGenerationCache.delete(oldest);
+  }
+}
+
 function samePhysicalTreeEntryIdentity(
   left: PhysicalTreeEntryIdentity,
   right: PhysicalTreeEntryIdentity
@@ -1378,93 +1567,7 @@ function samePhysicalTreeEntryIdentity(
     left.mtimeNs === right.mtimeNs && left.size === right.size;
 }
 
-async function settleBoundedPhysicalTreeTasks(
-  tasks: readonly (() => Promise<void>)[]
-): Promise<void> {
-  const { createConcurrencyLimit } = await import('./concurrency.ts');
-  const limit = createConcurrencyLimit(Math.max(1, Math.min(availableParallelism(), 16)));
-  const settled = await Promise.allSettled(tasks.map((task) => limit(task)));
-  const rejected = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-  if (rejected !== undefined) throw rejected.reason;
-}
-
-async function copyPhysicalTrees(input: Readonly<{
-  commitFence?: CommitFence;
-  invalidSource: (detail: 'changed' | 'reparse' | 'special') => Error;
-  roots: readonly PhysicalTreeCopyRoot[];
-  skipNestedNodeModules?: boolean;
-}>): Promise<void> {
-  const directories: PhysicalTreeDirectorySnapshot[] = [];
-  const files: PhysicalTreeFileSnapshot[] = [];
-  const visit = async (root: PhysicalTreeCopyRoot): Promise<void> => {
-    const metadata = await fs.lstat(root.source, { bigint: true });
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw input.invalidSource('reparse');
-    const names = (await fs.readdir(root.source)).sort(compareCodeUnits);
-    directories.push(Object.freeze({
-      ...root,
-      identity: physicalTreeEntryIdentity(metadata),
-      names: Object.freeze(names)
-    }));
-    for (const name of names) {
-      if (input.skipNestedNodeModules === true && name === 'node_modules') continue;
-      const child = {
-        source: path.join(root.source, name),
-        target: path.join(root.target, name)
-      };
-      const childMetadata = await fs.lstat(child.source, { bigint: true });
-      if (childMetadata.isSymbolicLink()) throw input.invalidSource('reparse');
-      if (childMetadata.isDirectory()) {
-        await visit(child);
-      } else if (childMetadata.isFile()) {
-        files.push(Object.freeze({
-          ...child,
-          identity: physicalTreeEntryIdentity(childMetadata)
-        }));
-      } else {
-        throw input.invalidSource('special');
-      }
-    }
-  };
-
-  for (const root of input.roots) await visit(root);
-  await settleBoundedPhysicalTreeTasks(directories.map((directory) => async () => {
-    await ensureDir(directory.target, input.commitFence);
-    const target = await fs.lstat(directory.target);
-    if (!target.isDirectory() || target.isSymbolicLink()) throw input.invalidSource('reparse');
-  }));
-  await settleBoundedPhysicalTreeTasks(files.map((file) => async () => {
-    await input.commitFence?.();
-    const before = await fs.lstat(file.source, { bigint: true });
-    if (!before.isFile() || before.isSymbolicLink() ||
-      !samePhysicalTreeEntryIdentity(file.identity, physicalTreeEntryIdentity(before))) {
-      throw input.invalidSource('changed');
-    }
-    await fs.copyFile(file.source, file.target);
-    const [after, target] = await Promise.all([
-      fs.lstat(file.source, { bigint: true }),
-      fs.lstat(file.target, { bigint: true })
-    ]);
-    if (!after.isFile() || after.isSymbolicLink() || !target.isFile() || target.isSymbolicLink() ||
-      !samePhysicalTreeEntryIdentity(file.identity, physicalTreeEntryIdentity(after)) ||
-      after.size !== target.size) {
-      throw input.invalidSource('changed');
-    }
-  }));
-  await settleBoundedPhysicalTreeTasks(directories.map((directory) => async () => {
-    const [after, namesAfter] = await Promise.all([
-      fs.lstat(directory.source, { bigint: true }),
-      fs.readdir(directory.source).then((names) => names.sort(compareCodeUnits))
-    ]);
-    if (!after.isDirectory() || after.isSymbolicLink() ||
-      !samePhysicalTreeEntryIdentity(directory.identity, physicalTreeEntryIdentity(after)) ||
-      JSON.stringify(namesAfter) !== JSON.stringify(directory.names)) {
-      throw input.invalidSource('changed');
-    }
-  }));
-}
-
 async function stageRuntimeDependencyProjection(input: Readonly<{
-  binding: Readonly<RuntimeDependencyMaterializationBinding>;
   commitFence: CommitFence;
   sharedDepsRoot: string;
   sourceNodeModulesPath: string;
@@ -1473,21 +1576,12 @@ async function stageRuntimeDependencyProjection(input: Readonly<{
   const stagingRoot = await fs.mkdtemp(path.join(input.sharedDepsRoot, '.runtime-generation-'));
   const nodeModulesPath = path.join(stagingRoot, 'node_modules');
   try {
-    await ensureDir(nodeModulesPath, input.commitFence);
-    await copyPhysicalTrees({
-      commitFence: input.commitFence,
-      invalidSource: (detail) => new CompilerError(
-        'RUNTIME-DEPS-002',
-        detail === 'changed'
-          ? 'Runtime dependency source changed during projection'
-          : `Runtime dependency source contains a ${detail} entry`
-      ),
-      roots: input.binding.packages.map((packageIdentity) => ({
-        source: path.join(input.sourceNodeModulesPath, ...packageIdentity.relativePath.split('/')),
-        target: path.join(nodeModulesPath, ...packageIdentity.relativePath.split('/'))
-      })),
-      skipNestedNodeModules: true
-    });
+    const physicalSource = await fs.realpath(input.sourceNodeModulesPath);
+    await input.commitFence();
+    await fs.symlink(physicalSource, nodeModulesPath, process.platform === 'win32' ? 'junction' : 'dir');
+    if (!await dependencyBridgeTargets(nodeModulesPath, physicalSource)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency locator failed exact target readback');
+    }
     return { nodeModulesPath, root: stagingRoot };
   } catch (error) {
     await fs.rm(stagingRoot, { force: true, recursive: true }).catch(() => undefined);
@@ -1498,6 +1592,7 @@ async function stageRuntimeDependencyProjection(input: Readonly<{
 async function publishRuntimeDependencyProjection(input: Readonly<{
   activeNodeModulesPath: string;
   commitFence: CommitFence;
+  expectedTarget: string;
   options: RuntimeDependencyInstallOptions;
   stagingNodeModulesPath: string;
   stagingRoot: string;
@@ -1508,27 +1603,63 @@ async function publishRuntimeDependencyProjection(input: Readonly<{
     beforeCommit: input.commitFence
   };
   let activeBackedUp = false;
+  let activeWasLink = false;
   try {
     if (await pathExists(input.activeNodeModulesPath)) {
-      await renameCompilerDependencyDirectory(
-        input.activeNodeModulesPath,
-        backupPath,
-        publishOptions
-      );
+      const activeMetadata = await fs.lstat(input.activeNodeModulesPath);
+      activeWasLink = activeMetadata.isSymbolicLink();
+      if (activeWasLink) {
+        await input.commitFence();
+        await fs.rename(input.activeNodeModulesPath, backupPath);
+      } else {
+        await renameCompilerDependencyDirectory(
+          input.activeNodeModulesPath,
+          backupPath,
+          publishOptions
+        );
+      }
       activeBackedUp = true;
     }
-    await renameCompilerDependencyDirectory(
-      input.stagingNodeModulesPath,
-      input.activeNodeModulesPath,
-      publishOptions
+    const stagedParent = inspectNoFollowDirectoryChainV1(
+      path.dirname(input.stagingNodeModulesPath),
+      'Runtime dependency staged locator parent'
+    ).target;
+    const stagedLocator = inspectNoFollowLinkEntryV1(
+      stagedParent,
+      path.basename(input.stagingNodeModulesPath)
     );
+    if (stagedLocator === null || stagedLocator.kind !== 'link') {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency staged locator is not retained');
+    }
+    await input.commitFence();
+    await fs.rename(input.stagingNodeModulesPath, input.activeNodeModulesPath);
+    const activeParent = inspectNoFollowDirectoryChainV1(
+      path.dirname(input.activeNodeModulesPath),
+      'Runtime dependency active locator parent'
+    ).target;
+    const publishedLocator = inspectNoFollowLinkEntryV1(
+      activeParent,
+      path.basename(input.activeNodeModulesPath)
+    );
+    if (publishedLocator === null || publishedLocator.kind !== 'link' ||
+      publishedLocator.device !== stagedLocator.device ||
+      publishedLocator.inode !== stagedLocator.inode ||
+      publishedLocator.size !== stagedLocator.size ||
+      publishedLocator.linkTarget !== stagedLocator.linkTarget ||
+      !await dependencyBridgeTargets(input.activeNodeModulesPath, input.expectedTarget)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency locator publish readback differs');
+    }
   } catch (error) {
     if (activeBackedUp && !(await pathExists(input.activeNodeModulesPath))) {
-      await renameCompilerDependencyDirectory(
-        backupPath,
-        input.activeNodeModulesPath,
-        publishOptions
-      ).catch(() => undefined);
+      if (activeWasLink) {
+        await fs.rename(backupPath, input.activeNodeModulesPath).catch(() => undefined);
+      } else {
+        await renameCompilerDependencyDirectory(
+          backupPath,
+          input.activeNodeModulesPath,
+          publishOptions
+        ).catch(() => undefined);
+      }
     }
     throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency projection publish failed', {
       cause: error instanceof Error ? error.message : String(error)
@@ -1553,6 +1684,7 @@ async function sharedDependencyManifestMatches(
 async function sharedDependencyGenerationReady(input: Readonly<{
   binding?: Readonly<RuntimeDependencyMaterializationBinding>;
   compilerRoot: string;
+  expectedNodeModulesTarget: string;
   manifest: unknown;
   nodeModulesPath: string;
   packagePath: string;
@@ -1565,10 +1697,12 @@ async function sharedDependencyGenerationReady(input: Readonly<{
   const binding = input.binding ?? stamp.binding;
   if (stamp.binding.revision !== binding.revision ||
     !canonicalEquals(stamp.binding, binding)) return null;
+  if (!await dependencyBridgeTargets(input.nodeModulesPath, input.expectedNodeModulesTarget)) return null;
+  const physicalNodeModulesPath = await fs.realpath(input.nodeModulesPath);
   const [treeMatches, manifestMatches, residue] = await Promise.all([
-    runtimeDependencyTreeMatchesBinding({
+    runtimeDependencySourceMatchesBinding({
       expected: binding,
-      nodeModulesPath: input.nodeModulesPath,
+      nodeModulesPath: physicalNodeModulesPath,
       root: input.compilerRoot,
       runtimeSpec: input.spec
     }),
@@ -1600,31 +1734,110 @@ function projectStampPath(projectRoot: string): string {
   return path.join(projectRoot, '.runtime-deps.stamp.json');
 }
 
+const INSTALL_LOCK_LEASE_MS = 30 * 60 * 1000;
+const LEGACY_INSTALL_LOCK_LEASE_MS = 5 * 1000;
+
 interface InstallLockOwner {
+  createdAt: string;
+  leaseExpiresAt: string;
+  pid: number;
+  token: string;
+}
+
+interface LegacyInstallLockOwner {
   createdAt: string;
   pid: number;
   token: string;
 }
 
+type ParsedInstallLockOwner = InstallLockOwner | LegacyInstallLockOwner;
+
+function validInstallLockDate(value: string): boolean {
+  return Number.isFinite(Date.parse(value));
+}
+
 function isInstallLockOwner(value: unknown): value is InstallLockOwner {
   const owner = value as Partial<InstallLockOwner> | null;
   return owner !== null && typeof owner === 'object' &&
-    typeof owner.createdAt === 'string' && Number.isSafeInteger(owner.pid) && (owner.pid ?? 0) > 0 &&
+    typeof owner.createdAt === 'string' && validInstallLockDate(owner.createdAt) &&
+    typeof owner.leaseExpiresAt === 'string' && validInstallLockDate(owner.leaseExpiresAt) &&
+    Number.isSafeInteger(owner.pid) && (owner.pid ?? 0) > 0 &&
     typeof owner.token === 'string' && owner.token.length > 0;
 }
 
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
+function isLegacyInstallLockOwner(value: unknown): value is LegacyInstallLockOwner {
+  const owner = value as Partial<LegacyInstallLockOwner> | null;
+  return owner !== null && typeof owner === 'object' &&
+    !Object.prototype.hasOwnProperty.call(owner, 'leaseExpiresAt') &&
+    typeof owner.createdAt === 'string' && validInstallLockDate(owner.createdAt) &&
+    Number.isSafeInteger(owner.pid) && (owner.pid ?? 0) > 0 &&
+    typeof owner.token === 'string' && owner.token.length > 0;
 }
 
-async function reclaimOrphanInstallLock(lockPath: string): Promise<boolean> {
+function createInstallLockOwner(createdAt = new Date().toISOString()): InstallLockOwner {
+  const createdAtMs = Date.parse(createdAt);
+  if (!Number.isFinite(createdAtMs)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Compiler install lock owner timestamp is invalid');
+  }
+  return {
+    createdAt,
+    pid: process.pid,
+    token: crypto.randomUUID(),
+    leaseExpiresAt: new Date(createdAtMs + INSTALL_LOCK_LEASE_MS).toISOString()
+  };
+}
+
+function installLockOwnerLeaseExpired(owner: ParsedInstallLockOwner, now = Date.now()): boolean {
+  const expiry = isInstallLockOwner(owner)
+    ? Date.parse(owner.leaseExpiresAt)
+    : Date.parse(owner.createdAt) + LEGACY_INSTALL_LOCK_LEASE_MS;
+  return !Number.isFinite(expiry) || expiry <= now;
+}
+
+function parseInstallLockOwnerObservation(
+  entry: NoFollowDirectoryTreeEntryV1
+): ParsedInstallLockOwner | null {
+  if (entry.kind !== 'file' || entry.bytes === null) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(entry.bytes).toString('utf8')) as unknown;
+  } catch {
+    return null;
+  }
+  if (!isInstallLockOwner(value) && !isLegacyInstallLockOwner(value)) return null;
+  return value;
+}
+
+function sameInstallLockObservation(
+  left: NoFollowDirectoryTreeEntryV1 | null,
+  right: NoFollowDirectoryTreeEntryV1 | null
+): boolean {
+  return left !== null && right !== null && left.kind === 'file' && right.kind === 'file' &&
+    left.device === right.device && left.inode === right.inode && left.size === right.size &&
+    left.bytes !== null && right.bytes !== null &&
+    Buffer.from(left.bytes).equals(Buffer.from(right.bytes));
+}
+
+async function noFollowInstallLockMtimeMs(
+  lockPath: string
+): Promise<number> {
+  // Legacy empty markers have no owner timestamp. lstat is used only for
+  // bounded age admission; the retained no-follow observation is the
+  // authority and is re-read before the destructive effect.
+  const metadata = await fs.lstat(lockPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Compiler install lock changed during legacy marker observation');
+  }
+  return metadata.mtimeMs;
+}
+
+async function reclaimOrphanInstallLock(
+  lockPath: string,
+  options: RuntimeDependencyInstallOptions
+): Promise<boolean> {
   const reclaimPath = `${lockPath}.reclaim`;
   let reclaimHandle: FileHandle | null = null;
+  const reclaimOwner = createInstallLockOwner();
   try {
     try {
       reclaimHandle = await fs.open(reclaimPath, 'wx');
@@ -1636,40 +1849,110 @@ async function reclaimOrphanInstallLock(lockPath: string): Promise<boolean> {
       }
       throw error;
     }
+    await reclaimHandle.writeFile(formatJsonFile(reclaimOwner), 'utf8');
+    await reclaimHandle.sync();
 
-    const metadata = await fs.stat(lockPath).catch(() => null);
-    if (metadata === null) return true;
-    const owner = await readJson<unknown>(lockPath).catch(() => null);
-    if (isInstallLockOwner(owner) && processIsAlive(owner.pid)) return false;
-    if (!isInstallLockOwner(owner) && Date.now() - metadata.mtimeMs < 5000) return false;
+    const lockParent = inspectNoFollowDirectoryChainV1(
+      path.dirname(lockPath),
+      'Runtime dependency install lock parent'
+    ).target;
+    const observed = inspectNoFollowOrdinaryFileEntryV1(
+      lockParent,
+      path.basename(lockPath)
+    );
+    if (observed === null) return true;
+    const owner = parseInstallLockOwnerObservation(observed);
+    const stale = owner !== null
+      ? installLockOwnerLeaseExpired(owner)
+      : Date.now() - await noFollowInstallLockMtimeMs(lockPath) >= LEGACY_INSTALL_LOCK_LEASE_MS;
+    if (!stale) return false;
 
-    const orphanPath = `${lockPath}.orphan-${crypto.randomUUID()}`;
-    try {
-      await fs.rename(lockPath, orphanPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
-      throw error;
+    await options.testInstallLockReclaimHook?.('lock-observed');
+    const confirmed = inspectNoFollowOrdinaryFileEntryV1(
+      lockParent,
+      path.basename(lockPath)
+    );
+    if (confirmed === null) return true;
+    if (!sameInstallLockObservation(observed, confirmed)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Compiler install lock changed before reclaim');
     }
-    await fs.rm(orphanPath, { force: true });
+
+    await options.testInstallLockReclaimHook?.('lock-revalidated');
+    const finalObservation = inspectNoFollowOrdinaryFileEntryV1(
+      lockParent,
+      path.basename(lockPath)
+    );
+    if (finalObservation === null) return true;
+    if (!sameInstallLockObservation(confirmed, finalObservation)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Compiler install lock changed before reclaim');
+    }
+    deleteRetainedNoFollowEntryV1({
+      root: lockParent,
+      relativePath: path.basename(lockPath),
+      kind: 'file',
+      device: finalObservation.device,
+      inode: finalObservation.inode,
+      ancestorDirectories: []
+    });
     return true;
   } finally {
     await reclaimHandle?.close().catch(() => undefined);
-    if (reclaimHandle !== null) await fs.rm(reclaimPath, { force: true }).catch(() => undefined);
+    if (reclaimHandle !== null) {
+      const parent = inspectNoFollowDirectoryChainV1(
+        path.dirname(reclaimPath),
+        'Runtime dependency reclaim marker parent'
+      ).target;
+      const current = inspectNoFollowOrdinaryFileEntryV1(parent, path.basename(reclaimPath));
+      if (current !== null && current.bytes !== null &&
+        Buffer.from(current.bytes).equals(Buffer.from(formatJsonFile(reclaimOwner)))) {
+        const confirmed = inspectNoFollowOrdinaryFileEntryV1(parent, path.basename(reclaimPath));
+        if (sameInstallLockObservation(current, confirmed)) {
+          deleteRetainedNoFollowEntryV1({
+            root: parent,
+            relativePath: current.relativePath,
+            kind: 'file',
+            device: current.device,
+            inode: current.inode,
+            ancestorDirectories: []
+          });
+        }
+      }
+    }
   }
 }
 
 async function reclaimLockIsActive(reclaimPath: string): Promise<boolean> {
-  try {
-    await fs.lstat(reclaimPath);
+  const parent = inspectNoFollowDirectoryChainV1(
+    path.dirname(reclaimPath),
+    'Runtime dependency reclaim marker parent'
+  ).target;
+  const observed = inspectNoFollowOrdinaryFileEntryV1(parent, path.basename(reclaimPath));
+  if (observed === null || observed.bytes === null) return false;
+  const owner = parseInstallLockOwnerObservation(observed);
+  if (owner !== null && !installLockOwnerLeaseExpired(owner)) return true;
+  if (owner === null &&
+    Date.now() - await noFollowInstallLockMtimeMs(reclaimPath) < LEGACY_INSTALL_LOCK_LEASE_MS) {
     return true;
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') return false;
-    if (process.platform === 'win32' && (code === 'EACCES' || code === 'EPERM')) {
-      return true;
-    }
-    throw error;
   }
+  const confirmed = inspectNoFollowOrdinaryFileEntryV1(parent, path.basename(reclaimPath));
+  if (confirmed === null) return false;
+  if (!sameInstallLockObservation(observed, confirmed)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Compiler install lock reclaim marker changed before cleanup');
+  }
+  const finalObservation = inspectNoFollowOrdinaryFileEntryV1(parent, path.basename(reclaimPath));
+  if (finalObservation === null) return false;
+  if (!sameInstallLockObservation(confirmed, finalObservation)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Compiler install lock reclaim marker changed before cleanup');
+  }
+  deleteRetainedNoFollowEntryV1({
+    root: parent,
+    relativePath: finalObservation.relativePath,
+    kind: 'file',
+    device: finalObservation.device,
+    inode: finalObservation.inode,
+    ancestorDirectories: []
+  });
+  return false;
 }
 
 async function withInstallLock<T>(
@@ -1682,6 +1965,8 @@ async function withInstallLock<T>(
   const sleep = options.sleep ?? sleepMs;
   const startTime = Date.now();
   let owner: InstallLockOwner | null = null;
+  let ownedLockParent: PhysicalDirectoryIdentityV1 | null = null;
+  let ownedLockEntry: NoFollowDirectoryTreeEntryV1 | null = null;
 
   await ensureDir(path.dirname(lockPath), options.beforeCommit);
 
@@ -1695,21 +1980,44 @@ async function withInstallLock<T>(
       }
       await options.beforeCommit?.();
       handle = await fs.open(lockPath, 'wx');
-      owner = {
-        createdAt: (options.now ?? (() => new Date().toISOString()))(),
-        pid: process.pid,
-        token: crypto.randomUUID()
-      };
+      const candidateOwner = createInstallLockOwner(
+        (options.now ?? (() => new Date().toISOString()))()
+      );
       await options.beforeCommit?.();
-      await handle.writeFile(formatJsonFile(owner), 'utf8');
+      await handle.writeFile(formatJsonFile(candidateOwner), 'utf8');
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      const lockParent = inspectNoFollowDirectoryChainV1(
+        path.dirname(lockPath),
+        'Runtime dependency install lock parent readback'
+      ).target;
+      const lockEntry = inspectNoFollowOrdinaryFileEntryV1(
+        lockParent,
+        path.basename(lockPath)
+      );
+      if (lockEntry === null || lockEntry.bytes === null ||
+        !Buffer.from(lockEntry.bytes).equals(Buffer.from(formatJsonFile(candidateOwner)))) {
+        throw new CompilerError('RUNTIME-DEPS-002', 'Compiler install lock owner publication readback changed');
+      }
+      owner = candidateOwner;
+      ownedLockParent = lockParent;
+      ownedLockEntry = lockEntry;
       break;
     } catch (error) {
       const failure = error as NodeJS.ErrnoException;
-      if (failure.code !== 'EEXIST') {
+      // Windows reports an existing exclusive-create target as EPERM/EACCES
+      // during the short hand-off window.  Those codes are contention only
+      // when the exact lock entry is present; a bare access failure must still
+      // fail closed instead of being converted into an unbounded wait.
+      const lockContention = failure.code === 'EEXIST' ||
+        (process.platform === 'win32' && (failure.code === 'EACCES' || failure.code === 'EPERM') &&
+          await pathExists(lockPath));
+      if (!lockContention) {
         throw error;
       }
 
-      if (await reclaimOrphanInstallLock(lockPath)) continue;
+      if (await reclaimOrphanInstallLock(lockPath, options)) continue;
 
       if (Date.now() - startTime > lockTimeoutMs) {
         throw new CompilerError('RUNTIME-DEPS-003', `Timed out waiting for install lock ${lockPath}`);
@@ -1727,9 +2035,21 @@ async function withInstallLock<T>(
     return await callback();
   } finally {
     await options.beforeCommit?.();
-    const currentOwner = await readJson<unknown>(lockPath).catch(() => null);
-    if (owner !== null && isInstallLockOwner(currentOwner) && currentOwner.token === owner.token) {
-      await fs.rm(lockPath, { force: true });
+    if (owner !== null && ownedLockParent !== null && ownedLockEntry !== null) {
+      const current = inspectNoFollowOrdinaryFileEntryV1(
+        ownedLockParent,
+        path.basename(lockPath)
+      );
+      if (current !== null && sameInstallLockObservation(ownedLockEntry, current)) {
+        deleteRetainedNoFollowEntryV1({
+          root: ownedLockParent,
+          relativePath: path.basename(lockPath),
+          kind: 'file',
+          device: current.device,
+          inode: current.inode,
+          ancestorDirectories: []
+        });
+      }
     }
   }
 }
@@ -1741,27 +2061,12 @@ async function runBunInstall(
   cacheDir?: string
 ): Promise<{ packageManager: 'bun'; result: CommandResult }> {
   const commandRunner = options.commandRunner ?? runCommand;
-  const isolated = options.installMode === 'offline-copy-only';
-  const isolatedWritableRoot = path.join(workingDirectory, '.isolated-process', 'dependency-install');
-  if (isolated) await ensureIsolatedProcessDirectories(isolatedWritableRoot, options.beforeCommit);
-  const isolatedConfigPath = path.join(isolatedWritableRoot, 'bunfig.toml');
-  if (isolated) await writeText(isolatedConfigPath, '# isolated runtime\n', options.beforeCommit);
   await options.beforeCommit?.();
-  const commandArgs = isolated
-    ? ['--no-env-file', `--config=${isolatedConfigPath}`, ...bunArgs]
-    : bunArgs;
-  const bunResult = await commandRunner(process.execPath, commandArgs, {
+  const bunResult = await commandRunner(process.execPath, bunArgs, {
     beforeSpawn: options.beforeCommit,
     cwd: workingDirectory,
-    env: buildEnv(cacheDir ? {
-      BUN_INSTALL_CACHE_DIR: cacheDir,
-      ...(isolated ? {
-        [ISOLATED_VERIFICATION_ENV_KEY]: '1',
-        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-      } : {})
-    } : {}, isolated ? isolatedWritableRoot : undefined),
-    signal: options.signal,
-    ...(isolated ? { envMode: 'replace' as const } : {})
+    env: buildEnv(cacheDir ? { BUN_INSTALL_CACHE_DIR: cacheDir } : {}),
+    signal: options.signal
   });
   await options.beforeCommit?.();
 
@@ -2338,25 +2643,6 @@ export async function ensurePlaywrightBrowserCacheReady(
   });
 }
 
-async function materializeIsolatedNodeModules(
-  source: string,
-  target: string,
-  commitFence?: CommitFence
-): Promise<void> {
-  await commitFence?.();
-  await fs.rm(target, { recursive: true, force: true });
-  await copyPhysicalTrees({
-    commitFence,
-    invalidSource: (detail) => new CompilerError(
-      'RUNTIME-DEPS-004',
-      detail === 'changed'
-        ? 'Preinstalled dependency tree changed during materialization'
-        : `Preinstalled dependency tree contains a ${detail} entry`
-    ),
-    roots: [{ source, target }]
-  });
-}
-
 async function dependencyBridgeTargets(
   bridgePath: string,
   expectedTarget: string
@@ -2374,28 +2660,97 @@ async function resolveProjectDependencyBridgeTarget(): Promise<string> {
   return dependencyAuthorityPaths().compilerModulesRoot;
 }
 
+type RetainedProjectDependencyBridgeV1 = Readonly<{
+  root: PhysicalDirectoryIdentityV1;
+  device: string;
+  inode: string;
+  linkTarget: string;
+}>;
+
+function retainProjectDependencyBridgeV1(
+  root: PhysicalDirectoryIdentityV1,
+  label: string
+): RetainedProjectDependencyBridgeV1 {
+  const entry = inspectNoFollowLinkEntryV1(root, 'node_modules');
+  if (entry === null || entry.linkTarget === null) {
+    throw new CompilerError('RUNTIME-DEPS-004', `${label} has no retained link identity`);
+  }
+  return Object.freeze({
+    root,
+    device: entry.device,
+    inode: entry.inode,
+    linkTarget: entry.linkTarget
+  });
+}
+
+function deleteRetainedProjectDependencyBridgeV1(
+  retained: RetainedProjectDependencyBridgeV1
+): void {
+  try {
+    deleteRetainedNoFollowEntryV1({
+      root: retained.root,
+      relativePath: 'node_modules',
+      kind: 'link',
+      device: retained.device,
+      inode: retained.inode,
+      expectedLinkTarget: retained.linkTarget,
+      ancestorDirectories: Object.freeze([])
+    });
+  } catch (error) {
+    // An already-absent operation-owned link is the only idempotent cleanup
+    // outcome.  Every replacement, retarget, foreign object, root drift or
+    // durability failure remains untouched and propagates as a typed failure.
+    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return;
+    throw error;
+  }
+}
+
 export async function withProjectDependencyBridge<T>(projectRoot: string, callback: () => Promise<T>): Promise<T> {
   const bridgePath = path.join(projectRoot, 'node_modules');
-  let createdBridge = false;
+  const root = inspectNoFollowDirectoryChainV1(
+    path.resolve(projectRoot),
+    'Project dependency bridge root'
+  ).target;
+  const expectedTarget = await resolveProjectDependencyBridgeTarget();
+  let createdBridge: RetainedProjectDependencyBridgeV1 | null = null;
 
-  if (!(await pathExists(bridgePath))) {
-    await fs.symlink(await resolveProjectDependencyBridgeTarget(), bridgePath, 'junction');
-    createdBridge = true;
+  let existingBridge: NoFollowDirectoryTreeEntryV1 | null;
+  try {
+    existingBridge = inspectNoFollowLinkEntryV1(root, 'node_modules');
+  } catch (error) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-004',
+      'Project dependency bridge is foreign or changed; refusing callback',
+      { cause: error }
+    );
+  }
+
+  if (existingBridge !== null) {
+    if (existingBridge.kind !== 'link' || existingBridge.linkTarget === null ||
+      !await dependencyBridgeTargets(bridgePath, expectedTarget) ||
+      !await hasCompleteRuntimeDeps(bridgePath)) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-004',
+        'Project dependency bridge is foreign or incomplete; refusing callback'
+      );
+    }
+  } else {
+    await fs.symlink(expectedTarget, bridgePath, 'junction');
+    createdBridge = retainProjectDependencyBridgeV1(root, 'Created project dependency bridge');
   }
 
   try {
     return await callback();
   } finally {
-    if (createdBridge) {
-      await fs.rm(bridgePath, { recursive: true, force: true });
-    }
+    if (createdBridge !== null) deleteRetainedProjectDependencyBridgeV1(createdBridge);
   }
 }
 
 async function stageCompilerDependencyGeneration(
   root: string,
   identity: CompilerDependencyIdentity,
-  options: RuntimeDependencyInstallOptions
+  options: RuntimeDependencyInstallOptions,
+  priorMaterialization: PriorCompilerMaterializationV1 | null
 ): Promise<{ binding: CompilerDepsBinding; stagingRoot: string }> {
   const stagingParent = path.join(root, '.tmp', 'dependency-installs');
   await ensureDir(stagingParent, options.beforeCommit);
@@ -2457,10 +2812,28 @@ async function stageCompilerDependencyGeneration(
       runtimeExecutable.sha256 !== identity.bunExecutableSha256) {
       throw new CompilerError('IMPORT-AUTHORITY-001', 'Bun executable changed before dependency materialization');
     }
-    await runBunInstall(stagingRoot, options, ['install', '--frozen-lockfile', '--ignore-scripts'], cacheDir);
+    await runBunInstall(stagingRoot, options, [
+      'install',
+      '--frozen-lockfile',
+      '--ignore-scripts',
+      ...(identity.platform === 'win32' ? ['--backend=copyfile'] : [])
+    ], cacheDir);
     const nodeModulesPath = path.join(stagingRoot, 'node_modules');
     const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
     const runtimeMaterialization = await compilerRuntimeMaterializationBinding(root, nodeModulesPath, identity);
+    if (priorMaterialization !== null &&
+      (!canonicalEquals(packages, priorMaterialization.packages) ||
+        !canonicalEquals(runtimeMaterialization, priorMaterialization.runtimeMaterialization))) {
+      throw new CompilerError(
+        'IMPORT-AUTHORITY-002',
+        'Identical compiler dependency inputs produced different materialized bytes',
+        {
+          actualRuntimeRevision: runtimeMaterialization?.revision ?? null,
+          expectedRuntimeRevision: priorMaterialization.runtimeMaterialization?.revision ?? null,
+          manifestHash: identity.manifestHash
+        }
+      );
+    }
     const binding = {
       architecture: identity.architecture,
       bunExecutablePath: identity.bunExecutablePath,
@@ -3292,7 +3665,16 @@ export async function ensureCompilerDepsReady(
       }
     }
 
-    const staged = await stageCompilerDependencyGeneration(root, identity, lifecycleOptions);
+    const priorMaterialization = await priorCompilerMaterializationForSameInputs(
+      bindingPath,
+      identity
+    );
+    const staged = await stageCompilerDependencyGeneration(
+      root,
+      identity,
+      lifecycleOptions,
+      priorMaterialization
+    );
     await publishCompilerDependencyGeneration(root, nodeModulesPath, staged.stagingRoot, lifecycleOptions);
     const published = await ready();
     if (published === null) {
@@ -3322,6 +3704,7 @@ export async function ensureSharedDepsReady(
     : options;
   const sharedPackagePath = path.join(sharedDepsRoot, 'package.json');
   const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
+  const compilerNodeModulesPath = dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot;
   const sharedStampPath = path.join(sharedDepsRoot, 'runtime-deps.stamp.json');
   const sharedLockPath = path.join(sharedDepsRoot, 'install.lock');
   const manifest = buildRuntimePackageManifest('shared-runtime-deps', runtimeSpec);
@@ -3337,6 +3720,7 @@ export async function ensureSharedDepsReady(
   }
   const observedGeneration = observedRoot === null ? null : await sharedDependencyGenerationReady({
     compilerRoot: compilerDependencyRoot,
+    expectedNodeModulesTarget: compilerNodeModulesPath,
     manifest,
     nodeModulesPath: sharedNodeModulesPath,
     packagePath: sharedPackagePath,
@@ -3382,6 +3766,7 @@ export async function ensureSharedDepsReady(
     const lockedGeneration = await sharedDependencyGenerationReady({
       binding,
       compilerRoot: compilerDependencyRoot,
+      expectedNodeModulesTarget: compilerReady.nodeModulesPath,
       manifest,
       nodeModulesPath: sharedNodeModulesPath,
       packagePath: sharedPackagePath,
@@ -3400,14 +3785,13 @@ export async function ensureSharedDepsReady(
     }
 
     const staged = await stageRuntimeDependencyProjection({
-      binding,
       commitFence: authorityFence,
       sharedDepsRoot,
       sourceNodeModulesPath: compilerReady.nodeModulesPath
     });
-    if (!await runtimeDependencyTreeMatchesBinding({
+    if (!await runtimeDependencySourceMatchesBinding({
       expected: binding,
-      nodeModulesPath: staged.nodeModulesPath,
+      nodeModulesPath: await fs.realpath(staged.nodeModulesPath),
       root: compilerDependencyRoot,
       runtimeSpec
     })) {
@@ -3417,6 +3801,7 @@ export async function ensureSharedDepsReady(
     await publishRuntimeDependencyProjection({
       activeNodeModulesPath: sharedNodeModulesPath,
       commitFence: authorityFence,
+      expectedTarget: compilerReady.nodeModulesPath,
       options,
       stagingNodeModulesPath: staged.nodeModulesPath,
       stagingRoot: staged.root
@@ -3437,6 +3822,7 @@ export async function ensureSharedDepsReady(
     if (await sharedDependencyGenerationReady({
       binding,
       compilerRoot: compilerDependencyRoot,
+      expectedNodeModulesTarget: compilerReady.nodeModulesPath,
       manifest,
       nodeModulesPath: sharedNodeModulesPath,
       packagePath: sharedPackagePath,
@@ -3482,28 +3868,43 @@ export async function ensureProjectDependencies(
     }
     return;
   }
-  const isolated = options.installMode === 'offline-copy-only';
   const sharedDepsRoot = path.resolve(options.sharedDepsRoot ?? defaultSharedDepsRoot());
   const compilerDependencyRoot = path.resolve(compilerRoot);
+  const expectedSourceNodeModulesPath = options.skipSharedDepsWarmup === true
+    ? dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot
+    : path.join(sharedDepsRoot, 'node_modules');
+  // Reject a foreign/replaced project entry before dependency validation or
+  // installation. Ownership of the destination is statically observable and
+  // must precede every expensive provider Effect.
+  await ensureDir(projectRoot, options.beforeCommit);
+  const projectPhysicalRoot = inspectNoFollowDirectoryChainV1(
+    path.resolve(projectRoot),
+    'Project dependency materialization root'
+  ).target;
+  let previousBridge: RetainedProjectDependencyBridgeV1 | null;
+  try {
+    const previousEntry = inspectNoFollowLinkEntryV1(projectPhysicalRoot, 'node_modules');
+    previousBridge = previousEntry === null
+      ? null
+      : retainProjectDependencyBridgeV1(projectPhysicalRoot, 'Existing project dependency bridge');
+  } catch (error) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-004',
+      'Project dependency bridge is foreign or changed; refusing destructive replacement',
+      { cause: error }
+    );
+  }
+  if (previousBridge !== null
+      && !await dependencyBridgeTargets(nodeModulesPath, expectedSourceNodeModulesPath)) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-004',
+      'Project dependency bridge targets a foreign dependency generation; refusing replacement'
+    );
+  }
   let sourceNodeModulesPath: string;
   let binding: Readonly<RuntimeDependencyMaterializationBinding>;
 
-  if (isolated) {
-    const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
-    sourceNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
-    if (sharedStamp === null || !await runtimeDependencyTreeMatchesBinding({
-      expected: sharedStamp.binding,
-      nodeModulesPath: sourceNodeModulesPath,
-      root: compilerDependencyRoot,
-      runtimeSpec
-    })) {
-      throw new CompilerError(
-        'RUNTIME-DEPS-004',
-        'Canonical shared dependency projection is unavailable for isolated verification'
-      );
-    }
-    binding = sharedStamp.binding;
-  } else if (options.skipSharedDepsWarmup === true) {
+  if (options.skipSharedDepsWarmup === true) {
     const compilerIdentity = await compilerDependencyIdentity(compilerDependencyRoot);
     sourceNodeModulesPath = dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot;
     const compilerBindingPath = path.join(sourceNodeModulesPath, COMPILER_DEPS_BINDING_FILE);
@@ -3529,37 +3930,37 @@ export async function ensureProjectDependencies(
   const cacheReady = !options.rematerialize &&
     currentStamp?.binding.revision === binding.revision &&
     canonicalEquals(currentStamp.binding, binding) &&
-    (isolated
-      ? await runtimeDependencyTreeMatchesBinding({
-        expected: binding,
-        nodeModulesPath,
-        root: compilerDependencyRoot,
-        runtimeSpec
-      })
-      : await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath));
+    await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath);
   await options.beforeCommit?.();
   if (cacheReady) {
     return;
   }
 
-  // Minimal workspace templates intentionally defer the project scaffold; the
-  // dependency bridge is still a physical surface this operation owns, so its
-  // parent directory must exist before materialization.
-  await ensureDir(projectRoot, options.beforeCommit);
-  if (await pathExists(nodeModulesPath)) {
+  if (previousBridge !== null) {
+    if (!await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath)) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-004',
+        'Project dependency bridge targets a foreign dependency generation; refusing replacement'
+      );
+    }
     await options.beforeCommit?.();
-    await fs.rm(nodeModulesPath, { recursive: true, force: true });
+    deleteRetainedProjectDependencyBridgeV1(previousBridge);
+  } else if (inspectNoFollowLinkEntryV1(projectPhysicalRoot, 'node_modules') !== null) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-004',
+      'Project dependency bridge appeared after admission; refusing replacement'
+    );
   }
 
-  if (isolated) {
-    await materializeIsolatedNodeModules(sourceNodeModulesPath, nodeModulesPath, options.beforeCommit);
-    if (!await runtimeDependencyTreeMatchesBinding({
-      expected: binding,
-      nodeModulesPath,
-      root: compilerDependencyRoot,
-      runtimeSpec
-    })) {
-      throw new CompilerError('RUNTIME-DEPS-004', 'Isolated dependency projection failed exact readback');
+  await options.beforeCommit?.();
+  await fs.symlink(sourceNodeModulesPath, nodeModulesPath, 'junction');
+  const createdBridge = retainProjectDependencyBridgeV1(
+    projectPhysicalRoot,
+    'Published project dependency bridge'
+  );
+  try {
+    if (!await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath)) {
+      throw new CompilerError('RUNTIME-DEPS-004', 'Project dependency bridge failed exact target readback');
     }
     await writeRuntimeDepsStamp(stampPath, {
       binding,
@@ -3568,19 +3969,20 @@ export async function ensureProjectDependencies(
       packageManager: 'bun',
       installedAt: (options.now ?? (() => new Date().toISOString()))()
     }, options.beforeCommit);
-    return;
+    const readback = inspectNoFollowLinkEntryV1(projectPhysicalRoot, 'node_modules');
+    if (readback === null || readback.device !== createdBridge.device || readback.inode !== createdBridge.inode
+        || readback.linkTarget !== createdBridge.linkTarget) {
+      throw new CompilerError('RUNTIME-DEPS-004', 'Project dependency bridge identity changed before commit readback');
+    }
+  } catch (error) {
+    try {
+      deleteRetainedProjectDependencyBridgeV1(createdBridge);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Project dependency bridge publication failed and its exact locator was replaced; replacement preserved'
+      );
+    }
+    throw error;
   }
-
-  await options.beforeCommit?.();
-  await fs.symlink(sourceNodeModulesPath, nodeModulesPath, 'junction');
-  if (!await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath)) {
-    throw new CompilerError('RUNTIME-DEPS-004', 'Project dependency bridge failed exact target readback');
-  }
-  await writeRuntimeDepsStamp(stampPath, {
-    binding,
-    formatVersion: 'runtime-deps-stamp-v3',
-    manifestHash: runtimeSpec.manifestHash,
-    packageManager: 'bun',
-    installedAt: (options.now ?? (() => new Date().toISOString()))()
-  }, options.beforeCommit);
 }

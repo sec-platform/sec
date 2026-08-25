@@ -19,6 +19,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { createVerificationActionCallbackEffectProviderV1 } from '../../platform/dev-runner/verification-action-executor.ts';
 import {
   CodexDevelopmentAssertVerificationActionTerminalArtifactV2,
   CodexDevelopmentAssertVerificationEvidenceV4,
@@ -46,13 +47,16 @@ import {
   buildCiVerificationActionPlanV1,
   CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
   ciVerificationGateStepV1,
+  createCiVerificationLocalExecutionEnvironmentV2,
   type CiVerificationActionCandidateV1,
   type CiVerificationActionPlanClosureV1,
   type CiVerificationProducerGateV1
 } from '../../platform/shared/verification-action-ci-contract.ts';
 import {
+  createVerificationActionTerminalV2,
   encodeVerificationActionDataV2,
-  type VerificationActionKeyDigest
+  type VerificationActionKeyDigest,
+  type VerificationActionKeyV2
 } from '../../platform/shared/verification-action-contract.ts';
 import {
   createVerificationActionProviderStartMarkerV2,
@@ -95,7 +99,8 @@ import {
   CodexDevelopmentHostedSutCapabilityAssertionV1,
   CodexDevelopmentInspectHostedActionArchiveInventoryV3,
   CodexDevelopmentInspectHostedActionArchiveV2,
-  CodexDevelopmentMaterializeTrustedBootstrapArchiveV3,
+  CodexDevelopmentMaterializeDependencyCacheArchiveV1,
+  CodexDevelopmentMaterializeTrustedBootstrapCandidateArchiveV1,
   CodexDevelopmentProbeHostedSutSandboxCapabilityV1,
   CodexDevelopmentRunBoundedDependencyMaterializationV1,
   CodexDevelopmentTrustedBootstrapSutHarnessV1,
@@ -113,11 +118,12 @@ import {
   type VerificationSessionHostedRequestV1
 } from '../../scripts/codex/verification-session-runtime.ts';
 
-const HEAD = '1'.repeat(40);
-const TREE = '2'.repeat(40);
-const BASE = '3'.repeat(40);
-const BASE_TREE = '4'.repeat(40);
-const MANIFEST_PATH = 'docs/work-packages/exact-verification-v1.md';
+const staticAuthorityRepositoryRoot = path.resolve(import.meta.dir, '..', '..');
+const HEAD = gitFixture(staticAuthorityRepositoryRoot, ['rev-parse', 'HEAD']);
+const TREE = gitFixture(staticAuthorityRepositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+const BASE = gitFixture(staticAuthorityRepositoryRoot, ['rev-parse', 'HEAD^']);
+const BASE_TREE = gitFixture(staticAuthorityRepositoryRoot, ['rev-parse', `${BASE}^{tree}`]);
+const MANIFEST_PATH = 'docs/work-packages/development-critical-path-spine-v1.md';
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
 function gitFixture(root: string, args: readonly string[]): string {
@@ -135,6 +141,11 @@ const digest = (value: string): VerificationActionKeyDigest =>
 
 const DEPENDENCY_CLOSURE = digest('6');
 const GIT_CLOSURE = digest('7');
+const LOCAL_EXECUTION_ENVIRONMENT = createCiVerificationLocalExecutionEnvironmentV2({
+  os: process.platform,
+  arch: process.arch,
+  bunVersion: Bun.version
+});
 
 function bytesDigest(value: string | Buffer): VerificationActionKeyDigest {
   return `sha256:${createHash('sha256').update(value).digest('hex')}` as VerificationActionKeyDigest;
@@ -158,7 +169,8 @@ function sandboxObservation(
     stdoutBytesObserved: Buffer.byteLength(failureTail),
     stderrBytesObserved: 0,
     outputTruncated: options.truncated ?? false,
-    commandStarted: options.started ?? true
+    commandStarted: options.started ?? true,
+    termination: options.started === false ? 'transport-failed' : 'completed'
   });
 }
 
@@ -185,7 +197,7 @@ function sandboxReceipt(
       teardownCommandStarted: status !== 'invalidated',
       teardownExitCode: status === 'invalidated' ? null : 0,
       residueMarkerObserved: status !== 'invalidated',
-      cgroupEmpty: settled,
+      sandboxRootAbsent: settled,
       residueReadbackDigest: digest('0'),
       diagnostic: status === 'passed' || status === 'failed' ? null
         : status === 'unsupported' ? 'unshare: operation not permitted' : 'capability observation lost'
@@ -222,9 +234,9 @@ function sandboxReceipt(
       boundedFailureTailDigest: digest('0')
     }),
     reap: Object.freeze({
-      namespacePid1Exited: executed, killChildEnabled: true, unshareProcessClosed: settled
+      supervisorExitObserved: executed, killChildPolicyBound: true, supervisorClosed: settled
     }),
-    residue: Object.freeze({ cgroupEmpty: settled, hostReadbackDigest: digest('0') }),
+    residue: Object.freeze({ sandboxRootAbsent: settled, hostReadbackDigest: digest('0') }),
     diagnostic: status === 'passed' ? null : status
   });
   return Object.freeze({
@@ -246,37 +258,30 @@ const hostedProducer: VerificationActionProviderOriginV2 = Object.freeze({
   sourceEvent: 'repository_dispatch'
 });
 
-function manifestSource(): string {
-  return `---
-schema: codex-development-work-package-v1
-id: exact-verification-v1
-tracking: none
-base: "${BASE}"
-manifestState: frozen
-requiredProfile: quick
-ciRevision: ci-verification-v19
-tasks:
-  - id: exact-verification
-    owner: verification-writer
-    ownedPaths:
-      - scripts/ci-verification.ts
-forbiddenPaths:
-  - platform/compiler/
-acceptance:
-  - exact-verification
-tests:
-  - tests/unit/ci-verification-execution.test.ts
----
-
-# Exact Verification
-`;
+function exactTrackedBlob(commitSha: string, repositoryPath: string) {
+  const entry = spawnSync('git', ['-C', staticAuthorityRepositoryRoot, 'ls-tree', commitSha, '--', repositoryPath], {
+    encoding: 'utf8', windowsHide: true, timeout: 30_000
+  });
+  const match = entry.status === 0
+    ? /^(100644|100755) blob ([0-9a-f]{40,64})\t/u.exec(entry.stdout.trim())
+    : null;
+  if (match === null) throw new Error(`Exact test input is unavailable: ${commitSha}:${repositoryPath}.`);
+  const blob = spawnSync('git', ['-C', staticAuthorityRepositoryRoot, 'cat-file', 'blob', match[2]!], {
+    encoding: null, windowsHide: true, timeout: 30_000
+  });
+  if (blob.status !== 0 || !Buffer.isBuffer(blob.stdout)) {
+    throw new Error(`Exact test input bytes are unavailable: ${commitSha}:${repositoryPath}.`);
+  }
+  return Object.freeze({
+    blobSha: match[2]!,
+    bytes: new Uint8Array(blob.stdout),
+    mode: match[1] as '100644' | '100755',
+    type: 'blob' as const
+  });
 }
 
 function exactManifest() {
-  return {
-    blobSha: '5'.repeat(40), bytes: new TextEncoder().encode(manifestSource()),
-    mode: '100644' as const, type: 'blob' as const
-  };
+  return exactTrackedBlob(HEAD, MANIFEST_PATH);
 }
 
 function clock(): () => Date {
@@ -292,6 +297,33 @@ function revisions(ref: string): string | null {
   return null;
 }
 
+function testEffectProvider(
+  execute: (action: VerificationActionKeyV2) => Promise<{
+    code: number;
+    rawOutputDigest: `sha256:${string}`;
+    failureTail: string;
+  }> | {
+    code: number;
+    rawOutputDigest: `sha256:${string}`;
+    failureTail: string;
+  } = () => ({ code: 0, rawOutputDigest: RAW, failureTail: '' })
+) {
+  return createVerificationActionCallbackEffectProviderV1({
+    providerRevision: LOCAL_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
+    execute: async ({ action }) => {
+      const result = await execute(action);
+      return {
+        terminal: createVerificationActionTerminalV2({
+          status: result.code === 0 ? 'passed' : 'failed',
+          reasonCode: result.code === 0 ? 'executed-success' : 'executed-failure',
+          resultDigest: result.rawOutputDigest
+        }),
+        evidenceRefs: [`test://ci-verification/${result.rawOutputDigest}`]
+      };
+    }
+  });
+}
+
 function baseOptions(root: string) {
   return {
     argv: ['--profile', 'quick', '--expected-head', HEAD],
@@ -302,11 +334,15 @@ function baseOptions(root: string) {
     },
     now: clock(),
     repositoryRoot: root,
+    runtimeStateRepositoryRoot: root,
+    staticAuthorityRepositoryRoot,
+    physicalExecutionRepositoryRoot: root,
     gitRevision: revisions,
     trackedTreeIsClean: () => true,
     changedFiles: () => ['platform/orchestrator.ts'],
-    readExactGitBlob: () => exactManifest(),
-    runGate: async () => ({ code: 0, rawOutputDigest: RAW, failureTail: '' })
+    readExactGitBlob: ({ commitSha, repositoryPath }: { commitSha: string; repositoryPath: string }) =>
+      exactTrackedBlob(commitSha, repositoryPath),
+    effectProvider: testEffectProvider()
   };
 }
 
@@ -742,10 +778,10 @@ test('CI runner executes every ordinary gate through Action and publishes only V
     const calls: string[] = [];
     const code = await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      runGate: async (gate) => {
-        calls.push(gate.id);
+      effectProvider: testEffectProvider(async (action) => {
+        calls.push(action.operation.identity);
         return { code: 0, rawOutputDigest: RAW, failureTail: '' };
-      },
+      }),
       writeEvidenceV4: (_file, value) => { evidence = value; }
     });
     expect(code).toBe(0);
@@ -817,10 +853,10 @@ test('formal hosted mode fails closed before physical execution without complete
     const code = await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
       env: { ...baseOptions(root).env, SEC_FORMAL_HOSTED_MODE: '1' },
-      runGate: async () => {
+      effectProvider: testEffectProvider(async () => {
         spawns += 1;
         return { code: 0, rawOutputDigest: RAW, failureTail: '' };
-      },
+      }),
       writeEvidenceV4: () => { writes += 1; }
     });
     expect(code).toBe(1);
@@ -831,57 +867,63 @@ test('formal hosted mode fails closed before physical execution without complete
   }
 });
 
-test('Action journal reuse is not Evidence without an independent durable result resolver', async () => {
+test('durably published terminal is independently observed across provider instances without replay', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-reuse-'));
   try {
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
+      effectProvider: testEffectProvider(async () => ({
+        code: 0, rawOutputDigest: RAW, failureTail: ''
+      })),
       writeEvidenceV4: () => undefined
     })).toBe(0);
     let physical = 0;
     let writes = 0;
+    let reused: CodexDevelopmentVerificationEvidenceV4 | null = null;
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      runGate: async () => {
+      effectProvider: testEffectProvider(async () => {
         physical += 1;
         return { code: 0, rawOutputDigest: RAW, failureTail: '' };
-      },
-      writeEvidenceV4: () => { writes += 1; }
-    })).toBe(1);
+      }),
+      writeEvidenceV4: (_file, value) => { writes += 1; reused = value; }
+    })).toBe(0);
     expect(physical).toBe(0);
-    expect(writes).toBe(0);
+    expect(writes).toBe(1);
+    const observation = reused as unknown as CodexDevelopmentVerificationEvidenceV4;
+    expect(observation.status).toBe('passed');
+    expect(observation.gates.every(({ result }) =>
+      result.status === 'passed' && result.disposition === 'reused' && result.evidenceRefs.length > 0
+    )).toBe(true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-});
+}, 60_000);
 
 test('durable known failure reuse remains failed and never executes or promotes to PASS', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-known-failure-'));
   try {
+    let physical = 0;
+    const provider = testEffectProvider(async () => {
+      physical += 1;
+      return { code: 1, rawOutputDigest: RAW, failureTail: 'known failure' };
+    });
     let first: CodexDevelopmentVerificationEvidenceV4 | null = null;
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      runGate: async () => ({ code: 1, rawOutputDigest: RAW, failureTail: 'known failure' }),
+      effectProvider: provider,
       writeEvidenceV4: (_file, value) => { first = value; }
     })).toBe(1);
     const terminal = first as unknown as CodexDevelopmentVerificationEvidenceV4;
     expect(terminal.status).toBe('failed');
-    const byActionKey = new Map(terminal.gates.map((gate) => [gate.action.actionKey, gate.result]));
-    let physical = 0;
+    expect(physical).toBe(1);
     let reused: CodexDevelopmentVerificationEvidenceV4 | null = null;
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      runGate: async () => {
-        physical += 1;
-        return { code: 0, rawOutputDigest: RAW, failureTail: '' };
-      },
-      readDurableActionResult: (actionKey) => {
-        const result = byActionKey.get(actionKey);
-        return result === undefined ? null : { result, evidenceRefs: ['artifact://known-failure'] };
-      },
+      effectProvider: provider,
       writeEvidenceV4: (_file, value) => { reused = value; }
     })).toBe(1);
-    expect(physical).toBe(0);
+    expect(physical).toBe(1);
     const second = reused as unknown as CodexDevelopmentVerificationEvidenceV4;
     expect(second.status).toBe('failed');
     expect(second.gates[0]!.result).toMatchObject({ status: 'failed', disposition: 'reused' });
@@ -1088,7 +1130,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
   }
 });
 
-test('sandbox command plan proves cgroup, namespace, private-root, uid, capability, fd and output boundaries', () => {
+test('sandbox command plan binds resource, namespace, private-root, uid, capability, fd and output boundaries', () => {
   const resolution = hostedResolution();
   const ticket = hostedTicket(resolution);
   const memberIndex = resolution.actionPlanClosure.actions.findIndex(
@@ -1128,28 +1170,47 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   });
   expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(plan)).not.toThrow();
   expect(plan.command).toBe('/usr/bin/unshare');
-  const encoded = JSON.stringify(plan.argv);
-  for (const invariant of [
-    '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-    '/usr/sbin/chroot', 'mount -t proc',
-    'copy_runtime /usr/bin/bash /usr/bin/bash', 'copy_runtime /usr/bin/tar /usr/bin/tar',
-    'runtime-binary-closure',
-    '/authenticated-input/prepared-candidate.tar', '/usr/bin/setpriv', '--no-new-privs',
-    '--bounding-set=-all', '/usr/bin/prlimit', '/usr/bin/env -i',
-    '/proc/self/fd/3', '/usr/bin/cat --', '$candidate_archive', '/usr/bin/sha256sum',
-    'for fd_path in /proc/self/fd/*', 'git -C /workspace init'
-  ]) expect(encoded).toContain(invariant);
-  for (const forbidden of [
-    'GITHUB_OUTPUT', 'GH_TOKEN', '/host/output', '/var/run/docker.sock', '/run/docker.sock',
-    '/home/runner/work', 'RUNNER_TEMP', 'verification-action-raw-result.json',
-    'mount --bind /usr', '/usr/bin/sudo', '/usr/bin/systemd-run'
-  ]) expect(encoded).not.toContain(forbidden);
+  expect(plan.argv.slice(0, 7)).toEqual([
+    '--mount', '--pid', '--fork', '--kill-child=KILL', '--net', '/usr/bin/bash', '-ceu'
+  ]);
+  expect(plan.rendererBindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(plan.operations.filter((operation) => operation.kind === 'retained-input-bind')).toEqual([
+    {
+      kind: 'retained-input-bind',
+      role: 'candidate',
+      childDescriptor: 3,
+      childPath: '/proc/self/fd/3',
+      targetPath: '/authenticated-input/prepared-candidate.tar',
+      readOnly: true,
+      mountFlags: ['bind', 'ro', 'nosuid', 'nodev', 'noexec']
+    }
+  ]);
+  expect(plan.operations.at(-1)).toEqual({
+    kind: 'exact-residue-cleanup',
+    rootKind: 'sandbox-unit',
+    parentPath: '/tmp',
+    targetIdentity: 'unit-name-bound',
+    noFollow: true,
+    absenceReadback: true,
+    trigger: 'finally'
+  });
+  const driftedArgv = [...plan.argv];
+  driftedArgv[7] = driftedArgv[7]!.replace(/rmdir --/u, 'true # cleanup removed');
+  const { planDigest: _planDigest, ...planWithoutDigest } = plan;
+  const driftedWithoutDigest = { ...planWithoutDigest, argv: driftedArgv };
+  const driftedPlan = {
+    ...driftedWithoutDigest,
+    planDigest: CodexDevelopmentVerificationDigest(driftedWithoutDigest)
+  } as typeof plan;
+  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(driftedPlan))
+    .toThrow(/canonical typed-operation renderer projection/);
   expect(plan.candidateEnvironmentNames).toEqual(
     executionAuthorization.physicalCommand.fixedSandboxEnvironment.map((entry) => entry.name)
   );
   const bootstrapPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1({
     bootstrapDigest: digest('b'),
     candidateArchiveDigest: digest('a'),
+    dependencyArchiveDigest: digest('c'),
     bunExecutable: path.resolve('/trusted/tool/bun'),
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
@@ -1165,7 +1226,9 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(bootstrapPlan.executionAuthorizationDigest).toBeNull();
   expect(bootstrapPlan.physicalCommandProjectionDigest).toBeNull();
   expect(bootstrapPlan.argv.at(-1)).toBe(CodexDevelopmentTrustedBootstrapSutHarnessV1);
-  expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
+  expect(bootstrapPlan.operations.filter((operation) => operation.kind === 'retained-input-bind')
+    .map(({ role }) => role)).toEqual(['candidate', 'dependency']);
+  expect(bootstrapPlan.rendererBindingDigest).not.toBe(plan.rendererBindingDigest);
 });
 
 test('Linux retained archive descriptor defeats pathname ABA before private sandbox copy', () => {
@@ -1270,7 +1333,7 @@ test('capability probe detaches its deliberate residue child for trusted teardow
       return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
     }
   });
-  expect(observation).toMatchObject({ state: 'supported', cgroupEmpty: true });
+  expect(observation).toMatchObject({ state: 'supported', sandboxRootAbsent: true });
 
   const assertion = CodexDevelopmentHostedSutCapabilityAssertionV1;
   const spawnOffset = assertion.indexOf('const descendant = spawn');
@@ -1396,7 +1459,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       expectedRawResultDigest: ambiguous.rawResultDigest, producer: hostedProducer
     });
     expect(ambiguousTerminal.result).toMatchObject({ status: 'invalidated', disposition: 'not-executed' });
-    expect(ambiguous.sandboxReceipt.residue.cgroupEmpty).toBe(false);
+    expect(ambiguous.sandboxReceipt.residue.sandboxRootAbsent).toBe(false);
     expect(executions).toBe(0);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1644,24 +1707,35 @@ test('linux retained bootstrap archive relocates dependency links without mutati
     writeFileSync(collision, 'foreign-name-preserved\n');
     symlinkSync(target, link);
     const before = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(dependencyRoot);
-    const archive = CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({
+    const candidateArchive = CodexDevelopmentMaterializeTrustedBootstrapCandidateArchiveV1({
       candidateRoot,
-      dependencySnapshot: before,
       outputDirectory
     });
-    const inventory = CodexDevelopmentInspectHostedActionArchiveInventoryV3(archive);
+    mkdirSync(path.join(outputDirectory, 'dependency-cache'), { recursive: true });
+    const dependencyArchive = CodexDevelopmentMaterializeDependencyCacheArchiveV1({
+      dependencySnapshot: before,
+      outputDirectory: path.join(outputDirectory, 'dependency-cache')
+    });
+    const candidateInventory = CodexDevelopmentInspectHostedActionArchiveInventoryV3(candidateArchive);
+    const dependencyInventory = CodexDevelopmentInspectHostedActionArchiveInventoryV3(dependencyArchive);
+    expect(candidateInventory.entries.some((entry) => entry.path === 'node_modules' ||
+      entry.path.startsWith('node_modules/'))).toBe(false);
     const after = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(dependencyRoot);
     expect(CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
-      before, after, archiveEntries: inventory.entries
+      before, after, archiveEntries: dependencyInventory.entries
     }).linksProjected).toBe(1);
     expect(readlinkSync(link, 'utf8')).toBe(target);
     expect(readFileSync(collision, 'utf8')).toBe('foreign-name-preserved\n');
 
     renameSync(dependencyRoot, retainedSource);
-    const extracted = spawnSync('/usr/bin/tar', ['-xf', archive, '-C', extractedRoot], {
+    const extracted = spawnSync('/usr/bin/tar', ['-xf', candidateArchive, '-C', extractedRoot], {
       encoding: 'utf8', windowsHide: true, timeout: 30_000
     });
     expect(extracted.status).toBe(0);
+    const extractedDependencies = spawnSync('/usr/bin/tar', ['-xf', dependencyArchive, '-C', extractedRoot], {
+      encoding: 'utf8', windowsHide: true, timeout: 30_000
+    });
+    expect(extractedDependencies.status).toBe(0);
     const extractedLink = path.join(extractedRoot, 'node_modules', 'pkg', 'link.txt');
     const extractedTarget = path.join(extractedRoot, 'node_modules', 'pkg', 'target.txt');
     expect(readlinkSync(extractedLink, 'utf8')).toBe('target.txt');

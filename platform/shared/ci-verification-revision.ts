@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1,
   type SecLinuxVerificationEnvironmentAuthorityV1
-} from './sec-linux-verification-environment.ts';
+} from '../runtime/environments/sec-linux-verification-v1/authority.ts';
 
 export const CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION = 'ci-verification-v8' as const;
 

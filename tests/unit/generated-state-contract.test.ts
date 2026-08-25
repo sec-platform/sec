@@ -2,11 +2,16 @@ import { expect, test } from 'bun:test';
 
 import {
   GENERATED_STATE_REGISTRY_V1,
+  createGeneratedStateResourceReceiptV1,
+  createGeneratedStateResourceRegistrationV1,
   createGeneratedStateWorktreeRetirementV1,
   generatedStateCleanupAllowedV1,
+  generatedStateDigestV1,
   generatedStateDomainProviderMaterialDigestV1,
+  generatedStateResourceReclaimabilityV1,
   generatedStateRuleForPathV1,
   parseGeneratedStateRegistryV1,
+  parseGeneratedStateResourceRegistrationV1,
   type GeneratedStateInventoryEntryV1
 } from '../../platform/shared/generated-state-contract.ts';
 
@@ -31,6 +36,36 @@ function entry(
   });
 }
 
+function terminalResourceRegistration(
+  active: ReturnType<typeof createGeneratedStateResourceRegistrationV1>
+) {
+  const { registrationDigest: _registrationDigest, ...activeMaterial } = active;
+  const outcomeDigest = generatedStateDigestV1({
+    schema: 'sec-generated-state-resource-terminal-outcome-v1',
+    resourceId: active.resourceId,
+    outcome: 'contract-test-terminal'
+  });
+  const material = {
+    ...activeMaterial,
+    lease: { ...active.lease, state: 'released' as const },
+    terminalObligation: {
+      state: 'satisfied' as const,
+      settlementRef: generatedStateDigestV1({
+        schema: 'sec-generated-state-resource-terminal-v1',
+        resourceId: active.resourceId,
+        registrationDigest: active.registrationDigest,
+        outcomeDigest
+      }),
+      outcomeDigest
+    },
+    phase: 'operational-terminal' as const
+  };
+  return parseGeneratedStateResourceRegistrationV1({
+    ...material,
+    registrationDigest: generatedStateDigestV1(material)
+  });
+}
+
 test('registry maps stable producer roots without a catch-all tmp rule', () => {
   expect(generatedStateRuleForPathV1('node_modules')?.id).toBe('compiler-node-modules');
   expect(generatedStateRuleForPathV1('.tmp/dependency-installs/c.staging-real')?.id)
@@ -41,14 +76,22 @@ test('registry maps stable producer roots without a catch-all tmp rule', () => {
     physicalForms: [{ settlementEffect: 'domain-owner-only' }]
   });
   expect(generatedStateRuleForPathV1('.tmp/import-candidate-snapshots')).toBeNull();
+  expect(generatedStateRuleForPathV1('.sec/import-authoring-freeze')).toMatchObject({
+    id: 'import-authoring-freeze',
+    producer: 'import-authoring-freeze',
+    reconstruction: 'producer-recompute'
+  });
   expect(generatedStateRuleForPathV1(
     '.tmp/import-candidate-snapshots/snapshot-operation-1'
   )?.id).toBe('import-candidate-snapshots');
-  expect(generatedStateRuleForPathV1('.tmp/test-impact-cache.json')).toMatchObject({
-    id: 'test-impact-cache',
-    registration: 'domain-owned',
-    physicalForms: [{ settlementEffect: 'domain-owner-only' }]
+  expect(generatedStateRuleForPathV1('.tmp/test-impact-cache.json')).toBeNull();
+  expect(generatedStateRuleForPathV1('.shared-deps')).toMatchObject({
+    id: 'shared-dependency-cache',
+    owner: 'project-runtime',
+    stateClass: 'external-provider-cache',
+    registration: 'required-at-birth'
   });
+  expect(generatedStateRuleForPathV1('.shared-deps/test-impact-cache.json')).toBeNull();
   expect(generatedStateRuleForPathV1('.tmp/typecheck')).toBeNull();
   expect(generatedStateRuleForPathV1('.tmp/reachability-census.json')).toBeNull();
   expect(generatedStateRuleForPathV1('.tmp/unregistered-surprise')).toBeNull();
@@ -154,4 +197,141 @@ test('domain worktree retirement receipts bind provider bytes and require no ret
     ...receipt,
     entries: [{ ...domainEntry, providerReceiptBytes: '{"outcome":"replaced"}' }]
   })).toThrow(/receipt digest is invalid/u);
+});
+
+test('resource birth binds one owner lease, physical identity and consumer-zero retention', () => {
+  const rule = GENERATED_STATE_REGISTRY_V1.rules.find(({ id }) => id === 'compiler-dependency-staging');
+  if (rule === undefined) throw new Error('generated-state fixture rule is absent.');
+  const registration = createGeneratedStateResourceRegistrationV1({
+    resourceId: `sha256:${'1'.repeat(64)}`,
+    repositoryRoot: 'D:\\repo',
+    workspace: { device: '1', inode: '2', objectId: '3' },
+    rule,
+    relativePath: '.tmp/dependency-installs/c.staging-contract',
+    root: { device: '4', inode: '5', objectId: '6' },
+    rootKind: 'directory',
+    operationId: 'operation:contract'
+  });
+
+  expect(registration).toMatchObject({
+    phase: 'active',
+    lease: { state: 'held', owner: rule.owner, operationId: 'operation:contract' },
+    retention: { policy: 'consumer-zero', consumers: [] },
+    terminalObligation: { state: 'open', settlementRef: null, outcomeDigest: null },
+    transitionEpoch: 0
+  });
+  expect(parseGeneratedStateResourceRegistrationV1(JSON.parse(JSON.stringify(registration))))
+    .toEqual(registration);
+  expect(generatedStateResourceReclaimabilityV1({
+    registration,
+    observedRoot: registration.root,
+    observedKind: 'directory'
+  })).toBe('blocked');
+  expect(() => parseGeneratedStateResourceRegistrationV1({
+    ...registration,
+    lease: { ...registration.lease, owner: 'foreign-owner' }
+  })).toThrow(/lease is not bound|digest is invalid/u);
+  expect(() => parseGeneratedStateResourceRegistrationV1({
+    ...registration,
+    transitionEpoch: 1
+  })).toThrow(/digest is invalid/u);
+  expect(() => parseGeneratedStateResourceRegistrationV1({
+    ...registration,
+    terminalObligation: { state: 'open', settlementRef: null }
+  })).toThrow(/keys are not canonical/u);
+});
+
+test('resource reclaimability distinguishes explicit missing from unresolved null observations', () => {
+  const rule = GENERATED_STATE_REGISTRY_V1.rules.find(({ id }) => id === 'compiler-dependency-staging');
+  if (rule === undefined) throw new Error('generated-state fixture rule is absent.');
+  const nullRoot = createGeneratedStateResourceRegistrationV1({
+    resourceId: `sha256:${'4'.repeat(64)}`,
+    repositoryRoot: 'D:\\repo',
+    workspace: { device: '1', inode: '2', objectId: '3' },
+    rule,
+    relativePath: '.tmp/dependency-installs/c.staging-contract-null-root',
+    root: null,
+    rootKind: null,
+    operationId: 'operation:contract-null-root'
+  });
+  const boundRoot = { device: '4', inode: '5', objectId: '6' } as const;
+  const nonNullRoot = createGeneratedStateResourceRegistrationV1({
+    resourceId: `sha256:${'5'.repeat(64)}`,
+    repositoryRoot: 'D:\\repo',
+    workspace: { device: '1', inode: '2', objectId: '3' },
+    rule,
+    relativePath: '.tmp/dependency-installs/c.staging-contract-bound-root',
+    root: boundRoot,
+    rootKind: 'directory',
+    operationId: 'operation:contract-bound-root'
+  });
+  const terminalNullRoot = terminalResourceRegistration(nullRoot);
+  const terminalNonNullRoot = terminalResourceRegistration(nonNullRoot);
+
+  expect(generatedStateResourceReclaimabilityV1({
+    registration: terminalNullRoot,
+    observedRoot: null,
+    observedKind: 'missing'
+  })).toBe('eligible');
+  expect(generatedStateResourceReclaimabilityV1({
+    registration: terminalNullRoot,
+    observedRoot: null,
+    observedKind: null
+  })).toBe('unknown');
+  expect(generatedStateResourceReclaimabilityV1({
+    registration: terminalNonNullRoot,
+    observedRoot: null,
+    observedKind: 'missing'
+  })).toBe('eligible');
+  expect(generatedStateResourceReclaimabilityV1({
+    registration: terminalNonNullRoot,
+    observedRoot: null,
+    observedKind: null
+  })).toBe('unknown');
+  expect(generatedStateResourceReclaimabilityV1({
+    registration: terminalNonNullRoot,
+    observedRoot: boundRoot,
+    observedKind: 'directory'
+  })).toBe('eligible');
+  expect(generatedStateResourceReclaimabilityV1({
+    registration: terminalNonNullRoot,
+    observedRoot: null,
+    observedKind: 'directory'
+  })).toBe('unknown');
+});
+
+test('resource receipts keep operational terminal, physical clean and GC pending disjoint', () => {
+  const base = {
+    resourceId: `sha256:${'2'.repeat(64)}` as const,
+    registrationDigest: `sha256:${'3'.repeat(64)}` as const,
+    repositoryRoot: 'D:\\repo',
+    workspace: { device: '1', inode: '2', objectId: '3' },
+    relativePath: '.tmp/dependency-installs/c.staging-receipt',
+    phase: 'operational-terminal' as const,
+    operationalTerminal: true,
+    consumerCount: 0,
+    observedRoot: { device: '4', inode: '5', objectId: '6' },
+    blockers: [] as const
+  };
+  const pending = createGeneratedStateResourceReceiptV1({
+    ...base,
+    physicalClean: false,
+    gcPending: true,
+    reclaimability: 'eligible'
+  });
+  expect(pending).toMatchObject({ operationalTerminal: true, physicalClean: false, gcPending: true });
+  const clean = createGeneratedStateResourceReceiptV1({
+    ...base,
+    physicalClean: true,
+    gcPending: false,
+    reclaimability: 'eligible',
+    observedRoot: null
+  });
+  expect(clean).toMatchObject({ operationalTerminal: true, physicalClean: true, gcPending: false });
+  expect(() => createGeneratedStateResourceReceiptV1({
+    ...base,
+    physicalClean: true,
+    gcPending: true,
+    reclaimability: 'eligible'
+  })).toThrow(/physicalClean/u);
 });

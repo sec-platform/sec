@@ -80,6 +80,28 @@ Document Control Plane拥有；候选分支中的manifest、类型、测试或wo
 
 真实browser/server/native/durable acceptance即使偶尔很快仍属于physical layer；反之，位于acceptance目录但不请求browser capability的contract test不应被迫启动无关browser。Gate definition和fixture实际需求共同决定capability。
 
+同一不变量的测试闭包必须按Effect拆分，而不是让一份`unit`文件反复支付真实宿主成本：pure/contract只运行
+canonical parser、builder和state transition；runner并发/join/reuse使用注入的opaque test capability与in-memory
+state port；filesystem、Git worktree、Windows Job/ACL、Docker/BuildKit和remote provider各自只保留能证明其不可静态
+替代边界的最小physical canary。一个physical fixture可以吸收同一generation的多项readback assertion，但不得被
+普通语义测试复制。`fast/slow`、文件路径和timeout只由这些resource facts机器投影，不参与正确性或Evidence强度。
+
+验证调度的顶层单位是logical authoring epoch，而不是文件保存、命令调用或Agent回合。mutable epoch只消费长驻增量静态服务、
+pure sentinel和按真实写入失效的一次性bounded identity/read probe；冻结exact tree后，selector只发布一次去重的
+`RequiredClosure ∩ MissingOrStale` Action集合。任何需要冷启动全仓Git/compiler、filesystem authority、container、network或
+权限观察的验证都必须具有ActionKey、资源预算和既有Evidence readback；相同key不得因换入口或重复请求再次启动，输入与
+failure tail不变的失败不得重跑。只有新的delta使某个ActionKey的真实输入闭包漂移时，才把该节点及其消费者标记stale。
+
+mutable authoring、exact-object proof和physical execution是三个正交状态，禁止再压成一个`clean/dirty`布尔门：authoring
+snapshot即使dirty也必须可被静态工具消费，但永远是`effectAuthority=none`；exact-object proof可与无关dirty共存，只有
+trusted producer transitive closure或所声明input closure漂移才失效；physical execution必须在独立detached snapshot中
+证明exact clean并在执行后再次读回。原生`bun test`或直接进程仍可作为开发诊断，但不能绕过canonical runner取得Action
+Evidence；canonical direct selector必须与fast/slow入口共享同一timeout/resource compiler，不能落回Bun的5秒默认值。
+
+Runner入口还必须把状态、证明和执行的物理位置类型化分离：Runtime State根只保存journal/claim/publication，static
+authority根只读取exact Git objects并签发opaque closure，physical execution根只在准入后成为provider cwd。任一根
+缺失、不可解析或被另一角色的临时目录替代都在Effect前拒绝；不得通过测试mock、fallback默认值或“恰好同目录”恢复歧义。
+
 ## 不可违反的不变量
 
 - 未运行、缺失、skipped、超时、取消、平台不匹配、scope mismatch、stale、损坏或candidate self-proof都不是PASS。
@@ -132,6 +154,18 @@ Aggregate只计算Verification truth，不拥有Mutation terminal、Implementati
 
 ## Gate identity 与 Execution Ledger
 
+Verification在`docs/system-architecture.md`的唯一Development Critical Path Spine图中只拥有
+`VerificationAction / ActionKey → observation → reuse | join | execute | block → terminal receipt`
+这一段。Environment materialization、Provider ensure、MainHealth、observer/settlement和GC均由各自
+owner拥有；本文的图只可展开Verification内部状态，不能把相邻节点重新定义成第二个跨领域流程。
+Squash merge后的MainHealth reuse必须同时证明parent baseline与
+`sec-development-critical-path-main-delta-v1`等价：candidate/new-main tree、policy、toolchain、provider、
+environment以及required ActionKey closure全部一致；该decision digest进入carry-forward receipt。任一未知或
+漂移都执行完整MainHealth，不能用commit ancestry或相同tree单独替代。candidate与new-main的六类identity
+必须由各自owner独立观察；把candidate closure spread到main侧是self-comparison，永远不能签发carry-forward。
+完整spine production consumer只组合owner-validated plan/capability/action/cache/settlement observations并把decision
+digest交给现有runner和closeout，不建立第二个ActionKey、journal、provider或MainHealth executor。
+
 Gate definition和一次运行实例分离：
 
 - **Gate contract**：identity、revision、owner、applicability、inputs、capabilities、dependencies、command/runner、timeout policy、Evidence output和invalidation rules；
@@ -141,6 +175,327 @@ Gate definition和一次运行实例分离：
 input closure、environment/tool/provider/contract revision、result schema和dependency topology；
 branch名、PR编号、聊天、显示标题、session ID、wall-clock、pid、临时路径和scheduler lane
 不能成为语义key。
+
+scheduler lane虽不进入ActionKey语义，却必须进入execution observation：resource class、并发预算、workspace/provider
+lease、canonical timeout与cleanup settlement决定本次物理调用是否有效。raw test runner、文件级默认timeout或手工
+并发union不能冒充Gate；它们产生的timeout只在相同execution observation下可复用。canonical lane验证产品行为通过
+后，仍需把异常物理耗时作为performance finding回到dependency/cache/fixture/settlement owner，而不是把slow标签
+当作允许无限耗时的正确性分类。
+
+任何Action进入physical start前必须持有`PreEffectStaticClosure` digest：该closure证明exact tracked owner surface的
+类型、dependency/consumer、状态图、Effect、resource、storage和retirement census已闭合，静态可判定缺陷为零，剩余
+unknown已进入typed block或明确属于本Action必须观察的物理事实。一次动态执行的terminal、known failure、provider
+ensure与settlement必须立刻编译为内容寻址静态Evidence及invalidation predicate；后续Action compiler先复用该projection，
+不得因新session、runner或consumer重新执行。独立Review若只验证当前counterexample、未检查类级static census、代码
+可分析性或dynamic-to-static publication/retirement闭包，不能签发PASS。
+该准入由`sec-development-critical-path-static-closure-v1`的固定十二维全集、exact tracked-input digest、逐维Evidence、
+open-defect class和unknown ledger机器拒绝；文档声明或Reviewer自由文本不能补齐缺失维度。
+唯一read-only analyzer先从exact immutable Git tree对象生成绑定tracked inventory、owner/manifest closure和reverse module graph的
+`plan-structural` readback；runner取得只读journal observation后，再把exact dependency terminal/event digest编译成
+`effect-admission` closure，并在Runtime State中发布immutable object与ActionKey current pointer。claim、`queued/running`与
+executor只能位于该publication exact readback之后；dependency failure、unknown、缺失或digest drift必须保持typed block。
+closeout只消费已发布object/pointer并核对merged tree与authenticated artifact Action，不从plan或当前journal事后重建，
+也不接受caller填写的dimension digest、coverage、defect或unknown。
+
+这是最终准入合同，不是对当前V3 analyzer的全类完成声明。当前V3只证明exact immutable Git tree对象、tracked
+inventory/input、manifest/document owner closure、受支持的TypeScript module graph、Action plan与dependency
+terminal；其machine状态只允许`bounded-census-complete`、`bounded-verified-complete`及`bounded-closed`。
+它已经强制生成exact base/head whole-delta changed records、producer/consumer graph、SCC/fixed-point digest、structured
+Unknown与`NonMisleadingProjection`；但尚不具备canonical owner-signed domain projection、workflow/config/provider
+edge、重复writer/receipt/GC detection或统一presentation adapter。缺少这些producer时，V3结果
+只能作为bounded Action admission，不能被Review、closeout或presentation提升为“全部静态缺陷已证明关闭”。
+Unknown ledger与当前admission status不是同一个事实：ledger完整保留所有successor gap；bounded scope只允许
+`blockingEffect=none|required-proof`继续，`pre-effect|effect-admission`仍阻断；required/whole-delta scope遇到任一
+unresolved Unknown都阻断。runner与presentation必须消费contract projection，禁止再按数组是否为空自行裁决。
+
+readback 的十二维不是一个 analyzer 自称拥有全部业务语义。每维必须携带 bounded semantic world 的
+`owner/producer/revision/subjectDigest` claim；analyzer只读取并验证这些 canonical owner projection，再派生
+统一的 provenance/Evidence/Unknown envelope。opaque authority 由实际执行中的 exact-tree producer签发并在
+每次 publication、claim 与 executor 前重新验证 HEAD/tree/clean/plan/closure/source bytes；可序列化 DTO、
+caller-filled digest或进程外复制品不能取得 Effect authority。同一 exact tree 的 tracked/blob/module census
+只构建一次并由不同 ActionKey共享，Action-specific closure仍各自绑定自己的 plan与dependency terminals。
+
+### Static generation、测试层与物理 canary
+
+下面只展开Verification内部的准入与测试投影；它引用系统主图的同名节点，不新增第二条开发流水线。
+
+```mermaid
+flowchart LR
+  dirty["Mutable authoring snapshot<br/>content digest; Effect authority = none"]
+  frozen["Frozen exact Git tree"]
+  generation["StaticGeneration<br/>key: tree + producer + owner/input revisions"]
+  derivation["ActionStaticAdmission<br/>pure: generation + plan + dependency terminals"]
+  kernel["Pure VerificationAction kernel<br/>in-memory/typed state port"]
+  staticTerminal["Static terminal<br/>claim proven; zero physical start"]
+  physicalUnknown["Typed physical Unknown"]
+  provider["Production provider shell"]
+  gitCanary["one exact Git authority canary"]
+  processCanary["one process-tree timeout/settlement canary"]
+  fsCanary["one retained filesystem/crash canary per host capability"]
+  containerCanary["one container/BuildKit/provider canary per environment generation"]
+
+  dirty -->|incremental diagnostics only| derivation
+  frozen --> generation --> derivation --> kernel
+  kernel -->|complete static proof| staticTerminal
+  kernel -->|physical observation required| physicalUnknown --> provider
+  generation -. production boundary .-> gitCanary
+  provider -. irreducible Effect boundaries .-> processCanary
+  provider -.-> fsCanary
+  provider -.-> containerCanary
+```
+
+本领域是`DG02/DG03/DG05/DG09/DG10/DG12/DG14`的Verification投影；原则身份和合取关系仍由`docs/development-governance.md`拥有。
+
+`D03/D04/D21`的代际发布与消费时序必须展开到如下粒度；这也是跨进程重启后不得重新支付
+全仓census的判定图。`Generation object`与`Action admission object`都是immutable content object，
+`current`只是一条可CAS退役的locator；locator、cache命中或可序列化DTO都不签发Effect authority。
+
+```mermaid
+sequenceDiagram
+  participant Git as Exact Git object provider
+  participant SG as StaticGeneration producer
+  participant GO as Generation object store
+  participant AP as Action plan producer
+  participant AA as Pure ActionStaticAdmission compiler
+  participant AO as Action admission store
+  participant VF as Live Effect freshness fence
+  participant VR as Verification runner
+
+  Git->>SG: head/tree + bounded tree/blob batches
+  SG->>SG: inventory + module graph + owner/producer closure
+  SG->>GO: publish generationDigest object
+  GO-->>SG: exact-byte durable readback
+  AP->>AA: canonical closure + selected Action plan
+  GO->>AA: generation object by digest
+  AA->>AA: plan/input/dependency/unknown pure derivation
+  AA->>AO: publish ActionKey admission + generationDigest
+  AO-->>AA: exact-byte durable readback
+  AO->>VR: immutable admission; no caller-local fallback digest
+  VR->>VF: one final head/tree/producer-closure/live-grant check
+  alt complete static proof
+    VR-->>AO: static terminal; zero provider start
+  else physical Unknown remains and fence is current
+    VR-->>VR: claim/lease/start then provider Effect
+  else generation, plan, permission or producer drift
+    VR-->>AO: typed blocked; zero Effect
+  end
+```
+
+禁止边同样是合同的一部分：
+
+```mermaid
+flowchart LR
+  caseCount["test case count"] -. "FORBIDDEN: rebuild census" .-> generation["StaticGeneration"]
+  callerDigest["caller-computed plan digest"] -. "FORBIDDEN: self-authorize membership" .-> admission["ActionStaticAdmission"]
+  dto["serialized readback DTO"] -. "FORBIDDEN: become Effect authority" .-> effect["Provider Effect"]
+  cache["process-local cache hit"] -. "FORBIDDEN: become durable publication" .-> admission
+  rawExit["raw Bun exit/output"] -. "FORBIDDEN: become Evidence" .-> terminal["Journal terminal"]
+  newSession["retry / new session / new temp path"] -. "FORBIDDEN: replay same started ActionKey" .-> effect
+  generation --> admission --> terminal
+```
+
+纯contract/parser/state-transition/join/reuse/failure-reuse测试必须直接消费pure kernel和test-owned in-memory port；
+它们不得为每个case创建Git repository、扫描模块图、fsync Runtime State或启动子进程。production wrapper只保留
+少量纵切片canary，证明opaque static authority、durable journal、process provider和closeout确实连接。一个canary
+fixture吸收同一physical generation的全部readback assertion；重复的Action语义由pure tests覆盖。测试工具必须用
+结构计数拒绝`repository census builds > unique StaticGenerationKey`、
+`physical starts > missing ActionKey`和`physical fixture births > required capability generation`，而不是用放宽timeout
+容忍重复工作。
+
+当前#398候选已把runner测试按真实Effect边界切开，资源和变量闭包如下：
+
+| projection | canonical path | actual inputs/state | allowed Effect | current stage |
+| --- | --- | --- | --- | --- |
+| pure Action kernel | `tests/unit/verification-action-runner.test.ts` | synthetic `ActionKey`、fixed head/tree、in-memory journal CAS、logical root identity、deterministic provider double | zero Git、zero directory birth、zero Runtime State fsync、zero process | candidate-implemented-local-verified；24 cases observed约3.25秒 |
+| root identity production default | `tooling/sec-dev/verification-action-runner.ts` | caller path → native realpath/canonical case | physical root observation only | unchanged production default；test-only provider不能签发Git/Runtime/Effect authority |
+| exact-tree canary | `tests/integration/development-critical-path-exact-tree.canary.test.ts` | one shared clone/worktree、reserved semantic inputs、whole-delta、census reuse、hostile `GIT_*`、authority/candidate index bytes、StaticGeneration telemetry、journal settlement | Git clone/worktree、one physical start、durable journal、exact cleanup | candidate-implemented-local-verified；25 assertions observed约23.6秒；唯一slow suite/owner已注册，exact-head Review pending |
+
+根因不是“某个断言慢”，而是同一fast文件在模块加载、Action构造和每个case的`finally`中隐式支付
+`git show/rev-parse + mkdtemp/mkdir/rm + exact analyzer`，同时两个物理场景各自创建generation。修复不删除真实证明：
+pure suite改为显式logical-root identity port和synthetic input closure；生产仍默认native realpath；runner与analyzer的
+五个物理测试合并到一个generation/fixture中，依次证明reserved input、whole-delta、census reuse、hostile Git隔离、index零刷新、首次execute、settled reuse零execute、journal readback
+和dirty rejection。任何这些断言缺失都必须由canary或docs-doctor拒绝，不能再把物理代码搬回unit文件或把timeout调大。
+slow budget现由`integration-development-critical-path-exact-tree`唯一suite拥有，TestImpact只有
+`verification-action-runtime`把该canary列为supplemental slow；pure runner继续是fast。该机器注册已局部验证，
+本段仍只投影`implemented-local-verified`，不宣称exact-head Review、merge或new-main readback完成。
+
+deadline是调度transport，不是settlement authority。runner唯一接受`VerificationActionDeadlinePortV1`，production
+默认实现用真实`setTimeout`；pure test实现只在provider phase的`run(signal)`已经启动后，于同一deterministic turn
+构造相同typed message并调用`AbortController.abort(error)`。两种实现都只能产生“deadline fired + signal delivered”事实：
+
+```mermaid
+stateDiagram-v2
+  [*] --> Scheduled
+  Scheduled --> ProviderStarted: run(signal)
+  ProviderStarted --> ProviderReturned: provider promise resolves first
+  ProviderStarted --> DeadlineFired: deadline transport wins
+  DeadlineFired --> SignalAborted: abort(error)
+  SignalAborted --> RunningUnknown: issue/execute outcome or tree settlement unproven
+  SignalAborted --> TerminalSettlementPending: terminal Evidence exists but observe/release incomplete
+  ProviderReturned --> OwnerValidation: validate Evidence/binding/settlement
+  RunningUnknown --> [*]
+  TerminalSettlementPending --> [*]
+  OwnerValidation --> [*]
+```
+
+关键变量为`phase`、`timeoutMs`、`AbortSignal.aborted`和owner生成的`timeoutError`；deadline port不读取或写入journal，
+不发布Evidence/receipt，不释放claim，也不能把未完成Promise、process tree、container或handle投影为absent/settled。
+deterministic test port若目标phase匹配，必须先调用provider以交付signal，再abort并拒绝；非目标phase原样await provider。
+真实timer与process-tree物理语义继续由`platform/shared/observed-process.ts`的host canary证明，不为每个runner状态case
+重复墙钟等待。历史反例是两个pure tests分别真实等待50/150ms，case数量直接放大wall time，却没有增加任何物理
+settlement Evidence。当前为`candidate-implemented-local-verified`：24-case runner suite observed约2.79秒；
+exact-head Review、merge与new-main readback仍pending。
+
+不接管或替换系统中的原生`bun`可执行文件。`bun test`、`bun --filter`等原生命令仍可作为无权威诊断；仓库的
+canonical dev/CI入口负责完整满足impact selection、resource budget、ActionKey、Evidence和settlement业务需求。
+硬约束施加在consumer：Review、Gate、merge和closeout只接受canonical receipt，永远不接受raw Bun退出码或输出；
+这样既不能绕过治理，也不会破坏Bun生态、编辑器、第三方工具或调试能力。
+
+### VerificationAction 内部状态机
+
+该状态机唯一拥有Action journal与terminal agreement；provider的资源generation和closeout/GC仍由各自owner拥有。
+实线是durable或Effect transition，虚线是pure observation/reuse。`timeout`不是一个测试标签，而是
+`absolute | stall | output | cancellation`预算触发后的process-tree termination原因；只有tree settlement完成后
+才能发布terminal Evidence。
+
+```mermaid
+stateDiagram-v2
+  [*] --> Planned
+  Planned --> StaticBlocked: static unknown / plan or generation drift
+  Planned --> StaticTerminal: complete static proof
+  Planned --> Observed: physical fact remains
+
+  Observed --> ReusedPass: fresh PASS
+  Observed --> ReusedFailure: fresh failure
+  Observed --> Joining: authenticated in-flight
+  Observed --> Claiming: missing or owner-authorized stale
+  Observed --> BlockedUnknown: corrupt / unauthenticated / started without terminal
+
+  Claiming --> Claimed: ActionKey + physical-root CAS
+  Claimed --> ProviderLeased: generation-bound consumer credential
+  ProviderLeased --> Started: durable start receipt
+  Started --> Running: one-shot provider capability consumed
+  Running --> TerminationPending: absolute/stall/output/cancel signal
+  Running --> ProviderObserved: natural provider terminal observation
+  TerminationPending --> ProviderObserved: descendant tree settled
+  TerminationPending --> SettlementBlocked: tree settlement unproven
+  ProviderObserved --> EvidencePublished: immutable terminal Evidence durable
+  EvidencePublished --> JournalTerminal: sole terminal CAS binds exact Evidence
+  JournalTerminal --> Releasing: provider consumer release
+  Releasing --> Settled: agreement + release readback
+  Releasing --> SettlementBlocked: release/readback failed; no replay
+
+  Joining --> Settled: same terminal agreement consumed
+  ReusedPass --> Settled
+  ReusedFailure --> Settled
+  StaticTerminal --> Settled
+  Settled --> Retained: closeout consumes terminal; active pointer retired
+  Retained --> [*]: immutable Evidence/object retained or owner GC after zero reachability
+
+  StaticBlocked --> [*]
+  BlockedUnknown --> [*]
+  SettlementBlocked --> [*]
+```
+
+`D05/D11/D12/D22/D23`的Provider阶段、预算、信号与settlement不能再隐藏在一个
+`execute()`方框里。每个phase都消费同一ActionKey中的不可变budget projection；budget到期只产生
+signal与typed reason，不能凭Promise rejection宣称子进程、container或handle已经消失。
+
+```mermaid
+flowchart TB
+  admission["Action admission current"] --> start["durable start readback"]
+  start --> issue["issue capability<br/>bounded provider authority call"]
+  issue --> execute["execute Effect<br/>absolute + stall + output + cancel signal"]
+  execute --> natural["natural provider terminal observation"]
+  execute --> budget["budget/cancel fired"]
+  budget --> abort["AbortSignal propagated to sole process transport"]
+  abort --> terminate["graceful then forced process-tree termination"]
+  terminate --> tree{"root closed AND streams drained AND tree closed?"}
+  tree -->|yes| observe["observe immutable provider Evidence<br/>bounded + AbortSignal"]
+  tree -->|no / unknown| pending["termination-unproven<br/>settlement obligation retained; no replay"]
+  natural --> observe
+  observe --> publish["Evidence publish + exact readback"]
+  publish --> terminal["sole journal terminal CAS"]
+  terminal --> release["release capability + consumer/resource lease<br/>bounded + AbortSignal"]
+  release --> agreement{"terminal/Evidence/release agreement?"}
+  agreement -->|yes| settled["operational terminal"]
+  agreement -->|no| settlementPending["terminal-settlement-pending<br/>terminal remains known; no replay"]
+
+  issue -. "timeout/abort: issue outcome unknown; domain execute not invoked; no replay" .-> pending
+  observe -. "timeout/malformed/wrong binding" .-> pending
+  release -. "must never delete/overwrite terminal Evidence" .-> settlementPending
+```
+
+durable settlement 的 current receipt 是单调状态，不是每次进入runner都重新执行的步骤：
+
+```mermaid
+stateDiagram-v2
+  [*] --> Absent
+  Absent --> ObservePending: journal terminal + exact Evidence
+  ObservePending --> ReleasePending: provider observes identical Evidence
+  ObservePending --> ObservePending: crash/timeout/missing/mismatch
+  ReleasePending --> Settled: provider release + exact receipt readback
+  ReleasePending --> ReleasePending: crash/timeout/resource retained
+  Settled --> ReusedWithoutProviderEffect: same actionKey + executionBindingDigest + evidenceDigest + providerRevision
+  Settled --> BindingMismatchBlocked: any bound field differs
+  ReusedWithoutProviderEffect --> [*]
+  BindingMismatchBlocked --> [*]
+```
+
+唯一current位于canonical SEC Runtime State的VerificationAction journal namespace，实际比较变量为
+`actionKey`、`executionBindingDigest`、`evidenceDigest`和`providerRevision`，receipt自身再以`receiptDigest`
+绑定canonical bytes。`settled`精确命中时，consumer只读receipt并复用既有Evidence，`observe()`、`release()`和
+`execute()`调用数全部保持不变；任一字段不一致返回typed binding mismatch，禁止覆盖旧receipt、降级到pending、
+重新观察、重复释放或重新执行。只有`Absent/ObservePending/ReleasePending`可继续恢复：恢复只补齐同一Evidence的
+observe/release，不能回到physical start。retention/closeout必须读到同一binding的`Settled`才可退休active pointer。
+
+这一约束来自已发生的反例：复用路径在读到`Settled`后仍发布`ObservePending/ReleasePending`，journal的单调CAS正确
+拒绝了倒退，但runner把拒绝误投影为blocked。根因不是CAS太严格，而是consumer没有把settled receipt当作静态终态。
+修复因此位于runner reconciliation边界，而不是放宽journal或吞掉错误。当前状态为
+`candidate-implemented-local-focused-verified`；exact-head独立Review、合并和new-main readback尚未发生，且
+process-tree物理settlement的全production consumer接线仍是另一条未完成边。
+
+`Started`之后没有“重新执行同一ActionKey”的边。崩溃恢复只允许provider readback后补写同一Evidence/terminal、
+join现存owner，或保持`BlockedUnknown`；新attempt、会话、临时目录和提高timeout都不能掩盖未知物理结果。
+同样，frozen plan没有权限有效性的含义：`Claiming`前必须重新消费live operation grant，stale/revoked/unknown
+回到blocked或重新编译plan，不能让旧ScopeGrant随内容快照永久有效。
+
+trusted container 不是 VerificationAction journal owner。正式本地 trusted-runtime 路径由宿主 trusted runner
+先发布 static object/current pointer并写入queued/running，再把单个已授权 gate作为物理 Effect交给容器；容器
+只返回stdout/stderr/exit与provider identity组成的terminal observation，宿主CAS terminal后才发布Evidence。
+禁止在容器内运行第二runner、直接挂载宿主 canonical Runtime State、复制container journal到host，或让closeout
+重建缺失publication。宿主崩溃后按同一ActionKey/provider operation identity join、terminal-readback或
+`started-without-terminal` block，绝不盲目第二次start。
+
+Action terminal 只证明executor结果，不证明 static closure 已经 operational-terminal。closeout/new-main settlement、
+provider/observer consumer、retention policy全部读回闭合后，journal owner才持久化retirement intent，先精确退休
+ActionKey pointer，再以全namespace可达性证明决定immutable object GC。任何unknown/foreign/malformed/identity drift
+保留对象并阻断；独立event-log delete seam已删除，journal只能在未来可信retirement owner完成同一线性化
+closeout后作为该操作的一部分退休。
+当前生产consumer/retention producer尚未接线，因此journal只暴露无filesystem/proof输入的fail-closed surface并稳定
+返回`production-consumer-unwired`；旧caller-supplied `consumerCount`/`retentionSatisfied`证明与destructive实现已删除。
+executor现在消费ActionKey内不可变的capability-issue、absolute、stall、output、Evidence-observe、provider-release、
+process-tree-settlement与cancellation budget；runner在每个Provider phase签发的`AbortSignal`必须由provider透传到唯一
+外部调用或process transport，Windows终止整棵process tree，POSIX终止受控process group。phase Promise先返回不证明
+底层资源已经settled：issue/execute未知保留running obligation，terminal后的observe/release未知保留terminal Evidence并
+进入settlement-pending。该能力仍不等于任意caller
+可调用的`cancel()`：写一条`cancelled` event或释放claim不能证明子进程已经停止。timeout/cancellation只有在transport
+完成bounded tree settlement并发布typed terminal Evidence后才能推进journal terminal；settlement失败保留既有terminal与
+Evidence并进入`terminal-settlement-pending`，同一ActionKey不得重放。
+
+独立Review必须逐项证明全部顶层不变量与既有哲学的conjunction，不得把若干新要求合并后视为替代其他原则。
+它的静态census也必须有机器可读input closure、coverage、unknown和stop condition；旁支由只读subagent隔离分析时
+使用同一规则，输出只作为untrusted finding projection，由A0与canonical owner重验。Review不得因分工而拆成互不
+相交的哲学，也不得用文档缺图、图缺owner或代码不可反向派生consumer来签发“实现正确但难以理解”的PASS。
+
+Review必须独立验证`NonMisleadingProjection`：逐项比对用户可见和机器可见的claim与其阶段receipt，确认
+`planned/implemented/locally-verified/reviewed/merged/new-main-readback`没有越级，确认cache、provider exit、测试子集、
+PR candidate和仍在运行的Effect没有被投影为更强终态。发现任一误导性claim时即使实现本身可工作也不得PASS；修复
+必须落到canonical stage projection/parser，而不是只改一段措辞。
+该projection的schema、receipt kind、pure compiler、parser与typed gap由
+`platform/shared/development-critical-path-contract.ts`唯一拥有；它不签发领域receipt。统一presentation adapter尚未
+cutover，Reviewer必须核对projection引用的canonical source receipt及typed gap，不能把contract存在或本段文字当作
+业务阶段machine proof。
 
 `input closure` 必须是该 Action 实际读取的 subject closure，不得无条件加入整个 candidate
 tree、manifest raw bytes或所有依赖拓扑。只有 Gate contract 真实观察全树时，whole-tree digest
@@ -226,6 +581,11 @@ provider job中物化依赖；当Work Package禁止package/toolchain变化时，
 package/lock物化并绑定dependency closure，package变化则需要单独授权的install sandbox与新的
 environment epoch。candidate stdout/stderr也只是untrusted bytes，必须bounded capture并转义或
 编码，不能直接进入GitHub workflow command channel、`GITHUB_OUTPUT`、env/path或artifact控制面。
+
+Sandbox Gate验证typed operation graph而不是shell源码词法。每个phase的namespace、runtime copy、retained FD bind、
+tmpfs/chroot、privilege drop、empty-environment exec和cleanup集合由唯一policy builder派生，argv仅是进入plan digest的
+可执行projection。测试直接断言operation role与FD/target/flags；renderer格式变化不改变业务证明，而`execute`错误消费
+dependency FD、`bootstrap-execute`漏消费dependency FD或host directory bind进入图时必须静态拒绝。
 
 CI Evidence 必须记录 canonical Action closure、五态 Result、execution disposition、exact
 environment/input、cleanup与artifact reference。合法 reuse 保留原始 proof identity；已知
@@ -898,6 +1258,26 @@ archive/CAS恢复或merge冲突。
 Git hook是可替换的authoring便利层，不是TCB authority。managed hook的active marker只阻止依赖安装递归；
 commit/push不机械重算TCB closure，`--no-verify`也不能绕过effect前由Verification/Integration consumer对
 exact tree与ActionKey的强制消费。无关delta因Impact不命中而保持零TCB工作。
+
+Import authoring只保留一个pre-commit zero-write sentinel；pre-push不重复启动TypeScript/import provider。
+正常`imports:freeze`在hook之前完成working-tree与staged-index两个相互隔离的canonical transaction并readback，
+从而保持partial staging，同时让直接原生commit的旁路仍被廉价拒绝。两者只选择`HEAD→mutable snapshot`；
+trusted-base→candidate全闭包留给最终immutable tree ActionKey，禁止每次amend重算历史delta。
+managed Git hook集合因此只有pre-commit sentinel；checkout、merge、rewrite与push都不提前执行dependency/import/TCB
+工作，后续真实operation按自身ActionKey与demand graph消费或补齐依赖。
+
+Import验证分成四个不可互相冒充的Action closure：
+
+| closure | 输入 | 证明内容 | 不证明 |
+| --- | --- | --- | --- |
+| pure transform contract | synthetic source/config/provider revision | sort/combine确定性、NOOP、plan digest、非法intent拒绝 | Git index、Windows rename、crash durability |
+| authoring transaction contract | exact preimage/replacement + fault point | prepare/publish/readback/rollback/recovery状态机 | 真实Git candidate selection、final candidate完整性 |
+| one physical authoring canary | temporary Git worktree + partial staged/unstaged bytes + real index | 双snapshot不串写、receipt命中、index/provider漂移失效、generation exact-set | hosted环境或main→candidate最终闭包 |
+| final immutable-tree action | trusted base/candidate tree + exact provider/config closure | 整个candidate imports canonical，可进入后续Verification | Scope、Review、merge或运行时业务PASS |
+
+普通edit/amend只运行受本轮delta影响的pure/authoring closure；physical canary只在transform/index/receipt/hook
+owner变化时运行一次；final action只对frozen tree运行一次并按ActionKey reuse。receipt corruption或identity drift只使
+fast path miss，不能直接判业务失败；fallback结果相同且输入未变时复用failure，禁止扩大timeout或重复全仓扫描。
 
 ## Property、Fault 与 Flake
 

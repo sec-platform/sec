@@ -1,7 +1,10 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { executeVerifiedCiActionPlanV1 } from '../../platform/dev-runner/verification-action-executor.ts';
+import {
+  createVerificationActionCallbackEffectProviderV1,
+  executeVerifiedCiActionPlanV1
+} from '../../platform/dev-runner/verification-action-executor.ts';
 import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../platform/shared/ci-verification-plan.ts';
 import {
   assertCiVerificationActionPlanClosureEqualV1,
@@ -19,7 +22,13 @@ import {
   parseCiVerificationActionProviderEnvelopeV2,
   type CiVerificationActionCandidateV1
 } from '../../platform/shared/verification-action-ci-contract.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
+import {
+  createVerificationActionKeyV2,
+  createVerificationActionStartReceiptV1,
+  encodeVerificationActionDataV2,
+  parseVerificationActionKeyV2,
+  type VerificationActionEvidenceV1
+} from '../../platform/shared/verification-action-contract.ts';
 import {
   createVerificationSessionProposalDigestV1,
   createVerificationSessionV2
@@ -362,6 +371,79 @@ test('dev-runner executes only a producer-owned member plan and never accepts ra
     authorizedClosure: closure,
     executeNormalizedOperation: () => 0
   })).rejects.toThrow();
+});
+
+test('Effect provider issues an opaque one-shot handle and retains provider Evidence for exact observation', async () => {
+  const closure = buildCiVerificationActionPlanClosureV1({
+    candidate,
+    gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false, includeRisk: false })
+      .map(ciVerificationGateStepV1)
+  });
+  const plan = closure.actions[0]!;
+  const provider = createVerificationActionCallbackEffectProviderV1({
+    providerRevision: plan.action.environment.providerRevision,
+    execute: async () => ({
+      terminal: { status: 'passed', reasonCode: 'executed-success', resultDigest: digest('9') },
+      evidenceRefs: ['provider://fake/terminal']
+    })
+  });
+  const start = createVerificationActionStartReceiptV1({
+    actionKey: plan.action.actionKey,
+    actionPlanDigest: digest('a'),
+    executionBindingDigest: digest('c'),
+    staticClosureDigest: digest('b'),
+    providerRevision: provider.providerRevision,
+    startedAt: '2026-08-09T00:00:00.000Z'
+  });
+  const capability = await provider.issue({
+    action: plan.action,
+    actionPlanDigest: start.actionPlanDigest,
+    executionBindingDigest: start.executionBindingDigest,
+    staticClosureDigest: start.staticClosureDigest,
+    start,
+    signal: new AbortController().signal
+  });
+  let durableEvidence: VerificationActionEvidenceV1 | null = null;
+  const evidencePublication = Object.freeze({
+    publish: async (evidence: VerificationActionEvidenceV1) => {
+      durableEvidence = evidence;
+      return evidence;
+    },
+    read: async () => durableEvidence
+  });
+  expect(capability.descriptor.actionKey).toBe(plan.action.actionKey);
+  expect(() => JSON.stringify(capability)).not.toThrow();
+  const signal = new AbortController().signal;
+  const evidence = await provider.execute({ action: plan.action, capability, signal, evidencePublication });
+  expect(evidence.evidenceRefs).toEqual(['provider://fake/terminal']);
+  expect(await provider.observe({
+    actionKey: plan.action.actionKey,
+    actionPlanDigest: start.actionPlanDigest,
+    executionBindingDigest: start.executionBindingDigest,
+    staticClosureDigest: start.staticClosureDigest,
+    readPublishedEvidence: async () => durableEvidence,
+    signal
+  })).toEqual(evidence);
+  await expect(provider.execute({ action: plan.action, capability, signal, evidencePublication })).rejects.toThrow(/one-shot/);
+});
+
+test('static proof requirement is canonical ActionKey identity and cannot be weakened by closure policy', () => {
+  const closure = buildCiVerificationActionPlanClosureV1({
+    candidate,
+    gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false, includeRisk: false })
+      .map(ciVerificationGateStepV1)
+  });
+  const bounded = closure.actions[0]!.action;
+  const { schema: _schema, actionKey: _actionKey, ...boundedInput } = bounded;
+  const required = createVerificationActionKeyV2({
+    ...boundedInput,
+    staticProofRequirement: 'required-producer-bound'
+  });
+  expect(bounded.staticProofRequirement).toBe('bounded-action-admission');
+  expect(required.staticProofRequirement).toBe('required-producer-bound');
+  expect(required.actionKey).not.toBe(bounded.actionKey);
+  expect(parseVerificationActionKeyV2(encodeVerificationActionDataV2(required)))
+    .toEqual(required);
 });
 
 test('internal Action proposal plan and provider envelope form a one-way, exact parent provenance chain', () => {

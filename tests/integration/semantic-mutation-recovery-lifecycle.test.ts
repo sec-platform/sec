@@ -189,7 +189,7 @@ function createRecoveryTestDependencies(): RecoveryTestDependencies {
   };
 }
 
-async function mutationInput(
+async function buildMutationInput(
   workspaceRoot: string,
   requestId: string,
   transition: MutationTransitionFixture = DEFAULT_MUTATION_TRANSITION
@@ -234,6 +234,52 @@ async function mutationInput(
     beforeBytes,
     request,
     input: { request, base, authorization: authorization(transition.stateId) }
+  };
+}
+
+type MutationInputBlueprint = Awaited<ReturnType<typeof buildMutationInput>>;
+
+/**
+ * Request preparation is a pure projection of the immutable template bytes
+ * and transition ActionKey.  Keep one blueprint for identical inputs while
+ * retaining the real per-workspace plan/apply/recovery executions below.  The
+ * cache therefore removes repeated expected-delta rebuilds, not any Effect
+ * canary or recovery authority observation.
+ */
+const mutationInputBlueprints = new Map<string, Promise<MutationInputBlueprint>>();
+
+function mutationInputBlueprintKey(
+  beforeBytes: Uint8Array,
+  transition: MutationTransitionFixture
+): string {
+  return sha256({
+    schema: 'sm3-mutation-input-blueprint-key-v1',
+    sourceDigest: sha256(Buffer.from(beforeBytes).toString('utf8')),
+    transition
+  });
+}
+
+async function mutationInput(
+  workspaceRoot: string,
+  requestId: string,
+  transition: MutationTransitionFixture = DEFAULT_MUTATION_TRANSITION
+): Promise<MutationInputBlueprint> {
+  const sourcePath = path.join(workspaceRoot, 'source', 'model', 'item.yaml');
+  const beforeBytes = new Uint8Array(await readFile(sourcePath));
+  const key = mutationInputBlueprintKey(beforeBytes, transition);
+  let blueprintPromise = mutationInputBlueprints.get(key);
+  if (blueprintPromise === undefined) {
+    blueprintPromise = buildMutationInput(workspaceRoot, requestId, transition);
+    mutationInputBlueprints.set(key, blueprintPromise);
+  }
+  const blueprint = await blueprintPromise;
+  const request = Object.freeze({ ...blueprint.request, requestId });
+  return {
+    ...blueprint,
+    sourcePath,
+    beforeBytes: new Uint8Array(blueprint.beforeBytes),
+    request,
+    input: Object.freeze({ ...blueprint.input, request })
   };
 }
 

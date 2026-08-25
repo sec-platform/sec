@@ -22,7 +22,9 @@ import {
   INFORMATION_LIFECYCLE_CLASS_PROFILES,
   INFORMATION_LIFECYCLE_TRANSITION,
   NEXUS_EPR_BINDINGS_V1,
-  repositoryAuditShouldFail
+  repositoryAuditInventoryShouldFail,
+  repositoryAuditShouldFail,
+  summarizeRepositoryAuditSemanticAssuranceV1
 } from '../../scripts/codex/repository-audit.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
@@ -763,6 +765,45 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
   }
 });
 
+test('repository audit keeps inventory coverage separate from semantic assurance', () => {
+  const noFindings: readonly never[] = [];
+  expect(summarizeRepositoryAuditSemanticAssuranceV1({
+    findings: noFindings,
+    requiredAnalyzers: [{ id: 'semantic-owner-federation', status: 'not-run', detail: null }],
+    unknownCount: 0
+  })).toMatchObject({ status: 'incomplete', findingCount: 0, unknownCount: 0 });
+  expect(summarizeRepositoryAuditSemanticAssuranceV1({
+    findings: noFindings,
+    requiredAnalyzers: [{ id: 'semantic-owner-federation', status: 'failed', detail: 'process failed' }],
+    unknownCount: 0
+  })).toMatchObject({ status: 'failed', findingCount: 0, unknownCount: 0 });
+  expect(summarizeRepositoryAuditSemanticAssuranceV1({
+    findings: noFindings,
+    requiredAnalyzers: [{ id: 'semantic-owner-federation', status: 'passed', detail: null }],
+    unknownCount: 0
+  })).toMatchObject({ status: 'passed', findingCount: 0, unknownCount: 0 });
+});
+
+test('inventory-only admission cannot manufacture semantic assurance', () => {
+  const inventoryComplete = {
+    findings: [],
+    unknowns: [],
+    inventoryCoverage: {
+      excluded: 1,
+      scanned: 2,
+      status: 'passed' as const,
+      total: 3,
+      unknown: 0
+    }
+  };
+  expect(repositoryAuditInventoryShouldFail(inventoryComplete)).toBe(false);
+  expect(repositoryAuditShouldFail(inventoryComplete)).toBe(true);
+  expect(repositoryAuditInventoryShouldFail({
+    ...inventoryComplete,
+    unknowns: ['unclassified tracked object']
+  })).toBe(true);
+});
+
 test.serial('full repository audit classifies every tracked path and has no blocking finding', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-repository-audit-clean-'));
   try {
@@ -775,7 +816,10 @@ test.serial('full repository audit classifies every tracked path and has no bloc
         githubSha: process.env.GITHUB_SHA
       }
     );
-    git(tmpdir(), ['clone', '--quiet', '--no-local', REPOSITORY_ROOT, repositoryRoot]);
+    // Same-host exact-tree canaries reuse the immutable source object store.
+    // --no-local forced a full object copy before every audit and converted a
+    // repository census test into an unrelated materialization benchmark.
+    git(tmpdir(), ['clone', '--quiet', '--shared', REPOSITORY_ROOT, repositoryRoot]);
     const report = await auditRepository(repositoryRoot, { defaultRef: defaultCommit });
 
     expect(report.schema).toBe('sec-repository-audit-v2');
@@ -783,6 +827,21 @@ test.serial('full repository audit classifies every tracked path and has no bloc
     expect(report.summary.skills).toBe(SEC_AGENT_SKILL_IDS.length);
     expect(report.behaviorCandidates).toHaveLength(report.summary.behaviorCandidates);
     expect(report.contentCoverage).toHaveLength(report.summary.trackedPaths);
+    expect(report.inventoryCoverage).toMatchObject({
+      status: 'passed',
+      total: report.summary.trackedPaths,
+      unknown: 0
+    });
+    expect(report.semanticAssurance).toMatchObject({
+      status: 'incomplete',
+      findingCount: report.findings.length
+    });
+    expect(report.semanticAssurance.requiredAnalyzers).toEqual([
+      expect.objectContaining({
+        id: 'tooling/sec-dev/development-critical-path.ts',
+        status: 'not-run'
+      })
+    ]);
     expect(new Set(report.contentCoverage.map(({ path: repositoryPath }) => repositoryPath)).size)
       .toBe(report.summary.trackedPaths);
     expect(Object.values(report.summary.contentCoverage).reduce((sum, count) => sum + count, 0))

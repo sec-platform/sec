@@ -155,6 +155,15 @@ async function main(): Promise<void> {
   if (
     target === 'imports:check' || target === 'imports:apply' || target === 'imports:freeze'
   ) {
+    if (target === 'imports:freeze' && process.env.SEC_GIT_HOOK_ACTIVE === '1') {
+      const { currentImportAuthoringFreezeReceiptMatchesV1 } = await import(
+        './dev-runner/import-transform-transaction.ts'
+      );
+      if (await currentImportAuthoringFreezeReceiptMatchesV1()) {
+        process.exitCode = 0;
+        return;
+      }
+    }
     await ensureOperationDependencies(compileSecOperationDemandGraphV1({
       operation: target === 'imports:check'
         ? 'imports-check'
@@ -164,7 +173,8 @@ async function main(): Promise<void> {
       terminalWorkIds: []
     }));
     const {
-      runCandidateImportCheck,
+      runAuthoringImportCheckV1,
+      runImportAuthoringFreezeV1,
       runImportCheck,
       runImportApply,
       runStagedImportOrganizer,
@@ -214,7 +224,24 @@ async function main(): Promise<void> {
     }
     if (target === 'imports:freeze') {
       if (args.length !== 0) usage();
-      const outcome = await runCandidateImportCheck();
+      if (process.env.SEC_GIT_HOOK_ACTIVE !== '1') {
+        const frozen = await runImportAuthoringFreezeV1();
+        if (frozen.status === 'blocked') {
+          console.error(
+            `Import authoring freeze ${frozen.workingTreeWriteStatus} (${frozen.reasonCode}); `
+            + `plan ${frozen.workingTreePlanDigest}; recovery journal: ${frozen.journalPath}`
+          );
+          process.exitCode = 1;
+          return;
+        }
+        console.log(
+          `Candidate imports frozen after ${frozen.workingTreeWriteStatus} working-tree transaction `
+          + `${frozen.workingTreePlanDigest}; ${frozen.workingTreeFiles.length} source file(s) changed.`
+        );
+        process.exitCode = 0;
+        return;
+      }
+      const outcome = await runAuthoringImportCheckV1();
       if (outcome.status === 'canonical') {
         if (shouldReportDevRunnerSuccessV1()) {
           console.log('Candidate imports identity sealed (canonical).');
@@ -222,7 +249,7 @@ async function main(): Promise<void> {
         process.exitCode = 0;
       } else {
         console.error(
-          `Candidate imports are non-canonical (needs-import-transform) in ${outcome.files.length} file(s):\n`
+          `Staged authoring imports are non-canonical (needs-import-transform) in ${outcome.files.length} file(s):\n`
           + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
           + 'Run bun run imports:apply, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.'
         );

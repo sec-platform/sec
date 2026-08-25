@@ -1,8 +1,8 @@
 import { lstat, readFile, readlink } from 'node:fs/promises';
 import path from 'node:path';
 
+import { isolatedGitReadEnvironment } from '../git/read-environment.ts';
 import { rawSha256, sha256, uniqueSorted } from '../shared/canonical-primitives.ts';
-import { isolatedGitReadEnvironment } from '../shared/git-read-environment.ts';
 import { compilerRoot } from '../shared/paths.ts';
 import { runCommandBytes } from '../shared/process.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from '../shared/repository-path-contract.ts';

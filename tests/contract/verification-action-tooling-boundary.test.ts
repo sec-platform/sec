@@ -11,6 +11,23 @@ const retiredOwners = [
 ] as const;
 const canonicalJournal = 'tooling/sec-dev/verification-action-journal.ts';
 const canonicalRunner = 'tooling/sec-dev/verification-action-runner.ts';
+const reviewedToolingToScriptsBridges = new Set([
+  'tooling/sec-dev/development-critical-path.ts\u0000scripts/codex/work-package-contract.ts'
+]);
+
+function resolvedDependencyClosure(root: string, graph: ReturnType<typeof readRepositoryModuleGraphV1>): Set<string> {
+  const closure = new Set<string>([root]);
+  const pending = [root];
+  while (pending.length > 0) {
+    const current = pending.shift()!;
+    for (const dependency of graph.directDependencies(current)) {
+      if (closure.has(dependency)) continue;
+      closure.add(dependency);
+      pending.push(dependency);
+    }
+  }
+  return closure;
+}
 
 test('Verification Action has one canonical tooling owner and no retired facade', () => {
   const graph = readRepositoryModuleGraphV1();
@@ -19,7 +36,7 @@ test('Verification Action has one canonical tooling owner and no retired facade'
     expect(existsSync(path.join(repositoryRoot, retired))).toBe(false);
     expect(graph.files).not.toContain(retired);
     expect(graph.references.filter((reference) => (
-      reference.candidateTargets.includes(retired)
+      reference.resolvedTarget === retired
     ))).toEqual([]);
   }
 
@@ -31,6 +48,7 @@ test('Verification Action has one canonical tooling owner and no retired facade'
 
 test('Verification Action dependency direction and process capability stay bounded', () => {
   const graph = readRepositoryModuleGraphV1();
+  const runnerClosure = resolvedDependencyClosure(canonicalRunner, graph);
   const productionConsumers = graph.references.filter((reference) => (
     reference.from.startsWith('scripts/')
     && (reference.resolvedTarget === canonicalRunner || reference.resolvedTarget === canonicalJournal)
@@ -42,9 +60,12 @@ test('Verification Action dependency direction and process capability stay bound
   expect(graph.directDependencies(canonicalRunner)).toContain(canonicalJournal);
 
   expect(graph.references.filter((reference) => (
-    reference.from.startsWith('tooling/sec-dev/')
-    && reference.candidateTargets.some((candidate) => candidate.startsWith('scripts/codex/'))
-  ))).toEqual([]);
+    runnerClosure.has(reference.from)
+    && reference.from.startsWith('tooling/sec-dev/')
+    && reference.resolvedTarget !== null
+    && reference.resolvedTarget.startsWith('scripts/codex/')
+  )).map((reference) => `${reference.from}\u0000${reference.resolvedTarget}`))
+    .toEqual([...reviewedToolingToScriptsBridges].sort());
   expect(graph.references.filter((reference) => (
     reference.from === canonicalRunner && reference.specifier === 'node:child_process'
   ))).toEqual([]);

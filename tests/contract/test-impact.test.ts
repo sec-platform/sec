@@ -15,6 +15,7 @@ import {
   type CodexDevelopmentTestImpactSourceProviderV2
 } from '../../platform/shared/test-impact-contract.ts';
 import { RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS } from '../../platform/shared/test-impact-rules/governance.ts';
+import { RETIRED_SEC_DEV_GIT_READ_TRANSITIONS } from '../../platform/shared/test-impact-rules/verification.ts';
 
 function expectUnique(values: readonly string[]): void {
   expect(new Set(values).size).toBe(values.length);
@@ -263,6 +264,40 @@ test('retired evidence ownership requires the exact removed transition', () => {
     observation('removed', retired.baseSha, retired.baseBlobSha, '100755')
   ]) {
     expect(selectTestsForSources([retired.path], undefined, transition))
+      .toEqual({ fast: [], slow: [], owners: [] });
+  }
+});
+
+test('retired duplicate Git reader selects the canonical observer evidence only for its exact removal', () => {
+  const retired = RETIRED_SEC_DEV_GIT_READ_TRANSITIONS[0]!;
+  const headSha = 'c'.repeat(40);
+  const transition = (
+    status: 'added' | 'changed' | 'removed',
+    baseSha: string = retired.baseSha,
+    baseBlobSha: string = retired.baseBlobSha
+  ) => CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha,
+    headSha,
+    records: [{ status, path: retired.path }],
+    readPathBlob: (revision) => status === 'removed' && revision === baseSha
+      ? { mode: retired.baseMode, blobSha: baseBlobSha }
+      : null
+  });
+
+  expect(selectTestsForSources([retired.path])).toEqual({ fast: [], slow: [], owners: [] });
+  const exact = selectTestsForSources([retired.path], undefined, transition('removed'));
+  expect(exact.owners).toContain('verification-evidence-producers');
+  expect(exact.fast).toEqual(expect.arrayContaining([
+    'tests/integration/sec-dev-git-observation.test.ts',
+    'tests/unit/sec-dev-git-read-batching.test.ts'
+  ]));
+  for (const nonExact of [
+    transition('added'),
+    transition('changed'),
+    transition('removed', 'd'.repeat(40)),
+    transition('removed', retired.baseSha, 'e'.repeat(40))
+  ]) {
+    expect(selectTestsForSources([retired.path], undefined, nonExact))
       .toEqual({ fast: [], slow: [], owners: [] });
   }
 });

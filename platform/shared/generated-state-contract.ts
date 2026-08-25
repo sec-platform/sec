@@ -108,6 +108,8 @@ export interface GeneratedStateInventoryEntryV1 {
   readonly blockers: readonly string[];
   readonly physicalIdentity: GeneratedStatePhysicalIdentityV1 | null;
   readonly registrationDigest: `sha256:${string}` | null;
+  /** True when the resource birth/terminal owner, rather than legacy cleanup, owns settlement. */
+  readonly resourceManaged?: boolean;
 }
 
 export interface GeneratedStateInventoryV1 {
@@ -420,6 +422,7 @@ export function generatedStateCleanupAllowedV1(input: Readonly<{
 }>): boolean {
   const { entry, profile } = input;
   return entry.settlement === 'ready'
+    && entry.resourceManaged !== true
     && entry.registrationState === 'retired'
     && entry.cleanupProfiles.includes(profile);
 }
@@ -730,4 +733,403 @@ export function assertGeneratedStateWorktreeRetirementV1(value: GeneratedStateWo
     fail('worktree retirement receipt is not canonical.');
   }
   return value;
+}
+
+/**
+ * Resource birth/retirement is deliberately a small extension of the
+ * generated-state registry.  It is not a second cleanup manager: the
+ * registry still decides which paths are supported and the lifecycle owner
+ * only composes the owner identity, physical preimage and terminal receipt.
+ *
+ * The fields below intentionally contain no wall-clock or path/age based
+ * reclamation input.  A resource can be reclaimed only after its owner has
+ * satisfied the terminal obligation, its lease has been released, all
+ * consumers are gone, and the physical preimage is still the one recorded at
+ * birth.
+ */
+export const GENERATED_STATE_RESOURCE_REGISTRATION_SCHEMA_V1 =
+  'sec-generated-state-resource-registration-v1' as const;
+export const GENERATED_STATE_RESOURCE_RECEIPT_SCHEMA_V1 =
+  'sec-generated-state-resource-receipt-v1' as const;
+
+export type GeneratedStateResourcePhaseV1 = 'active' | 'operational-terminal';
+export type GeneratedStateResourceLeaseStateV1 = 'held' | 'released';
+export type GeneratedStateResourceRetentionPolicyV1 = 'consumer-zero' | 'owner-retained';
+export type GeneratedStateReclaimabilityV1 = 'eligible' | 'blocked' | 'unknown';
+
+export interface GeneratedStateResourceLeaseV1 {
+  readonly leaseId: `sha256:${string}`;
+  readonly owner: string;
+  readonly operationId: string;
+  readonly state: GeneratedStateResourceLeaseStateV1;
+}
+
+export interface GeneratedStateResourceConsumerV1 {
+  readonly consumerId: string;
+  /** Issued by the resource owner and required to release this exact binding. */
+  readonly credential: `sha256:${string}`;
+}
+
+export interface GeneratedStateResourceRetentionV1 {
+  readonly policy: GeneratedStateResourceRetentionPolicyV1;
+  readonly consumers: readonly GeneratedStateResourceConsumerV1[];
+}
+
+export interface GeneratedStateResourceTerminalObligationV1 {
+  readonly state: 'open' | 'satisfied';
+  readonly settlementRef: `sha256:${string}` | null;
+  readonly outcomeDigest: `sha256:${string}` | null;
+}
+
+export interface GeneratedStateResourceRegistrationV1 {
+  readonly schema: typeof GENERATED_STATE_RESOURCE_REGISTRATION_SCHEMA_V1;
+  readonly resourceId: `sha256:${string}`;
+  readonly repositoryRoot: string;
+  readonly workspace: GeneratedStatePhysicalIdentityV1;
+  readonly ruleId: string;
+  readonly relativePath: string;
+  readonly root: GeneratedStatePhysicalIdentityV1 | null;
+  readonly rootKind: GeneratedStateRootKindV1 | null;
+  readonly linkTarget: string | null;
+  readonly owner: string;
+  readonly producer: string;
+  readonly operationId: string;
+  readonly lease: GeneratedStateResourceLeaseV1;
+  readonly retention: GeneratedStateResourceRetentionV1;
+  readonly terminalObligation: GeneratedStateResourceTerminalObligationV1;
+  readonly phase: GeneratedStateResourcePhaseV1;
+  /** Monotonic current-record version used by every lifecycle transition CAS. */
+  readonly transitionEpoch: number;
+  readonly registrationDigest: `sha256:${string}`;
+}
+
+export interface GeneratedStateResourceReceiptV1 {
+  readonly schema: typeof GENERATED_STATE_RESOURCE_RECEIPT_SCHEMA_V1;
+  readonly resourceId: `sha256:${string}`;
+  readonly registrationDigest: `sha256:${string}`;
+  readonly repositoryRoot: string;
+  readonly workspace: GeneratedStatePhysicalIdentityV1;
+  readonly relativePath: string;
+  readonly phase: GeneratedStateResourcePhaseV1;
+  readonly operationalTerminal: boolean;
+  readonly physicalClean: boolean;
+  readonly gcPending: boolean;
+  readonly reclaimability: GeneratedStateReclaimabilityV1;
+  readonly consumerCount: number;
+  readonly observedRoot: GeneratedStatePhysicalIdentityV1 | null;
+  readonly blockers: readonly string[];
+  readonly receiptDigest: `sha256:${string}`;
+}
+
+function resourceLeaseMaterialV1(input: Readonly<{
+  resourceId: `sha256:${string}`;
+  owner: string;
+  operationId: string;
+}>): GeneratedStateResourceLeaseV1 {
+  return Object.freeze({
+    leaseId: generatedStateDigestV1(Object.freeze({
+      schema: 'sec-generated-state-resource-lease-v1',
+      resourceId: input.resourceId,
+      owner: input.owner,
+      operationId: input.operationId
+    })),
+    owner: input.owner,
+    operationId: input.operationId,
+    state: 'held' as const
+  });
+}
+
+export function generatedStateResourceConsumerCredentialV1(input: Readonly<{
+  resourceId: `sha256:${string}`;
+  owner: string;
+  leaseId: `sha256:${string}`;
+  consumerId: string;
+}>): `sha256:${string}` {
+  const consumerId = stringValue(input.consumerId, 'resource consumerId');
+  return generatedStateDigestV1(Object.freeze({
+    schema: 'sec-generated-state-resource-consumer-credential-v1',
+    resourceId: input.resourceId,
+    owner: stringValue(input.owner, 'resource consumer owner'),
+    leaseId: input.leaseId,
+    consumerId
+  }));
+}
+
+function resourceRegistrationMaterialV1(input: Omit<GeneratedStateResourceRegistrationV1, 'schema' | 'registrationDigest'>) {
+  return Object.freeze({ schema: GENERATED_STATE_RESOURCE_REGISTRATION_SCHEMA_V1, ...input });
+}
+
+export function createGeneratedStateResourceRegistrationV1(input: Readonly<{
+  resourceId: `sha256:${string}`;
+  repositoryRoot: string;
+  workspace: GeneratedStatePhysicalIdentityV1;
+  rule: GeneratedStateRuleV1;
+  relativePath: string;
+  root: GeneratedStatePhysicalIdentityV1 | null;
+  rootKind: GeneratedStateRootKindV1 | null;
+  linkTarget?: string | null;
+  operationId: string;
+}>): GeneratedStateResourceRegistrationV1 {
+  const relativePath = normalizeGeneratedStateRelativePathV1(input.relativePath);
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.resourceId)) fail('resourceId must be one SHA-256 digest.');
+  if (generatedStateRuleForPathV1(relativePath)?.id !== input.rule.id) {
+    fail('resource registration path does not resolve to its rule.');
+  }
+  if (input.rootKind !== null && !ROOT_KINDS.has(input.rootKind)) fail('resource root kind is invalid.');
+  if ((input.root === null) !== (input.rootKind === null)) fail('resource root and root kind disagree.');
+  const owner = stringValue(input.rule.owner, 'resource.owner');
+  const operationId = stringValue(input.operationId, 'resource.operationId');
+  const retentionPolicy: GeneratedStateResourceRetentionPolicyV1 = input.rule.cleanupProfiles.length > 0
+    ? 'consumer-zero'
+    : 'owner-retained';
+  const material = resourceRegistrationMaterialV1({
+    resourceId: input.resourceId,
+    repositoryRoot: stringValue(input.repositoryRoot, 'resource.repositoryRoot'),
+    workspace: physicalIdentityV1(input.workspace, 'resource.workspace'),
+    ruleId: input.rule.id,
+    relativePath,
+    root: input.root === null ? null : physicalIdentityV1(input.root, 'resource.root'),
+    rootKind: input.rootKind,
+    linkTarget: input.linkTarget ?? null,
+    owner,
+    producer: stringValue(input.rule.producer, 'resource.producer'),
+    operationId,
+    lease: resourceLeaseMaterialV1({ resourceId: input.resourceId, owner, operationId }),
+    retention: Object.freeze({ policy: retentionPolicy, consumers: Object.freeze([]) }),
+    terminalObligation: Object.freeze({ state: 'open', settlementRef: null, outcomeDigest: null }),
+    phase: 'active',
+    transitionEpoch: 0
+  });
+  return Object.freeze({ ...material, registrationDigest: generatedStateDigestV1(material) });
+}
+
+export function parseGeneratedStateResourceRegistrationV1(value: unknown): GeneratedStateResourceRegistrationV1 {
+  const record = plainRecord(value, 'resource registration');
+  exactKeys(record, [
+    'schema', 'resourceId', 'repositoryRoot', 'workspace', 'ruleId', 'relativePath', 'root',
+    'rootKind', 'linkTarget', 'owner', 'producer', 'operationId', 'lease', 'retention',
+    'terminalObligation', 'phase', 'transitionEpoch', 'registrationDigest'
+  ], 'resource registration');
+  if (record.schema !== GENERATED_STATE_RESOURCE_REGISTRATION_SCHEMA_V1) {
+    fail('resource registration schema is invalid.');
+  }
+  const resourceId = digestValue(record.resourceId, 'resource.registration.resourceId');
+  const ruleId = stringValue(record.ruleId, 'resource.registration.ruleId');
+  const rule = GENERATED_STATE_REGISTRY_V1.rules.find(({ id }) => id === ruleId);
+  if (rule === undefined) fail('resource registration rule is absent from the current registry.');
+  const relativePath = normalizeGeneratedStateRelativePathV1(
+    stringValue(record.relativePath, 'resource.registration.relativePath')
+  );
+  const rootKind = record.rootKind === null ? null : record.rootKind as GeneratedStateRootKindV1;
+  if (rootKind !== null && !ROOT_KINDS.has(rootKind)) fail('resource registration rootKind is invalid.');
+  const root = record.root === null ? null : physicalIdentityV1(record.root, 'resource.registration.root');
+  if ((root === null) !== (rootKind === null)) fail('resource registration root and rootKind disagree.');
+  const leaseRecord = plainRecord(record.lease, 'resource registration lease');
+  exactKeys(leaseRecord, ['leaseId', 'owner', 'operationId', 'state'], 'resource registration lease');
+  const leaseState = leaseRecord.state;
+  if (leaseState !== 'held' && leaseState !== 'released') fail('resource registration lease state is invalid.');
+  const lease = Object.freeze({
+    leaseId: digestValue(leaseRecord.leaseId, 'resource registration leaseId'),
+    owner: stringValue(leaseRecord.owner, 'resource registration lease.owner'),
+    operationId: stringValue(leaseRecord.operationId, 'resource registration lease.operationId'),
+    state: leaseState
+  });
+  const expectedLease = resourceLeaseMaterialV1({
+    resourceId,
+    owner: stringValue(record.owner, 'resource.registration.owner'),
+    operationId: stringValue(record.operationId, 'resource.registration.operationId')
+  });
+  if (lease.leaseId !== expectedLease.leaseId || lease.owner !== expectedLease.owner ||
+      lease.operationId !== expectedLease.operationId) {
+    fail('resource registration lease is not bound to its owner identity.');
+  }
+  const transitionEpoch = record.transitionEpoch;
+  if (!Number.isSafeInteger(transitionEpoch) || (transitionEpoch as number) < 0) {
+    fail('resource registration transitionEpoch is invalid.');
+  }
+  const retentionRecord = plainRecord(record.retention, 'resource registration retention');
+  exactKeys(retentionRecord, ['policy', 'consumers'], 'resource registration retention');
+  if (retentionRecord.policy !== 'consumer-zero' && retentionRecord.policy !== 'owner-retained') {
+    fail('resource registration retention policy is invalid.');
+  }
+  if (!Array.isArray(retentionRecord.consumers)) fail('resource registration retention consumers are invalid.');
+  const consumers = retentionRecord.consumers.map((value, index) => {
+    const consumer = plainRecord(value, `resource registration consumer ${index}`);
+    exactKeys(consumer, ['consumerId', 'credential'], `resource registration consumer ${index}`);
+    const consumerId = stringValue(consumer.consumerId, `resource registration consumer ${index}.consumerId`);
+    const credential = digestValue(consumer.credential, `resource registration consumer ${index}.credential`);
+    const expectedCredential = generatedStateResourceConsumerCredentialV1({
+      resourceId,
+      owner: stringValue(record.owner, 'resource.registration.owner'),
+      leaseId: lease.leaseId,
+      consumerId
+    });
+    if (credential !== expectedCredential) {
+      fail(`resource registration consumer ${index} credential is not owner-issued.`);
+    }
+    return Object.freeze({ consumerId, credential });
+  });
+  if (new Set(consumers.map(({ consumerId }) => consumerId)).size !== consumers.length ||
+      [...consumers].sort((left, right) => left.consumerId.localeCompare(right.consumerId))
+        .map(({ consumerId }) => consumerId).join('\0') !== consumers.map(({ consumerId }) => consumerId).join('\0')) {
+    fail('resource registration consumers are not canonical.');
+  }
+  const terminalRecord = plainRecord(record.terminalObligation, 'resource registration terminal obligation');
+  exactKeys(terminalRecord, ['state', 'settlementRef', 'outcomeDigest'], 'resource registration terminal obligation');
+  if (terminalRecord.state !== 'open' && terminalRecord.state !== 'satisfied') {
+    fail('resource registration terminal obligation state is invalid.');
+  }
+  const settlementRef = terminalRecord.settlementRef === null
+    ? null
+    : digestValue(terminalRecord.settlementRef, 'resource registration settlementRef');
+  const outcomeDigest = terminalRecord.outcomeDigest === null
+    ? null
+    : digestValue(terminalRecord.outcomeDigest, 'resource registration outcomeDigest');
+  const phase = record.phase;
+  if (phase !== 'active' && phase !== 'operational-terminal') fail('resource registration phase is invalid.');
+  if ((phase === 'active') !== (terminalRecord.state === 'open') ||
+      (phase === 'active') !== (leaseState === 'held') ||
+      (phase === 'operational-terminal') !== (settlementRef !== null) ||
+      (phase === 'operational-terminal') !== (outcomeDigest !== null)) {
+    fail('resource registration phase, lease and terminal obligation disagree.');
+  }
+  const material = resourceRegistrationMaterialV1({
+    resourceId,
+    repositoryRoot: stringValue(record.repositoryRoot, 'resource.registration.repositoryRoot'),
+    workspace: physicalIdentityV1(record.workspace, 'resource.registration.workspace'),
+    ruleId,
+    relativePath,
+    root,
+    rootKind,
+    linkTarget: record.linkTarget === null ? null : stringValue(record.linkTarget, 'resource.registration.linkTarget'),
+    owner: stringValue(record.owner, 'resource.registration.owner'),
+    producer: stringValue(record.producer, 'resource.registration.producer'),
+    operationId: stringValue(record.operationId, 'resource.registration.operationId'),
+    lease,
+    retention: Object.freeze({ policy: retentionRecord.policy, consumers: Object.freeze(consumers) }),
+    terminalObligation: Object.freeze({ state: terminalRecord.state, settlementRef, outcomeDigest }),
+    phase,
+    transitionEpoch: transitionEpoch as number
+  });
+  if (material.owner !== rule.owner || material.producer !== rule.producer ||
+      generatedStateRuleForPathV1(material.relativePath)?.id !== rule.id ||
+      material.retention.policy !== (rule.cleanupProfiles.length > 0 ? 'consumer-zero' : 'owner-retained')) {
+    fail('resource registration owner, producer, path or retention differs from the current rule.');
+  }
+  const expected = Object.freeze({ ...material, registrationDigest: generatedStateDigestV1(material) });
+  if (expected.registrationDigest !== record.registrationDigest) {
+    fail('resource registration digest is invalid.');
+  }
+  return expected;
+}
+
+export function createGeneratedStateResourceReceiptV1(input: Omit<
+  GeneratedStateResourceReceiptV1,
+  'schema' | 'receiptDigest'
+>): GeneratedStateResourceReceiptV1 {
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.resourceId) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(input.registrationDigest)) {
+    fail('resource receipt identity is invalid.');
+  }
+  if (!Number.isSafeInteger(input.consumerCount) || input.consumerCount < 0) {
+    fail('resource receipt consumerCount is invalid.');
+  }
+  if (input.physicalClean && (!input.operationalTerminal || input.gcPending)) {
+    fail('resource receipt physicalClean is not compatible with terminal/gcPending.');
+  }
+  if (input.physicalClean && input.reclaimability === 'unknown') {
+    fail('resource receipt physicalClean cannot have unknown reclaimability.');
+  }
+  if (input.gcPending && (!input.operationalTerminal || input.physicalClean || input.reclaimability !== 'eligible')) {
+    fail('resource receipt gcPending requires one eligible terminal residue.');
+  }
+  if (!input.operationalTerminal && (input.physicalClean || input.gcPending || input.reclaimability === 'eligible')) {
+    fail('resource receipt active state cannot be clean, pending or eligible.');
+  }
+  const material = Object.freeze({
+    schema: GENERATED_STATE_RESOURCE_RECEIPT_SCHEMA_V1,
+    resourceId: input.resourceId,
+    registrationDigest: input.registrationDigest,
+    repositoryRoot: stringValue(input.repositoryRoot, 'resource receipt.repositoryRoot'),
+    workspace: physicalIdentityV1(input.workspace, 'resource receipt.workspace'),
+    relativePath: normalizeGeneratedStateRelativePathV1(input.relativePath),
+    phase: input.phase,
+    operationalTerminal: input.operationalTerminal,
+    physicalClean: input.physicalClean,
+    gcPending: input.gcPending,
+    reclaimability: input.reclaimability,
+    consumerCount: input.consumerCount,
+    observedRoot: input.observedRoot === null ? null : physicalIdentityV1(input.observedRoot, 'resource receipt.observedRoot'),
+    blockers: Object.freeze([...new Set(input.blockers.map((value) => stringValue(value, 'resource receipt blocker')))].sort())
+  });
+  if (material.phase !== 'active' && material.phase !== 'operational-terminal') {
+    fail('resource receipt phase is invalid.');
+  }
+  if (material.reclaimability !== 'eligible' && material.reclaimability !== 'blocked' &&
+      material.reclaimability !== 'unknown') {
+    fail('resource receipt reclaimability is invalid.');
+  }
+  if ((material.phase === 'active') !== (!material.operationalTerminal)) {
+    fail('resource receipt phase and operationalTerminal disagree.');
+  }
+  return Object.freeze({ ...material, receiptDigest: generatedStateDigestV1(material) });
+}
+
+export function assertGeneratedStateResourceRegistrationV1(
+  value: GeneratedStateResourceRegistrationV1
+): GeneratedStateResourceRegistrationV1 {
+  return parseGeneratedStateResourceRegistrationV1(value);
+}
+
+export function assertGeneratedStateResourceReceiptV1(
+  value: GeneratedStateResourceReceiptV1
+): GeneratedStateResourceReceiptV1 {
+  const record = createGeneratedStateResourceReceiptV1(value);
+  if (!canonicalEquals(value, record) || record.receiptDigest !== value.receiptDigest) {
+    fail('resource receipt is not canonical.');
+  }
+  return record;
+}
+
+/**
+ * Pure reclaimability projection.  Callers must supply an observation made
+ * by the physical no-follow owner; this function never infers safety from a
+ * path name, timestamp, or an absent registration.
+ */
+export function generatedStateResourceReclaimabilityV1(input: Readonly<{
+  registration: GeneratedStateResourceRegistrationV1 | null;
+  observedRoot: GeneratedStatePhysicalIdentityV1 | null;
+  observedKind: GeneratedStateRootKindV1 | 'missing' | null;
+}>): GeneratedStateReclaimabilityV1 {
+  const registration = input.registration;
+  if (registration === null) return 'unknown';
+  if (registration.phase !== 'operational-terminal' || registration.lease.state !== 'released') {
+    return 'blocked';
+  }
+  if (registration.retention.policy === 'consumer-zero' && registration.retention.consumers.length > 0) {
+    return 'blocked';
+  }
+  // `missing` is the only complete absent readback.  A null kind is the
+  // physical observer's unresolved/no-follow result and must never be
+  // promoted to absence merely because the identity is also null.
+  if (input.observedKind === 'missing') {
+    return input.observedRoot === null ? 'eligible' : 'unknown';
+  }
+  if (input.observedKind === null || input.observedRoot === null || registration.root === null) {
+    return 'unknown';
+  }
+  const expectedForm = GENERATED_STATE_REGISTRY_V1.rules
+    .find(({ id }) => id === registration.ruleId)?.physicalForms
+    .find(({ kind }) => kind === input.observedKind);
+  if (expectedForm === undefined || !samePhysicalIdentityV1(registration.root, input.observedRoot)) {
+    return 'unknown';
+  }
+  return 'eligible';
+}
+
+function samePhysicalIdentityV1(
+  left: GeneratedStatePhysicalIdentityV1,
+  right: GeneratedStatePhysicalIdentityV1
+): boolean {
+  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
 }

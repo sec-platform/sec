@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { isolatedGitReadEnvironment } from '../../platform/git/read-environment.ts';
 import {
   compileSecOperationReadPlanV1,
   parseSecOperationReadPlanV1,
@@ -16,7 +17,6 @@ import {
   isSecSkillQuarantinePath
 } from '../../platform/shared/agent-skill-contract.ts';
 import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
-import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
 import { resolveProspectiveWorkerOperationV1 } from './operation-read-plan.ts';
 import {
   SecTaskCapsuleProjectionUnavailableError,

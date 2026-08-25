@@ -1,5 +1,5 @@
+import { isolatedGitReadEnvironment } from '../git/read-environment.ts';
 import { uniqueSorted } from './collections.ts';
-import { isolatedGitReadEnvironment } from './git-read-environment.ts';
 import { posixPath, projectRelativePath } from './paths.ts';
 import { runCommandBytes } from './process.ts';
 

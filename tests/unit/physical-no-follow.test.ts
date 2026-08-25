@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -29,16 +30,17 @@ import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tr
 
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
-  PhysicalNoFollowError,
   assertSameNoFollowDirectoryIdentityV1,
   createExclusiveNoFollowDirectoryV1,
   createNoFollowDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
+  deleteRetainedNoFollowInventoryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
   inspectNoFollowDirectoryChildV1,
   inspectNoFollowOrdinaryFileDigestV1,
   inspectNoFollowOrdinaryFileEntryV1,
+  PhysicalNoFollowError,
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
   relocateRetainedNoFollowDirectoryV1,
@@ -680,6 +682,7 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     );
     expect(inspectNoFollowOrdinaryFileDigestV1(identity, 'small.txt')).toEqual({
       size: smallBytes.byteLength,
+      unixMode: process.platform === 'linux' ? 0o644 : null,
       byteDigest: `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
     });
     expect(first.get('large.bin')).toMatchObject({ kind: 'file', size: largeSize });
@@ -932,6 +935,101 @@ test('Linux retained deletion accepts selected-name absence when another hard li
     });
     expect(existsSync(path.join(target, 'selected.txt'))).toBe(false);
     expect(readFileSync(path.join(root, 'surviving-link.txt'), 'utf8')).toBe('shared inode\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('retained inventory batch validates once, deletes post-order, and resumes idempotently', () => {
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    mkdirSync(path.join(target, 'nested', 'deeper'), { recursive: true });
+    writeFileSync(path.join(target, 'top.txt'), 'top\n', 'utf8');
+    writeFileSync(path.join(target, 'nested', 'deeper', 'leaf.txt'), 'leaf\n', 'utf8');
+    const identity = inspectNoFollowDirectoryChainV1(target, 'batch deletion target').target;
+    const inventory = scanNoFollowDirectoryTreeMetadataV1(identity, {
+      deadlineAtMs: performance.now() + 5_000,
+      maximumEntries: 100
+    });
+
+    deleteRetainedNoFollowInventoryV1({ root: identity, inventory });
+    expect(readdirSync(target)).toEqual([]);
+
+    // A resumed worker may only have the original inventory. Already absent
+    // entries are accepted while the retained root remains identity-fenced.
+    deleteRetainedNoFollowInventoryV1({ root: identity, inventory });
+    expect(readdirSync(target)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'linux')('Linux nested batch deletion uses fsync-capable directory handles', () => {
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    mkdirSync(path.join(target, 'one', 'two', 'three'), { recursive: true });
+    writeFileSync(path.join(target, 'one', 'two', 'three', 'leaf.txt'), 'nested\n', 'utf8');
+    const identity = inspectNoFollowDirectoryChainV1(target, 'Linux fsync-capable batch target').target;
+    const inventory = scanNoFollowDirectoryTreeMetadataV1(identity, {
+      deadlineAtMs: performance.now() + 5_000,
+      maximumEntries: 100
+    });
+
+    expect(() => deleteRetainedNoFollowInventoryV1({ root: identity, inventory })).not.toThrow();
+    expect(readdirSync(target)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('large retained inventory keeps live descriptor and handle usage bounded', () => {
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    mkdirSync(target);
+    const entryCount = 4_096;
+    for (let index = 0; index < entryCount; index += 1) {
+      writeFileSync(path.join(target, `entry-${index.toString().padStart(5, '0')}.txt`), 'x\n', 'utf8');
+    }
+    const identity = inspectNoFollowDirectoryChainV1(target, 'large bounded-handle target').target;
+    const inventory = scanNoFollowDirectoryTreeMetadataV1(identity, {
+      deadlineAtMs: performance.now() + 30_000,
+      maximumEntries: entryCount + 10
+    });
+    expect(inventory).toHaveLength(entryCount);
+
+    deleteRetainedNoFollowInventoryV1({ root: identity, inventory });
+    expect(readdirSync(target)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test('retained inventory batch rejects a replaced entry before any effect', () => {
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    mkdirSync(target);
+    const selected = path.join(target, 'selected.txt');
+    const surviving = path.join(target, 'surviving.txt');
+    writeFileSync(selected, 'authorized\n', 'utf8');
+    writeFileSync(surviving, 'must-survive\n', 'utf8');
+    const identity = inspectNoFollowDirectoryChainV1(target, 'batch replacement target').target;
+    const inventory = scanNoFollowDirectoryTreeMetadataV1(identity, {
+      deadlineAtMs: performance.now() + 5_000,
+      maximumEntries: 100
+    });
+    const displaced = `${selected}.displaced`;
+    renameSync(selected, displaced);
+    writeFileSync(selected, 'foreign\n', 'utf8');
+
+    expect(() => deleteRetainedNoFollowInventoryV1({ root: identity, inventory }))
+      .toThrow(/changed|authorized|identity/iu);
+    expect(readFileSync(selected, 'utf8')).toBe('foreign\n');
+    expect(readFileSync(surviving, 'utf8')).toBe('must-survive\n');
+    expect(readFileSync(displaced, 'utf8')).toBe('authorized\n');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -2,6 +2,7 @@ import { dlopen, FFIType, ptr, read } from 'bun:ffi';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
+  fchmodSync,
   constants as fsConstants,
   fstatSync,
   fsyncSync,
@@ -116,6 +117,18 @@ export interface NoFollowDirectoryTreeInventoryEntryV1 {
   readonly linkTarget: string | null;
 }
 
+/**
+ * The metadata projection accepted by the retained destructive batch
+ * primitive.  Content is intentionally not part of this contract: the
+ * operation is authorized by the already-produced physical inventory and
+ * revalidates the name, kind, size, link witness and physical identity before
+ * its first effect.
+ */
+export type RetainedNoFollowInventoryDeleteEntryV1 = Readonly<Pick<
+  NoFollowDirectoryTreeInventoryEntryV1,
+  'relativePath' | 'kind' | 'device' | 'inode' | 'size' | 'linkTarget'
+>>;
+
 interface InternalNoFollowDirectoryTreeEntryV1 extends NoFollowDirectoryTreeEntryV1 {
   readonly contentDigest: `sha256:${string}` | null;
 }
@@ -223,6 +236,8 @@ const LINUX_O_EXCL = 0x80;
 const LINUX_O_NONBLOCK = 0x800;
 const LINUX_AT_FDCWD = -100;
 const LINUX_AT_REMOVEDIR = 0x0200;
+const LINUX_ELOOP = 40;
+const LINUX_ENOTDIR = 20;
 const LINUX_RENAME_NOREPLACE = 1;
 const LINUX_IN_CREATE = 0x0000_0100;
 const LINUX_IN_DELETE = 0x0000_0200;
@@ -301,6 +316,29 @@ function linuxOpenAt(parentFd: number, component: string, label: string): number
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} could not be opened without following links (errno ${errno}).`);
   }
   return fd;
+}
+
+/**
+ * Opens a child as a real no-follow directory handle when it is a directory.
+ * Unlike linuxOpenLeafAt, the returned descriptor is fsync-capable.  A
+ * non-directory or a symlink returns null so the caller can inspect it with
+ * the O_PATH leaf primitive without ever following it.
+ */
+function linuxTryOpenDirectoryAt(parentFd: number, component: string, label: string): number | null {
+  if (component.length === 0 || component.includes('/') || component.includes('\0')) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} has an invalid no-follow directory component.`);
+  }
+  const fd = requireLinuxLibc().symbols.openat(
+    parentFd,
+    Buffer.from(`${component}\0`, 'utf8'),
+    LINUX_O_RDONLY | LINUX_O_DIRECTORY | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC,
+    0
+  );
+  if (fd >= 0) return fd;
+  const errno = linuxErrno();
+  if (errno === 2) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+  if (errno === LINUX_ELOOP || errno === LINUX_ENOTDIR) return null;
+  throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} could not be opened as a no-follow directory (errno ${errno}).`);
 }
 
 function linuxOpenLeafAt(parentFd: number, component: string, label: string): number {
@@ -762,6 +800,7 @@ const WINDOWS_FILE_OPEN_REPARSE_POINT_NT = 0x0020_0000;
 const WINDOWS_STATUS_OBJECT_NAME_NOT_FOUND = -1_073_741_772;
 const WINDOWS_STATUS_OBJECT_PATH_NOT_FOUND = -1_073_741_766;
 const WINDOWS_STATUS_OBJECT_NAME_COLLISION = -1_073_741_771;
+const WINDOWS_STATUS_DELETE_PENDING = -1_073_741_738;
 
 type WindowsKernel32 = ReturnType<typeof loadWindowsKernel32>;
 let windowsKernel32: WindowsKernel32 | undefined;
@@ -1118,6 +1157,117 @@ function windowsOpenRelativeNoFollowEntry(
   }
   windowsRetainedLeafIdentity(handle, absolutePath, kind, label);
   return handle;
+}
+
+/**
+ * Opens one arbitrary directory entry relative to a retained parent without
+ * deciding its kind from the lexical path.  The native object is deliberately
+ * opened with FILE_OPEN_REPARSE_POINT; callers inspect the retained handle's
+ * attribute tag and then keep that same handle for validation and deletion.
+ * This is the Windows half of the inventory batch primitive and prevents the
+ * old directory/file classification pass from reopening a directory through
+ * its path.
+ */
+function windowsOpenRelativeUnknownNoFollowEntry(
+  parentHandle: bigint,
+  parent: PhysicalDirectoryIdentityV1,
+  name: string,
+  absolutePath: string,
+  label: string,
+  allowAbsent = false
+): bigint | null {
+  const object = windowsRelativeLeafObjectAttributes(parentHandle, name);
+  const handleBuffer = Buffer.alloc(8);
+  const ioStatus = Buffer.alloc(16);
+  const status = requireWindowsNtdll().symbols.NtCreateFile(
+    handleBuffer,
+    WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_FILE_READ_EA | WINDOWS_FILE_WRITE_ATTRIBUTES |
+      WINDOWS_DELETE | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE,
+    object.objectAttributes,
+    ioStatus,
+    null,
+    WINDOWS_FILE_ATTRIBUTE_NORMAL,
+    WINDOWS_SHARE_READ_WRITE_DELETE,
+    WINDOWS_FILE_OPEN,
+    WINDOWS_FILE_OPEN_REPARSE_POINT_NT | WINDOWS_FILE_SYNCHRONOUS_IO_NONALERT,
+    null,
+    0
+  );
+  if (status < 0) {
+    if (allowAbsent && (status === WINDOWS_STATUS_OBJECT_NAME_NOT_FOUND || status === WINDOWS_STATUS_OBJECT_PATH_NOT_FOUND || status === WINDOWS_STATUS_DELETE_PENDING)) {
+      return null;
+    }
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} relative unknown-entry open failed (NTSTATUS ${status}).`);
+  }
+  const handle = handleBuffer.readBigUInt64LE(0);
+  if (handle === 0n || handle === WINDOWS_INVALID_HANDLE) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} relative unknown-entry open returned no handle.`);
+  }
+  try {
+    const observedParent = windowsIdentity(parentHandle, parent.path, `${label} parent`);
+    if (!sameIdentity(parent, observedParent)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} parent changed during relative unknown-entry open.`);
+    }
+    const finalPath = windowsFinalPath(handle, label);
+    if (windowsPathKey(finalPath) !== windowsPathKey(path.toNamespacedPath(absolutePath))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} escaped its exact lexical path.`);
+    }
+    return handle;
+  } catch (error) {
+    closeWindowsHandle(handle);
+    throw error;
+  }
+}
+
+function retainedNoFollowInventoryEntryFromWindowsHandleV1(input: {
+  readonly handle: bigint;
+  readonly absolutePath: string;
+  readonly relativePath: string;
+}): Readonly<{
+  readonly entry: RetainedNoFollowInventoryDeleteEntryV1;
+  readonly directory: PhysicalDirectoryIdentityV1 | null;
+}> {
+  const tag = Buffer.alloc(8);
+  if (requireWindowsKernel32().symbols.GetFileInformationByHandleEx(
+    input.handle,
+    WINDOWS_FILE_ATTRIBUTE_TAG_INFO,
+    tag,
+    tag.byteLength
+  ) === 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained inventory entry attributes cannot be proven.');
+  }
+  const attributes = tag.readUInt32LE(0);
+  const kind: NoFollowDirectoryTreeEntryKindV1 = (attributes & WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT) !== 0
+    ? 'link'
+    : (attributes & WINDOWS_FILE_ATTRIBUTE_DIRECTORY) !== 0 ? 'directory' : 'file';
+  const identity = windowsRetainedLeafIdentity(
+    input.handle,
+    input.absolutePath,
+    kind,
+    'Retained inventory deletion entry'
+  );
+  const observation = kind === 'file'
+    ? windowsRetainedFileSnapshotV1(input.handle, 'Retained inventory deletion file')
+    : kind === 'link'
+      ? windowsRetainedReparseObservationV1(input.handle, 'Retained inventory deletion link')
+      : Object.freeze({ size: 0n, linkTarget: null });
+  const rawSize = typeof observation.size === 'bigint' ? observation.size : BigInt(observation.size);
+  if (rawSize < 0n || rawSize > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained inventory entry size is outside the exact number domain.');
+  }
+  return Object.freeze({
+    entry: Object.freeze({
+      relativePath: input.relativePath,
+      kind,
+      device: identity.device,
+      inode: identity.inode,
+      size: Number(rawSize),
+      linkTarget: 'linkTarget' in observation ? observation.linkTarget : null
+    }),
+    directory: kind === 'directory'
+      ? windowsIdentity(input.handle, input.absolutePath, 'Retained inventory deletion directory')
+      : null
+  });
 }
 
 function windowsWriteRetainedFile(handle: bigint, bytes: Uint8Array, label: string): void {
@@ -2552,14 +2702,24 @@ function windowsReadRenamedCandidate(
   return current;
 }
 
-function linuxCreateCandidateAt(parentFd: number, name: string, expected: Buffer, label: string): number {
+function linuxCreateCandidateAt(
+  parentFd: number,
+  name: string,
+  expected: Buffer,
+  label: string,
+  unixMode?: number
+): number {
   const fd = requireLinuxLibc().symbols.openat(
     parentFd, Buffer.from(`${name}\0`, 'utf8'),
     LINUX_O_WRONLY | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC | LINUX_O_CREAT | LINUX_O_EXCL,
     0o600
   );
   if (fd < 0) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} candidate create failed (errno ${linuxErrno()}).`);
-  try { writeFileSync(fd, expected); fsyncSync(fd); } catch (error) { closeSync(fd); throw error; }
+  try {
+    writeFileSync(fd, expected);
+    if (unixMode !== undefined) fchmodSync(fd, unixMode);
+    fsyncSync(fd);
+  } catch (error) { closeSync(fd); throw error; }
   return fd;
 }
 
@@ -2574,11 +2734,17 @@ export function publishExclusiveDurableCanonicalFileV1(input: {
   readonly name: string;
   readonly bytes: Uint8Array;
   readonly validate: (bytes: Uint8Array) => void;
+  /** Linux final mode applied to the retained candidate before publication. */
+  readonly unixMode?: number;
 }): Readonly<{ path: string; digest: string; created: boolean }> {
   ensureLeafName(input.name);
   const parent = assertSameNoFollowDirectoryIdentityV1(input.parent, 'Durable publication parent').target;
   const finalPath = path.join(parent.path, input.name);
   const expected = Buffer.from(input.bytes);
+  if (input.unixMode !== undefined &&
+      (!Number.isSafeInteger(input.unixMode) || input.unixMode < 0 || input.unixMode > 0o777)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable publication Unix mode is invalid.');
+  }
   input.validate(expected);
   const expectedDigest = bytesDigest(expected);
 
@@ -2602,7 +2768,9 @@ export function publishExclusiveDurableCanonicalFileV1(input: {
     let candidateFd: number | null = null;
     let candidateCreated = false;
     try {
-      candidateFd = linuxCreateCandidateAt(retained.parentFd, temporaryName, expected, 'Exclusive durable publication');
+      candidateFd = linuxCreateCandidateAt(
+        retained.parentFd, temporaryName, expected, 'Exclusive durable publication', input.unixMode
+      );
       candidateCreated = true;
       closeSync(candidateFd); candidateFd = null;
       if (requireLinuxLibc().symbols.renameat2(
@@ -2642,6 +2810,12 @@ export function publishExclusiveDurableCanonicalFileV1(input: {
   }
   if (process.platform !== 'win32') {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Exclusive durable publication backend is unavailable on this platform.');
+  }
+  if (input.unixMode !== undefined) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Exclusive durable Unix-mode publication is unavailable on Windows.'
+    );
   }
 
   const parentHandle = windowsRetainedPublicationParent(parent, 'Exclusive durable publication');
@@ -2931,6 +3105,435 @@ export function relocateRetainedNoFollowDirectoryAcrossParentsV1(input: {
   return moved;
 }
 
+function validateRetainedNoFollowInventoryV1(
+  inventory: readonly RetainedNoFollowInventoryDeleteEntryV1[]
+): ReadonlyMap<string, RetainedNoFollowInventoryDeleteEntryV1> {
+  const entries = new Map<string, RetainedNoFollowInventoryDeleteEntryV1>();
+  for (const entry of inventory) {
+    if (!/^(?!.*(?:^|\/)\.\.?$)[^/\\\0]+(?:\/[^/\\\0]+)*$/u.test(entry.relativePath)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained inventory entry path is invalid.');
+    }
+    if (!Number.isSafeInteger(entry.size) || entry.size < 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained inventory entry size is invalid.');
+    }
+    if (entries.has(entry.relativePath)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained inventory contains a duplicate path.');
+    }
+    entries.set(entry.relativePath, Object.freeze({ ...entry }));
+  }
+  for (const entry of entries.values()) {
+    const separator = entry.relativePath.lastIndexOf('/');
+    const parentPath = separator < 0 ? '' : entry.relativePath.slice(0, separator);
+    if (parentPath.length !== 0) {
+      const parent = entries.get(parentPath);
+      if (parent === undefined || parent.kind !== 'directory') {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `Retained inventory parent is missing: ${entry.relativePath}.`);
+      }
+    }
+  }
+  return entries;
+}
+
+function sameRetainedNoFollowInventoryEntryV1(
+  expected: RetainedNoFollowInventoryDeleteEntryV1,
+  actual: RetainedNoFollowInventoryDeleteEntryV1
+): boolean {
+  return expected.relativePath === actual.relativePath
+    && expected.kind === actual.kind
+    && expected.device === actual.device
+    && expected.inode === actual.inode
+    && expected.size === actual.size
+    && expected.linkTarget === actual.linkTarget;
+}
+
+function retainedNoFollowInventoryEntryFromLinuxFdV1(input: {
+  readonly fd: number;
+  readonly relativePath: string;
+  readonly label: string;
+}): RetainedNoFollowInventoryDeleteEntryV1 {
+  const stat = fstatSync(input.fd, { bigint: true });
+  const kind: NoFollowDirectoryTreeEntryKindV1 = stat.isSymbolicLink()
+    ? 'link'
+    : stat.isDirectory()
+      ? 'directory'
+      : stat.isFile()
+        ? 'file'
+        : (() => {
+          throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `Unsupported retained entry: ${input.relativePath}.`);
+        })();
+  return Object.freeze({
+    relativePath: input.relativePath,
+    kind,
+    device: String(stat.dev),
+    inode: String(stat.ino),
+    size: Number(stat.size),
+    linkTarget: kind === 'link' ? linuxReadRetainedLinkTargetV1(input.fd, input.label) : null
+  });
+}
+
+function assertRetainedNoFollowInventoryMatchV1(
+  expected: ReadonlyMap<string, RetainedNoFollowInventoryDeleteEntryV1>,
+  actual: RetainedNoFollowInventoryDeleteEntryV1
+): void {
+  const authorized = expected.get(actual.relativePath);
+  if (authorized === undefined || !sameRetainedNoFollowInventoryEntryV1(authorized, actual)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+      `Retained inventory entry changed or was not authorized: ${actual.relativePath}.`
+    );
+  }
+}
+
+function assertRetainedNoFollowEntryAbsentLinuxV1(
+  parentFd: number,
+  name: string,
+  kind: NoFollowDirectoryTreeEntryKindV1,
+  label: string
+): void {
+  if (kind === 'directory') {
+    if (readdirSync(`/proc/self/fd/${parentFd}`).includes(name)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} remains present after deletion.`);
+    }
+    return;
+  }
+  let reopened: number | null = null;
+  try {
+    reopened = linuxOpenLeafAt(parentFd, name, label);
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} remains present after deletion.`);
+  } catch (error) {
+    if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
+  } finally {
+    if (reopened !== null) closeSync(reopened);
+  }
+}
+
+function retainedNoFollowInventoryMapV1(
+  entries: readonly RetainedNoFollowInventoryDeleteEntryV1[]
+): ReadonlyMap<string, RetainedNoFollowInventoryDeleteEntryV1> {
+  return validateRetainedNoFollowInventoryV1(entries);
+}
+
+function collectRetainedNoFollowInventoryLinuxPhaseV1(
+  rootInput: PhysicalDirectoryIdentityV1,
+  authorized: ReadonlyMap<string, RetainedNoFollowInventoryDeleteEntryV1>,
+  label: string
+): readonly RetainedNoFollowInventoryDeleteEntryV1[] {
+  const root = assertSameNoFollowDirectoryIdentityV1(rootInput, `${label} root`).target;
+  const opened = linuxOpenRetainedAbsoluteDirectory(root.path, `${label} root`);
+  const retainedRootFd = opened.directoryFd;
+  const filesystemRootFd = opened.filesystemRootFd;
+  const entries: RetainedNoFollowInventoryDeleteEntryV1[] = [];
+  try {
+    if (!sameIdentity(root, linuxIdentity(retainedRootFd, root.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root changed before traversal.`);
+    }
+    const visit = (directoryFd: number, prefix: string): void => {
+      const names = readdirSync(`/proc/self/fd/${directoryFd}`).sort((left, right) => left.localeCompare(right));
+      for (const name of names) {
+        if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} entry contains NUL.`);
+        const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
+        const childDirectoryFd = linuxTryOpenDirectoryAt(directoryFd, name, `${label} directory`);
+        if (childDirectoryFd !== null) {
+          try {
+            const entry = retainedNoFollowInventoryEntryFromLinuxFdV1({
+              fd: childDirectoryFd,
+              relativePath,
+              label: `${label} directory`
+            });
+            assertRetainedNoFollowInventoryMatchV1(authorized, entry);
+            entries.push(entry);
+            visit(childDirectoryFd, relativePath);
+          } finally {
+            closeSync(childDirectoryFd);
+          }
+          continue;
+        }
+        const leafFd = linuxOpenLeafAt(directoryFd, name, `${label} leaf`);
+        try {
+          const entry = retainedNoFollowInventoryEntryFromLinuxFdV1({
+            fd: leafFd,
+            relativePath,
+            label: `${label} leaf`
+          });
+          assertRetainedNoFollowInventoryMatchV1(authorized, entry);
+          entries.push(entry);
+        } finally {
+          closeSync(leafFd);
+        }
+      }
+    };
+    visit(retainedRootFd, '');
+    if (!sameIdentity(root, linuxIdentity(retainedRootFd, root.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root changed during traversal.`);
+    }
+    return Object.freeze(entries);
+  } finally {
+    if (retainedRootFd !== filesystemRootFd) closeSync(retainedRootFd);
+    closeSync(filesystemRootFd);
+  }
+}
+
+function deleteRetainedNoFollowInventoryLinuxPhaseV1(
+  rootInput: PhysicalDirectoryIdentityV1,
+  authorized: ReadonlyMap<string, RetainedNoFollowInventoryDeleteEntryV1>,
+  label: string
+): void {
+  const root = assertSameNoFollowDirectoryIdentityV1(rootInput, `${label} root`).target;
+  const opened = linuxOpenRetainedAbsoluteDirectory(root.path, `${label} root`);
+  const retainedRootFd = opened.directoryFd;
+  const filesystemRootFd = opened.filesystemRootFd;
+  try {
+    if (!sameIdentity(root, linuxIdentity(retainedRootFd, root.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root changed before effect.`);
+    }
+    const visit = (directoryFd: number, prefix: string): void => {
+      const names = readdirSync(`/proc/self/fd/${directoryFd}`).sort((left, right) => left.localeCompare(right));
+      for (const name of names) {
+        if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} entry contains NUL.`);
+        const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
+        const childDirectoryFd = linuxTryOpenDirectoryAt(directoryFd, name, `${label} directory`);
+        if (childDirectoryFd !== null) {
+          try {
+            const entry = retainedNoFollowInventoryEntryFromLinuxFdV1({
+              fd: childDirectoryFd,
+              relativePath,
+              label: `${label} directory`
+            });
+            assertRetainedNoFollowInventoryMatchV1(authorized, entry);
+            visit(childDirectoryFd, relativePath);
+            const after = retainedNoFollowInventoryEntryFromLinuxFdV1({
+              fd: childDirectoryFd,
+              relativePath,
+              label: `${label} directory before removal`
+            });
+            assertRetainedNoFollowInventoryMatchV1(authorized, after);
+            if (requireLinuxLibc().symbols.unlinkat(
+              directoryFd,
+              Buffer.from(`${name}\0`, 'utf8'),
+              LINUX_AT_REMOVEDIR
+            ) !== 0) {
+              const errno = linuxErrno();
+              if (errno !== 2) {
+                throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} directory unlinkat failed (errno ${errno}).`);
+              }
+            }
+            assertRetainedNoFollowEntryAbsentLinuxV1(
+              directoryFd,
+              name,
+              'directory',
+              `${label} directory absence readback`
+            );
+          } finally {
+            closeSync(childDirectoryFd);
+          }
+          continue;
+        }
+        const leafFd = linuxOpenLeafAt(directoryFd, name, `${label} leaf`);
+        try {
+          const entry = retainedNoFollowInventoryEntryFromLinuxFdV1({
+            fd: leafFd,
+            relativePath,
+            label: `${label} leaf`
+          });
+          assertRetainedNoFollowInventoryMatchV1(authorized, entry);
+          if (requireLinuxLibc().symbols.unlinkat(
+            directoryFd,
+            Buffer.from(`${name}\0`, 'utf8'),
+            0
+          ) !== 0) {
+            const errno = linuxErrno();
+            if (errno !== 2) {
+              throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} leaf unlinkat failed (errno ${errno}).`);
+            }
+          }
+          assertRetainedNoFollowEntryAbsentLinuxV1(
+            directoryFd,
+            name,
+            entry.kind,
+            `${label} leaf absence readback`
+          );
+        } finally {
+          closeSync(leafFd);
+        }
+      }
+      if (requireLinuxLibc().symbols.fsync(directoryFd) !== 0) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} directory fsync failed.`);
+      }
+    };
+    visit(retainedRootFd, '');
+    if (readdirSync(`/proc/self/fd/${retainedRootFd}`).length !== 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} root is not empty after deletion.`);
+    }
+    if (!sameIdentity(root, linuxIdentity(retainedRootFd, root.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root changed after readback.`);
+    }
+  } finally {
+    if (retainedRootFd !== filesystemRootFd) closeSync(retainedRootFd);
+    closeSync(filesystemRootFd);
+  }
+}
+
+function collectRetainedNoFollowInventoryWindowsPhaseV1(
+  rootInput: PhysicalDirectoryIdentityV1,
+  authorized: ReadonlyMap<string, RetainedNoFollowInventoryDeleteEntryV1>,
+  label: string
+): readonly RetainedNoFollowInventoryDeleteEntryV1[] {
+  const root = assertSameNoFollowDirectoryIdentityV1(rootInput, `${label} root`).target;
+  const rootHandle = windowsOpenDirectory(root.path, `${label} root`, true);
+  const entries: RetainedNoFollowInventoryDeleteEntryV1[] = [];
+  try {
+    if (!sameIdentity(root, windowsIdentity(rootHandle, root.path, `${label} root`))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root changed before traversal.`);
+    }
+    const visit = (directoryHandle: bigint, directory: PhysicalDirectoryIdentityV1, prefix: string): void => {
+      const names = readdirSync(directory.path).sort((left, right) => left.localeCompare(right));
+      if (!sameIdentity(directory, windowsIdentity(directoryHandle, directory.path, `${label} directory`))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} directory changed during enumeration.`);
+      }
+      for (const name of names) {
+        if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} entry contains NUL.`);
+        const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
+        const absolutePath = path.join(directory.path, name);
+        const handle = windowsOpenRelativeUnknownNoFollowEntry(
+          directoryHandle,
+          directory,
+          name,
+          absolutePath,
+          `${label} entry`
+        );
+        if (handle === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} entry disappeared: ${relativePath}.`);
+        try {
+          const observed = retainedNoFollowInventoryEntryFromWindowsHandleV1({ handle, absolutePath, relativePath });
+          assertRetainedNoFollowInventoryMatchV1(authorized, observed.entry);
+          entries.push(observed.entry);
+          if (observed.directory !== null) visit(handle, observed.directory, relativePath);
+        } finally {
+          closeWindowsHandle(handle);
+        }
+      }
+    };
+    visit(rootHandle, root, '');
+    if (!sameIdentity(root, windowsIdentity(rootHandle, root.path, `${label} root`))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root changed during traversal.`);
+    }
+    return Object.freeze(entries);
+  } finally {
+    closeWindowsHandle(rootHandle);
+  }
+}
+
+function deleteRetainedNoFollowInventoryWindowsPhaseV1(
+  rootInput: PhysicalDirectoryIdentityV1,
+  authorized: ReadonlyMap<string, RetainedNoFollowInventoryDeleteEntryV1>,
+  label: string
+): void {
+  const root = assertSameNoFollowDirectoryIdentityV1(rootInput, `${label} root`).target;
+  const rootHandle = windowsOpenDirectory(root.path, `${label} root`, true);
+  try {
+    if (!sameIdentity(root, windowsIdentity(rootHandle, root.path, `${label} root`))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root changed before effect.`);
+    }
+    const visit = (directoryHandle: bigint, directory: PhysicalDirectoryIdentityV1, prefix: string): void => {
+      const names = readdirSync(directory.path).sort((left, right) => left.localeCompare(right));
+      if (!sameIdentity(directory, windowsIdentity(directoryHandle, directory.path, `${label} directory`))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} directory changed before effect.`);
+      }
+      for (const name of names) {
+        if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} entry contains NUL.`);
+        const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
+        const absolutePath = path.join(directory.path, name);
+        let handle = windowsOpenRelativeUnknownNoFollowEntry(
+          directoryHandle,
+          directory,
+          name,
+          absolutePath,
+          `${label} entry`
+        );
+        if (handle === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} entry disappeared: ${relativePath}.`);
+        try {
+          const observed = retainedNoFollowInventoryEntryFromWindowsHandleV1({ handle, absolutePath, relativePath });
+          assertRetainedNoFollowInventoryMatchV1(authorized, observed.entry);
+          if (observed.directory !== null) {
+            visit(handle, observed.directory, relativePath);
+          }
+          windowsMarkRetainedLeafForDelete(handle, `${label} entry`);
+          closeWindowsHandle(handle);
+          handle = 0n;
+          if (observed.directory !== null) {
+            const parentAfter = windowsIdentity(directoryHandle, directory.path, `${label} parent readback`);
+            if (!sameIdentity(directory, parentAfter) || readdirSync(directory.path).includes(name)) {
+              throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} directory remains present: ${relativePath}.`);
+            }
+          } else {
+            const readback = windowsOpenRelativeUnknownNoFollowEntry(
+              directoryHandle,
+              directory,
+              name,
+              absolutePath,
+              `${label} leaf absence readback`,
+              true
+            );
+            if (readback !== null) {
+              closeWindowsHandle(readback);
+              throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} leaf remains present: ${relativePath}.`);
+            }
+          }
+        } finally {
+          if (handle !== 0n) closeWindowsHandle(handle);
+        }
+      }
+      windowsFlushRetainedDirectory(directoryHandle, directory, `${label} directory readback`);
+    };
+    visit(rootHandle, root, '');
+    if (readdirSync(root.path).length !== 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} root is not empty after deletion.`);
+    }
+    if (!sameIdentity(root, windowsIdentity(rootHandle, root.path, `${label} root`))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root changed after readback.`);
+    }
+  } finally {
+    closeWindowsHandle(rootHandle);
+  }
+}
+
+/**
+ * Validates and deletes one complete retained directory inventory through
+ * bounded no-follow phases.  The validation, revalidation and effect phases
+ * each open the root and each descendant directory at most once, retain only
+ * the current directory stack, and never reopen an ancestor per leaf.
+ *
+ * The supplied inventory is an authorization boundary, not a best-effort
+ * listing: every currently present entry must match its recorded kind,
+ * physical identity, size and link witness before the first deletion effect.
+ * Entries already absent are accepted so an interrupted invocation can be
+ * resumed idempotently; an unexpected entry or a changed identity fails
+ * closed without touching any remaining entry.
+ */
+export function deleteRetainedNoFollowInventoryV1(input: {
+  readonly root: PhysicalDirectoryIdentityV1;
+  readonly inventory: readonly RetainedNoFollowInventoryDeleteEntryV1[];
+}): void {
+  const expected = validateRetainedNoFollowInventoryV1(input.inventory);
+  const root = assertSameNoFollowDirectoryIdentityV1(input.root, 'Retained inventory deletion root').target;
+  if (process.platform === 'linux') {
+    const phaseOne = collectRetainedNoFollowInventoryLinuxPhaseV1(root, expected, 'Retained inventory validation');
+    const phaseOneMap = retainedNoFollowInventoryMapV1(phaseOne);
+    const phaseTwo = collectRetainedNoFollowInventoryLinuxPhaseV1(root, phaseOneMap, 'Retained inventory revalidation');
+    const phaseTwoMap = retainedNoFollowInventoryMapV1(phaseTwo);
+    deleteRetainedNoFollowInventoryLinuxPhaseV1(root, phaseTwoMap, 'Retained inventory effect');
+    return;
+  }
+  if (process.platform === 'win32') {
+    const phaseOne = collectRetainedNoFollowInventoryWindowsPhaseV1(root, expected, 'Retained inventory validation');
+    const phaseOneMap = retainedNoFollowInventoryMapV1(phaseOne);
+    const phaseTwo = collectRetainedNoFollowInventoryWindowsPhaseV1(root, phaseOneMap, 'Retained inventory revalidation');
+    const phaseTwoMap = retainedNoFollowInventoryMapV1(phaseTwo);
+    deleteRetainedNoFollowInventoryWindowsPhaseV1(root, phaseTwoMap, 'Retained inventory effect');
+    return;
+  }
+  throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained inventory deletion backend is unavailable on this platform.');
+}
+
 /**
  * Deletes exactly one previously inventoried descendant while retaining both
  * its parent directory and the leaf object.  Linux uses handle-relative
@@ -3185,6 +3788,8 @@ export function inspectNoFollowOrdinaryFileEntryV1(
 
 export interface NoFollowOrdinaryFileDigestV1 {
   readonly size: number;
+  /** Retained Unix permission bits, or null where the backend has no Unix mode. */
+  readonly unixMode: number | null;
   /** Raw SHA-256 over the retained ordinary-file bytes. */
   readonly byteDigest: `sha256:${string}`;
 }
@@ -3218,7 +3823,7 @@ export function inspectNoFollowOrdinaryFileDigestV1(
       if (!sameIdentity(checked, windowsIdentity(parentHandle, checked.path, 'No-follow digest retained parent readback'))) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow digest parent changed during retained leaf read.');
       }
-      return Object.freeze({ size: result.size, byteDigest: result.byteDigest });
+      return Object.freeze({ size: result.size, byteDigest: result.byteDigest, unixMode: null });
     } catch (error) {
       if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED') {
         throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow digest file is not a stable ordinary leaf.', error);
@@ -3254,10 +3859,22 @@ export function inspectNoFollowOrdinaryFileDigestV1(
       const result = digestRetainedOrdinaryFileFdV1(leafFd, {
         device: String(stat.dev), inode: String(stat.ino)
       }, 'No-follow digest file');
+      const after = fstatSync(leafFd, { bigint: true });
+      if (after.dev !== stat.dev || after.ino !== stat.ino || after.mode !== stat.mode ||
+          !after.isFile()) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+          'No-follow digest file identity or mode changed during retained read.'
+        );
+      }
       if (!sameIdentity(checked, linuxIdentity(parentFd, checked.path))) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow digest parent changed during retained leaf read.');
       }
-      return Object.freeze({ size: result.size, byteDigest: result.byteDigest });
+      return Object.freeze({
+        size: result.size,
+        byteDigest: result.byteDigest,
+        unixMode: Number(stat.mode & 0o777n)
+      });
     } finally {
       if (leafFd !== null) closeSync(leafFd);
       if (parentFd !== rootFd) closeSync(parentFd);

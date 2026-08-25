@@ -1,28 +1,39 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   mkdtempSync,
-  readFileSync,
-  rmSync
+  readFileSync
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { createVerificationActionCallbackEffectProviderV1 } from '../../platform/dev-runner/verification-action-executor.ts';
+import { isolatedGitChildEnvironment } from '../../platform/git/read-environment.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/runtime/environments/sec-linux-verification-v1/authority.ts';
 import type {
   CodexDevelopmentVerificationEvidenceV4
 } from '../../platform/shared/ci-evidence-contract.ts';
-import { isolatedGitChildEnvironment } from '../../platform/shared/git-read-environment.ts';
 import { acquirePhysicalMutationLeaseV1 } from '../../platform/shared/physical-mutation-lease.ts';
-import { runCommand } from '../../platform/shared/process.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 import {
+  deleteRetainedNoFollowEntryV1,
+  deleteRetainedNoFollowInventoryV1,
+  inspectNoFollowDirectoryChainV1,
+  scanNoFollowDirectoryTreeMetadataV1,
+  type PhysicalDirectoryChainV1
+} from '../../platform/shared/physical-no-follow.ts';
+import { runCommand } from '../../platform/shared/process.ts';
+import {
+  ciVerificationNormalizedOperationArgvV2,
   createCiVerificationLocalExecutionEnvironmentV2,
   type CiVerificationExecutionEnvironmentV2
 } from '../../platform/shared/verification-action-ci-contract.ts';
 import {
   createVerificationActionKeyV2,
+  createVerificationActionPlanClosureV1,
   createVerificationActionPlanV2,
   createVerificationActionTerminalV2,
   encodeVerificationActionDataV2,
+  VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1,
+  VERIFICATION_ACTION_EXPENSIVE_EXECUTION_BUDGET_V1,
   type VerificationActionKeyDigest,
   type VerificationActionKeyV2,
   type VerificationActionPlanV2
@@ -30,11 +41,13 @@ import {
 import { acquireSecRuntimeStatePhysicalAuthorityV1 } from '../../tooling/sec-dev/runtime-state-authority.ts';
 import { resolveSecRuntimeStateForRepositoryV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
 import { VerificationActionRunnerV2 } from '../../tooling/sec-dev/verification-action-runner.ts';
+import { CodexDevelopmentCiVerificationMain } from '../ci-verification.ts';
 import {
   assertDockerEndpointIdentityV3,
   createBuildxRawJsonProgressAdmissionV1,
   dockerEndpointCommandArgsV3,
   ensureLocalGitHubActionsRunnerToolchainMaterializationV1,
+  LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1,
   observeDockerEndpointIdentityV3,
   parseDockerEndpointIdentityV3,
   type DockerEndpointIdentityV3,
@@ -68,6 +81,26 @@ CiVerificationExecutionEnvironmentV2 = createCiVerificationLocalExecutionEnviron
   bunVersion: ENVIRONMENT.trustedRuntime.bunVersion
 });
 
+function deleteTrustedRuntimeTemporaryGenerationV1(
+  generation: PhysicalDirectoryChainV1
+): void {
+  const inventory = scanNoFollowDirectoryTreeMetadataV1(generation.target, {
+    deadlineAtMs: performance.now() + 60_000,
+    maximumEntries: 250_000
+  });
+  deleteRetainedNoFollowInventoryV1({ root: generation.target, inventory });
+  const parent = generation.ancestors.at(-2);
+  if (parent === undefined) fail('trusted runtime temporary generation has no retained parent');
+  deleteRetainedNoFollowEntryV1({
+    root: parent,
+    relativePath: path.basename(generation.target.path),
+    kind: 'directory',
+    device: generation.target.device,
+    inode: generation.target.inode,
+    ancestorDirectories: []
+  });
+}
+
 export interface TrustedRuntimeImageBuildPlanV1 {
   readonly args: readonly string[];
   readonly absoluteTimeoutMs: number;
@@ -87,7 +120,8 @@ export function createTrustedRuntimeImageBuildPlanV1(
   const layoutUriPath = path.resolve(toolchain.layoutPath).split(path.sep).join('/');
   return Object.freeze({
     args: Object.freeze([
-      'buildx', 'build', '--pull=false', '--network', 'none', '--provenance=false',
+      'buildx', 'build', '--builder', LOCAL_GITHUB_ACTIONS_BUILDX_BUILDER_NAME_V1,
+      '--pull=false', '--network', 'none', '--provenance=false',
       '--build-context', `runner=oci-layout://${layoutUriPath}@${toolchain.runtimeManifestDigest}`,
       '--build-arg', `SEC_TRUSTED_RUNTIME_SCHEMA=${ENVIRONMENT.trustedRuntime.imageSchema}`,
       '--build-arg', `SEC_RUNNER_IMAGE_ID=${ENVIRONMENT.image.dockerProjectionDigest}`,
@@ -151,6 +185,25 @@ export function createTrustedRuntimeCommandEnvironmentArgsV1(
   })
     .sort(([left], [right]) => left.localeCompare(right))
     .flatMap(([name, value]) => ['--env', `${name}=${value}`]));
+}
+
+export function createTrustedRuntimeGateExecutionArgsV1(input: Readonly<{
+  containerName: string;
+  argv: readonly string[];
+  environment: Readonly<Record<string, string>>;
+}>): readonly string[] {
+  const containerName = bounded(input.containerName, 'trusted runtime gate containerName');
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/u.test(containerName)
+      || input.argv.length === 0
+      || input.argv.some((value) => typeof value !== 'string' || value.length === 0)) {
+    fail('trusted runtime gate command identity is invalid');
+  }
+  return Object.freeze([
+    'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
+    ...createTrustedRuntimeCommandEnvironmentArgsV1(input.environment),
+    containerName,
+    ...input.argv
+  ]);
 }
 
 export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2 = digestValue(Object.freeze({
@@ -379,8 +432,12 @@ export function createTrustedRuntimeMainHealthGatePlansV1(input: Readonly<{
           imageId: input.imageId,
           dockerEndpoint: input.dockerEndpoint
         }).slice(7)}`,
-        contractRevision: 'sec-trusted-runtime-main-health-action-v2'
+        contractRevision: 'sec-trusted-runtime-main-health-action-v2',
+        executionBudget: dependencies.length === 0
+          ? VERIFICATION_ACTION_CHEAP_EXECUTION_BUDGET_V1
+          : VERIFICATION_ACTION_EXPENSIVE_EXECUTION_BUDGET_V1
       },
+      staticProofRequirement: 'bounded-action-admission',
       requiredCheapPreflightActionKeys: dependencies,
       upstreamActionKeys: [],
       resultSchemaRevision: 'sec-verification-result-v1'
@@ -1086,6 +1143,65 @@ async function createCandidateBundle(input: Readonly<{
   return bundle;
 }
 
+/**
+ * Materialize the exact candidate as a disposable host-side Git projection.
+ *
+ * The trusted container has always received both base and candidate refs, but
+ * the host-side VerificationAction coordinator also performs an exact-tree
+ * static admission before delegating the physical gate.  Passing the base
+ * worktree to that coordinator made the container prove the candidate while
+ * the host admission proved main.  A shared-object clone gives the host
+ * coordinator the candidate identity without copying the repository objects
+ * or moving the canonical journal authority to a disposable path.
+ */
+export async function createTrustedRuntimeCandidateProjectionV1(input: Readonly<{
+  repositoryRoot: string;
+  temporaryRoot: string;
+  baseSha: string;
+  headSha: string;
+}>): Promise<string> {
+  const projectionRoot = path.join(input.temporaryRoot, 'candidate-projection');
+  await command('git', [
+    'clone', '--shared', '--no-tags', '--no-checkout', input.repositoryRoot, projectionRoot
+  ], input.repositoryRoot, 120_000);
+  await command('git', [
+    '-C', projectionRoot, 'checkout', '--detach', '--quiet', input.headSha
+  ], input.repositoryRoot, 120_000);
+  await command('git', [
+    '-C', projectionRoot, 'update-ref', 'refs/sec/base', input.baseSha
+  ], input.repositoryRoot, 120_000);
+  await command('git', [
+    '-C', projectionRoot, 'update-ref', 'refs/sec/head', input.headSha
+  ], input.repositoryRoot, 120_000);
+  await command('git', [
+    '-C', projectionRoot, 'update-ref', 'refs/remotes/origin/main', input.baseSha
+  ], input.repositoryRoot, 120_000);
+  const observedHead = await command(
+    'git', ['-C', projectionRoot, 'rev-parse', 'HEAD'], input.repositoryRoot
+  );
+  const observedTree = await command(
+    'git', ['-C', projectionRoot, 'rev-parse', 'HEAD^{tree}'], input.repositoryRoot
+  );
+  const observedStatus = await command('git', [
+    '-C', projectionRoot, 'status', '--porcelain=v1', '--untracked-files=all'
+  ], input.repositoryRoot);
+  const observedBase = await command(
+    'git', ['-C', projectionRoot, 'rev-parse', 'refs/sec/base'], input.repositoryRoot
+  );
+  const observedRemoteMain = await command(
+    'git', ['-C', projectionRoot, 'rev-parse', 'refs/remotes/origin/main'], input.repositoryRoot
+  );
+  const expectedTree = await command('git', [
+    '-C', projectionRoot, 'rev-parse', `${input.headSha}^{tree}`
+  ], input.repositoryRoot);
+  if (observedHead !== input.headSha || observedTree !== expectedTree
+      || observedStatus !== '' || observedBase !== input.baseSha
+      || observedRemoteMain !== input.baseSha) {
+    fail('host candidate projection does not bind the exact clean candidate and base refs');
+  }
+  return projectionRoot;
+}
+
 const PUBLISH_DEPENDENCY_CACHE_MARKER_SCRIPT_V1 = [
   'set -euo pipefail',
   'expected="$1"',
@@ -1142,7 +1258,7 @@ export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1 = [
   `  ln -s ${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1} .shared-deps/.bun-cache`,
   '  CI=1 bun ./platform/dev-runner.ts deps:ensure',
   '  if [ "$mode" = "full" ]; then',
-  `    rm -rf ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
+  `    [ ! -e ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules ]`,
   `    ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/node_modules ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules`,
   '  else',
   `    [ ! -e ${TRUSTED_RUNTIME_WORKSPACE_V1}/node_modules ]`,
@@ -1151,12 +1267,12 @@ export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1 = [
   `chmod -R a-w ${TRUSTED_RUNTIME_TRUSTED_TREE_V1}`
 ].join('\n');
 
-function formalEnvironment(input: Readonly<{
+function formalEnvironmentValues(input: Readonly<{
   envelope: VerificationSessionHostedEnvelopeV1;
   executionId: string;
   actorNodeId: string;
   requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
-}>): readonly string[] {
+}>): Readonly<Record<string, string>> {
   const { envelope } = input;
   const values: Readonly<Record<string, string>> = Object.freeze({
     CI: '1',
@@ -1188,7 +1304,7 @@ function formalEnvironment(input: Readonly<{
     SEC_WORK_PACKAGE_MANIFEST_PATH: envelope.session.manifestPath,
     SEC_CI_VERIFICATION_EVIDENCE_PATH: `${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`
   });
-  return createTrustedRuntimeCommandEnvironmentArgsV1(values);
+  return values;
 }
 
 function createReceipt(input: Omit<TrustedRuntimeContainerReceiptV1, 'schema' | 'receiptDigest'>):
@@ -1521,6 +1637,10 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
     });
     const containerLabels = composeTrustedRuntimeContainerLabelsV1(image.labels, operationLabels);
     const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-trusted-runtime-'));
+    const temporaryGeneration = inspectNoFollowDirectoryChainV1(
+      temporaryRoot,
+      'Trusted runtime temporary generation'
+    );
     let containerCreated = false;
     let containerId: string | null = null;
     try {
@@ -1649,7 +1769,7 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         });
         if (removed.code !== 0) fail(`container cleanup failed and ${containerName} was retained`);
       }
-      rmSync(temporaryRoot, { recursive: true, force: true });
+      deleteTrustedRuntimeTemporaryGenerationV1(temporaryGeneration);
     }
   } finally {
     try {
@@ -1683,28 +1803,99 @@ export async function executeTrustedRuntimeContainerVerificationV1(input: Readon
     operationKey: `session-${session.sessionRevision.slice(7, 31)}`,
     setupMode: 'full',
     execute: async ({ containerName, temporaryRoot, image, dockerEndpoint }) => {
-      const outputPath = path.join(temporaryRoot, 'verification-evidence.json');
       const executionId = `trusted-runtime-${digestValue(Object.freeze({
         sessionRevision: session.sessionRevision,
         imageId: image.imageId,
         dockerEndpoint
       })).slice(7, 31)}`;
-    await command('docker', [
-      'container', 'exec', '--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE_V1,
-      ...formalEnvironment({ envelope: input.envelope, executionId,
-        actorNodeId: input.actorNodeId, requiredBlobs: input.requiredBlobs }),
-      containerName,
-      'bun', `${TRUSTED_RUNTIME_TRUSTED_TREE_V1}/scripts/ci-verification.ts`,
-      '--profile', session.profile, '--expected-head', session.headSha
-    ], repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
-    await command('docker', ['container', 'cp',
-      `${containerName}:${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`, outputPath],
-    repositoryRoot, 120_000, dockerEndpoint);
-    const canonicalEvidenceBytes = readFileSync(outputPath, 'utf8');
-    const parsed = JSON.parse(canonicalEvidenceBytes) as CodexDevelopmentVerificationEvidenceV4;
-    if (canonicalEvidenceBytes !== `${encodeVerificationActionDataV2(parsed)}\n`) {
-      fail('verification Evidence durable bytes are not canonical');
+    const candidateRoot = await createTrustedRuntimeCandidateProjectionV1({
+      repositoryRoot,
+      temporaryRoot,
+      baseSha: session.baseSha,
+      headSha: session.headSha
+    });
+    const formalValues = formalEnvironmentValues({
+      envelope: input.envelope,
+      executionId,
+      actorNodeId: input.actorNodeId,
+      requiredBlobs: input.requiredBlobs
+    });
+    const hostFormalValues = Object.freeze({
+      ...formalValues,
+      SEC_CI_VERIFICATION_EVIDENCE_PATH: path.join(temporaryRoot, 'verification-evidence.json')
+    });
+    let captured: CodexDevelopmentVerificationEvidenceV4 | null = null;
+    // The candidate projection owns static Git identity; the original
+    // repository remains the sole durable journal authority.  This is the
+    // same authorityRoot/candidateRoot split used by the local DAG adapter,
+    // expressed here at the existing CI producer seam.
+    const journalRunner = new VerificationActionRunnerV2();
+    const candidateBoundRunner = new VerificationActionRunnerV2();
+    candidateBoundRunner.execute = (actionInput) => journalRunner.execute({
+      ...actionInput,
+      runtimeStateRepositoryRoot: repositoryRoot,
+      staticAuthorityRepositoryRoot: candidateRoot,
+      physicalExecutionRepositoryRoot: candidateRoot
+    });
+    const frozenActionPlan = input.envelope.actionPlanClosure;
+    const trustedContainerEffectProvider = createVerificationActionCallbackEffectProviderV1({
+      providerRevision: TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1.executionEnvironmentRevision,
+      execute: async ({ action }) => {
+        const index = frozenActionPlan.actions.findIndex(
+          (entry) => entry.action.actionKey === action.actionKey
+        );
+        const operation = index < 0 ? undefined : frozenActionPlan.normalizedOperations[index];
+        if (operation === undefined || operation.gateId !== action.operation.identity) {
+          throw new Error('Trusted container provider received an Action outside the frozen closure.');
+        }
+        const gateEnvironment: Record<string, string> = {
+          ...hostFormalValues,
+          SEC_TEST_WORKSPACE_NAMESPACE:
+            `verification-${operation.gateId.replace(/[^a-z0-9]+/giu, '-').toLowerCase()}`,
+          SEC_CI_VERIFICATION_EVIDENCE_PATH:
+            `${TRUSTED_RUNTIME_OUTPUT_V1}/verification-evidence.json`
+        };
+        const startedAt = new Date().toISOString();
+        const observed = await observeCommandResult('docker', createTrustedRuntimeGateExecutionArgsV1({
+          containerName,
+          argv: ciVerificationNormalizedOperationArgvV2(operation),
+          environment: gateEnvironment
+        }), repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
+        const finishedAt = new Date().toISOString();
+        const resultDigest = digestValue(Object.freeze({
+          schema: 'sec-trusted-runtime-gate-output-v1',
+          actionKey: action.actionKey,
+          stdout: observed.stdout,
+          stderr: observed.stderr
+        }));
+        return Object.freeze({
+          terminal: createVerificationActionTerminalV2({
+            status: observed.code === 0 ? 'passed' : 'failed',
+            reasonCode: observed.code === 0 ? 'executed-success' : 'executed-failure',
+            resultDigest
+          }),
+          evidenceRefs: Object.freeze([`trusted-container-output:${resultDigest}`]),
+          startedAt,
+          finishedAt
+        });
+      }
+    });
+    const exitCode = await CodexDevelopmentCiVerificationMain({
+      argv: ['--profile', session.profile, '--expected-head', session.headSha],
+      env: hostFormalValues,
+      repositoryRoot: candidateRoot,
+      actionRunner: candidateBoundRunner,
+      effectProvider: trustedContainerEffectProvider,
+      writeEvidenceV4: (_filePath, evidence) => {
+        captured = evidence;
+      }
+    });
+    const capturedEvidence = captured as unknown as CodexDevelopmentVerificationEvidenceV4 | null;
+    if (exitCode !== 0 || capturedEvidence === null) {
+      fail(`trusted host VerificationAction runner did not produce PASS Evidence (exit ${exitCode})`);
     }
+    const canonicalEvidenceBytes = `${encodeVerificationActionDataV2(capturedEvidence)}\n`;
+    const parsed = capturedEvidence;
     if (parsed.status !== 'passed' || parsed.sessionRevision !== session.sessionRevision
         || parsed.baseSha !== session.baseSha || parsed.headSha !== session.headSha
         || parsed.headTreeSha !== session.headTreeSha
@@ -1803,25 +1994,30 @@ export async function executeTrustedRuntimeMainHealthV2(input: Readonly<{
           dockerEndpoint
         });
         const runner = new VerificationActionRunnerV2();
+        const producerActionPlanClosure = createVerificationActionPlanClosureV1({
+          producer: {
+            identity: 'sec-trusted-runtime-main-health-affected-plan',
+            revision: 'affected-gate-v1'
+          },
+          plans: gatePlans.map(({ plan }) => plan)
+        });
         const gateResults: Array<Readonly<{
           actionKey: VerificationActionKeyDigest;
           resultDigest: VerificationActionKeyDigest;
         }>> = [];
         for (const gate of gatePlans) {
           let executedFailureDetail: string | null = null;
-          const outcome = await runner.execute({
-            repositoryRoot,
-            action: gate.action,
-            plan: gate.plan,
-            executionDomain: 'trusted-runtime-main-health',
-            leaseDurationMs: 4 * 60 * 60_000,
-            executor: async () => {
+          const mainHealthEffectProvider = createVerificationActionCallbackEffectProviderV1({
+            providerRevision: gate.action.environment.providerRevision,
+            execute: async () => {
+              const startedAt = new Date().toISOString();
               const result = await observeCommandResult('docker', [
                 'container', 'exec', '--user', '1000:1000',
                 '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE_V1,
                 ...mainHealthEnvironment,
                 containerName, ...gate.argv
               ], repositoryRoot, 4 * 60 * 60_000, dockerEndpoint);
+              const finishedAt = new Date().toISOString();
               const resultDigest = digestValue(Object.freeze({
                 actionKey: gate.action.actionKey,
                 exitCode: result.code,
@@ -1829,12 +2025,28 @@ export async function executeTrustedRuntimeMainHealthV2(input: Readonly<{
                 stderr: result.stderr
               }));
               if (result.code !== 0) executedFailureDetail = renderTrustedRuntimeCommandFailureDetailV1(result);
-              return createVerificationActionTerminalV2({
-                status: result.code === 0 ? 'passed' : 'failed',
-                reasonCode: result.code === 0 ? 'executed-success' : 'executed-failure',
-                resultDigest
+              return Object.freeze({
+                terminal: createVerificationActionTerminalV2({
+                  status: result.code === 0 ? 'passed' : 'failed',
+                  reasonCode: result.code === 0 ? 'executed-success' : 'executed-failure',
+                  resultDigest
+                }),
+                evidenceRefs: Object.freeze([`trusted-main-health-output:${resultDigest}`]),
+                startedAt,
+                finishedAt
               });
             }
+          });
+          const outcome = await runner.execute({
+            runtimeStateRepositoryRoot: repositoryRoot,
+            staticAuthorityRepositoryRoot: repositoryRoot,
+            physicalExecutionRepositoryRoot: repositoryRoot,
+            action: gate.action,
+            plan: gate.plan,
+            actionPlanClosure: producerActionPlanClosure,
+            executionDomain: 'trusted-runtime-main-health',
+            leaseDurationMs: 4 * 60 * 60_000,
+            effectProvider: mainHealthEffectProvider
           });
           if (outcome.terminal?.status !== 'passed' || outcome.terminal.resultDigest === null) {
             fail(

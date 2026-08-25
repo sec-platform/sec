@@ -9,14 +9,16 @@ import {
   captureRepositoryMutationStateV1,
   runRepositoryZeroWriteOperationV1
 } from '../../platform/dev-runner/repository-mutation-fence.ts';
+import { readTextAttributesBatch } from '../../platform/git/attributes.ts';
+import { readGitMutableAuthoringSnapshotV1 } from '../../platform/git/authoring.ts';
 import {
   assertGitObjectId,
   readBlobBatch,
   readCommitBlobInventory,
-  readTextAttributesBatch,
-  resolveExactHeadCommit,
-  runGitRead
-} from '../../tooling/sec-dev/git/git-read.ts';
+  readCommitTreeInventory,
+  readGitConfig,
+  resolveExactHeadCommit
+} from '../../platform/git/objects.ts';
 import { runCensus } from '../../tooling/sec-dev/text/text-byte-census.ts';
 import { runSettlement } from '../../tooling/sec-dev/workspace/worktree-settlement.ts';
 
@@ -58,6 +60,9 @@ test('batch blob and attribute observations bind to one exact commit', async () 
     const inventory = readCommitBlobInventory(root, commit);
     expect(inventory.map((entry) => entry.path)).toEqual(['.gitattributes', 'committed.ts']);
     expect(inventory.every((entry) => Number.isSafeInteger(entry.byteSize) && entry.byteSize >= 0)).toBe(true);
+    expect(readCommitTreeInventory(root, commit)).toEqual(
+      inventory.map((entry) => ({ ...entry, type: 'blob' }))
+    );
 
     const blobs = readBlobBatch(root, inventory.map((entry) => entry.objectId));
     const committed = inventory.find((entry) => entry.path === 'committed.ts')!;
@@ -65,6 +70,34 @@ test('batch blob and attribute observations bind to one exact commit', async () 
 
     const attributes = readTextAttributesBatch(root, commit, inventory.map((entry) => entry.path));
     expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('mutable authoring snapshot content-addresses tracked and untracked work without granting Effect authority', async () => {
+  const root = await createRepository('sec-dev-git-authoring-');
+  try {
+    const clean = readGitMutableAuthoringSnapshotV1(root);
+    expect(clean.effectAuthority).toBe('none');
+    expect(clean.changedPaths).toEqual([]);
+
+    await fs.writeFile(path.join(root, 'committed.ts'), 'export const committed = false;\n');
+    await fs.writeFile(path.join(root, 'untracked.ts'), 'export const draft = true;\n');
+    const dirty = readGitMutableAuthoringSnapshotV1(root);
+    expect(dirty.effectAuthority).toBe('none');
+    expect(dirty.changedPaths).toEqual(['committed.ts', 'untracked.ts']);
+    expect(dirty.untrackedFiles).toEqual([
+      expect.objectContaining({ path: 'untracked.ts', kind: 'ordinary-file' })
+    ]);
+    expect(dirty.snapshotDigest).not.toBe(clean.snapshotDigest);
+    expect(readGitMutableAuthoringSnapshotV1(root).snapshotDigest).toBe(dirty.snapshotDigest);
+
+    await fs.rm(path.join(root, 'untracked.ts'));
+    git(root, ['checkout', '--', 'committed.ts']);
+    git(root, ['mv', 'committed.ts', 'renamed.ts']);
+    expect(readGitMutableAuthoringSnapshotV1(root).changedPaths)
+      .toEqual(['committed.ts', 'renamed.ts']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -93,11 +126,11 @@ test('Git replacement objects cannot substitute committed blob bytes', async () 
 test('trusted Git reads reject ambient and caller-supplied config injection', async () => {
   const root = await createRepository('sec-dev-git-config-isolation-');
   try {
-    const moduleUrl = pathToFileURL(path.resolve('tooling/sec-dev/git/git-read.ts')).href;
+    const moduleUrl = pathToFileURL(path.resolve('platform/git/objects.ts')).href;
     const source = [
-      `import { runGitRead } from ${JSON.stringify(moduleUrl)};`,
-      `const result = runGitRead(${JSON.stringify(root)}, ['config', '--get', 'sec.injected']);`,
-      "process.stdout.write(JSON.stringify({ status: result.status, stdoutByteLength: result.stdout.byteLength }));"
+      `import { readGitConfig } from ${JSON.stringify(moduleUrl)};`,
+      `const result = readGitConfig(${JSON.stringify(root)}, 'sec.injected');`,
+      "process.stdout.write(JSON.stringify({ value: result }));"
     ].join('\n');
     const ambientChild = spawnSync(process.execPath, ['--no-env-file', '--eval', source], {
       cwd: process.cwd(),
@@ -113,18 +146,9 @@ test('trusted Git reads reject ambient and caller-supplied config injection', as
     });
     expect(ambientChild.status).toBe(0);
     expect(ambientChild.stderr).toBe('');
-    expect(JSON.parse(ambientChild.stdout)).toEqual({ status: 1, stdoutByteLength: 0 });
+    expect(JSON.parse(ambientChild.stdout)).toEqual({ value: null });
 
-    const caller = runGitRead(root, ['config', '--get', 'sec.injected'], {
-      env: {
-        GIT_CONFIG_COUNT: '1',
-        GIT_CONFIG_KEY_0: 'sec.injected',
-        GIT_CONFIG_VALUE_0: 'forged',
-        GIT_CONFIG_NOSYSTEM: '0'
-      }
-    } as never);
-    expect(caller.status).toBe(1);
-    expect(caller.stdout.byteLength).toBe(0);
+    expect(readGitConfig(root, 'sec.injected')).toBeNull();
   } finally {
     await rm(root, { recursive: true, force: true });
   }

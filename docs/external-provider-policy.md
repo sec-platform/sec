@@ -13,6 +13,11 @@ Provider quota、billing、credit、rate-limit 与 upsell 原文在类型化归�
 
 Provider catalog、manifest和Evidence是Compiler Implementation Resolution的候选输入；本文不拥有最终`ResolutionDecision`、`ImplementationBinding`、`ImplementationBindingDelta`、Compatibility或Migration。
 
+跨领域调用顺序只引用`docs/system-architecture.md`的唯一Development Critical Path Spine图。
+本文只拥有其中provider capability selection、provider-owned local/offline/remote materialization、ensure
+receipt和provider-native retirement节点；ActionKey、observer、MainHealth与GC终态不能在Provider policy
+中重建。下面的runner、BuildKit、Compose和Dagger图或清单都只是这些节点的provider内部投影。
+
 ## 目标
 
 SEC 不应因目标宏大而重造所有轮子，也不能把外部工具的能力、宣传、类型声明或内部数据模型直接变成 Core truth。
@@ -38,9 +43,96 @@ SUT污染trusted容器。
 也不得让两个 Provider 同时竞争同一 profile。标准 GitHub-hosted image 不能
 冒充该自定义 capability；若未来重新采用 hosted compute，必须作为新的受控 routing profile 迁移。
 
+成熟轮子选择不是“自己造”与“整套接管”二选一。provider owner先把业务需求分解为machine capability，
+优先直接消费最窄稳定原生接口；只有跨protocol/platform/credential/Effect/Evidence/recovery边界的SEC invariant
+无法由单一工具表达时才增加薄Adapter。以下局部图是唯一选择流程，候选品牌和版本仍只写入capability ledger：
+
+```mermaid
+flowchart LR
+  demand["Bounded capability demand"] --> ledger["Current ledger candidates + host observations"]
+  ledger --> native{"Mature native machine interface<br/>covers exact demand?"}
+  native -->|yes| direct["Direct binding<br/>no mirror API"]
+  native -->|no| invariant{"Cross-tool SEC invariant adds value?"}
+  invariant -->|no| unavailable["typed unavailable / redesign demand"]
+  invariant -->|yes| adapter["Thin semantic Adapter<br/>one owner; bounded Effect"]
+  direct --> trial["Same-input conformance and A/B<br/>cold / warm / offline / cache-loss / failure / retirement"]
+  adapter --> trial
+  trial --> decision{"Measured lifecycle benefit<br/>including startup, cache, Windows boundary, lock-in?"}
+  decision -->|positive| selected["ImplementationBinding + migration + old glue retirement"]
+  decision -->|negative| rejected["candidate-unselected<br/>Evidence retained; no install"]
+  decision -->|insufficient| deferred["typed deferred / unknown"]
+```
+
+当前宿主投影由同一流程得出：Windows只承担authoring、增量static与已证明安全的host filesystem canary；
+Linux container承担Windows无法表示的namespace、mount、process-tree、BuildKit和Linux权限Effect；GitHub只提供
+dispatch/check/协作投影，计算provider可替换；Kubernetes没有当前capability demand。Buildx/BuildKit已是OCI/image
+物化binding，Compose只在多长期service拓扑能真实退休raw lifecycle glue时进入迁移，Dagger保持已测量未选择候选。
+任何候选都必须消费同一EnvironmentSpec、cache/receipt、ActionKey与closeout，不得另建编排真值。
+
+本领域是`DG06/DG07/DG08/DG10`的external capability投影；原则身份和合取关系仍由`docs/development-governance.md`拥有。
+
+`D09/D19/D25/D26`的实际宿主与外部资源边界如下。箭头是受治理projection或Effect transport，
+不是authority继承；跨宿主后必须重新绑定endpoint/principal/daemon/provider revision和receipt：
+
+```mermaid
+flowchart LR
+  subgraph Windows["Windows authoring host"]
+    source["source/worktree + mutable index"]
+    static["incremental static generation"]
+    hostfs["Windows FS/ACL/Job Object canary"]
+    localState["canonical SEC Runtime State"]
+    dockerClient["retained Docker endpoint client"]
+  end
+  subgraph Docker["Exact Docker daemon / Linux provider"]
+    oci["OCI layout + immutable image ID"]
+    buildkit["BuildKit builder/node/cache"]
+    control["control role container"]
+    trusted["trusted role container"]
+    sut["credential-free SUT<br/>namespace/mount/cgroup/process tree"]
+  end
+  subgraph GitHub["GitHub live collaboration domain"]
+    api["API host + App/human principal"]
+    dispatch["dispatch/check/status/artifact"]
+    remoteLedger["fixed-ref provider generation ledger"]
+    pr["Issue/PR/Review/default ref"]
+  end
+  subgraph Candidates["Capability candidates; no authority until selected"]
+    compose["Docker Compose<br/>multi-service lifecycle candidate"]
+    dagger["Dagger v0.21.8<br/>measured, unselected"]
+    ts7["TypeScript 7 native checker<br/>side-by-side candidate"]
+    kube["Kubernetes<br/>no current demand"]
+  end
+
+  source --> static --> localState
+  source -->|EnvironmentSpec + exact closure| buildkit
+  dockerClient -->|bound endpoint/daemon| buildkit
+  buildkit --> oci --> control
+  oci --> trusted
+  oci --> sut
+  api --> dispatch --> control
+  api --> remoteLedger
+  pr --> api
+  control -->|normalized untrusted input| sut
+  trusted -->|assemble/verify terminal Evidence| localState
+  hostfs --> localState
+
+  compose -. "select only if raw lifecycle glue retires" .-> control
+  dagger -. "select only after same-input lifecycle win" .-> buildkit
+  ts7 -. "select only after parity and migration" .-> static
+  kube -. "typed not-applicable" .-> control
+  dispatch -. "FORBIDDEN: become compute or Gate authority" .-> sut
+  localState -. "FORBIDDEN: mount into SUT" .-> sut
+  dockerClient -. "FORBIDDEN: context name alone proves daemon" .-> oci
+```
+
+Provider调用顺序必须是`observe capability → resolve direct/Adapter → authorize → durable birth → Effect →
+readback → publish receipt → consumer settlement → retirement`。`mkdir/download/install/build/create`任一Effect若
+早于capability observation和live authority，即使最终成功也属于非法路径；失败后补写receipt不能洗白顺序。
+
 该 Adapter 必须同时满足：
 
 - 镜像与OCI物化图采用Docker Buildx Bake/BuildKit；真正包含多个长期service/profile/health/dependency的本地运行拓扑以Docker Compose为唯一候选owner。当前v3 runner lifecycle仍是待迁移的raw Docker adapter，只有一次性registration token不落盘、三角色identity/lease/readback与故障恢复能被Compose投影等价证明后才能切换，不能先写Compose文档再宣称已实现。单镜像Buildx物化不为形式统一套Compose。Kubernetes不在当前本地开发和Verification capability closure内，不安装、不生成manifest、不建立第二编排owner；未来只有受治理resolution证明Compose能力不足且迁移总收益成立时才能改变该边界；
+- host dependency物化优先消费Bun的lock resolver、全局/本地cache与平台backend，不自建package copier。只读consumer用exact locator；Windows活动generation用Bun `copyfile` backend隔离默认hardlink cache；需要可写容器视图时消费BuildKit bind/cache/overlay并按EnvironmentSpec绑定cache id与`sharing`语义。D:为NTFS时不存在可依赖的ReFS block clone，因此不得把普通Windows目录复制描述成CoW；该machine capability变化只能形成新provider observation，不能改写稳定语义；
 
 - runner release、archive digest、Node LTS官方archive digest、GitHub CLI官方archive digest、Python archive-inspection runtime、Ubuntu base image digest、最终Docker image ID、
   三角色label profile与lifecycle owner全部进入
@@ -53,7 +145,10 @@ SUT污染trusted容器。
   GitHub CLI version、archive SHA-256与final image ID；focused CI contract直接把runner owner常量与revision projection比较，
   禁止ledger、image、revision或测试fixture只更新其中一部分；
 - runner环境的稳定身份拆为OCI runtime content digest与Docker image-store projection digest；BuildKit provenance按受治理policy生成，其每次materialization artifact digest只进入动态receipt，不能充当稳定runtime identity。仓库外canonical SEC Runtime Cache保存绑定spec digest的完整OCI layout与canonical receipt；Docker tag/image缺失时先用该layout经Buildx本地投影恢复并readback，只有layout也缺失且provider plan明确为materialize时才允许remote solve。删除Docker image本身不得导致联网，OCI、Docker projection、provenance与runtime resource profile按各自依赖粒度独立失效；
+- Buildx builder name、driver、node、pinned BuildKit image、entitlements与native GC flags只从同一EnvironmentSpec-derived contract产生，并同时驱动create、observer、desired digest和receipt；create与observer各写一份literal即为竞争owner。三角色CPU、memory、pids和security profile同样进入ledger/state/desired/physical HostConfig readback，CLI override不得绕过spec revision。runner remote status与container内process witness分离：只有owner证明exact local process absent才可restart，`offline`或短暂不可达只形成reconnect/unknown，不得启动第二个`run.sh`。stop、recover和start-failure在首个cleanup Effect前写terminal intent，完成container/runner/ledger/current absence readback后发布单一bounded `settlement/current.json`；不得用命令退出码、进程内返回值或无界历史代替；
+- provider ensure只维护一个replaceable `current.json`：live consumers是canonical sorted set，`consumerCount`只能由该set派生，不能由caller参数或缓存快照声明；每个binding由provider owner按repository/provider/resource/lease/prior receipt/epoch/consumer identity签发credential。ensure、observe、acquire、release、stop、recover、settlement与provider-owned retirement必须共享同一个no-follow provider mutation lease，并在每个不可逆Effect前重读current generation与consumer set；普通路径不能自动回收dead/unknown lease，只有显式recovery可在验证owner identity与死亡事实后回收。consumer变化不推进remote provider generation ledger，也不创建receipt history。stop、recover与current retirement在首个cleanup Effect前必须证明consumer-zero；active、foreign、stale或unknown binding一律保留并阻断；
 - Dagger v0.21.8是已测量、未安装的`environment-materialization`候选，不因体积或依赖数量先验拒绝：Windows CLI 22,437,680 bytes，linux/amd64 Engine压缩layers 371,606,760 bytes，默认TypeScript Node runtime再增加56,181,947 bytes，冷启动已知下限约394 MB/450 MB。裁决门槛是默认privileged Engine、独立`/var/lib/dagger` cache与现有Buildx cache无自动复用合同，以及真实runner provider首次接入净源码收益仅约0–150 LOC。Phase 1 pilot只能位于SEC-owned EnvironmentSpec/materialization plan/receipt之下，必须用同一输入证明cold/warm/offline/cache-loss/digest/provenance/progress并真实退休旧glue；Dagger digest、Engine state或task success不得成为SEC identity、trust root、Verification PASS或closeout authority；
+- TypeScript 7 native preview/beta是未选择的`compiler-checker`候选，不是当前#398可以通过改`package.json`或另建cache擅自启用的能力。当前锁定的TypeScript 6仍是唯一production checker；未来#312被WorkDecision合法选择后，必须采用官方side-by-side迁移：同一EnvironmentSpec、source closure、ActionKey、TestImpact与Evidence体系下比较TS6/TS7的diagnostic parity、cold/warm/incremental耗时、内存、watch/build-info语义及失败空间。`tsgo` CLI可以作为窄provider candidate；在native programmatic API稳定且真实consumer迁移前，不得用wrapper伪造旧Compiler API，也不得让TS7另有download/cache/orchestration/verification owner。未进入external capability ledger、未物化exact package、未取得真实measure receipt时只能投影`candidate-unselected`；
 - 注册 token 只经进程 stdin 进入一次性配置，不进入argv、environment、image、日志或durable state；
 - container 不挂载host path或Docker socket，不接收repository secret目录；
 - 三个持久runner container均由Docker `--init`提供PID-1 child reaper；start与每次readback都必须验证
@@ -62,8 +157,11 @@ SUT污染trusted容器。
   `CHOWN + SETGID + SETPCAP + SETUID + SYS_ADMIN + SYS_CHROOT`，分别只用于构造私有tmpfs/chroot、切换到
   UID/GID 65532并清空bounding set。候选进程本身必须实时证明`CapEff=0`、`NoNewPrivs=1`、私有
   mount/PID/network namespace、固定cgroup/prlimit、runner根与继承FD不可见，且只消费authenticated input archive；
-- SUT直接使用`unshare --mount --pid --fork --kill-child=KILL --net`和retained private tmpfs `chroot`，
-  不依赖systemd、sudo、host bind mount、Docker socket或unconfined seccomp。namespace内trap只做best-effort
+- SUT直接使用`unshare --mount --pid --fork --kill-child=KILL --net`和retained private tmpfs `chroot`；已由父provider以
+  physical identity、fd、digest和size绑定的不可变archive可在private mount namespace中投影成`ro,nosuid,nodev,noexec`
+  file bind，从而消除`cat`整包复制，但不得把repository、Runtime State、Docker socket或普通host目录直接bind进SUT。
+  dependency directory/overlay只有在EnvironmentSpec route、provider current receipt、consumer lease和mount readback全部接通后
+  才可采用。不依赖systemd、sudo、Docker socket或unconfined seccomp。namespace内trap只做best-effort
   mount teardown；外层唯一teardown owner在unshare关闭后对deterministic root与sentinel做exact absence readback；
 - persistent runner workflow只能从实时default branch的`repository_dispatch`加载受信workflow与仓库字节；
   `workflow_dispatch`/`workflow_call`不得把caller-selected ref带入runner root。非default release/candidate必须

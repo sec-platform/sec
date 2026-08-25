@@ -1,3 +1,6 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
@@ -23,9 +26,11 @@ import {
   assertTrustedRuntimeMainHealthCarryForwardBaselineV2,
   authorizeTrustedRuntimeContainerRecoveryV1,
   composeTrustedRuntimeContainerLabelsV1,
+  createTrustedRuntimeCandidateProjectionV1,
   createTrustedRuntimeCommandEnvironmentArgsV1,
   createTrustedRuntimeDependencyCacheMarkerV1,
   createTrustedRuntimeDependencyCacheVolumeSpecV1,
+  createTrustedRuntimeGateExecutionArgsV1,
   createTrustedRuntimeHostCommandEnvironmentV1,
   createTrustedRuntimeImageBuildPlanV1,
   createTrustedRuntimeMainHealthBaselineObservationV2,
@@ -64,6 +69,40 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('projects the exact candidate with shared Git objects while retaining base refs', async () => {
+    const repositoryRoot = path.resolve('.');
+    const git = (args: readonly string[]): string => {
+      const result = spawnSync('git', [...args], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        windowsHide: true
+      });
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout.trim();
+    };
+    const headSha = git(['rev-parse', 'HEAD']);
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-trusted-runtime-projection-'));
+    try {
+      const projectionRoot = await createTrustedRuntimeCandidateProjectionV1({
+        repositoryRoot,
+        temporaryRoot,
+        baseSha: headSha,
+        headSha
+      });
+      expect(git(['-C', projectionRoot, 'rev-parse', 'HEAD'])).toBe(headSha);
+      expect(git(['-C', projectionRoot, 'rev-parse', 'refs/sec/base'])).toBe(headSha);
+      expect(git(['-C', projectionRoot, 'rev-parse', 'refs/remotes/origin/main'])).toBe(headSha);
+      expect(git(['-C', projectionRoot, 'status', '--porcelain=v1', '--untracked-files=all'])).toBe('');
+      const alternates = readFileSync(
+        path.join(projectionRoot, '.git', 'objects', 'info', 'alternates'), 'utf8'
+      ).trim();
+      expect(alternates.length).toBeGreaterThan(0);
+      expect(alternates).not.toContain(path.join(projectionRoot, '.git').replaceAll('\\', '/'));
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
   test('projects the exact base as the offline default-branch ref in both trees', () => {
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1).toContain(
       'git -C /sec-runtime/trusted update-ref refs/remotes/origin/main "$base"'
@@ -154,6 +193,24 @@ describe('provider-neutral trusted runtime container', () => {
     expect(() => createTrustedRuntimeCommandEnvironmentArgsV1({
       SEC_STATE_HOME: '/caller/override'
     })).toThrow('cannot replace SEC_STATE_HOME');
+  });
+
+  test('host journal owner delegates only one authorized physical gate into the candidate workspace', () => {
+    const args = createTrustedRuntimeGateExecutionArgsV1({
+      containerName: 'sec-gate-example',
+      argv: ['bun', 'run', 'typecheck'],
+      environment: { CI: '1', SEC_SESSION_REVISION: `sha256:${'a'.repeat(64)}` }
+    });
+    expect(args.slice(0, 6)).toEqual([
+      'container', 'exec', '--user', '1000:1000', '--workdir', '/sec-runtime/workspace'
+    ]);
+    expect(args).toContain(`SEC_STATE_HOME=${TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1.SEC_STATE_HOME}`);
+    expect(args).toContain(`SEC_CACHE_HOME=${TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1.SEC_CACHE_HOME}`);
+    expect(args.slice(-4)).toEqual(['sec-gate-example', 'bun', 'run', 'typecheck']);
+    expect(args.join(' ')).not.toContain('scripts/ci-verification.ts');
+    expect(() => createTrustedRuntimeGateExecutionArgsV1({
+      containerName: '../foreign', argv: ['bun'], environment: {}
+    })).toThrow(/command identity/);
   });
 
   test('uses stable per-gate ActionKeys and invalidates only when bound inputs change', () => {

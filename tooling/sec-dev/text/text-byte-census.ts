@@ -1,5 +1,12 @@
 import path from 'node:path';
 
+import { withIsolatedTextAttributeReader } from '../../../platform/git/attributes.ts';
+import {
+  chunkBlobEntries,
+  readBlobEntryBatch,
+  readCommitBlobInventory,
+  resolveExactHeadCommit
+} from '../../../platform/git/objects.ts';
 import {
   TEXT_BYTE_CENSUS_SCHEMA_V1,
   classifyBlobBytes,
@@ -9,13 +16,6 @@ import {
   type TextByteCensusReport,
   type TextByteClassification
 } from '../../../platform/shared/text-byte-census-contract.ts';
-import {
-  chunkBlobEntries,
-  readBlobEntryBatch,
-  readCommitBlobInventory,
-  resolveExactHeadCommit,
-  withIsolatedTextAttributeReader
-} from '../git/git-read.ts';
 
 const DEFAULT_REPOSITORY_ROOT = process.cwd();
 const CENSUS_BLOB_BATCH_MAX_BYTES = 64 * 1024 * 1024;

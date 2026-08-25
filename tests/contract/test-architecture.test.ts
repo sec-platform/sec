@@ -4,13 +4,13 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
+import { readGitTrackedPaths } from '../../platform/git/objects.ts';
 import { posixPath } from '../../platform/shared/paths.ts';
 import { isTestFile } from '../../platform/shared/test-budget-contract.ts';
 import {
   isTestImpactSourceFile,
   readRepositoryModuleGraphV1
 } from '../../platform/shared/test-impact-contract.ts';
-import { gitReadBytes, parseNulUtf8 } from '../../tooling/sec-dev/git/git-read.ts';
 
 const repoRoot = process.cwd();
 
@@ -260,13 +260,7 @@ function repositoryPath(value: string): string | null {
 }
 
 function trackedPaths(): readonly string[] {
-  return parseNulUtf8(
-    gitReadBytes(repoRoot, ['ls-files', '-z', '--'], {
-      maxBuffer: 64 * 1024 * 1024,
-      label: 'test architecture tracked-path inventory'
-    }),
-    'test architecture tracked-path inventory'
-  );
+  return readGitTrackedPaths(repoRoot);
 }
 
 async function readCandidateTestSource(repositoryPath: string): Promise<string | null> {
@@ -282,6 +276,31 @@ async function readCandidateTestSource(repositoryPath: string): Promise<string |
     throw error;
   }
 }
+
+test('Git observations have one process transport and no repository facade', () => {
+  const graph = readRepositoryModuleGraphV1();
+  const gitModules = [
+    'platform/git/attributes.ts',
+    'platform/git/authoring.ts',
+    'platform/git/objects.ts',
+    'platform/git/read-environment.ts',
+    'platform/git/transport.ts'
+  ] as const;
+
+  expect(gitModules.every((modulePath) => graph.files.includes(modulePath))).toBe(true);
+  expect(graph.files).not.toContain('platform/git/repository.ts');
+  expect(graph.files).not.toContain('platform/git/index.ts');
+  expect(graph.directDependencies('platform/git/transport.ts'))
+    .toContain('platform/shared/process.ts');
+  expect(graph.references.filter(({ from, resolvedTarget, specifier }) => (
+    from.startsWith('platform/git/')
+    && from !== 'platform/git/transport.ts'
+    && (resolvedTarget === 'platform/shared/process.ts' || specifier === 'node:child_process')
+  ))).toEqual([]);
+  expect(graph.directConsumers('platform/git/transport.ts').every((consumer) => (
+    consumer.startsWith('platform/git/')
+  ))).toBe(true);
+});
 
 test('test modules contain scenarios and do not inspect tracked module source text', async () => {
   const tracked = new Set(trackedPaths());

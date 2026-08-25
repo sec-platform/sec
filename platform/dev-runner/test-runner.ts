@@ -42,7 +42,10 @@ import {
   slowTestSuiteFiles,
   slowTestSuiteIds
 } from '../shared/test-budget-contract.ts';
-import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
+import {
+  bindTestImpactCachePhysicalCapabilityV1,
+  formatSlowImpactNotice
+} from '../shared/test-impact-contract.ts';
 import type { VerificationGateResultV1 } from '../shared/verification-result-contract.ts';
 import {
   boundedUtf8TextTail,
@@ -705,12 +708,28 @@ function fastInvocationEnvironment(
   invocationId: string
 ): NodeJS.ProcessEnv {
   if (invocationRuntime === null) return environment;
-  const invocationRuntimeRoot = path.join('invocation-runtime', invocationId.replace(':', '-'));
+  const invocationRuntimeRoot = path.join('i', compactFastInvocationRuntimeSegment(invocationId));
   return {
     ...environment,
     SEC_STATE_HOME: path.join(invocationRuntime.stateRoot, invocationRuntimeRoot),
     SEC_CACHE_HOME: path.join(invocationRuntime.cacheRoot, invocationRuntimeRoot)
   };
+}
+
+function compactFastInvocationRuntimeSegment(invocationId: string): string {
+  const match = /^(concurrent-shard|independent-process|shared-host-runtime|repository-worktree|host-profile|direct|contract-freeze):([0-9]{3})$/u
+    .exec(invocationId);
+  if (match === null) throw new Error(`Fast invocation runtime identity is invalid: ${invocationId}`);
+  const prefixes = {
+    'concurrent-shard': 'c',
+    'independent-process': 'ip',
+    'shared-host-runtime': 'sh',
+    'repository-worktree': 'rw',
+    'host-profile': 'hp',
+    direct: 'd',
+    'contract-freeze': 'cf'
+  } as const;
+  return `${prefixes[match[1] as keyof typeof prefixes]}${Number(match[2])}`;
 }
 
 async function runWithTestInvocationRuntimeV1(
@@ -977,6 +996,7 @@ async function runAffectedTestPlan(
 export async function resolveAffectedTestExecution(): Promise<ResolvedAffectedTestExecutionV1 | null> {
   const changed = await gitChangedFiles();
   if (!changed) return null;
+  await bindTestImpactCachePhysicalCapabilityV1({ repositoryRoot: compilerRoot });
   const plan = freezeAffectedTestPlan(affectedTestPlan(changed.files, changed.transitionObservation));
   return Object.freeze({
     plan,
@@ -1015,7 +1035,8 @@ export async function runTests(args: string[] = []): Promise<number> {
         const environment = pathEnv(binPath, browserCachePath);
         exitCode = await runWithTestInvocationRuntimeV1(environment, (runtime) =>
           runDevCommand(
-            'bun', ['test', ...args], fastInvocationEnvironment(environment, runtime, 'direct:001')
+            'bun', ['test', ...withDefaultTestTimeout(args)],
+            fastInvocationEnvironment(environment, runtime, 'direct:001')
           ));
       });
       return exitCode;
@@ -1035,10 +1056,11 @@ export async function runTests(args: string[] = []): Promise<number> {
       // entrypoint.
       const isProvenSlowOnly = selectors.length > 0 && selectors.every(isSlowTestFile);
       exitCode = isProvenSlowOnly
-        ? await runDevCommand('bun', ['test', ...args], environment)
+        ? await runDevCommand('bun', ['test', ...withDefaultTestTimeout(args)], environment)
         : await runWithTestInvocationRuntimeV1(environment, (runtime) =>
             runDevCommand(
-              'bun', ['test', ...args], fastInvocationEnvironment(environment, runtime, 'direct:001')
+              'bun', ['test', ...withDefaultTestTimeout(args)],
+              fastInvocationEnvironment(environment, runtime, 'direct:001')
             ));
       return;
     }

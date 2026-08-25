@@ -10,7 +10,8 @@ import {
 } from '../../platform/shared/generated-state-contract.ts';
 import {
   inspectNoFollowDirectoryChainV1,
-  inspectNoFollowLinkEntryV1
+  inspectNoFollowLinkEntryV1,
+  PhysicalNoFollowError
 } from '../../platform/shared/physical-no-follow.ts';
 import { runCommand } from '../../platform/shared/process.ts';
 import {
@@ -106,7 +107,12 @@ describe('compiler dependency installation', () => {
       const lifecycleEvents: string[] = [];
       const commandRunner = async (_command: string, args: string[], options: { cwd: string }) => {
         installCalls += 1;
-        expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts']);
+        expect(args).toEqual([
+          'install',
+          '--frozen-lockfile',
+          '--ignore-scripts',
+          ...(process.platform === 'win32' ? ['--backend=copyfile'] : [])
+        ]);
         expect(options.cwd).not.toBe(tempRoot);
         const stagingName = path.basename(options.cwd);
         expect(stagingName.startsWith('c.staging-')).toBe(true);
@@ -482,7 +488,7 @@ describe('compiler dependency installation', () => {
       const options = {
         commandRunner: async (_command: string, _args: string[], command: { cwd: string }) => {
           installCalls += 1;
-          await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+          await installCompilerDependencyFixture(command.cwd, 'stable-generation');
           return { code: 0, stdout: 'ok', stderr: '' };
         }
       };
@@ -492,8 +498,42 @@ describe('compiler dependency installation', () => {
 
       expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
       expect(installCalls).toBe(2);
-      expect(await fs.readFile(entryPath, 'utf8')).toBe('generation-2:@ts-morph/common\n');
+      expect(await fs.readFile(entryPath, 'utf8')).toBe('stable-generation:@ts-morph/common\n');
     }, 'engineering-compiler-dev-deps-corruption-');
+  });
+
+  test('does not re-sign different runtime bytes for unchanged dependency inputs', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const options = {
+        commandRunner: async (_command: string, _args: string[], command: { cwd: string }) => {
+          installCalls += 1;
+          await installCompilerDependencyFixture(
+            command.cwd,
+            installCalls === 1 ? 'stable-generation' : 'different-generation'
+          );
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      };
+      await ensureCompilerDepsReady(options, tempRoot);
+      const entryPath = path.join(
+        tempRoot,
+        'node_modules',
+        '@ts-morph',
+        'common',
+        'dist',
+        'ts-morph-common.js'
+      );
+      await fs.writeFile(entryPath, 'corrupt\n');
+
+      await expect(ensureCompilerDepsReady(options, tempRoot)).rejects.toMatchObject({
+        code: 'IMPORT-AUTHORITY-002',
+        message: 'Identical compiler dependency inputs produced different materialized bytes'
+      });
+      expect(installCalls).toBe(2);
+      expect(await fs.readFile(entryPath, 'utf8')).toBe('corrupt\n');
+    }, 'engineering-compiler-dev-deps-resign-');
   });
 
   test('preserves the active generation when materialization or atomic publish fails', async () => {
@@ -688,5 +728,130 @@ describe('compiler dependency installation', () => {
       expect(installCalls).toBe(1);
       await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     }, 'engineering-compiler-dev-deps-orphan-');
+  });
+
+  test('fails closed and preserves the outside target when the install lock is a reparse entry', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      const outsideRoot = path.join(tempRoot, 'outside-lock-root');
+      const outsideSentinel = path.join(outsideRoot, 'sentinel.txt');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await fs.mkdir(outsideRoot);
+      await fs.writeFile(outsideSentinel, 'outside lock target\n', 'utf8');
+      await fs.symlink(
+        outsideRoot,
+        lockPath,
+        process.platform === 'win32' ? 'junction' : 'dir'
+      );
+
+      await expect(ensureCompilerDepsReady({
+        commandRunner: async () => ({ code: 1, stdout: '', stderr: 'must not install' }),
+        lockTimeoutMs: 100,
+        pollIntervalMs: 10
+      }, tempRoot)).rejects.toBeInstanceOf(PhysicalNoFollowError);
+
+      await expect(fs.readFile(outsideSentinel, 'utf8')).resolves.toBe('outside lock target\n');
+      expect((await fs.lstat(lockPath)).isSymbolicLink()).toBe(true);
+    }, 'engineering-compiler-dev-deps-lock-reparse-');
+  });
+
+  test('preserves a lock replacement observed after the reclaim admission fence', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await fs.writeFile(lockPath, `${JSON.stringify({
+        createdAt: '2026-01-01T00:00:00.000Z',
+        pid: 2_147_483_647,
+        token: 'stale-owner'
+      })}\n`, 'utf8');
+      let replaced = false;
+
+      await expect(ensureCompilerDepsReady({
+        commandRunner: async () => ({ code: 1, stdout: '', stderr: 'must not install' }),
+        lockTimeoutMs: 100,
+        pollIntervalMs: 10,
+        testInstallLockReclaimHook: async (stage) => {
+          if (stage !== 'lock-observed' || replaced) return;
+          replaced = true;
+          await fs.rename(lockPath, `${lockPath}.foreign`);
+          await fs.writeFile(lockPath, `${JSON.stringify({
+            createdAt: '2026-01-01T00:00:00.000Z',
+            pid: 2_147_483_647,
+            token: 'foreign-owner'
+          })}\n`, 'utf8');
+        }
+      }, tempRoot)).rejects.toMatchObject({
+        code: 'RUNTIME-DEPS-002',
+        message: expect.stringContaining('changed before reclaim')
+      });
+
+      expect(replaced).toBe(true);
+      await expect(fs.readFile(`${lockPath}.foreign`, 'utf8')).resolves.toContain('stale-owner');
+      await expect(fs.readFile(lockPath, 'utf8')).resolves.toContain('foreign-owner');
+    }, 'engineering-compiler-dev-deps-lock-replacement-');
+  });
+
+  test('preserves a lock whose owner bytes change after retained revalidation', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await fs.writeFile(lockPath, `${JSON.stringify({
+        createdAt: '2026-01-01T00:00:00.000Z',
+        pid: 2_147_483_647,
+        token: 'stale-owner'
+      })}\n`, 'utf8');
+
+      await expect(ensureCompilerDepsReady({
+        commandRunner: async () => ({ code: 1, stdout: '', stderr: 'must not install' }),
+        lockTimeoutMs: 100,
+        pollIntervalMs: 10,
+        testInstallLockReclaimHook: async (stage) => {
+          if (stage === 'lock-revalidated') {
+            await fs.writeFile(lockPath, `${JSON.stringify({
+              createdAt: '2026-01-01T00:00:00.000Z',
+              pid: 2_147_483_647,
+              token: 'bytes-changed-owner'
+            })}\n`, 'utf8');
+          }
+        }
+      }, tempRoot)).rejects.toMatchObject({
+        code: 'RUNTIME-DEPS-002',
+        message: expect.stringContaining('changed before reclaim')
+      });
+
+      await expect(fs.readFile(lockPath, 'utf8')).resolves.toContain('bytes-changed-owner');
+    }, 'engineering-compiler-dev-deps-lock-bytes-change-');
+  });
+
+  test('reclaims an expired lease even when the numeric PID has been reused', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await fs.writeFile(lockPath, `${JSON.stringify({
+        createdAt: '2026-01-01T00:00:00.000Z',
+        pid: process.pid,
+        token: 'reused-pid-owner',
+        leaseExpiresAt: '2026-01-01T00:05:00.000Z'
+      })}\n`, 'utf8');
+      let installCalls = 0;
+
+      const ready = await ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          installCalls += 1;
+          await installCompilerDependencyFixture(command.cwd, 'expired-lease-recovered');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        lockTimeoutMs: 1000,
+        pollIntervalMs: 10
+      }, tempRoot);
+
+      expect(ready.source).toBe('installed');
+      expect(installCalls).toBe(1);
+      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-dev-deps-lock-expired-lease-');
   });
 });

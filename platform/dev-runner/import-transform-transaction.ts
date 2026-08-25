@@ -1,13 +1,172 @@
-import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson, digest } from '../shared/canonical-primitives.ts';
+import { isolatedGitReadEnvironment } from '../git/read-environment.ts';
+import { canonicalJson, digest, sha256 } from '../shared/canonical-primitives.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { ensureDir } from '../shared/fs.ts';
 import { resolveWorkspaceLocalStateRoot } from '../shared/workspace-path-contract.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../shared/workspace-write-lease.ts';
+
+export type ImportAuthoringFreezeReceiptV1 = Readonly<{
+  schema: 'sec-import-authoring-freeze-receipt-v1';
+  authoringBase: string;
+  indexDigest: `sha256:${string}`;
+  providerRevision: string;
+  receiptDigest: `sha256:${string}`;
+}>;
+
+const IMPORT_AUTHORING_FREEZE_DIRECTORY = 'import-authoring-freeze';
+const IMPORT_AUTHORING_FREEZE_RECEIPT_FILE = 'current.json';
+
+function importAuthoringFreezeReceiptMaterial(input: Readonly<{
+  authoringBase: string;
+  indexDigest: `sha256:${string}`;
+  providerRevision: string;
+}>): Omit<ImportAuthoringFreezeReceiptV1, 'receiptDigest'> {
+  return Object.freeze({
+    schema: 'sec-import-authoring-freeze-receipt-v1' as const,
+    authoringBase: input.authoringBase as string,
+    indexDigest: input.indexDigest,
+    providerRevision: input.providerRevision as string
+  });
+}
+
+function parseImportAuthoringFreezeReceiptV1(bytes: Buffer): ImportAuthoringFreezeReceiptV1 {
+  let value: unknown;
+  try { value = JSON.parse(bytes.toString('utf8')) as unknown; } catch { return invalidImportFreezeReceipt(); }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return invalidImportFreezeReceipt();
+  const input = value as Record<string, unknown>;
+  const expected = ['schema', 'authoringBase', 'indexDigest', 'providerRevision', 'receiptDigest'].sort();
+  const actual = Object.keys(input).sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])
+      || input.schema !== 'sec-import-authoring-freeze-receipt-v1'
+      || typeof input.authoringBase !== 'string' || !/^[0-9a-f]{40,64}$/u.test(input.authoringBase)
+      || typeof input.indexDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(input.indexDigest)
+      || typeof input.providerRevision !== 'string' || input.providerRevision.length === 0
+      || typeof input.receiptDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(input.receiptDigest)) {
+    return invalidImportFreezeReceipt();
+  }
+  const material = importAuthoringFreezeReceiptMaterial({
+    authoringBase: input.authoringBase,
+    indexDigest: input.indexDigest as `sha256:${string}`,
+    providerRevision: input.providerRevision
+  });
+  if (sha256(material) !== input.receiptDigest) return invalidImportFreezeReceipt();
+  return Object.freeze({ ...material, receiptDigest: input.receiptDigest as `sha256:${string}` });
+}
+
+function invalidImportFreezeReceipt(): never {
+  throw new CompilerError('IMPORT-TRANSFORM-003', 'Import authoring freeze receipt is invalid.');
+}
+
+function importAuthoringFreezeRoot(projectRoot: string): string {
+  return path.join(resolveWorkspaceLocalStateRoot(projectRoot), IMPORT_AUTHORING_FREEZE_DIRECTORY);
+}
+
+function fastGitText(projectRoot: string, args: readonly string[]): string | null {
+  const result = spawnSync('git', [...args], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    env: isolatedGitReadEnvironment({}, process.env),
+    windowsHide: true
+  });
+  return result.error || result.status !== 0 ? null : result.stdout.trim();
+}
+
+async function currentImportAuthoringIdentityV1(
+  projectRoot: string,
+  providerRevision?: string
+): Promise<Readonly<{
+  authoringBase: string;
+  indexDigest: `sha256:${string}`;
+  providerRevision: string;
+}> | null> {
+  const authoringBase = fastGitText(projectRoot, ['rev-parse', '--verify', 'HEAD^{commit}']);
+  const indexValue = fastGitText(projectRoot, ['rev-parse', '--path-format=absolute', '--git-path', 'index']);
+  if (authoringBase === null || !/^[0-9a-f]{40,64}$/u.test(authoringBase) || indexValue === null) return null;
+  try {
+    const indexBytes = await fs.readFile(path.resolve(projectRoot, indexValue));
+    const resolvedProviderRevision = providerRevision ?? await fs
+      .readFile(path.join(projectRoot, 'node_modules', 'typescript', 'package.json'))
+      .then((packageBytes) => {
+        const packageValue = JSON.parse(packageBytes.toString('utf8')) as { version?: unknown };
+        return typeof packageValue.version === 'string' && packageValue.version.length > 0
+          ? `typescript@${packageValue.version}`
+          : null;
+      });
+    if (typeof resolvedProviderRevision !== 'string' || resolvedProviderRevision.length === 0) return null;
+    return Object.freeze({
+      authoringBase,
+      indexDigest: `sha256:${createHash('sha256').update(indexBytes).digest('hex')}` as `sha256:${string}`,
+      providerRevision: resolvedProviderRevision
+    });
+  } catch { return null; }
+}
+
+async function readImportAuthoringFreezeReceiptV1(
+  projectRoot: string
+): Promise<ImportAuthoringFreezeReceiptV1 | null> {
+  try {
+    return parseImportAuthoringFreezeReceiptV1(await fs.readFile(
+      path.join(importAuthoringFreezeRoot(projectRoot), IMPORT_AUTHORING_FREEZE_RECEIPT_FILE)
+    ));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if (error instanceof CompilerError) return null;
+    throw error;
+  }
+}
+
+export async function currentImportAuthoringFreezeReceiptMatchesV1(
+  projectRoot = process.cwd(),
+  providerRevision?: string
+): Promise<boolean> {
+  const [receipt, current] = await Promise.all([
+    readImportAuthoringFreezeReceiptV1(projectRoot),
+    currentImportAuthoringIdentityV1(projectRoot, providerRevision)
+  ]);
+  return receipt !== null && current !== null
+    && receipt.authoringBase === current.authoringBase
+    && receipt.indexDigest === current.indexDigest
+    && receipt.providerRevision === current.providerRevision;
+}
+
+export async function publishImportAuthoringFreezeReceiptV1(input: Readonly<{
+  projectRoot: string;
+  authoringBase: string;
+  providerRevision: string;
+}>): Promise<ImportAuthoringFreezeReceiptV1> {
+  const current = await currentImportAuthoringIdentityV1(input.projectRoot, input.providerRevision);
+  if (current === null || current.authoringBase !== input.authoringBase
+      || current.providerRevision !== input.providerRevision) {
+    throw new CompilerError('IMPORT-TRANSFORM-003', 'Import authoring identity changed before receipt publication.');
+  }
+  const material = importAuthoringFreezeReceiptMaterial(current);
+  const receipt = Object.freeze({
+    ...material,
+    receiptDigest: sha256(material) as `sha256:${string}`
+  });
+  const root = importAuthoringFreezeRoot(input.projectRoot);
+  await ensureDir(root);
+  const target = path.join(root, IMPORT_AUTHORING_FREEZE_RECEIPT_FILE);
+  const candidate = path.join(root, `.${IMPORT_AUTHORING_FREEZE_RECEIPT_FILE}.${randomUUID()}.candidate`);
+  try {
+    await writeDurable(candidate, `${JSON.stringify(receipt)}\n`);
+    await fs.rename(candidate, target);
+    await syncDirectory(root);
+  } finally {
+    await fs.rm(candidate, { force: true }).catch(() => undefined);
+  }
+  const readback = await readImportAuthoringFreezeReceiptV1(input.projectRoot);
+  if (readback === null || readback.receiptDigest !== receipt.receiptDigest) {
+    throw new CompilerError('IMPORT-TRANSFORM-003', 'Import authoring freeze receipt readback differs.');
+  }
+  return readback;
+}
 
 export type ImportTransformWriteV1 = Readonly<{
   relativePath: string;

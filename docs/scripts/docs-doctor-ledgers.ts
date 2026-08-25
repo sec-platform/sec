@@ -3,11 +3,11 @@ import path from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
 
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/runtime/environments/sec-linux-verification-v1/authority.ts';
 import {
   documentationRecordByPath,
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 import {
   createVerificationProviderAvailabilityEpochV1,
   type VerificationProviderCapabilityInputV1

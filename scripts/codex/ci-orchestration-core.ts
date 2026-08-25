@@ -1,25 +1,29 @@
-import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import {
+  CodexDevelopmentListExactGitTreeEntriesV1,
+  CodexDevelopmentReadExactGitBlobEntryV1,
+  CodexDevelopmentReadExactGitTextBlobsBatchV1,
+  readGitChangedRecords,
+  readGitRevision,
+  readGitWorkingTreeStatus
+} from '../../platform/git/objects.ts';
 import type { CodexDevelopmentVerificationGateEvidenceV2 } from '../../platform/shared/ci-evidence-contract.ts';
 import {
   CodexDevelopmentCreateTestImpactTransitionObservationV1,
-  gitChangedFileDiffArgs,
-  parseGitChangedRecordsOutput,
   type CodexDevelopmentGitChangedRecordV1,
   type CodexDevelopmentTestImpactTransitionObservationV1
 } from '../../platform/shared/ci-git-changed-files.ts';
 import { uniqueSorted } from '../../platform/shared/collections.ts';
-import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
+import {
+  CommandTerminationErrorV1,
+  runCommand
+} from '../../platform/shared/process.ts';
 import {
   createTestImpactSourceProviderV2,
   type CodexDevelopmentTestImpactSourceProviderV2
 } from '../../platform/shared/test-impact-contract.ts';
-import {
-  CodexDevelopmentListExactGitTreeEntriesV1,
-  CodexDevelopmentReadExactGitBlobEntryV1,
-  CodexDevelopmentReadExactGitTextBlobsBatchV1
-} from './exact-git-blob.ts';
+import type { VerificationActionExecutionBudgetV1 } from '../../platform/shared/verification-action-contract.ts';
 
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT_V1 = 24_000;
 
@@ -27,12 +31,15 @@ export type CodexDevelopmentGateProcessResultV1 = {
   code: number;
   rawOutputDigest: string;
   failureTail: string;
+  termination?: 'completed' | 'timeout' | 'cancelled' | 'transport-failed';
 };
 
 export type CodexDevelopmentGateProcessStepV1 = {
   id: string;
   argv: string[];
   env: NodeJS.ProcessEnv;
+  budget: VerificationActionExecutionBudgetV1;
+  signal: AbortSignal;
 };
 
 export type CodexDevelopmentChangedPathSnapshotV1 = {
@@ -45,30 +52,15 @@ export function CodexDevelopmentDefaultGitRevisionV1(
   repositoryRoot: string,
   ref: string
 ): string | null {
-  const result = spawnSync('git', ['rev-parse', ref], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    env: isolatedGitReadEnvironment()
-  });
-  return result.status === 0 ? result.stdout.trim() : null;
+  return readGitRevision(repositoryRoot, ref);
 }
 
 export function CodexDevelopmentDefaultTrackedTreeIsCleanV1(repositoryRoot: string): boolean {
-  const result = spawnSync('git', [
-    '-c',
-    'core.quotepath=false',
-    '-c',
-    'core.autocrlf=true',
-    'status',
-    '--porcelain=v1',
-    '--untracked-files=normal',
-    '--ignored=no'
-  ], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    env: isolatedGitReadEnvironment()
-  });
-  return result.status === 0 && result.stdout.length === 0;
+  try {
+    return readGitWorkingTreeStatus(repositoryRoot).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 export function CodexDevelopmentChangedFilesFromRecordsV1(
@@ -86,14 +78,13 @@ export function CodexDevelopmentDefaultChangedPathsV1(
 ): CodexDevelopmentChangedPathSnapshotV1 | null {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(baseSha)
       || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(headSha)) return null;
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseSha, headSha), {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    env: isolatedGitReadEnvironment()
-  });
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
+  let records: CodexDevelopmentGitChangedRecordV1[];
   try {
-    const records = parseGitChangedRecordsOutput(result.stdout);
+    records = [...readGitChangedRecords(repositoryRoot, baseSha, headSha)];
+  } catch {
+    return null;
+  }
+  try {
     return {
       records,
       files: CodexDevelopmentChangedFilesFromRecordsV1(records),
@@ -174,15 +165,9 @@ export function CodexDevelopmentRunGateProcessV1(
   repositoryRoot: string,
   step: CodexDevelopmentGateProcessStepV1
 ): Promise<CodexDevelopmentGateProcessResultV1> {
-  return new Promise((resolve) => {
-    const child = spawn(step.argv[0]!, step.argv.slice(1), {
-      cwd: repositoryRoot,
-      env: step.env,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+  return (async () => {
     const hash = createHash('sha256');
     let boundedTail = '';
-    let settled = false;
     const observe = (chunk: Buffer): void => {
       hash.update(chunk);
       boundedTail = `${boundedTail}${chunk.toString('utf8')}`;
@@ -190,30 +175,43 @@ export function CodexDevelopmentRunGateProcessV1(
         boundedTail = boundedTail.slice(-CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT_V1);
       }
     };
-    child.stdout?.on('data', (chunk: Buffer) => {
-      observe(chunk);
-      process.stdout.write(chunk);
+    const result = await runCommand(step.argv[0]!, step.argv.slice(1), {
+      cwd: repositoryRoot,
+      env: step.env,
+      maxStdoutBytes: step.budget.maxStdoutBytes,
+      maxStderrBytes: step.budget.maxStderrBytes,
+      retainOutput: false,
+      timeoutMs: step.budget.absoluteTimeoutMs,
+      stallTimeoutMs: step.budget.stallTimeoutMs,
+      processTreeSettlementTimeoutMs: step.budget.processTreeSettlementTimeoutMs,
+      // Generic gates do not own a semantic presentation parser.  Their
+      // output therefore cannot extend the stall budget; producers that own
+      // structured progress must expose a narrower transport adapter.
+      admitProgress: () => false,
+      signal: step.signal,
+      onOutput: (chunk, stream) => {
+        observe(chunk);
+        (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
+      }
     });
-    child.stderr?.on('data', (chunk: Buffer) => {
-      observe(chunk);
-      process.stderr.write(chunk);
-    });
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
-      resolve({
-        code,
-        rawOutputDigest: `sha256:${hash.digest('hex')}`,
-        failureTail: boundedTail.trim()
-      });
+    return {
+      code: result.code,
+      rawOutputDigest: `sha256:${hash.digest('hex')}`,
+      failureTail: boundedTail.trim(),
+      termination: 'completed' as const
     };
-    child.on('error', (error) => {
-      const message = `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`;
-      observe(Buffer.from(message));
-      process.stderr.write(message);
-      finish(1);
-    });
-    child.on('close', (code) => finish(code ?? 1));
+  })().catch((error) => {
+    const message = `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`;
+    process.stderr.write(message);
+    const termination = error instanceof CommandTerminationErrorV1
+      ? error.reason === 'aborted' ? 'cancelled' as const : 'timeout' as const
+      : 'transport-failed' as const;
+    return {
+      code: 1,
+      rawOutputDigest: `sha256:${createHash('sha256').update(message).digest('hex')}`,
+      failureTail: message.trim().slice(-CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT_V1),
+      termination
+    };
   });
 }
 
