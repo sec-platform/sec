@@ -1496,8 +1496,12 @@ export function assertExactLocalGitHubActionsRunnerProfileInventoryV3(input: Rea
     if (exact.length !== 1 || exact[0]!.name !== expected.name || exact[0]!.id !== expected.runnerId) {
       fail('GitHub runner exact retained name and ID set differs');
     }
-    if (exact[0]!.status !== 'online' || exact[0]!.busy !== false) {
-      fail('GitHub runner final readiness census is not online and idle');
+    // `busy` is transient provider scheduling state: an exact runner can be
+    // claimed immediately after registration, before this census is read.
+    // Readiness owns identity plus online eligibility; cleanup separately
+    // refuses a busy runner before any destructive effect.
+    if (exact[0]!.status !== 'online') {
+      fail('GitHub runner final readiness census is not online');
     }
   }
 }

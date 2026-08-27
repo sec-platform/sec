@@ -273,6 +273,31 @@ function matchesDirectAppProducerV1(check: GitHubCheckObservationV1): boolean {
 }
 
 /**
+ * One exact hosted-provider admission predicate. Registration and ledger
+ * compilation must consume this same decision; a check that merely shares a
+ * context, App, and subject cannot enroll a provider before its producer
+ * provenance has also matched.
+ */
+export function matchesHostedMainHealthProviderV1(
+  check: GitHubCheckObservationV1,
+  policy: MainHealthCheckProviderPolicyV1,
+  mainSha: string
+): boolean {
+  if (policy.schema !== MAIN_HEALTH_CHECK_PROVIDER_POLICY_SCHEMA_V1) {
+    throw new Error('MainHealth provider policy schema is invalid.');
+  }
+  const app = canonicalApp(policy.app);
+  return check.headSha === mainSha
+    && check.name === policy.context
+    && check.appId === app.id
+    && check.appNodeId === app.nodeId
+    && check.appSlug === app.slug
+    && (policy.producer.kind === 'github-actions-workflow'
+      ? matchesActionsProducerV1(check, policy.producer, mainSha)
+      : matchesDirectAppProducerV1(check));
+}
+
+/**
  * Single MainHealth ledger compiler. Provider-specific adapters authenticate
  * only the check producer; health/degraded/locked semantics and failure
  * fingerprinting remain one canonical implementation.
@@ -293,15 +318,9 @@ export function createObservedMainHealthInputWithPolicyV1(input: {
   if (policy.schema !== MAIN_HEALTH_CHECK_PROVIDER_POLICY_SCHEMA_V1) {
     throw new Error('MainHealth provider policy schema is invalid.');
   }
-  const app = canonicalApp(policy.app);
-  const matching = input.checks.filter((check) => check.headSha === input.mainSha
-    && check.name === policy.context
-    && check.appId === app.id
-    && check.appNodeId === app.nodeId
-    && check.appSlug === app.slug
-    && (policy.producer.kind === 'github-actions-workflow'
-      ? matchesActionsProducerV1(check, policy.producer, input.mainSha)
-      : matchesDirectAppProducerV1(check))).sort((left, right) => left.id - right.id);
+  const matching = input.checks
+    .filter((check) => matchesHostedMainHealthProviderV1(check, policy, input.mainSha))
+    .sort((left, right) => left.id - right.id);
 
   if (policy.producer.kind === 'github-app-check' && matching.length === 1
       && input.sourceRunId !== String(matching[0]!.id)) {
@@ -401,18 +420,11 @@ export function createRegisteredHostedMainHealthInputsV1(input: {
   checks: readonly GitHubCheckObservationV1[];
 }): readonly MainHealthLedgerInputV1[] {
   const presentPolicies = HOSTED_MAIN_HEALTH_PROVIDER_POLICIES_V1.filter((policy) => (
-    input.checks.some((check) => check.headSha === input.mainSha
-      && check.name === policy.context
-      && check.appId === policy.app.id
-      && check.appNodeId === policy.app.nodeId
-      && check.appSlug === policy.app.slug)
+    input.checks.some((check) => matchesHostedMainHealthProviderV1(check, policy, input.mainSha))
   ));
   return Object.freeze(presentPolicies.map((policy) => {
-    const exactProviderChecks = input.checks.filter((check) => check.headSha === input.mainSha
-      && check.name === policy.context
-      && check.appId === policy.app.id
-      && check.appNodeId === policy.app.nodeId
-      && check.appSlug === policy.app.slug);
+    const exactProviderChecks = input.checks
+      .filter((check) => matchesHostedMainHealthProviderV1(check, policy, input.mainSha));
     return createObservedMainHealthInputWithPolicyV1({
       ...input,
       sourceRunId: policy.producer.kind === 'github-app-check'

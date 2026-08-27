@@ -2,6 +2,25 @@
 
 import path from 'node:path';
 
+import {
+  assertStableWorktreePhysicalWorkingStateV1,
+  assertWorktreePhysicalCloseoutAuthorizationV1,
+  assertWorktreePhysicalCloseoutReceiptV1,
+  classifyAuthorizedWorktreeResidueV1,
+  createWorktreePhysicalCloseoutAuthorizationV1,
+  createWorktreePhysicalCloseoutReceiptV1,
+  createWorktreePhysicalInventoryV1,
+  detailDigestV1,
+  parseWorktreePorcelainZV1,
+  parseWorktreeStatusPorcelainZV1,
+  type Digest,
+  type WorktreePhysicalCloseoutAttemptV1,
+  type WorktreePhysicalCloseoutAuthorizationV1,
+  type WorktreePhysicalCloseoutReceiptV1,
+  type WorktreePhysicalEntryV1,
+  type WorktreePhysicalInventoryV1,
+  type WorktreePorcelainRecordV1
+} from '../../platform/runtime-state/worktree-closeout-contract.ts';
 import { canonicalJson, sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   createNoFollowDirectoryChainV1,
@@ -36,25 +55,6 @@ import {
   settleGeneratedStateForWorktreeRetirementV1
 } from '../../tooling/sec-dev/generated-state-lifecycle.ts';
 import { createBranchLifecycleGitChildEnvironmentV1 } from './branch-lifecycle-command.ts';
-import {
-  assertStableWorktreePhysicalWorkingStateV1,
-  assertWorktreePhysicalCloseoutAuthorizationV1,
-  assertWorktreePhysicalCloseoutReceiptV1,
-  classifyAuthorizedWorktreeResidueV1,
-  createWorktreePhysicalCloseoutAuthorizationV1,
-  createWorktreePhysicalCloseoutReceiptV1,
-  createWorktreePhysicalInventoryV1,
-  detailDigestV1,
-  parseWorktreePorcelainZV1,
-  parseWorktreeStatusPorcelainZV1,
-  type Digest,
-  type WorktreePhysicalCloseoutAttemptV1,
-  type WorktreePhysicalCloseoutAuthorizationV1,
-  type WorktreePhysicalCloseoutReceiptV1,
-  type WorktreePhysicalEntryV1,
-  type WorktreePhysicalInventoryV1,
-  type WorktreePorcelainRecordV1
-} from './worktree-physical-closeout-contract.ts';
 
 const MAX_BUFFER = 64 * 1024 * 1024;
 const MAX_CLEANUP_ATTEMPTS = 4;

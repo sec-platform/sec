@@ -119,6 +119,7 @@ const CI_PR_RISK_FAST_TESTS = [...VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS, 'te
 
 const DEV_RUNNER_ENTRYPOINT_FAST_TESTS = [
   ...DEV_RUNNER_WORKSPACE_FAST_TESTS,
+  'tests/contract/tcb-closure-lock.test.ts',
   'tests/unit/heavy-verification-gate-lease.test.ts'
 ];
 
@@ -197,7 +198,9 @@ const VERIFICATION_SESSION_SOURCE_LOCK_FAST_TESTS = [
 ];
 
 const WORKTREE_PHYSICAL_CLOSEOUT_FAST_TESTS = [
+  'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
+  'tests/contract/verification-action-tooling-boundary.test.ts',
   'tests/unit/branch-lifecycle-contract.test.ts',
   'tests/unit/physical-no-follow.test.ts',
   'tests/unit/worktree-physical-closeout-contract.test.ts'
@@ -231,6 +234,23 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
   'tests/unit/verification-result-core.test.ts',
   'tests/unit/verification-result-proof-identity.test.ts'
 ];
+
+/**
+ * Physical-universe sentinels are deliberately separate from semantic test
+ * ownership. They must be selected for an added or removed path even before a
+ * reverse-import edge exists, but they must not change another owner's
+ * module-graph projection decision.
+ */
+export const verificationPhysicalUniverseTestSentinelsV1 = Object.freeze([
+  Object.freeze({
+    sourcePattern: /^platform\/shared\//u,
+    fast: Object.freeze(['tests/contract/shared-boundary-classification.test.ts'])
+  }),
+  Object.freeze({
+    sourcePattern: /^(?:tooling\/sec-dev\/|platform\/runtime-state\/worktree-closeout-contract\.ts$|scripts\/codex\/worktree-physical-closeout-contract\.ts$)/u,
+    fast: Object.freeze(['tests/contract/verification-action-tooling-boundary.test.ts'])
+  })
+]);
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
@@ -283,7 +303,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     identity: { kind: 'architecture-owner', id: 'git-worktree-physical-closeout' },
     sourceFiles: [
       'platform/shared/physical-no-follow.ts',
-      'scripts/codex/worktree-physical-closeout-contract.ts',
+      'platform/runtime-state/worktree-closeout-contract.ts',
       'scripts/codex/worktree-physical-closeout.ts',
       'tests/unit/worktree-physical-closeout-crash-fixture.ts'
     ],
@@ -384,7 +404,9 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       '.github/workflows/compiler-release-validation.yml',
       '.github/workflows/sec-merge-gate.yml',
       '.github/workflows/sec-trusted-bootstrap.yml',
+      'docs/scripts/docs-doctor.ts',
       'platform/shared/ci-trust-root-registry.json',
+      'platform/runtime-state/worktree-closeout-contract.ts',
       'platform/shared/tcb-closure-lock.ts',
       'platform/shared/tcb-trust-root-contract.ts',
       'scripts/codex/local-github-actions-runner.ts',

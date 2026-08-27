@@ -11,10 +11,10 @@ import {
   sharedBoundaryClassification
 } from '../../platform/shared/shared-boundary-contract.ts';
 
-// The integration candidate introduced physical-mutation-lease.ts without
-// classifying it. It is real pre-existing effectful placement debt, so the
-// audited baseline is 67 rather than an artificial undercount of 66.
-const MAX_SHARED_DOMAIN_OWNER_REVIEW_DEBT = 67;
+// This is an exact audited ceiling, not a fallback classification. The five
+// newly registered runtime/generated-state owners are real domain behavior;
+// future additions must be explicitly classified and may not grow this debt.
+const MAX_SHARED_DOMAIN_OWNER_REVIEW_DEBT = 72;
 const MAX_SHARED_MECHANICAL_FOUNDATION_PATHS = 16;
 
 async function collectSharedFiles(): Promise<string[]> {
@@ -72,7 +72,11 @@ test('stateful, destructive, workspace, CLI, and verification behavior remains o
   for (const path of [
     'affected-test-inventory.ts',
     'dependency-environment.ts',
+    'environment-materialization-contract.ts',
+    'environment-specs/sec-linux-verification-v1.json',
     'fs.ts',
+    'generated-state-contract.ts',
+    'generated-state-registry.json',
     'observed-process.ts',
     'paths.ts',
     'physical-mutation-lease.ts',
@@ -83,6 +87,7 @@ test('stateful, destructive, workspace, CLI, and verification behavior remains o
     'process.ts',
     'product-verification-profile.ts',
     'project-runtime.ts',
+    'sec-linux-verification-environment.ts',
     'tcb-closure-lock.ts',
     'test-impact-rules/governance.ts',
     'test-impact-rules/pipeline.ts',
@@ -98,6 +103,8 @@ test('stateful, destructive, workspace, CLI, and verification behavior remains o
 test('Engineering IR shared subtree remains contract/type surface in this first slice', () => {
   const contractPaths = new Set<string>(SHARED_CROSS_DOMAIN_CONTRACT_PATHS);
   expect(contractPaths.has('integration-platform-policy.ts')).toBe(true);
+  expect(contractPaths.has('docs-doctor-index-snapshot-contract.ts')).toBe(true);
+  expect(contractPaths.has('operation-demand-contract.ts')).toBe(true);
   for (const path of [
     'engineering-ir/delta-types.ts',
     'engineering-ir/entity-types.ts',

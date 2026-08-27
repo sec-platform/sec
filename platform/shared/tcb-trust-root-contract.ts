@@ -86,7 +86,7 @@ const REQUIRED_PRIVILEGED_RUNTIME_SURFACES = [
   'scripts/codex/verification-session-github.ts',
   'scripts/codex/verification-session-runtime.ts',
   'scripts/codex/verification-session.ts',
-  'scripts/codex/worktree-physical-closeout-contract.ts',
+  'platform/runtime-state/worktree-closeout-contract.ts',
   'scripts/codex/worktree-physical-closeout.ts',
   'scripts/codex/work-selection.ts',
   'tooling/sec-dev/runtime-state-authority.ts',

@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { detailDigestV1 } from '../../scripts/codex/worktree-physical-closeout-contract.ts';
+import { detailDigestV1 } from '../../platform/runtime-state/worktree-closeout-contract.ts';
 import { assertTrustedCompletedWorktreePhysicalCloseoutV1, prepareTrustedWorktreePhysicalCloseoutV1 } from '../../scripts/codex/worktree-physical-closeout.ts';
 
 function git(cwd: string, args: string[]): string { const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); }

@@ -11,6 +11,8 @@ const retiredOwners = [
 ] as const;
 const canonicalJournal = 'tooling/sec-dev/verification-action-journal.ts';
 const canonicalRunner = 'tooling/sec-dev/verification-action-runner.ts';
+const canonicalWorktreeCloseoutContract = 'platform/runtime-state/worktree-closeout-contract.ts';
+const retiredWorktreeCloseoutContract = 'scripts/codex/worktree-physical-closeout-contract.ts';
 
 test('Verification Action has one canonical tooling owner and no retired facade', () => {
   const graph = readRepositoryModuleGraphV1();
@@ -27,6 +29,12 @@ test('Verification Action has one canonical tooling owner and no retired facade'
     .toEqual([canonicalRunner]);
   expect(graph.files.filter((file) => /verification-action-journal\.ts$/u.test(file)))
     .toEqual([canonicalJournal]);
+  expect(existsSync(path.join(repositoryRoot, retiredWorktreeCloseoutContract))).toBe(false);
+  expect(graph.files.filter((file) => /worktree-(?:physical-)?closeout-contract\.ts$/u.test(file)))
+    .toEqual([canonicalWorktreeCloseoutContract]);
+  expect(graph.references.filter((reference) => (
+    reference.candidateTargets.includes(retiredWorktreeCloseoutContract)
+  ))).toEqual([]);
 });
 
 test('Verification Action dependency direction and process capability stay bounded', () => {

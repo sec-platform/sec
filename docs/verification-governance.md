@@ -337,6 +337,12 @@ source digest绑定policy与canonical matching subset，nonmatching provider noi
 provenance churn。完整raw response若需审计，必须由独立provider observation receipt owner签发，不能在
 MainHealth compiler里复制transport authority。
 
+local trusted receipt与hosted ledger是并列provider observation，不是先后覆盖的cache层。同一exact
+main/tree/trust出现语义冲突时，resolver只能消费canonical retirement operation：它把本地receipt的canonical
+payload、raw bytes digest、device/inode/size preimage、计算出的health revision以及完整hosted ledger绑定进不可变
+record，durable publication并readback后才允许exact-preimage CAS删除active receipt。只有record存在且active receipt
+absence读回完成，resolver才可重新进入单provider决策；外部替换、record冲突或hosted provenance漂移保持locked。
+
 MainHealth的GitHub check/App投影与Linux物理计算不是同一authority。required workflow可在固定
 `self-hosted + Linux + X64 + sec-linux-verification-v1` capability profile上执行；runner必须由canonical lifecycle owner
 按exact release/base-image/Node archive/Python archive-inspection runtime/final image digest建立，operation结束即注销和删除。一个atomic
@@ -630,6 +636,13 @@ invocation，使failure receipt的`selectedTestFiles`精确等于失败文件，
 receipt只拥有diagnostic定位，`replayAuthority=none-diagnostic-only`；修复后必须重新编译当前delta的
 affected closure，并只把精确旧失败与修复新增影响合并。裸argv、旧receipt或Agent手选清单不能跳过
 新影响，也不能把局部authoring PASS升级为formal Evidence。
+
+test-impact中的**physical universe sentinel**与semantic TestOwnershipDeclaration严格分离：前者只把文件新增、删除、
+移动和跨boundary placement变化映射到独立sentinel evidence，不得向`selection.owners`注入语义owner，也不能创建module
+graph或第二ownership truth。对目录级universe规则，
+source不存在仍必须命中删除/迁移sentinel；移动owner时同一变更同时覆盖旧路径和新路径、tooling boundary、shared
+classification与TCB closure。TCB测试从真实dispatcher/source contract派生identity，不复制源码SHA、argv或正则镜像；
+否则实现和测试会一起陈旧并让选择器静默漏跑。
 
 开发循环只运行被当前编辑直接影响的owner-local sentinel；昂贵的Program、物理恢复、Linux或浏览器
 closure必须等candidate source、manifest和生成锁全部冻结后，编译成一个并行frozen union且只执行一次。

@@ -100,9 +100,15 @@ SUT污染trusted容器。
 - provider name在lease发布前为最长role suffix预留8字符；GitHub labels以case-insensitive集合比较，fetch URL和
   全部effective push URL必须同仓。即使local state丢失，status/recovery也必须查询remote lease、全部profile/role
   eligible runner与repository-labeled container，禁止把未知第四实例或大小写变体误报为absent；
+- runner readiness必须读回每个retained ID/name、exact labels和`online` eligibility。`busy=true`是注册成功后可能立即
+  被dispatcher认领的瞬时调度状态，不能把正确capacity误报为未就绪；destructive stop/cleanup则必须重新census并在
+  任一exact runner仍busy时拒绝effect。ready与cleanup因此消费同一identity，但拥有不同的状态谓词；
 - MainHealth不由`main` push直接占用尚未active的本地runner。control plane先对exact live main建立remote ledger、
   三角色container/runner完整census和active projection，再发布唯一`sec-produce-main-health-v1` repository dispatch；
-  本地、远端或未来其他平台provider只改变受治理execution binding，不要求修改workflow/job/check合同；
+  本地、远端或未来其他平台provider只改变受治理execution binding，不要求修改workflow/job/check合同。hosted
+  MainHealth provider的enrollment、exact check selection与source digest必须消费同一个闭合predicate，完整绑定App、
+  workflow、event、exact main、check name和event-specific display title；近似同名、其他event或错误provenance只能是
+  nonmatching noise，不能在不同阶段被先接纳后排除或先排除后接纳；
 - SUT cgroup固定2 CPU并由3600秒wall kill界定整棵descendant tree，真实aggregate上限为7200 CPU秒；同值
   per-process `prlimit`只作冗余。candidate依赖由exact trusted-base lock/package以`--ignore-scripts`物化，下载cache
   保留在runner私有路径且不进入chroot，命中cache不得重复下载。runner image还必须冻结workflow setup所需的

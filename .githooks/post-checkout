@@ -3,6 +3,10 @@ set -eu
 
 export SEC_GIT_HOOK_ACTIVE=1
 
-if [ "${3-0}" = "1" ] || [ ! -e node_modules ]; then
+if [ -f ./scripts/install-git-hooks.ts ]; then
+  bun ./scripts/install-git-hooks.ts --lifecycle
+fi
+
+if { [ "${3-0}" = "1" ] || [ ! -e node_modules ]; } && [ -f ./platform/dev-runner.ts ]; then
   bun ./platform/dev-runner.ts deps:ensure
 fi
