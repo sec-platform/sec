@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const MANAGED_HOOKS_PATH = '.githooks';
@@ -173,32 +173,36 @@ function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
 }
 
 async function managedHookSnapshots(repoRoot: string): Promise<readonly ManagedHookSnapshot[] | null> {
+  const trackedRecords = gitText(
+    repoRoot,
+    ['ls-files', '--stage', '-z', '--', ...MANAGED_HOOKS]
+  )?.split('\0').filter((record) => record.length > 0) ?? [];
+  const trackedByPath = new Map<string, string>();
+  for (const record of trackedRecords) {
+    const match = /^(100755) ([0-9a-f]{40,64}) 0\t(.+)$/u.exec(record);
+    if (match === null || !MANAGED_HOOKS.includes(match[3] as typeof MANAGED_HOOKS[number])
+        || trackedByPath.has(match[3]!)) return null;
+    trackedByPath.set(match[3]!, match[2]!);
+  }
+  if (trackedByPath.size !== MANAGED_HOOKS.length) return null;
   const snapshots: ManagedHookSnapshot[] = [];
   for (const hook of MANAGED_HOOKS) {
-    const tracked = gitText(
-      repoRoot,
-      ['ls-files', '--error-unmatch', '--stage', '--', hook],
-      { allowMissing: true }
-    );
-    const escapedHook = hook.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-    const match = tracked === null
-      ? null
-      : (new RegExp(`^100755 ([0-9a-f]{40,64}) 0\\t${escapedHook}$`, 'u')).exec(tracked);
-    if (match === null) return null;
+    const trackedObjectId = trackedByPath.get(hook);
+    if (trackedObjectId === undefined) return null;
     const sourcePath = path.join(repoRoot, ...hook.split('/'));
     try {
-      if (!(await stat(sourcePath)).isFile()) return null;
+      if (!(await lstat(sourcePath)).isFile()) return null;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
     }
     const sourceBytes = await readFile(sourcePath);
-    const objectHash = match[1].length === 40 ? 'sha1' : 'sha256';
+    const objectHash = trackedObjectId.length === 40 ? 'sha1' : 'sha256';
     const workingBlob = createHash(objectHash)
       .update(`blob ${sourceBytes.byteLength}\0`)
       .update(sourceBytes)
       .digest('hex');
-    if (workingBlob !== match[1]) return null;
+    if (workingBlob !== trackedObjectId) return null;
     const name = path.basename(hook);
     snapshots.push(Object.freeze({
       deployedBytes: deployedHookBytes(name, sourceBytes),
@@ -274,8 +278,8 @@ async function managedGenerationDigestMatches(
  * Marker file lives inside the invoking worktree's own Git directory, so one
  * worktree can never admit another worktree's source fingerprint or binding.
  * Content format: two lines — managedGenerationDigest and sourceFingerprint.
- * sourceFingerprint = sha256 over (hookName \0 mtimeMs \0 size \0) for each managed hook,
- * a cheap stat-only proxy that detects source edits without reading or hashing file bytes.
+ * sourceFingerprint is compiled from the exact index-identical source bytes;
+ * metadata such as size/mtime is never accepted as a tracked-byte identity.
  */
 function markerFilePath(worktreeGitDir: string): string {
   return path.join(worktreeGitDir, MANAGED_COMMON_DIRECTORY, MARKER_FILE_NAME);
@@ -286,21 +290,24 @@ interface HookMarkerRecord {
   readonly fingerprint: string;
 }
 
-async function computeSourceFingerprint(repoRoot: string): Promise<string | null> {
+function computeSourceFingerprint(snapshots: readonly ManagedHookSnapshot[]): string {
   const hash = createHash('sha256');
-  let allPresent = true;
-  for (const hook of MANAGED_HOOKS) {
-    const sourcePath = path.join(repoRoot, ...hook.split('/'));
-    try {
-      const info = await stat(sourcePath);
-      if (!info.isFile()) { allPresent = false; break; }
-      hash.update(`${hook}\0${info.mtimeMs}\0${info.size}\0`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') { allPresent = false; break; }
-      throw error;
-    }
+  hash.update('sec-managed-hook-source-fingerprint-v2\0');
+  for (const snapshot of snapshots) {
+    hash.update(`${snapshot.name}\0${snapshot.deployedBytes.byteLength}\0`);
+    hash.update(snapshot.deployedBytes);
   }
-  return allPresent ? hash.digest('hex') : null;
+  return hash.digest('hex');
+}
+
+async function currentManagedHookSourceMatches(
+  repoRoot: string,
+  worktreeGitDir: string,
+  expectedDigest: string
+): Promise<boolean> {
+  const snapshots = await managedHookSnapshots(repoRoot);
+  return snapshots !== null
+    && managedGenerationDigest(snapshots, worktreeGitDir) === expectedDigest;
 }
 
 async function readMarkerFile(markerPath: string): Promise<HookMarkerRecord | null> {
@@ -406,16 +413,30 @@ export async function installGitHooks(options: {
   const isPrimaryWorktree = canonicalPath(worktreeGitDir) === canonicalPath(commonGitDir);
   const markerPath = markerFilePath(worktreeGitDir);
   const bootstrapMarkerPath = markerFilePath(commonGitDir);
-  const sourceFingerprint = await computeSourceFingerprint(repoRoot);
+  const snapshots = await managedHookSnapshots(repoRoot);
+  const bootstrapSnapshots = isPrimaryWorktree
+    ? snapshots
+    : await managedHookSnapshots(primaryRepoRoot);
+  if (snapshots === null || bootstrapSnapshots === null) {
+    return stoppedResult(
+      'Tracked, executable, index-identical managed hooks are unavailable in the current or primary-bootstrap worktree; Git hook authority was not changed.',
+      options.lifecycle ?? false
+    );
+  }
+  const sourceFingerprint = computeSourceFingerprint(snapshots);
   const bootstrapFingerprint = isPrimaryWorktree
     ? sourceFingerprint
-    : await computeSourceFingerprint(primaryRepoRoot);
-  const marker = sourceFingerprint !== null ? await readMarkerFile(markerPath) : null;
+    : computeSourceFingerprint(bootstrapSnapshots);
+  const sourceDigest = managedGenerationDigest(snapshots, worktreeGitDir);
+  const bootstrapDigest = managedGenerationDigest(bootstrapSnapshots, commonGitDir);
+  const marker = await readMarkerFile(markerPath);
   const bootstrapMarker = isPrimaryWorktree
     ? marker
-    : (bootstrapFingerprint !== null ? await readMarkerFile(bootstrapMarkerPath) : null);
+    : await readMarkerFile(bootstrapMarkerPath);
   if (marker !== null && marker.fingerprint === sourceFingerprint
-      && bootstrapMarker !== null && bootstrapMarker.fingerprint === bootstrapFingerprint) {
+      && marker.digest === sourceDigest
+      && bootstrapMarker !== null && bootstrapMarker.fingerprint === bootstrapFingerprint
+      && bootstrapMarker.digest === bootstrapDigest) {
     const worktreeConfigEnabledFast = gitText(
       repoRoot,
       ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'],
@@ -450,6 +471,9 @@ export async function installGitHooks(options: {
       && await managedGenerationDigestMatches(expectedGenerationPath, marker.digest, worktreeGitDir)
       && (expectedBootstrapPath === expectedGenerationPath
         || await managedGenerationDigestMatches(expectedBootstrapPath, bootstrapMarker.digest, commonGitDir))
+      && await currentManagedHookSourceMatches(repoRoot, worktreeGitDir, marker.digest)
+      && (isPrimaryWorktree
+        || await currentManagedHookSourceMatches(primaryRepoRoot, commonGitDir, bootstrapMarker.digest))
     ) {
       return Object.freeze({
         status: 'managed',
@@ -458,16 +482,6 @@ export async function installGitHooks(options: {
     }
   }
 
-  const snapshots = await managedHookSnapshots(repoRoot);
-  const bootstrapSnapshots = isPrimaryWorktree
-    ? snapshots
-    : await managedHookSnapshots(primaryRepoRoot);
-  if (snapshots === null || bootstrapSnapshots === null) {
-    return stoppedResult(
-      'Tracked, executable, index-identical managed hooks are unavailable in the current or primary-bootstrap worktree; Git hook authority was not changed.',
-      options.lifecycle ?? false
-    );
-  }
   const worktreeConfigEnabled = gitText(
     repoRoot,
     ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'],
@@ -544,16 +558,17 @@ export async function installGitHooks(options: {
     throw new Error('Git hook authority changed during exact configuration readback');
   }
 
-  if (sourceFingerprint !== null) {
-    const digest = managedGenerationDigest(snapshots, worktreeGitDir);
-    await writeMarkerFile(markerPath, { digest, fingerprint: sourceFingerprint });
-  }
-  if (!isPrimaryWorktree && bootstrapFingerprint !== null) {
-    const bootstrapDigest = managedGenerationDigest(bootstrapSnapshots, commonGitDir);
+  await writeMarkerFile(markerPath, { digest: sourceDigest, fingerprint: sourceFingerprint });
+  if (!isPrimaryWorktree) {
     await writeMarkerFile(bootstrapMarkerPath, {
       digest: bootstrapDigest,
       fingerprint: bootstrapFingerprint
     });
+  }
+  if (!await currentManagedHookSourceMatches(repoRoot, worktreeGitDir, sourceDigest)
+      || (!isPrimaryWorktree
+        && !await currentManagedHookSourceMatches(primaryRepoRoot, commonGitDir, bootstrapDigest))) {
+    throw new Error('Tracked managed hook bytes changed during exact generation publication');
   }
 
   if (commonMatchesBootstrap && worktreeMatchesGeneration) {

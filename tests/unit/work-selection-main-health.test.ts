@@ -16,6 +16,8 @@ import {
   CI_MAIN_HEALTH_POLICY_V1,
   createCiMainHealthRequestOperationIdV1
 } from '../../platform/shared/ci-verification-revision.ts';
+import { createMainHealthLedgerV1 } from '../../platform/shared/main-health-contract.ts';
+import { PhysicalNoFollowError } from '../../platform/shared/physical-no-follow.ts';
 import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
 import {
   createTrustedRuntimeMainHealthBaselineObservationV2,
@@ -24,8 +26,10 @@ import {
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2
 } from '../../scripts/codex/trusted-runtime-container.ts';
 import {
+  classifyTrustedLocalMainHealthObservationFailureV1,
   observeCanonicalMainHealthForRepairV1,
   observeCanonicalMainHealthForWorkSelectionV1,
+  reconcileCanonicalMainHealthProviderConflictV1,
   resolveWorkSelectionMainHealthProvidersV1
 } from '../../scripts/codex/work-selection-main-health.ts';
 import { resolveSecRuntimeStateForRepositoryV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
@@ -156,7 +160,14 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
       .toMatchObject({ status: 'blocked', routingState: 'ordinary-only' });
 
     const fakeGh = installFakeMainHealthGh(binHome);
-    expect(observeCanonicalMainHealthForWorkSelectionV1(input).state).toBe('unhealthy');
+    expect(observeCanonicalMainHealthForWorkSelectionV1(input).state).toBe('unresolved');
+    expect(observeCanonicalMainHealthForRepairV1(input))
+      .toMatchObject({ status: 'blocked', routingState: 'locked', reasonCode: 'repair-provider-conflict' });
+    expect(readFileSync(receiptPath, 'utf8')).toBe(`${encodeVerificationActionDataV2(receipt)}\n`);
+
+    const reconciled = reconcileCanonicalMainHealthProviderConflictV1(input);
+    expect(reconciled.retirement.status).toBe('retired');
+    expect(reconciled.resolution.projection.state).toBe('unhealthy');
     expect(observeCanonicalMainHealthForRepairV1(input))
       .toMatchObject({ status: 'repair-ready', routingState: 'repair-only' });
     expect(() => readFileSync(receiptPath)).toThrow();
@@ -213,4 +224,48 @@ test('provider resolution preserves missing, unavailable, and invalid dispositio
     hosted: { kind: 'absent' }
   });
   expect(invalid.repairObservation.kind).toBe('provider-invalid');
+
+  const hostedLedger = createMainHealthLedgerV1({
+    repository: base.repository,
+    defaultBranch: base.defaultBranch,
+    mainSha: base.mainSha,
+    mainTreeSha: base.mainTreeSha,
+    status: 'healthy',
+    failureFingerprints: [],
+    owner: null,
+    repairWorkPackage: null,
+    expiresAt: new Date(Date.parse(base.now) + 60_000).toISOString(),
+    allowedLanes: ['ordinary'],
+    trustRevision: base.mainSha,
+    observedAt: base.now,
+    producer: {
+      identity: 'platform/shared/default-branch-revision-health.ts',
+      trustRevision: base.mainSha,
+      sourceTransport: 'github-api',
+      sourceRunId: '33109458351',
+      sourceRef: `github-check-runs:${base.repository}@${base.mainSha}`,
+      sourceDigest: `sha256:${'6'.repeat(64)}`
+    }
+  });
+  const localCapabilityUnavailable = classifyTrustedLocalMainHealthObservationFailureV1(
+    new PhysicalNoFollowError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'no supported no-follow backend'
+    )
+  );
+  expect(localCapabilityUnavailable.kind).toBe('unavailable');
+  const failClosed = resolveWorkSelectionMainHealthProvidersV1({
+    ...base,
+    local: localCapabilityUnavailable,
+    hosted: { kind: 'available', ledger: hostedLedger }
+  });
+  expect(failClosed).toMatchObject({
+    projection: { state: 'unresolved' },
+    ledger: null,
+    repairObservation: { kind: 'provider-unavailable' }
+  });
+
+  expect(classifyTrustedLocalMainHealthObservationFailureV1(
+    new PhysicalNoFollowError('PHYSICAL_NO_FOLLOW_ABSENT', 'literal ENOENT')
+  )).toEqual({ kind: 'absent' });
 });

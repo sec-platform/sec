@@ -36,6 +36,45 @@ export async function handoffDevRunnerToFreshProcessV1(
   return child.exited;
 }
 
+type CheckAffectedDemandV1 = ReturnType<typeof compileSecOperationDemandGraphV1>;
+
+export interface CheckAffectedCommandOperationsV1 {
+  readonly runPlan: () => Promise<number>;
+  readonly ensureDependencies: (
+    demand: CheckAffectedDemandV1
+  ) => Promise<MaterializedOperationDependencyBootstrapResultV1>;
+  readonly handoff: (
+    dependencies: MaterializedOperationDependencyBootstrapResultV1
+  ) => Promise<number | null>;
+  readonly runExecution: (
+    dependencies: MaterializedOperationDependencyBootstrapResultV1,
+    demand: CheckAffectedDemandV1
+  ) => Promise<number>;
+}
+
+/**
+ * The `--plan` surface is a pure selector observation. Its admission precedes
+ * dependency materialization and fresh-process handoff, so a plan query cannot
+ * acquire an installation lock, publish a generation/locator, or spawn a
+ * successor process.
+ */
+export async function runCheckAffectedCommandV1(
+  args: readonly string[],
+  operations: CheckAffectedCommandOperationsV1
+): Promise<number> {
+  if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) {
+    throw new Error('check:affected accepts only --plan');
+  }
+  if (args.length === 1) return operations.runPlan();
+  const demand = compileSecOperationDemandGraphV1({
+    operation: 'check-affected',
+    terminalWorkIds: []
+  });
+  const dependencies = await operations.ensureDependencies(demand);
+  const handoffExitCode = await operations.handoff(dependencies);
+  return handoffExitCode ?? operations.runExecution(dependencies, demand);
+}
+
 function usage(): never {
   console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
@@ -124,18 +163,24 @@ async function main(): Promise<void> {
 
   if (target === 'check:affected') {
     if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) usage();
-    const demand = compileSecOperationDemandGraphV1({ operation: 'check-affected', terminalWorkIds: [] });
-    const dependencies = await ensureOperationDependencies(demand);
-    const handoffExitCode = await handoffDevRunnerToFreshProcessV1(dependencies);
-    if (handoffExitCode !== null) {
-      process.exitCode = handoffExitCode;
-      return;
-    }
-    const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
-    process.exitCode = await runRepositoryZeroWriteCommand('check:affected', () =>
-      runLocalAffectedCheck(args, {
-        prepareCompilerDependencies: async () => reuseOperationDependenciesV1(dependencies, demand)
-      }));
+    process.exitCode = await runCheckAffectedCommandV1(args, {
+      runPlan: async () => {
+        const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
+        return runRepositoryZeroWriteCommand(
+          'check:affected',
+          () => runLocalAffectedCheck(['--plan'])
+        );
+      },
+      ensureDependencies: ensureOperationDependencies,
+      handoff: handoffDevRunnerToFreshProcessV1,
+      runExecution: async (dependencies, demand) => {
+        const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
+        return runRepositoryZeroWriteCommand('check:affected', () =>
+          runLocalAffectedCheck([], {
+            prepareCompilerDependencies: async () => reuseOperationDependenciesV1(dependencies, demand)
+          }));
+      }
+    });
     return;
   }
 

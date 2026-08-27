@@ -62,6 +62,8 @@ export const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V2 =
   'sec-trusted-runtime-main-health-receipt-v2' as const;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_RETIREMENT_SCHEMA_V1 =
   'sec-trusted-runtime-main-health-retirement-v1' as const;
+export const TRUSTED_RUNTIME_MAIN_HEALTH_RETIREMENT_AUTHORIZATION_SCHEMA_V1 =
+  'sec-trusted-runtime-main-health-retirement-authorization-v1' as const;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_BASELINE_OBSERVATION_SCHEMA_V2 =
   'sec-trusted-runtime-main-health-baseline-observation-v2' as const;
 export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA_V1 =
@@ -263,6 +265,13 @@ export interface TrustedRuntimeMainHealthRetirementRecordV1 {
   readonly localHealthRevision: Digest;
   readonly hostedLedger: MainHealthLedgerV1;
   readonly recordDigest: Digest;
+}
+
+export interface TrustedRuntimeMainHealthRetirementAuthorizationV1 {
+  readonly schema: typeof TRUSTED_RUNTIME_MAIN_HEALTH_RETIREMENT_AUTHORIZATION_SCHEMA_V1;
+  readonly effect: 'retire-exact-local-main-health-provider-conflict';
+  readonly record: TrustedRuntimeMainHealthRetirementRecordV1;
+  readonly authorizationDigest: Digest;
 }
 
 export interface TrustedRuntimeDependencyCacheMarkerV1 {
@@ -1530,6 +1539,27 @@ export function createTrustedRuntimeMainHealthRetirementRecordV1(input: Readonly
   return Object.freeze({ ...withoutDigest, recordDigest: digestValue(withoutDigest) });
 }
 
+/**
+ * Compiles the only MainHealth retirement Effect authorization. The embedded
+ * record is accepted only after the exact local physical preimage and the
+ * authenticated hosted provider have been rebound by the retirement owner.
+ * Possession of caller fields, a path, or an unparsed ledger is not authority.
+ */
+export function authorizeTrustedRuntimeMainHealthRetirementV1(input: Readonly<{
+  sourceName: string;
+  source: NoFollowDirectoryTreeEntryV1;
+  localReceipt: TrustedRuntimeMainHealthReceiptV2;
+  hostedLedger: MainHealthLedgerV1;
+}>): TrustedRuntimeMainHealthRetirementAuthorizationV1 {
+  const record = createTrustedRuntimeMainHealthRetirementRecordV1(input);
+  const semantic = Object.freeze({
+    schema: TRUSTED_RUNTIME_MAIN_HEALTH_RETIREMENT_AUTHORIZATION_SCHEMA_V1,
+    effect: 'retire-exact-local-main-health-provider-conflict' as const,
+    record
+  });
+  return Object.freeze({ ...semantic, authorizationDigest: digestValue(semantic) });
+}
+
 export function parseTrustedRuntimeMainHealthRetirementRecordV1(
   value: unknown
 ): TrustedRuntimeMainHealthRetirementRecordV1 {
@@ -1599,61 +1629,88 @@ export function parseTrustedRuntimeMainHealthRetirementRecordV1(
 export function retireTrustedRuntimeMainHealthReceiptInDirectoryV1(input: Readonly<{
   directory: PhysicalDirectoryIdentityV1;
   source: NoFollowDirectoryTreeEntryV1;
-  localReceipt: TrustedRuntimeMainHealthReceiptV2;
-  hostedLedger: MainHealthLedgerV1;
+  authorization: TrustedRuntimeMainHealthRetirementAuthorizationV1;
 }>): Readonly<{
   status: 'retired' | 'resumed-absent';
   record: TrustedRuntimeMainHealthRetirementRecordV1;
   recordPath: string;
 }> {
-  const record = createTrustedRuntimeMainHealthRetirementRecordV1({
+  const reboundAuthorization = authorizeTrustedRuntimeMainHealthRetirementV1({
     sourceName: input.source.relativePath,
     source: input.source,
-    localReceipt: input.localReceipt,
-    hostedLedger: input.hostedLedger
+    localReceipt: input.authorization.record.localReceipt,
+    hostedLedger: input.authorization.record.hostedLedger
   });
+  if (reboundAuthorization.authorizationDigest !== input.authorization.authorizationDigest
+      || reboundAuthorization.record.recordDigest !== input.authorization.record.recordDigest) {
+    fail('MainHealth retirement Effect authorization does not bind the exact physical preimage');
+  }
+  const record = reboundAuthorization.record;
   const recordBytes = trustedRuntimeMainHealthRetirementRecordBytesV1(record);
-  const retiredDirectory = createNoFollowDirectoryChainV1(input.directory, ['retired']);
-  const recordName = `retirement-${record.recordDigest.slice('sha256:'.length)}.json`;
-  const publication = publishExclusiveDurableCanonicalFileV1({
-    parent: retiredDirectory,
-    name: recordName,
-    bytes: recordBytes,
-    validate: (bytes) => {
-      const parsed = parseTrustedRuntimeMainHealthRetirementRecordV1(
-        new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-      );
-      if (!Buffer.from(bytes).equals(trustedRuntimeMainHealthRetirementRecordBytesV1(parsed))) {
-        fail('MainHealth retirement record bytes are not canonical');
+  const leaseName = `.main-health-retirement-${record.mainSha}.lock`;
+  const operationLease = acquirePhysicalMutationLeaseV1(input.directory, leaseName);
+  if (operationLease === null) {
+    fail('MainHealth retirement operation is already active or its owner liveness is unknown');
+  }
+  try {
+    const assertExactSource = (current: ReturnType<typeof inspectNoFollowOrdinaryFileEntryV1>) => {
+      if (current === null) return false;
+      if (current.kind !== 'file' || current.bytes === null
+          || current.device !== input.source.device || current.inode !== input.source.inode
+          || current.size !== input.source.size
+          || !Buffer.from(current.bytes).equals(Buffer.from(input.source.bytes!))) {
+        fail('MainHealth retirement source changed before exact CAS');
       }
+      return true;
+    };
+    const sourcePresent = assertExactSource(
+      inspectNoFollowOrdinaryFileEntryV1(input.directory, input.source.relativePath)
+    );
+    const retiredDirectory = createNoFollowDirectoryChainV1(input.directory, ['retired']);
+    const recordName = `retirement-${record.recordDigest.slice('sha256:'.length)}.json`;
+    const publication = publishExclusiveDurableCanonicalFileV1({
+      parent: retiredDirectory,
+      name: recordName,
+      bytes: recordBytes,
+      validate: (bytes) => {
+        const parsed = parseTrustedRuntimeMainHealthRetirementRecordV1(
+          new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+        );
+        if (!Buffer.from(bytes).equals(trustedRuntimeMainHealthRetirementRecordBytesV1(parsed))) {
+          fail('MainHealth retirement record bytes are not canonical');
+        }
+      }
+    });
+    if (!sourcePresent) {
+      const archived = readNoFollowOrdinaryFileV1(retiredDirectory, recordName);
+      if (archived === null || !Buffer.from(archived).equals(recordBytes)) {
+        fail('MainHealth retirement record differs during absent-source recovery');
+      }
+      return Object.freeze({ status: 'resumed-absent', record, recordPath: publication.path });
     }
-  });
-  const current = inspectNoFollowOrdinaryFileEntryV1(input.directory, input.source.relativePath);
-  if (current === null) {
-    return Object.freeze({ status: 'resumed-absent', record, recordPath: publication.path });
+    assertExactSource(inspectNoFollowOrdinaryFileEntryV1(
+      input.directory,
+      input.source.relativePath
+    ));
+    deleteRetainedNoFollowEntryV1({
+      root: input.directory,
+      relativePath: input.source.relativePath,
+      kind: 'file',
+      device: input.source.device,
+      inode: input.source.inode,
+      ancestorDirectories: Object.freeze([])
+    });
+    if (readNoFollowOrdinaryFileV1(input.directory, input.source.relativePath) !== null) {
+      fail('MainHealth retirement source remains after exact CAS readback');
+    }
+    const archived = readNoFollowOrdinaryFileV1(retiredDirectory, recordName);
+    if (archived === null || !Buffer.from(archived).equals(recordBytes)) {
+      fail('MainHealth retirement record differs after source disposition');
+    }
+    return Object.freeze({ status: 'retired', record, recordPath: publication.path });
+  } finally {
+    operationLease.release();
   }
-  if (current.kind !== 'file' || current.bytes === null
-      || current.device !== input.source.device || current.inode !== input.source.inode
-      || current.size !== input.source.size
-      || !Buffer.from(current.bytes).equals(Buffer.from(input.source.bytes!))) {
-    fail('MainHealth retirement source changed before exact CAS');
-  }
-  deleteRetainedNoFollowEntryV1({
-    root: input.directory,
-    relativePath: input.source.relativePath,
-    kind: 'file',
-    device: input.source.device,
-    inode: input.source.inode,
-    ancestorDirectories: Object.freeze([])
-  });
-  if (readNoFollowOrdinaryFileV1(input.directory, input.source.relativePath) !== null) {
-    fail('MainHealth retirement source remains after exact CAS readback');
-  }
-  const archived = readNoFollowOrdinaryFileV1(retiredDirectory, recordName);
-  if (archived === null || !Buffer.from(archived).equals(recordBytes)) {
-    fail('MainHealth retirement record differs after source disposition');
-  }
-  return Object.freeze({ status: 'retired', record, recordPath: publication.path });
 }
 
 interface TrustedRuntimeWorkspaceV1 {

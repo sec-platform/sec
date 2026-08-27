@@ -16,6 +16,9 @@ import {
   createMainHealthRepairWorkPackagePathV1
 } from '../../platform/shared/main-health-contract.ts';
 import {
+  acquirePhysicalMutationLeaseV1
+} from '../../platform/shared/physical-mutation-lease.ts';
+import {
   inspectNoFollowDirectoryChainV1,
   inspectNoFollowOrdinaryFileEntryV1
 } from '../../platform/shared/physical-no-follow.ts';
@@ -41,6 +44,7 @@ import {
   assertTrustedRuntimeDependencyCacheVolumeV1,
   assertTrustedRuntimeMainHealthCarryForwardBaselineV2,
   authorizeTrustedRuntimeContainerRecoveryV1,
+  authorizeTrustedRuntimeMainHealthRetirementV1,
   composeTrustedRuntimeContainerLabelsV1,
   createTrustedRuntimeCommandEnvironmentArgsV1,
   createTrustedRuntimeDependencyCacheMarkerV1,
@@ -518,11 +522,16 @@ describe('provider-neutral trusted runtime container', () => {
         'utf8'
       );
       const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
-      const retired = retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
-        directory,
+      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
+        sourceName,
         source,
         localReceipt: fixture.localReceipt,
         hostedLedger: fixture.hostedLedger
+      });
+      const retired = retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
+        directory,
+        source,
+        authorization
       });
       expect(retired.status).toBe('retired');
       expect(inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)).toBeNull();
@@ -539,8 +548,7 @@ describe('provider-neutral trusted runtime container', () => {
       const resumed = retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
         directory,
         source,
-        localReceipt: fixture.localReceipt,
-        hostedLedger: fixture.hostedLedger
+        authorization
       });
       expect(resumed).toMatchObject({
         status: 'resumed-absent',
@@ -565,18 +573,65 @@ describe('provider-neutral trusted runtime container', () => {
       const sourcePath = path.join(healthRoot, sourceName);
       writeFileSync(sourcePath, `${encodeVerificationActionDataV2(fixture.localReceipt)}\n`, 'utf8');
       const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
+      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
+        sourceName,
+        source,
+        localReceipt: fixture.localReceipt,
+        hostedLedger: fixture.hostedLedger
+      });
       renameSync(sourcePath, `${sourcePath}.external-preimage`);
       writeFileSync(sourcePath, 'external-owner\n', 'utf8');
 
       expect(() => retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
         directory,
         source,
-        localReceipt: fixture.localReceipt,
-        hostedLedger: fixture.hostedLedger
+        authorization
       })).toThrow('source changed before exact CAS');
       expect(readFileSync(sourcePath, 'utf8')).toBe('external-owner\n');
       expect(readFileSync(`${sourcePath}.external-preimage`, 'utf8'))
         .toBe(`${encodeVerificationActionDataV2(fixture.localReceipt)}\n`);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('MainHealth retirement refuses an Effect while the exact operation lease is held', () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), 'sec-main-health-retirement-lease-'));
+    try {
+      const fixture = mainHealthRetirementFixture();
+      const healthRoot = path.join(tempRoot, 'trusted-main-health', 'v1');
+      mkdirSync(healthRoot, { recursive: true });
+      const directory = inspectNoFollowDirectoryChainV1(
+        healthRoot,
+        'MainHealth retirement lease fixture root'
+      ).target;
+      const sourceName = `main-${fixture.mainSha}.json`;
+      writeFileSync(
+        path.join(healthRoot, sourceName),
+        `${encodeVerificationActionDataV2(fixture.localReceipt)}\n`,
+        'utf8'
+      );
+      const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
+      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
+        sourceName,
+        source,
+        localReceipt: fixture.localReceipt,
+        hostedLedger: fixture.hostedLedger
+      });
+      const lease = acquirePhysicalMutationLeaseV1(
+        directory,
+        `.main-health-retirement-${fixture.mainSha}.lock`
+      )!;
+      try {
+        expect(() => retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
+          directory,
+          source,
+          authorization
+        })).toThrow('retirement operation is already active');
+        expect(inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)).not.toBeNull();
+      } finally {
+        lease.release();
+      }
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
     }

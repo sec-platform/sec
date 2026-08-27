@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { runCheckAffectedCommandV1 } from '../../platform/dev-runner.ts';
 import {
   createDependencyFreshProcessHandoffV1,
   DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV_V1,
@@ -191,4 +192,29 @@ test('dependency generation transitions require one exact fresh-process handoff'
   expect(() => createDependencyFreshProcessHandoffV1(transitioned, {
     [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV_V1]: `sha256:${'c'.repeat(64)}`
   })).toThrow('attempted more than one fresh-process transition');
+});
+
+test('check:affected --plan performs zero dependency materialization or fresh-process handoff', async () => {
+  const calls: string[] = [];
+  const exitCode = await runCheckAffectedCommandV1(['--plan'], {
+    runPlan: async () => {
+      calls.push('plan');
+      return 0;
+    },
+    ensureDependencies: async () => {
+      calls.push('dependency-effect');
+      throw new Error('plan crossed dependency admission');
+    },
+    handoff: async () => {
+      calls.push('handoff-effect');
+      throw new Error('plan crossed handoff admission');
+    },
+    runExecution: async () => {
+      calls.push('execution');
+      throw new Error('plan crossed execution admission');
+    }
+  });
+
+  expect(exitCode).toBe(0);
+  expect(calls).toEqual(['plan']);
 });

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path, { delimiter } from 'node:path';
 
@@ -134,6 +134,39 @@ test('hook installer repairs mutated installed bytes instead of trusting its mar
     const repaired = configuredManagedHooksPath(repoRoot);
     expect(repaired).not.toBe(configured);
     await expectManagedHooksMirror(repoRoot, repaired);
+  });
+});
+
+test('hook installer never treats same-size same-mtime source mutation as current tracked bytes', async () => {
+  await withRepository(async (repoRoot) => {
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    const previousGeneration = configuredManagedHooksPath(repoRoot);
+    const sourcePath = path.join(repoRoot, '.githooks', 'pre-commit');
+    const original = await readFile(sourcePath, 'utf8');
+    const originalStat = await stat(sourcePath);
+    const mutated = original.replace('set -eu', 'set -ux');
+    expect(mutated).not.toBe(original);
+    expect(Buffer.byteLength(mutated)).toBe(Buffer.byteLength(original));
+    await writeFile(sourcePath, mutated, 'utf8');
+    await chmod(sourcePath, 0o755);
+    await utimes(sourcePath, originalStat.atime, originalStat.mtime);
+    const restoredMetadata = await stat(sourcePath);
+    expect(restoredMetadata.size).toBe(originalStat.size);
+    expect(restoredMetadata.mtimeMs).toBeCloseTo(originalStat.mtimeMs, 0);
+
+    expect(await installGitHooks({ repoRoot, lifecycle: true }))
+      .toMatchObject({ status: 'conflict' });
+    expect(configuredManagedHooksPath(repoRoot)).toBe(previousGeneration);
+
+    await writeFile(sourcePath, mutated, 'utf8');
+    await chmod(sourcePath, 0o755);
+    git(repoRoot, ['add', '.githooks/pre-commit']);
+    git(repoRoot, ['update-index', '--chmod=+x', '.githooks/pre-commit']);
+    await utimes(sourcePath, originalStat.atime, originalStat.mtime);
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    const reboundGeneration = configuredManagedHooksPath(repoRoot);
+    expect(reboundGeneration).not.toBe(previousGeneration);
+    await expectManagedHooksMirror(repoRoot, reboundGeneration);
   });
 });
 
