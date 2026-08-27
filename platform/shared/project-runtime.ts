@@ -3365,6 +3365,52 @@ function createCompilerDepsReadyStateV1(input: Readonly<{
   });
 }
 
+type CompilerDependencyReadyObservationV1 = Readonly<{
+  binding: Readonly<CompilerDepsBinding>;
+  kind: 'external-bridge' | 'local-generation';
+  nodeModulesPath: string;
+}>;
+
+/**
+ * Reads the one admitted compiler dependency surface without publishing or
+ * repairing it. A linked-worktree locator and a local physical generation are
+ * two representations of the same readiness contract, so read-only consumers
+ * must not reimplement the generation-only half of that contract.
+ */
+async function observeCompilerDependencyReadyV1(
+  root: string,
+  nodeModulesPath: string,
+  identity: CompilerDependencyIdentity,
+  options: RuntimeDependencyInstallOptions
+): Promise<CompilerDependencyReadyObservationV1 | null> {
+  const bridgeBinding = await compilerDependencyConsumerBridgeBinding(
+    root,
+    nodeModulesPath,
+    identity,
+    options
+  );
+  if (bridgeBinding !== null) {
+    return Object.freeze({
+      binding: bridgeBinding,
+      kind: 'external-bridge',
+      nodeModulesPath
+    });
+  }
+  const generationBinding = await compilerDependencyGenerationBinding(
+    root,
+    nodeModulesPath,
+    path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE),
+    identity
+  );
+  return generationBinding === null
+    ? null
+    : Object.freeze({
+        binding: generationBinding,
+        kind: 'local-generation',
+        nodeModulesPath
+      });
+}
+
 export async function ensureCompilerDepsReady(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot
@@ -3376,26 +3422,27 @@ export async function ensureCompilerDepsReady(
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
 
   const identity = await compilerDependencyIdentity(root);
-  const bridgeBinding = await compilerDependencyConsumerBridgeBinding(
+  const observed = await observeCompilerDependencyReadyV1(
     root,
     nodeModulesPath,
     identity,
     lifecycleOptions
   );
-  if (bridgeBinding !== null) {
+  if (observed?.kind === 'external-bridge') {
     return withInstallLock(installLockPath, lifecycleOptions, async () => {
-      const current = await compilerDependencyConsumerBridgeBinding(
+      const current = await observeCompilerDependencyReadyV1(
         root,
         nodeModulesPath,
         identity,
         lifecycleOptions
       );
-      if (current === null || !canonicalEquals(current, bridgeBinding)) {
+      if (current?.kind !== 'external-bridge'
+          || !canonicalEquals(current.binding, observed.binding)) {
         throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency locator changed before lifecycle binding');
       }
-      await bindRetiredCompilerDependencyLocatorV1(root, identity, current, lifecycleOptions);
+      await bindRetiredCompilerDependencyLocatorV1(root, identity, current.binding, lifecycleOptions);
       return createCompilerDepsReadyStateV1({
-        binding: current,
+        binding: current.binding,
         identity,
         kind: 'none',
         nodeModulesPath,
@@ -3404,29 +3451,26 @@ export async function ensureCompilerDepsReady(
       });
     });
   }
-  const ready = () => compilerDependencyGenerationBinding(
-    root,
-    nodeModulesPath,
-    bindingPath,
-    identity
-  );
-
-  const existing = await ready();
-  if (existing !== null) {
+  if (observed !== null) {
     await lifecycleOptions.generatedStateLifecycle?.born(
       'node_modules',
       `compiler-node-modules:${identity.manifestHash}`
     );
-    const readyState = createCompilerDepsReadyStateV1({
-      binding: existing,
+    return createCompilerDepsReadyStateV1({
+      binding: observed.binding,
       identity,
       kind: 'none',
       nodeModulesPath,
       root,
       source: 'existing'
     });
-    return readyState;
   }
+  const ready = () => compilerDependencyGenerationBinding(
+    root,
+    nodeModulesPath,
+    bindingPath,
+    identity
+  );
 
   return withInstallLock(installLockPath, lifecycleOptions, async () => {
     const lockedBridge = await compilerDependencyConsumerBridgeBinding(
@@ -3767,17 +3811,16 @@ export async function ensureProjectDependencies(
   } else if (options.skipSharedDepsWarmup === true) {
     const compilerIdentity = await compilerDependencyIdentity(compilerDependencyRoot);
     sourceNodeModulesPath = dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot;
-    const compilerBindingPath = path.join(sourceNodeModulesPath, COMPILER_DEPS_BINDING_FILE);
-    const compilerBinding = await compilerDependencyGenerationBinding(
+    const compilerReady = await observeCompilerDependencyReadyV1(
       compilerDependencyRoot,
       sourceNodeModulesPath,
-      compilerBindingPath,
-      compilerIdentity
+      compilerIdentity,
+      options
     );
-    if (compilerBinding === null || compilerBinding.runtimeMaterialization === null) {
-      throw new CompilerError('RUNTIME-DEPS-004', 'Canonical compiler dependency generation is unavailable');
+    if (compilerReady === null || compilerReady.binding.runtimeMaterialization === null) {
+      throw new CompilerError('RUNTIME-DEPS-004', 'Canonical compiler dependency readiness is unavailable');
     }
-    binding = compilerBinding.runtimeMaterialization;
+    binding = compilerReady.binding.runtimeMaterialization;
   } else {
     const sharedDeps = await ensureSharedDepsReady(options);
     sourceNodeModulesPath = sharedDeps.nodeModulesPath;

@@ -103,7 +103,7 @@ test('module impact follows facades and test helpers transitively', () => {
   expect(selectTestsForSources([source], provider)).toEqual({
     fast: ['tests/contract/shared-boundary-classification.test.ts', selected],
     slow: [],
-    owners: ['module-graph', 'shared-boundary-placement']
+    owners: ['module-graph']
   });
 });
 
@@ -123,7 +123,7 @@ test('imported machine data resolves through the module graph without a hand-aut
   expect(selectTestsForSources([data], provider)).toEqual({
     fast: ['tests/contract/shared-boundary-classification.test.ts', selected],
     slow: [],
-    owners: ['module-graph', 'shared-boundary-placement']
+    owners: ['module-graph']
   });
   expect(selectCiPrRiskSlowSuites([data], provider).resolved).toBe(true);
 });
@@ -231,7 +231,7 @@ test('generated-state machine registry selects only its behavior and producer ev
       'tests/unit/generated-state-lifecycle.test.ts'
     ],
     slow: [],
-    owners: ['generated-state-registry', 'shared-boundary-placement']
+    owners: ['generated-state-registry']
   });
 });
 
@@ -281,13 +281,13 @@ test('semantic resources retain explicit behavior evidence and shared placement 
   expect(selectTestsForSources(['platform/shared/unmapped-helper.ts'])).toEqual({
     fast: ['tests/contract/shared-boundary-classification.test.ts'],
     slow: [],
-    owners: ['shared-boundary-placement']
+    owners: []
   });
 });
 
 test('physical boundary and TCB producer universes always select their sentinels', () => {
   const shared = selectTestsForSources(['platform/shared/new-owner.ts']);
-  expect(shared.owners).toContain('shared-boundary-placement');
+  expect(shared.owners).toEqual([]);
   expect(shared.fast).toContain('tests/contract/shared-boundary-classification.test.ts');
 
   for (const source of [
@@ -296,7 +296,6 @@ test('physical boundary and TCB producer universes always select their sentinels
     'scripts/codex/worktree-physical-closeout-contract.ts'
   ]) {
     const toolingBoundary = selectTestsForSources([source]);
-    expect(toolingBoundary.owners).toContain('verification-tooling-boundary');
     expect(toolingBoundary.fast).toContain('tests/contract/verification-action-tooling-boundary.test.ts');
   }
 

@@ -875,7 +875,6 @@ export function selectTestsForSources(
 
     for (const sentinel of verificationPhysicalUniverseTestSentinelsV1) {
       if (!sentinel.sourcePattern.test(file)) continue;
-      owners.add(sentinel.owner);
       addAll(fast, [...sentinel.fast]);
     }
 

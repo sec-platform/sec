@@ -638,7 +638,8 @@ affected closure，并只把精确旧失败与修复新增影响合并。裸argv
 新影响，也不能把局部authoring PASS升级为formal Evidence。
 
 test-impact中的**physical universe sentinel**与semantic TestOwnershipDeclaration严格分离：前者只把文件新增、删除、
-移动和跨boundary placement变化映射到验证owner，不能创建module graph或第二ownership truth。对目录级universe规则，
+移动和跨boundary placement变化映射到独立sentinel evidence，不得向`selection.owners`注入语义owner，也不能创建module
+graph或第二ownership truth。对目录级universe规则，
 source不存在仍必须命中删除/迁移sentinel；移动owner时同一变更同时覆盖旧路径和新路径、tooling boundary、shared
 classification与TCB closure。TCB测试从真实dispatcher/source contract派生identity，不复制源码SHA、argv或正则镜像；
 否则实现和测试会一起陈旧并让选择器静默漏跑。

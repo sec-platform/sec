@@ -243,12 +243,10 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
  */
 export const verificationPhysicalUniverseTestSentinelsV1 = Object.freeze([
   Object.freeze({
-    owner: 'shared-boundary-placement',
     sourcePattern: /^platform\/shared\//u,
     fast: Object.freeze(['tests/contract/shared-boundary-classification.test.ts'])
   }),
   Object.freeze({
-    owner: 'verification-tooling-boundary',
     sourcePattern: /^(?:tooling\/sec-dev\/|platform\/runtime-state\/worktree-closeout-contract\.ts$|scripts\/codex\/worktree-physical-closeout-contract\.ts$)/u,
     fast: Object.freeze(['tests/contract/verification-action-tooling-boundary.test.ts'])
   })
