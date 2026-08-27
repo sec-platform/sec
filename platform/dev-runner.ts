@@ -1,10 +1,39 @@
-import { ensureOperationDependencies } from './dev-runner/dependency-bootstrap.ts';
+import {
+  createDependencyFreshProcessHandoffV1,
+  DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV_V1,
+  ensureOperationDependencies,
+  reuseOperationDependenciesV1,
+  type MaterializedOperationDependencyBootstrapResultV1
+} from './dev-runner/dependency-bootstrap.ts';
 import { compileSecOperationDemandGraphV1 } from './shared/operation-demand-contract.ts';
 
 export function shouldReportDevRunnerSuccessV1(
   environment: Readonly<Record<string, string | undefined>> = process.env
 ): boolean {
   return environment.SEC_GIT_HOOK_ACTIVE !== '1';
+}
+
+export async function handoffDevRunnerToFreshProcessV1(
+  dependencies: MaterializedOperationDependencyBootstrapResultV1
+): Promise<number | null> {
+  const handoff = createDependencyFreshProcessHandoffV1(dependencies);
+  if (handoff === null) return null;
+  const entrypoint = process.argv[1];
+  if (entrypoint === undefined || !/[\\/]platform[\\/]dev-runner\.ts$/u.test(entrypoint)) {
+    throw new Error('Dev runner fresh-process handoff has no exact entrypoint identity.');
+  }
+  const argv = [process.execPath, entrypoint, ...process.argv.slice(2)];
+  const child = Bun.spawn(argv, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV_V1]: handoff.transitionDigest
+    },
+    stdin: 'inherit',
+    stdout: 'inherit',
+    stderr: 'inherit'
+  });
+  return child.exited;
 }
 
 function usage(): never {
@@ -95,28 +124,34 @@ async function main(): Promise<void> {
 
   if (target === 'check:affected') {
     if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) usage();
+    const demand = compileSecOperationDemandGraphV1({ operation: 'check-affected', terminalWorkIds: [] });
+    const dependencies = await ensureOperationDependencies(demand);
+    const handoffExitCode = await handoffDevRunnerToFreshProcessV1(dependencies);
+    if (handoffExitCode !== null) {
+      process.exitCode = handoffExitCode;
+      return;
+    }
     const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
     process.exitCode = await runRepositoryZeroWriteCommand('check:affected', () =>
       runLocalAffectedCheck(args, {
-        prepareCompilerDependencies: async () => {
-          return ensureOperationDependencies(
-            compileSecOperationDemandGraphV1({ operation: 'check-affected', terminalWorkIds: [] })
-          );
-        }
+        prepareCompilerDependencies: async () => reuseOperationDependenciesV1(dependencies, demand)
       }));
     return;
   }
 
   if (target === 'check:fast') {
     if (args.length > 0) usage();
+    const demand = compileSecOperationDemandGraphV1({ operation: 'check-fast', terminalWorkIds: [] });
+    const dependencies = await ensureOperationDependencies(demand);
+    const handoffExitCode = await handoffDevRunnerToFreshProcessV1(dependencies);
+    if (handoffExitCode !== null) {
+      process.exitCode = handoffExitCode;
+      return;
+    }
     const { runFastCheck } = await import('./dev-runner/check-runner.ts');
     process.exitCode = await runRepositoryZeroWriteCommand('check:fast', () =>
       runFastCheck({
-        prepareCompilerDependencies: async () => {
-          return ensureOperationDependencies(
-            compileSecOperationDemandGraphV1({ operation: 'check-fast', terminalWorkIds: [] })
-          );
-        }
+        prepareCompilerDependencies: async () => reuseOperationDependenciesV1(dependencies, demand)
       }));
     return;
   }
@@ -155,7 +190,7 @@ async function main(): Promise<void> {
   if (
     target === 'imports:check' || target === 'imports:apply' || target === 'imports:freeze'
   ) {
-    await ensureOperationDependencies(compileSecOperationDemandGraphV1({
+    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraphV1({
       operation: target === 'imports:check'
         ? 'imports-check'
         : target === 'imports:apply'
@@ -163,6 +198,11 @@ async function main(): Promise<void> {
           : 'imports-freeze',
       terminalWorkIds: []
     }));
+    const handoffExitCode = await handoffDevRunnerToFreshProcessV1(dependencies);
+    if (handoffExitCode !== null) {
+      process.exitCode = handoffExitCode;
+      return;
+    }
     const {
       runCandidateImportCheck,
       runImportCheck,

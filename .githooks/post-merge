@@ -3,4 +3,9 @@ set -eu
 
 export SEC_GIT_HOOK_ACTIVE=1
 
-bun ./platform/dev-runner.ts deps:ensure
+if [ -f ./scripts/install-git-hooks.ts ]; then
+  bun ./scripts/install-git-hooks.ts --lifecycle
+fi
+if [ -f ./platform/dev-runner.ts ]; then
+  bun ./platform/dev-runner.ts deps:ensure
+fi

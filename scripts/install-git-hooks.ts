@@ -4,9 +4,10 @@ import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'no
 import path from 'node:path';
 
 const MANAGED_HOOKS_PATH = '.githooks';
-const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v2';
-const LEGACY_MANAGED_COMMON_DIRECTORIES = ['sec-managed-hooks-v1'] as const;
+const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v3';
+const LEGACY_MANAGED_COMMON_DIRECTORIES = ['sec-managed-hooks-v1', 'sec-managed-hooks-v2'] as const;
 const DEPS_ENSURE_COMMAND = 'bun ./platform/dev-runner.ts deps:ensure';
+const HOOKS_RECONCILE_COMMAND = 'bun ./scripts/install-git-hooks.ts --lifecycle';
 const IMPORTS_FREEZE_COMMAND = 'bun ./platform/dev-runner.ts imports:freeze';
 const MANAGED_PRE_COMMIT = `${MANAGED_HOOKS_PATH}/pre-commit`;
 const MANAGED_HOOKS = [
@@ -167,6 +168,7 @@ function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
   }
   return Buffer.from(deployed
     .replaceAll(DEPS_ENSURE_COMMAND, bindHookCommandToRuntime(DEPS_ENSURE_COMMAND, process.execPath))
+    .replaceAll(HOOKS_RECONCILE_COMMAND, bindHookCommandToRuntime(HOOKS_RECONCILE_COMMAND, process.execPath))
     .replaceAll(IMPORTS_FREEZE_COMMAND, bindHookCommandToRuntime(IMPORTS_FREEZE_COMMAND, process.execPath)), 'utf8');
 }
 
@@ -206,9 +208,13 @@ async function managedHookSnapshots(repoRoot: string): Promise<readonly ManagedH
   return Object.freeze(snapshots);
 }
 
-function managedGenerationDigest(snapshots: readonly ManagedHookSnapshot[]): string {
+function managedGenerationDigest(
+  snapshots: readonly ManagedHookSnapshot[],
+  worktreeGitDir: string
+): string {
   const hash = createHash('sha256');
-  hash.update('sec-managed-hooks-v2\0');
+  hash.update('sec-managed-hooks-v3\0');
+  hash.update(`worktree-git-dir\0${canonicalPath(worktreeGitDir)}\0`);
   for (const snapshot of snapshots) {
     hash.update(`${snapshot.name}\0${snapshot.deployedBytes.byteLength}\0`);
     hash.update(snapshot.deployedBytes);
@@ -242,7 +248,8 @@ async function managedGenerationReady(
 
 async function managedGenerationDigestMatches(
   generationPath: string,
-  expectedDigest: string
+  expectedDigest: string,
+  worktreeGitDir: string
 ): Promise<boolean> {
   const snapshots: ManagedHookSnapshot[] = [];
   for (const name of MANAGED_HOOKS.map((hook) => path.basename(hook))) {
@@ -260,18 +267,18 @@ async function managedGenerationDigestMatches(
       throw error;
     }
   }
-  return managedGenerationDigest(snapshots) === expectedDigest;
+  return managedGenerationDigest(snapshots, worktreeGitDir) === expectedDigest;
 }
 
 /**
- * Marker file lives inside the repository-common managed-hooks directory (under .git/),
- * so it is naturally untracked and never perturbs `git status` or docs-doctor census.
+ * Marker file lives inside the invoking worktree's own Git directory, so one
+ * worktree can never admit another worktree's source fingerprint or binding.
  * Content format: two lines — managedGenerationDigest and sourceFingerprint.
  * sourceFingerprint = sha256 over (hookName \0 mtimeMs \0 size \0) for each managed hook,
  * a cheap stat-only proxy that detects source edits without reading or hashing file bytes.
  */
-function markerFilePath(commonGitDir: string): string {
-  return path.join(commonGitDir, MANAGED_COMMON_DIRECTORY, MARKER_FILE_NAME);
+function markerFilePath(worktreeGitDir: string): string {
+  return path.join(worktreeGitDir, MANAGED_COMMON_DIRECTORY, MARKER_FILE_NAME);
 }
 
 interface HookMarkerRecord {
@@ -330,13 +337,16 @@ async function writeMarkerFile(
 
 async function materializeManagedGeneration(
   commonGitDir: string,
+  worktreeGitDir: string,
   snapshots: readonly ManagedHookSnapshot[],
   preferredGeneration: string | null
 ): Promise<string> {
   const commonRoot = managedCommonRoot(commonGitDir);
-  const digest = managedGenerationDigest(snapshots);
+  const digest = managedGenerationDigest(snapshots, worktreeGitDir);
   const primaryGeneration = path.join(commonRoot, `generation-${digest}`);
-  if (preferredGeneration !== null && await managedGenerationReady(preferredGeneration, snapshots)) {
+  if (preferredGeneration !== null
+      && canonicalPath(preferredGeneration) === canonicalPath(primaryGeneration)
+      && await managedGenerationReady(preferredGeneration, snapshots)) {
     return preferredGeneration;
   }
   if (await managedGenerationReady(primaryGeneration, snapshots)) return primaryGeneration;
@@ -375,15 +385,37 @@ export async function installGitHooks(options: {
   readonly lifecycle?: boolean;
 }): Promise<GitHookInstallationResult> {
   const repoRoot = path.resolve(options.repoRoot);
-  const commonGitDir = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
-  if (commonGitDir === null) throw new Error('Git common directory is unavailable');
-  // Marker-based fast path: when hook source files are unchanged (stat fingerprint matches)
-  // and core.hooksPath already points at the recorded generation, skip the expensive
-  // managedHookSnapshots (5x git ls-files + readFile + hash) and materializeManagedGeneration.
-  const markerPath = markerFilePath(commonGitDir);
+  const commonGitDirText = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const worktreeGitDirText = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--absolute-git-dir']);
+  if (commonGitDirText === null || worktreeGitDirText === null) {
+    throw new Error('Git worktree identity is unavailable');
+  }
+  const commonGitDir = path.resolve(commonGitDirText);
+  const worktreeGitDir = path.resolve(worktreeGitDirText);
+  const worktreeConfigPathText = gitText(
+    repoRoot,
+    ['rev-parse', '--path-format=absolute', '--git-path', 'config.worktree']
+  );
+  if (worktreeConfigPathText === null) throw new Error('Git worktree config identity is unavailable');
+  const worktreeConfigPath = path.resolve(worktreeConfigPathText);
+  const primaryRepoRoot = path.dirname(commonGitDir);
+  const primaryTopLevel = gitText(primaryRepoRoot, ['rev-parse', '--show-toplevel']);
+  if (primaryTopLevel === null || canonicalPath(primaryTopLevel) !== canonicalPath(primaryRepoRoot)) {
+    throw new Error('Primary worktree bootstrap identity is unavailable');
+  }
+  const isPrimaryWorktree = canonicalPath(worktreeGitDir) === canonicalPath(commonGitDir);
+  const markerPath = markerFilePath(worktreeGitDir);
+  const bootstrapMarkerPath = markerFilePath(commonGitDir);
   const sourceFingerprint = await computeSourceFingerprint(repoRoot);
+  const bootstrapFingerprint = isPrimaryWorktree
+    ? sourceFingerprint
+    : await computeSourceFingerprint(primaryRepoRoot);
   const marker = sourceFingerprint !== null ? await readMarkerFile(markerPath) : null;
-  if (marker !== null && marker.fingerprint === sourceFingerprint) {
+  const bootstrapMarker = isPrimaryWorktree
+    ? marker
+    : (bootstrapFingerprint !== null ? await readMarkerFile(bootstrapMarkerPath) : null);
+  if (marker !== null && marker.fingerprint === sourceFingerprint
+      && bootstrapMarker !== null && bootstrapMarker.fingerprint === bootstrapFingerprint) {
     const worktreeConfigEnabledFast = gitText(
       repoRoot,
       ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'],
@@ -395,33 +427,44 @@ export async function installGitHooks(options: {
       { allowMissing: true }
     );
     const worktreeConfiguredFast = worktreeConfigEnabledFast
-      ? gitText(repoRoot, ['config', '--worktree', '--path', '--get', 'core.hooksPath'], { allowMissing: true })
+      ? gitText(repoRoot, ['config', '--file', worktreeConfigPath, '--path', '--get', 'core.hooksPath'], { allowMissing: true })
       : null;
     const expectedGenerationPath = path.join(
       commonGitDir,
       MANAGED_COMMON_DIRECTORY,
       `generation-${marker.digest}`
     );
+    const expectedBootstrapPath = path.join(
+      commonGitDir,
+      MANAGED_COMMON_DIRECTORY,
+      `generation-${bootstrapMarker.digest}`
+    );
     if (
-      commonConfiguredFast !== null
-      && isCurrentManagedCommonSetting(commonConfiguredFast, commonGitDir)
-      && canonicalPath(resolveGitPath(repoRoot, commonConfiguredFast)) === canonicalPath(expectedGenerationPath)
-      && worktreeConfiguredFast === null
+      worktreeConfigEnabledFast
+      && commonConfiguredFast !== null
+      && worktreeConfiguredFast !== null
+      && canonicalPath(resolveGitPath(repoRoot, commonConfiguredFast)) === canonicalPath(expectedBootstrapPath)
+      && canonicalPath(resolveGitPath(repoRoot, worktreeConfiguredFast)) === canonicalPath(expectedGenerationPath)
       && await pathExists(expectedGenerationPath)
-      && await managedGenerationDigestMatches(expectedGenerationPath, marker.digest)
+      && await pathExists(expectedBootstrapPath)
+      && await managedGenerationDigestMatches(expectedGenerationPath, marker.digest, worktreeGitDir)
+      && (expectedBootstrapPath === expectedGenerationPath
+        || await managedGenerationDigestMatches(expectedBootstrapPath, bootstrapMarker.digest, commonGitDir))
     ) {
       return Object.freeze({
         status: 'managed',
-        message: `Git hooks already use validated repository-common generation ${expectedGenerationPath}.`
+        message: `Git hooks already use worktree-bound generation ${expectedGenerationPath}.`
       });
     }
-    // Fast path conditions not met; fall through to full validation.
   }
 
   const snapshots = await managedHookSnapshots(repoRoot);
-  if (snapshots === null) {
+  const bootstrapSnapshots = isPrimaryWorktree
+    ? snapshots
+    : await managedHookSnapshots(primaryRepoRoot);
+  if (snapshots === null || bootstrapSnapshots === null) {
     return stoppedResult(
-      `Tracked, executable, index-identical managed hooks are unavailable; Git hook authority was not changed.`,
+      'Tracked, executable, index-identical managed hooks are unavailable in the current or primary-bootstrap worktree; Git hook authority was not changed.',
       options.lifecycle ?? false
     );
   }
@@ -436,7 +479,7 @@ export async function installGitHooks(options: {
     { allowMissing: true }
   );
   const worktreeConfigured = worktreeConfigEnabled
-    ? gitText(repoRoot, ['config', '--worktree', '--path', '--get', 'core.hooksPath'], { allowMissing: true })
+    ? gitText(repoRoot, ['config', '--file', worktreeConfigPath, '--path', '--get', 'core.hooksPath'], { allowMissing: true })
     : null;
 
   if (
@@ -455,39 +498,73 @@ export async function installGitHooks(options: {
     if (realHook !== null) return conflictResult(realHook, options.lifecycle ?? false);
   }
 
-  const preferredGeneration = commonConfigured !== null
+  const preferredGeneration = worktreeConfigured !== null
+    && isCurrentManagedCommonSetting(worktreeConfigured, commonGitDir)
+    ? resolveGitPath(repoRoot, worktreeConfigured)
+    : null;
+  const preferredBootstrap = commonConfigured !== null
     && isCurrentManagedCommonSetting(commonConfigured, commonGitDir)
     ? resolveGitPath(repoRoot, commonConfigured)
     : null;
-  const generationPath = await materializeManagedGeneration(commonGitDir, snapshots, preferredGeneration);
-  const commonMatchesGeneration = commonConfigured !== null
-    && canonicalPath(resolveGitPath(repoRoot, commonConfigured)) === canonicalPath(generationPath);
-  const worktreeOverridePresent = worktreeConfigured !== null;
+  const generationPath = await materializeManagedGeneration(
+    commonGitDir,
+    worktreeGitDir,
+    snapshots,
+    preferredGeneration
+  );
+  const bootstrapGenerationPath = isPrimaryWorktree
+    ? generationPath
+    : await materializeManagedGeneration(
+      commonGitDir,
+      commonGitDir,
+      bootstrapSnapshots,
+      preferredBootstrap
+    );
+  const commonMatchesBootstrap = commonConfigured !== null
+    && canonicalPath(resolveGitPath(repoRoot, commonConfigured)) === canonicalPath(bootstrapGenerationPath);
+  const worktreeMatchesGeneration = worktreeConfigured !== null
+    && canonicalPath(resolveGitPath(repoRoot, worktreeConfigured)) === canonicalPath(generationPath);
   if (!worktreeConfigEnabled) {
     gitText(repoRoot, ['config', '--local', 'extensions.worktreeConfig', 'true']);
   }
-  if (!commonMatchesGeneration) {
-    gitText(repoRoot, ['config', '--local', 'core.hooksPath', generationPath]);
+  if (!commonMatchesBootstrap) {
+    gitText(repoRoot, ['config', '--local', 'core.hooksPath', bootstrapGenerationPath]);
   }
-  if (worktreeOverridePresent) {
-    gitText(repoRoot, ['config', '--worktree', '--unset-all', 'core.hooksPath'], { allowMissing: true });
+  if (!worktreeMatchesGeneration) {
+    gitText(repoRoot, ['config', '--worktree', 'core.hooksPath', generationPath]);
+  }
+  const commonReadback = gitText(repoRoot, ['config', '--local', '--path', '--get', 'core.hooksPath']);
+  const worktreeReadback = gitText(
+    repoRoot,
+    ['config', '--file', worktreeConfigPath, '--path', '--get', 'core.hooksPath']
+  );
+  if (commonReadback === null || worktreeReadback === null
+      || canonicalPath(resolveGitPath(repoRoot, commonReadback)) !== canonicalPath(bootstrapGenerationPath)
+      || canonicalPath(resolveGitPath(repoRoot, worktreeReadback)) !== canonicalPath(generationPath)) {
+    throw new Error('Git hook authority changed during exact configuration readback');
   }
 
-  // Persist marker so the next invocation can take the fast path.
   if (sourceFingerprint !== null) {
-    const digest = managedGenerationDigest(snapshots);
+    const digest = managedGenerationDigest(snapshots, worktreeGitDir);
     await writeMarkerFile(markerPath, { digest, fingerprint: sourceFingerprint });
   }
+  if (!isPrimaryWorktree && bootstrapFingerprint !== null) {
+    const bootstrapDigest = managedGenerationDigest(bootstrapSnapshots, commonGitDir);
+    await writeMarkerFile(bootstrapMarkerPath, {
+      digest: bootstrapDigest,
+      fingerprint: bootstrapFingerprint
+    });
+  }
 
-  if (commonMatchesGeneration && !worktreeOverridePresent) {
+  if (commonMatchesBootstrap && worktreeMatchesGeneration) {
     return Object.freeze({
       status: 'managed',
-      message: `Git hooks already use validated repository-common generation ${generationPath}.`
+      message: `Git hooks already use worktree-bound generation ${generationPath}.`
     });
   }
   return Object.freeze({
     status: 'installed',
-    message: `Configured repository-common core.hooksPath=${generationPath}; future worktrees inherit it before checkout.`
+    message: `Configured worktree core.hooksPath=${generationPath}; repository bootstrap remains ${bootstrapGenerationPath}.`
   });
 }
 

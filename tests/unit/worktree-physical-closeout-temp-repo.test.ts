@@ -20,6 +20,10 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import {
+  createWorktreePhysicalCloseoutReceiptV1,
+  detailDigestV1
+} from '../../platform/runtime-state/worktree-closeout-contract.ts';
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   inspectNoFollowDirectoryChainV1,
@@ -27,10 +31,6 @@ import {
 } from '../../platform/shared/physical-no-follow.ts';
 import { ensureCompilerDepsReady } from '../../platform/shared/project-runtime.ts';
 import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirementV1 } from '../../platform/shared/workspace-write-lease.ts';
-import {
-  createWorktreePhysicalCloseoutReceiptV1,
-  detailDigestV1
-} from '../../scripts/codex/worktree-physical-closeout-contract.ts';
 import {
   WorktreePhysicalCloseoutConsumptionTokenV1,
   assertTrustedCompletedWorktreePhysicalCloseoutV1,

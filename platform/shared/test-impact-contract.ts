@@ -8,7 +8,10 @@ import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-
 import { governanceTestOwnershipDeclarations } from './test-impact-rules/governance.ts';
 import { pipelineTestOwnershipDeclarations } from './test-impact-rules/pipeline.ts';
 import { semanticTestOwnershipDeclarations } from './test-impact-rules/semantic.ts';
-import { verificationTestOwnershipDeclarations } from './test-impact-rules/verification.ts';
+import {
+  verificationPhysicalUniverseTestSentinelsV1,
+  verificationTestOwnershipDeclarations
+} from './test-impact-rules/verification.ts';
 import {
   classifyTestImpactSource,
   matchesTestOwnershipDeclaration,
@@ -79,9 +82,13 @@ export function isTestImpactSourceFile(
   transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): boolean {
   if (/^tests\/.+\.(?:test|spec)\.tsx?$/u.test(file)) return false;
-  return classifyTestImpactSource(file) !== null || testOwnershipDeclarations.some((declaration) => (
-    matchesTestOwnershipDeclaration(declaration, file, transition)
-  ));
+  return classifyTestImpactSource(file) !== null
+    || testOwnershipDeclarations.some((declaration) => (
+      matchesTestOwnershipDeclaration(declaration, file, transition)
+    ))
+    || verificationPhysicalUniverseTestSentinelsV1.some(({ sourcePattern }) => (
+      sourcePattern.test(file)
+    ));
 }
 
 export const testImpactFallbackRules: TestImpactRule[] = [
@@ -804,6 +811,9 @@ export function hasTestImpactForFile(
   ));
   if (declarations.length > 0) return true;
   if (testImpactFallbackRules.some((rule) => rule.sourcePattern.test(file))) return true;
+  if (verificationPhysicalUniverseTestSentinelsV1.some(({ sourcePattern }) => sourcePattern.test(file))) {
+    return true;
+  }
   return deriveTestsForSourcesV1([file], provider).length > 0;
 }
 
@@ -861,6 +871,12 @@ export function selectTestsForSources(
       owners.add(declaration.owner);
       addAll(fast, [...declaration.supplementalFast]);
       addAll(slow, [...declaration.supplementalSlow]);
+    }
+
+    for (const sentinel of verificationPhysicalUniverseTestSentinelsV1) {
+      if (!sentinel.sourcePattern.test(file)) continue;
+      owners.add(sentinel.owner);
+      addAll(fast, [...sentinel.fast]);
     }
 
     if (declarations.length === 0) {

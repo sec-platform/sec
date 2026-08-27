@@ -22,7 +22,10 @@ test('tracked hooks bind dependency preparation and candidate freeze without amb
   expect(prePush).toContain('git diff --cached --quiet HEAD');
   expect(prePush).not.toContain('\r');
   for (const dependencyHook of [postCheckout, postMerge, postRewrite]) {
+    expect(dependencyHook).toContain('bun ./scripts/install-git-hooks.ts --lifecycle');
     expect(dependencyHook).toContain('bun ./platform/dev-runner.ts deps:ensure');
+    expect(dependencyHook.indexOf('install-git-hooks.ts --lifecycle'))
+      .toBeLessThan(dependencyHook.indexOf('dev-runner.ts deps:ensure'));
   }
   expect(postCheckout).not.toContain('\r');
   expect(attributes).toContain('/.githooks/* text eol=lf');

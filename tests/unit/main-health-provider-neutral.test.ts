@@ -42,6 +42,40 @@ function check(overrides: Partial<GitHubCheckObservationV1> = {}): GitHubCheckOb
   };
 }
 
+function actionsCheck(overrides: Partial<GitHubCheckObservationV1> = {}): GitHubCheckObservationV1 {
+  const operationId = createCiMainHealthRequestOperationIdV1(MAIN);
+  return {
+    id: 123,
+    name: CI_MAIN_HEALTH_POLICY_V1.context,
+    status: 'completed',
+    conclusion: 'success',
+    headSha: MAIN,
+    detailsUrl: 'https://github.com/sec-platform/sec/actions/runs/123',
+    appId: CI_MAIN_HEALTH_POLICY_V1.app.id,
+    appNodeId: CI_MAIN_HEALTH_POLICY_V1.app.nodeId,
+    appSlug: CI_MAIN_HEALTH_POLICY_V1.app.slug,
+    workflowPath: CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath,
+    workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${MAIN}`,
+    eventName: CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0],
+    workflowRunId: '123',
+    workflowRunDisplayTitle: `SEC main health ${MAIN} operation ${operationId}`,
+    ...overrides
+  };
+}
+
+function compileHosted(checks: readonly GitHubCheckObservationV1[]) {
+  return createRegisteredHostedMainHealthInputsV1({
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    observedAt: '2026-08-19T00:00:00.000Z',
+    expiresAt: '2026-08-19T01:00:00.000Z',
+    sourceRef: `github-check-runs:sec-platform/sec@${MAIN}`,
+    checks
+  });
+}
+
 function observe(checks: readonly GitHubCheckObservationV1[], sourceRunId = '77') {
   return createObservedMainHealthInputWithPolicyV1({
     repository: 'sec-platform/sec',
@@ -99,35 +133,24 @@ test('direct App sourceRunId must bind the exact observed GitHub check id', () =
 });
 
 test('hosted registry accepts the exact Actions principal and ignores an unregistered same-name App', () => {
-  const compile = (checks: readonly GitHubCheckObservationV1[]) =>
-    createRegisteredHostedMainHealthInputsV1({
-      repository: 'sec-platform/sec',
-      mainSha: MAIN,
-      mainTreeSha: MAIN_TREE,
-      trustRevision: MAIN,
-      observedAt: '2026-08-19T00:00:00.000Z',
-      expiresAt: '2026-08-19T01:00:00.000Z',
-      sourceRef: `github-check-runs:sec-platform/sec@${MAIN}`,
-      checks
-    });
-  expect(compile([check()])).toEqual([]);
+  expect(compileHosted([check()])).toEqual([]);
+  expect(compileHosted([actionsCheck()])).toMatchObject([{ status: 'healthy', allowedLanes: ['ordinary'] }]);
+});
+
+test('hosted registry does not enroll same-App near matches before producer provenance matches', () => {
+  const skipped = { status: 'completed', conclusion: 'skipped' } as const;
   const operationId = createCiMainHealthRequestOperationIdV1(MAIN);
-  expect(compile([{
-    id: 123,
-    name: CI_MAIN_HEALTH_POLICY_V1.context,
-    status: 'completed',
-    conclusion: 'success',
-    headSha: MAIN,
-    detailsUrl: 'https://github.com/sec-platform/sec/actions/runs/123',
-    appId: CI_MAIN_HEALTH_POLICY_V1.app.id,
-    appNodeId: CI_MAIN_HEALTH_POLICY_V1.app.nodeId,
-    appSlug: CI_MAIN_HEALTH_POLICY_V1.app.slug,
-    workflowPath: CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath,
-    workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${MAIN}`,
-    eventName: CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0],
-    workflowRunId: '123',
-    workflowRunDisplayTitle: `SEC main health ${MAIN} operation ${operationId}`
-  }])).toMatchObject([{ status: 'healthy', allowedLanes: ['ordinary'] }]);
+  expect(compileHosted([actionsCheck({ ...skipped, headSha: '3'.repeat(40) })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, appId: CI_MAIN_HEALTH_POLICY_V1.app.id + 1 })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, eventName: 'pull_request' })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, workflowPath: '.github/workflows/other.yml' })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${'4'.repeat(40)}` })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, workflowRunDisplayTitle: `SEC main health ${MAIN} operation sha256:${'f'.repeat(64)}` })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, workflowRunId: null })])).toEqual([]);
+  expect(compileHosted([
+    actionsCheck(),
+    actionsCheck({ id: 124, workflowRunId: '124', workflowRunDisplayTitle: `SEC main health ${MAIN} operation ${operationId}` })
+  ])).toMatchObject([{ status: 'locked', allowedLanes: [] }]);
 });
 
 test('terminal non-success remains degraded and routes only to repair', () => {

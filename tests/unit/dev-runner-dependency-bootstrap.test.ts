@@ -1,10 +1,24 @@
 import { expect, test } from 'bun:test';
 
 import {
+  createDependencyFreshProcessHandoffV1,
+  DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV_V1,
   ensureOperationDependencies,
   reuseOperationDependenciesV1
 } from '../../platform/dev-runner/dependency-bootstrap.ts';
 import { compileSecOperationDemandGraphV1 } from '../../platform/shared/operation-demand-contract.ts';
+
+function compilerReady(source: 'existing' | 'installed') {
+  return {
+    manifestHash: 'manifest-hash',
+    nodeModulesPath: 'compiler-node-modules',
+    packageManager: 'bun' as const,
+    requiresFreshProcess: source === 'installed',
+    root: 'compiler-root',
+    source,
+    transitionDigest: `sha256:${source === 'installed' ? 'b'.repeat(64) : 'a'.repeat(64)}` as const
+  };
+}
 
 for (const source of ['existing', 'installed'] as const) {
   test(`dependency bootstrap exposes the manifest-bound compiler tree (${source})`, async () => {
@@ -14,13 +28,7 @@ for (const source of ['existing', 'installed'] as const) {
       terminalWorkIds: [],
       hookPolicy: 'always'
     }), {
-      ensureCompilerDeps: async () => ({
-        manifestHash: 'manifest-hash',
-        nodeModulesPath: 'compiler-node-modules',
-        packageManager: 'bun',
-        root: 'compiler-root',
-        source
-      }),
+      ensureCompilerDeps: async () => compilerReady(source),
       ensureHooks: async (repoRoot) => {
         hookRoots.push(repoRoot);
       }
@@ -30,7 +38,9 @@ for (const source of ['existing', 'installed'] as const) {
       browserCachePath: null,
       manifestHash: 'manifest-hash',
       nodeModulesPath: 'compiler-node-modules',
-      source
+      requiresFreshProcess: source === 'installed',
+      source,
+      transitionDigest: `sha256:${source === 'installed' ? 'b'.repeat(64) : 'a'.repeat(64)}`
     });
     expect(hookRoots).toEqual(['compiler-root']);
   });
@@ -44,13 +54,7 @@ for (const source of ['existing', 'installed'] as const) {
       terminalWorkIds: [],
       hookPolicy: 'if-installed'
     }), {
-      ensureCompilerDeps: async () => ({
-        manifestHash: 'manifest-hash',
-        nodeModulesPath: 'compiler-node-modules',
-        packageManager: 'bun',
-        root: 'compiler-root',
-        source
-      }),
+      ensureCompilerDeps: async () => compilerReady(source),
       ensureHooks: async (repoRoot) => {
         hookRoots.push(repoRoot);
       }
@@ -68,13 +72,7 @@ for (const source of ['existing', 'installed'] as const) {
       terminalWorkIds: [],
       hookPolicy: 'never'
     }), {
-      ensureCompilerDeps: async () => ({
-        manifestHash: 'manifest-hash',
-        nodeModulesPath: 'compiler-node-modules',
-        packageManager: 'bun',
-        root: 'compiler-root',
-        source
-      }),
+      ensureCompilerDeps: async () => compilerReady(source),
       ensureHooks: async (repoRoot) => {
         hookRoots.push(repoRoot);
       }
@@ -92,13 +90,7 @@ test('operation demand materializes compiler and browser readiness without hook 
   }), {
     ensureCompilerDeps: async () => {
       calls.push('compiler');
-      return {
-        manifestHash: 'manifest-hash',
-        nodeModulesPath: 'compiler-node-modules',
-        packageManager: 'bun',
-        root: 'compiler-root',
-        source: 'existing'
-      };
+      return compilerReady('existing');
     },
     ensureBrowserCache: async (dependencyRoot) => {
       calls.push(`browser:${dependencyRoot}`);
@@ -127,7 +119,9 @@ test('operation demand materializes compiler and browser readiness without hook 
     browserCachePath: 'canonical-browser-cache',
     manifestHash: 'manifest-hash',
     nodeModulesPath: 'compiler-node-modules',
-    source: 'existing'
+    requiresFreshProcess: false,
+    source: 'existing',
+    transitionDigest: `sha256:${'a'.repeat(64)}`
   });
   expect(calls).toEqual(['compiler', 'browser:compiler-root']);
 });
@@ -140,13 +134,7 @@ test('operation demand proves compiler readiness with zero unrequested browser o
   }), {
     ensureCompilerDeps: async () => {
       calls.push('compiler');
-      return {
-        manifestHash: 'manifest-hash',
-        nodeModulesPath: 'compiler-node-modules',
-        packageManager: 'bun',
-        root: 'compiler-root',
-        source: 'existing'
-      };
+      return compilerReady('existing');
     }
   });
 
@@ -154,7 +142,9 @@ test('operation demand proves compiler readiness with zero unrequested browser o
     browserCachePath: null,
     manifestHash: 'manifest-hash',
     nodeModulesPath: 'compiler-node-modules',
-    source: 'existing'
+    requiresFreshProcess: false,
+    source: 'existing',
+    transitionDigest: `sha256:${'a'.repeat(64)}`
   });
   expect(calls).toEqual(['compiler']);
 });
@@ -172,13 +162,7 @@ test('one process-local materialization is reusable only for a covered demand cl
     terminalWorkIds: []
   });
   const result = await ensureOperationDependencies(fastGraph, {
-    ensureCompilerDeps: async () => ({
-      manifestHash: 'manifest-hash',
-      nodeModulesPath: 'compiler-node-modules',
-      packageManager: 'bun',
-      root: 'compiler-root',
-      source: 'existing'
-    })
+    ensureCompilerDeps: async () => compilerReady('existing')
   });
 
   expect(reuseOperationDependenciesV1(result, fastGraph)).toBe(result);
@@ -188,4 +172,23 @@ test('one process-local materialization is reusable only for a covered demand cl
   }))).toThrow('does not cover the requested capability closure');
   expect(() => reuseOperationDependenciesV1({ ...result }, fastGraph))
     .toThrow('was not materialized by this process');
+});
+
+test('dependency generation transitions require one exact fresh-process handoff', () => {
+  const transitioned = compilerReady('installed');
+  expect(createDependencyFreshProcessHandoffV1(transitioned, {})).toEqual({
+    schema: 'sec-dependency-fresh-process-handoff-v1',
+    transitionDigest: transitioned.transitionDigest
+  });
+  expect(createDependencyFreshProcessHandoffV1(compilerReady('existing'), {})).toBeNull();
+  expect(() => createDependencyFreshProcessHandoffV1({
+    ...transitioned,
+    transitionDigest: 'sha256:not-a-digest'
+  } as typeof transitioned, {})).toThrow('transition digest is invalid');
+  expect(() => createDependencyFreshProcessHandoffV1(transitioned, {
+    [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV_V1]: transitioned.transitionDigest
+  })).toThrow('repeated the same fresh-process transition');
+  expect(() => createDependencyFreshProcessHandoffV1(transitioned, {
+    [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV_V1]: `sha256:${'c'.repeat(64)}`
+  })).toThrow('attempted more than one fresh-process transition');
 });

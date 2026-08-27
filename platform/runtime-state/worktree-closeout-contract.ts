@@ -1,8 +1,8 @@
-import { canonicalJson, sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { canonicalJson, sha256 } from '../shared/canonical-primitives.ts';
 import {
   assertGeneratedStateWorktreeRetirementV1,
   type GeneratedStateWorktreeRetirementV1
-} from '../../platform/shared/generated-state-contract.ts';
+} from '../shared/generated-state-contract.ts';
 
 export const WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA_V1 = 'sec-worktree-cleanup-authorization-v1' as const;
 export const WORKTREE_PHYSICAL_CLOSEOUT_RECEIPT_SCHEMA_V1 = 'sec-worktree-cleanup-receipt-v1' as const;

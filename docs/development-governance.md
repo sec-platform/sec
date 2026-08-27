@@ -1383,6 +1383,21 @@ dependency bootstrap；它们各自编译同一图，只有`dependency-setup`可
 物化的process-local capability由同一进程以不可伪造receipt向其nested typecheck/test消费，所需capability不是
 父图子集时拒绝复用；禁止同一logical operation再次观察、安装或链接同一dependency generation。
 
+shared dependency换代是一个物理generation transition，不是“路径现在可用”。publisher必须在effect前同时绑定
+旧generated directory、旧workspace locator、package manifests与预期新generation；只允许把仍匹配preimage的旧
+generation移入内容寻址recovery位置，再以no-replace publication发布新generation和locator并逐项readback。未知目录、
+外部替换或任一CAS漂移都保留现场并typed fail，不能清空`node_modules`重装。若本进程产生了
+`generation-published | locator-published` transition，DevRunner必须在加载任何依赖consumer前以exact entrypoint、
+argv、cwd和transition digest完成至多一次fresh-process handoff；子进程用同一digest拒绝递归。旧进程的module cache
+不能被解释为已经消费新generation，未发生transition时则保持零handoff。
+
+managed Git hook是按physical worktree绑定的authoring generation。generation identity至少包含tracked hook bytes、
+部署的exact Bun runtime bytes与该worktree Git dir物理身份；common `core.hooksPath`只保存primary checkout的bootstrap
+generation，新建linked worktree第一次checkout后必须把自己的exact generation写入worktree-local config并readback，
+不得污染common bootstrap。`post-checkout | post-merge | post-rewrite`先用guarded installer完成该绑定，再进入依赖ensure；
+legacy managed generation只可作为迁移输入，自定义hook authority保持不动并返回冲突。hook仍不签发TCB、Verification、
+scope或merge authority。
+
 相同未失效 Gate identity复用；输入和failure fingerprint未变时不重复确定性失败。无法证明不受影响不是“无需测试”。
 
 候选冻结 DAG 必须把所有 source normalizer（包括 canonical import transform）排在任何 content-addressed generated lock、blob/digest inventory 和 Evidence 之前；生成物之后只允许 read-only check。若 normalizer 仍报告 delta，生成阶段不得启动。这样一次源码归一化只触发一次下游重算，不允许用“先生成、再格式化、再生成”的命令顺序制造自我失效。
@@ -1424,7 +1439,7 @@ Merge effect之前必须重新观察完整candidate identity、platform projecti
 
 当 GitHub 的 delete-branch-on-merge 已删除远端 head、但原宿主仍保留已合并的本地 ref 时，`branch-lifecycle settle-local-merged` 是同一 #313 owner 的 bounded terminal operation。它只消费显式 repository 位置参数绑定的 provider repository/default-branch observation、显式 `--repo` 绑定的有上限 merged-PR observation、一次 remote-head observation 与本地 ref/worktree inventory；本地 `origin/HEAD` 只是可漂移缓存，不参与默认分支 authority。只有 repository、PR URL、local SHA、PR-recorded head、default base、merge commit→exact remote main 可达性、remote absence 和 worktree absence全部相等的 ref 才进入集合。操作通过既有 `branch-recovery` 物理 no-follow owner 为每个 head发布仓库外 recovery bundle，再把 repository/common-dir/recovery-root 的 device/inode/objectId、完整 ancestor-chain digest及bundle/checksum leaf identity纳入稳定 operation identity与自动时间戳 authorization，最后用一个 `git update-ref --stdin` transaction做 exact-SHA CAS 删除并发布 readback receipt。authorization、删除或readback之后中断时，下一次调用必须复用同一不可变 authorization：全部 ref仍存在才恢复同一事务，全部已不存在才补齐同一 receipt，mixed、跨进程同路径同字节物理替换或任何 provider 漂移均 fail closed。lease内在ref effect前还要重新读取worktree inventory，对每个当前root执行no-follow物理不相交证明；动态detached worktree、junction/alias或parent替换都不能靠不同词法路径绕过。worktree-owned、remote-surviving、无唯一 merged PR或任一漂移对象保持不动；branch prefix、ahead/behind、Issue prose和全历史 comment census均不参与授权。
 
-MainHealth receipt绑定 exact main SHA/tree、唯一父 baseline SHA/tree、固定 image、Docker endpoint 与 affected-closure plan digest。同一 receipt 永不重跑；main 变化只让 selector重新投影 delta，不等于所有 Gate失效。selector输出的每个 Gate只因其输入 closure变化而执行，空 closure不启动测试，已有 frozen candidate Evidence则整体 carry-forward；不得用 main SHA变化、时间刷新或没有 Actions check runs作为全量重跑理由。
+MainHealth receipt绑定 exact main SHA/tree、唯一父 baseline SHA/tree、固定 image、Docker endpoint 与 affected-closure plan digest。同一 receipt 永不重跑；main 变化只让 selector重新投影 delta，不等于所有 Gate失效。selector输出的每个 Gate只因其输入 closure变化而执行，空 closure不启动测试，已有 frozen candidate Evidence则整体 carry-forward；不得用 main SHA变化、时间刷新或没有 Actions check runs作为全量重跑理由。若同一exact main/trust下的本地trusted receipt与完整hosted ledger语义冲突，不能last-writer-wins或永久locked：唯一reconciliation owner先验证两端canonical bytes、provider provenance和本地文件physical preimage，发布内容寻址retirement record，再以device/inode/size/bytes CAS移除active本地receipt并读回absence与record。record只证明授权与preimage，不能代替删除终态；CAS失败必须保留外部替换。完成后重新解析provider集合，使hosted ledger成为唯一active observation。
 
 ```mermaid
 flowchart LR

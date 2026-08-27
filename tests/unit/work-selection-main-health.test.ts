@@ -1,8 +1,21 @@
 import { expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import {
+  CI_MAIN_HEALTH_POLICY_V1,
+  createCiMainHealthRequestOperationIdV1
+} from '../../platform/shared/ci-verification-revision.ts';
 import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
 import {
   createTrustedRuntimeMainHealthBaselineObservationV2,
@@ -21,6 +34,58 @@ const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const BASELINE = '7'.repeat(40);
 const BASELINE_TREE = '8'.repeat(40);
+
+function installFakeMainHealthGh(binHome: string): string {
+  const runId = '33109458351';
+  const operationId = createCiMainHealthRequestOperationIdV1(MAIN);
+  const checkPages = [{
+    total_count: 1,
+    check_runs: [{
+      id: Number(runId),
+      name: CI_MAIN_HEALTH_POLICY_V1.context,
+      status: 'completed',
+      conclusion: 'failure',
+      head_sha: MAIN,
+      details_url: `https://github.com/sec-platform/sec/actions/runs/${runId}`,
+      app: {
+        id: CI_MAIN_HEALTH_POLICY_V1.app.id,
+        node_id: CI_MAIN_HEALTH_POLICY_V1.app.nodeId,
+        slug: CI_MAIN_HEALTH_POLICY_V1.app.slug
+      }
+    }]
+  }];
+  const workflowRun = {
+    id: Number(runId),
+    path: CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath,
+    event: CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0],
+    display_title: `SEC main health ${MAIN} operation ${operationId}`,
+    head_sha: MAIN
+  };
+  const scriptPath = path.join(binHome, 'gh.ts');
+  writeFileSync(scriptPath, [
+    `const args = process.argv.slice(2).join(' ');`,
+    `const checkPages = ${JSON.stringify(checkPages)};`,
+    `const workflowRun = ${JSON.stringify(workflowRun)};`,
+    `if (args.includes('/check-runs?')) process.stdout.write(JSON.stringify(checkPages));`,
+    `else if (args.includes('/actions/runs/${runId}')) process.stdout.write(JSON.stringify(workflowRun));`,
+    `else { process.stderr.write('unexpected fake gh request: ' + args); process.exit(2); }`,
+    ''
+  ].join('\n'), 'utf8');
+  const executablePath = path.join(binHome, process.platform === 'win32' ? 'gh.exe' : 'gh');
+  if (process.platform === 'win32') {
+    const compiled = spawnSync(process.execPath, [
+      'build', '--compile', scriptPath, '--outfile', executablePath
+    ], { encoding: 'utf8', windowsHide: true });
+    if (compiled.status !== 0) {
+      throw new Error(`cannot compile fake MainHealth gh: ${compiled.stderr || compiled.stdout}`);
+    }
+  } else {
+    const runtime = process.execPath.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+    writeFileSync(executablePath, `#!/usr/bin/env sh\nexec "${runtime}" "$(dirname "$0")/gh.ts" "$@"\n`, 'utf8');
+    chmodSync(executablePath, 0o755);
+  }
+  return executablePath;
+}
 
 test('production MainHealth entrypoints consume exact local evidence when hosted transport is unavailable', () => {
   const repositoryRoot = process.cwd();
@@ -89,7 +154,18 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     expect(observeCanonicalMainHealthForWorkSelectionV1(input).state).toBe('healthy');
     expect(observeCanonicalMainHealthForRepairV1(input))
       .toMatchObject({ status: 'blocked', routingState: 'ordinary-only' });
-    rmSync(receiptPath);
+
+    const fakeGh = installFakeMainHealthGh(binHome);
+    expect(observeCanonicalMainHealthForWorkSelectionV1(input).state).toBe('unhealthy');
+    expect(observeCanonicalMainHealthForRepairV1(input))
+      .toMatchObject({ status: 'repair-ready', routingState: 'repair-only' });
+    expect(() => readFileSync(receiptPath)).toThrow();
+    const retirementRoot = path.join(healthRoot, 'retired');
+    expect(readdirSync(retirementRoot)).toEqual([
+      expect.stringMatching(/^retirement-[0-9a-f]{64}\.json$/u)
+    ]);
+
+    rmSync(fakeGh);
     expect(observeCanonicalMainHealthForWorkSelectionV1(input).state).toBe('unresolved');
 
   } finally {

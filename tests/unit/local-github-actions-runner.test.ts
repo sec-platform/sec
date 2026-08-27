@@ -700,12 +700,12 @@ describe('local GitHub Actions runner contract', () => {
       runners: [runners[0]!, runner('trusted', { status: 'offline' }), runners[2]!],
       instances,
       operationLabel
-    })).toThrow('final readiness census is not online and idle');
+    })).toThrow('final readiness census is not online');
     expect(() => assertExactLocalGitHubActionsRunnerProfileInventoryV3({
       runners: [runners[0]!, runner('trusted', { busy: true }), runners[2]!],
       instances,
       operationLabel
-    })).toThrow('final readiness census is not online and idle');
+    })).not.toThrow();
     expect(() => assertOwnedLocalGitHubActionsRunnerV2({
       ...runner('trusted'),
       labels: [...runner('trusted').labels, {

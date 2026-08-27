@@ -13,6 +13,7 @@ import {
 } from '../../platform/shared/main-health-repair-contract.ts';
 import {
   inspectExactNoFollowDirectoryPresenceV1,
+  inspectNoFollowOrdinaryFileEntryV1,
   PhysicalNoFollowError,
   readNoFollowOrdinaryFileV1
 } from '../../platform/shared/physical-no-follow.ts';
@@ -27,7 +28,10 @@ import {
   createTrustedLocalMainHealthInputV1,
   TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS_V1
 } from './main-health-observation.ts';
-import { parseTrustedRuntimeMainHealthReceiptV2 } from './trusted-runtime-container.ts';
+import {
+  parseTrustedRuntimeMainHealthReceiptV2,
+  retireTrustedRuntimeMainHealthReceiptInDirectoryV1
+} from './trusted-runtime-container.ts';
 import {
   classifyGitHubObservationFailureV1,
   createVerificationSessionGitHubClientV1,
@@ -191,6 +195,40 @@ function observeTrustedLocalProvider(input: Readonly<{
       )
     });
   }
+}
+
+function observeTrustedLocalRetirementPreimageV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+}>) {
+  const layout = resolveSecRuntimeStateForRepositoryV1({
+    repository: input.repository,
+    repositoryRoot: input.repositoryRoot
+  });
+  const root = path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1');
+  const presence = inspectExactNoFollowDirectoryPresenceV1(
+    root,
+    'WorkSelection trusted MainHealth retirement root'
+  );
+  if (presence.state === 'absent') {
+    throw new Error('trusted local MainHealth retirement source root is absent');
+  }
+  const sourceName = `main-${input.mainSha}.json`;
+  const source = inspectNoFollowOrdinaryFileEntryV1(presence.directory.target, sourceName);
+  if (source === null || source.bytes === null) {
+    throw new Error('trusted local MainHealth retirement source is absent');
+  }
+  const receipt = parseTrustedRuntimeMainHealthReceiptV2(decodeExactUtf8(source.bytes));
+  const canonicalReceiptBytes = Buffer.from(`${encodeVerificationActionDataV2(receipt)}\n`, 'utf8');
+  if (!Buffer.from(source.bytes).equals(canonicalReceiptBytes)
+      || receipt.repository !== input.repository
+      || receipt.mainSha !== input.mainSha
+      || receipt.mainTreeSha !== input.mainTreeSha) {
+    throw new Error('trusted local MainHealth retirement preimage is not exact');
+  }
+  return Object.freeze({ directory: presence.directory.target, source, receipt });
 }
 
 function observeHostedProvider(input: Readonly<{
@@ -365,28 +403,61 @@ function observeCanonicalMainHealthProvidersV1(input: Readonly<{
     repository: input.repository,
     mainSha: input.mainSha
   });
-  const resolution = resolveWorkSelectionMainHealthProvidersV1({
+  let localProvider = observeTrustedLocalProvider({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now: observedAt
+  });
+  const hostedProvider = observeHostedProvider({
+    repository: input.repository,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now: observedAt,
+    expiresAt: hostedExpiresAt,
+    observation: hosted
+  });
+  let resolution = resolveWorkSelectionMainHealthProvidersV1({
     repository: input.repository,
     defaultBranch: input.defaultBranch,
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha,
     now: observedAt,
-    local: observeTrustedLocalProvider({
-      repositoryRoot: input.repositoryRoot,
+    local: localProvider,
+    hosted: hostedProvider
+  });
+  if (resolution.repairObservation.kind === 'provider-conflict'
+      && localProvider.kind === 'available'
+      && hostedProvider.kind === 'available') {
+    try {
+      const preimage = observeTrustedLocalRetirementPreimageV1(input);
+      retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
+        directory: preimage.directory,
+        source: preimage.source,
+        localReceipt: preimage.receipt,
+        hostedLedger: hostedProvider.ledger
+      });
+      localProvider = Object.freeze({ kind: 'absent' });
+    } catch (error) {
+      localProvider = Object.freeze({
+        kind: 'invalid',
+        ref: invalidRef(
+          'trusted-local-retirement-failed',
+          error instanceof Error ? error.message : String(error)
+        )
+      });
+    }
+    resolution = resolveWorkSelectionMainHealthProvidersV1({
       repository: input.repository,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha,
-      now: observedAt
-    }),
-    hosted: observeHostedProvider({
-      repository: input.repository,
+      defaultBranch: input.defaultBranch,
       mainSha: input.mainSha,
       mainTreeSha: input.mainTreeSha,
       now: observedAt,
-      expiresAt: hostedExpiresAt,
-      observation: hosted
-    })
-  });
+      local: localProvider,
+      hosted: hostedProvider
+    });
+  }
   return Object.freeze({ observedAt, resolution });
 }
 

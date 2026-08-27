@@ -11,7 +11,21 @@ import type {
   CodexDevelopmentVerificationEvidenceV4
 } from '../../platform/shared/ci-evidence-contract.ts';
 import { isolatedGitChildEnvironment } from '../../platform/shared/git-read-environment.ts';
+import {
+  createMainHealthRevisionV1,
+  parseMainHealthLedgerV1,
+  type MainHealthLedgerV1
+} from '../../platform/shared/main-health-contract.ts';
 import { acquirePhysicalMutationLeaseV1 } from '../../platform/shared/physical-mutation-lease.ts';
+import {
+  createNoFollowDirectoryChainV1,
+  deleteRetainedNoFollowEntryV1,
+  inspectNoFollowOrdinaryFileEntryV1,
+  publishExclusiveDurableCanonicalFileV1,
+  readNoFollowOrdinaryFileV1,
+  type NoFollowDirectoryTreeEntryV1,
+  type PhysicalDirectoryIdentityV1
+} from '../../platform/shared/physical-no-follow.ts';
 import { runCommand } from '../../platform/shared/process.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
 import {
@@ -46,6 +60,8 @@ const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1;
 export const TRUSTED_RUNTIME_CONTAINER_SCHEMA_V1 = ENVIRONMENT.trustedRuntime.imageSchema;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA_V2 =
   'sec-trusted-runtime-main-health-receipt-v2' as const;
+export const TRUSTED_RUNTIME_MAIN_HEALTH_RETIREMENT_SCHEMA_V1 =
+  'sec-trusted-runtime-main-health-retirement-v1' as const;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_BASELINE_OBSERVATION_SCHEMA_V2 =
   'sec-trusted-runtime-main-health-baseline-observation-v2' as const;
 export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA_V1 =
@@ -228,6 +244,25 @@ export interface TrustedRuntimeMainHealthReceiptV2 {
   }> | null;
   readonly observedAt: string;
   readonly receiptDigest: Digest;
+}
+
+export interface TrustedRuntimeMainHealthRetirementRecordV1 {
+  readonly schema: typeof TRUSTED_RUNTIME_MAIN_HEALTH_RETIREMENT_SCHEMA_V1;
+  readonly reason: 'stronger-hosted-provider-conflict';
+  readonly repository: string;
+  readonly mainSha: string;
+  readonly mainTreeSha: string;
+  readonly sourceName: string;
+  readonly source: Readonly<{
+    readonly device: string;
+    readonly inode: string;
+    readonly size: number;
+    readonly byteDigest: Digest;
+  }>;
+  readonly localReceipt: TrustedRuntimeMainHealthReceiptV2;
+  readonly localHealthRevision: Digest;
+  readonly hostedLedger: MainHealthLedgerV1;
+  readonly recordDigest: Digest;
 }
 
 export interface TrustedRuntimeDependencyCacheMarkerV1 {
@@ -1418,6 +1453,207 @@ export function parseTrustedRuntimeMainHealthReceiptV2(
     fail('MainHealth receipt digest mismatch');
   }
   return rebuilt;
+}
+
+function trustedRuntimeMainHealthRetirementRecordBytesV1(
+  record: TrustedRuntimeMainHealthRetirementRecordV1
+): Buffer {
+  return Buffer.from(`${encodeVerificationActionDataV2(record)}\n`, 'utf8');
+}
+
+export function createTrustedRuntimeMainHealthRetirementRecordV1(input: Readonly<{
+  sourceName: string;
+  source: NoFollowDirectoryTreeEntryV1;
+  localReceipt: TrustedRuntimeMainHealthReceiptV2;
+  hostedLedger: MainHealthLedgerV1;
+}>): TrustedRuntimeMainHealthRetirementRecordV1 {
+  const localReceipt = parseTrustedRuntimeMainHealthReceiptV2(
+    encodeVerificationActionDataV2(input.localReceipt)
+  );
+  const sourceName = bounded(input.sourceName, 'MainHealth retirement sourceName');
+  const expectedSourceName = `main-${localReceipt.mainSha}.json`;
+  const localReceiptBytes = Buffer.from(
+    `${encodeVerificationActionDataV2(localReceipt)}\n`,
+    'utf8'
+  );
+  if (sourceName !== expectedSourceName
+      || input.source.relativePath !== sourceName
+      || input.source.kind !== 'file'
+      || input.source.linkTarget !== null
+      || input.source.bytes === null
+      || !Number.isSafeInteger(input.source.size)
+      || input.source.size !== localReceiptBytes.byteLength
+      || !Buffer.from(input.source.bytes).equals(localReceiptBytes)) {
+    fail('MainHealth retirement source is not the exact canonical receipt preimage');
+  }
+  const hostedLedger = parseMainHealthLedgerV1(encodeVerificationActionDataV2(input.hostedLedger));
+  if (hostedLedger.repository !== localReceipt.repository
+      || hostedLedger.defaultBranch !== 'main'
+      || hostedLedger.mainSha !== localReceipt.mainSha
+      || hostedLedger.mainTreeSha !== localReceipt.mainTreeSha
+      || hostedLedger.trustRevision !== localReceipt.mainSha
+      || hostedLedger.producer.sourceTransport !== 'github-api') {
+    fail('MainHealth retirement hosted provider is not exact or authenticated');
+  }
+  const localHealthRevision = createMainHealthRevisionV1({
+    repository: localReceipt.repository,
+    defaultBranch: 'main',
+    mainSha: localReceipt.mainSha,
+    mainTreeSha: localReceipt.mainTreeSha,
+    status: 'healthy',
+    failureFingerprints: Object.freeze([]),
+    owner: null,
+    repairWorkPackage: null,
+    allowedLanes: Object.freeze(['ordinary'] as const),
+    trustRevision: localReceipt.mainSha
+  });
+  if (hostedLedger.healthRevision === localHealthRevision) {
+    fail('MainHealth retirement requires a semantic provider conflict');
+  }
+  const withoutDigest = Object.freeze({
+    schema: TRUSTED_RUNTIME_MAIN_HEALTH_RETIREMENT_SCHEMA_V1,
+    reason: 'stronger-hosted-provider-conflict' as const,
+    repository: localReceipt.repository,
+    mainSha: localReceipt.mainSha,
+    mainTreeSha: localReceipt.mainTreeSha,
+    sourceName,
+    source: Object.freeze({
+      device: bounded(input.source.device, 'MainHealth retirement source device'),
+      inode: bounded(input.source.inode, 'MainHealth retirement source inode'),
+      size: input.source.size,
+      byteDigest: digestBytes(localReceiptBytes)
+    }),
+    localReceipt,
+    localHealthRevision,
+    hostedLedger
+  });
+  return Object.freeze({ ...withoutDigest, recordDigest: digestValue(withoutDigest) });
+}
+
+export function parseTrustedRuntimeMainHealthRetirementRecordV1(
+  value: unknown
+): TrustedRuntimeMainHealthRetirementRecordV1 {
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      fail('MainHealth retirement record is not JSON');
+    }
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('MainHealth retirement record must be an object');
+  }
+  const record = value as Record<string, unknown>;
+  const expectedKeys = [
+    'schema', 'reason', 'repository', 'mainSha', 'mainTreeSha', 'sourceName',
+    'source', 'localReceipt', 'localHealthRevision', 'hostedLedger', 'recordDigest'
+  ].sort();
+  const actualKeys = Object.keys(record).sort();
+  const source = record.source;
+  if (actualKeys.length !== expectedKeys.length
+      || actualKeys.some((key, index) => key !== expectedKeys[index])
+      || record.schema !== TRUSTED_RUNTIME_MAIN_HEALTH_RETIREMENT_SCHEMA_V1
+      || record.reason !== 'stronger-hosted-provider-conflict'
+      || source === null || typeof source !== 'object' || Array.isArray(source)) {
+    fail('MainHealth retirement record shape is invalid');
+  }
+  const sourceRecord = source as Record<string, unknown>;
+  const sourceKeys = Object.keys(sourceRecord).sort();
+  if (sourceKeys.join('\0') !== ['byteDigest', 'device', 'inode', 'size'].join('\0')
+      || !Number.isSafeInteger(sourceRecord.size) || (sourceRecord.size as number) <= 0) {
+    fail('MainHealth retirement source identity is invalid');
+  }
+  const localReceipt = parseTrustedRuntimeMainHealthReceiptV2(record.localReceipt);
+  const localReceiptBytes = Buffer.from(`${encodeVerificationActionDataV2(localReceipt)}\n`, 'utf8');
+  if (localReceiptBytes.byteLength !== sourceRecord.size
+      || digestBytes(localReceiptBytes) !== digest(sourceRecord.byteDigest, 'MainHealth retirement byteDigest')) {
+    fail('MainHealth retirement source byte identity is invalid');
+  }
+  const rebuilt = createTrustedRuntimeMainHealthRetirementRecordV1({
+    sourceName: bounded(record.sourceName, 'MainHealth retirement sourceName'),
+    source: Object.freeze({
+      relativePath: bounded(record.sourceName, 'MainHealth retirement sourceName'),
+      kind: 'file' as const,
+      device: bounded(sourceRecord.device, 'MainHealth retirement source device'),
+      inode: bounded(sourceRecord.inode, 'MainHealth retirement source inode'),
+      size: sourceRecord.size as number,
+      bytes: localReceiptBytes,
+      linkTarget: null
+    }),
+    localReceipt,
+    hostedLedger: parseMainHealthLedgerV1(encodeVerificationActionDataV2(record.hostedLedger))
+  });
+  if (rebuilt.repository !== repository(record.repository)
+      || rebuilt.mainSha !== sha(record.mainSha, 'MainHealth retirement mainSha')
+      || rebuilt.mainTreeSha !== sha(record.mainTreeSha, 'MainHealth retirement mainTreeSha')
+      || rebuilt.localHealthRevision !== digest(
+        record.localHealthRevision,
+        'MainHealth retirement localHealthRevision'
+      )
+      || rebuilt.recordDigest !== digest(record.recordDigest, 'MainHealth retirement recordDigest')) {
+    fail('MainHealth retirement record digest or subject is invalid');
+  }
+  return rebuilt;
+}
+
+export function retireTrustedRuntimeMainHealthReceiptInDirectoryV1(input: Readonly<{
+  directory: PhysicalDirectoryIdentityV1;
+  source: NoFollowDirectoryTreeEntryV1;
+  localReceipt: TrustedRuntimeMainHealthReceiptV2;
+  hostedLedger: MainHealthLedgerV1;
+}>): Readonly<{
+  status: 'retired' | 'resumed-absent';
+  record: TrustedRuntimeMainHealthRetirementRecordV1;
+  recordPath: string;
+}> {
+  const record = createTrustedRuntimeMainHealthRetirementRecordV1({
+    sourceName: input.source.relativePath,
+    source: input.source,
+    localReceipt: input.localReceipt,
+    hostedLedger: input.hostedLedger
+  });
+  const recordBytes = trustedRuntimeMainHealthRetirementRecordBytesV1(record);
+  const retiredDirectory = createNoFollowDirectoryChainV1(input.directory, ['retired']);
+  const recordName = `retirement-${record.recordDigest.slice('sha256:'.length)}.json`;
+  const publication = publishExclusiveDurableCanonicalFileV1({
+    parent: retiredDirectory,
+    name: recordName,
+    bytes: recordBytes,
+    validate: (bytes) => {
+      const parsed = parseTrustedRuntimeMainHealthRetirementRecordV1(
+        new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      );
+      if (!Buffer.from(bytes).equals(trustedRuntimeMainHealthRetirementRecordBytesV1(parsed))) {
+        fail('MainHealth retirement record bytes are not canonical');
+      }
+    }
+  });
+  const current = inspectNoFollowOrdinaryFileEntryV1(input.directory, input.source.relativePath);
+  if (current === null) {
+    return Object.freeze({ status: 'resumed-absent', record, recordPath: publication.path });
+  }
+  if (current.kind !== 'file' || current.bytes === null
+      || current.device !== input.source.device || current.inode !== input.source.inode
+      || current.size !== input.source.size
+      || !Buffer.from(current.bytes).equals(Buffer.from(input.source.bytes!))) {
+    fail('MainHealth retirement source changed before exact CAS');
+  }
+  deleteRetainedNoFollowEntryV1({
+    root: input.directory,
+    relativePath: input.source.relativePath,
+    kind: 'file',
+    device: input.source.device,
+    inode: input.source.inode,
+    ancestorDirectories: Object.freeze([])
+  });
+  if (readNoFollowOrdinaryFileV1(input.directory, input.source.relativePath) !== null) {
+    fail('MainHealth retirement source remains after exact CAS readback');
+  }
+  const archived = readNoFollowOrdinaryFileV1(retiredDirectory, recordName);
+  if (archived === null || !Buffer.from(archived).equals(recordBytes)) {
+    fail('MainHealth retirement record differs after source disposition');
+  }
+  return Object.freeze({ status: 'retired', record, recordPath: publication.path });
 }
 
 interface TrustedRuntimeWorkspaceV1 {

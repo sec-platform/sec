@@ -13,7 +13,7 @@ import {
   parseWorktreePorcelainZV1,
   parseWorktreeStatusPorcelainZV1,
   type WorktreePhysicalEntryV1
-} from '../../scripts/codex/worktree-physical-closeout-contract.ts';
+} from '../../platform/runtime-state/worktree-closeout-contract.ts';
 
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);

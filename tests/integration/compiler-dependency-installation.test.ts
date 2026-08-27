@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
@@ -18,7 +19,31 @@ import {
   ensureCompilerDepsReady,
   parseCompilerDependencyLocatorRetirementPlanV1
 } from '../../platform/shared/project-runtime.ts';
+import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
+
+// Git for Windows cannot consume the nested cache/action/shard/run path used by
+// ordinary compiler fixtures. These external-tool fixtures therefore use an
+// exact, run-owned OS-temp child while state/cache remain invocation-isolated.
+const LINKED_WORKTREE_TEMP_PREFIX = 'sec-cdep-wt-';
+
+async function runFixtureGit(workspaceRoot: string, args: string[]): Promise<string> {
+  const result = await runCommand('git', ['-c', 'core.longpaths=true', ...args], {
+    cwd: workspaceRoot,
+    timeoutMs: 10_000
+  });
+  if (result.code !== 0) throw new Error(result.stderr);
+  return result.stdout.trim();
+}
+
+async function withLinkedWorktreeTempWorkspace<T>(callback: (root: string) => Promise<T>): Promise<T> {
+  const root = await fs.mkdtemp(path.join(tmpdir(), LINKED_WORKTREE_TEMP_PREFIX));
+  return settleWorkspaceCallback(
+    () => callback(root),
+    () => fs.rm(root, { recursive: true, force: true })
+  );
+}
+
 async function installCompilerDependencyFixture(workingDirectory: string, marker: string): Promise<void> {
   const packages = [{ name: 'commander', version: '1.0.0' }, {
     main: 'dist/ts-morph-common.js',
@@ -63,6 +88,42 @@ async function writeCompilerDependencyRoot(
     fs.writeFile(path.join(root, 'bun.lock'), lockfile, 'utf8'),
     fs.writeFile(path.join(root, '.bun-version'), `${bunVersion}\n`, 'utf8')
   ]);
+}
+
+async function prepareLinkedWorktreeEpochTransition(tempRoot: string): Promise<Readonly<{
+  consumerRoot: string;
+  ownerRoot: string;
+}>> {
+  const ownerRoot = path.join(tempRoot, 'repository');
+  const consumerRoot = path.join(tempRoot, 'candidate');
+  await fs.mkdir(ownerRoot);
+  await runFixtureGit(ownerRoot, ['init', '-b', 'main']);
+  await runFixtureGit(ownerRoot, ['config', 'user.email', 'sec@example.invalid']);
+  await runFixtureGit(ownerRoot, ['config', 'user.name', 'SEC Test']);
+  await runFixtureGit(ownerRoot, ['config', 'core.autocrlf', 'false']);
+  await writeCompilerDependencyRoot(ownerRoot);
+  await fs.writeFile(path.join(ownerRoot, '.gitignore'), 'node_modules/\n.tmp/\n');
+  await runFixtureGit(ownerRoot, ['add', '.gitignore', '.bun-version', 'bun.lock', 'package.json']);
+  await runFixtureGit(ownerRoot, ['commit', '-m', 'epoch-v1']);
+  await runFixtureGit(ownerRoot, ['worktree', 'add', '-b', 'candidate', consumerRoot]);
+  await ensureCompilerDepsReady({
+    commandRunner: async (_command, _args, command) => {
+      await installCompilerDependencyFixture(command.cwd, 'candidate-generation-v1');
+      return { code: 0, stdout: 'ok', stderr: '' };
+    }
+  }, consumerRoot);
+
+  await fs.writeFile(path.join(ownerRoot, 'bun.lock'), 'lock-v2\n');
+  await runFixtureGit(ownerRoot, ['add', 'bun.lock']);
+  await runFixtureGit(ownerRoot, ['commit', '-m', 'epoch-v2']);
+  await runFixtureGit(consumerRoot, ['reset', '--hard', 'main']);
+  await ensureCompilerDepsReady({
+    commandRunner: async (_command, _args, command) => {
+      await installCompilerDependencyFixture(command.cwd, 'primary-generation-v2');
+      return { code: 0, stdout: 'ok', stderr: '' };
+    }
+  }, ownerRoot);
+  return Object.freeze({ consumerRoot, ownerRoot });
 }
 
 describe('compiler dependency installation', () => {
@@ -304,23 +365,18 @@ describe('compiler dependency installation', () => {
   });
 
   test('automatically reuses and provider-retires the primary worktree locator without touching its generation', async () => {
-    await withTempWorkspace(async (tempRoot) => {
+    await withLinkedWorktreeTempWorkspace(async (tempRoot) => {
       const ownerRoot = path.join(tempRoot, 'repository');
       const consumerRoot = path.join(tempRoot, 'candidate');
       await fs.mkdir(ownerRoot);
-      const git = async (cwd: string, args: string[]): Promise<string> => {
-        const result = await runCommand('git', args, { cwd, timeoutMs: 10_000 });
-        if (result.code !== 0) throw new Error(result.stderr);
-        return result.stdout.trim();
-      };
-      await git(ownerRoot, ['init', '-b', 'main']);
-      await git(ownerRoot, ['config', 'user.email', 'sec@example.invalid']);
-      await git(ownerRoot, ['config', 'user.name', 'SEC Test']);
-      await git(ownerRoot, ['config', 'core.autocrlf', 'false']);
+      await runFixtureGit(ownerRoot, ['init', '-b', 'main']);
+      await runFixtureGit(ownerRoot, ['config', 'user.email', 'sec@example.invalid']);
+      await runFixtureGit(ownerRoot, ['config', 'user.name', 'SEC Test']);
+      await runFixtureGit(ownerRoot, ['config', 'core.autocrlf', 'false']);
       await writeCompilerDependencyRoot(ownerRoot);
       await fs.writeFile(path.join(ownerRoot, '.gitignore'), 'node_modules/\n.tmp/\n');
-      await git(ownerRoot, ['add', '.gitignore', '.bun-version', 'bun.lock', 'package.json']);
-      await git(ownerRoot, ['commit', '-m', 'fixture']);
+      await runFixtureGit(ownerRoot, ['add', '.gitignore', '.bun-version', 'bun.lock', 'package.json']);
+      await runFixtureGit(ownerRoot, ['commit', '-m', 'fixture']);
       let installCalls = 0;
       await ensureCompilerDepsReady({
         commandRunner: async (_command, _args, command) => {
@@ -329,7 +385,7 @@ describe('compiler dependency installation', () => {
           return { code: 0, stdout: 'ok', stderr: '' };
         }
       }, ownerRoot);
-      await git(ownerRoot, ['worktree', 'add', '-b', 'candidate', consumerRoot]);
+      await runFixtureGit(ownerRoot, ['worktree', 'add', '-b', 'candidate', consumerRoot]);
 
       let failLifecycleBinding = true;
       const reuseOptions = {
@@ -472,7 +528,138 @@ describe('compiler dependency installation', () => {
         planDigest: providerPlan.digest
       });
       expect(JSON.parse(resumedReceipt.bytes)).toMatchObject({ outcome: 'resumed-absent' });
-    }, 'engineering-compiler-linked-worktree-reuse-');
+    });
+  });
+
+  test('retires one exact stale worktree generation before publishing a shared locator', async () => {
+    await withLinkedWorktreeTempWorkspace(async (tempRoot) => {
+      const { consumerRoot, ownerRoot } = await prepareLinkedWorktreeEpochTransition(tempRoot);
+      const consumerNodeModules = path.join(consumerRoot, 'node_modules');
+      const staleIdentity = await fs.lstat(consumerNodeModules, { bigint: true });
+      const ready = await ensureCompilerDepsReady({
+        commandRunner: async () => {
+          throw new Error('Exact external generation reuse must not install.');
+        }
+      }, consumerRoot);
+
+      expect(ready).toMatchObject({
+        requiresFreshProcess: true,
+        root: consumerRoot,
+        source: 'existing',
+        transitionDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
+      });
+      expect(await fs.realpath(consumerNodeModules)).toBe(await fs.realpath(path.join(ownerRoot, 'node_modules')));
+      const backupsRoot = path.join(consumerRoot, '.tmp', 'dependency-installs', 'compiler-backups');
+      const backups = (await fs.readdir(backupsRoot)).filter((name) => name.startsWith('locator-preimage-'));
+      expect(backups).toHaveLength(1);
+      const retiredIdentity = await fs.lstat(path.join(backupsRoot, backups[0]!), { bigint: true });
+      expect({ dev: retiredIdentity.dev, ino: retiredIdentity.ino, mode: retiredIdentity.mode })
+        .toEqual({ dev: staleIdentity.dev, ino: staleIdentity.ino, mode: staleIdentity.mode });
+      expect(await fs.readFile(
+        path.join(backupsRoot, backups[0]!, 'typescript', 'lib', 'typescript.js'),
+        'utf8'
+      )).toBe('candidate-generation-v1:typescript\n');
+
+      const admittedByFreshProcess = await ensureCompilerDepsReady({}, consumerRoot);
+      expect(admittedByFreshProcess.requiresFreshProcess).toBeFalse();
+      expect(admittedByFreshProcess.transitionDigest).not.toBe(ready.transitionDigest);
+    });
+  });
+
+  test('preserves an unknown physical worktree dependency directory instead of claiming it', async () => {
+    await withLinkedWorktreeTempWorkspace(async (tempRoot) => {
+      const { consumerRoot } = await prepareLinkedWorktreeEpochTransition(tempRoot);
+      const ownedGeneration = path.join(consumerRoot, 'node_modules.owned-fixture');
+      const unknownGeneration = path.join(consumerRoot, 'node_modules');
+      await fs.rename(unknownGeneration, ownedGeneration);
+      await fs.mkdir(unknownGeneration);
+      await fs.writeFile(path.join(unknownGeneration, 'user-sentinel.txt'), 'preserve-me\n');
+
+      await expect(ensureCompilerDepsReady({
+        commandRunner: async () => {
+          throw new Error('Unknown physical state must not trigger install.');
+        }
+      }, consumerRoot)).rejects.toMatchObject({
+        code: 'IMPORT-AUTHORITY-004',
+        message: expect.stringContaining('not an owned compiler dependency generation')
+      });
+      expect((await fs.lstat(unknownGeneration)).isDirectory()).toBeTrue();
+      expect(await fs.readFile(path.join(unknownGeneration, 'user-sentinel.txt'), 'utf8')).toBe('preserve-me\n');
+      expect((await fs.lstat(ownedGeneration)).isDirectory()).toBeTrue();
+    });
+  });
+
+  test('restores the exact stale generation when locator validation fails before ownership binding', async () => {
+    await withLinkedWorktreeTempWorkspace(async (tempRoot) => {
+      const { consumerRoot } = await prepareLinkedWorktreeEpochTransition(tempRoot);
+      const consumerNodeModules = path.join(consumerRoot, 'node_modules');
+      const staleIdentity = await fs.lstat(consumerNodeModules, { bigint: true });
+
+      await expect(ensureCompilerDepsReady({
+        testCompilerBridgeValidationHook: async (stage) => {
+          if (stage === 'binding-observed') throw new Error('injected locator validation failure');
+        }
+      }, consumerRoot)).rejects.toMatchObject({
+        code: 'IMPORT-AUTHORITY-004',
+        details: { cause: 'injected locator validation failure' },
+        message: 'Compiler dependency consumer bridge is incompatible'
+      });
+      const restoredIdentity = await fs.lstat(consumerNodeModules, { bigint: true });
+      expect({ dev: restoredIdentity.dev, ino: restoredIdentity.ino, mode: restoredIdentity.mode })
+        .toEqual({ dev: staleIdentity.dev, ino: staleIdentity.ino, mode: staleIdentity.mode });
+      expect(await fs.readFile(
+        path.join(consumerNodeModules, 'typescript', 'lib', 'typescript.js'),
+        'utf8'
+      )).toBe('candidate-generation-v1:typescript\n');
+    });
+  });
+
+  test('preserves an external replacement and emits recovery evidence when locator rollback loses CAS', async () => {
+    await withLinkedWorktreeTempWorkspace(async (tempRoot) => {
+      const { consumerRoot } = await prepareLinkedWorktreeEpochTransition(tempRoot);
+      const consumerNodeModules = path.join(consumerRoot, 'node_modules');
+      const displacedLocator = path.join(consumerRoot, 'node_modules.displaced-locator');
+      let replacementCreated = false;
+
+      const failure = await ensureCompilerDepsReady({
+        testCompilerBridgeValidationHook: async (stage) => {
+          if (stage !== 'binding-observed' || replacementCreated) return;
+          replacementCreated = true;
+          await fs.rename(consumerNodeModules, displacedLocator);
+          await fs.mkdir(consumerNodeModules);
+          await fs.writeFile(path.join(consumerNodeModules, 'external-sentinel.txt'), 'external-owner\n');
+          throw new Error('injected external replacement');
+        }
+      }, consumerRoot).then(
+        () => null,
+        (error: unknown) => error
+      );
+
+      const typedFailure = failure as {
+        code: string;
+        details: {
+          cause: string;
+          causeDetails: { cause: string };
+          recoveryBackup: string;
+          rollbackFailure: string;
+        };
+      };
+      expect(typedFailure.code).toBe('IMPORT-AUTHORITY-004');
+      const recoveryBackup = typedFailure.details.recoveryBackup;
+      expect(typeof recoveryBackup).toBe('string');
+      expect(typedFailure.details).toMatchObject({
+        cause: 'Compiler dependency consumer bridge is incompatible',
+        causeDetails: { cause: 'injected external replacement' },
+        rollbackFailure: expect.stringContaining('changed before')
+      });
+      expect(await fs.readFile(path.join(consumerNodeModules, 'external-sentinel.txt'), 'utf8'))
+        .toBe('external-owner\n');
+      expect((await fs.lstat(displacedLocator)).isSymbolicLink()).toBeTrue();
+      expect(await fs.readFile(
+        path.join(recoveryBackup, 'typescript', 'lib', 'typescript.js'),
+        'utf8'
+      )).toBe('candidate-generation-v1:typescript\n');
+    });
   });
 
   test('repairs critical direct and transitive entry corruption before developer commands load dependencies', async () => {
