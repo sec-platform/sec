@@ -101,7 +101,7 @@ test('module impact follows facades and test helpers transitively', () => {
   };
 
   expect(selectTestsForSources([source], provider)).toEqual({
-    fast: [selected],
+    fast: ['tests/contract/shared-boundary-classification.test.ts', selected],
     slow: [],
     owners: ['module-graph']
   });
@@ -121,7 +121,7 @@ test('imported machine data resolves through the module graph without a hand-aut
   };
 
   expect(selectTestsForSources([data], provider)).toEqual({
-    fast: [selected],
+    fast: ['tests/contract/shared-boundary-classification.test.ts', selected],
     slow: [],
     owners: ['module-graph']
   });
@@ -225,6 +225,7 @@ test('generated-state machine registry selects only its behavior and producer ev
   ]);
   expect(selection).toEqual({
     fast: [
+      'tests/contract/shared-boundary-classification.test.ts',
       'tests/integration/compiler-dependency-installation.test.ts',
       'tests/unit/generated-state-contract.test.ts',
       'tests/unit/generated-state-lifecycle.test.ts'
@@ -267,7 +268,7 @@ test('retired evidence ownership requires the exact removed transition', () => {
   }
 });
 
-test('semantic resources retain explicit behavior evidence while unmapped sources stay narrow', () => {
+test('semantic resources retain explicit behavior evidence and shared placement has a physical sentinel', () => {
   const manifest = selectTestsForSources(['platform/registry/official/ticket.basic/block.manifest.yaml']);
   expect(manifest.owners).toContain('registry-manifest');
   expect(manifest.slow).toContain('tests/e2e/registry.test.ts');
@@ -278,8 +279,27 @@ test('semantic resources retain explicit behavior evidence while unmapped source
   expect(sourceModel.slow).toContain('tests/e2e/semantic-runtime-contract.test.ts');
 
   expect(selectTestsForSources(['platform/shared/unmapped-helper.ts'])).toEqual({
-    fast: [],
+    fast: ['tests/contract/shared-boundary-classification.test.ts'],
     slow: [],
     owners: []
   });
+});
+
+test('physical boundary and TCB producer universes always select their sentinels', () => {
+  const shared = selectTestsForSources(['platform/shared/new-owner.ts']);
+  expect(shared.owners).toEqual([]);
+  expect(shared.fast).toContain('tests/contract/shared-boundary-classification.test.ts');
+
+  for (const source of [
+    'tooling/sec-dev/new-runtime-owner.ts',
+    'platform/runtime-state/worktree-closeout-contract.ts',
+    'scripts/codex/worktree-physical-closeout-contract.ts'
+  ]) {
+    const toolingBoundary = selectTestsForSources([source]);
+    expect(toolingBoundary.fast).toContain('tests/contract/verification-action-tooling-boundary.test.ts');
+  }
+
+  const docsDoctor = selectTestsForSources(['docs/scripts/docs-doctor.ts']);
+  expect(docsDoctor.owners).toContain('trusted-verifier-tcb');
+  expect(docsDoctor.fast).toContain('tests/contract/tcb-closure-lock.test.ts');
 });

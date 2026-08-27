@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-08-23
+last-reviewed: 2026-08-28
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-08-23
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/default-branch-health-repair-4291ea94f26858c6570144f6632100a568832039-9606c61e638edb6562dd98421c5442fd28aca119c1fd8a9f472d74c1f606c010.md
-manifestDigest: sha256:f3002db74f403fc5b6c0efd7b37b5db1b50c5d5f510cebe3f8d6ad9857cf4910
+manifest: docs/work-packages/default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e.md
+manifestDigest: sha256:0369fe25da6990f295a690f93d7d9d6b9a9265c059e7a4f454c8ac111f81308c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

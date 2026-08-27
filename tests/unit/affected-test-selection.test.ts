@@ -38,6 +38,13 @@ describe('affected test selection batch optimization', () => {
     expect(hasTestImpactForFile(unresolvedFile)).toBe(false);
   });
 
+  test('physical placement universes remain resolved before reverse imports exist', () => {
+    expect(hasTestImpactForFile('platform/shared/new-owner.ts')).toBe(true);
+    expect(hasTestImpactForFile('tooling/sec-dev/new-runtime-owner.ts')).toBe(true);
+    expect(hasTestImpactForFile('scripts/codex/worktree-physical-closeout-contract.ts')).toBe(true);
+    expect(hasTestImpactForFile('docs/scripts/docs-doctor.ts')).toBe(true);
+  });
+
   test('selectCiPrRiskSlowSuites resolves when all files have known impact', () => {
     // Mix of fallback-matched and module-graph-derived files.
     const result = selectCiPrRiskSlowSuites([

@@ -2,6 +2,11 @@ import { lstatSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  parseWorktreePorcelainZV1,
+  parseWorktreeStatusPorcelainZV1,
+  type WorktreeStatusPorcelainRecordV1
+} from '../../platform/runtime-state/worktree-closeout-contract.ts';
+import {
   GENERATED_STATE_REGISTRY_V1,
   assertGeneratedStateWorktreeRetirementV1,
   createGeneratedStateInventoryV1,
@@ -39,11 +44,6 @@ import {
 } from '../../platform/shared/physical-no-follow.ts';
 import { runCommandBytes, type ByteCommandResult } from '../../platform/shared/process.ts';
 import { acquireWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
-import {
-  parseWorktreePorcelainZV1,
-  parseWorktreeStatusPorcelainZV1,
-  type WorktreeStatusPorcelainRecordV1
-} from '../../scripts/codex/worktree-physical-closeout-contract.ts';
 import { acquireSecRuntimeStatePhysicalAuthorityV1 } from './runtime-state-authority.ts';
 import { createRuntimeStateJournalFileSystemV1 } from './runtime-state-journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRootsV1 } from './runtime-state-paths.ts';

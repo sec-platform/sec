@@ -1,6 +1,28 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
+
+import {
+  createMainHealthLedgerV1,
+  createMainHealthRepairWorkPackagePathV1
+} from '../../platform/shared/main-health-contract.ts';
+import {
+  acquirePhysicalMutationLeaseV1
+} from '../../platform/shared/physical-mutation-lease.ts';
+import {
+  inspectNoFollowDirectoryChainV1,
+  inspectNoFollowOrdinaryFileEntryV1
+} from '../../platform/shared/physical-no-follow.ts';
+import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
 
 import {
   LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
@@ -22,6 +44,7 @@ import {
   assertTrustedRuntimeDependencyCacheVolumeV1,
   assertTrustedRuntimeMainHealthCarryForwardBaselineV2,
   authorizeTrustedRuntimeContainerRecoveryV1,
+  authorizeTrustedRuntimeMainHealthRetirementV1,
   composeTrustedRuntimeContainerLabelsV1,
   createTrustedRuntimeCommandEnvironmentArgsV1,
   createTrustedRuntimeDependencyCacheMarkerV1,
@@ -34,7 +57,9 @@ import {
   parseTrustedRuntimeContainerIdentityV1,
   parseTrustedRuntimeMainHealthAffectedPlanV1,
   parseTrustedRuntimeMainHealthReceiptV2,
-  renderTrustedRuntimeCommandFailureDetailV1
+  parseTrustedRuntimeMainHealthRetirementRecordV1,
+  renderTrustedRuntimeCommandFailureDetailV1,
+  retireTrustedRuntimeMainHealthReceiptInDirectoryV1
 } from '../../scripts/codex/trusted-runtime-container.ts';
 
 const dockerEndpoint = Object.freeze({
@@ -47,6 +72,68 @@ const dockerEndpoint = Object.freeze({
   osType: 'linux' as const,
   architecture: 'x86_64' as const
 });
+
+function mainHealthRetirementFixture() {
+  const mainSha = '1'.repeat(40);
+  const mainTreeSha = '2'.repeat(40);
+  const baseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+    mainSha,
+    mainTreeSha,
+    parentLine: `${mainSha} ${'7'.repeat(40)}`,
+    parentTreeSha: '8'.repeat(40)
+  });
+  const localReceipt = createTrustedRuntimeMainHealthReceiptV2({
+    origin: 'physical-main',
+    repository: 'sec-platform/sec',
+    mainSha,
+    mainTreeSha,
+    baselineSha: '7'.repeat(40),
+    baselineTreeSha: '8'.repeat(40),
+    baselineObservationDigest: baseline.observationDigest,
+    executionId: 'trusted-main-health-retirement',
+    imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+    dockerEndpoint,
+    networkIsolatedBeforeExecution: true,
+    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+    actionResults: [
+      { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
+    ],
+    transition: null,
+    observedAt: '2026-08-21T00:00:00.000Z'
+  });
+  const failureFingerprint = `sha256:${'4'.repeat(64)}` as const;
+  const owner = 'ci-verification-maintainer';
+  const hostedLedger = createMainHealthLedgerV1({
+    repository: 'sec-platform/sec',
+    defaultBranch: 'main',
+    mainSha,
+    mainTreeSha,
+    status: 'degraded',
+    failureFingerprints: [failureFingerprint],
+    owner,
+    repairWorkPackage: createMainHealthRepairWorkPackagePathV1({
+      repository: 'sec-platform/sec',
+      defaultBranch: 'main',
+      mainSha,
+      mainTreeSha,
+      owner,
+      failureFingerprints: [failureFingerprint]
+    }),
+    expiresAt: '2026-08-21T01:00:00.000Z',
+    allowedLanes: ['repair'],
+    trustRevision: mainSha,
+    observedAt: '2026-08-21T00:00:00.000Z',
+    producer: {
+      identity: 'platform/shared/default-branch-revision-health.ts',
+      trustRevision: mainSha,
+      sourceTransport: 'github-api',
+      sourceRunId: '33109458351',
+      sourceRef: `github-check-runs:sec-platform/sec@${mainSha}`,
+      sourceDigest: `sha256:${'5'.repeat(64)}`
+    }
+  });
+  return Object.freeze({ localReceipt, hostedLedger, mainSha });
+}
 
 function imageInspect(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify([{
@@ -416,6 +503,138 @@ describe('provider-neutral trusted runtime container', () => {
       ...receipt,
       mainTreeSha: '7'.repeat(40)
     })).toThrow('baseline observation digest is invalid');
+  });
+
+  test('retires one exact local MainHealth preimage behind a durable hosted-conflict record', () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), 'sec-main-health-retirement-'));
+    try {
+      const fixture = mainHealthRetirementFixture();
+      const healthRoot = path.join(tempRoot, 'trusted-main-health', 'v1');
+      mkdirSync(healthRoot, { recursive: true });
+      const directory = inspectNoFollowDirectoryChainV1(
+        healthRoot,
+        'MainHealth retirement fixture root'
+      ).target;
+      const sourceName = `main-${fixture.mainSha}.json`;
+      writeFileSync(
+        path.join(healthRoot, sourceName),
+        `${encodeVerificationActionDataV2(fixture.localReceipt)}\n`,
+        'utf8'
+      );
+      const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
+      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
+        sourceName,
+        source,
+        localReceipt: fixture.localReceipt,
+        hostedLedger: fixture.hostedLedger
+      });
+      const retired = retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
+        directory,
+        source,
+        authorization
+      });
+      expect(retired.status).toBe('retired');
+      expect(inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)).toBeNull();
+      const archived = parseTrustedRuntimeMainHealthRetirementRecordV1(
+        readFileSync(retired.recordPath, 'utf8')
+      );
+      expect(archived).toEqual(retired.record);
+      expect(archived).toMatchObject({
+        reason: 'stronger-hosted-provider-conflict',
+        localReceipt: { receiptDigest: fixture.localReceipt.receiptDigest },
+        hostedLedger: { ledgerDigest: fixture.hostedLedger.ledgerDigest }
+      });
+
+      const resumed = retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
+        directory,
+        source,
+        authorization
+      });
+      expect(resumed).toMatchObject({
+        status: 'resumed-absent',
+        recordPath: retired.recordPath
+      });
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('MainHealth retirement CAS preserves an external source replacement', () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), 'sec-main-health-retirement-cas-'));
+    try {
+      const fixture = mainHealthRetirementFixture();
+      const healthRoot = path.join(tempRoot, 'trusted-main-health', 'v1');
+      mkdirSync(healthRoot, { recursive: true });
+      const directory = inspectNoFollowDirectoryChainV1(
+        healthRoot,
+        'MainHealth retirement CAS fixture root'
+      ).target;
+      const sourceName = `main-${fixture.mainSha}.json`;
+      const sourcePath = path.join(healthRoot, sourceName);
+      writeFileSync(sourcePath, `${encodeVerificationActionDataV2(fixture.localReceipt)}\n`, 'utf8');
+      const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
+      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
+        sourceName,
+        source,
+        localReceipt: fixture.localReceipt,
+        hostedLedger: fixture.hostedLedger
+      });
+      renameSync(sourcePath, `${sourcePath}.external-preimage`);
+      writeFileSync(sourcePath, 'external-owner\n', 'utf8');
+
+      expect(() => retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
+        directory,
+        source,
+        authorization
+      })).toThrow('source changed before exact CAS');
+      expect(readFileSync(sourcePath, 'utf8')).toBe('external-owner\n');
+      expect(readFileSync(`${sourcePath}.external-preimage`, 'utf8'))
+        .toBe(`${encodeVerificationActionDataV2(fixture.localReceipt)}\n`);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('MainHealth retirement refuses an Effect while the exact operation lease is held', () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), 'sec-main-health-retirement-lease-'));
+    try {
+      const fixture = mainHealthRetirementFixture();
+      const healthRoot = path.join(tempRoot, 'trusted-main-health', 'v1');
+      mkdirSync(healthRoot, { recursive: true });
+      const directory = inspectNoFollowDirectoryChainV1(
+        healthRoot,
+        'MainHealth retirement lease fixture root'
+      ).target;
+      const sourceName = `main-${fixture.mainSha}.json`;
+      writeFileSync(
+        path.join(healthRoot, sourceName),
+        `${encodeVerificationActionDataV2(fixture.localReceipt)}\n`,
+        'utf8'
+      );
+      const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
+      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
+        sourceName,
+        source,
+        localReceipt: fixture.localReceipt,
+        hostedLedger: fixture.hostedLedger
+      });
+      const lease = acquirePhysicalMutationLeaseV1(
+        directory,
+        `.main-health-retirement-${fixture.mainSha}.lock`
+      )!;
+      try {
+        expect(() => retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
+          directory,
+          source,
+          authorization
+        })).toThrow('retirement operation is already active');
+        expect(inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)).not.toBeNull();
+      } finally {
+        lease.release();
+      }
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   test('carries verified candidate evidence forward only when the new-main tree is exact', () => {

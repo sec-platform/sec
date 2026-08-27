@@ -86,9 +86,11 @@ export interface CompilerDepsReadyState {
   manifestHash: string;
   nodeModulesPath: string;
   packageManager: 'bun';
+  readonly requiresFreshProcess: boolean;
   root: string;
   readonly runtimeMaterialization?: Readonly<RuntimeDependencyMaterializationBinding> | null;
   source: 'existing' | 'installed';
+  readonly transitionDigest: `sha256:${string}`;
 }
 
 export interface DependencyAuthorityPaths {
@@ -3135,10 +3137,27 @@ async function bindRetiredCompilerDependencyLocatorV1(
   }
 }
 
-function deleteExactCompilerDependencyLocatorV1(rootPath: string): void {
+function deleteExactCompilerDependencyLocatorV1(
+  rootPath: string,
+  expected: Readonly<{ source: GeneratedStatePhysicalIdentityV1; linkTarget: string }>
+): void {
   const root = inspectNoFollowDirectoryChainV1(rootPath, 'Compiler dependency locator cleanup root').target;
   const locator = inspectNoFollowLinkEntryV1(root, 'node_modules');
-  if (locator === null || locator.linkTarget === null) return;
+  if (locator === null) {
+    throw new Error('Compiler dependency locator disappeared before exact rollback.');
+  }
+  if (locator.linkTarget === null || locator.kind !== 'link') {
+    throw new Error('Compiler dependency locator changed before exact rollback.');
+  }
+  const observedSource = Object.freeze({
+    device: locator.device,
+    inode: locator.inode,
+    objectId: generatedStateDigestV1({ kind: 'link', target: locator.linkTarget })
+  });
+  if (!sameGeneratedStatePhysicalIdentityV1(observedSource, expected.source)
+      || locator.linkTarget !== expected.linkTarget) {
+    throw new Error('Compiler dependency locator changed before exact rollback.');
+  }
   deleteRetainedNoFollowEntryV1({
     root,
     relativePath: 'node_modules',
@@ -3148,6 +3167,248 @@ function deleteExactCompilerDependencyLocatorV1(rootPath: string): void {
     expectedLinkTarget: locator.linkTarget,
     ancestorDirectories: Object.freeze([])
   });
+}
+
+const COMPILER_DEPS_BINDING_KEYS_V1 = Object.freeze([
+  'architecture', 'bunExecutablePath', 'bunExecutableSha256', 'bunVersion',
+  'declaredBunVersion', 'dependencyManifestSha256', 'formatVersion',
+  'installConfigSha256', 'lockSha256', 'manifestHash', 'packages', 'platform',
+  'runtimeMaterialization'
+] as const);
+
+/**
+ * Proves that an incompatible physical directory is an SEC-generated
+ * dependency generation before it may be moved out of the active locator.
+ * The binding is not required to match the new epoch, but its own package
+ * manifests and immutable envelope must still match the physical preimage.
+ */
+async function compilerDependencyGeneratedPreimageDigestV1(
+  nodeModulesPath: string
+): Promise<`sha256:${string}`> {
+  const bindingPath = path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE);
+  const bindingMetadata = await fs.lstat(bindingPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (bindingMetadata === null || !bindingMetadata.isFile() || bindingMetadata.isSymbolicLink()) {
+    throw new CompilerError(
+      'IMPORT-AUTHORITY-004',
+      'Existing node_modules is not an owned compiler dependency generation and is preserved'
+    );
+  }
+  const candidate = await readJson<unknown>(bindingPath).catch(() => null);
+  if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)
+      || Object.getPrototypeOf(candidate) !== Object.prototype) {
+    throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage binding is malformed and preserved');
+  }
+  const binding = candidate as Record<string, unknown>;
+  if (Object.keys(binding).sort(compareCodeUnits).join('\0')
+      !== [...COMPILER_DEPS_BINDING_KEYS_V1].sort(compareCodeUnits).join('\0')
+      || (binding.formatVersion !== 'compiler-deps-binding-v4'
+        && binding.formatVersion !== 'compiler-deps-binding-v5')
+      || typeof binding.architecture !== 'string'
+      || typeof binding.bunExecutablePath !== 'string'
+      || typeof binding.bunExecutableSha256 !== 'string'
+      || typeof binding.bunVersion !== 'string'
+      || typeof binding.declaredBunVersion !== 'string'
+      || typeof binding.dependencyManifestSha256 !== 'string'
+      || !(binding.installConfigSha256 === null || typeof binding.installConfigSha256 === 'string')
+      || typeof binding.lockSha256 !== 'string'
+      || typeof binding.manifestHash !== 'string'
+      || typeof binding.platform !== 'string'
+      || !Array.isArray(binding.packages)
+      || binding.packages.length === 0
+      || binding.packages.length > 10_000
+      || !(binding.runtimeMaterialization === null
+        || isRuntimeDependencyMaterializationBinding(binding.runtimeMaterialization))) {
+    throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage binding shape is invalid and preserved');
+  }
+  for (const value of [
+    binding.bunExecutableSha256,
+    binding.dependencyManifestSha256,
+    binding.lockSha256,
+    binding.manifestHash,
+    ...(binding.installConfigSha256 === null ? [] : [binding.installConfigSha256])
+  ]) {
+    if (!/^[0-9a-f]{64}$/u.test(value as string)) {
+      throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage digest is invalid and preserved');
+    }
+  }
+  const packageNames = new Set<string>();
+  for (const rawPackage of binding.packages) {
+    if (rawPackage === null || typeof rawPackage !== 'object' || Array.isArray(rawPackage)
+        || Object.getPrototypeOf(rawPackage) !== Object.prototype) {
+      throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package binding is invalid');
+    }
+    const packageBinding = rawPackage as Record<string, unknown>;
+    const expectedKeys = packageBinding.entry === undefined
+      ? ['manifestSha256', 'name', 'version']
+      : ['entry', 'manifestSha256', 'name', 'version'];
+    if (Object.keys(packageBinding).sort(compareCodeUnits).join('\0') !== expectedKeys.join('\0')
+        || typeof packageBinding.name !== 'string'
+        || !/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/u.test(packageBinding.name)
+        || typeof packageBinding.version !== 'string'
+        || packageBinding.version.length === 0
+        || typeof packageBinding.manifestSha256 !== 'string'
+        || !/^[0-9a-f]{64}$/u.test(packageBinding.manifestSha256)
+        || packageNames.has(packageBinding.name)) {
+      throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package identity is invalid');
+    }
+    packageNames.add(packageBinding.name);
+    if (packageBinding.entry !== undefined) {
+      const entry = packageBinding.entry;
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)
+          || Object.getPrototypeOf(entry) !== Object.prototype
+          || Object.keys(entry).sort(compareCodeUnits).join('\0') !== ['path', 'sha256'].join('\0')
+          || typeof (entry as Record<string, unknown>).path !== 'string'
+          || typeof (entry as Record<string, unknown>).sha256 !== 'string'
+          || !/^[0-9a-f]{64}$/u.test((entry as Record<string, unknown>).sha256 as string)) {
+        throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage entry identity is invalid');
+      }
+    }
+    const packageManifestPath = path.join(
+      nodeModulesPath,
+      ...packageBinding.name.split('/'),
+      'package.json'
+    );
+    const manifestMetadata = await fs.lstat(packageManifestPath).catch(() => null);
+    if (manifestMetadata === null || !manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()) {
+      throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest is not physical');
+    }
+    const physicalManifestPath = await fs.realpath(packageManifestPath);
+    if (!isPathInside(nodeModulesPath, physicalManifestPath)) {
+      throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest escapes its generation');
+    }
+    const manifestBytes = await fs.readFile(packageManifestPath);
+    const manifest = JSON.parse(manifestBytes.toString('utf8')) as Record<string, unknown>;
+    if (digest(manifestBytes) !== packageBinding.manifestSha256
+        || manifest.name !== packageBinding.name
+        || manifest.version !== packageBinding.version) {
+      throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest changed and is preserved');
+    }
+  }
+  return generatedStateDigestV1(binding);
+}
+
+type RetiredCompilerDependencyPreimageV1 = Readonly<{
+  backupPath: string;
+  bindingDigest: `sha256:${string}`;
+  identity: CompilerDependencyDirectoryIdentity;
+}>;
+
+async function retireIncompatibleCompilerDependencyTargetV1(
+  root: string,
+  nodeModulesPath: string,
+  options: RuntimeDependencyInstallOptions
+): Promise<RetiredCompilerDependencyPreimageV1 | null> {
+  const identity = await compilerDependencyDirectoryIdentity(nodeModulesPath);
+  if (identity === null) return null;
+  const bindingDigest = await compilerDependencyGeneratedPreimageDigestV1(nodeModulesPath);
+  const backupsRoot = path.join(root, '.tmp', 'dependency-installs', 'compiler-backups');
+  const backupPath = path.join(backupsRoot, `locator-preimage-${Date.now()}-${crypto.randomUUID()}`);
+  await ensureDir(backupsRoot, options.beforeCommit);
+  await options.generatedStateLifecycle?.born(
+    'node_modules',
+    `compiler-node-modules-preimage:${bindingDigest}`
+  );
+  await options.generatedStateLifecycle?.retired('node_modules', 'external-generation-locator-transition');
+  await renameCompilerDependencyDirectory(nodeModulesPath, backupPath, options);
+  return Object.freeze({ backupPath, bindingDigest, identity });
+}
+
+async function restoreRetiredCompilerDependencyTargetV1(
+  nodeModulesPath: string,
+  retired: RetiredCompilerDependencyPreimageV1,
+  options: RuntimeDependencyInstallOptions
+): Promise<void> {
+  if (await pathExists(nodeModulesPath)) {
+    throw new Error('Compiler dependency transition target is occupied; exact preimage remains in recovery backup.');
+  }
+  const backupIdentity = await compilerDependencyDirectoryIdentity(retired.backupPath);
+  if (!sameCompilerDependencyDirectoryIdentity(backupIdentity, retired.identity)) {
+    throw new Error('Compiler dependency transition recovery preimage identity changed.');
+  }
+  await renameCompilerDependencyDirectory(retired.backupPath, nodeModulesPath, options);
+  await options.generatedStateLifecycle?.born(
+    'node_modules',
+    `compiler-node-modules-restored:${retired.bindingDigest}`
+  );
+}
+
+type CompilerDependencyTransitionKindV1 = 'none' | 'generation-published' | 'locator-published';
+
+function createCompilerDepsReadyStateV1(input: Readonly<{
+  binding: Readonly<CompilerDepsBinding>;
+  identity: CompilerDependencyIdentity;
+  kind: CompilerDependencyTransitionKindV1;
+  nodeModulesPath: string;
+  root: string;
+  source: 'existing' | 'installed';
+}>): CompilerDepsReadyState {
+  const transitionDigest = generatedStateDigestV1(Object.freeze({
+    schema: 'sec-compiler-dependency-transition-v1',
+    kind: input.kind,
+    root: input.root,
+    nodeModulesPath: input.nodeModulesPath,
+    manifestHash: input.identity.manifestHash,
+    bindingDigest: generatedStateDigestV1(input.binding)
+  }));
+  return Object.freeze({
+    manifestHash: input.identity.manifestHash,
+    nodeModulesPath: input.nodeModulesPath,
+    packageManager: 'bun' as const,
+    requiresFreshProcess: input.kind !== 'none',
+    root: input.root,
+    runtimeMaterialization: input.binding.runtimeMaterialization,
+    source: input.source,
+    transitionDigest
+  });
+}
+
+type CompilerDependencyReadyObservationV1 = Readonly<{
+  binding: Readonly<CompilerDepsBinding>;
+  kind: 'external-bridge' | 'local-generation';
+  nodeModulesPath: string;
+}>;
+
+/**
+ * Reads the one admitted compiler dependency surface without publishing or
+ * repairing it. A linked-worktree locator and a local physical generation are
+ * two representations of the same readiness contract, so read-only consumers
+ * must not reimplement the generation-only half of that contract.
+ */
+async function observeCompilerDependencyReadyV1(
+  root: string,
+  nodeModulesPath: string,
+  identity: CompilerDependencyIdentity,
+  options: RuntimeDependencyInstallOptions
+): Promise<CompilerDependencyReadyObservationV1 | null> {
+  const bridgeBinding = await compilerDependencyConsumerBridgeBinding(
+    root,
+    nodeModulesPath,
+    identity,
+    options
+  );
+  if (bridgeBinding !== null) {
+    return Object.freeze({
+      binding: bridgeBinding,
+      kind: 'external-bridge',
+      nodeModulesPath
+    });
+  }
+  const generationBinding = await compilerDependencyGenerationBinding(
+    root,
+    nodeModulesPath,
+    path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE),
+    identity
+  );
+  return generationBinding === null
+    ? null
+    : Object.freeze({
+        binding: generationBinding,
+        kind: 'local-generation',
+        nodeModulesPath
+      });
 }
 
 export async function ensureCompilerDepsReady(
@@ -3161,32 +3422,47 @@ export async function ensureCompilerDepsReady(
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
 
   const identity = await compilerDependencyIdentity(root);
-  const bridgeBinding = await compilerDependencyConsumerBridgeBinding(
+  const observed = await observeCompilerDependencyReadyV1(
     root,
     nodeModulesPath,
     identity,
     lifecycleOptions
   );
-  if (bridgeBinding !== null) {
+  if (observed?.kind === 'external-bridge') {
     return withInstallLock(installLockPath, lifecycleOptions, async () => {
-      const current = await compilerDependencyConsumerBridgeBinding(
+      const current = await observeCompilerDependencyReadyV1(
         root,
         nodeModulesPath,
         identity,
         lifecycleOptions
       );
-      if (current === null || !canonicalEquals(current, bridgeBinding)) {
+      if (current?.kind !== 'external-bridge'
+          || !canonicalEquals(current.binding, observed.binding)) {
         throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency locator changed before lifecycle binding');
       }
-      await bindRetiredCompilerDependencyLocatorV1(root, identity, current, lifecycleOptions);
-      return {
-        manifestHash: identity.manifestHash,
+      await bindRetiredCompilerDependencyLocatorV1(root, identity, current.binding, lifecycleOptions);
+      return createCompilerDepsReadyStateV1({
+        binding: current.binding,
+        identity,
+        kind: 'none',
         nodeModulesPath,
-        packageManager: 'bun' as const,
         root,
-        runtimeMaterialization: current.runtimeMaterialization,
-        source: 'existing' as const
-      };
+        source: 'existing'
+      });
+    });
+  }
+  if (observed !== null) {
+    await lifecycleOptions.generatedStateLifecycle?.born(
+      'node_modules',
+      `compiler-node-modules:${identity.manifestHash}`
+    );
+    return createCompilerDepsReadyStateV1({
+      binding: observed.binding,
+      identity,
+      kind: 'none',
+      nodeModulesPath,
+      root,
+      source: 'existing'
     });
   }
   const ready = () => compilerDependencyGenerationBinding(
@@ -3195,23 +3471,6 @@ export async function ensureCompilerDepsReady(
     bindingPath,
     identity
   );
-
-  const existing = await ready();
-  if (existing !== null) {
-    await lifecycleOptions.generatedStateLifecycle?.born(
-      'node_modules',
-      `compiler-node-modules:${identity.manifestHash}`
-    );
-    const readyState: CompilerDepsReadyState = {
-      manifestHash: identity.manifestHash,
-      nodeModulesPath,
-      packageManager: 'bun',
-      root,
-      runtimeMaterialization: existing.runtimeMaterialization,
-      source: 'existing'
-    };
-    return readyState;
-  }
 
   return withInstallLock(installLockPath, lifecycleOptions, async () => {
     const lockedBridge = await compilerDependencyConsumerBridgeBinding(
@@ -3222,14 +3481,14 @@ export async function ensureCompilerDepsReady(
     );
     if (lockedBridge !== null) {
       await bindRetiredCompilerDependencyLocatorV1(root, identity, lockedBridge, lifecycleOptions);
-      return {
-        manifestHash: identity.manifestHash,
+      return createCompilerDepsReadyStateV1({
+        binding: lockedBridge,
+        identity,
+        kind: 'none',
         nodeModulesPath,
-        packageManager: 'bun' as const,
         root,
-        runtimeMaterialization: lockedBridge.runtimeMaterialization,
-        source: 'existing' as const
-      };
+        source: 'existing'
+      });
     }
     const lockedExisting = await ready();
     if (lockedExisting !== null) {
@@ -3237,14 +3496,14 @@ export async function ensureCompilerDepsReady(
         'node_modules',
         `compiler-node-modules:${identity.manifestHash}`
       );
-      const readyState: CompilerDepsReadyState = {
-        manifestHash: identity.manifestHash,
+      const readyState = createCompilerDepsReadyStateV1({
+        binding: lockedExisting,
+        identity,
+        kind: 'none',
         nodeModulesPath,
-        packageManager: 'bun' as const,
         root,
-        runtimeMaterialization: lockedExisting.runtimeMaterialization,
-        source: 'existing' as const
-      };
+        source: 'existing'
+      });
       return readyState;
     }
 
@@ -3254,14 +3513,28 @@ export async function ensureCompilerDepsReady(
     });
     if (sharedWorktreeGeneration !== null) {
       let createdLocator = false;
+      let createdLocatorIdentity: Readonly<{
+        source: GeneratedStatePhysicalIdentityV1;
+        linkTarget: string;
+      }> | null = null;
       let lifecycleBindingAttempted = false;
+      let retiredPreimage: RetiredCompilerDependencyPreimageV1 | null = null;
       try {
+        retiredPreimage = await retireIncompatibleCompilerDependencyTargetV1(
+          root,
+          nodeModulesPath,
+          lifecycleOptions
+        );
         await fs.symlink(
           sharedWorktreeGeneration.nodeModulesPath,
           nodeModulesPath,
           process.platform === 'win32' ? 'junction' : 'dir'
         );
         createdLocator = true;
+        createdLocatorIdentity = compilerDependencyLocatorObservationV1(root, 'node_modules');
+        if (createdLocatorIdentity === null) {
+          throw new CompilerError('IMPORT-AUTHORITY-004', 'Published compiler dependency locator has no physical identity');
+        }
         const binding = await compilerDependencyConsumerBridgeBinding(
           root,
           nodeModulesPath,
@@ -3273,21 +3546,53 @@ export async function ensureCompilerDepsReady(
         }
         lifecycleBindingAttempted = true;
         await bindRetiredCompilerDependencyLocatorV1(root, identity, binding, lifecycleOptions);
-        return {
-          manifestHash: identity.manifestHash,
+        return createCompilerDepsReadyStateV1({
+          binding,
+          identity,
+          kind: 'locator-published',
           nodeModulesPath,
-          packageManager: 'bun' as const,
           root,
-          runtimeMaterialization: binding.runtimeMaterialization,
-          source: 'existing' as const
-        };
+          source: 'existing'
+        });
       } catch (error) {
         // Before lifecycle ownership starts, this process still owns the exact
         // locator publication and may CAS-unlink it. Once lifecycle binding is
         // attempted, preserve the locator: the next invocation can adopt the
         // exact active registration and finish retirement without orphaning a
         // durable registration or touching the external generation.
-        if (createdLocator && !lifecycleBindingAttempted) deleteExactCompilerDependencyLocatorV1(root);
+        let rollbackFailure: unknown;
+        if (createdLocator && !lifecycleBindingAttempted && createdLocatorIdentity !== null) {
+          try {
+            deleteExactCompilerDependencyLocatorV1(root, createdLocatorIdentity);
+          } catch (rollbackError) {
+            rollbackFailure = rollbackError;
+          }
+        }
+        if (retiredPreimage !== null && !lifecycleBindingAttempted && !(await pathExists(nodeModulesPath))) {
+          try {
+            await restoreRetiredCompilerDependencyTargetV1(
+              nodeModulesPath,
+              retiredPreimage,
+              lifecycleOptions
+            );
+          } catch (rollbackError) {
+            rollbackFailure ??= rollbackError;
+          }
+        }
+        if (rollbackFailure !== undefined) {
+          throw new CompilerError(
+            'IMPORT-AUTHORITY-004',
+            'Compiler dependency locator transition failed and exact rollback requires recovery',
+            {
+              cause: error instanceof Error ? error.message : String(error),
+              causeDetails: error instanceof CompilerError ? error.details : null,
+              recoveryBackup: retiredPreimage?.backupPath ?? null,
+              rollbackFailure: rollbackFailure instanceof Error
+                ? rollbackFailure.message
+                : String(rollbackFailure)
+            }
+          );
+        }
         throw error;
       }
     }
@@ -3299,14 +3604,14 @@ export async function ensureCompilerDepsReady(
       throw new CompilerError('IMPORT-AUTHORITY-002', 'Published compiler dependency generation failed validation');
     }
 
-    const readyState: CompilerDepsReadyState = {
-      manifestHash: identity.manifestHash,
+    const readyState = createCompilerDepsReadyStateV1({
+      binding: published,
+      identity,
+      kind: 'generation-published',
       nodeModulesPath,
-      packageManager: 'bun',
       root,
-      runtimeMaterialization: published.runtimeMaterialization,
       source: 'installed'
-    };
+    });
     return readyState;
   });
 }
@@ -3506,17 +3811,16 @@ export async function ensureProjectDependencies(
   } else if (options.skipSharedDepsWarmup === true) {
     const compilerIdentity = await compilerDependencyIdentity(compilerDependencyRoot);
     sourceNodeModulesPath = dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot;
-    const compilerBindingPath = path.join(sourceNodeModulesPath, COMPILER_DEPS_BINDING_FILE);
-    const compilerBinding = await compilerDependencyGenerationBinding(
+    const compilerReady = await observeCompilerDependencyReadyV1(
       compilerDependencyRoot,
       sourceNodeModulesPath,
-      compilerBindingPath,
-      compilerIdentity
+      compilerIdentity,
+      options
     );
-    if (compilerBinding === null || compilerBinding.runtimeMaterialization === null) {
-      throw new CompilerError('RUNTIME-DEPS-004', 'Canonical compiler dependency generation is unavailable');
+    if (compilerReady === null || compilerReady.binding.runtimeMaterialization === null) {
+      throw new CompilerError('RUNTIME-DEPS-004', 'Canonical compiler dependency readiness is unavailable');
     }
-    binding = compilerBinding.runtimeMaterialization;
+    binding = compilerReady.binding.runtimeMaterialization;
   } else {
     const sharedDeps = await ensureSharedDepsReady(options);
     sourceNodeModulesPath = sharedDeps.nodeModulesPath;

@@ -13,6 +13,7 @@ import {
 } from '../../platform/shared/main-health-repair-contract.ts';
 import {
   inspectExactNoFollowDirectoryPresenceV1,
+  inspectNoFollowOrdinaryFileEntryV1,
   PhysicalNoFollowError,
   readNoFollowOrdinaryFileV1
 } from '../../platform/shared/physical-no-follow.ts';
@@ -27,7 +28,11 @@ import {
   createTrustedLocalMainHealthInputV1,
   TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS_V1
 } from './main-health-observation.ts';
-import { parseTrustedRuntimeMainHealthReceiptV2 } from './trusted-runtime-container.ts';
+import {
+  authorizeTrustedRuntimeMainHealthRetirementV1,
+  parseTrustedRuntimeMainHealthReceiptV2,
+  retireTrustedRuntimeMainHealthReceiptInDirectoryV1
+} from './trusted-runtime-container.ts';
 import {
   classifyGitHubObservationFailureV1,
   createVerificationSessionGitHubClientV1,
@@ -179,18 +184,66 @@ function observeTrustedLocalProvider(input: Readonly<{
       }))
     });
   } catch (error) {
-    if (error instanceof PhysicalNoFollowError
-        && error.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE') {
+    return classifyTrustedLocalMainHealthObservationFailureV1(error, receiptBytes);
+  }
+}
+
+export function classifyTrustedLocalMainHealthObservationFailureV1(
+  error: unknown,
+  receiptBytes: Uint8Array | null = null
+): WorkSelectionMainHealthProviderObservationV1 {
+  if (error instanceof PhysicalNoFollowError) {
+    if (error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
       return Object.freeze({ kind: 'absent' });
     }
-    return Object.freeze({
-      kind: 'invalid',
-      ref: invalidRef(
-        'trusted-local-observation-invalid',
-        receiptBytes ?? (error instanceof Error ? error.message : String(error))
-      )
-    });
+    if (error.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE') {
+      return Object.freeze({
+        kind: 'unavailable',
+        ref: invalidRef('trusted-local-no-follow-capability-unavailable', error.code)
+      });
+    }
   }
+  return Object.freeze({
+    kind: 'invalid',
+    ref: invalidRef(
+      'trusted-local-observation-invalid',
+      receiptBytes ?? (error instanceof Error ? error.message : String(error))
+    )
+  });
+}
+
+function observeTrustedLocalRetirementPreimageV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+}>) {
+  const layout = resolveSecRuntimeStateForRepositoryV1({
+    repository: input.repository,
+    repositoryRoot: input.repositoryRoot
+  });
+  const root = path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1');
+  const presence = inspectExactNoFollowDirectoryPresenceV1(
+    root,
+    'WorkSelection trusted MainHealth retirement root'
+  );
+  if (presence.state === 'absent') {
+    throw new Error('trusted local MainHealth retirement source root is absent');
+  }
+  const sourceName = `main-${input.mainSha}.json`;
+  const source = inspectNoFollowOrdinaryFileEntryV1(presence.directory.target, sourceName);
+  if (source === null || source.bytes === null) {
+    throw new Error('trusted local MainHealth retirement source is absent');
+  }
+  const receipt = parseTrustedRuntimeMainHealthReceiptV2(decodeExactUtf8(source.bytes));
+  const canonicalReceiptBytes = Buffer.from(`${encodeVerificationActionDataV2(receipt)}\n`, 'utf8');
+  if (!Buffer.from(source.bytes).equals(canonicalReceiptBytes)
+      || receipt.repository !== input.repository
+      || receipt.mainSha !== input.mainSha
+      || receipt.mainTreeSha !== input.mainTreeSha) {
+    throw new Error('trusted local MainHealth retirement preimage is not exact');
+  }
+  return Object.freeze({ directory: presence.directory.target, source, receipt });
 }
 
 function observeHostedProvider(input: Readonly<{
@@ -261,6 +314,24 @@ export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
     });
   }
 
+  if (input.local.kind === 'unavailable') {
+    const ref = digestRef(Object.freeze({
+      schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
+      status: 'local-provider-unavailable',
+      local: input.local.ref,
+      hosted: input.hosted.kind === 'unavailable' ? input.hosted.ref : input.hosted.kind,
+      repository: input.repository,
+      defaultBranch: input.defaultBranch,
+      mainSha: input.mainSha,
+      mainTreeSha: input.mainTreeSha
+    }));
+    return Object.freeze({
+      projection: Object.freeze({ state: 'unresolved', ref }),
+      ledger: null,
+      repairObservation: Object.freeze({ kind: 'provider-unavailable', observationRef: ref })
+    });
+  }
+
   const localLedger = input.local.kind === 'available' ? input.local.ledger : null;
   const hostedLedger = input.hosted.kind === 'available' ? input.hosted.ledger : null;
   if (localLedger !== null && hostedLedger !== null
@@ -299,7 +370,7 @@ export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
 
   const ref = digestRef(Object.freeze({
     schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA_V1,
-    status: 'provider-missing-or-unavailable',
+    status: input.hosted.kind === 'unavailable' ? 'provider-unavailable' : 'provider-missing',
     local: input.local.kind,
     hosted: input.hosted.kind,
     hostedRef: input.hosted.kind === 'unavailable' ? input.hosted.ref : null,
@@ -308,7 +379,7 @@ export function resolveWorkSelectionMainHealthProvidersV1(input: Readonly<{
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha
   }));
-  const unavailable = input.local.kind === 'unavailable' || input.hosted.kind === 'unavailable';
+  const unavailable = input.hosted.kind === 'unavailable';
   return Object.freeze({
     projection: Object.freeze({
       state: 'unresolved',
@@ -355,7 +426,12 @@ function observeCanonicalMainHealthProvidersV1(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-}>): Readonly<{ observedAt: string; resolution: CanonicalMainHealthProviderResolutionV1 }> {
+}>): Readonly<{
+  observedAt: string;
+  localProvider: WorkSelectionMainHealthProviderObservationV1;
+  hostedProvider: WorkSelectionMainHealthProviderObservationV1;
+  resolution: CanonicalMainHealthProviderResolutionV1;
+}> {
   const observedAt = new Date().toISOString();
   const hostedExpiresAt = new Date(
     Date.parse(observedAt) + TRUSTED_LOCAL_MAIN_HEALTH_FRESHNESS_MS_V1
@@ -365,29 +441,91 @@ function observeCanonicalMainHealthProvidersV1(input: Readonly<{
     repository: input.repository,
     mainSha: input.mainSha
   });
+  const localProvider = observeTrustedLocalProvider({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now: observedAt
+  });
+  const hostedProvider = observeHostedProvider({
+    repository: input.repository,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now: observedAt,
+    expiresAt: hostedExpiresAt,
+    observation: hosted
+  });
   const resolution = resolveWorkSelectionMainHealthProvidersV1({
     repository: input.repository,
     defaultBranch: input.defaultBranch,
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha,
     now: observedAt,
-    local: observeTrustedLocalProvider({
-      repositoryRoot: input.repositoryRoot,
-      repository: input.repository,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha,
-      now: observedAt
-    }),
-    hosted: observeHostedProvider({
-      repository: input.repository,
-      mainSha: input.mainSha,
-      mainTreeSha: input.mainTreeSha,
-      now: observedAt,
-      expiresAt: hostedExpiresAt,
-      observation: hosted
-    })
+    local: localProvider,
+    hosted: hostedProvider
   });
-  return Object.freeze({ observedAt, resolution });
+  return Object.freeze({ observedAt, localProvider, hostedProvider, resolution });
+}
+
+/**
+ * Explicit MainHealth reconciliation Effect. Read-only status and work
+ * selection never call this operation. The operation compiles an authenticated,
+ * content-addressed retirement authorization, executes it behind the receipt
+ * namespace lease, and then proves hosted-only provider resolution by readback.
+ */
+export function reconcileCanonicalMainHealthProviderConflictV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  defaultBranch: string;
+  mainSha: string;
+  mainTreeSha: string;
+}>) {
+  const observation = observeCanonicalMainHealthProvidersV1(input);
+  if (observation.resolution.repairObservation.kind !== 'provider-conflict'
+      || observation.localProvider.kind !== 'available'
+      || observation.hostedProvider.kind !== 'available') {
+    throw new Error('MainHealth retirement requires one exact active provider conflict');
+  }
+  const preimage = observeTrustedLocalRetirementPreimageV1(input);
+  const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
+    sourceName: preimage.source.relativePath,
+    source: preimage.source,
+    localReceipt: preimage.receipt,
+    hostedLedger: observation.hostedProvider.ledger
+  });
+  const retirement = retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
+    directory: preimage.directory,
+    source: preimage.source,
+    authorization
+  });
+  const localReadback = observeTrustedLocalProvider({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now: observation.observedAt
+  });
+  const resolution = resolveWorkSelectionMainHealthProvidersV1({
+    repository: input.repository,
+    defaultBranch: input.defaultBranch,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now: observation.observedAt,
+    local: localReadback,
+    hosted: observation.hostedProvider
+  });
+  if (localReadback.kind !== 'absent'
+      || resolution.ledger?.ledgerDigest !== observation.hostedProvider.ledger.ledgerDigest
+      || resolution.repairObservation.kind !== 'available') {
+    throw new Error('MainHealth retirement did not produce exact hosted-only provider readback');
+  }
+  return Object.freeze({
+    observedAt: observation.observedAt,
+    authorizationDigest: authorization.authorizationDigest,
+    retirement,
+    resolution
+  });
 }
 
 export function observeCanonicalMainHealthForWorkSelectionV1(input: Readonly<{
