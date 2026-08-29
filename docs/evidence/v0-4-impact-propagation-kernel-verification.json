@@ -11,11 +11,11 @@
   "scope": {
     "productionBlobs": [
       {
-        "path": "platform/compiler/semantic-impact/build-impact-propagation.ts",
+        "path": "src/compiler/semantic-impact/build-impact-propagation.ts",
         "blob": "80f8f2e2bc71f09ee40602d892bbee910f20b9e6"
       },
       {
-        "path": "platform/compiler/semantic-impact/propagation-rules.ts",
+        "path": "src/compiler/semantic-impact/propagation-rules.ts",
         "blob": "2f1e45dfef000c766580a9cd1e60f5394985d9cb"
       },
       {
@@ -23,7 +23,7 @@
         "blob": "cb4b622698428b5559a48521fb4bcc5b5605cbfc"
       },
       {
-        "path": "platform/compiler/index.ts",
+        "path": "src/compiler/index.ts",
         "blob": "981a56c749d3f89496869dd1068c6b67270839b9"
       },
       {
@@ -45,7 +45,7 @@
         "blob": "e50f2aa79cb91bf6c110b136360a66a7da4d8b5e"
       },
       {
-        "path": "platform/shared/contract-freeze-contract.ts",
+        "path": "src/verification/freeze.ts",
         "blob": "fbf735f4b39ded664a92f6a7fb8651b6ec6e8d65"
       },
       {

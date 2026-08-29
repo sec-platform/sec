@@ -2,11 +2,11 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { executeWorktreePhysicalCloseoutV1, type ExecuteWorktreePhysicalCloseoutInputV1 } from '../../scripts/codex/worktree-physical-closeout.ts';
+import { executeWorktreePhysicalCloseout, type ExecuteWorktreePhysicalCloseoutInput } from '../../src/control/branch-lifecycle/worktree-physical-closeout.ts';
 
 const encoded = process.argv[2];
 if (encoded === undefined) throw new Error('closeout crash fixture requires one JSON argument');
-const input = JSON.parse(encoded) as ExecuteWorktreePhysicalCloseoutInputV1;
+const input = JSON.parse(encoded) as ExecuteWorktreePhysicalCloseoutInput;
 const mode = process.argv[4] ?? 'execute';
 const handshakePath = process.argv[5];
 if (mode !== 'execute' && mode !== 'pause-after-fence-before-terminal') {
@@ -36,7 +36,7 @@ if (mode === 'pause-after-fence-before-terminal') {
   }, 1);
   watcher.unref();
 }
-const receipt = await executeWorktreePhysicalCloseoutV1(input);
+const receipt = await executeWorktreePhysicalCloseout(input);
 const outputPath = process.argv[3];
 if (outputPath === undefined) throw new Error('closeout crash fixture requires one output path');
 writeFileSync(outputPath, `${JSON.stringify(receipt)}\n`, { encoding: 'utf8', flag: 'wx' });

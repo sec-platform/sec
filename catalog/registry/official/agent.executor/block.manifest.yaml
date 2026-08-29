@@ -1,0 +1,40 @@
+id: agent/executor
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - tenant/context
+  - ticket/write
+  - ticket/comment
+  - agent/harness
+provides:
+  - agent/executor
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/agent/executor-service.ts
+    to: src/installed/agent/executor-service.ts
+  - kind: copy
+    from: files/tests/acceptance/agent-classifier-flow.test.ts
+    to: tests/acceptance/agent-classifier-flow.test.ts
+pins:
+  inputs:
+    - id: ticket_created
+      type: TicketRecord
+      required: true
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: agent_executed
+      type: TicketRecord
+      required: true
+slots: []
+acceptance:
+  - id: agent_can_automatically_classify_ticket
+    dependsOn:
+      - agent_can_be_registered
+    covers:
+      blocks:
+        - agent/executor

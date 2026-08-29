@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { validatePlan } from '../../platform/compiler/parse/load-plan.ts';
-import { normalizeAndValidateSemanticManifestFields } from '../../platform/compiler/parse/validate-semantic-manifest.ts';
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-import type { BlockManifest, PlanFile } from '../../platform/shared/plan-manifest-types.ts';
-import { isCanonicalSlotId } from '../../platform/shared/slot-identity.ts';
+import { validatePlan } from '../../src/compiler/parse/load-plan.ts';
+import { normalizeAndValidateSemanticManifestFields } from '../../src/compiler/parse/validate-semantic-manifest.ts';
+import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
+import type { BlockManifest, PlanFile } from '../../src/compiler/contract.ts';
+import { isCanonicalSlotId } from '../../src/semantic/identity/contract/slot.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 function basePlan(slotId: string): PlanFile {
@@ -96,7 +96,7 @@ test('Plan rejects a non-canonical Slot id before it can enter Lock identity', (
 });
 
 test('Manifest Slot ids share the canonical identity and uniqueness contract', () => {
-  const canonical = baseManifest(['customer_normalizer', 'ticket_comment_delegate']);
+  const canonical = baseManifest(['customer_normalizer', 'ticket_title_formatter']);
   expect(() => normalizeAndValidateSemanticManifestFields(canonical)).not.toThrow();
 
   expect(() => normalizeAndValidateSemanticManifestFields(baseManifest(['Customer'])))

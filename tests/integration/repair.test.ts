@@ -2,16 +2,21 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { applyRepairPlan } from '../../platform/compiler/repair/build-repair-plan.ts';
-import { buildTaskEnvelope } from '../../platform/compiler/synthesize/build-task-envelope.ts';
-import { synthesizeSlotSource } from '../../platform/compiler/synthesize/mock-slot-synthesizer.ts';
-import { lockWorkspace, repairWorkspace } from '../../platform/orchestrator.ts';
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { countLineDiff } from '../../platform/shared/diff-utils.ts';
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile, PlanFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+import { applyRepairPlan } from '../../src/compiler/repair/build-repair-plan.ts';
+import { buildTaskEnvelope } from '../../src/compiler/synthesize/build-task-envelope.ts';
+import { synthesizeSlotSource } from '../../src/compiler/synthesize/mock-slot-synthesizer.ts';
+import { lockWorkspace, repairWorkspace } from '../../src/compiler/orchestration/cli.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { countLineDiff } from '../../src/system-architecture/foundation/runtime/diff.ts';
+import { readJson, writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import type {
+  LockFile,
+  PlanFile
+} from '../../src/compiler/contract.ts';
+import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 import {
   buildCustomerNormalizerLock,
   buildCustomerNormalizerPlan,

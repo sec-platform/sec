@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { Project } from 'ts-morph';
-import { CodeBuilder, getDefaultProject } from '../../platform/compiler/codegen/code-builder.ts';
+import { CodeBuilder, getDefaultProject } from '../../src/compiler/codegen/code-builder.ts';
 
 test('getDefaultProject returns the same Project instance across multiple calls', () => {
   const first = getDefaultProject();

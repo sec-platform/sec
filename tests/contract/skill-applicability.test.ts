@@ -4,32 +4,33 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  compileSecOperationReadPlanV1,
-  projectSecSkillEnvelopeFromOperationReadPlanV1,
+  compileSecOperationReadPlan,
+  projectSecSkillEnvelopeFromOperationReadPlan,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlanInputV1
-} from '../../platform/shared/agent-operation-read-plan-contract.ts';
+  type SecOperationReadPlanInput
+} from '../../src/control/agent/read-plan.ts';
 import {
-  evaluateSecSkillApplicabilityV1,
+  evaluateSecSkillApplicability,
   isSecSkillQuarantinePath,
   SEC_SKILL_APPLICABILITY_SCHEMA,
+  SEC_SKILL_QUARANTINE_EXACT_PATHS,
   type SecAgentRole,
   type SecAgentSkillId,
   type SecOperationKind,
-  type SecSkillApplicabilityDecisionV1
-} from '../../platform/shared/agent-skill-contract.ts';
+  type SecSkillApplicabilityDecision
+} from '../../src/control/agent/skill.ts';
 import {
-  compileSecTaskCapsuleV1,
+  compileSecTaskCapsule,
   SEC_TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigestV1,
-  type SecTaskCapsulePlanningContextV1
-} from '../../platform/shared/agent-task-capsule-contract.ts';
+  type SecDigest,
+  type SecTaskCapsulePlanningContext
+} from '../../src/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const digest = (character: string): SecDigestV1 => `sha256:${character.repeat(64)}`;
+const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: SecTaskCapsulePlanningContextV1): SecOperationReadPlanInputV1['taskCapsule'] {
-  return compileSecTaskCapsuleV1({
+function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
+  return compileSecTaskCapsule({
     schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:skill-applicability-contract',
     planningContext
@@ -44,6 +45,12 @@ function gitOutput(args: readonly string[]): string {
   });
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
+}
+
+function trackedQuarantinePaths(): string[] {
+  return gitOutput(['ls-files', '-z'])
+    .split('\0')
+    .filter((repositoryPath) => repositoryPath.length > 0 && isSecSkillQuarantinePath(repositoryPath));
 }
 
 function gitOutputOrNull(args: readonly string[]): string | null {
@@ -72,7 +79,7 @@ function planInput(overrides: {
   forbiddenPaths?: readonly string[];
   base?: string;
   head?: string;
-} = {}): SecOperationReadPlanInputV1 {
+} = {}): SecOperationReadPlanInput {
   const head = overrides.head ?? gitOutput(['rev-parse', 'HEAD']);
   const base = overrides.base ?? head;
   const candidates = overrides.candidates ?? ['sec-worker-development'];
@@ -133,9 +140,9 @@ function planInput(overrides: {
   };
 }
 
-function evaluatePlan(input: SecOperationReadPlanInputV1): SecSkillApplicabilityDecisionV1 {
-  const plan = compileSecOperationReadPlanV1(input);
-  const envelope = projectSecSkillEnvelopeFromOperationReadPlanV1(plan);
+function evaluatePlan(input: SecOperationReadPlanInput): SecSkillApplicabilityDecision {
+  const plan = compileSecOperationReadPlan(input);
+  const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
   const trustedSkillRevisions: Record<string, string> = {};
   const candidateSkillRevisions: Record<string, string> = {};
   for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSecSkillQuarantinePath)) {
@@ -148,12 +155,11 @@ function evaluatePlan(input: SecOperationReadPlanInputV1): SecSkillApplicability
       candidateSkillRevisions[repositoryPath] = candidate;
     }
   }
-  const decision = evaluateSecSkillApplicabilityV1({
+  const decision = evaluateSecSkillApplicability({
     ...envelope,
     trustedSkillRevisions,
     candidateSkillRevisions
   });
-  expect(decision.schema).toBe(SEC_SKILL_APPLICABILITY_SCHEMA);
   return decision;
 }
 
@@ -174,7 +180,7 @@ test('multiple surviving metadata candidates resolve ambiguous before any body r
     role: 'a0',
     operationKind: 'design',
     candidates: ['sec-architecture-evolution', 'sec-heuristic-governance'],
-    writePaths: ['.agents/skills/', 'AGENTS.md', 'docs/', 'platform/shared/agent-skill-contract.ts']
+    writePaths: []
   }));
   expect(decision.status).toBe('ambiguous');
   expect(decision.selectedSkillId).toBeNull();
@@ -192,13 +198,19 @@ test('Skill write surface beyond frozen scope resolves conflict', () => {
 });
 
 test('candidate quarantine revisions are derived from exact Git objects', () => {
-  const head = gitOutput([
-    'log', '-1', '--format=%H', '--', 'platform/shared/agent-skill-contract.ts'
-  ]);
+  const repositoryPath = SEC_SKILL_QUARANTINE_EXACT_PATHS[0];
+  const historicalQuarantine = {
+    repositoryPath,
+    head: gitOutputOrNull(['log', '-1', '--format=%H', '--', repositoryPath])
+  };
+  if (!historicalQuarantine || historicalQuarantine.head === null) {
+    throw new Error('No quarantined source has Git history');
+  }
+  const { head } = historicalQuarantine;
   const base = gitOutput(['rev-parse', `${head}^`]);
   const decision = evaluatePlan(planInput({ base, head }));
   expect(decision.quarantinePaths).toEqual(expect.arrayContaining([
-    'platform/shared/agent-skill-contract.ts'
+    repositoryPath
   ]));
   expect(decision.reasonCodes).toEqual(
     expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])

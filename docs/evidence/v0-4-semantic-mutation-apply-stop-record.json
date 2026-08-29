@@ -21,8 +21,8 @@
         "docs/14-Engineering IR与语义事实规范.md:1992"
       ],
       "observed": [
-        "platform/orchestrator/pipeline-orchestrator.ts:4 imports the Mutation-specific semantic-mutation-staging-boundary module",
-        "platform/orchestrator/pipeline-orchestrator.ts:474 derives the Pipeline isolation decision from that Mutation-specific path helper"
+        "src/compiler/orchestration/pipeline-orchestrator.ts:4 imports the Mutation-specific semantic-mutation-staging-boundary module",
+        "src/compiler/orchestration/pipeline-orchestrator.ts:474 derives the Pipeline isolation decision from that Mutation-specific path helper"
       ],
       "impact": "Pipeline and its kernel-facing coordinator reverse-depend on Mutation-specific code, contrary to the frozen one-way dependency rule. A path-shaped workspace also substitutes for an explicit, authority-bound isolation capability.",
       "requiredResolution": "Replace the reverse dependency with a neutral, non-forgeable isolation capability/context seam owned by Pipeline or Verification. Semantic Mutation may bind and pass that capability one way; ordinary callers and workspace path shape must not mint it. Update the contract test that currently freezes the Mutation-specific helper dependency."

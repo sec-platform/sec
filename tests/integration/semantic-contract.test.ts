@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import { loadManifestById, loadSemanticContractsForManifestEntry, normalizeSemanticContract } from '../../platform/compiler/index.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
-import type { SemanticContract } from '../../platform/shared/semantic-contract-types.ts';
+import { loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
+import { loadSemanticContractsForManifestEntry, normalizeSemanticContract } from '../../src/compiler/parse/load-semantic-contract.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
+import type { SemanticContract } from '../../src/semantic/contracts/contract/types.ts';
 
 function minimalContract(): SemanticContract {
   return {
@@ -40,7 +41,7 @@ test('ticket/basic loads one normalized semantic contract', async () => {
 
   expect(contracts).toHaveLength(1);
   expect(contracts[0]?.blockId).toBe('ticket/basic');
-  expect(contracts[0]?.contractPath).toBe('platform/registry/official/ticket.basic/contracts/ticket.yaml');
+  expect(contracts[0]?.contractPath).toBe('catalog/registry/official/ticket.basic/contracts/ticket.yaml');
   expect(contracts[0]?.contract.id).toBe('ticket-core');
   expect(contracts[0]?.contract.imports).toEqual([{
     alias: 'tenant',

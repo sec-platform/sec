@@ -2,9 +2,9 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { buildProvenance } from '../../platform/compiler/emit/write-provenance.ts';
-import { writeText } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { buildProvenance } from '../../src/compiler/emit/write-provenance.ts';
+import { writeText } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -21,7 +21,7 @@ test('semantic provenance preserves generator identity for a runtime artifact', 
       originType: 'generated',
       originId: 'generator:ticket/basic:ticket-status-runtime-contract',
       sourceBlock: 'ticket/basic',
-      sourcePath: 'platform/registry/official/ticket.basic/contracts/ticket.yaml',
+      sourcePath: 'catalog/registry/official/ticket.basic/contracts/ticket.yaml',
       runtimeTarget: target,
       generatedByPass: 'compose',
       generatorTaskId: 'generator:ticket/basic:ticket-status-runtime-contract',

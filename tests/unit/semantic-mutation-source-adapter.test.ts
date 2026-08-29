@@ -3,35 +3,25 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import {
-  buildEngineeringIR,
-  buildTrustedLocalSemanticMutationAuthorization,
-  buildValidatedEngineeringIR,
-  loadAuthoringSemanticContractSources,
-  normalizeSemanticMutationRequest,
-  planSemanticMutationSourceEdit,
-  preflightSemanticMutation,
-  renderSemanticMutationSourceEdit,
-  type BuildEngineeringIRInput,
-  type SemanticMutationAuthorizationContextV2,
-  type SemanticMutationRequestV2,
-  type TrustedLocalSemanticMutationPolicyDraftV1
-} from '../../platform/compiler/index.ts';
-import { buildSemanticContractSourceCandidate } from '../../platform/compiler/parse/load-authoring-semantic-contracts.ts';
-import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { loadAuthoringSemanticContractSources } from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
+import { normalizeSemanticMutationRequest } from '../../src/compiler/semantic-mutation/normalize-request.ts';
+import { planSemanticMutationSourceEdit, renderSemanticMutationSourceEdit } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
+import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
+import { buildTrustedLocalSemanticMutationAuthorization, type TrustedLocalSemanticMutationPolicyDraft } from '../../src/compiler/semantic-mutation/trusted-authorization-ingress.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
+import { buildSemanticContractSourceCandidate } from '../../src/compiler/parse/load-authoring-semantic-contracts.ts';
+import { semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
 import {
   renderSemanticContractYamlEdit,
   semanticMutationByteDigest
-} from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
-import { resolveSemanticMutationSource } from '../../platform/compiler/semantic-mutation/source-adapter-registry.ts';
-import { readSemanticMutationSource } from '../../platform/compiler/semantic-mutation/source-path-boundary.ts';
-import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
-import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
-import {
-  SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
-  SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION,
-  type SemanticMutationLoadedSourceCandidateV1
-} from '../../platform/shared/semantic-mutation-types.ts';
+} from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
+import { resolveSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-adapter-registry.ts';
+import { readSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-path-boundary.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
+import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, type SemanticMutationLoadedSourceCandidate } from '../../src/semantic/mutation/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function loadedContract(contractPath = 'source/model/item.yaml'): LoadedSemanticContract {
@@ -169,8 +159,8 @@ function buildInput(contract: LoadedSemanticContract): BuildEngineeringIRInput {
   };
 }
 
-function authorization(ownerId = 'semantic-contract-owner:item:item-core'): SemanticMutationAuthorizationContextV2 {
-  const draft: Omit<SemanticMutationAuthorizationContextV2, 'authorizationRevision'> = {
+function authorization(ownerId = 'semantic-contract-owner:item:item-core'): SemanticMutationAuthorizationContext {
+  const draft: Omit<SemanticMutationAuthorizationContext, 'authorizationRevision'> = {
     taskId: 'task:mutation-source',
     envelopeRevision: 'envelope:v2',
     allowedOperationKinds: ['add-state-transition'],
@@ -184,7 +174,7 @@ function authorization(ownerId = 'semantic-contract-owner:item:item-core'): Sema
   return { ...draft, authorizationRevision: semanticMutationAuthorizationRevision(draft) };
 }
 
-function trustedLocalPolicy(): TrustedLocalSemanticMutationPolicyDraftV1 {
+function trustedLocalPolicy(): TrustedLocalSemanticMutationPolicyDraft {
   return {
     allowedOperationKinds: ['add-state-transition'],
     allowedTargetEntityIds: ['state:item:item-status'],
@@ -202,7 +192,7 @@ function fixture(contract = loadedContract(), auth = authorization()) {
     semanticRevision: snapshot.ir.semanticRevision,
     snapshot
   };
-  const request: SemanticMutationRequestV2 = {
+  const request: SemanticMutationRequest = {
     contractVersion: '2',
     requestId: 'request:add-transition-source',
     graphId: snapshot.ir.graphId,
@@ -248,7 +238,7 @@ async function writePlanningWorkspace(root: string, bytes: Uint8Array): Promise<
 function candidate(
   contract = loadedContract(),
   sourceKind: 'workspace-authoring' | 'workspace-registry' | 'compiler-registry' = 'workspace-authoring'
-): SemanticMutationLoadedSourceCandidateV1 {
+): SemanticMutationLoadedSourceCandidate {
   return buildSemanticContractSourceCandidate(sourceKind, contract);
 }
 
@@ -325,7 +315,7 @@ test('trusted local authorization ingress rejects caller authority fields and un
 
   const forged = candidate(contract);
   const sourceSets = [
-    [] as SemanticMutationLoadedSourceCandidateV1[],
+    [] as SemanticMutationLoadedSourceCandidate[],
     [candidate(contract, 'workspace-registry')],
     [candidate(contract, 'compiler-registry')],
     [candidate(contract), candidate(contract)],

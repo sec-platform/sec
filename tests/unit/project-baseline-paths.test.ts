@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import { currentReadOnlyProjectPaths } from '../../platform/shared/project-baseline.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { currentReadOnlyProjectPaths } from '../../src/workspace/project.ts';
 
 function lockFixture(): LockFile {
   return {
@@ -9,7 +9,7 @@ function lockFixture(): LockFile {
     app: {
       id: 'baseline-path-test',
       name: 'baseline-path-test',
-      stack: 'nextjs-ts-prisma-sqlite',
+      stack: 'typescript-library',
       mode: 'single-tenant'
     },
     resolvedBlocks: [],
@@ -20,7 +20,7 @@ function lockFixture(): LockFile {
       registrySourceId: 'official',
       registryKind: 'official',
       registryLocation: 'compiler',
-      registryPath: 'platform/registry/official',
+      registryPath: 'catalog/registry/official',
       sourceRoot: 'test.block',
       action: 'copy',
       from: 'files/src/service.ts',
@@ -43,7 +43,6 @@ function lockFixture(): LockFile {
       'app/page.tsx',
       'custom/slot.ts',
       'control/evidence/report.json',
-      'next-env.d.ts',
       'tsconfig.json'
     ],
     acceptancePlan: [],

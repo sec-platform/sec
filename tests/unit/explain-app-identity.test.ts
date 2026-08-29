@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { buildExplainGraph } from "../../platform/compiler/emit/write-explain-graph.ts";
-import type { AcceptanceCoverageReport } from "../../platform/shared/acceptance-types.ts";
-import type { LockFile } from "../../platform/shared/lock-types.ts";
-import type { ProvenanceFile } from "../../platform/shared/provenance-types.ts";
+import { buildExplainGraph } from "../../src/compiler/emit/write-explain-graph.ts";
+import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import type { LockFile } from "../../src/compiler/contract.ts";
+import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
 import { buildSemanticViewFixture } from "../helpers/semantic-view-fixtures.ts";
 
 function lock(name: string): LockFile {
@@ -12,7 +12,7 @@ function lock(name: string): LockFile {
     app: {
       id: "stable-app",
       name,
-      stack: "nextjs-ts-prisma-sqlite",
+      stack: "typescript-library",
       mode: "single-tenant",
     },
     resolvedBlocks: [],

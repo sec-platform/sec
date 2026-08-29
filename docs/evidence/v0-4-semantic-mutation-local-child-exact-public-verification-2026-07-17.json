@@ -100,11 +100,11 @@
     "singleWriter": true,
     "goal": "Identify the exact required artifact-read predicate that rejected the settled v2 local child, repair only its shared production cause, and preserve the existing plan, isolation, lifecycle, output, and binding contracts.",
     "ownedPaths": [
-      "platform/compiler/semantic-mutation/isolated-verification-child-outcome.ts",
-      "platform/compiler/semantic-mutation/isolated-verification-child-progress.ts",
-      "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
-      "platform/compiler/verify/semantic-mutation-isolated-runner.ts",
-      "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+      "src/compiler/semantic-mutation/isolated-verification-child-outcome.ts",
+      "src/compiler/semantic-mutation/isolated-verification-child-progress.ts",
+      "src/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "src/compiler/verify/semantic-mutation-isolated-runner.ts",
+      "src/compiler/orchestration/semantic-mutation-isolated-verification-runner.ts",
       "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
       "tests/integration/semantic-mutation-apply.test.ts"
     ],

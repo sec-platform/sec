@@ -22,7 +22,6 @@ dist/
 build/
 .next/
 test-results/
-playwright-report/
 *.egg-info/
 .shared-deps/
 .sec/

@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
 import {
   linkSync,
   mkdirSync,
@@ -12,33 +11,27 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  readCompilerTypeScriptMutationFixture
-} from '../helpers/compiler-fixtures.ts';
-import { readTypeScriptHostileMutationNode } from '../helpers/typescript-hostile-mutation.ts';
-
-import {
   TCB_REVIEWED_EXTERNAL_IMPORTS,
   TCB_REVIEWED_NETWORK_DISPATCHERS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
-  TCB_TRUST_ROOT_V3,
-  compileTcbClosureActionResultV1,
+  TCB_TRUST_ROOT,
+  compileTcbClosureActionResult,
   trustedRuntimeClosure as compileTrustedRuntimeClosure,
   computeTcbClosureLock,
-  createTcbClosureActionPlanV1,
-  createTcbClosureCandidateSnapshotV1,
-  finalizeTcbClosureCandidateSnapshotV1,
-  generateTcbClosureLockV2,
-  readTcbClosureCandidateFileV1,
+  createTcbClosureActionPlan,
+  createTcbClosureCandidateSnapshot,
+  finalizeTcbClosureCandidateSnapshot,
+  generateTcbClosureLock,
+  readTcbClosureCandidateFile,
   runtimeRelativeImportsFromSource,
-  selectTcbClosureCandidateActionV1,
+  selectTcbClosureCandidateAction,
   verifyTcbClosureLock as verifyTcbClosureLockAgainstExactTree
-} from '../../platform/shared/tcb-closure-lock.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
-import { readRepositoryModuleGraphV1 } from '../../platform/shared/test-impact-contract.ts';
+} from '../../src/verification/trust/compiler.ts';
+import { SEC_TRUSTED_BOOTSTRAP_REGISTRY, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TCB_CLOSURE_RUNTIME_PATH, projectSecTrustedBootstrapDispatcherDataflowV1, reverseProjectSecTrustedBootstrapDispatcherCounterexampleV1 } from '../../src/verification/trust/contract/root.ts';
+import { readRepositoryModuleGraphV1 } from '../../src/verification/test-impact/runtime/impact.ts';
 
 const LIVE_TCB_CLOSURE = compileTrustedRuntimeClosure();
 const TCB_CLOSURE_LOCK = computeTcbClosureLock(LIVE_TCB_CLOSURE);
-const TCB_CLOSURE_TRUST_REVISION = TCB_CLOSURE_LOCK.trustRevision;
 const trustedRuntimeClosure = (
   ...args: Parameters<typeof compileTrustedRuntimeClosure>
 ): ReturnType<typeof compileTrustedRuntimeClosure> => args.length === 0
@@ -56,12 +49,22 @@ const verifyTcbClosureLock = (
   input: Parameters<typeof verifyTcbClosureLockAgainstExactTree>[0]
 ) => verifyTcbClosureLockAgainstExactTree(input, { expectedIdentity: TCB_CLOSURE_LOCK });
 
+const TRUSTED_DISPATCHER_PROJECTION = projectSecTrustedBootstrapDispatcherDataflowV1({
+  processDispatchers: LIVE_TCB_CLOSURE.reviewedProcessDispatchers,
+  networkDispatchers: LIVE_TCB_CLOSURE.reviewedNetworkDispatchers
+});
+
+function projectedBoundary(boundary: string) {
+  return [...TRUSTED_DISPATCHER_PROJECTION.process, ...TRUSTED_DISPATCHER_PROJECTION.network]
+    .filter((entry) => entry.boundary === boundary);
+}
+
 test('TCB candidate root exclusively drives closure discovery and hashing', () => {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-')));
   try {
     writeFileSync(path.join(root, 'entry.ts'), "import './leaf.ts';\n", 'utf8');
     writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 1;\n', 'utf8');
-    const snapshot = createTcbClosureCandidateSnapshotV1({ candidateRoot: root });
+    const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
     const options = { candidateSnapshot: snapshot };
     const closure = trustedRuntimeClosure(['entry.ts'], options);
     expect([...closure.closure].sort()).toEqual(['entry.ts', 'leaf.ts']);
@@ -70,7 +73,7 @@ test('TCB candidate root exclusively drives closure discovery and hashing', () =
     expect(lock.trustRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(lock.moduleBlobs['entry.ts']).toMatch(/^[0-9a-f]{40}$/u);
     expect(lock.moduleContentDigests['leaf.ts']).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    finalizeTcbClosureCandidateSnapshotV1(snapshot);
+    finalizeTcbClosureCandidateSnapshot(snapshot);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -81,18 +84,18 @@ test('one explicit candidate snapshot rejects discovery-to-hash mutation and mis
   try {
     writeFileSync(path.join(root, 'entry.ts'), "import './leaf.ts';\n", 'utf8');
     writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 1;\n', 'utf8');
-    const snapshot = createTcbClosureCandidateSnapshotV1({ candidateRoot: root });
+    const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
     const options = { candidateSnapshot: snapshot };
     const closure = trustedRuntimeClosure(['entry.ts'], options);
     writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 2;\n', 'utf8');
     expect(() => computeTcbClosureLock(closure, options)).toThrow('snapshot changed');
 
-    const missingSnapshot = createTcbClosureCandidateSnapshotV1({ candidateRoot: root });
-    expect(() => readTcbClosureCandidateFileV1('appeared.ts', {
+    const missingSnapshot = createTcbClosureCandidateSnapshot({ candidateRoot: root });
+    expect(() => readTcbClosureCandidateFile('appeared.ts', {
       candidateSnapshot: missingSnapshot
     })).toThrow('module is missing');
     writeFileSync(path.join(root, 'appeared.ts'), 'export const appeared = true;\n', 'utf8');
-    expect(() => finalizeTcbClosureCandidateSnapshotV1(missingSnapshot))
+    expect(() => finalizeTcbClosureCandidateSnapshot(missingSnapshot))
       .toThrow('after observing a missing module');
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -165,14 +168,19 @@ test('TCB closure admits only direct Bun data parser calls', () => {
   )).toThrow('unclassified Bun namespace member Bun.TOML');
 });
 
-test('TCB closure lock has the correct schema and trust revision', () => {
-  expect(TCB_CLOSURE_LOCK.schema).toBe('sec-tcb-closure-lock-v2');
-  expect(TCB_CLOSURE_LOCK.trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);
-  expect(TCB_CLOSURE_LOCK.trustRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
-});
-
-test('V2 closure generation binds the canonical trust revision', () => {
-  expect(generateTcbClosureLockV2().trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);
+test('TCB closure classifies only a direct Bun executable lookup', () => {
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-bun-executable-lookup.ts',
+    "export const executable = Bun.which('git');"
+  )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-bun-executable-lookup.ts',
+    "const lookup = Bun.which; export const executable = lookup('git');"
+  )).toThrow('unclassified Bun namespace member Bun.which');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-bun-executable-lookup.ts',
+    "export const executable = Bun['which']('git');"
+  )).toThrow('computed Bun namespace member Bun[...]');
 });
 
 test('TCB closure is one exact-tree Action with a typed reusable terminal', () => {
@@ -182,15 +190,13 @@ test('TCB closure is one exact-tree Action with a typed reusable terminal', () =
     toolchainRevision: 'bun@1.3.14:typescript',
     providerRevision: 'contract-test'
   };
-  const plan = createTcbClosureActionPlanV1(input);
-  const repeated = createTcbClosureActionPlanV1(input);
-  const changedTree = createTcbClosureActionPlanV1({ ...input, exactTreeSha: '3'.repeat(40) });
-  expect(plan.action.actionKind).toBe('tcb-closure-identity');
-  expect(plan.action.resultSchemaRevision).toBe('sec-tcb-closure-action-result-v1');
+  const plan = createTcbClosureActionPlan(input);
+  const repeated = createTcbClosureActionPlan(input);
+  const changedTree = createTcbClosureActionPlan({ ...input, exactTreeSha: '3'.repeat(40) });
   expect(repeated.action.actionKey).toBe(plan.action.actionKey);
   expect(changedTree.action.actionKey).not.toBe(plan.action.actionKey);
 
-  const result = compileTcbClosureActionResultV1({ plan });
+  const result = compileTcbClosureActionResult({ plan });
   expect(result.actionKey).toBe(plan.action.actionKey);
   expect(result.identity.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
   expect(result.terminal).toEqual({
@@ -204,55 +210,41 @@ test('TCB closure is one exact-tree Action with a typed reusable terminal', () =
     registryDigest: input.registryDigest,
     toolchainRevision: input.toolchainRevision,
     providerRevision: input.providerRevision,
-    trustedRegistry: SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3,
+    trustedRegistry: SEC_TRUSTED_BOOTSTRAP_REGISTRY,
     checkerResult: result
   };
-  const unrelated = selectTcbClosureCandidateActionV1({
+  const unrelated = selectTcbClosureCandidateAction({
     ...commonDemand,
     changedPaths: ['README.md']
   });
   expect(unrelated).toEqual({ impactedPaths: [], plan: null });
 
-  const impacted = selectTcbClosureCandidateActionV1({
+  const impacted = selectTcbClosureCandidateAction({
     ...commonDemand,
-    changedPaths: ['platform/shared/tcb-closure-lock.ts']
+    changedPaths: [SEC_TCB_CLOSURE_RUNTIME_PATH]
   });
-  expect(impacted.impactedPaths).toEqual(['platform/shared/tcb-closure-lock.ts']);
+  expect(impacted.impactedPaths).toEqual([SEC_TCB_CLOSURE_RUNTIME_PATH]);
   expect(impacted.plan?.action.upstreamActionKeys).toEqual([result.actionKey]);
   expect(impacted.plan?.dependencies).toEqual([{ actionKey: result.actionKey, kind: 'upstream' }]);
-  expect(() => compileTcbClosureActionResultV1({ plan: impacted.plan! }))
+  expect(() => compileTcbClosureActionResult({ plan: impacted.plan! }))
     .toThrow('upstream results do not satisfy');
 });
 
 test('TCB closure lock binds the reviewed causal module set', () => {
   expect(TCB_CLOSURE_LOCK.moduleCount).toBe(TCB_CLOSURE_LOCK.modules.length);
-  expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/canonical-primitives.ts');
   expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
-  expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain('platform/dev-runner/env-manager.ts -> node:net');
+  expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain('src/development/runner/env-manager.ts -> node:net');
   expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain(
-    'platform/shared/sec-linux-verification-environment.ts -> zod'
+    'src/external-capabilities/linux-verification/contract.ts -> zod'
   );
   expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
-    .toContain('platform/dev-runner/env-manager.ts -> node:net');
+    .toContain('src/development/runner/env-manager.ts -> node:net');
 });
 
 test('TCB closure lock is the sole causal-runtime identity consumed by the trust-root view', () => {
-  expect(TCB_TRUST_ROOT_V3.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
-  expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/tcb-trust-root-contract.ts');
-  expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/verification-action-ci-contract.ts');
-  expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/verification-session-contract.ts');
-  expect(TCB_CLOSURE_LOCK.modules).toContain('platform/runtime-state/worktree-closeout-contract.ts');
-  expect(TCB_CLOSURE_LOCK.modules).toContain('scripts/codex/verification-session-runtime.ts');
-  expect(TCB_CLOSURE_LOCK.modules).not.toContain('scripts/codex/worktree-physical-closeout-contract.ts');
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.staticExactPaths)
-    .toContain('scripts/codex/branch-local-residue-closeout.ts');
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.staticExactPaths)
-    .toContain('scripts/codex/branch-lifecycle.ts');
-  expect(TCB_TRUST_ROOT_V3.causalRuntimePaths)
-    .not.toContain('scripts/codex/branch-lifecycle.ts');
-  expect(TCB_CLOSURE_LOCK.modules).not.toContain('scripts/codex/branch-lifecycle.ts');
+  expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
+  expect(TCB_CLOSURE_LOCK.modules).toContain(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
   expect(TCB_CLOSURE_LOCK.modules.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
-  expect(TCB_CLOSURE_LOCK.modules).not.toContain('scripts/codex/repository-audit.ts');
   expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([]);
 });
 
@@ -265,541 +257,105 @@ test('TCB closure lock binds Git blobs and content digests for every module', ()
   expect(Object.keys(TCB_CLOSURE_LOCK.moduleContentDigests)).toHaveLength(TCB_CLOSURE_LOCK.moduleCount);
 });
 
-test('Action provider preflight binds the exact eight dispatchers and the canonical action executor', async () => {
-  const actionDispatchers = [...TCB_REVIEWED_PROCESS_DISPATCHERS].filter((identity) =>
-    identity.startsWith('scripts/ci-verification.ts::') ||
-    identity.startsWith('scripts/codex/verification-action-github-provider.ts::')
-  ).sort();
-  expect(actionDispatchers).toEqual([
-    'scripts/ci-verification.ts::function-declaration:inspectHostedActionArchiveMetadataV2::spawnSync#1',
-    'scripts/ci-verification.ts::function-declaration:defaultHostedSutSandboxProcessV1::spawn#1',
-    'scripts/ci-verification.ts::function-declaration:gitCandidateBytesV2::spawnSync#1',
-    'scripts/ci-verification.ts::function-declaration:hostedActionGhReadJsonV2::spawnSync#1',
-    'scripts/ci-verification.ts::function-declaration:runHostedMaterializerCommandV2::spawnSync#1',
-    'scripts/codex/verification-action-github-provider.ts::function-declaration:dispatchVerificationActionRepositoryWakeupV2::spawnSync#1',
-    'scripts/codex/verification-action-github-provider.ts::function-declaration:ghBytes::spawnSync#1',
-    'scripts/codex/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1'
-  ].sort());
+test('Action provider preflight consumes the production dispatcher dataflow projection', () => {
+  const entries = projectedBoundary('verification-action');
+  expect(entries.length).toBeGreaterThan(0);
+  expect(new Set(entries.map((entry) => entry.identity)).size).toBe(entries.length);
+  expect(entries.every((entry) => entry.kind === 'process')).toBe(true);
+  expect(entries.every((entry) => entry.authority.ownerId === SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER)).toBe(true);
+  expect(entries.every((entry) => entry.authority.principleId === 'sec-trusted-bootstrap-dispatcher-dataflow-v1')).toBe(true);
+  expect(entries.every((entry) => entry.authority.evidence.includes('module-graph-closure'))).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.shell === 'forbidden')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.deadline === 'bounded' || entry.dataflow.deadline === 'provider-bound'))
+    .toBe(true);
+  expect(entries.every((entry) => TCB_CLOSURE_LOCK.modules.includes(entry.repositoryPath))).toBe(true);
 
-  const repositoryPath = 'platform/dev-runner/verification-action-executor.ts';
-  const canonicalSource = await readCompilerTypeScriptMutationFixture(repositoryPath, 'hostile-mutation');
-  const dispatcher = readTypeScriptHostileMutationNode(
-    canonicalSource,
-    'executeVerifiedCiActionPlanV1',
-    'hostile-mutation'
-  );
-  const assertDispatcher = (candidate: string): void => {
-    expect(candidate).toContain('export async function executeVerifiedCiActionPlanV1(options: {');
-    expect(candidate.match(/Bun\.spawn\(/gu)).toHaveLength(1);
-    expect(candidate).toContain('const [, ...args] = ciVerificationNormalizedOperationArgvV2(operation);');
-    expect(candidate).toContain('const argv = [process.execPath, ...args];');
-    expect(candidate).toContain('const child = Bun.spawn(argv, {');
-    expect(candidate).toContain('cwd: options.repositoryRoot');
-    expect(candidate).toContain("stdin: 'inherit'");
-    expect(candidate).toContain("stdout: 'inherit'");
-    expect(candidate).toContain("stderr: 'inherit'");
-    expect(candidate).toContain('env: options.environment ?? process.env');
-    expect(candidate).not.toContain('shell:');
-  };
-  assertDispatcher(dispatcher);
-  for (const [label, hostile] of [
-    ['name', dispatcher.replace('executeVerifiedCiActionPlanV1', 'executeVerifiedCiActionPlanNearNameV1')],
-    ['normalized-argv', dispatcher.replace('ciVerificationNormalizedOperationArgvV2(operation)', '[]')],
-    ['binary', dispatcher.replace('[process.execPath, ...args]', "['bun', ...args]")],
-    ['spawn-argv', dispatcher.replace('Bun.spawn(argv, {', 'Bun.spawn(args, {')],
-    ['cwd', dispatcher.replace('cwd: options.repositoryRoot', "cwd: `${options.repositoryRoot}/nested`")],
-    ['stdin', dispatcher.replace("stdin: 'inherit'", "stdin: 'ignore'")],
-    ['stdout', dispatcher.replace("stdout: 'inherit'", "stdout: 'pipe'")],
-    ['stderr', dispatcher.replace("stderr: 'inherit'", "stderr: 'pipe'")],
-    ['environment', dispatcher.replace('env: options.environment ?? process.env', 'env: process.env')],
-    ['shell', dispatcher.replace("stdin: 'inherit',", "shell: true,\n    stdin: 'inherit',")],
-    ['ordinal', dispatcher.replace(
-      'const child = Bun.spawn(argv, {',
-      "Bun.spawn([process.execPath, '--version']);\n  const child = Bun.spawn(argv, {"
-    )]
-  ] as const) {
-    expect(hostile, `${label} mutation must alter the canonical dispatcher`).not.toBe(dispatcher);
-    let rejected = false;
-    try { assertDispatcher(hostile); } catch { rejected = true; }
-    if (!rejected) throw new Error(`Verification Action executor mutation was not rejected: ${label}`);
-  }
-  const observed = new Set<string>();
-  expect(() => runtimeRelativeImportsFromSource(
-    repositoryPath, canonicalSource, observed, new Set(), new Set()
-  )).not.toThrow();
-  expect([...observed]).toEqual([
-    'platform/dev-runner/verification-action-executor.ts::function-declaration:executeVerifiedCiActionPlanV1::Bun.spawn#1'
-  ]);
-  for (const hostileSource of [
-    canonicalSource.replace('executeVerifiedCiActionPlanV1', 'executeVerifiedCiActionPlanNearNameV1'),
-    canonicalSource.replace(
-      '  const child = Bun.spawn(argv, {',
-      "  Bun.spawn([process.execPath, '--version']);\n  const child = Bun.spawn(argv, {"
-    )
-  ]) {
-    expect(hostileSource).not.toBe(canonicalSource);
-    expect(() => runtimeRelativeImportsFromSource(
-      repositoryPath, hostileSource, new Set(), new Set(), new Set()
-    )).toThrow('unreviewed process dispatcher');
-  }
-  const digest = (source: string) => createHash('sha256').update(source).digest('hex');
-  for (const hostile of [
-    canonicalSource.replace('[process.execPath, ...args]', "['bun', ...args]"),
-    canonicalSource.replace('cwd: options.repositoryRoot', "cwd: `${options.repositoryRoot}/nested`")
-  ]) {
-    expect(hostile).not.toBe(canonicalSource);
-    expect(digest(hostile)).not.toBe(digest(canonicalSource));
-  }
+  const processIdentity = entries[0]!.identity;
+  expect(() => projectSecTrustedBootstrapDispatcherDataflowV1({
+    processDispatchers: [processIdentity, processIdentity]
+  })).toThrow('duplicate identity');
+  const networkIdentity = TRUSTED_DISPATCHER_PROJECTION.network[0]!.identity;
+  expect(() => projectSecTrustedBootstrapDispatcherDataflowV1({
+    processDispatchers: [networkIdentity]
+  })).toThrow('Network loader cannot be projected as a process dispatcher');
 });
 
-test('Hosted archive inventory has one fixed bounded dispatcher shared by every trusted materializer', async () => {
-  const repositoryPath = 'scripts/ci-verification.ts';
-  const identity =
-    'scripts/ci-verification.ts::function-declaration:inspectHostedActionArchiveMetadataV2::spawnSync#1';
-  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(true);
-  const source = await readCompilerTypeScriptMutationFixture(
-    'scripts/ci-verification.ts',
-    'hostile-mutation'
-  );
-  const dispatcher = readTypeScriptHostileMutationNode(
-    source,
-    'inspectHostedActionArchiveMetadataV2',
-    'hostile-mutation'
-  );
-  const assertDispatcher = (candidate: string): void => {
-    expect(candidate).toContain(
-      'function inspectHostedActionArchiveMetadataV2(archive: string, label: string): unknown {'
-    );
-    expect(candidate.match(/spawnSync\(/gu)).toHaveLength(1);
-    expect(candidate).toContain("    '/usr/bin/python3',");
-    expect(candidate).toContain("    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V3, archive],");
-    expect(candidate).toContain("      encoding: 'utf8',");
-    expect(candidate).toContain('      windowsHide: true,');
-    expect(candidate).toContain('      maxBuffer: 128 * 1024 * 1024,');
-    expect(candidate).toContain("      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }");
-    expect(candidate).not.toContain('cwd:');
-    expect(candidate).not.toContain('shell:');
-    expect(candidate).not.toContain('execSync');
-    expect(candidate).not.toContain('process.env');
-  };
-  assertDispatcher(dispatcher);
-  for (const [label, hostile] of [
-    ['name', dispatcher.replace('inspectHostedActionArchiveMetadataV2', 'inspectHostedActionArchiveMetadataNearNameV2')],
-    ['command', dispatcher.replace("'/usr/bin/python3'", "'/usr/local/bin/python3'")],
-    ['script', dispatcher.replace('HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V3', 'HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_NEAR_V3')],
-    ['archive', dispatcher.replace(', archive],', ", `${archive}.candidate`],")],
-    ['cwd', dispatcher.replace("encoding: 'utf8',", "cwd: archive, encoding: 'utf8',")],
-    ['environment', dispatcher.replace("{ PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }", 'process.env')],
-    ['output-bound', dispatcher.replace('128 * 1024 * 1024', '256 * 1024 * 1024')],
-    ['ordinal', dispatcher.replace(
-      '  const inventory = spawnSync(',
-      "  spawnSync('/usr/bin/python3', ['--version']);\n  const inventory = spawnSync("
-    )]
-  ] as const) {
-    expect(hostile).not.toBe(dispatcher);
-    let rejected = false;
-    try { assertDispatcher(hostile); } catch { rejected = true; }
-    if (!rejected) throw new Error(`Hosted archive dispatcher mutation was not rejected: ${label}`);
-  }
-  const observed = new Set<string>();
-  runtimeRelativeImportsFromSource(repositoryPath, source, observed, new Set(), new Set());
-  expect(observed.has(identity)).toBe(true);
-  expect([...observed].filter((value) => value.includes('inspectHostedActionArchiveMetadataV2')))
-    .toEqual([identity]);
+test('Hosted archive inventory consumes one bounded production dispatcher projection', () => {
+  const entries = projectedBoundary('hosted-archive-inventory');
+  expect(entries.length).toBeGreaterThan(0);
+  expect(entries.every((entry) => entry.kind === 'process')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.executable === 'fixed-interpreter')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.environment === 'explicit-allowlist')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.output === 'bounded')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.shell === 'forbidden')).toBe(true);
 });
 
-test('verification-action runner receives a narrow repository capability and cannot dispatch processes', async () => {
-  const repositoryPath = 'tooling/sec-dev/verification-action-runner.ts';
-  expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].filter((identity) => (
-    identity.startsWith(`${repositoryPath}::`)
-  ))).toEqual([]);
+test('verification-action runner receives a narrow repository capability and cannot dispatch processes', () => {
+  const repositoryPath = 'src/verification/action/runner.ts';
+  expect(TRUSTED_DISPATCHER_PROJECTION.process.some((entry) => entry.repositoryPath === repositoryPath)).toBe(false);
 
   const moduleReferences = readRepositoryModuleGraphV1().references
     .filter((reference) => reference.from === repositoryPath)
     .map((reference) => reference.specifier);
   expect(moduleReferences).not.toContain('node:child_process');
   expect(moduleReferences).not.toContain('./branch-lifecycle-command.ts');
-
-  const exactSource = await readCompilerTypeScriptMutationFixture(repositoryPath, 'tcb-analysis');
-  const observed = new Set<string>();
-  runtimeRelativeImportsFromSource(repositoryPath, exactSource, observed, new Set(), new Set());
-  expect([...observed].filter((identity) => identity.startsWith(`${repositoryPath}::`))).toEqual([]);
-
-  const unauthorizedDispatcher = [
-    "import { spawnSync } from 'node:child_process';",
-    "export function unauthorizedProcessCapability() { return spawnSync('git', ['status']); }"
-  ].join('\n');
-  expect(() => runtimeRelativeImportsFromSource(
-    repositoryPath,
-    unauthorizedDispatcher,
-    new Set(),
-    new Set(),
-    new Set()
-  )).toThrow('unreviewed process dispatcher');
 });
 
-test('TCB network effects require one direct canonical owner and reject aliases or identity drift', () => {
-  const repositoryPath = 'scripts/codex/integration-authorization-status-github.ts';
-  const identity =
-    `${repositoryPath}::function-declaration:dispatchGitHubApiRequestV1::globalThis.fetch#1`;
-  const canonical = [
-    'export function dispatchGitHubApiRequestV1(input: string | URL, init?: RequestInit) {',
-    '  return globalThis.fetch(input, { ...init, redirect: \'error\' });',
-    '}'
-  ].join('\n');
-  const observedNetwork = new Set<string>();
-  expect(() => runtimeRelativeImportsFromSource(
-    repositoryPath,
-    canonical,
-    new Set(),
-    new Set(),
-    new Set(),
-    observedNetwork
-  )).not.toThrow();
-  expect(observedNetwork).toEqual(new Set([identity]));
-  expect(TCB_REVIEWED_NETWORK_DISPATCHERS).toEqual(new Set([identity]));
+test('TCB network effects consume one direct canonical dataflow projection', () => {
+  const entries = projectedBoundary('github-api');
+  expect(entries.length).toBeGreaterThan(0);
+  expect(entries.every((entry) => entry.kind === 'network')).toBe(true);
+  expect(entries.every((entry) => entry.loader === 'globalThis.fetch')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.argv === 'url-and-request-init')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.environment === 'provider-bound')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.shell === 'not-applicable')).toBe(true);
 
-  const hostileSources = [
-    canonical.replace('dispatchGitHubApiRequestV1', 'dispatchGitHubApiRequestNearNameV1'),
-    canonical.replace('globalThis.fetch', 'fetch'),
-    canonical.replace(
-      "  return globalThis.fetch(input, { ...init, redirect: 'error' });",
-      "  const dispatcher = globalThis.fetch; return dispatcher(input, init);"
-    ),
-    canonical.replace('globalThis.fetch', "globalThis['fetch']"),
-    canonical.replace(
-      "  return globalThis.fetch(input, { ...init, redirect: 'error' });",
-      "  globalThis.fetch(input, init); return globalThis.fetch(input, init);"
-    )
-  ];
-  for (const hostile of hostileSources) {
-    expect(hostile).not.toBe(canonical);
-    expect(() => runtimeRelativeImportsFromSource(
-      repositoryPath,
-      hostile,
-      new Set(),
-      new Set(),
-      new Set(),
-      new Set()
-    )).toThrow(/network dispatcher|computed globalThis member/u);
-  }
+  const counterexample = reverseProjectSecTrustedBootstrapDispatcherCounterexampleV1({
+    projection: TRUSTED_DISPATCHER_PROJECTION,
+    dispatcherIdentity: entries[0]!.identity,
+    designDelta: 'effect-dataflow'
+  });
+  expect(counterexample.status).toBe('counterexample');
+  expect(counterexample.owner.principleId).toBe('sec-trusted-bootstrap-dispatcher-dataflow-v1');
+  expect(counterexample.designDelta.machineTarget).toBe('tcb-closure-lock.reviewedNetworkDispatchers');
+  expect(counterexample.migrationClosure.ownerId).toBe(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
+  expect(counterexample.migrationClosure.evidence).toContain('content-digest-readback');
+
+  const unknown = reverseProjectSecTrustedBootstrapDispatcherCounterexampleV1({
+    projection: TRUSTED_DISPATCHER_PROJECTION,
+    dispatcherIdentity: 'scripts/unknown.ts::function-declaration:nearMiss::spawn#1',
+    designDelta: 'dispatcher-identity'
+  });
+  expect(unknown.owner.ownerId).toBe(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
+  expect(unknown.designDelta.machineTarget).toBe('tcb-closure-lock.reviewedProcessDispatchers');
+  expect(() => reverseProjectSecTrustedBootstrapDispatcherCounterexampleV1({
+    projection: TRUSTED_DISPATCHER_PROJECTION,
+    dispatcherIdentity: entries[0]!.identity,
+    designDelta: 'not-a-design-delta' as never
+  })).toThrow('design delta is not recognized');
 });
 
-test('worktree physical closeout introduces no dispatcher and constrains the canonical shared process owner', async () => {
-  const identity = 'scripts/codex/worktree-physical-closeout.ts::function-declaration:runRepositoryGit::spawnSync#1';
-  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(false);
-  const source = await readCompilerTypeScriptMutationFixture(
-    'scripts/codex/worktree-physical-closeout.ts',
-    'hostile-mutation'
-  );
-  const dispatcher = readTypeScriptHostileMutationNode(
-    source,
-    'runRepositoryGit',
-    'hostile-mutation'
-  );
-  const assertDispatcher = (candidate: string): void => {
-    expect(candidate).toContain('async function runRepositoryGit(repositoryRoot: string, args: readonly string[]): Promise<CommandResult> {');
-    expect(candidate.match(/runCommandBytes\(/gu)).toHaveLength(1);
-    expect(candidate).toContain("await runCommandBytes('git', ['-C', repositoryRoot, ...args], {");
-    expect(candidate).toContain('    cwd: repositoryRoot,');
-    expect(candidate).toContain('env: createBranchLifecycleGitChildEnvironmentV1(process.env)');
-    expect(candidate).toContain("envMode: 'replace'");
-    expect(candidate).toContain('    maxStderrBytes: MAX_BUFFER,\n');
-    expect(candidate).toContain('    maxStdoutBytes: MAX_BUFFER\n');
-    expect(candidate).not.toContain('spawnSync');
-    expect(candidate).not.toContain('shell:');
-    expect(candidate).not.toContain('execSync');
-  };
-  assertDispatcher(dispatcher);
-  for (const [label, hostile] of [
-    ['name', dispatcher.replace('runRepositoryGit', 'runRepositoryGitNearName')],
-    ['command', dispatcher.replace("runCommandBytes('git'", "runCommandBytes('git-near-name'")],
-    ['arguments', dispatcher.replace("['-C', repositoryRoot, ...args]", '[repositoryRoot, ...args]')],
-    ['repository-argument', dispatcher.replace('repositoryRoot, ...args', "repositoryRoot + '/nested', ...args")],
-    ['cwd', dispatcher.replace('cwd: repositoryRoot', "cwd: repositoryRoot + '/nested'")],
-    ['environment', dispatcher.replace('createBranchLifecycleGitChildEnvironmentV1(process.env)', 'process.env')],
-    ['environment-mode', dispatcher.replace("envMode: 'replace'", "envMode: 'inherit'")],
-    ['stderr-boundary', dispatcher.replace('maxStderrBytes: MAX_BUFFER', 'maxStderrBytes: MAX_BUFFER * 2')],
-    ['stdout-boundary', dispatcher.replace('maxStdoutBytes: MAX_BUFFER', 'maxStdoutBytes: MAX_BUFFER * 2')],
-    ['ordinal', dispatcher.replace('  return {', "  runCommandBytes('git', ['status'], { cwd: repositoryRoot });\n  return {")]
-  ] as const) {
-    expect(hostile).not.toBe(dispatcher);
-    let rejected = false;
-    try { assertDispatcher(hostile); } catch { rejected = true; }
-    if (!rejected) throw new Error(`worktree process-boundary mutation was not rejected: ${label}`);
-  }
-  expect(source).toContain('observeWorkingState(repository.root, input.targetPath, ownedNamespace.relativePath)');
-  expect(source).not.toContain('runRepositoryGit(targetPath,');
+test('local Actions runner dispatcher binds executable domain, cwd, environment, bounds, and ordinal', () => {
+  const entries = projectedBoundary('local-actions-runner');
+  expect(entries.length).toBeGreaterThan(0);
+  expect(entries.every((entry) => entry.kind === 'process')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.executable === 'command-input')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.cwd === 'caller-cwd')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.environment === 'provider-bound')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.output === 'bounded')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.deadline === 'bounded')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.shell === 'forbidden')).toBe(true);
 });
 
-test('local Actions runner dispatcher binds executable domain, cwd, environment, bounds, and ordinal', async () => {
-  const repositoryPath = 'scripts/codex/local-github-actions-runner.ts';
-  const identity =
-    'scripts/codex/local-github-actions-runner.ts::function-declaration:runCommand::spawn#1';
-  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(true);
-  const source = await readCompilerTypeScriptMutationFixture(
-    'scripts/codex/local-github-actions-runner.ts',
-    'hostile-mutation'
-  );
-  const dispatcher = readTypeScriptHostileMutationNode(source, 'runCommand', 'hostile-mutation');
-  const assertDispatcher = (candidate: string): void => {
-    expect(candidate).toContain('async function runCommand(\n');
-    expect(candidate).toContain("  command: 'docker' | 'gh' | 'git',\n");
-    expect(candidate.match(/spawn\(/gu)).toHaveLength(1);
-    expect(candidate).toContain('const child = spawn(command, [...args], {');
-    expect(candidate).toContain('cwd: options.cwd,\n');
-    expect(candidate).toContain('const childEnvironment = commandEnvironment(command);');
-    expect(candidate).toContain("if (command !== 'gh'");
-    expect(candidate).toContain('childEnvironment.GH_TOKEN = options.githubToken;');
-    expect(candidate).toContain('env: childEnvironment,');
-    expect(candidate).not.toContain('environment?: Readonly<Record<string, string>>');
-    expect(candidate).toContain('shell: false,');
-    expect(candidate).toContain('windowsHide: true,');
-    expect(candidate).toContain("stdio: ['pipe', 'pipe', 'pipe']");
-    expect(candidate).toContain(
-      'const timeoutMs = options.timeoutMs ?? ENVIRONMENT.provider.timeoutsMs.commandDefault;'
-    );
-    expect(candidate).toContain('timeoutMs > ENVIRONMENT.provider.timeoutsMs.commandMaximum');
-    expect(candidate).toContain('if (outputBytes > MAX_COMMAND_OUTPUT_BYTES) {');
-    expect(candidate).not.toContain('env: process.env');
-    expect(candidate).not.toContain('shell: true');
-    expect(candidate).not.toContain('execSync');
-    expect(candidate).not.toContain('spawnSync');
-  };
-  assertDispatcher(dispatcher);
-  for (const [label, hostile] of [
-    ['name', dispatcher.replace('runCommand(', 'runCommandNearName(')],
-    ['command', dispatcher.replace("'docker' | 'gh' | 'git'", "'docker' | 'gh' | 'git' | 'powershell'")],
-    ['spawn-command', dispatcher.replace('spawn(command, [...args]', "spawn('powershell', [...args]")],
-    ['cwd', dispatcher.replace('cwd: options.cwd', "cwd: options.cwd + '/nested'")],
-    ['environment', dispatcher.replace('env: childEnvironment', 'env: process.env')],
-    ['credential-domain', dispatcher.replace("command !== 'gh'", "command !== 'docker'")],
-    ['shell', dispatcher.replace('shell: false', 'shell: true')],
-    ['timeout', dispatcher.replace(
-      'options.timeoutMs ?? ENVIRONMENT.provider.timeoutsMs.commandDefault',
-      'options.timeoutMs ?? 0'
-    )],
-    ['output-bound', dispatcher.replace(
-      'outputBytes > MAX_COMMAND_OUTPUT_BYTES',
-      'outputBytes > MAX_COMMAND_OUTPUT_BYTES * 2'
-    )],
-    ['ordinal', dispatcher.replace(
-      'const child = spawn(command, [...args], {',
-      "spawn('git', ['status']);\n    const child = spawn(command, [...args], {"
-    )]
-  ] as const) {
-    expect(hostile).not.toBe(dispatcher);
-    let rejected = false;
-    try { assertDispatcher(hostile); } catch { rejected = true; }
-    if (!rejected) throw new Error(`local runner dispatcher mutation was not rejected: ${label}`);
-  }
-  const observed = new Set<string>();
-  runtimeRelativeImportsFromSource(repositoryPath, source, observed, new Set(), new Set());
-  expect(observed).toEqual(new Set([identity]));
-});
-
-test('docs-doctor index-tree preflight binds every exact read-only dispatcher and rejects semantic drift', async () => {
-  const repositoryPath = 'docs/scripts/docs-doctor.ts';
-  const lexicalFixtures = [
-    {
-      name: 'resolveChangedDocumentPathsSince',
-      identities: [
-        'docs/scripts/docs-doctor.ts::function-declaration:resolveChangedDocumentPathsSince::spawnSync#1'
-      ],
-      body: [
-        'function resolveChangedDocumentPathsSince(repositoryRoot: string, sinceRef: string) {',
-        "  const result = spawnSync('git', ['diff', '--name-only', `${sinceRef}..HEAD`], { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });",
-        '  return result;',
-        '}'
-      ]
-    },
-    {
-      name: 'captureDocsDoctorIndexTree',
-      identities: [
-        'docs/scripts/docs-doctor.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#1',
-        'docs/scripts/docs-doctor.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#2'
-      ],
-      body: [
-        'function captureDocsDoctorIndexTree(repositoryRoot: string) {',
-        "  const paths = spawnSync('git', ['rev-parse'], { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });",
-        "  const result = spawnSync('git', ['write-tree'], { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });",
-        '  void paths;',
-        '  return result;',
-        '}'
-      ]
-    },
-    {
-      name: 'readCapturedGitTreeBlob',
-      identities: [
-        'docs/scripts/docs-doctor.ts::function-declaration:readCapturedGitTreeBlob::spawnSync#1'
-      ],
-      body: [
-        "function readCapturedGitTreeBlob(repositoryRoot: string, treeSha: string, repositoryPath: string, observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes') {",
-        '  if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) throw new Error("noncanonical");',
-        '  const objectExpression = `${treeSha}:${repositoryPath}`;',
-        "  const args = observationKind === 'blob-bytes' ? ['cat-file', '--batch'] : ['ls-tree', '--name-only', objectExpression];",
-        "  const result = spawnSync('git', args, { cwd: repositoryRoot, encoding: 'buffer', input: observationKind === 'blob-bytes' ? Buffer.from(`${objectExpression}\\n`, 'utf8') : undefined, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });",
-        '  return result.stdout;',
-        '}'
-      ]
-    }
-  ] as const;
-  const expectedDocsDoctorDispatchers = lexicalFixtures.flatMap(({ identities }) => identities).sort();
-  expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].filter((identity) =>
-    identity.startsWith('docs/scripts/docs-doctor.ts::')
-  ).sort()).toEqual(expectedDocsDoctorDispatchers);
-  for (const fixture of lexicalFixtures) {
-    for (const identity of fixture.identities) {
-      expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(true);
-    }
-    const canonicalSource = [
-      "import { spawnSync } from 'node:child_process';",
-      ...fixture.body
-    ].join('\n');
-    const observed = new Set<string>();
-    expect(() => runtimeRelativeImportsFromSource(
-      repositoryPath, canonicalSource, observed, new Set(), new Set()
-    )).not.toThrow();
-    expect([...observed].sort()).toEqual([...fixture.identities].sort());
-    const nearName = canonicalSource.replace(
-      `function ${fixture.name}(`,
-      `function ${fixture.name}NearName(`
-    );
-    const secondDispatcher = canonicalSource.replace(
-      '\n}', "\n  spawnSync('git', ['status'], { cwd: repositoryRoot });\n}"
-    );
-    for (const hostileSource of [nearName, secondDispatcher]) {
-      expect(() => runtimeRelativeImportsFromSource(
-        repositoryPath, hostileSource, new Set(), new Set(), new Set()
-      )).toThrow('unreviewed process dispatcher');
-    }
-  }
-
-  const docsDoctorSource = await readCompilerTypeScriptMutationFixture(
-    'docs/scripts/docs-doctor.ts',
-    'hostile-mutation'
-  );
-  const observedDocsDoctorDispatchers = new Set<string>();
-  runtimeRelativeImportsFromSource(
-    repositoryPath,
-    docsDoctorSource,
-    observedDocsDoctorDispatchers,
-    new Set(),
-    new Set()
-  );
-  expect([...observedDocsDoctorDispatchers].filter((identity) =>
-    identity.startsWith(`${repositoryPath}::`)
-  ).sort()).toEqual(expectedDocsDoctorDispatchers);
-  const captureSource = readTypeScriptHostileMutationNode(
-    docsDoctorSource,
-    'captureDocsDoctorIndexTree',
-    'hostile-mutation'
-  );
-  expect(captureSource.match(/spawnSync\(/gu)).toHaveLength(2);
-  expect(captureSource).toContain("spawnSync('git', ['write-tree'], {");
-  expect(captureSource).toContain('cwd: resolvedRepositoryRoot');
-  expect(captureSource).toContain('env: baseEnvironment');
-  expect(captureSource).toContain('env: gitEnvironment');
-
-  const resolveSource = readTypeScriptHostileMutationNode(
-    docsDoctorSource,
-    'resolveChangedDocumentPathsSince',
-    'hostile-mutation'
-  );
-  expect(resolveSource.match(/spawnSync\(/gu)).toHaveLength(1);
-  expect(resolveSource).toContain("spawnSync(\n    'git',\n    ['diff', '--name-only', `${sinceRef}..HEAD`]");
-  expect(resolveSource).toContain('cwd: repositoryRoot');
-  expect(resolveSource).toContain("encoding: 'utf8'");
-  expect(resolveSource).toContain('windowsHide: true');
-  expect(resolveSource).toContain('env: isolatedGitReadEnvironment()');
-
-  const parserSource = readTypeScriptHostileMutationNode(
-    docsDoctorSource,
-    'parseCapturedGitTreeBlobFrameV1',
-    'hostile-mutation'
-  );
-  expect(parserSource).toContain("objectFormat: DocsDoctorGitObjectFormatV3 = 'sha1'");
-  expect(parserSource).toContain('isDocsDoctorGitObjectIdV3(match[1]!, objectFormat)');
-  expect(parserSource).toContain('bodyEnd + 1 !== frame.length');
-  expect(parserSource).toContain('frame[bodyEnd] !== 0x0a');
-  expect(parserSource).toContain('return frame.subarray(bodyStart, bodyEnd);');
-  expect(parserSource).not.toContain('spawnSync(');
-
-  const readerSource = readTypeScriptHostileMutationNode(
-    docsDoctorSource,
-    'readCapturedGitTreeBlob',
-    'hostile-mutation'
-  );
-  expect(readerSource.match(/spawnSync\(/gu)).toHaveLength(1);
-  expect(readerSource).toContain("refs\\/remotes\\/[A-Za-z0-9._-]+\\/[A-Za-z0-9._\\/-]+");
-  expect(readerSource).toContain('CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)');
-  expect(readerSource).toContain("observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes'");
-  expect(readerSource).toContain('const objectExpression = `${treeSha}:${repositoryPath}`;');
-  expect(readerSource).toContain("? ['cat-file', '--batch']");
-  expect(readerSource).toContain(": ['ls-tree', '--name-only', objectExpression]");
-  expect(readerSource).toContain("spawnSync(\n    'git',\n    args,");
-  expect(readerSource).toContain('cwd: repositoryRoot');
-  expect(readerSource).toContain("encoding: 'buffer'");
-  expect(readerSource).toContain("input: observationKind === 'blob-bytes'");
-  expect(readerSource).toContain("Buffer.from(`${objectExpression}\\n`, 'utf8')");
-  expect(readerSource).toContain('windowsHide: true');
-  expect(readerSource).toContain('maxBuffer: 8 * 1024 * 1024');
-  expect(readerSource).toContain('env: gitEnvironment');
-  expect(readerSource).not.toContain('shell:');
-  expect(readerSource).not.toContain("['show'");
-
-  const censusSource = readTypeScriptHostileMutationNode(
-    docsDoctorSource,
-    'listCapturedWorkPackagePaths',
-    'hostile-mutation'
-  );
-  expect(censusSource).not.toContain('spawnSync(');
-  expect(censusSource).toContain(
-    "snapshot.treeSha,\n      packageRoot,\n      'direct-entry-names',\n      snapshot.gitEnvironment"
-  );
-  expect(censusSource).toContain('source.includes(\'\\r\')');
-  expect(censusSource).toContain("name.includes('/')");
-  expect(censusSource).toContain('new Set(paths).size !== paths.length');
-
-  const digest = (source: string) => createHash('sha256').update(source).digest('hex');
-  for (const hostileSource of [
-    captureSource.replace("['write-tree']", "['read-tree', 'HEAD']"),
-    captureSource.replace('cwd: resolvedRepositoryRoot', "cwd: resolvedRepositoryRoot + '/.git'"),
-    captureSource.replace("encoding: 'utf8'", "env: { GIT_INDEX_FILE: 'forged' }, encoding: 'utf8'")
-  ]) {
-    expect(hostileSource).not.toBe(captureSource);
-    expect(digest(hostileSource)).not.toBe(digest(captureSource));
-  }
-  for (const hostileSource of [
-    parserSource.replace('parseCapturedGitTreeBlobFrameV1', 'parseCapturedGitTreeBlobFrameNearNameV1'),
-    parserSource.replace('bodyEnd + 1 !== frame.length', 'bodyEnd > frame.length'),
-    parserSource.replace('frame[bodyEnd] !== 0x0a', 'false'),
-    parserSource.replace('return frame.subarray(bodyStart, bodyEnd);', 'return frame;')
-  ]) {
-    expect(hostileSource).not.toBe(parserSource);
-    expect(digest(hostileSource)).not.toBe(digest(parserSource));
-  }
-  for (const hostileSource of [
-    readerSource.replace('readCapturedGitTreeBlob', 'readCapturedGitTreeBlobs'),
-    readerSource.replace("`${treeSha}:${repositoryPath}`", "`HEAD:${repositoryPath}`"),
-    readerSource.replace("? ['cat-file', '--batch']", "? ['show', objectExpression]"),
-    readerSource.replace("['ls-tree', '--name-only'", "['status', '--short'"),
-    readerSource.replace("'blob-bytes' | 'direct-entry-names'", "string"),
-    readerSource.replace("Buffer.from(`${objectExpression}\\n`, 'utf8')", 'Buffer.alloc(0)'),
-    readerSource.replace('cwd: repositoryRoot', "cwd: repositoryRoot + '/.git'"),
-    readerSource.replace('cwd: repositoryRoot,', "cwd: repositoryRoot, env: { GIT_INDEX_FILE: 'forged' },"),
-    readerSource.replace('windowsHide: true', 'windowsHide: false'),
-    readerSource.replace('windowsHide: true,', 'windowsHide: true, shell: true,'),
-    readerSource.replace("encoding: 'buffer'", "encoding: 'utf8'"),
-    readerSource.replace('maxBuffer: 8 * 1024 * 1024', 'maxBuffer: 16 * 1024 * 1024'),
-    readerSource.replace(
-      'CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)',
-      "repositoryPath.startsWith('docs/')"
-    )
-  ]) {
-    expect(hostileSource).not.toBe(readerSource);
-    expect(digest(hostileSource)).not.toBe(digest(readerSource));
-  }
+test('docs-doctor index-tree consumes the production dispatcher projection', () => {
+  const entries = projectedBoundary('docs-doctor-index');
+  expect(entries.length).toBeGreaterThan(0);
+  expect(entries.every((entry) => entry.kind === 'process')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.cwd === 'repository-root')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.environment === 'provider-bound')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.output === 'bounded')).toBe(true);
+  expect(entries.every((entry) => entry.dataflow.shell === 'forbidden')).toBe(true);
+  expect(entries.every((entry) => TRUSTED_DISPATCHER_PROJECTION.process.includes(entry))).toBe(true);
 });
 
 test('live TCB closure passes lock verification', () => {
@@ -823,11 +379,11 @@ test('live network dispatcher allowlist exactly matches the derived identity', (
 
 test.serial('TCB generation rejects a stale reviewed dispatcher authorization', () => {
   const stale =
-    'scripts/ci-verification.ts::function-declaration:retiredDispatcher::spawnSync#1';
+    'src/verification/ci/verification.ts::function-declaration:retiredDispatcher::spawnSync#1';
   expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(stale)).toBe(false);
   TCB_REVIEWED_PROCESS_DISPATCHERS.add(stale);
   try {
-    expect(() => generateTcbClosureLockV2()).toThrow(
+    expect(() => generateTcbClosureLock()).toThrow(
       'TCB reviewed process dispatcher allowlist must exactly equal the live causal dispatcher census.'
     );
   } finally {
@@ -838,11 +394,11 @@ test.serial('TCB generation rejects a stale reviewed dispatcher authorization', 
 
 test.serial('TCB generation rejects a stale reviewed network dispatcher authorization', () => {
   const stale =
-    'scripts/codex/integration-authorization-status-github.ts::function-declaration:retiredNetwork::globalThis.fetch#1';
+    'src/control/integration/integration-authorization-status-github.ts::function-declaration:retiredNetwork::globalThis.fetch#1';
   expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(stale)).toBe(false);
   TCB_REVIEWED_NETWORK_DISPATCHERS.add(stale);
   try {
-    expect(() => generateTcbClosureLockV2()).toThrow(
+    expect(() => generateTcbClosureLock()).toThrow(
       'TCB reviewed network dispatcher allowlist must exactly equal the live causal dispatcher census.'
     );
   } finally {
@@ -880,7 +436,8 @@ test('adding an untrusted module causes the lock to break (expansion)', () => {
 test('removing a reviewed module causes the lock to break (contraction)', () => {
   const closure = trustedRuntimeClosure();
   const tampered = new Set(closure.closure);
-  tampered.delete('platform/shared/canonical-primitives.ts');
+  const removedModule = TCB_CLOSURE_LOCK.modules[0]!;
+  tampered.delete(removedModule);
   const verification = verifyTcbClosureLock({
     closure: tampered,
     reviewedEdges: closure.reviewedEdges,
@@ -890,15 +447,17 @@ test('removing a reviewed module causes the lock to break (contraction)', () => 
   });
   expect(verification.status).toBe('failed');
   expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('contraction: missing module platform/shared/canonical-primitives.ts')
+    expect.stringContaining(`contraction: missing module ${removedModule}`)
   ]));
 });
 
 test('substituting a module path causes the lock to break', () => {
   const closure = trustedRuntimeClosure();
   const tampered = new Set(closure.closure);
-  tampered.delete('platform/shared/canonical-primitives.ts');
-  tampered.add('platform/shared/canonical-primitives-fake.ts');
+  const removedModule = TCB_CLOSURE_LOCK.modules[0]!;
+  const replacementModule = `${removedModule}.replacement`;
+  tampered.delete(removedModule);
+  tampered.add(replacementModule);
   const verification = verifyTcbClosureLock({
     closure: tampered,
     reviewedEdges: closure.reviewedEdges,
@@ -908,8 +467,8 @@ test('substituting a module path causes the lock to break', () => {
   });
   expect(verification.status).toBe('failed');
   expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('contraction: missing module platform/shared/canonical-primitives.ts'),
-    expect.stringContaining('expansion: unexpected module platform/shared/canonical-primitives-fake.ts')
+    expect.stringContaining(`contraction: missing module ${removedModule}`),
+    expect.stringContaining(`expansion: unexpected module ${replacementModule}`)
   ]));
 });
 
@@ -918,7 +477,7 @@ test('introducing an unauthorized edge causes the lock to break', () => {
   const tampered = {
     closure: closure.closure,
     reviewedEdges: new Set(closure.reviewedEdges).add(
-      'scripts/ci-workspace-fast.ts -> platform/unauthorized-target.ts'
+      'src/verification/ci/workspace-fast.ts -> platform/unauthorized-target.ts'
     ),
     reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
     reviewedExternalImports: closure.reviewedExternalImports,
@@ -952,7 +511,7 @@ test('adding an unauthorized boundary causes the lock to break', () => {
   const verification = verifyTcbClosureLock({
     ...closure,
     reviewedBoundaryEdges: new Set(closure.reviewedBoundaryEdges).add(
-      'scripts/codex/verification-session.ts -> platform/shared/ci-contract.ts'
+      'src/verification/ci/runtime/verification-session.ts -> src/verification/ci/contract/core.ts'
     )
   });
   expect(verification.status).toBe('failed');

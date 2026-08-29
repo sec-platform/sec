@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { WorkspaceWriteLeaseError } from '../../platform/shared/workspace-write-lease.ts';
-import { applyMigrationEntries } from '../../platform/upgrade/upgrade-workspace.ts';
+import { WorkspaceWriteLeaseError } from '../../src/workspace/lease.ts';
+import { applyMigrationEntries } from '../../src/change-management/upgrade/upgrade-workspace.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('applies db-expand-contract migration correctly', async () => {

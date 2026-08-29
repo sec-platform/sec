@@ -3,19 +3,19 @@ import { expect, test } from 'bun:test';
 import {
   buildLocalAffectedCheckPlan,
   type LocalAffectedGateId
-} from '../../platform/dev-runner/check-runner.ts';
-import type { AffectedTestPlanV1 } from '../../platform/dev-runner/test-runner.ts';
+} from '../../src/development/runner/check-runner.ts';
+import type { AffectedTestPlan } from '../../src/development/runner/test-runner.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   defaultAffectedSelectionProjectionContext,
   projectAffectedSelectionToVerificationGateResult
-} from '../../platform/shared/affected-test-inventory.ts';
+} from '../../src/verification/test-impact/affected.ts';
 
 function affectedPlan(
   changedPaths: string[],
   selectedFastTests: string[] = [],
   resolved = true
-): AffectedTestPlanV1 {
+): AffectedTestPlan {
   const sourceChanged = changedPaths.some((file) => !file.endsWith('.md'));
   const ownershipResolved = resolved;
   const boundary = classifyAffectedSelectionTrustBoundary({
@@ -49,6 +49,7 @@ function affectedPlan(
       unresolvedModuleFiles: []
     },
     selectionTrustBoundary: boundary,
+    broadFallbackEnabled: false,
     verificationResult: projectAffectedSelectionToVerificationGateResult(
       boundary,
       defaultAffectedSelectionProjectionContext('HEAD', 'sha256:0', null)
@@ -74,7 +75,7 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
     [
       'docs/verification-governance.md',
-      'platform/dev-runner/check-runner.ts'
+      'src/development/runner/check-runner.ts'
     ],
     [
       'tests/unit/local-gate-union.test.ts',

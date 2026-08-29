@@ -3,11 +3,11 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { ensureDir, writeJson, writeText } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { runCommand } from '../../platform/shared/process.ts';
-import { checkProvenanceFallback } from '../../platform/shared/project-integrity.ts';
-import type { ProvenanceFile } from '../../platform/shared/provenance-types.ts';
+import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
+import { checkProvenanceFallback } from '../../src/workspace/project.ts';
+import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function provenanceFor(artifactPath: string): ProvenanceFile {

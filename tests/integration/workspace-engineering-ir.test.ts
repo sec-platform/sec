@@ -2,21 +2,21 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
+import { runPolicyGate } from '../../src/compiler/verify/run-policy-gate.ts';
 import {
   addBlock,
   buildWorkspaceEngineeringIR,
   initWorkspace,
   resolveWorkspace
-} from '../../platform/orchestrator.ts';
-import { pathExists, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+} from '../../src/compiler/orchestration/cli.ts';
+import { pathExists, writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('workspace builds one deterministic canonical Engineering IR independent of derived artifacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     await addBlock(workspaceRoot, 'ticket/basic');
     await resolveWorkspace(workspaceRoot);
     const {

@@ -1,18 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import {
-  buildExpectedProductVerificationClaimSummary,
-  inferProductVerificationRuntimeMode
-} from '../../platform/shared/product-verification-profile.ts';
-import type {
-  AcceptanceCoverageReport,
-  LockFile,
-  PolicyReport,
-  VerificationReport
-} from '../../platform/shared/types.ts';
+import { readJson, writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { buildProductVerificationObservationBindings, buildExpectedProductVerificationClaimSummary, inferProductVerificationRuntimeMode, type ProductVerificationGateObservation, type ProductVerificationObservations, type ProductVerificationRuntimeMode } from '../../src/verification/profile/contract/product.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
 
 export function emptyVerificationLogs(): VerificationReport['logs'] {
   return { stdout: '', stderr: '' };
@@ -48,6 +44,46 @@ function emptyAcceptanceCoverage(
   };
 }
 
+export function productVerificationObservationsFixture(
+  lane: VerificationReport['summary']['requestedLane'] = 'all',
+  runtimeMode: ProductVerificationRuntimeMode = 'full'
+): ProductVerificationObservations {
+  const bindings = buildProductVerificationObservationBindings(
+    sha256({ fixture: 'product-verification-subject' }),
+    lane,
+    runtimeMode
+  );
+  const executed = (
+    binding: ProductVerificationGateObservation,
+    label: string
+  ): ProductVerificationGateObservation => ({
+    ...binding,
+    environment: {
+      runtime: 'bun@test',
+      os: process.platform,
+      arch: process.arch,
+      filesystem: null,
+      capabilities: ['verification-fixture'],
+      toolchainRevision: 'bun@test',
+      providerRevisions: []
+    },
+    execution: {
+      argv: ['bun', 'test', label],
+      startedAt: '2026-01-01T00:00:00.000Z',
+      finishedAt: '2026-01-01T00:00:00.001Z',
+      durationMs: 1,
+      exitCode: 0,
+      outputDigest: sha256({ fixture: label }),
+      failureFingerprint: null
+    }
+  });
+  return {
+    fast: executed(bindings.fast, 'fast'),
+    runtime: executed(bindings.runtime, 'runtime'),
+    policy: executed(bindings.policy, 'policy')
+  };
+}
+
 export async function writeCanonicalVerificationArtifactSetFixture(
   workspaceRoot: string,
   input: VerificationReport,
@@ -72,7 +108,8 @@ export async function writeCanonicalVerificationArtifactSetFixture(
     structuredClone(runtime),
     inferProductVerificationRuntimeMode(runtime, 'all'),
     structuredClone(policyReport),
-    structuredClone(acceptanceCoverage)
+    structuredClone(acceptanceCoverage),
+    productVerificationObservationsFixture('all', inferProductVerificationRuntimeMode(runtime, 'all'))
   );
   const failedLanes = [
     ...(fast.status === 'failed' ? ['fast' as const] : []),

@@ -4,22 +4,19 @@ import { link, lstat, mkdir, open, readFile, readdir, rename, rm, symlink, unlin
 import os from 'node:os';
 import path from 'node:path';
 
-import { initWorkspace } from '../../platform/orchestrator/workspace-orchestrator.ts';
-import { sha256 as canonicalSha256 } from '../../platform/shared/canonical-primitives.ts';
-import { pathExists } from '../../platform/shared/fs.ts';
-import {
-  inspectNoFollowDirectoryChainV1,
-  scanNoFollowDirectoryTreeV1
-} from '../../platform/shared/physical-no-follow.ts';
+import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
+import { sha256 as canonicalSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { pathExists } from '../../src/workspace/files.ts';
+import { inspectNoFollowDirectoryChain, scanNoFollowDirectoryTree } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   WorkspaceWriteLeaseError,
-  completeWorkspaceWriteLeaseRetirementV1,
+  completeWorkspaceWriteLeaseRetirement,
   createWorkspaceWriteLeaseManager,
   inspectWorkspaceWriteLease,
-  recoverWorkspaceWriteLeaseRetirementV1,
-  resumeWorkspaceWriteLeaseRetirementV1,
+  recoverWorkspaceWriteLeaseRetirement,
+  resumeWorkspaceWriteLeaseRetirement,
   type WorkspaceWriteLeaseToken
-} from '../../platform/shared/workspace-write-lease.ts';
+} from '../../src/workspace/lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('retirement recovery and physically absent completion ignore an oversized unrelated sibling', async () => {
@@ -42,16 +39,16 @@ test('retirement recovery and physically absent completion ignore an oversized u
     const lease = await manager.acquire(workspaceRoot);
     let fencePath: string | null = null;
     try {
-      const proofParent = inspectNoFollowDirectoryChainV1(proofRootPath, 'completion proof root').target;
+      const proofParent = inspectNoFollowDirectoryChain(proofRootPath, 'completion proof root').target;
       const intentDigest = sha256({ domain: 'absent-completion-large-sibling' });
       const receipt = await lease.retireOwnedNamespace(intentDigest, proofParent);
       fencePath = path.join(parentPath, receipt.fenceName);
       await writeFile(unrelatedPath, Buffer.alloc(65 * 1024 * 1024));
-      expect(() => recoverWorkspaceWriteLeaseRetirementV1({ workspaceRoot, intentDigest } as never)).toThrow(WorkspaceWriteLeaseError);
+      expect(() => recoverWorkspaceWriteLeaseRetirement({ workspaceRoot, intentDigest } as never)).toThrow(WorkspaceWriteLeaseError);
       let workspaceRootReads = 0;
       let intentDigestReads = 0;
       let proofParentReads = 0;
-      const recovered = recoverWorkspaceWriteLeaseRetirementV1({
+      const recovered = recoverWorkspaceWriteLeaseRetirement({
         get workspaceRoot() {
           workspaceRootReads += 1;
           return workspaceRootReads === 1 ? workspaceRoot : path.join(parentPath, `${suffix}-attacker-workspace`);
@@ -64,14 +61,14 @@ test('retirement recovery and physically absent completion ignore an oversized u
           proofParentReads += 1;
           return proofParentReads === 1 ? proofParent : undefined;
         }
-      } as Parameters<typeof recoverWorkspaceWriteLeaseRetirementV1>[0]);
+      } as Parameters<typeof recoverWorkspaceWriteLeaseRetirement>[0]);
       expect(recovered.retirementDigest).toBe(receipt.retirementDigest);
       expect(workspaceRootReads).toBe(1);
       expect(intentDigestReads).toBe(1);
       expect(proofParentReads).toBe(1);
       await rm(workspaceRoot, { recursive: true, force: true });
 
-      completeWorkspaceWriteLeaseRetirementV1({ workspaceRoot, receipt });
+      completeWorkspaceWriteLeaseRetirement({ workspaceRoot, receipt });
 
       expect(await pathExists(fencePath)).toBe(false);
     } finally {
@@ -128,14 +125,14 @@ test('pre-fence recovery removes one exact no-replace publication candidate befo
     const lease = await manager.acquire(workspaceRoot);
     const proofRootPath = path.join(workspaceRoot, 'retirement-proof');
     await mkdir(proofRootPath);
-    const workspace = inspectNoFollowDirectoryChainV1(workspaceRoot, 'test workspace').target;
-    const namespace = inspectNoFollowDirectoryChainV1(
+    const workspace = inspectNoFollowDirectoryChain(workspaceRoot, 'test workspace').target;
+    const namespace = inspectNoFollowDirectoryChain(
       path.join(workspaceRoot, '.sec', 'workspace-write-lease'),
       'test lease namespace'
     ).target;
-    const proofParent = inspectNoFollowDirectoryChainV1(proofRootPath, 'test proof root').target;
+    const proofParent = inspectNoFollowDirectoryChain(proofRootPath, 'test proof root').target;
     const intentDigest = sha256({ domain: 'pre-fence-candidate-test' });
-    const namespaceEntries = scanNoFollowDirectoryTreeV1(namespace).map((entry) => ({
+    const namespaceEntries = scanNoFollowDirectoryTree(namespace).map((entry) => ({
       relativePath: entry.relativePath,
       kind: entry.kind,
       device: entry.device,
@@ -162,12 +159,12 @@ test('pre-fence recovery removes one exact no-replace publication candidate befo
     await writeFile(path.join(proofRootPath, candidateName), `${JSON.stringify(transition)}\n`, 'utf8');
 
     try {
-      const receipt = await resumeWorkspaceWriteLeaseRetirementV1({
+      const receipt = await resumeWorkspaceWriteLeaseRetirement({
         workspaceRoot,
         intentDigest,
         proofParent
       });
-      completeWorkspaceWriteLeaseRetirementV1({ workspaceRoot, receipt });
+      completeWorkspaceWriteLeaseRetirement({ workspaceRoot, receipt });
       expect(receipt.intentDigest).toBe(intentDigest);
       expect(await pathExists(path.join(path.dirname(workspaceRoot), receipt.fenceName))).toBe(false);
       expect(await pathExists(path.join(proofRootPath, candidateName))).toBe(false);

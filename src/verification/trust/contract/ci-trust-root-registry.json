@@ -1,0 +1,70 @@
+{
+  "schema": "sec-trusted-bootstrap-registry-v3",
+  "staticExactPaths": [
+    ".bun-version",
+    ".gitattributes",
+    ".gitignore",
+    "bun.lock",
+    "bunfig.toml",
+    "config/verification/trusted-runtime.Dockerfile",
+    "package.json",
+    "src/control/branch-lifecycle/branch-lifecycle.ts",
+    "src/control/branch-lifecycle/branch-local-residue-closeout.ts",
+    "src/verification/trust/contract/ci-trust-root-registry.json",
+    "src/verification/trust/runtime/closure-lock.ts",
+    "tsconfig.json"
+  ],
+  "staticDirectoryPaths": [
+    ".github/workflows/",
+    ".shared-deps/",
+    "node_modules/",
+    "src/development/runner/",
+    "src/verification/test-impact/rules/",
+    "tests/testkit/"
+  ],
+  "staticPrefixes": [
+    ".env"
+  ],
+  "runtimeEntrypoints": [
+    "src/control/agent/agent-operation-activation.ts",
+    "src/control/agent/skill-applicability.ts",
+    "src/control/agent/work-package-contract.ts",
+    "src/control/branch-lifecycle/trusted-runtime-closeout.ts",
+    "src/control/branch-lifecycle/worktree-physical-closeout.ts",
+    "src/control/documentation/doctor/cli.ts",
+    "src/control/integration/authorization.ts",
+    "src/control/integration/merge-gate.ts",
+    "src/control/main-health/contract.ts",
+    "src/control/scope/authorization.ts",
+    "src/development/runner/cli.ts",
+    "src/external-capabilities/git-read/exact-blob.ts",
+    "src/verification/action/contract/action.ts",
+    "src/verification/action/contract/ci.ts",
+    "src/verification/action/contract/provider.ts",
+    "src/verification/ci/contract/core.ts",
+    "src/verification/ci/contract/evidence.ts",
+    "src/verification/ci/contract/plan.ts",
+    "src/verification/ci/pr-risk.ts",
+    "src/verification/ci/runtime/local-github-actions-runner.ts",
+    "src/verification/ci/runtime/pr-risk-selection.ts",
+    "src/verification/ci/runtime/verification-session.ts",
+    "src/verification/ci/verification.ts",
+    "src/verification/ci/workspace-fast.ts",
+    "src/verification/result/contract/result.ts",
+    "src/verification/review/contract/stability.ts",
+    "src/verification/session/contract/session.ts",
+    "src/verification/test-impact/contract/budget.ts",
+    "src/verification/test-impact/contract/ownership.ts",
+    "src/verification/test-impact/runtime/impact.ts",
+    "src/verification/test-impact/runtime/transition.ts",
+    "src/verification/trust/contract/root.ts",
+    "tests/setup/test-runtime.setup.ts"
+  ],
+  "reviewedSutEdges": [
+    "src/verification/ci/workspace-fast.ts -> src/compiler/orchestration/block-orchestrator.ts",
+    "src/verification/ci/workspace-fast.ts -> src/compiler/orchestration/compose-orchestrator.ts",
+    "src/verification/ci/workspace-fast.ts -> src/compiler/orchestration/verify-orchestrator.ts",
+    "src/verification/ci/workspace-fast.ts -> src/compiler/orchestration/workspace-orchestrator.ts"
+  ],
+  "reviewedBoundaryEdges": []
+}

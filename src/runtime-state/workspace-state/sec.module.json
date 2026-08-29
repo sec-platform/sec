@@ -1,0 +1,15 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "runtime-state-workspace",
+      "operations": [
+        "acquireSecRuntimeStatePhysicalAuthority",
+        "resolveSecRuntimeStateForRepository",
+        "resolveSecWorkspaceRuntimeRoots"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

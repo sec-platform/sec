@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 
 export async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
   const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
@@ -15,11 +15,11 @@ export async function installPrivateBannerBlock(workspaceRoot: string): Promise<
     id: 'private/banner-basic',
     version: '0.1.0',
     kind: 'governance',
-    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    stackProfiles: ['typescript-library'],
     compatibility: {
       blockApi: '1',
       compilerApi: '1',
-      stackProfiles: ['nextjs-ts-prisma-sqlite']
+      stackProfiles: ['typescript-library']
     },
     requires: [],
     provides: ['governance/banner'],

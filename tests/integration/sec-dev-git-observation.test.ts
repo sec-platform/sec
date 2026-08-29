@@ -6,9 +6,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
-  captureRepositoryMutationStateV1,
-  runRepositoryZeroWriteOperationV1
-} from '../../platform/dev-runner/repository-mutation-fence.ts';
+  captureRepositoryMutationState,
+  runRepositoryZeroWriteOperation
+} from '../../src/development/runner/repository-mutation-fence.ts';
+import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
 import {
   assertGitObjectId,
   readBlobBatch,
@@ -16,9 +17,9 @@ import {
   readTextAttributesBatch,
   resolveExactHeadCommit,
   runGitRead
-} from '../../tooling/sec-dev/git/git-read.ts';
-import { runCensus } from '../../tooling/sec-dev/text/text-byte-census.ts';
-import { runSettlement } from '../../tooling/sec-dev/workspace/worktree-settlement.ts';
+} from '../../src/development/tooling/git/git-read.ts';
+import { runCensus } from '../../src/development/tooling/text/text-byte-census.ts';
+import { runSettlement } from '../../src/development/tooling/workspace/worktree-settlement.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -54,17 +55,19 @@ test('Git read mechanics accept full SHA-1 and SHA-256 object IDs', () => {
 test('batch blob and attribute observations bind to one exact commit', async () => {
   const root = await createRepository('sec-dev-git-batch-');
   try {
-    const commit = resolveExactHeadCommit(root);
-    const inventory = readCommitBlobInventory(root, commit);
-    expect(inventory.map((entry) => entry.path)).toEqual(['.gitattributes', 'committed.ts']);
-    expect(inventory.every((entry) => Number.isSafeInteger(entry.byteSize) && entry.byteSize >= 0)).toBe(true);
+    await withAuthorityGitReadSession({ cwd: root }, async (session) => {
+      const commit = await resolveExactHeadCommit(session);
+      const inventory = await readCommitBlobInventory(session, commit);
+      expect(inventory.map((entry) => entry.path)).toEqual(['.gitattributes', 'committed.ts']);
+      expect(inventory.every((entry) => Number.isSafeInteger(entry.byteSize) && entry.byteSize >= 0)).toBe(true);
 
-    const blobs = readBlobBatch(root, inventory.map((entry) => entry.objectId));
-    const committed = inventory.find((entry) => entry.path === 'committed.ts')!;
-    expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
+      const blobs = await readBlobBatch(session, inventory.map((entry) => entry.objectId));
+      const committed = inventory.find((entry) => entry.path === 'committed.ts')!;
+      expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
 
-    const attributes = readTextAttributesBatch(root, commit, inventory.map((entry) => entry.path));
-    expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
+      const attributes = await readTextAttributesBatch(session, commit, inventory.map((entry) => entry.path));
+      expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -73,9 +76,10 @@ test('batch blob and attribute observations bind to one exact commit', async () 
 test('Git replacement objects cannot substitute committed blob bytes', async () => {
   const root = await createRepository('sec-dev-git-replace-');
   try {
-    const commit = resolveExactHeadCommit(root);
-    const committed = readCommitBlobInventory(root, commit)
-      .find((entry) => entry.path === 'committed.ts')!;
+    const commit = await withAuthorityGitReadSession({ cwd: root }, (session) => resolveExactHeadCommit(session));
+    const committed = await withAuthorityGitReadSession({ cwd: root }, (session) =>
+      readCommitBlobInventory(session, commit)
+    ).then((inventory) => inventory.find((entry) => entry.path === 'committed.ts')!);
     const replacementPath = path.join(root, 'replacement.tmp');
     await fs.writeFile(replacementPath, 'export const committed = null;\n');
     const replacement = git(root, ['hash-object', '-w', 'replacement.tmp']);
@@ -83,20 +87,23 @@ test('Git replacement objects cannot substitute committed blob bytes', async () 
     git(root, ['replace', committed.objectId, replacement]);
 
     expect(git(root, ['cat-file', 'blob', committed.objectId])).toContain('committed = null');
-    const blobs = readBlobBatch(root, [committed.objectId]);
-    expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
+    await withAuthorityGitReadSession({ cwd: root }, async (session) => {
+      const blobs = await readBlobBatch(session, [committed.objectId]);
+      expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test('trusted Git reads reject ambient and caller-supplied config injection', async () => {
+test('trusted Git reads reject ambient config injection', async () => {
   const root = await createRepository('sec-dev-git-config-isolation-');
   try {
-    const moduleUrl = pathToFileURL(path.resolve('tooling/sec-dev/git/git-read.ts')).href;
+    const moduleUrl = pathToFileURL(path.resolve('src/development/tooling/git/git-read.ts')).href;
     const source = [
+      `import { withAuthorityGitReadSession } from ${JSON.stringify(pathToFileURL(path.resolve('src/external-capabilities/git-read/authority.ts')).href)};`,
       `import { runGitRead } from ${JSON.stringify(moduleUrl)};`,
-      `const result = runGitRead(${JSON.stringify(root)}, ['config', '--get', 'sec.injected']);`,
+      `const result = await withAuthorityGitReadSession({ cwd: ${JSON.stringify(root)} }, (session) => runGitRead(session, ['config', '--get', 'sec.injected']));`,
       "process.stdout.write(JSON.stringify({ status: result.status, stdoutByteLength: result.stdout.byteLength }));"
     ].join('\n');
     const ambientChild = spawnSync(process.execPath, ['--no-env-file', '--eval', source], {
@@ -115,16 +122,11 @@ test('trusted Git reads reject ambient and caller-supplied config injection', as
     expect(ambientChild.stderr).toBe('');
     expect(JSON.parse(ambientChild.stdout)).toEqual({ status: 1, stdoutByteLength: 0 });
 
-    const caller = runGitRead(root, ['config', '--get', 'sec.injected'], {
-      env: {
-        GIT_CONFIG_COUNT: '1',
-        GIT_CONFIG_KEY_0: 'sec.injected',
-        GIT_CONFIG_VALUE_0: 'forged',
-        GIT_CONFIG_NOSYSTEM: '0'
-      }
-    } as never);
-    expect(caller.status).toBe(1);
-    expect(caller.stdout.byteLength).toBe(0);
+    await withAuthorityGitReadSession({ cwd: root }, async (session) => {
+      const result = await runGitRead(session, ['config', '--get', 'sec.injected']);
+      expect(result.status).toBe(1);
+      expect(result.stdout.byteLength).toBe(0);
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -135,10 +137,11 @@ test('committed attribute policy is isolated from .git/info/attributes overrides
   try {
     await fs.mkdir(path.join(root, '.git', 'info'), { recursive: true });
     await fs.writeFile(path.join(root, '.git', 'info', 'attributes'), '*.ts -text\n');
-    const commit = resolveExactHeadCommit(root);
-
-    const attributes = readTextAttributesBatch(root, commit, ['committed.ts']);
-    expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
+    await withAuthorityGitReadSession({ cwd: root }, async (session) => {
+      const commit = await resolveExactHeadCommit(session);
+      const attributes = await readTextAttributesBatch(session, commit, ['committed.ts']);
+      expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
+    });
 
     const census = await runCensus(root);
     expect(census.classificationCounts['canonical-lf']).toBe(1);
@@ -210,26 +213,26 @@ test('worktree settlement distinguishes settled, dirty, and untracked without fa
 test('repository mutation fence preserves dirty candidates and detects tracked, index, and untracked changes', async () => {
   const root = await createRepository('sec-dev-mutation-fence-');
   try {
-    const initial = await captureRepositoryMutationStateV1(root);
+    const initial = await captureRepositoryMutationState(root);
 
     await fs.writeFile(path.join(root, 'committed.ts'), 'export const committed = false;\n');
-    const worktreeChanged = await captureRepositoryMutationStateV1(root);
+    const worktreeChanged = await captureRepositoryMutationState(root);
     expect(worktreeChanged.digest).not.toBe(initial.digest);
     expect(worktreeChanged.changedPaths).toEqual(['committed.ts']);
 
     git(root, ['add', 'committed.ts']);
-    const indexChanged = await captureRepositoryMutationStateV1(root);
+    const indexChanged = await captureRepositoryMutationState(root);
     expect(indexChanged.digest).not.toBe(worktreeChanged.digest);
     expect(indexChanged.changedPaths).toEqual(['committed.ts']);
 
     git(root, ['reset', '--hard', '--quiet', 'HEAD']);
     await fs.writeFile(path.join(root, 'untracked.ts'), 'export const untracked = true;\n');
-    const untrackedChanged = await captureRepositoryMutationStateV1(root);
+    const untrackedChanged = await captureRepositoryMutationState(root);
     expect(untrackedChanged.digest).not.toBe(initial.digest);
     expect(untrackedChanged.changedPaths).toEqual(['untracked.ts']);
 
     await fs.rm(path.join(root, 'untracked.ts'));
-    expect((await captureRepositoryMutationStateV1(root)).digest).toBe(initial.digest);
+    expect((await captureRepositoryMutationState(root)).digest).toBe(initial.digest);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -239,7 +242,7 @@ test('repository mutation operation fence turns a child write into one diagnosti
   const root = await createRepository('sec-dev-mutation-operation-');
   const diagnostics: string[] = [];
   try {
-    const result = await runRepositoryZeroWriteOperationV1(
+    const result = await runRepositoryZeroWriteOperation(
       'test:fixture',
       async () => {
         await fs.writeFile(path.join(root, 'committed.ts'), 'export const escaped = true;\n');

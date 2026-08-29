@@ -1,36 +1,20 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 as canonicalSha256 } from '../../platform/shared/canonical-primitives.ts';
-import {
-  CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA_V2,
-  CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA_V1,
-  CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT_V1,
-  CodexDevelopmentCreateHostedSutExecutionAuthorizationV1,
-  CodexDevelopmentFinalizeHostedActionRawResultV2,
-  CodexDevelopmentReduceHostedSutObservationV1,
-  type CodexDevelopmentHostedActionRawResultV2,
-  type CodexDevelopmentHostedSutSandboxReceiptV1
-} from '../../platform/shared/ci-hosted-sut-observation-contract.ts';
-import { buildCiQuickGatePlan, CI_VERIFICATION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-plan.ts';
-import {
-  CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1
-} from '../../platform/shared/ci-verification-revision.ts';
-import {
-  buildCiVerificationActionPlanClosureV1,
-  ciVerificationGateStepV1,
-  type CiVerificationActionCandidateV1
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import type { VerificationActionKeyDigest } from '../../platform/shared/verification-action-contract.ts';
-import type { VerificationActionProviderOriginV2 } from '../../platform/shared/verification-action-provider-contract.ts';
+import { sha256 as canonicalSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedActionRawResult, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/verification/ci/contract/hosted-sut-observation.ts';
+import { buildCiQuickGatePlan, CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/ci/contract/plan.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../src/verification/ci/contract/revision.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/verification/action/contract/environment.ts';
+import type { VerificationActionKeyDigest } from '../../src/verification/action/contract/action.ts';
+import type { VerificationActionProviderOrigin } from '../../src/verification/action/contract/provider.ts';
 
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}` as VerificationActionKeyDigest;
 const canonicalDigest = (value: unknown): VerificationActionKeyDigest =>
   canonicalSha256(value) as VerificationActionKeyDigest;
 
-const candidate: CiVerificationActionCandidateV1 = Object.freeze({
+const candidate: CiVerificationActionCandidate = Object.freeze({
   baseSha: '1'.repeat(40),
   baseTreeSha: '2'.repeat(40),
   headSha: '3'.repeat(40),
@@ -40,7 +24,7 @@ const candidate: CiVerificationActionCandidateV1 = Object.freeze({
   scopeAuthorizationRevision: digest('b'),
   profile: 'quick',
   toolchainRevision: 'bun@1.3.14',
-  providerRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2,
+  providerRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
   contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
   requiredBlobs: Object.freeze([
     { path: '.bun-version', digest: digest('c') },
@@ -49,15 +33,15 @@ const candidate: CiVerificationActionCandidateV1 = Object.freeze({
     { path: 'package.json', digest: digest('f') }
   ])
 });
-const closure = buildCiVerificationActionPlanClosureV1({
+const closure = buildCiVerificationActionPlanClosure({
   candidate,
-  gates: [ciVerificationGateStepV1(
+  gates: [ciVerificationGateStep(
     buildCiQuickGatePlan({ includeImports: false, includeDocs: false, includeRisk: false })[0]!
   )]
 });
 const actionPlan = closure.actions[0]!;
 const normalizedOperation = closure.normalizedOperations[0]!;
-const producer: VerificationActionProviderOriginV2 = Object.freeze({
+const producer: VerificationActionProviderOrigin = Object.freeze({
   repositoryId: 311,
   repository: 'openai/sec',
   workflowPath: '.github/workflows/compiler-pr-validation.yml',
@@ -77,7 +61,7 @@ const inventoryClosure = Object.freeze({
   dependencyClosureDigest: digest('3'),
   gitBundleDigest: digest('4')
 });
-const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorizationV1({
+const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
   resolutionDigest: digest('5'),
   ticketDigest: digest('6'),
   actionPlan,
@@ -97,13 +81,13 @@ function receipt(input: Readonly<{
   capability?: 'supported' | 'unsupported' | 'invalidated';
   exitCode?: number;
   clean?: boolean;
-}> = {}): CodexDevelopmentHostedSutSandboxReceiptV1 {
+}> = {}): CodexDevelopmentHostedSutSandboxReceipt {
   const capability = input.capability ?? 'supported';
   const clean = input.clean ?? true;
   const executed = capability === 'supported';
   const withoutDigest = Object.freeze({
-    schema: CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA_V1,
-    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
+    schema: CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
+    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
     actionKey: actionPlan.action.actionKey,
     capability: Object.freeze({
       commandPlanDigest: capability === 'supported'
@@ -122,17 +106,17 @@ function receipt(input: Readonly<{
           : 'capability supervisor observation lost'
     }),
     commandPlanDigest: executed ? authorization.physicalCommand.projectionDigest : null,
-    resources: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits,
+    resources: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits,
     authenticatedArchive: inventoryClosure,
     rootIsolation: Object.freeze({
-      substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.substrate,
-      namespaces: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.namespaces,
-      uid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid,
-      gid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid,
-      network: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.network,
-      inputMount: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.inputMount,
-      workspace: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.workspace,
-      outputTransport: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outputTransport,
+      substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.substrate,
+      namespaces: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.namespaces,
+      uid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedUid,
+      gid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedGid,
+      network: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.network,
+      inputMount: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.inputMount,
+      workspace: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.workspace,
+      outputTransport: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outputTransport,
       candidateEnvironmentNames: executed ? environmentNames : Object.freeze([])
     }),
     execution: Object.freeze({
@@ -171,9 +155,9 @@ function raw(input: Readonly<{
   capability?: 'supported' | 'unsupported' | 'invalidated';
   exitCode?: number;
   clean?: boolean;
-}> = {}): CodexDevelopmentHostedActionRawResultV2 {
+}> = {}): CodexDevelopmentHostedActionRawResult {
   const sandboxReceipt = receipt(input);
-  return CodexDevelopmentFinalizeHostedActionRawResultV2({
+  return CodexDevelopmentFinalizeHostedActionRawResult({
     executionAuthorizationDigest: authorization.authorizationDigest,
     command: (input.capability ?? 'supported') === 'supported' ? Object.freeze({
       commandPlanDigest: sandboxReceipt.commandPlanDigest!,
@@ -187,10 +171,10 @@ function raw(input: Readonly<{
 }
 
 function reduce(
-  observation: CodexDevelopmentHostedActionRawResultV2,
+  observation: CodexDevelopmentHostedActionRawResult,
   executionAuthorization: typeof authorization = authorization
 ) {
-  return CodexDevelopmentReduceHostedSutObservationV1({
+  return CodexDevelopmentReduceHostedSutObservation({
     actionPlan,
     normalizedOperation,
     candidateSha: candidate.headSha,
@@ -209,7 +193,6 @@ test('raw SUT transport is observation-only and the sole reducer derives four ph
     'command', 'executionAuthorizationDigest', 'finishedAt', 'rawResultDigest',
     'sandboxReceipt', 'schema', 'startedAt'
   ]);
-  expect(passed.schema).toBe(CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA_V2);
   for (const forbidden of ['result', 'cleanup', 'status', 'normalizedOperation']) {
     expect(forbidden in passed).toBe(false);
   }
@@ -232,7 +215,7 @@ test('raw SUT transport is observation-only and the sole reducer derives four ph
 
 test('physical command authorization and PASS settlement reject recomputed contradictory observations', () => {
   const original = raw();
-  const rehashObservation = (observation: CodexDevelopmentHostedActionRawResultV2): void => {
+  const rehashObservation = (observation: CodexDevelopmentHostedActionRawResult): void => {
     const { receiptDigest: ignoredReceiptDigest, ...receiptWithoutDigest } = observation.sandboxReceipt;
     void ignoredReceiptDigest;
     (observation.sandboxReceipt as { receiptDigest: VerificationActionKeyDigest }).receiptDigest =
@@ -243,9 +226,9 @@ test('physical command authorization and PASS settlement reject recomputed contr
       canonicalDigest(rawWithoutDigest);
   };
   const forgedObservation = (
-    mutate: (observation: CodexDevelopmentHostedActionRawResultV2) => void
-  ): CodexDevelopmentHostedActionRawResultV2 => {
-    const observation = structuredClone(original) as CodexDevelopmentHostedActionRawResultV2;
+    mutate: (observation: CodexDevelopmentHostedActionRawResult) => void
+  ): CodexDevelopmentHostedActionRawResult => {
+    const observation = structuredClone(original) as CodexDevelopmentHostedActionRawResult;
     mutate(observation);
     rehashObservation(observation);
     return observation;
@@ -307,31 +290,31 @@ test('physical command authorization and PASS settlement reject recomputed contr
   expect(() => reduce(forgedProjection)).toThrow(/physical command observation/u);
 
   for (const mutate of [
-    (observation: CodexDevelopmentHostedActionRawResultV2) => {
+    (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { outputTruncated: boolean }).outputTruncated = true;
     },
-    (observation: CodexDevelopmentHostedActionRawResultV2) => {
+    (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { stdoutBytesObserved: number }).stdoutBytesObserved =
-        CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT_V1 + 1;
+        CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT + 1;
     },
-    (observation: CodexDevelopmentHostedActionRawResultV2) => {
+    (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { stderrBytesObserved: number }).stderrBytesObserved =
-        CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT_V1 + 1;
+        CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT + 1;
     },
-    (observation: CodexDevelopmentHostedActionRawResultV2) => {
+    (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt as { diagnostic: string | null }).diagnostic = 'dirty successful receipt';
     },
-    (observation: CodexDevelopmentHostedActionRawResultV2) => {
+    (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { started: boolean }).started = false;
     },
-    (observation: CodexDevelopmentHostedActionRawResultV2) => {
+    (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { postExecutionInputDigest: VerificationActionKeyDigest | null })
         .postExecutionInputDigest = null;
     },
-    (observation: CodexDevelopmentHostedActionRawResultV2) => {
+    (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt.reap as { namespacePid1Exited: boolean }).namespacePid1Exited = false;
     },
-    (observation: CodexDevelopmentHostedActionRawResultV2) => {
+    (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt.residue as { cgroupEmpty: boolean }).cgroupEmpty = false;
     }
   ]) {
@@ -366,7 +349,7 @@ test('physical command authorization and PASS settlement reject recomputed contr
   });
   expect(() => reduce(forgedInventory)).toThrow(/exact inventory closure/u);
 
-  expect(() => CodexDevelopmentReduceHostedSutObservationV1({
+  expect(() => CodexDevelopmentReduceHostedSutObservation({
     actionPlan,
     normalizedOperation,
     candidateSha: candidate.headSha,

@@ -92,7 +92,7 @@
     "currentBase": "77a97aae228f1d1912407119910de80cb02784d5",
     "singleWriter": true,
     "ownedPaths": [
-      "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "src/compiler/verify/run-semantic-mutation-isolated-child.ts",
       "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
       "tests/contract/semantic-mutation-apply-contract.test.ts"
     ],

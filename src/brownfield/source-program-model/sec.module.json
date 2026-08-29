@@ -1,0 +1,16 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "source-program-model",
+      "operations": [
+        "compileRepositorySourceProgramModel",
+        "compileSourceProgramGraphCutReductionPlan",
+        "compileSourceProgramTestValue",
+        "compileTypeScriptSourceProgramModelIncremental"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

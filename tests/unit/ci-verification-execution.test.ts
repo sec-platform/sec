@@ -19,99 +19,55 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationEvidenceV4 } from '../../src/verification/ci/contract/evidence.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
+import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, type CodexDevelopmentHostedSutExecutionAuthorization } from '../../src/verification/ci/contract/hosted-sut-observation.ts';
+import { buildCiQuickGatePlan } from '../../src/verification/ci/contract/plan.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/verification/ci/contract/revision.ts';
+import { buildCiVerificationActionPlanClosure, buildCiVerificationActionPlan, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
+import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/verification/action/contract/environment.ts';
+import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/verification/action/contract/action.ts';
+import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/verification/action/contract/provider.ts';
+import type { VerificationResultStatus } from '../../src/verification/result/contract/result.ts';
 import {
-  CodexDevelopmentAssertVerificationActionTerminalArtifactV2,
-  CodexDevelopmentAssertVerificationEvidenceV4,
-  CodexDevelopmentCreateVerificationEvidenceProducerV4,
-  CodexDevelopmentVerificationActionCandidateBytesDigestV2,
-  CodexDevelopmentVerificationDigest,
-  type CodexDevelopmentVerificationEvidenceV4
-} from '../../platform/shared/ci-evidence-contract.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
-import {
-  CodexDevelopmentCreateHostedSutExecutionAuthorizationV1,
-  CodexDevelopmentFinalizeHostedActionRawResultV2,
-  CodexDevelopmentHostedSutCandidateEnvironmentV1,
-  type CodexDevelopmentHostedSutExecutionAuthorizationV1
-} from '../../platform/shared/ci-hosted-sut-observation-contract.ts';
-import { buildCiQuickGatePlan } from '../../platform/shared/ci-verification-plan.ts';
-import {
-  CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE
-} from '../../platform/shared/ci-verification-revision.ts';
-import {
-  buildCiVerificationActionPlanClosureV1,
-  buildCiVerificationActionPlanV1,
-  CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
-  ciVerificationGateStepV1,
-  type CiVerificationActionCandidateV1,
-  type CiVerificationActionPlanClosureV1,
-  type CiVerificationProducerGateV1
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import {
-  encodeVerificationActionDataV2,
-  type VerificationActionKeyDigest
-} from '../../platform/shared/verification-action-contract.ts';
-import {
-  createVerificationActionProviderStartMarkerV2,
-  createVerificationActionProviderTerminalAnchorV2,
-  finalizeVerificationActionProviderStatusReadbackV2,
-  VERIFICATION_ACTION_PROVIDER_POLICY_V2,
-  verificationActionProviderRunTargetUrlV2,
-  verificationActionProviderStartArtifactNameV2,
-  verificationActionProviderStartDescriptionV2,
-  verificationActionProviderStatusContextV2,
-  verificationActionProviderTerminalAnchorNameV2,
-  verificationActionProviderTerminalArtifactNameV2,
-  verificationActionProviderTerminalDescriptionV2,
-  type VerificationActionProviderOriginV2,
-  type VerificationActionProviderStartObservationV2,
-  type VerificationActionProviderStatusObservationV2,
-  type VerificationActionProviderStatusReadbackV2,
-  type VerificationActionProviderTerminalAnchorObservationV2
-} from '../../platform/shared/verification-action-provider-contract.ts';
-import type { VerificationResultStatus } from '../../platform/shared/verification-result-contract.ts';
-import {
-  CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA_V2,
-  CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA_V2,
-  CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA_V1,
-  CodexDevelopmentAssembleHostedActionTerminalV2,
+  CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA,
+  CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
+  CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
+  CodexDevelopmentAssembleHostedActionTerminal,
   CodexDevelopmentAssertHostedActionDependencyInputsV1,
-  CodexDevelopmentAssertHostedActionParentEventV2,
-  CodexDevelopmentAssertHostedDependencyArchiveProjectionV1,
-  CodexDevelopmentAssertHostedSutSandboxCommandPlanV1,
-  CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1,
-  CodexDevelopmentBuildHostedSutSandboxCommandPlanV1,
-  CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1,
-  CodexDevelopmentCandidateProcessEnvironmentV2,
-  CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1,
+  CodexDevelopmentAssertHostedActionParentEvent,
+  CodexDevelopmentAssertHostedDependencyArchiveProjection,
+  CodexDevelopmentAssertHostedSutSandboxCommandPlan,
+  CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean,
+  CodexDevelopmentBuildHostedSutSandboxCommandPlan,
+  CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan,
+  CodexDevelopmentCandidateProcessEnvironment,
+  CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot,
   CodexDevelopmentCiVerificationMain,
-  CodexDevelopmentComposeHostedEvidenceV2,
-  CodexDevelopmentCoordinateHostedActionsV2,
-  CodexDevelopmentExecuteHostedActionSutV2,
-  CodexDevelopmentHostedDependencyMaterializerEnvironmentV1,
-  CodexDevelopmentHostedSutCapabilityAssertionV1,
-  CodexDevelopmentInspectHostedActionArchiveInventoryV3,
-  CodexDevelopmentInspectHostedActionArchiveV2,
-  CodexDevelopmentMaterializeTrustedBootstrapArchiveV3,
-  CodexDevelopmentProbeHostedSutSandboxCapabilityV1,
-  CodexDevelopmentRunBoundedDependencyMaterializationV1,
-  CodexDevelopmentTrustedBootstrapSutHarnessV1,
-  CodexDevelopmentValidateHostedActionArchiveInventoryV2,
-  type CodexDevelopmentHostedActionArchiveInventoryV2,
-  type CodexDevelopmentHostedActionArtifactObservationV2,
-  type CodexDevelopmentHostedActionExecutionTicketV2,
-  type CodexDevelopmentHostedActionRawResultV2,
-  type CodexDevelopmentHostedActionResolutionV2,
-  type CodexDevelopmentHostedSutSandboxProcessObservationV1,
-  type CodexDevelopmentHostedSutSandboxReceiptV1
-} from '../../scripts/ci-verification.ts';
+  CodexDevelopmentComposeHostedEvidence,
+  CodexDevelopmentCoordinateHostedActions,
+  CodexDevelopmentExecuteHostedActionSut,
+  CodexDevelopmentHostedDependencyMaterializerEnvironment,
+  CodexDevelopmentHostedSutCapabilityAssertion,
+  CodexDevelopmentInspectHostedActionArchiveInventory,
+  CodexDevelopmentInspectHostedActionArchive,
+  CodexDevelopmentMaterializeTrustedBootstrapArchive,
+  CodexDevelopmentProbeHostedSutSandboxCapability,
+  CodexDevelopmentRunBoundedDependencyMaterialization,
+  CodexDevelopmentTrustedBootstrapSutHarness,
+  CodexDevelopmentValidateHostedActionArchiveInventory,
+  type CodexDevelopmentHostedActionArchiveInventory,
+  type CodexDevelopmentHostedActionArtifactObservation,
+  type CodexDevelopmentHostedActionExecutionTicket,
+  type CodexDevelopmentHostedActionRawResult,
+  type CodexDevelopmentHostedActionResolution,
+  type CodexDevelopmentHostedSutSandboxProcessObservation,
+  type CodexDevelopmentHostedSutSandboxReceipt
+} from '../../src/verification/ci/verification.ts';
 import {
-  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1,
-  type VerificationSessionHostedRequestV1
-} from '../../scripts/codex/verification-session-runtime.ts';
+  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
+} from '../../src/verification/ci/runtime/verification-session-runtime.ts';
+import type { VerificationSessionHostedRequest } from '../../src/verification/ci/contract/session-request.ts';
 
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -144,7 +100,7 @@ function sandboxObservation(
   code: number,
   failureTail: string,
   options: Readonly<{ truncated?: boolean; started?: boolean }> = {}
-): CodexDevelopmentHostedSutSandboxProcessObservationV1 {
+): CodexDevelopmentHostedSutSandboxProcessObservation {
   const stdoutDigest = bytesDigest(failureTail);
   const stderrDigest = bytesDigest('');
   return Object.freeze({
@@ -165,16 +121,16 @@ function sandboxObservation(
 function sandboxReceipt(
   actionKey: VerificationActionKeyDigest,
   status: 'passed' | 'failed' | 'unsupported' | 'invalidated' = 'passed',
-  authorization?: CodexDevelopmentHostedSutExecutionAuthorizationV1
-): CodexDevelopmentHostedSutSandboxReceiptV1 {
+  authorization?: CodexDevelopmentHostedSutExecutionAuthorization
+): CodexDevelopmentHostedSutSandboxReceipt {
   const executed = status === 'passed' || status === 'failed';
   if (executed && authorization === undefined) {
     throw new Error('Executed sandbox fixture requires its physical command authorization.');
   }
   const settled = status !== 'invalidated';
   const withoutDigest = Object.freeze({
-    schema: CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA_V1,
-    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
+    schema: CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
+    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
     actionKey,
     capability: Object.freeze({
       commandPlanDigest: executed ? authorization!.physicalCommand.projectionDigest : digest('8'),
@@ -191,21 +147,21 @@ function sandboxReceipt(
         : status === 'unsupported' ? 'unshare: operation not permitted' : 'capability observation lost'
     }),
     commandPlanDigest: executed ? authorization!.physicalCommand.projectionDigest : null,
-    resources: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits,
+    resources: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits,
     authenticatedArchive: Object.freeze({
       archiveDigest: digest('9'), inventoryDigest: digest('0'),
       dependencyClosureDigest: DEPENDENCY_CLOSURE, gitBundleDigest: GIT_CLOSURE,
       entryCount: 12, totalFileBytes: 1024
     }),
     rootIsolation: Object.freeze({
-      substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.substrate,
-      namespaces: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.namespaces,
-      uid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid,
-      gid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid,
-      network: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.network,
-      inputMount: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.inputMount,
-      workspace: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.workspace,
-      outputTransport: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outputTransport,
+      substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.substrate,
+      namespaces: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.namespaces,
+      uid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedUid,
+      gid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedGid,
+      network: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.network,
+      inputMount: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.inputMount,
+      workspace: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.workspace,
+      outputTransport: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outputTransport,
       candidateEnvironmentNames: executed ? Object.freeze(
         authorization!.physicalCommand.fixedSandboxEnvironment.map((entry) => entry.name)
       ) : Object.freeze([])
@@ -233,7 +189,7 @@ function sandboxReceipt(
   });
 }
 
-const hostedProducer: VerificationActionProviderOriginV2 = Object.freeze({
+const hostedProducer: VerificationActionProviderOrigin = Object.freeze({
   repositoryId: 311,
   repository: 'openai/sec',
   workflowPath: '.github/workflows/compiler-pr-validation.yml',
@@ -259,9 +215,9 @@ tasks:
   - id: exact-verification
     owner: verification-writer
     ownedPaths:
-      - scripts/ci-verification.ts
+      - src/verification/ci/verification.ts
 forbiddenPaths:
-  - platform/compiler/
+  - src/compiler/
 acceptance:
   - exact-verification
 tests:
@@ -304,18 +260,18 @@ function baseOptions(root: string) {
     repositoryRoot: root,
     gitRevision: revisions,
     trackedTreeIsClean: () => true,
-    changedFiles: () => ['platform/orchestrator.ts'],
+    changedFiles: () => ['src/compiler/orchestration/cli.ts'],
     readExactGitBlob: () => exactManifest(),
     runGate: async () => ({ code: 0, rawOutputDigest: RAW, failureTail: '' })
   };
 }
 
-function hostedGates(): readonly CiVerificationProducerGateV1[] {
+function hostedGates(): readonly CiVerificationProducerGate[] {
   return buildCiQuickGatePlan({ includeImports: true, includeDocs: true, includeRisk: false })
-    .map(ciVerificationGateStepV1);
+    .map(ciVerificationGateStep);
 }
 
-function hostedCandidate(): CiVerificationActionCandidateV1 {
+function hostedCandidate(): CiVerificationActionCandidate {
   return {
     baseSha: BASE,
     baseTreeSha: BASE_TREE,
@@ -326,10 +282,10 @@ function hostedCandidate(): CiVerificationActionCandidateV1 {
     scopeAuthorizationRevision: digest('c'),
     profile: 'quick',
     toolchainRevision: 'bun@1.3.14',
-    providerRevision: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2.executionEnvironmentRevision,
+    providerRevision: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
     contractRevision: 'ci-verification-v19',
     requiredBlobs: [
-      ...CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2.map((dependencyPath, index) => ({
+      ...CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS.map((dependencyPath, index) => ({
         path: dependencyPath,
         digest: digest(String(index + 1))
       })),
@@ -339,9 +295,9 @@ function hostedCandidate(): CiVerificationActionCandidateV1 {
 }
 
 function hostedResolution(
-  gates: readonly CiVerificationProducerGateV1[] = [hostedGates()[0]!]
-): CodexDevelopmentHostedActionResolutionV2 {
-  const actionPlanClosure = buildCiVerificationActionPlanClosureV1({
+  gates: readonly CiVerificationProducerGate[] = [hostedGates()[0]!]
+): CodexDevelopmentHostedActionResolution {
+  const actionPlanClosure = buildCiVerificationActionPlanClosure({
     candidate: hostedCandidate(),
     gates
   });
@@ -349,9 +305,9 @@ function hostedResolution(
 }
 
 function hostedMemberResolution(
-  actionPlanClosure: CiVerificationActionPlanClosureV1,
+  actionPlanClosure: CiVerificationActionPlanClosure,
   memberIndex: number
-): CodexDevelopmentHostedActionResolutionV2 {
+): CodexDevelopmentHostedActionResolution {
   const actionPlan = actionPlanClosure.actions[memberIndex]!;
   const artifactInput = Object.freeze({
     baseSha: BASE,
@@ -361,7 +317,7 @@ function hostedMemberResolution(
     manifestPath: MANIFEST_PATH,
     manifestDigest: hostedCandidate().manifestDigest,
     inputClosureDigest: CodexDevelopmentVerificationDigest(actionPlan.action.inputClosure),
-    candidateBytesDigest: CodexDevelopmentVerificationActionCandidateBytesDigestV2({
+    candidateBytesDigest: CodexDevelopmentVerificationActionCandidateBytesDigest({
       baseSha: BASE,
       baseTreeSha: BASE_TREE,
       headSha: HEAD,
@@ -372,13 +328,13 @@ function hostedMemberResolution(
     })
   });
   const withoutDigest = Object.freeze({
-    schema: CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA_V2,
+    schema: CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
     requestDigest: digest('e'),
     actionKeyHex: actionPlan.action.actionKey.slice('sha256:'.length),
     actionPlan,
     actionPlanClosure,
     artifactInput,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2
+    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT
   });
   return Object.freeze({
     ...withoutDigest,
@@ -387,8 +343,8 @@ function hostedMemberResolution(
 }
 
 function hostedTicket(
-  resolution: CodexDevelopmentHostedActionResolutionV2,
-  inventory: CodexDevelopmentHostedActionArchiveInventoryV2 = Object.freeze({
+  resolution: CodexDevelopmentHostedActionResolution,
+  inventory: CodexDevelopmentHostedActionArchiveInventory = Object.freeze({
     archiveDigest: digest('9'),
     inventoryDigest: digest('0'),
     entryCount: 12,
@@ -396,10 +352,10 @@ function hostedTicket(
     dependencyClosureDigest: DEPENDENCY_CLOSURE,
     gitBundleDigest: GIT_CLOSURE
   })
-): CodexDevelopmentHostedActionExecutionTicketV2 {
+): CodexDevelopmentHostedActionExecutionTicket {
   const actionKey = resolution.actionPlan.action.actionKey;
   const withoutDigest = Object.freeze({
-    schema: CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA_V2,
+    schema: CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA,
     resolutionDigest: resolution.resolutionDigest,
     actionKey,
     candidateSha: HEAD,
@@ -408,7 +364,7 @@ function hostedTicket(
     startStatusNodeId: 'STATUS_start',
     startMarkerDigest: digest('f'),
     startArtifactOriginId: '7001',
-    startArtifactName: verificationActionProviderStartArtifactNameV2(actionKey),
+    startArtifactName: verificationActionProviderStartArtifactName(actionKey),
     startArtifactArchiveDigest: digest('1'),
     preparedCandidateArtifactName:
       `sec-verification-action-prepared-v2-${actionKey.slice(7)}-run-${hostedProducer.runId}` +
@@ -428,15 +384,15 @@ function hostedTicket(
 }
 
 function hostedRawResult(
-  resolution: CodexDevelopmentHostedActionResolutionV2,
+  resolution: CodexDevelopmentHostedActionResolution,
   status: 'passed' | 'failed' | 'unsupported' | 'invalidated'
-): CodexDevelopmentHostedActionRawResultV2 {
+): CodexDevelopmentHostedActionRawResult {
   const ticket = hostedTicket(resolution);
   const memberIndex = resolution.actionPlanClosure.actions.findIndex(
     (member) => member.action.actionKey === resolution.actionPlan.action.actionKey
   );
   const normalizedOperation = resolution.actionPlanClosure.normalizedOperations[memberIndex]!;
-  const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorizationV1({
+  const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
     resolutionDigest: resolution.resolutionDigest,
     ticketDigest: ticket.ticketDigest,
     actionPlan: resolution.actionPlan,
@@ -455,7 +411,7 @@ function hostedRawResult(
     producer: hostedProducer
   });
   const receipt = sandboxReceipt(resolution.actionPlan.action.actionKey, status, authorization);
-  return CodexDevelopmentFinalizeHostedActionRawResultV2({
+  return CodexDevelopmentFinalizeHostedActionRawResult({
     executionAuthorizationDigest: authorization.authorizationDigest,
     command: status === 'passed' || status === 'failed' ? Object.freeze({
       commandPlanDigest: receipt.commandPlanDigest!,
@@ -468,18 +424,18 @@ function hostedRawResult(
   });
 }
 
-type HostedEnvelopeFixture = Parameters<typeof CodexDevelopmentCoordinateHostedActionsV2>[0]['envelope'];
+type HostedEnvelopeFixture = Parameters<typeof CodexDevelopmentCoordinateHostedActions>[0]['envelope'];
 
 function hostedDagClosure(
   dependencyIndexes: readonly (readonly number[])[]
-): CiVerificationActionPlanClosureV1 {
+): CiVerificationActionPlanClosure {
   const gates = hostedGates();
   if (dependencyIndexes.length > gates.length) throw new Error('Hosted DAG fixture has too many members.');
-  const actions = [] as ReturnType<typeof buildCiVerificationActionPlanV1>[];
-  const normalizedOperations = [] as CiVerificationActionPlanClosureV1['normalizedOperations'][number][];
+  const actions = [] as ReturnType<typeof buildCiVerificationActionPlan>[];
+  const normalizedOperations = [] as CiVerificationActionPlanClosure['normalizedOperations'][number][];
   for (const [index, dependencies] of dependencyIndexes.entries()) {
     const gate = gates[index]!;
-    const normalized = buildCiVerificationActionPlanClosureV1({
+    const normalized = buildCiVerificationActionPlanClosure({
       candidate: hostedCandidate(),
       gates: [gate]
     }).normalizedOperations[0]!;
@@ -490,14 +446,14 @@ function hostedDagClosure(
       }
       return dependency.action.actionKey;
     });
-    actions.push(buildCiVerificationActionPlanV1({
+    actions.push(buildCiVerificationActionPlan({
       candidate: hostedCandidate(),
       gate,
       upstreamActionKeys
     }));
     normalizedOperations.push(normalized);
   }
-  const template = buildCiVerificationActionPlanClosureV1({
+  const template = buildCiVerificationActionPlanClosure({
     candidate: hostedCandidate(),
     gates: [gates[0]!]
   });
@@ -514,7 +470,7 @@ function hostedDagClosure(
 }
 
 function hostedEnvelopeFixture(
-  actionPlanClosure: CiVerificationActionPlanClosureV1
+  actionPlanClosure: CiVerificationActionPlanClosure
 ): HostedEnvelopeFixture {
   const scopeAuthorizationRevision = hostedCandidate().scopeAuthorizationRevision;
   const scopeAuthorizationDigest = digest('5');
@@ -523,7 +479,7 @@ function hostedEnvelopeFixture(
   const mainHealthRevision = digest('8');
   const mainHealthDigest = digest('9');
   const withoutDigest = Object.freeze({
-    schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1,
+    schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
     requestOperationId: digest('0'),
     scopeAuthorization: Object.freeze({
       repository: hostedProducer.repository,
@@ -568,7 +524,7 @@ function hostedEnvelopeFixture(
   }) as unknown as HostedEnvelopeFixture;
 }
 
-const hostedEvidenceProducer = CodexDevelopmentCreateVerificationEvidenceProducerV4({
+const hostedEvidenceProducer = CodexDevelopmentCreateVerificationEvidenceProducer({
   sourceTransport: 'github-actions',
   workflowPath: '.github/workflows/compiler-pr-validation.yml',
   workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
@@ -579,10 +535,10 @@ const hostedEvidenceProducer = CodexDevelopmentCreateVerificationEvidenceProduce
 });
 
 type HostedProviderInputs = Readonly<{
-  observations: readonly CodexDevelopmentHostedActionArtifactObservationV2[];
-  startObservations: readonly VerificationActionProviderStartObservationV2[];
-  terminalAnchorObservations: readonly VerificationActionProviderTerminalAnchorObservationV2[];
-  providerStatusReadbacks: readonly VerificationActionProviderStatusReadbackV2[];
+  observations: readonly CodexDevelopmentHostedActionArtifactObservation[];
+  startObservations: readonly VerificationActionProviderStartObservation[];
+  terminalAnchorObservations: readonly VerificationActionProviderTerminalAnchorObservation[];
+  providerStatusReadbacks: readonly VerificationActionProviderStatusReadback[];
 }>;
 
 function hostedProviderInputs(
@@ -592,20 +548,20 @@ function hostedProviderInputs(
     expired?: boolean;
   }>>
 ): HostedProviderInputs {
-  const observations: CodexDevelopmentHostedActionArtifactObservationV2[] = [];
-  const startObservations: VerificationActionProviderStartObservationV2[] = [];
-  const terminalAnchorObservations: VerificationActionProviderTerminalAnchorObservationV2[] = [];
-  const providerStatusReadbacks: VerificationActionProviderStatusReadbackV2[] = [];
+  const observations: CodexDevelopmentHostedActionArtifactObservation[] = [];
+  const startObservations: VerificationActionProviderStartObservation[] = [];
+  const terminalAnchorObservations: VerificationActionProviderTerminalAnchorObservation[] = [];
+  const providerStatusReadbacks: VerificationActionProviderStatusReadback[] = [];
   for (const [index, member] of envelope.actionPlanClosure.actions.entries()) {
     const actionKey = member.action.actionKey;
     const terminalSpec = terminals.get(index);
     if (terminalSpec === undefined) {
-      providerStatusReadbacks.push(finalizeVerificationActionProviderStatusReadbackV2({
+      providerStatusReadbacks.push(finalizeVerificationActionProviderStatusReadback({
         repositoryId: hostedProducer.repositoryId,
         repository: hostedProducer.repository,
         actionKey,
         candidateSha: HEAD,
-        context: verificationActionProviderStatusContextV2(actionKey),
+        context: verificationActionProviderStatusContext(actionKey),
         perPage: 100,
         paginationComplete: true,
         pageDigests: [bytesDigest(`empty-status-page-${index}`)],
@@ -615,7 +571,7 @@ function hostedProviderInputs(
     }
     const resolution = hostedMemberResolution(envelope.actionPlanClosure, index);
     const rawResult = hostedRawResult(resolution, terminalSpec.status);
-    const artifact = CodexDevelopmentAssembleHostedActionTerminalV2({
+    const artifact = CodexDevelopmentAssembleHostedActionTerminal({
       resolution,
       ticket: hostedTicket(resolution),
       rawResult,
@@ -630,38 +586,38 @@ function hostedProviderInputs(
     const anchorOriginId = String(2003 + index * 10);
     const startArchiveDigest = bytesDigest(`start-archive-${index}`);
     const terminalArchiveDigest = bytesDigest(`terminal-archive-${index}`);
-    const marker = createVerificationActionProviderStartMarkerV2({
+    const marker = createVerificationActionProviderStartMarker({
       actionKey,
       candidateSha: HEAD,
       executionEnvironmentRevision:
-        CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2.executionEnvironmentRevision,
+        CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
       producer: hostedProducer
     });
-    const anchor = createVerificationActionProviderTerminalAnchorV2({
+    const anchor = createVerificationActionProviderTerminalAnchor({
       actionKey,
       candidateSha: HEAD,
       startStatusId,
       startStatusNodeId,
       startArtifactOriginId: startOriginId,
-      startArtifactName: verificationActionProviderStartArtifactNameV2(actionKey),
+      startArtifactName: verificationActionProviderStartArtifactName(actionKey),
       startArtifactArchiveDigest: startArchiveDigest,
       startMarkerDigest: marker.markerDigest,
       terminalArtifactOriginId: terminalOriginId,
-      terminalArtifactName: verificationActionProviderTerminalArtifactNameV2(actionKey),
+      terminalArtifactName: verificationActionProviderTerminalArtifactName(actionKey),
       terminalArtifactArchiveDigest: terminalArchiveDigest,
       terminalArtifactPayloadDigest: terminalPayloadDigest,
       terminalAssemblerOrigin: hostedProducer,
       anchorPublisherOrigin: hostedProducer
     });
-    const targetUrl = verificationActionProviderRunTargetUrlV2(hostedProducer);
-    const creator = VERIFICATION_ACTION_PROVIDER_POLICY_V2.creator;
-    const statuses: VerificationActionProviderStatusObservationV2[] = [
+    const targetUrl = verificationActionProviderRunTargetUrl(hostedProducer);
+    const creator = VERIFICATION_ACTION_PROVIDER_POLICY.creator;
+    const statuses: VerificationActionProviderStatusObservation[] = [
       Object.freeze({
         id: startStatusId,
         nodeId: startStatusNodeId,
         state: 'pending',
-        context: verificationActionProviderStatusContextV2(actionKey),
-        description: verificationActionProviderStartDescriptionV2(marker.markerDigest),
+        context: verificationActionProviderStatusContext(actionKey),
+        description: verificationActionProviderStartDescription(marker.markerDigest),
         targetUrl,
         commitSha: HEAD,
         createdAt: '2026-08-09T00:00:00.000Z',
@@ -673,8 +629,8 @@ function hostedProviderInputs(
         id: startStatusId + 1,
         nodeId: `STATUS_terminal_${index}`,
         state: 'success',
-        context: verificationActionProviderStatusContextV2(actionKey),
-        description: verificationActionProviderTerminalDescriptionV2(anchor.anchorDigest),
+        context: verificationActionProviderStatusContext(actionKey),
+        description: verificationActionProviderTerminalDescription(anchor.anchorDigest),
         targetUrl,
         commitSha: HEAD,
         createdAt: '2026-08-09T00:00:01.000Z',
@@ -685,7 +641,7 @@ function hostedProviderInputs(
     ];
     startObservations.push(Object.freeze({
       originId: startOriginId,
-      artifactName: verificationActionProviderStartArtifactNameV2(actionKey),
+      artifactName: verificationActionProviderStartArtifactName(actionKey),
       archiveDigest: startArchiveDigest,
       expired: false,
       payload: marker,
@@ -694,7 +650,7 @@ function hostedProviderInputs(
     observations.push(Object.freeze({
       providerObservation: Object.freeze({
         originId: terminalOriginId,
-        artifactName: verificationActionProviderTerminalArtifactNameV2(actionKey),
+        artifactName: verificationActionProviderTerminalArtifactName(actionKey),
         archiveDigest: terminalSpec.expired ? null : terminalArchiveDigest,
         expired: terminalSpec.expired ?? false,
         payload: terminalSpec.expired ? null : Object.freeze({
@@ -709,18 +665,18 @@ function hostedProviderInputs(
     }));
     terminalAnchorObservations.push(Object.freeze({
       originId: anchorOriginId,
-      artifactName: verificationActionProviderTerminalAnchorNameV2(actionKey),
+      artifactName: verificationActionProviderTerminalAnchorName(actionKey),
       archiveDigest: bytesDigest(`anchor-archive-${index}`),
       expired: false,
       payload: anchor,
       referencedOrigin: hostedProducer
     }));
-    providerStatusReadbacks.push(finalizeVerificationActionProviderStatusReadbackV2({
+    providerStatusReadbacks.push(finalizeVerificationActionProviderStatusReadback({
       repositoryId: hostedProducer.repositoryId,
       repository: hostedProducer.repository,
       actionKey,
       candidateSha: HEAD,
-      context: verificationActionProviderStatusContextV2(actionKey),
+      context: verificationActionProviderStatusContext(actionKey),
       perPage: 100,
       paginationComplete: true,
       pageDigests: [bytesDigest(`terminal-status-page-${index}`)],
@@ -746,12 +702,11 @@ test('CI runner executes every ordinary gate through Action and publishes only V
         calls.push(gate.id);
         return { code: 0, rawOutputDigest: RAW, failureTail: '' };
       },
-      writeEvidenceV4: (_file, value) => { evidence = value; }
+      writeEvidence: (_file, value) => { evidence = value; }
     });
     expect(code).toBe(0);
     expect(calls.length).toBeGreaterThan(0);
     const captured = evidence as CodexDevelopmentVerificationEvidenceV4 | null;
-    expect(captured?.schema).toBe('codex-development-verification-evidence-v4');
     expect(captured?.gates.every((gate) => gate.action.actionKey === gate.result.inputDigest)).toBe(true);
     expect(() => CodexDevelopmentAssertVerificationEvidenceV4(captured, {
       actionPlan: captured!.actionPlan
@@ -764,24 +719,24 @@ test('CI runner executes every ordinary gate through Action and publishes only V
 test('CI runner accepts transition injection only with matching exact changed records', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-transition-binding-'));
   try {
-    const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
       baseSha: BASE,
       headSha: HEAD,
-      records: [{ status: 'changed', path: 'platform/orchestrator.ts' }],
+      records: [{ status: 'changed', path: 'src/compiler/orchestration/cli.ts' }],
       readPathBlob: () => null
     });
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
       transitionObservation: transition,
-      writeEvidenceV4: () => undefined
+      writeEvidence: () => undefined
     })).toBe(1);
     const { changedFiles: _changedFiles, ...recordOptions } = baseOptions(root);
     void _changedFiles;
     expect(await CodexDevelopmentCiVerificationMain({
       ...recordOptions,
-      changedRecords: () => [{ status: 'added', path: 'platform/orchestrator.ts' }],
+      changedRecords: () => [{ status: 'added', path: 'src/compiler/orchestration/cli.ts' }],
       transitionObservation: transition,
-      writeEvidenceV4: () => undefined
+      writeEvidence: () => undefined
     })).toBe(1);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -799,7 +754,7 @@ test('multi-commit candidate uses exact current base and never requires HEAD^1',
         if (ref === 'HEAD^1') throw new Error('single-parent assumption is retired');
         return revisions(ref);
       },
-      writeEvidenceV4: () => undefined
+      writeEvidence: () => undefined
     });
     expect(code).toBe(0);
     expect(refs).not.toContain('HEAD^1');
@@ -821,7 +776,7 @@ test('formal hosted mode fails closed before physical execution without complete
         spawns += 1;
         return { code: 0, rawOutputDigest: RAW, failureTail: '' };
       },
-      writeEvidenceV4: () => { writes += 1; }
+      writeEvidence: () => { writes += 1; }
     });
     expect(code).toBe(1);
     expect(spawns).toBe(0);
@@ -836,7 +791,7 @@ test('Action journal reuse is not Evidence without an independent durable result
   try {
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
-      writeEvidenceV4: () => undefined
+      writeEvidence: () => undefined
     })).toBe(0);
     let physical = 0;
     let writes = 0;
@@ -846,7 +801,7 @@ test('Action journal reuse is not Evidence without an independent durable result
         physical += 1;
         return { code: 0, rawOutputDigest: RAW, failureTail: '' };
       },
-      writeEvidenceV4: () => { writes += 1; }
+      writeEvidence: () => { writes += 1; }
     })).toBe(1);
     expect(physical).toBe(0);
     expect(writes).toBe(0);
@@ -862,7 +817,7 @@ test('durable known failure reuse remains failed and never executes or promotes 
     expect(await CodexDevelopmentCiVerificationMain({
       ...baseOptions(root),
       runGate: async () => ({ code: 1, rawOutputDigest: RAW, failureTail: 'known failure' }),
-      writeEvidenceV4: (_file, value) => { first = value; }
+      writeEvidence: (_file, value) => { first = value; }
     })).toBe(1);
     const terminal = first as unknown as CodexDevelopmentVerificationEvidenceV4;
     expect(terminal.status).toBe('failed');
@@ -879,7 +834,7 @@ test('durable known failure reuse remains failed and never executes or promotes 
         const result = byActionKey.get(actionKey);
         return result === undefined ? null : { result, evidenceRefs: ['artifact://known-failure'] };
       },
-      writeEvidenceV4: (_file, value) => { reused = value; }
+      writeEvidence: (_file, value) => { reused = value; }
     })).toBe(1);
     expect(physical).toBe(0);
     const second = reused as unknown as CodexDevelopmentVerificationEvidenceV4;
@@ -913,41 +868,41 @@ test('trusted bootstrap cleanliness excludes only its exact nested candidate che
     gitFixture(candidateRoot, ['add', 'candidate.txt']);
     gitFixture(candidateRoot, ['commit', '--quiet', '-m', 'candidate']);
 
-    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot
     })).not.toThrow();
 
     const foreignBasePath = path.join(baseRoot, 'foreign.txt');
     writeFileSync(foreignBasePath, 'foreign\n');
-    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot
     })).toThrow(/clean base and candidate/);
     rmSync(foreignBasePath);
 
     const ignoredBasePath = path.join(baseRoot, 'ignored-residue.txt');
     writeFileSync(ignoredBasePath, 'ignored foreign base bytes\n');
-    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot
     })).toThrow(/clean base and candidate/);
     rmSync(ignoredBasePath);
 
     const dirtyCandidatePath = path.join(candidateRoot, 'dirty.txt');
     writeFileSync(dirtyCandidatePath, 'dirty\n');
-    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot
     })).toThrow(/clean base and candidate/);
     rmSync(dirtyCandidatePath);
 
     const ignoredCandidatePath = path.join(candidateRoot, 'ignored-residue.txt');
     writeFileSync(ignoredCandidatePath, 'ignored foreign candidate bytes\n');
-    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot
     })).toThrow(/clean base and candidate/);
     rmSync(ignoredCandidatePath);
 
     const candidateSubdirectory = path.join(candidateRoot, 'nested');
     mkdirSync(candidateSubdirectory);
-    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({
       baseRoot, candidateRoot: candidateSubdirectory
     })).toThrow(/two exact Git checkout roots/);
   } finally {
@@ -975,7 +930,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
     const dirtyArchive = path.join(dirtyRoot, 'prepared-candidate.tar');
     writeFileSync(cleanArchive, 'authenticated-clean-archive');
     writeFileSync(dirtyArchive, 'authenticated-dirty-archive');
-    const inventory = (archive: string): CodexDevelopmentHostedActionArchiveInventoryV2 => ({
+    const inventory = (archive: string): CodexDevelopmentHostedActionArchiveInventory => ({
       archiveDigest: bytesDigest(readFileSync(archive)),
       inventoryDigest: digest('0'),
       entryCount: 20,
@@ -983,11 +938,11 @@ test('hosted SUT executes only through the isolated command plan and terminalize
       dependencyClosureDigest: DEPENDENCY_CLOSURE,
       gitBundleDigest: GIT_CLOSURE
     });
-    let executionPlan: Parameters<typeof CodexDevelopmentAssertHostedSutSandboxCommandPlanV1>[0] | null = null;
+    let executionPlan: Parameters<typeof CodexDevelopmentAssertHostedSutSandboxCommandPlan>[0] | null = null;
     const retainedArchiveBytes: string[] = [];
     const cleanInventory = inventory(cleanArchive);
     const cleanTicket = hostedTicket(resolution, cleanInventory);
-    const clean = await CodexDevelopmentExecuteHostedActionSutV2({
+    const clean = await CodexDevelopmentExecuteHostedActionSut({
       resolution,
       ticket: cleanTicket,
       candidateArchive: cleanArchive,
@@ -1034,7 +989,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
         return sandboxObservation(0, 'candidate output is captured, never echoed');
       }
     });
-    const cleanTerminal = CodexDevelopmentAssembleHostedActionTerminalV2({
+    const cleanTerminal = CodexDevelopmentAssembleHostedActionTerminal({
       resolution, ticket: cleanTicket, rawResult: clean,
       expectedRawResultDigest: clean.rawResultDigest, producer: hostedProducer
     });
@@ -1045,7 +1000,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
     expect(executionPlan).not.toBeNull();
     expect(retainedArchiveBytes).toEqual(['authenticated-clean-archive']);
     expect(JSON.stringify(executionPlan!.argv)).not.toContain(cleanArchive);
-    expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(executionPlan!)).not.toThrow();
+    expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan(executionPlan!)).not.toThrow();
     expect(executionPlan!.argv.slice(-directBunTestArgv.length)).toEqual(directBunTestArgv);
     expect(cleanTerminal.result.execution?.argv).toEqual(directBunTestArgv);
     expect(executionPlan!.candidateEnvironmentNames).toContain('SEC_FORMAL_HOSTED_MODE');
@@ -1056,7 +1011,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
 
     const dirtyInventory = inventory(dirtyArchive);
     const dirtyTicket = hostedTicket(resolution, dirtyInventory);
-    const dirty = await CodexDevelopmentExecuteHostedActionSutV2({
+    const dirty = await CodexDevelopmentExecuteHostedActionSut({
       resolution,
       ticket: dirtyTicket,
       candidateArchive: dirtyArchive,
@@ -1075,7 +1030,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
         return sandboxObservation(0, 'candidate could not write host input');
       }
     });
-    const dirtyTerminal = CodexDevelopmentAssembleHostedActionTerminalV2({
+    const dirtyTerminal = CodexDevelopmentAssembleHostedActionTerminal({
       resolution, ticket: dirtyTicket, rawResult: dirty,
       expectedRawResultDigest: dirty.rawResultDigest, producer: hostedProducer
     });
@@ -1095,7 +1050,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     (member) => member.action.actionKey === resolution.actionPlan.action.actionKey
   );
   const normalizedOperation = resolution.actionPlanClosure.normalizedOperations[memberIndex]!;
-  const executionAuthorization = CodexDevelopmentCreateHostedSutExecutionAuthorizationV1({
+  const executionAuthorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
     resolutionDigest: resolution.resolutionDigest,
     ticketDigest: ticket.ticketDigest,
     actionPlan: resolution.actionPlan,
@@ -1113,20 +1068,20 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     }),
     producer: hostedProducer
   });
-  const plan = CodexDevelopmentBuildHostedSutSandboxCommandPlanV1({
+  const plan = CodexDevelopmentBuildHostedSutSandboxCommandPlan({
     actionKey: resolution.actionPlan.action.actionKey,
     candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,
     bunExecutable: path.resolve('/trusted/tool/bun'),
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
     normalizedArgv: executionAuthorization.normalizedArgv,
-    candidateEnvironment: CodexDevelopmentHostedSutCandidateEnvironmentV1({
+    candidateEnvironment: CodexDevelopmentHostedSutCandidateEnvironment({
       normalizedOperation,
       manifestPath: resolution.artifactInput.manifestPath
     }),
     executionAuthorization
   });
-  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(plan)).not.toThrow();
+  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan)).not.toThrow();
   expect(plan.command).toBe('/usr/bin/unshare');
   const encoded = JSON.stringify(plan.argv);
   for (const invariant of [
@@ -1147,24 +1102,24 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(plan.candidateEnvironmentNames).toEqual(
     executionAuthorization.physicalCommand.fixedSandboxEnvironment.map((entry) => entry.name)
   );
-  const bootstrapPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1({
+  const bootstrapPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan({
     bootstrapDigest: digest('b'),
     candidateArchiveDigest: digest('a'),
     bunExecutable: path.resolve('/trusted/tool/bun'),
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
-    candidateEnvironment: CodexDevelopmentCandidateProcessEnvironmentV2({}, {
+    candidateEnvironment: CodexDevelopmentCandidateProcessEnvironment({}, {
       SEC_BOOTSTRAP_BASE: normalizedOperation.candidate.baseSha,
       SEC_BOOTSTRAP_HEAD: normalizedOperation.candidate.headSha,
       SEC_BOOTSTRAP_TREE: TREE
     }),
     unitNonce: 'bootstrap-contract'
   });
-  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(bootstrapPlan)).not.toThrow();
+  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan(bootstrapPlan)).not.toThrow();
   expect(bootstrapPlan.phase).toBe('bootstrap-execute');
   expect(bootstrapPlan.executionAuthorizationDigest).toBeNull();
   expect(bootstrapPlan.physicalCommandProjectionDigest).toBeNull();
-  expect(bootstrapPlan.argv.at(-1)).toBe(CodexDevelopmentTrustedBootstrapSutHarnessV1);
+  expect(bootstrapPlan.argv.at(-1)).toBe(CodexDevelopmentTrustedBootstrapSutHarness);
   expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
 });
 
@@ -1220,7 +1175,7 @@ test('Linux retained archive descriptor defeats pathname ABA before private sand
 });
 
 test('parent event binds the canonical one-key Session request wrapper', () => {
-  const sessionRequest: VerificationSessionHostedRequestV1 = Object.freeze({
+  const sessionRequest: VerificationSessionHostedRequest = Object.freeze({
     schema: 'sec-verification-session-hosted-request-v1',
     prNumber: 42,
     expectedBaseSha: BASE,
@@ -1240,26 +1195,26 @@ test('parent event binds the canonical one-key Session request wrapper', () => {
     action: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
     client_payload: Object.freeze({ payload: sessionRequest })
   });
-  expect(() => CodexDevelopmentAssertHostedActionParentEventV2(
+  expect(() => CodexDevelopmentAssertHostedActionParentEvent(
     canonicalEvent,
     sessionRequest
   )).not.toThrow();
-  expect(() => CodexDevelopmentAssertHostedActionParentEventV2(
+  expect(() => CodexDevelopmentAssertHostedActionParentEvent(
     { ...canonicalEvent, action: 'wrong-session-event' },
     sessionRequest
   )).toThrow('exact Session request wrapper');
-  expect(() => CodexDevelopmentAssertHostedActionParentEventV2(
+  expect(() => CodexDevelopmentAssertHostedActionParentEvent(
     { ...canonicalEvent, client_payload: sessionRequest },
     sessionRequest
   )).toThrow('exact Session request wrapper');
-  expect(() => CodexDevelopmentAssertHostedActionParentEventV2(
+  expect(() => CodexDevelopmentAssertHostedActionParentEvent(
     { ...canonicalEvent, client_payload: { payload: sessionRequest, extra: true } },
     sessionRequest
   )).toThrow('exact Session request wrapper');
 });
 
 test('capability probe detaches its deliberate residue child for trusted teardown', async () => {
-  const observation = await CodexDevelopmentProbeHostedSutSandboxCapabilityV1({
+  const observation = await CodexDevelopmentProbeHostedSutSandboxCapability({
     actionKey: digest('a'),
     platform: 'linux',
     unitNonce: 'settled-probe',
@@ -1272,7 +1227,7 @@ test('capability probe detaches its deliberate residue child for trusted teardow
   });
   expect(observation).toMatchObject({ state: 'supported', cgroupEmpty: true });
 
-  const assertion = CodexDevelopmentHostedSutCapabilityAssertionV1;
+  const assertion = CodexDevelopmentHostedSutCapabilityAssertion;
   const spawnOffset = assertion.indexOf('const descendant = spawn');
   const markerOffset = assertion.indexOf('process.stdout.write');
   expect(spawnOffset).toBeGreaterThanOrEqual(0);
@@ -1331,7 +1286,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-capability-'));
   const archive = path.join(root, 'prepared-candidate.tar');
   writeFileSync(archive, 'capability-fixture');
-  const archiveInventory: CodexDevelopmentHostedActionArchiveInventoryV2 = {
+  const archiveInventory: CodexDevelopmentHostedActionArchiveInventory = {
     archiveDigest: bytesDigest('capability-fixture'),
     inventoryDigest: digest('0'),
     entryCount: 4,
@@ -1343,7 +1298,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
     let executions = 0;
     let capabilityPlan = '';
     const ticket = hostedTicket(resolution, archiveInventory);
-    const unsupported = await CodexDevelopmentExecuteHostedActionSutV2({
+    const unsupported = await CodexDevelopmentExecuteHostedActionSut({
       resolution, ticket, candidateArchive: archive, archiveInventory,
       platform: 'linux', unitNonce: 'unsupported', now: clock(),
       runSandboxProcess: async (plan) => {
@@ -1355,7 +1310,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
         return sandboxObservation(1, 'unshare: Operation not permitted');
       }
     });
-    const unsupportedTerminal = CodexDevelopmentAssembleHostedActionTerminalV2({
+    const unsupportedTerminal = CodexDevelopmentAssembleHostedActionTerminal({
       resolution, ticket, rawResult: unsupported,
       expectedRawResultDigest: unsupported.rawResultDigest, producer: hostedProducer
     });
@@ -1366,11 +1321,11 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       'SEC_HOST_SANDBOX_SENTINEL', '/proc/1/environ', '/proc/net/route',
       'fetch("http://1.1.1.1', 'spawn("/usr/bin/sleep"', 'host-usr-or-proc-mount',
       'inherited-fd', 'cgroup-limits', '/home/runner/work', '/actions-runner/_work/_actions'
-    ]) expect(CodexDevelopmentHostedSutCapabilityAssertionV1).toContain(invariant);
-    expect(CodexDevelopmentHostedSutCapabilityAssertionV1).not.toContain('process.pid !== 1');
-    expect(CodexDevelopmentHostedSutCapabilityAssertionV1).toContain('error?.code !== "ENOENT"');
-    expect(CodexDevelopmentHostedSutCapabilityAssertionV1).toStartWith('(async () => {');
-    expect(CodexDevelopmentHostedSutCapabilityAssertionV1).toContain(
+    ]) expect(CodexDevelopmentHostedSutCapabilityAssertion).toContain(invariant);
+    expect(CodexDevelopmentHostedSutCapabilityAssertion).not.toContain('process.pid !== 1');
+    expect(CodexDevelopmentHostedSutCapabilityAssertion).toContain('error?.code !== "ENOENT"');
+    expect(CodexDevelopmentHostedSutCapabilityAssertion).toStartWith('(async () => {');
+    expect(CodexDevelopmentHostedSutCapabilityAssertion).toContain(
       '})().catch((error) => { console.error(error); process.exitCode = 1; });'
     );
     for (const invariant of [
@@ -1380,7 +1335,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       expect(capabilityPlan).not.toContain(forbidden);
     }
 
-    const ambiguous = await CodexDevelopmentExecuteHostedActionSutV2({
+    const ambiguous = await CodexDevelopmentExecuteHostedActionSut({
       resolution, ticket, candidateArchive: archive, archiveInventory,
       platform: 'linux', unitNonce: 'ambiguous', now: clock(),
       runSandboxProcess: async (plan) => {
@@ -1391,7 +1346,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
         throw new Error('supervisor channel disappeared before process start');
       }
     });
-    const ambiguousTerminal = CodexDevelopmentAssembleHostedActionTerminalV2({
+    const ambiguousTerminal = CodexDevelopmentAssembleHostedActionTerminal({
       resolution, ticket, rawResult: ambiguous,
       expectedRawResultDigest: ambiguous.rawResultDigest, producer: hostedProducer
     });
@@ -1417,7 +1372,7 @@ test('hostile command-channel output is bounded into the raw receipt without mut
       dependencyClosureDigest: DEPENDENCY_CLOSURE, gitBundleDigest: GIT_CLOSURE
     };
     const ticket = hostedTicket(resolution, archiveInventory);
-    const raw = await CodexDevelopmentExecuteHostedActionSutV2({
+    const raw = await CodexDevelopmentExecuteHostedActionSut({
       resolution,
       ticket,
       candidateArchive: archive,
@@ -1443,7 +1398,7 @@ test('hostile command-channel output is bounded into the raw receipt without mut
         );
       }
     });
-    const terminal = CodexDevelopmentAssembleHostedActionTerminalV2({
+    const terminal = CodexDevelopmentAssembleHostedActionTerminal({
       resolution, ticket, rawResult: raw,
       expectedRawResultDigest: raw.rawResultDigest, producer: hostedProducer
     });
@@ -1451,7 +1406,7 @@ test('hostile command-channel output is bounded into the raw receipt without mut
     expect(raw.sandboxReceipt.execution.outputTruncated).toBe(true);
     expect(typeof raw.sandboxReceipt.execution.stdoutBytesObserved).toBe('number');
     expect(readFileSync(commandFile, 'utf8')).toBe('unchanged\n');
-    const encoded = encodeVerificationActionDataV2(raw);
+    const encoded = encodeVerificationActionData(raw);
     expect(encoded).not.toContain('::set-output');
     expect(encoded).not.toContain('\u001b');
     expect(encoded).not.toContain('\\u001b');
@@ -1479,11 +1434,11 @@ test('raw archive metadata rejects traversal, special files, unsafe links, dupli
       contentDigest: DEPENDENCY_CLOSURE
     })
   ];
-  expect(() => CodexDevelopmentValidateHostedActionArchiveInventoryV2(trusted)).not.toThrow();
-  expect(() => CodexDevelopmentValidateHostedActionArchiveInventoryV2([
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventory(trusted)).not.toThrow();
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventory([
     ...trusted,
-    entry('node_modules/gitnexus/vendor/tree-sitter-proto/binding.gyp'),
-    entry('node_modules/gitnexus/node_modules/tree-sitter-proto/binding.gyp', 'symlink', {
+    entry('node_modules/example-parser/vendor/parser-core/binding.gyp'),
+    entry('node_modules/example-parser/node_modules/parser-core/binding.gyp', 'symlink', {
       linkTarget: '../../vendor/tree-sitter-proto/binding.gyp'
     })
   ])).not.toThrow();
@@ -1500,11 +1455,11 @@ test('raw archive metadata rejects traversal, special files, unsafe links, dupli
     [entry('setuid', 'file', { mode: 0o4755 })]
   ];
   for (const inventory of hostile) {
-    expect(() => CodexDevelopmentValidateHostedActionArchiveInventoryV2([
+    expect(() => CodexDevelopmentValidateHostedActionArchiveInventory([
       ...trusted, ...inventory
     ])).toThrow();
   }
-  expect(() => CodexDevelopmentValidateHostedActionArchiveInventoryV2([
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventory([
     ...trusted,
     entry('loop', 'directory'),
     entry('loop/child', 'directory'),
@@ -1516,7 +1471,6 @@ test('trusted dependency archive projection binds one stable physical generation
   const fileDigest = digest('6');
   const otherDigest = digest('7');
   const rootIdentity = Object.freeze({
-    schema: 'sec-physical-no-follow-v1' as const,
     path: '/work/node_modules',
     finalPath: '/work/node_modules',
     device: '1', inode: '2', objectId: '1:2'
@@ -1558,7 +1512,7 @@ test('trusted dependency archive projection binds one stable physical generation
     contentDigest: null,
     ...overrides
   });
-  const archiveEntries = CodexDevelopmentValidateHostedActionArchiveInventoryV2([
+  const archiveEntries = CodexDevelopmentValidateHostedActionArchiveInventory([
     archiveEntry('node_modules', 'directory'),
     archiveEntry('node_modules/pkg', 'directory'),
     archiveEntry('node_modules/pkg/link.txt', 'symlink', { linkTarget: 'target.txt' }),
@@ -1569,7 +1523,7 @@ test('trusted dependency archive projection binds one stable physical generation
       size: 3, physicalContentDigest: fileDigest
     })
   ]).entries;
-  expect(CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+  expect(CodexDevelopmentAssertHostedDependencyArchiveProjection({
     before, after: before, archiveEntries
   })).toMatchObject({
     schema: 'sec-hosted-dependency-archive-projection-v1',
@@ -1590,33 +1544,33 @@ test('trusted dependency archive projection binds one stable physical generation
     changedAfter('pkg/target.txt', { inode: '99' }),
     changedAfter('pkg/target.txt', { contentDigest: digest('5') })
   ]) {
-    expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+    expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjection({
       before, after, archiveEntries
     })).toThrow(/physical generation changed/u);
   }
-  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjection({
     before,
     after: before,
     archiveEntries: archiveEntries.map((entry) => entry.path === 'node_modules/pkg/target.txt'
       ? Object.freeze({ ...entry, physicalContentDigest: digest('5') }) : entry)
   })).toThrow(/file differs/u);
-  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjection({
     before,
     after: before,
     archiveEntries: archiveEntries.map((entry) => entry.path === 'node_modules/pkg/link.txt'
       ? Object.freeze({ ...entry, linkTarget: 'node_modules/pkg/other.txt' }) : entry)
   })).toThrow(/link differs/u);
-  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjection({
     before,
     after: before,
     archiveEntries: archiveEntries.slice(0, -1)
   })).toThrow(/missing, duplicate, or foreign/u);
-  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjection({
     before: changedAfter('pkg/link.txt', { linkTarget: '/host/secret' }),
     after: changedAfter('pkg/link.txt', { linkTarget: '/host/secret' }),
     archiveEntries
   })).toThrow(/escapes/u);
-  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjection({
     before: changedAfter('pkg/link.txt', { linkTarget: '/work/node_modules/pkg' }),
     after: changedAfter('pkg/link.txt', { linkTarget: '/work/node_modules/pkg' }),
     archiveEntries
@@ -1643,15 +1597,15 @@ test('linux retained bootstrap archive relocates dependency links without mutati
     writeFileSync(target, 'trusted-target\n');
     writeFileSync(collision, 'foreign-name-preserved\n');
     symlinkSync(target, link);
-    const before = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(dependencyRoot);
-    const archive = CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({
+    const before = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(dependencyRoot);
+    const archive = CodexDevelopmentMaterializeTrustedBootstrapArchive({
       candidateRoot,
       dependencySnapshot: before,
       outputDirectory
     });
-    const inventory = CodexDevelopmentInspectHostedActionArchiveInventoryV3(archive);
-    const after = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(dependencyRoot);
-    expect(CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+    const inventory = CodexDevelopmentInspectHostedActionArchiveInventory(archive);
+    const after = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(dependencyRoot);
+    expect(CodexDevelopmentAssertHostedDependencyArchiveProjection({
       before, after, archiveEntries: inventory.entries
     }).linksProjected).toBe(1);
     expect(readlinkSync(link, 'utf8')).toBe(target);
@@ -1702,7 +1656,7 @@ test('pre-start archive inspection authenticates raw bytes and exact dependency 
     }
   ];
   try {
-    const inspected = CodexDevelopmentInspectHostedActionArchiveV2({
+    const inspected = CodexDevelopmentInspectHostedActionArchive({
       resolution,
       preparedCandidateArchive: archive,
       baseDependencyClosureDigest: dependencyClosureDigest,
@@ -1714,7 +1668,7 @@ test('pre-start archive inspection authenticates raw bytes and exact dependency 
       dependencyClosureDigest,
       gitBundleDigest
     });
-    expect(() => CodexDevelopmentInspectHostedActionArchiveV2({
+    expect(() => CodexDevelopmentInspectHostedActionArchive({
       resolution,
       preparedCandidateArchive: archive,
       baseDependencyClosureDigest: digest('7'),
@@ -1740,7 +1694,7 @@ test('dependency authority is exact-base only and materializer environment canno
     expect(CodexDevelopmentAssertHostedActionDependencyInputsV1({
       baseRoot: base, candidateRoot: candidate, baseSha: BASE
     })).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(CodexDevelopmentHostedDependencyMaterializerEnvironmentV1()).toEqual({
+    expect(CodexDevelopmentHostedDependencyMaterializerEnvironment()).toEqual({
       PATH: '/usr/bin:/bin', HOME: '/tmp/sec-hosted-dependency-home',
       TMPDIR: '/tmp/sec-hosted-dependency-tmp', LANG: 'C.UTF-8',
       BUN_INSTALL_CACHE_DIR: '/tmp/sec-hosted-dependency-home/.bun/install/cache',
@@ -1767,7 +1721,7 @@ test('trusted bootstrap dependency materialization retries only one exact Bun ex
     'error: Fail extracting tarball from onnxruntime-node'
   );
   let recoveredAttempts = 0;
-  expect(CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
+  expect(CodexDevelopmentRunBoundedDependencyMaterialization(() => {
     recoveredAttempts += 1;
     if (recoveredAttempts === 1) throw retryable;
   })).toEqual({ attempts: 2, recoveredFrom: 'bun-tarball-extraction' });
@@ -1775,14 +1729,14 @@ test('trusted bootstrap dependency materialization retries only one exact Bun ex
 
   const terminal = new Error('error: lockfile had changes, but lockfile is frozen');
   let terminalAttempts = 0;
-  expect(() => CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
+  expect(() => CodexDevelopmentRunBoundedDependencyMaterialization(() => {
     terminalAttempts += 1;
     throw terminal;
   })).toThrow(terminal);
   expect(terminalAttempts).toBe(1);
 
   let repeatedExtractionAttempts = 0;
-  expect(() => CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
+  expect(() => CodexDevelopmentRunBoundedDependencyMaterialization(() => {
     repeatedExtractionAttempts += 1;
     throw retryable;
   })).toThrow(/after one bounded Bun tarball-extraction recovery retry/u);
@@ -1792,10 +1746,10 @@ test('trusted bootstrap dependency materialization retries only one exact Bun ex
 test('canonical terminal artifact derives four physical Result states while raw not-run is impossible', () => {
   const resolution = hostedResolution();
   const ticket = hostedTicket(resolution);
-  let passedArtifact: ReturnType<typeof CodexDevelopmentAssembleHostedActionTerminalV2> | null = null;
+  let passedArtifact: ReturnType<typeof CodexDevelopmentAssembleHostedActionTerminal> | null = null;
   for (const status of ['passed', 'failed', 'unsupported', 'invalidated'] as const) {
     const rawResult = hostedRawResult(resolution, status);
-    const artifact = CodexDevelopmentAssembleHostedActionTerminalV2({
+    const artifact = CodexDevelopmentAssembleHostedActionTerminal({
       resolution,
       ticket,
       rawResult,
@@ -1805,10 +1759,10 @@ test('canonical terminal artifact derives four physical Result states while raw 
     expect(artifact.result.status).toBe(status);
     if (status === 'passed') passedArtifact = artifact;
     expect(artifact.producer).toEqual(hostedProducer);
-    expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifactV2(artifact, {
+    expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(artifact, {
       actionPlan: resolution.actionPlan,
       executionEnvironmentRevision:
-        CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2.executionEnvironmentRevision
+        CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
     })).not.toThrow();
   }
   expect(passedArtifact).not.toBeNull();
@@ -1818,7 +1772,7 @@ test('canonical terminal artifact derives four physical Result states while raw 
   void ignoredArtifactDigest;
   (contradictory as { artifactDigest: VerificationActionKeyDigest }).artifactDigest =
     CodexDevelopmentVerificationDigest(withoutArtifactDigest) as VerificationActionKeyDigest;
-  expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifactV2(contradictory, {
+  expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(contradictory, {
     actionPlan: resolution.actionPlan
   })).toThrow(/execution proof does not replay/u);
 });
@@ -1828,13 +1782,13 @@ test('hosted coordinator and composer preserve four physical terminals while coo
   const envelope = hostedEnvelopeFixture(closure);
   for (const status of ['passed', 'failed', 'unsupported', 'invalidated'] as const) {
     const provider = hostedProviderInputs(envelope, new Map([[0, { status }]]));
-    const coordination = CodexDevelopmentCoordinateHostedActionsV2({ envelope, ...provider });
+    const coordination = CodexDevelopmentCoordinateHostedActions({ envelope, ...provider });
     expect(coordination).toMatchObject({
       disposition: 'complete',
       dispatchActionKeys: [],
       missingActionKeys: []
     });
-    const composed = CodexDevelopmentComposeHostedEvidenceV2({
+    const composed = CodexDevelopmentComposeHostedEvidence({
       envelope,
       ...provider,
       producer: hostedEvidenceProducer,
@@ -1854,7 +1808,7 @@ test('hosted coordinator and composer preserve four physical terminals while coo
     const terminalStatus = provider.providerStatusReadbacks[0]!.statuses[1]!;
     expect(terminalStatus.state).toBe('success');
     expect(terminalStatus.description).toBe(
-      verificationActionProviderTerminalDescriptionV2(
+      verificationActionProviderTerminalDescription(
         provider.terminalAnchorObservations[0]!.payload!.anchorDigest
       )
     );
@@ -1865,7 +1819,7 @@ test('hosted coordinator and composer preserve four physical terminals while coo
     0,
     { status: 'invalidated' as const }
   ]]));
-  const cleanupFailed = CodexDevelopmentComposeHostedEvidenceV2({
+  const cleanupFailed = CodexDevelopmentComposeHostedEvidence({
     envelope,
     ...cleanupFailedProvider,
     producer: hostedEvidenceProducer,
@@ -1888,7 +1842,7 @@ test('hosted DAG fail-fast is dependency-derived and preserves independent branc
       0,
       { status: nonPassingStatus }
     ]]));
-    const coordination = CodexDevelopmentCoordinateHostedActionsV2({ envelope, ...partial });
+    const coordination = CodexDevelopmentCoordinateHostedActions({ envelope, ...partial });
     expect(coordination.disposition).toBe('dispatch');
     expect(coordination.dispatchActionKeys).toEqual([
       closure.actions[2]!.action.actionKey
@@ -1900,7 +1854,7 @@ test('hosted DAG fail-fast is dependency-derived and preserves independent branc
       [0, { status: nonPassingStatus }],
       [2, { status: 'passed' as const }]
     ]));
-    const completed = CodexDevelopmentComposeHostedEvidenceV2({
+    const completed = CodexDevelopmentComposeHostedEvidence({
       envelope,
       ...completedProvider,
       producer: hostedEvidenceProducer,
@@ -1931,7 +1885,7 @@ test('hosted DAG dispatches only members whose direct dependencies are passed', 
     0,
     { status: 'passed' as const }
   ]]));
-  expect(CodexDevelopmentCoordinateHostedActionsV2({
+  expect(CodexDevelopmentCoordinateHostedActions({
     envelope,
     ...passedDependency
   })).toMatchObject({
@@ -1940,7 +1894,7 @@ test('hosted DAG dispatches only members whose direct dependencies are passed', 
   });
 
   const pendingDependency = hostedProviderInputs(envelope, new Map());
-  const pending = CodexDevelopmentCoordinateHostedActionsV2({
+  const pending = CodexDevelopmentCoordinateHostedActions({
     envelope,
     ...pendingDependency
   });
@@ -1956,11 +1910,11 @@ test('expired hosted terminal artifact blocks without replay or Evidence', () =>
     0,
     { status: 'passed' as const, expired: true }
   ]]));
-  const coordination = CodexDevelopmentCoordinateHostedActionsV2({ envelope, ...expired });
+  const coordination = CodexDevelopmentCoordinateHostedActions({ envelope, ...expired });
   expect(coordination.disposition).toBe('blocked');
   expect(coordination.dispatchActionKeys).toEqual([]);
   expect(coordination.reason).toContain('retained out');
-  expect(CodexDevelopmentComposeHostedEvidenceV2({
+  expect(CodexDevelopmentComposeHostedEvidence({
     envelope,
     ...expired,
     producer: hostedEvidenceProducer
@@ -1995,11 +1949,11 @@ test('hosted composition rejects an authenticated dependent PASS when its prereq
       (readback) => readback.actionKey === dependent.action.actionKey
     ))
   });
-  expect(() => CodexDevelopmentCoordinateHostedActionsV2({
+  expect(() => CodexDevelopmentCoordinateHostedActions({
     envelope: omittedPrerequisiteEnvelope,
     ...provider
   })).toThrow('does not resolve to exactly one Action member');
-  expect(() => CodexDevelopmentComposeHostedEvidenceV2({
+  expect(() => CodexDevelopmentComposeHostedEvidence({
     envelope: omittedPrerequisiteEnvelope,
     ...provider,
     producer: hostedEvidenceProducer
@@ -2015,20 +1969,20 @@ test('one immutable Action terminal is reusable across different Session closure
   expect(left.actionPlan.action.actionKey).toBe(right.actionPlan.action.actionKey);
 
   const rawResult = hostedRawResult(left, 'passed');
-  const artifact = CodexDevelopmentAssembleHostedActionTerminalV2({
+  const artifact = CodexDevelopmentAssembleHostedActionTerminal({
     resolution: left,
     ticket: hostedTicket(left),
     rawResult,
     expectedRawResultDigest: rawResult.rawResultDigest,
     producer: hostedProducer
   });
-  expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifactV2(artifact, {
+  expect(() => CodexDevelopmentAssertVerificationActionTerminalArtifact(artifact, {
     actionPlan: right.actionPlan,
     executionEnvironmentRevision:
-      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2.executionEnvironmentRevision
+      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
   })).not.toThrow();
-  expect(encodeVerificationActionDataV2(artifact)).not.toContain(left.actionPlanClosure.actionPlanDigest);
-  expect(encodeVerificationActionDataV2(artifact)).not.toContain(right.actionPlanClosure.actionPlanDigest);
+  expect(encodeVerificationActionData(artifact)).not.toContain(left.actionPlanClosure.actionPlanDigest);
+  expect(encodeVerificationActionData(artifact)).not.toContain(right.actionPlanClosure.actionPlanDigest);
 });
 
 test('test backend serializes one shared ActionKey while different roots and closures join one origin', async () => {
@@ -2072,7 +2026,7 @@ test('test backend serializes one shared ActionKey while different roots and clo
 });
 
 test('credential sanitizer never treats provider environment identity as a writable token', () => {
-  expect(CodexDevelopmentCandidateProcessEnvironmentV2({
+  expect(CodexDevelopmentCandidateProcessEnvironment({
     GITHUB_TOKEN: 'secret',
     actions_runtime_token: 'secret',
     GITHUB_OUTPUT: 'secret',
@@ -2086,7 +2040,7 @@ test('credential sanitizer never treats provider environment identity as a writa
     PATH: '/tool/bin:/usr/bin:/bin',
     SEC_CHANGED_BASE: BASE,
     SEC_EXECUTION_ENVIRONMENT_REVISION:
-      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2.executionEnvironmentRevision,
+      CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
     SEC_FORMAL_HOSTED_MODE: '1',
     TMPDIR: '/tmp'
   });

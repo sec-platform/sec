@@ -1,0 +1,15 @@
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:131:    impactRevision: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:308:          impactRevision: impact.impactRevision,
+platform\compiler\semantic-impact\build-impact-propagation.ts:987:  value: Omit<SemanticImpactPropagation, 'impactRevision'>
+platform\compiler\semantic-impact\build-impact-propagation.ts:1071:  const withoutRevision: Omit<SemanticImpactPropagation, 'impactRevision'> = {
+platform\compiler\semantic-impact\build-impact-propagation.ts:1091:    impactRevision: `sha256:${digest(impactDigestPayload(withoutRevision))}`
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:91:    readonly impact?: { readonly impactRevision: string };
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:122:    impactRevision: hasImpact ? value.impact?.impactRevision ?? '' : '',
+platform\compiler\semantic-mutation\verification-policy.ts:48:    impactRevision: draft.impactRevision,
+platform\compiler\semantic-mutation\verification-policy.ts:88:    'impactRevision',
+platform\compiler\semantic-mutation\verification-policy.ts:112:    impactRevision: context.impactRevision,
+platform\compiler\semantic-mutation\verification-policy.ts:117:  if (context.impactRevision !== impact.impactRevision ||
+platform\compiler\semantic-mutation\verification-policy.ts:127:          impactRevision: impact.impactRevision,
+platform\compiler\semantic-mutation\verification-policy.ts:128:          suppliedImpactRevision: context.impactRevision,
+platform\semantic\mutation\contract\types.ts:342:  readonly impactRevision: string;
+platform\semantic\impact\contract\types.ts:142:  readonly impactRevision: string;

@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 
-import { parseBranchCloseoutReceipt } from '../../scripts/codex/branch-closeout-contract.ts';
+import { parseBranchCloseoutReceipt } from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
-  BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA_V1,
+  BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
   branchLifecycleDigest,
   parseRestCloseoutReceiptCommentCandidates,
   renderPublishedBranchCloseoutReceiptComment,
-  type BranchPublishedCloseoutReceiptV1,
-} from '../../scripts/codex/branch-lifecycle.ts';
+  type BranchPublishedCloseoutReceipt,
+} from '../../src/control/branch-lifecycle/branch-lifecycle.ts';
 
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
@@ -15,9 +15,9 @@ const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
 const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;
 
-function publishedReceipt(): BranchPublishedCloseoutReceiptV1 {
-  const payload: Omit<BranchPublishedCloseoutReceiptV1, 'publicationDigest'> = {
-    schema: BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA_V1,
+function publishedReceipt(): BranchPublishedCloseoutReceipt {
+  const payload: Omit<BranchPublishedCloseoutReceipt, 'publicationDigest'> = {
+    schema: BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
     repository: 'sec-platform/sec',
     pullRequest: 42,
     branch: 'feat/example',
@@ -38,7 +38,7 @@ function publishedReceipt(): BranchPublishedCloseoutReceiptV1 {
       'prune',
       'readback'
     ].map((operation) => ({
-      operation: operation as BranchPublishedCloseoutReceiptV1['attempts'][number]['operation'],
+      operation: operation as BranchPublishedCloseoutReceipt['attempts'][number]['operation'],
       status: 'success' as const,
       detailDigest: branchLifecycleDigest({ detail: `${operation} ok` })
     })),

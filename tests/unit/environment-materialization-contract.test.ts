@@ -1,15 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  compileEnvironmentMaterializationPlanV1,
-  createEnvironmentMaterializationSpecV1
-} from '../../platform/shared/environment-materialization-contract.ts';
+  compileEnvironmentMaterializationPlan,
+  createEnvironmentMaterializationSpec
+} from '../../src/external-capabilities/linux-verification/materialization.ts';
 
 const A = `sha256:${'a'.repeat(64)}` as const;
 const B = `sha256:${'b'.repeat(64)}` as const;
 
 function spec() {
-  return createEnvironmentMaterializationSpecV1({
+  return createEnvironmentMaterializationSpec({
     imageName: 'sec-runtime:exact',
     acceptedImageDigest: A,
     sourcePolicyRevision: 'snapshot-and-checksum-v1',
@@ -31,7 +31,7 @@ describe('environment materialization contract', () => {
   });
 
   test('reuses only the exact accepted local image', () => {
-    expect(compileEnvironmentMaterializationPlanV1({
+    expect(compileEnvironmentMaterializationPlan({
       spec: spec(),
       observation: {
         localTag: 'matching',
@@ -44,7 +44,7 @@ describe('environment materialization contract', () => {
   });
 
   test('materializes only from admitted immutable inputs and provider capability', () => {
-    expect(compileEnvironmentMaterializationPlanV1({
+    expect(compileEnvironmentMaterializationPlan({
       spec: spec(),
       observation: {
         localTag: 'absent',
@@ -60,7 +60,7 @@ describe('environment materialization contract', () => {
   });
 
   test('restores an exact local artifact before requesting remote inputs', () => {
-    expect(compileEnvironmentMaterializationPlanV1({
+    expect(compileEnvironmentMaterializationPlan({
       spec: spec(),
       observation: {
         localTag: 'absent',
@@ -73,7 +73,7 @@ describe('environment materialization contract', () => {
   });
 
   test('preserves mismatched local tags and blocks missing or unresolved inputs', () => {
-    expect(compileEnvironmentMaterializationPlanV1({
+    expect(compileEnvironmentMaterializationPlan({
       spec: spec(),
       observation: {
         localTag: 'mismatched',
@@ -84,7 +84,7 @@ describe('environment materialization contract', () => {
       }
     })).toMatchObject({ disposition: 'blocked', reason: 'local-tag-digest-conflict' });
     for (const immutableBuildInputs of ['missing', 'unresolved'] as const) {
-      expect(compileEnvironmentMaterializationPlanV1({
+      expect(compileEnvironmentMaterializationPlan({
         spec: spec(),
         observation: {
           localTag: 'absent',
@@ -95,7 +95,7 @@ describe('environment materialization contract', () => {
         }
       }).disposition).toBe('blocked');
     }
-    expect(compileEnvironmentMaterializationPlanV1({
+    expect(compileEnvironmentMaterializationPlan({
       spec: spec(),
       observation: {
         localTag: 'absent',

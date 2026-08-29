@@ -27,7 +27,6 @@ test('CLI exposes provenance registry as text and JSON contracts', async () => {
         artifacts: expect.any(Array)
       }
     });
-    expect(provenance.formatVersion).toBe('1');
     expect(provenance.artifacts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

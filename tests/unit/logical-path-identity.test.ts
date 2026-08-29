@@ -1,28 +1,23 @@
 import { expect, test } from 'bun:test';
 
-import { validateOverrideManifest } from '../../platform/compiler/parse/load-override-manifest.ts';
-import {
-  assertCanonicalPortableLogicalPathV1,
-  isCanonicalPortableLogicalPathPrefixV1,
-  isCanonicalPortableLogicalPathV1,
-  portableLogicalPathCollisionKeyV1
-} from '../../platform/shared/logical-path-identity.ts';
+import { validateOverrideManifest } from '../../src/compiler/parse/load-override-manifest.ts';
+import { assertCanonicalPortableLogicalPath, isCanonicalPortableLogicalPathPrefix, isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../src/system-architecture/foundation/contract/logical-path.ts';
 
 test('portable logical paths accept canonical project-relative POSIX spellings', () => {
-  expect(isCanonicalPortableLogicalPathV1('src/installed/entity/customer-service.ts')).toBe(true);
-  expect(isCanonicalPortableLogicalPathV1('.next/cache/data.json')).toBe(true);
-  expect(assertCanonicalPortableLogicalPathV1('tests/acceptance/customer-flow.test.ts')).toBe(
+  expect(isCanonicalPortableLogicalPath('src/installed/entity/customer-service.ts')).toBe(true);
+  expect(isCanonicalPortableLogicalPath('.cache/data.json')).toBe(true);
+  expect(assertCanonicalPortableLogicalPath('tests/acceptance/customer-flow.test.ts')).toBe(
     'tests/acceptance/customer-flow.test.ts'
   );
 });
 
 test('portable logical directory prefixes preserve an explicit trailing slash', () => {
-  expect(isCanonicalPortableLogicalPathPrefixV1('custom/')).toBe(true);
-  expect(isCanonicalPortableLogicalPathPrefixV1('src/installed/')).toBe(true);
-  expect(isCanonicalPortableLogicalPathPrefixV1('custom')).toBe(false);
-  expect(isCanonicalPortableLogicalPathPrefixV1('custom//')).toBe(false);
-  expect(isCanonicalPortableLogicalPathPrefixV1('../custom/')).toBe(false);
-  expect(isCanonicalPortableLogicalPathPrefixV1('src\\installed\\')).toBe(false);
+  expect(isCanonicalPortableLogicalPathPrefix('custom/')).toBe(true);
+  expect(isCanonicalPortableLogicalPathPrefix('src/installed/')).toBe(true);
+  expect(isCanonicalPortableLogicalPathPrefix('custom')).toBe(false);
+  expect(isCanonicalPortableLogicalPathPrefix('custom//')).toBe(false);
+  expect(isCanonicalPortableLogicalPathPrefix('../custom/')).toBe(false);
+  expect(isCanonicalPortableLogicalPathPrefix('src\\installed\\')).toBe(false);
 });
 
 test('portable logical paths reject traversal, alternate separators and noncanonical components', () => {
@@ -37,7 +32,7 @@ test('portable logical paths reject traversal, alternate separators and noncanon
     'src/trailing./file.ts',
     'src/trailing /file.ts'
   ]) {
-    expect(isCanonicalPortableLogicalPathV1(candidate)).toBe(false);
+    expect(isCanonicalPortableLogicalPath(candidate)).toBe(false);
   }
 });
 
@@ -51,7 +46,7 @@ test('portable logical paths reject Windows device aliases and illegal component
     'src/a?.ts',
     'src/a*.ts'
   ]) {
-    expect(isCanonicalPortableLogicalPathV1(candidate)).toBe(false);
+    expect(isCanonicalPortableLogicalPath(candidate)).toBe(false);
   }
 });
 
@@ -59,18 +54,18 @@ test('portable logical path identity requires NFC rather than silently normalizi
   const decomposed = `source/${'e\u0301'}.ts`;
   const composed = decomposed.normalize('NFC');
   expect(decomposed).not.toBe(composed);
-  expect(isCanonicalPortableLogicalPathV1(decomposed)).toBe(false);
-  expect(isCanonicalPortableLogicalPathV1(composed)).toBe(true);
+  expect(isCanonicalPortableLogicalPath(decomposed)).toBe(false);
+  expect(isCanonicalPortableLogicalPath(composed)).toBe(true);
 });
 
 test('portable publication collision keys conservatively collapse host case aliases', () => {
-  expect(portableLogicalPathCollisionKeyV1('generated/Foo.ts')).toBe(
-    portableLogicalPathCollisionKeyV1('generated/foo.ts')
+  expect(portableLogicalPathCollisionKey('generated/Foo.ts')).toBe(
+    portableLogicalPathCollisionKey('generated/foo.ts')
   );
-  expect(portableLogicalPathCollisionKeyV1('generated/Straße.ts')).toBe(
-    portableLogicalPathCollisionKeyV1('generated/STRASSE.ts')
+  expect(portableLogicalPathCollisionKey('generated/Straße.ts')).toBe(
+    portableLogicalPathCollisionKey('generated/STRASSE.ts')
   );
-  expect(() => portableLogicalPathCollisionKeyV1('generated/../escape.ts'))
+  expect(() => portableLogicalPathCollisionKey('generated/../escape.ts'))
     .toThrow('not one canonical portable logical path');
 });
 

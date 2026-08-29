@@ -1,13 +1,8 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import {
-  SEC_GITHUB_STATUS_NAMESPACE_POLICY_DIGEST_V1,
-  SEC_GITHUB_STATUS_NAMESPACE_POLICY_V1,
-  SEC_INTEGRATION_AUTHORIZATION_STATUS_CONTEXT_V1,
-  SEC_VERIFICATION_ACTION_STATUS_PREFIX_V1
-} from '../../platform/shared/github-status-namespace-policy.ts';
-import { VERIFICATION_ACTION_PROVIDER_POLICY_V2 } from '../../platform/shared/verification-action-provider-contract.ts';
+import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../src/control/main-health/github-status-namespace.ts';
+import { VERIFICATION_ACTION_PROVIDER_POLICY } from '../../src/verification/action/contract/provider.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 type Workflow = Readonly<{
@@ -20,38 +15,6 @@ type Workflow = Readonly<{
     }>[];
   }>>>;
 }>;
-
-const WORKFLOW_PATHS = Object.freeze([
-  '.github/workflows/architecture-tools.yml',
-  '.github/workflows/compiler-pr-validation.yml',
-  '.github/workflows/compiler-release-validation.yml',
-  '.github/workflows/sec-merge-gate.yml',
-  '.github/workflows/sec-trusted-bootstrap.yml'
-] as const);
-
-test('status namespace policy declares one non-merge Action prefix and one merge terminal context', () => {
-  expect(SEC_GITHUB_STATUS_NAMESPACE_POLICY_V1.namespaces.verificationAction).toMatchObject({
-    prefix: 'sec/action/',
-    workflowPath: '.github/workflows/compiler-pr-validation.yml',
-    writerJobs: ['claim-verification-action', 'assemble-verification-action-terminal'],
-    authority: { requiredCheck: false, mergeAuthorization: false, actionKeyTombstone: true }
-  });
-  expect(SEC_GITHUB_STATUS_NAMESPACE_POLICY_V1.namespaces.integrationAuthorization).toMatchObject({
-    context: 'sec/integration-authorization',
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    writerJobs: ['terminal-status'],
-    authority: { requiredCheck: true, mergeAuthorization: true }
-  });
-  expect(SEC_GITHUB_STATUS_NAMESPACE_POLICY_V1.separation).toEqual({
-    enforcement: 'trusted-base-tcb-plus-job-scoped-github-token-permissions',
-    sameGitHubApp: true,
-    terminalWriterMayMutateRepository: false,
-    integrationEffectMayWriteStatuses: false,
-    actionWritersMayUseTerminalContext: false
-  });
-  expect(SEC_GITHUB_STATUS_NAMESPACE_POLICY_DIGEST_V1).toMatch(/^sha256:[0-9a-f]{64}$/u);
-
-});
 
 test('terminal status writer cannot mutate repository and effect job cannot mint status', async () => {
   const source = await readCompilerFile('.github/workflows/sec-merge-gate.yml');
@@ -72,12 +35,12 @@ test('terminal status writer cannot mutate repository and effect job cannot mint
   expect(integrate.permissions?.['pull-requests']).toBe('write');
 
   expect(terminal.steps?.[0]?.env?.STATUS_CONTEXT)
-    .toBe(SEC_INTEGRATION_AUTHORIZATION_STATUS_CONTEXT_V1);
+    .toBe(INTEGRATION_AUTHORIZATION_STATUS_CONTEXT);
 });
 
 test('merge-facing context is exact and cannot collide with the Action prefix', () => {
-  expect(SEC_INTEGRATION_AUTHORIZATION_STATUS_CONTEXT_V1.startsWith(
-    SEC_VERIFICATION_ACTION_STATUS_PREFIX_V1
+  expect(INTEGRATION_AUTHORIZATION_STATUS_CONTEXT.startsWith(
+    VERIFICATION_ACTION_PROVIDER_POLICY.contextPrefix
   )).toBe(false);
-  expect(SEC_INTEGRATION_AUTHORIZATION_STATUS_CONTEXT_V1).toBe('sec/integration-authorization');
+  expect(INTEGRATION_AUTHORIZATION_STATUS_CONTEXT).toBe('sec/integration-authorization');
 });

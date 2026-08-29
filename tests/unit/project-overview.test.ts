@@ -1,22 +1,19 @@
 import { expect, test } from 'bun:test';
 
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import {
   buildProjectOverview,
   buildProjectOverviewFromWorkspace,
   formatProjectOverview
-} from '../../platform/shared/project-overview.ts';
-import { buildToolEvidenceReport } from '../../platform/shared/tool-evidence-contract.ts';
-import type {
-  AcceptanceCoverageReport,
-  CiArtifactManifest,
-  ExplainGraph,
-  LockFile,
-  PolicyReport,
-  ProvenanceFile,
-  ReviewSummary,
-  VerificationReport
-} from '../../platform/shared/types.ts';
+} from '../../src/workspace/project.ts';
+import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import type { CiArtifactManifest } from '../../src/verification/ci-artifacts/contract/types.ts';
+import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -29,14 +26,12 @@ test('buildProjectOverviewFromWorkspace reports missing required artifacts with 
 });
 
 test('buildProjectOverview summarizes shared project status and review priorities', () => {
-  expect(CI_ARTIFACT_FILES.overviewView).toBeDefined();
-
   const lock: LockFile = {
     formatVersion: '1',
     app: {
       id: 'customer-admin',
       name: 'Customer Admin',
-      stack: 'nextjs-ts-prisma-sqlite',
+      stack: 'typescript-library',
       mode: 'local'
     },
     resolvedBlocks: [
@@ -49,7 +44,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
-        registryPath: 'platform/registry/official/auth.basic-session'
+        registryPath: 'catalog/registry/official/auth.basic-session'
       },
       {
         id: 'entity/customer-basic',
@@ -60,7 +55,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
-        registryPath: 'platform/registry/official/entity.customer-basic'
+        registryPath: 'catalog/registry/official/entity.customer-basic'
       }
     ],
     resolvedCapabilities: [],
@@ -137,7 +132,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
-        registryPath: 'platform/registry/official/auth.basic-session',
+        registryPath: 'catalog/registry/official/auth.basic-session',
         generatedByPass: 'compose',
         verifiedBy: ['user_can_login'],
         overrideStatus: 'none'
@@ -353,26 +348,24 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     },
     artifactSummary: {
       artifactStatus: 'attention',
-      artifactCount: 6,
+      artifactCount: 4,
       governanceCount: 4,
-      viewCount: 2,
       missingCount: 1,
       testCount: 0,
       contractCount: 0,
       contractPaths: [],
-      uploadGroupCount: 2,
+      uploadGroupCount: 1,
       missingReasonTypeCount: 1,
       missingReasonCounts: {
         'declared-generated-missing': 0,
-        'fixed-governance-missing': 0,
-        'fixed-view-missing': 1,
+        'fixed-governance-missing': 1,
         'stale-semantic-projection': 0
       },
       uploadGroups: [],
       missing: [
         {
-          path: CI_ARTIFACT_FILES.overviewView,
-          reason: 'fixed-view-missing',
+          path: CI_ARTIFACT_FILES.policyReport,
+          reason: 'fixed-governance-missing',
           declaredBy: 'artifact-manifest'
         }
       ]
@@ -415,23 +408,21 @@ test('buildProjectOverview summarizes shared project status and review prioritie
   };
 
   const artifactManifest: CiArtifactManifest = {
-    formatVersion: '1',
+    formatVersion: '2',
     root: 'workspace',
     summary: {
       artifactStatus: 'attention',
-      artifactCount: 6,
+      artifactCount: 4,
       governanceCount: 4,
-      viewCount: 2,
       testCount: 0,
       contractCount: 0,
       contractPaths: [],
-      uploadGroupCount: 2,
+      uploadGroupCount: 1,
       missingCount: 1,
       missingReasonTypeCount: 1,
       missingReasonCounts: {
         'declared-generated-missing': 0,
-        'fixed-governance-missing': 0,
-        'fixed-view-missing': 1,
+        'fixed-governance-missing': 1,
         'stale-semantic-projection': 0
       }
     },
@@ -439,28 +430,12 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     uploadGroups: [],
     missing: [
       {
-        path: CI_ARTIFACT_FILES.overviewView,
-        reason: 'fixed-view-missing',
+        path: CI_ARTIFACT_FILES.policyReport,
+        reason: 'fixed-governance-missing',
         declaredBy: 'artifact-manifest'
       }
     ]
   };
-
-  const codeQuality = buildToolEvidenceReport({
-    kind: 'code-quality',
-    toolId: 'eslint',
-    rawReportPaths: ['control/evidence/code-quality-report.json'],
-    diagnostics: [
-      {
-        id: 'cq-1',
-        severity: 'warning',
-        title: 'Writable view emitter needs review',
-        message: 'write-local-views should be checked after overview changes',
-        filePaths: ['platform/compiler/emit/write-local-views.ts'],
-        evidence: ['overview builder consumes emitted view artifacts']
-      }
-    ]
-  });
 
   const overview = buildProjectOverview({
     workspaceRoot: 'D:/workspace',
@@ -472,12 +447,10 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     policy,
     reviewSummary,
     artifactManifest,
-    toolEvidenceReports: [codeQuality],
     generatedAt: '2026-05-02T00:00:00.000Z'
   });
 
   expect(overview).toMatchObject({
-    formatVersion: '1',
     workspace: {
       root: '.',
       sourceRoot: 'source',
@@ -494,10 +467,11 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       reviewChain: 'attention'
     },
     navigation: {
-      workbenchViews: expect.arrayContaining([
-        { id: 'overview', path: CI_ARTIFACT_FILES.overviewView },
-        { id: 'graph', path: CI_ARTIFACT_FILES.graphView },
-        { id: 'review', path: CI_ARTIFACT_FILES.reviewView }
+      machineArtifacts: expect.arrayContaining([
+        { id: 'graph', path: CI_ARTIFACT_FILES.explainGraph },
+        { id: 'graph-mermaid', path: CI_ARTIFACT_FILES.explainGraphMermaid },
+        { id: 'review', path: CI_ARTIFACT_FILES.reviewSummary },
+        { id: 'verification', path: CI_ARTIFACT_FILES.verificationReport }
       ])
     },
     aiContext: {
@@ -510,13 +484,6 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       unverifiedArtifactCount: 1,
       priorityReviewFileCount: 2
     },
-    quality: {
-      reports: expect.arrayContaining([
-        expect.objectContaining({ kind: 'code-quality', available: true, status: 'attention' }),
-        expect.objectContaining({ kind: 'architecture-boundary', available: false }),
-        expect.objectContaining({ kind: 'semantic-pattern', available: false })
-      ])
-    },
     risks: {
       failureCount: 0,
       regressionRiskCount: 1,
@@ -528,8 +495,8 @@ test('buildProjectOverview summarizes shared project status and review prioritie
 
   expect(overview.aiContext.priorityReviewFiles).toEqual([
     {
-      path: CI_ARTIFACT_FILES.overviewView,
-      reasons: ['missing artifact: fixed-view-missing']
+      path: CI_ARTIFACT_FILES.policyReport,
+      reasons: ['missing artifact: fixed-governance-missing']
     },
     {
       path: 'custom/customer_normalizer.ts',

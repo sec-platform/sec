@@ -19,175 +19,146 @@ const CLOSEOUT_CLI_E2E_ENABLED = process.env.SEC_VERIFICATION_SESSION_CLOSEOUT_C
 const closeoutCliE2eTest = CLOSEOUT_CLI_E2E_ENABLED ? test : test.skip;
 const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
 
+import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/verification/ci/contract/evidence.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
+import { createIntegrationAuthorization } from '../../src/control/integration/authorization.ts';
 import {
-  CodexDevelopmentCreateVerificationEvidenceProducerV4,
-  CodexDevelopmentFinalizeVerificationEvidenceV4,
-  CodexDevelopmentFinalizeVerificationSessionArtifactV2
-} from '../../platform/shared/ci-evidence-contract.ts';
-import {
-  CodexDevelopmentCreateTestImpactTransitionObservationV1,
-  CodexDevelopmentTestImpactTransitionDigestV1,
-  type CodexDevelopmentTestImpactTransitionObservationV1
-} from '../../platform/shared/ci-git-changed-files.ts';
-import { createIntegrationAuthorizationV1 } from '../../platform/shared/integration-authorization-contract.ts';
-import {
-  createMainHealthLedgerV1,
-  createMainHealthRepairWorkPackagePathV1,
-  resolveOrdinaryMainHealthLaneV1,
-  resolveRepairMainHealthLaneV1
-} from '../../platform/shared/main-health-contract.ts';
-import {
-  createReviewSnapshotDigestV1,
-  createReviewStabilityReceiptV1,
-  renderIndependentReviewTrailerV1,
-  REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
-  SEC_REVIEW_STABILITY_POLICY_V1
-} from '../../platform/shared/review-stability-contract.ts';
-import { createScopeAuthorizationV1, type ScopeAuthorizationV1 } from '../../platform/shared/scope-authorization-contract.ts';
-import {
-  ciVerificationActionParentDispatchPlanPayloadDigestV2,
-  createCiVerificationActionParentDispatchPlanV2,
-  createCiVerificationActionProposalV2,
-  createCiVerificationActionProviderEnvelopeV2,
-  createCiVerificationLocalExecutionEnvironmentV2
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
-import { CodexDevelopmentBuildVerificationGateResultV1 } from '../../platform/shared/verification-result-contract.ts';
+  createMainHealthLedger,
+  createMainHealthRepairWorkPackagePath,
+  resolveOrdinaryMainHealthLane,
+  resolveRepairMainHealthLane
+} from '../../src/control/main-health/contract.ts';
+import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/verification/review/contract/stability.ts';
+import { createScopeAuthorization, type ScopeAuthorization } from '../../src/control/scope/authorization.ts';
+import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/verification/action/contract/ci.ts';
+import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+import { CodexDevelopmentBuildVerificationGateResult } from '../../src/verification/result/contract/result.ts';
 
-import {
-  CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1,
-  CI_MAIN_HEALTH_POLICY_V1,
-  CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2,
-  CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-  CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
-  createCiMainHealthRequestOperationIdV1
-} from '../../platform/shared/ci-verification-revision.ts';
-import { compileTcbClosureIdentityV2 } from '../../platform/shared/tcb-closure-lock.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
-import { createVerificationSessionV2, type VerificationSessionV2 } from '../../platform/shared/verification-session-contract.ts';
+import { CI_MAIN_HEALTH_POLICY, CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA, createCiMainHealthRequestOperationId } from '../../src/verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/verification/action/contract/environment.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
+import { compileTcbClosureIdentity } from '../../src/verification/trust/compiler.ts';
+import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
+import { createVerificationSession, type VerificationSession } from '../../src/verification/session/contract/session.ts';
 import {
   authorizeBranchCloseout,
-  BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME_V1,
-  createBranchCloseoutOperationBindingV1,
+  BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
+  createBranchCloseoutOperationBinding,
   createBranchCloseoutPreparation,
-  createBranchCloseoutRecoveryArtifactV1,
-  parseBranchCloseoutRecoveryArtifactV1
-} from '../../scripts/codex/branch-closeout-contract.ts';
+  createBranchCloseoutRecoveryArtifact,
+  parseBranchCloseoutRecoveryArtifact
+} from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
-  BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME_V1,
-  createBranchCloseoutEffectStartPublicationV1,
-  createHostedWorkflowCommentProvenanceV1,
+  BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
+  createBranchCloseoutEffectStartPublication,
+  createHostedWorkflowCommentProvenance,
   renderBranchCloseoutEffectStartPublicationComment
-} from '../../scripts/codex/branch-closeout-receipt.ts';
+} from '../../src/control/branch-lifecycle/branch-closeout-receipt.ts';
 import {
-  BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1,
+  BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
   parsePreparedBranchCloseoutEnvelope,
   prepareBranchCloseout,
-  rehydratePreparedBranchCloseoutEnvelopeV1,
-  rehydratePreparedBranchCloseoutRecoveryArtifactV1
-} from '../../scripts/codex/branch-closeout.ts';
-import { branchLifecycleDigest } from '../../scripts/codex/branch-lifecycle-audit.ts';
-import { createBranchLifecycleGitChildEnvironmentV1 } from '../../scripts/codex/branch-lifecycle-command.ts';
+  rehydratePreparedBranchCloseoutEnvelope,
+  rehydratePreparedBranchCloseoutRecoveryArtifact
+} from '../../src/control/branch-lifecycle/branch-closeout.ts';
+import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
+import { createBranchLifecycleGitChildEnvironment } from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
-  BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+  BRANCH_REF_CLOSEOUT_CAPABILITY,
   type BranchLifecycleInventory
-} from '../../scripts/codex/branch-lifecycle-types.ts';
-import type { IntegrationAuthorizationOperationPublicationV1 } from '../../scripts/codex/integration-authorization-publication.ts';
+} from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
+import type { IntegrationAuthorizationOperationPublication } from '../../src/control/integration/integration-authorization-publication.ts';
 import {
-  createIntegrationAuthorizationOperationPublicationV1,
-  HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1,
+  createIntegrationAuthorizationOperationPublication,
+  HOSTED_INTEGRATION_PHASE_STEP_NAMES,
   renderIntegrationAuthorizationOperationPublicationComment
-} from '../../scripts/codex/integration-authorization-publication.ts';
-import { createObservedMainHealthInputV1 } from '../../scripts/codex/main-health-observation.ts';
+} from '../../src/control/integration/integration-authorization-publication.ts';
+import { createObservedMainHealthInput } from '../../src/control/main-health/main-health-observation.ts';
 import {
-  CodexDevelopmentEvaluateMergeGateV2,
-  type CodexDevelopmentMergeGateResultV2
-} from '../../scripts/codex/merge-gate.ts';
+  CodexDevelopmentEvaluateMergeGate,
+  type CodexDevelopmentMergeGateResult
+} from '../../src/control/integration/merge-gate.ts';
 import {
-  assertGitHubReviewAuthorityObservationV1,
-  classifyGitHubGraphQLSchemaFailureV1,
-  createVerificationSessionGitHubClientV1,
-  evaluateGitHubRepositoryActionsArtifactInventoryV1,
-  evaluateHostedReviewLocatorObservationV1,
-  evaluateMaintainerReviewWakeupObservationV1,
-  evaluatePlatformEnforcementObservationV1,
-  evaluateVerificationSessionChangedPathsV1,
-  evaluateVerificationSessionReviewObservationV1,
-  evaluateVerificationSessionWorkflowJoinV1,
+  assertGitHubReviewAuthorityObservation,
+  classifyGitHubGraphQLSchemaFailure,
+  createVerificationSessionGitHubClient,
+  evaluateGitHubRepositoryActionsArtifactInventory,
+  evaluateHostedReviewLocatorObservation,
+  evaluateMaintainerReviewWakeupObservation,
+  evaluatePlatformEnforcementObservation,
+  evaluateVerificationSessionChangedPaths,
+  evaluateVerificationSessionReviewObservation,
+  evaluateVerificationSessionWorkflowJoin,
   isGitHubProviderSchemaUnsupportedError,
-  parseGitHubOpenPullRequestCensusV1,
-  parseGitHubPullRequestFileInventoryV1,
-  parseGitHubReviewPagesV1,
-  parseGitHubReviewThreadPagesV1,
+  parseGitHubOpenPullRequestCensus,
+  parseGitHubPullRequestFileInventory,
+  parseGitHubReviewPages,
+  parseGitHubReviewThreadPages,
   PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
-  SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1,
-  shouldPublishMaintainerReviewWakeupV1,
-  VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER_V3,
-  VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER,
-  VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1,
-  VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1,
-  VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V2,
-  VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1,
-  type GitHubActionsArtifactObservationV1,
-  type GitHubAppReviewCommentObservationV1,
-  type GitHubCandidateObservationV1,
-  type GitHubCheckObservationV1,
-  type GitHubCommitResolutionObservationV1,
-  type GitHubComparisonObservationV1,
-  type GitHubIssueCommentObservationV1,
-  type GitHubPageV1,
-  type GitHubReviewBarrierObservationV1,
-  type GitHubReviewObservationV1,
-  type GitHubReviewRequestObservationV1,
-  type GitHubReviewThreadObservationV1,
-  type GitHubWorkflowJobObservationV1,
-  type GitHubWorkflowRunObservationV1,
+  shouldPublishMaintainerReviewWakeup,
+  VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER,
+  VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER,
+  type GitHubActionsArtifactObservation,
+  type GitHubAppReviewCommentObservation,
+  type GitHubCandidateObservation,
+  type GitHubCommitResolutionObservation,
+  type GitHubComparisonObservation,
+  type GitHubIssueCommentObservation,
+  type GitHubPage,
+  type GitHubReviewBarrierObservation,
+  type GitHubReviewObservation,
+  type GitHubReviewRequestObservation,
+  type GitHubReviewThreadObservation,
   type SessionDigest,
-  type VerificationSessionGitHubClientV1,
-  type VerificationSessionReviewObservationTransactionV1,
-  type VerificationSessionWorkflowObservationTransactionV1
-} from '../../scripts/codex/verification-session-github.ts';
+  type VerificationSessionGitHubClient,
+  type VerificationSessionReviewObservationTransaction,
+  type VerificationSessionWorkflowObservationTransaction
+} from '../../src/verification/ci/runtime/verification-session-github.ts';
 import {
-  createEphemeralVerificationSessionJournalFsV1
-} from '../../scripts/codex/verification-session-journal.ts';
+  createEphemeralVerificationSessionJournalFs
+} from '../../src/verification/ci/runtime/verification-session-journal.ts';
 import {
-  assertTrustedExactRevisionRuntimeV1,
-  assertTrustedMainRuntimeV1,
-  assertTrustedMergedRequestRuntimeReachabilityV1,
-  assertTrustedRuntimeV1,
-  classifyVerificationSessionArtifactReuseV1,
-  compilePostMainIssueDispositionHealthReadbackV1,
-  createHostedArtifactObservationV2,
-  createTrustedHostedArtifactProvenanceV1,
-  createTrustedIntegrationAuthorizationArtifactV1,
-  createVerificationSessionMergeOperationIdV1,
-  integrationAuthorizationMergeMarkersV1,
-  prepareLocalQuickVerificationActionPlanV2,
-  prepareTrustedMainVerificationSessionV1,
-  prepareVerificationSessionHostedV1,
-  prepareVerificationSessionMergeInputV2,
-  reconstructVerificationSessionHostedFactsV1,
-  resumeVerificationSessionV2,
-  SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY_V1,
-  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1, VERIFICATION_SESSION_HOSTED_REQUEST_SCHEMA_V1,
-  type VerificationSessionHostedEnvelopeV1,
-  type VerificationSessionHostedFactsV1,
-  type VerificationSessionHostedRequestV1,
+  assertTrustedExactRevisionRuntime,
+  assertTrustedMainRuntime,
+  assertTrustedMergedRequestRuntimeReachability,
+  assertTrustedRuntime,
+  classifyVerificationSessionArtifactReuse,
+  compilePostMainIssueDispositionHealthReadback,
+  createHostedArtifactObservation,
+  createTrustedHostedArtifactProvenance,
+  createTrustedIntegrationAuthorizationArtifact,
+  createVerificationSessionMergeOperationId,
+  integrationAuthorizationMergeMarkers,
+  prepareLocalQuickVerificationActionPlan,
+  prepareTrustedMainVerificationSession,
+  prepareVerificationSessionHosted,
+  prepareVerificationSessionMergeInput,
+  reconstructVerificationSessionHostedFacts,
+  resumeVerificationSession,
+  SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
+  VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
+  type VerificationSessionHostedEnvelope,
+  type VerificationSessionHostedFacts,
   type VerificationSessionRuntimeExternal
-} from '../../scripts/codex/verification-session-runtime.ts';
+} from '../../src/verification/ci/runtime/verification-session-runtime.ts';
+import type {
+  GitHubCheckObservation,
+  GitHubWorkflowJobObservation,
+  GitHubWorkflowRunObservation
+} from '../../src/verification/ci/contract/github-observation.ts';
+import type { VerificationSessionHostedRequest } from '../../src/verification/ci/contract/session-request.ts';
 import {
-  assertHostedCompilerDispatchPayloadV1,
-  assertHostedCompilerInternalProvenanceV2,
-  assertHostedSquashMergeCompletionV1,
-  classifyDurableVerificationSessionProjectionV1,
-  parseHostedSynchronousSquashMergeResponseV1,
-  planHostedIntegrationEffectsV1,
-  routeHostedIntegrationV1,
-  routePreparedWorktreeCleanupAttemptV1,
+  assertHostedCompilerDispatchPayload,
+  assertHostedCompilerInternalProvenance,
+  assertHostedSquashMergeCompletion,
+  classifyDurableVerificationSessionProjection,
+  parseHostedSynchronousSquashMergeResponse,
+  planHostedIntegrationEffects,
+  routeHostedIntegration,
+  routePreparedWorktreeCleanupAttempt,
   verificationSessionCli
-} from '../../scripts/codex/verification-session.ts';
-import { executeLocalVerificationActionDagV2 } from '../../tooling/sec-dev/verification-action-runner.ts';
+} from '../../src/verification/ci/runtime/verification-session.ts';
+import { executeLocalVerificationActionDag } from '../../src/verification/action/runner.ts';
 
 const HEAD = '2222222222222222222222222222222222222222';
 const BASE = '1111111111111111111111111111111111111111';
@@ -200,8 +171,8 @@ function changedTransition(
   changedPaths: readonly string[],
   baseSha = BASE,
   headSha = HEAD
-): CodexDevelopmentTestImpactTransitionObservationV1 {
-  return CodexDevelopmentCreateTestImpactTransitionObservationV1({
+): CodexDevelopmentTestImpactTransitionObservation {
+  return CodexDevelopmentCreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: changedPaths.map((changedPath) => ({ status: 'changed' as const, path: changedPath })),
@@ -209,7 +180,7 @@ function changedTransition(
   });
 }
 
-const JOIN_REQUEST: VerificationSessionHostedRequestV1 = Object.freeze({
+const JOIN_REQUEST: VerificationSessionHostedRequest = Object.freeze({
   schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA, prNumber: 42,
   expectedBaseSha: BASE, expectedBaseTreeSha: HEAD, expectedHeadSha: HEAD,
   expectedHeadTreeSha: HEAD, manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
@@ -221,7 +192,7 @@ const JOIN_REQUEST: VerificationSessionHostedRequestV1 = Object.freeze({
 });
 
 test('canonical Session dispatch is preserved as bounded child-process bytes', () => {
-  const body = Buffer.from(`${encodeVerificationActionDataV2({
+  const body = Buffer.from(`${encodeVerificationActionData({
     event_type: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
     client_payload: { payload: JOIN_REQUEST }
   })}\n`, 'utf8');
@@ -235,19 +206,19 @@ test('canonical Session dispatch is preserved as bounded child-process bytes', (
 test('hosted integration router separates first effect, merged recovery, and blocking', () => {
   const session = { repository: 'sec-platform/sec', prNumber: 42,
     sessionRevision: JOIN_SESSION, baseSha: BASE, baseTreeSha: BASE,
-    headSha: HEAD, headTreeSha: HEAD } as VerificationSessionV2;
-  const candidate: GitHubCandidateObservationV1 = {
+    headSha: HEAD, headTreeSha: HEAD } as VerificationSession;
+  const candidate: GitHubCandidateObservation = {
     repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
     isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
     baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
     title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
     mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
   };
-  const open = routeHostedIntegrationV1({ repository: 'sec-platform/sec', session, candidate,
+  const open = routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
     priorEffectStarted: false, authorizationPublicationCount: 0 });
   expect(open).toMatchObject({ lane: 'open-first-effect',
     reason: 'exact-open-candidate-without-prior-effect' });
-  expect(planHostedIntegrationEffectsV1(open)).toEqual({
+  expect(planHostedIntegrationEffects(open)).toEqual({
     prepareRecoveryArtifact: true,
     createAuthorizationPublication: true,
     executePhysicalMerge: true,
@@ -256,13 +227,13 @@ test('hosted integration router separates first effect, merged recovery, and blo
   });
 
   for (const rerunSelection of ['all', 'failed'] as const) {
-    const blocked = routeHostedIntegrationV1({ repository: 'sec-platform/sec', session, candidate,
+    const blocked = routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
       priorEffectStarted: true, authorizationPublicationCount: 0 });
     expect({ rerunSelection, lane: blocked.lane, reason: blocked.reason }).toEqual({
       rerunSelection, lane: 'blocked', reason: 'open-prior-effect-started'
     });
   }
-  expect(routeHostedIntegrationV1({ repository: 'sec-platform/sec', session, candidate,
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session, candidate,
     priorEffectStarted: false, authorizationPublicationCount: 1 })).toMatchObject({
       lane: 'blocked', reason: 'open-prior-effect-started'
     });
@@ -271,11 +242,11 @@ test('hosted integration router separates first effect, merged recovery, and blo
     baseSha: '8'.repeat(40), baseTreeSha: '7'.repeat(40),
     mergeCommitSha: '9'.repeat(40), mergeCommitTreeSha: HEAD,
     mergeCommitMessage: 'marker-bound merge' };
-  const merged = routeHostedIntegrationV1({ repository: 'sec-platform/sec', session,
+  const merged = routeHostedIntegration({ repository: 'sec-platform/sec', session,
     candidate: mergedCandidate, priorEffectStarted: true, authorizationPublicationCount: 1 });
   expect(merged).toMatchObject({ lane: 'merged-recovery', mergeCommitSha: '9'.repeat(40),
     mergeCommitTreeSha: HEAD });
-  const mergedEffects = planHostedIntegrationEffectsV1(merged);
+  const mergedEffects = planHostedIntegrationEffects(merged);
   expect(mergedEffects).toEqual({
     prepareRecoveryArtifact: false,
     createAuthorizationPublication: false,
@@ -292,23 +263,19 @@ test('hosted integration router separates first effect, merged recovery, and blo
   expect({ prepareCount, authorizationCount, mergeCount })
     .toEqual({ prepareCount: 0, authorizationCount: 0, mergeCount: 0 });
 
-  expect(routeHostedIntegrationV1({ repository: 'sec-platform/sec', session,
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session,
     candidate: { ...candidate, state: 'CLOSED' as const }, priorEffectStarted: false,
     authorizationPublicationCount: 0 })).toMatchObject({
       lane: 'blocked', reason: 'pull-request-closed-without-exact-merge'
     });
-  expect(routeHostedIntegrationV1({ repository: 'sec-platform/sec', session,
+  expect(routeHostedIntegration({ repository: 'sec-platform/sec', session,
     candidate: { ...mergedCandidate, mergeCommitTreeSha: BASE }, priorEffectStarted: true,
     authorizationPublicationCount: 1 })).toMatchObject({
       lane: 'blocked', reason: 'merged-readback-incomplete-or-tree-mismatch'
     });
 });
 
-test('hosted comment publisher policy is the canonical shared Actions identity', () => {
-  expect(SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1).toBe(CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1);
-});
-
-test('hosted Review locator is exact, non-triggering, and does not reuse historical request comments', () => {
+test('hosted Review locator is exact, non-triggering, and reuses only its matching locator', () => {
   const input = {
     repository: 'sec-platform/sec',
     sessionRevision: `sha256:${'1'.repeat(64)}` as SessionDigest,
@@ -322,48 +289,24 @@ test('hosted Review locator is exact, non-triggering, and does not reuse histori
   } as const;
   const transport = new FakeTransport();
   transport.issueComments = [[]];
-  const produced = evaluateHostedReviewLocatorObservationV1(transport, input);
+  const produced = evaluateHostedReviewLocatorObservation(transport, input);
   expect(produced).toMatchObject({ status: 'absent', commentId: null });
-  expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER_V3);
+  expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER);
   expect(produced.body).not.toContain('@codex review');
 
-  const legacySameOperation = legacyHostedReviewRequestComment(input, false);
-  const legacySpreadSameOperation = legacyHostedReviewRequestComment(input, true);
-  const legacyV2SameOperation = legacyHostedReviewRequestCommentV2(input);
-  const legacyOtherOperation = legacyHostedReviewRequestComment({
-    ...input,
-    operationId: `sha256:${'3'.repeat(64)}` as SessionDigest
-  }, false);
-  transport.issueComments = [[
-    actionsIssueComment(legacySameOperation, '101'),
-    actionsIssueComment(legacySpreadSameOperation, '102'),
-    actionsIssueComment(legacyOtherOperation, '103'),
-    actionsIssueComment(legacyV2SameOperation, '105')
-  ]];
-  expect(evaluateHostedReviewLocatorObservationV1(transport, input)).toMatchObject({
-    status: 'absent',
-    commentId: null
-  });
-
-  transport.issueComments = [[
-    actionsIssueComment(legacySameOperation, '101'),
-    actionsIssueComment(legacySpreadSameOperation, '102'),
-    actionsIssueComment(legacyOtherOperation, '103'),
-    actionsIssueComment(legacyV2SameOperation, '105'),
-    actionsIssueComment(produced.body, '104')
-  ]];
-  expect(evaluateHostedReviewLocatorObservationV1(transport, input)).toMatchObject({
+  transport.issueComments = [[actionsIssueComment(produced.body, '104')]];
+  expect(evaluateHostedReviewLocatorObservation(transport, input)).toMatchObject({
     status: 'reused',
     commentId: '104'
   });
 
   transport.issueComments = [[]];
-  const foreign = evaluateHostedReviewLocatorObservationV1(transport, {
+  const foreign = evaluateHostedReviewLocatorObservation(transport, {
     ...input,
     repository: 'foreign/repository'
   });
   transport.issueComments = [[actionsIssueComment(foreign.body)]];
-  expect(() => evaluateHostedReviewLocatorObservationV1(transport, input))
+  expect(() => evaluateHostedReviewLocatorObservation(transport, input))
     .toThrow('conflicting semantic bytes');
 
   for (const drifted of [
@@ -375,25 +318,25 @@ test('hosted Review locator is exact, non-triggering, and does not reuse histori
     { ...input, workflowRef: `.github/workflows/compiler-pr-validation.yml@${HEAD}` }
   ]) {
     transport.issueComments = [[]];
-    const drift = evaluateHostedReviewLocatorObservationV1(transport, drifted);
+    const drift = evaluateHostedReviewLocatorObservation(transport, drifted);
     transport.issueComments = [[actionsIssueComment(drift.body)]];
-    expect(() => evaluateHostedReviewLocatorObservationV1(transport, input))
+    expect(() => evaluateHostedReviewLocatorObservation(transport, input))
       .toThrow('conflicting semantic bytes');
   }
 
   const encoded = produced.body.match(/```json\n(?<payload>.+)\n```$/u)?.groups?.payload;
   if (encoded === undefined) throw new Error('production Review locator body did not contain canonical JSON');
-  const extraFieldBody = produced.body.replace(encoded, encodeVerificationActionDataV2({
+  const extraFieldBody = produced.body.replace(encoded, encodeVerificationActionData({
     ...(JSON.parse(encoded) as Record<string, unknown>),
     extraField: 'forbidden'
   }));
   transport.issueComments = [[actionsIssueComment(extraFieldBody)]];
-  expect(() => evaluateHostedReviewLocatorObservationV1(transport, input))
+  expect(() => evaluateHostedReviewLocatorObservation(transport, input))
     .toThrow('payload keys/schema are invalid');
 });
 
 test('maintainer Review wake-up is exact, user-authored, and at-most-once per session operation', () => {
-  expect(shouldPublishMaintainerReviewWakeupV1({ reviewBarrierStatus: 'waiting',
+  expect(shouldPublishMaintainerReviewWakeup({ reviewBarrierStatus: 'waiting',
     localVerificationStatus: 'passed', hostedArtifactPresent: false })).toBe(true);
   for (const state of [
     { reviewBarrierStatus: 'clear' as const, localVerificationStatus: 'passed' as const,
@@ -410,7 +353,7 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
       hostedArtifactPresent: false },
     { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: 'passed' as const,
       hostedArtifactPresent: true }
-  ]) expect(shouldPublishMaintainerReviewWakeupV1(state)).toBe(false);
+  ]) expect(shouldPublishMaintainerReviewWakeup(state)).toBe(false);
 
   const input = {
     repository: 'sec-platform/sec',
@@ -427,7 +370,7 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
   transport.collaboratorPermissions.set('outsider', 'read');
   transport.collaboratorPermissions.set('renamed-maintainer', 'admin');
   type WakeupObservationTransaction = Parameters<
-    typeof evaluateMaintainerReviewWakeupObservationV1
+    typeof evaluateMaintainerReviewWakeupObservation
   >[0];
   const acceptWakeupObservationTransaction = (_transaction: WakeupObservationTransaction): void => undefined;
   if (false) {
@@ -437,42 +380,42 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     });
   }
   transport.issueComments = [[]];
-  const produced = evaluateMaintainerReviewWakeupObservationV1(transport, input);
+  const produced = evaluateMaintainerReviewWakeupObservation(transport, input);
   expect(produced).toMatchObject({ status: 'absent', commentId: null });
   expect(produced.body.startsWith('@codex review\n\n')).toBe(true);
-  expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1);
+  expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER);
 
   transport.issueComments = [[botIssueComment(produced.body, {
     id: '200', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
     authorType: 'User', performedViaGitHubApp: null
   })]];
-  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
     status: 'absent', commentId: null
   });
 
   transport.issueComments = [[botIssueComment(
-    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1}\n{not-json}`,
+    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER}\n{not-json}`,
     { id: '204', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
       authorType: 'User', performedViaGitHubApp: null }
   )]];
-  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
     status: 'absent', commentId: null
   });
 
   transport.issueComments = [[maintainerIssueComment(produced.body)]];
-  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
     status: 'reused', commentId: '201', wakeupDigest: produced.wakeupDigest
   });
 
   transport.issueComments = [[maintainerIssueComment(produced.body, '205', {
     authorLogin: 'renamed-maintainer'
   })]];
-  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
     status: 'reused', commentId: '205', wakeupDigest: produced.wakeupDigest
   });
 
   transport.issueComments = [[]];
-  const otherMaintainer = evaluateMaintainerReviewWakeupObservationV1(transport, {
+  const otherMaintainer = evaluateMaintainerReviewWakeupObservation(transport, {
     ...input,
     publisherLogin: 'other-maintainer',
     publisherNodeId: 'OTHER_MAINTAINER_NODE'
@@ -481,41 +424,41 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     id: '203', authorLogin: 'other-maintainer', authorId: 503,
     authorNodeId: 'OTHER_MAINTAINER_NODE', authorType: 'User', performedViaGitHubApp: null
   })]];
-  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
     status: 'reused', commentId: '203', wakeupDigest: otherMaintainer.wakeupDigest
   });
 
   transport.issueComments = [[maintainerIssueComment(produced.body, '201'),
     maintainerIssueComment(produced.body, '202')]];
-  expect(() => evaluateMaintainerReviewWakeupObservationV1(transport, input))
+  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
     .toThrow('duplicate maintainer Review wake-up comments');
 
   transport.issueComments = [[]];
-  const drifted = evaluateMaintainerReviewWakeupObservationV1(transport, {
+  const drifted = evaluateMaintainerReviewWakeupObservation(transport, {
     ...input,
     headTreeSha: BASE
   });
   transport.issueComments = [[maintainerIssueComment(drifted.body)]];
-  expect(() => evaluateMaintainerReviewWakeupObservationV1(transport, input))
+  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
     .toThrow('conflicting semantic bytes');
 
   transport.issueComments = [[maintainerIssueComment(produced.body, '201', {
     authorType: 'Bot',
-    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app
+    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
   })]];
-  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
     status: 'absent', commentId: null
   });
 
   transport.issueComments = [[maintainerIssueComment(
-    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1}\n{not-json}`
+    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER}\n{not-json}`
   )]];
-  expect(() => evaluateMaintainerReviewWakeupObservationV1(transport, input))
+  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
     .toThrow('maintainer Review wake-up comment shape is invalid');
 });
 
 test('provider recovery artifact binds exact envelope and bundle bytes', () => {
-  const artifact = createBranchCloseoutRecoveryArtifactV1({
+  const artifact = createBranchCloseoutRecoveryArtifact({
     repository: 'sec-platform/sec',
     pullRequestNumber: 42,
     sessionRevision: JOIN_SESSION,
@@ -524,21 +467,21 @@ test('provider recovery artifact binds exact envelope and bundle bytes', () => {
     preparedEnvelopeBytes: '{"schema":"prepared-fixture"}\n',
     recoveryBundleBytes: Buffer.from('exact recovery bundle bytes')
   });
-  expect(parseBranchCloseoutRecoveryArtifactV1(JSON.stringify(artifact))).toEqual(artifact);
+  expect(parseBranchCloseoutRecoveryArtifact(JSON.stringify(artifact))).toEqual(artifact);
   expect(artifact.preparedEnvelopeByteLength).toBe(30);
   expect(artifact.recoveryBundleByteLength).toBe(27);
 
-  expect(() => parseBranchCloseoutRecoveryArtifactV1({ ...artifact,
+  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact,
     recoveryBundleBase64: Buffer.from('substituted recovery bundle').toString('base64') }))
     .toThrow('recovery bundle digest mismatch');
-  expect(() => parseBranchCloseoutRecoveryArtifactV1({ ...artifact, callerPath: 'untrusted.json' }))
+  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact, callerPath: 'untrusted.json' }))
     .toThrow('fields are not exact');
-  expect(() => parseBranchCloseoutRecoveryArtifactV1({ ...artifact,
+  expect(() => parseBranchCloseoutRecoveryArtifact({ ...artifact,
     preparedEnvelopeBase64: `${artifact.preparedEnvelopeBase64}=\n` }))
     .toThrow('canonical base64');
 });
 
-function workflowRun(overrides: Partial<GitHubWorkflowRunObservationV1> = {}): GitHubWorkflowRunObservationV1 {
+function workflowRun(overrides: Partial<GitHubWorkflowRunObservation> = {}): GitHubWorkflowRunObservation {
   const displayTitle = `verify session PR #42 session ${JOIN_SESSION}`;
   return { id: '10', name: displayTitle, displayTitle,
     workflowPath: '.github/workflows/compiler-pr-validation.yml', event: 'repository_dispatch',
@@ -546,25 +489,25 @@ function workflowRun(overrides: Partial<GitHubWorkflowRunObservationV1> = {}): G
     updatedAt: '2026-08-09T14:00:00.000Z', ...overrides };
 }
 
-function page<T>(nodes: readonly T[], hasNextPage = false, endCursor: string | null = null): GitHubPageV1<T> {
+function page<T>(nodes: readonly T[], hasNextPage = false, endCursor: string | null = null): GitHubPage<T> {
   return { nodes, hasNextPage, endCursor, pageDigest: PAGE };
 }
 
-class FakeTransport implements VerificationSessionReviewObservationTransactionV1,
-  VerificationSessionWorkflowObservationTransactionV1 {
-  reviews: GitHubReviewObservationV1[][] = [[]];
-  threads: GitHubReviewThreadObservationV1[][] = [[]];
-  requests: GitHubReviewRequestObservationV1[][] = [[]];
-  comments: GitHubAppReviewCommentObservationV1[][] = [[]];
-  issueComments: GitHubIssueCommentObservationV1[][] = [[]];
-  workflowRuns: GitHubWorkflowRunObservationV1[][] = [[]];
-  resolutions = new Map<string, GitHubCommitResolutionObservationV1>();
+class FakeTransport implements VerificationSessionReviewObservationTransaction,
+  VerificationSessionWorkflowObservationTransaction {
+  reviews: GitHubReviewObservation[][] = [[]];
+  threads: GitHubReviewThreadObservation[][] = [[]];
+  requests: GitHubReviewRequestObservation[][] = [[]];
+  comments: GitHubAppReviewCommentObservation[][] = [[]];
+  issueComments: GitHubIssueCommentObservation[][] = [[]];
+  workflowRuns: GitHubWorkflowRunObservation[][] = [[]];
+  resolutions = new Map<string, GitHubCommitResolutionObservation>();
   reviewRequests = 0;
   dispatches = 0;
   rulesetError: Error & { statusCode?: number } | null = null;
   collaboratorPermissions = new Map<string, 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none'>();
 
-  candidate(): GitHubCandidateObservationV1 {
+  candidate(): GitHubCandidateObservation {
     return {
       repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
       isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
@@ -573,18 +516,18 @@ class FakeTransport implements VerificationSessionReviewObservationTransactionV1
       mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
     };
   }
-  private at<T>(pages: T[][], after: string | null, digestCharacter: string): GitHubPageV1<T> {
+  private at<T>(pages: T[][], after: string | null, digestCharacter: string): GitHubPage<T> {
     const index = after === null ? 0 : Number(after);
     const next = index + 1 < pages.length ? String(index + 1) : null;
     return { ...page(pages[index] ?? [], next !== null, next),
       pageDigest: `sha256:${digestCharacter.repeat(64).slice(0, 64)}` as SessionDigest };
   }
-  reviewPage(_r: string, _p: number, after: string | null): GitHubPageV1<GitHubReviewObservationV1> { return this.at(this.reviews, after, 'a'); }
-  threadPage(_r: string, _p: number, after: string | null): GitHubPageV1<GitHubReviewThreadObservationV1> { return this.at(this.threads, after, 'b'); }
-  reviewRequestPage(_r: string, _p: number, after: string | null): GitHubPageV1<GitHubReviewRequestObservationV1> { return this.at(this.requests, after, 'c'); }
-  appCommentPage(_r: string, _p: number, after: string | null): GitHubPageV1<GitHubAppReviewCommentObservationV1> { return this.at(this.comments, after, 'd'); }
-  issueCommentPage(_r: string, _p: number, after: string | null): GitHubPageV1<GitHubIssueCommentObservationV1> { return this.at(this.issueComments, after, 'e'); }
-  resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservationV1 {
+  reviewPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewObservation> { return this.at(this.reviews, after, 'a'); }
+  threadPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewThreadObservation> { return this.at(this.threads, after, 'b'); }
+  reviewRequestPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewRequestObservation> { return this.at(this.requests, after, 'c'); }
+  appCommentPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation> { return this.at(this.comments, after, 'd'); }
+  issueCommentPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubIssueCommentObservation> { return this.at(this.issueComments, after, 'e'); }
+  resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation {
     const configured = this.resolutions.get(locator);
     if (configured !== undefined) return configured;
     const commitSha = HEAD.startsWith(locator) ? HEAD : locator.padEnd(40, locator.at(-1) ?? '0').slice(0, 40);
@@ -598,15 +541,15 @@ class FakeTransport implements VerificationSessionReviewObservationTransactionV1
     return { login: nodeId === BOT ? 'codex-review-bot' : 'integrator', nodeId,
       permission: 'maintain' as const };
   }
-  checkPage(): GitHubPageV1<GitHubCheckObservationV1> { return page([]); }
-  workflowRunPage(_r: string, _h: string, after: string | null): GitHubPageV1<GitHubWorkflowRunObservationV1> {
+  checkPage(): GitHubPage<GitHubCheckObservation> { return page([]); }
+  workflowRunPage(_r: string, _h: string, after: string | null): GitHubPage<GitHubWorkflowRunObservation> {
     return this.at(this.workflowRuns, after, '7');
   }
   repositoryRulesets(): unknown {
     if (this.rulesetError) throw this.rulesetError;
     return [{ id: 1, enforcement: 'active' }];
   }
-  comparison(_repository: string, _baseSha: string, _headSha: string): GitHubComparisonObservationV1 {
+  comparison(_repository: string, _baseSha: string, _headSha: string): GitHubComparisonObservation {
     return { status: 'ahead', behindBy: 0 };
   }
   ensureVerificationSessionWakeup(): void { this.dispatches += 1; }
@@ -615,15 +558,15 @@ class FakeTransport implements VerificationSessionReviewObservationTransactionV1
 class ReducerTransport extends FakeTransport {
   observation = super.candidate();
   mergedTreeSha = HEAD;
-  comparisons = new Map<string, GitHubComparisonObservationV1>();
+  comparisons = new Map<string, GitHubComparisonObservation>();
 
-  override candidate(): GitHubCandidateObservationV1 { return { ...this.observation }; }
+  override candidate(): GitHubCandidateObservation { return { ...this.observation }; }
 
-  override comparison(_repository: string, baseSha: string, headSha: string): GitHubComparisonObservationV1 {
+  override comparison(_repository: string, baseSha: string, headSha: string): GitHubComparisonObservation {
     return this.comparisons.get(`${baseSha}...${headSha}`) ?? { status: 'ahead', behindBy: 0 };
   }
 
-  adoptMerged(markers: readonly string[], reviewReceipt: ReturnType<typeof createReviewStabilityReceiptV1>,
+  adoptMerged(markers: readonly string[], reviewReceipt: ReturnType<typeof createReviewStabilityReceipt>,
     sessionRevision: `sha256:${string}`): void {
     this.observation = {
       ...this.observation,
@@ -631,17 +574,17 @@ class ReducerTransport extends FakeTransport {
       mergeCommitSha: '9'.repeat(40),
       mergeCommitTreeSha: this.mergedTreeSha,
       mergeCommitMessage: `Verified integration ${sessionRevision.slice(7, 19)}\n\n${markers.join('\n')}\n${
-        renderIndependentReviewTrailerV1(reviewReceipt)}`
+        renderIndependentReviewTrailer(reviewReceipt)}`
     };
   }
 }
 
-function botComment(body = `Codex Review: Didn't find any major issues. Bravo.\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``): GitHubAppReviewCommentObservationV1 {
+function botComment(body = `Codex Review: Didn't find any major issues. Bravo.\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``): GitHubAppReviewCommentObservation {
   return { id: 'C1', authorNodeId: BOT, appId: 1144995, body, createdAt: '2026-08-09T14:00:00.000Z' };
 }
 
 function botIssueComment(body = `Codex Review: Didn't find any major issues. Bravo.\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
-  overrides: Partial<GitHubIssueCommentObservationV1> = {}): GitHubIssueCommentObservationV1 {
+  overrides: Partial<GitHubIssueCommentObservation> = {}): GitHubIssueCommentObservation {
   return { id: '101', body, authorLogin: 'codex-review[bot]', authorId: 101,
     authorNodeId: BOT, authorType: 'Bot',
     performedViaGitHubApp: { id: 1144995, nodeId: 'A_kwHOAOQ6Gs4AEXij',
@@ -649,91 +592,19 @@ function botIssueComment(body = `Codex Review: Didn't find any major issues. Bra
     createdAt: '2026-08-09T14:00:00.000Z', ...overrides };
 }
 
-function legacyHostedReviewRequestComment(input: Readonly<{
-  repository: string;
-  sessionRevision: SessionDigest;
-  operationId: SessionDigest;
-  prNumber: number;
-  headSha: string;
-  sourceRunId: string;
-  sourceRunAttempt: number;
-  workflowRef: string;
-}>, includeSpreadRepository: boolean): string {
-  const requestDigest = `sha256:${createHash('sha256').update(encodeVerificationActionDataV2({
-    sessionRevision: input.sessionRevision,
-    operationId: input.operationId,
-    prNumber: input.prNumber,
-    headSha: input.headSha
-  })).digest('hex')}` as SessionDigest;
-  const payload = {
-    schema: VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1,
-    ...(includeSpreadRepository ? { repository: input.repository } : {}),
-    sessionRevision: input.sessionRevision,
-    operationId: input.operationId,
-    requestDigest,
-    prNumber: input.prNumber,
-    headSha: input.headSha,
-    sourceRunId: input.sourceRunId,
-    sourceRunAttempt: input.sourceRunAttempt,
-    workflowRef: input.workflowRef
-  };
-  const publication = {
-    ...payload,
-    publicationDigest: `sha256:${createHash('sha256')
-      .update(encodeVerificationActionDataV2(payload)).digest('hex')}` as SessionDigest
-  };
-  return `@codex review\n\n${VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1}\n` +
-    `\`\`\`json\n${encodeVerificationActionDataV2(publication)}\n\`\`\``;
-}
-
-function legacyHostedReviewRequestCommentV2(input: Readonly<{
-  repository: string;
-  sessionRevision: SessionDigest;
-  operationId: SessionDigest;
-  prNumber: number;
-  headSha: string;
-  sourceRunId: string;
-  sourceRunAttempt: number;
-  workflowRef: string;
-}>): string {
-  const requestDigest = `sha256:${createHash('sha256').update(encodeVerificationActionDataV2({
-    repository: input.repository,
-    sessionRevision: input.sessionRevision,
-    operationId: input.operationId,
-    prNumber: input.prNumber,
-    headSha: input.headSha
-  })).digest('hex')}` as SessionDigest;
-  const payload = {
-    schema: VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V2,
-    repository: input.repository,
-    sessionRevision: input.sessionRevision,
-    operationId: input.operationId,
-    requestDigest,
-    prNumber: input.prNumber,
-    headSha: input.headSha,
-    sourceRunId: input.sourceRunId,
-    sourceRunAttempt: input.sourceRunAttempt,
-    workflowRef: input.workflowRef
-  };
-  const publication = { ...payload, publicationDigest: `sha256:${createHash('sha256')
-    .update(encodeVerificationActionDataV2(payload)).digest('hex')}` as SessionDigest };
-  return `@codex review\n\n${VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER}\n` +
-    `\`\`\`json\n${encodeVerificationActionDataV2(publication)}\n\`\`\``;
-}
-
-function actionsIssueComment(body: string, id = '101'): GitHubIssueCommentObservationV1 {
+function actionsIssueComment(body: string, id = '101'): GitHubIssueCommentObservation {
   return botIssueComment(body, {
     id,
-    authorLogin: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.login,
-    authorId: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.id,
-    authorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.nodeId,
-    authorType: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.type,
-    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app
+    authorLogin: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
+    authorId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
+    authorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
+    authorType: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type,
+    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
   });
 }
 
 function maintainerIssueComment(body: string, id = '201', overrides: Partial<
-  GitHubIssueCommentObservationV1> = {}): GitHubIssueCommentObservationV1 {
+  GitHubIssueCommentObservation> = {}): GitHubIssueCommentObservation {
   return botIssueComment(body, {
     id,
     authorLogin: 'maintainer',
@@ -746,14 +617,14 @@ function maintainerIssueComment(body: string, id = '201', overrides: Partial<
 }
 
 function observe(transport: FakeTransport) {
-  return evaluateVerificationSessionReviewObservationV1(transport, {
+  return evaluateVerificationSessionReviewObservation(transport, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
     observedAt: '2026-08-09T14:01:00.000Z'
   });
 }
 
-function expectTypedProviderSchemaUnsupported(observation: GitHubReviewBarrierObservationV1): void {
+function expectTypedProviderSchemaUnsupported(observation: GitHubReviewBarrierObservation): void {
   expect(observation).toMatchObject({ status: PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
     reasonCode: 'github-provider-response-shape-unsupported' });
   if (observation.status !== PROVIDER_SCHEMA_UNSUPPORTED_STATUS) {
@@ -871,7 +742,7 @@ process.exit(1);
   process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
   process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = runner;
   try {
-    return createVerificationSessionGitHubClientV1(root).observeReviewBarrier({
+    return createVerificationSessionGitHubClient(root).observeReviewBarrier({
       repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
       excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
       observedAt
@@ -886,9 +757,9 @@ process.exit(1);
 }
 
 const privateClearReviewBarriers = new Map<string,
-  Extract<GitHubReviewBarrierObservationV1, { status: 'clear' }>>();
+  Extract<GitHubReviewBarrierObservation, { status: 'clear' }>>();
 
-function observePrivateClearReviewBarrier(observedAt: string): Extract<GitHubReviewBarrierObservationV1, { status: 'clear' }> {
+function observePrivateClearReviewBarrier(observedAt: string): Extract<GitHubReviewBarrierObservation, { status: 'clear' }> {
   const cached = privateClearReviewBarriers.get(observedAt);
   if (cached !== undefined) return cached;
   const barrier = observePrivateGhProviderBarrier('clear', '', observedAt);
@@ -899,36 +770,36 @@ function observePrivateClearReviewBarrier(observedAt: string): Extract<GitHubRev
 
 function fakeGitHubClient(
   transport: FakeTransport,
-  observePrivateBarrier?: (input: Parameters<VerificationSessionGitHubClientV1['observeReviewBarrier']>[0]) => GitHubReviewBarrierObservationV1
-): VerificationSessionGitHubClientV1 {
-  const client: Pick<VerificationSessionGitHubClientV1,
+  observePrivateBarrier?: (input: Parameters<VerificationSessionGitHubClient['observeReviewBarrier']>[0]) => GitHubReviewBarrierObservation
+): VerificationSessionGitHubClient {
+  const client: Pick<VerificationSessionGitHubClient,
     'observeCandidate' | 'observeReviewBarrier' | 'observePrincipalByNodeId'
     | 'observePlatformEnforcement' | 'observeComparison' | 'ensureVerificationSessionWakeup'> = {
     observeCandidate: () => transport.candidate(),
     observeReviewBarrier: (input) => observePrivateBarrier?.(input)
-      ?? evaluateVerificationSessionReviewObservationV1(transport, input),
+      ?? evaluateVerificationSessionReviewObservation(transport, input),
     observePrincipalByNodeId: (repository, nodeId) => transport.principalByNodeId(repository, nodeId),
-    observePlatformEnforcement: (repository) => evaluatePlatformEnforcementObservationV1({
+    observePlatformEnforcement: (repository) => evaluatePlatformEnforcementObservation({
       repository,
       readRulesets: () => transport.repositoryRulesets()
     }),
     observeComparison: (repository, baseSha, headSha) => transport.comparison(repository, baseSha, headSha),
     ensureVerificationSessionWakeup: () => transport.ensureVerificationSessionWakeup()
   };
-  return client as unknown as VerificationSessionGitHubClientV1;
+  return client as unknown as VerificationSessionGitHubClient;
 }
 
-function mainHealthCheck(overrides: Partial<GitHubCheckObservationV1> = {}): GitHubCheckObservationV1 {
-  const eventName = overrides.eventName ?? CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0];
-  const workflowRunDisplayTitle = CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
+function mainHealthCheck(overrides: Partial<GitHubCheckObservation> = {}): GitHubCheckObservation {
+  const eventName = overrides.eventName ?? CI_MAIN_HEALTH_POLICY.producer.eventNames[0];
+  const workflowRunDisplayTitle = CI_MAIN_HEALTH_POLICY.producer.runTitleFormats.repositoryDispatch
     .replace('<exact-main-sha>', BASE)
-    .replace('<request-operation-id>', createCiMainHealthRequestOperationIdV1(BASE));
+    .replace('<request-operation-id>', createCiMainHealthRequestOperationId(BASE));
   return {
-    id: 7, name: CI_MAIN_HEALTH_POLICY_V1.context, status: 'completed', conclusion: 'success',
-    headSha: BASE, detailsUrl: 'https://github.example/actions/runs/7', appId: CI_MAIN_HEALTH_POLICY_V1.app.id,
-    appNodeId: CI_MAIN_HEALTH_POLICY_V1.app.nodeId, appSlug: CI_MAIN_HEALTH_POLICY_V1.app.slug,
-    workflowPath: CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath,
-    workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${BASE}`,
+    id: 7, name: CI_MAIN_HEALTH_POLICY.context, status: 'completed', conclusion: 'success',
+    headSha: BASE, detailsUrl: 'https://github.example/actions/runs/7', appId: CI_MAIN_HEALTH_POLICY.app.id,
+    appNodeId: CI_MAIN_HEALTH_POLICY.app.nodeId, appSlug: CI_MAIN_HEALTH_POLICY.app.slug,
+    workflowPath: CI_MAIN_HEALTH_POLICY.producer.workflowPath,
+    workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${BASE}`,
     eventName,
     workflowRunId: '7',
     workflowRunDisplayTitle,
@@ -941,8 +812,8 @@ const V6_MANIFEST_DIGEST = 'sha256:decaeacc27a8cc249f524736e16a3bfc407fff72adc79
 const VERIFIED_AT = '2026-08-09T14:01:00.000Z';
 const MERGE_AT = '2026-08-09T14:05:00.000Z';
 
-function actionDependencyBlobs(driftPath?: (typeof CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2)[number]) {
-  return CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2.map((dependencyPath) => ({
+function actionDependencyBlobs(driftPath?: (typeof CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS)[number]) {
+  return CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS.map((dependencyPath) => ({
     path: dependencyPath,
     baseSource: `exact dependency bytes for ${dependencyPath}\n`,
     candidateSource: driftPath === dependencyPath
@@ -958,30 +829,30 @@ function actionDependencyBlobs(driftPath?: (typeof CI_VERIFICATION_ACTION_DEPEND
  */
 function createPureReviewFixture(input: {
   stage: 'pre-expensive' | 'pre-merge';
-  session: VerificationSessionV2;
-  scope: ScopeAuthorizationV1;
-  barrier: Extract<GitHubReviewBarrierObservationV1, { status: 'clear' }>;
+  session: VerificationSession;
+  scope: ScopeAuthorization;
+  barrier: Extract<GitHubReviewBarrierObservation, { status: 'clear' }>;
   candidateAuthorNodeId: string;
   integrationPrincipalNodeId: string;
   expiresAt: string;
   operationId: `sha256:${string}`;
 }) {
-  return createReviewStabilityReceiptV1({
+  return createReviewStabilityReceipt({
     stage: input.stage, repository: input.session.repository, prNumber: input.session.prNumber,
     sessionRevision: input.session.sessionRevision,
     scopeAuthorizationRevision: input.scope.authorizationRevision,
     scopeAuthorizationReceiptDigest: input.scope.authorizationDigest,
     headSha: input.session.headSha, headTreeSha: input.session.headTreeSha,
-    policy: SEC_REVIEW_STABILITY_POLICY_V1, principal: input.barrier.principal,
+    policy: SEC_REVIEW_STABILITY_POLICY, principal: input.barrier.principal,
     independence: { candidateAuthorNodeId: input.candidateAuthorNodeId,
       integrationPrincipalNodeId: input.integrationPrincipalNodeId },
     producer: {
-      identity: 'scripts/codex/verification-session-github.ts',
+      identity: 'src/verification/ci/runtime/verification-session-github.ts',
       executionIdentity: input.barrier.authority.executionIdentity,
       providerIdentity: input.barrier.authority.providerIdentity,
       candidateWriteCapability: input.barrier.authority.candidateWriteCapability,
       capabilityReceiptDigest: input.barrier.authority.capabilityReceiptDigest,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
+      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: input.barrier.authority.sourceTransport,
       sourceRunId: input.operationId,
       sourceRef: `github://${input.session.repository}/pull/${input.session.prNumber}@${input.session.headSha}`,
@@ -992,11 +863,11 @@ function createPureReviewFixture(input: {
 }
 
 function createPureHostedEnvelopeFixture(input: {
-  request: VerificationSessionHostedRequestV1;
-  facts: VerificationSessionHostedFactsV1;
-}): VerificationSessionHostedEnvelopeV1 {
+  request: VerificationSessionHostedRequest;
+  facts: VerificationSessionHostedFacts;
+}): VerificationSessionHostedEnvelope {
   const { request, facts } = input;
-  const scopeAuthorization = createScopeAuthorizationV1({
+  const scopeAuthorization = createScopeAuthorization({
     repository: facts.repository, prNumber: request.prNumber,
     baseSha: request.expectedBaseSha, baseTreeSha: request.expectedBaseTreeSha,
     headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
@@ -1007,8 +878,8 @@ function createPureHostedEnvelopeFixture(input: {
     environmentDigest: facts.environmentDigest, issuer: facts.scopeIssuer,
     issuedAt: facts.scopeIssuedAt, expiresAt: facts.scopeExpiresAt
   });
-  const mainHealth = createMainHealthLedgerV1(facts.mainHealth);
-  const session = createVerificationSessionV2({
+  const mainHealth = createMainHealthLedger(facts.mainHealth);
+  const session = createVerificationSession({
     sessionId: facts.sessionId, createdAt: facts.createdAt, repository: facts.repository,
     prNumber: request.prNumber, baseSha: request.expectedBaseSha,
     baseTreeSha: request.expectedBaseTreeSha, headSha: request.expectedHeadSha,
@@ -1018,7 +889,7 @@ function createPureHostedEnvelopeFixture(input: {
     scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
     actionPlanClosureDigest: facts.actionPlanClosure.actionPlanDigest, profile: request.profile,
     environmentDigest: facts.environmentDigest, trustRevision: request.expectedBaseSha,
-    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY_V1.policyDigest,
+    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
     evidenceRequirementDigest: facts.evidenceRequirementDigest,
     integrationPolicyDigest: facts.integrationPolicyDigest,
     mainHealthRef: { mainSha: mainHealth.mainSha, mainTreeSha: mainHealth.mainTreeSha,
@@ -1028,10 +899,10 @@ function createPureHostedEnvelopeFixture(input: {
     barrier: facts.reviewBarrier, candidateAuthorNodeId: facts.candidate.authorNodeId,
     integrationPrincipalNodeId: facts.integrationPrincipalNodeId, expiresAt: facts.reviewExpiresAt,
     operationId: `sha256:${'f'.repeat(64)}` });
-  const withoutDigest = Object.freeze({ schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1,
+  const withoutDigest = Object.freeze({ schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
     requestOperationId: request.requestOperationId, scopeAuthorization, preGateReview, mainHealth, session,
     actionPlanClosure: facts.actionPlanClosure });
-  const envelopeDigest = `sha256:${createHash('sha256').update(encodeVerificationActionDataV2(withoutDigest)).digest('hex')}` as const;
+  const envelopeDigest = `sha256:${createHash('sha256').update(encodeVerificationActionData(withoutDigest)).digest('hex')}` as const;
   return Object.freeze({ ...withoutDigest, envelopeDigest });
 }
 
@@ -1043,12 +914,12 @@ function reducerFixture(options: {
   closeout?: 'completed' | 'protected-pending' | 'blocked' | 'residue';
   localDefaultSha?: string;
   remoteDefaultSha?: string;
-  baseToMerge?: GitHubComparisonObservationV1;
-  mergeToDefault?: GitHubComparisonObservationV1;
+  baseToMerge?: GitHubComparisonObservation;
+  mergeToDefault?: GitHubComparisonObservation;
 } = {}) {
   const mergeAt = options.mergeAt ?? MERGE_AT;
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-'));
-  const journalFs = createEphemeralVerificationSessionJournalFsV1(
+  const journalFs = createEphemeralVerificationSessionJournalFs(
     path.join(repositoryRoot, 'runtime-state')
   );
   const transport = new ReducerTransport();
@@ -1059,30 +930,30 @@ function reducerFixture(options: {
   const barrier = github.observeReviewBarrier({ repository: 'sec-platform/sec', prNumber: 42,
     headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: VERIFIED_AT });
   if (barrier.status !== 'clear') throw new Error('fixture Review must be clear');
-  const changedPaths = ['scripts/codex/verification-session.ts'];
+  const changedPaths = ['src/verification/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
-  const local = prepareTrustedMainVerificationSessionV1({ repository: 'sec-platform/sec',
+  const local = prepareTrustedMainVerificationSession({ repository: 'sec-platform/sec',
     candidate: transport.candidate(), manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
     changedPaths, testImpactTransition, profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '100',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: VERIFIED_AT,
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs() });
-  const facts = reconstructVerificationSessionHostedFactsV1({ request: local.request,
+  const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: 'sec-platform/sec', candidate: transport.candidate(), changedPaths, testImpactTransition,
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
     sourceRunId: '100', sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs() });
   const envelope = createPureHostedEnvelopeFixture({ request: local.request, facts });
-  const producer = CodexDevelopmentCreateVerificationEvidenceProducerV4({
+  const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
     sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, workflowSha: BASE,
     runId: '100', runAttempt: 1, actorNodeId: 'INTEGRATOR'
   });
   const gates = envelope.actionPlanClosure.actions.map(({ action }, index) => ({
     action,
-    result: CodexDevelopmentBuildVerificationGateResultV1({
+    result: CodexDevelopmentBuildVerificationGateResult({
       gateId: action.operation.identity, gateRevision: action.operation.revision,
       owner: 'ci-verification-maintainer', requirementKey: `gate:${action.operation.identity}`,
       subjectRevision: HEAD, inputDigest: action.actionKey, applicability: 'required',
@@ -1113,11 +984,11 @@ function reducerFixture(options: {
     finishedAt: '2026-08-09T14:03:00.000Z', gates, evidenceRefs: [],
     invalidationRules: ['Session, Action, Review, MainHealth, or trust changes']
   });
-  const artifact = CodexDevelopmentFinalizeVerificationSessionArtifactV2({
+  const artifact = CodexDevelopmentFinalizeVerificationSessionArtifact({
     scopeAuthorization: envelope.scopeAuthorization, session: envelope.session,
     preGateReview: envelope.preGateReview, mainHealth: envelope.mainHealth, evidence, producer
   });
-  const artifactText = `${encodeVerificationActionDataV2(artifact)}\n`;
+  const artifactText = `${encodeVerificationActionData(artifact)}\n`;
   const hostedMetadata = {
     artifactId: '1000',
     artifactName: `sec-verification-session-v2-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-100-attempt-1`,
@@ -1127,7 +998,7 @@ function reducerFixture(options: {
     runId: '100', runAttempt: 1, eventName: 'repository_dispatch', actorNodeId: 'INTEGRATOR',
     actorPermission: 'maintain' as const, expired: false
   };
-  const hostedObservation = createHostedArtifactObservationV2({ artifact, artifactText,
+  const hostedObservation = createHostedArtifactObservation({ artifact, artifactText,
     observation: hostedMetadata });
   const preMergeBarrier = github.observeReviewBarrier({ repository: 'sec-platform/sec', prNumber: 42,
     headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: mergeAt });
@@ -1137,18 +1008,18 @@ function reducerFixture(options: {
     candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR',
     expiresAt: '2026-08-09T14:20:00.000Z', operationId: PAGE });
   const mergeWorkflowRef = `.github/workflows/sec-merge-gate.yml@${BASE}`;
-  const freshMainHealth = createMainHealthLedgerV1(createObservedMainHealthInputV1({
+  const freshMainHealth = createMainHealthLedger(createObservedMainHealthInput({
     repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
     observedAt: mergeAt, expiresAt: '2026-08-09T14:20:00.000Z', sourceRunId: '200',
     sourceRef: mergeWorkflowRef, checks: [mainHealthCheck()]
   }));
   const platform = github.observePlatformEnforcement('sec-platform/sec');
   if (platform.status === 'unknown') throw new Error('fixture platform observation must be known');
-  const consumptionOperationId = createVerificationSessionMergeOperationIdV1({
+  const consumptionOperationId = createVerificationSessionMergeOperationId({
     sessionRevision: artifact.session.sessionRevision, headSha: HEAD,
     actionPlanDigest: artifact.session.actionPlanClosureDigest
   });
-  const mergeInput = prepareVerificationSessionMergeInputV2({ artifact, preMergeReview,
+  const mergeInput = prepareVerificationSessionMergeInput({ artifact, preMergeReview,
     platform, hostedArtifactOrigin: hostedObservation, hostedArtifactTransport: hostedObservation,
     candidate: { repository: 'sec-platform/sec', prNumber: 42, draft: false,
       headOpenPullRequestCount: 1, currentBaseSha: BASE, currentBaseTreeSha: BASE,
@@ -1160,8 +1031,8 @@ function reducerFixture(options: {
     mainHealth: freshMainHealth, consumptionOperationId, issuedAt: mergeAt,
     expiresAt: options.authorizationExpiresAt ?? '2026-08-09T14:10:00.000Z'
   });
-  const result = CodexDevelopmentEvaluateMergeGateV2(mergeInput);
-  const authorizationPublicationId = `sha256:${createHash('sha256').update(encodeVerificationActionDataV2({
+  const result = CodexDevelopmentEvaluateMergeGate(mergeInput);
+  const authorizationPublicationId = `sha256:${createHash('sha256').update(encodeVerificationActionData({
     consumptionOperationId: result.authorization.consumptionOperationId,
     authorizationReceiptDigest: result.authorization.receiptDigest
   })).digest('hex')}` as const;
@@ -1173,8 +1044,8 @@ function reducerFixture(options: {
     workflowSha: BASE, runId: '200', runAttempt: 1, eventName: 'workflow_run',
     actorNodeId: 'INTEGRATOR', actorPermission: 'maintain' as const, expired: false
   };
-  let trustedAuthorization = createTrustedIntegrationAuthorizationArtifactV1({
-    resultJson: encodeVerificationActionDataV2(result), observation: authorizationMetadata
+  let trustedAuthorization = createTrustedIntegrationAuthorizationArtifact({
+    resultJson: encodeVerificationActionData(result), observation: authorizationMetadata
   });
   const preparation = createBranchCloseoutPreparation({ preparedAt: MERGE_AT,
     repository: { root: repositoryRoot, commonDir: path.join(repositoryRoot, '.git'),
@@ -1201,7 +1072,7 @@ function reducerFixture(options: {
         boundaryTargetsMatched: true };
     },
     runLocalActions: () => ({ status: 'passed', resultDigest: artifact.evidence.evidenceDigest as `sha256:${string}` }),
-    hostedArtifact: () => ({ artifact, provenance: createTrustedHostedArtifactProvenanceV1({
+    hostedArtifact: () => ({ artifact, provenance: createTrustedHostedArtifactProvenance({
       artifact, artifactText, observation: hostedMetadata, actorPermission: 'maintain' }) }),
     saveReviewReceipt: () => undefined,
     integrationAuthorizationArtifact: () => ({ kind: 'actions-artifact', artifact: trustedAuthorization }),
@@ -1217,7 +1088,7 @@ function reducerFixture(options: {
     consumedAuthorizationIds: () => options.consumed ? new Set([result.authorization.authorizationId]) : new Set(),
     observeCloseoutPreparation: () => ({ status: 'prepared', preparationDigest: preparation.preparationDigest }),
     observeCloseoutBinding: (authorization, session, merged) => ({ status: 'available',
-      binding: createBranchCloseoutOperationBindingV1({ integrationAuthorization: authorization,
+      binding: createBranchCloseoutOperationBinding({ integrationAuthorization: authorization,
         preparation, newMainSha: merged.mergeCommitSha!,
         newMainTreeSha: merged.mergeCommitTreeSha!, candidateTreeSha: session.headTreeSha }) }),
     observeCloseout: () => {
@@ -1228,7 +1099,7 @@ function reducerFixture(options: {
       return { status: options.closeout ?? 'completed', receiptDigest: PAGE };
     }
   };
-  const markers = integrationAuthorizationMergeMarkersV1({ sessionRevision: artifact.session.sessionRevision,
+  const markers = integrationAuthorizationMergeMarkers({ sessionRevision: artifact.session.sessionRevision,
     authorizationId: result.authorization.authorizationId,
     authorizationReceiptDigest: result.authorization.receiptDigest,
     consumptionOperationId: result.authorization.consumptionOperationId as `sha256:${string}`,
@@ -1242,17 +1113,17 @@ function reducerFixture(options: {
   return { repositoryRoot, journalFs, transport, github, artifact, result, external, counters, changedPaths,
     testImpactTransition, markers,
     request: local.request, preparation,
-    setAuthorizationResult: (next: CodexDevelopmentMergeGateResultV2 | string) => {
+    setAuthorizationResult: (next: CodexDevelopmentMergeGateResult | string) => {
       trustedAuthorization = typeof next === 'string'
         ? { ...trustedAuthorization, resultJson: next }
-        : createTrustedIntegrationAuthorizationArtifactV1({
-            resultJson: encodeVerificationActionDataV2(next), observation: authorizationMetadata });
+        : createTrustedIntegrationAuthorizationArtifact({
+            resultJson: encodeVerificationActionData(next), observation: authorizationMetadata });
     },
     dispose: () => rmSync(repositoryRoot, { recursive: true, force: true }) };
 }
 
 function runReducer(fixture: ReturnType<typeof reducerFixture>) {
-  return resumeVerificationSessionV2({ repositoryRoot: fixture.repositoryRoot,
+  return resumeVerificationSession({ repositoryRoot: fixture.repositoryRoot,
     session: fixture.artifact.session, scopeAuthorization: fixture.artifact.scopeAuthorization,
     changedPaths: fixture.changedPaths, testImpactTransition: fixture.testImpactTransition,
     integrationPrincipalNodeId: 'INTEGRATOR',
@@ -1261,7 +1132,7 @@ function runReducer(fixture: ReturnType<typeof reducerFixture>) {
 
 function durablePublication(fixture: ReturnType<typeof reducerFixture>): Readonly<{
   commentId: number;
-  publication: IntegrationAuthorizationOperationPublicationV1;
+  publication: IntegrationAuthorizationOperationPublication;
 }> {
   const remote = fixture.external.integrationAuthorizationPublication();
   if (remote === null) throw new Error('fixture authorization publication is unavailable');
@@ -1279,18 +1150,18 @@ function durablePublication(fixture: ReturnType<typeof reducerFixture>): Readonl
     recoveryArtifact: {},
     provenance: {},
     publicationDigest: remote.authorizationPublicationDigest
-  } as unknown as IntegrationAuthorizationOperationPublicationV1;
+  } as unknown as IntegrationAuthorizationOperationPublication;
   return Object.freeze({ commentId: remote.commentId, publication });
 }
 
 function substituteAuthorizationLiveIdentity(
   fixture: ReturnType<typeof reducerFixture>,
   identity: { repository?: string; prNumber?: number }
-): CodexDevelopmentMergeGateResultV2 {
+): CodexDevelopmentMergeGateResult {
   const previous = fixture.result.authorization;
   const { schema: _schema, authorizationId: _authorizationId, receiptDigest: _receiptDigest,
     ...authorizationInput } = previous;
-  const authorization = createIntegrationAuthorizationV1({ ...authorizationInput, ...identity });
+  const authorization = createIntegrationAuthorization({ ...authorizationInput, ...identity });
   const renamePr = (name: string) => identity.prNumber === undefined
     ? name
     : name.replace('-pr-42-', `-pr-${identity.prNumber}-`);
@@ -1309,7 +1180,7 @@ function substituteAuthorizationLiveIdentity(
     terminalStatusContext: fixture.result.terminalStatusContext
   });
   const resultDigest = `sha256:${createHash('sha256').update(
-    encodeVerificationActionDataV2(withoutDigest)
+    encodeVerificationActionData(withoutDigest)
   ).digest('hex')}` as const;
   return Object.freeze({ ...withoutDigest, resultDigest });
 }
@@ -1467,11 +1338,11 @@ test('formal trusted App APPROVED binds GraphQL authority and excluded principal
   expect(clear.status).toBe('clear');
   if (clear.status !== 'clear') throw new Error('expected formal App approval');
   expect(clear.authority.sourceTransport).toBe('github-graphql');
-  expect(() => assertGitHubReviewAuthorityObservationV1(clear)).toThrow(
+  expect(() => assertGitHubReviewAuthorityObservation(clear)).toThrow(
     'Review receipt authority must be a live observation produced by the private GitHub adapter.'
   );
 
-  const excluded = evaluateVerificationSessionReviewObservationV1(approved, {
+  const excluded = evaluateVerificationSessionReviewObservation(approved, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set([BOT]), observedAt: '2026-08-09T14:01:00.000Z'
   });
@@ -1479,7 +1350,7 @@ test('formal trusted App APPROVED binds GraphQL authority and excluded principal
 });
 
 test('production Review authority adapter cannot have its private transport reflectively replaced', () => {
-  const client = createVerificationSessionGitHubClientV1(process.cwd());
+  const client = createVerificationSessionGitHubClient(process.cwd());
   expect(Reflect.set(client as object, 'transport', new FakeTransport())).toBe(false);
   expect(Object.getOwnPropertyNames(client)).not.toContain('transport');
 });
@@ -1528,14 +1399,14 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
 
   const malformedTrustedMarker = new FakeTransport();
   malformedTrustedMarker.issueComments = [[botIssueComment(reviewRequestMarker, {
-    authorLogin: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.login,
-    authorId: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.id,
-    authorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.nodeId,
-    authorType: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.type,
+    authorLogin: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
+    authorId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
+    authorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
+    authorType: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type,
     performedViaGitHubApp: {
-      id: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.id,
-      nodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.nodeId,
-      slug: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.slug
+      id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id,
+      nodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.nodeId,
+      slug: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.slug
     }
   })]];
   expectTypedProviderSchemaUnsupported(observe(malformedTrustedMarker));
@@ -1548,7 +1419,7 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
     }
   } } } }];
   let appResolutions = 0;
-  const parsedApp = parseGitHubReviewPagesV1({
+  const parsedApp = parseGitHubReviewPages({
     source: graphQlPage({ __typename: 'Bot', id: BOT, login: 'codex-review[bot]',
       resourcePath: '/apps/chatgpt-codex-connector' }),
     resolveApp: (slug) => {
@@ -1560,7 +1431,7 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
   expect(appResolutions).toBe(1);
   expect(parsedApp.nodes[0]).toMatchObject({ authorNodeId: BOT, authorType: 'Bot',
     appId: 1144995, appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector' });
-  const resolvedWithDifferentRawBytes = parseGitHubReviewPagesV1({
+  const resolvedWithDifferentRawBytes = parseGitHubReviewPages({
     source: graphQlPage({ __typename: 'Bot', id: BOT, login: 'codex-review[bot]',
       resourcePath: '/apps/chatgpt-codex-connector' }),
     resolveApp: (slug) => ({ id: 1144995, node_id: 'A_kwHOAOQ6Gs4AEXij', slug,
@@ -1573,19 +1444,19 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
   expect(formalAuthority).toMatchObject({ status: 'clear',
     authority: { sourceTransport: 'github-graphql' } });
 
-  expect(() => parseGitHubReviewPagesV1({
+  expect(() => parseGitHubReviewPages({
     source: graphQlPage({ __typename: 'Bot', id: BOT, login: 'codex-review[bot]',
       resourcePath: '/apps/not-the-trusted-app' }),
     resolveApp: () => ({ id: 1144995, node_id: 'A_kwHOAOQ6Gs4AEXij',
       slug: 'chatgpt-codex-connector' })
   })).toThrow(/actor path is ambiguous or drifted/i);
-  expect(() => parseGitHubReviewPagesV1({
+  expect(() => parseGitHubReviewPages({
     source: graphQlPage({ __typename: 'Bot', id: BOT, login: 'codex-review[bot]',
       resourcePath: '/apps/chatgpt-codex-connector' }),
     resolveApp: () => ({ id: 1144995, node_id: 'A_drifted', slug: 'chatgpt-codex-connector' })
   })).toThrow(/resolver identity drifted/i);
   let nonBotResolutions = 0;
-  const nonBot = parseGitHubReviewPagesV1({
+  const nonBot = parseGitHubReviewPages({
     source: graphQlPage({ __typename: 'User', id: BOT, login: 'not-an-app',
       resourcePath: '/apps/chatgpt-codex-connector' }),
     resolveApp: () => {
@@ -1645,7 +1516,7 @@ test('review observation rejects unknown state and detects provider head drift',
 
   class DriftingTransport extends FakeTransport {
     reads = 0;
-    override candidate(): GitHubCandidateObservationV1 {
+    override candidate(): GitHubCandidateObservation {
       const candidate = super.candidate();
       this.reads += 1;
       return this.reads === 1 ? candidate : { ...candidate, headSha: '3'.repeat(40) };
@@ -1691,7 +1562,7 @@ test('V8 GitHub observation regressions normalize timestamps, thread authors, re
 
   const workflow = new FakeTransport();
   workflow.workflowRuns = [[workflowRun({ updatedAt: '2026-08-09T14:00:00.1Z' })]];
-  expect(evaluateVerificationSessionWorkflowJoinV1(workflow, {
+  expect(evaluateVerificationSessionWorkflowJoin(workflow, {
     repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
     actionPlanDigest: JOIN_ACTION, baseSha: BASE, now: '2026-08-09T14:05:00Z'
   })).toMatchObject({ status: 'joined', reason: 'active-run' });
@@ -1717,11 +1588,11 @@ test('V8 final Review P2 regressions preserve dotted paths and bind complete nes
   const changedPaths = (paths: readonly string[]) => {
     const metadata = JSON.stringify({ number: 42, changed_files: paths.length,
       state: 'open', draft: false, base: { sha: BASE }, head: { sha: HEAD } });
-    const inventory = parseGitHubPullRequestFileInventoryV1({ repository: 'sec-platform/sec', prNumber: 42,
+    const inventory = parseGitHubPullRequestFileInventory({ repository: 'sec-platform/sec', prNumber: 42,
       beforeSource: metadata,
       pagesSource: JSON.stringify([paths.map((filename) => ({ filename, status: 'modified' }))]),
       afterSource: metadata });
-    return evaluateVerificationSessionChangedPathsV1(
+    return evaluateVerificationSessionChangedPaths(
       { pullRequestFileInventory: () => inventory },
       { repository: 'sec-platform/sec', prNumber: 42, state: 'OPEN', draft: false,
         baseSha: BASE, headSha: HEAD }
@@ -1754,7 +1625,7 @@ test('V8 final Review P2 regressions preserve dotted paths and bind complete nes
     } } } }
   }];
   const parse = (lastAuthor: string, nextCursor: string | null = 'COMMENT-101') =>
-    parseGitHubReviewThreadPagesV1({
+    parseGitHubReviewThreadPages({
       source: outerPages,
       readCommentPage: (threadId, after) => {
         expect({ threadId, after }).toEqual({ threadId: 'T-101', after: 'COMMENT-100' });
@@ -1770,7 +1641,7 @@ test('V8 final Review P2 regressions preserve dotted paths and bind complete nes
   expect(new Set(complete.nodes[0]?.authorNodeIds)).toEqual(new Set(['REVIEWER']));
   expect(parse('OTHER').pageDigest).not.toBe(complete.pageDigest);
   expect(() => parse('REVIEWER', 'COMMENT-100')).toThrow(/comment pagination did not advance/i);
-  expect(() => parseGitHubReviewThreadPagesV1({
+  expect(() => parseGitHubReviewThreadPages({
     source: [outerPages[0]],
     readCommentPage: () => { throw new Error('must not read an inner page before outer completeness'); }
   })).toThrow(/thread pagination is incomplete/i);
@@ -1786,8 +1657,8 @@ test('V9 PR file inventory binds changed_files and fails closed at cap, incomple
     base: { sha: baseSha },
     head: { sha: headSha }
   });
-  const parse = (input: Partial<Parameters<typeof parseGitHubPullRequestFileInventoryV1>[0]> = {}) =>
-    parseGitHubPullRequestFileInventoryV1({
+  const parse = (input: Partial<Parameters<typeof parseGitHubPullRequestFileInventory>[0]> = {}) =>
+    parseGitHubPullRequestFileInventory({
       repository: 'sec-platform/sec',
       prNumber: 42,
       beforeSource: metadata(1),
@@ -1807,17 +1678,17 @@ test('V9 PR file inventory binds changed_files and fails closed at cap, incomple
   expect(complete.inventoryDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   const expected = { repository: 'sec-platform/sec', prNumber: 42, state: 'OPEN' as const,
     draft: false as const, baseSha: BASE, headSha: HEAD };
-  expect(evaluateVerificationSessionChangedPathsV1(
+  expect(evaluateVerificationSessionChangedPaths(
     { pullRequestFileInventory: () => complete }, expected
   )).toEqual(complete);
 
   const expectIdentityMismatchBeforeEffect = (
-    inventory: ReturnType<typeof parseGitHubPullRequestFileInventoryV1>
+    inventory: ReturnType<typeof parseGitHubPullRequestFileInventory>
   ) => {
     let authorizationReached = false;
     let physicalMergeReached = false;
     expect(() => {
-      const observed = evaluateVerificationSessionChangedPathsV1(
+      const observed = evaluateVerificationSessionChangedPaths(
         { pullRequestFileInventory: () => inventory }, expected
       );
       authorizationReached = observed.paths.length > 0;
@@ -1880,8 +1751,8 @@ test('V9 GitHub observation exhausts stable same-head census and pairs copied pa
   });
   const leading = Array.from({ length: 100 }, (_, index) => pull(index + 1, index + 1));
   const finalPage = [pull(101, 101, HEAD), pull(102, 102, HEAD)];
-  const census = (input: Partial<Parameters<typeof parseGitHubOpenPullRequestCensusV1>[0]> = {}) =>
-    parseGitHubOpenPullRequestCensusV1({
+  const census = (input: Partial<Parameters<typeof parseGitHubOpenPullRequestCensus>[0]> = {}) =>
+    parseGitHubOpenPullRequestCensus({
       repository: 'sec-platform/sec',
       headSha: HEAD,
       firstPagesSource: JSON.stringify([leading, finalPage]),
@@ -1905,7 +1776,7 @@ test('V9 GitHub observation exhausts stable same-head census and pairs copied pa
 
   const metadata = JSON.stringify({ number: 42, changed_files: 1, state: 'open', draft: false,
     base: { sha: BASE }, head: { sha: HEAD } });
-  const files = (record: Record<string, unknown>) => parseGitHubPullRequestFileInventoryV1({
+  const files = (record: Record<string, unknown>) => parseGitHubPullRequestFileInventory({
     repository: 'sec-platform/sec', prNumber: 42, beforeSource: metadata,
     pagesSource: JSON.stringify([[record]]), afterSource: metadata
   });
@@ -1936,7 +1807,7 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
       summary(1003, 'release Notes — opaque')] }
   ];
   const hydrationCalls: string[] = [];
-  const hydrated = evaluateGitHubRepositoryActionsArtifactInventoryV1({
+  const hydrated = evaluateGitHubRepositoryActionsArtifactInventory({
     repository: 'sec-platform/sec',
     source,
     observeArtifact: (entry) => {
@@ -1964,7 +1835,7 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
     })
   }));
   let unrelatedHydrationCalls = 0;
-  const unrelatedOnly = evaluateGitHubRepositoryActionsArtifactInventoryV1({
+  const unrelatedOnly = evaluateGitHubRepositoryActionsArtifactInventory({
     repository: 'sec-platform/sec', source: thousandUnrelated,
     observeArtifact: () => { unrelatedHydrationCalls += 1; throw new Error('must not hydrate unrelated'); }
   });
@@ -1975,7 +1846,7 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
     const pages = structuredClone(source);
     mutate(pages);
     let calls = 0;
-    expect(() => evaluateGitHubRepositoryActionsArtifactInventoryV1({
+    expect(() => evaluateGitHubRepositoryActionsArtifactInventory({
       repository: 'sec-platform/sec', source: pages,
       observeArtifact: () => { calls += 1; throw new Error('hydration must not start'); }
     })).toThrow(message);
@@ -1988,7 +1859,7 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
     pages[1].artifacts[1].name = `${CI_VERIFICATION_SESSION_ARTIFACT_PREFIX}-confusable`;
   }, /malformed Session-family name/i);
 
-  expect(() => evaluateGitHubRepositoryActionsArtifactInventoryV1({
+  expect(() => evaluateGitHubRepositoryActionsArtifactInventory({
     repository: 'sec-platform/sec', source,
     observeArtifact: (entry) => ({ artifactId: entry.artifactId, artifactName: entry.artifactName,
       archiveDigest: null, workflowPath: '.github/workflows/compiler-pr-validation.yml',
@@ -2003,7 +1874,7 @@ test('platform 403 is recorded as unavailable and never as no-bypass proof', () 
   const error = new Error('upgrade plan') as Error & { statusCode?: number };
   error.statusCode = 403;
   transport.rulesetError = error;
-  const observation = evaluatePlatformEnforcementObservationV1({
+  const observation = evaluatePlatformEnforcementObservation({
     repository: 'sec-platform/sec', readRulesets: () => transport.repositoryRulesets()
   });
   expect(observation.status).toBe('platform-enforcement-unavailable');
@@ -2014,58 +1885,58 @@ test('platform 403 is recorded as unavailable and never as no-bypass proof', () 
 test('MainHealth preserves exact states while repair remains semantic routing without physical authority', () => {
   const common = { repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
     observedAt: '2026-08-09T14:00:00.000Z', expiresAt: '2026-08-09T14:10:00.000Z', sourceRunId: '7',
-    sourceRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${BASE}` };
-  expect(createObservedMainHealthInputV1({ ...common, checks: [mainHealthCheck()] })).toMatchObject({
+    sourceRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${BASE}` };
+  expect(createObservedMainHealthInput({ ...common, checks: [mainHealthCheck()] })).toMatchObject({
     status: 'healthy', allowedLanes: ['ordinary'], owner: null, repairWorkPackage: null
   });
-  expect(createObservedMainHealthInputV1({ ...common,
+  expect(createObservedMainHealthInput({ ...common,
     checks: [mainHealthCheck({ eventName: 'repository_dispatch' })] })).toMatchObject({
     status: 'healthy', allowedLanes: ['ordinary'], owner: null, repairWorkPackage: null
   });
-  const degradedInput = createObservedMainHealthInputV1({
+  const degradedInput = createObservedMainHealthInput({
     ...common,
     checks: [mainHealthCheck({ conclusion: 'failure' })]
   });
   expect(degradedInput).toMatchObject({
-    status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY_V1.degraded.allowedLanes,
-    owner: CI_MAIN_HEALTH_POLICY_V1.degraded.owner
+    status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY.degraded.allowedLanes,
+    owner: CI_MAIN_HEALTH_POLICY.degraded.owner
   });
-  expect(degradedInput.repairWorkPackage).toBe(createMainHealthRepairWorkPackagePathV1({
+  expect(degradedInput.repairWorkPackage).toBe(createMainHealthRepairWorkPackagePath({
     repository: common.repository,
     defaultBranch: 'main',
     mainSha: common.mainSha,
     mainTreeSha: common.mainTreeSha,
-    owner: CI_MAIN_HEALTH_POLICY_V1.degraded.owner,
+    owner: CI_MAIN_HEALTH_POLICY.degraded.owner,
     failureFingerprints: degradedInput.failureFingerprints
   }));
-  const degradedLedger = createMainHealthLedgerV1(degradedInput);
-  expect(resolveRepairMainHealthLaneV1({
+  const degradedLedger = createMainHealthLedger(degradedInput);
+  expect(resolveRepairMainHealthLane({
     ledger: degradedLedger, now: '2026-08-09T14:01:00.000Z',
     expectedRepository: common.repository, expectedDefaultBranch: 'main',
     expectedMainSha: common.mainSha, expectedMainTreeSha: common.mainTreeSha,
     expectedTrustRevision: common.trustRevision
   })).toMatchObject({ status: 'degraded', allowed: true });
-  expect(resolveOrdinaryMainHealthLaneV1({
+  expect(resolveOrdinaryMainHealthLane({
     ledger: degradedLedger, now: '2026-08-09T14:01:00.000Z',
     expectedRepository: common.repository, expectedDefaultBranch: 'main',
     expectedMainSha: common.mainSha, expectedMainTreeSha: common.mainTreeSha,
     expectedTrustRevision: common.trustRevision
   })).toMatchObject({ status: 'locked', allowed: false });
-  expect(CI_MAIN_HEALTH_POLICY_V1.degraded).toMatchObject({
+  expect(CI_MAIN_HEALTH_POLICY.degraded).toMatchObject({
     repairIdentityPolicy: 'exact-main-tree-failure-v1',
     allowedLanes: ['repair']
   });
   for (const checks of [[], [mainHealthCheck({ status: 'in_progress', conclusion: null })],
     [mainHealthCheck(), mainHealthCheck({ id: 8 })], [mainHealthCheck({ appId: 1 })]]) {
-    expect(createObservedMainHealthInputV1({ ...common, checks })).toMatchObject({ status: 'locked', allowedLanes: [] });
+    expect(createObservedMainHealthInput({ ...common, checks })).toMatchObject({ status: 'locked', allowedLanes: [] });
   }
-  const ledger = createMainHealthLedgerV1(createObservedMainHealthInputV1({ ...common,
+  const ledger = createMainHealthLedger(createObservedMainHealthInput({ ...common,
     checks: [mainHealthCheck()] }));
   for (const expected of [
     { expectedRepository: 'attacker/fork', expectedDefaultBranch: 'main' },
     { expectedRepository: 'sec-platform/sec', expectedDefaultBranch: 'release' }
   ]) {
-    expect(resolveOrdinaryMainHealthLaneV1({ ledger, now: '2026-08-09T14:01:00.000Z',
+    expect(resolveOrdinaryMainHealthLane({ ledger, now: '2026-08-09T14:01:00.000Z',
       ...expected, expectedMainSha: BASE, expectedMainTreeSha: BASE,
       expectedTrustRevision: BASE })).toMatchObject({ status: 'locked', allowed: false });
   }
@@ -2074,13 +1945,13 @@ test('MainHealth preserves exact states while repair remains semantic routing wi
 test('MainHealth accepts one exact dispatch and locks duplicate or foreign producers', () => {
   const common = { repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
     observedAt: '2026-08-09T14:00:00.000Z', expiresAt: '2026-08-09T14:10:00.000Z', sourceRunId: '7',
-    sourceRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${BASE}` };
+    sourceRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${BASE}` };
   const dispatched = mainHealthCheck({ id: 8 });
-  const exact = createObservedMainHealthInputV1({ ...common, checks: [dispatched] });
+  const exact = createObservedMainHealthInput({ ...common, checks: [dispatched] });
   expect(exact).toMatchObject({
     status: 'healthy', allowedLanes: ['ordinary'], failureFingerprints: []
   });
-  expect(createObservedMainHealthInputV1({
+  expect(createObservedMainHealthInput({
     ...common,
     checks: [mainHealthCheck({ id: 99, appId: 1 }), dispatched]
   })).toEqual(exact);
@@ -2092,11 +1963,11 @@ test('MainHealth accepts one exact dispatch and locks duplicate or foreign produ
     workflowRunId: '31683485879',
     workflowRunDisplayTitle: 'activate prepare PR #376'
   });
-  expect(createObservedMainHealthInputV1({
+  expect(createObservedMainHealthInput({
     ...common,
     checks: [dispatched, unrelatedActivation]
   })).toEqual(exact);
-  expect(createObservedMainHealthInputV1({
+  expect(createObservedMainHealthInput({
     ...common,
     checks: [unrelatedActivation]
   })).toMatchObject({ status: 'locked', allowedLanes: [] });
@@ -2104,22 +1975,22 @@ test('MainHealth accepts one exact dispatch and locks duplicate or foreign produ
     id: 12,
     eventName: 'repository_dispatch',
     conclusion: 'skipped',
-    workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
+    workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY.producer.runTitleFormats.repositoryDispatch
       .replace('<exact-main-sha>', BASE)
       .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
   });
-  expect(createObservedMainHealthInputV1({
+  expect(createObservedMainHealthInput({
     ...common,
     checks: [dispatched, wrongOperationDispatch]
   })).toEqual(exact);
-  expect(createObservedMainHealthInputV1({
+  expect(createObservedMainHealthInput({
     ...common,
     checks: [wrongOperationDispatch]
   })).toMatchObject({ status: 'locked', allowedLanes: [] });
   const failedDispatch = mainHealthCheck({ id: 8, conclusion: 'failure' });
-  const singleFailure = createObservedMainHealthInputV1({ ...common, checks: [failedDispatch] });
+  const singleFailure = createObservedMainHealthInput({ ...common, checks: [failedDispatch] });
   expect(singleFailure).toMatchObject({
-    status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY_V1.degraded.allowedLanes,
+    status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY.degraded.allowedLanes,
     failureFingerprints: [expect.stringMatching(/^sha256:/)],
     repairWorkPackage: expect.stringContaining('default-branch-health-repair-')
   });
@@ -2132,7 +2003,7 @@ test('MainHealth accepts one exact dispatch and locks duplicate or foreign produ
     [mainHealthCheck({ status: 'forged-status', conclusion: 'failure' })],
     [mainHealthCheck({ eventName: 'push' })]
   ]) {
-    expect(createObservedMainHealthInputV1({ ...common, checks })).toMatchObject({
+    expect(createObservedMainHealthInput({ ...common, checks })).toMatchObject({
       status: 'locked', allowedLanes: [], failureFingerprints: [expect.stringMatching(/^sha256:/)]
     });
   }
@@ -2145,7 +2016,7 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
     sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`
   };
   const dispatched = mainHealthCheck({ id: 8 });
-  const single = compilePostMainIssueDispositionHealthReadbackV1({ ...common, checks: [dispatched] });
+  const single = compilePostMainIssueDispositionHealthReadback({ ...common, checks: [dispatched] });
   expect(single).toMatchObject({
     repository: common.repository, mainSha: common.newMainSha, mainTreeSha: common.newMainTreeSha,
     trustRevision: common.newMainSha, status: 'healthy', allowedLanes: ['ordinary']
@@ -2154,11 +2025,11 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
     [mainHealthCheck({ appId: 1 })],
     [mainHealthCheck({ appNodeId: 'forged-app-node' })],
     [mainHealthCheck({ workflowPath: '.github/workflows/forged.yml' })],
-    [mainHealthCheck({ workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${HEAD}` })],
+    [mainHealthCheck({ workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${HEAD}` })],
     [mainHealthCheck({ eventName: 'workflow_run' })],
     [mainHealthCheck({
       eventName: 'repository_dispatch',
-      workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
+      workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY.producer.runTitleFormats.repositoryDispatch
         .replace('<exact-main-sha>', BASE)
         .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
     })],
@@ -2167,7 +2038,7 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
     [mainHealthCheck({ status: 'forged-status', conclusion: 'success' })],
     [mainHealthCheck({ eventName: 'push' })]
   ]) {
-    expect(() => compilePostMainIssueDispositionHealthReadbackV1({ ...common, checks }))
+    expect(() => compilePostMainIssueDispositionHealthReadback({ ...common, checks }))
       .toThrow('canonical fresh healthy ordinary-only MainHealth');
   }
 });
@@ -2178,15 +2049,15 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
   const barrier = observe(transport);
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const candidate = transport.candidate();
-  const changedPaths = ['scripts/codex/verification-session.ts'];
+  const changedPaths = ['src/verification/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
   const manifestDigest = `sha256:${'b'.repeat(64)}` as const;
-  const local = prepareTrustedMainVerificationSessionV1({ repository: candidate.repository, candidate,
+  const local = prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
     manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
     mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs() });
-  const facts = reconstructVerificationSessionHostedFactsV1({ request: local.request,
+  const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: candidate.repository, candidate, changedPaths, testImpactTransition,
     integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '2',
@@ -2197,20 +2068,20 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
   expect(pureHosted.session.sessionRevision).toBe(local.sessionRevision);
   expect(pureHosted.scopeAuthorization.authorizationRevision).toBe(local.scopeAuthorizationRevision);
   expect(pureHosted.actionPlanClosure.actionPlanDigest).toBe(local.actionPlanClosure.actionPlanDigest);
-  expect(() => prepareVerificationSessionHostedV1({ request: local.request,
+  expect(() => prepareVerificationSessionHosted({ request: local.request,
     facts: JSON.parse(JSON.stringify(facts)) })).toThrow('live observation produced by the private GitHub adapter');
-  const dependencyPaths = new Set<string>(CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2);
+  const dependencyPaths = new Set<string>(CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS);
   for (const action of pureHosted.actionPlanClosure.actions) {
     expect(action.action.inputClosure.filter(({ path: inputPath }) =>
       dependencyPaths.has(inputPath))).toHaveLength(4);
   }
-  expect(() => prepareTrustedMainVerificationSessionV1({ repository: candidate.repository, candidate,
+  expect(() => prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
     manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
     mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs('bun.lock') }))
     .toThrow(/bun\.lock drifted from the trusted base/i);
-  expect(() => reconstructVerificationSessionHostedFactsV1({ request: local.request,
+  expect(() => reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: candidate.repository, candidate, changedPaths, testImpactTransition,
     integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '2',
@@ -2225,9 +2096,9 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   const headSha = 'b'.repeat(40);
   const retiredPath =
     'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
-  const changedPaths = [retiredPath, 'scripts/codex/verification-session.ts'];
+  const changedPaths = [retiredPath, 'src/verification/ci/runtime/verification-session.ts'];
   const records = [
-    { status: 'changed' as const, path: 'scripts/codex/verification-session.ts' },
+    { status: 'changed' as const, path: 'src/verification/ci/runtime/verification-session.ts' },
     { status: 'removed' as const, path: retiredPath }
   ];
   const readPathBlob = (revision: string, repositoryPath: string) => (
@@ -2235,14 +2106,14 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
       ? { mode: '100644' as const, blobSha: '3fbfa041119f70429b5f6cc4440816b50ab3a0ef' }
       : null
   );
-  const testImpactTransition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+  const testImpactTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
     baseSha, headSha, records, readPathBlob
   });
-  const reordered = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+  const reordered = CodexDevelopmentCreateTestImpactTransitionObservation({
     baseSha, headSha, records: [...records].reverse(), readPathBlob
   });
-  expect(CodexDevelopmentTestImpactTransitionDigestV1(reordered))
-    .toBe(CodexDevelopmentTestImpactTransitionDigestV1(testImpactTransition));
+  expect(CodexDevelopmentTestImpactTransitionDigest(reordered))
+    .toBe(CodexDevelopmentTestImpactTransitionDigest(testImpactTransition));
 
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
@@ -2266,10 +2137,10 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const mainHealthChecks = [mainHealthCheck({
     headSha: baseSha,
-    workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${baseSha}`
+    workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${baseSha}`
   })];
   const manifestDigest = `sha256:${'e'.repeat(64)}` as const;
-  const prepared = prepareTrustedMainVerificationSessionV1({
+  const prepared = prepareTrustedMainVerificationSession({
     repository: candidate.repository, candidate,
     manifestPath: 'docs/work-packages/example.md', manifestDigest,
     changedPaths, testImpactTransition, profile: 'quick',
@@ -2278,7 +2149,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
     dependencyBlobs: actionDependencyBlobs()
   });
-  const facts = reconstructVerificationSessionHostedFactsV1({
+  const facts = reconstructVerificationSessionHostedFacts({
     request: prepared.request, repository: candidate.repository, candidate, changedPaths,
     testImpactTransition: reordered, integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: 'deletion-hosted',
@@ -2289,7 +2160,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   expect(facts.testImpactTransitionDigest).toBe(prepared.testImpactTransitionDigest);
   expect(facts.sessionProposalDigest).toBe(prepared.sessionProposalDigest);
   expect(facts.actionPlanClosure.actionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
-  const localQuick = prepareLocalQuickVerificationActionPlanV2({
+  const localQuick = prepareLocalQuickVerificationActionPlan({
     candidate,
     manifestPath: 'docs/work-packages/example.md',
     manifestDigest,
@@ -2297,13 +2168,13 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
     testImpactTransition,
     expectedTestImpactTransitionDigest: prepared.testImpactTransitionDigest,
     scopeAuthorizationRevision: prepared.scopeAuthorizationRevision,
-    executionEnvironment: createCiVerificationLocalExecutionEnvironmentV2({
+    executionEnvironment: createCiVerificationLocalExecutionEnvironment({
       os: process.platform, arch: process.arch, bunVersion: Bun.version
     }),
     dependencyBlobs: actionDependencyBlobs()
   });
   expect(localQuick.actions.length).toBeGreaterThan(0);
-  expect(() => reconstructVerificationSessionHostedFactsV1({
+  expect(() => reconstructVerificationSessionHostedFacts({
     request: prepared.request, repository: candidate.repository, candidate, changedPaths,
     testImpactTransition: { ...testImpactTransition, headSha: 'f'.repeat(40) },
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
@@ -2320,12 +2191,12 @@ test('same paths with a different Git transition change the complete Verificatio
   const barrier = observe(transport);
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const candidate = transport.candidate();
-  const changedPaths = ['scripts/codex/verification-session.ts'];
-  const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSessionV1({
+  const changedPaths = ['src/verification/ci/runtime/verification-session.ts'];
+  const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSession({
     repository: candidate.repository, candidate,
     manifestPath: 'docs/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
     changedPaths,
-    testImpactTransition: CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    testImpactTransition: CodexDevelopmentCreateTestImpactTransitionObservation({
       baseSha: candidate.baseSha, headSha: candidate.headSha,
       records: [{ status, path: changedPaths[0]! }], readPathBlob: () => null
     }),
@@ -2357,7 +2228,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
     const result = spawnSync('git', [...args], {
       cwd,
       encoding: 'utf8',
-      env: createBranchLifecycleGitChildEnvironmentV1(process.env),
+      env: createBranchLifecycleGitChildEnvironment(process.env),
       windowsHide: true
     });
     if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
@@ -2395,31 +2266,31 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
     runGit(authorityRoot, ['worktree', 'add', '--detach', candidateRoot, headSha]);
     const candidate = Object.freeze({ ...new FakeTransport().candidate(),
       baseSha, baseTreeSha, headSha, headTreeSha });
-    const executionEnvironment = createCiVerificationLocalExecutionEnvironmentV2({
+    const executionEnvironment = createCiVerificationLocalExecutionEnvironment({
       os: process.platform, arch: process.arch, bunVersion: Bun.version
     });
     const testImpactTransition = changedTransition(
-      ['scripts/codex/verification-session.ts'],
+      ['src/verification/ci/runtime/verification-session.ts'],
       baseSha,
       headSha
     );
-    const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigestV1(testImpactTransition);
-    const closure = prepareLocalQuickVerificationActionPlanV2({ candidate,
+    const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigest(testImpactTransition);
+    const closure = prepareLocalQuickVerificationActionPlan({ candidate,
       manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
-      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['scripts/codex/verification-session.ts'],
+      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/verification/ci/runtime/verification-session.ts'],
       testImpactTransition,
       expectedTestImpactTransitionDigest: testImpactTransitionDigest,
       scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
       dependencyBlobs: actionDependencyBlobs() });
-    expect(() => prepareLocalQuickVerificationActionPlanV2({ candidate,
+    expect(() => prepareLocalQuickVerificationActionPlan({ candidate,
       manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
-      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['scripts/codex/verification-session.ts'],
+      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/verification/ci/runtime/verification-session.ts'],
       testImpactTransition,
       expectedTestImpactTransitionDigest: testImpactTransitionDigest,
       scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
       dependencyBlobs: actionDependencyBlobs('.bun-version') }))
       .toThrow(/\.bun-version drifted from the trusted base/i);
-    const result = await executeLocalVerificationActionDagV2({ authorityRoot, candidateRoot,
+    const result = await executeLocalVerificationActionDag({ authorityRoot, candidateRoot,
       actionPlanClosure: closure, executionEnvironment,
       inspectRepository,
       executeNormalizedOperation: () => 0 });
@@ -2445,20 +2316,20 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
 test('trusted-main preparation rejects candidate/dirty/boundary runtime proof', () => {
   const proof = { currentHeadSha: BASE, currentBranch: 'main', localDefaultSha: BASE, remoteDefaultSha: BASE,
     workingTreeClean: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
-  expect(() => assertTrustedMainRuntimeV1({ ...proof, workingTreeClean: false }, BASE)).toThrow();
-  expect(() => assertTrustedMainRuntimeV1({ ...proof, currentBranch: 'feature' }, BASE)).toThrow();
-  expect(() => assertTrustedMainRuntimeV1({ ...proof, boundaryTargetsMatched: false }, BASE)).toThrow();
+  expect(() => assertTrustedMainRuntime({ ...proof, workingTreeClean: false }, BASE)).toThrow();
+  expect(() => assertTrustedMainRuntime({ ...proof, currentBranch: 'feature' }, BASE)).toThrow();
+  expect(() => assertTrustedMainRuntime({ ...proof, boundaryTargetsMatched: false }, BASE)).toThrow();
 });
 
 test('hosted exact-revision runtime permits only a detached exact trusted-main checkout', () => {
-  const session = { baseSha: BASE, trustRevision: BASE } as VerificationSessionV2;
+  const session = { baseSha: BASE, trustRevision: BASE } as VerificationSession;
   const detachedExact = { currentHeadSha: BASE, currentBranch: '', localDefaultSha: BASE, remoteDefaultSha: BASE,
     workingTreeClean: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
-  expect(() => assertTrustedExactRevisionRuntimeV1(detachedExact, BASE)).not.toThrow();
-  expect(() => assertTrustedRuntimeV1(detachedExact, session)).not.toThrow();
-  expect(() => assertTrustedMainRuntimeV1(detachedExact, BASE)).toThrow();
-  expect(() => assertTrustedExactRevisionRuntimeV1({ ...detachedExact, currentHeadSha: HEAD }, BASE)).toThrow();
-  expect(() => assertTrustedExactRevisionRuntimeV1({ ...detachedExact, workingTreeClean: false }, BASE)).toThrow();
+  expect(() => assertTrustedExactRevisionRuntime(detachedExact, BASE)).not.toThrow();
+  expect(() => assertTrustedRuntime(detachedExact, session)).not.toThrow();
+  expect(() => assertTrustedMainRuntime(detachedExact, BASE)).toThrow();
+  expect(() => assertTrustedExactRevisionRuntime({ ...detachedExact, currentHeadSha: HEAD }, BASE)).toThrow();
+  expect(() => assertTrustedExactRevisionRuntime({ ...detachedExact, workingTreeClean: false }, BASE)).toThrow();
 });
 
 test('synchronous hosted merge rejects queued effects and requires exact physical readback', () => {
@@ -2476,25 +2347,25 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
     reviewPageDigests: [PAGE], threadPageDigests: [PAGE], reviewCount: 1, threadCount: 0,
     unresolvedBlockingThreadCount: 0 as const, requestChangesPrincipalIds: [] as readonly [] };
   const reviewSnapshot = { ...reviewSnapshotBase,
-    snapshotDigest: createReviewSnapshotDigestV1(reviewSnapshotBase) };
-  const reviewReceipt = createReviewStabilityReceiptV1({ stage: 'pre-merge', repository: 'sec-platform/sec',
+    snapshotDigest: createReviewSnapshotDigest(reviewSnapshotBase) };
+  const reviewReceipt = createReviewStabilityReceipt({ stage: 'pre-merge', repository: 'sec-platform/sec',
     prNumber: 42, sessionRevision: PAGE, scopeAuthorizationRevision: PAGE,
     scopeAuthorizationReceiptDigest: PAGE, headSha: HEAD, headTreeSha: HEAD,
-    policy: SEC_REVIEW_STABILITY_POLICY_V1,
+    policy: SEC_REVIEW_STABILITY_POLICY,
     principal: { kind: 'github-app', actorNodeId: BOT, appId: 1144995,
       appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector', reviewState: 'COMMENTED' },
     independence: { candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR' },
-    producer: { identity: 'scripts/codex/verification-session-github.ts',
+    producer: { identity: 'src/verification/ci/runtime/verification-session-github.ts',
       executionIdentity: `github-review-observer:sec-platform/sec:42:${HEAD}`,
       providerIdentity: 'github', candidateWriteCapability: 'read-only',
-      capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
+      capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
+      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: 'github-graphql', sourceRunId: 'run-1', sourceRef: 'pull/42',
       sourceDigest: reviewSnapshot.snapshotDigest }, snapshot: reviewSnapshot,
     reviewedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T01:00:00.000Z' });
   const closure = { markers, reviewReceipt, expectedTitle } as const;
   const mergeCommitSha = '9'.repeat(40);
-  const provider = parseHostedSynchronousSquashMergeResponseV1(JSON.stringify({
+  const provider = parseHostedSynchronousSquashMergeResponse(JSON.stringify({
     sha: mergeCommitSha, merged: true, message: 'Pull Request successfully merged'
   }));
   expect(provider).toEqual({ sha: mergeCommitSha, merged: true,
@@ -2504,53 +2375,53 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
     JSON.stringify({ sha: mergeCommitSha, merged: false, message: 'Merge queue required' }),
     JSON.stringify({ sha: 'not-a-sha', merged: true, message: 'merged' }),
     JSON.stringify({ sha: mergeCommitSha, merged: true })
-  ]) expect(() => parseHostedSynchronousSquashMergeResponseV1(response)).toThrow();
+  ]) expect(() => parseHostedSynchronousSquashMergeResponse(response)).toThrow();
 
-  const queued: GitHubCandidateObservationV1 = {
+  const queued: GitHubCandidateObservation = {
     repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
     isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
     baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
     title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
     mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
   };
-  expect(() => assertHostedSquashMergeCompletionV1({ candidate: queued,
+  expect(() => assertHostedSquashMergeCompletion({ candidate: queued,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: provider.sha }))
     .toThrow(/merge-queue enqueue is not integration success/);
   const merged = { ...queued, state: 'MERGED' as const,
     mergeCommitSha, mergeCommitTreeSha: HEAD,
-    mergeCommitMessage: `${expectedTitle}\n\n${markers.join('\n')}\n${renderIndependentReviewTrailerV1(reviewReceipt)}` };
-  expect(() => assertHostedSquashMergeCompletionV1({ candidate: merged,
+    mergeCommitMessage: `${expectedTitle}\n\n${markers.join('\n')}\n${renderIndependentReviewTrailer(reviewReceipt)}` };
+  expect(() => assertHostedSquashMergeCompletion({ candidate: merged,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: provider.sha })).not.toThrow();
-  expect(() => assertHostedSquashMergeCompletionV1({ candidate: merged,
+  expect(() => assertHostedSquashMergeCompletion({ candidate: merged,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: null })).not.toThrow();
-  expect(() => assertHostedSquashMergeCompletionV1({ candidate: queued,
+  expect(() => assertHostedSquashMergeCompletion({ candidate: queued,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: null })).toThrow(/not physically complete/i);
-  expect(() => assertHostedSquashMergeCompletionV1({ candidate: merged,
+  expect(() => assertHostedSquashMergeCompletion({ candidate: merged,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: '8'.repeat(40) })).toThrow(/provider response does not match/i);
-  expect(() => assertHostedSquashMergeCompletionV1({ candidate: { ...merged, headSha: BASE },
+  expect(() => assertHostedSquashMergeCompletion({ candidate: { ...merged, headSha: BASE },
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: provider.sha })).toThrow(/mismatched head or merge tree/i);
-  expect(() => assertHostedSquashMergeCompletionV1({ candidate: { ...merged, mergeCommitTreeSha: BASE },
+  expect(() => assertHostedSquashMergeCompletion({ candidate: { ...merged, mergeCommitTreeSha: BASE },
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: provider.sha })).toThrow(/mismatched head or merge tree/i);
-  expect(() => assertHostedSquashMergeCompletionV1({ candidate: { ...merged, mergeCommitMessage: 'other' },
+  expect(() => assertHostedSquashMergeCompletion({ candidate: { ...merged, mergeCommitMessage: 'other' },
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
     providerMergeCommitSha: provider.sha })).toThrow(/authorization markers/i);
 });
 
 test('OPEN candidate execution rejects remote-main drift even after authorization', () => {
-  const session = { baseSha: BASE, trustRevision: BASE } as VerificationSessionV2;
+  const session = { baseSha: BASE, trustRevision: BASE } as VerificationSession;
   const proof = { currentHeadSha: BASE, currentBranch: 'main', localDefaultSha: BASE,
     remoteDefaultSha: 'f'.repeat(40), workingTreeClean: true,
     runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
-  expect(() => assertTrustedRuntimeV1(proof, session, false))
+  expect(() => assertTrustedRuntime(proof, session, false))
     .toThrow(/trusted default revision TCB/);
-  expect(() => assertTrustedRuntimeV1({ ...proof, remoteDefaultSha: BASE }, session, false)).not.toThrow();
+  expect(() => assertTrustedRuntime({ ...proof, remoteDefaultSha: BASE }, session, false)).not.toThrow();
 });
 
 test('CLI rejects caller-provided authority artifacts', async () => {
@@ -2579,15 +2450,15 @@ test('expired hosted authority permits only independently revalidated Action Evi
     mainHealth: { expiresAt: '2026-08-09T00:10:00.000Z' },
     evidence: { status: 'passed' }
   };
-  expect(classifyVerificationSessionArtifactReuseV1(artifact as never, '2026-08-09T00:11:00.000Z')).toMatchObject({
+  expect(classifyVerificationSessionArtifactReuse(artifact as never, '2026-08-09T00:11:00.000Z')).toMatchObject({
     status: 'fresh-authority-required', actionEvidenceCandidate: true
   });
-  expect(classifyVerificationSessionArtifactReuseV1({ ...artifact, evidence: { status: 'failed' } } as never,
+  expect(classifyVerificationSessionArtifactReuse({ ...artifact, evidence: { status: 'failed' } } as never,
     '2026-08-09T00:16:00.000Z')).toMatchObject({
       status: 'fresh-authority-required', actionEvidenceCandidate: true
     });
   for (const status of ['not-run', 'unsupported', 'invalidated'] as const) {
-    expect(classifyVerificationSessionArtifactReuseV1({ ...artifact, evidence: { status } } as never,
+    expect(classifyVerificationSessionArtifactReuse({ ...artifact, evidence: { status } } as never,
       '2026-08-09T00:16:00.000Z')).toMatchObject({ status: 'not-reusable', actionEvidenceCandidate: false });
   }
 });
@@ -2615,26 +2486,26 @@ test('durable comment and merge markers reconstruct terminal status without an A
   const fixture = reducerFixture();
   try {
     const publication = durablePublication(fixture);
-    const exactOpen = classifyDurableVerificationSessionProjectionV1({
+    const exactOpen = classifyDurableVerificationSessionProjection({
       repository: 'sec-platform/sec', request: fixture.request,
       candidate: fixture.transport.candidate(), publications: []
     });
     expect(exactOpen).toBeNull();
-    expect(classifyDurableVerificationSessionProjectionV1({
+    expect(classifyDurableVerificationSessionProjection({
       repository: 'sec-platform/sec', request: fixture.request,
       candidate: fixture.transport.candidate(), publications: [publication]
     })).toMatchObject({ status: 'BLOCKED_AMBIGUOUS_SIDE_EFFECT' });
 
     fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
       fixture.artifact.session.sessionRevision);
-    const ready = classifyDurableVerificationSessionProjectionV1({
+    const ready = classifyDurableVerificationSessionProjection({
       repository: 'sec-platform/sec', request: fixture.request,
       candidate: fixture.transport.candidate(), publications: [publication]
     });
     expect(ready).toMatchObject({ status: 'READY_TO_CLOSEOUT', candidateState: 'MERGED' });
     const closeoutOperationId = ready?.closeoutOperationId;
     if (typeof closeoutOperationId !== 'string') throw new Error('closeout operation id missing');
-    expect(classifyDurableVerificationSessionProjectionV1({
+    expect(classifyDurableVerificationSessionProjection({
       repository: 'sec-platform/sec', request: fixture.request,
       candidate: fixture.transport.candidate(), publications: [publication],
       closeout: { closeoutOperationId: closeoutOperationId as `sha256:${string}`,
@@ -2653,7 +2524,7 @@ test('durable remote projection blocks closed PR and OPEN candidate identity dri
     { ...new ReducerTransport().candidate(), headSha: 'e'.repeat(40) },
     { ...new ReducerTransport().candidate(), headTreeSha: 'e'.repeat(40) }
   ]) {
-    expect(classifyDurableVerificationSessionProjectionV1({ repository: 'sec-platform/sec',
+    expect(classifyDurableVerificationSessionProjection({ repository: 'sec-platform/sec',
       request: JOIN_REQUEST, candidate, publications: [] })).toMatchObject({ status: 'BLOCKED' });
   }
 });
@@ -2673,7 +2544,7 @@ test('MERGED recovery permits advanced main only when the marker commit remains 
   for (const comparison of [
     { status: 'diverged', behindBy: 1 },
     { status: 'behind', behindBy: 1 }
-  ] satisfies GitHubComparisonObservationV1[]) {
+  ] satisfies GitHubComparisonObservation[]) {
     const blocked = reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison });
     try {
       blocked.transport.adoptMerged(blocked.markers, blocked.result.reviewReceipt,
@@ -2708,14 +2579,14 @@ test('MERGED reachability permits detached old-base only with synchronized post-
       prNumber: fixture.artifact.session.prNumber, baseSha: fixture.artifact.session.baseSha,
       headSha: fixture.artifact.session.headSha, headTreeSha: fixture.artifact.session.headTreeSha,
       candidate, github: fixture.github };
-    expect(() => assertTrustedMergedRequestRuntimeReachabilityV1(input)).not.toThrow();
-    expect(() => assertTrustedMergedRequestRuntimeReachabilityV1({ ...input,
+    expect(() => assertTrustedMergedRequestRuntimeReachability(input)).not.toThrow();
+    expect(() => assertTrustedMergedRequestRuntimeReachability({ ...input,
       proof: { ...proof, localDefaultSha: BASE } })).toThrow(/synchronized local\/live default/i);
-    expect(() => assertTrustedMergedRequestRuntimeReachabilityV1({ ...input,
+    expect(() => assertTrustedMergedRequestRuntimeReachability({ ...input,
       proof: { ...proof, localDefaultSha: 'f'.repeat(40) } })).toThrow(/synchronized local\/live default/i);
-    expect(() => assertTrustedMergedRequestRuntimeReachabilityV1({ ...input,
+    expect(() => assertTrustedMergedRequestRuntimeReachability({ ...input,
       proof: { ...proof, currentBranch: 'feature/foreign' } })).toThrow(/old-base trusted TCB/i);
-    expect(() => assertTrustedMergedRequestRuntimeReachabilityV1({ ...input,
+    expect(() => assertTrustedMergedRequestRuntimeReachability({ ...input,
       proof: { ...proof, currentHeadSha: HEAD } })).toThrow(/old-base trusted TCB/i);
   } finally {
     fixture.dispose();
@@ -2772,7 +2643,7 @@ test('actual reducer rejects downloaded merge-result digest or provenance substi
   ]) {
     const fixture = reducerFixture();
     try {
-      const value = JSON.parse(encodeVerificationActionDataV2(fixture.result)) as Record<string, any>;
+      const value = JSON.parse(encodeVerificationActionData(fixture.result)) as Record<string, any>;
       mutate(value);
       fixture.setAuthorizationResult(JSON.stringify(value));
       expect(() => runReducer(fixture)).toThrow(/digest|provenance|issuer/i);
@@ -2821,7 +2692,7 @@ test('reducer emits one stable integration intent and never executes a physical 
 
 test('incomplete GitHub pagination fails closed before Review can clear', () => {
   class IncompletePaginationTransport extends FakeTransport {
-    override reviewPage(): GitHubPageV1<GitHubReviewObservationV1> {
+    override reviewPage(): GitHubPage<GitHubReviewObservation> {
       return page([], true, null);
     }
   }
@@ -2832,7 +2703,7 @@ test('incomplete GitHub pagination fails closed before Review can clear', () => 
 
 test('remote Session workflow join covers active and artifact-publication states without redispatch', () => {
   const joined = (transport: FakeTransport, now = '2026-08-09T14:05:00.000Z') =>
-    evaluateVerificationSessionWorkflowJoinV1(transport, {
+    evaluateVerificationSessionWorkflowJoin(transport, {
       repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
       actionPlanDigest: JOIN_ACTION, baseSha: BASE, now
     });
@@ -2856,15 +2727,13 @@ test('remote Session workflow join covers active and artifact-publication states
 });
 
 test('hosted compiler distinguishes exact external Session and proposal-only internal Action dispatches', () => {
-  expect(VERIFICATION_SESSION_HOSTED_REQUEST_SCHEMA_V1).toBe(CI_VERIFICATION_SESSION_REQUEST_SCHEMA);
-
-  expect(assertHostedCompilerDispatchPayloadV1({ action: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  expect(assertHostedCompilerDispatchPayload({ action: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
     clientPayload: { payload: JOIN_REQUEST }, request: JOIN_REQUEST })).toEqual({ kind: 'external-session' });
   const proposedActionKey = `sha256:${'8'.repeat(64)}` as const;
-  const proposal = createCiVerificationActionProposalV2({
+  const proposal = createCiVerificationActionProposal({
     sessionRequest: { ...JOIN_REQUEST }, proposedActionKey
   });
-  const parentPlan = createCiVerificationActionParentDispatchPlanV2({
+  const parentPlan = createCiVerificationActionParentDispatchPlan({
     repositoryId: '123', repository: 'sec-platform/sec', parentRunId: '100', parentRunAttempt: 1,
     parentJobId: '150',
     parentWorkflowRef: 'sec-platform/sec/.github/workflows/compiler-pr-validation.yml@refs/heads/main',
@@ -2872,9 +2741,9 @@ test('hosted compiler distinguishes exact external Session and proposal-only int
     parentActor: { login: 'integrator', id: 101, nodeId: 'INTEGRATOR', type: 'User', permission: 'maintain' },
     proposals: [proposal]
   });
-  const envelope = createCiVerificationActionProviderEnvelopeV2({ proposal, parentPlan,
+  const envelope = createCiVerificationActionProviderEnvelope({ proposal, parentPlan,
     parentDispatchPlanArtifactId: '500', parentDispatchPlanArchiveDigest: PAGE });
-  expect(assertHostedCompilerDispatchPayloadV1({ action: 'sec-produce-verification-action-v2',
+  expect(assertHostedCompilerDispatchPayload({ action: 'sec-produce-verification-action-v2',
     clientPayload: { payload: envelope }, request: JOIN_REQUEST }))
     .toEqual({ kind: 'internal-action', envelope });
 
@@ -2895,42 +2764,42 @@ test('hosted compiler distinguishes exact external Session and proposal-only int
       { payload: { ...envelope,
         proposal: { ...proposal, sessionRequest: { ...JOIN_REQUEST, prNumber: 99 } } } }]
   ] as const) {
-    expect(() => assertHostedCompilerDispatchPayloadV1({ action, clientPayload,
+    expect(() => assertHostedCompilerDispatchPayload({ action, clientPayload,
       request: JOIN_REQUEST }), label).toThrow();
   }
-  expect(() => assertHostedCompilerDispatchPayloadV1({ action: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  expect(() => assertHostedCompilerDispatchPayload({ action: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
     clientPayload: JOIN_REQUEST, request: JOIN_REQUEST })).toThrow();
-  expect(() => assertHostedCompilerDispatchPayloadV1({ action: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  expect(() => assertHostedCompilerDispatchPayload({ action: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
     clientPayload: { payload: { ...JOIN_REQUEST, proposedActionKey } }, request: JOIN_REQUEST }))
     .toThrow('external Session payload differs');
 });
 
 test('internal Action child binds Actions bot/App and exact parent run/artifact/member provenance', () => {
   const proposedActionKey = `sha256:${'8'.repeat(64)}` as const;
-  const proposal = createCiVerificationActionProposalV2({ sessionRequest: { ...JOIN_REQUEST },
+  const proposal = createCiVerificationActionProposal({ sessionRequest: { ...JOIN_REQUEST },
     proposedActionKey });
   const parentActor = { login: 'integrator', id: 101, nodeId: 'INTEGRATOR',
     type: 'User' as const, permission: 'maintain' as const };
-  const parentPlan = createCiVerificationActionParentDispatchPlanV2({
+  const parentPlan = createCiVerificationActionParentDispatchPlan({
     repositoryId: '123', repository: 'sec-platform/sec', parentRunId: '100', parentRunAttempt: 1,
     parentJobId: '150',
     parentWorkflowRef: 'sec-platform/sec/.github/workflows/compiler-pr-validation.yml@refs/heads/main',
     parentWorkflowSha: BASE, parentActor, proposals: [proposal]
   });
-  const envelope = createCiVerificationActionProviderEnvelopeV2({ proposal, parentPlan,
+  const envelope = createCiVerificationActionProviderEnvelope({ proposal, parentPlan,
     parentDispatchPlanArtifactId: '500', parentDispatchPlanArchiveDigest: PAGE });
-  const parentPlanSource = `${encodeVerificationActionDataV2(parentPlan)}\n`;
-  expect(ciVerificationActionParentDispatchPlanPayloadDigestV2(parentPlan))
+  const parentPlanSource = `${encodeVerificationActionData(parentPlan)}\n`;
+  expect(ciVerificationActionParentDispatchPlanPayloadDigest(parentPlan))
     .toBe(envelope.parentDispatchPlanPayloadDigest);
-  const artifact: GitHubActionsArtifactObservationV1 = {
+  const artifact: GitHubActionsArtifactObservation = {
     artifactId: '500', artifactName: envelope.parentDispatchPlanArtifactName,
     archiveDigest: PAGE, workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, workflowSha: BASE,
     runId: '100', runAttempt: 1, eventName: 'repository_dispatch',
     actorNodeId: 'INTEGRATOR', actorPermission: 'maintain', expired: false
   };
-  const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot;
-  const app = CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app;
+  const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
+  const app = CI_GITHUB_ACTIONS_IDENTITY_POLICY.app;
   const botRecord = { login: bot.login, id: bot.id, node_id: bot.nodeId, type: bot.type };
   const currentRun = { id: 200, run_attempt: 1, workflow_id: 300, check_suite_id: 400,
     event: 'repository_dispatch', path: '.github/workflows/compiler-pr-validation.yml',
@@ -2950,7 +2819,7 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
       type: parentActor.type }, repository: { id: 123, full_name: 'sec-platform/sec' } };
   const parentPrincipal = { login: parentActor.login, nodeId: parentActor.nodeId,
     permission: parentActor.permission };
-  const parentJob: GitHubWorkflowJobObservationV1 = {
+  const parentJob: GitHubWorkflowJobObservation = {
     id: '150', runId: '100', runAttempt: 1, name: parentPlan.parentJobName,
     status: 'in_progress', conclusion: null, headSha: BASE,
     startedAt: '2026-08-09T14:00:00.000Z', completedAt: null,
@@ -2962,7 +2831,7 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
     envelope, parentPlanSource, parentArtifact: artifact, parentArtifactInventory: [artifact],
     parentJobs: [parentJob], currentRun, currentWorkflow, currentCheckSuite, eventSender: botRecord,
     parentRun, parentPrincipal };
-  expect(assertHostedCompilerInternalProvenanceV2(input)).toMatchObject({
+  expect(assertHostedCompilerInternalProvenance(input)).toMatchObject({
     parentActorNodeId: 'INTEGRATOR',
     parentPlan: { parentDispatchPlanDigest: parentPlan.parentDispatchPlanDigest }
   });
@@ -2995,14 +2864,14 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
     ['membership drift', { parentPrincipal: { ...parentPrincipal, permission: 'write' as const } }],
     ['noncanonical parent bytes', { parentPlanSource: `${parentPlanSource} ` }]
   ] as const) {
-    expect(() => assertHostedCompilerInternalProvenanceV2({ ...input, ...delta }), label).toThrow();
+    expect(() => assertHostedCompilerInternalProvenance({ ...input, ...delta }), label).toThrow();
   }
 });
 
 test('two independent local coordinators join one provider run and send only one wake-up signal', () => {
   const transport = new FakeTransport();
   const coordinate = () => {
-    const join = evaluateVerificationSessionWorkflowJoinV1(transport, { repository: 'sec-platform/sec',
+    const join = evaluateVerificationSessionWorkflowJoin(transport, { repository: 'sec-platform/sec',
       prNumber: 42, sessionRevision: JOIN_SESSION, actionPlanDigest: JOIN_ACTION,
       baseSha: BASE, now: '2026-08-09T14:05:00.000Z' });
     if (join.status === 'redispatch-eligible') {
@@ -3022,36 +2891,36 @@ test('Session workflow join uses complete pages and rejects duplicate/conflictin
     now: '2026-08-09T14:05:00.000Z' } as const;
   const paged = new FakeTransport();
   paged.workflowRuns = [[], [workflowRun({ id: '9' })]];
-  expect(evaluateVerificationSessionWorkflowJoinV1(paged, adapterInput))
+  expect(evaluateVerificationSessionWorkflowJoin(paged, adapterInput))
     .toMatchObject({ status: 'joined', runIds: ['9:1'] });
 
   const providerPresentationName = new FakeTransport();
   providerPresentationName.workflowRuns = [[workflowRun({ name: 'mutable provider presentation' })]];
-  expect(evaluateVerificationSessionWorkflowJoinV1(providerPresentationName, adapterInput))
+  expect(evaluateVerificationSessionWorkflowJoin(providerPresentationName, adapterInput))
     .toMatchObject({ status: 'joined', runIds: ['10:1'] });
 
   const duplicate = new FakeTransport();
   duplicate.workflowRuns = [[workflowRun()], [workflowRun({ status: 'waiting' })]];
-  expect(() => evaluateVerificationSessionWorkflowJoinV1(duplicate, adapterInput))
+  expect(() => evaluateVerificationSessionWorkflowJoin(duplicate, adapterInput))
     .toThrow(/duplicate run\/attempt/i);
 
   const conflict = new FakeTransport();
   conflict.workflowRuns = [[workflowRun({ displayTitle:
     `verify session PR #42 session ${JOIN_SESSION} action sha256:${'8'.repeat(64)}` })]];
-  expect(() => evaluateVerificationSessionWorkflowJoinV1(conflict, adapterInput))
+  expect(() => evaluateVerificationSessionWorkflowJoin(conflict, adapterInput))
     .toThrow(/conflicting run identity/i);
 
   const wrongWorkflow = new FakeTransport();
   wrongWorkflow.workflowRuns = [[workflowRun({ workflowPath: '.github/workflows/foreign.yml' })]];
-  expect(() => evaluateVerificationSessionWorkflowJoinV1(wrongWorkflow, adapterInput))
+  expect(() => evaluateVerificationSessionWorkflowJoin(wrongWorkflow, adapterInput))
     .toThrow(/conflicting run identity/i);
 
   class IncompleteWorkflowPaginationTransport extends FakeTransport {
-    override workflowRunPage(): GitHubPageV1<GitHubWorkflowRunObservationV1> {
+    override workflowRunPage(): GitHubPage<GitHubWorkflowRunObservation> {
       return page([], true, null);
     }
   }
-  expect(() => evaluateVerificationSessionWorkflowJoinV1(
+  expect(() => evaluateVerificationSessionWorkflowJoin(
     new IncompleteWorkflowPaginationTransport(), adapterInput
   )).toThrow(/pagination.*did not advance/i);
 });
@@ -3186,7 +3055,7 @@ if (args[0] === 'bundle' && args[1] === 'create') {
 }
 if (args[0] === 'bundle' && args[1] === 'verify') out('verified V6 recovery bundle');
 if (args[0] === 'cat-file' && args[1] === '-e') {
-  if (String(args[2]).includes('scripts/codex/branch-closeout-receipt.ts')) fail('missing enforcement marker');
+  if (String(args[2]).includes('src/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('missing enforcement marker');
   out('');
 }
 if (args[0] === 'update-ref' && args[1] === '-d') {
@@ -3291,7 +3160,7 @@ if (args[0] === 'pr' && args[1] === 'list') {
     baseRefName: 'main', baseRefOid: state.baseSha, state: state.inventoryPrState,
     isDraft: false, isCrossRepository: false, url: 'https://github.example/pull/42' }]);
 }
-if (endpoint.includes('/contents/scripts/codex/branch-closeout-receipt.ts')) fail('HTTP 404 Not Found');
+if (endpoint.includes('/contents/src/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('HTTP 404 Not Found');
 if (endpoint === '/repos/' + state.repository && args.includes('.delete_branch_on_merge')) out('true');
 if (endpoint === '/repos/' + state.repository) {
   out({ id: Number(state.repositoryId), full_name: state.repository,
@@ -3445,7 +3314,7 @@ function closeoutHarnessActionsComment(
   body: string,
   appMode: 'canonical' | 'null' | 'wrong' = 'canonical'
 ): Record<string, unknown> {
-  const policy = CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1;
+  const policy = CI_GITHUB_ACTIONS_IDENTITY_POLICY;
   return {
     id,
     body,
@@ -3487,10 +3356,10 @@ function withCloseoutHarnessCommands<T>(
   }
 }
 
-let closeoutTcbClosureIdentity: ReturnType<typeof compileTcbClosureIdentityV2> | null = null;
+let closeoutTcbClosureIdentity: ReturnType<typeof compileTcbClosureIdentity> | null = null;
 
 function closeoutTcbModuleBlobs(): Readonly<Record<string, string>> {
-  closeoutTcbClosureIdentity ??= compileTcbClosureIdentityV2();
+  closeoutTcbClosureIdentity ??= compileTcbClosureIdentity();
   return closeoutTcbClosureIdentity.moduleBlobs;
 }
 
@@ -3525,7 +3394,7 @@ function createCloseoutCliScenario(input: {
   mkdirSync(commonDir, { recursive: true });
   const statePath = path.join(root, 'provider-state.json');
   const tcbBlobs: Record<string, string> = { ...closeoutTcbModuleBlobs() };
-  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.reviewedBoundaryEdges) {
+  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges) {
     const target = edge.split(' -> ')[1];
     if (target !== undefined && tcbBlobs[target] === undefined) tcbBlobs[target] = 'd'.repeat(40);
   }
@@ -3569,9 +3438,9 @@ function createCloseoutCliScenario(input: {
     crashReleasePath: path.join(root, 'crash-shim.release'),
     crashShimPid: null,
     tcbBlobs,
-    runtimeBlob: tcbBlobs['scripts/codex/verification-session-runtime.ts'] ?? 'e'.repeat(40),
-    publisher: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1,
-    phaseStepNames: HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1,
+    runtimeBlob: tcbBlobs['src/verification/ci/runtime/verification-session-runtime.ts'] ?? 'e'.repeat(40),
+    publisher: CI_GITHUB_ACTIONS_IDENTITY_POLICY,
+    phaseStepNames: HOSTED_INTEGRATION_PHASE_STEP_NAMES,
     currentPhase: 'closeoutMutation',
     nextCommentId: 1000,
     nextPostDisposition: input.postDisposition ?? 'success',
@@ -3627,12 +3496,12 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
   state.localDefaultSha = state.mergeCommitSha;
   writeCloseoutCliHarnessState(statePath, state);
   const rehydratedPrepared = withCloseoutHarnessCommands(input.shimRoot, statePath, recoveryRoot,
-    () => rehydratePreparedBranchCloseoutRecoveryArtifactV1({
+    () => rehydratePreparedBranchCloseoutRecoveryArtifact({
       scope: { repositoryRoot: root },
       remote: prepared,
       recoveryBundleBytes
     }));
-  const recoveryArtifact = createBranchCloseoutRecoveryArtifactV1({
+  const recoveryArtifact = createBranchCloseoutRecoveryArtifact({
     repository: 'sec-platform/sec',
     pullRequestNumber: 42,
     sessionRevision: input.fixture.artifact.session.sessionRevision,
@@ -3641,7 +3510,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
     preparedEnvelopeBytes: `${JSON.stringify(prepared, null, 2)}\n`,
     recoveryBundleBytes
   });
-  const rehydratedRecoveryArtifact = createBranchCloseoutRecoveryArtifactV1({
+  const rehydratedRecoveryArtifact = createBranchCloseoutRecoveryArtifact({
     repository: 'sec-platform/sec',
     pullRequestNumber: 42,
     sessionRevision: input.fixture.artifact.session.sessionRevision,
@@ -3658,12 +3527,12 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
   const recoveryObservation = Object.freeze({
     artifactId: '3000',
     artifactName: recoveryName,
-    artifactFileName: BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME_V1,
+    artifactFileName: BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
     artifactDigest: recoveryArtifact.artifactDigest,
     runId: '200',
     runAttempt: 1
   });
-  const canonicalCommentProvenance = (runId: string) => createHostedWorkflowCommentProvenanceV1({
+  const canonicalCommentProvenance = (runId: string) => createHostedWorkflowCommentProvenance({
     repositoryId: '123',
     workflowPath: '.github/workflows/sec-merge-gate.yml',
     workflowRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
@@ -3676,17 +3545,17 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
     actorLogin: 'integrator',
     actorNodeId: 'INTEGRATOR',
     actorPermission: 'maintain',
-    app: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app
+    app: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
   });
   const provenance = canonicalCommentProvenance('200');
-  const authorizationPublication = createIntegrationAuthorizationOperationPublicationV1({
+  const authorizationPublication = createIntegrationAuthorizationOperationPublication({
     result: input.fixture.result,
     closeoutPreparation: prepared,
     recoveryArtifact: recoveryObservation,
     provenance
   });
   const authorizationCommentId = 90;
-  const binding = createBranchCloseoutOperationBindingV1({
+  const binding = createBranchCloseoutOperationBinding({
     integrationAuthorization: input.fixture.result.authorization,
     preparation: prepared.preparation,
     newMainSha: '9'.repeat(40),
@@ -3708,18 +3577,18 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
       runAttempt: recoveryObservation.runAttempt
     }
   } as const;
-  const effectStart = createBranchCloseoutEffectStartPublicationV1({
+  const effectStart = createBranchCloseoutEffectStartPublication({
     ...effectStartInput,
     phase: { runId: '200', runAttempt: 1, jobId: '300', jobName: 'integrate',
-      phase: 'closeoutMutation', stepName: BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME_V1,
+      phase: 'closeoutMutation', stepName: BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
       stepNumber: 3, workflowSha: BASE },
     provenance
   });
   const oldProvenance = canonicalCommentProvenance('199');
-  const oldEffectStart = createBranchCloseoutEffectStartPublicationV1({
+  const oldEffectStart = createBranchCloseoutEffectStartPublication({
     ...effectStartInput,
     phase: { runId: '199', runAttempt: 1, jobId: '299', jobName: 'integrate',
-      phase: 'closeoutMutation', stepName: BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME_V1,
+      phase: 'closeoutMutation', stepName: BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
       stepNumber: 3, workflowSha: BASE },
     provenance: oldProvenance
   });
@@ -3741,7 +3610,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
     state.comments.push(closeoutHarnessActionsComment(91, body, appMode));
     if (seed === 'duplicate') state.comments.push(closeoutHarnessActionsComment(92, body));
   }
-  const markers = integrationAuthorizationMergeMarkersV1({
+  const markers = integrationAuthorizationMergeMarkers({
     sessionRevision: input.fixture.artifact.session.sessionRevision,
     authorizationId: authorizationPublication.authorizationId,
     authorizationReceiptDigest: authorizationPublication.authorizationReceiptDigest,
@@ -3751,7 +3620,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
     commentId: authorizationCommentId
   });
   state.mergeMessage = `Verified integration ${input.fixture.artifact.session.sessionRevision.slice(7, 19)}`
-    + `\n\n${markers.join('\n')}\n${renderIndependentReviewTrailerV1(input.fixture.result.reviewReceipt)}`;
+    + `\n\n${markers.join('\n')}\n${renderIndependentReviewTrailer(input.fixture.result.reviewReceipt)}`;
   const sessionArtifactName = `sec-verification-session-v2-pr-42-session-`
     + `${input.fixture.artifact.session.sessionRevision.slice(7)}-run-100-attempt-1`;
   const sessionArtifactRecord = { id: 1000, name: sessionArtifactName, expired: false,
@@ -3769,11 +3638,11 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
     ...(input.includeStableArtifact === true ? { 3001: stableArtifactRecord } : {}) };
   state.artifactFiles = {
     [sessionArtifactName]: {
-      'verification-session-artifact.json': `${encodeVerificationActionDataV2(input.fixture.artifact)}\n`
+      'verification-session-artifact.json': `${encodeVerificationActionData(input.fixture.artifact)}\n`
     },
     [recoveryName]: {
-      [BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME_V1]:
-        `${encodeVerificationActionDataV2(providerRecoveryArtifact)}\n`
+      [BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME]:
+        `${encodeVerificationActionData(providerRecoveryArtifact)}\n`
     }
   };
   writeCloseoutCliHarnessState(statePath, state);
@@ -3801,7 +3670,7 @@ function runCloseoutCliProcess(
   const ghResolution = resolveCloseoutCliGh(environment);
   const startedAt = Date.now();
   const result = spawnSync(process.execPath, [
-    path.resolve(import.meta.dir, '../../scripts/codex/verification-session.ts'),
+    path.resolve(import.meta.dir, '../../src/verification/ci/runtime/verification-session.ts'),
     command,
     '--repository', 'sec-platform/sec',
     '--output', output,
@@ -3829,7 +3698,7 @@ function startCloseoutCliProcess(
   const environment = closeoutCliProcessEnvironment(shimRoot, scenario);
   const ghResolution = resolveCloseoutCliGh(environment);
   const child = spawn(process.execPath, [
-    path.resolve(import.meta.dir, '../../scripts/codex/verification-session.ts'),
+    path.resolve(import.meta.dir, '../../src/verification/ci/runtime/verification-session.ts'),
     command,
     '--repository', 'sec-platform/sec',
     '--output', output,
@@ -4155,7 +4024,7 @@ async function withCloseoutCliPartitionSettled<T>(run: (input: Readonly<{
 
 test('prepared cleanup route never calls a local consumer for foreign observations', async () => {
   const calls: string[] = [];
-  const foreign = await routePreparedWorktreeCleanupAttemptV1({
+  const foreign = await routePreparedWorktreeCleanupAttempt({
     foreignWorktreeObservationDigests: [PAGE],
     targetCount: 1,
     consumeLocalPreparedTargets: async () => {
@@ -4166,7 +4035,7 @@ test('prepared cleanup route never calls a local consumer for foreign observatio
   expect(foreign).toEqual([]);
   expect(calls).toEqual([]);
 
-  const noTarget = await routePreparedWorktreeCleanupAttemptV1({
+  const noTarget = await routePreparedWorktreeCleanupAttempt({
     foreignWorktreeObservationDigests: [],
     targetCount: 0,
     consumeLocalPreparedTargets: async () => {
@@ -4180,7 +4049,7 @@ test('prepared cleanup route never calls a local consumer for foreign observatio
 
 test('prepared cleanup route invokes the local sequence once for the exact target count', async () => {
   const calls: string[] = [];
-  const tokens = await routePreparedWorktreeCleanupAttemptV1({
+  const tokens = await routePreparedWorktreeCleanupAttempt({
     foreignWorktreeObservationDigests: [],
     targetCount: 2,
     consumeLocalPreparedTargets: async () => {
@@ -4190,7 +4059,7 @@ test('prepared cleanup route invokes the local sequence once for the exact targe
   });
   expect(calls).toEqual(['prepare', 'execute', 'assert']);
   expect(tokens).toEqual(['opaque-one', 'opaque-two']);
-  await expect(routePreparedWorktreeCleanupAttemptV1({
+  await expect(routePreparedWorktreeCleanupAttempt({
     foreignWorktreeObservationDigests: [],
     targetCount: 2,
     consumeLocalPreparedTargets: async () => ['one']
@@ -4264,14 +4133,14 @@ closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publis
   withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const exact = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'exact', fixture });
-    expect(encodeVerificationActionDataV2(exact.providerPrepared))
-      .not.toBe(encodeVerificationActionDataV2(exact.rehydratedPrepared));
+    expect(encodeVerificationActionData(exact.providerPrepared))
+      .not.toBe(encodeVerificationActionData(exact.rehydratedPrepared));
     expect(exact.providerPrepared.preparation.recovery.path)
       .not.toBe(exact.rehydratedPrepared.preparation.recovery.path);
     expect(exact.providerPrepared.preparation.preparationDigest)
       .toBe(exact.rehydratedPrepared.preparation.preparationDigest);
-    expect(encodeVerificationActionDataV2(exact.providerPrepared.before))
-      .toBe(encodeVerificationActionDataV2(exact.rehydratedPrepared.before));
+    expect(encodeVerificationActionData(exact.providerPrepared.before))
+      .toBe(encodeVerificationActionData(exact.rehydratedPrepared.before));
     expect(exact.providerPrepared.before.pullRequests.find(({ number }) => number === 42))
       .toMatchObject({ state: 'open', headSha: HEAD });
     expect(exact.rehydratedPrepared.before.pullRequests.find(({ number }) => number === 42))
@@ -4439,7 +4308,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
   const stalePreGateAt = '2026-08-09T14:07:00.000Z';
   const stalePreGate = reducerFixture({ mergeAt: stalePreGateAt });
   try {
-    expect(classifyVerificationSessionArtifactReuseV1(stalePreGate.artifact, stalePreGateAt))
+    expect(classifyVerificationSessionArtifactReuse(stalePreGate.artifact, stalePreGateAt))
       .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
     expect(stalePreGate.result.authorization).toMatchObject({
       sessionRevision: stalePreGate.artifact.session.sessionRevision,
@@ -4557,8 +4426,8 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
     before: BranchLifecycleInventory,
     attempts: readonly Readonly<{ operation: 'recovery-verify'; status: 'success'; detail: string }>[]
   ) => {
-    const payload = { schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1,
-      preparation: prepared, before, attempts: [...attempts] };
+    const payload = { schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
+      preparation: prepared, before, attempts: [...attempts], foreignWorktreeObservations: [] };
     return parsePreparedBranchCloseoutEnvelope(`${JSON.stringify({ ...payload,
       envelopeDigest: branchLifecycleDigest(payload) }, null, 2)}\n`);
   };
@@ -4566,7 +4435,7 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
     [{ operation: 'recovery-verify', status: 'success', detail: 'provider verified' }]);
   const local = envelope(localPreparation, localBefore,
     [{ operation: 'recovery-verify', status: 'success', detail: 'runner verified' }]);
-  const rehydrated = rehydratePreparedBranchCloseoutEnvelopeV1({ remote, local });
+  const rehydrated = rehydratePreparedBranchCloseoutEnvelope({ remote, local });
   expect(rehydrated.before).toEqual(remoteBefore);
   expect(rehydrated.before).not.toEqual(localBefore);
   expect(rehydrated.preparation.repository.root).toBe(localRoot);
@@ -4578,7 +4447,7 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
   expect(rehydrated.preparation.preparationDigest).toBe(remotePreparation.preparationDigest);
   const authorization = authorizeBranchCloseout({
     preparation: rehydrated.preparation,
-    request: { capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1, disposition: 'merged',
+    request: { capability: BRANCH_REF_CLOSEOUT_CAPABILITY, disposition: 'merged',
       durableGoal: { kind: 'main', reference: `main@${'9'.repeat(40)}` } },
     before: rehydrated.before,
     current: localBefore,
@@ -4590,9 +4459,9 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
   expect(authorization.localAction).toBe('blocked');
 });
 
-test('GitHub GraphQL schema drift is classified as typed provider-schema-unsupported (#347 section C)', () => {
+test('GitHub GraphQL schema drift is classified as typed provider-schema-unsupported', () => {
   const observed = "gh: Field 'id' doesn't exist on type 'Actor'";
-  const failure = classifyGitHubGraphQLSchemaFailureV1(observed);
+  const failure = classifyGitHubGraphQLSchemaFailure(observed);
   expect(failure).not.toBeNull();
   expect(failure!.status).toBe(PROVIDER_SCHEMA_UNSUPPORTED_STATUS);
   expect(failure!.reasonCode).toBe('github-graphql-schema-unsupported');
@@ -4601,12 +4470,12 @@ test('GitHub GraphQL schema drift is classified as typed provider-schema-unsuppo
     new Error('x'),
     { code: PROVIDER_SCHEMA_UNSUPPORTED_STATUS, reasonCode: 'r', responseDigest: failure!.responseDigest }
   ))).toBe(false);
-  expect(classifyGitHubGraphQLSchemaFailureV1('HTTP 403: Resource not accessible')).toBeNull();
+  expect(classifyGitHubGraphQLSchemaFailure('HTTP 403: Resource not accessible')).toBeNull();
 });
 
-test('the implementation session cannot issue an independent Review receipt (#347 section B)', async () => {
-  const { SEC_REVIEW_STABILITY_POLICY_V1, createReviewStabilityReceiptV1 } =
-    await import('../../platform/shared/review-stability-contract.ts');
+test('the implementation session cannot issue an independent Review receipt', async () => {
+  const { SEC_REVIEW_STABILITY_POLICY: SEC_REVIEW_STABILITY_POLICY_V1, createReviewStabilityReceipt: createReviewStabilityReceiptV1 } =
+    await import('../../src/verification/review/contract/stability.ts');
   const sha = 'a'.repeat(40);
   const digest = (value: string) => `sha256:${value}` as const;
   const principal = {
@@ -4629,7 +4498,7 @@ test('the implementation session cannot issue an independent Review receipt (#34
   };
   const snapshot = Object.freeze({
     ...snapshotValue,
-    snapshotDigest: createReviewSnapshotDigestV1(snapshotValue)
+    snapshotDigest: createReviewSnapshotDigest(snapshotValue)
   });
   const baseInput = {
     stage: 'pre-merge' as const,
@@ -4650,11 +4519,11 @@ test('the implementation session cannot issue an independent Review receipt (#34
   expect(() => createReviewStabilityReceiptV1({
       ...baseInput,
       producer: {
-        identity: 'scripts/codex/verification-session-github.ts',
-        executionIdentity: SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY_V1,
+        identity: 'src/verification/ci/runtime/verification-session-github.ts',
+        executionIdentity: SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
         providerIdentity: 'github',
         candidateWriteCapability: 'read-only',
-        capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
+        capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
         trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
         sourceTransport: 'github-graphql',
         sourceRunId: 'run-1',

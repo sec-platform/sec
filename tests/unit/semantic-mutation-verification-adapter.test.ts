@@ -1,28 +1,24 @@
 import { expect, test } from 'bun:test';
 
-import { buildValidatedEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
-import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
+import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   classifySemanticMutationIsolatedVerificationOutcome,
   type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../platform/compiler/semantic-mutation/isolated-verification-classifier.ts';
+} from '../../src/compiler/semantic-mutation/isolated-verification-classifier.ts';
 import {
-  type SemanticMutationIsolationCapabilityProbeV1
-} from '../../platform/compiler/verify/semantic-mutation-isolation-capability.ts';
+  type SemanticMutationIsolationCapabilityProbe
+} from '../../src/compiler/verify/semantic-mutation-isolation-capability.ts';
 import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
-} from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
-import {
-  buildExpectedProductVerificationClaimSummary
-} from '../../platform/shared/product-verification-profile.ts';
-import type { VerificationRequirementV1 } from '../../platform/shared/semantic-mutation-types.ts';
-import {
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
-  SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
-} from '../../platform/shared/verification-types.ts';
+} from '../../src/compiler/verify/semantic-mutation-verification-adapter.ts';
+import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
+import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
+import type { VerificationRequirement } from '../../src/semantic/mutation/contract/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION } from '../../src/verification/contract/types.ts';
 
 function buildInput(): BuildEngineeringIRInput {
   return {
@@ -112,7 +108,7 @@ function buildInput(): BuildEngineeringIRInput {
   };
 }
 
-function requirements(): VerificationRequirementV1[] {
+function requirements(): VerificationRequirement[] {
   return [
     { kind: 'acceptance', acceptanceEntityId: 'acceptance:item_can_transition' },
     { kind: 'pass', passId: 'verify' },
@@ -120,7 +116,7 @@ function requirements(): VerificationRequirementV1[] {
   ];
 }
 
-const availableIsolationProbe: SemanticMutationIsolationCapabilityProbeV1 =
+const availableIsolationProbe: SemanticMutationIsolationCapabilityProbe =
   () => ({ status: 'available' });
 
 test('local adapter plans only freshly proven isolated capabilities in canonical order', async () => {
@@ -409,13 +405,13 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
   };
   const runtime = status === 'passed' ? {
     status: 'passed' as const,
-    build: { status: 'passed' as const, passed: ['next build'], failed: [], command: 'bun run build' },
+    build: { status: 'passed' as const, passed: ['bun run build'], failed: [], command: 'bun run build' },
     unit: { status: 'passed' as const, passed: [], failed: [], command: 'bun run test:unit' },
     acceptance: { status: 'passed' as const, passed: [], failed: [], command: 'bun run test:acceptance' },
     logs: runtimeLogs
   } : {
     status: 'failed' as const,
-    build: { status: 'failed' as const, passed: [], failed: ['next build'], command: 'bun run build' },
+    build: { status: 'failed' as const, passed: [], failed: ['bun run build'], command: 'bun run build' },
     unit: { status: 'skipped' as const, passed: [], failed: [], command: 'bun run test:unit' },
     acceptance: {
       status: 'skipped' as const,
@@ -440,7 +436,8 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     runtime,
     'full',
     policy,
-    acceptanceCoverage
+    acceptanceCoverage,
+    productVerificationObservationsFixture()
   );
   return {
     childExitCode: status === 'passed' ? 0 : 1,

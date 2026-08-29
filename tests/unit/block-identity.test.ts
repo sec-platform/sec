@@ -1,13 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { loadManifestById, resolveRegistrySources } from '../../platform/compiler/parse/load-manifest.ts';
-import { normalizePlan, validatePlan } from '../../platform/compiler/parse/load-plan.ts';
-import {
-  isCanonicalBlockId,
-  isCanonicalRegistryVersion
-} from '../../platform/shared/block-identity.ts';
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
+import { loadManifestById, resolveRegistrySources } from '../../src/compiler/parse/load-manifest.ts';
+import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
+import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../src/semantic/identity/contract/block.ts';
+import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
+import type { PlanFile } from '../../src/compiler/contract.ts';
 
 test('canonical block identity is cross-platform path-safe and injective', () => {
   for (const value of [
@@ -69,7 +66,7 @@ test('direct registry source callers cannot bypass Plan enum and path validation
     id: 'bad',
     kind: 'private',
     location: 'compiler',
-    path: 'platform/registry/private'
+    path: 'src/compiler/registry/private'
   }])).toThrow();
 
   expect(() => resolveRegistrySources('/tmp/workspace', [{

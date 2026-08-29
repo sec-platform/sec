@@ -110,7 +110,7 @@ Attach
 
 ## L5：理解人与 AI 怎样操作
 
-阅读：`docs/workbench-and-ai-operations.md`。
+阅读：`docs/agent-and-user-machine-interface.md`。
 
 重点记住：
 

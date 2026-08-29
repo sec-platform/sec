@@ -1,0 +1,119 @@
+bun test v1.3.14 (0d9b296a)
+
+tests\unit\ci-verification-execution.test.ts:
+Error: cross-package import bypasses declared public facade: src/change-management/upgrade/upgrade-workspace.ts -> src/compiler/contract.ts
+    at assertSecRepositoryModuleImportBoundaries (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\system-architecture\repository-modules\contract.ts:732:19)
+    at buildReverseImportMap (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1546:3)
+    at selectionForSource (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1721:24)
+    at selectTestsForSources (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1813:23)
+    at CodexDevelopmentBuildAffectedTestInventory (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\affected.ts:58:18)
+    at selectCiPrRiskSlowSuites (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\runtime\pr-risk-selection.ts:86:21)
+    at CodexDevelopmentBuildVerificationPlan (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\contract\plan.ts:100:21)
+    at CodexDevelopmentCiVerificationMain (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\verification.ts:4218:18)
+    at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\ci-verification-execution.test.ts:743:24)
+SEC verification evidence write failed: Error: CI verification did not construct a canonical Action plan; V2/V3 fallback publication is retired.
+    at CodexDevelopmentCiVerificationMain (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\verification.ts:4384:19)
+    at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\ci-verification-execution.test.ts:743:24)
+746 |         calls.push(gate.id);
+747 |         return { code: 0, rawOutputDigest: RAW, failureTail: '' };
+748 |       },
+749 |       writeEvidence: (_file, value) => { evidence = value; }
+750 |     });
+751 |     expect(code).toBe(0);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\ci-verification-execution.test.ts:751:18)
+(fail) CI runner executes every ordinary gate through Action and publishes only V4 [2310.35ms]
+Error: cross-package import bypasses declared public facade: src/change-management/upgrade/upgrade-workspace.ts -> src/compiler/contract.ts
+    at assertSecRepositoryModuleImportBoundaries (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\system-architecture\repository-modules\contract.ts:732:19)
+    at buildReverseImportMap (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1546:3)
+    at selectionForSource (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1721:24)
+    at selectTestsForSources (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1813:23)
+    at CodexDevelopmentBuildAffectedTestInventory (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\affected.ts:58:18)
+    at selectCiPrRiskSlowSuites (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\runtime\pr-risk-selection.ts:86:21)
+    at CodexDevelopmentBuildVerificationPlan (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\contract\plan.ts:100:21)
+    at CodexDevelopmentCiVerificationMain (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\verification.ts:4218:18)
+    at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\ci-verification-execution.test.ts:794:24)
+SEC verification evidence write failed: Error: CI verification did not construct a canonical Action plan; V2/V3 fallback publication is retired.
+    at CodexDevelopmentCiVerificationMain (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\verification.ts:4384:19)
+    at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\ci-verification-execution.test.ts:794:24)
+798 |         if (ref === 'HEAD^1') throw new Error('single-parent assumption is retired');
+799 |         return revisions(ref);
+800 |       },
+801 |       writeEvidence: () => undefined
+802 |     });
+803 |     expect(code).toBe(0);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\ci-verification-execution.test.ts:803:18)
+(fail) multi-commit candidate uses exact current base and never requires HEAD^1 [390.43ms]
+
+tests\unit\verification-session-runtime.test.ts:
+730 |         normalizeSecRepositoryPath(nodePath.posix.join(targetOwner.root, facade)));
+731 |       if (!publicFacades.includes(reference.resolvedTarget)) {
+732 |         throw new Error(
+733 |           `cross-package import bypasses declared public facade: `
+734 |           + `${reference.from} -> ${reference.resolvedTarget}`
+735 |         );
+              ^
+error: cross-package import bypasses declared public facade: src/change-management/upgrade/upgrade-workspace.ts -> src/compiler/contract.ts
+      at assertSecRepositoryModuleImportBoundaries (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\system-architecture\repository-modules\contract.ts:735:9)
+      at buildReverseImportMap (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1546:3)
+      at selectionForSource (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1721:24)
+      at selectTestsForSources (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1813:23)
+      at CodexDevelopmentBuildAffectedTestInventory (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\affected.ts:58:18)
+      at selectCiPrRiskSlowSuites (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\runtime\pr-risk-selection.ts:86:21)
+      at CodexDevelopmentBuildVerificationPlan (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\contract\plan.ts:100:21)
+      at prepareTrustedMainVerificationSession (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\runtime\verification-session-runtime.ts:846:16)
+      at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\verification-session-runtime.test.ts:2083:17)
+(fail) trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision [400.94ms]
+730 |         normalizeSecRepositoryPath(nodePath.posix.join(targetOwner.root, facade)));
+731 |       if (!publicFacades.includes(reference.resolvedTarget)) {
+732 |         throw new Error(
+733 |           `cross-package import bypasses declared public facade: `
+734 |           + `${reference.from} -> ${reference.resolvedTarget}`
+735 |         );
+              ^
+error: cross-package import bypasses declared public facade: src/change-management/upgrade/upgrade-workspace.ts -> src/compiler/contract.ts
+      at assertSecRepositoryModuleImportBoundaries (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\system-architecture\repository-modules\contract.ts:735:9)
+      at buildReverseImportMap (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1546:3)
+      at selectionForSource (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1721:24)
+      at selectTestsForSources (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1813:23)
+      at CodexDevelopmentBuildAffectedTestInventory (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\affected.ts:58:18)
+      at selectCiPrRiskSlowSuites (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\runtime\pr-risk-selection.ts:86:21)
+      at CodexDevelopmentBuildVerificationPlan (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\contract\plan.ts:100:21)
+      at prepareTrustedMainVerificationSession (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\runtime\verification-session-runtime.ts:846:16)
+      at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\verification-session-runtime.test.ts:2171:20)
+(fail) VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction [2347.24ms]
+730 |         normalizeSecRepositoryPath(nodePath.posix.join(targetOwner.root, facade)));
+731 |       if (!publicFacades.includes(reference.resolvedTarget)) {
+732 |         throw new Error(
+733 |           `cross-package import bypasses declared public facade: `
+734 |           + `${reference.from} -> ${reference.resolvedTarget}`
+735 |         );
+              ^
+error: cross-package import bypasses declared public facade: src/change-management/upgrade/upgrade-workspace.ts -> src/compiler/contract.ts
+      at assertSecRepositoryModuleImportBoundaries (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\system-architecture\repository-modules\contract.ts:735:9)
+      at buildReverseImportMap (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1546:3)
+      at selectionForSource (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1721:24)
+      at selectTestsForSources (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\runtime\impact.ts:1813:23)
+      at CodexDevelopmentBuildAffectedTestInventory (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\test-impact\affected.ts:58:18)
+      at selectCiPrRiskSlowSuites (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\runtime\pr-risk-selection.ts:86:21)
+      at CodexDevelopmentBuildVerificationPlan (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\contract\plan.ts:100:21)
+      at prepareTrustedMainVerificationSession (D:\Project\sec-worktrees\development-critical-path-spine-v1\src\verification\ci\runtime\verification-session-runtime.ts:846:16)
+      at <anonymous> (D:\Project\sec-worktrees\development-critical-path-spine-v1\tests\unit\verification-session-runtime.test.ts:2237:17)
+(fail) same paths with a different Git transition change the complete VerificationSession identity chain [412.96ms]
+
+ 0 pass
+ 96 filtered out
+ 5 fail
+ 3 expect() calls
+Ran 5 tests across 2 files. [6.65s]

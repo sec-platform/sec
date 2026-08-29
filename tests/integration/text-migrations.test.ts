@@ -2,10 +2,8 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import {
-  upgradeWorkspace
-} from '../../platform/orchestrator.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';

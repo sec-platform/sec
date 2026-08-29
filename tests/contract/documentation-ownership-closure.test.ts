@@ -3,10 +3,10 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { compareCodeUnits } from '../../platform/shared/canonical-primitives.ts';
+import { compareCodeUnits } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   parseDocumentationAuthorityRegistry
-} from '../../platform/shared/documentation-authority-contract.ts';
+} from '../../src/control/documentation/authority.ts';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
 const REGISTRY = path.join(ROOT, 'docs/authority.json');

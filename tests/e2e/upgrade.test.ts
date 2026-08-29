@@ -2,14 +2,13 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type {
-  ExplainGraph,
-  UpgradeDiagnostics,
-  UpgradePlan
-} from '../../platform/shared/types.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../../src/change-management/upgrade/contract/types.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
+import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { writePassingVerificationState } from '../helpers/verification-fixtures.ts';
 import {
   expectCliJson,
@@ -46,7 +45,7 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
       id: 'private/text-upgrade',
       version: '0.1.0',
       kind: 'governance',
-      stackProfiles: ['nextjs-ts-prisma-sqlite'],
+      stackProfiles: ['typescript-library'],
       requires: [],
       provides: ['private/text-upgrade'],
       conflicts: [],
@@ -123,282 +122,49 @@ test('CLI emits text migration operation details in upgrade summaries', async ()
   });
 }, 120000);
 
-test('CLI emits upgrade dry-run JSON for CI consumers', async () => {
-  await withWorkspaceScenario('empty-default', async (workspaceRoot) => {
-    await expectCliText(workspaceRoot, [
-      'upgrade',
-      'auth/basic-session',
-      '0.1.1',
-      '--dry-run'
-    ], [
-      'Upgrade auth/basic-session 0.1.0 -> 0.1.1 (dry-run)',
-      'Status: planned; migrations: 2; preflight checks:',
-      'Migration kinds: file-replace=1, json-array-append=1',
-      'Operation roles: file=1, json=1',
-      'Impacts: src/installed/auth/session.ts, upgrade.metadata.json',
-      'Preflight evidence: 10',
-      'Requires verification: true (1 migrations)',
-      'Migration mig-auth-session-refresh: file-replace;',
-      'target=src/installed/auth/session.ts; source=files/src/installed/auth/session.ts; role=file; requiresVerification=true',
-      'Migration mig-auth-session-upgrade-metadata: json-array-append;',
-      'target=upgrade.metadata.json; role=json; path=upgradedBlocks; items=1; requiresVerification=false',
-      'Preflight version-range: passed; evidence=',
-      'Preflight migration-entries: passed; evidence='
-    ]);
-
-    const upgradePlan = await expectCliJson<UpgradePlan>(
-      workspaceRoot,
-      [
-        'upgrade',
-        'auth/basic-session',
-        '0.1.1',
-        '--dry-run',
-        '--json'
-      ],
-      undefined,
-      { stdoutMarkers: ['\n  "blockId": "auth/basic-session"'] }
+test('upgrade apply publishes one coherent version transition and preserves the migrated project target', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeSlotUpgradeFixture(workspaceRoot);
+    const paths = getWorkspacePaths(workspaceRoot);
+    const slotTarget = path.join(paths.projectRoot, 'custom', 'customer_normalizer.ts');
+    const inheritedInstallSource = path.join(
+      paths.privateRegistryRoot,
+      'private.slot-contract',
+      'files',
+      'src',
+      'installed',
+      'private',
+      'slot-contract.ts'
     );
-    expect(upgradePlan).toMatchObject({
-      blockId: 'auth/basic-session',
+    const originalTarget = 'export function normalizeCustomer(input: CustomerInputV1): CustomerRecordInput { return input; }\n';
+    await fs.mkdir(path.dirname(inheritedInstallSource), { recursive: true });
+    await fs.writeFile(inheritedInstallSource, 'export const slotContract = true;\n', 'utf8');
+    await fs.mkdir(path.dirname(slotTarget), { recursive: true });
+    await fs.writeFile(slotTarget, originalTarget, 'utf8');
+
+    const result = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0');
+
+    expect(result.plan.blocks).toContainEqual({ id: 'private/slot-contract', version: '0.2.0' });
+    expect(result.lock.resolvedBlocks).toContainEqual(expect.objectContaining({
+      id: 'private/slot-contract',
+      version: '0.2.0'
+    }));
+    expect(result.upgradePlan).toMatchObject({
+      blockId: 'private/slot-contract',
       fromVersion: '0.1.0',
-      toVersion: '0.1.1',
-      status: 'planned',
-      migrationKindCounts: {
-        'file-replace': 1,
-        'json-array-append': 1
-      }
+      toVersion: '0.2.0',
+      status: 'applied',
+      migrationKindCounts: { 'slot-contract-update': 1 }
     });
-    expect(upgradePlan.impacts).toEqual(['src/installed/auth/session.ts', 'upgrade.metadata.json']);
-    expect(upgradePlan.migrationOperations).toHaveLength(2);
-    expect(upgradePlan.migrationOperations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'mig-auth-session-refresh', role: 'file' }),
-        expect.objectContaining({ id: 'mig-auth-session-upgrade-metadata', role: 'json' })
-      ])
-    );
+    expect(result.upgradePlan.migrationOperations).toContainEqual(expect.objectContaining({
+      id: 'mig-customer-normalizer-contract',
+      kind: 'slot-contract-update',
+      target: 'custom/customer_normalizer.ts',
+      inputType: 'CustomerInputV2'
+    }));
+    await expect(fs.readFile(slotTarget, 'utf8')).resolves.toBe(originalTarget);
 
-    const compactResult = await expectCliJson<UpgradePlan>(
-      workspaceRoot,
-      [
-        'upgrade',
-        'auth/basic-session',
-        '0.1.1',
-        '--dry-run',
-        '--json',
-        '--compact'
-      ],
-      undefined,
-      { compact: true }
-    );
-    expect(compactResult).toEqual(upgradePlan);
-
-    await expectCliText(workspaceRoot, ['upgrade', 'plan'], [
-      'Upgrade auth/basic-session 0.1.0 -> 0.1.1 (dry-run)',
-      'Operation roles: file=1, json=1'
-    ]);
-
-    const inspectJson = await expectCliJson<UpgradePlan>(
-      workspaceRoot,
-      ['upgrade', 'plan', '--json', '--compact'],
-      undefined,
-      { compact: true }
-    );
-    expect(inspectJson).toEqual(upgradePlan);
-
-    await withTempWorkspace(async (missingPlanWorkspace) => {
-      await expect(runCli(missingPlanWorkspace, ['upgrade', 'plan'])).resolves.toMatchObject({
-        code: 1,
-        stdout: '',
-        stderr: expect.stringContaining(
-          'Upgrade plan not found; run platform upgrade <block-id> <target-version> --dry-run first'
-        )
-      });
-    });
-
-    await runCliPipeline(workspaceRoot, { init: false, verifyLane: 'fast' });
-
-    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    await writePassingVerificationState(workspaceRoot);
-
-    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
-
-    await expectCliText(workspaceRoot, ['explain'], [
-      [
-        'Upgrade: planned',
-        'auth/basic-session 0.1.0 -> 0.1.1',
-        'migrations: 2',
-        `preflight checks: ${upgradePlan.preflightChecks.length}`,
-        'preflight evidence: 10',
-        'impacts: 2',
-        'operations: 2',
-        'operation roles: file=1, json=1',
-        'sources: 1',
-        'slots: 0',
-        'requires verification: true',
-        'verification: required=1, skipped=1'
-      ].join('; ')
-    ]);
-
-    const explainPayload = await expectCliJson<{
-      graph: ExplainGraph;
-      reviewSummary: {
-        upgradeSummary?: {
-          status: string;
-          blockId: string;
-          preflightCheckCount: number;
-          preflightEvidenceCount: number;
-          migrationCount: number;
-          migrationKindCounts: Record<string, number>;
-          requiresVerification: boolean;
-          requiresVerificationCount: number;
-          impactCount: number;
-          impacts: string[];
-          sourceMigrationCount: number;
-          slotMigrationCount: number;
-          verificationSummaries: Array<{ id: string; count: number }>;
-          preflightSummaries: Array<{ group: string; checkCount: number; evidenceCount: number }>;
-          migrationSummaries: Array<{
-            id: string;
-            kind: string;
-            source?: string;
-            target: string;
-            requiresVerification: boolean;
-          }>;
-          migrationOperationCount: number;
-          migrationOperationSummaries: Array<{
-            id: string;
-            kind: string;
-            target: string;
-            role: string;
-            source?: string;
-            path?: string[];
-            itemCount?: number;
-          }>;
-        };
-      };
-    }>(workspaceRoot, ['explain', '--json']);
-    expect(explainPayload.reviewSummary.upgradeSummary).toMatchObject({
-      status: 'planned',
-      blockId: 'auth/basic-session',
-      preflightCheckCount: upgradePlan.preflightChecks.length,
-      migrationCount: 2,
-      migrationKindCounts: {
-        'file-replace': 1,
-        'json-array-append': 1
-      },
-      requiresVerification: true,
-      requiresVerificationCount: 1,
-      impactCount: 2,
-      impacts: ['src/installed/auth/session.ts', 'upgrade.metadata.json'],
-      sourceMigrationCount: 1,
-      slotMigrationCount: 0,
-      migrationOperationCount: 2,
-      migrationOperationSummaries: [
-        {
-          id: 'mig-auth-session-refresh',
-          kind: 'file-replace',
-          target: 'src/installed/auth/session.ts',
-          role: 'file',
-          source: 'files/src/installed/auth/session.ts'
-        },
-        {
-          id: 'mig-auth-session-upgrade-metadata',
-          kind: 'json-array-append',
-          target: 'upgrade.metadata.json',
-          role: 'json',
-          path: ['upgradedBlocks'],
-          itemCount: 1
-        }
-      ],
-      verificationSummaries: [
-        { id: 'required', count: 1 },
-        { id: 'skipped', count: 1 }
-      ]
-    });
-    expect(explainPayload.reviewSummary.upgradeSummary?.preflightEvidenceCount).toBeGreaterThan(0);
-    expect(explainPayload.reviewSummary.upgradeSummary?.preflightSummaries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          group: 'migration',
-          checkCount: expect.any(Number),
-          evidenceCount: expect.any(Number)
-        })
-      ])
-    );
-    expect(explainPayload.reviewSummary.upgradeSummary?.migrationSummaries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'mig-auth-session-refresh',
-          kind: 'file-replace',
-          source: 'files/src/installed/auth/session.ts',
-          target: 'src/installed/auth/session.ts',
-          requiresVerification: true
-        })
-      ])
-    );
-
-    await expectCliText(workspaceRoot, ['explain', 'graph'], [
-      'Explain graph ',
-      'Node types:',
-      'Edge types:',
-      'Coverage overlay:',
-      'Provenance overlay:'
-    ]);
-
-    const graphPayload = await expectCliJson<ExplainGraph>(
-      workspaceRoot,
-      ['explain', 'graph', '--json', '--compact'],
-      undefined,
-      { compact: true }
-    );
-    expect(graphPayload.nodes).toEqual(explainPayload.graph.nodes);
-    expect(graphPayload.edges).toEqual(explainPayload.graph.edges);
-
-    const upgradeDiagnostics: UpgradeDiagnostics = {
-      formatVersion: '1',
-      status: 'blocked',
-      phase: 'apply',
-      blockId: 'auth/basic-session',
-      targetVersion: '0.1.1',
-      failedCheck: 'migration-file-operations',
-      errorCode: 'UPGRADE-MIGRATION-016',
-      message: 'file-replace target "src/installed/auth/session.ts" is missing',
-      details: {
-        migrationId: 'mig-auth-session-refresh',
-        migrationKind: 'file-replace',
-        target: 'src/installed/auth/session.ts',
-        source: 'files/src/installed/auth/session.ts',
-        rollbackStatus: 'restored'
-      }
-    };
-    await writeJson(upgradeDiagnosticsPath, upgradeDiagnostics);
-
-    await expectCliText(workspaceRoot, ['upgrade', 'diagnostics'], [
-      'Upgrade diagnostics apply',
-      'Failed check: migration-file-operations; code: UPGRADE-MIGRATION-016',
-      'Attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
-    ]);
-
-    const upgradeDiagnosticsJson = await expectCliJson<UpgradeDiagnostics>(
-      workspaceRoot,
-      ['upgrade', 'diagnostics', '--json', '--compact'],
-      undefined,
-      { compact: true }
-    );
-    expect(upgradeDiagnosticsJson).toEqual(upgradeDiagnostics);
-
-    await withTempWorkspace(async (missingDiagnosticsWorkspace) => {
-      await expect(runCli(missingDiagnosticsWorkspace, ['upgrade', 'diagnostics'])).resolves.toMatchObject({
-        code: 1,
-        stdout: '',
-        stderr: expect.stringContaining(
-          'Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first'
-        )
-      });
-    });
-
-    await expectCliText(workspaceRoot, ['explain'], [
-      'Upgrade diagnostics: apply; migration-file-operations; UPGRADE-MIGRATION-016; file-replace target "src/installed/auth/session.ts" is missing; attribution: migration=mig-auth-session-refresh, kind=file-replace, target=src/installed/auth/session.ts, source=files/src/installed/auth/session.ts, rollback=restored'
-    ]);
+    const persistedPlan = JSON.parse(await fs.readFile(paths.upgradePlanPath, 'utf8')) as UpgradePlan;
+    expect(persistedPlan).toEqual(result.upgradePlan);
   });
 }, 180000);

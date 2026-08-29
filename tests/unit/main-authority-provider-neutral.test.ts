@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 
 import {
-  SEC_INTEGRATION_AUTHORIZATION_STATUS_CONTEXT_V1,
-  createMainAuthorityRulesetReceiptV1
-} from '../../platform/shared/main-authority-ruleset-contract.ts';
+  INTEGRATION_AUTHORIZATION_STATUS_CONTEXT,
+  createMainAuthorityRulesetReceipt
+} from '../../src/control/main-health/authority-ruleset.ts';
 import {
-  observeMainAuthorityRulesetV1,
-  type MainAuthorityRulesetGitHubTransportV1
-} from '../../scripts/codex/main-authority-ruleset-github.ts';
+  observeMainAuthorityRuleset,
+  type MainAuthorityRulesetGitHubTransport
+} from '../../src/control/main-health/main-authority-ruleset-github.ts';
 
 const AUTHORITY_RULESET_ID = 142;
 const PRINCIPAL_RULESET_ID = 143;
@@ -17,7 +17,7 @@ const WRONG_INTEGRATOR_ID = 900002;
 function statusParameters(integrationId = EXTERNAL_INTEGRATOR_ID) {
   return {
     required_status_checks: [{
-      context: SEC_INTEGRATION_AUTHORIZATION_STATUS_CONTEXT_V1,
+      context: INTEGRATION_AUTHORIZATION_STATUS_CONTEXT,
       integration_id: integrationId
     }],
     strict_required_status_checks_policy: true
@@ -84,7 +84,7 @@ function createReceipt(input: Partial<{
   statusIntegrationId: number;
   principalIntegrationId: number;
 }> = {}) {
-  return createMainAuthorityRulesetReceiptV1({
+  return createMainAuthorityRulesetReceipt({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     expectedIntegrationId: input.expectedIntegrationId ?? EXTERNAL_INTEGRATOR_ID,
@@ -96,7 +96,7 @@ function createReceipt(input: Partial<{
   });
 }
 
-function transport(): MainAuthorityRulesetGitHubTransportV1 {
+function transport(): MainAuthorityRulesetGitHubTransport {
   return {
     effectiveBranchRules(repository, branch) {
       expect(repository).toBe('sec-platform/sec');
@@ -128,7 +128,7 @@ test('terminal status and update bypass must both bind the exact selected Integr
 });
 
 test('GitHub ruleset observer passes the explicit provider principal through to the semantic receipt', () => {
-  const receipt = observeMainAuthorityRulesetV1({
+  const receipt = observeMainAuthorityRuleset({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     expectedIntegrationId: EXTERNAL_INTEGRATOR_ID,
@@ -138,7 +138,7 @@ test('GitHub ruleset observer passes the explicit provider principal through to 
 });
 
 test('provider-neutral observer rejects an invalid Integration principal before accepting enforcement', () => {
-  expect(() => observeMainAuthorityRulesetV1({
+  expect(() => observeMainAuthorityRuleset({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     expectedIntegrationId: 0,

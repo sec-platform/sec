@@ -6,11 +6,11 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import {
-  compileImportOperationPlanV1,
+  compileImportOperationPlan,
   importServiceRootFileNames,
   organizeImportsInSource,
   resolveCandidateImportBase
-} from '../../platform/dev-runner/import-organizer.ts';
+} from '../../src/development/runner/import-organizer.ts';
 
 function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'full'): string {
   const fixtureRoot = path.resolve(import.meta.dir, 'import-organizer-newline-fixture');
@@ -97,13 +97,13 @@ test('candidate and full scopes compile different immutable exact plans', async 
       const head = git(['rev-parse', 'HEAD']);
       git(['update-ref', 'refs/remotes/origin/main', head]);
 
-      const candidate = await compileImportOperationPlanV1({}, repoRoot, {});
+      const candidate = await compileImportOperationPlan({}, repoRoot, {});
       expect(candidate.scope).toBe('candidate');
       expect(candidate.candidateBase).toBe(head);
       expect(candidate.targets).toEqual([]);
       expect(candidate.writePaths).toEqual([]);
 
-      const full = await compileImportOperationPlanV1({ scope: 'all' }, repoRoot, {});
+      const full = await compileImportOperationPlan({ scope: 'all' }, repoRoot, {});
       expect(full.scope).toBe('all');
       expect(full.candidateBase).toBeNull();
       expect(full.writePaths).toEqual(['fixture.ts']);
@@ -115,17 +115,17 @@ test('candidate and full scopes compile different immutable exact plans', async 
         'export const changed = answer;',
         ''
       ].join('\n'));
-      const changed = await compileImportOperationPlanV1({}, repoRoot, {});
+      const changed = await compileImportOperationPlan({}, repoRoot, {});
       expect(changed.targets.map((target) => target.relativePath)).toEqual(['fixture.ts']);
       expect(changed.writePaths).toEqual(['fixture.ts']);
-      expect((await compileImportOperationPlanV1({}, repoRoot, {})).planDigest)
+      expect((await compileImportOperationPlan({}, repoRoot, {})).planDigest)
         .toBe(changed.planDigest);
 
       expect(() => resolveCandidateImportBase(repoRoot, 'a'.repeat(40), {}))
         .toThrow('git rev-parse failed');
       expect(() => resolveCandidateImportBase(repoRoot, head, { SEC_CHANGED_BASE: 'b'.repeat(40) }))
         .toThrow('Candidate import base conflicts with the exact ambient verification base');
-      await expect(compileImportOperationPlanV1({ scope: 'all', candidateBase: head }, repoRoot, {}))
+      await expect(compileImportOperationPlan({ scope: 'all', candidateBase: head }, repoRoot, {}))
         .rejects.toThrow('Full-repository import scope cannot also select a candidate base');
 
       git(['update-ref', '-d', 'refs/remotes/origin/main']);

@@ -5,13 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 
-import type { DevCommandObservation } from '../../platform/dev-runner/command-runner.ts';
-import type { OperationDependencyBootstrapResult } from '../../platform/dev-runner/dependency-bootstrap.ts';
-import * as actualEnvManager from '../../platform/dev-runner/env-manager.ts';
+import type { DevCommandObservation } from '../../src/development/runner/command-runner.ts';
+import type { OperationDependencyBootstrapResult } from '../../src/development/runner/dependency-bootstrap.ts';
+import * as actualEnvManager from '../../src/development/runner/env-manager.ts';
 import {
-  assertFastTestProcessPolicyInventoryV1,
-  assertUniqueFastTestProcessIsolationDefinitionsV1,
-  DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY,
+  assertFastTestProcessPolicyInventory,
+  assertUniqueFastTestProcessIsolationDefinitions,
   DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
   DEFAULT_FAST_TEST_EXCLUDED_FILES,
   DEFAULT_FAST_TEST_MAX_CONCURRENCY,
@@ -20,37 +19,47 @@ import {
   FAST_TEST_PROCESS_ISOLATION_REGISTRY,
   FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   isDefaultFastTestFile,
-  planFastTestProcesses,
-  PROCESS_ISOLATED_FAST_TEST_FILES
-} from '../../platform/dev-runner/fast-test-policy.ts';
-import { applyDefaultFastTestConcurrency } from '../../platform/dev-runner/test-concurrency-policy.ts';
-import { DEFAULT_TEST_TIMEOUT_MS } from '../../platform/dev-runner/test-execution-policy.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
-import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
-import { FAST_TEST_PROCESS_POLICY_TEST_FILE } from '../../platform/shared/test-budget-contract.ts';
+  planFastTestProcesses
+} from '../../src/development/runner/fast-test-policy.ts';
+import { applyDefaultFastTestConcurrency } from '../../src/development/runner/test-concurrency-policy.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
+import { compilerRoot } from '../../src/workspace/paths.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/verification/test-impact/contract/budget.ts';
 
-const actualCommandRunner = await import('../../platform/dev-runner/command-runner.ts');
+const actualCommandRunner = await import('../../src/development/runner/command-runner.ts');
 
 const {
   bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
   createTestWorkspaceRunChildAssignmentV1,
   createTestWorkspaceSupervisorLeaseV1,
-  deriveTestWorkspaceRunNamespaceV1,
+  deriveTestWorkspaceRunNamespace: deriveTestWorkspaceRunNamespaceV1,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
-  parseTestWorkspaceRunChildAssignmentV1,
+  parseTestWorkspaceRunChildAssignment: parseTestWorkspaceRunChildAssignmentV1,
   pathEnvKey,
-  prepareTestWorkspaceRunV1,
+  prepareTestWorkspaceRun: prepareTestWorkspaceRunV1,
   resolveTestWorkspaceRunChild,
   resolveTestWorkspaceNamespace,
-  settlePreparedTestWorkspaceRunV1: actualSettlePreparedTestWorkspaceRunV1,
+  settlePreparedTestWorkspaceRun: actualSettlePreparedTestWorkspaceRunV1,
   TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV
 } = actualEnvManager;
 
-const commandCalls: { command: string; args: string[]; stdoutMode: 'bytes' | 'text' }[] = [];
+type ObservedCommandOptions = Readonly<{
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  envMode?: 'inherit' | 'replace';
+}>;
+
+const commandCalls: {
+  command: string;
+  args: string[];
+  stdoutMode: 'bytes' | 'text';
+  options?: ObservedCommandOptions;
+}[] = [];
 const devCommandCalls: { command: string; args: string[] }[] = [];
 const devCommandEnvironments: NodeJS.ProcessEnv[] = [];
 const devCommandExitCodes: number[] = [];
@@ -59,19 +68,22 @@ const devCommandObservationOverrides: Array<Partial<DevCommandObservation> | und
 const devCommandSettlements: Array<Promise<void> | undefined> = [];
 const devCommandStartObservers: Array<(() => void) | undefined> = [];
 const devCommandCompletionObservers: Array<(() => void) | undefined> = [];
-const canonicalBrowserCachePath = path.resolve('.shared-deps', '.playwright-browsers');
 const DEFAULT_MANAGED_INNER_ARGS = ['--max-concurrency', String(DEFAULT_FAST_TEST_MAX_CONCURRENCY)] as const;
 let fastDependencyBootstrapCalls = 0;
 let testDependencyBootstrapCalls = 0;
+let gitReadSessionCloseCalls = 0;
+const gitReadSessionDeadlineRequests: Array<number | undefined> = [];
 let hasTestDependencyBootstrapFailure = false;
 let testDependencyBootstrapFailure: unknown;
 let cleanupFailure: Error | null = null;
 let invocationRuntimeCleanupFailure: Error | null = null;
 const mockedAssignedCleanupTokens = new WeakSet<object>();
-const isolatedFastTestFileSet = new Set<string>(PROCESS_ISOLATED_FAST_TEST_FILES);
+const isolatedFastTestFileSet = new Set<string>(
+  FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file }) => file)
+);
 let changedFiles = ['platform/unmapped-source.ts'];
 let materializeTestWorkspace = false;
-let trustedCallerAssignmentFixture: actualEnvManager.TestWorkspaceRunChildAssignmentV1 | null = null;
+let trustedCallerAssignmentFixture: actualEnvManager.TestWorkspaceRunChildAssignment | null = null;
 let previousTestWorkspaceNamespace: string | undefined;
 let previousTestWorkspaceRunChild: string | undefined;
 let previousTestWorkspaceRunChildAssignment: string | undefined;
@@ -81,7 +93,7 @@ let previousChangedBase: string | undefined;
 let previousConsoleLog: typeof console.log;
 let previousConsoleError: typeof console.error;
 
-mock.module('../../platform/shared/fs.ts', () => ({
+mock.module('../../src/workspace/files.ts', () => ({
   pathExists: async (targetPath: string) => {
     try {
       await fs.access(targetPath);
@@ -95,34 +107,80 @@ mock.module('../../platform/shared/fs.ts', () => ({
 const processCommand = (
   command: string,
   args: string[],
-  stdoutMode: 'bytes' | 'text'
+  stdoutMode: 'bytes' | 'text',
+  options?: ObservedCommandOptions
 ): { code: number; stdout: string | Uint8Array; stderr: string } => {
-  commandCalls.push({ command, args, stdoutMode });
+  commandCalls.push({ command, args, stdoutMode, options });
   const stdout = (value: string): string | Uint8Array => (
     stdoutMode === 'bytes' ? new TextEncoder().encode(value) : value
   );
 
-  if (command === 'git' && args.includes('diff')) {
+  const isGitCommand = command === 'git' || path.basename(command).toLowerCase().startsWith('git.');
+
+  if (isGitCommand && args.includes('rev-parse')) {
+    // Exact object identity for the read-session start/end fences.
+    return {
+      code: 0,
+      stdout: stdout('1111111111111111111111111111111111111111\n'),
+      stderr: ''
+    };
+  }
+
+  if (isGitCommand && args.includes('diff')) {
     return { code: 0, stdout: stdout(changedFiles.map((file) => `M\0${file}\0`).join('')), stderr: '' };
   }
 
-  if (command === 'git' && args.includes('ls-files')) {
+  if (isGitCommand && args.includes('ls-files')) {
     return { code: 0, stdout: stdout(''), stderr: '' };
   }
 
-  if (command === 'git' && args.includes('status')) {
+  if (isGitCommand && args.includes('status')) {
     return { code: 0, stdout: stdout(''), stderr: '' };
   }
 
   return { code: 1, stdout: stdout(''), stderr: `Unexpected command: ${command} ${args.join(' ')}` };
 };
 
-mock.module('../../platform/shared/process.ts', () => ({
-  runCommand: async (command: string, args: string[]) => processCommand(command, args, 'text'),
-  runCommandBytes: async (command: string, args: string[]) => processCommand(command, args, 'bytes')
+mock.module('../../src/runtime-state/physical/runtime/process.ts', () => ({
+  runCommand: async (command: string, args: string[], options?: ObservedCommandOptions) =>
+    processCommand(command, args, 'text', options),
+  runCommandBytes: async (command: string, args: string[], options?: ObservedCommandOptions) =>
+    processCommand(command, args, 'bytes', options)
 }));
 
-mock.module('../../platform/dev-runner/env-manager.ts', () => ({
+// This suite exercises affected-plan selection with a deterministic mocked
+// Git transport. It must opt into the explicitly named host test route on a
+// Windows development machine; it never turns the production Windows PATH
+// transport into an authority fallback.
+const actualGitReadEnvironment = await import(
+  '../../src/external-capabilities/git-read/test/session.ts'
+);
+mock.module('../../src/external-capabilities/git-read/runtime/session.ts', () => ({
+  ...actualGitReadEnvironment,
+  createAuthorityGitReadSession: (input: Parameters<typeof actualGitReadEnvironment.createHostGitReadSessionForTests>[0]) => {
+    gitReadSessionDeadlineRequests.push(input.deadlineAtUnixMs);
+    return {
+      status: 'ready' as const,
+      route: 'host-local-git-v1' as const,
+      session: Object.freeze(new Proxy(
+        actualGitReadEnvironment.createHostGitReadSessionForTests(input),
+        {
+          get(target, property, receiver) {
+            if (property === 'close') {
+              return () => {
+                gitReadSessionCloseCalls += 1;
+                return undefined;
+              };
+            }
+            return Reflect.get(target, property, receiver);
+          }
+        }
+      ))
+    };
+  }
+}));
+
+mock.module('../../src/development/runner/env-manager.ts', () => ({
   consumeTestWorkspaceSupervisorChallengeV1: async () =>
     Object.freeze({ schema: 'sec-test-workspace-run-child-authority-v1' as const }),
   createTestWorkspaceRunChildAssignmentV1,
@@ -140,7 +198,7 @@ mock.module('../../platform/dev-runner/env-manager.ts', () => ({
   pathEnvKey,
   prepareTestWorkspaceRunV1: (
     env: NodeJS.ProcessEnv,
-    authority: actualEnvManager.TestWorkspaceRunChildAuthorityV1 | null
+    authority: actualEnvManager.TestWorkspaceRunChildAuthority | null
   ) => {
     if (authority === null) return prepareTestWorkspaceRunV1(env, null);
     const token = Object.freeze({ schema: 'prepared-test-workspace-run-v1' as const });
@@ -149,7 +207,7 @@ mock.module('../../platform/dev-runner/env-manager.ts', () => ({
   },
   resolveTestWorkspaceRunChild,
   resolveTestWorkspaceNamespace,
-  settlePreparedTestWorkspaceRunV1: (token: actualEnvManager.PreparedTestWorkspaceRunV1) => {
+  settlePreparedTestWorkspaceRunV1: (token: actualEnvManager.PreparedTestWorkspaceRun) => {
     if (cleanupFailure) throw cleanupFailure;
     if (mockedAssignedCleanupTokens.has(token)) return;
     actualSettlePreparedTestWorkspaceRunV1(token);
@@ -160,7 +218,7 @@ mock.module('../../platform/dev-runner/env-manager.ts', () => ({
   TEST_WORKSPACE_RUN_CHILD_ENV
 }));
 
-mock.module('../../platform/dev-runner/test-process-temp.ts', () => ({
+mock.module('../../src/development/runner/test-process-temp.ts', () => ({
   testInvocationRuntimeIsolationModeForPlatformV1: (platform: NodeJS.Platform) =>
     platform === 'win32' || platform === 'linux' ? 'retained' : 'unavailable',
   createTestInvocationRuntimeRootsV1: async () => {
@@ -181,7 +239,7 @@ mock.module('../../platform/dev-runner/test-process-temp.ts', () => ({
   }
 }));
 
-mock.module('../../platform/dev-runner/command-runner.ts', () => ({
+mock.module('../../src/development/runner/command-runner.ts', () => ({
   ...actualCommandRunner,
   runDevCommand: async (
     command: string,
@@ -227,25 +285,20 @@ mock.module('../../platform/dev-runner/command-runner.ts', () => ({
   }
 }));
 
-mock.module('../../platform/dev-runner/dependency-bootstrap.ts', () => ({
-  ensureOperationDependencies: async (demandGraph: {
-    capabilityDemands: readonly string[];
-  }) => {
-    const browserDemanded = demandGraph.capabilityDemands.includes('browser-runtime');
-    if (browserDemanded) testDependencyBootstrapCalls += 1;
-    else fastDependencyBootstrapCalls += 1;
+mock.module('../../src/development/runner/dependency-bootstrap.ts', () => ({
+  ensureOperationDependencies: async () => {
+    fastDependencyBootstrapCalls += 1;
     if (hasTestDependencyBootstrapFailure) throw testDependencyBootstrapFailure;
     return {
-      browserCachePath: browserDemanded ? canonicalBrowserCachePath : null,
       manifestHash: 'test-manifest',
       nodeModulesPath: path.resolve('node_modules'),
       source: 'existing'
     };
   },
-  reuseOperationDependenciesV1: (result: unknown) => result
+  reuseOperationDependencies: (result: unknown) => result
 }));
 
-const testRunnerModule = await import('../../platform/dev-runner/test-runner.ts');
+const testRunnerModule = await import('../../src/development/runner/test-runner.ts');
 const {
   resolveAffectedTestExecution,
   runAffectedTests,
@@ -256,7 +309,7 @@ const {
   runSlowTests,
   runTests
 } = testRunnerModule;
-const { getFastTestFilesSync, slowTestSuiteFiles } = await import('../../platform/shared/test-budget-contract.ts');
+const { getFastTestFilesSync, slowTestSuiteFiles } = await import('../../src/verification/test-impact/contract/budget.ts');
 
 function invocationTestFiles(args: readonly string[]): string[] {
   return args.filter((arg) => /^tests\/.+\.(test|spec)\.tsx?$/u.test(arg));
@@ -428,6 +481,8 @@ beforeEach(() => {
   devCommandCompletionObservers.length = 0;
   fastDependencyBootstrapCalls = 0;
   testDependencyBootstrapCalls = 0;
+  gitReadSessionCloseCalls = 0;
+  gitReadSessionDeadlineRequests.length = 0;
   hasTestDependencyBootstrapFailure = false;
   testDependencyBootstrapFailure = undefined;
   cleanupFailure = null;
@@ -518,7 +573,9 @@ test('fast process planning deterministically bounds concurrent shards without d
 test('fast process planning removes stale isolation and bounds structural process waves', () => {
   const files = getFastTestFilesSync().filter(isDefaultFastTestFile);
   const plan = planFastTestProcesses(files);
-  const registeredFiles = new Set(PROCESS_ISOLATED_FAST_TEST_FILES);
+  const registeredFiles = new Set(
+    FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file }) => file)
+  );
   const resourceClassByFile: ReadonlyMap<
     string,
     (typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER)[number]
@@ -528,7 +585,9 @@ test('fast process planning removes stale isolation and bounds structural proces
     )
   );
   const plannedFiles = plannedProcessFiles(plan);
-  const processWaves = Math.ceil(plan.concurrentShards.length / DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY)
+  const processWaves = Math.ceil(
+    plan.concurrentShards.length / DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit
+  )
     + plan.resourceClassOrder.reduce((waves, resourceClass) => (
       waves + Math.ceil(
         plan.resourceQueues[resourceClass].length / plan.resourceLimits[resourceClass]
@@ -548,7 +607,6 @@ test('fast process planning removes stale isolation and bounds structural proces
     'tests/integration/pipeline-workspace-write-lease.test.ts',
     'tests/integration/semantic-mutation-apply.test.ts',
     'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
-    'tests/integration/workbench-writer-lease.test.ts',
     'tests/integration/workspace-engineering-ir.test.ts',
     'tests/unit/ci-verification-execution.test.ts'
   ]));
@@ -571,13 +629,10 @@ test('fast process planning removes stale isolation and bounds structural proces
   }
   expect([...plannedFiles].sort()).toEqual([...files].sort());
   expect(new Set(plannedFiles).size).toBe(files.length);
-  expect(DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY).toBeGreaterThanOrEqual(1);
+  expect(DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit).toBeGreaterThanOrEqual(1);
   expect(Object.values(plan.resourceLimits).every((limit) => limit >= 1)).toBe(true);
   expect(processWaves).toBeLessThanOrEqual(structurallyMaximumProcessWaves);
   expect(structurallyMaximumProcessWaves).toBeLessThanOrEqual(plannedFiles.length);
-  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
-    ({ file }) => file === 'tests/unit/work-package-gate-execution.test.ts'
-  )?.processLimit).toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['repository-worktree']);
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/integration/workspace-engineering-ir.test.ts'
   )?.processLimit).toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']);
@@ -636,7 +691,7 @@ test('complete fast process-global hazards have unique typed isolation and singl
     'tests/unit/command-runner.test.ts'
   ];
   const completeFastFiles = getFastTestFilesSync();
-  assertFastTestProcessPolicyInventoryV1(completeFastFiles);
+  assertFastTestProcessPolicyInventory(completeFastFiles);
   const detectedHazards = new Map<string, ProcessGlobalHazard[]>();
 
   await Promise.all(completeFastFiles.map(async (file) => {
@@ -681,7 +736,7 @@ test('complete fast process-global hazards have unique typed isolation and singl
 
 test('fast process policy covers default-excluded files and rejects stale or duplicate identities', () => {
   const completeFastFiles = getFastTestFilesSync();
-  const excludedFastFile = 'tests/unit/work-package-gate-execution.test.ts';
+  const excludedFastFile = 'tests/unit/semantic-mutation-isolated-child-fence.test.ts';
   expect(DEFAULT_FAST_TEST_EXCLUDED_FILES).toContain(excludedFastFile);
   expect(isDefaultFastTestFile(excludedFastFile)).toBe(false);
   expect(completeFastFiles).toContain(excludedFastFile);
@@ -691,19 +746,19 @@ test('fast process policy covers default-excluded files and rejects stale or dup
   )).toEqual([expect.objectContaining({
     kind: 'process-env-assignment'
   })]);
-  expect(() => assertFastTestProcessPolicyInventoryV1(completeFastFiles))
+  expect(() => assertFastTestProcessPolicyInventory(completeFastFiles))
     .not.toThrow();
 
   const registeredFile = FAST_TEST_PROCESS_ISOLATION_REGISTRY[0]!.file;
-  expect(() => assertFastTestProcessPolicyInventoryV1(
+  expect(() => assertFastTestProcessPolicyInventory(
     completeFastFiles.filter((file) => file !== registeredFile)
   )).toThrow(`Fast-test process isolation registration is stale: ${registeredFile}`);
-  expect(() => assertFastTestProcessPolicyInventoryV1(
+  expect(() => assertFastTestProcessPolicyInventory(
     completeFastFiles.filter((file) => file !== FAST_TEST_PROCESS_POLICY_TEST_FILE)
   )).toThrow(`Fast-test process policy test is absent: ${FAST_TEST_PROCESS_POLICY_TEST_FILE}`);
 
   const definition = FAST_TEST_PROCESS_ISOLATION_REGISTRY[0]!;
-  expect(() => assertUniqueFastTestProcessIsolationDefinitionsV1([definition, definition]))
+  expect(() => assertUniqueFastTestProcessIsolationDefinitions([definition, definition]))
     .toThrow(`Fast-test process isolation registration is duplicated: ${definition.file}`);
 });
 
@@ -766,10 +821,7 @@ test('default fast inventory excludes deterministic deep acceptance while comple
 
   expect(DEFAULT_FAST_TEST_EXCLUDED_FILES).toEqual(expect.arrayContaining([
     'tests/integration/semantic-mutation-apply.test.ts',
-    'tests/integration/upgrade-pipeline-kernel.test.ts',
-    'tests/integration/workbench-pipeline.test.ts',
-    'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
-    'tests/unit/work-package-gate-execution.test.ts'
+    'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
   ]));
   expect(DEFAULT_FAST_TEST_EXCLUDED_FILES.every((file) => complete.includes(file))).toBe(true);
   expect(defaultFiles.every(isDefaultFastTestFile)).toBe(true);
@@ -784,8 +836,6 @@ test.serial('targeted fast tests preserve ordinary sequential semantics', async 
   expect(fastDependencyBootstrapCalls).toBe(1);
   expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandEnvironments).toHaveLength(1);
-  expect(devCommandEnvironments[0]?.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
-  expect(devCommandEnvironments[0]?.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
   expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
   expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{64}$/u);
   expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
@@ -807,30 +857,6 @@ test.serial('targeted fast tests preserve ordinary sequential semantics', async 
       ]
     }
   ]);
-});
-
-test.serial('fast pre-fanout bootstrap scrubs poisoned browser state without materializing it', async () => {
-  const previousBrowserCachePath = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  process.env.PLAYWRIGHT_BROWSERS_PATH = 'poisoned-browser-cache';
-  try {
-    const code = await runFastTests([
-      'tests/unit/path-containment.test.ts',
-      'tests/unit/test-runner.test.ts'
-    ]);
-
-    expect(code).toBe(0);
-    expect(fastDependencyBootstrapCalls).toBe(1);
-    expect(testDependencyBootstrapCalls).toBe(0);
-    expect(devCommandCalls).toHaveLength(2);
-    expect(devCommandEnvironments).toHaveLength(2);
-    expect(devCommandEnvironments.every((env) =>
-      env.PLAYWRIGHT_BROWSERS_PATH === undefined &&
-      env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === '1' &&
-      env.SEC_SKIP_RUNTIME_DEPS_SETUP === '1')).toBe(true);
-  } finally {
-    if (previousBrowserCachePath === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
-    else process.env.PLAYWRIGHT_BROWSERS_PATH = previousBrowserCachePath;
-  }
 });
 
 test.serial('fast compiler bootstrap failure launches no managed test child', async () => {
@@ -860,7 +886,9 @@ test.serial('fast tests preserve options across process shards and isolated invo
     expect(call.args.some((arg) => isolatedFastTestFileSet.has(arg))).toBe(false);
     expect(call.args.some((arg) => arg.startsWith('tests/e2e/'))).toBe(false);
   }
-  for (const file of PROCESS_ISOLATED_FAST_TEST_FILES.filter(isDefaultFastTestFile)) {
+  for (const file of FAST_TEST_PROCESS_ISOLATION_REGISTRY
+    .map(({ file }) => file)
+    .filter(isDefaultFastTestFile)) {
     expect(devCommandCalls).toContainEqual({
       command: 'bun',
       args: ['test', file, ...DEFAULT_MANAGED_INNER_ARGS, '--timeout', '30000']
@@ -969,16 +997,24 @@ test.serial('passing managed execution emits no failure receipt', async () => {
 });
 
 test.serial('bounded concurrent shard failures settle siblings and stop later batches', async () => {
-  const failingBatchOffset = Math.min(1, DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY - 1);
+  const failingBatchOffset = Math.min(
+    1,
+    DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit - 1
+  );
   const selectedFiles = getFastTestFilesSync()
     .filter((file) => !isolatedFastTestFileSet.has(file))
-    .slice(0, DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE * DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY + 1);
+    .slice(
+      0,
+      DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
+        * DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit + 1
+    );
   expect(selectedFiles).toHaveLength(
-    DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE * DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY + 1
+    DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
+      * DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit + 1
   );
   devCommandExitCodes.push(
     ...Array.from(
-      { length: DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY },
+      { length: DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit },
       (_, index) => index === failingBatchOffset ? 7 : 0
     ),
     0
@@ -987,12 +1023,15 @@ test.serial('bounded concurrent shard failures settle siblings and stop later ba
   const code = await runFastTests(selectedFiles);
 
   expect(code).toBe(7);
-  expect(devCommandCalls).toHaveLength(DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY);
+  expect(devCommandCalls).toHaveLength(
+    DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit
+  );
   expect(devCommandCalls.every(({ args }) => !args.includes('--concurrent'))).toBe(true);
   expect(devCommandCalls.flatMap(({ args }) => invocationTestFiles(args))).toEqual(
     selectedFiles.slice(
       0,
-      DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE * DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY
+      DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
+        * DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit
     )
   );
 });
@@ -1359,7 +1398,7 @@ test.serial('runFastTests preserves unresolved terminal and failed observation i
     (file) => independentCandidates.includes(file)
   );
   expect(independentFiles).toHaveLength(2);
-  const laterClassFile = 'tests/integration/workbench-writer-lease.test.ts';
+  const laterClassFile = 'tests/unit/semantic-mutation-isolated-child-fence.test.ts';
   const expectedFirstBatchSize = Math.min(
     DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process'],
     independentFiles.length
@@ -1492,7 +1531,7 @@ test.serial('each resource class obeys its own bounded batches and deterministic
         const resourceClass = FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
           (entry) => entry.file === file
         )?.resourceClass;
-        expect(resourceClass).toBe(wave.resourceClass);
+        expect(String(resourceClass)).toBe(wave.resourceClass);
         observedWaveClasses.push(resourceClass!);
       }
       wave.settlement.resolve();
@@ -1517,7 +1556,7 @@ test.serial('resource-class failure stops every later class', async () => {
   try {
     const code = await runFastTests([
       'tests/integration/pipeline-kernel.test.ts',
-      'tests/integration/workbench-writer-lease.test.ts',
+      'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
       'tests/unit/work-package-gate-execution.test.ts',
       'tests/unit/work-package-profile-probe-diagnostic.test.ts'
     ]);
@@ -1538,7 +1577,7 @@ test.serial('deterministic resource-class owners run in class order', async () =
   const code = await runFastTests([
     'tests/integration/pipeline-kernel.test.ts',
     'tests/integration/ticket-pipeline.test.ts',
-    'tests/integration/workbench-writer-lease.test.ts'
+    'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
   ]);
 
   expect(code).toBe(0);
@@ -1561,7 +1600,7 @@ test.serial('deterministic resource-class owners run in class order', async () =
       command: 'bun',
       args: [
         'test',
-        'tests/integration/workbench-writer-lease.test.ts',
+        'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
         ...DEFAULT_MANAGED_INNER_ARGS,
         '--timeout',
         String(DEFAULT_TEST_TIMEOUT_MS)
@@ -1590,7 +1629,7 @@ test.serial('full test planning retains every default-excluded fast owner', asyn
   }
 });
 
-test.serial('explicit fast test files skip browser dependency bootstrap entirely', async () => {
+test.serial('explicit fast test files skip dependency bootstrap entirely', async () => {
   const code = await runTests(['tests/unit/path-containment.test.ts', '--timeout', '10000']);
 
   expect(code).toBe(0);
@@ -1601,8 +1640,6 @@ test.serial('explicit fast test files skip browser dependency bootstrap entirely
     args: ['test', 'tests/unit/path-containment.test.ts', '--timeout', '10000']
   }]);
   const environment = devCommandEnvironments[0]!;
-  expect(environment.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
-  expect(environment.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
   expect(path.basename(environment.SEC_STATE_HOME!)).toBe('direct-001');
   expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('direct-001');
   const runtimeRoots = fastInvocationRunRoots(environment);
@@ -1612,9 +1649,10 @@ test.serial('explicit fast test files skip browser dependency bootstrap entirely
 
 test.serial('composite check reuses one materialized compiler capability without a second bootstrap', async () => {
   const prepared = Object.freeze({
-    browserCachePath: null,
     manifestHash: 'test-manifest',
     nodeModulesPath: path.resolve('node_modules'),
+    requiresFreshProcess: false,
+    transitionDigest: `sha256:${'a'.repeat(64)}` as const,
     source: 'existing' as const
   }) satisfies OperationDependencyBootstrapResult;
 
@@ -1667,8 +1705,6 @@ test.serial('contract freeze uses the same fast invocation runtime owner', async
   expect(path.basename(environment.SEC_STATE_HOME!)).toBe('contract-freeze-001');
   expect(path.basename(environment.SEC_CACHE_HOME!)).toBe('contract-freeze-001');
   expect(testDependencyBootstrapCalls).toBe(0);
-  expect(environment.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
-  expect(environment.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
   const runtimeRoots = fastInvocationRunRoots(environment);
   await expect(fs.access(runtimeRoots.stateRoot)).rejects.toThrow();
   await expect(fs.access(runtimeRoots.cacheRoot)).rejects.toThrow();
@@ -1840,8 +1876,8 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
     [TEST_WORKSPACE_RUN_CHILD_ENV]: runChild
   });
   await fs.mkdir(runChildRoot, { recursive: true });
-  const namespaceIdentity = inspectNoFollowDirectoryChainV1(parentRoot).target;
-  const identity = inspectNoFollowDirectoryChainV1(runChildRoot).target;
+  const namespaceIdentity = inspectNoFollowDirectoryChain(parentRoot).target;
+  const identity = inspectNoFollowDirectoryChain(runChildRoot).target;
   const assignment = createTestWorkspaceRunChildAssignmentV1({
     parentNamespace,
     issuerProcessId: process.ppid,
@@ -1894,8 +1930,8 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
       TEST_WORKSPACE_NAMESPACE_ENV,
       TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
       TEST_WORKSPACE_RUN_CHILD_ENV
-    } from './platform/dev-runner/env-manager.ts';
-    import { inspectNoFollowDirectoryChainV1 } from './platform/shared/physical-no-follow.ts';
+    } from './src/development/runner/env-manager.ts';
+    import { inspectNoFollowDirectoryChain } from './src/runtime-state/physical/runtime/physical-no-follow.ts';
     const parentNamespace = process.env[TEST_WORKSPACE_NAMESPACE_ENV];
     if (!parentNamespace) process.exit(7);
     const fakeRepositoryRoot = process.env.SEC_TEST_FAKE_GATE_REPOSITORY_ROOT;
@@ -1948,8 +1984,8 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
     const sibling = getTestWorkspaceTempRoot(siblingEnv);
     mkdirSync(sibling);
     writeFileSync(sibling + '/foreign-owner.txt', 'preserve');
-    const namespaceIdentity = inspectNoFollowDirectoryChainV1(path.dirname(sibling)).target;
-    const identity = inspectNoFollowDirectoryChainV1(sibling).target;
+    const namespaceIdentity = inspectNoFollowDirectoryChain(path.dirname(sibling)).target;
+    const identity = inspectNoFollowDirectoryChain(sibling).target;
     const forged = createTestWorkspaceRunChildAssignmentV1({
       parentNamespace,
       issuerProcessId: process.pid,
@@ -1964,7 +2000,7 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
       namespaceInode: namespaceIdentity.inode
     });
     const victim = Bun.spawn([process.execPath, '-e', \`
-      import { runFastTests } from './platform/dev-runner/test-runner.ts';
+      import { runFastTests } from './src/development/runner/test-runner.ts';
       try {
         await runFastTests(['tests/unit/path-containment.test.ts']);
         process.exit(9);
@@ -2258,8 +2294,9 @@ test.serial('affected plan reports resolved selection without dependency or test
     expect(plan).toMatchObject({
       schema: 'sec-affected-test-plan-v1',
       changedPaths: ['tests/unit/path-containment.test.ts'],
-      owners: ['dev-runner'],
+      owners: ['dev-runner', 'verification.test-governance'],
       selectedFastTests: [
+        TEST_ARCHITECTURE_POLICY_TEST_FILE,
         'tests/unit/path-containment.test.ts',
         FAST_TEST_PROCESS_POLICY_TEST_FILE
       ],
@@ -2289,8 +2326,9 @@ test.serial('affected plan applies the same process-policy sentinel to a default
     expect(code).toBe(0);
     expect(plan).toMatchObject({
       changedPaths: ['tests/unit/work-package-gate-execution.test.ts'],
-      owners: ['dev-runner'],
+      owners: ['dev-runner', 'verification.test-governance'],
       selectedFastTests: [
+        TEST_ARCHITECTURE_POLICY_TEST_FILE,
         FAST_TEST_PROCESS_POLICY_TEST_FILE,
         'tests/unit/work-package-gate-execution.test.ts'
       ],
@@ -2320,8 +2358,11 @@ test.serial('deleted test paths remain changed facts without becoming runnable t
     expect(plan).toMatchObject({
       schema: 'sec-affected-test-plan-v1',
       changedPaths: ['tests/integration/project-runtime.test.ts'],
-      owners: ['dev-runner'],
-      selectedFastTests: [FAST_TEST_PROCESS_POLICY_TEST_FILE],
+      owners: ['dev-runner', 'verification.test-governance'],
+      selectedFastTests: [
+        TEST_ARCHITECTURE_POLICY_TEST_FILE,
+        FAST_TEST_PROCESS_POLICY_TEST_FILE
+      ],
       selectedSlowTests: [],
       unresolvedPaths: [],
       resolved: true
@@ -2333,7 +2374,7 @@ test.serial('deleted test paths remain changed facts without becoming runnable t
   }
 });
 
-test.serial('resolved affected plan executes without repeating Git discovery', async () => {
+test.serial('resolved affected plan executes only after its final Git revalidation', async () => {
   changedFiles = ['tests/unit/path-containment.test.ts'];
   const execution = await resolveAffectedTestExecution();
 
@@ -2341,11 +2382,16 @@ test.serial('resolved affected plan executes without repeating Git discovery', a
   expect(Object.isFrozen(execution)).toBe(true);
   expect(Object.isFrozen(execution!.plan)).toBe(true);
   expect(Object.isFrozen(execution!.plan.selectedFastTests)).toBe(true);
-  expect(commandCalls).toHaveLength(3);
+  // Resolution performs one bounded observation fence; run() performs the
+  // required last-mile fence immediately before child admission.
+  expect(commandCalls).toHaveLength(8);
   const code = await execution!.run();
 
   expect(code).toBe(0);
-  expect(commandCalls).toHaveLength(3);
+  expect(commandCalls).toHaveLength(11);
+  expect(gitReadSessionCloseCalls).toBe(3);
+  expect(gitReadSessionDeadlineRequests).toHaveLength(3);
+  expect(gitReadSessionDeadlineRequests[1]).toBe(gitReadSessionDeadlineRequests[2]);
   expect(fastDependencyBootstrapCalls).toBe(1);
   expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toHaveLength(2);
@@ -2400,14 +2446,38 @@ test.serial('affected-test Git discovery requests byte-preserving stdout through
   const code = await runAffectedTests();
 
   expect(code).toBe(0);
-  expect(commandCalls).toHaveLength(3);
-  expect(commandCalls.every((call) => call.command === 'git' && call.stdoutMode === 'bytes')).toBe(true);
+  expect(commandCalls).toHaveLength(8);
+  expect(commandCalls.every((call) => (
+    (call.command === 'git' || path.basename(call.command).toLowerCase().startsWith('git.'))
+    && call.stdoutMode === 'bytes'
+  ))).toBe(true);
+  expect(commandCalls.every((call) => call.options?.envMode === 'replace')).toBe(true);
+  expect(commandCalls.every((call) => (
+    call.options?.env?.GIT_OPTIONAL_LOCKS === '0'
+    && call.options.env.GIT_NO_LAZY_FETCH === '1'
+    && call.options.env.GIT_NO_REPLACE_OBJECTS === '1'
+    && call.options.env.GIT_CONFIG_NOSYSTEM === '1'
+    && typeof call.options.env.GIT_CONFIG_GLOBAL === 'string'
+  ))).toBe(true);
   expect(commandCalls.some((call) => call.args.includes('diff'))).toBe(true);
   expect(commandCalls.some((call) => call.args.includes('ls-files'))).toBe(true);
 });
 
+test.serial('affected base ref validation rejects option-like, NUL, and oversized values before Git effect', async () => {
+  for (const value of [
+    '--verify',
+    `main${String.fromCharCode(0)}suffix`,
+    'a'.repeat(257)
+  ]) {
+    process.env.SEC_AFFECTED_TESTS_BASE = value;
+    commandCalls.length = 0;
+    expect(await runAffectedTests(['--plan'])).toBe(1);
+    expect(commandCalls).toEqual([]);
+  }
+});
+
 test.serial('affected tests map semantic Contract files through explicit contract ownership', async () => {
-  changedFiles = ['platform/registry/official/ticket.basic/contracts/ticket.yaml'];
+  changedFiles = ['catalog/registry/official/ticket.basic/contracts/ticket.yaml'];
 
   const code = await runAffectedTests();
 
@@ -2441,9 +2511,11 @@ test.serial('affected tests combine changed fast tests with source-owned coverag
   expect(concurrentInvocation?.args).toContain('tests/unit/path-containment.test.ts');
   expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
     .toContain(FAST_TEST_PROCESS_POLICY_TEST_FILE);
+  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
+    .toContain(TEST_ARCHITECTURE_POLICY_TEST_FILE);
 });
 
-test.serial('affected tests run changed fast files with the global process-policy sentinel', async () => {
+test.serial('affected tests run changed fast files with the global test-policy sentinels', async () => {
   changedFiles = ['tests/unit/path-containment.test.ts'];
   const logs: string[] = [];
   const originalLog = console.log;
@@ -2457,6 +2529,7 @@ test.serial('affected tests run changed fast files with the global process-polic
     expect(code).toBe(0);
     expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
       FAST_TEST_PROCESS_POLICY_TEST_FILE,
+      TEST_ARCHITECTURE_POLICY_TEST_FILE,
       'tests/unit/path-containment.test.ts'
     ].sort());
     const ordinaryInvocation = devCommandCalls.find((call) => (
@@ -2489,15 +2562,17 @@ test.serial('affected tests isolate changed serial fast files', async () => {
   const code = await runAffectedTests();
 
   expect(code).toBe(0);
-  expect(devCommandCalls).toEqual([
-    {
-      command: 'bun',
-      args: [
-        'test', 'tests/unit/test-runner.test.ts', ...DEFAULT_MANAGED_INNER_ARGS,
-        '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
-      ]
-    }
-  ]);
+  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
+    TEST_ARCHITECTURE_POLICY_TEST_FILE,
+    'tests/unit/test-runner.test.ts'
+  ].sort());
+  expect(devCommandCalls.find((call) => call.args.includes('tests/unit/test-runner.test.ts'))).toMatchObject({
+    command: 'bun',
+    args: [
+      'test', 'tests/unit/test-runner.test.ts', ...DEFAULT_MANAGED_INNER_ARGS,
+      '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)
+    ]
+  });
 });
 
 test.serial('affected tests select the process-policy sentinel for the MainHealth hazard regression', async () => {
@@ -2508,6 +2583,7 @@ test.serial('affected tests select the process-policy sentinel for the MainHealt
   expect(code).toBe(0);
   expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
     FAST_TEST_PROCESS_POLICY_TEST_FILE,
+    TEST_ARCHITECTURE_POLICY_TEST_FILE,
     'tests/unit/physical-no-follow.test.ts'
   ].sort());
   expect(devCommandCalls).toHaveLength(2);
@@ -2515,7 +2591,7 @@ test.serial('affected tests select the process-policy sentinel for the MainHealt
   expect(devCommandCalls.every((call) => !call.args.includes('--concurrent'))).toBe(true);
 });
 
-test.serial('affected tests treat changed slow files as notice-only quick-lane input', async () => {
+test.serial('affected tests run the architecture policy sentinel for changed slow files', async () => {
   changedFiles = ['tests/e2e/registry.test.ts'];
   const logs: string[] = [];
   const errors: string[] = [];
@@ -2532,10 +2608,11 @@ test.serial('affected tests treat changed slow files as notice-only quick-lane i
     const code = await runAffectedTests();
 
     expect(code).toBe(0);
-    expect(devCommandCalls).toEqual([]);
+    expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
+      .toEqual([TEST_ARCHITECTURE_POLICY_TEST_FILE]);
     expect(errors).toEqual([]);
     expect(logs).toContain('Changed slow test files require PR risk or release/full verification: tests/e2e/registry.test.ts');
-    expect(logs).toContain('No affected fast test files detected.');
+    expect(logs.some((line) => line.includes(TEST_ARCHITECTURE_POLICY_TEST_FILE))).toBe(true);
   } finally {
     console.log = originalLog;
     console.error = originalError;

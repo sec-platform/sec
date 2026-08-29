@@ -85,6 +85,37 @@ Breaking change必须有显式decision、consumer census、migration path、depr
 
 Verification PASS、Compatibility成立、implementation entered main和product support是不同对象；任何一项都不能自动推进另一项。
 
+### Compatibility 不是常驻架构
+
+Compatibility code 只允许作为一个有终点的 Migration program 存在，不能成为新旧系统的永久共同 owner。每个仍在执行的旧格式、旧路径、旧 Provider 或旧 API reader 必须由唯一 Change Management owner 机器记录以下事实：
+
+- `oldIdentity`：被退役对象的精确 schema/path/provider/API identity；
+- `externalStateClass`：旧状态可能存在的物理边界，禁止用“也许有用户”代替 census；
+- `reader` 与 `writer`：旧 reader 和旧 writer 分开登记；cutover 后旧 writer 与 dual-write 必须先删除；
+- `census`：bounded、NUL/byte-safe、可重复的旧状态数量与 unknown ledger；
+- `converter`：唯一 one-way conversion、CAS、readback 和 failure/recovery owner；
+- `exitCondition`：旧状态计数为零、unknown 为零、所有 consumer 已切换；
+- `retirementAction`：同一批删除旧 reader、parser、adapter、tests、path 和 registry entry；
+- `expiry`：没有可验证进展或超过窗口时 fail closed，不自动延期。
+
+只有真实 rolling deployment 中不能原子切换的外部 producer/consumer 才允许短期 dual-read；dual-write 还必须额外证明两个 writer 不会形成冲突 authority，并绑定明确结束 revision。仓库内 caller、测试 fixture、CLI flag、re-export、别名、默认字段和同进程 API 不构成 dual-read/dual-write 的理由：consumer 可以同批迁移时必须直接 breaking cutover，旧面当场删除。
+
+测试只保留两类 Migration proof：旧物理状态严格转换后的公共 readback，以及 incompatible/unknown/partial state 的 fail-closed。只镜像旧版本号、旧字段存在、兼容 alias 可调用或旧 writer 仍能写入的测试必须删除；当 exit condition 满足时，conversion tests 与 reader 一同退休，历史 Evidence 保持不可变但不继续进入执行集合。
+
+### 版本存在证明
+
+`V1`、`V2`、schema/version/revision字段和版本dispatcher都不是“为未来留余地”的默认架构。只有至少两个可观察状态必须被
+同一真实consumer区分，且存在协议协商、持久状态解释、跨进程/跨发布并存、外部Provider兼容或有终点的Migration之一时，
+版本身份才是`required`。只有一个当前实现、全部caller可原子迁移、旧状态已经consumer-zero，或版本只出现在名称、常量、
+fixture与测试中时，版本机制属于`orphan | duplicate-owner`：删除`V1/V2/Vn`后缀、版本字段、分派、兼容层、migration壳与
+相应字面测试，直接保留唯一当前语义名称。
+
+真实版本边界必须由其语义owner一次性声明并被机器consumer实际使用，至少绑定versioned subject、比较/协商语义、支持窗口、
+old/new consumer集合、Compatibility Decision、Migration/rollback或forward-recovery、retirement condition和Evidence失效规则。
+产品release、Contract/schema、Provider/Adapter protocol、持久状态format、source revision、operation epoch与Evidence revision彼此
+独立，禁止共享一个泛化`version`或靠全局递增序号联动。测试验证跨版本行为、真实旧状态转换和不兼容边界，不验证数字本身；
+最后一个旧consumer退役时，版本reader、转换代码和测试必须在同一变更中删除，历史Git/Evidence负责解释过去。
+
 ## Implementation Compatibility Assessment
 
 Change Management消费由Delta/Impact authority生成的`ImplementationBindingDelta`，再结合Semantic Contract、Compatibility rules、Target/Runtime facts、consumer requirements和physical Evidence产生版本化Assessment：

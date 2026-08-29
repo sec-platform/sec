@@ -1,11 +1,15 @@
 import { devNull } from 'node:os';
+import { mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
 import {
+  createHostGitReadSessionForTests,
   isolatedGitChildEnvironment,
   isolatedGitReadEnvironment
-} from '../../platform/shared/git-read-environment.ts';
+} from '../../src/external-capabilities/git-read/test/session.ts';
 
 /**
  * Mirror of the implementation's empty config sink: Windows cannot open
@@ -126,4 +130,119 @@ test('Git read isolation removes case-variant mandatory overrides before child e
   expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
   expect(env.GIT_TERMINAL_PROMPT).toBe('0');
   expect(env.GIT_NO_REPLACE_OBJECTS).toBe('1');
+});
+
+test('the explicit host test route rejects aggregate argument overflow before starting Git', async () => {
+  const session = createHostGitReadSessionForTests({
+    cwd: process.cwd(),
+    budget: {
+      maxProcesses: 1,
+      maxTotalArgumentBytes: 1
+    }
+  });
+  const result = await session.run(['status']);
+  expect(result).toMatchObject({
+    kind: 'unresolved-git-read-session',
+    reason: 'argument-budget-exhausted'
+  });
+  expect(session.processCount).toBe(0);
+});
+
+test('a terminal host-session failure cannot be consumed as additional records', async () => {
+  const session = createHostGitReadSessionForTests({
+    cwd: process.cwd(),
+    budget: { maxTotalArgumentBytes: 1 }
+  });
+  const commandFailure = await session.run(['status']);
+  const recordsBefore = session.recordCount;
+  const recordFailure = session.consumeRecords(1);
+  expect(commandFailure.kind).toBe('unresolved-git-read-session');
+  expect(recordFailure).toBe(session.failure);
+  expect(session.recordCount).toBe(recordsBefore);
+});
+
+test('the host provider resolves Git from its canonical child PATH', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-read-empty-path-'));
+  try {
+    const session = createHostGitReadSessionForTests({
+      cwd: root,
+      source: { PATH: '' }
+    });
+    expect(session.gitExecutable).toBe('');
+    expect(session.failure).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'command-error'
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the host provider accounts for its physical root observation budget', () => {
+  const session = createHostGitReadSessionForTests({
+    cwd: process.cwd(),
+    budget: { maxRootObservedBytes: 1 }
+  });
+  expect(session.rootObservedBytes).toBeGreaterThan(1);
+  expect(session.failure).toMatchObject({
+    kind: 'unresolved-git-read-session',
+    reason: 'root-observation-budget-exhausted'
+  });
+});
+
+test('the host transport fences the retained executable and cwd before and after a child', async () => {
+  const session = createHostGitReadSessionForTests({
+    cwd: process.cwd(),
+    budget: { maxProcesses: 2 }
+  });
+  expect(session.failure).toBeNull();
+  const result = await session.run(['--version']);
+  expect(result.kind).toBe('completed');
+  expect(session.processCount).toBe(1);
+  expect(session.failure).toBeNull();
+});
+
+test('the retained cwd prevents replacement while the Git session is live', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-git-read-cwd-'));
+  const moved = `${root}-moved`;
+  let session: ReturnType<typeof createHostGitReadSessionForTests> | undefined;
+  try {
+    session = createHostGitReadSessionForTests({ cwd: root });
+    expect(session.failure).toBeNull();
+    expect(() => renameSync(root, moved)).toThrow();
+    const result = await session.run(['--version']);
+    expect(result.kind).toBe('completed');
+    expect(session.processCount).toBe(1);
+  } finally {
+    await session?.close?.();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(moved, { recursive: true, force: true });
+  }
+});
+
+test('a caller parent deadline cannot be extended by a host test session', async () => {
+  const session = createHostGitReadSessionForTests({
+    cwd: process.cwd(),
+    deadlineAtUnixMs: Date.now() - 1
+  });
+  const result = await session.run(['status']);
+  expect(result).toMatchObject({
+    kind: 'unresolved-git-read-session',
+    reason: 'deadline-exhausted'
+  });
+  expect(session.processCount).toBe(0);
+});
+
+test('budget fields above the canonical envelope are rejected before transport', () => {
+  expect(() => createHostGitReadSessionForTests({
+    cwd: process.cwd(),
+    budget: { maxProcesses: 129 }
+  })).toThrow(/canonical ceiling/u);
+});
+
+test('invalid parent deadlines are rejected before host transport admission', () => {
+  expect(() => createHostGitReadSessionForTests({
+    cwd: process.cwd(),
+    deadlineAtUnixMs: Number.NaN
+  })).toThrow(/non-negative safe integer/u);
 });

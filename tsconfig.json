@@ -11,6 +11,6 @@
     "lib": ["ES2022"],
     "skipLibCheck": true
   },
-  "include": ["platform/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"],
-  "exclude": ["docs/**", "project/**", "node_modules/**", "platform/registry/**/files/**"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["catalog/**", "docs/**", "project/**", "node_modules/**"]
 }

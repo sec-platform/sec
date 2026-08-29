@@ -3,43 +3,32 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { assertSemanticMutationRollbackManifestInvariant } from '../../platform/compiler/index.ts';
+import { assertSemanticMutationRollbackManifestInvariant } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
 import {
   atomicPublishSemanticMutationSource,
   atomicRestoreSemanticMutationSource,
   readSemanticMutationTransactionArtifacts,
   writeSemanticMutationTransactionArtifacts
-} from '../../platform/compiler/semantic-mutation/atomic-source-publish.ts';
-import { SemanticMutationContractError, sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
-import { semanticMutationByteDigest } from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
-import { readSemanticMutationSource } from '../../platform/compiler/semantic-mutation/source-path-boundary.ts';
-import { semanticMutationTransactionRoot } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
+} from '../../src/compiler/semantic-mutation/atomic-source-publish.ts';
+import { SemanticMutationContractError, sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import { semanticMutationByteDigest } from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
+import { readSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-path-boundary.ts';
+import { semanticMutationTransactionRoot } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
 import {
   applySemanticMutationWindowsFileAttributes,
   readSemanticMutationWindowsFileAttributes
-} from '../../platform/compiler/semantic-mutation/windows-file-attributes.ts';
-import {
-  SEMANTIC_CONTRACT_YAML_ADAPTER_ID,
-  SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
-  SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION,
-  SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION,
-  SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION,
-  SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION,
-  SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,
-  type SemanticMutationRollbackManifestV2,
-  type SemanticMutationSourceEditPlanV1,
-  type SemanticMutationWindowsFileAttributesV1
-} from '../../platform/shared/semantic-mutation-types.ts';
+} from '../../src/compiler/semantic-mutation/windows-file-attributes.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan, type SemanticMutationWindowsFileAttributes } from '../../src/semantic/mutation/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-const ALL_WINDOWS_ATTRIBUTES: SemanticMutationWindowsFileAttributesV1 = Object.freeze({
+const ALL_WINDOWS_ATTRIBUTES: SemanticMutationWindowsFileAttributes = Object.freeze({
   readOnly: true,
   hidden: true,
   system: true,
   archive: true
 });
 
-const CLEARED_WINDOWS_ATTRIBUTES: SemanticMutationWindowsFileAttributesV1 = Object.freeze({
+const CLEARED_WINDOWS_ATTRIBUTES: SemanticMutationWindowsFileAttributes = Object.freeze({
   readOnly: false,
   hidden: false,
   system: false,
@@ -75,10 +64,10 @@ function buildArtifacts(
   beforeBytes: Uint8Array,
   stagedBytes: Uint8Array,
   fileMode: number,
-  windowsFileAttributes: SemanticMutationWindowsFileAttributesV1 | null
+  windowsFileAttributes: SemanticMutationWindowsFileAttributes | null
 ): {
-  manifest: SemanticMutationRollbackManifestV2;
-  plan: SemanticMutationSourceEditPlanV1;
+  manifest: SemanticMutationRollbackManifest;
+  plan: SemanticMutationSourceEditPlan;
 } {
   const pathEvidenceWithoutRevision = {
     formatRevision: SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,

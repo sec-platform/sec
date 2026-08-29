@@ -3,6 +3,9 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import type { GitReadProviderResolutionFailure } from '../../src/external-capabilities/git-read/runtime/session.ts';
+import { installGitHooksForTest } from '../../src/development/hooks/install.ts';
+
 test('tracked hooks bind dependency preparation and candidate freeze without ambient EOL drift', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../..');
   const preCommit = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
@@ -15,18 +18,43 @@ test('tracked hooks bind dependency preparation and candidate freeze without amb
   for (const hook of [preCommit, prePush, postCheckout, postMerge, postRewrite]) {
     expect(hook).toContain('export SEC_GIT_HOOK_ACTIVE=1');
   }
-  expect(preCommit).toContain('bun ./platform/dev-runner.ts imports:freeze');
+  expect(preCommit).toContain('bun ./src/development/runner/cli.ts imports:freeze');
   expect(preCommit).not.toContain('SEC_CHANGED_BASE');
   expect(preCommit).not.toContain('\r');
-  expect(prePush).toContain('bun ./platform/dev-runner.ts imports:freeze');
+  expect(prePush).toContain('bun ./src/development/runner/cli.ts imports:freeze');
   expect(prePush).toContain('git diff --cached --quiet HEAD');
   expect(prePush).not.toContain('\r');
   for (const dependencyHook of [postCheckout, postMerge, postRewrite]) {
-    expect(dependencyHook).toContain('bun ./scripts/install-git-hooks.ts --lifecycle');
-    expect(dependencyHook).toContain('bun ./platform/dev-runner.ts deps:ensure');
+    expect(dependencyHook).toContain('bun ./src/development/hooks/install.ts --lifecycle');
+    expect(dependencyHook).toContain('bun ./src/development/runner/cli.ts deps:ensure');
     expect(dependencyHook.indexOf('install-git-hooks.ts --lifecycle'))
       .toBeLessThan(dependencyHook.indexOf('dev-runner.ts deps:ensure'));
   }
   expect(postCheckout).not.toContain('\r');
   expect(attributes).toContain('/.githooks/* text eol=lf');
+});
+
+test('hook installer keeps Windows provider admission separate from host executable execution', async () => {
+  const repoRoot = path.resolve(import.meta.dir, '../..');
+  const spawned: string[] = [];
+  const providerFailure: GitReadProviderResolutionFailure = Object.freeze({
+    kind: 'unresolved-git-read-provider',
+    route: 'host-local-git-v1',
+    status: 'unavailable',
+    reason: 'git-session-failed',
+    detailDigest: `sha256:${'a'.repeat(64)}` as `sha256:${string}`
+  });
+
+  const result = await installGitHooksForTest({
+    repoRoot,
+    lifecycle: true,
+    providerResolutionForTest: providerFailure,
+    beforeSpawnForTest: (kind) => spawned.push(kind)
+  });
+
+  expect(result.status).toBe('conflict');
+  expect(result.message).toContain('Git provider admission is unavailable for host-local-git-v1');
+  expect(result.message).toContain('git-session-failed');
+  expect(result.message).toContain(providerFailure.detailDigest);
+  expect(spawned).toEqual([]);
 });

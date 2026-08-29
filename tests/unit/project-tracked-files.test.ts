@@ -3,8 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { runCommand } from '../../platform/shared/process.ts';
-import { listTrackedProjectPaths } from '../../platform/shared/project-tracked-files.ts';
+import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
+import { listTrackedProjectPaths } from '../../src/workspace/project.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 

@@ -1,17 +1,13 @@
 import { expect, test } from 'bun:test';
 
-import {
-  createVerificationProviderAvailabilityEpochV1,
-  createVerificationProviderCapabilityV1,
-  resolveProviderAvailabilityV1
-} from '../../platform/shared/verification-provider-capability-contract.ts';
+import { createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/verification/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-19T00:00:00.000Z';
 const EXPIRES_AT = '2026-08-20T00:00:00.000Z';
 const RECEIPT = `sha256:${'a'.repeat(64)}` as const;
 
 test('independent trusted runtime is a first-class verification provider capability', () => {
-  const capability = createVerificationProviderCapabilityV1({
+  const capability = createVerificationProviderCapability({
     capability: 'trusted-runtime-verification',
     role: 'hosted-verification',
     provider: 'sec-trusted-runtime',
@@ -26,7 +22,7 @@ test('independent trusted runtime is a first-class verification provider capabil
 });
 
 test('static positive trusted-runtime claims cannot mint execution authority', () => {
-  const capability = createVerificationProviderCapabilityV1({
+  const capability = createVerificationProviderCapability({
     capability: 'trusted-runtime-verification',
     role: 'hosted-verification',
     provider: 'sec-trusted-runtime',
@@ -41,7 +37,7 @@ test('static positive trusted-runtime claims cannot mint execution authority', (
 });
 
 test('trusted runtime cannot impersonate the GitHub Actions capability and vice versa', () => {
-  expect(() => createVerificationProviderCapabilityV1({
+  expect(() => createVerificationProviderCapability({
     capability: 'trusted-runtime-verification',
     role: 'hosted-verification',
     provider: 'github-actions',
@@ -51,7 +47,7 @@ test('trusted runtime cannot impersonate the GitHub Actions capability and vice 
     observedAt: OBSERVED_AT
   })).toThrow('must use provider sec-trusted-runtime');
 
-  expect(() => createVerificationProviderCapabilityV1({
+  expect(() => createVerificationProviderCapability({
     capability: 'github-actions-hosted-verification',
     role: 'hosted-verification',
     provider: 'sec-trusted-runtime',
@@ -63,7 +59,7 @@ test('trusted runtime cannot impersonate the GitHub Actions capability and vice 
 });
 
 test('unregistered trusted runtime remains explicit unknown rather than falling back to Actions', () => {
-  const epoch = createVerificationProviderAvailabilityEpochV1({
+  const epoch = createVerificationProviderAvailabilityEpoch({
     epochId: 'trusted-runtime-missing',
     observedAt: OBSERVED_AT,
     expiresAt: EXPIRES_AT,
@@ -77,7 +73,7 @@ test('unregistered trusted runtime remains explicit unknown rather than falling 
       observedAt: OBSERVED_AT
     }]
   });
-  expect(resolveProviderAvailabilityV1(epoch, 'trusted-runtime-verification')).toMatchObject({
+  expect(resolveProviderAvailability(epoch, 'trusted-runtime-verification')).toMatchObject({
     provider: 'sec-trusted-runtime',
     role: 'hosted-verification',
     availability: 'unknown',

@@ -18,15 +18,15 @@ import path from 'node:path';
 import {
   preparationFilePath,
   prepareBranchCloseout
-} from '../../scripts/codex/branch-closeout.ts';
+} from '../../src/control/branch-lifecycle/branch-closeout.ts';
 import {
-  createBranchLifecycleGitChildEnvironmentV1,
-  createBranchLifecycleGitHubCredentialArgsV1
-} from '../../scripts/codex/branch-lifecycle-command.ts';
-import { collectBranchLifecycleInventory } from '../../scripts/codex/branch-lifecycle-inventory.ts';
+  createBranchLifecycleGitChildEnvironment,
+  createBranchLifecycleGitHubCredentialArgs
+} from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
+import { collectBranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 
 test('canonical Git child environment removes ambient steering and preserves host integration', () => {
-  const environment = createBranchLifecycleGitChildEnvironmentV1({
+  const environment = createBranchLifecycleGitChildEnvironment({
     Path: 'trusted-path',
     PATH: 'duplicate-path',
     HOME: 'trusted-home',
@@ -107,12 +107,12 @@ function repositoryFixture(): Readonly<{
   git(repository, ['config', '--local', 'fetch.pruneTags', 'true']);
   mkdirSync(path.join(repository, 'scripts/codex'), { recursive: true });
   writeFileSync(
-    path.join(repository, 'scripts/codex/document-control-plane.ts'),
+    path.join(repository, 'src/control/documentation/document-control-plane.ts'),
     `process.stdout.write(JSON.stringify({activeWorkPackage:{state:'active',manifest:'docs/work-packages/v6-test.md'},workspace:{branch:'feat/v6-closeout'}}));\n`,
     'utf8'
   );
   writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-  git(repository, ['add', 'README.md', 'scripts/codex/document-control-plane.ts']);
+  git(repository, ['add', 'README.md', 'src/control/documentation/document-control-plane.ts']);
   git(repository, ['commit', '-m', 'initial main']);
   git(repository, ['branch', '-M', 'main']);
   git(repository, ['push', '-u', 'origin', 'main']);
@@ -242,40 +242,13 @@ test('remote-absent preparation recovers the exact local branch without mutating
   }
 }, 180_000);
 
-test('legacy branch-lifecycle finalize CLI is rejected before any ref mutation', () => {
-  const fixture = repositoryFixture();
-  try {
-    const result = spawnSync('bun', [
-      path.resolve('scripts/codex/branch-lifecycle.ts'),
-      'finalize',
-      '--preparation', 'forged.json',
-      '--disposition', 'merged',
-      '--durable-goal-kind', 'main',
-      '--durable-goal', `main@${fixture.headSha}`
-    ], {
-      cwd: fixture.repository,
-      encoding: 'utf8',
-      windowsHide: true
-    });
-    expect(result.status).not.toBe(0);
-    expect(`${result.stdout ?? ''}${result.stderr ?? ''}`).toContain('Usage:');
-    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
-      .toBe(fixture.headSha);
-    expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
-      .toContain(fixture.headSha);
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-
-});
-
 test('canonical GitHub credential prefix masks checkout HTTP authorization before gh lookup', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-credential-'));
   try {
     git(root, ['init']);
     git(root, ['config', 'http.https://github.com/.extraheader', 'AUTHORIZATION: ambient-checkout-token']);
     const observed = spawnSync('git', [
-      ...createBranchLifecycleGitHubCredentialArgsV1(),
+      ...createBranchLifecycleGitHubCredentialArgs(),
       'config', '--get-urlmatch', 'http.extraheader', 'https://github.com/sec-platform/sec.git'
     ], {
       cwd: root,

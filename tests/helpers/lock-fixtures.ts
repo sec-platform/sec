@@ -1,11 +1,11 @@
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
+import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
 
 const officialRegistryMetadata = {
   registrySourceId: 'official',
   registryKind: 'official',
   registryLocation: 'compiler',
-  registryPath: 'platform/registry/official'
+  registryPath: 'catalog/registry/official'
 } as const;
 
 export function buildSingleTenantLockApp(options: Partial<LockFile['app']> = {}): LockFile['app'] {

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   createSemanticMutationIsolatedRunnerBundleLoaderForTests
-} from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
+} from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
 
 function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
   let resolve!: () => void;

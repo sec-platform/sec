@@ -4,72 +4,53 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 } from '../../platform/shared/ci-verification-revision.ts';
-import { acquirePhysicalMutationLeaseV1 } from '../../platform/shared/physical-mutation-lease.ts';
-import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../src/verification/ci/contract/revision.ts';
+import { acquirePhysicalMutationLease } from '../../src/runtime-state/physical/runtime/mutation-lease.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
 import {
-  assertExactLocalGitHubActionsRunnerProfileContainersV3,
-  assertExactLocalGitHubActionsRunnerProfileInventoryV3,
-  assertInitialLocalGitHubActionsProviderLedgerV3,
-  assertLocalGitHubActionsProviderLedgerTransitionV3,
-  assertLocalGitHubActionsRunnerImageIdentityV1,
-  assertLocalGitHubActionsRunnerReplacementImageIdentityV3,
-  assertOwnedLocalGitHubActionsRunnerV2,
-  assertRepositoryIdentityMatchesOriginV2,
-  assertRepositoryIdentityMatchesRemoteUrlsV2,
-  createBuildxRawJsonProgressAdmissionV1,
-  createLocalGitHubActionsProviderLedgerCommitBytesV3,
-  createLocalGitHubActionsProviderLedgerV3,
-  createLocalGitHubActionsRunnerBuildInputProjectionV1,
-  createLocalGitHubActionsRunnerDockerfileV2,
-  createLocalGitHubActionsRunnerEnvironmentSpecV1,
-  createLocalGitHubActionsRunnerOciBakeDefinitionV1,
-  createLocalGitHubActionsRunnerOciCandidateBindingV1,
-  createLocalGitHubActionsRunnerProjectionBuildxArgsV1,
-  createLocalGitHubActionsRunnerStateV3,
-  LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1,
-  LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS_V1,
-  LOCAL_GITHUB_ACTIONS_DOCKERFILE_FRONTEND_V1,
-  LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1,
-  LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1,
-  LOCAL_GITHUB_ACTIONS_GITHUB_HOST_V3,
-  LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1,
-  LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1,
-  LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
-  LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
-  LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2,
-  LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2,
-  LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3,
-  LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
-  LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3,
-  LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1,
-  parseLocalGitHubActionsProviderLedgerCommitV3,
-  parseLocalGitHubActionsProviderLedgerV3,
-  parseLocalGitHubActionsRunnerStateV3,
-  readValidatedRunnerOciLayoutIdentityV1,
-  reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1,
-  retireLocalGitHubActionsRunnerOciCandidateV1,
-  type DockerEndpointIdentityV3,
-  type GitHubEndpointIdentityV3,
-  type LocalGitHubActionsRunnerInstanceV2,
-  type LocalGitHubActionsRunnerRoleV2
-} from '../../scripts/codex/local-github-actions-runner.ts';
+  assertExactLocalGitHubActionsRunnerProfileContainers,
+  assertExactLocalGitHubActionsRunnerProfileInventory,
+  assertInitialLocalGitHubActionsProviderLedger,
+  assertLocalGitHubActionsProviderLedgerTransition,
+  assertLocalGitHubActionsRunnerImageIdentity,
+  assertLocalGitHubActionsRunnerReplacementImageIdentity,
+  assertOwnedLocalGitHubActionsRunner,
+  assertRepositoryIdentityMatchesOrigin,
+  assertRepositoryIdentityMatchesRemoteUrls,
+  createBuildxRawJsonProgressAdmission,
+  createLocalGitHubActionsProviderLedgerCommitBytes,
+  createLocalGitHubActionsProviderLedger,
+  createLocalGitHubActionsRunnerBuildInputProjection,
+  createLocalGitHubActionsRunnerDockerfile,
+  createLocalGitHubActionsRunnerEnvironmentSpec,
+  createLocalGitHubActionsRunnerOciBakeDefinition,
+  createLocalGitHubActionsRunnerOciCandidateBinding,
+  createLocalGitHubActionsRunnerProjectionBuildxArgs,
+  createLocalGitHubActionsRunnerState,
+  classifyLocalGitHubActionsRunnerCommandV1,
+  LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
+  parseLocalGitHubActionsProviderLedgerCommit,
+  parseLocalGitHubActionsProviderLedger,
+  parseLocalGitHubActionsRunnerState,
+  readValidatedRunnerOciLayoutIdentity,
+  reconcileReclaimedLocalGitHubActionsRunnerOciCandidate,
+  retireLocalGitHubActionsRunnerOciCandidate,
+  observeGitHubEndpointIdentity,
+  observeLocalGitHubActionsProvider,
+  LocalGitHubActionsRunnerCommandFailure,
+  type DockerEndpointIdentity,
+  type GitHubEndpointIdentity,
+  type LocalGitHubActionsRunnerInstance,
+  type LocalGitHubActionsRunnerRole
+} from '../../src/verification/ci/runtime/local-github-actions-runner.ts';
 
 const repository = 'sec-platform/sec';
 const providerName = 'sec-main-health-1';
 const operationLabel = `sec-operation-${'b'.repeat(64)}`;
 const roles = ['control', 'trusted', 'sut'] as const;
+const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+const providerLedgerRef = `refs/tags/sec-provider-lease-${environment.environmentId}`;
 
 function createOciFixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-oci-'));
@@ -129,7 +110,7 @@ function createOciFixture() {
   return Object.freeze({ root, blobs, runtime, nested, layer, provenance, attestation });
 }
 
-const dockerEndpoint: DockerEndpointIdentityV3 = Object.freeze({
+const dockerEndpoint: DockerEndpointIdentity = Object.freeze({
   schema: 'sec-docker-endpoint-identity-v1',
   contextName: 'desktop-linux',
   endpointHost: 'npipe:////./pipe/dockerDesktopLinuxEngine',
@@ -138,17 +119,17 @@ const dockerEndpoint: DockerEndpointIdentityV3 = Object.freeze({
   architecture: 'x86_64'
 });
 
-const githubEndpoint: GitHubEndpointIdentityV3 = Object.freeze({
+const githubEndpoint: GitHubEndpointIdentity = Object.freeze({
   schema: 'sec-github-api-endpoint-identity-v1',
-  host: LOCAL_GITHUB_ACTIONS_GITHUB_HOST_V3,
+  host: environment.provider.githubHost,
   repository,
   principal: 'QzCrane'
 });
 
-const instances: readonly LocalGitHubActionsRunnerInstanceV2[] = Object.freeze(
+const instances: readonly LocalGitHubActionsRunnerInstance[] = Object.freeze(
   roles.map((role, index) => Object.freeze({
     role,
-    roleLabel: LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2[role],
+    roleLabel: environment.runtime.roleLabels[role],
     name: `${providerName}-${role}`,
     runnerId: 21 + index,
     containerId: String.fromCharCode(97 + index).repeat(64),
@@ -156,7 +137,7 @@ const instances: readonly LocalGitHubActionsRunnerInstanceV2[] = Object.freeze(
   }))
 );
 
-function runner(role: LocalGitHubActionsRunnerRoleV2, overrides: Record<string, unknown> = {}) {
+function runner(role: LocalGitHubActionsRunnerRole, overrides: Record<string, unknown> = {}) {
   const instance = instances.find((candidate) => candidate.role === role)!;
   return {
     id: instance.runnerId,
@@ -165,38 +146,38 @@ function runner(role: LocalGitHubActionsRunnerRoleV2, overrides: Record<string, 
     status: 'online',
     busy: false,
     labels: [
-      ...LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1,
-      LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2[role],
+      ...environment.runtime.labels,
+      environment.runtime.roleLabels[role],
       operationLabel
     ].map((name) => ({ name })),
     ...overrides
   };
 }
 
-function container(role: LocalGitHubActionsRunnerRoleV2, overrides: Record<string, unknown> = {}) {
+function container(role: LocalGitHubActionsRunnerRole, overrides: Record<string, unknown> = {}) {
   const instance = instances.find((candidate) => candidate.role === role)!;
   const isSut = role === 'sut';
-  const resources = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1.runtime.resources[role];
+  const resources = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.resources[role];
   return {
     Id: instance.containerId,
     Name: `/${instance.name}`,
-    Image: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    Image: environment.image.dockerProjectionDigest,
     Config: {
       Labels: {
-        'sec.local-runner.schema': LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3,
+        'sec.local-runner.schema': LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
         'sec.local-runner.repository': repository,
         'sec.local-runner.provider-name': providerName,
         'sec.local-runner.instance-name': instance.name,
         'sec.local-runner.role': role,
-        'sec.local-runner.container-init': LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1,
-        'sec.local-runner.image-id': LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+        'sec.local-runner.container-init': environment.runtime.containerInitCapability,
+        'sec.local-runner.image-id': environment.image.dockerProjectionDigest,
         'sec.local-runner.operation-label': operationLabel
       }
     },
     HostConfig: {
       Init: true,
       CapAdd: isSut
-        ? CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities
+        ? CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outerSutContainerCapabilities
           .map((capability) => `CAP_${capability}`)
         : [],
       CapDrop: ['ALL'],
@@ -213,7 +194,7 @@ function container(role: LocalGitHubActionsRunnerRoleV2, overrides: Record<strin
 }
 
 function activeLedger() {
-  return createLocalGitHubActionsProviderLedgerV3({
+  return createLocalGitHubActionsProviderLedger({
     repository,
     providerName,
     operationLabel,
@@ -237,7 +218,7 @@ function activeLedger() {
 }
 
 function initialLedger() {
-  return createLocalGitHubActionsProviderLedgerV3({
+  return createLocalGitHubActionsProviderLedger({
     repository,
     providerName,
     operationLabel,
@@ -262,81 +243,47 @@ function initialLedger() {
 
 describe('local GitHub Actions runner contract', () => {
   test('pins the Linux provider toolchain and contains the SUT sandbox', () => {
-    const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1;
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1).toBe(authority.archives.runner.version);
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1)
-      .toBe(authority.archives.runner.digest.slice(7));
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1).toBe(authority.ubuntu.baseReference);
-    expect(LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1).toBe(authority.archives.node.version);
-    expect(LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1)
-      .toBe(authority.archives.node.digest.slice(7));
-    expect(LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1).toBe(authority.runtime.pythonVersion);
-    expect(LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1).toBe(authority.archives.githubCli.version);
-    expect(LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1)
-      .toBe(authority.archives.githubCli.digest.slice(7));
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2)
-      .toBe(authority.image.buildRevision);
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1).toBe(authority.image.lineageSchema);
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1)
-      .toBe(`${authority.image.name}:${authority.archives.runner.version}-${authority.image.buildRevision}`);
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1)
-      .toBe(authority.image.runtimeContentDigest);
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2)
-      .toBe(authority.image.dockerProjectionDigest);
-    expect(createLocalGitHubActionsRunnerEnvironmentSpecV1().components.map(({ id }) => id))
-      .toEqual(expect.arrayContaining([
-        'authority-input-closure',
-        'runner-build-input-closure'
-      ]));
-    expect(LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS_V1).toContain('PROGRAMFILES');
-    expect(LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3.map(({ imageId }) => imageId))
-      .toEqual(authority.image.retirements.map(({ imageId }) => imageId));
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1).toBe(
-      'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf'
-    );
-    expect(LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3.map(
-      ({ replacementImageId }) => replacementImageId
-    )).toEqual(authority.image.retirements.map(({ replacementImageId }) => replacementImageId));
-    expect(() => assertLocalGitHubActionsRunnerReplacementImageIdentityV3(
-      { Id: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1 },
-      LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1
+    const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+    const retiredImage = authority.image.retirements.find(({ imageTag }) =>
+      imageTag.endsWith('-archive-v7'));
+    expect(retiredImage).toBeDefined();
+    expect(() => assertLocalGitHubActionsRunnerReplacementImageIdentity(
+      { Id: retiredImage!.imageId },
+      retiredImage!.imageId
     )).not.toThrow();
-    expect(() => assertLocalGitHubActionsRunnerReplacementImageIdentityV3(
-      { Id: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2 },
-      LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1
+    expect(() => assertLocalGitHubActionsRunnerReplacementImageIdentity(
+      { Id: authority.image.dockerProjectionDigest },
+      retiredImage!.imageId
     )).toThrow('superseding frozen image identity differs from its decision');
-    expect(LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1).toEqual([
-      'self-hosted', 'Linux', 'X64', 'sec-linux-verification-v1'
-    ]);
 
-    const dockerfile = createLocalGitHubActionsRunnerDockerfileV2();
-    expect(dockerfile).toContain(`FROM ${LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1}`);
-    expect(dockerfile).toContain(`ADD --checksum=sha256:${LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1}`);
-    expect(dockerfile).toContain(`ADD --checksum=sha256:${LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1}`);
+    const dockerfile = createLocalGitHubActionsRunnerDockerfile();
+    expect(dockerfile).toContain(`FROM ${authority.ubuntu.baseReference}`);
+    expect(dockerfile).toContain(`ADD --checksum=${authority.archives.runner.digest}`);
+    expect(dockerfile).toContain(`ADD --checksum=${authority.archives.node.digest}`);
     expect(dockerfile).toContain(
-      `ADD --checksum=sha256:${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1}`
+      `ADD --checksum=${authority.archives.githubCli.digest}`
     );
     expect(dockerfile).toContain(
-      `gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64/bin/gh`
+      `gh_${authority.archives.githubCli.version}_linux_amd64/bin/gh`
     );
     expect(dockerfile).toContain(
-      `grep -E '^gh version ${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1.replaceAll('.', '\\.')}`
+      `grep -E '^gh version ${authority.archives.githubCli.version.replaceAll('.', '\\.')}`
     );
-    expect(dockerfile).toContain(`ADD --chmod=0444 --checksum=sha256:${LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1}`);
-    expect(dockerfile).toContain(`ARG UBUNTU_SNAPSHOT=${LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1}`);
+    expect(dockerfile).toContain(`ADD --chmod=0444 --checksum=${authority.archives.bootstrapCa.digest}`);
+    expect(dockerfile).toContain(`ARG UBUNTU_SNAPSHOT=${authority.ubuntu.snapshot}`);
     expect(dockerfile).toContain('URIs: https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}');
     expect(dockerfile).toContain('Acquire::https::CAInfo=/tmp/bootstrap-cacert.pem');
     expect(dockerfile).toContain('mount=type=cache,id=sec-ubuntu-noble-apt-cache-v1');
     expect(dockerfile).toContain('tar --no-same-owner -xzf /tmp/runner.tar.gz');
     expect(dockerfile).toContain('python3 unzip xz-utils');
     expect(dockerfile).toContain('command -v unzip >/dev/null');
-    expect(dockerfile).toContain(`test "$(node --version)" = "v${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1}"`);
-    expect(dockerfile).toContain(`test "$(python3 --version)" = "Python ${LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1}"`);
+    expect(dockerfile).toContain(`test "$(node --version)" = "v${authority.archives.node.version}"`);
+    expect(dockerfile).toContain(`test "$(python3 --version)" = "Python ${authority.runtime.pythonVersion}"`);
     expect(dockerfile).toContain(
-      `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1}`
+      `LABEL sec.local-runner.image-schema=${authority.image.lineageSchema}`
     );
     expect(dockerfile).not.toContain(
-      `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3}`
+      `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA}`
     );
     expect(dockerfile).not.toContain(':latest');
     expect(dockerfile).not.toContain('http://archive.ubuntu.com');
@@ -345,20 +292,20 @@ describe('local GitHub Actions runner contract', () => {
     expect(dockerfile).not.toContain('curl -');
     expect(dockerfile).not.toMatch(/apt-get install[^\n]*\bnodejs\b/u);
 
-    const environmentSpec = createLocalGitHubActionsRunnerEnvironmentSpecV1();
+    const environmentSpec = createLocalGitHubActionsRunnerEnvironmentSpec();
     expect(environmentSpec.providerRequirement)
-      .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1.provider.requirement);
+      .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.provider.requirement);
     expect(environmentSpec.components.map(({ id }) => id)).toEqual([
       'authority-input-closure', 'base-image', 'bootstrap-ca-bundle', 'dockerfile-frontend',
       'github-cli', 'node', 'runner', 'runner-build-input-closure'
     ]);
 
-    const ociBake = JSON.parse(createLocalGitHubActionsRunnerOciBakeDefinitionV1('D:\\cache\\candidate'));
-    const buildInputProjection = createLocalGitHubActionsRunnerBuildInputProjectionV1();
+    const ociBake = JSON.parse(createLocalGitHubActionsRunnerOciBakeDefinition('D:\\cache\\candidate'));
+    const buildInputProjection = createLocalGitHubActionsRunnerBuildInputProjection();
     expect(JSON.stringify(buildInputProjection)).toContain('<candidate-layout>');
     expect(JSON.stringify(buildInputProjection)).toContain('<layout>');
     expect(JSON.stringify(buildInputProjection)).toContain(
-      LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1
+      authority.image.runtimeContentDigest
     );
     expect(ociBake.group.default.targets).toEqual(['runner-oci']);
     expect(ociBake.target['runner-oci'].attest).toEqual(['type=provenance,mode=max']);
@@ -375,41 +322,41 @@ describe('local GitHub Actions runner contract', () => {
     expect(bakeDockerfile).not.toContain('$$(node');
     expect(bakeDockerfile).not.toContain('$$UBUNTU_SNAPSHOT');
     const providerLayoutPath = path.resolve('cache', 'layout');
-    const projectionArgs = createLocalGitHubActionsRunnerProjectionBuildxArgsV1(providerLayoutPath);
+    const projectionArgs = createLocalGitHubActionsRunnerProjectionBuildxArgs(providerLayoutPath);
     expect(projectionArgs).toContain(
       `runtime=oci-layout://${providerLayoutPath.split(path.sep).join('/')}@`
-        + LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1
+        + authority.image.runtimeContentDigest
     );
     expect(projectionArgs).toContain('type=docker');
     expect(projectionArgs).toContain('--provenance=false');
 
     const frozenImage = {
-      Id: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+      Id: authority.image.dockerProjectionDigest,
       Config: { Labels: {
-        'sec.local-runner.image-schema': LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1,
-        'sec.local-runner.image-revision': LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2,
-        'sec.local-runner.runner-version': LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
-        'sec.local-runner.node-version': LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1,
-        'sec.local-runner.node-archive-sha256': LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1,
-        'sec.local-runner.github-cli-version': LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1,
+        'sec.local-runner.image-schema': authority.image.lineageSchema,
+        'sec.local-runner.image-revision': authority.image.buildRevision,
+        'sec.local-runner.runner-version': authority.archives.runner.version,
+        'sec.local-runner.node-version': authority.archives.node.version,
+        'sec.local-runner.node-archive-sha256': authority.archives.node.digest.slice(7),
+        'sec.local-runner.github-cli-version': authority.archives.githubCli.version,
         'sec.local-runner.github-cli-archive-sha256':
-          LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1,
-        'sec.local-runner.python-version': LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1,
-        'sec.local-runner.ubuntu-snapshot': LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1,
+          authority.archives.githubCli.digest.slice(7),
+        'sec.local-runner.python-version': authority.runtime.pythonVersion,
+        'sec.local-runner.ubuntu-snapshot': authority.ubuntu.snapshot,
         'sec.local-runner.bootstrap-ca-bundle-sha256':
-          LOCAL_GITHUB_ACTIONS_BOOTSTRAP_CA_BUNDLE_SHA256_V1,
-        'sec.local-runner.dockerfile-frontend': LOCAL_GITHUB_ACTIONS_DOCKERFILE_FRONTEND_V1
+          authority.archives.bootstrapCa.digest.slice(7),
+        'sec.local-runner.dockerfile-frontend': authority.provider.dockerfileFrontend.reference
       } }
     } as const;
-    expect(() => assertLocalGitHubActionsRunnerImageIdentityV1(frozenImage)).not.toThrow();
-    expect(() => assertLocalGitHubActionsRunnerImageIdentityV1({
+    expect(() => assertLocalGitHubActionsRunnerImageIdentity(frozenImage)).not.toThrow();
+    expect(() => assertLocalGitHubActionsRunnerImageIdentity({
       ...frozenImage,
       Config: { Labels: {
         ...frozenImage.Config.Labels,
-        'sec.local-runner.image-schema': LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3
+        'sec.local-runner.image-schema': LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA
       } }
     })).toThrow('cached runner image labels differ from the frozen provider revision');
-    expect(() => assertLocalGitHubActionsRunnerImageIdentityV1({
+    expect(() => assertLocalGitHubActionsRunnerImageIdentity({
       ...frozenImage,
       Id: 'sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
     })).toThrow('cached runner image ID differs from the frozen provider revision');
@@ -417,7 +364,7 @@ describe('local GitHub Actions runner contract', () => {
       ['sec.local-runner.github-cli-version', '2.96.0'],
       ['sec.local-runner.github-cli-archive-sha256', 'f'.repeat(64)]
     ] as const) {
-      expect(() => assertLocalGitHubActionsRunnerImageIdentityV1({
+      expect(() => assertLocalGitHubActionsRunnerImageIdentity({
         ...frozenImage,
         Config: { Labels: { ...frozenImage.Config.Labels, [label]: value } }
       })).toThrow('cached runner image labels differ from the frozen provider revision');
@@ -436,7 +383,7 @@ describe('local GitHub Actions runner contract', () => {
     ] as const) {
       const labels = { ...frozenImage.Config.Labels } as Record<string, string>;
       delete labels[label];
-      expect(() => assertLocalGitHubActionsRunnerImageIdentityV1({
+      expect(() => assertLocalGitHubActionsRunnerImageIdentity({
         ...frozenImage,
         Config: { Labels: labels }
       })).toThrow('cached runner image labels differ from the frozen provider revision');
@@ -444,7 +391,7 @@ describe('local GitHub Actions runner contract', () => {
   });
 
   test('admits only monotonic structured BuildKit progress', () => {
-    const progress = createBuildxRawJsonProgressAdmissionV1();
+    const progress = createBuildxRawJsonProgressAdmission();
     const digest = `sha256:${'a'.repeat(64)}`;
     const vertex = JSON.stringify({ vertexes: [{ digest, name: 'build' }] });
     expect(progress.push(Buffer.from(vertex.slice(0, 20)))).toBe(false);
@@ -481,11 +428,11 @@ describe('local GitHub Actions runner contract', () => {
   test('recursively validates the complete OCI runtime and provenance closure', () => {
     const fixture = createOciFixture();
     try {
-      expect(readValidatedRunnerOciLayoutIdentityV1(
+      expect(readValidatedRunnerOciLayoutIdentity(
         fixture.root, fixture.runtime.digest
       )).toBe(fixture.nested.digest);
       writeFileSync(path.join(fixture.blobs, fixture.layer.digest.slice(7)), 'corrupt-layer');
-      expect(() => readValidatedRunnerOciLayoutIdentityV1(
+      expect(() => readValidatedRunnerOciLayoutIdentity(
         fixture.root, fixture.runtime.digest
       )).toThrow('runtime layer 0 blob identity is invalid');
     } finally {
@@ -495,7 +442,7 @@ describe('local GitHub Actions runner contract', () => {
     const missingProvenance = createOciFixture();
     try {
       unlinkSync(path.join(missingProvenance.blobs, missingProvenance.provenance.digest.slice(7)));
-      expect(() => readValidatedRunnerOciLayoutIdentityV1(
+      expect(() => readValidatedRunnerOciLayoutIdentity(
         missingProvenance.root, missingProvenance.runtime.digest
       )).toThrow('provenance layer blob identity is invalid');
     } finally {
@@ -504,14 +451,14 @@ describe('local GitHub Actions runner contract', () => {
   });
 
   test('leases candidate generations, protects live owners, and retires abandoned bytes no-follow', () => {
-    const specDigest = createLocalGitHubActionsRunnerEnvironmentSpecV1().specDigest;
+    const specDigest = createLocalGitHubActionsRunnerEnvironmentSpec().specDigest;
     const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-candidate-'));
     const generationPath = path.join(root, specDigest.slice(7));
     mkdirSync(generationPath);
-    const directory = inspectNoFollowDirectoryChainV1(
+    const directory = inspectNoFollowDirectoryChain(
       generationPath, 'Runner OCI candidate lifecycle fixture'
     ).target;
-    const oldLease = acquirePhysicalMutationLeaseV1(directory, 'materialization-lease.json', {
+    const oldLease = acquirePhysicalMutationLease(directory, 'materialization-lease.json', {
       now: () => 1_000,
       ownerHost: 'candidate-test-host',
       ownerPid: 41_001,
@@ -519,14 +466,14 @@ describe('local GitHub Actions runner contract', () => {
       processAlive: () => 'alive'
     });
     expect(oldLease).not.toBeNull();
-    const oldBinding = createLocalGitHubActionsRunnerOciCandidateBindingV1(
+    const oldBinding = createLocalGitHubActionsRunnerOciCandidateBinding(
       specDigest, oldLease!.owner
     );
     const oldCandidatePath = path.join(generationPath, oldBinding.candidateName);
     mkdirSync(path.join(oldCandidatePath, 'partial', 'nested'), { recursive: true });
     writeFileSync(path.join(oldCandidatePath, 'partial', 'nested', 'layer'), 'partial-build-output');
 
-    const blocked = acquirePhysicalMutationLeaseV1(directory, 'materialization-lease.json', {
+    const blocked = acquirePhysicalMutationLease(directory, 'materialization-lease.json', {
       now: () => 2_000,
       ownerHost: 'candidate-test-host',
       ownerPid: 41_002,
@@ -536,7 +483,7 @@ describe('local GitHub Actions runner contract', () => {
     expect(blocked).toBeNull();
     expect(existsSync(oldCandidatePath)).toBe(true);
 
-    const successor = acquirePhysicalMutationLeaseV1(directory, 'materialization-lease.json', {
+    const successor = acquirePhysicalMutationLease(directory, 'materialization-lease.json', {
       now: () => 3_000,
       ownerHost: 'candidate-test-host',
       ownerPid: 41_003,
@@ -545,20 +492,20 @@ describe('local GitHub Actions runner contract', () => {
     });
     expect(successor).not.toBeNull();
     expect(successor!.reclaimedOwner).toEqual(oldLease!.owner);
-    expect(reconcileReclaimedLocalGitHubActionsRunnerOciCandidateV1({
+    expect(reconcileReclaimedLocalGitHubActionsRunnerOciCandidate({
       directory,
       specDigest,
       owner: successor!.reclaimedOwner!
     })).toBe('retired-invalid');
     expect(existsSync(oldCandidatePath)).toBe(false);
 
-    const currentBinding = createLocalGitHubActionsRunnerOciCandidateBindingV1(
+    const currentBinding = createLocalGitHubActionsRunnerOciCandidateBinding(
       specDigest, successor!.owner
     );
     const currentCandidatePath = path.join(generationPath, currentBinding.candidateName);
     mkdirSync(path.join(currentCandidatePath, 'failed-validation'), { recursive: true });
     writeFileSync(path.join(currentCandidatePath, 'failed-validation', 'blob'), 'invalid');
-    retireLocalGitHubActionsRunnerOciCandidateV1(directory, currentBinding);
+    retireLocalGitHubActionsRunnerOciCandidate(directory, currentBinding);
     expect(existsSync(currentCandidatePath)).toBe(false);
     successor!.release();
     rmSync(root, { recursive: true, force: true });
@@ -566,8 +513,8 @@ describe('local GitHub Actions runner contract', () => {
 
   test('remote CAS ledger is the authority and local state is only its exact projection', () => {
     const initial = initialLedger();
-    expect(() => assertInitialLocalGitHubActionsProviderLedgerV3(initial)).not.toThrow();
-    const firstContainer = createLocalGitHubActionsProviderLedgerV3({
+    expect(() => assertInitialLocalGitHubActionsProviderLedger(initial)).not.toThrow();
+    const firstContainer = createLocalGitHubActionsProviderLedger({
       ...initial,
       generation: 1,
       predecessorObjectSha: '1'.repeat(40),
@@ -575,23 +522,23 @@ describe('local GitHub Actions runner contract', () => {
         ? { ...instance, containerId: 'a'.repeat(64), containerState: 'present' as const }
         : instance)
     });
-    expect(() => assertLocalGitHubActionsProviderLedgerTransitionV3(
+    expect(() => assertLocalGitHubActionsProviderLedgerTransition(
       '1'.repeat(40), initial, firstContainer
     )).not.toThrow();
-    const commitBytes = createLocalGitHubActionsProviderLedgerCommitBytesV3(
+    const commitBytes = createLocalGitHubActionsProviderLedgerCommitBytes(
       firstContainer,
       'f'.repeat(40)
     );
-    expect(parseLocalGitHubActionsProviderLedgerCommitV3(commitBytes.toString('utf8'))).toEqual({
+    expect(parseLocalGitHubActionsProviderLedgerCommit(commitBytes.toString('utf8'))).toEqual({
       treeSha: 'f'.repeat(40),
       parentObjectSha: '1'.repeat(40),
       timestamp: Math.floor(Date.parse(firstContainer.createdAt) / 1000),
       generation: 1
     });
-    expect(() => parseLocalGitHubActionsProviderLedgerCommitV3(
+    expect(() => parseLocalGitHubActionsProviderLedgerCommit(
       commitBytes.toString('utf8').replace('SEC Provider Ledger', 'Untrusted Writer')
     )).toThrow('commit framing is invalid');
-    const twoEffects = createLocalGitHubActionsProviderLedgerV3({
+    const twoEffects = createLocalGitHubActionsProviderLedger({
       ...firstContainer,
       generation: 2,
       predecessorObjectSha: '2'.repeat(40),
@@ -605,19 +552,19 @@ describe('local GitHub Actions runner contract', () => {
         return instance;
       })
     });
-    expect(() => assertLocalGitHubActionsProviderLedgerTransitionV3(
+    expect(() => assertLocalGitHubActionsProviderLedgerTransition(
       '2'.repeat(40), firstContainer, twoEffects
     )).toThrow('exactly one lifecycle or resource effect');
-    const teardown = createLocalGitHubActionsProviderLedgerV3({
+    const teardown = createLocalGitHubActionsProviderLedger({
       ...initial,
       lifecycle: 'teardown',
       generation: 1,
       predecessorObjectSha: '3'.repeat(40)
     });
-    expect(() => assertLocalGitHubActionsProviderLedgerTransitionV3(
+    expect(() => assertLocalGitHubActionsProviderLedgerTransition(
       '3'.repeat(40), initial, teardown
     )).not.toThrow();
-    const skippedRunner = createLocalGitHubActionsProviderLedgerV3({
+    const skippedRunner = createLocalGitHubActionsProviderLedger({
       ...teardown,
       generation: 2,
       predecessorObjectSha: '4'.repeat(40),
@@ -625,36 +572,36 @@ describe('local GitHub Actions runner contract', () => {
         ? { ...instance, runnerState: 'absent' as const }
         : instance)
     });
-    expect(() => assertLocalGitHubActionsProviderLedgerTransitionV3(
+    expect(() => assertLocalGitHubActionsProviderLedgerTransition(
       '4'.repeat(40), teardown, skippedRunner
     )).not.toThrow();
 
     const ledger = activeLedger();
-    expect(parseLocalGitHubActionsProviderLedgerV3(JSON.stringify(ledger))).toEqual(ledger);
+    expect(parseLocalGitHubActionsProviderLedger(JSON.stringify(ledger))).toEqual(ledger);
     expect(ledger.instances.map(({ role }) => role)).toEqual([...roles]);
     expect(ledger.lifecycle).toBe('active');
     expect(ledger.dockerEndpoint).toEqual(dockerEndpoint);
     expect(ledger.githubEndpoint).toEqual(githubEndpoint);
-    expect(() => parseLocalGitHubActionsProviderLedgerV3(JSON.stringify({
+    expect(() => parseLocalGitHubActionsProviderLedger(JSON.stringify({
       ...ledger,
       githubEndpoint: { ...ledger.githubEndpoint, principal: 'Attacker' }
     }))).toThrow('digest mismatch');
-    expect(() => parseLocalGitHubActionsProviderLedgerV3(JSON.stringify({
+    expect(() => parseLocalGitHubActionsProviderLedger(JSON.stringify({
       ...ledger,
       dockerEndpoint: { ...ledger.dockerEndpoint, extra: true }
     }))).toThrow('keys are invalid');
-    expect(() => createLocalGitHubActionsProviderLedgerV3({
+    expect(() => createLocalGitHubActionsProviderLedger({
       ...ledger,
       dockerEndpoint: { ...ledger.dockerEndpoint, endpointHost: 'tcp://remote.example:2376' }
     })).toThrow('must be a local npipe or unix transport');
 
-    const state = createLocalGitHubActionsRunnerStateV3({
+    const state = createLocalGitHubActionsRunnerState({
       repository,
       repositoryRoot: 'D:/Project/sec',
       commonDirectory: 'D:/Project/sec/.git',
       providerName,
       operationLabel,
-      providerLedgerRef: LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3,
+      providerLedgerRef,
       providerLedgerObjectSha: 'd'.repeat(40),
       providerLedgerDigest: ledger.ledgerDigest,
       dockerEndpoint,
@@ -662,54 +609,54 @@ describe('local GitHub Actions runner contract', () => {
       instances,
       startedAt: '2026-08-14T08:00:00.000Z'
     });
-    expect(parseLocalGitHubActionsRunnerStateV3(JSON.stringify(state))).toEqual(state);
-    expect(state.providerLedgerRef).toBe(LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_REF_V3);
-    expect(() => parseLocalGitHubActionsRunnerStateV3(JSON.stringify({
+    expect(parseLocalGitHubActionsRunnerState(JSON.stringify(state))).toEqual(state);
+    expect(state.providerLedgerRef).toBe(providerLedgerRef);
+    expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({
       ...state,
       providerLedgerObjectSha: 'e'.repeat(40)
     }))).toThrow('digest mismatch');
-    expect(() => parseLocalGitHubActionsRunnerStateV3(JSON.stringify({ ...state, token: 'secret' })))
+    expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({ ...state, token: 'secret' })))
       .toThrow('keys are invalid');
     expect(JSON.stringify(state)).not.toContain('token');
   });
 
   test('requires one exact runner identity for every trust role', () => {
     const runners = roles.map((role) => runner(role));
-    expect(assertOwnedLocalGitHubActionsRunnerV2(runners[1]!, {
+    expect(assertOwnedLocalGitHubActionsRunner(runners[1]!, {
       name: `${providerName}-trusted`,
       role: 'trusted',
       operationLabel,
       runnerId: 22
     })).toBe(22);
-    expect(() => assertExactLocalGitHubActionsRunnerProfileInventoryV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
       runners,
       instances,
       operationLabel
     })).not.toThrow();
-    expect(() => assertExactLocalGitHubActionsRunnerProfileInventoryV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
       runners: runners.slice(0, 2),
       instances,
       operationLabel
     })).toThrow('missing, duplicated, or extra');
-    expect(() => assertExactLocalGitHubActionsRunnerProfileInventoryV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
       runners: [...runners, runner('sut', { id: 99, name: 'foreign-sut' })],
       instances,
       operationLabel
     })).toThrow('missing, duplicated, or extra');
-    expect(() => assertExactLocalGitHubActionsRunnerProfileInventoryV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
       runners: [runners[0]!, runner('trusted', { status: 'offline' }), runners[2]!],
       instances,
       operationLabel
     })).toThrow('final readiness census is not online');
-    expect(() => assertExactLocalGitHubActionsRunnerProfileInventoryV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
       runners: [runners[0]!, runner('trusted', { busy: true }), runners[2]!],
       instances,
       operationLabel
     })).not.toThrow();
-    expect(() => assertOwnedLocalGitHubActionsRunnerV2({
+    expect(() => assertOwnedLocalGitHubActionsRunner({
       ...runner('trusted'),
       labels: [...runner('trusted').labels, {
-        name: LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2.sut
+        name: environment.runtime.roleLabels.sut
       }]
     }, {
       name: `${providerName}-trusted`,
@@ -718,23 +665,23 @@ describe('local GitHub Actions runner contract', () => {
     })).toThrow('complete effective labels changed');
     const caseVaried = runner('trusted');
     caseVaried.labels = caseVaried.labels.map(({ name }) => ({ name: name.toUpperCase() }));
-    expect(assertOwnedLocalGitHubActionsRunnerV2(caseVaried, {
+    expect(assertOwnedLocalGitHubActionsRunner(caseVaried, {
       name: `${providerName}-trusted`,
       role: 'trusted',
       operationLabel,
       runnerId: 22
     })).toBe(22);
-    expect(() => assertOwnedLocalGitHubActionsRunnerV2({
+    expect(() => assertOwnedLocalGitHubActionsRunner({
       ...runner('trusted'),
       labels: [...runner('trusted').labels, {
-        name: LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL_V1.toUpperCase()
+        name: environment.runtime.labels[3].toUpperCase()
       }]
     }, {
       name: `${providerName}-trusted`,
       role: 'trusted',
       operationLabel
     })).toThrow('duplicated case-insensitively');
-    expect(() => assertOwnedLocalGitHubActionsRunnerV2({ ...runner('trusted'), os: 'Windows' }, {
+    expect(() => assertOwnedLocalGitHubActionsRunner({ ...runner('trusted'), os: 'Windows' }, {
       name: `${providerName}-trusted`,
       role: 'trusted',
       operationLabel
@@ -743,35 +690,35 @@ describe('local GitHub Actions runner contract', () => {
 
   test('requires exact immutable container IDs and names for all three roles', () => {
     const containers = roles.map((role) => container(role));
-    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
       containers,
       instances,
       repository,
       providerName,
       operationLabel
     })).not.toThrow();
-    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
       containers: containers.slice(0, 2),
       instances,
       repository,
       providerName,
       operationLabel
     })).toThrow('missing, duplicated, or extra');
-    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
       containers: [containers[0]!, containers[1]!, container('sut', { Id: 'f'.repeat(64) })],
       instances,
       repository,
       providerName,
       operationLabel
     })).toThrow('foreign eligible container');
-    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
       containers: [containers[0]!, containers[1]!, container('sut', { Name: '/replacement-sut' })],
       instances,
       repository,
       providerName,
       operationLabel
     })).toThrow('retained name changed');
-    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
       containers: [containers[0]!, containers[1]!, container('sut', { State: { Running: false } })],
       instances,
       repository,
@@ -780,7 +727,7 @@ describe('local GitHub Actions runner contract', () => {
     })).toThrow('final readiness census is not running');
     const withoutInit = container('trusted');
     withoutInit.HostConfig.Init = false;
-    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
       containers: [containers[0]!, withoutInit, containers[2]!],
       instances,
       repository,
@@ -790,18 +737,90 @@ describe('local GitHub Actions runner contract', () => {
   });
 
   test('binds repository and every external effect to frozen endpoints and exact IDs', async () => {
-    expect(assertRepositoryIdentityMatchesOriginV2(
+    expect(assertRepositoryIdentityMatchesOrigin(
       repository,
       'https://github.com/sec-platform/sec.git'
     )).toBe(repository);
-    expect(assertRepositoryIdentityMatchesRemoteUrlsV2(
+    expect(assertRepositoryIdentityMatchesRemoteUrls(
       repository,
       'git@github.com:sec-platform/sec.git',
       ['https://github.com/sec-platform/sec.git']
     )).toBe(repository);
-    expect(() => assertRepositoryIdentityMatchesOriginV2(
+    expect(() => assertRepositoryIdentityMatchesOrigin(
       repository,
       'https://example.com/sec-platform/sec.git'
     )).toThrow('origin repository identity differs');
+  });
+
+  test('classifies Git and GitHub reads separately from write-capable effects', () => {
+    expect(classifyLocalGitHubActionsRunnerCommandV1('git', [
+      'rev-parse', '--show-toplevel'
+    ])).toBe('read');
+    expect(classifyLocalGitHubActionsRunnerCommandV1('git', [
+      'remote', 'get-url', 'origin'
+    ])).toBe('read');
+    expect(classifyLocalGitHubActionsRunnerCommandV1('gh', [
+      'auth', 'token', '--hostname', environment.provider.githubHost
+    ])).toBe('read');
+    expect(classifyLocalGitHubActionsRunnerCommandV1('gh', [
+      'api', '--hostname', environment.provider.githubHost, 'user'
+    ])).toBe('read');
+
+    for (const [command, args] of [
+      ['git', ['push', '--no-verify', 'origin', 'HEAD:refs/tags/example']],
+      ['git', ['fetch', '--no-tags', 'origin', 'refs/heads/main']],
+      ['git', ['hash-object', '-w', '--stdin']],
+      ['git', ['mktree']],
+      ['gh', ['api', '--method', 'DELETE', 'repos/sec-platform/sec/actions/runners/1']],
+      ['gh', ['api', '--method', 'POST', 'repos/sec-platform/sec/actions/runners/registration-token']]
+    ] as const) {
+      expect(classifyLocalGitHubActionsRunnerCommandV1(command, args)).toBe('effect');
+    }
+    expect(classifyLocalGitHubActionsRunnerCommandV1(
+      'git', ['rev-parse', 'HEAD'], true
+    )).toBe('effect');
+    expect(classifyLocalGitHubActionsRunnerCommandV1('docker', ['info'])).toBe('docker');
+  });
+
+  test('blocks Windows Git/GH PATH sentinels before any provider command or ref/object effect', async () => {
+    if (process.platform !== 'win32' || process.arch !== 'x64') return;
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-cli-gate-'));
+    const bin = path.join(root, 'bin');
+    const marker = path.join(root, 'executed.txt');
+    mkdirSync(bin, { recursive: true });
+    const sentinel = [
+      '@echo off',
+      `>"${marker}" echo PATH-SENTINEL-RAN`,
+      'exit /b 0',
+      ''
+    ].join('\r\n');
+    writeFileSync(path.join(bin, 'git.cmd'), sentinel, 'utf8');
+    writeFileSync(path.join(bin, 'gh.cmd'), sentinel, 'utf8');
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${bin};${previousPath ?? ''}`;
+    try {
+      const assertBlocked = async (operation: Promise<unknown>, expectedCommand: 'git' | 'gh'): Promise<void> => {
+        try {
+          await operation;
+          throw new Error('expected Windows control-CLI provider admission to block');
+        } catch (error) {
+          expect(error).toBeInstanceOf(LocalGitHubActionsRunnerCommandFailure);
+          expect(error).toMatchObject({
+            code: 'SEC-LOCAL-GITHUB-ACTIONS-COMMAND-BLOCKED',
+            command: expectedCommand,
+            kind: 'read',
+            providerStatus: 'unknown',
+            reason: 'installed-executable-capability-unproven'
+          });
+        }
+      };
+      await assertBlocked(observeGitHubEndpointIdentity(root, repository), 'gh');
+      await assertBlocked(observeLocalGitHubActionsProvider({ cwd: root }), 'git');
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

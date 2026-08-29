@@ -1,28 +1,25 @@
 import { expect, test } from 'bun:test';
 
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/verification/ci/contract/revision.ts';
 import {
-  CI_MAIN_HEALTH_POLICY_V1,
-  createCiMainHealthRequestOperationIdV1
-} from '../../platform/shared/ci-verification-revision.ts';
-import {
-  createObservedMainHealthInputWithPolicyV1,
-  createRegisteredHostedMainHealthInputsV1,
-  createTrustedLocalMainHealthInputV1,
+  createObservedMainHealthInputWithPolicy,
+  createRegisteredHostedMainHealthInputs,
+  createTrustedLocalMainHealthInput,
   createTrustedRuntimeMainHealthCheckProviderPolicyV1
-} from '../../scripts/codex/main-health-observation.ts';
-import type { GitHubCheckObservationV1 } from '../../scripts/codex/verification-session-github.ts';
+} from '../../src/control/main-health/main-health-observation.ts';
+import type { GitHubCheckObservation } from '../../src/verification/ci/contract/github-observation.ts';
 
 const MAIN = '1'.repeat(40);
 const MAIN_TREE = '2'.repeat(40);
 const APP = Object.freeze({ id: 900001, nodeId: 'A_sec_integrator', slug: 'sec-integrator' });
-const RUNTIME_REF = `scripts/codex/merge-gate.ts@${MAIN}`;
+const RUNTIME_REF = `src/control/integration/merge-gate.ts@${MAIN}`;
 
 const policy = createTrustedRuntimeMainHealthCheckProviderPolicyV1({
   policyRevision: 'sec-main-health-trusted-runtime-v1',
   app: APP
 });
 
-function check(overrides: Partial<GitHubCheckObservationV1> = {}): GitHubCheckObservationV1 {
+function check(overrides: Partial<GitHubCheckObservation> = {}): GitHubCheckObservation {
   return {
     id: 77,
     name: 'sec/main-health',
@@ -42,29 +39,29 @@ function check(overrides: Partial<GitHubCheckObservationV1> = {}): GitHubCheckOb
   };
 }
 
-function actionsCheck(overrides: Partial<GitHubCheckObservationV1> = {}): GitHubCheckObservationV1 {
-  const operationId = createCiMainHealthRequestOperationIdV1(MAIN);
+function actionsCheck(overrides: Partial<GitHubCheckObservation> = {}): GitHubCheckObservation {
+  const operationId = createCiMainHealthRequestOperationId(MAIN);
   return {
     id: 123,
-    name: CI_MAIN_HEALTH_POLICY_V1.context,
+    name: CI_MAIN_HEALTH_POLICY.context,
     status: 'completed',
     conclusion: 'success',
     headSha: MAIN,
     detailsUrl: 'https://github.com/sec-platform/sec/actions/runs/123',
-    appId: CI_MAIN_HEALTH_POLICY_V1.app.id,
-    appNodeId: CI_MAIN_HEALTH_POLICY_V1.app.nodeId,
-    appSlug: CI_MAIN_HEALTH_POLICY_V1.app.slug,
-    workflowPath: CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath,
-    workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${MAIN}`,
-    eventName: CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0],
+    appId: CI_MAIN_HEALTH_POLICY.app.id,
+    appNodeId: CI_MAIN_HEALTH_POLICY.app.nodeId,
+    appSlug: CI_MAIN_HEALTH_POLICY.app.slug,
+    workflowPath: CI_MAIN_HEALTH_POLICY.producer.workflowPath,
+    workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${MAIN}`,
+    eventName: CI_MAIN_HEALTH_POLICY.producer.eventNames[0],
     workflowRunId: '123',
     workflowRunDisplayTitle: `SEC main health ${MAIN} operation ${operationId}`,
     ...overrides
   };
 }
 
-function compileHosted(checks: readonly GitHubCheckObservationV1[]) {
-  return createRegisteredHostedMainHealthInputsV1({
+function compileHosted(checks: readonly GitHubCheckObservation[]) {
+  return createRegisteredHostedMainHealthInputs({
     repository: 'sec-platform/sec',
     mainSha: MAIN,
     mainTreeSha: MAIN_TREE,
@@ -76,8 +73,8 @@ function compileHosted(checks: readonly GitHubCheckObservationV1[]) {
   });
 }
 
-function observe(checks: readonly GitHubCheckObservationV1[], sourceRunId = '77') {
-  return createObservedMainHealthInputWithPolicyV1({
+function observe(checks: readonly GitHubCheckObservation[], sourceRunId = '77') {
+  return createObservedMainHealthInputWithPolicy({
     repository: 'sec-platform/sec',
     mainSha: MAIN,
     mainTreeSha: MAIN_TREE,
@@ -139,12 +136,12 @@ test('hosted registry accepts the exact Actions principal and ignores an unregis
 
 test('hosted registry does not enroll same-App near matches before producer provenance matches', () => {
   const skipped = { status: 'completed', conclusion: 'skipped' } as const;
-  const operationId = createCiMainHealthRequestOperationIdV1(MAIN);
+  const operationId = createCiMainHealthRequestOperationId(MAIN);
   expect(compileHosted([actionsCheck({ ...skipped, headSha: '3'.repeat(40) })])).toEqual([]);
-  expect(compileHosted([actionsCheck({ ...skipped, appId: CI_MAIN_HEALTH_POLICY_V1.app.id + 1 })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, appId: CI_MAIN_HEALTH_POLICY.app.id + 1 })])).toEqual([]);
   expect(compileHosted([actionsCheck({ ...skipped, eventName: 'pull_request' })])).toEqual([]);
   expect(compileHosted([actionsCheck({ ...skipped, workflowPath: '.github/workflows/other.yml' })])).toEqual([]);
-  expect(compileHosted([actionsCheck({ ...skipped, workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${'4'.repeat(40)}` })])).toEqual([]);
+  expect(compileHosted([actionsCheck({ ...skipped, workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${'4'.repeat(40)}` })])).toEqual([]);
   expect(compileHosted([actionsCheck({ ...skipped, workflowRunDisplayTitle: `SEC main health ${MAIN} operation sha256:${'f'.repeat(64)}` })])).toEqual([]);
   expect(compileHosted([actionsCheck({ ...skipped, workflowRunId: null })])).toEqual([]);
   expect(compileHosted([
@@ -162,7 +159,7 @@ test('terminal non-success remains degraded and routes only to repair', () => {
 });
 
 test('durable local runtime receipt projects healthy exact-main input without Actions', () => {
-  const input = createTrustedLocalMainHealthInputV1({
+  const input = createTrustedLocalMainHealthInput({
     schema: 'sec-trusted-local-main-health-observation-v1',
     repository: 'sec-platform/sec',
     mainSha: MAIN,
@@ -184,7 +181,7 @@ test('durable local runtime receipt projects healthy exact-main input without Ac
       sourceDigest: `sha256:${'a'.repeat(64)}`
     }
   });
-  expect(() => createTrustedLocalMainHealthInputV1({
+  expect(() => createTrustedLocalMainHealthInput({
     schema: 'sec-trusted-local-main-health-observation-v1',
     repository: 'sec-platform/sec',
     mainSha: MAIN,

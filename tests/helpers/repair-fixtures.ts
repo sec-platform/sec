@@ -1,6 +1,10 @@
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { PASS_STATUS_PENDING } from '../../platform/shared/constants.ts';
-import type { LockFile, PlanFile, RepairPlan } from '../../platform/shared/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { PASS_STATUS_PENDING } from '../../src/compiler/pipeline/defaults.ts';
+import type {
+  LockFile,
+  PlanFile
+} from '../../src/compiler/contract.ts';
+import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
 import { buildOfficialResolvedBlock, buildSingleTenantLockApp } from './lock-fixtures.ts';
 import { buildSingleTenantPlanApp } from './plan-fixtures.ts';
 

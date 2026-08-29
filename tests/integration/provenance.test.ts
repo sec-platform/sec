@@ -1,12 +1,14 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
-import { buildProvenance } from '../../platform/compiler/emit/write-provenance.ts';
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { buildExpectedProductVerificationClaimSummary } from '../../platform/shared/product-verification-profile.ts';
-import type { LockFile, PolicyReport, VerificationReport } from '../../platform/shared/types.ts';
+import { buildProvenance } from '../../src/compiler/emit/write-provenance.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
 import {
   buildPassingReviewCoverage,
@@ -66,7 +68,7 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       app: {
         id: 'customer-admin',
         name: 'customer-admin',
-        stack: 'nextjs',
+        stack: 'typescript-library',
         mode: 'single-tenant'
       },
       resolvedBlocks: [],
@@ -75,14 +77,14 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
         buildOfficialCopyInstallStep({
           stepId: 'copy_customer_runtime_test',
           blockId: BLOCK_ID,
-          sourceRoot: 'platform/registry/official/entity.customer-basic/files',
+          sourceRoot: 'catalog/registry/official/entity.customer-basic/files',
           from: 'files/tests/unit/customer-runtime.test.ts',
           to: 'tests/unit/customer-runtime.test.ts'
         }),
         buildOfficialCopyInstallStep({
           stepId: 'copy_customer_service',
           blockId: BLOCK_ID,
-          sourceRoot: 'platform/registry/official/entity.customer-basic/files',
+          sourceRoot: 'catalog/registry/official/entity.customer-basic/files',
           from: 'files/src/installed/entity/customer-service.ts',
           to: 'src/installed/entity/customer-service.ts'
         })
@@ -99,9 +101,8 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
           provenanceHints: {
             generator: 'test',
             verifiedBy: [
-              'tests/unit/customer-normalizer.test.ts',
-              'tests/acceptance/customer-flow.test.ts',
-              'tests/unit/customer-normalizer.test.ts'
+              ACCEPTANCE_ID,
+              ACCEPTANCE_ID
             ]
           }
         }
@@ -134,9 +135,9 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
         acceptance: { status: 'passed', passed: [ACCEPTANCE_TEST], failed: [] }
       },
       runtime: buildRuntimeVerificationReport({
-        build: { passed: ['next build'] },
+        build: { passed: ['bun run build'] },
         unit: { passed: ['tests/runtime/unit/customer-runtime.test.ts'] },
-        acceptance: { passed: ['tests/runtime/acceptance/customer-flow.spec.ts'] }
+        acceptance: { passed: ['tests/acceptance/customer-attachments-flow.test.ts'] }
       }),
       summary: { requestedLane: 'all' }
     });
@@ -145,7 +146,7 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
     const provenance = await buildProvenance(workspaceRoot, lock);
 
     expect(provenance.artifacts.find((artifact) => artifact.path === 'custom/customer_normalizer.ts')).toMatchObject({
-      verifiedBy: ['tests/acceptance/customer-flow.test.ts', 'tests/unit/customer-normalizer.test.ts']
+      verifiedBy: [ACCEPTANCE_ID]
     });
     expect(provenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
       verifiedBy: ['tests/unit/customer-runtime.test.ts']

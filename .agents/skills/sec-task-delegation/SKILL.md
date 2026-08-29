@@ -53,5 +53,5 @@ description: 用于判断 frozen Work Package 是否值得拆成互不重叠的�
 ## 权威
 - `AGENTS.md`
 - `docs/development-governance.md`
-- `platform/shared/agent-skill-contract.ts`
+- `platform/control/agent/skill.ts`
 - `.codex/agents/`

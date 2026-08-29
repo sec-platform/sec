@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1 } from '../../platform/shared/ci-verification-revision.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
 import {
-  MainAuthorityRulesetGhTransportV1,
-  observeMainAuthorityRulesetV1,
-  type MainAuthorityRulesetGitHubTransportV1
-} from '../../scripts/codex/main-authority-ruleset-github.ts';
+  MainAuthorityRulesetGhTransport,
+  observeMainAuthorityRuleset,
+  type MainAuthorityRulesetGitHubTransport
+} from '../../src/control/main-health/main-authority-ruleset-github.ts';
 
 const AUTHORITY_RULESET_ID = 42;
 const PRINCIPAL_RULESET_ID = 43;
@@ -14,7 +14,7 @@ function statusParameters() {
   return {
     required_status_checks: [{
       context: 'sec/integration-authorization',
-      integration_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.id
+      integration_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id
     }],
     strict_required_status_checks_policy: true
   };
@@ -49,7 +49,7 @@ function principalDetail() {
     source: 'sec-platform/sec',
     enforcement: 'active',
     bypass_actors: [{
-      actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.id,
+      actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id,
       actor_type: 'Integration',
       bypass_mode: 'pull_request'
     }],
@@ -72,7 +72,7 @@ function transport(input: Partial<{
   effective: unknown;
   authority: unknown;
   principal: unknown;
-}> = {}): MainAuthorityRulesetGitHubTransportV1 {
+}> = {}): MainAuthorityRulesetGitHubTransport {
   return {
     effectiveBranchRules(repository, branch) {
       expect(repository).toBe('sec-platform/sec');
@@ -89,7 +89,7 @@ function transport(input: Partial<{
 }
 
 test('GitHub observer resolves every effective ruleset id and emits layered semantic receipt', () => {
-  const value = observeMainAuthorityRulesetV1({
+  const value = observeMainAuthorityRuleset({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     transport: transport()
@@ -101,7 +101,7 @@ test('GitHub observer resolves every effective ruleset id and emits layered sema
 
 test('GitHub transport paginates and flattens every effective branch-rule page', () => {
   const calls: string[][] = [];
-  const github = new MainAuthorityRulesetGhTransportV1((args) => {
+  const github = new MainAuthorityRulesetGhTransport((args) => {
     calls.push([...args]);
     return [
       [{ type: 'pull_request', ruleset_id: AUTHORITY_RULESET_ID }],
@@ -120,21 +120,21 @@ test('GitHub transport paginates and flattens every effective branch-rule page',
 });
 
 test('GitHub transport rejects a presentation-shaped response instead of treating one page as complete', () => {
-  const github = new MainAuthorityRulesetGhTransportV1(() => defaultEffective());
+  const github = new MainAuthorityRulesetGhTransport(() => defaultEffective());
   expect(() => github.effectiveBranchRules('sec-platform/sec', 'main'))
     .toThrow('pagination is not a complete page array');
 });
 
 test('GitHub observer fails closed before detail lookup when main has no effective rules', () => {
   let detailReads = 0;
-  const empty: MainAuthorityRulesetGitHubTransportV1 = {
+  const empty: MainAuthorityRulesetGitHubTransport = {
     effectiveBranchRules: () => [],
     detailedRuleset: () => {
       detailReads += 1;
       return {};
     }
   };
-  expect(() => observeMainAuthorityRulesetV1({
+  expect(() => observeMainAuthorityRuleset({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     transport: empty
@@ -143,7 +143,7 @@ test('GitHub observer fails closed before detail lookup when main has no effecti
 });
 
 test('GitHub observer rejects malformed effective rule identity', () => {
-  expect(() => observeMainAuthorityRulesetV1({
+  expect(() => observeMainAuthorityRuleset({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     transport: transport({ effective: [{ type: 'pull_request' }] })
@@ -151,7 +151,7 @@ test('GitHub observer rejects malformed effective rule identity', () => {
 });
 
 test('GitHub observer never treats missing authority bypass visibility as safe', () => {
-  expect(() => observeMainAuthorityRulesetV1({
+  expect(() => observeMainAuthorityRuleset({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     transport: transport({ authority: authorityDetail({ omitBypass: true }) })
@@ -159,7 +159,7 @@ test('GitHub observer never treats missing authority bypass visibility as safe',
 });
 
 test('GitHub observer never treats a broad authority bypass as safe', () => {
-  expect(() => observeMainAuthorityRulesetV1({
+  expect(() => observeMainAuthorityRuleset({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     transport: transport({ authority: authorityDetail({

@@ -1,0 +1,30 @@
+id: file/upload
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - customer/read
+  - customer/write
+provides:
+  - file/upload
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/file/customer-attachments.ts
+    to: src/installed/file/customer-attachments.ts
+  - kind: copy
+    from: files/tests/acceptance/customer-attachments-flow.test.ts
+    to: tests/acceptance/customer-attachments-flow.test.ts
+pins:
+  inputs:
+    - id: customer_created
+      type: CustomerRecord
+      required: true
+  outputs:
+    - id: customer_attachment_uploaded
+      type: CustomerAttachmentRecord
+      required: true
+slots: []
+acceptance:
+  - id: customer_can_upload_attachment

@@ -1,66 +1,15 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync
-} from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, test } from 'bun:test';
 
 import {
-  createMainHealthLedgerV1,
-  createMainHealthRepairWorkPackagePathV1
-} from '../../platform/shared/main-health-contract.ts';
-import {
-  acquirePhysicalMutationLeaseV1
-} from '../../platform/shared/physical-mutation-lease.ts';
-import {
-  inspectNoFollowDirectoryChainV1,
-  inspectNoFollowOrdinaryFileEntryV1
-} from '../../platform/shared/physical-no-follow.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
-
-import {
-  LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
-  parseDockerEndpointIdentityV3
-} from '../../scripts/codex/local-github-actions-runner.ts';
-import {
-  TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1,
-  TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256_V1,
-  TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1,
-  TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
-  TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
-  TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1,
-  TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1,
-  TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1,
-  TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1,
-  TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1,
-  assertTrustedRuntimeContainerImageV1,
-  assertTrustedRuntimeDependencyCacheVolumeV1,
-  assertTrustedRuntimeMainHealthCarryForwardBaselineV2,
-  authorizeTrustedRuntimeContainerRecoveryV1,
-  authorizeTrustedRuntimeMainHealthRetirementV1,
-  composeTrustedRuntimeContainerLabelsV1,
-  createTrustedRuntimeCommandEnvironmentArgsV1,
-  createTrustedRuntimeDependencyCacheMarkerV1,
-  createTrustedRuntimeDependencyCacheVolumeSpecV1,
-  createTrustedRuntimeHostCommandEnvironmentV1,
-  createTrustedRuntimeImageBuildPlanV1,
-  createTrustedRuntimeMainHealthBaselineObservationV2,
-  createTrustedRuntimeMainHealthGatePlansV1,
-  createTrustedRuntimeMainHealthReceiptV2,
-  parseTrustedRuntimeContainerIdentityV1,
-  parseTrustedRuntimeMainHealthAffectedPlanV1,
-  parseTrustedRuntimeMainHealthReceiptV2,
-  parseTrustedRuntimeMainHealthRetirementRecordV1,
-  renderTrustedRuntimeCommandFailureDetailV1,
-  retireTrustedRuntimeMainHealthReceiptInDirectoryV1
-} from '../../scripts/codex/trusted-runtime-container.ts';
+  createMainHealthLedger,
+  createMainHealthRepairWorkPackagePath
+} from '../../src/control/main-health/contract.ts';
+import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
+import { parseDockerEndpointIdentity } from '../../src/verification/ci/runtime/local-github-actions-runner.ts';
+import { TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID, TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC, TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST, TRUSTED_RUNTIME_STATE_ENVIRONMENT, TRUSTED_RUNTIME_TEST_TMPFS_SPEC, TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT, assertTrustedRuntimeContainerImageV1, assertTrustedRuntimeDependencyCacheVolume, assertTrustedRuntimeMainHealthCarryForwardBaselineV2, authorizeTrustedRuntimeContainerRecovery, composeTrustedRuntimeContainerLabels, createTrustedRuntimeCommandEnvironmentArgs, createTrustedRuntimeDependencyCacheMarker, createTrustedRuntimeDependencyCacheVolumeSpec, createTrustedRuntimeHostCommandEnvironment, createTrustedRuntimeImageBuildPlan, createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthGatePlans, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, createTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeContainerIdentity, parseTrustedRuntimeMainHealthAffectedPlan, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, renderTrustedRuntimeCommandFailureDetail, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionStatusRequest } from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
 
 const dockerEndpoint = Object.freeze({
   schema: 'sec-docker-endpoint-identity-v1' as const,
@@ -76,13 +25,13 @@ const dockerEndpoint = Object.freeze({
 function mainHealthRetirementFixture() {
   const mainSha = '1'.repeat(40);
   const mainTreeSha = '2'.repeat(40);
-  const baseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+  const baseline = createTrustedRuntimeMainHealthBaselineObservation({
     mainSha,
     mainTreeSha,
     parentLine: `${mainSha} ${'7'.repeat(40)}`,
     parentTreeSha: '8'.repeat(40)
   });
-  const localReceipt = createTrustedRuntimeMainHealthReceiptV2({
+  const localReceipt = createTrustedRuntimeMainHealthReceipt({
     origin: 'physical-main',
     repository: 'sec-platform/sec',
     mainSha,
@@ -91,10 +40,10 @@ function mainHealthRetirementFixture() {
     baselineTreeSha: '8'.repeat(40),
     baselineObservationDigest: baseline.observationDigest,
     executionId: 'trusted-main-health-retirement',
-    imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+    imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
     dockerEndpoint,
     networkIsolatedBeforeExecution: true,
-    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
     actionResults: [
       { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
     ],
@@ -103,7 +52,7 @@ function mainHealthRetirementFixture() {
   });
   const failureFingerprint = `sha256:${'4'.repeat(64)}` as const;
   const owner = 'ci-verification-maintainer';
-  const hostedLedger = createMainHealthLedgerV1({
+  const hostedLedger = createMainHealthLedger({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     mainSha,
@@ -111,7 +60,7 @@ function mainHealthRetirementFixture() {
     status: 'degraded',
     failureFingerprints: [failureFingerprint],
     owner,
-    repairWorkPackage: createMainHealthRepairWorkPackagePathV1({
+    repairWorkPackage: createMainHealthRepairWorkPackagePath({
       repository: 'sec-platform/sec',
       defaultBranch: 'main',
       mainSha,
@@ -124,7 +73,7 @@ function mainHealthRetirementFixture() {
     trustRevision: mainSha,
     observedAt: '2026-08-21T00:00:00.000Z',
     producer: {
-      identity: 'platform/shared/default-branch-revision-health.ts',
+      identity: 'src/control/main-health/default-branch-revision.ts',
       trustRevision: mainSha,
       sourceTransport: 'github-api',
       sourceRunId: '33109458351',
@@ -137,12 +86,12 @@ function mainHealthRetirementFixture() {
 
 function imageInspect(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify([{
-    Id: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+    Id: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
     Config: {
       Labels: {
         'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1',
-        'sec.trusted-runtime.base-image-id': TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1,
-        'sec.trusted-runtime.bun-archive-sha256': TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256_V1,
+        'sec.trusted-runtime.base-image-id': TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
+        'sec.trusted-runtime.bun-archive-sha256': TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
         'sec.trusted-runtime.bun-version': '1.3.14',
         ...overrides
       }
@@ -152,26 +101,26 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 
 describe('provider-neutral trusted runtime container', () => {
   test('projects the exact base as the offline default-branch ref in both trees', () => {
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1).toContain(
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
       'git -C /sec-runtime/trusted update-ref refs/remotes/origin/main "$base"'
     );
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1).toContain(
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
       'git -C /sec-runtime/workspace update-ref refs/remotes/origin/main "$base"'
     );
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1.match(
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT.match(
       /rev-parse refs\/remotes\/origin\/main/gu
     )).toHaveLength(2);
-    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT_V1).not.toContain('git fetch origin');
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain('git fetch origin');
   });
 
   test('builds through Buildx with authority-owned absolute and semantic stall deadlines', () => {
-    const plan = createTrustedRuntimeImageBuildPlanV1(
-      path.resolve('scripts/codex/trusted-runtime.Dockerfile'),
+    const plan = createTrustedRuntimeImageBuildPlan(
+      path.resolve('config/verification/trusted-runtime.Dockerfile'),
       Object.freeze({
         specDigest: `sha256:${'1'.repeat(64)}` as const,
         layoutPath: path.resolve('.tmp/runner-layout'),
-        runtimeManifestDigest: LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1,
-        dockerProjectionDigest: TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1,
+        runtimeManifestDigest: SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.image.runtimeContentDigest,
+        dockerProjectionDigest: TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
         provenanceArtifactDigest: `sha256:${'2'.repeat(64)}` as const
       })
     );
@@ -179,47 +128,47 @@ describe('provider-neutral trusted runtime container', () => {
     expect(plan.args).toContain('--load');
     expect(plan.args).toContain('--progress=rawjson');
     expect(plan.args.some((value) => new RegExp(
-      `^runner=oci-layout://.*@${LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST_V1}$`, 'u'
+      `^runner=oci-layout://.*@${SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.image.runtimeContentDigest}$`, 'u'
     ).test(value))).toBe(true);
     expect(plan.args).not.toContain(expect.stringContaining('SEC_RUNNER_IMAGE='));
-    expect(plan.args).toContain(`SEC_RUNNER_IMAGE_ID=${TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID_V1}`);
+    expect(plan.args).toContain(`SEC_RUNNER_IMAGE_ID=${TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID}`);
     expect(plan.stallTimeoutMs).toBeLessThan(plan.absoluteTimeoutMs);
   });
 
   test('admits only the canonical executable test tmpfs and non-executable runtime state', () => {
     const container = {
       Id: '4'.repeat(64),
-      Image: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+      Image: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
       Name: '/sec-trusted-runtime-example',
       Config: { Labels: {} },
       HostConfig: {
         ReadonlyRootfs: true,
         Init: true,
         Tmpfs: {
-          '/tmp': TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1.slice('/tmp:'.length),
-          '/sec-runtime': TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1.slice('/sec-runtime:'.length)
+          '/tmp': TRUSTED_RUNTIME_TEST_TMPFS_SPEC.slice('/tmp:'.length),
+          '/sec-runtime': TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC.slice('/sec-runtime:'.length)
         }
       },
       Mounts: [{ Destination: '/candidate.bundle', Type: 'bind', RW: false }]
     };
-    expect(parseTrustedRuntimeContainerIdentityV1(JSON.stringify([container])))
+    expect(parseTrustedRuntimeContainerIdentity(JSON.stringify([container])))
       .toMatchObject({
         initProcess: true,
         executableTestTmpfs: true,
         nonExecutableMutableTmpfs: true
       });
-    expect(() => parseTrustedRuntimeContainerIdentityV1(JSON.stringify([{
+    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
       ...container,
       HostConfig: { ...container.HostConfig, Init: false }
     }]))).toThrow('container identity is invalid');
-    expect(() => parseTrustedRuntimeContainerIdentityV1(JSON.stringify([{
+    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
       ...container,
       HostConfig: {
         ...container.HostConfig,
         Tmpfs: { ...container.HostConfig.Tmpfs, '/tmp': 'rw,noexec,nosuid,nodev,size=2g' }
       }
     }]))).toThrow('/tmp options differ');
-    expect(() => parseTrustedRuntimeContainerIdentityV1(JSON.stringify([{
+    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{
       ...container,
       HostConfig: {
         ...container.HostConfig,
@@ -229,22 +178,22 @@ describe('provider-neutral trusted runtime container', () => {
   });
 
   test('projects one writable sibling state/cache authority into every trusted runtime command', () => {
-    expect(TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1).toEqual({
+    expect(TRUSTED_RUNTIME_STATE_ENVIRONMENT).toEqual({
       SEC_STATE_HOME: '/sec-runtime/output/state',
       SEC_CACHE_HOME: '/sec-runtime/output/cache'
     });
-    const projected = createTrustedRuntimeCommandEnvironmentArgsV1({ SURFACE: 'main-health' });
+    const projected = createTrustedRuntimeCommandEnvironmentArgs({ SURFACE: 'main-health' });
     expect(projected).toContain('--env');
     expect(projected).toContain('SEC_STATE_HOME=/sec-runtime/output/state');
     expect(projected).toContain('SEC_CACHE_HOME=/sec-runtime/output/cache');
     expect(projected).toContain('SURFACE=main-health');
-    expect(() => createTrustedRuntimeCommandEnvironmentArgsV1({
+    expect(() => createTrustedRuntimeCommandEnvironmentArgs({
       SEC_STATE_HOME: '/caller/override'
     })).toThrow('cannot replace SEC_STATE_HOME');
   });
 
   test('uses stable per-gate ActionKeys and invalidates only when bound inputs change', () => {
-    const affectedPlan = parseTrustedRuntimeMainHealthAffectedPlanV1(JSON.stringify({
+    const affectedPlan = parseTrustedRuntimeMainHealthAffectedPlan(JSON.stringify({
       schema: 'sec-local-affected-check-plan-v1',
       resolved: true,
       changedPaths: ['platform/example.ts'],
@@ -263,12 +212,12 @@ describe('provider-neutral trusted runtime container', () => {
       mainTreeSha: '1'.repeat(40),
       baselineObservationDigest: `sha256:${'2'.repeat(64)}` as const,
       affectedPlan,
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
       dockerEndpoint
     };
-    const first = createTrustedRuntimeMainHealthGatePlansV1(common);
-    const same = createTrustedRuntimeMainHealthGatePlansV1(common);
-    const changed = createTrustedRuntimeMainHealthGatePlansV1({
+    const first = createTrustedRuntimeMainHealthGatePlans(common);
+    const same = createTrustedRuntimeMainHealthGatePlans(common);
+    const changed = createTrustedRuntimeMainHealthGatePlans({
       ...common,
       mainTreeSha: '3'.repeat(40)
     });
@@ -278,7 +227,7 @@ describe('provider-neutral trusted runtime container', () => {
       'sec-trusted-runtime-main-health-action-v2')).toBe(true);
     expect(first.every(({ action }) => action.operation.declaredEnvironment.some((entry) =>
       entry.name === 'trusted-runtime-state-environment'
-      && entry.digest === TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1))).toBe(true);
+      && entry.digest === TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST))).toBe(true);
     expect(first.map(({ action }) => action.actionKey))
       .not.toEqual(changed.map(({ action }) => action.actionKey));
     expect(first[2]!.plan.dependencies.map(({ actionKey }) => actionKey))
@@ -287,14 +236,14 @@ describe('provider-neutral trusted runtime container', () => {
 
   test('binds immutable Docker and Bun identities without a GitHub Actions run', () => {
     const image = assertTrustedRuntimeContainerImageV1(imageInspect());
-    expect(image.imageId).toBe(TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1);
-    expect(TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1).toMatchObject({
+    expect(image.imageId).toBe(TRUSTED_RUNTIME_CONTAINER_IMAGE_ID);
+    expect(TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT).toMatchObject({
       kind: 'local',
       os: 'linux',
       arch: 'x64',
       toolchainRevision: 'bun@1.3.14'
     });
-    expect(TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1.executionEnvironmentRevision)
+    expect(TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT.executionEnvironmentRevision)
       .toContain('local-dev-runner:linux:x64:bun-1.3.14');
   });
 
@@ -309,13 +258,13 @@ describe('provider-neutral trusted runtime container', () => {
   });
 
   test('binds a local Docker endpoint and isolates host-side Git transport', () => {
-    expect(parseDockerEndpointIdentityV3(dockerEndpoint)).toEqual(dockerEndpoint);
-    expect(() => parseDockerEndpointIdentityV3({
+    expect(parseDockerEndpointIdentity(dockerEndpoint)).toEqual(dockerEndpoint);
+    expect(() => parseDockerEndpointIdentity({
       ...dockerEndpoint,
       endpointHost: 'tcp://remote.example:2376'
     })).toThrow(/local npipe or unix transport/);
 
-    const environment = createTrustedRuntimeHostCommandEnvironmentV1('git', {
+    const environment = createTrustedRuntimeHostCommandEnvironment('git', {
       PATH: 'C:\\tools',
       GIT_CONFIG_GLOBAL: 'hostile-global-config',
       GIT_CONFIG_NOSYSTEM: '0',
@@ -329,11 +278,11 @@ describe('provider-neutral trusted runtime container', () => {
   });
 
   test('retains bounded stdout and stderr when a provider command fails', () => {
-    expect(renderTrustedRuntimeCommandFailureDetailV1({
+    expect(renderTrustedRuntimeCommandFailureDetail({
       stdout: 'compiler diagnostic',
       stderr: 'process exit summary'
     })).toBe('stdout:\ncompiler diagnostic\nstderr:\nprocess exit summary');
-    expect(renderTrustedRuntimeCommandFailureDetailV1({ stdout: '', stderr: '' }))
+    expect(renderTrustedRuntimeCommandFailureDetail({ stdout: '', stderr: '' }))
       .toBe('<no captured output>');
   });
 
@@ -349,7 +298,7 @@ describe('provider-neutral trusted runtime container', () => {
       baseSha: '1'.repeat(40),
       headSha: '2'.repeat(40),
       endpointDigest: `sha256:${'3'.repeat(64)}` as `sha256:${string}`,
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
       imageLabels,
       ownerHost: 'trusted-host',
       dependencyCacheVolumeName: null
@@ -378,7 +327,7 @@ describe('provider-neutral trusted runtime container', () => {
       })
     });
     let observations = 0;
-    expect(authorizeTrustedRuntimeContainerRecoveryV1({
+    expect(authorizeTrustedRuntimeContainerRecovery({
       first: identity,
       confirmed: identity,
       expected,
@@ -388,33 +337,33 @@ describe('provider-neutral trusted runtime container', () => {
       }
     })).toBe(identity.id);
     expect(observations).toBe(2);
-    expect(() => authorizeTrustedRuntimeContainerRecoveryV1({
+    expect(() => authorizeTrustedRuntimeContainerRecovery({
       first: { ...identity,
         dependencyCacheVolumeName: 'sec-trusted-runtime-bun-cache-v1-1234567890abcdef1234567890abcdef' },
       confirmed: identity,
       expected,
       observeProcessLiveness: () => 'dead'
     })).toThrow(/differs from the fenced operation/);
-    expect(() => authorizeTrustedRuntimeContainerRecoveryV1({
+    expect(() => authorizeTrustedRuntimeContainerRecovery({
       first: identity,
       confirmed: identity,
       expected,
       observeProcessLiveness: () => 'alive'
     })).toThrow(/recovery is not authorized/);
-    expect(() => authorizeTrustedRuntimeContainerRecoveryV1({
+    expect(() => authorizeTrustedRuntimeContainerRecovery({
       first: identity,
       confirmed: { ...identity, id: '5'.repeat(64) },
       expected,
       observeProcessLiveness: () => 'dead'
     })).toThrow(/identity or owner liveness changed/);
-    expect(() => authorizeTrustedRuntimeContainerRecoveryV1({
+    expect(() => authorizeTrustedRuntimeContainerRecovery({
       first: { ...identity, labels: { ...identity.labels,
         'sec.trusted-runtime.owner-host': 'foreign-host' } },
       confirmed: identity,
       expected,
       observeProcessLiveness: () => 'dead'
     })).toThrow(/differs from the fenced operation/);
-    expect(() => authorizeTrustedRuntimeContainerRecoveryV1({
+    expect(() => authorizeTrustedRuntimeContainerRecovery({
       first: { ...identity, labels: { ...identity.labels,
         'sec.trusted-runtime.image-schema': 'foreign-image' } },
       confirmed: identity,
@@ -424,7 +373,7 @@ describe('provider-neutral trusted runtime container', () => {
   });
 
   test('one exact label set drives Docker create and identity readback', () => {
-    const labels = composeTrustedRuntimeContainerLabelsV1(
+    const labels = composeTrustedRuntimeContainerLabels(
       { 'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1' },
       { 'sec.trusted-runtime.operation': 'main-12345678' }
     );
@@ -432,19 +381,19 @@ describe('provider-neutral trusted runtime container', () => {
       'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1',
       'sec.trusted-runtime.operation': 'main-12345678'
     });
-    expect(() => composeTrustedRuntimeContainerLabelsV1(
+    expect(() => composeTrustedRuntimeContainerLabels(
       { shared: 'image' },
       { shared: 'operation' }
     )).toThrow('collide with retained operation identity');
   });
 
   test('reuses only one exact content-addressed Docker dependency cache', () => {
-    const marker = createTrustedRuntimeDependencyCacheMarkerV1({
+    const marker = createTrustedRuntimeDependencyCacheMarker({
       repository: 'sec-platform/sec',
       bunLockBlobSha: '1'.repeat(40),
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1
+      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID
     });
-    const spec = createTrustedRuntimeDependencyCacheVolumeSpecV1(marker);
+    const spec = createTrustedRuntimeDependencyCacheVolumeSpec(marker);
     const inspect = JSON.stringify([{
       CreatedAt: '2026-08-21T00:00:00Z',
       Driver: 'local',
@@ -454,12 +403,12 @@ describe('provider-neutral trusted runtime container', () => {
       Scope: 'local'
     }]);
     expect(spec.name).toMatch(/^sec-trusted-runtime-bun-cache-v1-[0-9a-f]{32}$/u);
-    expect(assertTrustedRuntimeDependencyCacheVolumeV1({
+    expect(assertTrustedRuntimeDependencyCacheVolume({
       source: inspect,
       expected: spec,
       endpointDigest: `sha256:${'2'.repeat(64)}`
     })).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(() => assertTrustedRuntimeDependencyCacheVolumeV1({
+    expect(() => assertTrustedRuntimeDependencyCacheVolume({
       source: JSON.stringify([{
         ...JSON.parse(inspect)[0],
         Labels: { ...spec.labels, 'sec.trusted-runtime.cache-key': `sha256:${'3'.repeat(64)}` }
@@ -470,16 +419,13 @@ describe('provider-neutral trusted runtime container', () => {
   });
 
   test('binds one reusable exact-main health execution receipt', () => {
-    expect(TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2).toEqual([
-      { id: 'affected-closure', argv: ['bun', 'run', 'check:affected'] }
-    ]);
-    const baseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+    const baseline = createTrustedRuntimeMainHealthBaselineObservation({
       mainSha: '1'.repeat(40),
       mainTreeSha: '2'.repeat(40),
       parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
       parentTreeSha: '8'.repeat(40)
     });
-    const receipt = createTrustedRuntimeMainHealthReceiptV2({
+    const receipt = createTrustedRuntimeMainHealthReceipt({
       origin: 'physical-main',
       repository: 'sec-platform/sec',
       mainSha: '1'.repeat(40),
@@ -488,163 +434,166 @@ describe('provider-neutral trusted runtime container', () => {
       baselineTreeSha: '8'.repeat(40),
       baselineObservationDigest: baseline.observationDigest,
       executionId: 'trusted-main-health-example',
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
       dockerEndpoint,
       networkIsolatedBeforeExecution: true,
-      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
       actionResults: [
         { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
       ],
       transition: null,
       observedAt: '2026-08-21T00:00:00.000Z'
     });
-    expect(parseTrustedRuntimeMainHealthReceiptV2(JSON.stringify(receipt))).toEqual(receipt);
-    expect(() => parseTrustedRuntimeMainHealthReceiptV2({
+    expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
+    expect(() => parseTrustedRuntimeMainHealthReceipt({
       ...receipt,
       mainTreeSha: '7'.repeat(40)
     })).toThrow('baseline observation digest is invalid');
   });
 
-  test('retires one exact local MainHealth preimage behind a durable hosted-conflict record', () => {
-    const tempRoot = mkdtempSync(path.join(tmpdir(), 'sec-main-health-retirement-'));
-    try {
-      const fixture = mainHealthRetirementFixture();
-      const healthRoot = path.join(tempRoot, 'trusted-main-health', 'v1');
-      mkdirSync(healthRoot, { recursive: true });
-      const directory = inspectNoFollowDirectoryChainV1(
-        healthRoot,
-        'MainHealth retirement fixture root'
-      ).target;
-      const sourceName = `main-${fixture.mainSha}.json`;
-      writeFileSync(
-        path.join(healthRoot, sourceName),
-        `${encodeVerificationActionDataV2(fixture.localReceipt)}\n`,
-        'utf8'
-      );
-      const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
-      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
-        sourceName,
-        source,
-        localReceipt: fixture.localReceipt,
-        hostedLedger: fixture.hostedLedger
-      });
-      const retired = retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
-        directory,
-        source,
-        authorization
-      });
-      expect(retired.status).toBe('retired');
-      expect(inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)).toBeNull();
-      const archived = parseTrustedRuntimeMainHealthRetirementRecordV1(
-        readFileSync(retired.recordPath, 'utf8')
-      );
-      expect(archived).toEqual(retired.record);
-      expect(archived).toMatchObject({
-        reason: 'stronger-hosted-provider-conflict',
-        localReceipt: { receiptDigest: fixture.localReceipt.receiptDigest },
-        hostedLedger: { ledgerDigest: fixture.hostedLedger.ledgerDigest }
-      });
-
-      const resumed = retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
-        directory,
-        source,
-        authorization
-      });
-      expect(resumed).toMatchObject({
-        status: 'resumed-absent',
-        recordPath: retired.recordPath
-      });
-    } finally {
-      rmSync(tempRoot, { recursive: true, force: true });
-    }
-  });
-
-  test('MainHealth retirement CAS preserves an external source replacement', () => {
-    const tempRoot = mkdtempSync(path.join(tmpdir(), 'sec-main-health-retirement-cas-'));
-    try {
-      const fixture = mainHealthRetirementFixture();
-      const healthRoot = path.join(tempRoot, 'trusted-main-health', 'v1');
-      mkdirSync(healthRoot, { recursive: true });
-      const directory = inspectNoFollowDirectoryChainV1(
-        healthRoot,
-        'MainHealth retirement CAS fixture root'
-      ).target;
-      const sourceName = `main-${fixture.mainSha}.json`;
-      const sourcePath = path.join(healthRoot, sourceName);
-      writeFileSync(sourcePath, `${encodeVerificationActionDataV2(fixture.localReceipt)}\n`, 'utf8');
-      const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
-      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
-        sourceName,
-        source,
-        localReceipt: fixture.localReceipt,
-        hostedLedger: fixture.hostedLedger
-      });
-      renameSync(sourcePath, `${sourcePath}.external-preimage`);
-      writeFileSync(sourcePath, 'external-owner\n', 'utf8');
-
-      expect(() => retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
-        directory,
-        source,
-        authorization
-      })).toThrow('source changed before exact CAS');
-      expect(readFileSync(sourcePath, 'utf8')).toBe('external-owner\n');
-      expect(readFileSync(`${sourcePath}.external-preimage`, 'utf8'))
-        .toBe(`${encodeVerificationActionDataV2(fixture.localReceipt)}\n`);
-    } finally {
-      rmSync(tempRoot, { recursive: true, force: true });
-    }
-  });
-
-  test('MainHealth retirement refuses an Effect while the exact operation lease is held', () => {
-    const tempRoot = mkdtempSync(path.join(tmpdir(), 'sec-main-health-retirement-lease-'));
-    try {
-      const fixture = mainHealthRetirementFixture();
-      const healthRoot = path.join(tempRoot, 'trusted-main-health', 'v1');
-      mkdirSync(healthRoot, { recursive: true });
-      const directory = inspectNoFollowDirectoryChainV1(
-        healthRoot,
-        'MainHealth retirement lease fixture root'
-      ).target;
-      const sourceName = `main-${fixture.mainSha}.json`;
-      writeFileSync(
-        path.join(healthRoot, sourceName),
-        `${encodeVerificationActionDataV2(fixture.localReceipt)}\n`,
-        'utf8'
-      );
-      const source = inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)!;
-      const authorization = authorizeTrustedRuntimeMainHealthRetirementV1({
-        sourceName,
-        source,
-        localReceipt: fixture.localReceipt,
-        hostedLedger: fixture.hostedLedger
-      });
-      const lease = acquirePhysicalMutationLeaseV1(
-        directory,
-        `.main-health-retirement-${fixture.mainSha}.lock`
-      )!;
-      try {
-        expect(() => retireTrustedRuntimeMainHealthReceiptInDirectoryV1({
-          directory,
-          source,
-          authorization
-        })).toThrow('retirement operation is already active');
-        expect(inspectNoFollowOrdinaryFileEntryV1(directory, sourceName)).not.toBeNull();
-      } finally {
-        lease.release();
+  test('binds a terminal MainHealth supersession receipt to preimage, hosted authority, and issuer', () => {
+    const fixture = mainHealthRetirementFixture();
+    const sourceName = `main-${fixture.mainSha}.json`;
+    const sourceBytes = Buffer.from(
+      `${encodeVerificationActionData(fixture.localReceipt)}\n`,
+      'utf8'
+    );
+    const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
+      defaultBranch: fixture.hostedLedger.defaultBranch,
+      sourceName,
+      source: Object.freeze({
+        relativePath: sourceName,
+        kind: 'file' as const,
+        device: 'fixture-device',
+        inode: 'fixture-inode',
+        size: sourceBytes.byteLength,
+        bytes: sourceBytes,
+        linkTarget: null
+      }),
+      localReceipt: fixture.localReceipt,
+      hostedLedger: fixture.hostedLedger,
+      hostedAuthorityDigest: `sha256:${'9'.repeat(64)}`,
+      runtimeAuthorityBinding: `sha256:${'a'.repeat(64)}`,
+      predecessorRecordDigest: null,
+      issuer: {
+        transport: 'github-rest-token',
+        login: 'maintainer',
+        nodeId: 'MDQ6VXNlcjE=',
+        permission: 'maintain'
       }
-    } finally {
-      rmSync(tempRoot, { recursive: true, force: true });
-    }
+    });
+    const intent = createTrustedRuntimeMainHealthSupersessionIntent({
+      authorization,
+      preparedAt: '2026-08-21T00:00:00.000Z'
+    });
+    const request = trustedRuntimeMainHealthSupersessionStatusRequest(authorization);
+    const record = createTrustedRuntimeMainHealthSupersessionReceipt({
+      authorization,
+      preparedIntentDigest: intent.intentDigest,
+      providerAuthorization: {
+        transport: 'github-commit-status',
+        statusId: 123456,
+        statusNodeId: 'SC_kwDOExample',
+        state: request.state,
+        context: request.context,
+        description: request.description,
+        targetUrl: request.targetUrl,
+        createdAt: '2026-08-21T00:00:00.000Z',
+        updatedAt: '2026-08-21T00:00:00.000Z',
+        creator: { login: 'maintainer', nodeId: 'MDQ6VXNlcjE=' }
+      }
+    });
+    expect(parseTrustedRuntimeMainHealthSupersessionReceipt(
+      encodeVerificationActionData(record)
+    )).toEqual(record);
+    expect(record).toMatchObject({
+      phase: 'complete',
+      effect: 'prefer-exact-registered-hosted-provider',
+      reason: 'stronger-hosted-provider-conflict',
+      issuer: { nodeId: 'MDQ6VXNlcjE=', permission: 'maintain' },
+      localReceipt: { receiptDigest: fixture.localReceipt.receiptDigest },
+      hostedLedger: { ledgerDigest: fixture.hostedLedger.ledgerDigest }
+    });
+    expect(() => createTrustedRuntimeMainHealthSupersessionAuthorization({
+      defaultBranch: fixture.hostedLedger.defaultBranch,
+      sourceName,
+      source: { ...record.source, relativePath: `${sourceName}.forged`, bytes: sourceBytes,
+        linkTarget: null, kind: 'file' },
+      localReceipt: fixture.localReceipt,
+      hostedLedger: fixture.hostedLedger,
+      hostedAuthorityDigest: record.hostedAuthorityDigest,
+      runtimeAuthorityBinding: record.runtimeAuthorityBinding,
+      predecessorRecordDigest: null,
+      issuer: record.issuer
+    })).toThrow('exact canonical receipt preimage');
+  });
+
+  test('models the MainHealth Effect permit as an immutable available to consumed chain', () => {
+    const fixture = mainHealthRetirementFixture();
+    const sourceName = `main-${fixture.mainSha}.json`;
+    const sourceBytes = Buffer.from(
+      `${encodeVerificationActionData(fixture.localReceipt)}\n`,
+      'utf8'
+    );
+    const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
+      defaultBranch: fixture.hostedLedger.defaultBranch,
+      sourceName,
+      source: Object.freeze({
+        relativePath: sourceName,
+        kind: 'file' as const,
+        device: 'fixture-device',
+        inode: 'fixture-inode',
+        size: sourceBytes.byteLength,
+        bytes: sourceBytes,
+        linkTarget: null
+      }),
+      localReceipt: fixture.localReceipt,
+      hostedLedger: fixture.hostedLedger,
+      hostedAuthorityDigest: `sha256:${'9'.repeat(64)}`,
+      runtimeAuthorityBinding: `sha256:${'a'.repeat(64)}`,
+      predecessorRecordDigest: null,
+      issuer: {
+        transport: 'github-rest-token',
+        login: 'maintainer',
+        nodeId: 'MDQ6VXNlcjE=',
+        permission: 'maintain'
+      }
+    });
+    const intent = createTrustedRuntimeMainHealthSupersessionIntent({
+      authorization,
+      preparedAt: '2026-08-21T00:00:00.000Z'
+    });
+    const available = createTrustedRuntimeMainHealthSupersessionPermit({
+      authorization,
+      intentDigest: intent.intentDigest,
+      phase: 'available'
+    });
+    const consumed = createTrustedRuntimeMainHealthSupersessionPermit({
+      authorization,
+      intentDigest: intent.intentDigest,
+      phase: 'consumed'
+    });
+    expect(parseTrustedRuntimeMainHealthSupersessionPermit(
+      trustedRuntimeMainHealthSupersessionPermitBytes(available).toString('utf8')
+    )).toEqual(available);
+    expect(parseTrustedRuntimeMainHealthSupersessionPermit(
+      trustedRuntimeMainHealthSupersessionPermitBytes(consumed).toString('utf8')
+    )).toEqual(consumed);
+    expect(consumed.permitDigest).not.toBe(available.permitDigest);
+    expect(() => parseTrustedRuntimeMainHealthSupersessionPermit({
+      ...available,
+      phase: 'consumed'
+    })).toThrow('permit digest mismatch');
   });
 
   test('carries verified candidate evidence forward only when the new-main tree is exact', () => {
-    const baseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+    const baseline = createTrustedRuntimeMainHealthBaselineObservation({
       mainSha: '1'.repeat(40),
       mainTreeSha: '2'.repeat(40),
       parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
       parentTreeSha: '8'.repeat(40)
     });
-    const receipt = createTrustedRuntimeMainHealthReceiptV2({
+    const receipt = createTrustedRuntimeMainHealthReceipt({
       origin: 'verified-candidate-transition',
       repository: 'sec-platform/sec',
       mainSha: '1'.repeat(40),
@@ -653,10 +602,10 @@ describe('provider-neutral trusted runtime container', () => {
       baselineTreeSha: '8'.repeat(40),
       baselineObservationDigest: baseline.observationDigest,
       executionId: 'trusted-runtime-transition',
-      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+      imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
       dockerEndpoint,
       networkIsolatedBeforeExecution: true,
-      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
       actionResults: [
         { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
       ],
@@ -671,14 +620,14 @@ describe('provider-neutral trusted runtime container', () => {
       },
       observedAt: '2026-08-21T00:00:00.000Z'
     });
-    expect(parseTrustedRuntimeMainHealthReceiptV2(JSON.stringify(receipt))).toEqual(receipt);
-    const differentTreeBaseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+    expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
+    const differentTreeBaseline = createTrustedRuntimeMainHealthBaselineObservation({
       mainSha: '1'.repeat(40),
       mainTreeSha: 'd'.repeat(40),
       parentLine: `${'1'.repeat(40)} ${'7'.repeat(40)}`,
       parentTreeSha: '8'.repeat(40)
     });
-    expect(() => createTrustedRuntimeMainHealthReceiptV2({
+    expect(() => createTrustedRuntimeMainHealthReceipt({
       ...receipt,
       mainTreeSha: 'd'.repeat(40),
       baselineObservationDigest: differentTreeBaseline.observationDigest
@@ -688,13 +637,13 @@ describe('provider-neutral trusted runtime container', () => {
   test('carry-forward accepts only the observed single parent and exact parent tree', () => {
     const mainSha = '1'.repeat(40);
     const baselineSha = '7'.repeat(40);
-    const observation = createTrustedRuntimeMainHealthBaselineObservationV2({
+    const observation = createTrustedRuntimeMainHealthBaselineObservation({
       mainSha,
       mainTreeSha: '2'.repeat(40),
       parentLine: `${mainSha} ${baselineSha}`,
       parentTreeSha: '8'.repeat(40)
     });
-    expect(() => createTrustedRuntimeMainHealthBaselineObservationV2({
+    expect(() => createTrustedRuntimeMainHealthBaselineObservation({
       mainSha,
       mainTreeSha: '2'.repeat(40),
       parentLine: `${mainSha} ${baselineSha} ${'9'.repeat(40)}`,

@@ -1,11 +1,9 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
-import {
-  upgradeWorkspace
-} from '../../platform/orchestrator.ts';
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';

@@ -250,7 +250,7 @@ full canonical state
 
 **反转条件**：模型 context 和 compute 成本下降会改变压缩强度，但“不要让昂贵主体反复做已可确定化工作”的机制仍然成立。
 
-**主要 owner**：`docs/workbench-and-ai-operations.md`、`docs/development-governance.md`。
+**主要 owner**：`docs/agent-and-user-machine-interface.md`、`docs/development-governance.md`。
 
 ---
 
@@ -398,7 +398,7 @@ full canonical state
 
 **反例**：如果某 UI 本身就是合法 canonical writer，它需要通过明确 Operation/Authority，而不是因为“这是 UI”获得权力。
 
-**owner**：`docs/system-architecture.md`、`docs/workbench-and-ai-operations.md`。
+**owner**：`docs/system-architecture.md`、`docs/agent-and-user-machine-interface.md`。
 
 ---
 
@@ -510,7 +510,7 @@ raw
 
 ## P21 — Downstream 只能消费 Upstream 冻结结果，不能重新解释
 
-**依据**：如果 Backend、Runtime、Workbench、Adapter 都重新选实现，会出现多个隐式 Resolver。
+**依据**：如果 Backend、Runtime、CLI projection、Adapter 都重新选实现，会出现多个隐式 Resolver。
 
 **机制**：typed frozen output 逐层 lowering；下层不能回头重定义上层语义。
 
@@ -717,7 +717,7 @@ caller capability
 
 **反例**：纯创作、非治理任务可以直接使用模型输出；一旦输出要成为 canonical engineering state，必须进入正式 Operation。
 
-**owner**：`docs/workbench-and-ai-operations.md`。
+**owner**：`docs/agent-and-user-machine-interface.md`。
 
 ---
 
@@ -737,7 +737,7 @@ full canonical state
 
 **反例**：canonical representation 本身可以做无损规范化、dedup、content-addressing；禁止的是丢失会改变工程语义的信息。
 
-**owner**：`docs/semantic-model.md`、`docs/workbench-and-ai-operations.md`。
+**owner**：`docs/semantic-model.md`、`docs/agent-and-user-machine-interface.md`。
 
 ---
 
@@ -749,7 +749,7 @@ full canonical state
 
 **反例**：开放探索任务尚未知道什么会影响结论，需要更保守的初始 coverage。
 
-**owner**：`docs/workbench-and-ai-operations.md`。
+**owner**：`docs/agent-and-user-machine-interface.md`。
 
 ---
 
@@ -770,7 +770,7 @@ security、authority、must-preserve 等 mandatory context 不能等待模型自
 
 **反例**：非常小的工程可以一次加载完整上下文，仍然不违反原则，因为“完整”本身就是最小充分。
 
-**owner**：`docs/workbench-and-ai-operations.md`。
+**owner**：`docs/agent-and-user-machine-interface.md`。
 
 ---
 
@@ -790,7 +790,7 @@ machine computes
 
 **反例**：机器算法 coverage 不完整时，AI 可以作为补充分析，但输出仍是 Evidence/proposal，不升级为 canonical truth。
 
-**owner**：`docs/development-governance.md`、`docs/workbench-and-ai-operations.md`。
+**owner**：`docs/development-governance.md`、`docs/agent-and-user-machine-interface.md`。
 
 ---
 
@@ -802,7 +802,7 @@ machine computes
 
 **反例**：完全封闭且输入固定的小任务可隐式知道 coverage，但跨仓库/跨 Provider/跨 runtime 的任务不应依赖这种假设。
 
-**owner**：`docs/workbench-and-ai-operations.md`、相关 Impact/Verification owner。
+**owner**：`docs/agent-and-user-machine-interface.md`、相关 Impact/Verification owner。
 
 ---
 

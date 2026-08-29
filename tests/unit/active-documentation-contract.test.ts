@@ -4,16 +4,14 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  CODEX_DEVELOPMENT_ACTIVE_DOCUMENTATION_PATHS_V2,
-  CodexDevelopmentIsActiveDocumentationPathV1
-} from '../../platform/shared/active-documentation-contract.ts';
+  isActiveDocumentationPath
+} from '../../src/control/documentation/active.ts';
 import {
   activeDocumentationPaths,
-  DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
   parseDocumentationAuthorityRegistry,
   renderDocumentationIndex
-} from '../../platform/shared/documentation-authority-contract.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from '../../platform/shared/repository-path-contract.ts';
+} from '../../src/control/documentation/authority.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../src/system-architecture/foundation/contract/repository-path.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 
@@ -106,10 +104,7 @@ function proposalRecord(
 }
 
 function authorityRegistry(...documents: Record<string, unknown>[]): string {
-  return JSON.stringify({
-    schema: DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
-    documents
-  });
+  return JSON.stringify({ documents });
 }
 
 test('canonical repository paths require normalized repository-relative POSIX segments', () => {
@@ -117,10 +112,10 @@ test('canonical repository paths require normalized repository-relative POSIX se
     'README.md',
     'docs/product.md',
     'docs/work/current-state.yaml'
-  ]) expect(CodexDevelopmentIsCanonicalRepositoryPathV1(file)).toBe(true);
+  ]) expect(CodexDevelopmentIsCanonicalRepositoryPath(file)).toBe(true);
 
   for (const file of NON_CANONICAL_REPOSITORY_PATHS) {
-    expect(CodexDevelopmentIsCanonicalRepositoryPathV1(file)).toBe(false);
+    expect(CodexDevelopmentIsCanonicalRepositoryPath(file)).toBe(false);
   }
 });
 
@@ -287,16 +282,15 @@ test('reject and experimental dispositions preserve reversal or Evidence require
   ))).toThrow(/experimental requires activationTrigger and evidenceRequirement/);
 });
 
-test('active documentation projection and generated index exactly match registry bytes', async () => {
+test('active documentation lookup and generated index consume the registry', async () => {
   const registrySource = await readFile(
     path.join(REPOSITORY_ROOT, 'docs/authority.json'),
     'utf8'
   );
   const registry = parseDocumentationAuthorityRegistry(registrySource);
-  const projectedPaths: readonly string[] = CODEX_DEVELOPMENT_ACTIVE_DOCUMENTATION_PATHS_V2;
-  expect(projectedPaths).toEqual(activeDocumentationPaths(registry));
-  for (const file of CODEX_DEVELOPMENT_ACTIVE_DOCUMENTATION_PATHS_V2) {
-    expect(CodexDevelopmentIsActiveDocumentationPathV1(file)).toBe(true);
+  const projectedPaths = activeDocumentationPaths(registry);
+  for (const file of projectedPaths) {
+    expect(isActiveDocumentationPath(file)).toBe(true);
   }
 
   const actualIndex = await readFile(path.join(REPOSITORY_ROOT, 'docs/README.md'), 'utf8');
@@ -315,5 +309,5 @@ test('historical, evidence, work-package, and unknown documents are not active b
     'docs/governance/unowned.yaml',
     'README.MD',
     ...NON_CANONICAL_REPOSITORY_PATHS
-  ]) expect(CodexDevelopmentIsActiveDocumentationPathV1(file)).toBe(false);
+  ]) expect(isActiveDocumentationPath(file)).toBe(false);
 });

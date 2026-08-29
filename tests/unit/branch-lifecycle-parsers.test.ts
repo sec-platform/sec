@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   parseLocalBranchRefs,
   parseRemoteHeadRefs
-} from '../../scripts/codex/branch-lifecycle-parsers.ts';
+} from '../../src/control/branch-lifecycle/branch-lifecycle-parsers.ts';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);

@@ -1,0 +1,25 @@
+bun test v1.3.14 (0d9b296a)
+
+src\brownfield\source-program-model\contract.test.ts:
+(pass) source program model finds capability producers, consumers, literals, and opaque paths deterministically [910.54ms]
+(pass) incremental source facts invalidate the reverse consumer closure and remain byte-equivalent to full compilation [434.26ms]
+
+src\brownfield\source-program-model\test-value.test.ts:
+(pass) test-value compilation derives behavior, effects, failures, and properties from syntax and call boundaries [100.41ms]
+(pass) test-value compilation blocks missing modules and implementation-shape mirrors [104.57ms]
+(pass) baseline test dispositions require owner evidence and a real replacement or empty census [308.15ms]
+(pass) baseline Git evidence derives DELETE only for a proven zero graph [74.82ms]
+
+src\system-architecture\repository-modules\contract.test.ts:
+(pass) repository module descriptors resolve unique physical roots and external entrypoints [458.00ms]
+(pass) repository module descriptor parser rejects unknown fields and invalid paths [0.43ms]
+(pass) repository module compiler prevents production from importing test authority [0.44ms]
+(pass) repository module compiler prevents cross-package implementation imports [0.58ms]
+(pass) src capabilities expose only descriptor-owned public facades across authority boundaries [0.49ms]
+(pass) pre-dependency entrypoints cannot import an unavailable package [0.28ms]
+(pass) repository module admission rejects retired src/apps and src/modules roots [0.15ms]
+
+ 13 pass
+ 0 fail
+ 131 expect() calls
+Ran 13 tests across 3 files. [2.78s]

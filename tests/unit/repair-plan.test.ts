@@ -6,11 +6,14 @@ import {
   applyRepairPlan,
   buildRepairPlan,
   writeRepairPlan
-} from '../../platform/compiler/repair/build-repair-plan.ts';
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile, RepairPlan, VerificationReport } from '../../platform/shared/types.ts';
+} from '../../src/compiler/repair/build-repair-plan.ts';
+import { readReviewGovernanceReports } from '../../src/compiler/emit/read-review-governance-reports.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { readJson, writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { parseRepairPlanJson, REPAIR_PLAN_FORMAT_VERSION, type RepairPlan } from '../../src/semantic/repair/contract/types.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { buildCustomerNormalizerLock, buildCustomerNormalizerPlan } from '../helpers/repair-fixtures.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -30,7 +33,7 @@ const policyViolations: VerificationReport['policy']['violations'] = [
     files: ['src/installed/entity/customer-service.ts'],
     message: 'Z policy issue.',
     sourceScope: 'official',
-    sourcePath: 'platform/policies/official/policy.spec.yaml'
+    sourcePath: 'catalog/policies/official/policy.spec.yaml'
   },
   {
     id: 'tenant-scope-required',
@@ -40,7 +43,7 @@ const policyViolations: VerificationReport['policy']['violations'] = [
     files: ['src/installed/entity/customer-service.ts'],
     message: 'A policy issue.',
     sourceScope: 'official',
-    sourcePath: 'platform/policies/official/policy.spec.yaml'
+    sourcePath: 'catalog/policies/official/policy.spec.yaml'
   },
   {
     id: 'tenant-scope-required',
@@ -50,7 +53,7 @@ const policyViolations: VerificationReport['policy']['violations'] = [
     files: ['src/installed/entity/customer-service.ts'],
     message: 'A policy issue.',
     sourceScope: 'official',
-    sourcePath: 'platform/policies/official/policy.spec.yaml'
+    sourcePath: 'catalog/policies/official/policy.spec.yaml'
   }
 ];
 
@@ -80,7 +83,7 @@ test('writeRepairPlan persists generated path in a missing generated directory',
       generatedPaths: []
     };
     const repairPlan: RepairPlan = {
-      formatVersion: '1',
+      formatVersion: REPAIR_PLAN_FORMAT_VERSION,
       status: 'skipped',
       sourceVerificationStatus: 'passed',
       requiresVerification: false,
@@ -89,13 +92,61 @@ test('writeRepairPlan persists generated path in a missing generated directory',
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
     await writeJson(lockPath, persistedLockInput);
 
+    await expect(writeRepairPlan(
+      workspaceRoot,
+      { ...repairPlan, formatVersion: 'future' } as unknown as RepairPlan,
+      persistedLockInput
+    )).rejects.toThrow();
+    await expect(fs.access(repairPlanPath)).rejects.toMatchObject({ code: 'ENOENT' });
+
     await writeRepairPlan(workspaceRoot, repairPlan, persistedLockInput);
 
     const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
     const persistedLock = await readJson<LockFile>(lockPath);
     expect(persistedRepairPlan).toEqual(repairPlan);
     expect(persistedLock.generatedPaths).toHaveLength(2);
+    expect(readReviewGovernanceReports(workspaceRoot).repairPlan).toEqual(repairPlan);
+
+    const duplicateStatusJson = JSON.stringify(repairPlan).replace(
+      '"status":"skipped"',
+      '"status":"skipped","status":"skipped"'
+    );
+    await fs.writeFile(repairPlanPath, duplicateStatusJson, 'utf8');
+    expect(() => readReviewGovernanceReports(workspaceRoot)).toThrow(/duplicate key/iu);
   });
+});
+
+test('RepairPlan parser rejects ambiguous JSON and unbound status/provenance combinations', () => {
+  const skippedPlan: RepairPlan = {
+    formatVersion: REPAIR_PLAN_FORMAT_VERSION,
+    status: 'skipped',
+    sourceVerificationStatus: 'passed',
+    requiresVerification: false,
+    tasks: []
+  };
+
+  const duplicateStatusJson = JSON.stringify(skippedPlan).replace(
+    '"status":"skipped"',
+    '"status":"skipped","status":"skipped"'
+  );
+  expect(() => parseRepairPlanJson(duplicateStatusJson)).toThrow(/duplicate key/iu);
+  expect(() => parseRepairPlanJson(JSON.stringify({ ...skippedPlan, unknownField: true }))).toThrow();
+  expect(() => parseRepairPlanJson(JSON.stringify({ ...skippedPlan, status: 'future' }))).toThrow();
+  expect(() => parseRepairPlanJson(JSON.stringify({
+    ...skippedPlan,
+    sourceVerificationStatus: 'failed'
+  }))).toThrow();
+
+  const pendingPlan = buildRepairPlan(plan, lock, failedReport);
+  expect(() => parseRepairPlanJson(JSON.stringify({
+    ...pendingPlan,
+    sourceVerificationStatus: 'passed'
+  }))).toThrow();
+  expect(() => parseRepairPlanJson(JSON.stringify({
+    ...pendingPlan,
+    status: 'applied',
+    requiresVerification: false
+  }))).toThrow();
 });
 
 test('applyRepairPlan checks the commit fence immediately before each live file write', async () => {
@@ -132,7 +183,7 @@ test('repair plan skips when verification passed', () => {
   });
 
   expect(buildRepairPlan(plan, lock, report)).toEqual({
-    formatVersion: '1',
+    formatVersion: REPAIR_PLAN_FORMAT_VERSION,
     status: 'skipped',
     sourceVerificationStatus: 'passed',
     requiresVerification: false,
@@ -154,12 +205,6 @@ test('repair plan includes structured failure points for slot and spec failures'
     forbiddenOperationCount: 4,
     testCount: 2,
     failureTargetCount: 3,
-    sourceSlotStatus: 'filled',
-    sourceWritableZones: ['custom/customer_normalizer.ts'],
-    sourceProvenanceHints: {
-      generator: 'mock-local-synthesizer',
-      verifiedBy: []
-    },
     writeBounds: ['custom/customer_normalizer.ts'],
     requiredSymbols: ['normalizeCustomerInput'],
     forbiddenOperations: [
@@ -233,5 +278,37 @@ test('repair plan falls back when failed summary has no lane details', () => {
 
   const repairPlan = buildRepairPlan(plan, lock, report);
 
-  expect(repairPlan.tasks[0].failurePoints).toHaveLength(1);
+  expect(repairPlan).toMatchObject({
+    status: 'pending',
+    sourceVerificationStatus: 'failed',
+    requiresVerification: false,
+    tasks: [
+      expect.objectContaining({
+        taskId: 'repair_slot_customer_normalizer',
+        taskKind: 'repair-slot',
+        category: 'slot-rewrite',
+        phase: 'repair',
+        sourceSlotId: 'customer_normalizer',
+        targetBlock: 'entity/customer-basic',
+        targetFile: 'custom/customer_normalizer.ts'
+      })
+    ],
+    blockers: [
+      expect.objectContaining({
+        blockerId: 'repair_blocker_1_all_summary',
+        boundary: 'unknown',
+        failurePoints: [
+          {
+            lane: 'all',
+            kind: 'summary',
+            issueType: 'unknown',
+            repairable: false,
+            artifactPath: CI_ARTIFACT_FILES.verificationReport,
+            message: 'Verification failed without lane-specific failure details'
+          }
+        ]
+      })
+    ]
+  });
+  expect(repairPlan.tasks).toHaveLength(1);
 });

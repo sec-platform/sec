@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
+import type { UpgradeMigrationEntry } from '../../src/change-management/upgrade/contract/manifest-types.ts';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

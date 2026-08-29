@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
@@ -179,6 +179,12 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         }
       ])
     );
+
+    await writeJson(upgradePlanPath, {
+      ...upgradePlan,
+      formatVersion: 'future'
+    });
+    await expect(buildReviewSummaryFromInputs(workspaceRoot, reviewOptions)).rejects.toThrow();
   });
 });
 

@@ -1,6 +1,4 @@
 {
-  "schema": "sec-module-v1",
-  "moduleId": "product.source-code",
   "importGraph": "content",
   "externalEntrypoints": []
 }

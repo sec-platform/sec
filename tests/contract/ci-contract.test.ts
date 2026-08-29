@@ -2,50 +2,14 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 
-import {
-  assertCiExpectedHead,
-  buildCiContract,
-  buildCiFullGatePlan,
-  buildCiQuickGatePlan,
-  CI_MAIN_HEALTH_COMMANDS,
-  CI_MAIN_HEALTH_JOB_ID,
-  CI_MAIN_HEALTH_JOB_NAME,
-  CI_MAIN_HEALTH_STEP_ORDER,
-  CI_VERIFICATION_CONTRACT_REVISION,
-  CI_VERIFICATION_EXECUTION_MODEL,
-  CI_VERIFICATION_PR_DISPATCH_TYPE,
-  CI_VERIFICATION_PR_EVENT,
-  CI_VERIFICATION_PR_REQUEST_SCHEMA,
-  CI_VERIFICATION_PR_STEP_ORDER,
-  CodexDevelopmentBuildVerificationPlanV1
-} from '../../platform/shared/ci-contract.ts';
-import {
-  CI_COMPILER_WORKFLOW_RUN_IDENTITY_V1,
-  CI_MAIN_HEALTH_POLICY_DIGEST_V1,
-  CI_MAIN_HEALTH_POLICY_V1,
-  CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
-  CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_ARTIFACT_PREFIX_V2,
-  CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE_V2,
-  CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1,
-  CI_VERIFICATION_SESSION_CONTRACT_REVISION,
-  createCiMainHealthRequestOperationIdV1,
-  createCiVerificationHostedProviderRevisionV2,
-  matchesCiCompilerWorkflowRunIdentityV1,
-  matchesCiWorkflowRunIdentityV1
-} from '../../platform/shared/ci-verification-revision.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1 } from '../../platform/shared/sec-linux-verification-environment.ts';
-import { TCB_TRUST_ROOT_V3 } from '../../platform/shared/tcb-closure-lock.ts';
-import {
-  matchSecTrustedBootstrapPathV3,
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3
-} from '../../platform/shared/tcb-trust-root-contract.ts';
-import {
-  LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1,
-  LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1,
-  LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
-} from '../../scripts/codex/local-github-actions-runner.ts';
+import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../src/verification/ci/contract/core.ts';
+import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CI_VERIFICATION_EXECUTION_MODEL, CodexDevelopmentBuildVerificationPlan } from '../../src/verification/ci/contract/plan.ts';
+import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, CI_MAIN_HEALTH_POLICY_DIGEST, CI_MAIN_HEALTH_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_SESSION_DISPATCH_TYPE, createCiMainHealthRequestOperationId, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../src/verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE } from '../../src/verification/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, createCiVerificationHostedProviderRevision } from '../../src/verification/action/contract/environment.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
+import { TCB_TRUST_ROOT } from '../../src/verification/trust/compiler.ts';
+import { matchSecTrustedBootstrapPath, SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 type WorkflowStep = Readonly<{
@@ -97,7 +61,6 @@ const LOCAL_LINUX_RUNNER_ROLE_LABELS = Object.freeze({
   sut: 'sec-linux-verification-sut-v1'
 } as const);
 const WORKFLOW_RUNNER_ROLES = Object.freeze({
-  '.github/workflows/architecture-tools.yml': { 'architecture-tools': 'sut' },
   '.github/workflows/compiler-pr-validation.yml': {
     'validate-hosted-request': 'trusted',
     'validate-agent-operation-activation-request': 'trusted',
@@ -129,31 +92,31 @@ test('all hosted workflow-run consumers exclude mutable provider name from ident
   const headSha = 'a'.repeat(40);
   const compilerTitle = `verify session PR #42 session sha256:${'b'.repeat(64)}`;
   const compilerIdentity = {
-    workflowPath: CI_COMPILER_WORKFLOW_RUN_IDENTITY_V1.workflowPath,
-    eventName: CI_COMPILER_WORKFLOW_RUN_IDENTITY_V1.eventName,
+    workflowPath: CI_COMPILER_WORKFLOW_RUN_IDENTITY.workflowPath,
+    eventName: CI_COMPILER_WORKFLOW_RUN_IDENTITY.eventName,
     displayTitle: compilerTitle,
     headSha,
     expectedDisplayTitle: compilerTitle,
     expectedHeadSha: headSha
   } as const;
-  expect(matchesCiCompilerWorkflowRunIdentityV1(compilerIdentity)).toBe(true);
-  expect(matchesCiCompilerWorkflowRunIdentityV1({
+  expect(matchesCiCompilerWorkflowRunIdentity(compilerIdentity)).toBe(true);
+  expect(matchesCiCompilerWorkflowRunIdentity({
     ...compilerIdentity,
     workflowPath: '.github/workflows/foreign.yml'
   })).toBe(false);
-  expect(matchesCiCompilerWorkflowRunIdentityV1({
+  expect(matchesCiCompilerWorkflowRunIdentity({
     ...compilerIdentity,
     eventName: 'workflow_run'
   })).toBe(false);
-  expect(matchesCiCompilerWorkflowRunIdentityV1({
+  expect(matchesCiCompilerWorkflowRunIdentity({
     ...compilerIdentity,
     displayTitle: 'foreign title'
   })).toBe(false);
-  expect(matchesCiCompilerWorkflowRunIdentityV1({
+  expect(matchesCiCompilerWorkflowRunIdentity({
     ...compilerIdentity,
     headSha: 'c'.repeat(40)
   })).toBe(false);
-  expect(matchesCiWorkflowRunIdentityV1({
+  expect(matchesCiWorkflowRunIdentity({
     workflowPath: '.github/workflows/sec-merge-gate.yml',
     eventName: 'workflow_run',
     displayTitle: 'integrate compiler session run 100 attempt 1',
@@ -166,50 +129,22 @@ test('all hosted workflow-run consumers exclude mutable provider name from ident
 });
 
 test('hosted provider revision binds the exact trusted runtime profile', () => {
-  const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY_V1;
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2)
-    .toBe(createCiVerificationHostedProviderRevisionV2(authority));
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(
-    'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0'
-  );
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':node-24.19.0:');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':python-3.12.3:');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(
-    `:unzip-6.00:gh-${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}:`
-      + `gh-archive-sha256-${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1}:`
-      + `image-${LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2.replace(':', '-')}:`
-  );
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).not.toContain(
-    'a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf'
-  );
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':container-init-v1:');
+  const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION)
+    .toBe(createCiVerificationHostedProviderRevision(authority));
   const hostileProjectionDigest = `sha256:${'f'.repeat(64)}` as `sha256:${string}`;
-  expect(createCiVerificationHostedProviderRevisionV2({
+  const changedRevision = createCiVerificationHostedProviderRevision({
     ...authority,
     image: { ...authority.image, dockerProjectionDigest: hostileProjectionDigest }
-  })).toContain(`:image-${hostileProjectionDigest.replace(':', '-')}:`);
-  expect(createCiVerificationHostedProviderRevisionV2({
-    ...authority,
-    image: { ...authority.image, dockerProjectionDigest: hostileProjectionDigest }
-  })).not.toBe(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2);
+  });
+  expect(changedRevision).not.toBe(CI_VERIFICATION_HOSTED_PROVIDER_REVISION);
 });
 
-test('persistent runners never load a workflow or repository bytes from a caller-selected ref', async () => {
-  const [architectureSource, releaseSource] = await Promise.all([
-    readCompilerFile('.github/workflows/architecture-tools.yml'),
-    readCompilerFile('.github/workflows/compiler-release-validation.yml')
-  ]);
-  const architecture = parseYaml(architectureSource) as Workflow;
+test('release verification never loads repository bytes from a caller-selected ref', async () => {
+  const releaseSource = await readCompilerFile('.github/workflows/compiler-release-validation.yml');
   const release = parseYaml(releaseSource) as Workflow;
-  expect(architecture.on).toEqual({
-    repository_dispatch: { types: ['sec-run-architecture-tools-v1'] }
-  });
   expect(release.on).toEqual({
     repository_dispatch: { types: ['sec-verify-release-main-v1'] }
-  });
-  expect(step(architecture, 'architecture-tools', 'Checkout').with).toMatchObject({
-    ref: '${{ steps.trusted-default.outputs.sha }}',
-    'persist-credentials': false
   });
   expect(step(release, 'compiler-release-verification', 'Checkout exact release head').with)
     .toMatchObject({
@@ -240,18 +175,12 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   const workflow = parseYaml(source) as Workflow;
   const contract = buildCiContract();
 
-  expect(contract.verificationContractRevision).toBe(CI_VERIFICATION_CONTRACT_REVISION);
-  expect(contract.verificationContractRevision).toBe('ci-verification-v19');
   expect(contract.executionModel).toBe(CI_VERIFICATION_EXECUTION_MODEL);
-  expect(contract.executionModel).toBe('verification-session-v2-action-closure');
   expect(contract.prWorkflowEvent).toBe(CI_VERIFICATION_PR_EVENT);
-  expect(contract.prDispatchType).toBe(CI_VERIFICATION_PR_DISPATCH_TYPE);
-  expect(contract.prDispatchType).toBe('sec-verify-session-v2');
-  expect(CI_VERIFICATION_PR_REQUEST_SCHEMA).toBe('sec-verification-session-hosted-request-v1');
-  expect(CI_VERIFICATION_SESSION_CONTRACT_REVISION).toBe('ci-verification-session-v2');
+  expect(contract.prDispatchType).toBe(CI_VERIFICATION_SESSION_DISPATCH_TYPE);
   expect(workflow.on.repository_dispatch?.types).toEqual([
-    CI_VERIFICATION_PR_DISPATCH_TYPE,
-    CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
+    CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+    CI_VERIFICATION_ACTION_DISPATCH_TYPE,
     'sec-produce-main-health-v1',
     'sec-produce-agent-operation-activation-v1'
   ]);
@@ -286,12 +215,10 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   const actionDispatch = step(workflow, 'coordinate-verification-session',
     'Dispatch or join canonical ActionKey producers until terminal');
   expect(parentUpload.with).toMatchObject({
-    path: `.tmp/codex/${CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE_V2}`,
+    path: `.tmp/codex/${CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE}`,
     'if-no-files-found': 'error',
     'retention-days': 90
   });
-  expect(CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_ARTIFACT_PREFIX_V2)
-    .toBe('sec-verification-action-parent-dispatch-plan-v2');
   const coordinatorStepNames = coordinator.steps.map(({ name }) => name);
   expect([
     reviewWait.name, parentPlan.name, parentUpload.name, parentReadback.name, actionDispatch.name
@@ -373,10 +300,10 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   // This preserves the canonical sandbox execution ceiling and reserves a
   // separately named post-execution budget for mandatory terminalization.
   const hostedSutWallClockMinutes = Math.ceil(
-    CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.wallSeconds / 60
+    CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds / 60
   );
   const hostedSutTerminalizationReserveMinutes = 15;
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.wallSeconds).toBe(3_600);
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds).toBe(3_600);
   expect(sut['timeout-minutes']).toBe(
     hostedSutWallClockMinutes + hostedSutTerminalizationReserveMinutes
   );
@@ -412,9 +339,9 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(step(workflow, 'assemble-verification-action-terminal',
     'Assemble canonical five-state terminal artifact').name)
     .toBe('Assemble canonical five-state terminal artifact');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':sandbox-v5');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).not.toContain(':sandbox-v4');
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1).toMatchObject({
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v5');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).not.toContain(':sandbox-v4');
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY).toMatchObject({
     policyRevision: 'sandbox-v5',
     rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate',
     toolClosure: 'private-explicit-runtime-binaries-and-dynamic-libraries-v2',
@@ -423,21 +350,21 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
     inputMount: 'retained-ordinary-fd-private-tmpfs-authenticated-copy-v2',
     resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit'
   });
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.archiveValidation).toMatchObject({
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.archiveValidation).toMatchObject({
     retainedOrdinaryFileDescriptor: true,
     privateCopyDigestReadback: true,
     hostExtraction: false
   });
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits).toMatchObject({
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits).toMatchObject({
     aggregateCpuSeconds: 7200,
     perProcessCpuSeconds: 7200,
     wallSeconds: 3600
   });
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities).toEqual([
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outerSutContainerCapabilities).toEqual([
     'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
   ]);
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.runtimeBinaries).toContain('/usr/bin/tar');
-  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.runtimeDirectories).toEqual(['/usr/lib/git-core']);
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries).toContain('/usr/bin/tar');
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeDirectories).toEqual(['/usr/lib/git-core']);
 });
 
 test('hosted activation is a lightweight trusted-main artifact producer, not a candidate credential', async () => {

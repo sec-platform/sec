@@ -4,17 +4,17 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { compareCodeUnits } from '../../platform/shared/canonical-primitives.ts';
+import { compareCodeUnits } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   parseDocumentationAuthorityRegistry
-} from '../../platform/shared/documentation-authority-contract.ts';
-import { CodexDevelopmentWorkPackageSchemaV1 } from '../../scripts/codex/work-package-contract.ts';
+} from '../../src/control/documentation/authority.ts';
+import { CodexDevelopmentWorkPackageSchema } from '../../src/control/agent/work-package-contract.ts';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
 const DOCS_ROOT = path.join(ROOT, 'docs');
 const DOCUMENT_EXTENSIONS = new Set(['.json', '.md', '.yaml', '.yml']);
 const WORK_PACKAGE_SCHEMAS = new Set<string>([
-  CodexDevelopmentWorkPackageSchemaV1
+  CodexDevelopmentWorkPackageSchema
 ]);
 const FORBIDDEN_TRACKED_PREFIXES = [
   'docs/archive/'
@@ -77,7 +77,7 @@ function excludedDocumentClaimsAuthority(file: string, source: string): boolean 
       const value = JSON.parse(source) as unknown;
       if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
       const record = value as Record<string, unknown>;
-      return record.schema === 'sec-document-authority-registry-v2' ||
+      return file === 'docs/authority.json' ||
         record.kind === 'authority' || record.kind === 'registry' || record.kind === 'proposal';
     } catch {
       return false;

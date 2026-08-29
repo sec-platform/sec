@@ -1,4 +1,4 @@
-import type { UpgradeDiagnostics, UpgradePlan } from '../../platform/shared/types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../../src/change-management/upgrade/contract/types.ts';
 
 export function buildUpgradeDiagnostics(options: Partial<UpgradeDiagnostics> = {}): UpgradeDiagnostics {
   return {
