@@ -1284,6 +1284,7 @@ function assertOwnedContainer(
     role: LocalGitHubActionsRunnerRoleV2;
     containerId?: string;
     operationLabel?: string;
+    allowLegacyDetachedRunnerDuringTeardown?: true;
   }>
 ): string {
   const config = value.Config;
@@ -1312,16 +1313,31 @@ function assertOwnedContainer(
   }
   const host = hostConfig as Record<string, unknown>;
   const restartPolicy = host.RestartPolicy;
-  if (restartPolicy === null || typeof restartPolicy !== 'object' || Array.isArray(restartPolicy)
-      || (restartPolicy as Record<string, unknown>).Name !== 'unless-stopped'
-      || (restartPolicy as Record<string, unknown>).MaximumRetryCount !== 0) {
+  const retainedRestartPolicy = restartPolicy !== null && typeof restartPolicy === 'object'
+    && !Array.isArray(restartPolicy)
+    ? restartPolicy as Record<string, unknown>
+    : null;
+  const permittedRestartPolicy = retainedRestartPolicy !== null
+    && retainedRestartPolicy.MaximumRetryCount === 0
+    && (retainedRestartPolicy.Name === 'unless-stopped'
+      || (input.allowLegacyDetachedRunnerDuringTeardown === true
+        && retainedRestartPolicy.Name === 'no'));
+  if (!permittedRestartPolicy) {
     fail('container restart policy changed and is preserved');
   }
   const retainedConfig = config as Record<string, unknown>;
-  if (JSON.stringify(retainedConfig.Entrypoint) !== JSON.stringify(['/bin/bash'])
-      || JSON.stringify(retainedConfig.Cmd) !== JSON.stringify([
-        '-ceu', LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1
-      ])) {
+  const currentSupervisor = retainedRestartPolicy?.Name === 'unless-stopped'
+    && retainedRestartPolicy.MaximumRetryCount === 0
+    && JSON.stringify(retainedConfig.Entrypoint) === JSON.stringify(['/bin/bash'])
+    && JSON.stringify(retainedConfig.Cmd) === JSON.stringify([
+      '-ceu', LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1
+    ]);
+  const exactLegacyDetachedRunner = input.allowLegacyDetachedRunnerDuringTeardown === true
+    && retainedRestartPolicy?.Name === 'no'
+    && retainedRestartPolicy.MaximumRetryCount === 0
+    && JSON.stringify(retainedConfig.Entrypoint) === JSON.stringify(['/usr/bin/sleep'])
+    && JSON.stringify(retainedConfig.Cmd) === JSON.stringify(['infinity']);
+  if (!currentSupervisor && !exactLegacyDetachedRunner) {
     fail('container runner supervisor boundary changed and is preserved');
   }
   const observedCapabilities = Array.isArray(host.CapAdd)
@@ -1604,7 +1620,8 @@ async function cleanupLedgerInstanceV3(
         instanceName: retained.name,
         role,
         containerId: retained.containerId,
-        operationLabel: cursor.ledger.operationLabel
+        operationLabel: cursor.ledger.operationLabel,
+        allowLegacyDetachedRunnerDuringTeardown: true
       });
       await runDockerCommand(cursor.ledger.dockerEndpoint, ['rm', '--force', retained.containerId], { cwd });
     }
@@ -3174,7 +3191,8 @@ function assertStateProjectionBoundToLedgerV3(
 
 async function assertNoForeignProviderLedgerInventoryV3(
   cursor: ProviderLedgerCursorV3,
-  cwd: string
+  cwd: string,
+  allowLegacyDetachedRunnerDuringTeardown = false
 ): Promise<void> {
   const ledger = cursor.ledger;
   const runners = await listRepositoryRunners(ledger.repository, cwd);
@@ -3213,7 +3231,10 @@ async function assertNoForeignProviderLedgerInventoryV3(
       instanceName: retained.name,
       role: retained.role,
       containerId: retained.containerId,
-      operationLabel: ledger.operationLabel
+      operationLabel: ledger.operationLabel,
+      ...(allowLegacyDetachedRunnerDuringTeardown
+        ? { allowLegacyDetachedRunnerDuringTeardown: true as const }
+        : {})
     });
   }
   for (const retained of ledger.instances) {
@@ -3231,7 +3252,7 @@ async function convergeProviderLedgerToTerminalV3(
 ): Promise<void> {
   await assertDockerEndpointIdentityV3(cursor.ledger.dockerEndpoint, cwd);
   await assertGitHubEndpointIdentityV3(cursor.ledger.githubEndpoint, cwd);
-  await assertNoForeignProviderLedgerInventoryV3(cursor, cwd);
+  await assertNoForeignProviderLedgerInventoryV3(cursor, cwd, true);
   if (cursor.ledger.lifecycle === 'terminal') return;
   if (cursor.ledger.lifecycle !== 'teardown') {
     await advanceProviderLedgerV3(cursor, { cwd, lifecycle: 'teardown' });
@@ -3239,7 +3260,7 @@ async function convergeProviderLedgerToTerminalV3(
   for (const role of [...LOCAL_GITHUB_ACTIONS_RUNNER_ROLES_V2].reverse()) {
     await cleanupLedgerInstanceV3(cursor, cwd, role);
   }
-  await assertNoForeignProviderLedgerInventoryV3(cursor, cwd);
+  await assertNoForeignProviderLedgerInventoryV3(cursor, cwd, true);
   await advanceProviderLedgerV3(cursor, { cwd, lifecycle: 'terminal' });
 }
 
