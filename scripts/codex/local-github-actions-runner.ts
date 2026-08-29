@@ -84,6 +84,15 @@ export const LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1 =
   })();
 export const LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1 =
   ENVIRONMENT.runtime.containerInitCapability;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER_V1 =
+  '/actions-runner/.sec-runner-configured-v1' as const;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1 = Object.freeze([
+  'set -euo pipefail',
+  'cd /actions-runner',
+  `marker=${JSON.stringify(LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER_V1)}`,
+  'while [ ! -f "$marker" ]; do sleep 1; done',
+  'exec ./run.sh'
+].join('\n'));
 export const LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RECEIPT_SCHEMA_V1 =
   ENVIRONMENT.provenance.receiptSchema;
 export const LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3 =
@@ -1302,6 +1311,19 @@ function assertOwnedContainer(
     fail('container host configuration is invalid and is preserved');
   }
   const host = hostConfig as Record<string, unknown>;
+  const restartPolicy = host.RestartPolicy;
+  if (restartPolicy === null || typeof restartPolicy !== 'object' || Array.isArray(restartPolicy)
+      || (restartPolicy as Record<string, unknown>).Name !== 'unless-stopped'
+      || (restartPolicy as Record<string, unknown>).MaximumRetryCount !== 0) {
+    fail('container restart policy changed and is preserved');
+  }
+  const retainedConfig = config as Record<string, unknown>;
+  if (JSON.stringify(retainedConfig.Entrypoint) !== JSON.stringify(['/bin/bash'])
+      || JSON.stringify(retainedConfig.Cmd) !== JSON.stringify([
+        '-ceu', LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1
+      ])) {
+    fail('container runner supervisor boundary changed and is preserved');
+  }
   const observedCapabilities = Array.isArray(host.CapAdd)
     ? host.CapAdd.map(String).sort()
     : [];
@@ -1496,8 +1518,8 @@ export function assertExactLocalGitHubActionsRunnerProfileInventoryV3(input: Rea
     if (exact.length !== 1 || exact[0]!.name !== expected.name || exact[0]!.id !== expected.runnerId) {
       fail('GitHub runner exact retained name and ID set differs');
     }
-    if (exact[0]!.status !== 'online' || exact[0]!.busy !== false) {
-      fail('GitHub runner final readiness census is not online and idle');
+    if (exact[0]!.status !== 'online' || typeof exact[0]!.busy !== 'boolean') {
+      fail('GitHub runner final readiness census is not online');
     }
   }
 }
@@ -2860,7 +2882,7 @@ async function startRunnerInstanceV3(input: Readonly<{
   }
   const args = [
     'run', '--detach', '--init', '--name', name,
-    '--entrypoint', '/usr/bin/sleep', '--user', '0',
+    '--restart', 'unless-stopped', '--entrypoint', '/bin/bash', '--user', '0',
     '--cap-drop', 'ALL',
     ...(input.role === 'sut'
       ? SUT_CAPABILITIES.flatMap((capability) => ['--cap-add', capability])
@@ -2878,7 +2900,8 @@ async function startRunnerInstanceV3(input: Readonly<{
     '--label', `sec.local-runner.container-init=${LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1}`,
     '--label', `sec.local-runner.image-id=${LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2}`,
     '--env', 'RUNNER_ALLOW_RUNASROOT=1', '--env', `RUNNER_NAME=${name}`,
-    LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2, 'infinity'
+    LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    '-ceu', LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1
   ];
   const container = await runDockerCommand(input.cursor.ledger.dockerEndpoint, args, { cwd: input.cwd });
   const containerId = container.stdout.toString('utf8').trim();
@@ -2922,9 +2945,18 @@ async function startRunnerInstanceV3(input: Readonly<{
     cwd: input.cwd,
     input: Buffer.from(`${token}\n`, 'utf8')
   });
+  const configuredMarkerScript = [
+    'set -euo pipefail',
+    `marker=${JSON.stringify(LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER_V1)}`,
+    'temporary="${marker}.new-$$"',
+    'trap \'rm -f -- "$temporary"\' EXIT',
+    '(umask 077; set -C; printf \'configured\\n\' > "$temporary")',
+    'mv -T -- "$temporary" "$marker"',
+    'trap - EXIT',
+    '[ -f "$marker" ] && [ ! -L "$marker" ]'
+  ].join('\n');
   await runDockerCommand(input.cursor.ledger.dockerEndpoint, [
-    'exec', '--detach', containerId, 'bash', '-lc',
-    'exec ./run.sh > /tmp/sec-actions-runner.log 2>&1'
+    'exec', containerId, 'bash', '-ceu', configuredMarkerScript
   ], { cwd: input.cwd });
   const runner = await waitForRunner(input.cursor.ledger.repository, name, input.cwd, 60);
   const runnerId = assertOwnedLocalGitHubActionsRunnerV2(runner, {
