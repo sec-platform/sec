@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "compiler.registry",
+  "importGraph": "runtime",
+  "externalEntrypoints": []
+}

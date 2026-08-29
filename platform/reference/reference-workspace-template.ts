@@ -5,8 +5,8 @@ import {
 import {
   officialRegistryRelativePath,
   posixPath
-} from '../shared/paths.ts';
-import type { PlanFile } from '../shared/plan-manifest-types.ts';
+} from '../workspace/paths.ts';
+import type { PlanFile } from '../compiler/contract.ts';
 
 /**
  * Explicit demo/reference template. These Customer/Tenant/Auth choices are

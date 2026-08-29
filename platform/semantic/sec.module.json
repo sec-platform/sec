@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "product.semantic-model",
+  "importGraph": "runtime",
+  "externalEntrypoints": []
+}

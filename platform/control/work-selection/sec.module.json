@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "control.work-selection",
+  "importGraph": "runtime",
+  "externalEntrypoints": []
+}
