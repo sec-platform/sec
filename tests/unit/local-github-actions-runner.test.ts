@@ -40,6 +40,7 @@ import {
   LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1,
+  LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
@@ -51,6 +52,7 @@ import {
   LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2,
   LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3,
+  LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
   LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3,
   LOCAL_GITHUB_ACTIONS_UBUNTU_SNAPSHOT_V1,
@@ -182,6 +184,8 @@ function container(role: LocalGitHubActionsRunnerRoleV2, overrides: Record<strin
     Name: `/${instance.name}`,
     Image: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
     Config: {
+      Entrypoint: ['/bin/bash'],
+      Cmd: ['-ceu', LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1],
       Labels: {
         'sec.local-runner.schema': LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3,
         'sec.local-runner.repository': repository,
@@ -194,6 +198,7 @@ function container(role: LocalGitHubActionsRunnerRoleV2, overrides: Record<strin
       }
     },
     HostConfig: {
+      RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
       Init: true,
       CapAdd: isSut
         ? CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities
@@ -700,12 +705,12 @@ describe('local GitHub Actions runner contract', () => {
       runners: [runners[0]!, runner('trusted', { status: 'offline' }), runners[2]!],
       instances,
       operationLabel
-    })).toThrow('final readiness census is not online and idle');
+    })).toThrow('final readiness census is not online');
     expect(() => assertExactLocalGitHubActionsRunnerProfileInventoryV3({
       runners: [runners[0]!, runner('trusted', { busy: true }), runners[2]!],
       instances,
       operationLabel
-    })).toThrow('final readiness census is not online and idle');
+    })).not.toThrow();
     expect(() => assertOwnedLocalGitHubActionsRunnerV2({
       ...runner('trusted'),
       labels: [...runner('trusted').labels, {
@@ -787,6 +792,29 @@ describe('local GitHub Actions runner contract', () => {
       providerName,
       operationLabel
     })).toThrow('container capability boundary changed');
+    const withoutRestart = container('trusted');
+    withoutRestart.HostConfig.RestartPolicy = { Name: 'no', MaximumRetryCount: 0 };
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+      containers: [containers[0]!, withoutRestart, containers[2]!],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('container restart policy changed');
+    const detachedRunner = container('trusted');
+    detachedRunner.Config.Entrypoint = ['/usr/bin/sleep'];
+    detachedRunner.Config.Cmd = ['infinity'];
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+      containers: [containers[0]!, detachedRunner, containers[2]!],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('container runner supervisor boundary changed');
+    expect(LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1).toContain(
+      LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER_V1
+    );
+    expect(LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT_V1).toContain('exec ./run.sh');
   });
 
   test('binds repository and every external effect to frozen endpoints and exact IDs', async () => {
