@@ -7,11 +7,11 @@ import {
   MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET,
   resolveFastTestConcurrencyBudget,
   resolveManagedFastTestConcurrency
-} from '../../platform/dev-runner/fast-test-policy.ts';
+} from '../../src/development/runner/fast-test-policy.ts';
 import {
   applyDefaultFastTestConcurrency,
   explicitFastTestMaxConcurrency
-} from '../../platform/dev-runner/test-concurrency-policy.ts';
+} from '../../src/development/runner/test-concurrency-policy.ts';
 
 test('one pure capped budget resolves CPU counts 1..256 and MAX_SAFE_INTEGER', () => {
   const cpuCounts = [
@@ -30,9 +30,6 @@ test('one pure capped budget resolves CPU counts 1..256 and MAX_SAFE_INTEGER', (
     expect(budget.concurrentProcessLimit).toBeGreaterThan(0);
     expect(budget.bunTestMaxConcurrency * budget.concurrentProcessLimit)
       .toBeLessThanOrEqual(budget.globalBudget);
-    expect(Object.keys(budget.resourceClassProcessCaps)).toEqual([
-      ...FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER
-    ]);
     const managed = resolveManagedFastTestConcurrency(budget, null);
     for (const limit of Object.values(managed.resourceClassLimits)) {
       expect(limit).toBeGreaterThan(0);

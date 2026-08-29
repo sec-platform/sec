@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/compiler/orchestration/cli.ts!",
+    "src/compiler/index.ts!",
+    "src/compiler/orchestration/semantic-mutation-isolated-verification-runner.ts!",
+    "src/verification/ci/workspace-fast.ts!",
+    "src/control/agent/operation-read-plan.ts!",
+    "src/control/agent/skill-applicability.ts!",
+    "src/control/agent/task-capsule-host.ts!",
+    "tests/unit/worktree-physical-closeout-crash-fixture.ts!"
+  ],
+  "project": [
+    "src/**/*.ts!",
+    "tests/**/*.ts!"
+  ],
+  "bun": {
+    "entry": ["src/**/*.{test,spec}.ts!", "tests/**/*.{test,spec}.ts!"]
+  },
+  "includeEntryExports": false
+}

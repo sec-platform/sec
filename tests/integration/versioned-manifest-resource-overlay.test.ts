@@ -1,39 +1,45 @@
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
-import { loadManifestById } from '../../platform/compiler/parse/load-manifest.ts';
-import { loadSemanticContractsForManifestEntry } from '../../platform/compiler/parse/load-semantic-contract.ts';
-import { resolveGraph } from '../../platform/compiler/resolve/resolve-graph.ts';
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-import { officialRegistryRelativePath } from '../../platform/shared/paths.ts';
-import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
+import { loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
+import { readManifestResourceFileUtf8 } from '../../src/compiler/parse/read-manifest-resource.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { buildPrivatePlanRegistrySource } from '../helpers/plan-fixtures.ts';
+import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
-test('versioned manifest resources resolve through version-first block fallback roots', async () => {
-  const rootEntry = await loadManifestById('ticket/basic');
-  const versionEntry = await loadManifestById('ticket/basic', { version: '0.1.1' });
-  expect(versionEntry.resourceRoots).toEqual([versionEntry.manifestRoot, rootEntry.manifestRoot]);
+test('versioned manifest resources use the changed version file and fall back to the root file', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeSlotUpgradeFixture(workspaceRoot);
+    const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+    const blockRoot = path.join(privateRegistryRoot, 'private.slot-contract');
+    const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
+    const changedResource = 'files/changed.txt';
+    const inheritedResource = 'files/inherited.txt';
+    await fs.mkdir(path.join(blockRoot, 'files'), { recursive: true });
+    await fs.mkdir(path.join(versionRoot, 'files'), { recursive: true });
+    await fs.writeFile(path.join(blockRoot, changedResource), 'root changed\n', 'utf8');
+    await fs.writeFile(path.join(versionRoot, changedResource), 'version changed\n', 'utf8');
+    await fs.writeFile(path.join(blockRoot, inheritedResource), 'root inherited\n', 'utf8');
 
-  const contracts = await loadSemanticContractsForManifestEntry(versionEntry);
-  expect(contracts.map((entry) => entry.contract.id)).toContain('ticket-core');
-  expect(contracts.map((entry) => entry.contractPath)).toContain('platform/registry/official/ticket.basic/contracts/ticket.yaml');
+    const registrySources = [buildPrivatePlanRegistrySource()];
+    const rootEntry = loadManifestById('private/slot-contract', { workspaceRoot, registrySources });
+    const versionEntry = loadManifestById('private/slot-contract', {
+      workspaceRoot,
+      registrySources,
+      version: '0.2.0'
+    });
 
-  const plan: PlanFile = {
-    app: { id: 'versioned-ticket-resource-overlay', name: 'versioned-ticket-resource-overlay', stack: SUPPORTED_STACK, packageManager: 'pnpm', mode: 'single-tenant' },
-    registry: { sources: [{ id: 'official', kind: 'official', location: 'compiler', path: officialRegistryRelativePath.replaceAll('\\', '/') }] },
-    blocks: [{ id: 'ticket/basic', version: '0.1.1' }],
-    slots: [],
-    acceptance: []
-  };
-  const lock = await resolveGraph(process.cwd(), plan);
-  const ticketSteps = lock.installPlan.filter((step) => step.blockId === 'ticket/basic');
-  expect(lock.semanticLoweringTasks).toBeUndefined();
-  expect(versionEntry.manifest.generators).toEqual(expect.arrayContaining([
-    expect.objectContaining({
-      id: 'ticket-status-runtime-contract',
-      contract: 'ticket-core',
-      target: 'src/installed/ticket/ticket-semantic-contract.ts'
-    })
-  ]));
-  expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.ts'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
-  expect(ticketSteps.find((step) => step.from.endsWith('ticket.prisma'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
-  expect(ticketSteps.find((step) => step.from.endsWith('ticket-service.test.ts'))?.sourceRoot).toBe('ticket.basic/versions/0.1.1');
+    expect(versionEntry.resourceRoots).toEqual([versionEntry.manifestRoot, rootEntry.manifestRoot]);
+    expect(readManifestResourceFileUtf8(versionEntry, changedResource)).toMatchObject({
+      root: versionEntry.manifestRoot,
+      raw: 'version changed\n'
+    });
+    expect(readManifestResourceFileUtf8(versionEntry, inheritedResource)).toMatchObject({
+      root: rootEntry.manifestRoot,
+      raw: 'root inherited\n'
+    });
+    expect(versionEntry.manifest.slots[0]?.inputType).toBe('CustomerInputV2');
+  });
 });

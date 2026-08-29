@@ -2,18 +2,18 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { loadPlan } from '../../platform/compiler/parse/load-plan.ts';
-import { initWorkspace } from '../../platform/orchestrator/workspace-orchestrator.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
+import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import {
   acquireWorkspaceWriteLease,
   WorkspaceWriteLeaseError
-} from '../../platform/shared/workspace-write-lease.ts';
+} from '../../src/workspace/lease.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
-test('legacy reset flag remains compatible only on an empty minimal create surface', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-init-empty-reset-');
-  const result = await initWorkspace(workspaceRoot, { reset: true });
+test('init creates the minimal workspace on an empty root', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-empty-');
+  const result = await initWorkspace(workspaceRoot);
   const paths = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(result.planPath);
 
@@ -52,19 +52,17 @@ test('unsupported create template fails before lifecycle publication', async () 
   await expect(fs.lstat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
-test('init and reset refuse a non-empty foreign root before acquiring deletion authority', async () => {
-  for (const reset of [false, true]) {
-    const workspaceRoot = await createWorkspace(`engineering-compiler-init-foreign-${reset ? 'reset' : 'normal'}-`);
-    const foreignPath = path.join(workspaceRoot, 'foreign.txt');
-    const foreignBytes = Buffer.from('do not overwrite\n', 'utf8');
-    await fs.writeFile(foreignPath, foreignBytes);
+test('init refuses a non-empty foreign root before acquiring deletion authority', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-foreign-');
+  const foreignPath = path.join(workspaceRoot, 'foreign.txt');
+  const foreignBytes = Buffer.from('do not overwrite\n', 'utf8');
+  await fs.writeFile(foreignPath, foreignBytes);
 
-    await expect(initWorkspace(workspaceRoot, { reset }))
-      .rejects.toMatchObject({ code: 'WORKSPACE-INIT-001' });
+  await expect(initWorkspace(workspaceRoot))
+    .rejects.toMatchObject({ code: 'WORKSPACE-INIT-001' });
 
-    expect(await fs.readFile(foreignPath)).toEqual(foreignBytes);
-    await expect(fs.lstat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
-  }
+  expect(await fs.readFile(foreignPath)).toEqual(foreignBytes);
+  await expect(fs.lstat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
 test('repeated init cannot overwrite an existing SEC workspace', async () => {
@@ -93,7 +91,7 @@ test('active writer contention remains a lease error instead of being relabeled 
   await initWorkspace(workspaceRoot);
   const lease = await acquireWorkspaceWriteLease(workspaceRoot);
   try {
-    await expect(initWorkspace(workspaceRoot, { reset: true }))
+    await expect(initWorkspace(workspaceRoot))
       .rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-001' });
   } finally {
     await lease.release();

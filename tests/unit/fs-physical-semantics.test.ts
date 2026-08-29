@@ -6,7 +6,7 @@ import {
   ensureDir,
   pathEntryExists,
   pathExists
-} from '../../platform/shared/fs.ts';
+} from '../../src/workspace/files.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('path entry existence is distinct from target reachability for dangling links', async () => {

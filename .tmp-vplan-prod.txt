@@ -1,0 +1,10 @@
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:185:        verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:223:        verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:253:        verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:296:      verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:346:        verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:339:    verificationPlanning: SemanticMutationVerificationPlanningContextV1 | undefined,
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:366:      ...baseFields(preflight, verificationPlanning),
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:395:        (verificationPlanning) => finalizeVerificationPlanning(verificationPlanning),
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:399:    return finalizeVerificationPlanning(producedPlanning ?? input.verificationPlanning);
+platform\semantic\mutation\contract\types.ts:357:  readonly verificationPlanning: SemanticMutationVerificationPlanningContextV1;

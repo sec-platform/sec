@@ -3,11 +3,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  buildPolicyClaimGate,
   runPolicyGate
-} from '../../platform/compiler/verify/run-policy-gate.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+} from '../../src/compiler/verify/run-policy-gate.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 import { createWorkspace, prepareAdaptedWorkspace } from '../testkit/workspace.ts';
 
 async function writeCustomerService(workspaceRoot: string, matchesStructuralHeuristic: boolean): Promise<void> {
@@ -34,8 +33,6 @@ test('source-structure match cannot mint a semantic Policy PASS', async () => {
   await writeCustomerService(workspaceRoot, true);
 
   const report = await runPolicyGate(workspaceRoot);
-  const gate = buildPolicyClaimGate(report, 'fast');
-
   expect(report.status).toBe('passed');
   expect(report.violations).toEqual([]);
   expect(report.diagnostics).toEqual([]);
@@ -44,9 +41,6 @@ test('source-structure match cannot mint a semantic Policy PASS', async () => {
     requiredSemanticPredicates: ['FLOWS_TO'],
     unsupportedSemanticPredicates: ['FLOWS_TO']
   });
-  expect(gate.status).toBe('unsupported');
-  expect(gate.reasonCode).toBe('capability-unsupported');
-  expect(gate.supportedClaims).toEqual([]);
 }, 180000);
 
 test('source-structure mismatch is advisory and cannot mint a semantic Policy FAIL', async () => {
@@ -54,8 +48,6 @@ test('source-structure mismatch is advisory and cannot mint a semantic Policy FA
   await writeCustomerService(workspaceRoot, false);
 
   const report = await runPolicyGate(workspaceRoot);
-  const gate = buildPolicyClaimGate(report, 'fast');
-
   expect(report.status).toBe('passed');
   expect(report.violations).toEqual([]);
   expect(report.official.violations).toEqual([]);
@@ -66,8 +58,6 @@ test('source-structure mismatch is advisory and cannot mint a semantic Policy FA
     evidenceClass: 'source-structure',
     files: ['src/installed/entity/customer-service.ts']
   });
-  expect(gate.status).toBe('unsupported');
-  expect(gate.reasonCode).toBe('capability-unsupported');
 }, 180000);
 
 test('an applicable policy target must be a retained readable ordinary file', async () => {
@@ -98,7 +88,6 @@ test('project policy declarations override the official definition without chang
     sourcePath: 'project/policies/tenant.yaml'
   });
   expect(report.evaluation?.assurance).toBe('source-structure');
-  expect(buildPolicyClaimGate(report, 'fast').status).toBe('unsupported');
 }, 180000);
 
 test('unknown policy rules fail at the declaration schema boundary', async () => {

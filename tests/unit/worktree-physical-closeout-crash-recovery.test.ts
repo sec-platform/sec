@@ -4,8 +4,8 @@ import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { detailDigestV1 } from '../../platform/runtime-state/worktree-closeout-contract.ts';
-import { assertTrustedCompletedWorktreePhysicalCloseoutV1, prepareTrustedWorktreePhysicalCloseoutV1 } from '../../scripts/codex/worktree-physical-closeout.ts';
+import { detailDigest } from '../../src/runtime-state/worktree-closeout-contract.ts';
+import { assertTrustedCompletedWorktreePhysicalCloseout, prepareTrustedWorktreePhysicalCloseout } from '../../src/control/branch-lifecycle/worktree-physical-closeout.ts';
 
 function git(cwd: string, args: string[]): string { const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true }); if (r.status !== 0) throw new Error(r.stderr); return r.stdout.trim(); }
 async function waitFor(check: () => boolean): Promise<boolean> { const until = Date.now() + 20_000; while (Date.now() < until) { if (check()) return true; await Bun.sleep(10); } return check(); }
@@ -42,8 +42,8 @@ test('real child death after durable acquisition fence but before terminal lets 
     // durable marker without making the fresh convergence itself unbounded on
     // Windows directory-durability barriers.
     for (let i = 0; i < 50; i += 1) writeFileSync(path.join(target, `slow-${i}.txt`), `${i}\n`); git(target, ['add', '.']); git(target, ['commit', '-m', 'slow']);
-    const headSha = git(target, ['rev-parse', 'HEAD']); const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']); const recoveryAuthorityDigest = detailDigestV1('crash-child');
-    const prepared = await prepareTrustedWorktreePhysicalCloseoutV1({ repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest });
+    const headSha = git(target, ['rev-parse', 'HEAD']); const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']); const recoveryAuthorityDigest = detailDigest('crash-child');
+    const prepared = await prepareTrustedWorktreePhysicalCloseout({ repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest });
     const input = { repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest, authorizationPath: prepared.authorization.authorizationPath };
     const fixture = path.join(import.meta.dir, 'worktree-physical-closeout-crash-fixture.ts');
     const firstOutput = path.join(root, 'first-receipt.json');
@@ -85,7 +85,7 @@ test('real child death after durable acquisition fence but before terminal lets 
     expect(existsSync(target)).toBe(false);
     // A later process may converge the physical registry/target state, but it
     // cannot upgrade the original process-local branch/ref capability.
-    expect(() => assertTrustedCompletedWorktreePhysicalCloseoutV1({
+    expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
       token: prepared.token, repositoryRoot: repository, targetPath: target,
       branch, headSha, treeSha, recoveryAuthorityDigest
     })).toThrow('did not witness this process-held retirement');

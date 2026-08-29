@@ -7,10 +7,10 @@ import {
   explainWorkspace,
   lockWorkspace,
   verifyWorkspace
-} from '../../platform/orchestrator.ts';
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
+} from '../../src/compiler/orchestration/cli.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 import {
   expectGraphEdge,
   expectGraphNode,
@@ -108,88 +108,22 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
   });
 }, 120000);
 
-test('override-manifest loads developer source layer overrides before legacy overrides', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-source-override-' });
-  const { overrideManifestPath, legacyOverrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
-
-  await writeYaml(legacyOverrideManifestPath, {
-    overrides: [
-      {
-        id: 'customer-normalizer-legacy-manual',
-        entry: 'patches/customer-normalizer.legacy.ts',
-        target: 'custom/customer_normalizer.ts',
-        reason: 'legacy-override-should-lose-to-source-layer',
-        source: 'manual',
-        appliesAfter: ['adapt'],
-        conflictsWith: []
-      }
-    ]
-  });
-
-  await fs.writeFile(
-    path.join(projectRoot, 'overrides', 'patches', 'customer-normalizer.legacy.ts'),
-    'legacy override path\n',
-    'utf8'
-  );
-
-  await writeYaml(overrideManifestPath, {
-    overrides: [
-      {
-        id: 'customer-normalizer-source-manual',
-        entry: 'patches/customer-normalizer.source.ts',
-        target: 'custom/customer_normalizer.ts',
-        reason: 'source-layer-override-wins',
-        source: 'manual',
-        appliesAfter: ['adapt'],
-        conflictsWith: []
-      }
-    ]
-  });
-
-  await fs.writeFile(
-    path.join(sourceOverridesRoot, 'patches', 'customer-normalizer.source.ts'),
-    'source layer override path\n',
-    'utf8'
-  );
-
-  await adaptWorkspace(workspaceRoot);
-
-  await expect(fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8')).resolves.toBe(
-    'source layer override path\n'
-  );
-}, 180000);
 test('override-manifest surfaces ticket runtime override attribution', async () => {
   const workspaceRoot = await prepareComposedWorkspace({
     prefix: 'engineering-compiler-ticket-override-',
     blockIds: ['ticket/basic', 'reporting/ticket-summary', 'worklog/basic']
   });
-  const { overrideManifestPath, projectRoot, sourceOverridesRoot, planPath } = getWorkspacePaths(workspaceRoot);
+  const { overrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
 
-  const plan = await readYaml<any>(planPath);
-  plan.slots.push({
-    id: 'ticket_comment_delegate',
-    block: 'ticket/basic',
-    kind: 'adapter',
-    target: 'custom/ticket_comment_delegate.ts',
-    symbol: 'addTicketCommentDelegate'
-  });
-  await writeYaml(planPath, plan);
-
-  const ticketSummaryExportPath = path.join(projectRoot, 'app', 'api', 'tickets', 'summary', 'export', 'route.ts');
-  await expect(fs.readFile(ticketSummaryExportPath, 'utf8')).rejects.toThrow();
-
-  const ticketPagePath = path.join(projectRoot, 'app', 'tickets', 'page.tsx');
-  const ticketPageOverride = (await fs.readFile(ticketPagePath, 'utf8')).replace(
-    '<h1>Tickets</h1>',
-    '<h1>Tickets</h1>\n            <p>Manual ticket runtime override active.</p>'
-  );
+  const ticketServicePath = path.join(projectRoot, 'src', 'installed', 'ticket', 'ticket-service.ts');
+  const ticketServiceOverride = `${await fs.readFile(ticketServicePath, 'utf8')}\n// Manual ticket runtime override active.\n`;
 
   await writeYaml(overrideManifestPath, {
     overrides: [
       {
-        id: 'ticket-page-runtime-manual',
-        entry: 'patches/ticket-page.override.tsx',
-        target: 'app/tickets/page.tsx',
+        id: 'ticket-service-runtime-manual',
+        entry: 'patches/ticket-service.override.ts',
+        target: 'src/installed/ticket/ticket-service.ts',
         reason: 'manual-ticket-runtime-copy-change',
         source: 'manual',
         appliesAfter: ['adapt'],
@@ -197,11 +131,11 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
       }
     ]
   });
-  const ticketPageOverridePath = path.join(sourceOverridesRoot, 'patches', 'ticket-page.override.tsx');
-  await fs.writeFile(ticketPageOverridePath, ticketPageOverride, 'utf8');
+  const ticketServiceOverridePath = path.join(sourceOverridesRoot, 'patches', 'ticket-service.override.ts');
+  await fs.writeFile(ticketServiceOverridePath, ticketServiceOverride, 'utf8');
 
   await adaptWorkspace(workspaceRoot);
-  await expect(fs.readFile(ticketPagePath, 'utf8')).resolves.toContain('Manual ticket runtime override active.');
+  await expect(fs.readFile(ticketServicePath, 'utf8')).resolves.toContain('Manual ticket runtime override active.');
 
   let report: any;
   try {
@@ -215,20 +149,22 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
 
   await lockWorkspace(workspaceRoot);
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  const ticketChangeSource = reviewSummary.changeSources.find((source) => source.path === 'app/tickets/page.tsx');
+  const ticketChangeSource = reviewSummary.changeSources.find(
+    (source) => source.path === 'src/installed/ticket/ticket-service.ts'
+  );
 
   expect(ticketChangeSource).toMatchObject({
-    path: 'app/tickets/page.tsx',
+    path: 'src/installed/ticket/ticket-service.ts',
     originType: 'override',
-    originId: 'ticket-page-runtime-manual',
-    runtimeKind: 'page',
+    originId: 'ticket-service-runtime-manual',
+    runtimeKind: 'service',
     vertical: 'ticket',
-    relatedBlocks: ['reporting/ticket-summary', 'ticket/basic', 'worklog/basic']
+    relatedBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'ticket/basic']
   });
   expectReviewRegressionRisk(reviewSummary, {
     kind: 'override-active',
     blockId: 'ticket/basic',
-    message: 'Override active: ticket-page-runtime-manual -> app/tickets/page.tsx'
+    message: 'Override active: ticket-service-runtime-manual -> src/installed/ticket/ticket-service.ts'
   });
   expectReviewConflictHint(reviewSummary, {
     kind: 'override-conflict',
@@ -236,8 +172,8 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
     message: 'Override ticket-page-runtime-manual conflicts with worklog/basic@>=0.2.0'
   });
   expectGraphEdge(graph, {
-    from: 'file:app/tickets/page.tsx',
-    to: 'override:ticket-page-runtime-manual',
+    from: 'file:src/installed/ticket/ticket-service.ts',
+    to: 'override:ticket-service-runtime-manual',
     type: 'originates_from'
   });
 }, 120000);

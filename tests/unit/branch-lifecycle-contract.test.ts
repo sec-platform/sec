@@ -1,16 +1,16 @@
 import { expect, test } from 'bun:test';
 
 import {
-  projectBranchLifecycleForWorkSelectionV1,
-  selectBranchLifecyclePullRequestsV1
-} from '../../scripts/codex/branch-lifecycle-audit.ts';
+  projectBranchLifecycleForWorkSelection,
+  selectBranchLifecyclePullRequests
+} from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import {
-  createBranchLifecycleGitChildEnvironmentV1,
-  createBranchLifecycleGitHubCredentialArgsV1,
-  createBranchLifecycleGitHubRemoteObservationV1
-} from '../../scripts/codex/branch-lifecycle-command.ts';
+  createBranchLifecycleGitChildEnvironment,
+  createBranchLifecycleGitHubCredentialArgs,
+  createBranchLifecycleGitHubRemoteObservation
+} from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
-  BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+  BRANCH_REF_CLOSEOUT_CAPABILITY,
   auditBranchLifecycle,
   authorizeBranchCloseout,
   classifyBranchLifecycle,
@@ -20,7 +20,7 @@ import {
   parseBranchCloseoutReceipt,
   type BranchCloseoutPreparation,
   type BranchLifecycleInventory
-} from '../../scripts/codex/branch-lifecycle-contract.ts';
+} from '../../src/control/branch-lifecycle/branch-lifecycle-contract.ts';
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const RACE_SHA = '3333333333333333333333333333333333333333';
@@ -70,13 +70,13 @@ test('lifecycle inventory retains live PRs and only exact physical historical he
     }
   ];
 
-  expect(selectBranchLifecyclePullRequestsV1(pullRequests, [
+  expect(selectBranchLifecyclePullRequests(pullRequests, [
     { branch: 'fix/residue', headSha: HEAD_SHA }
   ]).map(({ number }) => number)).toEqual([1, 2]);
 });
 
 test('canonical bounded GitHub credential helper is deterministic', () => {
-  expect(createBranchLifecycleGitHubCredentialArgsV1()).toEqual([
+  expect(createBranchLifecycleGitHubCredentialArgs()).toEqual([
     '-c', 'http.extraHeader=',
     '-c', 'http.https://github.com/.extraheader=',
     '-c', 'credential.helper=',
@@ -85,7 +85,7 @@ test('canonical bounded GitHub credential helper is deterministic', () => {
 });
 
 test('canonical Git child environment removes ambient askpass and SSH command authority', () => {
-  const environment = createBranchLifecycleGitChildEnvironmentV1({
+  const environment = createBranchLifecycleGitChildEnvironment({
     Path: 'trusted-path',
     PATH: 'duplicate-path',
     HOME: 'trusted-home',
@@ -141,13 +141,13 @@ test('GitHub remote observation binds canonical URL and ignores every ambient Gi
     GIT_CONFIG_KEY_0: 'url.https://attacker.invalid/.insteadOf',
     GIT_CONFIG_VALUE_0: 'https://github.com/'
   };
-  const windows = createBranchLifecycleGitHubRemoteObservationV1(
+  const windows = createBranchLifecycleGitHubRemoteObservation(
     'sec-platform/sec', hostileEnvironment, 'win32'
   );
   expect(windows.repositoryUrl).toBe('https://github.com/sec-platform/sec.git');
   expect(windows.argumentsPrefix).toEqual([
     '--git-dir=NUL',
-    ...createBranchLifecycleGitHubCredentialArgsV1()
+    ...createBranchLifecycleGitHubCredentialArgs()
   ]);
   expect(windows.environment).toMatchObject({
     PATH: 'trusted-path',
@@ -160,12 +160,12 @@ test('GitHub remote observation binds canonical URL and ignores every ambient Gi
   expect(windows.environment.GIT_CONFIG_COUNT).toBeUndefined();
   expect(windows.environment.GIT_CONFIG_KEY_0).toBeUndefined();
 
-  const linux = createBranchLifecycleGitHubRemoteObservationV1(
+  const linux = createBranchLifecycleGitHubRemoteObservation(
     'sec-platform/sec', hostileEnvironment, 'linux'
   );
   expect(linux.argumentsPrefix[0]).toBe('--git-dir=/dev/null');
   expect(linux.environment.GIT_CONFIG_GLOBAL).toBe('/dev/null');
-  expect(() => createBranchLifecycleGitHubRemoteObservationV1(
+  expect(() => createBranchLifecycleGitHubRemoteObservation(
     '../foreign', hostileEnvironment, 'linux'
   )).toThrow('bounded owner/name identity');
 });
@@ -319,7 +319,7 @@ test('remote absence and exact local residue are independently authorized', () =
   const authorization = authorizeBranchCloseout({
     preparation: prepared,
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'merged',
       durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
     },
@@ -338,7 +338,7 @@ test('idle lifecycle is clean only when the remote contains main', () => {
 });
 
 test('bounded selection lifecycle admits one exact prospective transport', () => {
-  const projection = projectBranchLifecycleForWorkSelectionV1({
+  const projection = projectBranchLifecycleForWorkSelection({
     exactMain: MAIN_SHA,
     defaultBranch: 'main',
     localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
@@ -360,7 +360,7 @@ test('bounded selection lifecycle admits one exact prospective transport', () =>
 });
 
 test('bounded selection lifecycle retains extra transport residue as closeout authority', () => {
-  const projection = projectBranchLifecycleForWorkSelectionV1({
+  const projection = projectBranchLifecycleForWorkSelection({
     exactMain: MAIN_SHA,
     defaultBranch: 'main',
     localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
@@ -378,7 +378,7 @@ test('bounded selection lifecycle retains extra transport residue as closeout au
 });
 
 test('bounded selection lifecycle validates one exact open pull-request transport', () => {
-  const projection = projectBranchLifecycleForWorkSelectionV1({
+  const projection = projectBranchLifecycleForWorkSelection({
     exactMain: MAIN_SHA,
     defaultBranch: 'main',
     localRefs: [],
@@ -403,7 +403,7 @@ test('bounded selection lifecycle validates one exact open pull-request transpor
 });
 
 test('bounded selection lifecycle rejects a pull request targeting another branch', () => {
-  const projection = projectBranchLifecycleForWorkSelectionV1({
+  const projection = projectBranchLifecycleForWorkSelection({
     exactMain: MAIN_SHA,
     defaultBranch: 'main',
     localRefs: [],
@@ -422,7 +422,7 @@ test('bounded selection lifecycle rejects a pull request targeting another branc
 });
 
 test('bounded selection lifecycle binds transport identity without treating a branch prefix as authority', () => {
-  const projection = projectBranchLifecycleForWorkSelectionV1({
+  const projection = projectBranchLifecycleForWorkSelection({
     exactMain: MAIN_SHA,
     defaultBranch: 'main',
     localRefs: [],
@@ -447,7 +447,7 @@ test('bounded selection lifecycle binds transport identity without treating a br
 });
 
 test('bounded selection lifecycle rejects the default branch as a prospective transport', () => {
-  expect(() => projectBranchLifecycleForWorkSelectionV1({
+  expect(() => projectBranchLifecycleForWorkSelection({
     exactMain: MAIN_SHA,
     defaultBranch: 'main',
     localRefs: [{ branch: 'main', sha: MAIN_SHA }],
@@ -463,7 +463,7 @@ test('bounded selection lifecycle rejects the default branch as a prospective tr
 });
 
 test('bounded selection lifecycle rejects a self-asserted prospective transport', () => {
-  expect(() => projectBranchLifecycleForWorkSelectionV1({
+  expect(() => projectBranchLifecycleForWorkSelection({
     exactMain: MAIN_SHA,
     defaultBranch: 'main',
     localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
@@ -659,7 +659,7 @@ test('authorization blocks an exact remote SHA race', () => {
   const authorization = authorizeBranchCloseout({
     preparation: preparation(before),
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'merged',
       durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
     },
@@ -713,7 +713,7 @@ test('local branch appearing after preparation blocks all deletion', () => {
   const authorization = authorizeBranchCloseout({
     preparation: preparation(before, null),
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'merged',
       durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
     },
@@ -770,7 +770,7 @@ test('divergent local branch is protected because remote recovery does not cover
   const authorization = authorizeBranchCloseout({
     preparation: prepared,
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'merged',
       durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
     },
@@ -856,7 +856,7 @@ test('merged closeout cannot delete either ref while a registered worktree remai
   });
   const prepared = preparation(before);
   const request = {
-    capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+    capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
     disposition: 'merged' as const,
     durableGoal: { kind: 'main' as const, reference: `main@${MAIN_SHA}` }
   };
@@ -927,7 +927,7 @@ test('branch/ref CAS rejects missing or caller-forged worktree cleanup authority
   });
   const prepared = preparation(before, HEAD_SHA, [targetPath]);
   const request = {
-    capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+    capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
     disposition: 'merged' as const,
     durableGoal: { kind: 'main' as const, reference: `main@${MAIN_SHA}` }
   };
@@ -956,7 +956,7 @@ test('foreign observations require a new preparation after original-host physica
   const prepared = orphanPreparation(observed);
   const foreignDigest = `sha256:${'b'.repeat(64)}` as const;
   const request = {
-    capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+    capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
     disposition: 'completed-spike' as const,
     durableGoal: { kind: 'issue' as const, reference: 'sec-platform/sec#269' }
   };
@@ -1020,7 +1020,7 @@ test('orphan remote closeout requires an explicit completed-spike disposition an
   const authorization = authorizeBranchCloseout({
     preparation: prepared,
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'completed-spike',
       durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
     },
@@ -1039,7 +1039,7 @@ test('orphan remote closeout rejects merged and closed-superseded dispositions',
   const merged = authorizeBranchCloseout({
     preparation: prepared,
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'merged',
       durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
     },
@@ -1050,7 +1050,7 @@ test('orphan remote closeout rejects merged and closed-superseded dispositions',
   const superseded = authorizeBranchCloseout({
     preparation: prepared,
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'closed-superseded',
       durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
     },
@@ -1095,7 +1095,7 @@ test('active work package selecting another branch does not block orphan closeou
   const authorization = authorizeBranchCloseout({
     preparation: orphanPreparation(observed),
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'completed-spike',
       durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
     },
@@ -1120,7 +1120,7 @@ test('active work package selecting the closeout branch blocks it', () => {
   const authorization = authorizeBranchCloseout({
     preparation: orphanPreparation(observed),
     request: {
-      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
       disposition: 'completed-spike',
       durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
     },

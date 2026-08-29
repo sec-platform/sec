@@ -1,21 +1,17 @@
-import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
-import type { SemanticMutationBaseV2, VerificationRequirementV1 } from '../../platform/shared/semantic-mutation-types.ts';
-import {
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
-  type SemanticMutationVerificationReportV1
-} from '../../platform/shared/verification-types.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import type { SemanticMutationBase, VerificationRequirement } from '../../src/semantic/mutation/contract/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type SemanticMutationVerificationReport } from '../../src/verification/contract/types.ts';
 
 export function semanticMutationVerificationReportFixture(input: {
   readonly adapterId: string;
   readonly adapterRevision: string;
   readonly planRevision: string;
-  readonly attempted: SemanticMutationBaseV2;
+  readonly attempted: SemanticMutationBase;
   readonly stagedSourceDigest: string;
   readonly requiredVerificationDigest: string;
   readonly status: 'passed' | 'failed' | 'blocked';
-  readonly requirements?: readonly VerificationRequirementV1[];
-}): SemanticMutationVerificationReportV1 {
+  readonly requirements?: readonly VerificationRequirement[];
+}): SemanticMutationVerificationReport {
   const requirements = input.requirements ?? [{ kind: 'pass', passId: 'verify' }];
   const withoutRevision = {
     formatRevision: 'semantic-mutation-verification-report-v1' as const,

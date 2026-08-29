@@ -149,7 +149,7 @@ Binding Delta producer必须：
 - 保留provenance到两端对象和transaction/candidate；
 - 对unsupported format或rule revision返回diagnostic，不生成空Delta。
 
-Mutation request、AI proposal、Workbench、Review、Resolver和test selector不能提交或覆盖actual Delta。它们只能声明expectation或消费canonical producer结果。
+Mutation request、AI proposal、Agent/CLI interface、Review、Resolver和test selector不能提交或覆盖actual Delta。它们只能声明expectation或消费canonical producer结果。
 
 ## Expectation 与 Actual Delta
 
@@ -297,7 +297,7 @@ Delta/Impact可以有incremental index和cache，但clean full computation是语
 
 ## 消费者边界
 
-Workbench、Review、Mutation、Implementation Resolver、Change Management、Compiler Incremental Graph、changed-file test selection、Release planner和AI Context Packet都消费统一Delta/Impact结果。
+Agent/CLI interface、Review、Mutation、Implementation Resolver、Change Management、Compiler Incremental Graph、changed-file test selection、Release planner和AI Context Packet都消费统一Delta/Impact结果。
 
 消费者可以过滤、聚合和投影，但必须保留source change、Binding change、certainty、witness、unknown和revision references；不得建立第二comparator、传播switch、Compatibility truth或“最高风险”真值。Implementation Resolver只消费Impact用于失效和后续选择输入，不能让ResolutionDecision反向改写已计算的actual Delta。
 

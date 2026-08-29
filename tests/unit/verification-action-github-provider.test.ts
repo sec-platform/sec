@@ -4,37 +4,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import {
-  CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1,
-  CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE
-} from '../../platform/shared/ci-verification-revision.ts';
-import {
-  buildCiVerificationActionPlanClosureV1,
-  createCiVerificationActionParentDispatchPlanV2,
-  createCiVerificationActionProposalV2,
-  createCiVerificationActionProviderEnvelopeV2,
-  type CiVerificationActionPlanClosureV1,
-  type CiVerificationActionProviderEnvelopeV2
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import {
-  encodeVerificationActionDataV2,
-  type VerificationActionKeyDigest
-} from '../../platform/shared/verification-action-contract.ts';
-import {
-  VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX_V2,
-  VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX_V2,
-  VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX_V2,
-  createVerificationActionProviderStartMarkerV2,
-  createVerificationActionProviderTerminalAnchorV2,
-  verificationActionProviderRunTargetUrlV2,
-  verificationActionProviderStartArtifactNameV2,
-  verificationActionProviderStartDescriptionV2,
-  verificationActionProviderStatusContextV2,
-  verificationActionProviderTerminalAnchorNameV2,
-  verificationActionProviderTerminalArtifactNameV2,
-  type VerificationActionProviderOriginV2
-} from '../../platform/shared/verification-action-provider-contract.ts';
+import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/verification/ci/contract/revision.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope } from '../../src/verification/action/contract/ci.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
+import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/verification/action/contract/action.ts';
+import { VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderOrigin } from '../../src/verification/action/contract/provider.ts';
 import { buildUnsupportedVerificationActionTerminalArtifactV2 } from '../helpers/verification-action-fixtures.ts';
 
 const REPOSITORY = 'openai/sec';
@@ -54,7 +28,7 @@ const fixtureDigest = (source: string): VerificationActionKeyDigest =>
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}`;
 
-const closure = buildCiVerificationActionPlanClosureV1({
+const closure = buildCiVerificationActionPlanClosure({
   candidate: {
     baseSha: BASE,
     baseTreeSha: '3'.repeat(40),
@@ -84,7 +58,7 @@ const closure = buildCiVerificationActionPlanClosureV1({
   }]
 });
 const ACTION = closure.actions[0]!.action.actionKey;
-const CONTEXT = verificationActionProviderStatusContextV2(ACTION);
+const CONTEXT = verificationActionProviderStatusContext(ACTION);
 const sessionRequest = Object.freeze({
   schema: 'sec-verification-session-hosted-request-v1',
   prNumber: 42,
@@ -101,7 +75,7 @@ const sessionRequest = Object.freeze({
   reviewPolicyDigest: digest('e'),
   requestOperationId: digest('f')
 });
-const proposal = createCiVerificationActionProposalV2({
+const proposal = createCiVerificationActionProposal({
   sessionRequest,
   proposedActionKey: ACTION
 });
@@ -112,7 +86,7 @@ const parentActor = Object.freeze({
   type: 'User' as const,
   permission: 'maintain' as const
 });
-const parentPlan = createCiVerificationActionParentDispatchPlanV2({
+const parentPlan = createCiVerificationActionParentDispatchPlan({
   repositoryId: String(REPOSITORY_ID),
   repository: REPOSITORY,
   parentRunId: PARENT_RUN_ID,
@@ -123,16 +97,16 @@ const parentPlan = createCiVerificationActionParentDispatchPlanV2({
   parentActor,
   proposals: [proposal]
 });
-const parentPlanSource = `${encodeVerificationActionDataV2(parentPlan)}\n`;
-const envelope = createCiVerificationActionProviderEnvelopeV2({
+const parentPlanSource = `${encodeVerificationActionData(parentPlan)}\n`;
+const envelope = createCiVerificationActionProviderEnvelope({
   proposal,
   parentPlan,
   parentDispatchPlanArtifactId: String(PARENT_ARTIFACT_ID),
   parentDispatchPlanArchiveDigest: fixtureDigest(`zip-${PARENT_ARTIFACT_ID}`)
 });
-const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot;
+const bot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
 const botRecord = Object.freeze({ login: bot.login, id: bot.id, node_id: bot.nodeId, type: bot.type });
-const currentOrigin: VerificationActionProviderOriginV2 = Object.freeze({
+const currentOrigin: VerificationActionProviderOrigin = Object.freeze({
   repositoryId: REPOSITORY_ID,
   repository: REPOSITORY,
   workflowPath: '.github/workflows/compiler-pr-validation.yml',
@@ -144,7 +118,7 @@ const currentOrigin: VerificationActionProviderOriginV2 = Object.freeze({
   appNodeId: 'MDM6QXBwMTUzNjg=',
   sourceEvent: 'repository_dispatch'
 });
-const marker = createVerificationActionProviderStartMarkerV2({
+const marker = createVerificationActionProviderStartMarker({
   actionKey: ACTION,
   candidateSha: HEAD,
   executionEnvironmentRevision: 'hosted',
@@ -164,8 +138,8 @@ function rawStatus(input: Readonly<{
     node_id: `STATUS_${input.id}`,
     state: input.state ?? 'pending',
     context: input.context ?? CONTEXT,
-    description: input.description ?? verificationActionProviderStartDescriptionV2(marker.markerDigest),
-    target_url: input.targetUrl ?? verificationActionProviderRunTargetUrlV2(currentOrigin),
+    description: input.description ?? verificationActionProviderStartDescription(marker.markerDigest),
+    target_url: input.targetUrl ?? verificationActionProviderRunTargetUrl(currentOrigin),
     sha: HEAD,
     created_at: '2026-08-09T01:00:00.000Z',
     updated_at: '2026-08-09T01:00:00.000Z',
@@ -217,7 +191,7 @@ class FakeGh {
   withMarker(markerValue = marker, runId = Number(CURRENT_RUN_ID)): this {
     this.artifacts.push({
       id: 7001,
-      name: verificationActionProviderStartArtifactNameV2(ACTION),
+      name: verificationActionProviderStartArtifactName(ACTION),
       expired: false,
       runId,
       fileName: 'verification-action-start-marker.json',
@@ -408,10 +382,10 @@ const spawnSync = mock((
   options?: Readonly<{ input?: string }>
 ) => fakeGh.spawn(command, args, options));
 mock.module('node:child_process', () => ({ spawnSync }));
-const provider = await import('../../scripts/codex/verification-action-github-provider.ts');
-const ensureTransaction = provider.ensureVerificationActionGitHubProviderTransactionV2;
+const provider = await import('../../src/verification/ci/runtime/verification-action-github-provider.ts');
+const ensureTransaction = provider.ensureVerificationActionGitHubProviderTransaction;
 
-function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelopeV2 = envelope): void {
+function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelope = envelope): void {
   Object.assign(process.env, {
     GITHUB_REPOSITORY: REPOSITORY,
     GITHUB_REPOSITORY_ID: String(REPOSITORY_ID),
@@ -427,7 +401,7 @@ function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelopeV
     GITHUB_EVENT_PATH: EVENT_PATH
   });
   writeFileSync(EVENT_PATH, JSON.stringify({
-    action: CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
+    action: CI_VERIFICATION_ACTION_DISPATCH_TYPE,
     client_payload: { payload: eventEnvelope },
     sender: botRecord,
     repository: { id: REPOSITORY_ID, full_name: REPOSITORY }
@@ -463,8 +437,8 @@ function trustedParentEnvironment(): void {
 }
 
 function authority(
-  valueEnvelope: CiVerificationActionProviderEnvelopeV2 = envelope,
-  valueClosure: CiVerificationActionPlanClosureV1 = closure
+  valueEnvelope: CiVerificationActionProviderEnvelope = envelope,
+  valueClosure: CiVerificationActionPlanClosure = closure
 ) {
   trustedEnvironment(valueEnvelope);
   return { envelope: valueEnvelope, actionPlanClosure: valueClosure };
@@ -602,7 +576,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fillInventory(fakeGh, 101);
     const secondStart: ArtifactFixture = Object.freeze({
       id: 9900,
-      name: verificationActionProviderStartArtifactNameV2(ACTION),
+      name: verificationActionProviderStartArtifactName(ACTION),
       expired: false,
       runId: Number(CURRENT_RUN_ID),
       fileName: 'verification-action-start-marker.json',
@@ -648,11 +622,11 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     const otherActionKey = `sha256:${'b'.repeat(64)}` as VerificationActionKeyDigest;
     const otherOwnedIds = [8210, 8211, 8212];
     fakeGh.artifacts.push(
-      { id: otherOwnedIds[0]!, name: verificationActionProviderStartArtifactNameV2(otherActionKey),
+      { id: otherOwnedIds[0]!, name: verificationActionProviderStartArtifactName(otherActionKey),
         expired: false, runId: Number(CURRENT_RUN_ID), fileName: 'other.json', source: '{}' },
-      { id: otherOwnedIds[1]!, name: verificationActionProviderTerminalArtifactNameV2(otherActionKey),
+      { id: otherOwnedIds[1]!, name: verificationActionProviderTerminalArtifactName(otherActionKey),
         expired: false, runId: Number(CURRENT_RUN_ID), fileName: 'other.json', source: '{}' },
-      { id: otherOwnedIds[2]!, name: verificationActionProviderTerminalAnchorNameV2(otherActionKey),
+      { id: otherOwnedIds[2]!, name: verificationActionProviderTerminalAnchorName(otherActionKey),
         expired: false, runId: Number(CURRENT_RUN_ID), fileName: 'other.json', source: '{}' }
     );
     const result = await ensureTransaction({ authority: authority(), intent: { kind: 'claim-start', marker } });
@@ -664,9 +638,9 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       expect(fakeGh.downloadedArtifactIds).not.toContain(ignoredId);
     }
 
-    const prefixes = [VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX_V2,
-      VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX_V2,
-      VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX_V2];
+    const prefixes = [VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX,
+      VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX,
+      VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX];
     const malformedSuffixes = (prefix: string) => [
       prefix,
       `${prefix}_${'a'.repeat(64)}`,
@@ -801,24 +775,24 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
 
   test('artifact provenance rehydrates the immutable producing attempt instead of the latest rerun', async () => {
     const historicalOrigin = Object.freeze({ ...currentOrigin, runId: '9200', runAttempt: 1 });
-    const stableMarker = createVerificationActionProviderStartMarkerV2({
+    const stableMarker = createVerificationActionProviderStartMarker({
       actionKey: ACTION,
       candidateSha: HEAD,
       executionEnvironmentRevision: 'hosted',
       producer: historicalOrigin
     });
     const assemblerOrigin = Object.freeze({ ...historicalOrigin, runId: '9201' });
-    const stableAnchor = createVerificationActionProviderTerminalAnchorV2({
+    const stableAnchor = createVerificationActionProviderTerminalAnchor({
       actionKey: ACTION,
       candidateSha: HEAD,
       startStatusId: 101,
       startStatusNodeId: 'STATUS_101',
       startArtifactOriginId: '7001',
-      startArtifactName: verificationActionProviderStartArtifactNameV2(ACTION),
+      startArtifactName: verificationActionProviderStartArtifactName(ACTION),
       startArtifactArchiveDigest: fixtureDigest('zip-7001'),
       startMarkerDigest: stableMarker.markerDigest,
       terminalArtifactOriginId: '7002',
-      terminalArtifactName: verificationActionProviderTerminalArtifactNameV2(ACTION),
+      terminalArtifactName: verificationActionProviderTerminalArtifactName(ACTION),
       terminalArtifactArchiveDigest: fixtureDigest('zip-7002'),
       terminalArtifactPayloadDigest: TERMINAL_PAYLOAD_DIGEST,
       terminalAssemblerOrigin: assemblerOrigin,
@@ -827,9 +801,9 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh().withMarker(stableMarker, 9200);
     fakeGh.latestRunAttempts['9200'] = 2;
     fakeGh.statuses = [rawStatus({ id: 101,
-      description: verificationActionProviderStartDescriptionV2(stableMarker.markerDigest),
-      targetUrl: verificationActionProviderRunTargetUrlV2(historicalOrigin) })];
-    fakeGh.artifacts.push({ id: 7003, name: verificationActionProviderTerminalAnchorNameV2(ACTION),
+      description: verificationActionProviderStartDescription(stableMarker.markerDigest),
+      targetUrl: verificationActionProviderRunTargetUrl(historicalOrigin) })];
+    fakeGh.artifacts.push({ id: 7003, name: verificationActionProviderTerminalAnchorName(ACTION),
       expired: false, runId: 9200, fileName: 'verification-action-terminal-status-anchor.json',
       source: JSON.stringify(stableAnchor) });
     const observed = await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
@@ -844,7 +818,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
 
     fakeGh = new FakeGh();
-    fakeGh.artifacts.push({ id: 7010, name: verificationActionProviderStartArtifactNameV2(ACTION),
+    fakeGh.artifacts.push({ id: 7010, name: verificationActionProviderStartArtifactName(ACTION),
       expired: true, runId: 9300, fileName: 'verification-action-start-marker.json', source: 'not-json' });
     const expired = await ensureTransaction({ authority: authority(), intent: { kind: 'coordinate' } });
     expect(expired.snapshot.startObservations[0]).toMatchObject({
@@ -897,7 +871,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     expect(fakeGh.createCalls).toBe(0);
 
     fakeGh = new FakeGh().withMarker();
-    const substitutedClosure = { ...closure, actionPlanDigest: digest('8') } as CiVerificationActionPlanClosureV1;
+    const substitutedClosure = { ...closure, actionPlanDigest: digest('8') } as CiVerificationActionPlanClosure;
     await expect(ensureTransaction({ authority: authority(envelope, substitutedClosure),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow();
     expect(fakeGh.createCalls).toBe(0);
@@ -906,14 +880,14 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     const forgedEnvelope = {
       ...envelope,
       proposal: { ...envelope.proposal, proposedActionKey: digest('7') }
-    } as CiVerificationActionProviderEnvelopeV2;
+    } as CiVerificationActionProviderEnvelope;
     await expect(ensureTransaction({ authority: authority(forgedEnvelope),
       intent: { kind: 'claim-start', marker } })).rejects.toThrow();
     expect(fakeGh.createCalls).toBe(0);
   });
 
   test('marker publisher must be the exact authenticated current run', async () => {
-    const forgedMarker = createVerificationActionProviderStartMarkerV2({
+    const forgedMarker = createVerificationActionProviderStartMarker({
       actionKey: ACTION,
       candidateSha: HEAD,
       executionEnvironmentRevision: 'hosted',
@@ -938,17 +912,17 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       manifestDigest: digest('a'),
       producer: currentOrigin
     });
-    const terminalAnchor = createVerificationActionProviderTerminalAnchorV2({
+    const terminalAnchor = createVerificationActionProviderTerminalAnchor({
       actionKey: ACTION,
       candidateSha: HEAD,
       startStatusId: 101,
       startStatusNodeId: 'STATUS_101',
       startArtifactOriginId: '7001',
-      startArtifactName: verificationActionProviderStartArtifactNameV2(ACTION),
+      startArtifactName: verificationActionProviderStartArtifactName(ACTION),
       startArtifactArchiveDigest: fixtureDigest('zip-7001'),
       startMarkerDigest: marker.markerDigest,
       terminalArtifactOriginId: '7002',
-      terminalArtifactName: verificationActionProviderTerminalArtifactNameV2(ACTION),
+      terminalArtifactName: verificationActionProviderTerminalArtifactName(ACTION),
       terminalArtifactArchiveDigest: fixtureDigest('zip-7002'),
       terminalArtifactPayloadDigest: terminalArtifact.artifactDigest as VerificationActionKeyDigest,
       terminalAssemblerOrigin: currentOrigin,
@@ -957,10 +931,10 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh = new FakeGh().withMarker();
     fakeGh.statuses = [rawStatus({ id: 101 })];
     fakeGh.artifacts.push(
-      { id: 7002, name: verificationActionProviderTerminalArtifactNameV2(ACTION), expired: false,
+      { id: 7002, name: verificationActionProviderTerminalArtifactName(ACTION), expired: false,
         runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-artifact.json',
         source: JSON.stringify(terminalArtifact) },
-      { id: 7003, name: verificationActionProviderTerminalAnchorNameV2(ACTION), expired: false,
+      { id: 7003, name: verificationActionProviderTerminalAnchorName(ACTION), expired: false,
         runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-status-anchor.json',
         source: JSON.stringify(terminalAnchor) }
     );

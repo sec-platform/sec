@@ -12,7 +12,7 @@
   "scope": {
     "productionBlobs": [
       {
-        "path": "platform/compiler/ir/build-fact-delta.ts",
+        "path": "src/compiler/ir/build-fact-delta.ts",
         "blob": "d45bdde74755254e9c8b99a4591de0de3a626bc8"
       },
       {

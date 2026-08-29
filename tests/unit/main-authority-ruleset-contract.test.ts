@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1 } from '../../platform/shared/ci-verification-revision.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
 import {
-  SEC_INTEGRATION_AUTHORIZATION_STATUS_CONTEXT_V1,
-  createMainAuthorityRulesetReceiptV1
-} from '../../platform/shared/main-authority-ruleset-contract.ts';
+  INTEGRATION_AUTHORIZATION_STATUS_CONTEXT,
+  createMainAuthorityRulesetReceipt
+} from '../../src/control/main-health/authority-ruleset.ts';
 
 const AUTHORITY_RULESET_ID = 42;
 const PRINCIPAL_RULESET_ID = 43;
@@ -16,8 +16,8 @@ function requiredStatusParameters(input: Partial<{
 }> = {}) {
   return {
     required_status_checks: [{
-      context: input.context ?? SEC_INTEGRATION_AUTHORIZATION_STATUS_CONTEXT_V1,
-      integration_id: input.integrationId ?? CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.id
+      context: input.context ?? INTEGRATION_AUTHORIZATION_STATUS_CONTEXT,
+      integration_id: input.integrationId ?? CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id
     }],
     strict_required_status_checks_policy: input.strict ?? true
   };
@@ -129,7 +129,7 @@ function detailedPrincipalRuleset(input: Partial<{
   };
   if (!(input.omitBypassActors ?? false)) {
     result.bypass_actors = input.bypassActors ?? [{
-      actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.id,
+      actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id,
       actor_type: 'Integration',
       bypass_mode: 'pull_request'
     }];
@@ -149,7 +149,7 @@ function receipt(input: Partial<{
   effectiveRules: unknown;
   detailedRulesets: unknown;
 }> = {}) {
-  return createMainAuthorityRulesetReceiptV1({
+  return createMainAuthorityRulesetReceipt({
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
     effectiveRules: input.effectiveRules ?? defaultEffectiveRules(),
@@ -163,7 +163,7 @@ test('main authority requires distinct authority and pull-request-only principal
   expect(value.authorityRulesetIds).toEqual([AUTHORITY_RULESET_ID]);
   expect(value.principalRulesetIds).toEqual([PRINCIPAL_RULESET_ID]);
   expect(value.terminalStatusContext).toBe('sec/integration-authorization');
-  expect(value.terminalStatusIntegrationId).toBe(CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.id);
+  expect(value.terminalStatusIntegrationId).toBe(CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id);
   expect(value.rulesetDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
@@ -249,12 +249,12 @@ test('principal layer requires exactly one GitHub Actions Integration pull-reque
     [],
     [{ actor_id: 1, actor_type: 'Integration', bypass_mode: 'pull_request' }],
     [{
-      actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.id,
+      actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id,
       actor_type: 'Integration',
       bypass_mode: 'always'
     }],
     [{
-      actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app.id,
+      actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id,
       actor_type: 'RepositoryRole',
       bypass_mode: 'pull_request'
     }]

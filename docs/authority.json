@@ -1,5 +1,4 @@
 {
-  "schema": "sec-document-authority-registry-v2",
   "documents": [
     {
       "id": "root-readme",
@@ -116,10 +115,10 @@
         "user"
       ],
       "consumers": [
+        "agent-user-interface",
         "compiler-target-ir",
         "roadmap",
-        "system-architecture",
-        "workbench-ai"
+        "system-architecture"
       ],
       "updateTriggers": [
         "product-goal-change"
@@ -167,10 +166,10 @@
         "developer"
       ],
       "consumers": [
+        "agent-user-interface",
         "brownfield",
         "compiler-target-ir",
-        "development-governance",
-        "workbench-ai"
+        "development-governance"
       ],
       "updateTriggers": [
         "cross-domain-boundary-change"
@@ -197,11 +196,11 @@
         "developer"
       ],
       "consumers": [
+        "agent-user-interface",
         "brownfield",
         "compiler-target-ir",
         "delta-impact",
-        "semantic-mutation",
-        "workbench-ai"
+        "semantic-mutation"
       ],
       "updateTriggers": [
         "engineering-ir-contract-change"
@@ -225,12 +224,12 @@
         "developer"
       ],
       "consumers": [
+        "agent-user-interface",
         "change-management",
         "compiler-target-ir",
         "runtime-distribution",
         "semantic-mutation",
-        "verification-governance",
-        "workbench-ai"
+        "verification-governance"
       ],
       "updateTriggers": [
         "delta-or-impact-contract-change"
@@ -253,8 +252,8 @@
         "developer"
       ],
       "consumers": [
-        "change-management",
-        "workbench-ai"
+        "agent-user-interface",
+        "change-management"
       ],
       "updateTriggers": [
         "mutation-contract-change"
@@ -282,11 +281,11 @@
         "developer"
       ],
       "consumers": [
+        "agent-user-interface",
         "change-management",
         "delta-impact",
         "runtime-distribution",
-        "verification-governance",
-        "workbench-ai"
+        "verification-governance"
       ],
       "updateTriggers": [
         "compiler-or-target-ir-boundary-change"
@@ -347,19 +346,18 @@
       ]
     },
     {
-      "id": "workbench-ai",
-      "path": "docs/workbench-and-ai-operations.md",
+      "id": "agent-user-interface",
+      "path": "docs/agent-and-user-machine-interface.md",
       "kind": "authority",
-      "domain": "workbench-ai",
+      "domain": "agent-user-interface",
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
         "ai.bounded-proposal",
         "ai.context-packet",
-        "workbench.implementation-projection",
-        "workbench.interaction",
-        "workbench.projection",
-        "workbench.transport"
+        "interface.cli",
+        "interface.machine-json",
+        "interface.projection"
       ],
       "projects": [],
       "audience": [
@@ -370,7 +368,7 @@
         "product-adapter"
       ],
       "updateTriggers": [
-        "workbench-or-ai-authority-change"
+        "agent-or-interface-authority-change"
       ]
     },
     {
@@ -545,51 +543,6 @@
       ],
       "updateTriggers": [
         "provider-observation-or-decision"
-      ]
-    },
-    {
-      "id": "nexus-corpus",
-      "path": "docs/corpus/nexus/contract.md",
-      "kind": "corpus-contract",
-      "domain": "nexus-corpus",
-      "lifecycle": "active",
-      "dynamicPolicy": "forbidden",
-      "owns": [
-        "corpus.nexus.conformance"
-      ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "nexus-ledger"
-      ],
-      "updateTriggers": [
-        "nexus-conformance-contract-change"
-      ]
-    },
-    {
-      "id": "nexus-ledger",
-      "path": "docs/governance/nexus-absorption-ledger.yaml",
-      "kind": "machine-ledger",
-      "domain": "nexus",
-      "lifecycle": "active",
-      "dynamicPolicy": "machine-state",
-      "owns": [
-        "corpus.nexus.state"
-      ],
-      "projects": [
-        "nexus-corpus"
-      ],
-      "audience": [
-        "developer",
-        "machine"
-      ],
-      "consumers": [
-        "sec-repository-audit"
-      ],
-      "updateTriggers": [
-        "nexus-census-or-parity-change"
       ]
     },
     {

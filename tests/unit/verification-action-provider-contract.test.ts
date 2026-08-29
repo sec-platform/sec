@@ -1,29 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 } from '../../platform/shared/ci-verification-revision.ts';
-import type { VerificationActionKeyDigest } from '../../platform/shared/verification-action-contract.ts';
-import {
-  VERIFICATION_ACTION_PROVIDER_POLICY_V2,
-  createVerificationActionProviderStartMarkerV2,
-  createVerificationActionProviderTerminalAnchorV2,
-  finalizeVerificationActionProviderStatusReadbackV2,
-  parseVerificationActionProviderStatusReadbackV2,
-  reduceVerificationActionProviderStateV2,
-  verificationActionProviderRunTargetUrlV2,
-  verificationActionProviderStartArtifactNameV2,
-  verificationActionProviderStartDescriptionV2,
-  verificationActionProviderStatusContextV2,
-  verificationActionProviderTerminalAnchorNameV2,
-  verificationActionProviderTerminalArtifactNameV2,
-  verificationActionProviderTerminalDescriptionV2,
-  type VerificationActionProviderOriginV2,
-  type VerificationActionProviderStartObservationV2,
-  type VerificationActionProviderStateInputV2,
-  type VerificationActionProviderStatusObservationV2,
-  type VerificationActionProviderTerminalAnchorObservationV2,
-  type VerificationActionProviderTerminalFactV2,
-  type VerificationActionProviderTerminalObservationV2
-} from '../../platform/shared/verification-action-provider-contract.ts';
+import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/verification/action/contract/environment.ts';
+import type { VerificationActionKeyDigest } from '../../src/verification/action/contract/action.ts';
+import { VERIFICATION_ACTION_PROVIDER_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, parseVerificationActionProviderStatusReadback, reduceVerificationActionProviderState, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStateInput, type VerificationActionProviderStatusObservation, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalFact, type VerificationActionProviderTerminalObservation } from '../../src/verification/action/contract/provider.ts';
 
 const ACTION = `sha256:${'a'.repeat(64)}` as VerificationActionKeyDigest;
 const PAGE = `sha256:${'b'.repeat(64)}` as VerificationActionKeyDigest;
@@ -33,9 +12,9 @@ const ANCHOR_ARCHIVE = `sha256:${'e'.repeat(64)}` as VerificationActionKeyDigest
 const PAYLOAD = `sha256:${'f'.repeat(64)}` as VerificationActionKeyDigest;
 const BASE = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
-const ENVIRONMENT = CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2;
+const ENVIRONMENT = CI_VERIFICATION_HOSTED_PROVIDER_REVISION;
 
-const origin: VerificationActionProviderOriginV2 = Object.freeze({
+const origin: VerificationActionProviderOrigin = Object.freeze({
   repositoryId: 311,
   repository: 'openai/sec',
   workflowPath: '.github/workflows/compiler-pr-validation.yml',
@@ -48,7 +27,7 @@ const origin: VerificationActionProviderOriginV2 = Object.freeze({
   sourceEvent: 'repository_dispatch'
 });
 
-const marker = createVerificationActionProviderStartMarkerV2({
+const marker = createVerificationActionProviderStartMarker({
   actionKey: ACTION,
   candidateSha: HEAD,
   executionEnvironmentRevision: ENVIRONMENT,
@@ -58,33 +37,33 @@ const marker = createVerificationActionProviderStartMarkerV2({
 function status(
   id: number,
   nodeId: string,
-  state: VerificationActionProviderStatusObservationV2['state'],
+  state: VerificationActionProviderStatusObservation['state'],
   description: string,
-  referencedOrigin: VerificationActionProviderOriginV2 = origin,
+  referencedOrigin: VerificationActionProviderOrigin = origin,
   createdAt = id === 101 ? '2026-08-09T01:00:00.000Z' : '2026-08-09T01:01:00.000Z'
-): VerificationActionProviderStatusObservationV2 {
+): VerificationActionProviderStatusObservation {
   return Object.freeze({
     id,
     nodeId,
     state,
-    context: verificationActionProviderStatusContextV2(ACTION),
+    context: verificationActionProviderStatusContext(ACTION),
     description,
-    targetUrl: verificationActionProviderRunTargetUrlV2(referencedOrigin),
+    targetUrl: verificationActionProviderRunTargetUrl(referencedOrigin),
     commitSha: HEAD,
     createdAt,
     updatedAt: createdAt,
-    creator: VERIFICATION_ACTION_PROVIDER_POLICY_V2.creator,
+    creator: VERIFICATION_ACTION_PROVIDER_POLICY.creator,
     referencedOrigin
   });
 }
 
-function readback(statuses: readonly VerificationActionProviderStatusObservationV2[]) {
-  return finalizeVerificationActionProviderStatusReadbackV2({
+function readback(statuses: readonly VerificationActionProviderStatusObservation[]) {
+  return finalizeVerificationActionProviderStatusReadback({
     repositoryId: origin.repositoryId,
     repository: origin.repository,
     actionKey: ACTION,
     candidateSha: HEAD,
-    context: verificationActionProviderStatusContextV2(ACTION),
+    context: verificationActionProviderStatusContext(ACTION),
     perPage: 100,
     paginationComplete: true,
     pageDigests: [PAGE],
@@ -92,10 +71,10 @@ function readback(statuses: readonly VerificationActionProviderStatusObservation
   });
 }
 
-function startObservation(expired = false): VerificationActionProviderStartObservationV2 {
+function startObservation(expired = false): VerificationActionProviderStartObservation {
   return Object.freeze({
     originId: '7001',
-    artifactName: verificationActionProviderStartArtifactNameV2(ACTION),
+    artifactName: verificationActionProviderStartArtifactName(ACTION),
     archiveDigest: expired ? null : START_ARCHIVE,
     expired,
     payload: expired ? null : marker,
@@ -103,7 +82,7 @@ function startObservation(expired = false): VerificationActionProviderStartObser
   });
 }
 
-function terminalFact(): VerificationActionProviderTerminalFactV2 {
+function terminalFact(): VerificationActionProviderTerminalFact {
   return Object.freeze({
     actionKey: ACTION,
     candidateSha: HEAD,
@@ -113,12 +92,12 @@ function terminalFact(): VerificationActionProviderTerminalFactV2 {
 }
 
 function terminalObservation(
-  fact: VerificationActionProviderTerminalFactV2,
+  fact: VerificationActionProviderTerminalFact,
   expired = false
-): VerificationActionProviderTerminalObservationV2 {
+): VerificationActionProviderTerminalObservation {
   return Object.freeze({
     originId: '7002',
-    artifactName: verificationActionProviderTerminalArtifactNameV2(ACTION),
+    artifactName: verificationActionProviderTerminalArtifactName(ACTION),
     archiveDigest: expired ? null : TERMINAL_ARCHIVE,
     expired,
     payload: expired ? null : fact,
@@ -127,20 +106,20 @@ function terminalObservation(
 }
 
 function anchorObservation(
-  fact: VerificationActionProviderTerminalFactV2,
+  fact: VerificationActionProviderTerminalFact,
   expired = false
-): VerificationActionProviderTerminalAnchorObservationV2 {
-  const anchor = createVerificationActionProviderTerminalAnchorV2({
+): VerificationActionProviderTerminalAnchorObservation {
+  const anchor = createVerificationActionProviderTerminalAnchor({
     actionKey: ACTION,
     candidateSha: HEAD,
     startStatusId: 101,
     startStatusNodeId: 'STATUS_start',
     startArtifactOriginId: '7001',
-    startArtifactName: verificationActionProviderStartArtifactNameV2(ACTION),
+    startArtifactName: verificationActionProviderStartArtifactName(ACTION),
     startArtifactArchiveDigest: START_ARCHIVE,
     startMarkerDigest: marker.markerDigest,
     terminalArtifactOriginId: '7002',
-    terminalArtifactName: verificationActionProviderTerminalArtifactNameV2(ACTION),
+    terminalArtifactName: verificationActionProviderTerminalArtifactName(ACTION),
     terminalArtifactArchiveDigest: TERMINAL_ARCHIVE,
     terminalArtifactPayloadDigest: fact.payloadDigest,
     terminalAssemblerOrigin: origin,
@@ -148,7 +127,7 @@ function anchorObservation(
   });
   return Object.freeze({
     originId: '7003',
-    artifactName: verificationActionProviderTerminalAnchorNameV2(ACTION),
+    artifactName: verificationActionProviderTerminalAnchorName(ACTION),
     archiveDigest: expired ? null : ANCHOR_ARCHIVE,
     expired,
     payload: expired ? null : anchor,
@@ -156,7 +135,7 @@ function anchorObservation(
   });
 }
 
-function state(overrides: Partial<VerificationActionProviderStateInputV2> = {}): VerificationActionProviderStateInputV2 {
+function state(overrides: Partial<VerificationActionProviderStateInput> = {}): VerificationActionProviderStateInput {
   return Object.freeze({
     repositoryId: origin.repositoryId,
     repository: origin.repository,
@@ -173,20 +152,20 @@ function state(overrides: Partial<VerificationActionProviderStateInputV2> = {}):
 
 function complete(
   terminalStatus = true,
-  terminalStatusOrigin: VerificationActionProviderOriginV2 = origin,
+  terminalStatusOrigin: VerificationActionProviderOrigin = origin,
   terminalStatusId = 102
-): VerificationActionProviderStateInputV2 {
+): VerificationActionProviderStateInput {
   const fact = terminalFact();
   const anchor = anchorObservation(fact);
-  const statuses: VerificationActionProviderStatusObservationV2[] = [
-    status(101, 'STATUS_start', 'pending', verificationActionProviderStartDescriptionV2(marker.markerDigest))
+  const statuses: VerificationActionProviderStatusObservation[] = [
+    status(101, 'STATUS_start', 'pending', verificationActionProviderStartDescription(marker.markerDigest))
   ];
   if (terminalStatus) {
     statuses.push(status(
       terminalStatusId,
       'STATUS_terminal',
       'success',
-      verificationActionProviderTerminalDescriptionV2(anchor.payload!.anchorDigest),
+      verificationActionProviderTerminalDescription(anchor.payload!.anchorDigest),
       terminalStatusOrigin,
       '2026-08-09T01:01:00.000Z'
     ));
@@ -201,7 +180,7 @@ function complete(
 
 describe('VerificationAction provider pure state contract', () => {
   test('zero complete status history and zero artifacts permits the sole physical start', () => {
-    const result = reduceVerificationActionProviderStateV2(state());
+    const result = reduceVerificationActionProviderState(state());
     expect(result.disposition).toBe('start-allowed');
     expect(result.physicalExecutionAllowed).toBe(true);
     expect(result.terminalAnchorRepairAllowed).toBe(false);
@@ -209,9 +188,9 @@ describe('VerificationAction provider pure state contract', () => {
   });
 
   test('a durable start without authenticated terminal bytes permanently blocks replay', () => {
-    const result = reduceVerificationActionProviderStateV2(state({
+    const result = reduceVerificationActionProviderState(state({
       statusReadback: readback([
-        status(101, 'STATUS_start', 'pending', verificationActionProviderStartDescriptionV2(marker.markerDigest))
+        status(101, 'STATUS_start', 'pending', verificationActionProviderStartDescription(marker.markerDigest))
       ]),
       startObservations: [startObservation()]
     }));
@@ -221,7 +200,7 @@ describe('VerificationAction provider pure state contract', () => {
   });
 
   test('exact terminal bytes without terminal status permit status-only repair', () => {
-    const result = reduceVerificationActionProviderStateV2(complete(false));
+    const result = reduceVerificationActionProviderState(complete(false));
     expect(result.disposition).toBe('repair-terminal-status');
     expect(result.physicalExecutionAllowed).toBe(false);
     expect(result.terminalStatusRepairAllowed).toBe(true);
@@ -230,7 +209,7 @@ describe('VerificationAction provider pure state contract', () => {
 
   test('post-upload crash permits anchor repair without another physical execution', () => {
     const terminalWithoutAnchor = complete(false);
-    const result = reduceVerificationActionProviderStateV2({
+    const result = reduceVerificationActionProviderState({
       ...terminalWithoutAnchor,
       terminalAnchorObservations: []
     });
@@ -242,7 +221,7 @@ describe('VerificationAction provider pure state contract', () => {
   });
 
   test('anchored terminal remains opaque to provider Result and cleanup semantics', () => {
-    const result = reduceVerificationActionProviderStateV2(complete());
+    const result = reduceVerificationActionProviderState(complete());
     expect(result.disposition).toBe('terminal-anchored');
     expect(result.terminalPayloadDigest).toBe(PAYLOAD);
     expect('resultStatus' in result).toBe(false);
@@ -260,7 +239,7 @@ describe('VerificationAction provider pure state contract', () => {
         entry.state === 'success' ? { ...entry, state: 'failure' as const } : entry
       )
     };
-    const withDigest = finalizeVerificationActionProviderStatusReadbackV2({
+    const withDigest = finalizeVerificationActionProviderStatusReadback({
       repositoryId: forged.repositoryId,
       repository: forged.repository,
       actionKey: forged.actionKey,
@@ -271,7 +250,7 @@ describe('VerificationAction provider pure state contract', () => {
       pageDigests: forged.pageDigests,
       statuses: forged.statuses
     });
-    expect(() => reduceVerificationActionProviderStateV2({
+    expect(() => reduceVerificationActionProviderState({
       ...canonical,
       statusReadback: withDigest
     })).toThrow('non-neutral terminal');
@@ -279,14 +258,14 @@ describe('VerificationAction provider pure state contract', () => {
 
   test('later trusted repairer and nonmonotonic GitHub id do not replace anchor causality', () => {
     const repairer = Object.freeze({ ...origin, runId: '9002', runAttempt: 2 });
-    const result = reduceVerificationActionProviderStateV2(complete(true, repairer, 99));
+    const result = reduceVerificationActionProviderState(complete(true, repairer, 99));
     expect(result.disposition).toBe('terminal-anchored');
     expect(result.physicalExecutionAllowed).toBe(false);
   });
 
   test('retained tombstone plus expired terminal artifact blocks replay and reuse', () => {
     const canonical = complete();
-    const result = reduceVerificationActionProviderStateV2({
+    const result = reduceVerificationActionProviderState({
       ...canonical,
       terminalObservations: [terminalObservation(terminalFact(), true)]
     });
@@ -295,17 +274,17 @@ describe('VerificationAction provider pure state contract', () => {
   });
 
   test('duplicate origins and malformed or incomplete pagination fail closed', () => {
-    expect(() => reduceVerificationActionProviderStateV2({
+    expect(() => reduceVerificationActionProviderState({
       ...complete(),
       startObservations: [startObservation(), startObservation()]
     })).toThrow('multiple immutable origins');
 
     const canonical = readback([]);
-    expect(() => parseVerificationActionProviderStatusReadbackV2({
+    expect(() => parseVerificationActionProviderStatusReadback({
       ...canonical,
       paginationComplete: false
     })).toThrow('pagination');
-    expect(() => parseVerificationActionProviderStatusReadbackV2({
+    expect(() => parseVerificationActionProviderStatusReadback({
       ...canonical,
       pageDigests: []
     })).toThrow();

@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { PhysicalNoFollowError } from '../../platform/shared/physical-no-follow.ts';
-import { readPipelineJournal } from '../../platform/shared/pipeline-journal.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

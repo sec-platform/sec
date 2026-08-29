@@ -1,17 +1,7 @@
 import { expect, test } from 'bun:test';
-import {
-  buildBenchmarkTaskSuiteContract,
-  formatBenchmarkTaskSuiteContract
-} from '../../platform/shared/benchmark-contract.ts';
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import {
-  buildTestBudgetContract,
-  formatTestBudgetContract,
-  getFastTestFilesSync,
-  getSlowTestSuitesSync,
-  isFastTestFile,
-  isTestFile
-} from '../../platform/shared/test-budget-contract.ts';
+import { buildBenchmarkTaskSuiteContract, formatBenchmarkTaskSuiteContract } from '../../src/verification/benchmark/contract.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { buildTestBudgetContract, formatTestBudgetContract, getFastTestFilesSync, getSlowTestSuitesSync, isFastTestFile, isTestFile } from '../../src/verification/test-impact/contract/budget.ts';
 import { expectContainsAll } from '../helpers/assertion-helpers.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import {
@@ -38,7 +28,6 @@ test('CLI exposes benchmark task-suite as text and JSON contracts', async () => 
   expect(JSON.stringify(contract)).not.toContain('\n');
   expectBenchmarkTaskSuiteSelfConsistent(contract);
   expect(contract).toMatchObject({
-    formatVersion: '1',
     suiteId: 'engineering-compiler-core',
     status: 'active',
     command: 'bun run sec -- benchmark suite --json',
@@ -143,8 +132,8 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   expect(isTestFile('tests/repair/repair.test.ts')).toBe(true);
   expect(isFastTestFile('tests/repair/repair.test.ts')).toBe(true);
   expect(isFastTestFile('tests/e2e/registry.test.ts')).toBe(false);
-  expect(isTestFile('platform/dev-runner/test-runner.ts')).toBe(false);
-  expect(fastTestFiles).not.toContain('project/tests/runtime/acceptance/customer-flow.spec.ts');
+  expect(isTestFile('src/development/runner/test-runner.ts')).toBe(false);
+  expect(fastTestFiles).not.toContain('project/tests/acceptance/customer-flow.test.ts');
   expect(fastTestFiles.some((file) => file.startsWith('tests/e2e/'))).toBe(false);
   expect(fastTestFiles.every((file) => file.startsWith('tests/'))).toBe(true);
   expect(importOrganizerSuite).toEqual({
@@ -162,12 +151,11 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
 
   expectContainsAll(formatted, [
     'Test budget default lane: fast',
-    'Lane all; nextBuild=true; playwright=true; command=bun run sec -- verify --lane all',
+    'Lane all; command=bun run sec -- verify --lane all',
     `Slow test files: ${contract.slowTestFileCount}`
   ]);
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
-    formatVersion: '1',
     command: 'bun run sec -- test budget --json',
     runnerCommand: 'bun run test:budget',
     defaultLane: 'fast',
@@ -179,25 +167,19 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     lanes: [
       {
         id: 'fast',
-        nextBuild: false,
-        playwright: false,
         command: 'bun run sec -- verify'
       },
       {
         id: 'runtime',
-        nextBuild: false,
-        playwright: false,
         command: 'bun run sec -- verify --lane runtime'
       },
       {
         id: 'all',
-        nextBuild: true,
-        playwright: true,
         command: 'bun run sec -- verify --lane all'
       }
     ],
     localDefault: expectedTestBudgetLocalDefault,
-    fullRuntimeGate: 'scheduled CI or explicit release/demo verification'
+    fullRuntimeGate: 'affected runtime changes or explicit release/demo verification'
   });
 
   await withTempWorkspace(async (workspaceRoot) => {
@@ -208,10 +190,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         'Runner command: bun run test:budget',
         `Lanes: ${contract.laneCount}`,
         `Slow lane count: ${contract.slowLaneCount}`,
-        'Slow lanes: all',
+        'Slow lanes: runtime, all',
         `Slow test files: ${contract.slowTestFileCount}`,
         `Local default: ${expectedTestBudgetLocalDefault}`,
-        'Lane fast; nextBuild=false; playwright=false'
+        'Lane fast; command=bun run sec -- verify'
       ],
       json: {
         command: 'bun run sec -- test budget --json',
@@ -225,7 +207,7 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
         slowSuiteCount: contract.slowSuiteCount,
         slowSuites: contract.slowSuites,
         lanes: expect.arrayContaining([
-          expect.objectContaining({ id: 'all', nextBuild: true, playwright: true })
+          expect.objectContaining({ id: 'all' })
         ])
       },
       compactJson: {

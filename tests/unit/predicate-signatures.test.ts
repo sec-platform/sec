@@ -4,16 +4,10 @@ import {
   PREDICATE_SIGNATURE_REGISTRY,
   assertEngineeringIRPredicateSignatures,
   assertPredicateSignatureRegistry,
-} from "../../platform/compiler/ir/predicate-signatures.ts";
-import {
-  SEMANTIC_PREDICATES,
-  type SemanticEntity,
-  type SemanticEntityKind,
-  type SemanticFact,
-  type SemanticFactObject,
-  type SemanticPredicate,
-} from "../../platform/shared/engineering-ir-types.ts";
-import { CompilerError } from "../../platform/shared/errors.ts";
+} from "../../src/compiler/ir/predicate-signatures.ts";
+import { type SemanticEntity, type SemanticEntityKind } from '../../src/semantic/engineering-ir/contract/entity-types.ts';
+import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticFactObject, type SemanticPredicate } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
+import { CompilerError } from "../../src/compiler/errors.ts";
 
 const ACTIVE_PREDICATES: readonly SemanticPredicate[] = [
   "AWAITS",

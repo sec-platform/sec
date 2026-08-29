@@ -12,11 +12,11 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  CodexDevelopmentListExactGitTreeEntriesV1,
-  CodexDevelopmentReadExactGitBlobV1,
-  CodexDevelopmentReadExactGitTextBlobsBatchV1,
-  type CodexDevelopmentExactGitBlobCommandResultV1
-} from '../../scripts/codex/exact-git-blob.ts';
+  CodexDevelopmentListExactGitTreeEntries,
+  CodexDevelopmentReadExactGitBlob,
+  CodexDevelopmentReadExactGitTextBlobsBatch,
+  type CodexDevelopmentExactGitBlobCommandResult
+} from '../../src/external-capabilities/git-read/exact-blob.ts';
 
 function git(
   repositoryRoot: string,
@@ -58,7 +58,7 @@ test('exact Git blob reader binds raw LF bytes despite a CRLF checkout', () => {
     writeFileSync(absolutePath, 'line-one\r\nline-two\r\n', 'utf8');
     expect(readFileSync(absolutePath, 'utf8')).toBe('line-one\r\nline-two\r\n');
 
-    const result = CodexDevelopmentReadExactGitBlobV1({
+    const result = CodexDevelopmentReadExactGitBlob({
       repositoryRoot,
       commitSha,
       repositoryPath
@@ -85,7 +85,7 @@ test('exact Git blob reader ignores replacement-object views', () => {
     git(repositoryRoot, ['replace', originalBlob, replacementBlob]);
     expect(git(repositoryRoot, ['cat-file', 'blob', originalBlob])).toContain('replacement-object-view');
 
-    const result = CodexDevelopmentReadExactGitBlobV1({
+    const result = CodexDevelopmentReadExactGitBlob({
       repositoryRoot,
       commitSha,
       repositoryPath: 'fixture.txt'
@@ -106,7 +106,7 @@ test('exact Git blob reader ignores ambient repository redirection', () => {
     const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
     process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');
 
-    const result = CodexDevelopmentReadExactGitBlobV1({
+    const result = CodexDevelopmentReadExactGitBlob({
       repositoryRoot,
       commitSha,
       repositoryPath: 'fixture.txt'
@@ -133,24 +133,24 @@ test('exact Git blob reader rejects invalid, missing, nonordinary, and oversized
     git(repositoryRoot, ['commit', '--quiet', '-m', 'nonordinary']);
     const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
-    expect(() => CodexDevelopmentReadExactGitBlobV1({
+    expect(() => CodexDevelopmentReadExactGitBlob({
       repositoryRoot,
       commitSha,
       repositoryPath: '../ordinary'
     })).toThrow('canonical repository-relative path');
-    expect(() => CodexDevelopmentReadExactGitBlobV1({
+    expect(() => CodexDevelopmentReadExactGitBlob({
       repositoryRoot,
       commitSha,
       repositoryPath: 'missing'
     })).toThrow('path is missing');
     for (const repositoryPath of ['link', 'module']) {
-      expect(() => CodexDevelopmentReadExactGitBlobV1({
+      expect(() => CodexDevelopmentReadExactGitBlob({
         repositoryRoot,
         commitSha,
         repositoryPath
       })).toThrow('not an ordinary blob');
     }
-    expect(() => CodexDevelopmentReadExactGitBlobV1({
+    expect(() => CodexDevelopmentReadExactGitBlob({
       repositoryRoot,
       commitSha,
       maxBytes: 2,
@@ -168,7 +168,7 @@ test('exact Git blob reader rejects a cat-file byte-count mismatch', () => {
   const runGit = (
     _root: string,
     args: readonly string[]
-  ): CodexDevelopmentExactGitBlobCommandResultV1 => {
+  ): CodexDevelopmentExactGitBlobCommandResult => {
     let stdout: Buffer;
     if (args[0] === 'ls-tree') {
       stdout = Buffer.from(`100644 blob ${blobSha}\tfixture\0`, 'utf8');
@@ -180,7 +180,7 @@ test('exact Git blob reader rejects a cat-file byte-count mismatch', () => {
     return { status: 0, stderr: Buffer.alloc(0), stdout };
   };
 
-  expect(() => CodexDevelopmentReadExactGitBlobV1({
+  expect(() => CodexDevelopmentReadExactGitBlob({
     repositoryRoot,
     commitSha,
     repositoryPath: 'fixture',
@@ -196,8 +196,8 @@ test('exact Git text batch preserves path-to-blob identity and rejects malformed
     git(repositoryRoot, ['add', 'first.ts', 'second.ts']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'batch']);
     const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    const entries = CodexDevelopmentListExactGitTreeEntriesV1({ repositoryRoot, commitSha });
-    const source = CodexDevelopmentReadExactGitTextBlobsBatchV1({
+    const entries = CodexDevelopmentListExactGitTreeEntries({ repositoryRoot, commitSha });
+    const source = CodexDevelopmentReadExactGitTextBlobsBatch({
       repositoryRoot,
       entries
     });
@@ -206,7 +206,7 @@ test('exact Git text batch preserves path-to-blob identity and rejects malformed
       ['second.ts', 'export const second = 2;\n']
     ]);
 
-    expect(() => CodexDevelopmentReadExactGitTextBlobsBatchV1({
+    expect(() => CodexDevelopmentReadExactGitTextBlobsBatch({
       repositoryRoot,
       entries: [entries[0]!],
       runGitBatch: () => ({

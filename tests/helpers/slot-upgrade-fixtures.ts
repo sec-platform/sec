@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
-import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
+import { writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { readYaml, writeYaml } from '../../src/workspace/yaml.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 import { buildSingleTenantLockApp } from './lock-fixtures.ts';
 import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
@@ -100,7 +100,7 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
     id: 'private/slot-contract',
     version: '0.1.0',
     kind: 'capability',
-    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    stackProfiles: ['typescript-library'],
     requires: [],
     provides: ['private/slot-contract'],
     conflicts: [],

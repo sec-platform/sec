@@ -47,7 +47,7 @@ public-docs/**
 - `docs/change-management.md`
 - `docs/verification-governance.md`
 - `docs/runtime-and-distribution.md`
-- `docs/workbench-and-ai-operations.md`
+- `docs/agent-and-user-machine-interface.md`
 - `docs/development-governance.md`
 - `docs/external-provider-policy.md`
 - `docs/roadmap.md`

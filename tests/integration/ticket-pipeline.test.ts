@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { VerificationReport } from '../../platform/shared/verification-types.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { prepareVerifiedWorkspace } from '../testkit/workspace.ts';
 
 test('ticket project reaches a passing fast pipeline state', async () => {

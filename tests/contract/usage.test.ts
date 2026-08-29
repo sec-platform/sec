@@ -30,8 +30,5 @@ test('CLI reports argument usage errors', async () => {
     await expectCliUsageError(workspaceRoot, 'lock', ['--json'], '');
     await expectCliUsageError(workspaceRoot, 'explain', ['--extra'], '');
     await expectCliUsageError(workspaceRoot, 'doctor', ['--extra'], '');
-    await expectCliUsageError(workspaceRoot, 'workbench', [], '');
-    await expectCliUsageError(workspaceRoot, 'workbench', ['mutations'], '');
-    await expectCliUsageError(workspaceRoot, 'workbench', ['mutations', 'apply', '--extra'], '');
   });
 });

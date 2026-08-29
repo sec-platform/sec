@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { formatJsonFile, writeJson } from '../../platform/shared/fs.ts';
+import { formatJsonFile, writeJson } from '../../src/workspace/files.ts';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import {
@@ -83,12 +83,12 @@ test('copy-directory migration copies manifest directory to impacted project tar
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files', 'runtime', 'nested'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'runtime', 'route.ts'), 'export const runtime = true;\n', 'utf8');
-    await fs.writeFile(path.join(manifestRoot, 'files', 'runtime', 'nested', 'view.tsx'), 'export default function View() { return null; }\n', 'utf8');
+    await fs.writeFile(path.join(manifestRoot, 'files', 'runtime', 'nested', 'worker.ts'), 'export function run() { return true; }\n', 'utf8');
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['app/runtime'], [copyDirectory('app/runtime')]);
+    await applyMigrationEntries(projectRoot, manifestRoot, ['modules/runtime'], [copyDirectory('modules/runtime')]);
 
-    await expect(fs.readFile(path.join(projectRoot, 'app', 'runtime', 'route.ts'), 'utf8')).resolves.toBe('export const runtime = true;\n');
-    await expect(fs.readFile(path.join(projectRoot, 'app', 'runtime', 'nested', 'view.tsx'), 'utf8')).resolves.toBe('export default function View() { return null; }\n');
+    await expect(fs.readFile(path.join(projectRoot, 'modules', 'runtime', 'route.ts'), 'utf8')).resolves.toBe('export const runtime = true;\n');
+    await expect(fs.readFile(path.join(projectRoot, 'modules', 'runtime', 'nested', 'worker.ts'), 'utf8')).resolves.toBe('export function run() { return true; }\n');
   });
 });
 
@@ -97,16 +97,16 @@ test('copy-directory migration rejects file targets before copying', async () =>
     const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files', 'runtime'), { recursive: true });
-    await fs.mkdir(path.join(projectRoot, 'app'), { recursive: true });
+    await fs.mkdir(path.join(projectRoot, 'modules'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'runtime', 'route.ts'), 'export const runtime = true;\n', 'utf8');
-    await fs.writeFile(path.join(projectRoot, 'app', 'runtime'), 'occupied\n', 'utf8');
+    await fs.writeFile(path.join(projectRoot, 'modules', 'runtime'), 'occupied\n', 'utf8');
 
     await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, ['app/runtime'], [copyDirectory('app/runtime')])
+      applyMigrationEntries(projectRoot, manifestRoot, ['modules/runtime'], [copyDirectory('modules/runtime')])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-027'
     });
-    await expect(fs.readFile(path.join(projectRoot, 'app', 'runtime'), 'utf8')).resolves.toBe('occupied\n');
+    await expect(fs.readFile(path.join(projectRoot, 'modules', 'runtime'), 'utf8')).resolves.toBe('occupied\n');
   });
 });
 

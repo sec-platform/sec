@@ -1,18 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import {
-  CodexDevelopmentAssertTestImpactTransitionSelectionV1,
-  CodexDevelopmentCreateTestImpactTransitionObservationV1,
-  CodexDevelopmentTestImpactTransitionDigestV1,
-  decodeGitPathOutput,
-  gitChangedFileDiffArgs,
-  gitPathBlobArgs,
-  gitUntrackedFileArgs,
-  gitWorkingTreeStatusArgs,
-  parseGitChangedFileOutput,
-  parseGitPathBlobOutput,
-  parseGitUntrackedFileOutput
-} from '../../platform/shared/ci-git-changed-files.ts';
+import { CodexDevelopmentAssertTestImpactTransitionSelection, CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/verification/test-impact/runtime/transition.ts';
 
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -20,9 +8,16 @@ function utf8(value: string): Uint8Array {
 
 test('Git changed-file commands disable quotePath for tracked and untracked paths', () => {
   expect(gitChangedFileDiffArgs('main')).toEqual([
+    '--no-pager',
     '-c',
     'core.quotepath=false',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
     'diff',
+    '--no-ext-diff',
+    '--no-textconv',
     '--name-status',
     '-z',
     '--find-renames',
@@ -32,9 +27,16 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     'HEAD'
   ]);
   expect(gitChangedFileDiffArgs()).toEqual([
+    '--no-pager',
     '-c',
     'core.quotepath=false',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
     'diff',
+    '--no-ext-diff',
+    '--no-textconv',
     '--name-status',
     '-z',
     '--find-renames',
@@ -43,9 +45,16 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     'HEAD'
   ]);
   expect(gitChangedFileDiffArgs('main', null)).toEqual([
+    '--no-pager',
     '-c',
     'core.quotepath=false',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
     'diff',
+    '--no-ext-diff',
+    '--no-textconv',
     '--name-status',
     '-z',
     '--find-renames',
@@ -54,16 +63,26 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     'main'
   ]);
   expect(gitUntrackedFileArgs()).toEqual([
+    '--no-pager',
     '-c',
     'core.quotepath=false',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
     'ls-files',
     '--others',
     '--exclude-standard',
     '-z'
   ]);
   expect(gitWorkingTreeStatusArgs()).toEqual([
+    '--no-pager',
     '-c',
     'core.quotepath=false',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
     'status',
     '--porcelain=v1',
     '-z',
@@ -77,6 +96,11 @@ test('Git deletion transition binds exact base blob and target absence', () => {
   const blobSha = 'c'.repeat(40);
   const repositoryPath = 'docs/evidence/retired.json';
   expect(gitPathBlobArgs(baseSha, repositoryPath)).toEqual([
+    '--no-pager',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
     'ls-tree', '-z', '--full-tree', baseSha, '--', repositoryPath
   ]);
   expect(parseGitPathBlobOutput(
@@ -84,7 +108,7 @@ test('Git deletion transition binds exact base blob and target absence', () => {
     repositoryPath
   )).toEqual({ mode: '100644', blobSha });
   expect(parseGitPathBlobOutput(new Uint8Array(), repositoryPath)).toBeNull();
-  const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+  const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: [{ status: 'removed', path: repositoryPath }],
@@ -97,7 +121,7 @@ test('Git deletion transition binds exact base blob and target absence', () => {
     headMode: null,
     headBlobSha: null
   }]);
-  expect(() => CodexDevelopmentCreateTestImpactTransitionObservationV1({
+  expect(() => CodexDevelopmentCreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: [{ status: 'removed', path: repositoryPath }],
@@ -110,10 +134,10 @@ test('transition selection binds canonical records, derived files, and exact bas
   const headSha = 'b'.repeat(40);
   const repositoryPath = 'docs/evidence/retired.json';
   const records = [
-    { status: 'changed' as const, path: 'scripts/ci-verification.ts' },
+    { status: 'changed' as const, path: 'src/verification/ci/verification.ts' },
     { status: 'removed' as const, path: repositoryPath }
   ];
-  const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+  const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: [...records].reverse(),
@@ -121,29 +145,29 @@ test('transition selection binds canonical records, derived files, and exact bas
       ? { mode: '100644', blobSha: 'c'.repeat(40) }
       : null
   });
-  const digest = CodexDevelopmentTestImpactTransitionDigestV1(transition);
-  expect(CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+  const digest = CodexDevelopmentTestImpactTransitionDigest(transition);
+  expect(CodexDevelopmentAssertTestImpactTransitionSelection({
     baseSha,
     headSha,
-    changedPaths: [repositoryPath, 'scripts/ci-verification.ts'],
+    changedPaths: [repositoryPath, 'src/verification/ci/verification.ts'],
     records,
     observation: transition
   })).toBe(digest);
   for (const input of [
-    { baseSha: 'd'.repeat(40), headSha, changedPaths: [repositoryPath, 'scripts/ci-verification.ts'] },
-    { baseSha, headSha: 'e'.repeat(40), changedPaths: [repositoryPath, 'scripts/ci-verification.ts'] },
+    { baseSha: 'd'.repeat(40), headSha, changedPaths: [repositoryPath, 'src/verification/ci/verification.ts'] },
+    { baseSha, headSha: 'e'.repeat(40), changedPaths: [repositoryPath, 'src/verification/ci/verification.ts'] },
     { baseSha, headSha, changedPaths: [repositoryPath] }
   ]) {
-    expect(() => CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+    expect(() => CodexDevelopmentAssertTestImpactTransitionSelection({
       ...input,
       records,
       observation: transition
     })).toThrow('exact candidate selection input');
   }
-  expect(() => CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+  expect(() => CodexDevelopmentAssertTestImpactTransitionSelection({
     baseSha,
     headSha,
-    changedPaths: [repositoryPath, 'scripts/ci-verification.ts'],
+    changedPaths: [repositoryPath, 'src/verification/ci/verification.ts'],
     records: [{ status: 'added', path: repositoryPath }, records[0]!],
     observation: transition
   })).toThrow('exact candidate selection input');
@@ -192,9 +216,12 @@ test('Git untracked parsing preserves newline path bytes instead of splitting ow
   expect(() => parseGitUntrackedFileOutput(utf8('docs/missing-nul.md'))).toThrow('missing final NUL');
 });
 
-test('Git tracked status parsing fails closed on malformed or unknown records', () => {
+test('Git tracked status parsing accepts selected conflict statuses and fails closed on unknown records', () => {
   expect(() => parseGitChangedFileOutput(utf8('M\0missing-terminator'))).toThrow('missing final NUL');
   for (const status of ['U', 'X', 'B']) {
+    expect(parseGitChangedFileOutput(utf8(`${status}\0path.ts\0`))).toEqual(['path.ts']);
+  }
+  for (const status of ['Z', 'Q']) {
     expect(() => parseGitChangedFileOutput(utf8(`${status}\0path.ts\0`))).toThrow('unknown status');
   }
   expect(() => parseGitChangedFileOutput(utf8('R100\0old.ts\0'))).toThrow('missing its second path');

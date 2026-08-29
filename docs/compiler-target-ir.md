@@ -242,7 +242,7 @@ Incremental path必须经过相同validator、eligibility、policy、tie-break�
 - `prefer`只影响合格候选，`require/pin`不能绕过hard eligibility；
 - selection、tie-break和diagnostics不依赖枚举/Map/文件发现顺序；
 - Target Program IR与Backend只能消费冻结Binding；
-- Block Resolver、Provider policy、Workbench、Adapter和Generator不能建立第二Implementation Resolver；
+- Block Resolver、Provider policy、Agent/CLI interface、Adapter和Generator不能建立第二Implementation Resolver；
 - clean/incremental Decision、Binding与byte parity；
 - round-trip/typecheck/conformance/runtime acceptance与negative scenarios；
 - Provider/version变化产生显式ImplementationBindingDelta、Compatibility Decision和Migration；

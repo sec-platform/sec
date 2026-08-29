@@ -15,7 +15,7 @@
 - Root 是 A0 Integrator，独占 DAG、Task ownership、integration、Gate custody、merge、closeout 与 branch hygiene。
 - 一个时刻只有一个 formal active Work Package和一个 candidate epoch。单一纵向切片默认不创建子 Agent；只有至少两个依赖已满足、owned/forbidden paths完全不重叠、可独立提交和reconcile的write seam才允许并行。每个 owned seam/角色最多一个 live agent；并行前必须冻结 branch、owner、prerequisite、acceptance、tests、`gate_owner`、reconciliation point、stop 与 `reload_if`；同一 canonical type、revision、builder、pipeline order 或 authority 章节保持单写者。禁止主动 polling，本地 owned seam未耗尽前不得 wait。
 - Delegation depth 保持 1；普通 worker 不再递归分派。角色按需从 `.codex/agents/` 选择。
-- `.agents/skills/**` 只保存 canonical owner 的窄幅可执行投影。任何需要 Agent 判断触发、选择、回退或停止的启发式行为必须经 `sec-heuristic-governance` 分类、去重，并解析到 `platform/shared/agent-skill-contract.ts` 中的唯一 Skill；不能只藏在 Markdown、prompt、注释、PR body、测试或孤立脚本。全部 tracked Markdown、已登记启发式运行面与候选行为由 `tests/contract/agent-skills.test.ts`、`tests/contract/repository-audit.test.ts` 和 `scripts/codex/repository-audit.ts`共同覆盖。
+- `.agents/skills/**` 只保存 canonical owner 的窄幅可执行投影。任何需要 Agent 判断触发、选择、回退或停止的启发式行为必须经 `sec-heuristic-governance` 分类、去重，并解析到 `platform/shared/agent-skill-contract.ts` 中的唯一 Skill；不能只藏在 Markdown、prompt、注释、PR body、测试或孤立脚本。全部 tracked Markdown、已登记启发式运行面与候选行为由 `tests/contract/agent-skills.test.ts`、`tests/contract/repository-audit.test.ts` 和 `src/brownfield/repository-audit/cli.ts`共同覆盖。
 - 修改 canonical authority、公共合同、identity/revision、状态所有权、pipeline或跨 owner架构时，先使用 `sec-architecture-evolution` 冻结唯一 owner、机制、不变量、迁移和退出条件；authority已冻结后的实现才进入 `sec-worker-development`。
 - V19只承诺可验证确定性续跑，不承诺恢复隐藏思维。Development Run Kernel与Hook物理落地前，`sec-context-resume`只能执行manual-shadow恢复，不得宣称压缩问题已解决。
 - Worker 流程固定为：

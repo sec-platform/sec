@@ -4,25 +4,25 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  compileSecOperationReadPlanV1,
+  compileSecOperationReadPlan,
   SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlanInputV1,
-  type SecOperationReadPlanV1
-} from '../../platform/shared/agent-operation-read-plan-contract.ts';
+  type SecOperationReadPlanInput,
+  type SecOperationReadPlan
+} from '../../src/control/agent/read-plan.ts';
 import {
-  compileSecTaskCapsuleV1,
+  compileSecTaskCapsule,
   SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
   SEC_TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigestV1,
-  type SecTaskCapsulePlanningContextV1
-} from '../../platform/shared/agent-task-capsule-contract.ts';
+  type SecDigest,
+  type SecTaskCapsulePlanningContext
+} from '../../src/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const digest = (character: string): SecDigestV1 => `sha256:${character.repeat(64)}`;
+const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: SecTaskCapsulePlanningContextV1): SecOperationReadPlanInputV1['taskCapsule'] {
-  return compileSecTaskCapsuleV1({
+function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
+  return compileSecTaskCapsule({
     schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:issue-346-contract',
     planningContext
@@ -39,7 +39,7 @@ function gitHead(): string {
   return result.stdout.trim();
 }
 
-function input(): SecOperationReadPlanInputV1 {
+function input(): SecOperationReadPlanInput {
   const head = gitHead();
   return {
     schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
@@ -113,11 +113,11 @@ function run(script: string, args: readonly string[]): {
 }
 
 test('pure compiler and verify CLI produce one content-bound Read Plan without claiming live authority', () => {
-  const plan = compileSecOperationReadPlanV1(input()) as SecOperationReadPlanV1;
+  const plan = compileSecOperationReadPlan(input()) as SecOperationReadPlan;
   expect(plan.requiredRefs.map((reference) => reference.id)).toEqual(['development-governance']);
   expect(plan.preApplicabilitySkillBodiesRead).toBe(0);
 
-  const verified = run('scripts/codex/operation-read-plan.ts', [
+  const verified = run('src/control/agent/operation-read-plan.ts', [
     'verify', '--plan', JSON.stringify(plan)
   ]);
   expect(verified.status).toBe(0);
@@ -132,7 +132,7 @@ test('pure compiler and verify CLI produce one content-bound Read Plan without c
 
 test('Task Capsule verify is content-only and compile rejects caller authority before observation', () => {
   const compiled = input().taskCapsule;
-  const verified = run('scripts/codex/task-capsule.ts', [
+  const verified = run('src/control/agent/task-capsule-host.ts', [
     'verify', '--capsule', JSON.stringify(compiled)
   ]);
   expect(verified.status).toBe(0);
@@ -143,7 +143,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
     taskCapsuleDigest: compiled.digest
   });
 
-  const rejected = run('scripts/codex/task-capsule.ts', [
+  const rejected = run('src/control/agent/task-capsule-host.ts', [
     'compile',
     '--input',
     JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA, authority: {} }),
@@ -153,7 +153,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
   expect(rejected.status).not.toBe(0);
   expect(rejected.stderr).toContain('authority-free schema-only request');
 
-  const blocked = run('scripts/codex/task-capsule.ts', [
+  const blocked = run('src/control/agent/task-capsule-host.ts', [
     'compile',
     '--input',
     JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA }),
@@ -173,7 +173,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
 
 test('compile CLI rejects caller-provided Capsule authority before live observation', () => {
   const supplied = input();
-  const result = run('scripts/codex/operation-read-plan.ts', [
+  const result = run('src/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
     JSON.stringify({ ...supplied, schema: SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA }),
@@ -185,7 +185,7 @@ test('compile CLI rejects caller-provided Capsule authority before live observat
 });
 
 test('compile CLI rejects caller-provided read refs and policy before live observation', () => {
-  const result = run('scripts/codex/operation-read-plan.ts', [
+  const result = run('src/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
     JSON.stringify({
@@ -201,7 +201,7 @@ test('compile CLI rejects caller-provided read refs and policy before live obser
 });
 
 test('schema-only Read Plan production compile fails closed without a trusted issuer', () => {
-  const result = run('scripts/codex/operation-read-plan.ts', [
+  const result = run('src/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
     JSON.stringify({ schema: SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA }),
@@ -215,17 +215,9 @@ test('schema-only Read Plan production compile fails closed without a trusted is
   expect(blocked.blockerDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
-test('Skill CLI rejects the retired raw envelope path', () => {
-  const result = run('scripts/codex/skill-applicability.ts', [
-    '--envelope', JSON.stringify({ role: 'worker' })
-  ]);
-  expect(result.status).not.toBe(0);
-  expect(result.stderr).toContain('unknown argument: --envelope');
-});
-
 test('Skill CLI requires an explicit candidate root before live authority observation', () => {
-  const plan = compileSecOperationReadPlanV1(input());
-  const selected = run('scripts/codex/skill-applicability.ts', [
+  const plan = compileSecOperationReadPlan(input());
+  const selected = run('src/control/agent/skill-applicability.ts', [
     '--read-plan', JSON.stringify(plan)
   ]);
   expect(selected.status).not.toBe(0);

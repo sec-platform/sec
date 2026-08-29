@@ -10,13 +10,10 @@ import {
   lockWorkspace,
   resolveWorkspace,
   verifyWorkspace
-} from '../../platform/orchestrator.ts';
-import {
-  CI_ARTIFACT_FILES,
-  CI_ARTIFACT_PATHS
-} from '../../platform/shared/ci-artifact-contract.ts';
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+} from '../../src/compiler/orchestration/cli.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/graph-assertions.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
@@ -27,14 +24,10 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
     lockPath,
     policyReportPath,
     provenancePath,
-    runtimeReportPath,
-    sourceViewPath,
-    slotRuleViewPath,
-    graphViewPath,
-    reviewViewPath
+    runtimeReportPath
   } = getWorkspacePaths(workspaceRoot);
 
-  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
+  await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
   expect(resolvedLock.resolvedBlocks.length).toBe(3);
   expect(resolvedLock.slotTasks.length).toBe(1);
@@ -110,7 +103,7 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   expect(policyReport.merged.policies.find((policy) => policy.id === 'tenant-scope-required')).toEqual({
     id: 'tenant-scope-required',
     sourceScope: 'official',
-    sourcePath: 'platform/policies/official/policy.spec.yaml',
+    sourcePath: 'catalog/policies/official/policy.spec.yaml',
     targets: ['src/installed/entity/customer-service.ts']
   });
 
@@ -155,7 +148,6 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   });
   expectNoGraphEdge(graph, { type: 'violates' });
   expect(graph.overlays.coverage.blocks.every((entry) => Array.isArray(entry.coveredBy))).toBe(true);
-  expect(reviewSummary.formatVersion).toBe('2');
   expect(reviewSummary.ciSummary.status).toBe('passed');
   expect(reviewSummary.ciSummary.failureCount).toBe(0);
   expect(reviewSummary.provenanceSummary).toMatchObject({
@@ -191,11 +183,6 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   expect(reviewSummary.regressionRisks).toHaveLength(0);
   expect(reviewSummary.conflictHints).toHaveLength(0);
 
-  await fs.access(sourceViewPath);
-  await fs.access(slotRuleViewPath);
-  await fs.access(graphViewPath);
-  await fs.access(reviewViewPath);
-
   const refreshedProvenance = await readJson<{
     artifacts: Array<{ path: string; generatedByPass?: string }>;
   }>(provenancePath);
@@ -213,8 +200,9 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
       CI_ARTIFACT_FILES.policyReport,
       CI_ARTIFACT_FILES.acceptanceCoverage,
       CI_ARTIFACT_FILES.explainGraph,
-      CI_ARTIFACT_FILES.reviewSummary,
-      ...CI_ARTIFACT_PATHS.view
+      CI_ARTIFACT_FILES.explainGraphMermaid,
+      CI_ARTIFACT_FILES.explainGraphDot,
+      CI_ARTIFACT_FILES.reviewSummary
     ])
   );
 }, 180000);

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import {
   buildReviewSummaryInTempWorkspace
 } from '../helpers/review-fixtures.ts';
@@ -16,7 +16,7 @@ test('review summary surfaces provenance summary', async () => {
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
-        registryPath: 'platform/registry/official/auth.basic-session',
+        registryPath: 'catalog/registry/official/auth.basic-session',
         generatedByPass: 'compose',
         verifiedBy: ['user_can_login'],
         overrideStatus: 'none'

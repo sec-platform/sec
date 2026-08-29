@@ -3,22 +3,14 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
-import { readJson } from '../../platform/shared/fs.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { generatedStateDigest, type GeneratedStateRegistration } from '../../src/runtime-state/generated-state/contract.ts';
+import { inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
 import {
-  generatedStateDigestV1,
-  type GeneratedStateRegistrationV1
-} from '../../platform/shared/generated-state-contract.ts';
-import {
-  inspectNoFollowDirectoryChainV1,
-  inspectNoFollowLinkEntryV1
-} from '../../platform/shared/physical-no-follow.ts';
-import { runCommand } from '../../platform/shared/process.ts';
-import {
-  compilerDependencyLocatorWorktreeRetirementProviderV1,
-  ensureCompilerDepsReady,
-  parseCompilerDependencyLocatorRetirementPlanV1
-} from '../../platform/shared/project-runtime.ts';
+  compilerDependencyLocatorWorktreeRetirementProvider,
+  ensureCompilerDepsReady
+} from '../../src/toolchain/dependencies/test/runtime.ts';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -127,44 +119,31 @@ async function prepareLinkedWorktreeEpochTransition(tempRoot: string): Promise<R
 }
 
 describe('compiler dependency installation', () => {
-  test('defers binding digest validation until the dependency owner reconstructs the binding', () => {
-    const ownerBinding = {
-      architecture: 'x64',
-      runtimeMaterialization: {
-        packages: [],
-        rootPackages: [],
-        revision: `sha256:${'7'.repeat(64)}`
-      }
-    };
-    const bindingDigest = generatedStateDigestV1(ownerBinding);
-    const plan = {
-      schema: 'sec-compiler-dependency-locator-retirement-plan-v1',
-      consumerRoot: 'C:\\candidate',
-      consumer: { device: '1', inode: '2', objectId: '3' },
-      relativePath: 'node_modules',
-      source: { device: '4', inode: '5', objectId: '6' },
-      linkTarget: 'target',
-      generationPath: 'C:\\owner\\node_modules',
-      generation: { device: '7', inode: '8', mode: '9' },
-      ownerRoot: 'C:\\owner',
-      consumerManifestHash: 'consumer',
-      ownerManifestHash: 'owner',
-      binding: ownerBinding,
-      bindingDigest
-    };
-    const canonicalPlanBytes = JSON.stringify(canonicalJson(plan));
-
-    expect(generatedStateDigestV1(JSON.parse(canonicalPlanBytes).binding)).not.toBe(bindingDigest);
-    expect(parseCompilerDependencyLocatorRetirementPlanV1(canonicalPlanBytes).bindingDigest)
-      .toBe(bindingDigest);
-  });
-
   test('serializes immutable generations and invalidates the binding on lockfile or runtime changes', async () => {
     await withTempWorkspace(async (tempRoot) => {
       await writeCompilerDependencyRoot(tempRoot);
       let installCalls = 0;
       const stagingRoots = new Set<string>();
       const lifecycleEvents: string[] = [];
+      let lockWaiterHasArrived = false;
+      let releaseLockWaiter!: () => void;
+      const lockWaiterArrival = new Promise<void>((resolve) => {
+        releaseLockWaiter = resolve;
+      });
+      const contentionBarrier = Object.freeze({
+        async waitForLockWaiter(): Promise<void> {
+          await lockWaiterArrival;
+        },
+        announceLockWaiter(): void {
+          if (lockWaiterHasArrived) return;
+          lockWaiterHasArrived = true;
+          releaseLockWaiter();
+        }
+      });
+      let releaseFirstCompletion!: () => void;
+      const firstCompletion = new Promise<void>((resolve) => {
+        releaseFirstCompletion = resolve;
+      });
       const commandRunner = async (_command: string, args: string[], options: { cwd: string }) => {
         installCalls += 1;
         expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts']);
@@ -174,31 +153,111 @@ describe('compiler dependency installation', () => {
         expect(stagingName.length).toBe('c.staging-'.length + 6);
         expect(path.dirname(options.cwd)).toBe(path.join(tempRoot, '.tmp', 'dependency-installs'));
         stagingRoots.add(options.cwd);
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await contentionBarrier.waitForLockWaiter();
         await installCompilerDependencyFixture(options.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      type FixtureBindingExpectation = Readonly<{
+        owner?: string;
+        producer?: string;
+        ruleId?: string;
+        physical?: Readonly<{ device: string; inode: string; objectId: string }>;
+      }>;
+      const registrations = new Map<string, GeneratedStateRegistration>();
+      const fixtureRegistration = (
+        relativePath: string,
+        expected: FixtureBindingExpectation | undefined,
+        phase: 'active' | 'retired'
+      ): GeneratedStateRegistration => {
+        const registrationId = generatedStateDigest({
+          schema: 'fixture-generated-state-registration-id-v1',
+          relativePath,
+          phase
+        });
+        const registrationDigest = generatedStateDigest({
+          schema: 'fixture-generated-state-registration-v1',
+          registrationId,
+          relativePath,
+          phase,
+          physical: expected?.physical ?? { device: 'fixture', inode: relativePath, objectId: 'fixture' }
+        });
+        return Object.freeze({
+          schema: 'sec-generated-state-registration-v1',
+          registrationId,
+          repositoryRoot: tempRoot,
+          workspace: { device: 'fixture', inode: 'workspace', objectId: 'fixture' },
+          ruleId: expected?.ruleId ?? 'fixture-rule',
+          relativePath,
+          root: expected?.physical ?? { device: 'fixture', inode: relativePath, objectId: 'fixture' },
+          owner: expected?.owner ?? 'fixture-owner',
+          producer: expected?.producer ?? 'fixture-producer',
+          operationId: `fixture:${relativePath}`,
+          phase,
+          retirementRef: phase === 'retired' ? generatedStateDigest({ registrationDigest }) : null,
+          generatedAt: '2026-08-28T00:00:00.000Z',
+          registrationDigest
+        });
       };
       const options = {
         commandRunner,
         generatedStateLifecycle: {
           born: async (relativePath: string) => {
             lifecycleEvents.push(`born:${relativePath}`);
+            registrations.set(relativePath, fixtureRegistration(relativePath, undefined, 'active'));
           },
-          retired: async () => undefined,
+          bind: async (relativePath: string, expected?: FixtureBindingExpectation) => {
+            const current = registrations.get(relativePath);
+            if (current === undefined) throw new Error(`fixture lifecycle registration missing: ${relativePath}`);
+            lifecycleEvents.push(`bind:${relativePath}`);
+            const bound = fixtureRegistration(relativePath, expected, current.phase);
+            registrations.set(relativePath, bound);
+            return bound;
+          },
+          restore: async (
+            relativePath: string,
+            expectedRegistrationDigest: `sha256:${string}`,
+            expectedPhysical: Readonly<{ device: string; inode: string; objectId: string }>
+          ) => {
+            const current = registrations.get(relativePath);
+            if (current?.registrationDigest !== expectedRegistrationDigest) {
+              throw new Error(`fixture lifecycle restore predecessor mismatch: ${relativePath}`);
+            }
+            const restored = fixtureRegistration(relativePath, { physical: expectedPhysical }, 'active');
+            registrations.set(relativePath, restored);
+            return restored;
+          },
+          retired: async (relativePath: string) => {
+            const current = registrations.get(relativePath);
+            if (current === undefined) throw new Error(`fixture lifecycle registration missing: ${relativePath}`);
+            const retired = fixtureRegistration(relativePath, {
+              owner: current.owner,
+              producer: current.producer,
+              ruleId: current.ruleId,
+              physical: current.root
+            }, 'retired');
+            registrations.set(relativePath, retired);
+            return retired;
+          },
           disposed: async (relativePath: string, outcome: string) => {
             lifecycleEvents.push(`disposed:${relativePath}:${outcome}`);
             await fs.rm(path.join(tempRoot, ...relativePath.split('/')), { force: true, recursive: true });
+            registrations.delete(relativePath);
           }
         },
-        pollIntervalMs: 10
+        pollIntervalMs: 10,
+        sleep: async () => {
+          contentionBarrier.announceLockWaiter();
+          await firstCompletion;
+        }
       };
 
-      const first = await Promise.all([
-        ensureCompilerDepsReady(options, tempRoot),
-        ensureCompilerDepsReady(options, tempRoot)
-      ]);
+      const firstCall = ensureCompilerDepsReady(options, tempRoot);
+      void firstCall.then(releaseFirstCompletion, releaseFirstCompletion);
+      const secondCall = ensureCompilerDepsReady(options, tempRoot);
+      const first = await Promise.all([firstCall, secondCall]);
 
       expect(installCalls).toBe(1);
+      expect(lockWaiterHasArrived).toBe(true);
       expect(first.map(({ source }) => source).sort()).toEqual(['existing', 'installed']);
       expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
 
@@ -234,7 +293,7 @@ describe('compiler dependency installation', () => {
       const binding = await readJson<Record<string, unknown>>(path.join(
         tempRoot,
         'node_modules',
-        '.sec-compiler-deps-binding-v4.json'
+        '.sec-compiler-deps-binding-v5.json'
       ));
       expect(binding).toMatchObject({
         bunExecutablePath: expect.any(String),
@@ -396,6 +455,30 @@ describe('compiler dependency installation', () => {
           born: async () => {
             if (failLifecycleBinding) throw new Error('fixture lifecycle interruption');
           },
+          bind: async (_relativePath: string, expected?: Readonly<{
+            owner?: string;
+            producer?: string;
+            ruleId?: string;
+            physical?: Readonly<{ device: string; inode: string; objectId: string }>;
+          }>) => {
+            if (failLifecycleBinding) throw new Error('fixture lifecycle interruption');
+            return Object.freeze({
+              schema: 'sec-generated-state-registration-v1' as const,
+              registrationId: generatedStateDigest({ schema: 'fixture-registration-id-v1' }),
+              repositoryRoot: ownerRoot,
+              workspace: { device: 'fixture', inode: 'workspace', objectId: 'fixture' },
+              ruleId: expected?.ruleId ?? 'compiler-node-modules',
+              relativePath: 'node_modules',
+              root: expected?.physical ?? { device: 'fixture', inode: 'root', objectId: 'fixture' },
+              owner: expected?.owner ?? 'compiler-dependency-runtime',
+              producer: expected?.producer ?? 'ensure-compiler-deps-ready',
+              operationId: 'fixture:linked-worktree',
+              phase: 'active' as const,
+              retirementRef: null,
+              generatedAt: '2026-08-28T00:00:00.000Z',
+              registrationDigest: generatedStateDigest({ schema: 'fixture-registration-v1' })
+            });
+          },
           retired: async () => undefined,
           disposed: async () => undefined
         }
@@ -416,15 +499,15 @@ describe('compiler dependency installation', () => {
         'utf8'
       )).toBe('primary-generation:typescript\n');
 
-      const consumer = inspectNoFollowDirectoryChainV1(consumerRoot, 'Fixture consumer').target;
-      const locator = inspectNoFollowLinkEntryV1(consumer, 'node_modules');
+      const consumer = inspectNoFollowDirectoryChain(consumerRoot, 'Fixture consumer').target;
+      const locator = inspectNoFollowLinkEntry(consumer, 'node_modules');
       expect(locator).not.toBeNull();
       const source = Object.freeze({
         device: locator!.device,
         inode: locator!.inode,
-        objectId: generatedStateDigestV1({ kind: 'link', target: locator!.linkTarget })
+        objectId: generatedStateDigest({ kind: 'link', target: locator!.linkTarget })
       });
-      const registration: GeneratedStateRegistrationV1 = Object.freeze({
+      const registration: GeneratedStateRegistration = Object.freeze({
         schema: 'sec-generated-state-registration-v1',
         registrationId: `sha256:${'1'.repeat(64)}`,
         repositoryRoot: ownerRoot,
@@ -440,7 +523,14 @@ describe('compiler dependency installation', () => {
         generatedAt: '2026-08-23T00:00:00.000Z',
         registrationDigest: `sha256:${'3'.repeat(64)}`
       });
-      const providerPlan = await compilerDependencyLocatorWorktreeRetirementProviderV1.plan({
+      const staleConsumerManifest = JSON.parse(
+        await fs.readFile(path.join(consumerRoot, 'package.json'), 'utf8')
+      ) as Record<string, unknown>;
+      await fs.writeFile(path.join(consumerRoot, 'package.json'), `${JSON.stringify({
+        ...staleConsumerManifest,
+        description: 'consumer inputs changed after the external generation was linked'
+      }, null, 2)}\n`);
+      const providerPlan = await compilerDependencyLocatorWorktreeRetirementProvider.plan({
         repositoryRoot: ownerRoot,
         workspaceRoot: consumerRoot,
         relativePath: 'node_modules',
@@ -458,7 +548,7 @@ describe('compiler dependency installation', () => {
         path.join(parkedConsumerRoot, 'node_modules'),
         path.join(replacementConsumerRoot, 'node_modules')
       );
-      await expect(compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+      await expect(compilerDependencyLocatorWorktreeRetirementProvider.retire({
         operationId: `sha256:${'4'.repeat(64)}`,
         repositoryRoot: ownerRoot,
         workspaceRoot: replacementConsumerRoot,
@@ -488,7 +578,7 @@ describe('compiler dependency installation', () => {
         path.join(consumerRoot, 'node_modules'),
         process.platform === 'win32' ? 'junction' : 'dir'
       );
-      await expect(compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+      await expect(compilerDependencyLocatorWorktreeRetirementProvider.retire({
         operationId: `sha256:${'4'.repeat(64)}`,
         repositoryRoot: ownerRoot,
         workspaceRoot: consumerRoot,
@@ -501,7 +591,7 @@ describe('compiler dependency installation', () => {
       expect(await fs.realpath(path.join(consumerRoot, 'node_modules'))).toBe(await fs.realpath(replacementGeneration));
       await fs.unlink(path.join(consumerRoot, 'node_modules'));
       await fs.rename(parkedLocator, path.join(consumerRoot, 'node_modules'));
-      const providerReceipt = await compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+      const providerReceipt = await compilerDependencyLocatorWorktreeRetirementProvider.retire({
         operationId: `sha256:${'4'.repeat(64)}`,
         repositoryRoot: ownerRoot,
         workspaceRoot: consumerRoot,
@@ -517,7 +607,7 @@ describe('compiler dependency installation', () => {
         path.join(ownerRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'),
         'utf8'
       )).toBe('primary-generation:typescript\n');
-      const resumedReceipt = await compilerDependencyLocatorWorktreeRetirementProviderV1.retire({
+      const resumedReceipt = await compilerDependencyLocatorWorktreeRetirementProvider.retire({
         operationId: `sha256:${'4'.repeat(64)}`,
         repositoryRoot: ownerRoot,
         workspaceRoot: consumerRoot,
@@ -697,7 +787,7 @@ describe('compiler dependency installation', () => {
       const baseOptions = { commandRunner };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
       const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
-      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v4.json');
+      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v5.json');
       const originalEntry = await fs.readFile(entryPath);
       const originalBinding = await fs.readFile(bindingPath);
 
@@ -847,6 +937,142 @@ describe('compiler dependency installation', () => {
       }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
       expect(failures).toBe(1);
     }, 'engineering-compiler-dev-deps-non-transient-rename-');
+  });
+
+  test('rejects invalid or widening operation budgets before creating a dependency namespace', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      const candidateRoot = path.join(tempRoot, 'candidate');
+      for (const lockTimeoutMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 300_001]) {
+        await expect(ensureCompilerDepsReady({ lockTimeoutMs }, candidateRoot))
+          .rejects.toMatchObject({ code: 'RUNTIME-DEPS-003' });
+      }
+      for (const pollIntervalMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 1_001]) {
+        await expect(ensureCompilerDepsReady({ pollIntervalMs }, candidateRoot))
+          .rejects.toMatchObject({ code: 'RUNTIME-DEPS-003' });
+      }
+      await expect(fs.stat(candidateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-dev-deps-budget-admission-');
+  });
+
+  test('aborts compiler lock waiting without spawning or replacing the live owner', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await fs.writeFile(lockPath, `${JSON.stringify({
+        createdAt: new Date().toISOString(),
+        pid: process.pid,
+        token: 'live-owner'
+      })}\n`);
+      const controller = new AbortController();
+      let installCalls = 0;
+
+      await expect(ensureCompilerDepsReady({
+        commandRunner: async () => {
+          installCalls += 1;
+          return { code: 0, stdout: '', stderr: '' };
+        },
+        lockTimeoutMs: 1_000,
+        pollIntervalMs: 1,
+        signal: controller.signal,
+        sleep: async () => new Promise<void>(() => {
+          queueMicrotask(() => controller.abort(new Error('fixture lock wait aborted')));
+        })
+      }, tempRoot)).rejects.toBeTruthy();
+
+      expect(installCalls).toBe(0);
+      expect(await readJson<{ token: string }>(lockPath)).toMatchObject({ token: 'live-owner' });
+    }, 'engineering-compiler-dev-deps-lock-abort-');
+  });
+
+  test('gives the compiler command only the operation budget remaining after lock contention', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await fs.writeFile(lockPath, `${JSON.stringify({
+        createdAt: new Date().toISOString(),
+        pid: process.pid,
+        token: 'temporary-live-owner'
+      })}\n`);
+      const operationBudgetMs = 3_000;
+      const lockContentionElapsedMs = 150;
+      let monotonicNowMs = 0;
+      let waited = false;
+      let observedCommandTimeoutMs: number | undefined;
+
+      const ready = await ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          observedCommandTimeoutMs = command.timeoutMs;
+          await installCompilerDependencyFixture(command.cwd, 'remaining-budget');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        lockTimeoutMs: operationBudgetMs,
+        monotonicNowMs: () => monotonicNowMs,
+        pollIntervalMs: 1,
+        sleep: async () => {
+          if (!waited) {
+            waited = true;
+            monotonicNowMs = lockContentionElapsedMs;
+            await fs.rm(lockPath);
+          }
+        }
+      }, tempRoot);
+
+      expect(ready.source).toBe('installed');
+      expect(waited).toBe(true);
+      expect(observedCommandTimeoutMs).toBeGreaterThan(0);
+      expect(observedCommandTimeoutMs).toBeLessThan(operationBudgetMs - lockContentionElapsedMs);
+      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-dev-deps-budget-narrowing-');
+  });
+
+  test('removes its exact compiler lock even when the final caller fence rejects', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      await ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'cleanup-fence');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, tempRoot);
+
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      let lifecycleBound = false;
+      await expect(ensureCompilerDepsReady({
+        beforeCommit: async () => {
+          if (lifecycleBound) throw new Error('fixture final cleanup fence rejected');
+        },
+        generatedStateLifecycle: {
+          born: async () => undefined,
+          bind: async (relativePath, expected) => {
+            lifecycleBound = true;
+            const registrationId = generatedStateDigest({ relativePath, schema: 'cleanup-fence-id-v1' });
+            return Object.freeze({
+              schema: 'sec-generated-state-registration-v1' as const,
+              registrationId,
+              repositoryRoot: tempRoot,
+              workspace: { device: 'fixture', inode: 'workspace', objectId: 'fixture' },
+              ruleId: expected?.ruleId ?? 'compiler-node-modules',
+              relativePath,
+              root: expected?.physical ?? { device: 'fixture', inode: 'root', objectId: 'fixture' },
+              owner: expected?.owner ?? 'compiler-dependency-runtime',
+              producer: expected?.producer ?? 'ensure-compiler-deps-ready',
+              operationId: 'fixture:cleanup-fence',
+              phase: 'active' as const,
+              retirementRef: null,
+              generatedAt: '2026-08-28T00:00:00.000Z',
+              registrationDigest: generatedStateDigest({ registrationId, schema: 'cleanup-fence-v1' })
+            });
+          },
+          retired: async () => undefined,
+          disposed: async () => undefined
+        }
+      }, tempRoot)).rejects.toThrow('fixture final cleanup fence rejected');
+
+      expect(lifecycleBound).toBe(true);
+      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-dev-deps-cleanup-fence-');
   });
 
   test('reclaims a dead compiler install owner instead of timing out future development', async () => {

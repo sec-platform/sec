@@ -3,27 +3,19 @@ import { expect, test } from 'bun:test';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../platform/compiler/semantic-mutation/isolated-verification-classifier.ts';
-import {
-  buildExpectedProductVerificationClaimSummary,
-  PRODUCT_FAST_GATE_ID,
-  PRODUCT_POLICY_CLAIM_ID,
-  PRODUCT_POLICY_GATE_ID
-} from '../../platform/shared/product-verification-profile.ts';
-import { isCanonicalVerificationArtifactSet } from '../../platform/shared/verification-artifact-contract.ts';
-import type {
-  VerificationClaimResultV1,
-  VerificationGateResultV1,
-  VerificationReasonCode,
-  VerificationResultStatus
-} from '../../platform/shared/verification-result-contract.ts';
+} from '../../src/compiler/semantic-mutation/isolated-verification-classifier.ts';
+import { buildExpectedProductVerificationClaimSummary, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_CLAIM_ID, PRODUCT_POLICY_GATE_ID } from '../../src/verification/profile/contract/product.ts';
+import { isCanonicalVerificationArtifactSet } from '../../src/verification/artifact/contract/artifact.ts';
+import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import type { VerificationClaimResult, VerificationGateResult, VerificationReasonCode, VerificationResultStatus } from '../../src/verification/result/contract/result.ts';
+import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 
 const INPUT_REVISION = `sha256:${'1'.repeat(64)}`;
 const SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
 const ACCEPTANCE_ID = 'user_can_create_customer';
 const BLOCK_ID = 'entity/customer-basic';
 const SLOT_ID = 'customer_slot';
-const POLICY_SOURCE = 'platform/policies/official/tenant.yaml';
+const POLICY_SOURCE = 'catalog/policies/official/tenant.yaml';
 
 type PolicyStatus = 'passed' | 'failed' | 'skipped';
 
@@ -56,9 +48,9 @@ interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerific
         overall: {
           overallStatus: VerificationResultStatus;
           overallReasonCode: VerificationReasonCode;
-          claimResults: VerificationClaimResultV1[];
+          claimResults: VerificationClaimResult[];
         };
-        gates: VerificationGateResultV1[];
+        gates: VerificationGateResult[];
       };
     };
   };
@@ -139,10 +131,10 @@ function blockingViolation() {
   };
 }
 
-function coverage(status: 'passed' | 'failed') {
+function coverage(status: 'passed' | 'failed'): AcceptanceCoverageReport {
   const complete = status === 'passed';
   return {
-    formatVersion: '1',
+    formatVersion: ACCEPTANCE_COVERAGE_FORMAT_VERSION,
     status,
     acceptancePassed: complete ? [ACCEPTANCE_ID] : [],
     blocks: [{
@@ -195,7 +187,7 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
   const runtime = status === 'passed' ? {
     status: 'passed' as const,
     build: {
-      status: 'passed' as const, passed: ['next build'], failed: [], command: 'bun run build'
+      status: 'passed' as const, passed: ['bun run build'], failed: [], command: 'bun run build'
     },
     unit: {
       status: 'passed' as const,
@@ -205,7 +197,7 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
     },
     acceptance: {
       status: 'passed' as const,
-      passed: ['tests/runtime/acceptance/customer-flow.spec.ts'],
+      passed: ['tests/acceptance/customer-flow.test.ts'],
       failed: [],
       command: 'bun run test:acceptance'
     },
@@ -215,7 +207,7 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
     build: {
       status: 'failed' as const,
       passed: [],
-      failed: ['next build'],
+      failed: ['bun run build'],
       command: 'bun run build'
     },
     unit: { status: 'skipped' as const, passed: [], failed: [], command: null },
@@ -224,7 +216,8 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
   };
   const acceptanceCoverage = coverage(status);
   const claimSummary = buildExpectedProductVerificationClaimSummary(
-    'all', fast, runtime, 'full', policy, acceptanceCoverage
+    'all', fast, runtime, 'full', policy, acceptanceCoverage,
+    productVerificationObservationsFixture()
   );
 
   return {
@@ -407,7 +400,8 @@ test('all-lane artifacts cannot replace full runtime proof with a service projec
     candidate.verificationReport.runtime as any,
     'service',
     candidate.policyReport,
-    candidate.acceptanceCoverage as any
+    candidate.acceptanceCoverage as any,
+    productVerificationObservationsFixture('all', 'service')
   );
   candidate.verificationReport.summary.claimSummary = {
     overall: expected.overall,

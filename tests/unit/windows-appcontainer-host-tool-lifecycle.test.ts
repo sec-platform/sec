@@ -8,18 +8,8 @@ import { PassThrough } from 'node:stream';
 
 import { expect, test } from 'bun:test';
 
-import {
-  createObservedNativeLifecycleFailureForTests,
-  decodeWindowsJobActiveProcessCountForTests,
-  observedCommandNativeLifecycleDiagnosticForTests,
-  registerObservedWindowsJobControllerForTests,
-  runObservedCommand,
-  windowsNaturalExitSettlementDispositionForTests,
-  windowsPipeFailureDispositionForTests,
-  windowsWaitDispositionForTests,
-  type ObservedCommandDependencies,
-  type ObservedCommandOutcome
-} from '../../platform/shared/observed-process.ts';
+import { createObservedNativeLifecycleFailureForTests, observedCommandNativeLifecycleDiagnosticForTests, registerObservedWindowsJobControllerForTests, runObservedCommand, type ObservedCommandDependencies, type ObservedCommandOutcome } from '../../src/runtime-state/physical/runtime/observed-process.ts';
+import { decodeWindowsJobActiveProcessCount, windowsNaturalExitSettlementDisposition, windowsPipeFailureDisposition, windowsWaitDisposition } from '../../src/runtime-state/physical/runtime/windows-process-codec.ts';
 import {
   arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
   classifyObservedWindowsAppContainerNativeHelperForTests,
@@ -38,11 +28,11 @@ import {
   waitForWindowsAppContainerNativeProcessForTests,
   windowsAppContainerExecutionCleanupChainForTests,
   WindowsAppContainerExecutionError
-} from '../../platform/shared/windows-appcontainer-executor.ts';
+} from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
 import {
   bindWindowsAppContainerObservedNativeHelperSettlement,
   windowsAppContainerObservedNativeHelperSettlementForTests
-} from '../../platform/shared/windows-appcontainer-native-helper-settlement.ts';
+} from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
 
 interface FakeChild extends EventEmitter {
   readonly stdout: PassThrough;
@@ -77,19 +67,19 @@ test('Windows native Job accounting and wait-result ABI decoders use the canonic
   const accounting = Buffer.alloc(48);
   accounting.writeUInt32LE(3, 40);
   accounting.writeUInt32LE(777, 44);
-  expect(decodeWindowsJobActiveProcessCountForTests(accounting)).toBe(3);
-  expect(windowsWaitDispositionForTests(0)).toBe('signaled');
-  expect(windowsWaitDispositionForTests(0x102)).toBe('pending');
-  expect(windowsWaitDispositionForTests(0xffff_ffff)).toBe('failed');
-  expect(windowsWaitDispositionForTests(7)).toBe('failed');
-  expect(windowsPipeFailureDispositionForTests(109)).toBe('eof');
-  expect(windowsPipeFailureDispositionForTests(232)).toBe('eof');
-  expect(windowsPipeFailureDispositionForTests(233)).toBe('eof');
-  expect(windowsPipeFailureDispositionForTests(5)).toBe('failed');
-  expect(windowsNaturalExitSettlementDispositionForTests(0, 0)).toBe('settled');
-  expect(windowsNaturalExitSettlementDispositionForTests(1, 1)).toBe('pending');
-  expect(windowsNaturalExitSettlementDispositionForTests(1, 0)).toBe('unproven');
-  expect(windowsNaturalExitSettlementDispositionForTests(null, 1)).toBe('unproven');
+  expect(decodeWindowsJobActiveProcessCount(accounting)).toBe(3);
+  expect(windowsWaitDisposition(0)).toBe('signaled');
+  expect(windowsWaitDisposition(0x102)).toBe('pending');
+  expect(windowsWaitDisposition(0xffff_ffff)).toBe('failed');
+  expect(windowsWaitDisposition(7)).toBe('failed');
+  expect(windowsPipeFailureDisposition(109)).toBe('eof');
+  expect(windowsPipeFailureDisposition(232)).toBe('eof');
+  expect(windowsPipeFailureDisposition(233)).toBe('eof');
+  expect(windowsPipeFailureDisposition(5)).toBe('failed');
+  expect(windowsNaturalExitSettlementDisposition(0, 0)).toBe('settled');
+  expect(windowsNaturalExitSettlementDisposition(1, 1)).toBe('pending');
+  expect(windowsNaturalExitSettlementDisposition(1, 0)).toBe('unproven');
+  expect(windowsNaturalExitSettlementDisposition(null, 1)).toBe('unproven');
 });
 
 const lifecycleTermination = (

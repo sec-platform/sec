@@ -49,21 +49,21 @@
       "path": "public-docs/guides.md",
       "kind": "task-guide",
       "audiences": ["developer", "operator", "user"],
-      "canonicalRefs": ["docs/brownfield-import.md", "docs/capability-and-block-model.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/external-provider-policy.md", "docs/runtime-and-distribution.md", "docs/semantic-mutation.md", "docs/verification-governance.md", "docs/workbench-and-ai-operations.md"]
+      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/brownfield-import.md", "docs/capability-and-block-model.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/external-provider-policy.md", "docs/runtime-and-distribution.md", "docs/semantic-mutation.md", "docs/verification-governance.md"]
     },
     {
       "id": "learn",
       "path": "public-docs/learn.md",
       "kind": "learning-path",
       "audiences": ["architect", "beginner", "developer", "user"],
-      "canonicalRefs": ["docs/brownfield-import.md", "docs/capability-and-block-model.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/runtime-and-distribution.md", "docs/semantic-model.md", "docs/verification-governance.md", "docs/workbench-and-ai-operations.md"]
+      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/brownfield-import.md", "docs/capability-and-block-model.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/runtime-and-distribution.md", "docs/semantic-model.md", "docs/verification-governance.md"]
     },
     {
       "id": "principles",
       "path": "public-docs/principles.md",
       "kind": "principle-projection",
       "audiences": ["architect", "developer", "researcher", "user"],
-      "canonicalRefs": ["docs/change-management.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/roadmap.md", "docs/semantic-model.md", "docs/semantic-mutation.md", "docs/system-architecture.md", "docs/verification-governance.md", "docs/workbench-and-ai-operations.md"]
+      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/roadmap.md", "docs/semantic-model.md", "docs/semantic-mutation.md", "docs/system-architecture.md", "docs/verification-governance.md"]
     },
     {
       "id": "quickstart",
@@ -91,7 +91,7 @@
       "path": "public-docs/start-here.md",
       "kind": "introduction",
       "audiences": ["beginner", "user"],
-      "canonicalRefs": ["docs/product.md", "docs/system-architecture.md", "docs/workbench-and-ai-operations.md"]
+      "canonicalRefs": ["docs/agent-and-user-machine-interface.md", "docs/product.md", "docs/system-architecture.md"]
     },
     {
       "id": "troubleshooting",

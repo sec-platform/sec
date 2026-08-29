@@ -1,0 +1,17 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "typescript-project-typecheck",
+      "operations": [
+        "canonicalTypeScriptDiagnosticArguments",
+        "requireSelectedTypeScriptNativeChecker",
+        "resolveInstalledTypeScriptNativeChecker",
+        "selectInstalledTypeScriptNativeChecker",
+        "typeScriptCheckerArguments"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

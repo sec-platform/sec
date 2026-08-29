@@ -1,13 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import {
-  buildEngineeringIR,
-  buildValidatedEngineeringIR,
-  projectArchitectureView,
-  type BuildEngineeringIRInput
-} from '../../platform/compiler/index.ts';
-import type { EngineeringIR as CompatibilityEngineeringIR } from '../../platform/shared/engineering-ir-types.ts';
-import type { EngineeringIR as RootEngineeringIR } from '../../platform/shared/engineering-ir/root-types.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
+import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
 
 function ticketFixture(): BuildEngineeringIRInput {
   return {
@@ -18,28 +14,28 @@ function ticketFixture(): BuildEngineeringIRInput {
         version: '0.1.0',
         kind: 'capability',
         installOrder: 2,
-        manifestPath: 'platform/registry/official/ticket.basic/block.manifest.yaml',
+        manifestPath: 'catalog/registry/official/ticket.basic/block.manifest.yaml',
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
+        registryPath: 'catalog/registry/official'
       },
       {
         id: 'auth/basic-session',
         version: '0.1.0',
         kind: 'capability',
         installOrder: 1,
-        manifestPath: 'platform/registry/official/auth.basic-session/block.manifest.yaml',
+        manifestPath: 'catalog/registry/official/auth.basic-session/block.manifest.yaml',
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
+        registryPath: 'catalog/registry/official'
       }
     ],
     manifests: [
       {
         blockId: 'ticket/basic',
-        manifestPath: 'platform/registry/official/ticket.basic/block.manifest.yaml',
+        manifestPath: 'catalog/registry/official/ticket.basic/block.manifest.yaml',
         manifest: {
           requires: ['auth/session'],
           provides: ['ticket/write', 'ticket/read'],
@@ -59,14 +55,14 @@ function ticketFixture(): BuildEngineeringIRInput {
       }
     ],
     slotTasks: [{
-      id: 'ticket_comment_delegate',
+      id: 'ticket_title_formatter',
       block: 'ticket/basic',
-      target: 'custom/ticket_comment_delegate.ts',
-      sourcePath: 'source/code/slots/ticket_comment_delegate.ts',
-      symbol: 'addTicketCommentDelegate',
+      target: 'custom/ticket_title_formatter.ts',
+      sourcePath: 'source/code/slots/ticket_title_formatter.ts',
+      symbol: 'formatTicketTitle',
       kind: 'adapter',
-      inputType: 'TicketCommentInput',
-      outputType: 'TicketCommentRecord',
+      inputType: 'TicketTitleInput',
+      outputType: 'FormattedTicketTitle',
       status: 'filled',
       writableZones: ['custom/'],
       provenanceHints: { generator: null, verifiedBy: [] }
@@ -81,7 +77,7 @@ function ticketFixture(): BuildEngineeringIRInput {
   };
 }
 
-function canonicalReferences(ir: CompatibilityEngineeringIR): string[] {
+function canonicalReferences(ir: EngineeringIR): string[] {
   return [
     ...ir.entities.map((entity) => `entity:${entity.id}`),
     ...ir.facts.flatMap((fact) => [
@@ -99,12 +95,8 @@ function canonicalReferences(ir: CompatibilityEngineeringIR): string[] {
   ].sort((left, right) => left.localeCompare(right));
 }
 
-function throughCompatibilityBarrel(ir: RootEngineeringIR): CompatibilityEngineeringIR {
-  return ir;
-}
-
-test('IR kernel seams preserve compatibility barrel and deterministic orchestration', () => {
-  const first = throughCompatibilityBarrel(buildEngineeringIR(ticketFixture()));
+test('IR kernel seams preserve deterministic orchestration', () => {
+  const first = buildEngineeringIR(ticketFixture());
   const second = buildEngineeringIR(ticketFixture());
   const firstSnapshot = buildValidatedEngineeringIR(ticketFixture());
   const secondSnapshot = buildValidatedEngineeringIR(ticketFixture());

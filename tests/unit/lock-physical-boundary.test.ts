@@ -6,8 +6,9 @@ import {
   readLockFile,
   saveLock,
   writeLockWithGeneratedPaths
-} from '../../platform/shared/lock-utils.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+} from '../../src/compiler/lock.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -26,24 +27,31 @@ test('canonical Lock publication creates retained control/state and round-trips 
   });
 });
 
-test('legacy Lock is read only while canonical Lock is physically absent', async () => {
+test('Lock schema rejects unsupported producers before effects and unknown persisted members before use', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { legacyLockPath } = getWorkspacePaths(workspaceRoot);
-    const lock = lockFixture();
-    await fs.mkdir(path.dirname(legacyLockPath), { recursive: true });
-    await fs.writeFile(legacyLockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    const invalidProducer = {
+      ...lockFixture(),
+      formatVersion: 'future'
+    } as unknown as LockFile;
+    await expect(saveLock(workspaceRoot, invalidProducer)).rejects.toThrow('does not match 1');
+    await expect(fs.stat(path.join(workspaceRoot, 'control'))).rejects.toMatchObject({ code: 'ENOENT' });
 
-    expect(await readLockFile(workspaceRoot)).toEqual(lock);
+    const { lockPath } = getWorkspacePaths(workspaceRoot);
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await fs.writeFile(
+      lockPath,
+      `${JSON.stringify({ ...lockFixture(), unexpectedAuthority: true }, null, 2)}\n`,
+      'utf8'
+    );
+    expect(() => readLockFile(workspaceRoot)).toThrow('Unrecognized key');
   });
 });
 
-test('unsafe canonical Lock blocks legacy fallback', async () => {
+test('unsafe canonical Lock blocks before reading external bytes', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { lockPath, legacyLockPath } = getWorkspacePaths(workspaceRoot);
+    const { lockPath } = getWorkspacePaths(workspaceRoot);
     const lock = lockFixture();
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
-    await fs.mkdir(path.dirname(legacyLockPath), { recursive: true });
-    await fs.writeFile(legacyLockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
     await fs.writeFile(path.join(workspaceRoot, 'external-lock.json'), `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
     await fs.symlink(path.join(workspaceRoot, 'external-lock.json'), lockPath, 'file');
 

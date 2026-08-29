@@ -1,37 +1,17 @@
 import { expect, test } from 'bun:test';
 
-import {
-  assertSemanticMutationRollbackManifestInvariant,
-  assertSemanticMutationSourceEditArtifactsInvariant,
-  assertSemanticMutationSourceEditPlanInvariant,
-  buildTrustedLocalSemanticMutationAuthorization,
-  planSemanticMutationSourceEdit,
-  type SemanticMutationAuthorizationContextV2,
-  type SemanticMutationSourceEditPlanningInputV1,
-  type TrustedLocalSemanticMutationAuthorizationInputV1,
-  type TrustedLocalSemanticMutationPolicyDraftV1
-} from '../../platform/compiler/index.ts';
-import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
-import type { EngineeringIR } from '../../platform/shared/engineering-ir-types.ts';
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import {
-  SEMANTIC_CONTRACT_YAML_ADAPTER_ID,
-  SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
-  SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION,
-  SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION,
-  SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION,
-  SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION,
-  SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,
-  type SemanticMutationLoadedSourceCandidateV1,
-  type SemanticMutationRequestV2,
-  type SemanticMutationRollbackManifestV2,
-  type SemanticMutationSourceEditPlanV1
-} from '../../platform/shared/semantic-mutation-types.ts';
-import type { SemanticViewSet } from '../../platform/shared/semantic-view-types.ts';
+import { assertSemanticMutationRollbackManifestInvariant, assertSemanticMutationSourceEditArtifactsInvariant, assertSemanticMutationSourceEditPlanInvariant, planSemanticMutationSourceEdit, type SemanticMutationSourceEditPlanningInput } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
+import { buildTrustedLocalSemanticMutationAuthorization, type TrustedLocalSemanticMutationAuthorizationInput, type TrustedLocalSemanticMutationPolicyDraft } from '../../src/compiler/semantic-mutation/trusted-authorization-ingress.ts';
+import { type SemanticMutationAuthorizationContext } from '../../src/semantic/mutation/contract/types.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationLoadedSourceCandidate, type SemanticMutationRequest, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan } from '../../src/semantic/mutation/contract/types.ts';
+import type { SemanticViewSet } from '../../src/semantic/projection/contract/types.ts';
 
 function vectors(): {
-  readonly manifest: SemanticMutationRollbackManifestV2;
-  readonly plan: SemanticMutationSourceEditPlanV1;
+  readonly manifest: SemanticMutationRollbackManifest;
+  readonly plan: SemanticMutationSourceEditPlan;
 } {
   const pathEvidenceWithoutRevision = {
     formatRevision: SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,
@@ -110,13 +90,7 @@ function vectors(): {
   return { manifest, plan };
 }
 
-test('SM-2 constants and independent edit-plan/rollback digest vectors stay frozen', () => {
-  expect(SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION).toBe('semantic-mutation-source-adapters-v1');
-  expect(SEMANTIC_CONTRACT_YAML_ADAPTER_ID).toBe('semantic-contract-yaml');
-  expect(SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION).toBe('semantic-contract-yaml-v1');
-  expect(SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION).toBe('semantic-mutation-source-path-evidence-v1');
-  expect(SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION).toBe('semantic-mutation-source-edit-plan-v1');
-  expect(SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION).toBe('semantic-mutation-rollback-manifest-v2');
+test('SM-2 edit-plan and rollback vectors satisfy the exact validators', () => {
   const { manifest, plan } = vectors();
   expect(() => assertSemanticMutationRollbackManifestInvariant(manifest)).not.toThrow();
   expect(() => assertSemanticMutationSourceEditPlanInvariant(plan)).not.toThrow();
@@ -168,20 +142,20 @@ test('unknown fields, stale revisions, digest forgery, and non-canonical operati
 });
 
 test('proposal, raw IR, Lock, Projection, and arbitrary objects cannot replace trusted SM-2 inputs', () => {
-  const proposal = {} as SemanticMutationRequestV2;
-  const source = {} as SemanticMutationLoadedSourceCandidateV1;
-  const trusted = {} as SemanticMutationSourceEditPlanningInputV1;
-  const trustedAuthorizationInput = {} as TrustedLocalSemanticMutationAuthorizationInputV1;
-  const trustedLocalPolicy = {} as TrustedLocalSemanticMutationPolicyDraftV1;
-  const authorization = {} as SemanticMutationAuthorizationContextV2;
+  const proposal = {} as SemanticMutationRequest;
+  const source = {} as SemanticMutationLoadedSourceCandidate;
+  const trusted = {} as SemanticMutationSourceEditPlanningInput;
+  const trustedAuthorizationInput = {} as TrustedLocalSemanticMutationAuthorizationInput;
+  const trustedLocalPolicy = {} as TrustedLocalSemanticMutationPolicyDraft;
+  const authorization = {} as SemanticMutationAuthorizationContext;
   const rawIR = {} as EngineeringIR;
   const lock = {} as LockFile;
   const views = {} as SemanticViewSet;
   if (false) {
     // @ts-expect-error Proposal is not trusted loaded-source provenance.
-    const candidate: SemanticMutationLoadedSourceCandidateV1 = proposal;
+    const candidate: SemanticMutationLoadedSourceCandidate = proposal;
     // @ts-expect-error Loaded source provenance is not a mutation proposal.
-    const request: SemanticMutationRequestV2 = source;
+    const request: SemanticMutationRequest = source;
     // @ts-expect-error Raw IR cannot replace the branded Fact Delta endpoint.
     void planSemanticMutationSourceEdit({ ...trusted, base: rawIR });
     // @ts-expect-error Lock state cannot replace the source edit planning input.

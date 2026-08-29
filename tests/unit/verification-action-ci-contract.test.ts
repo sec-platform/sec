@@ -1,32 +1,14 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { executeVerifiedCiActionPlanV1 } from '../../platform/dev-runner/verification-action-executor.ts';
-import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../platform/shared/ci-verification-plan.ts';
-import {
-  assertCiVerificationActionPlanClosureEqualV1,
-  assertCiVerificationActionProviderEnvelopeMemberV2,
-  buildCiVerificationActionPlanClosureV1,
-  ciVerificationActionParentDispatchPlanArtifactNameV2,
-  ciVerificationActionParentDispatchPlanPayloadDigestV2,
-  ciVerificationGateStepV1,
-  ciVerificationNormalizedOperationArgvV2,
-  createCiVerificationActionParentDispatchPlanV2,
-  createCiVerificationActionProposalV2,
-  createCiVerificationActionProviderEnvelopeV2,
-  parseCiVerificationActionParentDispatchPlanV2,
-  parseCiVerificationActionPlanClosureV1,
-  parseCiVerificationActionProviderEnvelopeV2,
-  type CiVerificationActionCandidateV1
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
-import {
-  createVerificationSessionProposalDigestV1,
-  createVerificationSessionV2
-} from '../../platform/shared/verification-session-contract.ts';
+import { executeVerifiedCiActionPlan } from '../../src/development/runner/verification-action-executor.ts';
+import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../src/verification/ci/contract/plan.ts';
+import { assertCiVerificationActionPlanClosureEqual, assertCiVerificationActionProviderEnvelopeMember, buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
+import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+import { createVerificationSessionProposalDigest, createVerificationSession } from '../../src/verification/session/contract/session.ts';
 
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
-const candidate: CiVerificationActionCandidateV1 = {
+const candidate: CiVerificationActionCandidate = {
   baseSha: '1'.repeat(40),
   baseTreeSha: '2'.repeat(40),
   headSha: '3'.repeat(40),
@@ -51,21 +33,21 @@ function rehashActionClosure(value: Record<string, unknown>): Record<string, unk
   return {
     ...withoutDigest,
     actionPlanDigest: `sha256:${createHash('sha256')
-      .update(encodeVerificationActionDataV2(withoutDigest))
+      .update(encodeVerificationActionData(withoutDigest))
       .digest('hex')}`
   };
 }
 
 test('normal CLI, dev-runner, and workflow projections share one byte-identical Action closure', () => {
   const gates = buildCiQuickGatePlan({ includeImports: true, includeDocs: true, includeRisk: true })
-    .map(ciVerificationGateStepV1);
-  const cli = buildCiVerificationActionPlanClosureV1({ candidate, gates });
-  const devRunner = buildCiVerificationActionPlanClosureV1({ candidate: { ...candidate }, gates: gates.map((gate) => ({ ...gate })) });
-  const workflow = parseCiVerificationActionPlanClosureV1(encodeVerificationActionDataV2(cli));
+    .map(ciVerificationGateStep);
+  const cli = buildCiVerificationActionPlanClosure({ candidate, gates });
+  const devRunner = buildCiVerificationActionPlanClosure({ candidate: { ...candidate }, gates: gates.map((gate) => ({ ...gate })) });
+  const workflow = parseCiVerificationActionPlanClosure(encodeVerificationActionData(cli));
   expect(devRunner.actionPlanDigest).toBe(cli.actionPlanDigest);
   expect(workflow.actionPlanDigest).toBe(cli.actionPlanDigest);
-  expect(encodeVerificationActionDataV2(workflow.actions)).toBe(encodeVerificationActionDataV2(cli.actions));
-  expect(() => assertCiVerificationActionPlanClosureEqualV1(workflow, cli)).not.toThrow();
+  expect(encodeVerificationActionData(workflow.actions)).toBe(encodeVerificationActionData(cli.actions));
+  expect(() => assertCiVerificationActionPlanClosureEqual(workflow, cli)).not.toThrow();
 });
 
 test('direct Bun tests have one bounded normalized target and reject generic subcommands', () => {
@@ -78,7 +60,7 @@ test('direct Bun tests have one bounded normalized target and reject generic sub
     '--timeout',
     '180000'
   ];
-  const closure = buildCiVerificationActionPlanClosureV1({
+  const closure = buildCiVerificationActionPlanClosure({
     candidate,
     gates: [{
       id: 'direct-bun-test',
@@ -102,16 +84,16 @@ test('direct Bun tests have one bounded normalized target and reject generic sub
     'SEC_EXECUTION_ENVIRONMENT_REVISION',
     'a-binding'
   ]);
-  expect(ciVerificationNormalizedOperationArgvV2(closure.normalizedOperations[0]!)).toEqual(argv);
+  expect(ciVerificationNormalizedOperationArgv(closure.normalizedOperations[0]!)).toEqual(argv);
   expect(
-    ciVerificationNormalizedOperationArgvV2(
-      parseCiVerificationActionPlanClosureV1(encodeVerificationActionDataV2(closure))
+    ciVerificationNormalizedOperationArgv(
+      parseCiVerificationActionPlanClosure(encodeVerificationActionData(closure))
         .normalizedOperations[0]!
     )
   ).toEqual(argv);
 
   for (const pattern of ['x'.repeat(513), 'x'.repeat(8_192)]) {
-    expect(() => buildCiVerificationActionPlanClosureV1({
+    expect(() => buildCiVerificationActionPlanClosure({
       candidate,
       gates: [{
         id: 'bounded-pattern',
@@ -126,7 +108,7 @@ test('direct Bun tests have one bounded normalized target and reject generic sub
 
   const rejectedArgv = [
     ['bun', 'test'],
-    ['bun', 'test', 'scripts/ci-verification.ts'],
+    ['bun', 'test', 'src/verification/ci/verification.ts'],
     ['bun', 'test', '../tests/unit/example.test.ts'],
     ['bun', 'test', '/tests/unit/example.test.ts'],
     ['bun', 'test', 'tests/../scripts/example.test.ts'],
@@ -156,7 +138,7 @@ test('direct Bun tests have one bounded normalized target and reject generic sub
     ['bun', 'install']
   ];
   for (const rejected of rejectedArgv) {
-    expect(() => buildCiVerificationActionPlanClosureV1({
+    expect(() => buildCiVerificationActionPlanClosure({
       candidate,
       gates: [{
         id: 'rejected-direct-bun-test',
@@ -169,22 +151,22 @@ test('direct Bun tests have one bounded normalized target and reject generic sub
     })).toThrow();
   }
 
-  const encoded = JSON.parse(encodeVerificationActionDataV2(closure)) as {
+  const encoded = JSON.parse(encodeVerificationActionData(closure)) as {
     normalizedOperations: Array<{ target: { identity: string } }>;
   };
   encoded.normalizedOperations[0]!.target.identity = 'install';
-  expect(() => parseCiVerificationActionPlanClosureV1(JSON.stringify(encoded))).toThrow(
+  expect(() => parseCiVerificationActionPlanClosure(JSON.stringify(encoded))).toThrow(
     /Bun test target identity must be test/
   );
 });
 
 test('scope revision constructs ActionPlan, then SessionProposal and SessionRevision without a hash cycle', () => {
-  const actionPlan = buildCiVerificationActionPlanClosureV1({
+  const actionPlan = buildCiVerificationActionPlanClosure({
     candidate,
     gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false, includeRisk: false })
-      .map(ciVerificationGateStepV1)
+      .map(ciVerificationGateStep)
   });
-  const sessionProposalDigest = createVerificationSessionProposalDigestV1({
+  const sessionProposalDigest = createVerificationSessionProposalDigest({
     repository: 'owner/repo', prNumber: 7,
     baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha,
     headSha: candidate.headSha, headTreeSha: candidate.headTreeSha,
@@ -213,8 +195,8 @@ test('scope revision constructs ActionPlan, then SessionProposal and SessionRevi
       healthRevision: digest('4'), ledgerReceiptDigest: digest('5')
     }
   } as const;
-  const session = createVerificationSessionV2(sessionInput);
-  const receiptOnlyDrift = createVerificationSessionV2({
+  const session = createVerificationSession(sessionInput);
+  const receiptOnlyDrift = createVerificationSession({
     ...sessionInput,
     sessionId: 'constructible-session-retry',
     createdAt: '2026-08-09T01:00:00.000Z',
@@ -222,43 +204,43 @@ test('scope revision constructs ActionPlan, then SessionProposal and SessionRevi
     mainHealthRef: { ...sessionInput.mainHealthRef, ledgerReceiptDigest: digest('7') }
   });
   expect(session.actionPlanClosureDigest).toBe(actionPlan.actionPlanDigest);
-  expect(encodeVerificationActionDataV2(actionPlan)).not.toContain(sessionProposalDigest);
+  expect(encodeVerificationActionData(actionPlan)).not.toContain(sessionProposalDigest);
   expect(session.sessionRevision).toBe(receiptOnlyDrift.sessionRevision);
-  expect(encodeVerificationActionDataV2(actionPlan)).not.toContain(session.sessionRevision);
-  expect(createVerificationSessionV2({ ...sessionInput, actionPlanClosureDigest: digest('8') }).sessionRevision)
+  expect(encodeVerificationActionData(actionPlan)).not.toContain(session.sessionRevision);
+  expect(createVerificationSession({ ...sessionInput, actionPlanClosureDigest: digest('8') }).sessionRevision)
     .not.toBe(session.sessionRevision);
 });
 
 test('semantic input, environment, argv, topology, and plan forgery drift the Action closure', () => {
   const gates = buildCiQuickGatePlan({ includeImports: true, includeDocs: true, includeRisk: false })
-    .map(ciVerificationGateStepV1);
-  const baseline = buildCiVerificationActionPlanClosureV1({ candidate, gates });
+    .map(ciVerificationGateStep);
+  const baseline = buildCiVerificationActionPlanClosure({ candidate, gates });
   for (const changed of [
     { ...candidate, headTreeSha: '5'.repeat(40) },
     { ...candidate, manifestDigest: digest('d') },
     { ...candidate, scopeAuthorizationRevision: digest('e') },
     { ...candidate, toolchainRevision: 'bun@9.9.9' }
   ]) {
-    expect(buildCiVerificationActionPlanClosureV1({ candidate: changed, gates }).actionPlanDigest)
+    expect(buildCiVerificationActionPlanClosure({ candidate: changed, gates }).actionPlanDigest)
       .not.toBe(baseline.actionPlanDigest);
   }
   const argvDrift = gates.map((gate, index) => index === 0 ? { ...gate, argv: [...gate.argv, '--forged'] } : gate);
-  expect(buildCiVerificationActionPlanClosureV1({ candidate, gates: argvDrift }).actionPlanDigest)
+  expect(buildCiVerificationActionPlanClosure({ candidate, gates: argvDrift }).actionPlanDigest)
     .not.toBe(baseline.actionPlanDigest);
-  expect(() => buildCiVerificationActionPlanClosureV1({
+  expect(() => buildCiVerificationActionPlanClosure({
     candidate: { ...candidate, requiredBlobs: candidate.requiredBlobs.filter((entry) => entry.path !== 'bunfig.toml') },
     gates
   })).toThrow('omits canonical dependency input bunfig.toml');
-  const forged = JSON.parse(encodeVerificationActionDataV2(baseline)) as Record<string, unknown>;
+  const forged = JSON.parse(encodeVerificationActionData(baseline)) as Record<string, unknown>;
   forged.actionPlanDigest = digest('f');
-  expect(() => parseCiVerificationActionPlanClosureV1(JSON.stringify(forged))).toThrow('digest mismatch');
+  expect(() => parseCiVerificationActionPlanClosure(JSON.stringify(forged))).toThrow('digest mismatch');
 });
 
 test('Action closure graph is unique, closed and acyclic without requiring topological array order', () => {
-  const baseline = buildCiVerificationActionPlanClosureV1({
+  const baseline = buildCiVerificationActionPlanClosure({
     candidate,
     gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: true, includeRisk: false })
-      .map(ciVerificationGateStepV1)
+      .map(ciVerificationGateStep)
   });
   const source = structuredClone(baseline) as unknown as Record<string, unknown>;
   const actions = source.actions as Record<string, unknown>[];
@@ -270,8 +252,8 @@ test('Action closure graph is unique, closed and acyclic without requiring topol
     actions: [...actions].reverse(),
     normalizedOperations: [...operations].reverse()
   });
-  const parsedReversed = parseCiVerificationActionPlanClosureV1(
-    encodeVerificationActionDataV2(reversed)
+  const parsedReversed = parseCiVerificationActionPlanClosure(
+    encodeVerificationActionData(reversed)
   );
   expect(parsedReversed.actions.map((entry) => entry.action.actionKey)).toEqual(
     [...baseline.actions].reverse().map((entry) => entry.action.actionKey)
@@ -282,8 +264,8 @@ test('Action closure graph is unique, closed and acyclic without requiring topol
     actions: [actions[1]!],
     normalizedOperations: [operations[1]!]
   });
-  expect(() => parseCiVerificationActionPlanClosureV1(
-    encodeVerificationActionDataV2(missingDependency)
+  expect(() => parseCiVerificationActionPlanClosure(
+    encodeVerificationActionData(missingDependency)
   )).toThrow('does not resolve to exactly one Action member');
 
   const duplicateAction = rehashActionClosure({
@@ -291,8 +273,8 @@ test('Action closure graph is unique, closed and acyclic without requiring topol
     actions: [actions[0]!, actions[0]!],
     normalizedOperations: [operations[0]!, operations[0]!]
   });
-  expect(() => parseCiVerificationActionPlanClosureV1(
-    encodeVerificationActionDataV2(duplicateAction)
+  expect(() => parseCiVerificationActionPlanClosure(
+    encodeVerificationActionData(duplicateAction)
   )).toThrow('ActionKeys must be unique');
 
   const firstActionKey = ((actions[0]!.action as Record<string, unknown>).actionKey) as string;
@@ -304,8 +286,8 @@ test('Action closure graph is unique, closed and acyclic without requiring topol
     actions: [selfDependent],
     normalizedOperations: [operations[0]!]
   });
-  expect(() => parseCiVerificationActionPlanClosureV1(
-    encodeVerificationActionDataV2(selfCycle)
+  expect(() => parseCiVerificationActionPlanClosure(
+    encodeVerificationActionData(selfCycle)
   )).toThrow('cannot depend on itself');
 
   const cycleFirst = structuredClone(actions[0]!);
@@ -317,15 +299,15 @@ test('Action closure graph is unique, closed and acyclic without requiring topol
     actions: [cycleFirst, cycleSecond],
     normalizedOperations: [operations[0]!, operations[1]!]
   });
-  expect(() => parseCiVerificationActionPlanClosureV1(
-    encodeVerificationActionDataV2(multiNodeCycle)
+  expect(() => parseCiVerificationActionPlanClosure(
+    encodeVerificationActionData(multiNodeCycle)
   )).toThrow('dependency graph contains a cycle');
 });
 
 test('full plan binds every expensive gate to the complete cheap-preflight closure', () => {
-  const full = buildCiVerificationActionPlanClosureV1({
+  const full = buildCiVerificationActionPlanClosure({
     candidate: { ...candidate, profile: 'full' },
-    gates: buildCiFullGatePlan().map(ciVerificationGateStepV1)
+    gates: buildCiFullGatePlan().map(ciVerificationGateStep)
   });
   const cheap = full.actions.filter((plan) => plan.executionClass === 'cheap-preflight').map((plan) => plan.action.actionKey);
   const expensive = full.actions.filter((plan) => plan.executionClass === 'expensive');
@@ -335,14 +317,14 @@ test('full plan binds every expensive gate to the complete cheap-preflight closu
 });
 
 test('dev-runner executes only a producer-owned member plan and never accepts raw argv or a forged key', async () => {
-  const closure = buildCiVerificationActionPlanClosureV1({
+  const closure = buildCiVerificationActionPlanClosure({
     candidate,
     gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false, includeRisk: false })
-      .map(ciVerificationGateStepV1)
+      .map(ciVerificationGateStep)
   });
   const typecheck = closure.actions.find((plan) => plan.action.operation.identity === 'typecheck')!;
   const calls: unknown[] = [];
-  expect(await executeVerifiedCiActionPlanV1({
+  expect(await executeVerifiedCiActionPlan({
     plan: typecheck,
     authorizedClosure: closure,
     executeNormalizedOperation: (operation) => {
@@ -357,7 +339,7 @@ test('dev-runner executes only a producer-owned member plan and never accepts ra
   });
   const forged = structuredClone(typecheck) as typeof typecheck;
   (forged.action as { actionKey: string }).actionKey = digest('9');
-  await expect(executeVerifiedCiActionPlanV1({
+  await expect(executeVerifiedCiActionPlan({
     plan: forged,
     authorizedClosure: closure,
     executeNormalizedOperation: () => 0
@@ -365,10 +347,10 @@ test('dev-runner executes only a producer-owned member plan and never accepts ra
 });
 
 test('internal Action proposal plan and provider envelope form a one-way, exact parent provenance chain', () => {
-  const closure = buildCiVerificationActionPlanClosureV1({
+  const closure = buildCiVerificationActionPlanClosure({
     candidate,
     gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false, includeRisk: false })
-      .map(ciVerificationGateStepV1)
+      .map(ciVerificationGateStep)
   });
   const sessionRequest = Object.freeze({
     schema: 'sec-verification-session-hosted-request-v1',
@@ -377,11 +359,11 @@ test('internal Action proposal plan and provider envelope form a one-way, exact 
     expectedHeadSha: candidate.headSha,
     expectedActionPlanDigest: closure.actionPlanDigest
   });
-  const proposals = closure.actions.slice(0, 2).map((entry) => createCiVerificationActionProposalV2({
+  const proposals = closure.actions.slice(0, 2).map((entry) => createCiVerificationActionProposal({
     sessionRequest,
     proposedActionKey: entry.action.actionKey
   })).reverse();
-  const parentPlan = createCiVerificationActionParentDispatchPlanV2({
+  const parentPlan = createCiVerificationActionParentDispatchPlan({
     repositoryId: '311',
     repository: 'owner/repo',
     parentRunId: '9001',
@@ -397,36 +379,36 @@ test('internal Action proposal plan and provider envelope form a one-way, exact 
   expect(parentPlan.proposals.map((entry) => entry.proposedActionKey)).toEqual(
     parentPlan.proposals.map((entry) => entry.proposedActionKey).sort()
   );
-  expect(ciVerificationActionParentDispatchPlanArtifactNameV2('9001', 2))
+  expect(ciVerificationActionParentDispatchPlanArtifactName('9001', 2))
     .toBe('sec-verification-action-parent-dispatch-plan-v2-run-9001-attempt-2');
-  expect(ciVerificationActionParentDispatchPlanPayloadDigestV2(parentPlan)).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  const envelope = createCiVerificationActionProviderEnvelopeV2({
+  expect(ciVerificationActionParentDispatchPlanPayloadDigest(parentPlan)).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  const envelope = createCiVerificationActionProviderEnvelope({
     proposal: parentPlan.proposals[0]!,
     parentPlan,
     parentDispatchPlanArtifactId: '7123',
     parentDispatchPlanArchiveDigest: digest('9')
   });
-  expect(() => assertCiVerificationActionProviderEnvelopeMemberV2(envelope, parentPlan)).not.toThrow();
-  expect(encodeVerificationActionDataV2(parentPlan)).not.toContain(envelope.parentDispatchPlanArchiveDigest);
-  expect(encodeVerificationActionDataV2(parentPlan)).not.toContain(envelope.parentDispatchPlanPayloadDigest);
+  expect(() => assertCiVerificationActionProviderEnvelopeMember(envelope, parentPlan)).not.toThrow();
+  expect(encodeVerificationActionData(parentPlan)).not.toContain(envelope.parentDispatchPlanArchiveDigest);
+  expect(encodeVerificationActionData(parentPlan)).not.toContain(envelope.parentDispatchPlanPayloadDigest);
 });
 
 test('internal Action provider envelope rejects rerun, substitution, extra fields, and non-member proposals', () => {
-  const closure = buildCiVerificationActionPlanClosureV1({
+  const closure = buildCiVerificationActionPlanClosure({
     candidate,
     gates: buildCiQuickGatePlan({ includeImports: true, includeDocs: false, includeRisk: false })
-      .map(ciVerificationGateStepV1)
+      .map(ciVerificationGateStep)
   });
   const sessionRequest = Object.freeze({ schema: 'sec-verification-session-hosted-request-v1', prNumber: 7 });
-  const member = createCiVerificationActionProposalV2({
+  const member = createCiVerificationActionProposal({
     sessionRequest,
     proposedActionKey: closure.actions[0]!.action.actionKey
   });
-  const other = createCiVerificationActionProposalV2({
+  const other = createCiVerificationActionProposal({
     sessionRequest,
     proposedActionKey: closure.actions[1]!.action.actionKey
   });
-  const plan = createCiVerificationActionParentDispatchPlanV2({
+  const plan = createCiVerificationActionParentDispatchPlan({
     repositoryId: '311', repository: 'owner/repo', parentRunId: '9001', parentRunAttempt: 1,
     parentJobId: '7001',
     parentWorkflowRef: 'owner/repo/.github/workflows/compiler-pr-validation.yml@refs/heads/main',
@@ -434,7 +416,7 @@ test('internal Action provider envelope rejects rerun, substitution, extra field
     parentActor: { login: 'admin', id: 7, nodeId: 'MDQ6VXNlcjc=', type: 'User', permission: 'admin' },
     proposals: [member]
   });
-  const envelope = createCiVerificationActionProviderEnvelopeV2({
+  const envelope = createCiVerificationActionProviderEnvelope({
     proposal: member,
     parentPlan: plan,
     parentDispatchPlanArtifactId: '8111',
@@ -452,8 +434,8 @@ test('internal Action provider envelope rejects rerun, substitution, extra field
     { ...envelope, unexpected: true }
   ]) {
     expect(() => {
-      const parsed = parseCiVerificationActionProviderEnvelopeV2(forged);
-      assertCiVerificationActionProviderEnvelopeMemberV2(parsed, plan);
+      const parsed = parseCiVerificationActionProviderEnvelope(forged);
+      assertCiVerificationActionProviderEnvelopeMember(parsed, plan);
     }).toThrow();
   }
   const forgedPlan = {
@@ -462,5 +444,5 @@ test('internal Action provider envelope rejects rerun, substitution, extra field
       .sort((left, right) => left.proposedActionKey.localeCompare(right.proposedActionKey)),
     parentDispatchPlanDigest: plan.parentDispatchPlanDigest
   };
-  expect(() => parseCiVerificationActionParentDispatchPlanV2(forgedPlan)).toThrow('digest');
+  expect(() => parseCiVerificationActionParentDispatchPlan(forgedPlan)).toThrow('digest');
 });

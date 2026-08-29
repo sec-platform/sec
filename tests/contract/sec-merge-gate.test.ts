@@ -4,39 +4,25 @@ import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
 
+import { CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../../src/verification/ci/contract/evidence.ts';
+import { createMainHealthLedger } from '../../src/control/main-health/contract.ts';
+import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer } from '../../src/verification/review/contract/stability.ts';
+import { createScopeAuthorization } from '../../src/control/scope/authorization.ts';
+import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
+import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+import { CodexDevelopmentBuildVerificationGateResult } from '../../src/verification/result/contract/result.ts';
+import { createVerificationSession } from '../../src/verification/session/contract/session.ts';
 import {
-  CodexDevelopmentAssertVerificationSessionArtifactCurrentV2,
-  CodexDevelopmentCreateVerificationEvidenceProducerV4,
-  CodexDevelopmentFinalizeVerificationEvidenceV4,
-  CodexDevelopmentFinalizeVerificationSessionArtifactV2,
-  CodexDevelopmentRefreshVerificationSessionArtifactV2
-} from '../../platform/shared/ci-evidence-contract.ts';
-import { createMainHealthLedgerV1 } from '../../platform/shared/main-health-contract.ts';
-import {
-  REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
-  SEC_REVIEW_STABILITY_POLICY_V1,
-  createReviewSnapshotDigestV1,
-  createReviewStabilityReceiptV1,
-  renderIndependentReviewTrailerV1
-} from '../../platform/shared/review-stability-contract.ts';
-import { createScopeAuthorizationV1 } from '../../platform/shared/scope-authorization-contract.ts';
-import {
-  buildCiVerificationActionPlanClosureV1,
-  type CiVerificationActionCandidateV1
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
-import { CodexDevelopmentBuildVerificationGateResultV1 } from '../../platform/shared/verification-result-contract.ts';
-import { createVerificationSessionV2 } from '../../platform/shared/verification-session-contract.ts';
-import {
-  CodexDevelopmentCreateHostedArtifactObservationV2,
-  CodexDevelopmentEvaluateMergeGateV2,
-  CodexDevelopmentMergeGateInputSchemaV2,
-  CodexDevelopmentMergeGateTerminalStatusContextV2,
-  CodexDevelopmentParseMergeGateResultV2,
-  assertCanonicalMergeMessageV1,
-  createMergeGateProvenanceV2,
-  type CodexDevelopmentMergeGateInputV2
-} from '../../scripts/codex/merge-gate.ts';
+  CodexDevelopmentCreateHostedArtifactObservation,
+  CodexDevelopmentEvaluateMergeGate,
+  CodexDevelopmentMergeGateProducerIdentity,
+  CodexDevelopmentMergeGateInputSchema,
+  CodexDevelopmentMergeGateTerminalStatusContext,
+  CodexDevelopmentParseMergeGateResult,
+  assertCanonicalMergeMessage,
+  createMergeGateProvenance,
+  type CodexDevelopmentMergeGateInput
+} from '../../src/control/integration/merge-gate.ts';
 
 const BASE = '1'.repeat(40);
 const BASE_TREE = '2'.repeat(40);
@@ -73,8 +59,8 @@ function review(options: {
     unresolvedBlockingThreadCount: 0 as const,
     requestChangesPrincipalIds: [] as readonly []
   };
-  const snapshot = { ...snapshotBase, snapshotDigest: createReviewSnapshotDigestV1(snapshotBase) };
-  return createReviewStabilityReceiptV1({
+  const snapshot = { ...snapshotBase, snapshotDigest: createReviewSnapshotDigest(snapshotBase) };
+  return createReviewStabilityReceipt({
     stage: options.stage,
     repository: REPOSITORY,
     prNumber: PR,
@@ -83,7 +69,7 @@ function review(options: {
     scopeAuthorizationReceiptDigest: options.scopeDigest,
     headSha: HEAD,
     headTreeSha: HEAD_TREE,
-    policy: SEC_REVIEW_STABILITY_POLICY_V1,
+    policy: SEC_REVIEW_STABILITY_POLICY,
     principal: {
       kind: 'github-app',
       actorNodeId: 'BOT_kgDOC98s_g',
@@ -97,12 +83,12 @@ function review(options: {
       integrationPrincipalNodeId: 'USER_integrator'
     },
     producer: {
-      identity: 'scripts/codex/verification-session-github.ts',
+      identity: 'src/verification/ci/runtime/verification-session-github.ts',
       executionIdentity: `github-review-observer:${REPOSITORY}:${PR}:${HEAD}`,
       providerIdentity: 'github',
       candidateWriteCapability: 'read-only',
-      capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
+      capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
+      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: 'github-graphql',
       sourceRunId: options.sourceRunId,
       sourceRef: options.sourceRef,
@@ -114,8 +100,8 @@ function review(options: {
   });
 }
 
-function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopmentMergeGateInputV2 {
-  const scopeSeed = createScopeAuthorizationV1({
+function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopmentMergeGateInput {
+  const scopeSeed = createScopeAuthorization({
     repository: REPOSITORY,
     prNumber: PR,
     baseSha: BASE,
@@ -143,7 +129,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     issuedAt: '2026-08-09T00:00:00.000Z',
     expiresAt: '2026-08-09T01:00:00.000Z'
   });
-  const actionCandidate: CiVerificationActionCandidateV1 = {
+  const actionCandidate: CiVerificationActionCandidate = {
     baseSha: BASE,
     baseTreeSha: BASE_TREE,
     headSha: HEAD,
@@ -163,7 +149,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
       { path: MANIFEST_PATH, digest: MANIFEST }
     ]
   };
-  const expectedActionPlan = buildCiVerificationActionPlanClosureV1({
+  const expectedActionPlan = buildCiVerificationActionPlanClosure({
     candidate: actionCandidate,
     gates: [{
       id: 'typecheck',
@@ -174,13 +160,13 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
       coveredScopeIds: []
     }]
   });
-  const scopeAuthorization = createScopeAuthorizationV1({
+  const scopeAuthorization = createScopeAuthorization({
     ...scopeSeed,
     actionPlanClosureDigest: expectedActionPlan.actionPlanDigest,
     authorizationRevision: undefined,
     authorizationDigest: undefined
   } as never);
-  const mainHealth = createMainHealthLedgerV1({
+  const mainHealth = createMainHealthLedger({
     repository: REPOSITORY,
     defaultBranch: 'main',
     mainSha: BASE,
@@ -194,7 +180,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     trustRevision: BASE,
     observedAt: '2026-08-09T00:00:00.000Z',
     producer: {
-      identity: 'platform/shared/default-branch-revision-health.ts',
+      identity: 'src/control/main-health/default-branch-revision.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: 'health-1',
@@ -202,7 +188,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
       sourceDigest: D('2')
     }
   });
-  const session = createVerificationSessionV2({
+  const session = createVerificationSession({
     sessionId: 'session-42',
     createdAt: '2026-08-09T00:01:00.000Z',
     repository: REPOSITORY,
@@ -220,7 +206,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     profile: 'quick',
     environmentDigest: ENVIRONMENT,
     trustRevision: BASE,
-    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY_V1.policyDigest,
+    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
     evidenceRequirementDigest: D('3'),
     integrationPolicyDigest: D('4'),
     mainHealthRef: {
@@ -231,7 +217,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     }
   });
   const workflowRef = `.github/workflows/compiler-pr-validation.yml@${BASE}`;
-  const producer = CodexDevelopmentCreateVerificationEvidenceProducerV4({
+  const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
     sourceTransport: 'github-actions',
     workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef,
@@ -251,7 +237,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
   const action = expectedActionPlan.actions[0]!.action;
   const gate = {
     action,
-    result: CodexDevelopmentBuildVerificationGateResultV1({
+    result: CodexDevelopmentBuildVerificationGateResult({
       gateId: 'typecheck',
       gateRevision: action.operation.revision,
       owner: 'ci-verification-maintainer',
@@ -314,7 +300,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     evidenceRefs: [],
     invalidationRules: ['session/action/review/main/trust changes']
   });
-  const artifact = CodexDevelopmentFinalizeVerificationSessionArtifactV2({
+  const artifact = CodexDevelopmentFinalizeVerificationSessionArtifact({
     scopeAuthorization,
     session,
     preGateReview,
@@ -322,10 +308,10 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     evidence,
     producer
   });
-  const artifactBytes = `${encodeVerificationActionDataV2(artifact)}\n`;
+  const artifactBytes = `${encodeVerificationActionData(artifact)}\n`;
   const artifactByteDigest = `sha256:${createHash('sha256').update(artifactBytes).digest('hex')}` as const;
   const hostedObservation = (artifactId: string, runId: string, runAttempt: number) =>
-    CodexDevelopmentCreateHostedArtifactObservationV2({
+    CodexDevelopmentCreateHostedArtifactObservation({
       artifactId,
       artifactName: `sec-verification-session-v2-pr-${PR}-session-${session.sessionRevision.slice('sha256:'.length)}-run-${runId}-attempt-${runAttempt}`,
       artifactFileName: 'verification-session-artifact.json',
@@ -344,7 +330,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     });
   const hostedArtifactOrigin = hostedObservation('1000', producer.runId, producer.runAttempt);
   const hostedArtifactTransport = hostedObservation('1001', 'verify-101', 1);
-  const provenance = createMergeGateProvenanceV2({
+  const provenance = createMergeGateProvenance({
     workflowPath: '.github/workflows/sec-merge-gate.yml',
     workflowRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
     workflowSha: BASE,
@@ -354,7 +340,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     actorNodeId: 'USER_integrator',
     actorPermission: 'maintain'
   });
-  const mergeMainHealth = createMainHealthLedgerV1({
+  const mergeMainHealth = createMainHealthLedger({
     repository: REPOSITORY,
     defaultBranch: 'main',
     mainSha: BASE,
@@ -368,7 +354,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     trustRevision: BASE,
     observedAt: '2026-08-09T00:15:00.000Z',
     producer: {
-      identity: 'platform/shared/default-branch-revision-health.ts',
+      identity: 'src/control/main-health/default-branch-revision.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: provenance.sourceRunId,
@@ -385,7 +371,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     sourceRunId: D('7')
   });
   return {
-    schema: CodexDevelopmentMergeGateInputSchemaV2,
+    schema: CodexDevelopmentMergeGateInputSchema,
     provenance,
     candidate: {
       repository: REPOSITORY,
@@ -418,10 +404,10 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
   };
 }
 
-function refreshArtifact(base: CodexDevelopmentMergeGateInputV2) {
+function refreshArtifact(base: CodexDevelopmentMergeGateInput) {
   const refreshedAt = '2026-08-09T02:00:00.000Z';
   const expiresAt = '2026-08-09T03:00:00.000Z';
-  const scopeAuthorization = createScopeAuthorizationV1({
+  const scopeAuthorization = createScopeAuthorization({
     ...base.artifact.scopeAuthorization,
     issuer: {
       ...base.artifact.scopeAuthorization.issuer,
@@ -433,7 +419,7 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInputV2) {
     authorizationRevision: undefined,
     authorizationDigest: undefined
   } as never);
-  const mainHealth = createMainHealthLedgerV1({
+  const mainHealth = createMainHealthLedger({
     ...base.artifact.mainHealth,
     observedAt: refreshedAt,
     expiresAt,
@@ -445,7 +431,7 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInputV2) {
     healthRevision: undefined,
     ledgerDigest: undefined
   } as never);
-  const session = createVerificationSessionV2({
+  const session = createVerificationSession({
     ...base.artifact.session,
     sessionId: 'session-42-refresh-2',
     createdAt: refreshedAt,
@@ -466,7 +452,7 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInputV2) {
     reviewedAt: refreshedAt,
     expiresAt
   });
-  const producer = CodexDevelopmentCreateVerificationEvidenceProducerV4({
+  const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
     sourceTransport: 'github-actions',
     workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
@@ -475,7 +461,7 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInputV2) {
     runAttempt: 1,
     actorNodeId: 'USER_integrator'
   });
-  return CodexDevelopmentRefreshVerificationSessionArtifactV2({
+  return CodexDevelopmentRefreshVerificationSessionArtifact({
     previousArtifact: base.artifact,
     scopeAuthorization,
     session,
@@ -487,15 +473,15 @@ function refreshArtifact(base: CodexDevelopmentMergeGateInputV2) {
 }
 
 test('trusted current-base gate authorizes exact candidate facts without executing merge', () => {
-  const result = CodexDevelopmentEvaluateMergeGateV2(fixture());
+  const result = CodexDevelopmentEvaluateMergeGate(fixture());
   expect(result.status).toBe('authorized');
-  expect(result.terminalStatusContext).toBe(CodexDevelopmentMergeGateTerminalStatusContextV2);
+  expect(result.terminalStatusContext).toBe(CodexDevelopmentMergeGateTerminalStatusContext);
   expect(result.terminalStatusContext).toBe('sec/integration-authorization');
   expect(result.authorization.headSha).toBe(HEAD);
   expect(result.authorization.scopeAuthorizationRevision)
     .toBe(fixture().artifact.scopeAuthorization.authorizationRevision);
   expect(result.authorization.issuer).toMatchObject({
-    producerIdentity: 'scripts/codex/merge-gate.ts',
+    producerIdentity: CodexDevelopmentMergeGateProducerIdentity,
     trustedRevision: BASE,
     sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
     sourceRunId: 'merge-200:1'
@@ -507,12 +493,12 @@ test('trusted current-base gate authorizes exact candidate facts without executi
   expect(result.hostedArtifactTransport.artifactId).toBe('1001');
   expect(result.hostedArtifactOrigin.artifactByteDigest)
     .toBe(result.hostedArtifactTransport.artifactByteDigest);
-  expect(CodexDevelopmentParseMergeGateResultV2(JSON.stringify(result))).toEqual(result);
+  expect(CodexDevelopmentParseMergeGateResult(JSON.stringify(result))).toEqual(result);
 });
 
 test('explicit maintainer-rooted policy preserves unavailable enforcement without claiming no-bypass', () => {
   const base = fixture();
-  const result = CodexDevelopmentEvaluateMergeGateV2({
+  const result = CodexDevelopmentEvaluateMergeGate({
     ...base,
     platformObservation: {
       status: 'platform-enforcement-unavailable',
@@ -526,7 +512,7 @@ test('explicit maintainer-rooted policy preserves unavailable enforcement withou
     reason: 'ruleset readback unavailable'
   });
   expect(result.authorization.rulesetDigest).toBe(RULESET);
-  expect(() => CodexDevelopmentEvaluateMergeGateV2({
+  expect(() => CodexDevelopmentEvaluateMergeGate({
     ...base,
     platformObservation: {
       status: 'available',
@@ -534,7 +520,7 @@ test('explicit maintainer-rooted policy preserves unavailable enforcement withou
       reason: 'degraded observation'
     }
   })).toThrow('must not carry a degraded reason');
-  expect(() => CodexDevelopmentEvaluateMergeGateV2({
+  expect(() => CodexDevelopmentEvaluateMergeGate({
     ...base,
     platformObservation: {
       status: 'platform-enforcement-unavailable',
@@ -546,7 +532,7 @@ test('explicit maintainer-rooted policy preserves unavailable enforcement withou
 
 test('fresh MainHealth receipt may change provenance while stable health semantics remain exact', () => {
   const base = fixture();
-  const fresh = createMainHealthLedgerV1({
+  const fresh = createMainHealthLedger({
     repository: REPOSITORY,
     defaultBranch: 'main',
     mainSha: BASE,
@@ -560,7 +546,7 @@ test('fresh MainHealth receipt may change provenance while stable health semanti
     trustRevision: BASE,
     observedAt: '2026-08-09T00:15:00.000Z',
     producer: {
-      identity: 'platform/shared/default-branch-revision-health.ts',
+      identity: 'src/control/main-health/default-branch-revision.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: 'health-merge-fresh',
@@ -570,18 +556,18 @@ test('fresh MainHealth receipt may change provenance while stable health semanti
   });
   expect(fresh.healthRevision).toBe(base.artifact.session.mainHealthRef.healthRevision);
   expect(fresh.ledgerDigest).not.toBe(base.artifact.session.mainHealthRef.ledgerReceiptDigest);
-  const result = CodexDevelopmentEvaluateMergeGateV2({ ...base, mainHealth: fresh });
+  const result = CodexDevelopmentEvaluateMergeGate({ ...base, mainHealth: fresh });
   expect(result.mainHealth.ledgerDigest).toBe(fresh.ledgerDigest);
   expect(result.authorization.mainHealthReceiptDigest).toBe(fresh.ledgerDigest);
 });
 
 test('expired authority receipts re-finalize fresh V4 Evidence while reusing exact Action Results', () => {
   const base = fixture();
-  expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrentV2(
+  expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrent(
     base.artifact,
     '2026-08-09T00:30:00.000Z'
   )).not.toThrow();
-  expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrentV2(
+  expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrent(
     base.artifact,
     '2026-08-09T02:00:00.000Z'
   )).toThrow('expired');
@@ -597,7 +583,7 @@ test('expired authority receipts re-finalize fresh V4 Evidence while reusing exa
   expect(refreshed.evidence.evidenceRefs)
     .toContain(`verification-session-artifact:${base.artifact.artifactDigest}`);
   expect(refreshed.artifactDigest).not.toBe(base.artifact.artifactDigest);
-  expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrentV2(
+  expect(() => CodexDevelopmentAssertVerificationSessionArtifactCurrent(
     refreshed,
     '2026-08-09T02:00:00.000Z'
   )).not.toThrow();
@@ -605,7 +591,7 @@ test('expired authority receipts re-finalize fresh V4 Evidence while reusing exa
   const refreshedFailure = refreshArtifact(fixture('failed'));
   expect(refreshedFailure.evidence.status).toBe('failed');
   expect(refreshedFailure.evidence.gates[0]!.result.status).toBe('failed');
-  expect(() => CodexDevelopmentRefreshVerificationSessionArtifactV2({
+  expect(() => CodexDevelopmentRefreshVerificationSessionArtifact({
     previousArtifact: base.artifact,
     scopeAuthorization: base.artifact.scopeAuthorization,
     session: base.artifact.session,
@@ -618,7 +604,7 @@ test('expired authority receipts re-finalize fresh V4 Evidence while reusing exa
 
 test('candidate workflow, forged artifact provenance, review drift, and incomplete ancestry fail closed', () => {
   const base = fixture();
-  const cases: CodexDevelopmentMergeGateInputV2[] = [
+  const cases: CodexDevelopmentMergeGateInput[] = [
     { ...base, provenance: { ...base.provenance, workflowSha: HEAD } },
     { ...base, artifact: { ...base.artifact, producer: { ...base.artifact.producer, runId: 'forged' } } },
     { ...base, hostedArtifactOrigin: { ...base.hostedArtifactOrigin, artifactByteDigest: D('f') } },
@@ -635,12 +621,12 @@ test('candidate workflow, forged artifact provenance, review drift, and incomple
     { ...base, candidate: { ...base.candidate, baseIsAncestor: false as never } },
     { ...base, consumptionOperationId: 'merge:42' as never }
   ];
-  for (const value of cases) expect(() => CodexDevelopmentEvaluateMergeGateV2(value)).toThrow();
+  for (const value of cases) expect(() => CodexDevelopmentEvaluateMergeGate(value)).toThrow();
 });
 
 test('V4 Action closure mismatch and non-PASS terminal facts cannot authorize integration', () => {
   const base = fixture();
-  const driftedPlan = buildCiVerificationActionPlanClosureV1({
+  const driftedPlan = buildCiVerificationActionPlanClosure({
     candidate: {
       baseSha: BASE,
       baseTreeSha: BASE_TREE,
@@ -669,9 +655,9 @@ test('V4 Action closure mismatch and non-PASS terminal facts cannot authorize in
       coveredScopeIds: []
     }]
   });
-  expect(() => CodexDevelopmentEvaluateMergeGateV2({ ...base, expectedActionPlan: driftedPlan }))
+  expect(() => CodexDevelopmentEvaluateMergeGate({ ...base, expectedActionPlan: driftedPlan }))
     .toThrow();
-  expect(() => CodexDevelopmentEvaluateMergeGateV2({
+  expect(() => CodexDevelopmentEvaluateMergeGate({
     ...base,
     artifact: { ...base.artifact, evidence: { ...base.artifact.evidence, status: 'failed' } }
   })).toThrow();
@@ -689,8 +675,8 @@ test('merge message trailers must derive from validated receipts; free text is r
   ];
   const title = 'Verified integration deadbeef';
   const reviewReceipt = fixture().reviewReceipt;
-  const canonicalReview = renderIndependentReviewTrailerV1(reviewReceipt);
-  expect(() => assertCanonicalMergeMessageV1({
+  const canonicalReview = renderIndependentReviewTrailer(reviewReceipt);
+  expect(() => assertCanonicalMergeMessage({
     authorizationMarkers: markers,
     reviewReceipt,
     expectedTitle: title,
@@ -702,14 +688,14 @@ test('merge message trailers must derive from validated receipts; free text is r
     `${title}\n\n${markers.join('\n')}\n${canonicalReview}\nCo-authored-by: Someone <someone@example.com>`,
     `${title}\n\n${markers.slice(0, -1).join('\n')}\n${canonicalReview}`
   ]) {
-    expect(() => assertCanonicalMergeMessageV1({
+    expect(() => assertCanonicalMergeMessage({
       authorizationMarkers: markers,
       reviewReceipt,
       expectedTitle: title,
       message
     })).toThrow('exact typed title and trailer');
   }
-  expect(() => assertCanonicalMergeMessageV1({
+  expect(() => assertCanonicalMergeMessage({
     authorizationMarkers: [...markers, canonicalReview],
     reviewReceipt,
     expectedTitle: title,
@@ -732,13 +718,13 @@ test('merge message trailers must derive from validated receipts; free text is r
     'Issue-Disposition-Tracking: issue-311',
     'Issue-Disposition-Prose: sha256:' + '8'.repeat(64)
   ];
-  expect(() => assertCanonicalMergeMessageV1({
+  expect(() => assertCanonicalMergeMessage({
     authorizationMarkers: statusMarkers,
     reviewReceipt,
     expectedTitle: title,
     message: `${title}\n${statusMarkers.join('\n')}\n${canonicalReview}`
   })).not.toThrow();
-  expect(() => assertCanonicalMergeMessageV1({
+  expect(() => assertCanonicalMergeMessage({
     authorizationMarkers: statusMarkers.map((line) => line === 'Platform-No-Bypass-Claim: false'
       ? 'Platform-No-Bypass-Claim: true' : line),
     reviewReceipt,

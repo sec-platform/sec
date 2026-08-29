@@ -959,7 +959,7 @@ jobs:
         run: |
           set -euo pipefail
           bun -e '
-            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 } from "./platform/shared/ci-verification-revision.ts";
+            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 } from "./platform/verification/ci/contract/revision.ts";
             const capability = JSON.parse(await Bun.file(".tmp/codex/sut-capability/hosted-sut-capability.json").text());
             const resolution = JSON.parse(await Bun.file(".tmp/codex/hosted-action-resolution.json").text());
             const keys = Object.keys(capability).sort();
@@ -1367,6 +1367,10 @@ jobs:
       - name: Run exact-main TypeScript checks
         id: typecheck
         run: bun run typecheck
+
+      - name: Reject static architecture contradictions
+        id: static-architecture
+        run: bun run audit:static
 
       - name: Validate active documentation authority
         id: docs-doctor

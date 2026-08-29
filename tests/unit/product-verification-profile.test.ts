@@ -1,17 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import type { PolicyReport } from '../../platform/shared/policy-types.ts';
-import {
-  buildExpectedProductFastGate,
-  buildExpectedProductPolicyGate,
-  buildExpectedProductRuntimeGate,
-  buildExpectedProductVerificationClaimSummary,
-  PRODUCT_POLICY_CLAIM_ID
-} from '../../platform/shared/product-verification-profile.ts';
-import type {
-  FastVerificationLaneReport,
-  RuntimeVerificationLaneReport
-} from '../../platform/shared/verification-types.ts';
+import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import { buildExpectedProductFastGate, buildExpectedProductPolicyGate, buildExpectedProductRuntimeGate, buildExpectedProductVerificationClaimSummary, PRODUCT_POLICY_CLAIM_ID } from '../../src/verification/profile/contract/product.ts';
+import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../src/verification/contract/types.ts';
+import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 
 function emptyPolicyReport(): PolicyReport {
   return {
@@ -32,8 +24,8 @@ function shadowedPolicyReport(
     official: {
       policies: ['tenant-policy'],
       sources: [
-        { path: 'platform/policies/official/a.yaml', policyIds: ['tenant-policy'] },
-        { path: 'platform/policies/official/b.yaml', policyIds: ['tenant-policy'] }
+        { path: 'catalog/policies/official/a.yaml', policyIds: ['tenant-policy'] },
+        { path: 'catalog/policies/official/b.yaml', policyIds: ['tenant-policy'] }
       ],
       violations: []
     },
@@ -80,7 +72,7 @@ function runtime(
 ): RuntimeVerificationLaneReport {
   return {
     status: 'passed',
-    build: { status: 'passed', passed: ['next build'], failed: [], command: 'bun run build' },
+    build: { status: 'passed', passed: ['bun run build'], failed: [], command: 'bun run build' },
     unit: { status: 'passed', passed: unitPassed, failed: [], command: 'bun run test:unit' },
     acceptance: {
       status: 'passed',
@@ -118,7 +110,8 @@ test('no-policy writer profile omits the not-applicable policy claim', () => {
     runtimeReport,
     'full',
     policy,
-    completeCoverage(runtimeReport)
+    completeCoverage(runtimeReport),
+    productVerificationObservationsFixture()
   );
 
   expect(summary.overall.claimResults.map((claim) => claim.claimId)).not.toContain(
@@ -128,13 +121,19 @@ test('no-policy writer profile omits the not-applicable policy claim', () => {
 });
 
 test('policy shadow declarations preserve explicit project precedence with semantic assurance', () => {
-  const gate = buildExpectedProductPolicyGate(shadowedPolicyReport());
+  const gate = buildExpectedProductPolicyGate(
+    shadowedPolicyReport(),
+    productVerificationObservationsFixture().policy
+  );
   expect(gate.status).toBe('passed');
   expect(gate.supportedClaims).toEqual([PRODUCT_POLICY_CLAIM_ID]);
 });
 
 test('source-structure policy success cannot authorize a semantic policy claim', () => {
-  const gate = buildExpectedProductPolicyGate(shadowedPolicyReport(['src/customer.ts'], 'source-structure'));
+  const gate = buildExpectedProductPolicyGate(
+    shadowedPolicyReport(['src/customer.ts'], 'source-structure'),
+    productVerificationObservationsFixture().policy
+  );
   expect(gate.status).toBe('unsupported');
   expect(gate.reasonCode).toBe('capability-unsupported');
   expect(gate.supportedClaims).toEqual([]);
@@ -143,10 +142,16 @@ test('source-structure policy success cannot authorize a semantic policy claim',
 test('policy merged entries require the canonical winning source; no applicable target is not-applicable', () => {
   const wrongWinner = shadowedPolicyReport();
   wrongWinner.merged.policies[0]!.sourceScope = 'official';
-  wrongWinner.merged.policies[0]!.sourcePath = 'platform/policies/official/b.yaml';
-  expect(buildExpectedProductPolicyGate(wrongWinner).status).toBe('invalidated');
+  wrongWinner.merged.policies[0]!.sourcePath = 'catalog/policies/official/b.yaml';
+  expect(buildExpectedProductPolicyGate(
+    wrongWinner,
+    productVerificationObservationsFixture().policy
+  ).status).toBe('invalidated');
 
-  const noTarget = buildExpectedProductPolicyGate(shadowedPolicyReport([]));
+  const noTarget = buildExpectedProductPolicyGate(
+    shadowedPolicyReport([]),
+    productVerificationObservationsFixture().policy
+  );
   expect(noTarget.status).toBe('not-run');
   expect(noTarget.reasonCode).toBe('not-applicable');
 });
@@ -154,7 +159,11 @@ test('policy merged entries require the canonical winning source; no applicable 
 test('a passed fast lane cannot retain failed acceptance inventory', () => {
   const report = fast(shadowedPolicyReport());
   report.acceptance.failed = ['tests/acceptance/failed.test.ts'];
-  expect(buildExpectedProductFastGate(report, 'all').status).toBe('invalidated');
+  expect(buildExpectedProductFastGate(
+    report,
+    'all',
+    productVerificationObservationsFixture().fast
+  ).status).toBe('invalidated');
 });
 
 test('full runtime pass requires nonempty physical inventories and complete coverage', () => {
@@ -164,7 +173,8 @@ test('full runtime pass requires nonempty physical inventories and complete cove
     'all',
     'full',
     false,
-    completeCoverage(zeroUnit)
+    completeCoverage(zeroUnit),
+    productVerificationObservationsFixture().runtime
   ).status).toBe('invalidated');
 
   const complete = runtime();
@@ -173,7 +183,8 @@ test('full runtime pass requires nonempty physical inventories and complete cove
     'all',
     'full',
     false,
-    completeCoverage(complete)
+    completeCoverage(complete),
+    productVerificationObservationsFixture().runtime
   ).status).toBe('passed');
 
   expect(buildExpectedProductRuntimeGate(
@@ -190,6 +201,7 @@ test('full runtime pass requires nonempty physical inventories and complete cove
         coveredBy: [],
         uncovered: true
       }]
-    }
+    },
+    productVerificationObservationsFixture().runtime
   ).status).toBe('invalidated');
 });

@@ -39,7 +39,7 @@ L2 Architect / Contract
 9. 一个变化怎样变成 Delta / Impact / Compatibility / Migration；
 10. SEC 怎样证明“真的正确”；
 11. Host、Toolchain、Target、Runtime、OS、ISA、filesystem 的关系；
-12. 用户与 AI 怎样通过 Workbench 操作；
+12. 用户与 AI 怎样通过稳定的 CLI 与机器接口操作；
 13. SEC 自己怎样持续开发；
 14. Identity Ladder 与 Effect Purity；
 15. SEC 为什么按 Capability Roadmap DAG 演进；

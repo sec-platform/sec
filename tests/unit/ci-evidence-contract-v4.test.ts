@@ -1,22 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import {
-  CodexDevelopmentAssertVerificationEvidenceV3,
-  CodexDevelopmentAssertVerificationEvidenceV4,
-  CodexDevelopmentCreateVerificationEvidenceProducerV4,
-  CodexDevelopmentFinalizeVerificationEvidenceV4,
-  type CodexDevelopmentVerificationGateEvidenceV4
-} from '../../platform/shared/ci-evidence-contract.ts';
-import { buildCiQuickGatePlan, CI_VERIFICATION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-plan.ts';
-import {
-  buildCiVerificationActionPlanClosureV1,
-  ciVerificationGateStepV1,
-  type CiVerificationActionCandidateV1
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import { CodexDevelopmentBuildVerificationGateResultV1 } from '../../platform/shared/verification-result-contract.ts';
+import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, type CodexDevelopmentVerificationGateEvidenceV4 } from '../../src/verification/ci/contract/evidence.ts';
+import { buildCiQuickGatePlan, CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/ci/contract/plan.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
+import { CodexDevelopmentBuildVerificationGateResult } from '../../src/verification/result/contract/result.ts';
 
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
-const candidate: CiVerificationActionCandidateV1 = {
+const candidate: CiVerificationActionCandidate = {
   baseSha: '1'.repeat(40), baseTreeSha: '2'.repeat(40), headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40),
   manifestPath: 'docs/work-packages/example-v1.md', manifestDigest: digest('a'),
   scopeAuthorizationRevision: digest('b'), profile: 'quick',
@@ -29,10 +19,10 @@ const candidate: CiVerificationActionCandidateV1 = {
     { path: 'package.json', digest: digest('f') }
   ]
 };
-const plan = buildCiVerificationActionPlanClosureV1({
+const plan = buildCiVerificationActionPlanClosure({
   candidate,
   gates: buildCiQuickGatePlan({ includeImports: false, includeDocs: false, includeRisk: false })
-    .map(ciVerificationGateStepV1)
+    .map(ciVerificationGateStep)
 });
 
 function gateEvidence(index: number, status: 'passed' | 'failed' | 'not-run' | 'unsupported' | 'invalidated' = 'passed'):
@@ -46,7 +36,7 @@ CodexDevelopmentVerificationGateEvidenceV4 {
           : 'input-invalidated';
   return {
     action,
-    result: CodexDevelopmentBuildVerificationGateResultV1({
+    result: CodexDevelopmentBuildVerificationGateResult({
       gateId: action.operation.identity,
       gateRevision: action.operation.revision,
       owner: 'ci-verification-maintainer',
@@ -86,7 +76,7 @@ function evidence(gates = plan.actions.map((_, index) => gateEvidence(index))) {
     baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha, headSha: candidate.headSha,
     headTreeSha: candidate.headTreeSha, manifestPath: candidate.manifestPath,
     manifestDigest: candidate.manifestDigest,
-    producer: CodexDevelopmentCreateVerificationEvidenceProducerV4({
+    producer: CodexDevelopmentCreateVerificationEvidenceProducer({
       sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
       workflowRef: `.github/workflows/compiler-pr-validation.yml@${'5'.repeat(40)}`,
       workflowSha: '5'.repeat(40), runId: '123', runAttempt: 1, actorNodeId: 'MDQ6VXNlcjE='
@@ -111,10 +101,9 @@ test('Evidence V4 binds complete ordered Action snapshots and canonical five-sta
   }
 });
 
-test('V2/V3 and forged Action plan/key cannot be promoted to V4 PASS', () => {
+test('non-current evidence and forged Action plan/key cannot be promoted to V4 PASS', () => {
   expect(() => CodexDevelopmentAssertVerificationEvidenceV4({ schema: 'codex-development-verification-evidence-v3' }))
     .toThrow('cannot be promoted');
-  expect(() => CodexDevelopmentAssertVerificationEvidenceV3(evidence())).toThrow();
   const forged = structuredClone(evidence()) as ReturnType<typeof evidence>;
   (forged.gates[0]!.action as { actionKey: string }).actionKey = digest('9');
   expect(() => CodexDevelopmentAssertVerificationEvidenceV4(forged, { actionPlan: plan })).toThrow();

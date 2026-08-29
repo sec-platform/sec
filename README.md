@@ -2,7 +2,7 @@
 
 SEC 是本地优先的 Engineering Workspace Compiler：把产品意图、结构化工程语义、受治理源码与既有工程证据，确定性地编译为源码、测试、文档、Gate、Agent、Release 与 Evidence 投影。
 
-SEC 不是低代码运行时、模板市场或自由式整仓 AI 编码器。Canonical 工程事实由编译器与受验证合同重建；Workbench、AI、图工具和报告只能读取投影或提交受限 proposal。
+SEC 不是低代码运行时、模板市场或自由式整仓 AI 编码器。Canonical 工程事实由编译器与受验证合同重建；CLI、AI、图工具和报告只能读取投影或提交受限 proposal。
 
 ## 阅读入口
 

@@ -8,15 +8,15 @@ import path from 'node:path';
 import {
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot
-} from '../../platform/dev-runner/env-manager.ts';
+} from '../../src/development/runner/env-manager.ts';
 import {
   addBlock,
   compileWorkspace,
   initWorkspace,
   verifyWorkspace
-} from '../../platform/orchestrator.ts';
-import { createConcurrencyLimit } from '../../platform/shared/concurrency.ts';
-import type { PipelineStageId } from '../../platform/shared/pipeline-types.ts';
+} from '../../src/compiler/orchestration/cli.ts';
+import { createConcurrencyLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
+import type { PipelineStageId } from '../../src/compiler/pipeline/types.ts';
 import {
   createWorkspaceWithDeferredCleanup,
   removeWorkspaceDirectoryWithRetry,
@@ -147,7 +147,7 @@ async function prepareWorkspacePipeline(
   options: WorkspacePipelineFixtureOptions,
   target: WorkspaceTemplateKind
 ): Promise<void> {
-  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
+  await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   const pipelineTarget = templatePipelineTarget(target);
   if (!pipelineTarget) return;
 
@@ -226,10 +226,8 @@ async function pruneTransientWorkspaceState(workspaceRoot: string): Promise<void
   await Promise.all([
     fs.rm(path.join(workspaceRoot, 'node_modules'), { recursive: true, force: true }),
     fs.rm(path.join(workspaceRoot, 'project', 'node_modules'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', '.next'), { recursive: true, force: true }),
     fs.rm(path.join(workspaceRoot, 'project', 'tsconfig.tsbuildinfo'), { recursive: true, force: true }),
     fs.rm(path.join(workspaceRoot, 'project', 'test-results'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', 'playwright-report'), { recursive: true, force: true }),
     fs.rm(path.join(workspaceRoot, 'project', 'coverage'), { recursive: true, force: true })
   ]);
 }

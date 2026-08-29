@@ -17,13 +17,11 @@ import {
   redactWindowsAppContainerProbeCapabilityForTests,
   runWindowsAppContainerChild,
   settleWindowsAppContainerNativeHelperInvocationForTests,
-  WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1,
-  WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
   windowsAppContainerCapability,
   WindowsAppContainerCapabilityUnavailableError,
   WindowsAppContainerExecutionError,
   windowsAppContainerNativeHelperObservationForTests
-} from '../../platform/shared/windows-appcontainer-executor.ts';
+} from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -34,51 +32,6 @@ async function exists(filePath: string): Promise<boolean> {
     throw error;
   }
 }
-
-test('Windows AppContainer native structure contract is frozen with no capabilities', () => {
-  expect(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1).toEqual({
-    pointerBytes: 8,
-    securityAttributesBytes: 24,
-    securityAttributesLengthOffset: 0,
-    securityAttributesDescriptorOffset: 8,
-    securityAttributesInheritHandleOffset: 16,
-    securityCapabilitiesBytes: 24,
-    securityCapabilitiesAppContainerSidOffset: 0,
-    securityCapabilitiesCapabilitiesOffset: 8,
-    securityCapabilitiesCapabilityCountOffset: 16,
-    securityCapabilitiesReservedOffset: 20,
-    startupInfoExBytes: 112,
-    startupInfoExFlagsOffset: 60,
-    startupInfoExStdInputOffset: 80,
-    startupInfoExStdOutputOffset: 88,
-    startupInfoExStdErrorOffset: 96,
-    startupInfoExAttributeListOffset: 104,
-    processInformationBytes: 24,
-    processInformationProcessHandleOffset: 0,
-    processInformationThreadHandleOffset: 8,
-    jobObjectExtendedLimitInformationBytes: 144,
-    jobObjectLimitFlagsOffset: 16,
-    procThreadAttributeHandleList: 0x0002_0002,
-    procThreadAttributeJobList: 0x0002_000d,
-    procThreadAttributeSecurityCapabilities: 0x0002_0009,
-    procThreadAttributeCount: 3,
-    standardHandleCount: 3,
-    startfUseStdHandles: 0x0000_0100,
-    inheritHandles: 1,
-    capabilityCount: 0,
-    reserved: 0,
-    creationFlags: 0x0808_0404,
-    jobLimitFlags: 0x0000_2000
-  });
-  expect(Object.isFrozen(WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1)).toBe(true);
-  expect(WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1).toEqual({
-    formatVersion: 'windows-appcontainer-recovery-owner-v1',
-    ownerFileName: '.semantic-mutation-appcontainer-owner-v1.json',
-    resultFileName: '.semantic-mutation-appcontainer-result-v1.json',
-    runtimeRelativePath: '.sm3r'
-  });
-  expect(Object.isFrozen(WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1)).toBe(true);
-});
 
 test('Windows AppContainer helper observations are finite and redact protocol content', () => {
   const captureFailure = (

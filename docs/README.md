@@ -13,6 +13,7 @@ generated-from: docs/authority.json
 | 类型 | 领域 | 路径 | 拥有 | Proposal 处置 |
 | --- | --- | --- | --- | --- |
 | registry | documentation | `docs/authority.json` | documentation.identity、documentation.lifecycle、documentation.ownership | — |
+| authority | agent-user-interface | [`docs/agent-and-user-machine-interface.md`](agent-and-user-machine-interface.md) | ai.bounded-proposal、ai.context-packet、interface.cli、interface.machine-json、interface.projection | — |
 | authority | brownfield | [`docs/brownfield-import.md`](brownfield-import.md) | brownfield.external-library-onboarding、brownfield.lifecycle、brownfield.source-program-model、brownfield.typed-invocation、brownfield.unknown-opaque | — |
 | authority | capability-block | [`docs/capability-and-block-model.md`](capability-and-block-model.md) | capability.block、capability.block-resolution、capability.contract、capability.generator、capability.port、capability.registry、capability.slot | — |
 | authority | change-management | [`docs/change-management.md`](change-management.md) | change.compatibility、change.compensation、change.forward-recovery、change.implementation-binding-migration、change.migration、change.override、change.upgrade | — |
@@ -27,12 +28,9 @@ generated-from: docs/authority.json
 | authority | semantic-mutation | [`docs/semantic-mutation.md`](semantic-mutation.md) | semantic.mutation、semantic.source-ownership、semantic.transaction-recovery | — |
 | authority | system-architecture | [`docs/system-architecture.md`](system-architecture.md) | architecture.authority-flow、architecture.cross-domain-reference、architecture.layering、architecture.maturity、architecture.single-writer、architecture.workspace-zones | — |
 | authority | verification-governance | [`docs/verification-governance.md`](verification-governance.md) | verification.aggregate、verification.applicability、verification.claim、verification.environment、verification.evidence、verification.gate、verification.implementation-conformance、verification.layering、verification.merge-authority、verification.provenance、verification.result | — |
-| authority | workbench-ai | [`docs/workbench-and-ai-operations.md`](workbench-and-ai-operations.md) | ai.bounded-proposal、ai.context-packet、workbench.implementation-projection、workbench.interaction、workbench.projection、workbench.transport | — |
-| corpus-contract | nexus-corpus | [`docs/corpus/nexus/contract.md`](corpus/nexus/contract.md) | corpus.nexus.conformance | — |
 | proposal | proposal | [`docs/proposals/development-run-kernel.md`](proposals/development-run-kernel.md) | — | adapt |
 | proposal | proposal | [`docs/proposals/engineering-workspace-domains.md`](proposals/engineering-workspace-domains.md) | — | adapt |
 | machine-ledger | external-provider | `docs/governance/external-capability-ledger.yaml` | provider.state | — |
-| machine-ledger | nexus | `docs/governance/nexus-absorption-ledger.yaml` | corpus.nexus.state | — |
 | control | current-control | [`docs/work/active-work-package.md`](work/active-work-package.md) | control.active-work-package | — |
 | control | current-control | `docs/work/current-state.yaml` | control.resolver-authority | — |
 | control | current-control | [`docs/work/rolling-plan.md`](work/rolling-plan.md) | control.rolling-plan | — |

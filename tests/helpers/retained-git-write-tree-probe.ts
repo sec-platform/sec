@@ -3,13 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
-import {
-  inspectNoFollowDirectoryChainV1,
-  inspectNoFollowOrdinaryFileEntryV1,
-  retainNoFollowDirectoryForChildProcessV1,
-  retainNoFollowOrdinaryFileForChildProcessV1
-} from '../../platform/shared/physical-no-follow.ts';
+import { isolatedGitReadEnvironment } from '../../src/external-capabilities/git-read/runtime/session.ts';
+import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFileForChildProcess } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 
 function git(repositoryRoot: string, ...args: string[]) {
   return spawnSync('git', args, {
@@ -51,25 +46,25 @@ export function runRetainedGitWriteTreeProbeV1(): string {
     const objectPath = path.isAbsolute(objectCandidate)
       ? objectCandidate
       : path.resolve(repositoryRoot, objectCandidate);
-    const indexParent = inspectNoFollowDirectoryChainV1(path.dirname(indexPath), 'Git index parent');
-    const indexEntry = inspectNoFollowOrdinaryFileEntryV1(indexParent.target, path.basename(indexPath));
+    const indexParent = inspectNoFollowDirectoryChain(path.dirname(indexPath), 'Git index parent');
+    const indexEntry = inspectNoFollowOrdinaryFileEntry(indexParent.target, path.basename(indexPath));
     if (indexEntry === null || indexEntry.bytes === null) throw new Error('Git index entry is absent.');
     writeFileSync(path.join(snapshotRoot, 'index'), indexEntry.bytes);
-    const snapshotIndexParent = inspectNoFollowDirectoryChainV1(snapshotRoot, 'snapshot index parent');
-    const snapshotIndexEntry = inspectNoFollowOrdinaryFileEntryV1(snapshotIndexParent.target, 'index');
+    const snapshotIndexParent = inspectNoFollowDirectoryChain(snapshotRoot, 'snapshot index parent');
+    const snapshotIndexEntry = inspectNoFollowOrdinaryFileEntry(snapshotIndexParent.target, 'index');
     if (snapshotIndexEntry === null) throw new Error('Snapshot index entry is absent.');
     const scratchObjectsPath = path.join(snapshotRoot, 'objects');
     mkdirSync(scratchObjectsPath);
 
-    const originalObjects = retainNoFollowDirectoryForChildProcessV1(
-      inspectNoFollowDirectoryChainV1(objectPath, 'original Git objects'),
+    const originalObjects = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(objectPath, 'original Git objects'),
       3
     );
-    const scratchObjects = retainNoFollowDirectoryForChildProcessV1(
-      inspectNoFollowDirectoryChainV1(scratchObjectsPath, 'scratch Git objects'),
+    const scratchObjects = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(scratchObjectsPath, 'scratch Git objects'),
       4
     );
-    const snapshotIndex = retainNoFollowOrdinaryFileForChildProcessV1(
+    const snapshotIndex = retainNoFollowOrdinaryFileForChildProcess(
       snapshotIndexParent,
       snapshotIndexEntry,
       5

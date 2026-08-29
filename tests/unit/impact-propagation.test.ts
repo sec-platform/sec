@@ -2,25 +2,18 @@ import { createHash } from 'node:crypto';
 
 import { expect, test } from 'bun:test';
 
-import {
-  buildFactDelta,
-  buildImpactPropagation
-} from '../../platform/compiler/index.ts';
+import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
+import { buildImpactPropagation } from '../../src/compiler/semantic-impact/build-impact-propagation.ts';
 import {
   assertImpactPropagationRuleRegistry,
   IMPACT_PROPAGATION_RULES,
   type ImpactPropagationRule
-} from '../../platform/compiler/semantic-impact/propagation-rules.ts';
-import type {
-  FactDeltaEndpointContext,
-  SemanticAuthority,
-  SemanticEntity,
-  SemanticEntityKind,
-  SemanticFact,
-  SemanticPredicate,
-  ValidatedEngineeringIRSnapshot
-} from '../../platform/shared/engineering-ir-types.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
+} from '../../src/compiler/semantic-impact/propagation-rules.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
+import type { SemanticEntity, SemanticEntityKind } from '../../src/semantic/engineering-ir/contract/entity-types.ts';
+import type { SemanticAuthority, SemanticFact, SemanticPredicate } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
 
 const APP_ID = 'app:impact';
 const GRAPH_ID = 'graph:impact';

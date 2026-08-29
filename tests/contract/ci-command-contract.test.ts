@@ -1,12 +1,8 @@
 import { expect, test } from 'bun:test';
 
-import {
-  CI_ARTIFACT_FILES,
-  CI_ARTIFACT_KINDS,
-  CI_ARTIFACT_MANIFEST_PATH,
-  ciArtifactUploadCommand
-} from '../../platform/shared/ci-artifact-contract.ts';
-import { buildCiContract, formatCiContract } from '../../platform/shared/ci-contract.ts';
+import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, ciArtifactUploadCommand } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_KINDS } from '../../src/verification/ci-artifacts/contract/types.ts';
+import { buildCiContract, formatCiContract } from '../../src/verification/ci/contract/core.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import {
   expectCiContractSelfConsistent,
@@ -35,7 +31,6 @@ test('CLI exposes CI command contract as text and JSON contracts', async () => {
   );
   expect(JSON.stringify(contract)).not.toContain('\n');
 
-  expect(contract.formatVersion).toBe('1');
   expect(contract.status).toBe('active');
   expect(contract.command).toBe('bun run sec -- contract ci --json');
   expect(contract.defaultGate).toBe('fast-runtime-verify');

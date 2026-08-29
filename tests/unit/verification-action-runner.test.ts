@@ -13,32 +13,22 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
+import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
 import {
-  buildCiVerificationActionPlanClosureV1,
-  CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
-  createCiVerificationLocalExecutionEnvironmentV2,
-  type CiVerificationActionCandidateV1,
-  type CiVerificationProducerGateV1
-} from '../../platform/shared/verification-action-ci-contract.ts';
+  createBranchLifecycleGitChildEnvironment
+} from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
+import { createRuntimeStateJournalFileSystem } from '../../src/runtime-state/workspace-state/journal-filesystem.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../src/runtime-state/workspace-state/paths.ts';
 import {
-  createVerificationActionKeyV2,
-  createVerificationActionPlanV2,
-  type VerificationActionKeyInputV2
-} from '../../platform/shared/verification-action-contract.ts';
+  appendVerificationActionJournalEvent as appendJournalEvent,
+  readVerificationActionJournal as readJournal
+} from '../../src/verification/action/journal.ts';
 import {
-  createBranchLifecycleGitChildEnvironmentV1
-} from '../../scripts/codex/branch-lifecycle-command.ts';
-import { createRuntimeStateJournalFileSystemV1 } from '../../tooling/sec-dev/runtime-state-journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRootsV1 } from '../../tooling/sec-dev/runtime-state.ts';
-import {
-  appendVerificationActionJournalEventV2 as appendJournalEvent,
-  readVerificationActionJournalV2 as readJournal
-} from '../../tooling/sec-dev/verification-action-journal.ts';
-import {
-  executeLocalVerificationActionDagV2,
-  VerificationActionRunnerV2
-} from '../../tooling/sec-dev/verification-action-runner.ts';
+  executeLocalVerificationActionDag,
+  VerificationActionRunner
+} from '../../src/verification/action/runner.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const BASE_SHA = '1'.repeat(40);
@@ -48,9 +38,9 @@ const HEAD_TREE_SHA = '4'.repeat(40);
 const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
 
 function journalFs(repositoryRoot: string) {
-  const root = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot }).workspaceStateRoot;
-  return createRuntimeStateJournalFileSystemV1(
-    inspectNoFollowDirectoryChainV1(root, 'VerificationAction runner test journal root').target
+  const root = resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).workspaceStateRoot;
+  return createRuntimeStateJournalFileSystem(
+    inspectNoFollowDirectoryChain(root, 'VerificationAction runner test journal root').target
   );
 }
 
@@ -73,7 +63,7 @@ function createAction(
   inputPath: string,
   requiredCheapPreflightActionKeys: readonly `sha256:${string}`[]
 ) {
-  const input: VerificationActionKeyInputV2 = {
+  const input: VerificationActionKeyInput = {
     actionKind: kind,
     producer: { identity: 'runner-test', revision: 'r1' },
     operation: {
@@ -93,7 +83,7 @@ function createAction(
     upstreamActionKeys: [],
     resultSchemaRevision: 'sec-verification-result-v1'
   };
-  return createVerificationActionKeyV2(input);
+  return createVerificationActionKey(input);
 }
 
 function preflightAction(inputPath = 'scripts/codex/example.ts') {
@@ -137,7 +127,7 @@ function seedFailedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/
 function runnablePlan(key: ReturnType<typeof action>, repositoryRoot?: string) {
   if (repositoryRoot !== undefined) seedPassedPreflight(repositoryRoot);
   const preflight = preflightAction();
-  return createVerificationActionPlanV2({
+  return createVerificationActionPlan({
     action: key,
     executionClass: 'expensive',
     dependencies: [{ actionKey: preflight.actionKey, kind: 'cheap-preflight' }]
@@ -145,7 +135,7 @@ function runnablePlan(key: ReturnType<typeof action>, repositoryRoot?: string) {
 }
 
 function cheapPlan(key: ReturnType<typeof preflightAction>) {
-  return createVerificationActionPlanV2({
+  return createVerificationActionPlan({
     action: key,
     executionClass: 'cheap-preflight',
     dependencies: []
@@ -161,7 +151,7 @@ afterEach(() => {
 
 function root(): string {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-runner-v2-'));
-  const workspaceStateRoot = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot }).workspaceStateRoot;
+  const workspaceStateRoot = resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).workspaceStateRoot;
   mkdirSync(workspaceStateRoot, { recursive: true });
   runtimeRoots.add(workspaceStateRoot);
   return repositoryRoot;
@@ -180,7 +170,7 @@ function inspectRepository(repositoryRoot: string) {
     const result = spawnSync('git', args, {
       cwd: repositoryRoot,
       encoding: 'utf8',
-      env: createBranchLifecycleGitChildEnvironmentV1(process.env),
+      env: createBranchLifecycleGitChildEnvironment(process.env),
       windowsHide: true
     });
     if (result.status !== 0) throw new Error(String(result.stderr || result.stdout));
@@ -203,8 +193,8 @@ test('concurrent callers in different execution domains join one physical execut
   const repositoryRoot = root();
   const secondRepositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
-    const secondRunner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
+    const secondRunner = new VerificationActionRunner();
     const key = action();
     let invocations = 0;
     let release!: () => void;
@@ -247,7 +237,7 @@ test('missing execution plan fails closed before any physical execution', async 
   try {
     const key = action('missing-plan-action');
     let invocations = 0;
-    const result = await new VerificationActionRunnerV2().execute({
+    const result = await new VerificationActionRunner().execute({
       repositoryRoot,
       action: key,
       executor: () => {
@@ -272,7 +262,7 @@ test('forged scheduler lane fails closed before any physical execution', async (
       executionClass: 'cheap-preflight'
     } as never;
     let invocations = 0;
-    await expect(new VerificationActionRunnerV2().execute({
+    await expect(new VerificationActionRunner().execute({
       repositoryRoot,
       action: key,
       plan: forgedPlan,
@@ -291,7 +281,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
   const repositoryRoot = root();
   const secondRepositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const key = action('caller-local-plan-action');
     seedFailedPreflight(secondRepositoryRoot);
     let invocations = 0;
@@ -344,10 +334,10 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
 test('same-owner cycle cannot bypass guard by changing executionDomain', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const key = action('reentrant-action');
     let invocations = 0;
-    let nested: Promise<Awaited<ReturnType<VerificationActionRunnerV2['execute']>>> | null = null;
+    let nested: Promise<Awaited<ReturnType<VerificationActionRunner['execute']>>> | null = null;
     const executor = () => {
       invocations += 1;
       nested = runner.execute({
@@ -379,7 +369,7 @@ test('same-owner cycle cannot bypass guard by changing executionDomain', async (
 test('awaited nested same-key execution is rejected without self-join deadlock', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const key = action('awaited-reentrant-action');
     let invocations = 0;
     const executor = async () => {
@@ -412,7 +402,7 @@ test('awaited nested same-key execution is rejected without self-join deadlock',
 test('nested execution cannot override its inherited ownerToken', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const key = action('owner-token-override-action');
     let invocations = 0;
     const executor = async () => {
@@ -447,7 +437,7 @@ test('caller-forged terminal-passed state without a journal fact cannot start an
   try {
     const key = action('missing-machine-preflight-fact');
     let invocations = 0;
-    const result = await new VerificationActionRunnerV2().execute({
+    const result = await new VerificationActionRunner().execute({
       repositoryRoot,
       action: key,
       plan: runnablePlan(key),
@@ -467,7 +457,7 @@ test('caller-forged terminal-passed state without a journal fact cannot start an
 test('fresh terminal success reuses without execution and terminal failure never becomes PASS', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const passed = action('passed-action');
     let passedInvocations = 0;
     const first = await runner.execute({
@@ -521,11 +511,57 @@ test('fresh terminal success reuses without execution and terminal failure never
   }
 });
 
+test('identity execution derives one plan and reuses its terminal without physical execution', async () => {
+  const repositoryRoot = root();
+  try {
+    const runner = new VerificationActionRunner();
+    const actionInput: VerificationActionKeyInput = {
+      actionKind: 'identity-runner-test',
+      producer: { identity: 'runner-test', revision: 'identity-executor' },
+      operation: {
+        identity: 'identity-runner',
+        revision: 'identity-normalizer',
+        semanticDigest: DIGEST_A,
+        workingDirectory: '.',
+        declaredEnvironment: [{ name: 'provider', digest: DIGEST_A }]
+      },
+      inputClosure: [{ path: 'tests/unit/verification-action-runner.test.ts', digest: DIGEST_A }],
+      environment: {
+        toolchainRevision: 'bun',
+        providerRevision: 'native-checker',
+        contractRevision: 'identity-runner'
+      },
+      requiredCheapPreflightActionKeys: [],
+      upstreamActionKeys: [],
+      resultSchemaRevision: 'identity-terminal'
+    };
+    let invocations = 0;
+    const execute = () => runner.executeIdentity({
+      repositoryRoot,
+      actionInput,
+      executionClass: 'cheap-preflight',
+      executor: () => {
+        invocations += 1;
+        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: DIGEST_A };
+      }
+    });
+    const first = await execute();
+    const second = await execute();
+    expect(first.disposition).toBe('executed');
+    expect(second.disposition).toBe('reused');
+    expect(second.physicalExecution).toBe(false);
+    expect(second.terminal?.status).toBe('passed');
+    expect(invocations).toBe(1);
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
 test('executor diagnostics are journal-safe and bounded when failures contain controls or long text', async () => {
   const repositoryRoot = root();
   try {
     const key = action('diagnostic-action');
-    const result = await new VerificationActionRunnerV2().execute({
+    const result = await new VerificationActionRunner().execute({
       repositoryRoot,
       action: key,
       plan: runnablePlan(key, repositoryRoot),
@@ -549,11 +585,11 @@ test('executor diagnostics are journal-safe and bounded when failures contain co
 test('cheap preflight failure prevents physical execution', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const key = action('expensive-action');
     const dependency = preflightAction();
     seedFailedPreflight(repositoryRoot);
-    const plan = createVerificationActionPlanV2({
+    const plan = createVerificationActionPlan({
       action: key,
       executionClass: 'expensive',
       dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
@@ -579,7 +615,7 @@ test('cheap preflight failure prevents physical execution', async () => {
 test('dependency closure is re-read after execution and unstable closure discards physical result', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const key = action('dependency-race-action');
     let invocations = 0;
     const result = await runner.execute({
@@ -610,7 +646,7 @@ test('dependency closure is re-read after execution and unstable closure discard
 test('input invalidation discards an in-flight physical result', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const key = action('invalidated-action');
     let release!: () => void;
     let markStarted!: () => void;
@@ -653,7 +689,7 @@ test('persisted running and queued actions without a terminal permanently block 
         appendVerificationActionJournalEventV2({ repositoryRoot, action: key, state: 'running' });
       }
       let invocations = 0;
-      const result = await new VerificationActionRunnerV2().execute({
+      const result = await new VerificationActionRunner().execute({
         repositoryRoot,
         action: key,
         plan: runnablePlan(key, repositoryRoot),
@@ -673,13 +709,13 @@ test('persisted running and queued actions without a terminal permanently block 
   }
 });
 
-function localDagFixture(environment = createCiVerificationLocalExecutionEnvironmentV2({
+function localDagFixture(environment = createCiVerificationLocalExecutionEnvironment({
   os: 'win32',
   arch: 'x64',
   bunVersion: '1.3.14'
-}), identity: Partial<Pick<CiVerificationActionCandidateV1,
+}), identity: Partial<Pick<CiVerificationActionCandidate,
   'baseSha' | 'baseTreeSha' | 'headSha' | 'headTreeSha'>> = {}) {
-  const candidate: CiVerificationActionCandidateV1 = {
+  const candidate: CiVerificationActionCandidate = {
     baseSha: BASE_SHA,
     baseTreeSha: BASE_TREE_SHA,
     headSha: HEAD_SHA,
@@ -699,7 +735,7 @@ function localDagFixture(environment = createCiVerificationLocalExecutionEnviron
     ],
     ...identity
   };
-  const gates: readonly CiVerificationProducerGateV1[] = [Object.freeze({
+  const gates: readonly CiVerificationProducerGate[] = [Object.freeze({
     id: 'typecheck',
     phase: 'quick',
     argv: Object.freeze(['bun', 'run', 'typecheck']),
@@ -709,7 +745,7 @@ function localDagFixture(environment = createCiVerificationLocalExecutionEnviron
   })];
   return {
     environment,
-    closure: buildCiVerificationActionPlanClosureV1({ candidate, gates })
+    closure: buildCiVerificationActionPlanClosure({ candidate, gates })
   };
 }
 
@@ -725,7 +761,7 @@ test('local quick DAG keeps journal authority separate from the detached candida
       trackedClean: true,
       gitCommonDirectory: authorityRoot
     });
-    const first = await executeLocalVerificationActionDagV2({
+    const first = await executeLocalVerificationActionDag({
       authorityRoot,
       candidateRoot,
       actionPlanClosure: fixture.closure,
@@ -736,7 +772,7 @@ test('local quick DAG keeps journal authority separate from the detached candida
         return 0;
       }
     });
-    const reused = await executeLocalVerificationActionDagV2({
+    const reused = await executeLocalVerificationActionDag({
       authorityRoot,
       candidateRoot,
       actionPlanClosure: fixture.closure,
@@ -792,7 +828,7 @@ test('local quick DAG binds the intended detached worktree under hostile ambient
       cwd: authorityRoot,
       encoding: 'buffer',
       windowsHide: true,
-      env: createBranchLifecycleGitChildEnvironmentV1(process.env)
+      env: createBranchLifecycleGitChildEnvironment(process.env)
     });
     expect(canonicalBlob.status).toBe(0);
     expect(canonicalBlob.stdout.toString('utf8').trim()).toBe('candidate');
@@ -852,7 +888,7 @@ test('local quick DAG binds the intended detached worktree under hostile ambient
         headSha,
         headTreeSha
       });
-      const result = await executeLocalVerificationActionDagV2({
+      const result = await executeLocalVerificationActionDag({
         authorityRoot,
         candidateRoot,
         actionPlanClosure: fixture.closure,
@@ -862,7 +898,7 @@ test('local quick DAG binds the intended detached worktree under hostile ambient
       });
       expect(result.status).toBe('passed');
       writeFileSync(path.join(candidateRoot, 'tracked.txt'), 'dirty\n', 'utf8');
-      await expect(executeLocalVerificationActionDagV2({
+      await expect(executeLocalVerificationActionDag({
         authorityRoot,
         candidateRoot,
         actionPlanClosure: fixture.closure,
@@ -901,14 +937,14 @@ test('local quick DAG rejects hosted/environment drift and distinct environments
   try {
     const local = localDagFixture();
     const secondLocal = localDagFixture();
-    const hosted = localDagFixture(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2);
+    const hosted = localDagFixture(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT);
     expect(local.closure.actions[0]!.action.actionKey).toBe(secondLocal.closure.actions[0]!.action.actionKey);
     expect(local.closure.actions[0]!.action.actionKey).not.toBe(hosted.closure.actions[0]!.action.actionKey);
-    await expect(executeLocalVerificationActionDagV2({
+    await expect(executeLocalVerificationActionDag({
       authorityRoot,
       candidateRoot,
       actionPlanClosure: hosted.closure,
-      executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
+      executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
       inspectRepository: () => ({
         headSha: HEAD_SHA,
         headTreeSha: HEAD_TREE_SHA,
@@ -926,7 +962,7 @@ test('local quick DAG rejects hosted/environment drift and distinct environments
 test('cheap actions can be scheduled without an ActionKey cost field', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV2();
+    const runner = new VerificationActionRunner();
     const key = preflightAction('scripts/codex/cheap.ts');
     const result = await runner.execute({
       repositoryRoot,

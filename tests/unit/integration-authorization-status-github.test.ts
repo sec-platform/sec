@@ -1,22 +1,23 @@
 import { expect, test } from 'bun:test';
 
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
+import { createIntegrationAuthorization } from '../../src/control/integration/authorization.ts';
+import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
 import {
-  canonicalGitHubApiTargetV1,
-  createIntegrationAuthorizationStatusDescriptionV1,
-  createIntegrationAuthorizationStatusPublicationV1,
-  parseIntegrationAuthorizationGateResultV1,
-  parseIntegrationAuthorizationStatusPublicationV1,
-  publishIntegrationAuthorizationStatusV1,
-  type IntegrationAuthorizationGateResultV1
-} from '../../scripts/codex/integration-authorization-status-github.ts';
+  canonicalGitHubApiTarget,
+  createIntegrationAuthorizationStatusDescription,
+  createIntegrationAuthorizationStatusPublication,
+  parseIntegrationAuthorizationGateResult,
+  parseIntegrationAuthorizationStatusPublication,
+  publishIntegrationAuthorizationStatus,
+  type IntegrationAuthorizationGateResult
+} from '../../src/control/integration/integration-authorization-status-github.ts';
 
 const D = (char: string): `sha256:${string}` => `sha256:${char.repeat(64).slice(0, 64)}`;
 const BASE = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
 
 test('canonical GitHub network target is origin-confined before any effect', () => {
-  expect(canonicalGitHubApiTargetV1('https://api.github.com/repos/sec-platform/sec').href)
+  expect(canonicalGitHubApiTarget('https://api.github.com/repos/sec-platform/sec').href)
     .toBe('https://api.github.com/repos/sec-platform/sec');
   for (const target of [
     'http://api.github.com/repos/sec-platform/sec',
@@ -24,20 +25,18 @@ test('canonical GitHub network target is origin-confined before any effect', () 
     'https://user:secret@api.github.com/repos/sec-platform/sec',
     'https://api.github.com/repos/sec-platform/sec#credential-fragment'
   ]) {
-    expect(() => canonicalGitHubApiTargetV1(target)).toThrow(
+    expect(() => canonicalGitHubApiTarget(target)).toThrow(
       'only permits credential-free https://api.github.com targets'
     );
   }
 });
 
-function result(): IntegrationAuthorizationGateResultV1 {
+function result(): IntegrationAuthorizationGateResult {
   return {
     schema: 'sec-trusted-runtime-merge-gate-result-v1',
     status: 'authorized',
     resultDigest: D('a'),
-    authorization: {
-      schema: 'sec-integration-authorization-v1',
-      authorizationId: D('b'),
+    authorization: createIntegrationAuthorization({
       consumptionOperationId: D('c'),
       repository: 'sec-platform/sec',
       prNumber: 496,
@@ -61,15 +60,14 @@ function result(): IntegrationAuthorizationGateResultV1 {
       expiresAt: '2026-08-19T01:00:00.000Z',
       issuer: {
         principalId: 'APP_sec_integrator',
-        producerIdentity: 'scripts/codex/merge-gate.ts',
+        producerIdentity: 'src/control/integration/merge-gate.ts',
         trustedRevision: BASE,
         sourceTransport: 'trusted-integration-runtime',
         sourceRunId: 'trusted-runtime-1',
-        sourceRef: `scripts/codex/merge-gate.ts@${BASE}`,
+        sourceRef: `src/control/integration/merge-gate.ts@${BASE}`,
         sourceDigest: D('9')
-      },
-      receiptDigest: D('0')
-    },
+      }
+    }),
     reviewReceipt: {} as never,
     mainHealth: {} as never,
     platformObservation: {
@@ -84,12 +82,12 @@ function result(): IntegrationAuthorizationGateResultV1 {
 }
 
 test('terminal status description binds gate and ruleset digests without Actions run identity', () => {
-  expect(createIntegrationAuthorizationStatusDescriptionV1(result()))
+  expect(createIntegrationAuthorizationStatusDescription(result()))
     .toBe(`gate ${'a'.repeat(12)} rules ${'8'.repeat(12)}`);
 });
 
 test('terminal status publication receipt is content-addressed and round-trips', () => {
-  const publication = createIntegrationAuthorizationStatusPublicationV1({
+  const publication = createIntegrationAuthorizationStatusPublication({
     result: result(),
     targetUrl: 'https://github.com/sec-platform/sec/pull/496',
     statusId: 123,
@@ -107,13 +105,13 @@ test('terminal status publication receipt is content-addressed and round-trips',
     creatorId: 900001
   });
   expect(publication.publicationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(parseIntegrationAuthorizationStatusPublicationV1(
-    encodeVerificationActionDataV2(publication)
+  expect(parseIntegrationAuthorizationStatusPublication(
+    encodeVerificationActionData(publication)
   )).toEqual(publication);
 });
 
 test('terminal status publication rejects non-GitHub target URLs', () => {
-  expect(() => createIntegrationAuthorizationStatusPublicationV1({
+  expect(() => createIntegrationAuthorizationStatusPublication({
     result: result(),
     targetUrl: 'https://example.com/sec-platform/sec/pull/496',
     statusId: 123,
@@ -122,7 +120,7 @@ test('terminal status publication rejects non-GitHub target URLs', () => {
 });
 
 test('gate-result parser fails closed on unknown transport schema', () => {
-  expect(() => parseIntegrationAuthorizationGateResultV1(JSON.stringify({
+  expect(() => parseIntegrationAuthorizationGateResult(JSON.stringify({
     schema: 'sec-unknown-gate-result-v1'
   }))).toThrow('schema is not supported');
 });
@@ -184,7 +182,7 @@ function githubProviderFetch(defaultBranches: readonly string[]): Readonly<{
 
 test('terminal publisher binds both readbacks to the observed repository default branch', async () => {
   const provider = githubProviderFetch(['release/next', 'release/next']);
-  const publication = await publishIntegrationAuthorizationStatusV1({
+  const publication = await publishIntegrationAuthorizationStatus({
     result: result(),
     token: 'token-with-at-least-twenty-characters',
     targetUrl: 'https://github.com/sec-platform/sec/pull/496',
@@ -198,7 +196,7 @@ test('terminal publisher binds both readbacks to the observed repository default
 
 test('terminal publisher rejects a default-branch change across the publication effect', async () => {
   const provider = githubProviderFetch(['release/next', 'other-default']);
-  await expect(publishIntegrationAuthorizationStatusV1({
+  await expect(publishIntegrationAuthorizationStatus({
     result: result(),
     token: 'token-with-at-least-twenty-characters',
     targetUrl: 'https://github.com/sec-platform/sec/pull/496',

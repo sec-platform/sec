@@ -1,13 +1,14 @@
 import { expect, test } from 'bun:test';
 
-import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/ir/build-engineering-ir.ts';
-import { addFact, type FactInput } from '../../platform/compiler/ir/ir-fact-store.ts';
-import { digest, semanticRevisionPayload } from '../../platform/compiler/ir/ir-revision.ts';
-import { validateEngineeringIR } from '../../platform/compiler/ir/validate-engineering-ir.ts';
-import { projectArchitectureView } from '../../platform/compiler/projection/project-architecture-view.ts';
-import { summarizeFactAssertions } from '../../platform/compiler/projection/semantic-view-utils.ts';
-import type { EngineeringIR, SemanticFact } from '../../platform/shared/engineering-ir-types.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { addFact, type FactInput } from '../../src/compiler/ir/ir-fact-store.ts';
+import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
+import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
+import { summarizeFactAssertions } from '../../src/compiler/projection/semantic-view-utils.ts';
+import type { SemanticFact } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
+import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
 
 function factInput(overrides: Partial<FactInput> = {}): FactInput {
   return {

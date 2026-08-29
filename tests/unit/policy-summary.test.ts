@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { buildReviewPolicySummary } from '../../platform/shared/review-policy.ts';
-import type { PolicyReport } from '../../platform/shared/types.ts';
+import { writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { buildReviewPolicySummary } from '../../src/verification/review/contract/policy.ts';
+import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
 import {
   buildPassingReviewReport,
   buildReviewSummaryInTempWorkspace
@@ -18,7 +18,7 @@ test('review summary surfaces semantically assured policy governance failure', a
     files: ['src/installed/entity/customer-service.ts'],
     message: 'Entity customer queries violate the canonical tenant data-flow policy.',
     sourceScope: 'official',
-    sourcePath: 'platform/policies/official/policy.spec.yaml'
+    sourcePath: 'catalog/policies/official/policy.spec.yaml'
   };
   const report = buildPassingReviewReport({
     policy: { status: 'failed', violations: [violation] },
@@ -37,7 +37,7 @@ test('review summary surfaces semantically assured policy governance failure', a
       policies: ['tenant-scope-required'],
       sources: [
         {
-          path: 'platform/policies/official/policy.spec.yaml',
+          path: 'catalog/policies/official/policy.spec.yaml',
           policyIds: ['tenant-scope-required']
         }
       ],
@@ -64,7 +64,7 @@ test('review summary surfaces semantically assured policy governance failure', a
         {
           id: 'tenant-scope-required',
           sourceScope: 'official',
-          sourcePath: 'platform/policies/official/policy.spec.yaml',
+          sourcePath: 'catalog/policies/official/policy.spec.yaml',
           targets: ['src/installed/entity/customer-service.ts']
         }
       ]
@@ -120,7 +120,7 @@ test('review projects source-structure policy evidence as attention rather than 
     official: {
       policies: ['tenant-scope-required'],
       sources: [{
-        path: 'platform/policies/official/policy.spec.yaml',
+        path: 'catalog/policies/official/policy.spec.yaml',
         policyIds: ['tenant-scope-required']
       }],
       violations: []
@@ -130,7 +130,7 @@ test('review projects source-structure policy evidence as attention rather than 
       policies: [{
         id: 'tenant-scope-required',
         sourceScope: 'official',
-        sourcePath: 'platform/policies/official/policy.spec.yaml',
+        sourcePath: 'catalog/policies/official/policy.spec.yaml',
         targets: ['src/installed/entity/customer-service.ts']
       }]
     },
@@ -143,7 +143,7 @@ test('review projects source-structure policy evidence as attention rather than 
       files: ['src/installed/entity/customer-service.ts'],
       message: 'Source structure is advisory only.',
       sourceScope: 'official',
-      sourcePath: 'platform/policies/official/policy.spec.yaml',
+      sourcePath: 'catalog/policies/official/policy.spec.yaml',
       evidenceClass: 'source-structure'
     }],
     evaluation: {

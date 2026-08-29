@@ -21,26 +21,23 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  createWorktreePhysicalCloseoutReceiptV1,
-  detailDigestV1
-} from '../../platform/runtime-state/worktree-closeout-contract.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
+  createWorktreePhysicalCloseoutReceipt,
+  detailDigest
+} from '../../src/runtime-state/worktree-closeout-contract.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { ensureCompilerDepsReady } from '../../src/toolchain/dependencies/test/runtime.ts';
+import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirement } from '../../src/workspace/lease.ts';
 import {
-  inspectNoFollowDirectoryChainV1,
-  relocateRetainedNoFollowDirectoryV1
-} from '../../platform/shared/physical-no-follow.ts';
-import { ensureCompilerDepsReady } from '../../platform/shared/project-runtime.ts';
-import { acquireWorkspaceWriteLease, recoverWorkspaceWriteLeaseRetirementV1 } from '../../platform/shared/workspace-write-lease.ts';
-import {
-  WorktreePhysicalCloseoutConsumptionTokenV1,
-  assertTrustedCompletedWorktreePhysicalCloseoutV1,
-  executeDetachedScratchWorktreePhysicalCloseoutV1,
-  executeWorktreePhysicalCloseoutV1,
-  prepareDetachedScratchWorktreePhysicalCloseoutV1,
-  prepareTrustedWorktreePhysicalCloseoutV1,
-  prepareWorktreePhysicalCloseoutV1
-} from '../../scripts/codex/worktree-physical-closeout.ts';
-import { generatedStateProducerHooksV1 } from '../../tooling/sec-dev/generated-state-lifecycle.ts';
+  WorktreePhysicalCloseoutConsumptionToken,
+  assertTrustedCompletedWorktreePhysicalCloseout,
+  executeDetachedScratchWorktreePhysicalCloseout,
+  executeWorktreePhysicalCloseout,
+  prepareDetachedScratchWorktreePhysicalCloseout,
+  prepareTrustedWorktreePhysicalCloseout,
+  prepareWorktreePhysicalCloseout
+} from '../../src/control/branch-lifecycle/worktree-physical-closeout.ts';
+import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });
@@ -108,26 +105,26 @@ function fixture(options: Readonly<{ compilerDependencies?: boolean }> = {}) {
   git(repository, ['worktree', 'add', target, branch]);
   const headSha = git(target, ['rev-parse', 'HEAD']);
   const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']);
-  const recoveryAuthorityDigest = detailDigestV1('fixture-recovery');
+  const recoveryAuthorityDigest = detailDigest('fixture-recovery');
   return { root, repository, target, branch, headSha, treeSha, recoveryAuthorityDigest };
 }
 
-async function persistRetiredPhaseForCrashV1(authorization: Awaited<ReturnType<typeof prepareWorktreePhysicalCloseoutV1>>): Promise<string> {
+async function persistRetiredPhaseForCrashV1(authorization: Awaited<ReturnType<typeof prepareWorktreePhysicalCloseout>>): Promise<string> {
   const tombstone = path.join(path.dirname(authorization.target.path), authorization.tombstoneName);
-  relocateRetainedNoFollowDirectoryV1({
-    directory: inspectNoFollowDirectoryChainV1(authorization.target.path, 'crash phase source').target,
+  relocateRetainedNoFollowDirectory({
+    directory: inspectNoFollowDirectoryChain(authorization.target.path, 'crash phase source').target,
     tombstoneName: authorization.tombstoneName
   });
   const lease = await acquireWorkspaceWriteLease(tombstone);
-  const proofParent = inspectNoFollowDirectoryChainV1(authorization.proofRoot.path, 'crash phase proof parent').target;
+  const proofParent = inspectNoFollowDirectoryChain(authorization.proofRoot.path, 'crash phase proof parent').target;
   let retirementReceipt;
   try {
-    retirementReceipt = await lease.retireOwnedNamespace(detailDigestV1({
+    retirementReceipt = await lease.retireOwnedNamespace(detailDigest({
       authorizationDigest: authorization.authorizationDigest,
       tombstoneName: authorization.tombstoneName,
       phase: 'fixture-retirement'
     }), proofParent);
-    recoverWorkspaceWriteLeaseRetirementV1({
+    recoverWorkspaceWriteLeaseRetirement({
       workspaceRoot: tombstone,
       intentDigest: retirementReceipt.intentDigest,
       proofParent
@@ -149,7 +146,7 @@ async function persistRetiredPhaseForCrashV1(authorization: Awaited<ReturnType<t
 test('real registered worktree reaches registry and physical absence under one durable receipt', async () => {
   const value = fixture();
   try {
-    const authorization = await prepareWorktreePhysicalCloseoutV1({
+    const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -160,7 +157,7 @@ test('real registered worktree reaches registry and physical absence under one d
 
     expect(existsSync(authorization.authorizationPath)).toBe(true);
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -187,7 +184,7 @@ test('real registered worktree reaches registry and physical absence under one d
     expect(existsSync(value.target)).toBe(false);
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(value.target));
     expect(
-      (await executeWorktreePhysicalCloseoutV1({
+      (await executeWorktreePhysicalCloseout({
         repositoryRoot: value.repository,
         targetPath: value.target,
         expectedBranch: value.branch,
@@ -211,7 +208,7 @@ test('closeout composes provider retirement for an automatically reused dependen
         return { code: 0, stdout: 'ok', stderr: '' };
       }
     }, value.repository);
-    const lifecycle = generatedStateProducerHooksV1({
+    const lifecycle = generatedStateProducerHooks({
       repositoryRoot: value.repository,
       workspaceRoot: value.target
     });
@@ -225,7 +222,7 @@ test('closeout composes provider retirement for an automatically reused dependen
     expect(path.resolve(realpathSync(path.join(value.target, 'node_modules'))))
       .toBe(path.resolve(realpathSync(path.join(value.repository, 'node_modules'))));
 
-    const authorization = await prepareWorktreePhysicalCloseoutV1({
+    const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -247,7 +244,7 @@ test('closeout composes provider retirement for an automatically reused dependen
       'utf8'
     )).toBe('primary:typescript\n');
 
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -273,7 +270,7 @@ test('Windows real closeout streams a large tracked leaf, normalizes readonly, a
   const externalJunctionTarget = path.join(value.root, 'junction-external');
   try {
     const largeRoot = path.join(value.target, 'tracked-cache');
-    const largePath = path.join(largeRoot, 'browser.bin');
+    const largePath = path.join(largeRoot, 'large-object.bin');
     const readonlyRoot = path.join(value.target, 'readonly');
     const readonlyPath = path.join(readonlyRoot, 'nested-object.bin');
     const junctionPath = path.join(value.target, 'tracked-junction');
@@ -285,14 +282,14 @@ test('Windows real closeout streams a large tracked leaf, normalizes readonly, a
     truncateSync(largePath, largeSize);
     const largeHandle = openSync(largePath, 'r+');
     try {
-      writeSync(largeHandle, Buffer.from('browser-cache-start'), 0, 19, 0);
-      writeSync(largeHandle, Buffer.from('browser-cache-end'), 0, 17, largeSize - 17);
+      writeSync(largeHandle, Buffer.from('large-object-start'), 0, 18, 0);
+      writeSync(largeHandle, Buffer.from('large-object-end'), 0, 16, largeSize - 16);
     } finally {
       closeSync(largeHandle);
     }
     writeFileSync(readonlyPath, 'readonly tracked object\n', 'utf8');
     writeFileSync(path.join(junctionPath, 'external-sentinel.txt'), 'must survive closeout\n', 'utf8');
-    git(value.target, ['add', 'tracked-cache/browser.bin', 'readonly/nested-object.bin', 'tracked-junction/external-sentinel.txt']);
+    git(value.target, ['add', 'tracked-cache/large-object.bin', 'readonly/nested-object.bin', 'tracked-junction/external-sentinel.txt']);
     git(value.target, ['commit', '-m', 'add physical closeout stress leaves']);
     value.headSha = git(value.target, ['rev-parse', 'HEAD']);
     value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
@@ -301,7 +298,7 @@ test('Windows real closeout streams a large tracked leaf, normalizes readonly, a
     symlinkSync(externalJunctionTarget, junctionPath, 'junction');
     expect(git(value.target, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('');
 
-    const prepared = await prepareTrustedWorktreePhysicalCloseoutV1({
+    const prepared = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -309,13 +306,13 @@ test('Windows real closeout streams a large tracked leaf, normalizes readonly, a
       expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    expect(prepared.authorization.inventory.entries.find((entry) => entry.relativePath === 'tracked-cache/browser.bin')).toMatchObject({
+    expect(prepared.authorization.inventory.entries.find((entry) => entry.relativePath === 'tracked-cache/large-object.bin')).toMatchObject({
       kind: 'file', size: largeSize
     });
     expect(prepared.authorization.inventory.entries.find((entry) => entry.relativePath === 'tracked-junction')).toMatchObject({
       kind: 'symlink'
     });
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -325,7 +322,7 @@ test('Windows real closeout streams a large tracked leaf, normalizes readonly, a
       authorizationPath: prepared.authorization.authorizationPath
     });
     expect(receipt.terminal).toBe('completed');
-    expect(assertTrustedCompletedWorktreePhysicalCloseoutV1({
+    expect(assertTrustedCompletedWorktreePhysicalCloseout({
       token: prepared.token,
       repositoryRoot: value.repository,
       targetPath: value.target,
@@ -358,12 +355,12 @@ test('first same-branch completed token remains target-valid after a second regi
     expect(secondHeadSha).toBe(value.headSha);
     expect(secondTreeSha).toBe(value.treeSha);
 
-    const first = await prepareTrustedWorktreePhysicalCloseoutV1({
+    const first = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    const firstReceipt = await executeWorktreePhysicalCloseoutV1({
+    const firstReceipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
@@ -371,12 +368,12 @@ test('first same-branch completed token remains target-valid after a second regi
     });
     expect(firstReceipt.terminal).toBe('completed');
 
-    const second = await prepareTrustedWorktreePhysicalCloseoutV1({
+    const second = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: secondTarget, expectedBranch: value.branch,
       expectedHeadSha: secondHeadSha, expectedTreeSha: secondTreeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    const secondReceipt = await executeWorktreePhysicalCloseoutV1({
+    const secondReceipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: secondTarget, expectedBranch: value.branch,
       expectedHeadSha: secondHeadSha, expectedTreeSha: secondTreeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
@@ -384,7 +381,7 @@ test('first same-branch completed token remains target-valid after a second regi
     });
     expect(secondReceipt.terminal).toBe('completed');
     expect(firstReceipt.registryAfterDigest).not.toBe(secondReceipt.registryAfterDigest);
-    expect(assertTrustedCompletedWorktreePhysicalCloseoutV1({
+    expect(assertTrustedCompletedWorktreePhysicalCloseout({
       token: first.token, repositoryRoot: value.repository, targetPath: value.target,
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -408,7 +405,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
       if (foreignSibling) {
         mkdirSync(path.join(value.target, '.sec'), { recursive: true });
         writeFileSync(path.join(value.target, '.sec', 'foreign.txt'), 'foreign\n', 'utf8');
-        await expect(prepareWorktreePhysicalCloseoutV1({
+        await expect(prepareWorktreePhysicalCloseout({
           repositoryRoot: value.repository,
           targetPath: value.target,
           expectedBranch: value.branch,
@@ -419,7 +416,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
         expect(existsSync(path.join(value.target, '.sec', 'foreign.txt'))).toBe(true);
         continue;
       }
-      const authorization = await prepareWorktreePhysicalCloseoutV1({
+      const authorization = await prepareWorktreePhysicalCloseout({
         repositoryRoot: value.repository,
         targetPath: value.target,
         expectedBranch: value.branch,
@@ -427,7 +424,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
         expectedTreeSha: value.treeSha,
         expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
       });
-      const receipt = await executeWorktreePhysicalCloseoutV1({
+      const receipt = await executeWorktreePhysicalCloseout({
         repositoryRoot: value.repository,
         targetPath: value.target,
         expectedBranch: value.branch,
@@ -447,7 +444,7 @@ test('a collapsed ignored control ancestor admits only the exact held lease name
 test('self-signed unregister receipt cannot elevate a token without this-process retained admin effect', async () => {
   const value = fixture();
   try {
-    const prepared = await prepareTrustedWorktreePhysicalCloseoutV1({
+    const prepared = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -457,7 +454,7 @@ test('self-signed unregister receipt cannot elevate a token without this-process
       ...prepared.authorization.registryAdmin.relativePath.split('/')
     );
     writeFileSync(path.join(registryAdminPath, 'foreign-admin-entry'), 'foreign\n');
-    const retired = await executeWorktreePhysicalCloseoutV1({
+    const retired = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
@@ -467,12 +464,12 @@ test('self-signed unregister receipt cannot elevate a token without this-process
     rmSync(registryAdminPath, { recursive: true, force: true });
 
     const { schema: ignoredSchema, receiptDigest: ignoredDigest, ...retiredInput } = retired;
-    const forged = createWorktreePhysicalCloseoutReceiptV1({
+    const forged = createWorktreePhysicalCloseoutReceipt({
       ...retiredInput,
       previousReceiptDigest: retired.receiptDigest,
       attempts: [...retired.attempts, {
         operation: 'unregister', status: 'success', relativePath: null,
-        detailDigest: detailDigestV1('attacker-self-signed-admin-effect')
+        detailDigest: detailDigest('attacker-self-signed-admin-effect')
       }],
       readback: { registryPresent: false, physicalPresent: true, authorizationValid: true },
       terminal: 'residue',
@@ -485,14 +482,14 @@ test('self-signed unregister receipt cannot elevate a token without this-process
       schema: 'sec-worktree-cleanup-receipt-latest-v1', generation, receiptDigest: forged.receiptDigest
     })}\n`);
 
-    const converged = await executeWorktreePhysicalCloseoutV1({
+    const converged = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
       authorizationPath: prepared.authorization.authorizationPath
     });
     expect(converged.terminal).toBe('completed');
-    expect(() => assertTrustedCompletedWorktreePhysicalCloseoutV1({
+    expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
       token: prepared.token, repositoryRoot: value.repository, targetPath: value.target,
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -519,7 +516,7 @@ test('dirty untracked and ignored targets block before durable authorization or 
         writeFileSync(path.join(value.target, 'ignored.txt'), 'ignored\n', 'utf8');
       }
       await expect(
-        prepareWorktreePhysicalCloseoutV1({
+        prepareWorktreePhysicalCloseout({
           repositoryRoot: value.repository,
           targetPath: value.target,
           expectedBranch: value.branch,
@@ -541,15 +538,15 @@ test('detached scratch closeout is branch-token-ineligible and reaches physical/
   const scratch = path.join(value.root, 'detached-scratch');
   try {
     git(value.repository, ['worktree', 'add', '--detach', scratch, value.headSha]);
-    const authorization = await prepareDetachedScratchWorktreePhysicalCloseoutV1({
+    const authorization = await prepareDetachedScratchWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: scratch, expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    await expect(prepareTrustedWorktreePhysicalCloseoutV1({
+    await expect(prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: scratch, expectedBranch: `detached-scratch-${value.headSha}`,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     })).rejects.toThrow('cannot mint');
-    const receipt = await executeDetachedScratchWorktreePhysicalCloseoutV1({
+    const receipt = await executeDetachedScratchWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: scratch, expectedHeadSha: value.headSha,
       expectedTreeSha: value.treeSha, expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
       authorizationPath: authorization.authorizationPath
@@ -566,7 +563,7 @@ test('an unregistered physical orphan cannot be adopted or removed', async () =>
     mkdirSync(value.target);
     writeFileSync(path.join(value.target, 'orphan.txt'), 'orphan\n', 'utf8');
     await expect(
-      prepareWorktreePhysicalCloseoutV1({
+      prepareWorktreePhysicalCloseout({
         repositoryRoot: value.repository,
         targetPath: value.target,
         expectedBranch: value.branch,
@@ -584,8 +581,8 @@ test('an unregistered physical orphan cannot be adopted or removed', async () =>
 test('raw JSON or a caller-constructed token cannot mint trusted closeout consumption', async () => {
   const value = fixture();
   try {
-    expect(() => assertTrustedCompletedWorktreePhysicalCloseoutV1({
-      token: new WorktreePhysicalCloseoutConsumptionTokenV1(),
+    expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
+      token: new WorktreePhysicalCloseoutConsumptionToken(),
       repositoryRoot: value.repository,
       targetPath: value.target,
       branch: value.branch,
@@ -602,7 +599,7 @@ test('raw JSON or a caller-constructed token cannot mint trusted closeout consum
 test('prepared token cannot be promoted by a caller-completed public retirement phase and receipt chain', async () => {
   const value = fixture();
   try {
-    const prepared = await prepareTrustedWorktreePhysicalCloseoutV1({
+    const prepared = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -612,14 +609,14 @@ test('prepared token cannot be promoted by a caller-completed public retirement 
     // converges it.  It deliberately never executes the engine branch that
     // held the target lease and receives its `retireOwnedNamespace` result.
     await persistRetiredPhaseForCrashV1(prepared.authorization);
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
       authorizationPath: prepared.authorization.authorizationPath
     });
     expect(receipt.terminal).toBe('completed');
-    expect(() => assertTrustedCompletedWorktreePhysicalCloseoutV1({
+    expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
       token: prepared.token, repositoryRoot: value.repository, targetPath: value.target,
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -632,31 +629,31 @@ test('prepared token cannot be promoted by a caller-completed public retirement 
 test('trusted closeout consumption rejects a deleted or replaced retained proof ledger', async () => {
   const value = fixture();
   try {
-    const prepared = await prepareTrustedWorktreePhysicalCloseoutV1({
+    const prepared = await prepareTrustedWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
       authorizationPath: prepared.authorization.authorizationPath
     });
     expect(receipt.terminal).toBe('completed');
-    expect(assertTrustedCompletedWorktreePhysicalCloseoutV1({
+    expect(assertTrustedCompletedWorktreePhysicalCloseout({
       token: prepared.token, repositoryRoot: value.repository, targetPath: value.target,
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
     }).receiptDigest).toBe(receipt.receiptDigest);
     rmSync(prepared.authorization.proofRoot.path, { recursive: true, force: true });
-    expect(() => assertTrustedCompletedWorktreePhysicalCloseoutV1({
+    expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
       token: prepared.token, repositoryRoot: value.repository, targetPath: value.target,
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
     })).toThrow();
     mkdirSync(prepared.authorization.proofRoot.path);
-    expect(() => assertTrustedCompletedWorktreePhysicalCloseoutV1({
+    expect(() => assertTrustedCompletedWorktreePhysicalCloseout({
       token: prepared.token, repositoryRoot: value.repository, targetPath: value.target,
       branch: value.branch, headSha: value.headSha, treeSha: value.treeSha,
       recoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -669,14 +666,14 @@ test('trusted closeout consumption rejects a deleted or replaced retained proof 
 test('foreign retained-proof content blocks execute and leaves the retirement fence intact', async () => {
   const value = fixture();
   try {
-    const authorization = await prepareWorktreePhysicalCloseoutV1({
+    const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
     await persistRetiredPhaseForCrashV1(authorization);
     writeFileSync(path.join(authorization.proofRoot.path, 'foreign-proof.txt'), 'foreign\n');
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
@@ -694,7 +691,7 @@ test('physical residue retry advances immutable receipt generation without erasi
   if (process.platform !== 'win32') return;
   const value = fixture();
   try {
-    const authorization = await prepareWorktreePhysicalCloseoutV1({
+    const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -709,7 +706,7 @@ test('physical residue retry advances immutable receipt generation without erasi
     git(value.repository, ['worktree', 'remove', '--force', value.target]);
     mkdirSync(value.target);
     writeFileSync(path.join(value.target, 'external-residue.txt'), 'external residue', 'utf8');
-    const first = await executeWorktreePhysicalCloseoutV1({
+    const first = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -725,7 +722,7 @@ test('physical residue retry advances immutable receipt generation without erasi
     expect(existsSync(path.join(operationRoot, firstGeneration))).toBe(true);
     rmSync(value.target, { recursive: true, force: true });
 
-    const second = await executeWorktreePhysicalCloseoutV1({
+    const second = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository,
       targetPath: value.target,
       expectedBranch: value.branch,
@@ -767,17 +764,17 @@ test('physical residue retry advances immutable receipt generation without erasi
 test('execute resumes an exact operation tombstone and never deletes a rebuilt original path', async () => {
   const value = fixture();
   try {
-    const authorization = await prepareWorktreePhysicalCloseoutV1({
+    const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    const tombstone = relocateRetainedNoFollowDirectoryV1({
-      directory: inspectNoFollowDirectoryChainV1(value.target, 'test tombstone source').target,
+    const tombstone = relocateRetainedNoFollowDirectory({
+      directory: inspectNoFollowDirectoryChain(value.target, 'test tombstone source').target,
       tombstoneName: authorization.tombstoneName
     });
     expect(existsSync(value.target)).toBe(false);
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest, authorizationPath: authorization.authorizationPath
@@ -787,18 +784,18 @@ test('execute resumes an exact operation tombstone and never deletes a rebuilt o
 
     const second = fixture();
     try {
-      const secondAuthorization = await prepareWorktreePhysicalCloseoutV1({
+      const secondAuthorization = await prepareWorktreePhysicalCloseout({
         repositoryRoot: second.repository, targetPath: second.target, expectedBranch: second.branch,
         expectedHeadSha: second.headSha, expectedTreeSha: second.treeSha,
         expectedRecoveryAuthorityDigest: second.recoveryAuthorityDigest
       });
-      relocateRetainedNoFollowDirectoryV1({
-        directory: inspectNoFollowDirectoryChainV1(second.target, 'test rebuilt source').target,
+      relocateRetainedNoFollowDirectory({
+        directory: inspectNoFollowDirectoryChain(second.target, 'test rebuilt source').target,
         tombstoneName: secondAuthorization.tombstoneName
       });
       mkdirSync(second.target);
       writeFileSync(path.join(second.target, 'new-owner.txt'), 'must survive\n', 'utf8');
-      const blocked = await executeWorktreePhysicalCloseoutV1({
+      const blocked = await executeWorktreePhysicalCloseout({
         repositoryRoot: second.repository, targetPath: second.target, expectedBranch: second.branch,
         expectedHeadSha: second.headSha, expectedTreeSha: second.treeSha,
         expectedRecoveryAuthorityDigest: second.recoveryAuthorityDigest, authorizationPath: secondAuthorization.authorizationPath
@@ -815,7 +812,7 @@ test('retired target phase resumes before unregister and rejects registry disapp
   for (const crashBoundary of ['before-unregister', 'after-unregister'] as const) {
     const value = fixture();
     try {
-      const authorization = await prepareWorktreePhysicalCloseoutV1({
+      const authorization = await prepareWorktreePhysicalCloseout({
         repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
         expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
         expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -830,7 +827,7 @@ test('retired target phase resumes before unregister and rejects registry disapp
         // were never published, so closeout must not adopt it.
         rmSync(gitdir, { recursive: true, force: true });
       }
-      const receipt = await executeWorktreePhysicalCloseoutV1({
+      const receipt = await executeWorktreePhysicalCloseout({
         repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
         expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
         expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest, authorizationPath: authorization.authorizationPath
@@ -852,7 +849,7 @@ test('retired target phase resumes before unregister and rejects registry disapp
 test('a rebuilt original path survives retained registry-admin deletion without a Git path effect', async () => {
   const value = fixture();
   try {
-    const authorization = await prepareWorktreePhysicalCloseoutV1({
+    const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
@@ -860,7 +857,7 @@ test('a rebuilt original path survives retained registry-admin deletion without 
     const tombstone = await persistRetiredPhaseForCrashV1(authorization);
     mkdirSync(value.target);
     writeFileSync(path.join(value.target, 'new-owner.txt'), 'must survive\n');
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest, authorizationPath: authorization.authorizationPath
@@ -879,7 +876,7 @@ test('locked worktree and target-root replacement fail closed before unregister'
   try {
     git(locked.repository, ['worktree', 'lock', locked.target]);
     await expect(
-      prepareWorktreePhysicalCloseoutV1({
+      prepareWorktreePhysicalCloseout({
         repositoryRoot: locked.repository,
         targetPath: locked.target,
         expectedBranch: locked.branch,
@@ -898,7 +895,7 @@ test('locked worktree and target-root replacement fail closed before unregister'
   try {
     const sentinel = path.join(outside, 'sentinel.txt');
     writeFileSync(sentinel, 'preserve-me\n', 'utf8');
-    const authorization = await prepareWorktreePhysicalCloseoutV1({
+    const authorization = await prepareWorktreePhysicalCloseout({
       repositoryRoot: replaced.repository,
       targetPath: replaced.target,
       expectedBranch: replaced.branch,
@@ -908,7 +905,7 @@ test('locked worktree and target-root replacement fail closed before unregister'
     });
     renameSync(replaced.target, `${replaced.target}-original`);
     symlinkSync(outside, replaced.target, 'dir');
-    const receipt = await executeWorktreePhysicalCloseoutV1({
+    const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: replaced.repository,
       targetPath: replaced.target,
       expectedBranch: replaced.branch,

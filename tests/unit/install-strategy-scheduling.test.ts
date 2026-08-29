@@ -2,11 +2,11 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { defaultInstallRegistry } from '../../platform/compiler/compose/install-strategies.ts';
-import { parsePrismaSchema } from '../../platform/compiler/compose/merge-prisma-template.ts';
-import { readText, writeText } from '../../platform/shared/fs.ts';
-import type { InstallPlanStep, LockFile } from '../../platform/shared/lock-types.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { defaultInstallRegistry } from '../../src/compiler/compose/install-strategies.ts';
+import { parsePrismaSchema } from '../../src/compiler/compose/merge-prisma-template.ts';
+import { readText, writeText } from '../../src/workspace/files.ts';
+import type { InstallPlanStep, LockFile } from '../../src/compiler/contract.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function mergePrismaStep(stepId: string, from: string, to = 'prisma/schema.prisma'): InstallPlanStep {

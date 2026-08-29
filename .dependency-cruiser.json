@@ -1,74 +1,77 @@
 {
   "forbidden": [
     {
-      "name": "shared-no-reverse-deps",
-      "comment": "shared/ 是最低产品基础层，不得反向依赖 compiler/, cli/, orchestrator/, dev-runner/, upgrade/",
+      "name": "no-unresolved-production-dependencies",
+      "comment": "生产模块的每条 import 必须由 TypeScript/module resolver 落到真实模块或已声明 external；文件删除、移动或入口漂移不得静默通过。",
       "severity": "error",
-      "from": { "path": "^platform/shared/" },
-      "to": { "path": "^platform/(compiler|cli|orchestrator|dev-runner|upgrade)/" }
+      "from": { "path": "^src/" },
+      "to": { "path": "^\\.", "couldNotResolve": true }
     },
     {
       "name": "compiler-no-upward-entrypoint-deps",
       "comment": "compiler/ 不得依赖 CLI、Orchestrator 或 DevRunner 入口层；编排只能向下调用 compiler，而不能形成反向控制边。",
       "severity": "error",
-      "from": { "path": "^platform/compiler/" },
-      "to": { "path": "^platform/(cli|orchestrator|dev-runner)(/|\\.ts$)" }
+      "from": { "path": "^src/compiler/(?!orchestration/)" },
+      "to": { "path": "^src/(?:interface/cli|compiler/orchestration|development/runner)(?:/|\\.ts$)" }
     },
     {
       "name": "orchestrator-no-cli-or-dev-runner",
       "comment": "orchestrator/ 是产品编排层，不得依赖 CLI 表示层或开发期 DevRunner。",
       "severity": "error",
-      "from": { "path": "^platform/orchestrator/" },
-      "to": { "path": "^platform/(cli|dev-runner)(/|\\.ts$)" }
+      "from": { "path": "^src/compiler/orchestration/" },
+      "to": { "path": "^src/(?:interface/cli|development/runner)(?:/|\\.ts$)" }
     },
     {
       "name": "product-no-codex-control-plane",
-      "comment": "产品 platform/ 不得依赖 scripts/codex 开发控制面；Development Control Plane 只能作为外部消费者/适配器。",
+      "comment": "产品与运行时能力不得反向依赖开发控制面；Control Plane 只能作为外部消费者与编排者。",
       "severity": "error",
-      "from": { "path": "^platform/" },
-      "to": { "path": "^scripts/codex/" }
+      "from": {
+        "path": "^src/(?:compiler|workspace|semantic|reference|release|runtime-state|toolchain|external-capabilities)/",
+        "pathNot": "\\.(?:test|spec)\\.ts$"
+      },
+      "to": { "path": "^src/control/(?!task/)" }
     },
     {
       "name": "platform-compiler-facade-boundary",
-      "comment": "除 compiler 自身、拥有 pipeline stage 的 orchestrator 与 upgrade owner 外，platform 模块只能经 compiler facade 消费编译器能力。",
+      "comment": "除 compiler 自身、拥有 pipeline stage 的 orchestration 与 upgrade owner 外，其他模块只能经 compiler facade 消费编译器能力。",
       "severity": "error",
-      "from": { "path": "^platform/(?!compiler/|orchestrator/|upgrade/upgrade-workspace\\.ts$)" },
-      "to": { "path": "^platform/compiler/(align|codegen|compose|emit|parse|repair|resolve|synthesize|verify|workbench)/" }
+      "from": { "path": "^src/(?!compiler/|change-management/upgrade/)" },
+      "to": { "path": "^src/compiler/(align|codegen|compose|emit|parse|repair|resolve|synthesize|verify)/" }
     },
     {
       "name": "verification-evidence-no-child-runner",
       "comment": "隔离 Verification Evidence 只能消费结果合同，不能反向依赖持有执行能力的 child runner。",
       "severity": "error",
-      "from": { "path": "^platform/compiler/verify/semantic-mutation-isolated-verification-evidence\\.ts$" },
-      "to": { "path": "^platform/compiler/verify/run-semantic-mutation-isolated-child\\.ts$" }
+      "from": { "path": "^src/compiler/verify/semantic-mutation-isolated-verification-evidence\\.ts$" },
+      "to": { "path": "^src/compiler/verify/run-semantic-mutation-isolated-child\\.ts$" }
     },
     {
       "name": "semantic-mutation-no-upward-layer-deps",
-      "comment": "Semantic Mutation owns a compiler capability and may not depend on workspace, workbench, repair, upgrade or orchestration entry layers.",
+      "comment": "Semantic Mutation owns a compiler capability and may not depend on workspace, repair, upgrade or orchestration entry layers.",
       "severity": "error",
-      "from": { "path": "^platform/compiler/semantic-mutation/" },
-      "to": { "path": "^platform/(?:orchestrator|upgrade|compiler/(?:workspace|workbench|repair))(?:/|\\.ts$)" }
+      "from": { "path": "^src/compiler/semantic-mutation/" },
+      "to": { "path": "^src/(?:compiler/(?:orchestration|repair)|change-management/upgrade|workspace)(?:/|\\.ts$)" }
     },
     {
       "name": "semantic-foundations-no-reverse-mutation-deps",
       "comment": "IR, semantic-impact and projection are lower compiler foundations and cannot reverse-depend on the Semantic Mutation capability.",
       "severity": "error",
-      "from": { "path": "^platform/compiler/(?:ir|semantic-impact|projection)/" },
-      "to": { "path": "^platform/compiler/semantic-mutation/" }
+      "from": { "path": "^src/compiler/(?:ir|semantic-impact|projection)/" },
+      "to": { "path": "^src/compiler/semantic-mutation/" }
     },
     {
       "name": "no-circular",
-      "comment": "platform 产品图禁止循环依赖。",
+      "comment": "src 产品图禁止循环依赖。",
       "severity": "error",
-      "from": { "path": "^platform/" },
+      "from": { "path": "^src/" },
       "to": { "circular": true }
     },
     {
       "name": "no-registry-to-compiler",
       "comment": "registry/ 是声明式资源，不得反向依赖 compiler/ 实现。",
       "severity": "error",
-      "from": { "path": "^platform/registry/" },
-      "to": { "path": "^platform/compiler/" }
+      "from": { "path": "^src/compiler/registry/" },
+      "to": { "path": "^src/compiler/(?!registry/)" }
     }
   ],
   "options": {

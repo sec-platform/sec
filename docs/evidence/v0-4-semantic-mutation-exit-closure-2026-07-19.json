@@ -60,7 +60,7 @@
   ],
   "runtimeDependencyArchitecture": {
     "owner": ".shared-deps",
-    "packageContractOwner": "platform/shared/runtime-dependency-spec.ts",
+    "packageContractOwner": "src/toolchain/dependencies/contract/runtime-dependency-spec.ts",
     "packageCount": 11,
     "packageNames": [
       "next",
@@ -123,7 +123,7 @@
       "range": "bf702a5036dc4f32242c57b50b5fbc472b8fd66c..53709496e6d0195f764612905420de025f8f443d",
       "changedPaths": [
         "docs/work-packages/sm3-exit-closure-v8.md",
-        "scripts/install-git-hooks.ts",
+        "src/development/hooks/install.ts",
         "scripts/run-work-package-gate.ts",
         "tests/contract/ci-lanes.test.ts",
         "tests/unit/install-git-hooks.test.ts",

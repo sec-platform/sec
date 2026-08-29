@@ -58,5 +58,5 @@ description: 用于用户要求全面分析 SEC 仓库、重大架构变更前�
 - `AGENTS.md`
 - `docs/authority.json`
 - `docs/development-governance.md`
-- `platform/shared/agent-skill-contract.ts`
+- `platform/control/agent/skill.ts`
 - `scripts/codex/repository-audit.ts`

@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
-import { artifactEntityId, normalizedArtifactTarget } from '../../platform/compiler/ir/ir-identity.ts';
-import { digest } from '../../platform/compiler/ir/ir-revision.ts';
-import { normalizePlan, validatePlan } from '../../platform/compiler/parse/load-plan.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
-import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
-import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/ir/ir-identity.ts';
+import { digest } from '../../src/compiler/ir/ir-revision.ts';
+import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
+import type { PlanFile } from '../../src/compiler/contract.ts';
+import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
 
 function semanticContract(): LoadedSemanticContract {
   return {
@@ -357,7 +357,7 @@ test('plan validation hard fails when app.id is absent', () => {
   const normalized = normalizePlan({
     app: {
       name: 'legacy-name-only',
-      stack: 'nextjs-ts-prisma-sqlite',
+      stack: 'typescript-library',
       packageManager: 'pnpm',
       mode: 'single-tenant'
     },

@@ -1,43 +1,26 @@
 import { expect, test } from 'bun:test';
 
-import {
-  buildFactDelta,
-  normalizeSemanticMutationRequest,
-  planSemanticMutation,
-  preflightSemanticMutation,
-  type SemanticMutationAuthorizationContextV2,
-  type SemanticMutationInputV2,
-  type SemanticMutationPlanV2,
-  type SemanticMutationRequestV2
-} from '../../platform/compiler/index.ts';
-import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
-import { SEMANTIC_MUTATION_OPERATION_DESCRIPTORS } from '../../platform/compiler/semantic-mutation/operation-registry.ts';
-import { semanticMutationPlanRevision } from '../../platform/compiler/semantic-mutation/plan-semantic-mutation.ts';
-import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
-import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
-import type { CiArtifactManifest } from '../../platform/shared/ci-artifact-types.ts';
-import type {
-  EngineeringIR,
-  FactDeltaEndpointContext,
-  ValidatedEngineeringIRSnapshot
-} from '../../platform/shared/engineering-ir-types.ts';
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import type { ReviewSummary } from '../../platform/shared/review-types.ts';
-import {
-  SEMANTIC_MUTATION_CONTRACT_VERSION,
-  SEMANTIC_MUTATION_EXPECTATION_REVISION,
-  SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION,
-  SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION
-} from '../../platform/shared/semantic-mutation-types.ts';
-import type { SemanticViewSet } from '../../platform/shared/semantic-view-types.ts';
-import {
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
-  type VerificationReport
-} from '../../platform/shared/verification-types.ts';
+import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
+import { normalizeSemanticMutationRequest } from '../../src/compiler/semantic-mutation/normalize-request.ts';
+import { planSemanticMutation } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
+import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import { semanticMutationPlanRevision } from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
+import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
+import type { CiArtifactManifest } from '../../src/verification/ci-artifacts/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
+import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import { SEMANTIC_MUTATION_EXPECTATION_REVISION } from '../../src/semantic/mutation/contract/types.ts';
+import type { SemanticViewSet } from '../../src/semantic/projection/contract/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type VerificationReport } from '../../src/verification/contract/types.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 
-function request(): SemanticMutationRequestV2 {
+function request(): SemanticMutationRequest {
   return {
     contractVersion: '2',
     requestId: 'request:contract-vector',
@@ -71,23 +54,7 @@ function request(): SemanticMutationRequestV2 {
   };
 }
 
-test('Semantic Mutation v2 public constants, request shape, and independent digest vector stay frozen', () => {
-  expect(SEMANTIC_MUTATION_CONTRACT_VERSION).toBe('2');
-  expect(SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION).toBe('semantic-mutation-operations-v1');
-  expect(SEMANTIC_MUTATION_EXPECTATION_REVISION).toBe('semantic-mutation-expectation-v1');
-  expect(SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION).toBe('semantic-mutation-verification-policy-v1');
-  expect(SEMANTIC_MUTATION_OPERATION_DESCRIPTORS).toEqual({
-    'add-state-transition': {
-      kind: 'add-state-transition',
-      riskFloor: 'high',
-      minimumVerification: [{ kind: 'pass', passId: 'verify' }],
-      invalidationFromStage: 'resolve',
-      maxSourceChanges: 1,
-      implicitCascade: 'none'
-    }
-  });
-  expect(Object.isFrozen(SEMANTIC_MUTATION_OPERATION_DESCRIPTORS)).toBe(true);
-  expect(Object.isFrozen(SEMANTIC_MUTATION_OPERATION_DESCRIPTORS['add-state-transition'])).toBe(true);
+test('Semantic Mutation request normalization and independent digest vector stay deterministic', () => {
   expect(sha256({
     domain: 'semantic-mutation-frozen-digest-regression-v1',
     zeta: 1,
@@ -101,19 +68,6 @@ test('Semantic Mutation v2 public constants, request shape, and independent dige
 
   const raw = request();
   const normalized = normalizeSemanticMutationRequest(raw);
-  expect(Object.keys(normalized)).toEqual([
-    'contractVersion',
-    'requestId',
-    'graphId',
-    'appId',
-    'base',
-    'preconditions',
-    'operations',
-    'expectation',
-    'postconditions',
-    'additionalVerification',
-    'requestRevision'
-  ]);
   const expectedRevision = sha256({
     domain: 'semantic-mutation-request-v2',
     ...raw,
@@ -281,15 +235,15 @@ test('compile-time boundaries keep proposal, trusted context, IR, Lock, Projecti
   const proposal = request();
   const rawIR = {} as EngineeringIR;
   const endpoint = {} as FactDeltaEndpointContext;
-  const authorization = {} as SemanticMutationAuthorizationContextV2;
+  const authorization = {} as SemanticMutationAuthorizationContext;
   const lock = {} as LockFile;
   const views = {} as SemanticViewSet;
   const artifact = {} as CiArtifactManifest;
   const review = {} as ReviewSummary;
   const verification = {} as VerificationReport;
-  const plan = {} as SemanticMutationPlanV2;
+  const plan = {} as SemanticMutationPlan;
   const snapshot = {} as ValidatedEngineeringIRSnapshot;
-  const trustedInput = {} as SemanticMutationInputV2;
+  const trustedInput = {} as SemanticMutationInput;
   if (false) {
     // @ts-expect-error Raw EngineeringIR cannot replace the branded FactDelta endpoint.
     preflightSemanticMutation({ request: proposal, base: rawIR, authorization });

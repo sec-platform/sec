@@ -57,7 +57,7 @@ R11 Application / Behavior / Target Program Lowering
 R12 General TypeScript Engineering Compiler
  └──────┬───────┘
         ↓
-R13 Workbench / AI Semantic Operator
+R13 Agent / CLI Semantic Operator
  ↓
 R14 Agent Operation Compiler / VerificationSession Cutover
  ↓
@@ -316,7 +316,7 @@ Execution Ledger、Evidence DAG、Run Journal、CI Evidence 新版本、flake平
 
 ### 目标
 
-把用户、Workbench、AI 和 CLI 的意图收敛为同一个版本化、受限、可计划的 Engineering Operation，包括实现constraint/preference request，但不允许caller提交derived Eligibility/Decision/Binding/Delta/Compatibility。
+把用户、Agent 和 CLI 的意图收敛为同一个版本化、受限、可计划的 Engineering Operation，包括实现constraint/preference request，但不允许caller提交derived Eligibility/Decision/Binding/Delta/Compatibility。
 
 ### 必须具备
 
@@ -334,7 +334,7 @@ Execution Ledger、Evidence DAG、Run Journal、CI Evidence 新版本、flake平
 
 - caller无法提交derived path、owner、Eligibility、Decision、Binding、Delta、Compatibility、Impact、risk、Verification、rollback或terminal；
 - 同一输入产生byte-stable plan和implementation request；
-- CLI/Workbench/AI对同一request绑定同一canonical plan；
+- CLI/Agent对同一request绑定同一canonical plan；
 - `prefer`、`require`、`forbid`、`pin`和`custom`语义不混淆；
 - 至少一个真实semantic operation和一个Brownfield governed-source operation完成plan而不写live workspace。
 
@@ -486,7 +486,7 @@ L0 physical dependency
 
 ### 反转条件
 
-若实现选择只能靠具体库名、业务名、模板组合或散落if/else；若Block Resolver、Backend、Adapter或Workbench重新计算最终选择；若Resolver同时拥有Delta comparator或Compatibility evaluator；若hard constraints需要用加权总分抵消，返回R0/R1/R6/R10重算边界，禁止在下游继续扩张。
+若实现选择只能靠具体库名、业务名、模板组合或散落if/else；若Block Resolver、Backend、Adapter或Agent/CLI interface重新计算最终选择；若Resolver同时拥有Delta comparator或Compatibility evaluator；若hard constraints需要用加权总分抵消，返回R0/R1/R6/R10重算边界，禁止在下游继续扩张。
 
 ## R12 — General TypeScript Engineering Compiler
 
@@ -519,7 +519,7 @@ L0 physical dependency
 - Delta comparator、Compatibility evaluator和Resolver没有重复owner；
 - 至少两个外部工程验证反特化。
 
-## R13 — Workbench / AI Semantic Operator
+## R13 — Agent / CLI Semantic Operator
 
 ### 目标
 
@@ -532,21 +532,21 @@ L0 physical dependency
 - unknown/opaque/stale/conflict/成熟度可见；
 - Implementation View显示requirements、candidate closures、Eligibility、Decision、Binding、Binding Delta、Compatibility Decision、淘汰原因、版本和迁移影响；
 - 用户控制模式：intent、constraint、prefer、require、forbid、pin、custom、bounded override；
-- 所有模式进入同一Engineering Operation，UI不计算Eligibility、Binding、Delta或Compatibility；
+- 所有模式进入同一Engineering Operation，interface不计算Eligibility、Binding、Delta或Compatibility；
 - Context Packet从语义、Binding到必要源码渐进装载；
 - Task/Operation view只是typed Operation Envelope投影；
-- CLI/Workbench/AI消费同一plan/resolve/apply/query/recover adapter；
+- CLI/Agent消费同一plan/resolve/apply/query/recover adapter；
 - local transport Host/Origin/capability安全；
 - AI只能提交proposal/candidate，不能扩大permission/path/effect/verification或伪造Decision/Delta/Compatibility；
-- accepted后从canonical revision重载，不使用UI本地patch。
+- accepted后从canonical revision重载，不使用interface-local patch。
 
 ### 退出 Evidence
 
-- 主要View可相互下钻；
-- CLI与Workbench对同一proposal得到等价plan、Decision、Binding、Delta/Compatibility references；
+- machine projection可通过stable references相互下钻；
+- CLI与Agent对同一proposal得到等价plan、Decision、Binding、Delta/Compatibility references；
 - 用户无需理解所有底层库即可声明意图和约束；专家可以精确pin/custom；
 - 用户pin/require不能绕过hard eligibility；
-- UI不能从source diff、test green或semver重算Binding Delta/Compatibility；
+- interface不能从source diff、test green或semver重算Binding Delta/Compatibility；
 - accepted/rejected/rolled-back/recovery-required稳定；
 - 跨站、越权、stale context和更宽AI proposal均被拒绝；
 - 真实用户可以解释平台选了什么、为什么、哪些候选被拒绝、实际改变了什么和升级会如何迁移。
@@ -970,7 +970,7 @@ Proposal、类型、实现提交、单平台测试或PR合并只证明相应成�
 - Brownfield和TypedInvocation是早期通用性证明，不是Generator成熟后的附属功能。
 - 成熟轮子优先；引入必须有capability census、真实试用、Provider边界和duplicate removal，存在开源项目不自动等于应采用。
 - 每次交付一个可合并纵向闭包；Spike默认不合并。
-- 外部能力先作为可替换Provider/Adapter；Provider catalog、Block Resolver、Workbench、Backend和Dependency materializer不得复制Implementation Resolution、Binding Delta或Compatibility。
+- 外部能力先作为可替换Provider/Adapter；Provider catalog、Block Resolver、Agent/CLI interface、Backend和Dependency materializer不得复制Implementation Resolution、Binding Delta或Compatibility。
 - 阶段顺序表达依赖，不授权第二loader、writer、revision、resolver、comparator、Compatibility evaluator、selector、cache或pipeline。
 - 当前能力、目标设计、物理验证、分发和现实支持分别标记。
 - 基础设施饥饿保护：每完成一个非 P0/P1 的基础设施包，接下来至少完成两个直接推进 R3–R13 产品主脊的包，除非真实 P0/P1 blocker 打断；格式化、Review 平台、Knowledge Closure、general Run Kernel 与无consumer的完整 Evidence DAG 不得形成基础设施长队。
@@ -988,6 +988,6 @@ SEC-TS MVP至少要求：
 5. R7/R8 一个canonical和一个Brownfield operation完成transaction/recovery；
 6. R9 两个外部工程完成Attach→Adopt，至少一个Provider进入正式catalog、一个模块Normalize；
 7. R10–R12 对同一Contract解析至少两个无关实现，冻结唯一Decision/Binding，产生确定性Binding Delta/Impact并在多类无关业务上不修改Core；
-8. R13用户可通过Workbench/CLI声明intent/constraints或pin/custom，理解选择、实际Binding变化、Compatibility和Migration原因并执行主要Operation；
+8. R13用户可通过Agent/CLI声明intent/constraints或pin/custom，理解选择、实际Binding变化、Compatibility和Migration原因并执行主要Operation；
 9. R15 clean package、exact Binding closure和至少一个真实部署/rollback；
 10. unknown、opaque、unsupported、Eligibility、Delta、Verification、Compatibility和Support层级始终真实可见。

@@ -1,15 +1,11 @@
 import { expect, test } from "bun:test";
 
-import {
-  buildEngineeringIR,
-  buildValidatedEngineeringIR,
-  projectScenarioView,
-  validateEngineeringIR,
-  type BuildEngineeringIRInput,
-} from "../../platform/compiler/index.ts";
-import { deriveScenarioDefinition } from "../../platform/compiler/ir/scenario-facts.ts";
-import { CompilerError } from "../../platform/shared/errors.ts";
-import type { LoadedSemanticContract } from "../../platform/shared/semantic-contract-types.ts";
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
+import { deriveScenarioDefinition } from "../../src/compiler/ir/scenario-facts.ts";
+import { CompilerError } from "../../src/compiler/errors.ts";
+import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
 
 function baseInput(): BuildEngineeringIRInput {
   return {

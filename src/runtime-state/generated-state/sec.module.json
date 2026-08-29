@@ -1,0 +1,16 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "generated-state-lifecycle",
+      "operations": [
+        "generatedStateProducerHooks",
+        "inspectGeneratedState",
+        "planGeneratedStateCleanup",
+        "settleGeneratedState"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

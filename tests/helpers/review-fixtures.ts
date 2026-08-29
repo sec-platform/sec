@@ -1,13 +1,10 @@
-import { buildReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-import type {
-  AcceptanceCoverageReport,
-  LockFile,
-  ProvenanceFile,
-  ReviewProvenanceRegistrySummary,
-  ReviewSummary,
-  VerificationReport
-} from '../../platform/shared/types.ts';
+import { buildReviewSummary } from '../../src/compiler/emit/write-review-summary.ts';
+import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
+import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import type { ReviewProvenanceRegistrySummary, ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import { emptyVerificationLogs } from './verification-fixtures.ts';
 

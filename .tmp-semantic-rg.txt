@@ -1,0 +1,170 @@
+tests\helpers\semantic-mutation-recovery-fixture.ts:173:  const verificationPlanning = buildSemanticMutationVerificationPlanningContext({
+tests\helpers\semantic-mutation-recovery-fixture.ts:176:    impactRevision: impact.impactRevision,
+tests\helpers\semantic-mutation-recovery-fixture.ts:177:    uncertaintyStatus: 'covered',
+tests\helpers\semantic-mutation-recovery-fixture.ts:203:    verificationPlanning
+platform\orchestrator\semantic-mutation-orchestrator.ts:19:  deriveStagedSemanticMutation,
+platform\orchestrator\semantic-mutation-orchestrator.ts:160:    capabilityPlan(
+platform\orchestrator\semantic-mutation-orchestrator.ts:337:    readonly verificationCapabilityPlan: SemanticMutationVerificationCapabilityPlanV1;
+platform\orchestrator\semantic-mutation-orchestrator.ts:356:    capabilityPlan: derived.verificationCapabilityPlan,
+platform\orchestrator\semantic-mutation-orchestrator.ts:367:          capabilityPlan: derived.verificationCapabilityPlan,
+platform\orchestrator\semantic-mutation-orchestrator.ts:476:  readonly derive: typeof deriveStagedSemanticMutation;
+platform\orchestrator\semantic-mutation-orchestrator.ts:493:    derive: deriveStagedSemanticMutation,
+platform\orchestrator\semantic-mutation-orchestrator.ts:820:        !derived.verificationCapabilityPlan) {
+platform\orchestrator\semantic-mutation-orchestrator.ts:838:          readonly verificationCapabilityPlan: SemanticMutationVerificationCapabilityPlanV1;
+platform\orchestrator\semantic-mutation-orchestrator.ts:1103:      deriveStagedSemanticMutation(
+platform\orchestrator\semantic-mutation-orchestrator.ts:1229:      !derived.verificationCapabilityPlan) {
+platform\orchestrator\semantic-mutation-orchestrator.ts:1266:        readonly verificationCapabilityPlan: SemanticMutationVerificationCapabilityPlanV1;
+tests\integration\semantic-mutation-apply.test.ts:18:  deriveStagedSemanticMutation,
+tests\integration\semantic-mutation-apply.test.ts:540:        derive: async (...args: Parameters<typeof deriveStagedSemanticMutation>) => {
+tests\integration\semantic-mutation-apply.test.ts:542:          return deriveStagedSemanticMutation(...args);
+platform\verification\contract\types.ts:30:  readonly capabilityPlanRevision: string;
+platform\semantic\mutation\contract\types.ts:342:  readonly impactRevision: string;
+platform\semantic\mutation\contract\types.ts:344:  readonly uncertaintyStatus: 'covered' | 'blocked';
+platform\semantic\mutation\contract\types.ts:357:  readonly verificationPlanning: SemanticMutationVerificationPlanningContextV1;
+platform\semantic\mutation\contract\types.ts:395:  readonly verificationPlanningRevision: string;
+platform\semantic\impact\contract\types.ts:142:  readonly impactRevision: string;
+tests\contract\semantic-mutation-contract.test.ts:169:    verificationPlanningRevision: '',
+tests\contract\semantic-mutation-contract.test.ts:190:    verificationPlanningRevision: '',
+tests\contract\semantic-mutation-contract.test.ts:194:    impactRevision: '',
+tests\contract\semantic-mutation-contract.test.ts:274:    planSemanticMutation({ ...trustedInput, verificationPlanning: verification });
+tests\unit\ci-verification-execution.test.ts:1343:    let capabilityPlan = '';
+tests\unit\ci-verification-execution.test.ts:1353:        capabilityPlan = plan.argv.join('\n');
+tests\unit\ci-verification-execution.test.ts:1377:    ]) expect(capabilityPlan).toContain(invariant);
+tests\unit\ci-verification-execution.test.ts:1379:      expect(capabilityPlan).not.toContain(forbidden);
+tests\contract\semantic-mutation-apply-contract.test.ts:113:    capabilityPlanRevision: SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION,
+tests\contract\semantic-mutation-apply-contract.test.ts:126:    capabilityPlanRevision: 'semantic-mutation-verification-capability-plan-v1',
+tests\contract\semantic-mutation-apply-contract.test.ts:178:  const capabilityPlan = await planSemanticMutationVerificationCapabilities({
+tests\contract\semantic-mutation-apply-contract.test.ts:201:    capabilityPlan,
+tests\contract\semantic-mutation-apply-contract.test.ts:238:    capabilityPlan,
+tests\contract\semantic-mutation-apply-contract.test.ts:248:    capabilityPlan,
+tests\contract\semantic-mutation-apply-contract.test.ts:255:  const nonShaEndpointPlan = structuredClone(capabilityPlan) as unknown as Record<string, unknown>;
+tests\contract\semantic-mutation-apply-contract.test.ts:257:  delete nonShaEndpointPlan.capabilityPlanRevision;
+tests\contract\semantic-mutation-apply-contract.test.ts:258:  nonShaEndpointPlan.capabilityPlanRevision = sha256({
+tests\contract\semantic-mutation-apply-contract.test.ts:263:    capabilityPlan: nonShaEndpointPlan as never,
+tests\contract\semantic-mutation-apply-contract.test.ts:271:    capabilityPlan,
+tests\contract\semantic-mutation-apply-contract.test.ts:280:  const forgedCapabilityPlan = structuredClone(capabilityPlan) as unknown as Record<string, unknown>;
+tests\contract\semantic-mutation-apply-contract.test.ts:283:  delete forgedCapabilityPlan.capabilityPlanRevision;
+tests\contract\semantic-mutation-apply-contract.test.ts:284:  forgedCapabilityPlan.capabilityPlanRevision = sha256({
+tests\contract\semantic-mutation-apply-contract.test.ts:289:    capabilityPlan: forgedCapabilityPlan as never,
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:89:function capabilityPlanRevision(
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:90:  value: Omit<SemanticMutationVerificationCapabilityPlanV1, 'capabilityPlanRevision'>
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:130:    capabilityPlanRevision: capabilityPlanRevision(withoutRevision)
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:214:  readonly capabilityPlan: SemanticMutationVerificationCapabilityPlanV1;
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:226:  const plannedRequirements = input.capabilityPlan.capabilities.map((entry) => entry.requirement);
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:228:  const { capabilityPlanRevision: suppliedPlanRevision, ...capabilityPlanWithoutRevision } = input.capabilityPlan;
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:229:  const exactCapabilityPlan = exactKeys(input.capabilityPlan, [
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:232:    'capabilityPlanRevision'
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:233:  ]) && input.capabilityPlan.formatRevision === SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION &&
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:234:    Array.isArray(input.capabilityPlan.capabilities) && input.capabilityPlan.capabilities.length > 0 &&
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:235:    input.capabilityPlan.capabilities.every((entry) =>
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:239:    Array.isArray(input.capabilityPlan.blockedRequirementKeys) &&
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:240:    input.capabilityPlan.blockedRequirementKeys.length === 0 &&
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:241:    issuedRunnableCapabilityPlans.has(input.capabilityPlan);
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:243:      'capabilityPlan', 'requirements', 'planRevision', 'attempted',
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:247:    suppliedPlanRevision !== capabilityPlanRevision(capabilityPlanWithoutRevision) ||
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:248:    input.capabilityPlan.status !== 'runnable' ||
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:249:    input.capabilityPlan.adapterId !== SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID ||
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:250:    input.capabilityPlan.adapterRevision !== SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION ||
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:251:    input.attempted.inputRevision !== input.capabilityPlan.snapshotInputRevision ||
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:252:    input.attempted.semanticRevision !== input.capabilityPlan.snapshotSemanticRevision ||
+platform\compiler\verify\semantic-mutation-verification-adapter.ts:263:    readonly capabilityPlan: SemanticMutationVerificationCapabilityPlanV1;
+tests\contract\impact-propagation-contract.test.ts:91:test('independent vector freezes seeds, reachability, path evidence, and impactRevision', () => {
+tests\contract\impact-propagation-contract.test.ts:179:  expect(result.impactRevision).toBe(expectedRevision);
+tests\contract\impact-propagation-contract.test.ts:182:test('transaction and input audit fields stay excluded from impactRevision', () => {
+tests\contract\impact-propagation-contract.test.ts:189:  expect(alternate.impactRevision).toBe(original.impactRevision);
+platform\compiler\verify\run-semantic-mutation-isolated-child.ts:666:        readonly capabilityPlan: SemanticMutationVerificationCapabilityPlanV1;
+platform\compiler\verify\run-semantic-mutation-isolated-child.ts:672:        readonly capabilityPlan?: never;
+platform\compiler\verify\run-semantic-mutation-isolated-child.ts:1475:    const capabilityPlan = ownDataOption<SemanticMutationVerificationCapabilityPlanV1>(
+platform\compiler\verify\run-semantic-mutation-isolated-child.ts:1477:      'capabilityPlan',
+platform\compiler\verify\run-semantic-mutation-isolated-child.ts:1488:    const productionInvocation = capabilityPlan !== undefined && suppliedCommitFence === undefined &&
+platform\compiler\verify\run-semantic-mutation-isolated-child.ts:1515:    const runtimeBinding = capabilityPlan ?? runtimeCapabilityForTest;
+platform\compiler\semantic-mutation\verification-policy.ts:48:    impactRevision: draft.impactRevision,
+platform\compiler\semantic-mutation\verification-policy.ts:50:    uncertaintyStatus: draft.uncertaintyStatus,
+platform\compiler\semantic-mutation\verification-policy.ts:88:    'impactRevision',
+platform\compiler\semantic-mutation\verification-policy.ts:90:    'uncertaintyStatus',
+platform\compiler\semantic-mutation\verification-policy.ts:96:    (context.uncertaintyStatus !== 'covered' && context.uncertaintyStatus !== 'blocked')) {
+platform\compiler\semantic-mutation\verification-policy.ts:112:    impactRevision: context.impactRevision,
+platform\compiler\semantic-mutation\verification-policy.ts:114:    uncertaintyStatus: context.uncertaintyStatus,
+platform\compiler\semantic-mutation\verification-policy.ts:117:  if (context.impactRevision !== impact.impactRevision ||
+platform\compiler\semantic-mutation\verification-policy.ts:127:          impactRevision: impact.impactRevision,
+platform\compiler\semantic-mutation\verification-policy.ts:128:          suppliedImpactRevision: context.impactRevision,
+platform\compiler\semantic-mutation\verification-policy.ts:135:  if (context.uncertaintyStatus === 'blocked') {
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:42:  capabilityPlan(
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:58:  readonly verificationCapabilityPlan?: SemanticMutationVerificationCapabilityPlanV1;
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:131:    impactRevision: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:132:    uncertaintyStatus: 'blocked',
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:159:export async function deriveStagedSemanticMutation(
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:185:        verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:223:        verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:253:        verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:276:    let verificationCapabilityPlan: SemanticMutationVerificationCapabilityPlanV1 | undefined;
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:296:      verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:299:        verificationCapabilityPlan = await verificationAdapter.capabilityPlan(
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:304:        const capabilities = verificationCapabilityPlan.capabilities;
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:308:          impactRevision: impact.impactRevision,
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:309:          uncertaintyStatus: capabilities.every((entry) => entry.status === 'runnable' && entry.isolated)
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:325:      ...(verificationCapabilityPlan ? { verificationCapabilityPlan } : {})
+platform\compiler\semantic-mutation\derive-staged-mutation.ts:346:        verificationPlanning: placeholderPlanning(verificationAdapter)
+platform\compiler\semantic-impact\build-impact-propagation.ts:987:  value: Omit<SemanticImpactPropagation, 'impactRevision'>
+platform\compiler\semantic-impact\build-impact-propagation.ts:1071:  const withoutRevision: Omit<SemanticImpactPropagation, 'impactRevision'> = {
+platform\compiler\semantic-impact\build-impact-propagation.ts:1091:    impactRevision: `sha256:${digest(impactDigestPayload(withoutRevision))}`
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:91:    readonly impact?: { readonly impactRevision: string };
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:118:    verificationPlanningRevision: draft.verificationPlanningRevision,
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:122:    impactRevision: hasImpact ? value.impact?.impactRevision ?? '' : '',
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:136:  verification: SemanticMutationInputV2['verificationPlanning'] | undefined
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:148:    verificationPlanningRevision: verification?.planningRevision ?? '',
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:193:  verificationPlanningProducer?: SemanticMutationVerificationPlanningProducerV1
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:195:  if (!isPlainObject(input) || !exactOwnKeys(input, ['request', 'base', 'authorization', 'preparation', 'verificationPlanning'])) {
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:339:    verificationPlanning: SemanticMutationVerificationPlanningContextV1 | undefined,
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:343:    if (producerFailed || verificationPlanning === undefined) {
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:352:          verificationPlanning,
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:366:      ...baseFields(preflight, verificationPlanning),
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:388:    const producedPlanning = verificationPlanningProducer?.produce({
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:395:        (verificationPlanning) => finalizeVerificationPlanning(verificationPlanning),
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:396:        () => finalizeVerificationPlanning(input.verificationPlanning, true)
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:399:    return finalizeVerificationPlanning(producedPlanning ?? input.verificationPlanning);
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:401:    return finalizeVerificationPlanning(input.verificationPlanning, true);
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:437:  verificationPlanningProducer: SemanticMutationVerificationPlanningProducerV1
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:439:  return planSemanticMutationWithProducers(input, producers, verificationPlanningProducer);
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:471:    'verificationPlanningRevision',
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:530:      !digestString(plan.verificationPlanningRevision) || !('requiredVerification' in plan) ||
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:563:      plan.verificationPlanningRevision !== '') {
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:572:      plan.verificationPlanningRevision !== '') {
+platform\compiler\semantic-mutation\plan-semantic-mutation.ts:580:      plan.verificationPlanningRevision !== '') {
+tests\unit\semantic-mutation-verification-adapter.test.ts:224:  const capabilityPlan = await planSemanticMutationVerificationCapabilities({
+tests\unit\semantic-mutation-verification-adapter.test.ts:251:    capabilityPlan,
+tests\unit\semantic-mutation-verification-adapter.test.ts:284:  expect(JSON.stringify(first)).not.toContain('capabilityPlanRevision');
+tests\unit\semantic-mutation-verification-adapter.test.ts:290:  const capabilityPlan = await planSemanticMutationVerificationCapabilities({
+tests\unit\semantic-mutation-verification-adapter.test.ts:298:    capabilityPlan,
+tests\unit\semantic-mutation-verification-adapter.test.ts:318:    capabilityPlan: {
+tests\unit\semantic-mutation-verification-adapter.test.ts:320:      capabilityPlanRevision: sha256('forged-capability-plan')
+tests\unit\semantic-mutation-verification-adapter.test.ts:339:    capabilityPlan: structuredClone(runnablePlan),
+tests\unit\semantic-mutation.test.ts:234:  const verificationPlanning = buildSemanticMutationVerificationPlanningContext({
+tests\unit\semantic-mutation.test.ts:237:    impactRevision: impact.impactRevision,
+tests\unit\semantic-mutation.test.ts:238:    uncertaintyStatus: 'covered',
+tests\unit\semantic-mutation.test.ts:260:  return { before, after, base, staged, delta, request, auth, preflight, impact, requiredVerification, verificationPlanning, preparation };
+tests\unit\semantic-mutation.test.ts:394:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:417:    impactRevision: value.impact.impactRevision,
+tests\unit\semantic-mutation.test.ts:418:    uncertaintyStatus: 'blocked',
+tests\unit\semantic-mutation.test.ts:421:  const blocked = planSemanticMutation({ ...input, verificationPlanning: blockedPlanning });
+tests\unit\semantic-mutation.test.ts:433:      impactRevision: value.impact.impactRevision,
+tests\unit\semantic-mutation.test.ts:434:      uncertaintyStatus: 'covered',
+tests\unit\semantic-mutation.test.ts:437:    const rejected = planSemanticMutation({ ...input, verificationPlanning: invalidPlanning });
+tests\unit\semantic-mutation.test.ts:481:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:494:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:505:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:518:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:531:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:544:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:639:    impactRevision: value.impact.impactRevision,
+tests\unit\semantic-mutation.test.ts:640:    uncertaintyStatus: 'blocked',
+tests\unit\semantic-mutation.test.ts:647:  const verification = run({ ...input, verificationPlanning: blockedPlanning });
+tests\unit\semantic-mutation.test.ts:658:  const calls = { factDelta: 0, impact: 0, verificationPlanning: 0, verificationEvaluation: 0 };
+tests\unit\semantic-mutation.test.ts:664:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:680:      calls.verificationPlanning += 1;
+tests\unit\semantic-mutation.test.ts:681:      expect(impact.impactRevision).toBe(value.impact.impactRevision);
+tests\unit\semantic-mutation.test.ts:684:      return value.verificationPlanning;
+tests\unit\semantic-mutation.test.ts:692:    verificationPlanning: 1,
+tests\unit\semantic-mutation.test.ts:748:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:787:    verificationPlanning: value.verificationPlanning
+tests\unit\semantic-mutation.test.ts:915:    verificationPlanning: value.verificationPlanning

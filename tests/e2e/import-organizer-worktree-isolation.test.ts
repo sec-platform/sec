@@ -11,7 +11,7 @@ import {
   runCandidateImportOrganizer,
   runImportApply,
   runImportCheck,
-} from '../../platform/dev-runner/import-organizer.ts';
+} from '../../src/development/runner/import-organizer.ts';
 
 /**
  * Physical two-worktree isolation witness (Issue #348): WT-A check/apply/

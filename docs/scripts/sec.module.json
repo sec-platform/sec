@@ -1,6 +1,0 @@
-{
-  "schema": "sec-module-v1",
-  "moduleId": "documentation.tooling",
-  "importGraph": "runtime",
-  "externalEntrypoints": []
-}

@@ -4,11 +4,17 @@ import fs, { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { materializeExactReleaseGitTreeV1 } from '../../platform/release/release-git-tree-source.ts';
+import { materializeExactReleaseGitTree } from '../../src/release/release-git-tree-source.ts';
 import {
-  disposeFrozenReleaseSourceV1,
-  prepareFrozenReleaseSourceV1
-} from '../../platform/release/release-source-materialization.ts';
+  disposeFrozenReleaseSource,
+  prepareFrozenReleaseSource
+} from '../../src/release/release-source-materialization.ts';
+
+const FIXTURE_ENTRYPOINT = Object.freeze({
+  artifact: 'dist/index.js',
+  command: 'fixture',
+  source: 'platform/fixture-cli.ts'
+});
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 function command(repositoryRoot: string, executable: string, args: readonly string[]): string {
@@ -36,6 +42,15 @@ async function initRepository(repositoryRoot: string): Promise<void> {
 async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
   await initRepository(repositoryRoot);
   await fs.writeFile(path.join(repositoryRoot, '.gitignore'), 'node_modules/\n');
+  const sourcePath = path.join(
+    repositoryRoot,
+    ...FIXTURE_ENTRYPOINT.source.split('/')
+  );
+  await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+  await fs.writeFile(
+    sourcePath,
+    'console.log("fixture");\n'
+  );
   await fs.mkdir(path.join(repositoryRoot, 'vendor', 'fixture-dependency'), { recursive: true });
   await fs.writeFile(path.join(repositoryRoot, 'vendor', 'fixture-dependency', 'package.json'), `${JSON.stringify({
     name: 'fixture-dependency',
@@ -51,7 +66,16 @@ async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
     version: '1.0.0',
     private: true,
     type: 'module',
+    source: `./${FIXTURE_ENTRYPOINT.source}`,
     packageManager: `bun@${Bun.version}`,
+    bin: {
+      [FIXTURE_ENTRYPOINT.command]:
+        `./${FIXTURE_ENTRYPOINT.artifact}`
+    },
+    scripts: {
+      [FIXTURE_ENTRYPOINT.command]:
+        `bun ./${FIXTURE_ENTRYPOINT.source}`
+    },
     dependencies: {
       'fixture-dependency': 'file:./vendor/fixture-dependency'
     }
@@ -70,7 +94,7 @@ test('frozen release source ignores untracked noise and binds one exact commit/t
     const expectedTree = git(repositoryRoot, ['rev-parse', `${expectedCommit}^{tree}`]);
     await fs.writeFile(path.join(repositoryRoot, 'local-note.txt'), 'untracked-noise\n');
 
-    const frozen = await prepareFrozenReleaseSourceV1(repositoryRoot);
+    const frozen = await prepareFrozenReleaseSource(repositoryRoot);
     try {
       expect(frozen.sourceCommit).toBe(expectedCommit);
       expect(frozen.sourceTree).toBe(expectedTree);
@@ -80,7 +104,7 @@ test('frozen release source ignores untracked noise and binds one exact commit/t
         .rejects.toMatchObject({ code: 'ENOENT' });
       expect(frozen.dependencyLockDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     } finally {
-      await disposeFrozenReleaseSourceV1(frozen);
+      await disposeFrozenReleaseSource(frozen);
     }
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
@@ -93,7 +117,7 @@ test('tracked worktree or index drift is rejected against the captured source co
     await initMinimalBunRepository(repositoryRoot);
     await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'dirty-tracked-builder-surface\n');
 
-    await expect(prepareFrozenReleaseSourceV1(repositoryRoot))
+    await expect(prepareFrozenReleaseSource(repositoryRoot))
       .rejects.toThrow('Release tracked worktree/index differs from captured source commit');
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
@@ -112,7 +136,7 @@ test('exact Git source ignores archive export-ignore/export-subst semantics and 
     git(repositoryRoot, ['add', '--all']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'archive-attributes']);
 
-    const materialized = await materializeExactReleaseGitTreeV1(repositoryRoot);
+    const materialized = await materializeExactReleaseGitTree(repositoryRoot);
     try {
       await expect(fs.readFile(path.join(materialized.root, 'tracked.txt'), 'utf8'))
         .resolves.toBe('literal $Format:%H$ bytes\n');
@@ -139,7 +163,7 @@ test('exact Git source disables replacement-object views', async () => {
     git(repositoryRoot, ['replace', originalBlob, replacementBlob]);
     expect(git(repositoryRoot, ['cat-file', 'blob', originalBlob])).toContain('replacement-view-bytes');
 
-    const materialized = await materializeExactReleaseGitTreeV1(repositoryRoot);
+    const materialized = await materializeExactReleaseGitTree(repositoryRoot);
     try {
       await expect(fs.readFile(path.join(materialized.root, 'tracked.txt'), 'utf8'))
         .resolves.toBe('original-committed-bytes\n');
@@ -162,7 +186,7 @@ test('release source rejects a Git symlink mode before materialization', async (
     git(repositoryRoot, ['commit', '--quiet', '-m', 'symlink-tree']);
     await fs.symlink('target.txt', path.join(repositoryRoot, 'linked-entry'));
 
-    await expect(materializeExactReleaseGitTreeV1(repositoryRoot))
+    await expect(materializeExactReleaseGitTree(repositoryRoot))
       .rejects.toThrow(/unsupported Git entry linked-entry \(120000 blob\)/u);
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
@@ -182,7 +206,7 @@ test('release source rejects Git LFS pointer bytes instead of packaging pointer 
     git(repositoryRoot, ['add', '--all']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'lfs-pointer']);
 
-    await expect(materializeExactReleaseGitTreeV1(repositoryRoot))
+    await expect(materializeExactReleaseGitTree(repositoryRoot))
       .rejects.toThrow('Frozen release source contains a Git LFS pointer: asset.bin');
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });

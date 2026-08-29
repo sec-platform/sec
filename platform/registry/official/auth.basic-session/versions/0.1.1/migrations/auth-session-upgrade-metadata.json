@@ -1,8 +1,0 @@
-{
-  "id": "mig-auth-session-upgrade-metadata",
-  "kind": "json-array-append",
-  "reason": "Record auth session upgrade metadata in package configuration.",
-  "target": "upgrade.metadata.json",
-  "path": ["upgradedBlocks"],
-  "items": ["auth/basic-session@0.1.1"]
-}

@@ -4,8 +4,8 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createLocalContinuationCheckpointV1 } from '../../platform/shared/local-continuation-checkpoint.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
+import { createLocalContinuationCheckpoint } from '../../src/control/continuation/checkpoint.ts';
+import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
 
 function run(cwd: string, command: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env) {
   const result = spawnSync(command, [...args], { cwd, encoding: 'utf8', windowsHide: true, env });
@@ -35,7 +35,7 @@ test('one upstream handoff becomes managed local continuation until explicit ext
   const stateRoot = path.join(fixtureRoot, 'state');
   const cacheRoot = path.join(fixtureRoot, 'cache');
   const handoffPath = path.join(fixtureRoot, 'handoff.json');
-  const script = path.resolve('scripts/codex/local-continuation.ts');
+  const script = path.resolve('src/control/continuation/local-continuation.ts');
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SEC_STATE_HOME: stateRoot,
@@ -84,7 +84,7 @@ tests:
     git(repositoryRoot, 'commit', '-m', 'candidate');
     const headSha = git(repositoryRoot, 'rev-parse', 'HEAD');
     const headTreeSha = git(repositoryRoot, 'rev-parse', 'HEAD^{tree}');
-    const checkpoint = createLocalContinuationCheckpointV1({
+    const checkpoint = createLocalContinuationCheckpoint({
       repository: 'sec-platform/sec',
       prNumber: 496,
       branch: 'integration/continuation-fixture',
@@ -94,7 +94,7 @@ tests:
       headTreeSha,
       manifestPath
     });
-    writeFileSync(handoffPath, `${encodeVerificationActionDataV2(checkpoint)}\n`, 'utf8');
+    writeFileSync(handoffPath, `${encodeVerificationActionData(checkpoint)}\n`, 'utf8');
 
     const imported = invoke(repositoryRoot, script, env, '--handoff', handoffPath);
     expect(imported.status).toBe(0);

@@ -1,0 +1,651 @@
+import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { countMatching, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
+import type { LockFile } from '../contract.ts';
+import type { OverrideStatus, ProvenanceFile, ProvenanceOriginType } from '../../semantic/provenance/contract/types.ts';
+import type { RepairPlan, RepairTaskCategory } from '../../semantic/repair/contract/types.ts';
+import { buildReviewPolicySummary } from '../../verification/review/contract/policy.ts';
+import { REVIEW_SUMMARY_FORMAT_VERSION } from '../../verification/review/contract/types.ts';
+import { buildReviewChainSummary } from '../../verification/review/runtime/matrix.ts';
+import type { ReviewConflictHint, ReviewFailurePoint, ReviewInstallImpact, ReviewRegressionRisk, ReviewRepairVerificationTrace, ReviewSemanticViewSummary, ReviewSummary } from '../../verification/review/contract/types.ts';
+import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../verification/review/contract/upgrade.ts';
+import { semanticViewFactIds } from '../../semantic/projection/contract/types.ts';
+import type { UpgradeDiagnostics } from '../../change-management/upgrade/contract/types.ts';
+import type { VerificationReport } from '../../verification/contract/types.ts';
+import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
+import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
+import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
+import {
+  buildRuntimeAttributions,
+  buildVerticalSliceAttributions,
+  classifyRuntimeEntry,
+  type RuntimeAttribution
+} from './runtime-attribution.ts';
+
+function failurePointKey(point: ReviewFailurePoint): string {
+  return `${point.kind}:${point.lane}:${point.message}:${point.artifactPath}`;
+}
+
+function regressionRiskKey(risk: ReviewRegressionRisk): string {
+  return `${risk.kind}:${risk.blockId ?? ''}:${risk.slotId ?? ''}:${risk.message}`;
+}
+
+function conflictHintKey(hint: ReviewConflictHint): string {
+  return `${hint.kind}:${hint.relatedId}:${hint.message}`;
+}
+
+function compareByKey<T>(key: (value: T) => string): (left: T, right: T) => number {
+  return (left, right) => compareCodeUnits(key(left), key(right));
+}
+
+const compareFailurePoints = compareByKey(failurePointKey);
+const compareRegressionRisks = compareByKey(regressionRiskKey);
+const compareConflictHints = compareByKey(conflictHintKey);
+
+export function buildSemanticViewSummary(lock: LockFile): ReviewSemanticViewSummary | undefined {
+  const semanticViews = lock.semanticViews;
+  if (!semanticViews) return undefined;
+  const views = semanticViews.views.map((view) => {
+    const factIds = semanticViewFactIds(view);
+    return {
+      viewKind: view.viewKind,
+      ...(view.subject ? { subject: view.subject } : {}),
+      nodeCount: view.nodes.length,
+      edgeCount: view.edges.length,
+      factCount: factIds.length,
+      factIds
+    };
+  });
+  const factIds = uniqueSorted(views.flatMap((view) => view.factIds));
+  return {
+    formatVersion: semanticViews.formatVersion,
+    inputRevision: semanticViews.inputRevision,
+    semanticRevision: semanticViews.semanticRevision,
+    viewCount: views.length,
+    subjectCount: new Set(views.flatMap((view) => view.subject ?? [])).size,
+    nodeCount: views.reduce((count, view) => count + view.nodeCount, 0),
+    edgeCount: views.reduce((count, view) => count + view.edgeCount, 0),
+    factCount: factIds.length,
+    viewKindCounts: {
+      architecture: views.filter((view) => view.viewKind === 'architecture').length,
+      scenario: views.filter((view) => view.viewKind === 'scenario').length,
+      state: views.filter((view) => view.viewKind === 'state').length
+    },
+    factIds,
+    views
+  };
+}
+
+function addUnique<T>(values: Map<string, T>, value: T, key: (value: T) => string): void {
+  const valueKey = key(value);
+  if (!values.has(valueKey)) values.set(valueKey, value);
+}
+
+function addFailurePoint(points: Map<string, ReviewFailurePoint>, point: ReviewFailurePoint): void {
+  addUnique(points, point, failurePointKey);
+}
+
+function addRegressionRisk(risks: Map<string, ReviewRegressionRisk>, risk: ReviewRegressionRisk): void {
+  addUnique(risks, risk, regressionRiskKey);
+}
+
+function addConflictHint(hints: Map<string, ReviewConflictHint>, hint: ReviewConflictHint): void {
+  addUnique(hints, hint, conflictHintKey);
+}
+
+type VerificationFailurePointSpec = {
+  lane: ReviewFailurePoint['lane'];
+  kind: ReviewFailurePoint['kind'];
+  status: 'passed' | 'failed' | 'skipped';
+  summaryMessage: string;
+  artifactPath: string;
+  failedTargets?: readonly string[];
+  targetMessage?: string;
+};
+
+function addVerificationFailurePoint(points: Map<string, ReviewFailurePoint>, spec: VerificationFailurePointSpec): void {
+  if (spec.status !== 'failed') return;
+  addFailurePoint(points, { lane: spec.lane, kind: spec.kind, message: spec.summaryMessage, artifactPath: spec.artifactPath });
+  if (spec.targetMessage) {
+    for (const target of spec.failedTargets ?? []) {
+      addFailurePoint(points, { lane: spec.lane, kind: spec.kind, message: `${spec.targetMessage}: ${target}`, artifactPath: spec.artifactPath });
+    }
+  }
+}
+
+type ReviewTargetIdentity = Readonly<{ blockId: string; slotId?: string }>;
+
+interface ReviewTargetIndex {
+  readonly slotByTarget: ReadonlyMap<string, ReviewTargetIdentity | null>;
+  readonly installByTarget: ReadonlyMap<string, ReviewTargetIdentity | null>;
+  readonly runtimeEntryByPath: ReadonlyMap<string, RuntimeAttribution>;
+}
+
+function addUniqueTargetIdentity(
+  index: Map<string, ReviewTargetIdentity | null>,
+  target: string,
+  identity: ReviewTargetIdentity
+): void {
+  const existing = index.get(target);
+  if (existing === undefined && !index.has(target)) {
+    index.set(target, identity);
+    return;
+  }
+  if (existing === null || existing === undefined
+    || existing.blockId !== identity.blockId || existing.slotId !== identity.slotId) {
+    index.set(target, null);
+  }
+}
+
+function buildReviewTargetIndex(
+  lock: LockFile,
+  runtimeEntryByPath: ReadonlyMap<string, RuntimeAttribution>
+): ReviewTargetIndex {
+  const slotByTarget = new Map<string, ReviewTargetIdentity | null>();
+  const installByTarget = new Map<string, ReviewTargetIdentity | null>();
+  for (const task of lock.slotTasks) {
+    addUniqueTargetIdentity(slotByTarget, task.target, { blockId: task.block, slotId: task.id });
+  }
+  for (const step of lock.installPlan) {
+    addUniqueTargetIdentity(installByTarget, step.to, { blockId: step.blockId });
+  }
+  return { slotByTarget, installByTarget, runtimeEntryByPath };
+}
+
+function mapOverrideTarget(
+  target: string,
+  index: ReviewTargetIndex
+): Pick<ReviewRegressionRisk, 'blockId' | 'slotId'> {
+  const slotIdentity = index.slotByTarget.get(target);
+  if (slotIdentity) return slotIdentity;
+  const installIdentity = index.installByTarget.get(target);
+  if (installIdentity) return installIdentity;
+  const runtimeEntry = index.runtimeEntryByPath.get(target);
+  if (runtimeEntry?.relatedBlocks.length) {
+    const verticalBlock = runtimeEntry.vertical ? `${runtimeEntry.vertical}/basic` : null;
+    return {
+      blockId: verticalBlock && runtimeEntry.relatedBlocks.includes(verticalBlock)
+        ? verticalBlock
+        : runtimeEntry.relatedBlocks[0]
+    };
+  }
+  return {};
+}
+
+function buildReviewCiSummary(
+  failurePoints: ReviewFailurePoint[],
+  regressionRisks: ReviewRegressionRisk[],
+  conflictHints: ReviewConflictHint[],
+  impactedBlocks: string[],
+  impactedSlots: string[],
+  runtimeEntries: ReviewSummary['runtimeEntries']
+): ReviewSummary['ciSummary'] {
+  const failureCount = failurePoints.length;
+  const regressionRiskCount = regressionRisks.length;
+  const conflictHintCount = conflictHints.length;
+  return {
+    status: failureCount > 0 ? 'failed' : regressionRiskCount > 0 || conflictHintCount > 0 ? 'attention' : 'passed',
+    failureCount, regressionRiskCount, conflictHintCount,
+    impactedBlockCount: impactedBlocks.length, impactedSlotCount: impactedSlots.length, runtimeEntryCount: runtimeEntries.length
+  };
+}
+
+function buildPathGroupSummaries<T, K extends string, S>(
+  values: readonly T[],
+  key: (value: T) => K,
+  buildSummary: (group: K, values: readonly T[]) => S,
+  sortKey: (summary: S) => string
+): S[] {
+  const groups = new Map<K, T[]>();
+  for (const value of values) {
+    const group = key(value);
+    const groupValues = groups.get(group) ?? [];
+    groupValues.push(value);
+    groups.set(group, groupValues);
+  }
+  return [...groups]
+    .map(([group, groupValues]) => buildSummary(group, groupValues))
+    .sort((left, right) => compareCodeUnits(sortKey(left), sortKey(right)));
+}
+
+function buildCoverageTargetSummaries(
+  entries: readonly AcceptanceCoverageEntry[]
+): NonNullable<ReviewSummary['coverageSummary']>['blockSummaries'] {
+  return entries
+    .map((entry) => ({
+      id: entry.id,
+      declaredAcceptanceCount: entry.declaredAcceptance.length,
+      coveredByCount: entry.coveredBy.length,
+      declaredAcceptance: uniqueSorted(entry.declaredAcceptance),
+      coveredBy: uniqueSorted(entry.coveredBy)
+    }))
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
+}
+
+function buildCoverageSummary(coverage: AcceptanceCoverageReport): NonNullable<ReviewSummary['coverageSummary']> {
+  return {
+    status: coverage.status,
+    acceptancePassedCount: coverage.acceptancePassed.length,
+    blockCount: coverage.blocks.length,
+    slotCount: coverage.slots.length,
+    coveredBlockCount: coverage.blocks.length - coverage.uncoveredBlocks.length,
+    coveredSlotCount: coverage.slots.length - coverage.uncoveredSlots.length,
+    uncoveredBlockCount: coverage.uncoveredBlocks.length,
+    uncoveredSlotCount: coverage.uncoveredSlots.length,
+    acceptancePassed: uniqueSorted(coverage.acceptancePassed),
+    uncoveredBlocks: uniqueSorted(coverage.uncoveredBlocks),
+    uncoveredSlots: uniqueSorted(coverage.uncoveredSlots),
+    blockSummaries: buildCoverageTargetSummaries(coverage.blocks),
+    slotSummaries: buildCoverageTargetSummaries(coverage.slots)
+  };
+}
+
+export function buildProvenanceSummary(provenance: ProvenanceFile): ReviewSummary['provenanceSummary'] {
+  const originSummaries = buildPathGroupSummaries(
+    provenance.artifacts, (a) => a.originType,
+    (originType: ProvenanceOriginType, artifacts) => ({ originType, count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path)) }),
+    (s) => s.originType
+  );
+  const overrideSummaries = buildPathGroupSummaries(
+    provenance.artifacts, (a) => a.overrideStatus,
+    (overrideStatus: OverrideStatus, artifacts) => ({ overrideStatus, count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path)) }),
+    (s) => s.overrideStatus
+  );
+  const registryArtifacts = provenance.artifacts.filter((a) => a.registrySourceId);
+  const registrySummaries = buildPathGroupSummaries(
+    registryArtifacts, (a) => a.registrySourceId ?? '',
+    (registrySourceId, artifacts) => ({
+      registrySourceId,
+      ...(artifacts[0].registryKind ? { registryKind: artifacts[0].registryKind } : {}),
+      ...(artifacts[0].registryLocation ? { registryLocation: artifacts[0].registryLocation } : {}),
+      count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path))
+    }),
+    (s) => s.registrySourceId
+  );
+  const generatedPassArtifacts = provenance.artifacts.filter((a) => a.generatedByPass);
+  const generatedPassSummaries = buildPathGroupSummaries(
+    generatedPassArtifacts, (a) => a.generatedByPass ?? '',
+    (pass, artifacts) => ({ pass, count: artifacts.length, paths: uniqueSorted(artifacts.map((a) => a.path)) }),
+    (s) => s.pass
+  );
+  const unverifiedArtifacts = provenance.artifacts.filter((a) => a.verifiedBy.length === 0);
+
+  return {
+    artifactCount: provenance.artifacts.length,
+    verifiedArtifactCount: provenance.artifacts.length - unverifiedArtifacts.length,
+    unverifiedArtifactCount: unverifiedArtifacts.length,
+    overrideArtifactCount: countMatching(provenance.artifacts, (a) => a.overrideStatus !== 'none'),
+    registryArtifactCount: registryArtifacts.length,
+    generatedArtifactCount: generatedPassArtifacts.length,
+    generatedPassCount: generatedPassSummaries.length,
+    originSummaryCount: originSummaries.length, originSummaries,
+    overrideSummaryCount: overrideSummaries.length, overrideSummaries,
+    registrySummaryCount: registrySummaries.length, registrySummaries,
+    generatedPassSummaries,
+    unverifiedArtifacts: uniqueSorted(unverifiedArtifacts.map((a) => a.path))
+  };
+}
+
+function repairFailurePoints(repairPlan: RepairPlan) {
+  return [...repairPlan.tasks.flatMap((t) => t.failurePoints), ...(repairPlan.blockers ?? []).flatMap((b) => b.failurePoints)];
+}
+
+function buildRepairFailureTaxonomy(repairPlan: RepairPlan): NonNullable<ReviewSummary['repairSummary']>['failureTaxonomy'] {
+  const fps = repairFailurePoints(repairPlan);
+  return {
+    laneSummaries: summarizeCounts(fps.map((p) => p.lane)),
+    kindSummaries: summarizeCounts(fps.map((p) => p.kind)),
+    issueTypeSummaries: summarizeCounts(fps.map((p) => p.issueType)),
+    repairabilitySummaries: summarizeCounts(fps.map((p) => p.repairable ? 'repairable' : 'blocked'))
+  };
+}
+
+function repairTargetType(
+  point: ReturnType<typeof repairFailurePoints>[number],
+  targetId: string
+): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'][number]['targetType'] {
+  if (targetId.startsWith('generated/')) return 'generated-file';
+  if (targetId.startsWith('custom/') || targetId.startsWith('src/')) return point.kind === 'policy' ? 'policy-target' : 'slot-target';
+  if (point.kind === 'acceptance' || targetId.endsWith('.spec.ts')) return 'acceptance-case';
+  if (point.kind === 'runtime-unit' || point.kind === 'runtime-acceptance') return 'runtime-target';
+  if (point.kind === 'policy') return 'policy-target';
+  if (point.issueType === 'slot') return 'slot-target';
+  return 'unknown';
+}
+
+function buildRepairTargetSummaries(repairPlan: RepairPlan): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'] {
+  const counts = new Map<string, { targetType: ReturnType<typeof repairTargetType>; count: number }>();
+  for (const point of repairFailurePoints(repairPlan)) {
+    for (const targetId of point.targetIds ?? []) {
+      const targetType = repairTargetType(point, targetId);
+      const key = `${targetType}:${targetId}`;
+      const current = counts.get(key) ?? { targetType, count: 0 };
+      current.count += 1;
+      counts.set(key, current);
+    }
+  }
+  return [...counts.entries()]
+    .map(([key, summary]) => ({ id: key.slice(summary.targetType.length + 1), targetType: summary.targetType, count: summary.count }))
+    .sort((left, right) => compareCodeUnits(`${left.targetType}:${left.id}`, `${right.targetType}:${right.id}`));
+}
+
+function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCategory {
+  return task.category ?? 'slot-rewrite';
+}
+
+function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {
+  const failureTargets = uniqueSorted(task.failurePoints.flatMap((p) => p.targetIds ?? []));
+  return task.review ?? {
+    allowedPathCount: task.allowedPaths.length, requiredSymbolCount: task.requiredSymbols.length,
+    forbiddenOperationCount: task.forbiddenOperations.length, testCount: task.testsToPass.length,
+    failureTargetCount: failureTargets.length,
+    writeBounds: uniqueSorted(task.allowedPaths), requiredSymbols: uniqueSorted(task.requiredSymbols),
+    forbiddenOperations: uniqueSorted(task.forbiddenOperations), testsToPass: uniqueSorted(task.testsToPass),
+    failureTargets
+  };
+}
+
+const PENDING_ACTION_MAP: Record<string, ReviewRepairVerificationTrace['nextAction']> = {
+  blocked: 'resolve-blocker',
+  'verify-required': 'rerun-verify',
+  'repair-not-applied': 'apply-repair',
+  none: 'none'
+};
+
+function buildRepairVerificationTrace(repairPlan: RepairPlan): ReviewRepairVerificationTrace {
+  const pendingReason = repairPlan.status === 'blocked' ? 'blocked'
+    : repairPlan.requiresVerification ? 'verify-required'
+    : repairPlan.status === 'pending' ? 'repair-not-applied' : 'none';
+  return { pendingReason, nextAction: PENDING_ACTION_MAP[pendingReason] };
+}
+
+function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummary'] {
+  const taskSummaries = repairPlan.tasks
+    .map((task) => {
+      const review = repairTaskReview(task);
+      const previewStatus: 'changed' | 'unchanged' | 'missing' = task.preview
+        ? task.preview.changed ? 'changed' : 'unchanged' : 'missing';
+      return {
+        taskId: task.taskId, category: repairTaskCategory(task), sourceSlotId: task.sourceSlotId,
+        targetBlock: task.targetBlock, targetFile: task.targetFile, previewStatus,
+        addedLines: task.preview?.addedLines ?? 0, removedLines: task.preview?.removedLines ?? 0,
+        failurePointCount: task.failurePoints.length, targetIds: review.failureTargets,
+        allowedPathCount: review.allowedPathCount, requiredSymbolCount: review.requiredSymbolCount,
+        forbiddenOperationCount: review.forbiddenOperationCount, testCount: review.testCount,
+        failureTargetCount: review.failureTargetCount, writeBounds: review.writeBounds,
+        requiredSymbols: review.requiredSymbols, forbiddenOperations: review.forbiddenOperations,
+        testsToPass: review.testsToPass, failureTargets: review.failureTargets
+      };
+    })
+    .sort((left, right) => compareCodeUnits(left.taskId, right.taskId));
+  const blockerSummaries = (repairPlan.blockers ?? [])
+    .map((b) => ({ blockerId: b.blockerId, boundary: b.boundary, reason: b.reason, decisionRequired: b.decisionRequired, failurePointCount: b.failurePoints.length }))
+    .sort((left, right) => compareCodeUnits(left.blockerId, right.blockerId));
+  const changedPreviewCount = countMatching(repairPlan.tasks, (t) => t.preview?.changed === true);
+  const targetFiles = uniqueSorted(repairPlan.tasks.map((t) => t.targetFile));
+
+  return {
+    status: repairPlan.status, sourceVerificationStatus: repairPlan.sourceVerificationStatus,
+    requiresVerification: repairPlan.requiresVerification, taskCount: repairPlan.tasks.length,
+    blockerCount: repairPlan.blockers?.length ?? 0,
+    previewCount: countMatching(repairPlan.tasks, (t) => t.preview !== undefined),
+    changedPreviewCount,
+    failurePointCount: repairPlan.tasks.reduce((total, t) => total + t.failurePoints.length, blockerSummaries.reduce((total, b) => total + b.failurePointCount, 0)),
+    verificationTrace: buildRepairVerificationTrace(repairPlan),
+    failureTaxonomy: buildRepairFailureTaxonomy(repairPlan),
+    targetSummaries: buildRepairTargetSummaries(repairPlan),
+    taskCategorySummaries: summarizeCounts(repairPlan.tasks.map(repairTaskCategory)),
+    targetFileCount: targetFiles.length, targetFiles, taskSummaries, blockerSummaries
+  };
+}
+
+function formatUpgradeDiagnosticsFailureMessage(diagnostics: UpgradeDiagnostics): string {
+  const attribution = upgradeDiagnosticsAttributionParts(diagnostics.details);
+  const attributionSuffix = attribution.length > 0 ? `; ${attribution.join('; ')}` : '';
+  return [`Upgrade blocked at ${diagnostics.failedCheck}:`, diagnostics.errorCode, `${diagnostics.message}${attributionSuffix}`].join(' ');
+}
+
+interface InstallImpactAccumulator {
+  readonly blockId: string;
+  readonly actionKinds: Set<string>;
+  readonly sourceRoots: Set<string>;
+  readonly targetPaths: Set<string>;
+  readonly verticals: Set<string>;
+  readonly runtimeEntries: Set<string>;
+}
+
+function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
+  const impacts = new Map<string, InstallImpactAccumulator>();
+  for (const step of lock.installPlan) {
+    let impact = impacts.get(step.blockId);
+    if (!impact) {
+      impact = {
+        blockId: step.blockId,
+        actionKinds: new Set<string>(),
+        sourceRoots: new Set<string>(),
+        targetPaths: new Set<string>(),
+        verticals: new Set<string>(),
+        runtimeEntries: new Set<string>()
+      };
+      impacts.set(step.blockId, impact);
+    }
+    impact.actionKinds.add(step.action);
+    impact.sourceRoots.add(step.sourceRoot);
+    impact.targetPaths.add(step.to);
+    if (classifyRuntimeEntry(step.to)) impact.runtimeEntries.add(step.to);
+  }
+  return [...impacts.values()]
+    .map((impact) => ({
+      blockId: impact.blockId,
+      actionKinds: uniqueSorted([...impact.actionKinds]),
+      sourceRoots: uniqueSorted([...impact.sourceRoots]),
+      targetPaths: uniqueSorted([...impact.targetPaths]),
+      verticals: uniqueSorted([...impact.verticals]),
+      runtimeEntries: uniqueSorted([...impact.runtimeEntries])
+    }))
+    .sort((left, right) => compareCodeUnits(left.blockId, right.blockId));
+}
+
+function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): ReviewSummary['installImpactSummary'] {
+  const flatField = (field: keyof ReviewInstallImpact) => uniqueSorted(installImpacts.flatMap((i) => i[field] as string[]));
+  const blocks = uniqueSorted(installImpacts.map((i) => i.blockId));
+  const actionKinds = flatField('actionKinds');
+  const sourceRoots = flatField('sourceRoots');
+  const targetPaths = flatField('targetPaths');
+  const verticals = flatField('verticals');
+  const runtimeEntries = flatField('runtimeEntries');
+
+  const groupMap = new Map<string, {
+    blocks: Set<string>;
+    actionKinds: Set<string>;
+    runtimeEntries: Set<string>;
+    targetPaths: Set<string>;
+  }>();
+  for (const impact of installImpacts) {
+    for (const vertical of impact.verticals.length > 0 ? impact.verticals : ['none']) {
+      const group = groupMap.get(vertical) ?? {
+        blocks: new Set<string>(),
+        actionKinds: new Set<string>(),
+        runtimeEntries: new Set<string>(),
+        targetPaths: new Set<string>()
+      };
+      group.blocks.add(impact.blockId);
+      for (const actionKind of impact.actionKinds) group.actionKinds.add(actionKind);
+      for (const runtimeEntry of impact.runtimeEntries) group.runtimeEntries.add(runtimeEntry);
+      for (const targetPath of impact.targetPaths) group.targetPaths.add(targetPath);
+      groupMap.set(vertical, group);
+    }
+  }
+
+  const groupSummaries = [...groupMap.entries()]
+    .map(([vertical, group]) => {
+      const groupBlocks = uniqueSorted([...group.blocks]);
+      const groupActionKinds = uniqueSorted([...group.actionKinds]);
+      const groupRuntimeEntries = uniqueSorted([...group.runtimeEntries]);
+      const groupTargetPaths = uniqueSorted([...group.targetPaths]);
+      return {
+        vertical,
+        blockCount: groupBlocks.length,
+        actionKindCount: groupActionKinds.length,
+        runtimeEntryCount: groupRuntimeEntries.length,
+        targetPathCount: groupTargetPaths.length,
+        blocks: groupBlocks,
+        actionKinds: groupActionKinds,
+        runtimeEntries: groupRuntimeEntries,
+        targetPaths: groupTargetPaths
+      };
+    })
+    .sort((left, right) => compareCodeUnits(left.vertical, right.vertical));
+
+  return {
+    impactCount: installImpacts.length, blockCount: blocks.length, actionKindCount: actionKinds.length,
+    sourceRootCount: sourceRoots.length, targetPathCount: targetPaths.length, verticalCount: verticals.length,
+    runtimeEntryCount: runtimeEntries.length, groupCount: groupSummaries.length,
+    blocks, actionKinds, sourceRoots, targetPaths, verticals, runtimeEntries, groupSummaries
+  };
+}
+
+export async function buildReviewSummary(
+  workspaceRoot: string,
+  lock: LockFile,
+  provenance: ProvenanceFile,
+  report: VerificationReport,
+  coverage: AcceptanceCoverageReport
+): Promise<ReviewSummary> {
+  const overrideManifest = await loadOverrideManifest(workspaceRoot);
+  const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = readReviewGovernanceReports(workspaceRoot);
+  const attributionTargets = uniqueSorted([
+    ...provenance.artifacts.map((artifact) => artifact.path),
+    ...overrideManifest.overrides.map((override) => override.target)
+  ]);
+  const allRuntimeEntries = await buildRuntimeAttributions(lock, attributionTargets, workspaceRoot);
+  const runtimeEntryByPath = new Map(allRuntimeEntries.map((entry) => [entry.path, entry] as const));
+  const reviewTargetIndex = buildReviewTargetIndex(lock, runtimeEntryByPath);
+  const provenancePaths = new Set(provenance.artifacts.map((artifact) => artifact.path));
+  const runtimeEntries = allRuntimeEntries.filter((entry) => provenancePaths.has(entry.path));
+
+  const coverageSummary = buildCoverageSummary(coverage);
+  const provenanceSummary = buildProvenanceSummary(provenance);
+  const policySummary = policyReport ? buildReviewPolicySummary(policyReport) : undefined;
+  const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
+  const upgradeSummary = buildReviewUpgradeSummary(upgradePlan, upgradeDiagnostics);
+  const failurePoints = new Map<string, ReviewFailurePoint>();
+  const regressionRisks = new Map<string, ReviewRegressionRisk>();
+  const conflictHints = new Map<string, ReviewConflictHint>();
+
+  if (report.summary.failedLanes.length > 0) {
+    addFailurePoint(failurePoints, { lane: 'all', kind: 'summary', message: `Verification failed in lanes: ${report.summary.failedLanes.join(', ')}`, artifactPath: CI_ARTIFACT_FILES.verificationReport });
+  }
+
+  for (const violation of report.fast.policy.violations) {
+    addFailurePoint(failurePoints, { lane: 'fast', kind: 'policy', message: `Policy ${violation.id}: ${violation.message}`, artifactPath: CI_ARTIFACT_FILES.policyReport });
+  }
+
+  for (const failure of [
+    { lane: 'fast', kind: 'build', status: report.fast.build.status, summaryMessage: 'Fast-lane typecheck failed', artifactPath: CI_ARTIFACT_FILES.verificationReport },
+    { lane: 'fast', kind: 'unit', status: report.fast.unit.status, summaryMessage: 'Fast-lane unit tests failed', artifactPath: CI_ARTIFACT_FILES.verificationReport },
+    { lane: 'fast', kind: 'acceptance', status: report.fast.acceptance.status, summaryMessage: 'Fast-lane acceptance tests failed', artifactPath: CI_ARTIFACT_FILES.verificationReport, failedTargets: report.fast.acceptance.failed, targetMessage: 'Fast-lane acceptance test failed' },
+    { lane: 'runtime', kind: 'build', status: report.runtime.build.status, summaryMessage: 'Runtime build failed', artifactPath: CI_ARTIFACT_FILES.runtimeReport, failedTargets: report.runtime.build.failed, targetMessage: 'Runtime build failed' },
+    { lane: 'runtime', kind: 'unit', status: report.runtime.unit.status, summaryMessage: 'Runtime unit tests failed', artifactPath: CI_ARTIFACT_FILES.runtimeReport, failedTargets: report.runtime.unit.failed, targetMessage: 'Runtime unit test failed' },
+    { lane: 'runtime', kind: 'acceptance', status: report.runtime.acceptance.status, summaryMessage: 'Runtime acceptance tests failed', artifactPath: CI_ARTIFACT_FILES.runtimeReport, failedTargets: report.runtime.acceptance.failed, targetMessage: 'Runtime acceptance test failed' }
+  ] satisfies VerificationFailurePointSpec[]) {
+    addVerificationFailurePoint(failurePoints, failure);
+  }
+
+  for (const blockId of coverage.uncoveredBlocks) {
+    addRegressionRisk(regressionRisks, { kind: 'coverage-gap', blockId, message: `Block ${blockId} has no runtime acceptance coverage` });
+  }
+  for (const slotId of coverage.uncoveredSlots) {
+    addRegressionRisk(regressionRisks, { kind: 'coverage-gap', slotId, message: `Slot ${slotId} has no runtime acceptance coverage` });
+  }
+
+  for (const override of overrideManifest.overrides) {
+    addRegressionRisk(regressionRisks, {
+      kind: 'override-active',
+      message: `Override active: ${override.id} -> ${override.target}`,
+      ...mapOverrideTarget(override.target, reviewTargetIndex)
+    });
+    for (const conflict of override.conflictsWith) {
+      addConflictHint(conflictHints, { kind: 'override-conflict', relatedId: conflict, message: `Override ${override.id} conflicts with ${conflict}` });
+    }
+  }
+
+  if (upgradePlan) {
+    addConflictHint(conflictHints, {
+      kind: 'upgrade-plan-present', relatedId: upgradePlan.blockId,
+      message: upgradePlan.status === 'applied' ? `Upgrade plan applied, verify pending: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}` : `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
+    });
+    if (upgradePlan.preflightChecks.length > 0) {
+      addConflictHint(conflictHints, { kind: 'upgrade-preflight-passed', relatedId: upgradePlan.blockId, message: `Upgrade preflight passed: ${upgradePlan.preflightChecks.map((c) => c.id).join(', ')}` });
+    }
+    for (const impact of upgradePlan.impacts) {
+      addRegressionRisk(regressionRisks, { kind: 'upgrade-impact', blockId: upgradePlan.blockId, message: `Upgrade ${upgradePlan.blockId} impacts ${impact}` });
+    }
+    for (const migration of upgradePlan.migrationSummaries) {
+      if (migration.requiresVerification) {
+        addRegressionRisk(regressionRisks, { kind: 'upgrade-verification', blockId: upgradePlan.blockId, message: `Upgrade migration ${migration.id} requires verification for ${migration.target}` });
+      }
+    }
+  }
+
+  if (upgradeDiagnostics) {
+    addFailurePoint(failurePoints, { lane: 'all', kind: 'upgrade', message: formatUpgradeDiagnosticsFailureMessage(upgradeDiagnostics), artifactPath: CI_ARTIFACT_FILES.upgradeDiagnostics });
+  }
+
+  if (repairPlan) {
+    if (repairPlan.requiresVerification) {
+      addRegressionRisk(regressionRisks, { kind: 'repair-verification', message: 'Repair applied and requires verification rerun' });
+    }
+    for (const blocker of repairPlan.blockers ?? []) {
+      addFailurePoint(failurePoints, { lane: 'all', kind: 'repair', artifactPath: CI_ARTIFACT_FILES.repairPlan, message: `Repair blocked at ${blocker.boundary}: ${blocker.reason}` });
+      addConflictHint(conflictHints, { kind: 'repair-blocked', relatedId: blocker.blockerId, message: `Repair blocked: ${blocker.reason}; decision ${blocker.decisionRequired}` });
+    }
+    for (const task of repairPlan.tasks) {
+      const preview = task.preview ? `; preview ${task.preview.changed ? 'changed' : 'unchanged'} +${task.preview.addedLines}/-${task.preview.removedLines}` : '';
+      const targetIds = uniqueSorted(task.failurePoints.flatMap((p) => p.targetIds ?? []));
+      const targets = targetIds.length > 0 ? `; targets ${targetIds.join(', ')}` : '';
+      addConflictHint(conflictHints, {
+        kind: 'repair-plan-present', relatedId: task.taskId,
+        message: repairPlan.status === 'applied' ? `Repair task applied, verify pending: ${task.taskId} -> ${task.targetFile}${preview}${targets}` : `Repair task pending: ${task.taskId} -> ${task.targetFile}${preview}${targets}`
+      });
+    }
+  }
+
+  const changeSources = provenance.artifacts.map((artifact) => {
+    const runtimeEntry = runtimeEntryByPath.get(artifact.path);
+    return {
+      path: artifact.path, originType: artifact.originType, originId: artifact.originId,
+      ...(artifact.sourcePath ? { sourcePath: artifact.sourcePath } : {}),
+      ...(artifact.runtimeTarget ? { runtimeTarget: artifact.runtimeTarget } : {}),
+      ...(artifact.registrySourceId ? { registrySourceId: artifact.registrySourceId, registryKind: artifact.registryKind, registryLocation: artifact.registryLocation } : {}),
+      ...(runtimeEntry ? { runtimeKind: runtimeEntry.kind, ...(runtimeEntry.vertical ? { vertical: runtimeEntry.vertical } : {}), relatedBlocks: runtimeEntry.relatedBlocks } : {})
+    };
+  });
+  const artifactSummary = readReviewArtifactSummary(workspaceRoot);
+  const installImpacts = buildInstallImpacts(lock);
+  const installImpactSummary = buildInstallImpactSummary(installImpacts);
+  const impactedBlocks = uniqueSorted(lock.resolvedBlocks.map((b) => b.id));
+  const impactedSlots = uniqueSorted(lock.slotTasks.map((t) => t.id));
+  const sortedFailurePoints = [...failurePoints.values()].sort(compareFailurePoints);
+  const sortedRegressionRisks = [...regressionRisks.values()].sort(compareRegressionRisks);
+  const sortedConflictHints = [...conflictHints.values()].sort(compareConflictHints);
+  const semanticViewSummary = buildSemanticViewSummary(lock);
+
+  return {
+    formatVersion: REVIEW_SUMMARY_FORMAT_VERSION,
+    ciSummary: buildReviewCiSummary(sortedFailurePoints, sortedRegressionRisks, sortedConflictHints, impactedBlocks, impactedSlots, runtimeEntries),
+    chainSummary: buildReviewChainSummary(report, coverageSummary, artifactSummary),
+    ...(semanticViewSummary ? { semanticViewSummary } : {}),
+    ...(artifactSummary ? { artifactSummary } : {}),
+    coverageSummary, provenanceSummary,
+    ...(policySummary ? { policySummary } : {}),
+    ...(repairSummary ? { repairSummary } : {}),
+    ...(upgradeSummary ? { upgradeSummary } : {}),
+    changeSourceCount: changeSources.length, runtimeEntryCount: runtimeEntries.length, installImpactCount: installImpacts.length,
+    changeSources, runtimeEntries, verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
+    installImpacts, installImpactSummary, impactedBlocks, impactedSlots,
+    failurePoints: sortedFailurePoints, regressionRisks: sortedRegressionRisks, conflictHints: sortedConflictHints
+  };
+}

@@ -83,7 +83,7 @@
     "rejectedShortcut": "Excluding next-env.d.ts from the project input digest would weaken publish binding and was not used."
   },
   "boundedRepair": {
-    "owner": "platform/compiler/verify/run-runtime-verification.ts",
+    "owner": "src/compiler/verify/run-runtime-verification.ts",
     "strategy": "Capture exact next-env.d.ts and tsconfig.json bytes immediately before isolated runtime commands, then restore those bytes under the canonical commit fence before the final staging-tree proof.",
     "writeBoundary": [
       "canonical regular file",
@@ -100,7 +100,7 @@
       "diffCheck": "passed"
     },
     "currentWorkingTreeBlobs": {
-      "platform/compiler/verify/run-runtime-verification.ts": "71ed497d9feed88ef6a439c2bd41957cdf7f96d9",
+      "src/compiler/verify/run-runtime-verification.ts": "71ed497d9feed88ef6a439c2bd41957cdf7f96d9",
       "tests/unit/runtime-verification.test.ts": "a4f160b2e410434b52ac2d714f8a56a9eb2ac2c7",
       "tests/contract/semantic-mutation-apply-contract.test.ts": "92f6d0216093697df7a1d011bec1399a90cc9be3"
     }

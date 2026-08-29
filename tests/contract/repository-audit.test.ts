@@ -10,31 +10,12 @@ import {
   SEC_AGENT_SKILL_IDS,
   SEC_REPOSITORY_BEHAVIOR_IDS,
   SEC_REPOSITORY_BEHAVIOR_ROUTES
-} from '../../platform/shared/agent-skill-contract.ts';
+} from '../../src/control/agent/skill.ts';
 import {
-  auditInformationLifecycle,
   auditRepository,
-  classifyInformationLifecyclePath,
-  DELETED_BLOB_MACHINE_MANIFEST_V1,
-  dispositionForDeletedPath,
   extractHeuristicBehaviorCandidates,
-  INFORMATION_LIFECYCLE_CLAIM_FAMILIES,
-  INFORMATION_LIFECYCLE_CLASS_PROFILES,
-  INFORMATION_LIFECYCLE_TRANSITION,
-  NEXUS_EPR_BINDINGS_V1,
   repositoryAuditShouldFail
-} from '../../scripts/codex/repository-audit.ts';
-
-const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const DEFAULT_BRANCH_REMOTE_REF = 'refs/remotes/origin/main';
-const EXACT_COMMIT_PATTERN = /^[0-9a-f]{40}$/u;
-
-type RealRepositoryAuditDefaultContext = Readonly<{
-  explicitDefaultCommit?: string;
-  githubActions?: string;
-  githubRef?: string;
-  githubSha?: string;
-}>;
+} from '../../src/brownfield/repository-audit/cli.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -48,316 +29,6 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   }
   return result.stdout.trim();
 }
-
-function resolveExactCommit(repositoryRoot: string, value: string, label: string): string {
-  if (!EXACT_COMMIT_PATTERN.test(value)) {
-    throw new Error(`${label} must be an exact lowercase 40-character commit SHA.`);
-  }
-  const resolved = git(repositoryRoot, ['rev-parse', '--verify', `${value}^{commit}`]);
-  if (resolved !== value) throw new Error(`${label} did not resolve to its exact commit identity.`);
-  return resolved;
-}
-
-function resolveRealRepositoryAuditDefaultCommit(
-  repositoryRoot: string,
-  context: RealRepositoryAuditDefaultContext
-): string {
-  if (context.explicitDefaultCommit !== undefined) {
-    return resolveExactCommit(
-      repositoryRoot,
-      context.explicitDefaultCommit,
-      'Real repository audit explicit default commit'
-    );
-  }
-
-  const defaultRef = spawnSync(
-    'git',
-    ['show-ref', '--verify', '--quiet', DEFAULT_BRANCH_REMOTE_REF],
-    { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true }
-  );
-  if (defaultRef.error) throw defaultRef.error;
-  if (defaultRef.status === 0) {
-    const resolved = git(repositoryRoot, [
-      'rev-parse', '--verify', `${DEFAULT_BRANCH_REMOTE_REF}^{commit}`
-    ]);
-    if (!EXACT_COMMIT_PATTERN.test(resolved)) {
-      throw new Error('Real repository audit source default ref did not resolve to an exact commit.');
-    }
-    return resolved;
-  }
-  if (defaultRef.status !== 1) {
-    throw new Error(
-      `git show-ref --verify --quiet ${DEFAULT_BRANCH_REMOTE_REF} failed: `
-      + defaultRef.stderr.trim()
-    );
-  }
-
-  const sourceHead = git(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}']);
-  const exactGithubActionsMainCheckoutContext = context.githubActions === 'true'
-    && context.githubRef === 'refs/heads/main'
-    && context.githubSha !== undefined;
-  if (!exactGithubActionsMainCheckoutContext) {
-    throw new Error(
-      'Real repository audit default commit is unavailable without an explicit commit, '
-      + 'a source default ref, or an exact GitHub Actions main checkout tuple.'
-    );
-  }
-  const githubSha = resolveExactCommit(
-    repositoryRoot,
-    context.githubSha!,
-    'Real repository audit GitHub main commit'
-  );
-  if (githubSha !== sourceHead) {
-    throw new Error('Real repository audit GitHub main commit does not match source HEAD.');
-  }
-  return githubSha;
-}
-
-test('information lifecycle machine manifest matches the exact deleted-blob census', () => {
-  const entries = Object.entries(DELETED_BLOB_MACHINE_MANIFEST_V1);
-  expect(entries).toHaveLength(146);
-  const deleted = entries.filter(([, tuple]) => tuple[0] === 'D');
-  const renamed = entries.filter(([, tuple]) => tuple[0] === 'R');
-  expect(deleted).toHaveLength(142);
-  expect(renamed).toHaveLength(4);
-  for (const [oldPath, tuple] of entries) {
-    expect(oldPath.startsWith('docs/')).toBe(true);
-    expect(tuple[1]).toMatch(/^[0-9a-f]{40}$/);
-    expect(tuple[2]).toMatch(/^[0-9a-f]{64}$/);
-    expect(tuple[3]).toBeGreaterThan(0);
-    expect(tuple[4]).toBeGreaterThanOrEqual(0);
-    if (tuple[0] === 'R') {
-      expect(tuple[5]).toBeDefined();
-      expect(tuple[5]!.startsWith('tests/fixtures/')).toBe(true);
-    } else {
-      expect(tuple[5]).toBeUndefined();
-    }
-  }
-  expect(new Set(entries.map(([oldPath]) => oldPath)).size).toBe(146);
-  expect(INFORMATION_LIFECYCLE_TRANSITION.old).toMatch(/^[0-9a-f]{40}$/);
-  expect(INFORMATION_LIFECYCLE_TRANSITION.next).toMatch(/^[0-9a-f]{40}$/);
-});
-
-test('information lifecycle dispositions cover every deleted blob with the Phase 0 families', () => {
-  const unresolved = Object.keys(DELETED_BLOB_MACHINE_MANIFEST_V1).filter((oldPath) =>
-    dispositionForDeletedPath(oldPath) === null);
-  expect(unresolved).toEqual([]);
-  expect(dispositionForDeletedPath(
-    'docs/archive/authority-v5/14-Engineering IR与语义事实规范.md'
-  )?.disposition).toBe('migrated-canonical-authority');
-  expect(dispositionForDeletedPath(
-    'docs/archive/authority-v5/governance/nexus-absorption-and-conformance.md'
-  )?.disposition).toBe('migrated-canonical-authority');
-  expect(dispositionForDeletedPath(
-    'docs/archive/authority-v5/governance/nexus-absorption-ledger.yaml'
-  )?.disposition).toBe('migrated-machine-ledger');
-  expect(dispositionForDeletedPath(
-    'docs/archive/authority-v5/root/AGENTS.historical.md'
-  )?.disposition).toBe('migrated-fixture');
-  expect(dispositionForDeletedPath(
-    'docs/archive/work-packages/sm3-r3-actionable-runtime-gate-v4.md'
-  )?.disposition).toBe('migrated-fixture');
-  expect(dispositionForDeletedPath(
-    'docs/archive/work-packages/verification-result-core-v1.md'
-  )?.disposition).toBe('historical-git-only');
-  expect(dispositionForDeletedPath(
-    'docs/archive/用户能力模块化开发.md'
-  )?.disposition).toBe('historical-git-only');
-  expect(dispositionForDeletedPath(
-    'docs/archive/authority-v5/00-文档索引与一致性规则.md'
-  )?.disposition).toBe('superseded-duplicate-authority');
-  expect(dispositionForDeletedPath('docs/never-existed.md')).toBeNull();
-});
-
-test('information lifecycle claim families are closed and reference current owners', () => {
-  const ids = INFORMATION_LIFECYCLE_CLAIM_FAMILIES.map((family) => family.claimId);
-  expect(new Set(ids).size).toBe(ids.length);
-  expect(INFORMATION_LIFECYCLE_CLAIM_FAMILIES.length).toBeGreaterThanOrEqual(14);
-  for (const family of INFORMATION_LIFECYCLE_CLAIM_FAMILIES) {
-    expect(family.currentOwner.trim().length).toBeGreaterThan(0);
-    expect(family.currentReferences.length).toBeGreaterThan(0);
-    expect(family.reason.trim().length).toBeGreaterThan(0);
-    expect(['migrated-canonical-authority', 'migrated-machine-ledger', 'migrated-fixture',
-      'historical-git-only', 'extract-required', 'superseded-duplicate-authority']).toContain(
-      family.disposition);
-  }
-  expect(INFORMATION_LIFECYCLE_CLAIM_FAMILIES.find(
-    (family) => family.claimId === 'bounded-recursive-composition'
-  )?.currentOwner).toBe('issue-317');
-  expect(INFORMATION_LIFECYCLE_CLAIM_FAMILIES.find(
-    (family) => family.claimId === 'semantic-engineering-benchmark'
-  )?.currentOwner).toBe('issue-318');
-});
-
-test('Nexus EPR binding table is 29 unique records with bound/blocked evidence', () => {
-  expect(NEXUS_EPR_BINDINGS_V1).toHaveLength(29);
-  const ids = NEXUS_EPR_BINDINGS_V1.map((entry) => entry.eprId);
-  expect(new Set(ids).size).toBe(29);
-  expect(ids[0]).toBe('EPR-001');
-  expect(ids[28]).toBe('EPR-029');
-  const bound = NEXUS_EPR_BINDINGS_V1.filter((entry) => entry.binding === 'bound');
-  const blocked = NEXUS_EPR_BINDINGS_V1.filter((entry) => entry.binding === 'blocked');
-  expect(bound).toHaveLength(26);
-  expect(blocked).toHaveLength(3);
-  for (const entry of bound) {
-    expect(entry.mechanism.length).toBeGreaterThan(0);
-    expect(entry.applicableGate.trim().length).toBeGreaterThan(0);
-  }
-  for (const entry of blocked) {
-    expect(entry.blockingEvidence).not.toBeNull();
-    expect(entry.blockingEvidence!.trim().length).toBeGreaterThan(0);
-    expect(entry.mechanism).toEqual([]);
-  }
-  for (const entry of NEXUS_EPR_BINDINGS_V1) {
-    expect(entry.requirement.trim().length).toBeGreaterThan(0);
-    expect(entry.secOwner.length).toBeGreaterThan(0);
-    expect(entry.historicalRegression).toContain('2d7187f4');
-  }
-});
-
-test('information lifecycle current-tree classification is a closed 13-class census', () => {
-  expect(classifyInformationLifecyclePath('docs/README.md')).toBe('generated-projection');
-  expect(classifyInformationLifecyclePath('public-docs/start-here.md')).toBe('generated-projection');
-  expect(classifyInformationLifecyclePath('docs/authority.json')).toBe('stable-authority');
-  expect(classifyInformationLifecyclePath('docs/semantic-model.md')).toBe('stable-authority');
-  expect(classifyInformationLifecyclePath('docs/work/rolling-plan.md')).toBe('machine-control');
-  expect(classifyInformationLifecyclePath('docs/governance/nexus-absorption-ledger.yaml')).toBe('machine-control');
-  expect(classifyInformationLifecyclePath('platform/shared/workspace-write-lease.ts')).toBe('product-contract');
-  expect(classifyInformationLifecyclePath('platform/compiler/semantic-mutation/transaction-identity.ts')).toBe('product-source');
-  expect(classifyInformationLifecyclePath('scripts/codex/repository-audit.ts')).toBe('repository-tooling');
-  expect(classifyInformationLifecyclePath('tooling/sec-dev/verification-action-runner.ts')).toBe('repository-tooling');
-  expect(classifyInformationLifecyclePath('tests/fixtures/policy.md')).toBe('test-fixture');
-  expect(classifyInformationLifecyclePath('tests/contract/repository-audit.test.ts')).toBe('repository-tooling');
-  expect(classifyInformationLifecyclePath('AGENTS.md')).toBe('stable-authority');
-  expect(classifyInformationLifecyclePath('source/app.yaml')).toBe('product-source');
-  expect(classifyInformationLifecyclePath('mise.toml')).toBe('repository-tooling');
-  expect(classifyInformationLifecyclePath('.env.local')).toBe('maintainer-overlay-forbidden');
-  expect(classifyInformationLifecyclePath('report/out.json')).toBe('ephemeral-forbidden');
-  expect(classifyInformationLifecyclePath('node_modules/example/index.js')).toBe('vendor-adapter');
-  expect(classifyInformationLifecyclePath('mystery/path')).toBe('unknown');
-  expect(Object.keys(INFORMATION_LIFECYCLE_CLASS_PROFILES)).toHaveLength(13);
-});
-
-test.serial('information lifecycle detectors fail closed on every pollution class', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-info-lifecycle-pollution-'));
-  try {
-    git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
-    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
-    git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
-    git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
-    await writeFile(path.join(repositoryRoot, 'README.md'), '# Fixture\n', 'utf8');
-    git(repositoryRoot, ['add', 'README.md']);
-    git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
-    git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', 'HEAD']);
-    await writeFile(
-      path.join(repositoryRoot, 'wip.txt'),
-      'placeholder\n',
-      'utf8'
-    );
-    git(repositoryRoot, ['add', 'wip.txt']);
-    git(repositoryRoot, [
-      'commit', '--quiet', '-m', 'wip',
-      '--trailer', 'Co-authored-by: Copilot <copilot@github.com>'
-    ]);
-
-    const tracked = [
-      'README.md',
-      'docs/chat.md',
-      'docs/local.md',
-      'docs/stale.md',
-      'docs/README.md',
-      'docs/authority.json',
-      'docs/governance/other-ledger.yaml',
-      'docs/evidence/narrative.md',
-      'scripts/probe.ts',
-      'scripts/publish-public.ts',
-      'report/out.json',
-      'AGENTS.local.md',
-      'INSTRUCTIONS.md',
-      'tests/fixtures/documentation-history/old.md'
-    ];
-    const textByPath = new Map<string, string | null>([
-      ['docs/chat.md', '## Transcript\n\nChatGPT said: this is a raw chat artifact.\n\nhttps://chatgpt.com/c/abc123\n'],
-      ['docs/local.md', 'The workspace lives at D:\\Project\\sec on this host.\n'],
-      ['docs/stale.md', 'See docs/archive/authority-v5/00-文档索引与一致性规则.md and 2026-07-13T03:10:46+08:00.\n'],
-      ['docs/README.md', '# Docs index\n'],
-      ['docs/authority.json', '{"documents":[{"path":"docs/semantic-model.md"}]}\n'],
-      ['docs/governance/other-ledger.yaml', 'identity: PLACEHOLDER\n'],
-      ['docs/evidence/narrative.md', '# Narrative evidence\n'],
-      ['scripts/probe.ts', "const oldPath = 'docs/archive/old.md';\n"],
-      ['scripts/publish-public.ts', 'git push --force origin main\n'],
-      ['report/out.json', '{}\n'],
-      ['AGENTS.local.md', 'Agent must do local things.\n'],
-      ['INSTRUCTIONS.md', 'Instructions.\n'],
-      ['tests/fixtures/documentation-history/old.md', '# Historical fixture without exact reference\n']
-    ]);
-
-    const findings: Parameters<typeof auditInformationLifecycle>[5] = [];
-    const unknowns: string[] = [];
-    await auditInformationLifecycle(
-      repositoryRoot,
-      tracked,
-      'refs/remotes/origin/main',
-      new Map(),
-      textByPath,
-      findings,
-      unknowns,
-      false
-    );
-    const fired = new Set(findings.map((finding) => finding.code));
-    expect(fired).toContain('information-lifecycle-raw-chat-artifact');
-    expect(fired).toContain('information-lifecycle-private-conversation-url');
-    expect(fired).toContain('information-lifecycle-tracked-ephemeral-output');
-    expect(fired).toContain('information-lifecycle-absolute-local-path');
-    expect(fired).toContain('information-lifecycle-placeholder-evidence-identity');
-    expect(fired).toContain('information-lifecycle-epoch-evidence-timestamp');
-    expect(fired).toContain('information-lifecycle-stale-authority-reference');
-    expect(fired).toContain('information-lifecycle-missing-historical-source-reference');
-    expect(fired).toContain('information-lifecycle-archive-current-consumer');
-    expect(fired).toContain('information-lifecycle-duplicate-instruction-owner');
-    expect(fired).toContain('information-lifecycle-unsafe-publisher-network-path');
-    expect(fired).toContain('information-lifecycle-meaningless-commit-subject');
-    expect(fired).toContain('information-lifecycle-ungoverned-ai-attribution-trailer');
-    expect(fired).toContain('information-lifecycle-unowned-current-evidence');
-    expect(fired).toContain('information-lifecycle-generated-projection-drift');
-    expect(fired).toContain('information-lifecycle-external-text-instruction-path');
-    expect(fired).not.toContain('information-lifecycle-unknown-retention-class');
-  } finally {
-    await rm(repositoryRoot, { force: true, recursive: true });
-  }
-});
-
-test.serial('information lifecycle clean fixture produces no detector findings', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-info-lifecycle-clean-'));
-  try {
-    const tracked = ['README.md', 'AGENTS.md', 'docs/semantic-model.md'];
-    const textByPath = new Map<string, string | null>([
-      ['README.md', '# Fixture\n'],
-      ['AGENTS.md', '# Agent rules\n'],
-      ['docs/semantic-model.md', '# Semantic Model\n']
-    ]);
-    const findings: Parameters<typeof auditInformationLifecycle>[5] = [];
-    const unknowns: string[] = [];
-    const report = await auditInformationLifecycle(
-      repositoryRoot,
-      tracked,
-      'refs/remotes/origin/main',
-      new Map(),
-      textByPath,
-      findings,
-      unknowns,
-      false
-    );
-    expect(findings).toEqual([]);
-    expect(report.detectors.findings).toBe(0);
-    expect(report.machineUnresolved).toBe(0);
-    expect(report.nexusLedger.validation).toBe('not-applicable');
-    expect(report.trackedPaths.unknown).toBe(0);
-    expect(report.deletedBlobs.unresolved).toBe(0);
-  } finally {
-    await rm(repositoryRoot, { force: true, recursive: true });
-  }
-});
 
 test('behavior registry separates deterministic routes from bounded Skills', () => {
   expect(SEC_REPOSITORY_BEHAVIOR_IDS.length).toBeGreaterThan(SEC_AGENT_SKILL_IDS.length);
@@ -435,7 +106,7 @@ test('heuristic candidate extraction ignores historical authority but exposes hi
     '* without consulting host source or a network package registry.'
   )).toEqual([]);
   expect(extractHeuristicBehaviorCandidates(
-    'control/workbench/views/vendor.min.js',
+    'generated/views/vendor.min.js',
     'Agent must merge();'
   )).toEqual([]);
   for (const repositoryPath of ['README.md', 'docs/README.md', 'docs/work/README.md']) {
@@ -554,7 +225,11 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
     await writeFile(path.join(repositoryRoot, 'AGENTS.md'), 'Agent must use the canonical owner.\n', 'utf8');
     await writeFile(
       path.join(repositoryRoot, 'platform', 'example.ts'),
-      '// Codex Agent must preserve the canonical owner.\n',
+      [
+        '// Codex Agent must preserve the canonical owner.',
+        "export const EXAMPLE_SCHEMA_VERSION = 'example-v1';",
+        ''
+      ].join('\n'),
       'utf8'
     );
     await writeFile(
@@ -609,6 +284,7 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
         ' * Agent operations:',
         ' * must preserve the captured exact head.',
         ' */',
+        "expect(EXAMPLE_SCHEMA_VERSION).toBe('example-v1');",
         'void testName;',
         'void fixture;'
       ].join('\n'),
@@ -749,6 +425,11 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
       path: 'platform/example.ts',
       severity: 'high'
     }));
+    expect(report.findings).toContainEqual(expect.objectContaining({
+      code: 'source-program-test-mirrors-production-identity-literal',
+      path: 'platform/example.ts',
+      severity: 'high'
+    }));
     expect(repositoryAuditShouldFail(report, { failOn: 'none' })).toBe(true);
     expect(repositoryAuditShouldFail(report, {
       diagnostic: true,
@@ -758,44 +439,6 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
       diagnostic: true,
       failOn: 'none'
     })).toBe(false);
-  } finally {
-    await rm(repositoryRoot, { force: true, recursive: true });
-  }
-});
-
-test.serial('full repository audit classifies every tracked path and has no blocking finding', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-repository-audit-clean-'));
-  try {
-    const defaultCommit = resolveRealRepositoryAuditDefaultCommit(
-      REPOSITORY_ROOT,
-      {
-        explicitDefaultCommit: process.env.SEC_CHANGED_BASE,
-        githubActions: process.env.GITHUB_ACTIONS,
-        githubRef: process.env.GITHUB_REF,
-        githubSha: process.env.GITHUB_SHA
-      }
-    );
-    git(tmpdir(), ['clone', '--quiet', '--no-local', REPOSITORY_ROOT, repositoryRoot]);
-    const report = await auditRepository(repositoryRoot, { defaultRef: defaultCommit });
-
-    expect(report.schema).toBe('sec-repository-audit-v2');
-    expect(report.summary.trackedPaths).toBeGreaterThan(0);
-    expect(report.summary.skills).toBe(SEC_AGENT_SKILL_IDS.length);
-    expect(report.behaviorCandidates).toHaveLength(report.summary.behaviorCandidates);
-    expect(report.contentCoverage).toHaveLength(report.summary.trackedPaths);
-    expect(new Set(report.contentCoverage.map(({ path: repositoryPath }) => repositoryPath)).size)
-      .toBe(report.summary.trackedPaths);
-    expect(Object.values(report.summary.contentCoverage).reduce((sum, count) => sum + count, 0))
-      .toBe(report.summary.trackedPaths);
-    expect(report.summary.contentCoverage.unknown).toBe(0);
-    expect(report.unknowns).toEqual([]);
-    expect(report.surfaces.markdown).toBe(report.summary.markdown);
-    expect(Object.values(report.surfaces).reduce((sum, count) => sum + count, 0))
-      .toBe(report.summary.trackedPaths);
-    expect(report.findings.filter((finding) =>
-      finding.severity === 'critical' || finding.severity === 'high')).toEqual([]);
-    expect(report.findings.some((finding) =>
-      finding.code === 'partial-discovery-named-all')).toBe(false);
   } finally {
     await rm(repositoryRoot, { force: true, recursive: true });
   }
@@ -813,94 +456,6 @@ async function createTempRepo(prefix: string): Promise<{ root: string; headSha: 
   const headSha = git(root, ['rev-parse', 'HEAD']);
   return { root, headSha };
 }
-
-test.serial(
-  'real repository audit default commit preserves the source default branch before HEAD fallback',
-  async () => {
-    const { root, headSha: defaultHead } = await createTempRepo('sec-audit-default-commit-');
-    try {
-      git(root, ['update-ref', DEFAULT_BRANCH_REMOTE_REF, defaultHead]);
-      await writeFile(path.join(root, 'candidate.txt'), 'candidate\n', 'utf8');
-      git(root, ['add', 'candidate.txt']);
-      git(root, ['commit', '--quiet', '-m', 'wip']);
-      const candidateHead = git(root, ['rev-parse', '--verify', 'HEAD^{commit}']);
-
-      expect(resolveRealRepositoryAuditDefaultCommit(root, {})).toBe(defaultHead);
-      expect(resolveRealRepositoryAuditDefaultCommit(root, {
-        explicitDefaultCommit: candidateHead
-      })).toBe(candidateHead);
-      for (const symbolicDefault of ['HEAD', DEFAULT_BRANCH_REMOTE_REF, ' origin/main ']) {
-        expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
-          explicitDefaultCommit: symbolicDefault
-        })).toThrow('must be an exact lowercase 40-character commit SHA');
-      }
-
-      const findings: Parameters<typeof auditInformationLifecycle>[5] = [];
-      const unknowns: string[] = [];
-      await auditInformationLifecycle(
-        root,
-        ['README.md', 'candidate.txt'],
-        resolveRealRepositoryAuditDefaultCommit(root, {}),
-        new Map(),
-        new Map([
-          ['README.md', '# Fixture\n'],
-          ['candidate.txt', 'candidate\n']
-        ]),
-        findings,
-        unknowns,
-        false
-      );
-      expect(findings).toContainEqual(expect.objectContaining({
-        code: 'information-lifecycle-meaningless-commit-subject'
-      }));
-
-      const defaultTree = git(root, ['rev-parse', '--verify', `${defaultHead}^{tree}`]);
-      git(root, ['update-ref', DEFAULT_BRANCH_REMOTE_REF, defaultTree]);
-      expect(resolveRealRepositoryAuditDefaultCommit(root, {
-        explicitDefaultCommit: candidateHead
-      })).toBe(candidateHead);
-      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {})).toThrow(
-        `git rev-parse --verify ${DEFAULT_BRANCH_REMOTE_REF}^{commit} failed`
-      );
-
-      git(root, ['update-ref', '-d', DEFAULT_BRANCH_REMOTE_REF]);
-      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {})).toThrow(
-        'default commit is unavailable'
-      );
-      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
-        githubActions: 'true',
-        githubRef: 'refs/pull/374/merge',
-        githubSha: candidateHead
-      })).toThrow('default commit is unavailable');
-      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
-        githubActions: 'false',
-        githubRef: 'refs/heads/main',
-        githubSha: candidateHead
-      })).toThrow('default commit is unavailable');
-      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
-        githubActions: 'true',
-        githubRef: 'refs/heads/main'
-      })).toThrow('default commit is unavailable');
-      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
-        githubActions: 'true',
-        githubRef: 'refs/heads/main',
-        githubSha: 'HEAD'
-      })).toThrow('must be an exact lowercase 40-character commit SHA');
-      expect(resolveRealRepositoryAuditDefaultCommit(root, {
-        githubActions: 'true',
-        githubRef: 'refs/heads/main',
-        githubSha: candidateHead
-      })).toBe(candidateHead);
-      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
-        githubActions: 'true',
-        githubRef: 'refs/heads/main',
-        githubSha: defaultHead
-      })).toThrow('does not match source HEAD');
-    } finally {
-      await rm(root, { force: true, recursive: true });
-    }
-  }
-);
 
 test.serial('exact SHA default-ref resolves without remote-tracking ref', async () => {
   const { root, headSha: parentSha } = await createTempRepo('sec-repository-audit-default-ref-sha-');

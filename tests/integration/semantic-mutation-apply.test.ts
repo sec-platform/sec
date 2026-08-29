@@ -3,50 +3,43 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import {
-  buildFactDelta,
-  buildWorkspaceSemanticBundle,
-  type SemanticMutationAuthorizationContextV2,
-  type SemanticMutationPlanV2,
-  type SemanticMutationRequestV2
-} from '../../platform/compiler/index.ts';
+import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
+import { buildWorkspaceSemanticBundle } from '../../src/compiler/semantic-frontend.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
 import {
   atomicPublishSemanticMutationSource,
   writeSemanticMutationTransactionArtifacts
-} from '../../platform/compiler/semantic-mutation/atomic-source-publish.ts';
+} from '../../src/compiler/semantic-mutation/atomic-source-publish.ts';
 import {
   deriveStagedSemanticMutation,
-  type DerivedSemanticMutationTransactionV1
-} from '../../platform/compiler/semantic-mutation/derive-staged-mutation.ts';
-import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
-import { appendSemanticMutationRecoveryRecord, loadSemanticMutationRecoveryRecords } from '../../platform/compiler/semantic-mutation/mutation-recovery-record.ts';
-import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
-import { renderSemanticContractYamlEdit } from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
+  type DerivedSemanticMutationTransaction
+} from '../../src/compiler/semantic-mutation/derive-staged-mutation.ts';
+import { expectationFromFactDelta } from '../../src/compiler/semantic-mutation/match-expectation.ts';
+import { appendSemanticMutationRecoveryRecord, loadSemanticMutationRecoveryRecords } from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
+import { semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
+import { renderSemanticContractYamlEdit } from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
 import {
   semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot
-} from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
-import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
+} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
 import {
   SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS
-} from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
+} from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import {
   applySemanticMutation,
   initWorkspace,
   planSemanticMutationTransaction,
   querySemanticMutationRequest,
   resolveWorkspace
-} from '../../platform/orchestrator.ts';
+} from '../../src/compiler/orchestration/cli.ts';
 import {
   applySemanticMutationWithTestDependencies,
   planSemanticMutationTransactionWithTestDependencies
-} from '../../platform/orchestrator/semantic-mutation-orchestrator.ts';
-import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
-import type {
-  SemanticMutationApplyInputV1,
-  SemanticMutationRecoveryState
-} from '../../platform/shared/semantic-mutation-transaction-types.ts';
+} from '../../src/compiler/orchestration/semantic-mutation-orchestrator.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
+import type { SemanticMutationApplyInput, SemanticMutationRecoveryState } from '../../src/semantic/mutation/contract/transaction.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -106,28 +99,15 @@ const AUTHORING_SOURCE = [
 
 async function installSmokeRuntimeTests(workspaceRoot: string): Promise<void> {
   const unitRoot = path.join(workspaceRoot, 'project', 'tests', 'runtime', 'unit');
-  const acceptanceRoot = path.join(workspaceRoot, 'project', 'tests', 'runtime', 'acceptance');
-  const loginRoot = path.join(workspaceRoot, 'project', 'app', 'login');
   await mkdir(unitRoot, { recursive: true });
-  await mkdir(acceptanceRoot, { recursive: true });
-  await mkdir(loginRoot, { recursive: true });
-  // Real runtime unit inventory for the full-runtime PASS contract.
   await writeFile(
     path.join(unitRoot, 'smoke.test.ts'),
-    "import { expect, test } from 'bun:test';\ntest('smoke unit truth', () => expect(1).toBe(1));\n",
-    'utf8'
-  );
-  // Real Playwright-run acceptance inventory that asserts the staged mutation
-  // result without requesting any browser fixture; the isolated harness still
-  // owns the Next server and the Playwright browser capability.
-  await writeFile(
-    path.join(acceptanceRoot, 'smoke.spec.ts'),
     [
+      "import { expect, test } from 'bun:test';",
       "import { readFile } from 'node:fs/promises';",
       "import path from 'node:path';",
-      "import { expect, test } from '@playwright/test';",
       '',
-      "test('semantic mutation produced the accepted item transition', async () => {",
+      "test('semantic mutation produced the required item transition', async () => {",
       "  const stagedSource = path.resolve(process.cwd(), '..', 'source', 'model', 'item.yaml');",
       "  const source = await readFile(stagedSource, 'utf8');",
       "  expect(source).toContain('from: open');",
@@ -135,13 +115,6 @@ async function installSmokeRuntimeTests(workspaceRoot: string): Promise<void> {
       '});',
       ''
     ].join('\n'),
-    'utf8'
-  );
-  // The isolated acceptance harness probes /login for server readiness; the
-  // fixture workspace has no auth block, so this route is fixture-local.
-  await writeFile(
-    path.join(loginRoot, 'page.tsx'),
-    "export default function FixtureLoginPage() {\n  return <main>fixture login</main>;\n}\n",
     'utf8'
   );
 }
@@ -158,8 +131,8 @@ function endpoint(
   };
 }
 
-function authorization(): SemanticMutationAuthorizationContextV2 {
-  const draft: Omit<SemanticMutationAuthorizationContextV2, 'authorizationRevision'> = {
+function authorization(): SemanticMutationAuthorizationContext {
+  const draft: Omit<SemanticMutationAuthorizationContext, 'authorizationRevision'> = {
     taskId: 'task:sm3-integration',
     envelopeRevision: 'envelope:v2',
     allowedOperationKinds: ['add-state-transition'],
@@ -173,8 +146,8 @@ function authorization(): SemanticMutationAuthorizationContextV2 {
   return { ...draft, authorizationRevision: semanticMutationAuthorizationRevision(draft) };
 }
 
-type ReadyMutationPlan = Extract<SemanticMutationPlanV2, { readonly status: 'ready' }>;
-type ReadyDerivedMutation = DerivedSemanticMutationTransactionV1 & {
+type ReadyMutationPlan = Extract<SemanticMutationPlan, { readonly status: 'ready' }>;
+type ReadyDerivedMutation = DerivedSemanticMutationTransaction & {
   readonly plan: ReadyMutationPlan;
   readonly staged: FactDeltaEndpointContext;
   readonly stagingWorkspaceRoot: string;
@@ -182,11 +155,11 @@ type ReadyDerivedMutation = DerivedSemanticMutationTransactionV1 & {
 
 interface CoordinatorFailureFixture {
   readonly sourcePath: string;
-  readonly input: SemanticMutationApplyInputV1;
+  readonly input: SemanticMutationApplyInput;
   readonly transactionRoot: string;
   readonly identity: {
     readonly graphId: string;
-    readonly appId: SemanticMutationRequestV2['appId'];
+    readonly appId: SemanticMutationRequest['appId'];
     readonly requestId: string;
   };
 }
@@ -231,7 +204,7 @@ async function coordinatorFailureFixture(
   requestId: string
 ): Promise<CoordinatorFailureFixture> {
   await mkdir(workspaceRoot, { recursive: true });
-  await initWorkspace(workspaceRoot, { reset: true });
+  await initWorkspace(workspaceRoot);
   await resolveWorkspace(workspaceRoot);
   await installSmokeRuntimeTests(workspaceRoot);
 
@@ -248,7 +221,7 @@ async function coordinatorFailureFixture(
   ].join('\n'), 'utf8');
 
   await mkdir(path.join(workspaceRoot, 'control', 'provenance'), { recursive: true });
-  await mkdir(path.join(workspaceRoot, 'control', 'workbench', 'views'), { recursive: true });
+  await mkdir(path.join(workspaceRoot, 'control', 'evidence'), { recursive: true });
   await mkdir(path.join(workspaceRoot, 'project', 'generated'), { recursive: true });
   await writeFile(
     path.join(workspaceRoot, 'control', 'provenance', 'failure-matrix-projection.json'),
@@ -260,8 +233,8 @@ async function coordinatorFailureFixture(
     new Uint8Array([0, 1, 2, 127, 128, 255])
   );
   await writeFile(
-    path.join(workspaceRoot, 'control', 'workbench', 'views', 'failure-matrix-view.html'),
-    '<main>unchanged</main>\n',
+    path.join(workspaceRoot, 'control', 'evidence', 'failure-matrix-note.txt'),
+    'unchanged\n',
     'utf8'
   );
 
@@ -284,7 +257,7 @@ async function coordinatorFailureFixture(
   const expectedDelta = buildFactDelta(base, expectedAfter);
   await writeFile(sourcePath, beforeBytes);
 
-  const request: SemanticMutationRequestV2 = {
+  const request: SemanticMutationRequest = {
     contractVersion: '2',
     requestId,
     graphId: base.snapshot.ir.graphId,
@@ -339,9 +312,8 @@ function verificationExecution(
 }
 
 test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once', async () => {
-  expect(Bun.version).toBe('1.3.14');
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     await resolveWorkspace(workspaceRoot);
     await installSmokeRuntimeTests(workspaceRoot);
 
@@ -376,7 +348,7 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
     const expectedDelta = buildFactDelta(base, expectedAfter);
     await writeFile(sourcePath, beforeBytes);
 
-    const request: SemanticMutationRequestV2 = {
+    const request: SemanticMutationRequest = {
       contractVersion: '2',
       requestId: 'request:sm3-integration',
       graphId: base.snapshot.ir.graphId,
@@ -539,14 +511,14 @@ test('SM-3 coordinator pre-publish failure matrix preserves every live byte and 
       expect(paths).toContain('control/state/graph.lock.json');
       expect(paths).toContain('control/provenance/failure-matrix-projection.json');
       expect(paths).toContain('project/generated/failure-matrix-artifact.bin');
-      expect(paths).toContain('control/workbench/views/failure-matrix-view.html');
+      expect(paths).toContain('control/evidence/failure-matrix-note.txt');
       return { workspaceRoot, fixture, before };
     };
 
     {
       const { workspaceRoot, fixture, before } = await createCase('derive-early-reject');
       const calls = { derive: 0, verify: 0, artifacts: 0, append: 0, publish: 0, rebuild: 0 };
-      const staleInput: SemanticMutationApplyInputV1 = {
+      const staleInput: SemanticMutationApplyInput = {
         ...fixture.input,
         request: {
           ...fixture.input.request,

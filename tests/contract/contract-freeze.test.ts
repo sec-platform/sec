@@ -4,7 +4,7 @@ import {
   buildContractFreezeContract,
   buildContractFreezeRunnerInvocations,
   formatContractFreezeContract
-} from '../../platform/shared/contract-freeze-contract.ts';
+} from '../../src/verification/freeze.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { expectContractFreezeSelfConsistent } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -26,7 +26,6 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'tests/contract/semantic-mutation-contract.test.ts',
     'tests/contract/semantic-mutation-apply-contract.test.ts',
     'tests/contract/semantic-mutation-source-adapter-contract.test.ts',
-    'tests/contract/test-architecture.test.ts',
     'tests/contract/test-impact.test.ts'
   ]));
   expect(contract.targetFiles).not.toContain('tests/integration/project-runtime.test.ts');

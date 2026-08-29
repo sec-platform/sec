@@ -1,7 +1,7 @@
 import { expect } from 'bun:test';
 
-import { upgradeWorkspace } from '../../platform/orchestrator.ts';
-import type { UpgradePlan } from '../../platform/shared/types.ts';
+import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import type { UpgradePlan } from '../../src/change-management/upgrade/contract/types.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
 

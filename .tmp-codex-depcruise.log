@@ -1,0 +1,4 @@
+$ depcruise "src/**/*.ts" --config .dependency-cruiser.json
+
+✔ no dependency violations found (502 modules, 2454 dependencies cruised)
+

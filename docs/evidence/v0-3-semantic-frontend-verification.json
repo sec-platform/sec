@@ -13,11 +13,11 @@
     "changedPathCount": 7,
     "changedPathsSha256": "249e1d79755f1e1af40900a720e5069d41a8ea8bfc4d410e64bfb8e15f1e9ce8",
     "changedPaths": [
-      "platform/compiler/index.ts",
-      "platform/compiler/semantic-frontend.ts",
-      "platform/compiler/verify/validate-resolved-templates.ts",
-      "platform/orchestrator/semantic-orchestrator.ts",
-      "platform/shared/pipeline-semantic-context.ts",
+      "src/compiler/index.ts",
+      "src/compiler/semantic-frontend.ts",
+      "src/compiler/verify/validate-resolved-templates.ts",
+      "src/compiler/orchestration/semantic-orchestrator.ts",
+      "src/compiler/pipeline/semantic-context.ts",
       "platform/shared/test-impact-rules/semantic.ts",
       "tests/integration/semantic-pipeline-spine.test.ts"
     ],
@@ -68,7 +68,7 @@
       "gateId": "slow-risk-batch",
       "argv": [
         "bun",
-        "scripts/ci-pr-risk.ts",
+        "src/verification/ci/pr-risk.ts",
         "--suite",
         "e2e-graph",
         "--suite",
@@ -90,7 +90,7 @@
     },
     {
       "gateId": "workspace-fast",
-      "argv": ["bun", "scripts/ci-workspace-fast.ts"],
+      "argv": ["bun", "src/verification/ci/workspace-fast.ts"],
       "exitCode": 0,
       "durationMs": 8356
     },
