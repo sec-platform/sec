@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "runtime.physical",
+  "importGraph": "runtime",
+  "externalEntrypoints": []
+}

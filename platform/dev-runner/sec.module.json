@@ -1,0 +1,9 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "development.runner",
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "platform/dev-runner.ts"
+  ],
+  "preDependencyBootstrap": true
+}

@@ -1,0 +1,51 @@
+import { compareCodeUnits } from './canonical.ts';
+
+type CountSummary<T extends string> = { id: T; count: number };
+
+export function countPositiveValues(values: Iterable<number>): number {
+  let count = 0;
+  for (const value of values) {
+    if (value > 0) count += 1;
+  }
+  return count;
+}
+
+export function countMatching<T>(values: Iterable<T>, predicate: (value: T) => boolean): number {
+  let count = 0;
+  for (const value of values) {
+    if (predicate(value)) count += 1;
+  }
+  return count;
+}
+
+export function mergeCountSummaries<T extends string>(entries: Iterable<CountSummary<T>>): Array<CountSummary<T>> {
+  return summarizeCounts([...entries].map((entry) => entry.id));
+}
+
+export function summarizeCounts<T extends string>(values: Iterable<T>): Array<CountSummary<T>> {
+  const counts = new Map<T, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort(([left], [right]) => compareCodeUnits(left, right))
+    .map(([id, count]) => ({ id, count }));
+}
+
+/**
+ * Deduplicate and sort string values, filtering out empty strings.
+ * This differs from `canonical-primitives.ts` `uniqueSorted` which does NOT
+ * filter empty strings — the filter is intentional for output/display scenarios.
+ */
+export function uniqueSorted<T extends string>(values: readonly T[]): T[] {
+  return [...new Set(values.filter((value) => value.length > 0))]
+    .sort(compareCodeUnits);
+}
+
+export function uniqueSortedLines(value: string): string[] {
+  return uniqueSorted(value.split(/\r?\n/u).map((line) => line.trim()));
+}
+
+export function normalizeNewlines(value: string): string {
+  return value.replace(/\r\n/g, '\n');
+}

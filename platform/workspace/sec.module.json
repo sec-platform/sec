@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "product.workspace",
+  "importGraph": "runtime",
+  "externalEntrypoints": []
+}

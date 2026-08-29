@@ -12,20 +12,18 @@ last-reviewed: 2026-08-28
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:0369fe25da6990f295a690f93d7d9d6b9a9265c059e7a4f454c8ac111f81308c",
+    "manifestDigest": "sha256:203fd28a777c445abcd2ae16abbec221be24b7d42295962de121f3f50bf44db8",
     "manifestPath": "docs/work-packages/default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e.md",
     "packageId": "default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e",
     "tracking": "none"
   },
   "authority": {
-    "decisionDigest": "sha256:bb04d92b467d4ce1c8aaa07914333f4e7d3696d200c3f7c1fc04879cc8a670ec",
-    "failureFingerprints": [
-      "sha256:e46660e48b111d2dfb7f14792ac6749653cfdd8ca064187466d1096057097aac"
-    ],
-    "healthRevision": "sha256:ccb5afb6c3c6d3045bd6bca533ee695687ea1830957b36d662dbf7e5c4dc958b",
-    "kind": "main-health-repair",
-    "ledgerDigest": "sha256:dbb95366a302239df54f76468ce17e4ee4e6cec9c4833ce62ec945d1c0cbd605",
-    "publishedActivePackageId": "default-branch-health-repair-4291ea94f26858c6570144f6632100a568832039-9606c61e638edb6562dd98421c5442fd28aca119c1fd8a9f472d74c1f606c010"
+    "kind": "committed-candidate-replan",
+    "sourceHead": "21160041eb8cdbffd72e91d63501491eb7051061",
+    "sourceManifestDigest": "sha256:0369fe25da6990f295a690f93d7d9d6b9a9265c059e7a4f454c8ac111f81308c",
+    "sourcePointerRevision": "sha256:193887829b361aaa1df27aed49753cf7af38db3a91751db0663adf7cc81cc4cd",
+    "sourceRollingRevision": "sha256:b3d61721fce5659e6c147c949be064c2d24d57eec0bd5b39bc933af21131c4d7",
+    "sourceTree": "d73030fb9244aacde19e8502426e9ad541398afc"
   },
   "candidates": [
     "operation-read-plan-authority-canary-v1",
@@ -35,7 +33,7 @@ last-reviewed: 2026-08-28
   ],
   "exactMain": "36b174ebc783bb2b2e0c079d58fb825f0966b60b",
   "exactMainTree": "f7dd21a385a00589ecf04a41e98fe9d9e4fb43d6",
-  "projectionDigest": "sha256:c370bbe1bf0077bf736d3ebcc48ab84dec3464f49f624754cd285baea9173977",
+  "projectionDigest": "sha256:a776d5651185c7e84f4d863db91cf05321ece2d32c7abc2c4735d970fbc8b53e",
   "schema": "sec-work-rolling-transition-projection-v1"
 }
 ```
@@ -44,25 +42,25 @@ last-reviewed: 2026-08-28
 
 ### default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e
 
-Exact MainHealth repair bound to decision `sha256:bb04d92b467d4ce1c8aaa07914333f4e7d3696d200c3f7c1fc04879cc8a670ec`, health `sha256:ccb5afb6c3c6d3045bd6bca533ee695687ea1830957b36d662dbf7e5c4dc958b`, manifest `sha256:0369fe25da6990f295a690f93d7d9d6b9a9265c059e7a4f454c8ac111f81308c`, and authority `sha256:2132f1500cd77b61388fe08da3d05119117cf47b0c081bbef568e6cbc52f18e7`.
+Existing active package replan bound to exact source head `21160041eb8cdbffd72e91d63501491eb7051061`, source tree `d73030fb9244aacde19e8502426e9ad541398afc`, manifest `sha256:203fd28a777c445abcd2ae16abbec221be24b7d42295962de121f3f50bf44db8`, and authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ## 候选 Work Package
 
 ### 1. operation-read-plan-authority-canary-v1
 
-Retained ordered candidate from transition authority `sha256:2132f1500cd77b61388fe08da3d05119117cf47b0c081bbef568e6cbc52f18e7`.
+Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ### 2. sec-static-convergence-v1
 
-Retained ordered candidate from transition authority `sha256:2132f1500cd77b61388fe08da3d05119117cf47b0c081bbef568e6cbc52f18e7`.
+Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ### 3. candidate-control-transaction-v1
 
-Retained ordered candidate from transition authority `sha256:2132f1500cd77b61388fe08da3d05119117cf47b0c081bbef568e6cbc52f18e7`.
+Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ### 4. typescript-7-checker-acceleration-v1
 
-Retained ordered candidate from transition authority `sha256:2132f1500cd77b61388fe08da3d05119117cf47b0c081bbef568e6cbc52f18e7`.
+Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ## 重新规划硬触发器
 

@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "platform.foundation",
+  "importGraph": "runtime",
+  "externalEntrypoints": []
+}

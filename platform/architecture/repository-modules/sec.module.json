@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "system-architecture.repository-modules",
+  "importGraph": "runtime",
+  "externalEntrypoints": []
+}

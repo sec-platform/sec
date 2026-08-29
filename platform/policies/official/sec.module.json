@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "compiler.policies.official-content",
+  "importGraph": "content",
+  "externalEntrypoints": []
+}

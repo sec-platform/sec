@@ -1,0 +1,6 @@
+{
+  "schema": "sec-module-v1",
+  "moduleId": "external.git-read",
+  "importGraph": "runtime",
+  "externalEntrypoints": []
+}
