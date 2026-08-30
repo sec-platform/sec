@@ -5,7 +5,6 @@ import path from 'node:path';
 
 import { CompilerError } from '../../compiler/errors.ts';
 import { canonicalJson, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type { SecRepositoryModuleRelocationPlanEntry } from '../../system-architecture/repository-modules/contract.ts';
 import { resolveWorkspaceLocalStateRoot } from '../../workspace/contract/local-state.ts';
 import { ensureDir } from '../../workspace/files.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../workspace/lease.ts';
@@ -14,73 +13,6 @@ export type ImportTransformWrite = Readonly<{
   relativePath: string;
   expectedBytes: Buffer;
   replacementBytes: Buffer;
-}>;
-
-export type ImportTransformPhysicalIdentity = Readonly<{
-  readonly device: string;
-  readonly inode: string;
-}>;
-
-export type ImportTransformRelocationTarget =
-  | Readonly<{ state: 'absent' }>
-  | Readonly<{
-    state: 'existing';
-    expectedBytes: Buffer;
-    expectedMode: number;
-    expectedIdentity: ImportTransformPhysicalIdentity;
-  }>;
-
-/**
- * A relocation is accepted only when its graph entry is fully resolved. The
- * source bytes are an explicit preimage; the target precondition is either
- * absence or an exact physical/file identity. This keeps semantic planning
- * separate from the one physical transaction owner below.
- */
-export type ImportTransformRelocation = Readonly<{
-  readonly entry: SecRepositoryModuleRelocationPlanEntry;
-  readonly expectedSourceBytes: Buffer;
-  readonly target: ImportTransformRelocationTarget;
-}>;
-
-export type RepositoryRelocationTransactionOutcome =
-  | Readonly<{
-    schema: 'sec-repository-relocation-outcome-v1';
-    status: 'accepted';
-    files: readonly string[];
-    transactionId: string;
-    journalPath: string;
-  }>
-  | Readonly<{
-    schema: 'sec-repository-relocation-outcome-v1';
-    status: 'unresolved';
-    files: readonly string[];
-    unresolvedReferences: readonly string[];
-  }>
-  | Readonly<{
-    schema: 'sec-repository-relocation-outcome-v1';
-    status: 'rolled-back';
-    files: readonly string[];
-    transactionId: string;
-    journalPath: string;
-    reasonCode: 'preimage-conflict' | 'publication-failed' | 'readback-failed';
-  }>
-  | Readonly<{
-    schema: 'sec-repository-relocation-outcome-v1';
-    status: 'recovery-required';
-    files: readonly string[];
-    transactionId: string;
-    journalPath: string;
-    reasonCode: 'journal-failed' | 'rollback-conflict' | 'rollback-failed';
-  }>;
-
-export type RepositoryRelocationTransactionTestHooks = Readonly<{
-  beforeTargetPublish?: (targetPath: string, index: number) => void | Promise<void>;
-  afterTargetPublish?: (targetPath: string, index: number) => void | Promise<void>;
-  beforeSourceDelete?: (sourcePath: string, index: number) => void | Promise<void>;
-  afterSourceDelete?: (sourcePath: string, index: number) => void | Promise<void>;
-  beforeJournalAppend?: (
-    state: 'prepared' | 'publishing' | 'accepted' | 'rolling-back' | 'rolled-back' | 'recovery-required'
-  ) => void | Promise<void>;
 }>;
 
 export type ImportTransformTransactionOutcome =
@@ -142,9 +74,23 @@ type PublicationReason = Extract<TransactionReason,
 type RecoveryReason = Extract<TransactionReason,
   'journal-failed' | 'rollback-conflict' | 'rollback-failed'>;
 type JournalState = 'prepared' | 'publishing' | 'accepted' | 'rolling-back' | 'rolled-back' | 'recovery-required';
+const PublicationReasons = ['preimage-conflict', 'publication-failed', 'readback-failed'] as const;
+const RecoveryReasons = ['journal-failed', 'rollback-conflict', 'rollback-failed'] as const;
 
+function isPublicationReason(value: unknown): value is PublicationReason {
+  return typeof value === 'string' && PublicationReasons.includes(value as PublicationReason);
+}
+
+function isRecoveryReason(value: unknown): value is RecoveryReason {
+  return typeof value === 'string' && RecoveryReasons.includes(value as RecoveryReason);
+}
+
+// v3 is the sole writer/normal-reader grammar. v2 is read-only legacy input.
 const ImportTransformBindingFormat = 'sec-import-transform-transaction-v2' as const;
 const ImportTransformJournalFormat = 'sec-import-transform-journal-entry-v2' as const;
+const ImportTransformCompactJournalFormat = 'sec-import-transform-journal-entry-v3' as const;
+const IMPORT_TRANSFORM_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
+const IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS = 100_000;
 
 class ImportTransformTransactionFailure extends Error {
   constructor(readonly reasonCode: TransactionReason, message: string) {
@@ -364,65 +310,7 @@ async function assertExpectedCurrentTarget(
   }
 }
 
-async function appendJournal(
-  journalPath: string,
-  transactionId: string,
-  state: JournalState,
-  files: readonly PreparedWrite[],
-  published: readonly string[],
-  outstanding: readonly string[],
-  publicationReasonCode: PublicationReason | null,
-  recoveryReasonCode: RecoveryReason | null,
-  testHooks: ImportTransformTransactionTestHooks = {}
-): Promise<void> {
-  await testHooks.beforeJournalAppend?.(state);
-  const entry: JournalEntry = Object.freeze({
-    formatVersion: ImportTransformJournalFormat,
-    transactionId,
-    state,
-    files: Object.freeze(files.map((file) => Object.freeze({
-      relativePath: file.relativePath,
-      expectedDigest: file.expectedDigest,
-      replacementDigest: file.replacementDigest
-    }))),
-    published: Object.freeze([...published]),
-    outstanding: Object.freeze([...outstanding]),
-    publicationReasonCode,
-    recoveryReasonCode
-  });
-  const existing = await fs.readFile(journalPath, 'utf8');
-  const serialized = `${JSON.stringify(canonicalJson(entry))}\n`;
-  parseJournalEntries(`${existing}${serialized}`, transactionId, files);
-  const handle = await fs.open(journalPath, 'a');
-  try {
-    await handle.writeFile(serialized, 'utf8');
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
-async function appendRecoveryJournalBestEffort(
-  journalPath: string,
-  transactionId: string,
-  state: 'rolling-back' | 'rolled-back' | 'recovery-required',
-  files: readonly PreparedWrite[],
-  published: readonly string[],
-  outstanding: readonly string[],
-  publicationReasonCode: PublicationReason,
-  recoveryReasonCode: RecoveryReason | null,
-  testHooks: ImportTransformTransactionTestHooks
-): Promise<boolean> {
-  try {
-    await appendJournal(journalPath, transactionId, state, files, published, outstanding,
-      publicationReasonCode, recoveryReasonCode, testHooks);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-type JournalEntry = Readonly<{
+type LegacyJournalEntry = Readonly<{
   formatVersion: typeof ImportTransformJournalFormat;
   transactionId: string;
   state: JournalState;
@@ -441,6 +329,10 @@ type RecoveredTransaction = Readonly<{
   transactionId: string;
   journalPath: string;
   files: readonly PreparedWrite[];
+  journalVersion: 'v2' | 'v3';
+  bindingDigest: string;
+  compactJournalTail: CompactJournalEntry | null;
+  journalWasMissing: boolean;
   state: JournalState;
   published: readonly string[];
   outstanding: readonly string[];
@@ -485,9 +377,9 @@ function prefixDoesNotGrow(previous: readonly string[], next: readonly string[])
     && next.every((value, index) => previous[index] === value);
 }
 
-function validateJournalTransition(
-  previous: JournalEntry | undefined,
-  next: JournalEntry,
+function validateLegacyJournalTransition(
+  previous: LegacyJournalEntry | undefined,
+  next: LegacyJournalEntry,
   files: readonly PreparedWrite[]
 ): void {
   const forward = next.state === 'prepared' || next.state === 'publishing' || next.state === 'accepted';
@@ -551,13 +443,13 @@ function validateJournalTransition(
   }
 }
 
-function parseJournalEntries(
+function parseLegacyJournalEntries(
   source: string,
   transactionId: string,
   files: readonly PreparedWrite[]
-): readonly JournalEntry[] {
-  const lines = source.split('\n').filter((line) => line.length > 0);
-  const result: JournalEntry[] = [];
+): readonly LegacyJournalEntry[] {
+  const lines = journalLines(source, 'Import transform legacy journal');
+  const result: LegacyJournalEntry[] = [];
   for (const line of lines) {
     const raw = asRecord(parseRecoveryJson(line, 'Import transform transaction journal entry'),
       'Import transform transaction journal entry');
@@ -577,12 +469,12 @@ function parseJournalEntries(
         || recorded.replacementDigest !== files[index]?.replacementDigest;
     })) recoveryFailure('Import transform transaction journal file set drifted.');
     const publicationReasonCode = raw.publicationReasonCode === null ? null
-      : ['preimage-conflict', 'publication-failed', 'readback-failed'].includes(String(raw.publicationReasonCode))
-        ? raw.publicationReasonCode as PublicationReason : recoveryFailure('Import transform publication reason is invalid.');
+      : isPublicationReason(raw.publicationReasonCode) ? raw.publicationReasonCode
+        : recoveryFailure('Import transform publication reason is invalid.');
     const recoveryReasonCode = raw.recoveryReasonCode === null ? null
-      : ['journal-failed', 'rollback-conflict', 'rollback-failed'].includes(String(raw.recoveryReasonCode))
-        ? raw.recoveryReasonCode as RecoveryReason : recoveryFailure('Import transform recovery reason is invalid.');
-    const entry: JournalEntry = Object.freeze({
+      : isRecoveryReason(raw.recoveryReasonCode) ? raw.recoveryReasonCode
+        : recoveryFailure('Import transform recovery reason is invalid.');
+    const entry: LegacyJournalEntry = Object.freeze({
       formatVersion: ImportTransformJournalFormat,
       transactionId,
       state: raw.state as JournalState,
@@ -593,10 +485,180 @@ function parseJournalEntries(
       publicationReasonCode,
       recoveryReasonCode
     });
-    validateJournalTransition(result.at(-1), entry, files);
+    validateLegacyJournalTransition(result.at(-1), entry, files);
     result.push(entry);
   }
   return Object.freeze(result);
+}
+
+/** v3 keeps the immutable plan in binding.json; each journal record is O(1). */
+type CompactJournalEntry = Readonly<{
+  formatVersion: typeof ImportTransformCompactJournalFormat;
+  transactionId: string;
+  bindingDigest: string;
+  state: JournalState;
+  publishedCount: number;
+  outstandingCount: number;
+  publicationReasonCode: PublicationReason | null;
+  recoveryReasonCode: RecoveryReason | null;
+}>;
+
+function validateCompactJournalTransition(
+  previous: CompactJournalEntry | undefined,
+  next: CompactJournalEntry,
+  fileCount: number
+): void {
+  const { state, publishedCount, outstandingCount } = next;
+  if (next.formatVersion !== ImportTransformCompactJournalFormat || next.transactionId.length === 0
+    || next.bindingDigest.length === 0 || !Number.isInteger(publishedCount)
+    || !Number.isInteger(outstandingCount) || publishedCount < 0 || publishedCount > fileCount
+    || outstandingCount < 0 || outstandingCount > publishedCount) {
+    recoveryFailure('Import transform compact journal progress is invalid.');
+  }
+  const forward = state === 'prepared' || state === 'publishing' || state === 'accepted';
+  const rollback = state === 'rolling-back' || state === 'rolled-back';
+  if ((next.publicationReasonCode !== null && !isPublicationReason(next.publicationReasonCode))
+    || (next.recoveryReasonCode !== null && !isRecoveryReason(next.recoveryReasonCode))
+    || (forward
+    ? outstandingCount !== 0 || next.publicationReasonCode !== null || next.recoveryReasonCode !== null
+    : rollback
+      ? next.publicationReasonCode === null || next.recoveryReasonCode !== null
+      : next.publicationReasonCode === null || next.recoveryReasonCode === null)) {
+    recoveryFailure('Import transform compact journal reasons/progress are invalid.');
+  }
+  if ((state === 'prepared' && (publishedCount !== 0 || outstandingCount !== 0))
+    || (state === 'accepted' && (publishedCount !== fileCount || outstandingCount !== 0))
+    || (state === 'rolled-back' && outstandingCount !== 0)) {
+    recoveryFailure('Import transform compact terminal/progress counts are invalid.');
+  }
+  if (previous === undefined) {
+    if (state !== 'prepared') {
+      recoveryFailure('Import transform compact journal must begin prepared.');
+    }
+    return;
+  }
+  if (next.bindingDigest !== previous.bindingDigest) {
+    recoveryFailure('Import transform compact journal plan binding drifted.');
+  }
+  const allowed = previous.state === 'prepared'
+    ? state === 'publishing' || state === 'rolling-back' || state === 'recovery-required'
+    : previous.state === 'publishing'
+      ? state === 'publishing' || state === 'accepted' || state === 'rolling-back' || state === 'recovery-required'
+      : previous.state === 'rolling-back'
+        ? state === 'rolling-back' || state === 'rolled-back' || state === 'recovery-required'
+        : false;
+  if (!allowed) recoveryFailure('Import transform compact journal state sequence is invalid.');
+  if (previous.state === 'rolling-back') {
+    if (publishedCount !== previous.publishedCount || outstandingCount > previous.outstandingCount
+      || next.publicationReasonCode !== previous.publicationReasonCode) {
+      recoveryFailure('Import transform compact rollback progress is invalid.');
+    }
+  } else {
+    if (publishedCount < previous.publishedCount || publishedCount > previous.publishedCount + 1) {
+      recoveryFailure('Import transform compact published progress is not one monotonic edge.');
+    }
+  }
+}
+
+/** Append without reading prior records; recovery validates the chain once. */
+async function appendCompactJournal(
+  journalPath: string,
+  transactionId: string,
+  bindingDigest: string,
+  previous: CompactJournalEntry | undefined,
+  state: JournalState,
+  publishedCount: number,
+  outstandingCount: number,
+  publicationReasonCode: PublicationReason | null,
+  recoveryReasonCode: RecoveryReason | null,
+  fileCount: number,
+  testHooks: ImportTransformTransactionTestHooks,
+  create: boolean = false
+): Promise<CompactJournalEntry> {
+  const entry: CompactJournalEntry = Object.freeze({
+    formatVersion: ImportTransformCompactJournalFormat,
+    transactionId,
+    bindingDigest,
+    state,
+    publishedCount,
+    outstandingCount,
+    publicationReasonCode,
+    recoveryReasonCode
+  });
+  validateCompactJournalTransition(previous, entry, fileCount);
+  await testHooks.beforeJournalAppend?.(state);
+  const encoded = `${JSON.stringify(canonicalJson(entry))}\n`;
+  let existingBytes = 0;
+  try {
+    const metadata = await fs.lstat(journalPath);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      recoveryFailure('Import transform journal is not an ordinary file.');
+    }
+    existingBytes = metadata.size;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !create) throw error;
+  }
+  if (existingBytes + Buffer.byteLength(encoded, 'utf8') > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
+    recoveryFailure('Import transform journal exceeds the bounded byte limit.');
+  }
+  const handle = await fs.open(journalPath, create ? 'wx' : 'a');
+  try {
+    const opened = await handle.stat();
+    if (opened.size !== existingBytes
+      || opened.size + Buffer.byteLength(encoded, 'utf8') > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
+      recoveryFailure('Import transform journal changed before append.');
+    }
+    await handle.writeFile(encoded, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  if (create) await syncDirectory(path.dirname(journalPath));
+  return entry;
+}
+
+function parseCompactJournal(
+  source: string,
+  transactionId: string,
+  fileCount: number,
+  bindingDigest: string
+): CompactJournalEntry {
+  let previous: CompactJournalEntry | undefined;
+  for (const line of journalLines(source, 'Import transform journal')) {
+    const raw = asRecord(parseRecoveryJson(line, 'Import transform compact journal entry'),
+      'Import transform compact journal entry');
+    exactKeys(raw, ['bindingDigest', 'formatVersion', 'outstandingCount', 'publicationReasonCode',
+      'publishedCount', 'recoveryReasonCode', 'state', 'transactionId'],
+    'Import transform compact journal entry');
+    if (raw.formatVersion !== ImportTransformCompactJournalFormat || raw.transactionId !== transactionId
+      || typeof raw.state !== 'string' || !['prepared', 'publishing', 'accepted', 'rolling-back',
+        'rolled-back', 'recovery-required'].includes(raw.state)
+      || typeof raw.bindingDigest !== 'string' || raw.bindingDigest !== bindingDigest
+      || typeof raw.publishedCount !== 'number'
+      || typeof raw.outstandingCount !== 'number') {
+      recoveryFailure('Import transform compact journal entry identity is invalid.');
+    }
+    const publicationReasonCode = raw.publicationReasonCode === null ? null
+      : isPublicationReason(raw.publicationReasonCode) ? raw.publicationReasonCode
+        : recoveryFailure('Import transform publication reason is invalid.');
+    const recoveryReasonCode = raw.recoveryReasonCode === null ? null
+      : isRecoveryReason(raw.recoveryReasonCode) ? raw.recoveryReasonCode
+        : recoveryFailure('Import transform recovery reason is invalid.');
+    const entry: CompactJournalEntry = Object.freeze({
+      formatVersion: ImportTransformCompactJournalFormat,
+      transactionId,
+      bindingDigest: raw.bindingDigest,
+      state: raw.state as JournalState,
+      publishedCount: raw.publishedCount,
+      outstandingCount: raw.outstandingCount,
+      publicationReasonCode,
+      recoveryReasonCode,
+    });
+    validateCompactJournalTransition(previous, entry, fileCount);
+    previous = entry;
+  }
+  if (previous === undefined) recoveryFailure('Import transform transaction journal is empty.');
+  return previous;
 }
 
 function recoveryFailure(message: string): never {
@@ -616,32 +678,169 @@ function exactKeys(record: Record<string, unknown>, keys: readonly string[], lab
   }
 }
 
-function parseRecoveryJson(source: string, label: string): unknown {
-  try { return JSON.parse(source) as unknown; } catch { return recoveryFailure(`${label} is not valid JSON.`); }
+function skipJsonWhitespace(source: string, index: number): number {
+  while (index < source.length && /\s/u.test(source[index]!)) index += 1;
+  return index;
 }
 
-async function readRegularTransactionArtifact(filePath: string, label: string): Promise<Buffer> {
+function parseJsonStringToken(
+  source: string,
+  start: number,
+  label: string
+): readonly [value: string, nextIndex: number] {
+  let index = start + 1;
+  while (index < source.length) {
+    const character = source[index]!;
+    if (character === '"') {
+      try {
+        return Object.freeze([JSON.parse(source.slice(start, index + 1)) as string, index + 1]);
+      } catch {
+        break;
+      }
+    }
+    if (character === '\\') {
+      index += source[index + 1] === 'u' ? 6 : 2;
+      continue;
+    }
+    if (character.charCodeAt(0) < 0x20) break;
+    index += 1;
+  }
+  recoveryFailure(label + ' contains an invalid JSON string.');
+}
+
+function scanJsonValue(source: string, start: number, label: string): number {
+  const index = skipJsonWhitespace(source, start);
+  const character = source[index];
+  if (character === '"') return parseJsonStringToken(source, index, label)[1];
+  if (character === '[') {
+    let next = skipJsonWhitespace(source, index + 1);
+    if (source[next] === ']') return next + 1;
+    while (true) {
+      next = scanJsonValue(source, next, label);
+      next = skipJsonWhitespace(source, next);
+      if (source[next] === ']') return next + 1;
+      if (source[next] !== ',') recoveryFailure(label + ' contains an invalid JSON array.');
+      next = skipJsonWhitespace(source, next + 1);
+    }
+  }
+  if (character === '{') {
+    const keys = new Set<string>();
+    let next = skipJsonWhitespace(source, index + 1);
+    if (source[next] === '}') return next + 1;
+    while (true) {
+      if (source[next] !== '"') recoveryFailure(label + ' contains an invalid JSON object key.');
+      const [key, afterKey] = parseJsonStringToken(source, next, label);
+      if (keys.has(key)) recoveryFailure(label + ' contains a duplicate object key.');
+      keys.add(key);
+      next = skipJsonWhitespace(source, afterKey);
+      if (source[next] !== ':') recoveryFailure(label + ' contains an invalid JSON object.');
+      next = scanJsonValue(source, next + 1, label);
+      next = skipJsonWhitespace(source, next);
+      if (source[next] === '}') return next + 1;
+      if (source[next] !== ',') recoveryFailure(label + ' contains an invalid JSON object.');
+      next = skipJsonWhitespace(source, next + 1);
+    }
+  }
+  const literal = source.slice(index);
+  const match = literal.match(/^(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/u);
+  if (match === null) recoveryFailure(label + ' contains an invalid JSON value.');
+  return index + match[0].length;
+}
+
+function parseRecoveryJson(source: string, label: string): unknown {
+  try {
+    const end = skipJsonWhitespace(source, scanJsonValue(source, 0, label));
+    if (end !== source.length) recoveryFailure(label + ' contains trailing JSON data.');
+    return JSON.parse(source) as unknown;
+  } catch (error) {
+    if (error instanceof ImportTransformTransactionFailure) throw error;
+    recoveryFailure(label + ' is not valid JSON.');
+  }
+}
+
+function decodeRecoveryUtf8(bytes: Buffer, label: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    recoveryFailure(label + ' is not valid UTF-8.');
+  }
+}
+
+function journalLines(source: string, label: string): readonly string[] {
+  if (Buffer.byteLength(source, 'utf8') > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
+    recoveryFailure(label + ' exceeds the bounded journal byte limit.');
+  }
+  const lines = source.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  if (lines.length === 0 || lines.some((line) => line.length === 0)
+    || lines.length > IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS) {
+    recoveryFailure(label + ' exceeds the bounded journal record limit or contains an empty record.');
+  }
+  return Object.freeze(lines);
+}
+
+async function repairJournalTail(
+  journalPath: string,
+  offset: number,
+  assertLease: () => Promise<void>,
+  expectedIdentity: Readonly<{ readonly dev: number; readonly ino: number; readonly size: number }>
+): Promise<void> {
+  await assertLease();
+  const handle = await fs.open(journalPath, 'r+');
+  try {
+    const before = await handle.stat();
+    const current = await fs.lstat(journalPath);
+    if (before.dev !== expectedIdentity.dev || before.ino !== expectedIdentity.ino
+      || current.dev !== expectedIdentity.dev || current.ino !== expectedIdentity.ino
+      || before.size !== expectedIdentity.size || current.size !== expectedIdentity.size
+      || before.size < offset || current.size < offset) {
+      recoveryFailure('Import transform journal tail physical identity drifted.');
+    }
+    await assertLease();
+    await handle.truncate(offset);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await syncDirectory(path.dirname(journalPath));
+}
+
+async function readRegularTransactionArtifact(
+  filePath: string,
+  label: string,
+  maximumBytes?: number
+): Promise<Buffer> {
   const metadata = await fs.lstat(filePath);
-  if (!metadata.isFile() || metadata.isSymbolicLink()) recoveryFailure(`${label} is not an ordinary file.`);
-  return fs.readFile(filePath);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) recoveryFailure(label + ' is not an ordinary file.');
+  if (maximumBytes !== undefined && metadata.size > maximumBytes) {
+    recoveryFailure(label + ' exceeds its bounded byte limit.');
+  }
+  const bytes = await fs.readFile(filePath);
+  if (maximumBytes !== undefined && bytes.byteLength > maximumBytes) {
+    recoveryFailure(label + ' exceeds its bounded byte limit.');
+  }
+  return bytes;
 }
 
 async function readUnfinishedTransaction(
   workspaceRoot: string,
   transactionRoot: string,
-  transactionId: string
+  transactionId: string,
+  assertLease: () => Promise<void>
 ): Promise<RecoveredTransaction> {
   const journalPath = path.join(transactionRoot, 'journal.jsonl');
   const bindingPath = path.join(transactionRoot, 'binding.json');
+  await assertLease();
   await assertOrdinaryContainedTargetChain(workspaceRoot, bindingPath);
-  await assertOrdinaryContainedTargetChain(workspaceRoot, journalPath);
-  const binding = asRecord(parseRecoveryJson((await readRegularTransactionArtifact(bindingPath,
-    'Import transform transaction binding')).toString('utf8'),
+  const bindingBytes = await readRegularTransactionArtifact(bindingPath, 'Import transform transaction binding',
+    IMPORT_TRANSFORM_JOURNAL_MAX_BYTES);
+  const binding = asRecord(parseRecoveryJson(decodeRecoveryUtf8(bindingBytes, 'Import transform transaction binding'),
     'Import transform transaction binding'), 'Import transform transaction binding');
   exactKeys(binding, ['formatVersion', 'transactionId', 'workspaceRoot', 'writes'], 'Import transform transaction binding');
   if (binding.formatVersion !== ImportTransformBindingFormat || binding.transactionId !== transactionId
     || typeof binding.workspaceRoot !== 'string' || path.resolve(binding.workspaceRoot) !== workspaceRoot
-    || !Array.isArray(binding.writes) || binding.writes.length === 0) {
+    || !Array.isArray(binding.writes) || binding.writes.length === 0
+    || binding.writes.length > IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS) {
     recoveryFailure('Import transform transaction binding identity is invalid.');
   }
   const seen = new Set<string>();
@@ -685,12 +884,85 @@ async function readUnfinishedTransaction(
       expectedDigest: write.expectedDigest, replacementDigest: write.replacementDigest, mode: write.mode
     }));
   }
-  const journal = parseJournalEntries((await readRegularTransactionArtifact(journalPath,
-    'Import transform transaction journal')).toString('utf8'), transactionId, files);
-  const last = journal.at(-1);
-  if (last === undefined) recoveryFailure('Import transform transaction journal is empty.');
-  return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), state: last.state,
-    published: last.published, outstanding: last.outstanding,
+  const allowedArtifacts = new Set<string>(['binding.json', 'journal.jsonl']);
+  for (const file of files) {
+    const stem = digest(file.relativePath);
+    allowedArtifacts.add(stem + '.preimage');
+    allowedArtifacts.add(stem + '.replacement');
+  }
+  let transactionArtifacts: Dirent[];
+  try {
+    transactionArtifacts = await fs.readdir(transactionRoot, { withFileTypes: true }) as Dirent[];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      recoveryFailure('Import transform transaction root is missing.');
+    }
+    throw error;
+  }
+  for (const artifact of transactionArtifacts) {
+    if (!artifact.isFile() || artifact.isSymbolicLink() || !allowedArtifacts.has(artifact.name)) {
+      recoveryFailure('Import transform transaction contains unknown or non-regular residue.');
+    }
+  }
+  let journalBytes: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  let journalWasMissing = false;
+  let journalIdentity: { readonly dev: number; readonly ino: number; readonly size: number } | undefined;
+  try {
+    await assertOrdinaryContainedTargetChain(workspaceRoot, journalPath);
+    const metadata = await fs.lstat(journalPath);
+    journalIdentity = { dev: metadata.dev, ino: metadata.ino, size: metadata.size };
+    journalBytes = await readRegularTransactionArtifact(journalPath, 'Import transform transaction journal',
+      IMPORT_TRANSFORM_JOURNAL_MAX_BYTES);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') journalWasMissing = true;
+    else throw error;
+  }
+  const journalSource = decodeRecoveryUtf8(journalBytes, 'Import transform transaction journal');
+  const journalRepairOffset = journalBytes.length > 0 && journalBytes[journalBytes.length - 1] !== 0x0a
+    ? journalBytes.lastIndexOf(0x0a) + 1 : null;
+  const completeJournalSource = journalRepairOffset === null ? journalSource
+    : journalBytes.subarray(0, journalRepairOffset).toString('utf8');
+  const firstLine = completeJournalSource.split('\n').find((line) => line.length > 0);
+  const bindingDigest = digest(bindingBytes);
+  if (firstLine === undefined) {
+    // A missing/empty/torn-only journal has no v2 grammar to relax; the only
+    // safe interpretation is pre-publication, followed by an explicit v3
+    // prepared record before any recovery decision.
+    if (journalRepairOffset !== null) {
+      if (journalIdentity === undefined) recoveryFailure('Import transform journal tail has no physical identity.');
+      await repairJournalTail(journalPath, journalRepairOffset, assertLease, journalIdentity);
+    }
+    return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalVersion: 'v3' as const,
+      bindingDigest, compactJournalTail: null, journalWasMissing,
+      state: 'prepared' as const, published: Object.freeze([]), outstanding: Object.freeze([]),
+      publicationReasonCode: null, recoveryReasonCode: null });
+  }
+  const firstEntry = asRecord(parseRecoveryJson(firstLine, 'Import transform transaction journal'),
+    'Import transform transaction journal');
+  const journalVersion = firstEntry.formatVersion === ImportTransformCompactJournalFormat ? 'v3' as const
+    : firstEntry.formatVersion === ImportTransformJournalFormat ? 'v2' as const
+      : recoveryFailure('Import transform transaction journal format is unsupported.');
+  if (journalVersion === 'v2') {
+    // v2 is a bounded read-only legacy input; new writers never emit it.
+    if (journalRepairOffset !== null) recoveryFailure('Import transform legacy journal has a partial final line.');
+    const journal = parseLegacyJournalEntries(completeJournalSource, transactionId, files);
+    const last = journal.at(-1);
+    if (last === undefined) recoveryFailure('Import transform transaction journal is empty.');
+    return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalVersion, bindingDigest,
+      compactJournalTail: null, journalWasMissing,
+      state: last.state, published: last.published, outstanding: last.outstanding,
+      publicationReasonCode: last.publicationReasonCode, recoveryReasonCode: last.recoveryReasonCode });
+  }
+  const last = parseCompactJournal(completeJournalSource, transactionId, files.length, bindingDigest);
+  if (journalRepairOffset !== null) {
+    if (journalIdentity === undefined) recoveryFailure('Import transform journal tail has no physical identity.');
+    await repairJournalTail(journalPath, journalRepairOffset, assertLease, journalIdentity);
+  }
+  const published = Object.freeze(files.slice(0, last.publishedCount).map((file) => file.relativePath));
+  const outstanding = Object.freeze(files.slice(0, last.outstandingCount).map((file) => file.relativePath));
+  return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalVersion, bindingDigest,
+    compactJournalTail: last, journalWasMissing,
+    state: last.state, published, outstanding,
     publicationReasonCode: last.publicationReasonCode, recoveryReasonCode: last.recoveryReasonCode });
 }
 
@@ -721,7 +993,8 @@ async function observeReplacementPrefix(files: readonly PreparedWrite[]): Promis
 
 async function observePublishedPrefixAfterFailure(
   files: readonly PreparedWrite[],
-  journalPublishedCount: number
+  journalPublishedCount: number,
+  strictUnpublished: boolean = false
 ): Promise<readonly PreparedWrite[]> {
   const result: PreparedWrite[] = [];
   for (let index = 0; index < journalPublishedCount; index += 1) {
@@ -736,10 +1009,22 @@ async function observePublishedPrefixAfterFailure(
   if (possibleUnjournaled !== undefined) {
     const state = await currentTransactionFileState(possibleUnjournaled);
     if (state === 'replacement') result.push(possibleUnjournaled);
-    else if (state === 'other'
+    else if (strictUnpublished && state === 'other') {
+      throw new ImportTransformTransactionFailure('preimage-conflict',
+        `Import transform unpublished target drifted: ${possibleUnjournaled.relativePath}`);
+    } else if (state === 'other'
       && (await fs.readFile(possibleUnjournaled.absolutePath)).equals(possibleUnjournaled.replacementBytes)) {
       throw new ImportTransformTransactionFailure('preimage-conflict',
         `Import transform unjournaled replacement metadata drifted: ${possibleUnjournaled.relativePath}`);
+    }
+  }
+  if (strictUnpublished) {
+    for (let index = journalPublishedCount + 1; index < files.length; index += 1) {
+      const file = files[index]!;
+      if ((await currentTransactionFileState(file)) !== 'preimage') {
+        throw new ImportTransformTransactionFailure('preimage-conflict',
+          `Import transform unpublished target drifted: ${file.relativePath}`);
+      }
     }
   }
   return Object.freeze(result);
@@ -763,15 +1048,50 @@ async function reconcileUnfinishedImportTransactions(
     const transactionRoot = path.join(transactionsRoot, entry.name);
     let transaction: RecoveredTransaction;
     try {
-      transaction = await readUnfinishedTransaction(workspaceRoot, transactionRoot, entry.name);
+      transaction = await readUnfinishedTransaction(workspaceRoot, transactionRoot, entry.name,
+        assertLease);
     } catch (error) {
       return recoveryRequiredOutcome(entry.name, path.join(transactionRoot, 'journal.jsonl'), 'journal-failed');
     }
     // A terminal journal is immutable evidence, not an active lease on the
-    // transformed target. Later architecture evolution may legitimately move
-    // or retire that target, so terminal transactions must not re-open their
-    // old candidate paths or re-validate the former target topology.
-    if (transaction.state === 'accepted' || transaction.state === 'rolled-back') continue;
+    // transformed target. It is still read and shape-checked before it is
+    // ignored; an orphan marker or missing journal can never bypass recovery.
+    if (transaction.state === 'accepted' || transaction.state === 'rolled-back') {
+      continue;
+    }
+    // Legacy v2 is a read-only migration/recovery input. There is no v2
+    // append path: an unfinished legacy transaction blocks until a dedicated
+    // migration owner rewrites it under its own lease.
+    if (transaction.journalVersion === 'v2') {
+      return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath, 'journal-failed',
+        transaction.outstanding);
+    }
+    let compactJournalTail = transaction.compactJournalTail;
+    try {
+      if (transaction.journalVersion === 'v3' && transaction.compactJournalTail === null) {
+        compactJournalTail = await appendCompactJournal(transaction.journalPath, transaction.transactionId,
+          transaction.bindingDigest, undefined, 'prepared', 0, 0, null, null, transaction.files.length,
+          testHooks, transaction.journalWasMissing);
+      }
+    } catch {
+      return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath, 'journal-failed');
+    }
+    const appendProgress = async (
+      state: Extract<JournalState, 'rolling-back' | 'rolled-back' | 'recovery-required'>,
+      published: readonly string[],
+      outstanding: readonly PreparedWrite[] | readonly string[],
+      publicationReasonCode: PublicationReason,
+      recoveryReasonCode: RecoveryReason | null
+    ): Promise<boolean> => {
+      const outstandingPaths = outstanding.length === 0 || typeof outstanding[0] === 'string'
+        ? outstanding as readonly string[] : (outstanding as readonly PreparedWrite[]).map((file) => file.relativePath);
+      return appendCompactJournal(transaction.journalPath, transaction.transactionId,
+        transaction.bindingDigest, compactJournalTail ?? undefined, state, published.length, outstandingPaths.length,
+        publicationReasonCode, recoveryReasonCode, transaction.files.length, testHooks).then((next) => {
+          compactJournalTail = next;
+          return true;
+        }, () => false);
+    };
     try {
       for (const file of transaction.files) {
         await assertLease();
@@ -779,9 +1099,13 @@ async function reconcileUnfinishedImportTransactions(
         await reconcileCandidateArtifact(workspaceRoot, file.replacementCandidatePath, file.replacementBytes, file.mode);
       }
     } catch {
-      let physicalOutstanding = transaction.outstanding;
+      let physicalOutstanding = transaction.journalVersion === 'v3' && transaction.state === 'publishing'
+        ? transaction.published : transaction.outstanding;
       try {
-        physicalOutstanding = Object.freeze((await observeReplacementPrefix(transaction.files))
+        const replacements = transaction.journalVersion === 'v3' && transaction.state === 'publishing'
+          ? await observePublishedPrefixAfterFailure(transaction.files, transaction.published.length, true)
+          : await observeReplacementPrefix(transaction.files);
+        physicalOutstanding = Object.freeze(replacements
           .map((file) => file.relativePath));
       } catch {
         // Preserve the last durable exact set when target state is itself ambiguous.
@@ -790,9 +1114,8 @@ async function reconcileUnfinishedImportTransactions(
         || transaction.state === 'rolling-back') {
         const publicationReason = transaction.publicationReasonCode ?? 'publication-failed';
         const published = transaction.state === 'rolling-back' ? transaction.published : physicalOutstanding;
-        await appendRecoveryJournalBestEffort(transaction.journalPath, transaction.transactionId,
-          'recovery-required', transaction.files, published, physicalOutstanding,
-          publicationReason, 'rollback-conflict', testHooks);
+        await appendProgress('recovery-required', published, physicalOutstanding,
+          publicationReason, 'rollback-conflict');
       }
       return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath, 'rollback-conflict',
         physicalOutstanding);
@@ -801,7 +1124,8 @@ async function reconcileUnfinishedImportTransactions(
       return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath,
         transaction.recoveryReasonCode ?? 'journal-failed', transaction.outstanding);
     }
-    let replacements: readonly PreparedWrite[] = [];
+    let replacements: readonly PreparedWrite[] = transaction.journalVersion === 'v3' && transaction.state === 'publishing'
+      ? transaction.files.slice(0, transaction.published.length) : [];
     let outstanding: PreparedWrite[] = [];
     const publicationReason = transaction.publicationReasonCode ?? 'publication-failed';
     try {
@@ -809,13 +1133,14 @@ async function reconcileUnfinishedImportTransactions(
         await assertLease();
         await assertOrdinaryContainedTargetChain(workspaceRoot, file.absolutePath);
       }
-      replacements = await observeReplacementPrefix(transaction.files);
+      replacements = transaction.journalVersion === 'v3' && transaction.state === 'publishing'
+        ? await observePublishedPrefixAfterFailure(transaction.files, transaction.published.length, true)
+        : await observeReplacementPrefix(transaction.files);
       const published = transaction.state === 'rolling-back' ? transaction.published
         : replacements.map((file) => file.relativePath);
       outstanding = [...replacements];
-      let journalFailed = !(await appendRecoveryJournalBestEffort(transaction.journalPath, transaction.transactionId,
-        'rolling-back', transaction.files, published, outstanding.map((file) => file.relativePath),
-        publicationReason, null, testHooks));
+      let journalFailed = !(await appendProgress('rolling-back', published,
+        outstanding, publicationReason, null));
       for (const file of [...outstanding].reverse()) {
         await assertLease();
         await assertOrdinaryContainedTargetChain(workspaceRoot, file.absolutePath);
@@ -831,23 +1156,19 @@ async function reconcileUnfinishedImportTransactions(
             `Import transform recovery rollback readback failed: ${file.relativePath}`);
         }
         outstanding.pop();
-        if (!journalFailed && !(await appendRecoveryJournalBestEffort(transaction.journalPath, transaction.transactionId,
-          'rolling-back', transaction.files, published, outstanding.map((entry) => entry.relativePath),
-          publicationReason, null, testHooks))) {
+        if (!journalFailed && !(await appendProgress('rolling-back', published,
+          outstanding, publicationReason, null))) {
           journalFailed = true;
         }
       }
       if (journalFailed) {
-        await appendRecoveryJournalBestEffort(transaction.journalPath, transaction.transactionId,
-          'recovery-required', transaction.files, published, outstanding.map((entry) => entry.relativePath),
-          publicationReason, 'journal-failed', testHooks);
+        await appendProgress('recovery-required', published,
+          outstanding, publicationReason, 'journal-failed');
         return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath, 'journal-failed',
           outstanding.map((entry) => entry.relativePath));
       }
-      if (!(await appendRecoveryJournalBestEffort(transaction.journalPath, transaction.transactionId, 'rolled-back',
-        transaction.files, published, [], publicationReason, null, testHooks))) {
-        await appendRecoveryJournalBestEffort(transaction.journalPath, transaction.transactionId, 'recovery-required',
-          transaction.files, published, [], publicationReason, 'journal-failed', testHooks);
+      if (!(await appendProgress('rolled-back', published, [], publicationReason, null))) {
+        await appendProgress('recovery-required', published, [], publicationReason, 'journal-failed');
         return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath, 'journal-failed');
       }
     } catch (error) {
@@ -855,11 +1176,11 @@ async function reconcileUnfinishedImportTransactions(
         ? 'rollback-conflict' as const : 'rollback-failed' as const;
       const published = transaction.state === 'rolling-back' ? transaction.published
         : replacements.map((file) => file.relativePath);
-      await appendRecoveryJournalBestEffort(transaction.journalPath, transaction.transactionId, 'recovery-required',
-        transaction.files, published, outstanding.map((file) => file.relativePath), publicationReason,
-        reasonCode, testHooks);
+      const recoveryOutstanding = outstanding.length > 0 ? outstanding : [...replacements];
+      await appendProgress('recovery-required', published,
+        recoveryOutstanding, publicationReason, reasonCode);
       return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath, reasonCode,
-        outstanding.map((file) => file.relativePath));
+        recoveryOutstanding.map((file) => file.relativePath));
     }
   }
   return undefined;
@@ -907,11 +1228,9 @@ async function prepareWrites(
 
 async function assertPreimages(
   workspaceRoot: string,
-  files: readonly PreparedWrite[],
-  published: ReadonlySet<string>
+  files: readonly PreparedWrite[]
 ): Promise<void> {
   for (const file of files) {
-    if (published.has(file.relativePath)) continue;
     await assertOrdinaryContainedTargetChain(workspaceRoot, file.absolutePath);
     const metadata = await fs.lstat(file.absolutePath);
     const current = await fs.readFile(file.absolutePath);
@@ -952,11 +1271,19 @@ export async function publishImportTransformTransaction(
   if (writes.length === 0) {
     throw new CompilerError('IMPORT-TRANSFORM-003', 'Import transform transaction requires a non-empty write set');
   }
+  if (writes.length * 2 + 4 > IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS) {
+    throw new CompilerError('IMPORT-TRANSFORM-003', 'Import transform transaction exceeds the bounded record limit', {
+      writeCount: writes.length,
+      maximumRecords: IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS
+    });
+  }
   const root = path.resolve(workspaceRoot);
   const transactionId = randomUUID();
   const transactionRoot = path.join(resolveWorkspaceLocalStateRoot(root), 'import-transform-transactions', transactionId);
   const journalPath = path.join(transactionRoot, 'journal.jsonl');
   const published: PreparedWrite[] = [];
+  let bindingDigest = '';
+  let compactJournalTail: CompactJournalEntry | undefined;
   let inFlightPublication: PreparedWrite | null = null;
   let inFlightPublicationRenamed = false;
 
@@ -968,6 +1295,18 @@ export async function publishImportTransformTransaction(
     // No new preimage observation or transaction directory creation occurs
     // until every durable unfinished publication is reconciled under this lease.
     const prepared = await prepareWrites(root, writes, transactionId);
+    const appendCompactProgress = async (
+      state: JournalState,
+      publishedCount: number,
+      outstandingCount: number,
+      publicationReasonCode: PublicationReason | null = null,
+      recoveryReasonCode: RecoveryReason | null = null,
+      create: boolean = false
+    ): Promise<void> => {
+      compactJournalTail = await appendCompactJournal(journalPath, transactionId, bindingDigest,
+        compactJournalTail, state, publishedCount, outstandingCount, publicationReasonCode,
+        recoveryReasonCode, prepared.length, testHooks, create);
+    };
     try {
       await ensureDir(transactionRoot);
       await syncDirectory(root);
@@ -979,7 +1318,7 @@ export async function publishImportTransformTransaction(
         await writeDurable(path.join(transactionRoot, `${stem}.preimage`), file.expectedBytes);
         await writeDurable(path.join(transactionRoot, `${stem}.replacement`), file.replacementBytes);
       }
-      await writeDurable(path.join(transactionRoot, 'binding.json'), `${JSON.stringify(canonicalJson({
+      const bindingBytes = `${JSON.stringify(canonicalJson({
         formatVersion: ImportTransformBindingFormat,
         transactionId,
         workspaceRoot: root,
@@ -991,9 +1330,10 @@ export async function publishImportTransformTransaction(
           replacementDigest: file.replacementDigest,
           mode: file.mode
         }))
-      }))}\n`);
-      await writeDurable(journalPath, '');
-      await appendJournal(journalPath, transactionId, 'prepared', prepared, [], [], null, null, testHooks);
+      }))}\n`;
+      bindingDigest = digest(bindingBytes);
+      await writeDurable(path.join(transactionRoot, 'binding.json'), bindingBytes);
+      await appendCompactProgress('prepared', 0, 0, null, null, true);
     } catch {
       // A partially durable transaction root is deliberately retained. Its next
       // lease-holder reconciles or fail-closes it rather than leaking a raw I/O error.
@@ -1001,12 +1341,15 @@ export async function publishImportTransformTransaction(
     }
 
     try {
-      await assertPreimages(root, prepared, new Set());
-      await appendJournal(journalPath, transactionId, 'publishing', prepared, [], [], null, null, testHooks);
+      // Capture the complete preimage once. Each candidate rename below
+      // rechecks its own target under the lease, so repeating this full scan
+      // for every file would add O(n²) filesystem work without strengthening
+      // the supported-writer guarantee.
+      await assertPreimages(root, prepared);
+      await appendCompactProgress('publishing', 0, 0);
       for (const [index, file] of prepared.entries()) {
         await assertWorkspaceWriteLease(root, lease);
         await testHooks.beforePublish?.(file.relativePath, index);
-        await assertPreimages(root, prepared, new Set(published.map((entry) => entry.relativePath)));
         inFlightPublication = file;
         inFlightPublicationRenamed = false;
         try {
@@ -1021,8 +1364,6 @@ export async function publishImportTransformTransaction(
           );
         }
         published.push(file);
-        inFlightPublication = null;
-        inFlightPublicationRenamed = false;
         await testHooks.afterPublish?.(file.relativePath, index);
         await assertOrdinaryContainedTargetChain(root, file.absolutePath);
         if (!(await fs.readFile(file.absolutePath)).equals(file.replacementBytes)) {
@@ -1031,13 +1372,13 @@ export async function publishImportTransformTransaction(
             `Import transform readback failed for ${file.relativePath}`
           );
         }
-        await appendJournal(journalPath, transactionId, 'publishing', prepared,
-          published.map((entry) => entry.relativePath), [], null, null, testHooks);
+        await appendCompactProgress('publishing', published.length, 0);
+        inFlightPublication = null;
+        inFlightPublicationRenamed = false;
       }
       await assertWorkspaceWriteLease(root, lease);
       await assertFinalWriteSet(root, prepared);
-      await appendJournal(journalPath, transactionId, 'accepted', prepared,
-        published.map((file) => file.relativePath), [], null, null, testHooks);
+      await appendCompactProgress('accepted', published.length, 0);
       return Object.freeze({
         schema: 'sec-import-transform-transaction-outcome-v1' as const,
         status: 'accepted' as const,
@@ -1053,15 +1394,24 @@ export async function publishImportTransformTransaction(
         failure.reasonCode === 'preimage-conflict' || failure.reasonCode === 'readback-failed'
           ? failure.reasonCode
           : 'publication-failed';
+      const appendProgress = (
+        state: Extract<JournalState, 'rolling-back' | 'rolled-back' | 'recovery-required'>,
+        publishedCount: number,
+        outstandingCount: number,
+        recoveryReasonCode: RecoveryReason | null
+      ): Promise<boolean> => appendCompactProgress(state, publishedCount, outstandingCount,
+        publicationReason, recoveryReasonCode)
+        .then(() => true, () => false);
+      const durablePublishedCount = compactJournalTail?.publishedCount ?? 0;
       let observedPublished: readonly PreparedWrite[];
       try {
         for (const file of prepared) {
           await assertWorkspaceWriteLease(root, lease);
           await assertOrdinaryContainedTargetChain(root, file.absolutePath);
         }
-        observedPublished = await observePublishedPrefixAfterFailure(prepared, published.length);
+        observedPublished = await observePublishedPrefixAfterFailure(prepared, durablePublishedCount);
         if (inFlightPublicationRenamed && inFlightPublication !== null
-          && observedPublished.length === published.length) {
+          && observedPublished.length === durablePublishedCount) {
           throw new ImportTransformTransactionFailure(
             'preimage-conflict',
             `Import transform post-rename target became ambiguous: ${inFlightPublication.relativePath}`
@@ -1069,26 +1419,15 @@ export async function publishImportTransformTransaction(
         }
       } catch {
         const possiblyPublished = [
-          ...published,
+          ...prepared.slice(0, durablePublishedCount),
           ...(inFlightPublicationRenamed && inFlightPublication !== null ? [inFlightPublication] : [])
         ].map((file) => file.relativePath);
-        await appendRecoveryJournalBestEffort(journalPath, transactionId, 'recovery-required', prepared,
-          possiblyPublished, possiblyPublished, publicationReason, 'rollback-conflict', testHooks);
+        await appendProgress('recovery-required', possiblyPublished.length, possiblyPublished.length,
+          'rollback-conflict');
         return recoveryRequiredOutcome(transactionId, journalPath, 'rollback-conflict', possiblyPublished);
       }
       const outstanding = [...observedPublished];
-      const publishedPaths = observedPublished.map((file) => file.relativePath);
-      let journalFailed = !(await appendRecoveryJournalBestEffort(
-        journalPath,
-        transactionId,
-        'rolling-back',
-        prepared,
-        publishedPaths,
-        outstanding.map((file) => file.relativePath),
-        publicationReason,
-        null,
-        testHooks
-      ));
+      let journalFailed = !(await appendProgress('rolling-back', observedPublished.length, outstanding.length, null));
       let recoveryReason: 'rollback-conflict' | 'rollback-failed' | undefined;
       for (const [index, file] of [...observedPublished].reverse().entries()) {
         try {
@@ -1118,10 +1457,8 @@ export async function publishImportTransformTransaction(
             break;
           }
           outstanding.pop();
-          if (!journalFailed && !(await appendRecoveryJournalBestEffort(
-            journalPath, transactionId, 'rolling-back', prepared,
-            publishedPaths, outstanding.map((entry) => entry.relativePath), publicationReason, null, testHooks
-          ))) {
+          if (!journalFailed && !(await appendProgress('rolling-back', observedPublished.length,
+            outstanding.length, null))) {
             journalFailed = true;
           }
         } catch (rollbackError) {
@@ -1131,17 +1468,7 @@ export async function publishImportTransformTransaction(
         }
       }
       if (recoveryReason !== undefined) {
-        await appendRecoveryJournalBestEffort(
-          journalPath,
-          transactionId,
-          'recovery-required',
-          prepared,
-          publishedPaths,
-          outstanding.map((file) => file.relativePath),
-          publicationReason,
-          recoveryReason,
-          testHooks
-        );
+        await appendProgress('recovery-required', observedPublished.length, outstanding.length, recoveryReason);
         return Object.freeze({
           schema: 'sec-import-transform-transaction-outcome-v1' as const,
           status: 'recovery-required' as const,
@@ -1152,19 +1479,12 @@ export async function publishImportTransformTransaction(
         });
       }
       if (journalFailed) {
-        await appendRecoveryJournalBestEffort(journalPath, transactionId, 'recovery-required', prepared,
-          publishedPaths, outstanding.map((entry) => entry.relativePath), publicationReason,
-          'journal-failed', testHooks);
+        await appendProgress('recovery-required', observedPublished.length, outstanding.length, 'journal-failed');
         return recoveryRequiredOutcome(transactionId, journalPath, 'journal-failed',
           outstanding.map((entry) => entry.relativePath));
       }
-      if (!(await appendRecoveryJournalBestEffort(
-        journalPath, transactionId, 'rolled-back', prepared, publishedPaths, [], publicationReason, null, testHooks
-      ))) {
-        await appendRecoveryJournalBestEffort(
-          journalPath, transactionId, 'recovery-required', prepared, publishedPaths, [], publicationReason,
-          'journal-failed', testHooks
-        );
+      if (!(await appendProgress('rolled-back', observedPublished.length, 0, null))) {
+        await appendProgress('recovery-required', observedPublished.length, 0, 'journal-failed');
         return Object.freeze({
           schema: 'sec-import-transform-transaction-outcome-v1' as const,
           status: 'recovery-required' as const,
@@ -1182,1065 +1502,6 @@ export async function publishImportTransformTransaction(
         journalPath,
         reasonCode: publicationReason
       });
-    }
-  });
-}
-
-type RelocationFileSnapshot = Readonly<{
-  readonly bytes: Buffer;
-  readonly mode: number;
-  readonly identity: ImportTransformPhysicalIdentity;
-}>;
-
-type PreparedRelocation = Readonly<{
-  readonly sourcePath: string;
-  readonly targetPath: string;
-  readonly sourceAbsolutePath: string;
-  readonly targetAbsolutePath: string;
-  readonly sourceArtifactPath: string;
-  readonly targetCandidatePath: string;
-  readonly expectedSourceBytes: Buffer;
-  readonly expectedSourceDigest: string;
-  readonly sourceMode: number;
-  readonly sourceIdentity: ImportTransformPhysicalIdentity;
-  readonly targetState: ImportTransformRelocationTarget['state'];
-  readonly expectedTargetBytes: Buffer | null;
-  readonly expectedTargetDigest: string | null;
-  readonly expectedTargetMode: number | null;
-  readonly expectedTargetIdentity: ImportTransformPhysicalIdentity | null;
-}>;
-
-type RelocationProgress = Readonly<{
-  readonly path: string;
-  readonly identity: ImportTransformPhysicalIdentity;
-}>;
-
-type RelocationJournalState =
-  | 'prepared'
-  | 'publishing'
-  | 'accepted'
-  | 'rolling-back'
-  | 'rolled-back'
-  | 'recovery-required';
-
-type RelocationJournalEntry = Readonly<{
-  readonly formatVersion: typeof RepositoryRelocationJournalFormat;
-  readonly transactionId: string;
-  readonly state: RelocationJournalState;
-  readonly entries: readonly Readonly<{
-    readonly sourcePath: string;
-    readonly targetPath: string;
-    readonly sourceDigest: string;
-    readonly sourceMode: number;
-    readonly sourceDevice: string;
-    readonly sourceInode: string;
-    readonly targetState: 'absent' | 'existing';
-    readonly targetDigest: string | null;
-    readonly targetMode: number | null;
-    readonly targetDevice: string | null;
-    readonly targetInode: string | null;
-  }>[];
-  readonly targetPublished: readonly RelocationProgress[];
-  readonly sourceDeleted: readonly RelocationProgress[];
-  readonly publicationReasonCode: 'preimage-conflict' | 'publication-failed' | 'readback-failed' | null;
-  readonly recoveryReasonCode: 'journal-failed' | 'rollback-conflict' | 'rollback-failed' | null;
-}>;
-
-type RecoveredRelocationTransaction = Readonly<{
-  readonly transactionId: string;
-  readonly transactionRoot: string;
-  readonly journalPath: string;
-  readonly entries: readonly PreparedRelocation[];
-  readonly state: RelocationJournalState;
-  readonly targetPublished: readonly RelocationProgress[];
-  readonly sourceDeleted: readonly RelocationProgress[];
-  readonly publicationReasonCode: RelocationJournalEntry['publicationReasonCode'];
-  readonly recoveryReasonCode: RelocationJournalEntry['recoveryReasonCode'];
-}>;
-
-const RepositoryRelocationBindingFormat = 'sec-repository-relocation-transaction-v1' as const;
-const RepositoryRelocationJournalFormat = 'sec-repository-relocation-journal-entry-v1' as const;
-
-function relocationIdentity(metadata: { readonly dev: number; readonly ino: number }): ImportTransformPhysicalIdentity {
-  return Object.freeze({ device: String(metadata.dev), inode: String(metadata.ino) });
-}
-
-function sameRelocationIdentity(
-  left: ImportTransformPhysicalIdentity,
-  right: ImportTransformPhysicalIdentity
-): boolean {
-  return left.device === right.device && left.inode === right.inode;
-}
-
-function relocationPathIsCanonical(value: string): boolean {
-  const normalized = value.replaceAll('\\', '/');
-  return normalized === value
-    && normalized.length > 0
-    && !path.posix.isAbsolute(normalized)
-    && !normalized.split('/').includes('..')
-    && !normalized.split('/').includes('.')
-    && !normalized.includes('//');
-}
-
-async function assertRelocationParentChain(
-  workspaceRoot: string,
-  absolutePath: string
-): Promise<void> {
-  const root = path.resolve(workspaceRoot);
-  const parent = path.dirname(absolutePath);
-  const relative = path.relative(root, parent);
-  if (relative === '..' || relative.startsWith(`..${path.sep}`)
-    || path.isAbsolute(relative)) {
-    throw new ImportTransformTransactionFailure(
-      'preimage-conflict',
-      `Repository relocation parent escaped the workspace: ${absolutePath}`
-    );
-  }
-  const rootMetadata = await fs.lstat(root);
-  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()
-    || !samePhysicalPath(await fs.realpath(root), root)) {
-    throw new ImportTransformTransactionFailure(
-      'preimage-conflict',
-      'Repository relocation workspace root is not one ordinary directory.'
-    );
-  }
-  let current = root;
-  if (relative !== '') {
-    for (const segment of relative.split(path.sep)) {
-      current = path.join(current, segment);
-      const metadata = await fs.lstat(current);
-      if (!metadata.isDirectory() || metadata.isSymbolicLink()
-        || !samePhysicalPath(await fs.realpath(current), current)) {
-        throw new ImportTransformTransactionFailure(
-          'preimage-conflict',
-          `Repository relocation parent has a symlink/reparse ancestor: ${absolutePath}`
-        );
-      }
-    }
-  }
-}
-
-async function readRelocationSnapshot(
-  workspaceRoot: string,
-  absolutePath: string
-): Promise<RelocationFileSnapshot | null> {
-  await assertRelocationParentChain(workspaceRoot, absolutePath);
-  let metadata;
-  try {
-    metadata = await fs.lstat(absolutePath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
-  if (!metadata.isFile() || metadata.isSymbolicLink()
-    || !samePhysicalPath(await fs.realpath(absolutePath), absolutePath)) {
-    throw new ImportTransformTransactionFailure(
-      'preimage-conflict',
-      `Repository relocation path is not one ordinary file: ${absolutePath}`
-    );
-  }
-  const bytes = await fs.readFile(absolutePath);
-  const after = await fs.lstat(absolutePath);
-  const identity = relocationIdentity(metadata);
-  if (!sameRelocationIdentity(identity, relocationIdentity(after))
-    || (metadata.mode & 0o777) !== (after.mode & 0o777)
-    || metadata.size !== after.size) {
-    throw new ImportTransformTransactionFailure(
-      'preimage-conflict',
-      `Repository relocation file changed while it was read: ${absolutePath}`
-    );
-  }
-  return Object.freeze({ bytes, mode: metadata.mode & 0o777, identity });
-}
-
-function assertRelocationSnapshot(
-  snapshot: RelocationFileSnapshot | null,
-  expectedBytes: Buffer,
-  expectedMode: number,
-  expectedIdentity: ImportTransformPhysicalIdentity,
-  label: string
-): asserts snapshot is RelocationFileSnapshot {
-  if (snapshot === null || snapshot.mode !== expectedMode
-    || !sameRelocationIdentity(snapshot.identity, expectedIdentity)
-    || !snapshot.bytes.equals(expectedBytes)) {
-    throw new ImportTransformTransactionFailure('preimage-conflict', `${label} drifted.`);
-  }
-}
-
-async function assertRelocationTargetPrecondition(
-  workspaceRoot: string,
-  entry: PreparedRelocation
-): Promise<RelocationFileSnapshot | null> {
-  const observed = await readRelocationSnapshot(workspaceRoot, entry.targetAbsolutePath);
-  if (entry.targetState === 'absent') {
-    if (observed !== null) {
-      throw new ImportTransformTransactionFailure(
-        'preimage-conflict',
-        `Repository relocation target is no longer absent: ${entry.targetPath}`
-      );
-    }
-    return null;
-  }
-  if (observed === null || entry.expectedTargetBytes === null
-    || entry.expectedTargetMode === null || entry.expectedTargetIdentity === null) {
-    throw new ImportTransformTransactionFailure(
-      'preimage-conflict',
-      `Repository relocation existing target disappeared: ${entry.targetPath}`
-    );
-  }
-  assertRelocationSnapshot(observed, entry.expectedTargetBytes, entry.expectedTargetMode,
-    entry.expectedTargetIdentity, `Repository relocation target ${entry.targetPath}`);
-  return observed;
-}
-
-async function prepareRelocations(
-  workspaceRoot: string,
-  relocations: readonly ImportTransformRelocation[],
-  transactionRoot: string
-): Promise<readonly PreparedRelocation[]> {
-  const sourcePaths = new Set<string>();
-  const targetPaths = new Set<string>();
-  const allPaths = new Set<string>();
-  const prepared: PreparedRelocation[] = [];
-  for (const relocation of relocations) {
-    const sourcePath = relocation.entry.sourcePath;
-    const targetPath = relocation.entry.targetPath;
-    if (relocation.entry.sourceKind !== 'typescript'
-      || relocation.entry.unresolvedReferences.length > 0
-      || !relocationPathIsCanonical(sourcePath)
-      || !relocationPathIsCanonical(targetPath)
-      || sourcePath === targetPath) {
-      throw new ImportTransformTransactionFailure(
-        'preimage-conflict',
-        `Repository relocation entry is not a resolved TypeScript move: ${sourcePath} -> ${targetPath}`
-      );
-    }
-    if (sourcePaths.has(sourcePath) || targetPaths.has(targetPath)
-      || allPaths.has(sourcePath) || allPaths.has(targetPath)) {
-      throw new ImportTransformTransactionFailure(
-        'preimage-conflict',
-        `Repository relocation plan has an overlapping path: ${sourcePath} -> ${targetPath}`
-      );
-    }
-    sourcePaths.add(sourcePath);
-    targetPaths.add(targetPath);
-    allPaths.add(sourcePath);
-    allPaths.add(targetPath);
-    const sourceAbsolutePath = containedFile(workspaceRoot, sourcePath);
-    const targetAbsolutePath = containedFile(workspaceRoot, targetPath);
-    await assertRelocationParentChain(workspaceRoot, sourceAbsolutePath);
-    await assertRelocationParentChain(workspaceRoot, targetAbsolutePath);
-    const source = await readRelocationSnapshot(workspaceRoot, sourceAbsolutePath);
-    if (source === null || !source.bytes.equals(relocation.expectedSourceBytes)) {
-      throw new ImportTransformTransactionFailure(
-        'preimage-conflict',
-        `Repository relocation source preimage does not match: ${sourcePath}`
-      );
-    }
-    const target = relocation.target;
-    if (target.state === 'existing'
-      && (!Number.isInteger(target.expectedMode) || target.expectedMode < 0 || target.expectedMode > 0o777
-        || target.expectedIdentity.device.length === 0 || target.expectedIdentity.inode.length === 0)) {
-      throw new ImportTransformTransactionFailure(
-        'preimage-conflict',
-        `Repository relocation target identity is invalid: ${targetPath}`
-      );
-    }
-    const targetEntry: PreparedRelocation = Object.freeze({
-      sourcePath,
-      targetPath,
-      sourceAbsolutePath,
-      targetAbsolutePath,
-      sourceArtifactPath: path.join(transactionRoot, `${digest(sourcePath)}.source`),
-      targetCandidatePath: path.join(transactionRoot, `${digest(sourcePath)}.target.candidate`),
-      expectedSourceBytes: Buffer.from(relocation.expectedSourceBytes),
-      expectedSourceDigest: digest(relocation.expectedSourceBytes),
-      sourceMode: source.mode,
-      sourceIdentity: source.identity,
-      targetState: target.state,
-      expectedTargetBytes: target.state === 'existing' ? Buffer.from(target.expectedBytes) : null,
-      expectedTargetDigest: target.state === 'existing' ? digest(target.expectedBytes) : null,
-      expectedTargetMode: target.state === 'existing' ? target.expectedMode : null,
-      expectedTargetIdentity: target.state === 'existing' ? target.expectedIdentity : null
-    });
-    await assertRelocationTargetPrecondition(workspaceRoot, targetEntry);
-    prepared.push(targetEntry);
-  }
-  return Object.freeze(prepared);
-}
-
-function relocationBindingEntry(entry: PreparedRelocation): Record<string, unknown> {
-  return {
-    sourcePath: entry.sourcePath,
-    targetPath: entry.targetPath,
-    sourceArtifactRelativePath: path.relative(path.dirname(path.dirname(entry.sourceArtifactPath)), entry.sourceArtifactPath)
-      .replaceAll('\\', '/'),
-    targetCandidateRelativePath: path.relative(path.dirname(path.dirname(entry.targetCandidatePath)), entry.targetCandidatePath)
-      .replaceAll('\\', '/'),
-    sourceDigest: entry.expectedSourceDigest,
-    sourceMode: entry.sourceMode,
-    sourceDevice: entry.sourceIdentity.device,
-    sourceInode: entry.sourceIdentity.inode,
-    targetState: entry.targetState,
-    targetDigest: entry.expectedTargetDigest,
-    targetMode: entry.expectedTargetMode,
-    targetDevice: entry.expectedTargetIdentity?.device ?? null,
-    targetInode: entry.expectedTargetIdentity?.inode ?? null
-  };
-}
-
-function relocationJournalEntries(entries: readonly PreparedRelocation[]): readonly Record<string, unknown>[] {
-  return Object.freeze(entries.map((entry) => ({
-    sourcePath: entry.sourcePath,
-    targetPath: entry.targetPath,
-    sourceDigest: entry.expectedSourceDigest,
-    sourceMode: entry.sourceMode,
-    sourceDevice: entry.sourceIdentity.device,
-    sourceInode: entry.sourceIdentity.inode,
-    targetState: entry.targetState,
-    targetDigest: entry.expectedTargetDigest,
-    targetMode: entry.expectedTargetMode,
-    targetDevice: entry.expectedTargetIdentity?.device ?? null,
-    targetInode: entry.expectedTargetIdentity?.inode ?? null
-  })));
-}
-
-function relocationProgress(
-  values: readonly RelocationProgress[],
-  label: string
-): readonly Record<string, unknown>[] {
-  return Object.freeze(values.map((value) => ({
-    path: value.path,
-    identity: { device: value.identity.device, inode: value.identity.inode }
-  })));
-}
-
-function parseRelocationProgress(
-  value: unknown,
-  entries: readonly PreparedRelocation[],
-  field: 'target' | 'source'
-): readonly RelocationProgress[] {
-  if (!Array.isArray(value) || value.length > entries.length) {
-    recoveryFailure(`Repository relocation ${field} progress is invalid.`);
-  }
-  const result: RelocationProgress[] = [];
-  for (const [index, raw] of value.entries()) {
-    const record = asRecord(raw, `Repository relocation ${field} progress`);
-    exactKeys(record, ['identity', 'path'], `Repository relocation ${field} progress`);
-    const identity = asRecord(record.identity, `Repository relocation ${field} identity`);
-    exactKeys(identity, ['device', 'inode'], `Repository relocation ${field} identity`);
-    if (typeof record.path !== 'string' || typeof identity.device !== 'string'
-      || typeof identity.inode !== 'string') {
-      recoveryFailure(`Repository relocation ${field} progress is malformed.`);
-    }
-    const expected = field === 'target' ? entries[index]?.targetPath : entries[index]?.sourcePath;
-    if (record.path !== expected || identity.device.length === 0 || identity.inode.length === 0) {
-      recoveryFailure(`Repository relocation ${field} progress is not an exact prefix.`);
-    }
-    result.push(Object.freeze({
-      path: record.path,
-      identity: Object.freeze({ device: identity.device, inode: identity.inode })
-    }));
-  }
-  return Object.freeze(result);
-}
-
-function validateRelocationJournalProgress(
-  state: RelocationJournalState,
-  targetPublished: readonly RelocationProgress[],
-  sourceDeleted: readonly RelocationProgress[],
-  entries: readonly PreparedRelocation[]
-): void {
-  if (sourceDeleted.length > targetPublished.length) {
-    recoveryFailure('Repository relocation source progress exceeds target progress.');
-  }
-  if (sourceDeleted.some((_value, index) => entries[index] === undefined
-    || targetPublished[index] === undefined)) {
-    recoveryFailure('Repository relocation source progress exceeds target progress.');
-  }
-  for (let index = 0; index < targetPublished.length; index += 1) {
-    if (targetPublished[index]?.path !== entries[index]?.targetPath) {
-      recoveryFailure('Repository relocation target progress is not an exact prefix.');
-    }
-  }
-  for (let index = 0; index < sourceDeleted.length; index += 1) {
-    if (sourceDeleted[index]?.path !== entries[index]?.sourcePath) {
-      recoveryFailure('Repository relocation source progress is not an exact prefix.');
-    }
-  }
-  if (state === 'prepared' && (targetPublished.length !== 0 || sourceDeleted.length !== 0)) {
-    recoveryFailure('Repository relocation prepared journal must be empty.');
-  }
-  if (state === 'accepted'
-    && (targetPublished.length !== entries.length || sourceDeleted.length !== entries.length)) {
-    recoveryFailure('Repository relocation accepted journal is incomplete.');
-  }
-  if (state === 'rolled-back' && sourceDeleted.length !== 0) {
-    recoveryFailure('Repository relocation rolled-back journal retains deleted sources.');
-  }
-}
-
-function validateRelocationJournalTransition(
-  previous: RelocationJournalEntry | undefined,
-  next: RelocationJournalEntry,
-  entries: readonly PreparedRelocation[]
-): void {
-  const forward = next.state === 'prepared' || next.state === 'publishing' || next.state === 'accepted';
-  if (forward) {
-    if (next.publicationReasonCode !== null || next.recoveryReasonCode !== null) {
-      recoveryFailure('Repository relocation forward journal carries failure state.');
-    }
-  } else if (next.state === 'rolling-back' || next.state === 'rolled-back') {
-    if (next.publicationReasonCode === null || next.recoveryReasonCode !== null) {
-      recoveryFailure('Repository relocation rollback journal reason is invalid.');
-    }
-  } else if (next.publicationReasonCode === null || next.recoveryReasonCode === null) {
-    recoveryFailure('Repository relocation recovery reason is incomplete.');
-  }
-  validateRelocationJournalProgress(next.state, next.targetPublished, next.sourceDeleted, entries);
-  if (previous === undefined) {
-    if (next.state !== 'prepared') recoveryFailure('Repository relocation journal must begin prepared.');
-    return;
-  }
-  const allowed = previous.state === 'prepared'
-    ? next.state === 'publishing' || next.state === 'rolling-back' || next.state === 'recovery-required'
-    : previous.state === 'publishing'
-      ? next.state === 'publishing' || next.state === 'accepted' || next.state === 'rolling-back'
-        || next.state === 'recovery-required'
-      : previous.state === 'rolling-back'
-        ? next.state === 'rolling-back' || next.state === 'rolled-back' || next.state === 'recovery-required'
-        : false;
-  if (!allowed) recoveryFailure('Repository relocation journal state sequence is invalid.');
-  if (next.targetPublished.length < previous.targetPublished.length
-    || previous.targetPublished.some((value, index) => next.targetPublished[index]?.path !== value.path
-      || !sameRelocationIdentity(next.targetPublished[index]!.identity, value.identity))) {
-    recoveryFailure('Repository relocation target progress is not monotonic.');
-  }
-  if (!(next.state === 'rolled-back' && previous.state === 'rolling-back')
-    && (next.sourceDeleted.length < previous.sourceDeleted.length
-      || previous.sourceDeleted.some((value, index) => next.sourceDeleted[index]?.path !== value.path
-        || !sameRelocationIdentity(next.sourceDeleted[index]!.identity, value.identity)))) {
-    recoveryFailure('Repository relocation source progress is not monotonic.');
-  }
-  if (next.publicationReasonCode !== previous.publicationReasonCode
-    && previous.publicationReasonCode !== null) {
-    recoveryFailure('Repository relocation publication reason drifted.');
-  }
-}
-
-function parseRelocationJournalEntries(
-  source: string,
-  transactionId: string,
-  entries: readonly PreparedRelocation[]
-): readonly RelocationJournalEntry[] {
-  const result: RelocationJournalEntry[] = [];
-  for (const line of source.split('\n').filter((value) => value.length > 0)) {
-    const raw = asRecord(parseRecoveryJson(line, 'Repository relocation journal entry'),
-      'Repository relocation journal entry');
-    exactKeys(raw, ['entries', 'formatVersion', 'publicationReasonCode', 'recoveryReasonCode',
-      'sourceDeleted', 'state', 'targetPublished', 'transactionId'], 'Repository relocation journal entry');
-    if (raw.formatVersion !== RepositoryRelocationJournalFormat || raw.transactionId !== transactionId
-      || typeof raw.state !== 'string' || !['prepared', 'publishing', 'accepted', 'rolling-back',
-        'rolled-back', 'recovery-required'].includes(raw.state) || !Array.isArray(raw.entries)) {
-      recoveryFailure('Repository relocation journal identity is invalid.');
-    }
-    if (raw.entries.length !== entries.length || raw.entries.some((value, index) => {
-      const recorded = asRecord(value, 'Repository relocation journal entry record');
-      exactKeys(recorded, ['sourceDevice', 'sourceDigest', 'sourceInode', 'sourceMode', 'sourcePath',
-        'targetDevice', 'targetDigest', 'targetInode', 'targetMode', 'targetPath', 'targetState'],
-      'Repository relocation journal entry record');
-      const expected = entries[index]!;
-      return recorded.sourcePath !== expected.sourcePath || recorded.targetPath !== expected.targetPath
-        || recorded.sourceDigest !== expected.expectedSourceDigest || recorded.sourceMode !== expected.sourceMode
-        || recorded.sourceDevice !== expected.sourceIdentity.device || recorded.sourceInode !== expected.sourceIdentity.inode
-        || recorded.targetState !== expected.targetState || recorded.targetDigest !== expected.expectedTargetDigest
-        || recorded.targetMode !== expected.expectedTargetMode
-        || recorded.targetDevice !== (expected.expectedTargetIdentity?.device ?? null)
-        || recorded.targetInode !== (expected.expectedTargetIdentity?.inode ?? null);
-    })) recoveryFailure('Repository relocation journal entry set drifted.');
-    const publicationReasonCode = raw.publicationReasonCode === null ? null
-      : ['preimage-conflict', 'publication-failed', 'readback-failed'].includes(String(raw.publicationReasonCode))
-        ? raw.publicationReasonCode as RelocationJournalEntry['publicationReasonCode']
-        : recoveryFailure('Repository relocation publication reason is invalid.');
-    const recoveryReasonCode = raw.recoveryReasonCode === null ? null
-      : ['journal-failed', 'rollback-conflict', 'rollback-failed'].includes(String(raw.recoveryReasonCode))
-        ? raw.recoveryReasonCode as RelocationJournalEntry['recoveryReasonCode']
-        : recoveryFailure('Repository relocation recovery reason is invalid.');
-    const entry: RelocationJournalEntry = Object.freeze({
-      formatVersion: RepositoryRelocationJournalFormat,
-      transactionId,
-      state: raw.state as RelocationJournalState,
-      entries: Object.freeze(entries.map((prepared) => Object.freeze({
-        sourcePath: prepared.sourcePath,
-        targetPath: prepared.targetPath,
-        sourceDigest: prepared.expectedSourceDigest,
-        sourceMode: prepared.sourceMode,
-        sourceDevice: prepared.sourceIdentity.device,
-        sourceInode: prepared.sourceIdentity.inode,
-        targetState: prepared.targetState,
-        targetDigest: prepared.expectedTargetDigest,
-        targetMode: prepared.expectedTargetMode,
-        targetDevice: prepared.expectedTargetIdentity?.device ?? null,
-        targetInode: prepared.expectedTargetIdentity?.inode ?? null
-      }))),
-      targetPublished: parseRelocationProgress(raw.targetPublished, entries, 'target'),
-      sourceDeleted: parseRelocationProgress(raw.sourceDeleted, entries, 'source'),
-      publicationReasonCode,
-      recoveryReasonCode
-    });
-    validateRelocationJournalTransition(result.at(-1), entry, entries);
-    result.push(entry);
-  }
-  return Object.freeze(result);
-}
-
-async function appendRelocationJournal(
-  journalPath: string,
-  transactionId: string,
-  state: RelocationJournalState,
-  entries: readonly PreparedRelocation[],
-  targetPublished: readonly RelocationProgress[],
-  sourceDeleted: readonly RelocationProgress[],
-  publicationReasonCode: RelocationJournalEntry['publicationReasonCode'],
-  recoveryReasonCode: RelocationJournalEntry['recoveryReasonCode'],
-  testHooks: RepositoryRelocationTransactionTestHooks
-): Promise<void> {
-  await testHooks.beforeJournalAppend?.(state);
-  const entry: RelocationJournalEntry = Object.freeze({
-    formatVersion: RepositoryRelocationJournalFormat,
-    transactionId,
-    state,
-    entries: Object.freeze(relocationJournalEntries(entries) as RelocationJournalEntry['entries']),
-    targetPublished: Object.freeze([...targetPublished]),
-    sourceDeleted: Object.freeze([...sourceDeleted]),
-    publicationReasonCode,
-    recoveryReasonCode
-  });
-  const existing = await fs.readFile(journalPath, 'utf8');
-  const serialized = `${JSON.stringify(canonicalJson({
-    ...entry,
-    targetPublished: relocationProgress(targetPublished, 'target'),
-    sourceDeleted: relocationProgress(sourceDeleted, 'source')
-  }))}\n`;
-  parseRelocationJournalEntries(`${existing}${serialized}`, transactionId, entries);
-  const handle = await fs.open(journalPath, 'a');
-  try {
-    await handle.writeFile(serialized, 'utf8');
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
-async function writeRelocationCandidate(
-  entry: PreparedRelocation
-): Promise<void> {
-  const handle = await fs.open(entry.targetCandidatePath, 'wx', entry.sourceMode);
-  try {
-    await handle.writeFile(entry.expectedSourceBytes);
-    await handle.chmod(entry.sourceMode);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await syncDirectory(path.dirname(entry.targetCandidatePath));
-}
-
-async function publishRelocationTarget(
-  workspaceRoot: string,
-  entry: PreparedRelocation,
-  assertLease: () => Promise<void>,
-  index: number,
-  testHooks: RepositoryRelocationTransactionTestHooks
-): Promise<RelocationProgress> {
-  const existing = await assertRelocationTargetPrecondition(workspaceRoot, entry);
-  if (entry.targetState === 'existing') {
-    return Object.freeze({ path: entry.targetPath, identity: existing!.identity });
-  }
-  await testHooks.beforeTargetPublish?.(entry.targetPath, index);
-  await assertLease();
-  if (await readRelocationSnapshot(workspaceRoot, entry.targetAbsolutePath) !== null) {
-    throw new ImportTransformTransactionFailure(
-      'preimage-conflict',
-      `Repository relocation target was created before no-replace publication: ${entry.targetPath}`
-    );
-  }
-  await writeRelocationCandidate(entry);
-  try {
-    // A hard link is the portable no-replace publication primitive available
-    // to this owner. It atomically fails when a foreign writer creates target.
-    await fs.link(entry.targetCandidatePath, entry.targetAbsolutePath);
-    const target = await readRelocationSnapshot(workspaceRoot, entry.targetAbsolutePath);
-    if (target === null || !target.bytes.equals(entry.expectedSourceBytes)
-      || target.mode !== entry.sourceMode) {
-      throw new ImportTransformTransactionFailure(
-        'publication-failed',
-        `Repository relocation target readback failed: ${entry.targetPath}`
-      );
-    }
-    const candidate = await readRelocationSnapshot(workspaceRoot, entry.targetCandidatePath);
-    if (candidate === null || !sameRelocationIdentity(candidate.identity, target.identity)) {
-      throw new ImportTransformTransactionFailure(
-        'preimage-conflict',
-        `Repository relocation target identity did not come from its candidate: ${entry.targetPath}`
-      );
-    }
-    await syncDirectory(path.dirname(entry.targetAbsolutePath));
-    await fs.unlink(entry.targetCandidatePath);
-    await syncDirectory(path.dirname(entry.targetCandidatePath));
-    return Object.freeze({ path: entry.targetPath, identity: target.identity });
-  } finally {
-    const candidate = await readRelocationSnapshot(workspaceRoot, entry.targetCandidatePath);
-    if (candidate !== null && candidate.bytes.equals(entry.expectedSourceBytes)
-      && candidate.mode === entry.sourceMode) {
-      await fs.unlink(entry.targetCandidatePath);
-      await syncDirectory(path.dirname(entry.targetCandidatePath));
-    }
-  }
-}
-
-async function deleteRelocationSource(
-  workspaceRoot: string,
-  entry: PreparedRelocation,
-  assertLease: () => Promise<void>,
-  index: number,
-  testHooks: RepositoryRelocationTransactionTestHooks
-): Promise<RelocationProgress> {
-  await assertLease();
-  const source = await readRelocationSnapshot(workspaceRoot, entry.sourceAbsolutePath);
-  assertRelocationSnapshot(source, entry.expectedSourceBytes, entry.sourceMode, entry.sourceIdentity,
-    `Repository relocation source ${entry.sourcePath}`);
-  await testHooks.beforeSourceDelete?.(entry.sourcePath, index);
-  await assertLease();
-  const rechecked = await readRelocationSnapshot(workspaceRoot, entry.sourceAbsolutePath);
-  assertRelocationSnapshot(rechecked, entry.expectedSourceBytes, entry.sourceMode, entry.sourceIdentity,
-    `Repository relocation source ${entry.sourcePath}`);
-  await fs.unlink(entry.sourceAbsolutePath);
-  await syncDirectory(path.dirname(entry.sourceAbsolutePath));
-  return Object.freeze({ path: entry.sourcePath, identity: entry.sourceIdentity });
-}
-
-async function assertRelocationFinalReadback(
-  workspaceRoot: string,
-  entry: PreparedRelocation,
-  targetPublished: RelocationProgress
-): Promise<void> {
-  const target = await readRelocationSnapshot(workspaceRoot, entry.targetAbsolutePath);
-  const expectedBytes = entry.targetState === 'existing' ? entry.expectedTargetBytes! : entry.expectedSourceBytes;
-  const expectedMode = entry.targetState === 'existing' ? entry.expectedTargetMode! : entry.sourceMode;
-  assertRelocationSnapshot(target, expectedBytes, expectedMode, targetPublished.identity,
-    `Repository relocation final target ${entry.targetPath}`);
-  if (await readRelocationSnapshot(workspaceRoot, entry.sourceAbsolutePath) !== null) {
-    throw new ImportTransformTransactionFailure(
-      'readback-failed',
-      `Repository relocation source still exists after publication: ${entry.sourcePath}`
-    );
-  }
-}
-
-async function restoreRelocationSource(
-  workspaceRoot: string,
-  entry: PreparedRelocation
-): Promise<void> {
-  const existing = await readRelocationSnapshot(workspaceRoot, entry.sourceAbsolutePath);
-  if (existing !== null) {
-    assertRelocationSnapshot(existing, entry.expectedSourceBytes, entry.sourceMode, entry.sourceIdentity,
-      `Repository relocation rollback source ${entry.sourcePath}`);
-    return;
-  }
-  const handle = await fs.open(entry.sourceAbsolutePath, 'wx', entry.sourceMode);
-  try {
-    await handle.writeFile(entry.expectedSourceBytes);
-    await handle.chmod(entry.sourceMode);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await syncDirectory(path.dirname(entry.sourceAbsolutePath));
-  const restored = await readRelocationSnapshot(workspaceRoot, entry.sourceAbsolutePath);
-  if (restored === null || !restored.bytes.equals(entry.expectedSourceBytes)
-    || restored.mode !== entry.sourceMode) {
-    throw new ImportTransformTransactionFailure(
-      'rollback-failed',
-      `Repository relocation rollback source readback failed: ${entry.sourcePath}`
-    );
-  }
-}
-
-async function rollbackRelocations(
-  workspaceRoot: string,
-  entries: readonly PreparedRelocation[],
-  targetPublished: readonly RelocationProgress[],
-  sourceDeleted: readonly RelocationProgress[],
-  assertLease: () => Promise<void>
-): Promise<void> {
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index]!;
-    const deleted = sourceDeleted[index];
-    const published = targetPublished[index];
-    if (deleted !== undefined) {
-      const source = await readRelocationSnapshot(workspaceRoot, entry.sourceAbsolutePath);
-      if (source !== null && !sameRelocationIdentity(source.identity, deleted.identity)) {
-        throw new ImportTransformTransactionFailure(
-          'preimage-conflict',
-          `Repository relocation rollback source was replaced: ${entry.sourcePath}`
-        );
-      }
-      await assertLease();
-      await restoreRelocationSource(workspaceRoot, entry);
-    } else if (await readRelocationSnapshot(workspaceRoot, entry.sourceAbsolutePath) === null) {
-      throw new ImportTransformTransactionFailure(
-        'preimage-conflict',
-        `Repository relocation source disappeared before its deletion was journaled: ${entry.sourcePath}`
-      );
-    }
-    if (published !== undefined && entry.targetState === 'absent') {
-      const target = await readRelocationSnapshot(workspaceRoot, entry.targetAbsolutePath);
-      assertRelocationSnapshot(target, entry.expectedSourceBytes, entry.sourceMode, published.identity,
-        `Repository relocation rollback target ${entry.targetPath}`);
-      await assertLease();
-      await fs.unlink(entry.targetAbsolutePath);
-      await syncDirectory(path.dirname(entry.targetAbsolutePath));
-    } else if (entry.targetState === 'existing') {
-      await assertRelocationTargetPrecondition(workspaceRoot, entry);
-    } else if (published !== undefined) {
-      throw new ImportTransformTransactionFailure(
-        'preimage-conflict',
-        `Repository relocation rollback target disappeared: ${entry.targetPath}`
-      );
-    }
-    const candidate = await readRelocationSnapshot(workspaceRoot, entry.targetCandidatePath);
-    if (candidate !== null && candidate.bytes.equals(entry.expectedSourceBytes)
-      && candidate.mode === entry.sourceMode) {
-      await fs.unlink(entry.targetCandidatePath);
-      await syncDirectory(path.dirname(entry.targetCandidatePath));
-    }
-  }
-}
-
-async function readUnfinishedRelocationTransaction(
-  workspaceRoot: string,
-  transactionRoot: string,
-  transactionId: string
-): Promise<RecoveredRelocationTransaction> {
-  const bindingPath = path.join(transactionRoot, 'binding.json');
-  const journalPath = path.join(transactionRoot, 'journal.jsonl');
-  const binding = asRecord(parseRecoveryJson((await readRegularTransactionArtifact(bindingPath,
-    'Repository relocation binding')).toString('utf8'), 'Repository relocation binding'),
-  'Repository relocation binding');
-  exactKeys(binding, ['entries', 'formatVersion', 'transactionId', 'workspaceRoot'], 'Repository relocation binding');
-  if (binding.formatVersion !== RepositoryRelocationBindingFormat || binding.transactionId !== transactionId
-    || binding.workspaceRoot !== workspaceRoot || !Array.isArray(binding.entries)
-    || binding.entries.length === 0) recoveryFailure('Repository relocation binding identity is invalid.');
-  const entries: PreparedRelocation[] = [];
-  for (const raw of binding.entries) {
-    const record = asRecord(raw, 'Repository relocation binding entry');
-    exactKeys(record, ['sourceArtifactRelativePath', 'sourceDevice', 'sourceDigest', 'sourceInode',
-      'sourceMode', 'sourcePath', 'targetCandidateRelativePath', 'targetDevice', 'targetDigest',
-      'targetInode', 'targetMode', 'targetPath', 'targetState'], 'Repository relocation binding entry');
-    if (typeof record.sourcePath !== 'string' || typeof record.targetPath !== 'string'
-      || typeof record.sourceDigest !== 'string' || typeof record.sourceMode !== 'number'
-      || typeof record.sourceDevice !== 'string' || typeof record.sourceInode !== 'string'
-      || !['absent', 'existing'].includes(String(record.targetState))
-      || (record.targetDigest !== null && typeof record.targetDigest !== 'string')
-      || (record.targetMode !== null && typeof record.targetMode !== 'number')
-      || (record.targetDevice !== null && typeof record.targetDevice !== 'string')
-      || (record.targetInode !== null && typeof record.targetInode !== 'string')
-      || typeof record.sourceArtifactRelativePath !== 'string'
-      || typeof record.targetCandidateRelativePath !== 'string') {
-      recoveryFailure('Repository relocation binding entry is malformed.');
-    }
-    const targetState: 'absent' | 'existing' = record.targetState === 'existing'
-      ? 'existing' : record.targetState === 'absent' ? 'absent'
-        : recoveryFailure('Repository relocation binding target state is invalid.');
-    const sourceAbsolutePath = containedFile(workspaceRoot, record.sourcePath);
-    const targetAbsolutePath = containedFile(workspaceRoot, record.targetPath);
-    const sourceArtifactPath = path.join(transactionRoot, path.basename(record.sourceArtifactRelativePath));
-    const targetCandidatePath = path.join(transactionRoot, path.basename(record.targetCandidateRelativePath));
-    if (record.sourceArtifactRelativePath !== path.relative(workspaceRoot, sourceArtifactPath).replaceAll('\\', '/')
-      || record.targetCandidateRelativePath !== path.relative(workspaceRoot, targetCandidatePath).replaceAll('\\', '/')) {
-      recoveryFailure('Repository relocation binding artifact path escaped its transaction root.');
-    }
-    const expectedSourceBytes = await readRegularTransactionArtifact(sourceArtifactPath,
-      'Repository relocation source artifact');
-    if (digest(expectedSourceBytes) !== record.sourceDigest) recoveryFailure('Repository relocation source artifact digest drifted.');
-    let expectedTargetBytes: Buffer | null = null;
-    if (targetState === 'existing') {
-      // Existing targets are never overwritten, so their expected bytes are
-      // retained in the source artifact only when the digest is equal. A
-      // target readback remains the final authority during recovery.
-      const observedTarget = await readRelocationSnapshot(workspaceRoot, targetAbsolutePath);
-      if (observedTarget === null || record.targetDigest === null
-        || digest(observedTarget.bytes) !== record.targetDigest) {
-        recoveryFailure('Repository relocation existing target preimage is unavailable.');
-      }
-      expectedTargetBytes = Buffer.from(observedTarget.bytes);
-    }
-    entries.push(Object.freeze({
-      sourcePath: record.sourcePath,
-      targetPath: record.targetPath,
-      sourceAbsolutePath,
-      targetAbsolutePath,
-      sourceArtifactPath,
-      targetCandidatePath,
-      expectedSourceBytes,
-      expectedSourceDigest: record.sourceDigest,
-      sourceMode: record.sourceMode,
-      sourceIdentity: Object.freeze({ device: record.sourceDevice, inode: record.sourceInode }),
-      targetState,
-      expectedTargetBytes,
-      expectedTargetDigest: record.targetDigest,
-      expectedTargetMode: record.targetMode,
-      expectedTargetIdentity: record.targetDevice !== null && record.targetInode !== null
-        ? Object.freeze({ device: record.targetDevice, inode: record.targetInode }) : null
-    }));
-  }
-  const journal = parseRelocationJournalEntries((await readRegularTransactionArtifact(journalPath,
-    'Repository relocation journal')).toString('utf8'), transactionId, entries);
-  const last = journal.at(-1);
-  if (last === undefined) recoveryFailure('Repository relocation journal is empty.');
-  return Object.freeze({
-    transactionId,
-    transactionRoot,
-    journalPath,
-    entries: Object.freeze(entries),
-    state: last.state,
-    targetPublished: last.targetPublished,
-    sourceDeleted: last.sourceDeleted,
-    publicationReasonCode: last.publicationReasonCode,
-    recoveryReasonCode: last.recoveryReasonCode
-  });
-}
-
-async function appendRelocationRecoveryJournalBestEffort(
-  transaction: RecoveredRelocationTransaction,
-  state: 'rolling-back' | 'rolled-back' | 'recovery-required',
-  targetPublished: readonly RelocationProgress[],
-  sourceDeleted: readonly RelocationProgress[],
-  publicationReasonCode: NonNullable<RelocationJournalEntry['publicationReasonCode']>,
-  recoveryReasonCode: RelocationJournalEntry['recoveryReasonCode'],
-  testHooks: RepositoryRelocationTransactionTestHooks
-): Promise<boolean> {
-  try {
-    await appendRelocationJournal(transaction.journalPath, transaction.transactionId, state,
-      transaction.entries, targetPublished, sourceDeleted, publicationReasonCode, recoveryReasonCode, testHooks);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function reconcileUnfinishedRelocationTransactions(
-  workspaceRoot: string,
-  assertLease: () => Promise<void>,
-  testHooks: RepositoryRelocationTransactionTestHooks
-): Promise<Extract<RepositoryRelocationTransactionOutcome, { status: 'recovery-required' }> | undefined> {
-  const transactionsRoot = path.join(resolveWorkspaceLocalStateRoot(workspaceRoot),
-    'repository-relocation-transactions');
-  let entries: Dirent[];
-  try {
-    entries = await fs.readdir(transactionsRoot, { withFileTypes: true }) as Dirent[];
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    return Object.freeze({ schema: 'sec-repository-relocation-outcome-v1' as const,
-      status: 'recovery-required' as const, files: Object.freeze([]), transactionId: 'unreadable',
-      journalPath: transactionsRoot, reasonCode: 'journal-failed' as const });
-  }
-  for (const directory of entries) {
-    if (!directory.isDirectory() || directory.isSymbolicLink()) {
-      return Object.freeze({ schema: 'sec-repository-relocation-outcome-v1' as const,
-        status: 'recovery-required' as const, files: Object.freeze([directory.name]),
-        transactionId: directory.name, journalPath: path.join(transactionsRoot, directory.name, 'journal.jsonl'),
-        reasonCode: 'journal-failed' as const });
-    }
-    const transactionRoot = path.join(transactionsRoot, directory.name);
-    let transaction: RecoveredRelocationTransaction;
-    try {
-      transaction = await readUnfinishedRelocationTransaction(workspaceRoot, transactionRoot, directory.name);
-    } catch {
-      return Object.freeze({ schema: 'sec-repository-relocation-outcome-v1' as const,
-        status: 'recovery-required' as const, files: Object.freeze([]), transactionId: directory.name,
-        journalPath: path.join(transactionRoot, 'journal.jsonl'), reasonCode: 'journal-failed' as const });
-    }
-    if (transaction.state === 'accepted' || transaction.state === 'rolled-back') continue;
-    const publicationReason = transaction.publicationReasonCode ?? 'publication-failed';
-    try {
-      await assertLease();
-      // A target/source state not represented by the durable prefix is
-      // ambiguous; never guess whether an unjournaled effect was ours.
-      for (let index = 0; index < transaction.entries.length; index += 1) {
-        const entry = transaction.entries[index]!;
-        const published = transaction.targetPublished[index];
-        const deleted = transaction.sourceDeleted[index];
-        if (published === undefined) {
-          await assertRelocationTargetPrecondition(workspaceRoot, entry);
-        } else {
-          const target = await readRelocationSnapshot(workspaceRoot, entry.targetAbsolutePath);
-          const expectedBytes = entry.targetState === 'existing'
-            ? entry.expectedTargetBytes! : entry.expectedSourceBytes;
-          const expectedMode = entry.targetState === 'existing'
-            ? entry.expectedTargetMode! : entry.sourceMode;
-          assertRelocationSnapshot(target, expectedBytes, expectedMode, published.identity,
-            `Repository relocation recovery target ${entry.targetPath}`);
-        }
-        if (deleted === undefined && await readRelocationSnapshot(workspaceRoot, entry.sourceAbsolutePath) === null) {
-          throw new ImportTransformTransactionFailure('preimage-conflict',
-            `Repository relocation recovery source state is ambiguous: ${entry.sourcePath}`);
-        }
-      }
-      await appendRelocationRecoveryJournalBestEffort(transaction, 'rolling-back',
-        transaction.targetPublished, transaction.sourceDeleted, publicationReason, null, testHooks);
-      await rollbackRelocations(workspaceRoot, transaction.entries, transaction.targetPublished,
-        transaction.sourceDeleted, assertLease);
-      const rolledBack = await appendRelocationRecoveryJournalBestEffort(transaction, 'rolled-back',
-        transaction.targetPublished, [], publicationReason, null, testHooks);
-      if (!rolledBack) throw new ImportTransformTransactionFailure('journal-failed',
-        'Repository relocation rollback terminal journal could not be written.');
-    } catch (error) {
-      const reasonCode = error instanceof ImportTransformTransactionFailure
-        && error.reasonCode === 'preimage-conflict' ? 'rollback-conflict' as const : 'rollback-failed' as const;
-      await appendRelocationRecoveryJournalBestEffort(transaction, 'recovery-required',
-        transaction.targetPublished, transaction.sourceDeleted, publicationReason, reasonCode, testHooks);
-      return Object.freeze({ schema: 'sec-repository-relocation-outcome-v1' as const,
-        status: 'recovery-required' as const,
-        files: Object.freeze(transaction.entries.map((entry) => entry.sourcePath)),
-        transactionId: transaction.transactionId,
-        journalPath: transaction.journalPath,
-        reasonCode });
-    }
-  }
-  return undefined;
-}
-
-function unresolvedRelocationReferences(
-  relocations: readonly ImportTransformRelocation[]
-): readonly string[] {
-  const result = new Set<string>();
-  for (const relocation of relocations) {
-    if (relocation.entry.sourceKind !== 'typescript') {
-      result.add(`${relocation.entry.sourcePath}:non-typescript-source-or-target`);
-    }
-    for (const reference of relocation.entry.unresolvedReferences) {
-      result.add(`${reference.from}:${reference.kind}:${reference.specifier}:${reference.reason}`);
-    }
-  }
-  return Object.freeze([...result].sort((left, right) => left.localeCompare(right, 'en-US')));
-}
-
-/**
- * Publish a resolved repository-module relocation through the same workspace
- * lease and physical transaction owner used by import transforms. Unknown or
- * non-TypeScript graph edges stop before any directory, journal, candidate,
- * target, or source effect is created.
- */
-export async function publishRepositoryModuleRelocationTransaction(
-  workspaceRoot: string,
-  relocations: readonly ImportTransformRelocation[],
-  testHooks: RepositoryRelocationTransactionTestHooks = {}
-): Promise<RepositoryRelocationTransactionOutcome> {
-  if (relocations.length === 0) {
-    throw new CompilerError('IMPORT-TRANSFORM-003',
-      'Repository relocation transaction requires a non-empty plan');
-  }
-  const unresolvedReferences = unresolvedRelocationReferences(relocations);
-  if (unresolvedReferences.length > 0) {
-    return Object.freeze({
-      schema: 'sec-repository-relocation-outcome-v1' as const,
-      status: 'unresolved' as const,
-      files: Object.freeze(relocations.map(({ entry }) => entry.sourcePath)),
-      unresolvedReferences
-    });
-  }
-  const root = path.resolve(workspaceRoot);
-  const transactionId = randomUUID();
-  const transactionRoot = path.join(resolveWorkspaceLocalStateRoot(root),
-    'repository-relocation-transactions', transactionId);
-  const journalPath = path.join(transactionRoot, 'journal.jsonl');
-  let prepared: readonly PreparedRelocation[] = [];
-  const targetPublished: RelocationProgress[] = [];
-  const sourceDeleted: RelocationProgress[] = [];
-  return withWorkspaceWriteLease(root, undefined, async (lease) => {
-    await assertWorkspaceWriteLease(root, lease);
-    const unfinished = await reconcileUnfinishedRelocationTransactions(root,
-      () => assertWorkspaceWriteLease(root, lease), testHooks);
-    if (unfinished !== undefined) return unfinished;
-    prepared = await prepareRelocations(root, relocations, transactionRoot);
-    try {
-      await ensureDir(transactionRoot);
-      await syncDirectory(root);
-      await syncDirectory(path.dirname(path.dirname(transactionRoot)));
-      await syncDirectory(path.dirname(transactionRoot));
-      await syncDirectory(transactionRoot);
-      for (const entry of prepared) {
-        await writeDurable(entry.sourceArtifactPath, entry.expectedSourceBytes);
-      }
-      const binding = {
-        formatVersion: RepositoryRelocationBindingFormat,
-        transactionId,
-        workspaceRoot: root,
-        entries: prepared.map(relocationBindingEntry)
-      };
-      await writeDurable(path.join(transactionRoot, 'binding.json'),
-        `${JSON.stringify(canonicalJson(binding))}\n`);
-      await writeDurable(journalPath, '');
-      await appendRelocationJournal(journalPath, transactionId, 'prepared', prepared, [], [], null, null, testHooks);
-    } catch {
-      return Object.freeze({ schema: 'sec-repository-relocation-outcome-v1' as const,
-        status: 'recovery-required' as const, files: Object.freeze([]), transactionId, journalPath,
-        reasonCode: 'journal-failed' as const });
-    }
-    try {
-      await appendRelocationJournal(journalPath, transactionId, 'publishing', prepared, [], [], null, null, testHooks);
-      for (const [index, entry] of prepared.entries()) {
-        await assertWorkspaceWriteLease(root, lease);
-        const published = await publishRelocationTarget(root, entry,
-          () => assertWorkspaceWriteLease(root, lease), index, testHooks);
-        targetPublished.push(published);
-        await testHooks.afterTargetPublish?.(entry.targetPath, index);
-        await appendRelocationJournal(journalPath, transactionId, 'publishing', prepared,
-          targetPublished, sourceDeleted, null, null, testHooks);
-        const deleted = await deleteRelocationSource(root, entry,
-          () => assertWorkspaceWriteLease(root, lease), index, testHooks);
-        sourceDeleted.push(deleted);
-        await testHooks.afterSourceDelete?.(entry.sourcePath, index);
-        await appendRelocationJournal(journalPath, transactionId, 'publishing', prepared,
-          targetPublished, sourceDeleted, null, null, testHooks);
-        await assertRelocationFinalReadback(root, entry, published);
-      }
-      await assertWorkspaceWriteLease(root, lease);
-      for (let index = 0; index < prepared.length; index += 1) {
-        await assertRelocationFinalReadback(root, prepared[index]!, targetPublished[index]!);
-      }
-      await appendRelocationJournal(journalPath, transactionId, 'accepted', prepared,
-        targetPublished, sourceDeleted, null, null, testHooks);
-      return Object.freeze({ schema: 'sec-repository-relocation-outcome-v1' as const,
-        status: 'accepted' as const,
-        files: Object.freeze(prepared.map(({ targetPath }) => targetPath)), transactionId, journalPath });
-    } catch (error) {
-      const failure = error instanceof ImportTransformTransactionFailure
-        ? error : new ImportTransformTransactionFailure('publication-failed', String(error));
-      const publicationReason = failure.reasonCode === 'preimage-conflict'
-        || failure.reasonCode === 'readback-failed' ? failure.reasonCode : 'publication-failed';
-      try {
-        await appendRelocationJournal(journalPath, transactionId, 'rolling-back', prepared,
-          targetPublished, sourceDeleted, publicationReason, null, testHooks);
-        await rollbackRelocations(root, prepared, targetPublished, sourceDeleted,
-          () => assertWorkspaceWriteLease(root, lease));
-        await appendRelocationJournal(journalPath, transactionId, 'rolled-back', prepared,
-          targetPublished, [], publicationReason, null, testHooks);
-        return Object.freeze({ schema: 'sec-repository-relocation-outcome-v1' as const,
-          status: 'rolled-back' as const, files: Object.freeze([]), transactionId, journalPath,
-          reasonCode: publicationReason });
-      } catch (rollbackError) {
-        const recoveryReason = rollbackError instanceof ImportTransformTransactionFailure
-          && rollbackError.reasonCode === 'preimage-conflict' ? 'rollback-conflict' as const : 'rollback-failed' as const;
-        await appendRelocationJournal(journalPath, transactionId, 'recovery-required', prepared,
-          targetPublished, sourceDeleted, publicationReason, recoveryReason, testHooks).catch(() => undefined);
-        return Object.freeze({ schema: 'sec-repository-relocation-outcome-v1' as const,
-          status: 'recovery-required' as const,
-          files: Object.freeze(prepared.map(({ sourcePath }) => sourcePath)), transactionId, journalPath,
-          reasonCode: recoveryReason });
-      }
     }
   });
 }
