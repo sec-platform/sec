@@ -22,6 +22,7 @@ import {
 const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
 const depsEnsureCommand = 'bun run deps:ensure';
 const hooksReconcileCommand = 'bun run postinstall';
+const importsApplyStagedCommand = 'bun run imports:apply --staged';
 const importsFreezeCommand = 'bun run imports:freeze';
 
 function installGitHooks(options: {
@@ -140,12 +141,16 @@ function configuredBootstrapHooksPath(repoRoot: string): string {
 async function expectManagedHooksMirror(repoRoot: string, configured: string): Promise<void> {
   for (const hook of managedHookNames) {
     const source = await readFile(path.join(repoRoot, '.githooks', hook), 'utf8');
+    const importCommand = hook === 'pre-commit'
+      ? importsApplyStagedCommand
+      : importsFreezeCommand;
     const injected = hook === 'pre-commit' || hook === 'pre-push'
-      ? source.replace(importsFreezeCommand, `${depsEnsureCommand}\n${importsFreezeCommand}`)
+      ? source.replace(importCommand, `${depsEnsureCommand}\n${importCommand}`)
       : source;
     const expected = injected
       .replaceAll(depsEnsureCommand, runtimeBoundCommand(depsEnsureCommand))
       .replaceAll(hooksReconcileCommand, runtimeBoundCommand(hooksReconcileCommand))
+      .replaceAll(importsApplyStagedCommand, runtimeBoundCommand(importsApplyStagedCommand))
       .replaceAll(importsFreezeCommand, runtimeBoundCommand(importsFreezeCommand));
     const installed = await readFile(path.join(configured, hook), 'utf8');
     expect(installed).toBe(expected);
@@ -153,7 +158,7 @@ async function expectManagedHooksMirror(repoRoot: string, configured: string): P
     if (hook === 'pre-commit' || hook === 'pre-push') {
       expect(source).not.toContain(depsEnsureCommand);
       expect(installed.indexOf(runtimeBoundCommand(depsEnsureCommand)))
-        .toBeLessThan(installed.indexOf(runtimeBoundCommand(importsFreezeCommand)));
+        .toBeLessThan(installed.indexOf(runtimeBoundCommand(importCommand)));
     }
   }
 }

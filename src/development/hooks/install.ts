@@ -13,6 +13,7 @@ const MANAGED_HOOKS_PATH = '.githooks';
 const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v3';
 const DEPS_ENSURE_COMMAND = 'bun run deps:ensure';
 const HOOKS_RECONCILE_COMMAND = 'bun run postinstall';
+const IMPORTS_APPLY_STAGED_COMMAND = 'bun run imports:apply --staged';
 const IMPORTS_FREEZE_COMMAND = 'bun run imports:freeze';
 const MANAGED_PRE_COMMIT = MANAGED_HOOKS_PATH + '/pre-commit';
 const MANAGED_HOOKS = [
@@ -860,19 +861,23 @@ function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
   const source = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes);
   let deployed = source;
   if (name === 'pre-commit' || name === 'pre-push') {
-    const firstFreeze = source.indexOf(IMPORTS_FREEZE_COMMAND);
-    if (firstFreeze < 0 || firstFreeze !== source.lastIndexOf(IMPORTS_FREEZE_COMMAND)) {
-      throw new Error(name + ' must contain exactly one canonical imports:freeze command');
+    const importCommand = name === 'pre-commit'
+      ? IMPORTS_APPLY_STAGED_COMMAND
+      : IMPORTS_FREEZE_COMMAND;
+    const firstImportCommand = source.indexOf(importCommand);
+    if (firstImportCommand < 0 || firstImportCommand !== source.lastIndexOf(importCommand)) {
+      throw new Error(name + ' must contain exactly one canonical ' + importCommand + ' command');
     }
     deployed = source.replace(
-      IMPORTS_FREEZE_COMMAND,
-      DEPS_ENSURE_COMMAND + '\n' + IMPORTS_FREEZE_COMMAND
+      importCommand,
+      DEPS_ENSURE_COMMAND + '\n' + importCommand
     );
   }
   return Buffer.from(
     deployed
       .replaceAll(DEPS_ENSURE_COMMAND, bindHookCommandToRuntime(DEPS_ENSURE_COMMAND, process.execPath))
       .replaceAll(HOOKS_RECONCILE_COMMAND, bindHookCommandToRuntime(HOOKS_RECONCILE_COMMAND, process.execPath))
+      .replaceAll(IMPORTS_APPLY_STAGED_COMMAND, bindHookCommandToRuntime(IMPORTS_APPLY_STAGED_COMMAND, process.execPath))
       .replaceAll(IMPORTS_FREEZE_COMMAND, bindHookCommandToRuntime(IMPORTS_FREEZE_COMMAND, process.execPath)),
     'utf8'
   );
