@@ -238,6 +238,47 @@ function relativeModuleSpecifier(fromPath: string, targetPath: string): string {
   return relative.startsWith('.') ? relative : `./${relative}`;
 }
 
+function pureAggregateModulePaths(files: readonly SourceProgramFileInput[]): ReadonlySet<string> {
+  const aggregatePaths = new Set<string>();
+  for (const file of files) {
+    if (!/\.[cm]?[jt]sx?$/iu.test(file.path)) continue;
+    const sourceFile = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.ESNext, true);
+    if (sourceFile.statements.length > 0 && sourceFile.statements.every((statement) =>
+      ts.isExportDeclaration(statement)
+      && statement.moduleSpecifier !== undefined
+      && ts.isStringLiteralLike(statement.moduleSpecifier))) {
+      aggregatePaths.add(file.path);
+    }
+  }
+  return aggregatePaths;
+}
+
+function resolveRelativeModulePath(
+  sourcePath: string,
+  moduleSpecifier: string,
+  knownPaths: ReadonlySet<string>
+): string | null {
+  if (!moduleSpecifier.startsWith('.')) return null;
+  const base = nodePath.posix.normalize(nodePath.posix.join(
+    nodePath.posix.dirname(sourcePath),
+    moduleSpecifier
+  ));
+  for (const candidate of [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.mts`,
+    `${base}.cts`,
+    nodePath.posix.join(base, 'index.ts'),
+    nodePath.posix.join(base, 'index.tsx'),
+    nodePath.posix.join(base, 'index.mts'),
+    nodePath.posix.join(base, 'index.cts')
+  ]) {
+    if (knownPaths.has(candidate)) return candidate;
+  }
+  return null;
+}
+
 function sourceSnapshotIdentity(
   model: SourceProgramModel,
   files: readonly SourceProgramFileInput[]
@@ -266,6 +307,8 @@ export function compileSourceProgramAggregateImportReductionPlan(
   files: readonly SourceProgramFileInput[]
 ): SourceProgramAggregateImportReductionPlan {
   const sourceByPath = new Map(files.map(({ path, source }) => [path, source] as const));
+  const knownPaths = new Set(sourceByPath.keys());
+  const aggregatePaths = pureAggregateModulePaths(files);
   const declarationById = new Map(model.declarations.map((declaration) =>
     [declaration.observationId, declaration] as const));
   const moduleByPath = new Map(model.files.map((file) => [file.path, file.moduleId] as const));
@@ -283,7 +326,11 @@ export function compileSourceProgramAggregateImportReductionPlan(
       if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement))
           || statement.moduleSpecifier === undefined
           || !ts.isStringLiteralLike(statement.moduleSpecifier)
-          || !/(?:^|\/)index\.[cm]?[jt]sx?$/u.test(statement.moduleSpecifier.text)) continue;
+          || !aggregatePaths.has(resolveRelativeModulePath(
+            path,
+            statement.moduleSpecifier.text,
+            knownPaths
+          ) ?? '')) continue;
       const moduleSpecifier = statement.moduleSpecifier.text;
       const bindings = ts.isImportDeclaration(statement)
         ? statement.importClause?.namedBindings !== undefined

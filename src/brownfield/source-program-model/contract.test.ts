@@ -502,11 +502,11 @@ test('incremental source facts invalidate the reverse consumer closure and remai
   expect(contract.model).toEqual(compileTypeScriptSourceProgramModel(contractInput));
 });
 
-test('reduction compiler resolves cross-capability barrels to declaration owners', () => {
+test('reduction compiler resolves pure aggregate modules to declaration owners', () => {
   const sources = new Map([
-    ['src/provider/index.ts', "export { execute } from './operation.ts';\n"],
+    ['src/provider/facade.ts', "export { execute } from './operation.ts';\n"],
     ['src/provider/operation.ts', 'export function execute(): string { return \'ok\'; }\n'],
-    ['src/consumer/use.ts', "import { execute } from '../provider/index.ts';\nexport const result = execute();\n"]
+    ['src/consumer/use.ts', "import { execute } from '../provider/facade.ts';\nexport const result = execute();\n"]
   ]);
   const descriptorSources = ['src/provider', 'src/consumer'].map((root) => ({
     descriptorPath: `${root}/sec.module.json`,
