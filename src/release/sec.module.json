@@ -1,4 +1,6 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [
+    "src/release/build.ts"
+  ]
 }

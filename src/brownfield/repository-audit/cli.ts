@@ -29,7 +29,7 @@ import { withAuthorityGitReadSession } from '../../external-capabilities/git-rea
 import { type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { assertSecRepositoryModuleImportBoundaries, compileSecRepositoryModuleGraph, compileSecRepositoryModuleMembershipSnapshot, type SecRepositoryModuleGraph } from '../../system-architecture/repository-modules/contract.ts';
+import { assertSecRepositoryModuleImportBoundaries, assertSecRepositoryModuleSourceProgramBoundaries, compileSecRepositoryModuleGraph, compileSecRepositoryModuleMembershipSnapshot, type SecRepositoryModuleGraph } from '../../system-architecture/repository-modules/contract.ts';
 import { compilerRuntimeLayout } from '../../toolchain/runtime.ts';
 import {
   SEC_TCB_CLOSURE_RUNTIME_PATH,
@@ -1000,7 +1000,7 @@ async function compileWorkingTreeSourceProgramWithSession(
   ));
   const files: SourceProgramFileInput[] = [];
   const presentRepositoryPaths: string[] = [];
-  const unknowns: import('../source-program-model/index.ts').SourceProgramUnknown[] = [];
+  const unknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
   for (const repositoryPath of repositoryPaths) {
     const absolutePath = path.resolve(repositoryRoot, ...repositoryPath.split('/'));
     let metadata;
@@ -1128,13 +1128,13 @@ async function compileWorkingTreeSourceProgramWithSession(
     files,
     moduleGraph
   );
-  const sortedModuleBoundaryFailures = Object.freeze(moduleBoundaryFailures.sort(compareCodeUnits));
+  const importBoundaryFailures = Object.freeze(moduleBoundaryFailures.sort(compareCodeUnits));
   const cacheKey = sha256({
     sourceRevision,
     provider: Object.freeze({ id: 'typescript-compiler-api', revision: ts.version }),
     reviewedProcessDispatchers,
     unknowns,
-    moduleBoundaryFailures: sortedModuleBoundaryFailures
+    moduleBoundaryFailures: importBoundaryFailures
   });
   const cachedModel = await readSourceProgramCache(repositoryRoot, cacheKey, sourceRevision);
   const incrementalCompilation = cachedModel === null
@@ -1151,6 +1151,14 @@ async function compileWorkingTreeSourceProgramWithSession(
     unknowns,
     typescriptModel: incrementalCompilation!.model
   });
+  try {
+    assertSecRepositoryModuleSourceProgramBoundaries(model, moduleMembership);
+  } catch (error) {
+    moduleBoundaryFailures.push(error instanceof Error ? error.message : String(error));
+  }
+  const sortedModuleBoundaryFailures = Object.freeze(
+    [...new Set(moduleBoundaryFailures)].sort(compareCodeUnits)
+  );
   if (cachedModel === null) {
     await Promise.all([
       writeSourceProgramCache(repositoryRoot, cacheKey, model).catch(() => undefined),
@@ -1734,6 +1742,18 @@ async function auditRepositoryWithSession(
     files: programFiles,
     moduleMembership
   });
+  if (descriptorSources.length > 0) {
+    try {
+      assertSecRepositoryModuleSourceProgramBoundaries(sourceProgram, moduleMembership);
+    } catch (error) {
+      pushFinding(findings, {
+        code: 'repository-module-source-program-boundary-invalid',
+        message: error instanceof Error ? error.message : String(error),
+        path: 'src',
+        severity: 'high'
+      });
+    }
+  }
   appendSourceProgramBlockingFindings(findings, sourceProgram);
   for (const coverage of contentCoverage) {
     if (coverage.status === 'unknown') {
@@ -1759,9 +1779,17 @@ async function auditRepositoryWithSession(
   const candidates: BehaviorCandidate[] = [];
   let markdown = 0;
   let activeMarkdown = 0;
+  const sourceProgramSurfaceByPath = new Map(sourceProgram.files.map((file) => (
+    [file.path, file.surface] as const
+  )));
 
   for (const repositoryPath of tracked) {
-    const surface = classifySecRepositorySurface(repositoryPath);
+    const compiledSurface = sourceProgramSurfaceByPath.get(repositoryPath);
+    const surface = compiledSurface === 'test'
+      ? { kind: 'verification-test' as const, skills: [] }
+      : compiledSurface === 'production'
+        ? { kind: 'product-implementation' as const, skills: [] }
+        : classifySecRepositorySurface(repositoryPath);
     surfaceCounts[surface.kind] += 1;
     if (repositoryPath.endsWith('.md')) markdown += 1;
 

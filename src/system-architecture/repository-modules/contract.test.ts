@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { compilerRoot } from '../../workspace/paths.ts';
+import { compilerRoot } from '../../workspace/runtime/paths.ts';
 import {
   assertSecRepositoryModuleImportBoundaries,
+  assertSecRepositoryModuleSourceProgramBoundaries,
   collectSecRepositoryModuleBoundaryViolations,
+  collectSecRepositoryModuleSourceProgramViolations,
   compileSecRepositoryModuleGraph,
   compileSecRepositoryModuleMembership,
   parseSecModuleDescriptor
@@ -224,11 +226,18 @@ test('repository module dependency cycles exclude test observation edges', () =>
       : file.startsWith('src/second/') ? second : tests
   };
   const observationGraph = compileSecRepositoryModuleGraph({
-    files: ['src/first/index.ts', 'src/second/index.ts', 'tests/observation.test.ts'],
+    files: [
+      'src/first/index.ts',
+      'src/second/index.ts',
+      'src/second/reverse.spec.ts',
+      'tests/observation.test.ts'
+    ],
     readSource: (file) => file === 'src/first/index.ts'
       ? "import '../second/index.ts';"
       : file === 'tests/observation.test.ts'
         ? "import '../src/first/index.ts';"
+        : file === 'src/second/reverse.spec.ts'
+          ? "import '../first/index.ts';"
         : 'export {};'
   });
   expect(collectSecRepositoryModuleBoundaryViolations(observationGraph, membership)
@@ -242,4 +251,58 @@ test('repository module dependency cycles exclude test observation edges', () =>
   });
   expect(collectSecRepositoryModuleBoundaryViolations(productionCycleGraph, membership)
     .filter(({ code }) => code === 'module-dependency-cycle')).toHaveLength(1);
+});
+
+test('source-program ownership excludes colocated tests and binds public entrypoints to descriptors', () => {
+  const undeclared = repositoryModuleTestDescriptor('src/feature');
+  const declared = parseSecModuleDescriptor({
+    importGraph: 'runtime',
+    externalEntrypoints: ['src/feature/cli.ts']
+  }, 'src/feature/sec.module.json');
+  const membershipFor = (descriptor: typeof declared) => ({
+    descriptors: [descriptor],
+    graphRoots: [descriptor.root],
+    moduleRoots: [descriptor.root],
+    moduleForPath: (file: string) => file.startsWith('src/feature/') ? descriptor : null
+  });
+  const entrypointKinds = ['package-script', 'package-bin', 'module-entrypoint'] as const;
+  const facts = {
+    files: [
+      { path: 'src/feature/cli.ts', moduleId: 'feature', surface: 'production' as const },
+      { path: 'src/unowned/service.ts', moduleId: null, surface: 'production' as const },
+      { path: 'src/unowned/service.test.ts', moduleId: null, surface: 'test' as const }
+    ],
+    entrypoints: entrypointKinds.map((kind) => ({
+      observationId: kind,
+      kind,
+      path: 'package.json',
+      name: kind,
+      observationClass: 'observed' as const
+    })),
+    entrypointClosures: entrypointKinds.map((kind) => ({
+      entrypointObservationId: kind,
+      targetPaths: ['src/feature/cli.ts'],
+      handlerModuleIds: ['feature'],
+      reachablePaths: ['src/feature/cli.ts'],
+      capabilityPaths: [],
+      observationClass: 'observed' as const
+    }))
+  };
+
+  const violations = collectSecRepositoryModuleSourceProgramViolations(
+    facts,
+    membershipFor(undeclared)
+  );
+  expect(violations.filter(({ code }) => code === 'unowned-production-source'))
+    .toEqual([expect.objectContaining({ from: 'src/unowned/service.ts' })]);
+  expect(violations.filter(({ code }) => code === 'repository-entrypoint-not-declared'))
+    .toHaveLength(entrypointKinds.length);
+  expect(violations.some(({ from }) => from === 'src/unowned/service.test.ts')).toBe(false);
+
+  expect(() => assertSecRepositoryModuleSourceProgramBoundaries(facts, membershipFor(declared)))
+    .toThrow('[unowned-production-source]');
+  expect(() => assertSecRepositoryModuleSourceProgramBoundaries({
+    ...facts,
+    files: facts.files.filter(({ path }) => path !== 'src/unowned/service.ts')
+  }, membershipFor(declared))).not.toThrow();
 });
