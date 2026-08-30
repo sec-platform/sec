@@ -2,13 +2,15 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
+import { createAuthorityGitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { canonicalTypeScriptDiagnosticArguments, requireSelectedTypeScriptNativeChecker, resolveInstalledTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments, type InstalledTypeScriptNativeChecker, type TypeScriptNativeCheckerProvider } from '../../toolchain/typescript/checker.ts';
+import { assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, requireSelectedTypeScriptNativeChecker, resolveInstalledTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments, type InstalledTypeScriptNativeChecker, type TypeScriptNativeCheckerProvider } from '../../toolchain/typescript/checker.ts';
 import { createVerificationActionTerminal, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../verification/action/contract/action.ts';
 import {
   VerificationActionRunner
 } from '../../verification/action/runner.ts';
-import { compilerRoot, isPathInside } from '../../workspace/paths.ts';
+import { compilerRoot, isPathInside } from '../../workspace/runtime/paths.ts';
+import { gitReadBytes } from '../tooling/git/git-read.ts';
 import {
   devCommandObservationExitCode,
   runDevCommand
@@ -48,9 +50,98 @@ function canonicalPathIdentity(value: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
+const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+type TypecheckTreeIdentity = Readonly<{
+  /** The immutable Git tree at the observed HEAD. */
+  exactTreeSha: string;
+  /**
+   * Working-tree bytes that differ from HEAD.  This is deliberately a
+   * content digest rather than mtime/size metadata, so a dirty edit cannot
+   * reuse a terminal produced for a different source image.  The status
+   * bytes additionally bind untracked/deleted path membership.
+   */
+  workingTreeDigest: `sha256:${string}`;
+}>;
+
+function exactGitObjectId(value: string, label: string): string {
+  const normalized = value.trim();
+  if (!GIT_OBJECT_ID.test(normalized)) {
+    throw new Error(`${label} must be one exact lowercase Git object ID.`);
+  }
+  return normalized;
+}
+
+/**
+ * Observe the source image once through the canonical Git read provider.
+ * Typecheck has no second Git transport and never uses a naked `git` child.
+ * The HEAD tree is the exact-tree identity used by final clean checks; the
+ * diff/status digest keeps the local edit loop from reusing a terminal after
+ * a dirty tracked or path-membership change.
+ */
+async function resolveTypecheckTreeIdentity(): Promise<TypecheckTreeIdentity> {
+  const resolution = createAuthorityGitReadSession({ cwd: compilerRoot });
+  if (resolution.status !== 'ready') {
+    throw new Error(
+      `TypeScript typecheck exact-tree observation is unavailable: ${resolution.reason}`
+    );
+  }
+  const session = resolution.session;
+  try {
+    const treeBytes = await gitReadBytes(
+      session,
+      ['rev-parse', '--verify', 'HEAD^{tree}'],
+      { maxBuffer: 1024 * 1024, label: 'typecheck exact HEAD tree' }
+    );
+    const statusBytes = await gitReadBytes(
+      session,
+      [
+        '--no-pager',
+        '-c', 'core.quotepath=false',
+        '-c', 'core.fsmonitor=false',
+        '-c', 'core.untrackedCache=false',
+        'status', '--porcelain=v1', '-z', '--untracked-files=all'
+      ],
+      { maxBuffer: 32 * 1024 * 1024, label: 'typecheck working-tree status' }
+    );
+    const diffBytes = await gitReadBytes(
+      session,
+      [
+        '--no-pager',
+        '-c', 'core.quotepath=false',
+        '-c', 'core.fsmonitor=false',
+        '-c', 'core.untrackedCache=false',
+        // The GitRead grammar already excludes helper execution through its
+        // environment and observation contract.  Do not pass helper flags
+        // here: they are intentionally rejected by the canonical provider.
+        'diff', 'HEAD', '--'
+      ],
+      { maxBuffer: 32 * 1024 * 1024, label: 'typecheck working-tree diff' }
+    );
+    if (!(session.verifyWorkingDirectory?.() ?? true) || !session.verifyExecutable()) {
+      throw new Error('TypeScript exact-tree observation provider drifted before completion.');
+    }
+    const exactTreeSha = exactGitObjectId(
+      treeBytes.toString('utf8'),
+      'TypeScript exact HEAD tree'
+    );
+    return Object.freeze({
+      exactTreeSha,
+      workingTreeDigest: sha256(Object.freeze({
+        exactTreeSha,
+        status: rawSha256(statusBytes),
+        diff: rawSha256(diffBytes)
+      })) as `sha256:${string}`
+    });
+  } finally {
+    await session.close?.();
+  }
+}
+
 function createTypecheckActionInput(input: Readonly<{
   dependencies: TypecheckBuildDependencyIdentity;
   provider: TypeScriptNativeCheckerProvider;
+  tree: TypecheckTreeIdentity;
   projectConfigDigest: `sha256:${string}`;
   diagnosticArguments: readonly string[];
   pathEnvironment: string;
@@ -67,6 +158,11 @@ function createTypecheckActionInput(input: Readonly<{
   const projectConfigDigest = requireActionDigest(
     input.projectConfigDigest,
     'Typecheck project configuration identity'
+  );
+  const exactTreeDigest = actionDigest({ exactTreeSha: input.tree.exactTreeSha });
+  const workingTreeDigest = requireActionDigest(
+    input.tree.workingTreeDigest,
+    'Typecheck working-tree identity'
   );
   const provider = input.provider;
   const nodeModulesRootDigest = actionDigest({
@@ -106,6 +202,7 @@ function createTypecheckActionInput(input: Readonly<{
         { name: 'dependency-execution', digest: dependencyExecutionDigest },
         { name: 'dependency-transition', digest: dependencyTransitionDigest },
         { name: 'diagnostic-arguments', digest: diagnosticDigest },
+        { name: 'exact-tree', digest: exactTreeDigest },
         { name: 'node-modules-root', digest: nodeModulesRootDigest },
         { name: 'project-config', digest: projectConfigDigest },
         { name: 'provider-binding', digest: provider.toolchainBindingDigest },
@@ -113,12 +210,15 @@ function createTypecheckActionInput(input: Readonly<{
         { name: 'provider-native-manifest', digest: provider.platformNativeManifestDigest },
         { name: 'provider-package-manifest', digest: provider.packageManifestDigest },
         { name: 'provider-wrapper', digest: provider.wrapperDigest },
+        { name: 'working-tree', digest: workingTreeDigest },
         { name: 'toolchain-runtime', digest: runtimeDigest }
       ])
     }),
     inputClosure: Object.freeze([
       { path: 'dependency/manifest', digest: dependencyManifestDigest },
       { path: 'dependency/transition', digest: dependencyTransitionDigest },
+      { path: 'repository/exact-tree', digest: exactTreeDigest },
+      { path: 'repository/working-tree', digest: workingTreeDigest },
       { path: 'provider/alias-package.json', digest: provider.packageManifestDigest },
       { path: 'provider/native-executable', digest: provider.platformNativeExecutableDigest },
       { path: 'provider/native-manifest.json', digest: provider.platformNativeManifestDigest },
@@ -141,6 +241,11 @@ export function resolveTypecheckBuildInfoPath(input: Readonly<{
   provider: TypeScriptNativeCheckerProvider;
   dependencyManifestHash: string;
   dependencyTransitionDigest: `sha256:${string}`;
+  exactTreeSha: string;
+  /** Every production cache identity must bind the current working-tree bytes. */
+  workingTreeDigest: `sha256:${string}`;
+  /** Every production cache identity must bind the exact admitted dependency root. */
+  nodeModulesPath: string;
   projectConfigDigest: `sha256:${string}`;
   compilerRootPath?: string;
   cacheRoot?: string;
@@ -152,15 +257,39 @@ export function resolveTypecheckBuildInfoPath(input: Readonly<{
   const derivedCacheRoot = path.resolve(
     input.cacheRoot ?? path.join(tmpdir(), 'sec', 'typecheck')
   );
+  const dependencyManifestHash = requireActionDigest(
+    input.dependencyManifestHash,
+    'Typecheck dependency manifest identity'
+  );
+  const dependencyTransitionDigest = requireActionDigest(
+    input.dependencyTransitionDigest,
+    'Typecheck dependency transition identity'
+  );
+  const projectConfigDigest = requireActionDigest(
+    input.projectConfigDigest,
+    'Typecheck project configuration identity'
+  );
+  const exactTreeSha = exactGitObjectId(input.exactTreeSha, 'Typecheck exact tree');
+  const workingTreeDigest = requireActionDigest(
+    input.workingTreeDigest,
+    'Typecheck working-tree identity'
+  );
   const cacheKey = sha256(Object.freeze({
     compilerRoot: normalizedCompilerRoot,
-    dependencyManifestHash: input.dependencyManifestHash,
-    dependencyTransitionDigest: input.dependencyTransitionDigest,
-    projectConfigDigest: input.projectConfigDigest,
+    dependencyManifestHash,
+    dependencyTransitionDigest,
+    dependencyRoot: canonicalPathIdentity(input.nodeModulesPath),
+    exactTreeSha,
+    workingTreeDigest,
+    projectConfigDigest,
     providerNativeExecutableDigest: input.provider.platformNativeExecutableDigest,
     providerManifestDigest: input.provider.packageManifestDigest,
     providerWrapperDigest: input.provider.wrapperDigest,
+    providerBindingDigest: input.provider.toolchainBindingDigest,
     providerRevision: input.provider.providerRevision,
+    providerCapability: input.provider.capability,
+    noEmit: input.provider.noEmit,
+    incremental: input.provider.incremental,
     projectConfig: input.provider.projectConfig,
     runtimeRevision: `bun@${Bun.version}`
   })).slice(7);
@@ -232,10 +361,14 @@ async function executeTypecheckWithProvider(
   installed: InstalledTypeScriptNativeChecker,
   args: string[]
 ): Promise<number> {
+  // Reject structural/test/provider substitutions before any Git, config,
+  // cache, or command effect can be reached.
+  assertTypeScriptNativeChecker(installed);
   // Reject caller attempts to change project/build/watch semantics before any
   // config read, cache directory creation, or child-process admission.
   const diagnosticArguments = canonicalTypeScriptDiagnosticArguments(args);
   const provider = installed.provider;
+  const tree = await resolveTypecheckTreeIdentity();
   const projectConfigDigest = rawSha256(
     await fs.readFile(path.join(compilerRoot, provider.projectConfig))
   );
@@ -243,6 +376,9 @@ async function executeTypecheckWithProvider(
     provider,
     dependencyManifestHash: dependencies.manifestHash,
     dependencyTransitionDigest: dependencies.transitionDigest,
+    exactTreeSha: tree.exactTreeSha,
+    workingTreeDigest: tree.workingTreeDigest,
+    nodeModulesPath: dependencies.nodeModulesPath,
     projectConfigDigest
   });
   await assertTypeScriptProviderCurrent(dependencies.nodeModulesPath, installed);
@@ -255,6 +391,7 @@ async function executeTypecheckWithProvider(
   const actionInput = createTypecheckActionInput({
     dependencies,
     provider,
+    tree,
     projectConfigDigest,
     diagnosticArguments,
     pathEnvironment,
@@ -279,12 +416,12 @@ async function executeTypecheckWithProvider(
         });
       }
       await fs.mkdir(path.dirname(buildInfoFile), { recursive: true });
+      // The native package is the sole execution provider.  Running its
+      // wrapper through Bun/Node would create a second launcher authority and
+      // could re-resolve a different native package at runtime.
       const observation = await runDevCommand(
-        process.execPath,
-        [
-          installed.wrapperPath,
-          ...typeScriptCheckerArguments(provider, buildInfoFile, diagnosticArguments)
-        ],
+        installed.nativeExecutablePath,
+        [...typeScriptCheckerArguments(provider, buildInfoFile, diagnosticArguments)],
         env,
         { observe: true }
       );
@@ -300,6 +437,29 @@ async function executeTypecheckWithProvider(
           })
         });
       }
+      try {
+        const finalTree = await resolveTypecheckTreeIdentity();
+        if (finalTree.exactTreeSha !== tree.exactTreeSha
+            || finalTree.workingTreeDigest !== tree.workingTreeDigest) {
+          return createVerificationActionTerminal({
+            status: 'invalidated',
+            reasonCode: 'input-invalidated',
+            resultDigest: actionDigest({
+              actionKey: action.actionKey,
+              status: 'tree-drift'
+            })
+          });
+        }
+      } catch {
+        return createVerificationActionTerminal({
+          status: 'invalidated',
+          reasonCode: 'input-invalidated',
+          resultDigest: actionDigest({
+            actionKey: action.actionKey,
+            status: 'tree-unresolved'
+          })
+        });
+      }
       const exitCode = devCommandObservationExitCode(observation);
       const status = exitCode === 0 ? 'passed' as const : 'failed' as const;
       return createVerificationActionTerminal({
@@ -309,6 +469,8 @@ async function executeTypecheckWithProvider(
           actionKey: action.actionKey,
           exitCode,
           providerBinding: provider.toolchainBindingDigest,
+          exactTreeSha: tree.exactTreeSha,
+          workingTree: tree.workingTreeDigest,
           dependencyTransition: dependencies.transitionDigest,
           projectConfig: projectConfigDigest,
           diagnosticArguments
