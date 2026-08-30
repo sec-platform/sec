@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { lstatSync, renameSync, rmSync } from 'node:fs';
+import { lstatSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -17,7 +17,7 @@ import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExact
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../index.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../contract/revision.ts';
 
 export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA =
   'sec-local-github-actions-provider-state-v3' as const;
@@ -257,8 +257,9 @@ export class LocalGitHubActionsRunnerCommandFailure extends Error {
 export type LocalDockerDesktopAvailabilityFailureReason =
   | 'deadline-exhausted'
   | 'desktop-start-failed'
+  | 'desktop-stop-failed'
   | 'endpoint-unavailable'
-  | 'reboot-required-stale-socket'
+  | 'host-socket-recovery-unavailable'
   | 'service-permission-required';
 
 export class LocalDockerDesktopAvailabilityFailure extends Error {
@@ -1186,15 +1187,14 @@ type DockerDesktopLifecycleCommand = (input: Readonly<{
   timeoutMs: number;
 }>) => Promise<CommandResult>;
 
-type DockerDesktopHostBlockerInspection = () =>
-  LocalDockerDesktopAvailabilityFailureReason | null;
+type DockerDesktopStoppedSocketEpochRecovery = () => number;
 
 type DockerDesktopAvailabilityInput = Readonly<{
   cwd: string;
   deadlineAt: number;
   endpointHost: string;
-  inspectHostBlocker?: DockerDesktopHostBlockerInspection;
   platform?: NodeJS.Platform;
+  recoverStoppedSocketEpochs?: DockerDesktopStoppedSocketEpochRecovery;
   run?: DockerDesktopLifecycleCommand;
 }>;
 
@@ -1205,22 +1205,69 @@ function dockerDesktopFailure(
   throw new LocalDockerDesktopAvailabilityFailure({ endpointHost, reason });
 }
 
-function dockerDesktopHostBlocker(): LocalDockerDesktopAvailabilityFailureReason | null {
-  if (process.platform !== 'win32') return null;
+function recoverDockerDesktopStoppedSocketEpochs(): number {
   const localAppData = process.env.LOCALAPPDATA;
-  if (localAppData === undefined || localAppData.length === 0) return null;
-  const ingestSocket = path.join(localAppData, 'Docker', 'run', 'sailor-ingest.sock');
-  try {
-    lstatSync(ingestSocket);
-    return null;
-  } catch (error) {
-    const code = error !== null && typeof error === 'object' && 'code' in error
-      ? (error as { code?: unknown }).code
-      : null;
-    return code === 'EACCES' || code === 'EPERM'
-      ? 'reboot-required-stale-socket'
-      : null;
+  if (localAppData === undefined || localAppData.length === 0) return 0;
+  if (!path.win32.isAbsolute(localAppData)) {
+    throw new Error('Docker Desktop LOCALAPPDATA must be an absolute Windows path');
   }
+  const resolvedLocalAppData = path.win32.resolve(localAppData);
+  const localAppDataEntry = lstatSync(resolvedLocalAppData, { throwIfNoEntry: false });
+  if (localAppDataEntry === undefined || !localAppDataEntry.isDirectory()
+      || localAppDataEntry.isSymbolicLink()) {
+    throw new Error('Docker Desktop LOCALAPPDATA is not an ordinary directory');
+  }
+  const epochs = Object.freeze([
+    Object.freeze({
+      path: path.win32.join(resolvedLocalAppData, 'Docker', 'run'),
+      socketNames: new Set([
+        'dockerEthernetVfkit',
+        'dockerInference',
+        'sailor-ingest.sock',
+        'userAnalyticsOtlpHttp.sock'
+      ])
+    }),
+    Object.freeze({
+      path: path.win32.join(resolvedLocalAppData, 'docker-secrets-engine'),
+      socketNames: new Set(['engine.sock'])
+    })
+  ]);
+  const recoveryId = randomBytes(8).toString('hex');
+  let recovered = 0;
+  for (const candidate of epochs) {
+    const epochPath = candidate.path;
+    const parentPath = path.win32.dirname(epochPath);
+    const parent = lstatSync(parentPath, { throwIfNoEntry: false });
+    if (parent === undefined || !parent.isDirectory() || parent.isSymbolicLink()) {
+      throw new Error(`Docker Desktop socket epoch parent is not ordinary: ${parentPath}`);
+    }
+    const epoch = lstatSync(epochPath, { throwIfNoEntry: false });
+    if (epoch === undefined) continue;
+    if (!epoch.isDirectory() || epoch.isSymbolicLink()) {
+      throw new Error(`Docker Desktop socket epoch is not an ordinary directory: ${epochPath}`);
+    }
+    const entries = readdirSync(epochPath, { withFileTypes: true });
+    if (entries.length === 0) continue;
+    if (entries.length > candidate.socketNames.size
+        || entries.some((entry) =>
+          !entry.isSymbolicLink() || !candidate.socketNames.has(entry.name))) {
+      throw new Error(`Docker Desktop socket epoch contains non-socket residue: ${epochPath}`);
+    }
+    const target = path.win32.join(
+      parentPath,
+      `${path.win32.basename(epochPath)}.sec-stopped-socket-epoch-${recoveryId}`
+    );
+    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined) {
+      throw new Error(`Docker Desktop socket epoch recovery target already exists: ${target}`);
+    }
+    renameSync(epochPath, target);
+    if (lstatSync(epochPath, { throwIfNoEntry: false }) !== undefined
+        || lstatSync(target, { throwIfNoEntry: false }) === undefined) {
+      throw new Error(`Docker Desktop socket epoch recovery readback failed: ${epochPath}`);
+    }
+    recovered += 1;
+  }
+  return recovered;
 }
 
 function dockerDesktopStartFailureReason(result: CommandResult):
@@ -1284,25 +1331,60 @@ async function ensureDockerEndpointAvailable(
     dockerDesktopFailure(input.endpointHost, 'endpoint-unavailable');
   }
 
-  // Docker Desktop owns its startup state machine. The detached operation is
-  // the single start intent; the synchronous operation below joins its native
-  // lifecycle instead of polling process lists, sleeping, or retrying daemon
-  // commands while Desktop is still starting.
-  const startIntent = await runDockerDesktopAvailabilityCommand(
-    input, run, Object.freeze(['desktop', 'start', '--detach']), 'desktop-start-failed'
-  );
-  if (startIntent.code !== 0) {
-    dockerDesktopFailure(input.endpointHost, dockerDesktopStartFailureReason(startIntent));
-  }
-  const blocker = (input.inspectHostBlocker ?? dockerDesktopHostBlocker)();
-  if (blocker !== null) dockerDesktopFailure(input.endpointHost, blocker);
-
+  // Docker Desktop owns its startup state machine. A synchronous start is both
+  // the single intent and the event-driven lifecycle join; no process polling,
+  // sleep, or detached duplicate start is required.
   const lifecycleRemainingMs = dockerDesktopRemainingMs(input);
+  const initialLifecycleSeconds = Math.max(
+    1,
+    Math.floor(lifecycleRemainingMs / 2_000)
+  );
   const lifecycle = await runDockerDesktopAvailabilityCommand(input, run, Object.freeze([
-    'desktop', 'start', '--timeout', String(Math.max(1, Math.floor(lifecycleRemainingMs / 1_000)))
+    'desktop', 'start', '--timeout', String(initialLifecycleSeconds)
   ]), 'desktop-start-failed');
   if (lifecycle.code !== 0) {
-    dockerDesktopFailure(input.endpointHost, dockerDesktopStartFailureReason(lifecycle));
+    const lifecycleReason = dockerDesktopStartFailureReason(lifecycle);
+    if (lifecycleReason === 'service-permission-required') {
+      dockerDesktopFailure(input.endpointHost, lifecycleReason);
+    }
+    const stopRemainingMs = dockerDesktopRemainingMs(input);
+    const stop = await runDockerDesktopAvailabilityCommand(input, run, Object.freeze([
+      'desktop', 'stop', '--force', '--timeout',
+      String(Math.max(1, Math.floor(stopRemainingMs / 4_000)))
+    ]), 'desktop-stop-failed');
+    if (stop.code !== 0) {
+      const stopReason = dockerDesktopStartFailureReason(stop);
+      dockerDesktopFailure(
+        input.endpointHost,
+        stopReason === 'service-permission-required' ? stopReason : 'desktop-stop-failed'
+      );
+    }
+    let recoveredEpochs: number;
+    try {
+      recoveredEpochs = (input.recoverStoppedSocketEpochs
+        ?? recoverDockerDesktopStoppedSocketEpochs)();
+    } catch {
+      dockerDesktopFailure(input.endpointHost, 'host-socket-recovery-unavailable');
+    }
+    if (recoveredEpochs < 1) {
+      dockerDesktopFailure(input.endpointHost, 'desktop-start-failed');
+    }
+    const recoveryRemainingMs = dockerDesktopRemainingMs(input);
+    const recoveredLifecycle = await runDockerDesktopAvailabilityCommand(
+      input,
+      run,
+      Object.freeze([
+        'desktop', 'start', '--timeout',
+        String(Math.max(1, Math.floor(recoveryRemainingMs / 1_000)))
+      ]),
+      'desktop-start-failed'
+    );
+    if (recoveredLifecycle.code !== 0) {
+      dockerDesktopFailure(
+        input.endpointHost,
+        dockerDesktopStartFailureReason(recoveredLifecycle)
+      );
+    }
   }
   const readback = await runDockerDesktopAvailabilityCommand(
     input, run, infoArgs, 'endpoint-unavailable'
