@@ -288,13 +288,12 @@ describe('local GitHub Actions runner contract', () => {
     ]]);
   });
 
-  test('issues one start intent, joins the native lifecycle, and reads back the daemon', async () => {
+  test('issues one synchronous start intent and reads back the daemon', async () => {
     const calls: string[][] = [];
     const result = await ensureDockerEndpointAvailableForTests({
       cwd: process.cwd(),
       endpointHost: dockerEndpoint.endpointHost,
       deadlineAt: Date.now() + 1_000,
-      inspectHostBlocker: () => null,
       platform: 'win32',
       run: async ({ args }) => {
         calls.push([...args]);
@@ -307,34 +306,75 @@ describe('local GitHub Actions runner contract', () => {
       }
     });
     expect(result.code).toBe(0);
-    expect(calls[1]).toEqual(['desktop', 'start', '--detach']);
-    expect(calls[2]?.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
-    expect(calls[3]).toEqual([
+    expect(calls[1]?.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
+    expect(calls[2]).toEqual([
       '--host', dockerEndpoint.endpointHost, 'info', '--format', '{{json .}}'
     ]);
   });
 
-  test('preserves an inaccessible sailor socket as a typed reboot blocker', async () => {
+  test('settles one failed lifecycle, quarantines its socket epoch, and starts once more', async () => {
+    const calls: string[][] = [];
+    let recoveries = 0;
+    const result = await ensureDockerEndpointAvailableForTests({
+      cwd: process.cwd(),
+      endpointHost: dockerEndpoint.endpointHost,
+      deadlineAt: Date.now() + 10_000,
+      platform: 'win32',
+      recoverStoppedSocketEpochs: () => {
+        recoveries += 1;
+        return 2;
+      },
+      run: async ({ args }) => {
+        calls.push([...args]);
+        if (calls.length === 1) {
+          return { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+        }
+        if (calls.length === 2) {
+          return {
+            code: 1,
+            stdout: Buffer.alloc(0),
+            stderr: Buffer.from('context deadline exceeded')
+          };
+        }
+        return {
+          code: 0,
+          stdout: args[0] === '--host' ? Buffer.from('{"ID":"daemon"}') : Buffer.alloc(0),
+          stderr: Buffer.alloc(0)
+        };
+      }
+    });
+    expect(result.code).toBe(0);
+    expect(recoveries).toBe(1);
+    expect(calls[1]?.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
+    expect(calls[2]?.slice(0, 3)).toEqual(['desktop', 'stop', '--force']);
+    expect(calls[3]?.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
+    expect(calls[4]).toEqual([
+      '--host', dockerEndpoint.endpointHost, 'info', '--format', '{{json .}}'
+    ]);
+  });
+
+  test('does not retry a failed lifecycle when no socket epoch was recovered', async () => {
     let calls = 0;
     try {
       await ensureDockerEndpointAvailableForTests({
         cwd: process.cwd(),
         endpointHost: dockerEndpoint.endpointHost,
-        deadlineAt: Date.now() + 1_000,
-        inspectHostBlocker: () => 'reboot-required-stale-socket',
+        deadlineAt: Date.now() + 10_000,
         platform: 'win32',
-        run: async () => ({
-          code: calls++ === 0 ? 1 : 0,
-          stdout: Buffer.alloc(0),
-          stderr: Buffer.alloc(0)
-        })
+        recoverStoppedSocketEpochs: () => 0,
+        run: async ({ args }) => {
+          calls += 1;
+          return args[0] === 'desktop' && args[1] === 'stop'
+            ? { code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
+            : { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+        }
       });
       throw new Error('expected Docker Desktop blocker');
     } catch (error) {
       expect(error).toBeInstanceOf(LocalDockerDesktopAvailabilityFailure);
       expect((error as LocalDockerDesktopAvailabilityFailure).reason)
-        .toBe('reboot-required-stale-socket');
-      expect(calls).toBe(2);
+        .toBe('desktop-start-failed');
+      expect(calls).toBe(3);
     }
   });
 
