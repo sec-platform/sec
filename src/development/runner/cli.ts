@@ -1,5 +1,8 @@
+import path from 'node:path';
+
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
 import { runObservedCommand } from '../../runtime-state/physical/runtime/observed-process.ts';
+import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
 import {
   createDependencyFreshProcessHandoff,
   DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV,
@@ -20,7 +23,8 @@ export async function handoffDevRunnerToFreshProcess(
   const handoff = createDependencyFreshProcessHandoff(dependencies);
   if (handoff === null) return null;
   const entrypoint = process.argv[1];
-  if (entrypoint === undefined || !/[\\/]platform[\\/]dev-runner\.ts$/u.test(entrypoint)) {
+  const canonicalEntrypoint = path.resolve(process.cwd(), DEV_RUNNER_ENTRYPOINT_PATH);
+  if (entrypoint === undefined || path.relative(canonicalEntrypoint, path.resolve(entrypoint)) !== '') {
     throw new Error('Dev runner fresh-process handoff has no exact entrypoint identity.');
   }
   const argv = [process.execPath, entrypoint, ...process.argv.slice(2)];
