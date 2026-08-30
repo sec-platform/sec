@@ -117,6 +117,10 @@ test('source program model finds capability producers, consumers, literals, and 
       + "export const request = () => fetch('https://example.test');\n"
     ],
     [
+      'src/example/embedded.ts',
+      "export const hiddenSource = `import { value } from './value.ts';\\nexport const generated = value;\\n`;\n"
+    ],
+    [
       'src/example/cli.ts',
       "import { Command } from 'commander';\n"
       + "import { spawnSync } from 'node:child_process';\n"
@@ -293,6 +297,10 @@ test('source program model finds capability producers, consumers, literals, and 
     code: 'duplicate-production-endpoint-literal',
     subject: 'https://service.example.test/api',
     paths: ['src/example/consumer.ts', 'src/example/index.ts']
+  }));
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'production-embeds-executable-source-text',
+    paths: ['src/example/embedded.ts']
   }));
   expect(model.entrypoints).toEqual(expect.arrayContaining([
     expect.objectContaining({ kind: 'package-script', name: 'inspect' }),

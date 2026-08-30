@@ -1,7 +1,7 @@
 import path from 'node:path';
 import ts from 'typescript';
 
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleGraph, type SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
 import type {
   SourceProgramCandidate,
@@ -133,6 +133,49 @@ function stringRecord(value: unknown): Readonly<Record<string, string>> | null {
 function packageNameFromLockedResolution(value: string): string | null {
   const separator = value.startsWith('@') ? value.indexOf('@', 1) : value.lastIndexOf('@');
   return separator > 0 ? value.slice(0, separator) : null;
+}
+
+function executableSourceLiteralPaths(
+  files: readonly SourceProgramFileInput[]
+): readonly Readonly<{ ownerPath: string; digest: string }>[] {
+  const observations: Readonly<{ ownerPath: string; digest: string }>[] = [];
+  for (const file of files) {
+    if (surfaceFor(file.path) !== 'production' || !/\.[cm]?[jt]sx?$/iu.test(file.path)) continue;
+    const sourceFile = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node): void => {
+      if (ts.isStringLiteralLike(node) && node.text.includes('\n') && node.text.length >= 32) {
+        const embedded = ts.createSourceFile(
+          'embedded.ts',
+          node.text,
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS
+        );
+        const diagnostics = (embedded as ts.SourceFile & {
+          readonly parseDiagnostics?: readonly ts.Diagnostic[];
+        }).parseDiagnostics ?? [];
+        const executable = diagnostics.length === 0 && embedded.statements.some((statement) => (
+          ts.isImportDeclaration(statement)
+          || ts.isExportDeclaration(statement)
+          || ts.isFunctionDeclaration(statement)
+          || ts.isClassDeclaration(statement)
+          || ts.isInterfaceDeclaration(statement)
+          || ts.isTypeAliasDeclaration(statement)
+          || ts.isEnumDeclaration(statement)
+          || ts.isVariableStatement(statement)
+        ));
+        if (executable) {
+          observations.push(Object.freeze({
+            ownerPath: file.path,
+            digest: rawSha256(Buffer.from(node.text, 'utf8'))
+          }));
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+  return Object.freeze(observations);
 }
 
 export function compileRepositorySourceProgramModel(
@@ -671,6 +714,15 @@ export function compileRepositorySourceProgramModel(
     compareCodeUnits(left.path, right.path) || compareCodeUnits(left.name, right.name)
   );
   const candidates: SourceProgramCandidate[] = [];
+  for (const embedded of executableSourceLiteralPaths(input.files)) {
+    candidates.push(Object.freeze({
+      code: 'production-embeds-executable-source-text',
+      subject: embedded.digest,
+      paths: Object.freeze([embedded.ownerPath]),
+      reason: 'production module embeds executable source bytes in a string; use the canonical source/template/AST owner and derive emitted bytes instead of creating a hidden second source graph',
+      observationClass: 'derived'
+    }));
+  }
   for (const entrypoint of entrypoints) {
     if (
       entrypoint.kind !== 'package-bin'
@@ -1009,7 +1061,7 @@ export function compileRepositorySourceProgramModel(
   }
   const productionSourcePaths = new Set(files
     .filter(({ path: repositoryPath, surface }) => surface === 'production'
-      && /^(?:platform|scripts|tooling)\//u.test(repositoryPath)
+      && /^src\//u.test(repositoryPath)
       && /\.[cm]?[jt]sx?$/u.test(repositoryPath))
     .map(({ path: repositoryPath }) => repositoryPath));
   const derivedSourceAddressPaths = new Set<string>();
@@ -1018,7 +1070,7 @@ export function compileRepositorySourceProgramModel(
       if (productionSourcePaths.has(targetPath)) derivedSourceAddressPaths.add(targetPath);
     }
     const commandPath = entrypoint.command?.match(
-      /(?:^|\s)(?:\.\/)?((?:platform|scripts|tooling)\/[A-Za-z0-9_./-]+\.[cm]?[jt]sx?)(?:\s|$)/u
+      /(?:^|\s)(?:\.\/)?(src\/[A-Za-z0-9_./-]+\.[cm]?[jt]sx?)(?:\s|$)/u
     )?.[1];
     if (commandPath !== undefined && productionSourcePaths.has(commandPath)) {
       derivedSourceAddressPaths.add(commandPath);

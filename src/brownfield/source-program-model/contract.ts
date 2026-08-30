@@ -196,6 +196,7 @@ export type SourceProgramCandidateCode =
   | 'test-mirrors-production-source-path'
   | 'production-declaration-without-consumer'
   | 'production-declaration-only-test-consumers'
+  | 'production-embeds-executable-source-text'
   | 'production-mirrors-source-path'
   | 'duplicate-production-source-path-owner'
   | 'duplicate-production-identity-token'
@@ -218,6 +219,7 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
   'duplicate-entrypoint-command',
   'duplicate-production-identity-token',
   'duplicate-production-source-path-owner',
+  'production-embeds-executable-source-text',
   'versioned-declaration-conflicts-with-canonical-name',
   'versioned-declaration-without-coexisting-version',
   'test-mirrors-production-identity-literal',
