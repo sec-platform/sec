@@ -1742,6 +1742,128 @@ export interface GeneratedStateProducerBindingExpectation {
   readonly physical?: GeneratedStatePhysicalIdentity;
 }
 
+export interface GeneratedStateAbsentRegistrationExpectation {
+  readonly owner: string;
+  readonly producer: string;
+  readonly ruleId: string;
+  readonly physical: GeneratedStatePhysicalIdentity;
+}
+
+export type GeneratedStateAbsentRegistrationSettlementReceipt = Readonly<{
+  readonly schema: 'sec-generated-state-absent-registration-settlement-v1';
+  readonly relativePath: string;
+  readonly registrationDigest: `sha256:${string}`;
+  readonly retirementRef: `sha256:${string}`;
+  readonly physical: GeneratedStatePhysicalIdentity;
+  readonly outcome: string;
+  readonly terminal: 'disposed';
+  readonly receiptDigest: `sha256:${string}`;
+}>;
+
+/**
+ * Terminalize one exact active registration whose physical generation is
+ * already absent.  This is intentionally available only through a producer
+ * hook issued for one repository/workspace; generic cleanup never receives
+ * authority to retire active state.
+ */
+async function settleAbsentActiveGeneratedStateRegistration(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expected: GeneratedStateAbsentRegistrationExpectation;
+  outcome: string;
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateAbsentRegistrationSettlementReceipt> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  const rule = requireRule(relativePath);
+  const outcome = input.outcome.trim();
+  if (outcome.length === 0) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state absent registration settlement outcome is empty: ${relativePath}.`
+    );
+  }
+  return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    const workspace = inspectNoFollowDirectoryChain(
+      workspaceRoot,
+      'Generated-state absent registration settlement workspace root'
+    ).target;
+    const observed = observeRoot(workspaceRoot, relativePath);
+    const pointer = inspectRegistrationPointer(store, relativePath);
+    const observation = readRegistrationLedgerObservation(store, relativePath);
+    const registration = observation.registration;
+    const expected = input.expected;
+    if (observed.kind !== 'missing' || observed.identity !== null ||
+        registration === null || registration.phase !== 'active' ||
+        path.resolve(registration.repositoryRoot) !== repositoryRoot ||
+        registration.relativePath !== relativePath ||
+        registration.ruleId !== rule.id || registration.ruleId !== expected.ruleId ||
+        registration.owner !== rule.owner || registration.owner !== expected.owner ||
+        registration.producer !== rule.producer || registration.producer !== expected.producer ||
+        !sameIdentity(registration.workspace, identityOf(workspace)) ||
+        !samePhysicalIdentity(registration.root, expected.physical)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state absent registration settlement preimage is missing, present, foreign, or stale: ${relativePath}.`
+      );
+    }
+    const retirementRef = generatedStateDigest(Object.freeze({
+      schema: 'sec-generated-state-owner-retirement-v1',
+      registrationId: registration.registrationId,
+      registrationDigest: registration.registrationDigest,
+      relativePath: registration.relativePath,
+      owner: registration.owner,
+      producer: registration.producer,
+      operationId: registration.operationId,
+      outcome
+    }));
+    const retired = retireGeneratedStateRegistration(registration, retirementRef, {
+      clock: options.clock
+    });
+    const previousRecordDigest = observation.tip?.recordDigest ?? null;
+    if (previousRecordDigest === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state absent registration settlement has no immutable predecessor: ${relativePath}.`
+      );
+    }
+    persistRegistration(store, retired, pointer.snapshot, previousRecordDigest);
+    await store.assertCurrent();
+    if (observeRoot(workspaceRoot, relativePath).kind !== 'missing') {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state absent registration settlement physical state reappeared: ${relativePath}.`
+      );
+    }
+    const locator = registrationPath(store, relativePath);
+    if (!store.fs.deleteIfPresent(locator) && store.fs.exists(locator)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state absent registration settlement pointer remains: ${relativePath}.`
+      );
+    }
+    const terminal = readRegistrationLedgerObservation(store, relativePath);
+    if (terminal.registration !== null ||
+        terminal.retiredPredecessor?.registrationDigest !== retired.registrationDigest ||
+        terminal.retiredPredecessor.retirementRef !== retirementRef ||
+        observeRoot(workspaceRoot, relativePath).kind !== 'missing') {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state absent registration settlement readback differs: ${relativePath}.`
+      );
+    }
+    await store.assertCurrent();
+    const receiptMaterial = Object.freeze({
+      schema: 'sec-generated-state-absent-registration-settlement-v1' as const,
+      relativePath,
+      registrationDigest: registration.registrationDigest,
+      retirementRef,
+      physical: registration.root,
+      outcome,
+      terminal: 'disposed' as const
+    });
+    return Object.freeze({
+      ...receiptMaterial,
+      receiptDigest: generatedStateDigest(receiptMaterial)
+    });
+  });
+}
+
 /**
  * Adopt an issuer-created active registration without creating or replacing
  * any registration bytes.  This is the only lifecycle entry point a producer
@@ -2972,6 +3094,11 @@ export function generatedStateProducerHooks(input: Readonly<{
     relativePath: string,
     expected?: GeneratedStateProducerBindingExpectation
   ): Promise<boolean>;
+  settleAbsent(
+    relativePath: string,
+    expected: GeneratedStateAbsentRegistrationExpectation,
+    outcome: string
+  ): Promise<GeneratedStateAbsentRegistrationSettlementReceipt>;
   disposed(relativePath: string, outcome: string): Promise<void>;
 }> {
   const producerSession = new Map<string, `sha256:${string}`>();
@@ -3024,6 +3151,12 @@ export function generatedStateProducerHooks(input: Readonly<{
       ...input,
       relativePath,
       expected
+    }, options),
+    settleAbsent: (relativePath, expected, outcome) => settleAbsentActiveGeneratedStateRegistration({
+      ...input,
+      relativePath,
+      expected,
+      outcome
     }, options),
     disposed: async (relativePath, outcome) => {
       const normalized = normalizeGeneratedStateRelativePath(relativePath);

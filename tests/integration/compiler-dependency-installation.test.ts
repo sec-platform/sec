@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { generatedStateDigest, type GeneratedStateRegistration } from '../../src/runtime-state/generated-state/contract.ts';
+import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
 import {
   compilerDependencyLocatorWorktreeRetirementProvider,
-  ensureCompilerDepsReady
+  ensureCompilerDepsReady,
+  migrateDependencyTransitionJournal
 } from '../../src/toolchain/dependencies/test/runtime.ts';
 import { readJson } from '../../src/workspace/files.ts';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
@@ -306,6 +308,168 @@ describe('compiler dependency installation', () => {
       expect(binding).not.toHaveProperty('packageManifestSha256');
       expect(binding).not.toHaveProperty('packageSourceSha256');
     }, 'engineering-compiler-dev-deps-');
+  });
+
+  test('recovers an installed staging generation only from its durable intent and lifecycle registration', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const registrations = new Map<string, GeneratedStateRegistration>();
+      const lifecycleOutcomes: string[] = [];
+      let installCalls = 0;
+      let rejectFirstDisposal = true;
+      const registration = (
+        relativePath: string,
+        physical: Readonly<{ device: string; inode: string; objectId: string }>
+      ): GeneratedStateRegistration => {
+        const registrationId = generatedStateDigest({ relativePath, physical });
+        return Object.freeze({
+          schema: 'sec-generated-state-registration-v1',
+          registrationId,
+          repositoryRoot: tempRoot,
+          workspace: { device: 'fixture', inode: 'workspace', objectId: 'fixture' },
+          ruleId: 'compiler-dependency-staging-generation',
+          relativePath,
+          root: physical,
+          owner: 'compiler-dependency-runtime-owner',
+          producer: 'compiler-dependency-generation-staging',
+          operationId: `fixture:${relativePath}`,
+          phase: 'active',
+          retirementRef: null,
+          generatedAt: '2026-08-30T00:00:00.000Z',
+          registrationDigest: generatedStateDigest({ registrationId, relativePath, physical })
+        });
+      };
+      const lifecycle = {
+        born: async (relativePath: string) => {
+          const root = inspectNoFollowDirectoryChain(
+            path.join(tempRoot, ...relativePath.split('/')),
+            'Compiler stage recovery fixture'
+          ).target;
+          registrations.set(relativePath, registration(relativePath, {
+            device: root.device,
+            inode: root.inode,
+            objectId: generatedStateDigest({ device: root.device, inode: root.inode })
+          }));
+        },
+        bind: async (relativePath: string) => {
+          const current = registrations.get(relativePath);
+          if (current === undefined) throw new Error(`missing fixture registration: ${relativePath}`);
+          return current;
+        },
+        retired: async () => undefined,
+        disposed: async (relativePath: string, outcome: string) => {
+          lifecycleOutcomes.push(outcome);
+          if (rejectFirstDisposal) {
+            rejectFirstDisposal = false;
+            throw new Error('fixture disposal interruption');
+          }
+          await fs.rm(path.join(tempRoot, ...relativePath.split('/')), { recursive: true });
+          registrations.delete(relativePath);
+        }
+      };
+      const commandRunner = async (_command: string, _args: string[], options: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(options.cwd, `intent-generation-${installCalls}`);
+        return installCalls === 1
+          ? { code: 1, stdout: '', stderr: 'fixture install failure' }
+          : { code: 0, stdout: 'ok', stderr: '' };
+      };
+
+      await expect(ensureCompilerDepsReady({ commandRunner, generatedStateLifecycle: lifecycle }, tempRoot))
+        .rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      const stagedAfterFailure = (await fs.readdir(path.join(tempRoot, '.tmp', 'dependency-installs')))
+        .filter((name) => name.startsWith('c.staging-'));
+      expect(stagedAfterFailure).toHaveLength(1);
+      const foreignResidue = path.join(
+        tempRoot,
+        '.tmp',
+        'dependency-installs',
+        stagedAfterFailure[0]!,
+        'foreign-residue'
+      );
+      await fs.writeFile(foreignResidue, 'foreign\n');
+      await expect(ensureCompilerDepsReady({ commandRunner, generatedStateLifecycle: lifecycle }, tempRoot))
+        .rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
+      expect(installCalls).toBe(1);
+      await fs.rm(foreignResidue);
+
+      const ready = await ensureCompilerDepsReady({ commandRunner, generatedStateLifecycle: lifecycle }, tempRoot);
+      expect(ready.source).toBe('installed');
+      expect(installCalls).toBe(2);
+      expect(lifecycleOutcomes).toContain('generation-staging-recovered');
+      expect((await fs.readdir(path.join(tempRoot, '.tmp', 'dependency-installs')))
+        .filter((name) => name.startsWith('c.staging-'))).toHaveLength(0);
+      expect([...registrations.keys()].filter((value) => value.includes('/c.staging-'))).toHaveLength(0);
+    }, 'engineering-compiler-stage-intent-');
+  });
+
+  test('retires only registered legacy staging roots and preserves foreign descendants', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      const priorStateHome = process.env.SEC_STATE_HOME;
+      const priorCacheHome = process.env.SEC_CACHE_HOME;
+      const stateHome = path.join(tmpdir(), `sec-stage-state-${path.basename(tempRoot)}`);
+      const cacheHome = path.join(tmpdir(), `sec-stage-cache-${path.basename(tempRoot)}`);
+      process.env.SEC_STATE_HOME = stateHome;
+      process.env.SEC_CACHE_HOME = cacheHome;
+      try {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lifecycle = generatedStateProducerHooks(
+        { repositoryRoot: tempRoot },
+        { environment: { ...process.env } }
+      );
+      const stagingParent = path.join(tempRoot, '.tmp', 'dependency-installs');
+      const createLegacyStage = async (name: string, foreign = false): Promise<string> => {
+        const stageRoot = path.join(stagingParent, name);
+        await fs.mkdir(path.join(stageRoot, 'node_modules'), { recursive: true });
+        await Promise.all([
+          fs.writeFile(path.join(stageRoot, 'package.json'), '{}\n'),
+          fs.writeFile(path.join(stageRoot, 'bun.lock'), 'legacy\n'),
+          fs.writeFile(path.join(stageRoot, 'bunfig.toml'), '[install]\n')
+        ]);
+        if (foreign) await fs.writeFile(path.join(stageRoot, 'foreign-residue'), 'foreign\n');
+        await lifecycle.born(
+          path.relative(tempRoot, stageRoot).replaceAll('\\', '/'),
+          `legacy-stage:${name}`
+        );
+        return stageRoot;
+      };
+      const registeredLegacyStage = await createLegacyStage('c.staging-legacy-registered');
+      let installCalls = 0;
+      const commandRunner = async (_command: string, _args: string[], options: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(options.cwd, `legacy-retirement-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+
+      const ready = await ensureCompilerDepsReady({ commandRunner, generatedStateLifecycle: lifecycle }, tempRoot);
+      expect(ready.source).toBe('installed');
+      await expect(fs.stat(registeredLegacyStage)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(installCalls).toBe(1);
+
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      const foreignLegacyStage = await createLegacyStage('c.staging-legacy-foreign', true);
+      await expect(ensureCompilerDepsReady({ commandRunner, generatedStateLifecycle: lifecycle }, tempRoot))
+        .rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
+      expect(installCalls).toBe(1);
+      expect(await fs.readFile(path.join(foreignLegacyStage, 'foreign-residue'), 'utf8')).toBe('foreign\n');
+
+      await fs.rm(path.join(foreignLegacyStage, 'foreign-residue'));
+      await lifecycle.bind(path.relative(tempRoot, foreignLegacyStage).replaceAll('\\', '/'));
+      await lifecycle.disposed(
+        path.relative(tempRoot, foreignLegacyStage).replaceAll('\\', '/'),
+        'fixture-settlement'
+      );
+      } finally {
+        if (priorStateHome === undefined) delete process.env.SEC_STATE_HOME;
+        else process.env.SEC_STATE_HOME = priorStateHome;
+        if (priorCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+        else process.env.SEC_CACHE_HOME = priorCacheHome;
+        await Promise.all([
+          fs.rm(stateHome, { force: true, recursive: true }),
+          fs.rm(cacheHome, { force: true, recursive: true })
+        ]);
+      }
+    }, 'engineering-compiler-legacy-stage-');
   });
 
   test('reuses a compatible external physical generation without giving its bridge mutation ownership', async () => {
@@ -817,6 +981,73 @@ describe('compiler dependency installation', () => {
     }, 'engineering-compiler-dev-deps-rollback-');
   });
 
+  test('rolls back a prepared historical transition when its unpublished stage is already absent', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      let stagedRoot: string | null = null;
+      const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
+        installCalls += 1;
+        stagedRoot = command.cwd;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      await ensureCompilerDepsReady({ commandRunner }, tempRoot);
+      const originalEntry = await fs.readFile(path.join(
+        tempRoot,
+        'node_modules',
+        'typescript',
+        'lib',
+        'typescript.js'
+      ));
+
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      await expect(ensureCompilerDepsReady({
+        commandRunner,
+        testCompilerRename: async (source, target) => {
+          if (path.resolve(source) === path.join(tempRoot, 'node_modules')) {
+            await fs.rm(stagedRoot!, { recursive: true });
+            const interruption = new Error('historical process loss before preimage move') as NodeJS.ErrnoException;
+            interruption.code = 'ENOTEMPTY';
+            throw interruption;
+          }
+          await fs.rename(source, target);
+        }
+      }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect(installCalls).toBe(2);
+      expect(stagedRoot).not.toBeNull();
+      await expect(fs.stat(stagedRoot!)).rejects.toMatchObject({ code: 'ENOENT' });
+
+      // Reproduce the exact pre-intent durable state: the immutable
+      // compiler-generation journal remains prepared, while the unpublished
+      // stage and its newer intent namespace are absent. The unchanged
+      // preimage must be accepted only as a zero-install rollback.
+      await fs.rm(path.join(
+        tempRoot,
+        '.tmp',
+        'dependency-installs',
+        '.compiler-stage-intents-v1'
+      ), { recursive: true });
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v1\n');
+      let recoveryInstalls = 0;
+      const recovered = await ensureCompilerDepsReady({
+        commandRunner: async () => {
+          recoveryInstalls += 1;
+          throw new Error('journal-only rollback must not install');
+        }
+      }, tempRoot);
+      expect(recovered.source).toBe('existing');
+      expect(recoveryInstalls).toBe(0);
+      expect(await fs.readFile(path.join(
+        tempRoot,
+        'node_modules',
+        'typescript',
+        'lib',
+        'typescript.js'
+      ))).toEqual(originalEntry);
+    }, 'engineering-compiler-dev-deps-prepared-stage-absent-');
+  }, 30_000);
+
   test('retries only bounded Windows transient generation renames and preserves the exact source identity', async () => {
     await withTempWorkspace(async (tempRoot) => {
       await writeCompilerDependencyRoot(tempRoot);
@@ -1073,6 +1304,95 @@ describe('compiler dependency installation', () => {
       expect(lifecycleBound).toBe(true);
       await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     }, 'engineering-compiler-dev-deps-cleanup-fence-');
+  });
+
+  test('retries only the same Windows compiler lock identity and proves final absence', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let deleteAttempts = 0;
+      const ready = await ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-retry');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        pollIntervalMs: 1,
+        testInstallLockDeletePlatform: 'win32',
+        testInstallLockDelete: async (_filePath, attempt) => {
+          deleteAttempts += 1;
+          if (attempt === 1) {
+            throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
+          }
+        }
+      }, tempRoot);
+
+      expect(ready.source).toBe('installed');
+      expect(deleteAttempts).toBe(2);
+      await expect(fs.stat(path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-lock-delete-retry-');
+  });
+
+  test('preserves a replacement Windows compiler lock after a transient deletion failure', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      let replaced = false;
+      await expect(ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-replacement');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        pollIntervalMs: 1,
+        testInstallLockDeletePlatform: 'win32',
+        testInstallLockDelete: async (filePath, attempt) => {
+          if (attempt !== 1) return;
+          await fs.rm(filePath);
+          await fs.writeFile(filePath, `${JSON.stringify({
+            createdAt: new Date().toISOString(),
+            pid: process.pid,
+            token: 'replacement-owner'
+          })}\n`);
+          replaced = true;
+          throw Object.assign(new Error('fixture Windows replacement race'), { code: 'EPERM' });
+        }
+      }, tempRoot)).rejects.toMatchObject({
+        code: 'RUNTIME-DEPS-003',
+        details: { outcome: 'preserved-replacement' }
+      });
+
+      expect(replaced).toBe(true);
+      expect(await readJson<{ token: string }>(lockPath)).toMatchObject({ token: 'replacement-owner' });
+    }, 'engineering-compiler-lock-delete-replacement-');
+  });
+
+  test('reports an unknown Windows lock settlement when the operation deadline expires', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      let monotonicNowMs = 0;
+      await expect(ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-deadline');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        lockTimeoutMs: 100,
+        monotonicNowMs: () => monotonicNowMs,
+        pollIntervalMs: 1,
+        testInstallLockDeletePlatform: 'win32',
+        testInstallLockDelete: async () => {
+          monotonicNowMs = 101;
+          throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
+        }
+      }, tempRoot)).rejects.toMatchObject({
+        code: 'RUNTIME-DEPS-003',
+        details: {
+          failureOrder: ['primary', 'fence', 'cleanup'],
+          cleanupFailure: { details: { outcome: 'unknown' } }
+        }
+      });
+
+      expect((await readJson<{ token: string }>(lockPath)).token).toBeTruthy();
+    }, 'engineering-compiler-lock-delete-deadline-');
   });
 
   test('reclaims a dead compiler install owner instead of timing out future development', async () => {

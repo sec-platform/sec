@@ -1,3 +1,7 @@
+import type {
+  GeneratedStateDomainOwnerOperation,
+  GeneratedStateDomainOwnerPlan
+} from '../../runtime-state/generated-state/operation.ts';
 import type { CommitFence } from '../../workspace/files.ts';
 import * as runtime from './runtime/project-runtime.ts';
 
@@ -42,6 +46,32 @@ function dependencyInstallOptions(
 export const dependencyAuthorityPaths = runtime.dependencyAuthorityPaths;
 export const compilerDependencyLocatorWorktreeRetirementProvider =
   runtime.compilerDependencyLocatorWorktreeRetirementProvider;
+
+const issuedCompilerDependencyGeneratedStatePlans = new WeakSet<object>();
+
+/**
+ * Public composition capability for generated-state orchestration.  The
+ * facade exposes one owner operation, not dependency journal or physical
+ * cleanup primitives; only plans issued by this process-local owner can be
+ * settled.
+ */
+export const compilerDependencyGeneratedStateSettlementOwner:
+GeneratedStateDomainOwnerOperation = Object.freeze({
+  owner: 'compiler-dependency-runtime',
+  plan(input) {
+    const plan = runtime.planCompilerDependencyGeneratedStateSettlement(input);
+    issuedCompilerDependencyGeneratedStatePlans.add(plan);
+    return plan;
+  },
+  async settle(plan: GeneratedStateDomainOwnerPlan) {
+    if (!issuedCompilerDependencyGeneratedStatePlans.has(plan)) {
+      throw new Error('Compiler dependency generated-state plan was not issued by this owner.');
+    }
+    return runtime.settleCompilerDependencyGeneratedState(
+      plan as runtime.CompilerDependencyGeneratedStateSettlementPlan
+    );
+  }
+});
 
 /**
  * Explicit owner operation for the one-way durable dependency-journal

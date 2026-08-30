@@ -148,9 +148,16 @@ async function main(): Promise<void> {
 
   if (target === 'generated-state:inspect' || target === 'generated-state:plan'
       || target === 'generated-state:cleanup') {
-    const { runGeneratedStateOperation: runGeneratedStateOperationV1 } = await import('../../interface/cli/generated-state.ts');
+    const { runGeneratedStateOperation } = await import('../../runtime-state/generated-state/operation.ts');
+    const { compilerDependencyGeneratedStateSettlementOwner } = await import(
+      '../../toolchain/dependencies/runtime.ts'
+    );
     const operation = target.slice('generated-state:'.length);
-    const result = await runGeneratedStateOperationV1([operation, ...args]);
+    const result = await runGeneratedStateOperation(
+      [operation, ...args],
+      process.cwd(),
+      [compilerDependencyGeneratedStateSettlementOwner]
+    );
     console.log(JSON.stringify(result, null, 2));
     return;
   }
@@ -158,8 +165,8 @@ async function main(): Promise<void> {
   if (target === 'environment:workspace-settle') {
     const unknown = args.filter((argument) => argument !== '--fix');
     if (unknown.length > 0) usage();
-    const { settleEnvironment: settleEnvironmentV1 } = await import('../../interface/cli/generated-state.ts');
-    const result = await settleEnvironmentV1({ fix: args.includes('--fix') });
+    const { settleWorkspaceEnvironment } = await import('../../runtime-state/workspace-state/settlement.ts');
+    const result = await settleWorkspaceEnvironment({ fix: args.includes('--fix') });
     console.log(JSON.stringify(result, null, 2));
     if (result.status !== 'settled') process.exitCode = 1;
     return;
