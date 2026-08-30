@@ -14,6 +14,7 @@ import {
 import { resolveWindowsControlCliSession, type WindowsControlCliSessionRequest, type WindowsControlCliSessionResolution, type WindowsControlCliSessionResolutionReason } from '../../../external-capabilities/windows-control-cli/runtime/session.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveWindowsKnownFolderPath } from '../../../runtime-state/physical/runtime/windows-known-folders.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
@@ -256,6 +257,7 @@ export class LocalGitHubActionsRunnerCommandFailure extends Error {
 
 export type LocalDockerDesktopAvailabilityFailureReason =
   | 'deadline-exhausted'
+  | 'desktop-environment-unavailable'
   | 'desktop-start-failed'
   | 'desktop-stop-failed'
   | 'endpoint-unavailable'
@@ -498,7 +500,7 @@ const LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS = Object.freeze([
 ] as const);
 const LOCAL_GITHUB_ACTIONS_DOCKER_DESKTOP_ENV_KEYS = Object.freeze([
   ...LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS,
-  'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP'
+  'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'TEMP', 'TMP'
 ] as const);
 
 const COMMAND_ENV_KEYS = Object.freeze({
@@ -532,9 +534,38 @@ function commandEnvironment(command: keyof typeof COMMAND_ENV_KEYS): NodeJS.Proc
 }
 
 export function createLocalGitHubActionsRunnerDockerDesktopEnvironment(
-  source: NodeJS.ProcessEnv = process.env
+  source: NodeJS.ProcessEnv = process.env,
+  knownFolders?: Readonly<{ appData: string; localAppData: string; programData: string }>
 ): NodeJS.ProcessEnv {
-  return projectedCommandEnvironment(LOCAL_GITHUB_ACTIONS_DOCKER_DESKTOP_ENV_KEYS, source);
+  const environment = projectedCommandEnvironment(
+    LOCAL_GITHUB_ACTIONS_DOCKER_DESKTOP_ENV_KEYS,
+    source
+  );
+  if (knownFolders !== undefined) {
+    environment.APPDATA = knownFolders.appData;
+    environment.LOCALAPPDATA = knownFolders.localAppData;
+    environment.PROGRAMDATA = knownFolders.programData;
+  }
+  return environment;
+}
+
+async function createDockerDesktopLifecycleEnvironment(): Promise<NodeJS.ProcessEnv> {
+  const [localAppData, appData, programData] = await Promise.all([
+    resolveWindowsKnownFolderPath('local-app-data'),
+    resolveWindowsKnownFolderPath('roaming-app-data'),
+    resolveWindowsKnownFolderPath('program-data')
+  ]);
+  for (const [label, directory] of Object.entries({ localAppData, appData, programData })) {
+    const entry = lstatSync(directory, { throwIfNoEntry: false });
+    if (entry === undefined || !entry.isDirectory() || entry.isSymbolicLink()) {
+      throw new Error(`Docker Desktop ${label} known folder is not an ordinary directory`);
+    }
+  }
+  return createLocalGitHubActionsRunnerDockerDesktopEnvironment(process.env, {
+    appData,
+    localAppData,
+    programData
+  });
 }
 
 function fail(message: string): never {
@@ -1019,7 +1050,7 @@ async function runCommand(
     fail('Docker Desktop lifecycle environment is invalid for this command');
   }
   const childEnvironment = options.dockerDesktopLifecycle === true
-    ? createLocalGitHubActionsRunnerDockerDesktopEnvironment()
+    ? await createDockerDesktopLifecycleEnvironment()
     : commandEnvironment(command);
   if (options.githubToken !== undefined) {
     if (command !== 'gh' || !/^[^\s\u0000-\u001f]{20,1024}$/u.test(options.githubToken)) {
@@ -1187,7 +1218,7 @@ type DockerDesktopLifecycleCommand = (input: Readonly<{
   timeoutMs: number;
 }>) => Promise<CommandResult>;
 
-type DockerDesktopStoppedSocketEpochRecovery = () => number;
+type DockerDesktopStoppedSocketEpochRecovery = () => number | Promise<number>;
 
 type DockerDesktopAvailabilityInput = Readonly<{
   cwd: string;
@@ -1205,13 +1236,8 @@ function dockerDesktopFailure(
   throw new LocalDockerDesktopAvailabilityFailure({ endpointHost, reason });
 }
 
-function recoverDockerDesktopStoppedSocketEpochs(): number {
-  const localAppData = process.env.LOCALAPPDATA;
-  if (localAppData === undefined || localAppData.length === 0) return 0;
-  if (!path.win32.isAbsolute(localAppData)) {
-    throw new Error('Docker Desktop LOCALAPPDATA must be an absolute Windows path');
-  }
-  const resolvedLocalAppData = path.win32.resolve(localAppData);
+async function recoverDockerDesktopStoppedSocketEpochs(): Promise<number> {
+  const resolvedLocalAppData = await resolveWindowsKnownFolderPath('local-app-data');
   const localAppDataEntry = lstatSync(resolvedLocalAppData, { throwIfNoEntry: false });
   if (localAppDataEntry === undefined || !localAppDataEntry.isDirectory()
       || localAppDataEntry.isSymbolicLink()) {
@@ -1304,6 +1330,9 @@ async function runDockerDesktopAvailabilityCommand(
     if (Date.now() >= input.deadlineAt || /\b(?:abort|deadline|timeout)\b/iu.test(message)) {
       dockerDesktopFailure(input.endpointHost, 'deadline-exhausted');
     }
+    if (/\b(?:known folder|LOCALAPPDATA|APPDATA)\b/iu.test(message)) {
+      dockerDesktopFailure(input.endpointHost, 'desktop-environment-unavailable');
+    }
     dockerDesktopFailure(input.endpointHost, failureReason);
   }
 }
@@ -1361,7 +1390,7 @@ async function ensureDockerEndpointAvailable(
     }
     let recoveredEpochs: number;
     try {
-      recoveredEpochs = (input.recoverStoppedSocketEpochs
+      recoveredEpochs = await (input.recoverStoppedSocketEpochs
         ?? recoverDockerDesktopStoppedSocketEpochs)();
     } catch {
       dockerDesktopFailure(input.endpointHost, 'host-socket-recovery-unavailable');

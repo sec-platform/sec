@@ -270,6 +270,26 @@ describe('local GitHub Actions runner contract', () => {
     });
   });
 
+  test('binds Docker Desktop launcher roots from Windows known-folder authority', () => {
+    const environment = createLocalGitHubActionsRunnerDockerDesktopEnvironment(
+      {
+        DOCKER_CONTEXT: 'attacker-context',
+        PATH: 'C:\\tools'
+      },
+      {
+        appData: 'C:\\canonical-roaming',
+        localAppData: 'C:\\canonical-local',
+        programData: 'C:\\canonical-program-data'
+      }
+    );
+    expect(environment).toEqual({
+      APPDATA: 'C:\\canonical-roaming',
+      LOCALAPPDATA: 'C:\\canonical-local',
+      PATH: 'C:\\tools',
+      PROGRAMDATA: 'C:\\canonical-program-data'
+    });
+  });
+
   test('reuses a ready daemon without issuing a Docker Desktop start intent', async () => {
     const calls: string[][] = [];
     const result = await ensureDockerEndpointAvailableForTests({
@@ -394,6 +414,31 @@ describe('local GitHub Actions runner contract', () => {
       expect(error).toBeInstanceOf(LocalDockerDesktopAvailabilityFailure);
       expect((error as LocalDockerDesktopAvailabilityFailure).reason)
         .toBe('service-permission-required');
+    }
+  });
+
+  test('blocks before retry when the Windows launcher environment is unavailable', async () => {
+    let calls = 0;
+    try {
+      await ensureDockerEndpointAvailableForTests({
+        cwd: process.cwd(),
+        endpointHost: dockerEndpoint.endpointHost,
+        deadlineAt: Date.now() + 1_000,
+        platform: 'win32',
+        run: async ({ args }) => {
+          calls += 1;
+          if (args[0] === '--host') {
+            return { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+          }
+          throw new Error('Windows known folder local-app-data is unavailable');
+        }
+      });
+      throw new Error('expected Docker Desktop environment blocker');
+    } catch (error) {
+      expect(error).toBeInstanceOf(LocalDockerDesktopAvailabilityFailure);
+      expect((error as LocalDockerDesktopAvailabilityFailure).reason)
+        .toBe('desktop-environment-unavailable');
+      expect(calls).toBe(2);
     }
   });
 
