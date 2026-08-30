@@ -56,6 +56,12 @@ export type TypeScriptNativeCheckerSelection =
 
 type FailureStatus = Exclude<TypeScriptNativeCheckerSelection['status'], 'selected'>;
 
+// A selected checker is an authority-bearing capability, not a structural
+// configuration object.  Keep its issuer private so a caller cannot turn a
+// test fixture, JSON projection, or object spread into a production process
+// provider.  Consumers must pass the exact object issued by the resolver.
+const issuedTypeScriptCheckers = new WeakSet<object>();
+
 type TypeScriptAliasManifest = Readonly<{
   name: 'typescript';
   version: string;
@@ -262,13 +268,33 @@ export async function resolveInstalledTypeScriptNativeChecker(
     ...withoutBinding,
     toolchainBindingDigest: sha256(withoutBinding) as TypeScriptCheckerDigest
   });
-  return Object.freeze({
+  const checker = Object.freeze({
     provider,
     packageManifestPath,
     wrapperPath,
     platformNativeManifestPath,
     nativeExecutablePath
   });
+  issuedTypeScriptCheckers.add(checker);
+  return checker;
+}
+
+/**
+ * Assert that a checker was issued by this provider boundary.  The type
+ * assertion is intentionally paired with a private runtime issuer check:
+ * TypeScript structural typing alone cannot protect the command/effect edge.
+ */
+export function assertTypeScriptNativeChecker(
+  checker: unknown
+): asserts checker is InstalledTypeScriptNativeChecker {
+  if (checker === null || typeof checker !== 'object'
+      || !issuedTypeScriptCheckers.has(checker)) {
+    throw failure(
+      'unverified',
+      'resolver-failure',
+      'TypeScript checker capability was not issued by the native provider resolver'
+    );
+  }
 }
 
 export async function selectInstalledTypeScriptNativeChecker(
@@ -302,6 +328,7 @@ export function requireSelectedTypeScriptNativeChecker(
   if (selection.status !== 'selected') {
     throw failure(selection.status, selection.reason, selection.detail);
   }
+  assertTypeScriptNativeChecker(selection.checker);
   return selection.checker;
 }
 

@@ -5,6 +5,7 @@
     {
       "capability": "typescript-project-typecheck",
       "operations": [
+        "assertTypeScriptNativeChecker",
         "canonicalTypeScriptDiagnosticArguments",
         "requireSelectedTypeScriptNativeChecker",
         "resolveInstalledTypeScriptNativeChecker",

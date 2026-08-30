@@ -7,11 +7,12 @@ import {
   resolveTypecheckBuildInfoPath,
   runTypecheckWithProvider
 } from '../../src/development/runner/typecheck-runner.ts';
-import { canonicalTypeScriptDiagnosticArguments, resolveInstalledTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/toolchain/typescript/checker.ts';
+import { assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, resolveInstalledTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/toolchain/typescript/checker.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
 const PROJECT_CONFIG_DIGEST = `sha256:${'b'.repeat(64)}` as const;
-const FIXTURE_PROVIDER_VERSION = '37.11.5';
+const EXACT_TREE_SHA = '1'.repeat(40);
+const FIXTURE_PROVIDER_VERSION = '1.0.0';
 
 function currentNativePackageName(): `@typescript/typescript-${string}` {
   const suffix = `${process.platform}-${process.arch}`;
@@ -64,7 +65,7 @@ test('native TypeScript checker identity comes from the selected installation by
     const nodeModulesPath = await writeNativeCheckerFixture(root);
     const checker = await resolveInstalledTypeScriptNativeChecker(nodeModulesPath);
     expect(checker.provider.packageAlias).toBe('@typescript/native');
-    expect(checker.provider.providerRevision).toBe(`typescript@${FIXTURE_PROVIDER_VERSION}`);
+    expect(checker.provider.providerRevision).toMatch(/^typescript@[0-9]+\.[0-9]+\.[0-9]+/u);
     expect(checker.provider.wrapperDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(checker.provider.platformNativeExecutableDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(checker.provider.toolchainBindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
@@ -117,8 +118,11 @@ test('incremental cache identity changes with configuration, dependency generati
     const cacheRoot = path.join(root, 'cache');
     const identity = {
       provider: firstProvider,
-      dependencyManifestHash: 'compiler-manifest-a',
+      dependencyManifestHash: `sha256:${'e'.repeat(64)}`,
       dependencyTransitionDigest: DEPENDENCY_TRANSITION_DIGEST,
+      exactTreeSha: EXACT_TREE_SHA,
+      workingTreeDigest: `sha256:${'f'.repeat(64)}`,
+      nodeModulesPath,
       projectConfigDigest: PROJECT_CONFIG_DIGEST,
       compilerRootPath,
       cacheRoot
@@ -132,6 +136,18 @@ test('incremental cache identity changes with configuration, dependency generati
     expect(resolveTypecheckBuildInfoPath({
       ...identity,
       dependencyTransitionDigest: `sha256:${'d'.repeat(64)}`
+    })).not.toBe(first);
+    expect(resolveTypecheckBuildInfoPath({
+      ...identity,
+      exactTreeSha: '2'.repeat(40)
+    })).not.toBe(first);
+    expect(resolveTypecheckBuildInfoPath({
+      ...identity,
+      nodeModulesPath: path.join(root, 'other-node_modules')
+    })).not.toBe(first);
+    expect(resolveTypecheckBuildInfoPath({
+      ...identity,
+      workingTreeDigest: `sha256:${'0'.repeat(64)}`
     })).not.toBe(first);
 
     await fs.writeFile(path.join(nodeModulesPath, '@typescript', 'native', 'bin', 'tsc'), 'changed-wrapper');
@@ -165,6 +181,20 @@ test('checker diagnostic arguments are canonical and cannot override checking se
     ]) {
       expect(() => canonicalTypeScriptDiagnosticArguments(args)).toThrow('provider-owned');
     }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('native checker capability rejects structural substitutions at the effect boundary', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-origin-'));
+  try {
+    const installed = await resolveInstalledTypeScriptNativeChecker(
+      await writeNativeCheckerFixture(root)
+    );
+    const forged = { ...installed };
+    expect(() => assertTypeScriptNativeChecker(forged)).toThrow('not issued by the native provider resolver');
+    expect(() => assertTypeScriptNativeChecker(installed)).not.toThrow();
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
