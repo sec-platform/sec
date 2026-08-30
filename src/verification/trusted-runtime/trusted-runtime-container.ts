@@ -615,7 +615,10 @@ export function createTrustedRuntimeHostCommandEnvironment(
 ): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
   for (const expected of [
-    'DOCKER_CONFIG', 'DOCKER_CONTEXT', 'DOCKER_HOST', 'HOME', 'LOCALAPPDATA',
+    // Docker receives an explicit retained endpoint in every caller.  Its
+    // context/config selectors are therefore authority inputs and must not
+    // cross this boundary from the ambient host environment.
+    'HOME', 'LOCALAPPDATA',
     'PATH', 'SYSTEMROOT', 'TEMP', 'TMP', 'USERPROFILE', 'WINDIR'
   ]) {
     const actual = Object.keys(source).find((key) => key.toUpperCase() === expected);
