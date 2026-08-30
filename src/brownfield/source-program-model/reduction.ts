@@ -4,10 +4,36 @@ import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type {
+  SecRepositoryModuleArchitectureProjection,
+  SecRepositoryModuleMembership
+} from '../../system-architecture/repository-modules/contract.ts';
+import type {
+  SourceProgramCapabilityInvocation,
+  SourceProgramDeclaration,
   SourceProgramFileInput,
   SourceProgramModel,
+  SourceProgramOperationObligationEvidence,
+  SourceProgramOwnerIntentEvidence,
+  SourceProgramReference,
   SourceProgramSpan
 } from './contract.ts';
+import {
+  compileRepositorySourceProgramModel,
+  isCompiledRepositorySourceProgramModel
+} from './repository.ts';
+import {
+  compileSourceProgramTestBaselineEvidence,
+  isSourceProgramTestModulePath,
+  type SourceProgramTestDisposition,
+  type SourceProgramTestDispositionProjection,
+  type SourceProgramTestRegistration,
+  type SourceProgramTestSemanticClass,
+  type SourceProgramTestValueCompilation
+} from './test-value.ts';
+import { compileSourceProgramTypeScriptDiagnosticSnapshot } from './typescript.ts';
+
+const compiledGraphCutReductionPlans = new WeakSet<object>();
+const compiledAggregateImportReductionPlans = new WeakSet<object>();
 
 export interface SourceProgramRenameLocation {
   readonly path: string;
@@ -60,9 +86,16 @@ export interface SourceProgramGraphCutReduction {
 
 export interface SourceProgramGraphCutReductionPlan {
   readonly sourceRevision: string;
+  readonly sourceSnapshotDigest: string;
   readonly planDigest: string;
   readonly evidenceDigest: string;
+  readonly verificationDigest: string;
   readonly reductions: readonly SourceProgramGraphCutReduction[];
+}
+
+export interface SourceProgramReductionCompilerContext {
+  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly reviewedProcessDispatchers: readonly string[];
 }
 
 export interface SourceProgramAggregateImportReduction {
@@ -77,8 +110,31 @@ export interface SourceProgramAggregateImportReduction {
 
 export interface SourceProgramAggregateImportReductionPlan {
   readonly sourceRevision: string;
+  readonly sourceSnapshotDigest: string;
+  readonly architectureDigest: string;
+  readonly snapshotStatus: 'sealed' | 'blocked';
+  readonly snapshotReason: string | null;
   readonly planDigest: string;
   readonly reductions: readonly SourceProgramAggregateImportReduction[];
+}
+
+export interface SourceProgramArchitectureSnapshot {
+  readonly sourceRevision: string;
+  readonly architecture: SecRepositoryModuleArchitectureProjection;
+}
+
+export type SourceProgramReductionAdmissionFailureCode =
+  | 'compiler-issued-plan-required'
+  | 'source-snapshot-drift';
+
+export class SourceProgramReductionAdmissionError extends Error {
+  readonly code: SourceProgramReductionAdmissionFailureCode;
+
+  constructor(code: SourceProgramReductionAdmissionFailureCode, message: string) {
+    super(message);
+    this.name = 'SourceProgramReductionAdmissionError';
+    this.code = code;
+  }
 }
 
 export interface SourceProgramAggregateImportReductionPatch {
@@ -91,6 +147,1560 @@ export interface SourceProgramAggregateImportReductionPatch {
     beforeDigest: string;
     afterDigest: string;
   }>[];
+}
+
+export type SourceProgramSupersessionStatus =
+  | 'equivalent'
+  | 'superseded'
+  | 'owner-decision-required';
+
+export type SourceProgramSupersessionFindingCode =
+  | 'baseline-evidence-invalid'
+  | 'current-evidence-invalid'
+  | 'dynamic-or-external-observation-unresolved'
+  | 'design-intent-unresolved'
+  | 'design-intent-regressed'
+  | 'lifecycle-cost-not-reduced'
+  | 'operation-obligation-unresolved'
+  | 'required-entrypoint-missing'
+  | 'required-production-behavior-missing'
+  | 'required-resource-missing'
+  | 'required-test-boundary-missing'
+  | 'replacement-ambiguous';
+
+export interface SourceProgramSupersessionFinding {
+  readonly code: SourceProgramSupersessionFindingCode;
+  readonly baselineId: string | null;
+  readonly owner: string | null;
+  readonly baselinePaths: readonly string[];
+  readonly currentCandidateIds: readonly string[];
+  readonly detail: string;
+}
+
+export interface SourceProgramSupersessionReplacement {
+  readonly kind: 'entrypoint' | 'production' | 'resource' | 'test';
+  readonly baselineId: string;
+  readonly currentIds: readonly string[];
+  readonly owner: string | null;
+  readonly baselinePaths: readonly string[];
+  readonly currentPaths: readonly string[];
+  readonly proof: 'exact-semantic-obligation' | 'strict-observation-superset';
+}
+
+export interface SourceProgramSupersessionReceipt {
+  readonly status: SourceProgramSupersessionStatus;
+  readonly baseline: Readonly<{
+    readonly sourceRevision: string;
+    readonly modelDigest: string;
+    readonly testCompilationDigest: string;
+    readonly intentEvidenceDigest: string;
+  }>;
+  readonly current: Readonly<{
+    readonly sourceRevision: string;
+    readonly modelDigest: string;
+    readonly testCompilationDigest: string;
+    readonly intentEvidenceDigest: string;
+  }>;
+  readonly lifecycleCost: Readonly<{
+    readonly baseline: SourceProgramSupersessionLifecycleCost;
+    readonly current: SourceProgramSupersessionLifecycleCost;
+  }>;
+  readonly replacements: readonly SourceProgramSupersessionReplacement[];
+  readonly findings: readonly SourceProgramSupersessionFinding[];
+  readonly receiptDigest: string;
+}
+
+export interface SourceProgramSupersessionLifecycleCost {
+  readonly productionUnits: number;
+  readonly testUnits: number;
+  readonly owners: number;
+  readonly unresolvedObservations: number;
+  readonly unobservedTestRisk: number;
+}
+
+export const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA = Object.freeze({
+  evidenceKeys: Object.freeze([
+    'actionKey',
+    'identity',
+    'source',
+    'productionUnits',
+    'resourceUnits',
+    'entrypointUnits',
+    'tests',
+    'intentEvidence',
+    'unknowns',
+    'evidenceDigest'
+  ]),
+  identityKeys: Object.freeze([
+    'sourceRevision',
+    'revisionDigest',
+    'treeDigest',
+    'toolchainDigest',
+    'configurationDigest',
+    'schemaDigest'
+  ]),
+  sourceKeys: Object.freeze([
+    'modelDigest',
+    'testCompilationDigest',
+    'intentEvidenceDigest'
+  ]),
+  semanticUnitKeys: Object.freeze(['id', 'owner', 'path', 'signature']),
+  testUnitKeys: Object.freeze([
+    'testId',
+    'path',
+    'semanticClasses',
+    'observedProductionPaths',
+    'capabilityOperations',
+    'unknowns'
+  ]),
+  intentKeys: Object.freeze([
+    'owner',
+    'capabilityEnvelope',
+    'publicEntrypointEnvelope',
+    'operationObligations',
+    'evidenceDigest'
+  ]),
+  capabilityIntentKeys: Object.freeze(['capability', 'operations']),
+  entrypointIntentKeys: Object.freeze(['kind', 'name', 'targetPackages', 'targetPaths', 'transports']),
+  operationObligationEvidenceKeys: Object.freeze(['obligation', 'observation', 'evidenceDigest']),
+  operationObligationKeys: Object.freeze([
+    'operation', 'consumerSupport', 'effect', 'evolution', 'resources', 'futureSupport'
+  ]),
+  capabilityOperationKeys: Object.freeze(['kind', 'capability', 'operation']),
+  entrypointOperationKeys: Object.freeze(['kind', 'path']),
+  consumerSupportKeys: Object.freeze(['consumers']),
+  effectKeys: Object.freeze(['kinds', 'failureKinds', 'recovery']),
+  evolutionKeys: Object.freeze(['migration', 'retirement']),
+  resourceEnvelopeKeys: Object.freeze(['aggregateBudgets']),
+  resourceBudgetKeys: Object.freeze(['resource', 'maximum']),
+  futureSupportKeys: Object.freeze(['condition']),
+  obligationObservationKeys: Object.freeze([
+    'status', 'reason', 'consumerModuleIds', 'effectKinds'
+  ]),
+  unknownKeys: Object.freeze(['code', 'path', 'detail']),
+  decisionProjections: Object.freeze([
+    'current-value',
+    'owner-issued-design-intent',
+    'lifecycle-cost',
+    'typed-unknown'
+  ])
+});
+
+export const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST = sha256(
+  SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA
+);
+
+export interface SourceProgramSupersessionEvidenceIdentity {
+  /** Digest of the exact repository revision locator resolved by the Git owner. */
+  readonly revisionDigest: string;
+  /** Digest of the exact repository tree compiled into the Source Program. */
+  readonly treeDigest: string;
+  /** Digest of the compiler and provider capability closure. */
+  readonly toolchainDigest: string;
+  /** Digest of every configuration input that can change compiled facts. */
+  readonly configurationDigest: string;
+  /** Digest of the strict evidence grammar consumed by this compiler. */
+  readonly schemaDigest: string;
+}
+
+export type SourceProgramSupersessionEvidenceIdentityInput = Omit<
+  SourceProgramSupersessionEvidenceIdentity,
+  'schemaDigest'
+>;
+
+export function compileSourceProgramSupersessionEvidenceIdentity(
+  input: SourceProgramSupersessionEvidenceIdentityInput
+): SourceProgramSupersessionEvidenceIdentity {
+  if (!Object.values(input).every((value) => DIGEST.test(value))) {
+    throw new Error('Source Program supersession identity requires exact content digests');
+  }
+  return Object.freeze({
+    ...input,
+    schemaDigest: SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST
+  });
+}
+
+export interface SourceProgramSupersessionTestUnit {
+  readonly testId: string;
+  readonly path: string;
+  readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
+  readonly observedProductionPaths: readonly string[];
+  readonly capabilityOperations: readonly string[];
+  readonly unknowns: readonly string[];
+}
+
+export interface SourceProgramSupersessionEvidence {
+  readonly actionKey: string;
+  readonly identity: Readonly<SourceProgramSupersessionEvidenceIdentity & {
+    readonly sourceRevision: string;
+  }>;
+  readonly source: Readonly<{
+    readonly modelDigest: string;
+    readonly testCompilationDigest: string;
+    readonly intentEvidenceDigest: string;
+  }>;
+  readonly productionUnits: readonly SourceProgramSemanticUnit[];
+  readonly resourceUnits: readonly SourceProgramSemanticUnit[];
+  readonly entrypointUnits: readonly SourceProgramSemanticUnit[];
+  readonly tests: readonly SourceProgramSupersessionTestUnit[];
+  readonly intentEvidence: readonly SourceProgramOwnerIntentEvidence[];
+  readonly unknowns: readonly Readonly<{
+    readonly code: string;
+    readonly path: string;
+    readonly detail: string;
+  }>[];
+  readonly evidenceDigest: string;
+}
+
+export interface CompileSourceProgramSupersessionEvidenceInput {
+  readonly model: SourceProgramModel;
+  readonly tests: SourceProgramTestValueCompilation;
+  readonly intentEvidence: readonly SourceProgramOwnerIntentEvidence[];
+  readonly identity: SourceProgramSupersessionEvidenceIdentity;
+}
+
+export interface CompileSourceProgramSupersessionInput {
+  readonly baseline: SourceProgramSupersessionEvidence;
+  readonly current: SourceProgramSupersessionEvidence;
+}
+
+export interface SourceProgramSemanticUnit {
+  readonly id: string;
+  readonly owner: string | null;
+  readonly path: string;
+  readonly signature: string;
+}
+
+const DIGEST = /^sha256:[0-9a-f]{64}$/u;
+
+function sourceProgramModelEvidenceIsExact(model: SourceProgramModel): boolean {
+  return DIGEST.test(model.modelDigest)
+    && DIGEST.test(model.sourceRevision)
+    && isCompiledRepositorySourceProgramModel(model);
+}
+
+function sourceProgramTestEvidenceIsExact(compilation: SourceProgramTestValueCompilation): boolean {
+  return DIGEST.test(compilation.compilationDigest)
+    && DIGEST.test(compilation.sourceRevision)
+    && DIGEST.test(compilation.baselineDigest)
+    && DIGEST.test(compilation.baselineEvidenceDigest)
+    && new Set(compilation.records.map(({ testId }) => testId)).size === compilation.records.length
+    && compilation.records.every(({ testId }) => DIGEST.test(testId));
+}
+
+function ownerIntentEvidenceIsExact(evidence: SourceProgramOwnerIntentEvidence): boolean {
+  if (!DIGEST.test(evidence.evidenceDigest)
+      || evidence.operationObligations.some((obligation) =>
+        !operationObligationEvidenceIsExact(obligation))
+      || new Set(evidence.operationObligations.map(({ obligation }) =>
+        operationIdentityKey(obligation.operation))).size !== evidence.operationObligations.length) return false;
+  const { evidenceDigest: _evidenceDigest, ...canonicalEvidence } = evidence;
+  return sha256(canonicalEvidence) === evidence.evidenceDigest;
+}
+
+function operationIdentityKey(
+  operation: SourceProgramOperationObligationEvidence['obligation']['operation']
+): string {
+  return operation.kind === 'capability'
+    ? `capability\0${operation.capability}\0${operation.operation}`
+    : `public-entrypoint\0${operation.path}`;
+}
+
+function isUniqueStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value)
+    && value.every((item) => typeof item === 'string' && item.length > 0)
+    && new Set(value).size === value.length;
+}
+
+type SourceProgramOperationResourceBudget =
+  SourceProgramOperationObligationEvidence['obligation']['resources']['aggregateBudgets'][number];
+
+const SOURCE_PROGRAM_OPERATION_RESOURCE_KINDS = new Set([
+  'duration-ms', 'input-bytes', 'output-bytes', 'processes', 'records'
+]);
+
+function resourceBudgetIsExact(value: unknown): value is SourceProgramOperationResourceBudget {
+  return hasExactKeys(value, SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA.resourceBudgetKeys)
+    && typeof value.resource === 'string'
+    && SOURCE_PROGRAM_OPERATION_RESOURCE_KINDS.has(value.resource)
+    && typeof value.maximum === 'number'
+    && Number.isSafeInteger(value.maximum)
+    && value.maximum > 0;
+}
+
+function operationObligationEvidenceIsExact(
+  evidence: SourceProgramOperationObligationEvidence
+): boolean {
+  const schema = SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA;
+  const aggregateBudgets = evidence.obligation.resources.aggregateBudgets;
+  if (!hasExactKeys(evidence, schema.operationObligationEvidenceKeys)
+      || !hasExactKeys(evidence.obligation, schema.operationObligationKeys)
+      || !hasExactKeys(
+        evidence.obligation.operation,
+        evidence.obligation.operation.kind === 'capability'
+          ? schema.capabilityOperationKeys
+          : schema.entrypointOperationKeys
+      )
+      || !hasExactKeys(evidence.obligation.consumerSupport, schema.consumerSupportKeys)
+      || !hasExactKeys(evidence.obligation.effect, schema.effectKeys)
+      || !hasExactKeys(evidence.obligation.evolution, schema.evolutionKeys)
+      || !hasExactKeys(evidence.obligation.resources, schema.resourceEnvelopeKeys)
+      || !hasExactKeys(evidence.obligation.futureSupport, schema.futureSupportKeys)
+      || !hasExactKeys(evidence.observation, schema.obligationObservationKeys)
+      || !Array.isArray(evidence.obligation.consumerSupport.consumers)
+      || !Array.isArray(evidence.obligation.effect.kinds)
+      || !Array.isArray(evidence.obligation.effect.failureKinds)
+      || !Array.isArray(aggregateBudgets)
+      || !aggregateBudgets.every(resourceBudgetIsExact)
+      || !Array.isArray(evidence.observation.consumerModuleIds)
+      || !Array.isArray(evidence.observation.effectKinds)
+      || !DIGEST.test(evidence.evidenceDigest)
+      || (evidence.observation.status === 'verified') !== (evidence.observation.reason === 'verified')) {
+    return false;
+  }
+  const operation = evidence.obligation.operation;
+  const allowedEffectKinds = new Set([
+    'dynamic-code', 'filesystem', 'network', 'persistent-state', 'process', 'provider'
+  ]);
+  const allowedRecovery = new Set([
+    'idempotent-retry', 'not-applicable', 'owner-intervention', 'resume', 'rollback'
+  ]);
+  const allowedMigration = new Set([
+    'durable-read-migration', 'not-required', 'one-shot-owner-migration'
+  ]);
+  const allowedRetirement = new Set([
+    'consumer-zero', 'never', 'replacement-obligations-satisfied'
+  ]);
+  const allowedFutureSupport = new Set([
+    'explicit-owner-decision', 'preserve-obligations', 'semantic-superset-required'
+  ]);
+  const allowedReasons = new Set([
+    'consumer-closure-unresolved', 'effect-closure-unresolved', 'identity-unresolved', 'verified'
+  ]);
+  if ((operation.kind !== 'capability' && operation.kind !== 'public-entrypoint')
+      || (operation.kind === 'capability'
+        && (operation.capability.length === 0 || operation.operation.length === 0))
+      || (operation.kind === 'public-entrypoint' && operation.path.length === 0)
+      || !isUniqueStringArray(evidence.obligation.consumerSupport.consumers)
+      || !isUniqueStringArray(evidence.obligation.effect.kinds)
+      || evidence.obligation.effect.kinds.some((kind) => !allowedEffectKinds.has(kind))
+      || !isUniqueStringArray(evidence.obligation.effect.failureKinds)
+      || !allowedRecovery.has(evidence.obligation.effect.recovery)
+      || !allowedMigration.has(evidence.obligation.evolution.migration)
+      || !allowedRetirement.has(evidence.obligation.evolution.retirement)
+      || aggregateBudgets.length < 1
+      || new Set(aggregateBudgets.map(({ resource }) => resource)).size
+        !== aggregateBudgets.length
+      || !allowedFutureSupport.has(evidence.obligation.futureSupport.condition)
+      || !isUniqueStringArray(evidence.observation.consumerModuleIds)
+      || !isUniqueStringArray(evidence.observation.effectKinds)
+      || evidence.observation.effectKinds.some((kind) => !allowedEffectKinds.has(kind))
+      || (evidence.observation.status !== 'unknown' && evidence.observation.status !== 'verified')
+      || !allowedReasons.has(evidence.observation.reason)) return false;
+  if (evidence.observation.status === 'verified'
+      && (!isStringSuperset(
+        evidence.obligation.consumerSupport.consumers,
+        evidence.observation.consumerModuleIds
+      )
+        || !isStringSuperset(
+          evidence.observation.consumerModuleIds,
+          evidence.obligation.consumerSupport.consumers
+        )
+        || !isStringSuperset(
+          evidence.obligation.effect.kinds,
+          evidence.observation.effectKinds
+        ))) return false;
+  const { evidenceDigest: _evidenceDigest, ...canonicalEvidence } = evidence;
+  return sha256(canonicalEvidence) === evidence.evidenceDigest;
+}
+
+function operationObligationIsSuperset(
+  current: SourceProgramOperationObligationEvidence,
+  baseline: SourceProgramOperationObligationEvidence
+): boolean {
+  if (operationIdentityKey(current.obligation.operation)
+      !== operationIdentityKey(baseline.obligation.operation)
+      || current.observation.status !== 'verified'
+      || baseline.observation.status !== 'verified'
+      || !isStringSuperset(
+        current.obligation.consumerSupport.consumers,
+        baseline.obligation.consumerSupport.consumers
+      )
+      || !isStringSuperset(current.obligation.effect.kinds, baseline.obligation.effect.kinds)
+      || !isStringSuperset(
+        current.obligation.effect.failureKinds,
+        baseline.obligation.effect.failureKinds
+      )
+      || current.obligation.effect.recovery !== baseline.obligation.effect.recovery
+      || current.obligation.evolution.migration !== baseline.obligation.evolution.migration
+      || current.obligation.evolution.retirement !== baseline.obligation.evolution.retirement
+      || current.obligation.futureSupport.condition
+        !== baseline.obligation.futureSupport.condition) return false;
+  const currentBudgets = new Map(current.obligation.resources.aggregateBudgets.map((budget) =>
+    [budget.resource, budget.maximum] as const));
+  return baseline.obligation.resources.aggregateBudgets.every(({ maximum, resource }) => {
+    const currentMaximum = currentBudgets.get(resource);
+    return currentMaximum !== undefined && currentMaximum <= maximum;
+  });
+}
+
+function intentEnvelopeIsSuperset(
+  current: SourceProgramOwnerIntentEvidence,
+  baseline: SourceProgramOwnerIntentEvidence
+): boolean {
+  const currentCapabilities = new Map(current.capabilityEnvelope.map(({ capability, operations }) =>
+    [capability, new Set(operations)] as const));
+  const capabilitiesCovered = baseline.capabilityEnvelope.every(({ capability, operations }) => {
+    const currentOperations = currentCapabilities.get(capability);
+    return currentOperations !== undefined && operations.every((operation) =>
+      currentOperations.has(operation));
+  });
+  const currentEntrypoints = new Set(current.publicEntrypointEnvelope.map((entrypoint) =>
+    sha256(entrypoint)));
+  return capabilitiesCovered
+    && baseline.publicEntrypointEnvelope.every((entrypoint) =>
+      currentEntrypoints.has(sha256(entrypoint)));
+}
+
+function sourceProgramIntentEvidenceDigest(
+  evidence: readonly SourceProgramOwnerIntentEvidence[]
+): string {
+  return sha256([...evidence].sort((left, right) => compareCodeUnits(left.owner, right.owner)));
+}
+
+function ownerIntentOperationIdentities(
+  intent: SourceProgramOwnerIntentEvidence
+): readonly SourceProgramOperationObligationEvidence['obligation']['operation'][] {
+  const operations = [
+    ...intent.capabilityEnvelope.flatMap(({ capability, operations }) => operations.map((operation) =>
+      Object.freeze({ kind: 'capability' as const, capability, operation }))),
+    ...intent.publicEntrypointEnvelope.flatMap(({ targetPaths }) => targetPaths.map((path) =>
+      Object.freeze({ kind: 'public-entrypoint' as const, path })))
+  ];
+  return Object.freeze([...new Map(operations.map((operation) =>
+    [operationIdentityKey(operation), operation] as const)).values()]
+    .sort((left, right) => compareCodeUnits(
+      operationIdentityKey(left),
+      operationIdentityKey(right)
+    )));
+}
+
+function supersessionLifecycleCost(
+  sourceUnknownCount: number,
+  tests: readonly SourceProgramSupersessionTestUnit[],
+  productionUnits: readonly SourceProgramSemanticUnit[]
+): SourceProgramSupersessionLifecycleCost {
+  return Object.freeze({
+    productionUnits: new Set(productionUnits.map(({ id }) => id)).size,
+    testUnits: new Set(tests.map(({ testId }) => testId)).size,
+    owners: new Set(productionUnits.flatMap(({ owner }) => owner === null ? [] : [owner])).size,
+    unresolvedObservations: sourceUnknownCount
+      + tests.filter(({ unknowns }) => unknowns.length > 0).length,
+    unobservedTestRisk: tests.reduce((risk, { semanticClasses }) => risk
+      + (semanticClasses.includes('failure-boundary') ? 0 : 1)
+      + (semanticClasses.includes('effect') ? 0 : 1), 0)
+  });
+}
+
+function lifecycleCostIsNoWorse(
+  current: SourceProgramSupersessionLifecycleCost,
+  baseline: SourceProgramSupersessionLifecycleCost
+): boolean {
+  return current.productionUnits <= baseline.productionUnits
+    && current.testUnits <= baseline.testUnits
+    && current.owners <= baseline.owners
+    && current.unresolvedObservations <= baseline.unresolvedObservations
+    && current.unobservedTestRisk <= baseline.unobservedTestRisk;
+}
+
+function lifecycleCostIsLower(
+  current: SourceProgramSupersessionLifecycleCost,
+  baseline: SourceProgramSupersessionLifecycleCost
+): boolean {
+  return current.productionUnits < baseline.productionUnits
+    || current.testUnits < baseline.testUnits
+    || current.owners < baseline.owners
+    || current.unresolvedObservations < baseline.unresolvedObservations
+    || current.unobservedTestRisk < baseline.unobservedTestRisk;
+}
+
+function declarationSemanticAddress(
+  declaration: SourceProgramDeclaration,
+  moduleIdByPath: ReadonlyMap<string, string | null>
+): Readonly<{
+  moduleId: string | null;
+  name: string;
+  kind: string;
+  declarationDigest: string;
+}> {
+  const moduleId = moduleIdByPath.get(declaration.path) ?? null;
+  return Object.freeze({
+    moduleId,
+    name: declaration.name,
+    kind: declaration.kind,
+    declarationDigest: declaration.declarationDigest
+  });
+}
+
+function referenceSemanticAddress(
+  reference: SourceProgramReference,
+  declarationById: ReadonlyMap<string, SourceProgramDeclaration>,
+  moduleIdByPath: ReadonlyMap<string, string | null>
+): Readonly<Record<string, unknown>> {
+  const target = reference.targetObservationId === null
+    ? null
+    : declarationById.get(reference.targetObservationId) ?? null;
+  return Object.freeze({
+    kind: reference.kind,
+    name: reference.name,
+    target: target === null
+      ? Object.freeze({
+          moduleSpecifier: reference.moduleSpecifier,
+          targetPath: reference.targetPath,
+          observationClass: reference.observationClass
+        })
+      : declarationSemanticAddress(target, moduleIdByPath)
+  });
+}
+
+function capabilitySemanticAddress(
+  capability: SourceProgramCapabilityInvocation
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    capability: capability.capability,
+    operation: capability.operation,
+    subject: capability.subject,
+    transport: capability.transport,
+    moduleSpecifier: capability.moduleSpecifier,
+    providerCapability: capability.providerCapability,
+    providerModuleId: capability.providerModuleId,
+    observationClass: capability.observationClass
+  });
+}
+
+function sourceProgramRequiredProductionPaths(model: SourceProgramModel): ReadonlySet<string> {
+  const required = new Set<string>();
+  for (const closure of model.entrypointClosures) {
+    for (const path of [...closure.targetPaths, ...closure.reachablePaths, ...closure.capabilityPaths]) {
+      required.add(path);
+    }
+  }
+  for (const entrypoint of model.entrypoints) {
+    required.add(entrypoint.path);
+    for (const path of entrypoint.targetPaths) required.add(path);
+  }
+  for (const capability of model.capabilities) required.add(capability.path);
+  for (const declaration of model.declarations) {
+    if (declaration.exported) required.add(declaration.path);
+  }
+  for (const reference of model.references) {
+    if (reference.targetPath !== null) required.add(reference.targetPath);
+  }
+  return required;
+}
+
+function compileSourceProgramSemanticUnits(
+  model: SourceProgramModel
+): readonly SourceProgramSemanticUnit[] {
+  const moduleIdByPath = new Map<string, string | null>();
+  for (const file of model.files) {
+    if (!moduleIdByPath.has(file.path)) moduleIdByPath.set(file.path, file.moduleId);
+  }
+  const declarationById = new Map(model.declarations.map((declaration) =>
+    [declaration.observationId, declaration] as const));
+  const declarationsByPath = new Map<string, SourceProgramDeclaration[]>();
+  for (const declaration of model.declarations) {
+    const declarations = declarationsByPath.get(declaration.path);
+    if (declarations === undefined) declarationsByPath.set(declaration.path, [declaration]);
+    else declarations.push(declaration);
+  }
+  const referencesByPath = new Map<string, SourceProgramReference[]>();
+  for (const reference of model.references) {
+    const references = referencesByPath.get(reference.path);
+    if (references === undefined) referencesByPath.set(reference.path, [reference]);
+    else references.push(reference);
+  }
+  const capabilitiesByPath = new Map<string, SourceProgramCapabilityInvocation[]>();
+  for (const capability of model.capabilities) {
+    const capabilities = capabilitiesByPath.get(capability.path);
+    if (capabilities === undefined) capabilitiesByPath.set(capability.path, [capability]);
+    else capabilities.push(capability);
+  }
+  const requiredPaths = sourceProgramRequiredProductionPaths(model);
+  const units: SourceProgramSemanticUnit[] = [];
+  for (const file of model.files) {
+    if (file.surface !== 'production' || !requiredPaths.has(file.path)) continue;
+    const owner = file.moduleId ?? null;
+    const declarations = (declarationsByPath.get(file.path) ?? [])
+      .map((declaration) => declarationSemanticAddress(declaration, moduleIdByPath));
+    const references = (referencesByPath.get(file.path) ?? [])
+      .map((reference) => referenceSemanticAddress(reference, declarationById, moduleIdByPath));
+    const capabilities = (capabilitiesByPath.get(file.path) ?? [])
+      .map(capabilitySemanticAddress);
+    const semanticShape = Object.freeze({
+      owner: owner ?? Object.freeze({ exactUnownedPath: file.path }),
+      declarations,
+      references,
+      capabilities,
+      fallbackContentDigest: declarations.length === 0
+        && references.length === 0
+        && capabilities.length === 0
+        ? file.contentDigest
+        : null
+    });
+    const signature = sha256(semanticShape);
+    units.push(Object.freeze({
+      id: sha256({ kind: 'production', signature }),
+      owner,
+      path: file.path,
+      signature
+    }));
+  }
+  return Object.freeze(units.sort((left, right) =>
+    compareCodeUnits(left.signature, right.signature)
+    || compareCodeUnits(left.path, right.path)));
+}
+
+function compileSourceProgramResourceUnits(
+  model: SourceProgramModel
+): readonly SourceProgramSemanticUnit[] {
+  return Object.freeze(model.files
+    .filter(({ surface }) => surface === 'resource' || surface === 'workflow')
+    .map((file) => {
+      const signature = sha256({
+        path: file.path,
+        contentDigest: file.contentDigest,
+        moduleId: file.moduleId,
+        surface: file.surface
+      });
+      return Object.freeze({
+        id: sha256({ kind: 'resource', signature }),
+        owner: file.moduleId,
+        path: file.path,
+        signature
+      });
+    })
+    .sort((left, right) => compareCodeUnits(left.path, right.path)));
+}
+
+function compileSourceProgramEntrypointUnits(
+  model: SourceProgramModel,
+  productionUnitByPath: ReadonlyMap<string, SourceProgramSemanticUnit>
+): readonly SourceProgramSemanticUnit[] {
+  const closureByEntrypoint = new Map<string, SourceProgramModel['entrypointClosures'][number]>();
+  for (const closure of model.entrypointClosures) {
+    if (!closureByEntrypoint.has(closure.entrypointObservationId)) {
+      closureByEntrypoint.set(closure.entrypointObservationId, closure);
+    }
+  }
+  return Object.freeze(model.entrypoints.map((entrypoint) => {
+    const closure = closureByEntrypoint.get(entrypoint.observationId);
+    const targetSignatures = [...new Set([
+      ...(closure?.targetPaths ?? []),
+      ...(closure?.reachablePaths ?? [])
+    ].flatMap((path) => {
+      const unit = productionUnitByPath.get(path);
+      return unit === undefined ? [] : [unit.signature];
+    }))].sort(compareCodeUnits);
+    const owner = [...new Set((closure?.handlerModuleIds ?? []))].sort(compareCodeUnits).join('+') || null;
+    let commandShape = entrypoint.command;
+    if (commandShape !== null) {
+      for (const targetPath of [...entrypoint.targetPaths]
+        .sort((left, right) => right.length - left.length || compareCodeUnits(left, right))) {
+        const target = productionUnitByPath.get(targetPath);
+        if (target === undefined) continue;
+        commandShape = commandShape
+          .replaceAll(`./${targetPath}`, `<target:${target.signature}>`)
+          .replaceAll(targetPath, `<target:${target.signature}>`);
+      }
+    }
+    const signature = sha256({
+      kind: entrypoint.kind,
+      name: entrypoint.name,
+      commandShape,
+      targetPackages: entrypoint.targetPackages,
+      targetSignatures,
+      transports: closure?.transports ?? [],
+      providerModuleIds: closure?.providerModuleIds ?? [],
+      observationClass: closure?.observationClass ?? entrypoint.observationClass
+    });
+    return Object.freeze({
+      id: sha256({ kind: 'entrypoint', signature }),
+      owner,
+      path: entrypoint.path,
+      signature
+    });
+  }).sort((left, right) => compareCodeUnits(left.signature, right.signature)
+    || compareCodeUnits(left.path, right.path)));
+}
+
+function testBoundary(
+  registration: Pick<SourceProgramTestRegistration,
+    'semanticClasses' | 'observedProductionPaths' | 'capabilityOperations'>,
+  productionRequirementIdByPath: ReadonlyMap<string, string>
+): Readonly<{
+  semanticClasses: readonly SourceProgramTestSemanticClass[];
+  observedRequirementIds: readonly string[];
+  capabilityOperations: readonly string[];
+}> {
+  return Object.freeze({
+    semanticClasses: Object.freeze([...registration.semanticClasses].sort(compareCodeUnits)),
+    observedRequirementIds: Object.freeze([...new Set(registration.observedProductionPaths
+      .flatMap((path) => {
+        const requirementId = productionRequirementIdByPath.get(path);
+        return requirementId === undefined ? [] : [requirementId];
+      }))].sort(compareCodeUnits)),
+    capabilityOperations: Object.freeze([...registration.capabilityOperations].sort(compareCodeUnits))
+  });
+}
+
+function supersessionEvidenceActionKey(
+  identity: SourceProgramSupersessionEvidence['identity'],
+  source: SourceProgramSupersessionEvidence['source']
+): string {
+  return sha256({ identity, source });
+}
+
+function semanticUnitsAreCanonical(
+  units: readonly SourceProgramSemanticUnit[],
+  kind: 'production' | 'resource' | 'entrypoint'
+): boolean {
+  if (new Set(units.map(({ id }) => id)).size !== units.length) return false;
+  if (units.some(({ id, signature }) => !DIGEST.test(signature)
+      || id !== sha256({ kind, signature }))) return false;
+  const sorted = [...units].sort((left, right) => kind === 'resource'
+    ? compareCodeUnits(left.path, right.path)
+    : compareCodeUnits(left.signature, right.signature) || compareCodeUnits(left.path, right.path));
+  return sorted.every(({ id }, index) => id === units[index]?.id);
+}
+
+function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort(compareCodeUnits);
+  const expected = [...keys].sort(compareCodeUnits);
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function sourceProgramSupersessionEvidenceHasExactGrammar(
+  value: unknown
+): value is SourceProgramSupersessionEvidence {
+  const schema = SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA;
+  if (!hasExactKeys(value, schema.evidenceKeys)
+      || !hasExactKeys(value.identity, schema.identityKeys)
+      || !hasExactKeys(value.source, schema.sourceKeys)
+      || !Array.isArray(value.productionUnits)
+      || !Array.isArray(value.resourceUnits)
+      || !Array.isArray(value.entrypointUnits)
+      || !Array.isArray(value.tests)
+      || !Array.isArray(value.intentEvidence)
+      || !Array.isArray(value.unknowns)) return false;
+  const semanticUnits = [
+    ...value.productionUnits,
+    ...value.resourceUnits,
+    ...value.entrypointUnits
+  ];
+  return semanticUnits.every((unit) => hasExactKeys(unit, schema.semanticUnitKeys))
+    && value.tests.every((test) => hasExactKeys(test, schema.testUnitKeys))
+    && value.unknowns.every((unknown) => hasExactKeys(unknown, schema.unknownKeys))
+    && value.intentEvidence.every((intent) => hasExactKeys(intent, schema.intentKeys)
+      && Array.isArray(intent.capabilityEnvelope)
+      && intent.capabilityEnvelope.every((capability) =>
+        hasExactKeys(capability, schema.capabilityIntentKeys))
+      && Array.isArray(intent.publicEntrypointEnvelope)
+      && intent.publicEntrypointEnvelope.every((entrypoint) =>
+        hasExactKeys(entrypoint, schema.entrypointIntentKeys)
+        && Array.isArray(entrypoint.targetPackages)
+        && Array.isArray(entrypoint.targetPaths)
+        && Array.isArray(entrypoint.transports))
+      && Array.isArray(intent.operationObligations)
+      && intent.operationObligations.every((obligation) =>
+        operationObligationEvidenceIsExact(obligation)));
+}
+
+function sourceProgramSupersessionEvidenceIsExact(
+  value: unknown
+): value is SourceProgramSupersessionEvidence {
+  if (!sourceProgramSupersessionEvidenceHasExactGrammar(value)) return false;
+  const evidence = value;
+  if (!DIGEST.test(evidence.actionKey)
+      || !DIGEST.test(evidence.evidenceDigest)
+      || !Object.values(evidence.identity).every((value) => DIGEST.test(value))
+      || evidence.identity.schemaDigest !== SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST
+      || !Object.values(evidence.source).every((value) => DIGEST.test(value))
+      || evidence.actionKey !== supersessionEvidenceActionKey(evidence.identity, evidence.source)
+      || !semanticUnitsAreCanonical(evidence.productionUnits, 'production')
+      || !semanticUnitsAreCanonical(evidence.resourceUnits, 'resource')
+      || !semanticUnitsAreCanonical(evidence.entrypointUnits, 'entrypoint')
+      || evidence.intentEvidence.some((ownerEvidence) => !ownerIntentEvidenceIsExact(ownerEvidence))
+      || new Set(evidence.intentEvidence.map(({ owner }) => owner)).size !== evidence.intentEvidence.length
+      || evidence.source.intentEvidenceDigest
+        !== sourceProgramIntentEvidenceDigest(evidence.intentEvidence)
+      || new Set(evidence.tests.map(({ testId }) => testId)).size !== evidence.tests.length
+      || evidence.tests.some(({ testId }) => !DIGEST.test(testId))) return false;
+  const canonicalIntent = [...evidence.intentEvidence]
+    .sort((left, right) => compareCodeUnits(left.owner, right.owner));
+  const canonicalTests = [...evidence.tests]
+    .sort((left, right) => compareCodeUnits(left.testId, right.testId));
+  const canonicalUnknowns = [...evidence.unknowns]
+    .sort((left, right) => compareCodeUnits(left.path, right.path)
+      || compareCodeUnits(left.code, right.code)
+      || compareCodeUnits(left.detail, right.detail));
+  if (canonicalIntent.some(({ evidenceDigest }, index) =>
+      evidenceDigest !== evidence.intentEvidence[index]?.evidenceDigest)
+      || canonicalTests.some(({ testId }, index) => testId !== evidence.tests[index]?.testId)
+      || canonicalUnknowns.some((unknown, index) =>
+        sha256(unknown) !== sha256(evidence.unknowns[index]))) return false;
+  const { evidenceDigest: _evidenceDigest, ...canonicalEvidence } = evidence;
+  return sha256(canonicalEvidence) === evidence.evidenceDigest;
+}
+
+/** Accept one cached compact receipt only after replaying its strict grammar and digests. */
+export function parseSourceProgramSupersessionEvidence(
+  value: unknown
+): SourceProgramSupersessionEvidence {
+  if (!sourceProgramSupersessionEvidenceIsExact(value)) {
+    throw new Error('Source Program supersession evidence is not canonical or action-bound');
+  }
+  return Object.freeze(value);
+}
+
+/**
+ * Project one exact Source Program revision into the only facts that the
+ * supersession decision consumes.  Callers may then release the Program,
+ * TypeChecker and full Test Value graph and cache this receipt by actionKey.
+ */
+export function compileSourceProgramSupersessionEvidence(
+  input: CompileSourceProgramSupersessionEvidenceInput
+): SourceProgramSupersessionEvidence {
+  if (!sourceProgramModelEvidenceIsExact(input.model)
+      || !sourceProgramTestEvidenceIsExact(input.tests)
+      || input.model.sourceRevision !== input.tests.sourceRevision
+      || input.intentEvidence.some((evidence) => !ownerIntentEvidenceIsExact(evidence))
+      || new Set(input.intentEvidence.map(({ owner }) => owner)).size
+        !== input.intentEvidence.length
+      || !Object.values(input.identity).every((value) => DIGEST.test(value))
+      || input.identity.schemaDigest !== SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST) {
+    throw new Error('Source Program supersession evidence requires exact revision-bound inputs');
+  }
+  const productionUnits = compileSourceProgramSemanticUnits(input.model);
+  const productionUnitByPath = new Map(productionUnits.map((unit) => [unit.path, unit] as const));
+  const intentEvidence = Object.freeze([...input.intentEvidence]
+    .sort((left, right) => compareCodeUnits(left.owner, right.owner)));
+  const identity = Object.freeze({
+    sourceRevision: input.model.sourceRevision,
+    ...input.identity
+  });
+  const source = Object.freeze({
+    modelDigest: input.model.modelDigest,
+    testCompilationDigest: input.tests.compilationDigest,
+    intentEvidenceDigest: sourceProgramIntentEvidenceDigest(intentEvidence)
+  });
+  const canonicalEvidence = Object.freeze({
+    actionKey: supersessionEvidenceActionKey(identity, source),
+    identity,
+    source,
+    productionUnits,
+    resourceUnits: compileSourceProgramResourceUnits(input.model),
+    entrypointUnits: compileSourceProgramEntrypointUnits(input.model, productionUnitByPath),
+    tests: Object.freeze(input.tests.records.map((registration) => Object.freeze({
+      testId: registration.testId,
+      path: registration.path,
+      semanticClasses: Object.freeze([...registration.semanticClasses].sort(compareCodeUnits)),
+      observedProductionPaths: Object.freeze([...registration.observedProductionPaths]
+        .sort(compareCodeUnits)),
+      capabilityOperations: Object.freeze([...registration.capabilityOperations]
+        .sort(compareCodeUnits)),
+      unknowns: Object.freeze([...registration.unknowns].sort(compareCodeUnits))
+    })).sort((left, right) => compareCodeUnits(left.testId, right.testId))),
+    intentEvidence,
+    unknowns: Object.freeze(input.model.unknowns.map(({ code, path, detail }) => Object.freeze({
+      code,
+      path,
+      detail
+    })).sort((left, right) => compareCodeUnits(left.path, right.path)
+      || compareCodeUnits(left.code, right.code)
+      || compareCodeUnits(left.detail, right.detail)))
+  });
+  return Object.freeze({
+    ...canonicalEvidence,
+    evidenceDigest: sha256(canonicalEvidence)
+  });
+}
+
+function isStringSuperset(current: readonly string[], baseline: readonly string[]): boolean {
+  const currentValues = new Set(current);
+  return baseline.every((value) => currentValues.has(value));
+}
+
+function supersessionFinding(
+  code: SourceProgramSupersessionFindingCode,
+  detail: string,
+  input: Partial<Pick<SourceProgramSupersessionFinding,
+    'baselineId' | 'owner' | 'baselinePaths' | 'currentCandidateIds'>> = {}
+): SourceProgramSupersessionFinding {
+  return Object.freeze({
+    code,
+    baselineId: input.baselineId ?? null,
+    owner: input.owner ?? null,
+    baselinePaths: Object.freeze([...(input.baselinePaths ?? [])].sort(compareCodeUnits)),
+    currentCandidateIds: Object.freeze([...(input.currentCandidateIds ?? [])].sort(compareCodeUnits)),
+    detail
+  });
+}
+
+/**
+ * Prove that a candidate retains every statically observable baseline
+ * capability.  The compiler is intentionally one-way and conservative: it
+ * can prove exact semantic obligations and stronger test observations, but it
+ * cannot infer arbitrary behavioral equivalence from similar names, paths or
+ * bytes.  Unresolved evidence is therefore an owner decision, never a PASS.
+ */
+export function compileSourceProgramSupersessionReceipt(
+  input: CompileSourceProgramSupersessionInput
+): SourceProgramSupersessionReceipt {
+  const findings: SourceProgramSupersessionFinding[] = [];
+  if (!sourceProgramSupersessionEvidenceIsExact(input.baseline)) {
+    findings.push(supersessionFinding(
+      'baseline-evidence-invalid',
+      'baseline compact evidence must be exact, content-addressed, canonical, and action-bound'
+    ));
+  }
+  if (!sourceProgramSupersessionEvidenceIsExact(input.current)) {
+    findings.push(supersessionFinding(
+      'current-evidence-invalid',
+      'current compact evidence must be exact, content-addressed, canonical, and action-bound'
+    ));
+  }
+
+  for (const [side, evidence] of [
+    ['baseline', input.baseline],
+    ['current', input.current]
+  ] as const) {
+    for (const unknown of evidence.unknowns) {
+      findings.push(supersessionFinding(
+        'dynamic-or-external-observation-unresolved',
+        `${side} observation ${unknown.code} is unresolved: ${unknown.detail}`,
+        { baselinePaths: [unknown.path] }
+      ));
+    }
+  }
+
+  const baselineProduction = input.baseline.productionUnits;
+  const currentProduction = input.current.productionUnits;
+  const baselineIntentByOwner = new Map(input.baseline.intentEvidence.map((evidence) =>
+    [evidence.owner, evidence] as const));
+  const currentIntentByOwner = new Map(input.current.intentEvidence.map((evidence) =>
+    [evidence.owner, evidence] as const));
+  const baselineProductionByPath = new Map(baselineProduction.map((unit) => [unit.path, unit] as const));
+  const currentProductionByPath = new Map(currentProduction.map((unit) => [unit.path, unit] as const));
+  const currentProductionBySignature = new Map<string, SourceProgramSemanticUnit[]>();
+  for (const unit of currentProduction) {
+    const candidates = currentProductionBySignature.get(unit.signature) ?? [];
+    candidates.push(unit);
+    currentProductionBySignature.set(unit.signature, candidates);
+  }
+  const replacements: SourceProgramSupersessionReplacement[] = [];
+  const currentRequirementIdByPath = new Map<string, string>();
+  for (const baselineUnit of baselineProduction) {
+    const candidates = currentProductionBySignature.get(baselineUnit.signature) ?? [];
+    const exactPath = candidates.find(({ path }) => path === baselineUnit.path);
+    const selected = exactPath ?? (candidates.length === 1 ? candidates[0] : undefined);
+    if (selected === undefined) {
+      findings.push(supersessionFinding(
+        candidates.length === 0
+          ? 'required-production-behavior-missing'
+          : 'replacement-ambiguous',
+        candidates.length === 0
+          ? 'no current production unit proves the same owner, declarations, resolved dependencies, and capabilities'
+          : 'multiple current production units have the same semantic shape; path/byte similarity cannot choose authority',
+        {
+          baselineId: baselineUnit.id,
+          owner: baselineUnit.owner,
+          baselinePaths: [baselineUnit.path],
+          currentCandidateIds: candidates.map(({ id }) => id)
+        }
+      ));
+      continue;
+    }
+    currentRequirementIdByPath.set(selected.path, baselineUnit.id);
+    replacements.push(Object.freeze({
+      kind: 'production',
+      baselineId: baselineUnit.id,
+      currentIds: Object.freeze([selected.id]),
+      owner: baselineUnit.owner,
+      baselinePaths: Object.freeze([baselineUnit.path]),
+      currentPaths: Object.freeze([selected.path]),
+      proof: 'exact-semantic-obligation'
+    }));
+  }
+
+  const baselineResources = input.baseline.resourceUnits;
+  const currentResourceBySignature = new Map(input.current.resourceUnits
+    .map((unit) => [unit.signature, unit] as const));
+  for (const baselineUnit of baselineResources) {
+    const currentUnit = currentResourceBySignature.get(baselineUnit.signature);
+    if (currentUnit === undefined) {
+      findings.push(supersessionFinding(
+        'required-resource-missing',
+        'resource bytes, repository address, surface, or owner changed without a semantic migration proof',
+        {
+          baselineId: baselineUnit.id,
+          owner: baselineUnit.owner,
+          baselinePaths: [baselineUnit.path]
+        }
+      ));
+      continue;
+    }
+    replacements.push(Object.freeze({
+      kind: 'resource',
+      baselineId: baselineUnit.id,
+      currentIds: Object.freeze([currentUnit.id]),
+      owner: baselineUnit.owner,
+      baselinePaths: Object.freeze([baselineUnit.path]),
+      currentPaths: Object.freeze([currentUnit.path]),
+      proof: 'exact-semantic-obligation'
+    }));
+  }
+
+  const baselineEntrypoints = input.baseline.entrypointUnits;
+  const currentEntrypointBySignature = new Map(input.current.entrypointUnits
+    .map((unit) => [unit.signature, unit] as const));
+  for (const baselineUnit of baselineEntrypoints) {
+    const currentUnit = currentEntrypointBySignature.get(baselineUnit.signature);
+    if (currentUnit === undefined) {
+      findings.push(supersessionFinding(
+        'required-entrypoint-missing',
+        'no current entrypoint proves the same public command, semantic target closure, provider, and capability transport',
+        {
+          baselineId: baselineUnit.id,
+          owner: baselineUnit.owner,
+          baselinePaths: [baselineUnit.path]
+        }
+      ));
+      continue;
+    }
+    replacements.push(Object.freeze({
+      kind: 'entrypoint',
+      baselineId: baselineUnit.id,
+      currentIds: Object.freeze([currentUnit.id]),
+      owner: baselineUnit.owner,
+      baselinePaths: Object.freeze([baselineUnit.path]),
+      currentPaths: Object.freeze([currentUnit.path]),
+      proof: 'exact-semantic-obligation'
+    }));
+  }
+
+  const evolutionOwners = new Set<string>();
+  let unownedEvolution = false;
+  for (const [baselineUnits, currentUnits] of [
+    [baselineProduction, currentProduction],
+    [baselineResources, input.current.resourceUnits],
+    [baselineEntrypoints, input.current.entrypointUnits]
+  ] as const) {
+    for (const baselineUnit of baselineUnits) {
+      if (currentUnits.some(({ id, path }) => (
+        id === baselineUnit.id && path === baselineUnit.path
+      ))) continue;
+      if (baselineUnit.owner === null) unownedEvolution = true;
+      else evolutionOwners.add(baselineUnit.owner);
+    }
+  }
+  if (unownedEvolution) {
+    findings.push(supersessionFinding(
+      'design-intent-unresolved',
+      'a removed or replaced production surface has no canonical module owner; observations cannot invent its evolution obligations'
+    ));
+  }
+  for (const owner of [...evolutionOwners].sort(compareCodeUnits)) {
+    const baselineIntent = baselineIntentByOwner.get(owner);
+    const currentIntent = currentIntentByOwner.get(owner);
+    if (baselineIntent === undefined) {
+      findings.push(supersessionFinding(
+        'design-intent-unresolved',
+        'the affected canonical owner has no machine-issued design intent',
+        { owner }
+      ));
+      continue;
+    }
+    const requiredOperations = ownerIntentOperationIdentities(baselineIntent);
+    // Internal modules without a public operation remain ordinary graph facts.
+    // An obligation envelope is mandatory only when a public operation is
+    // actually being removed or replaced.
+    if (requiredOperations.length === 0) continue;
+    if (currentIntent === undefined || !intentEnvelopeIsSuperset(currentIntent, baselineIntent)) {
+      findings.push(supersessionFinding(
+        'design-intent-regressed',
+        'the current owner does not preserve the affected capability and public-entrypoint identity envelope',
+        { owner }
+      ));
+    }
+    const baselineObligations = new Map(baselineIntent.operationObligations.map((evidence) =>
+      [operationIdentityKey(evidence.obligation.operation), evidence] as const));
+    const currentObligations = new Map((currentIntent?.operationObligations ?? []).map((evidence) =>
+      [operationIdentityKey(evidence.obligation.operation), evidence] as const));
+    for (const operation of requiredOperations) {
+      const operationKey = operationIdentityKey(operation);
+      const baselineObligation = baselineObligations.get(operationKey);
+      const currentObligation = currentObligations.get(operationKey);
+      const reason = baselineObligation === undefined
+        ? 'baseline owner has not issued an evolution obligation for this public operation'
+        : baselineObligation.observation.status !== 'verified'
+          ? `baseline operation observation is ${baselineObligation.observation.reason}`
+          : currentObligation === undefined
+            ? 'current owner has not issued the corresponding evolution obligation'
+            : currentObligation.observation.status !== 'verified'
+              ? `current operation observation is ${currentObligation.observation.reason}`
+              : !operationObligationIsSuperset(currentObligation, baselineObligation)
+                ? 'current operation widens resources or drops consumer, failure, recovery, migration, retirement, or future-support obligations'
+                : null;
+      if (reason !== null) {
+        findings.push(supersessionFinding(
+          'operation-obligation-unresolved',
+          `${operationKey}: ${reason}`,
+          { baselineId: sha256(operation), owner }
+        ));
+      }
+    }
+  }
+
+  const baselineRequirementIdByPath = new Map(baselineProduction.map((unit) =>
+    [unit.path, unit.id] as const));
+  const availableCurrentTestIds = new Set(input.current.tests.map(({ testId }) => testId));
+  for (const baselineTest of input.baseline.tests) {
+    if (baselineTest.unknowns.length > 0) {
+      findings.push(supersessionFinding(
+        'dynamic-or-external-observation-unresolved',
+        `baseline test boundary is unresolved: ${baselineTest.unknowns.join(',')}`,
+        { baselineId: baselineTest.testId, baselinePaths: [baselineTest.path] }
+      ));
+      continue;
+    }
+    const baselineBoundary = testBoundary(baselineTest, baselineRequirementIdByPath);
+    const candidates = input.current.tests.filter((currentTest) => {
+      if (!availableCurrentTestIds.has(currentTest.testId) || currentTest.unknowns.length > 0) return false;
+      const currentBoundary = testBoundary(currentTest, currentRequirementIdByPath);
+      return isStringSuperset(currentBoundary.semanticClasses, baselineBoundary.semanticClasses)
+        && isStringSuperset(currentBoundary.observedRequirementIds, baselineBoundary.observedRequirementIds)
+        && isStringSuperset(currentBoundary.capabilityOperations, baselineBoundary.capabilityOperations);
+    }).sort((left, right) => {
+      const leftSamePath = left.path === baselineTest.path ? 0 : 1;
+      const rightSamePath = right.path === baselineTest.path ? 0 : 1;
+      return leftSamePath - rightSamePath || compareCodeUnits(left.testId, right.testId);
+    });
+    const currentTest = candidates.find(({ testId }) => availableCurrentTestIds.has(testId));
+    if (currentTest === undefined) {
+      findings.push(supersessionFinding(
+        'required-test-boundary-missing',
+        'no unused current canonical testId observes a semantic superset of this behavior/effect/failure boundary',
+        {
+          baselineId: baselineTest.testId,
+          baselinePaths: [baselineTest.path],
+          currentCandidateIds: candidates.map(({ testId }) => testId)
+        }
+      ));
+      continue;
+    }
+    availableCurrentTestIds.delete(currentTest.testId);
+    const currentBoundary = testBoundary(currentTest, currentRequirementIdByPath);
+    const exactBoundary = sha256(currentBoundary) === sha256(baselineBoundary);
+    replacements.push(Object.freeze({
+      kind: 'test',
+      baselineId: baselineTest.testId,
+      currentIds: Object.freeze([currentTest.testId]),
+      owner: null,
+      baselinePaths: Object.freeze([baselineTest.path]),
+      currentPaths: Object.freeze([currentTest.path]),
+      proof: exactBoundary ? 'exact-semantic-obligation' : 'strict-observation-superset'
+    }));
+  }
+
+  findings.sort((left, right) => compareCodeUnits(left.code, right.code)
+    || compareCodeUnits(left.baselineId ?? '', right.baselineId ?? '')
+    || compareCodeUnits(left.baselinePaths.join('\0'), right.baselinePaths.join('\0')));
+  replacements.sort((left, right) => compareCodeUnits(left.kind, right.kind)
+    || compareCodeUnits(left.baselineId, right.baselineId));
+  const selectedCurrentProductionIds = new Set(replacements
+    .filter(({ kind }) => kind === 'production')
+    .flatMap(({ currentIds }) => currentIds));
+  const selectedCurrentTestIds = new Set(replacements
+    .filter(({ kind }) => kind === 'test')
+    .flatMap(({ currentIds }) => currentIds));
+  const selectedCurrentProduction = currentProduction.filter(({ id }) =>
+    selectedCurrentProductionIds.has(id));
+  const selectedCurrentTests = input.current.tests.filter(({ testId }) =>
+    selectedCurrentTestIds.has(testId));
+  const baselineLifecycleCost = supersessionLifecycleCost(
+    input.baseline.unknowns.length,
+    input.baseline.tests,
+    baselineProduction
+  );
+  const currentLifecycleCost = supersessionLifecycleCost(
+    input.current.unknowns.length,
+    selectedCurrentTests,
+    selectedCurrentProduction
+  );
+  const stronger = replacements.some(({ proof }) => proof === 'strict-observation-superset')
+    || input.baseline.intentEvidence.some((baselineIntent) => {
+      const currentIntent = currentIntentByOwner.get(baselineIntent.owner);
+      return currentIntent !== undefined
+        && intentEnvelopeIsSuperset(currentIntent, baselineIntent)
+        && currentIntent.evidenceDigest !== baselineIntent.evidenceDigest;
+    });
+  if (stronger && (!lifecycleCostIsNoWorse(currentLifecycleCost, baselineLifecycleCost)
+      || !lifecycleCostIsLower(currentLifecycleCost, baselineLifecycleCost))) {
+    findings.push(supersessionFinding(
+      'lifecycle-cost-not-reduced',
+      'a stronger replacement may be useful, but it cannot be called supersession until its selected implementation/test/owner/uncertainty lifecycle cost is strictly lower'
+    ));
+  }
+  const status: SourceProgramSupersessionStatus = findings.length > 0
+    ? 'owner-decision-required'
+    : stronger ? 'superseded' : 'equivalent';
+  const canonicalReceipt = Object.freeze({
+    status,
+    baseline: Object.freeze({
+      sourceRevision: input.baseline.identity.sourceRevision,
+      modelDigest: input.baseline.source.modelDigest,
+      testCompilationDigest: input.baseline.source.testCompilationDigest,
+      intentEvidenceDigest: input.baseline.source.intentEvidenceDigest
+    }),
+    current: Object.freeze({
+      sourceRevision: input.current.identity.sourceRevision,
+      modelDigest: input.current.source.modelDigest,
+      testCompilationDigest: input.current.source.testCompilationDigest,
+      intentEvidenceDigest: input.current.source.intentEvidenceDigest
+    }),
+    lifecycleCost: Object.freeze({
+      baseline: baselineLifecycleCost,
+      current: currentLifecycleCost
+    }),
+    replacements: Object.freeze(replacements),
+    findings: Object.freeze(findings)
+  });
+  return Object.freeze({
+    ...canonicalReceipt,
+    receiptDigest: sha256(canonicalReceipt)
+  });
+}
+
+export type SourceProgramTestRetirementBlockReason =
+  | 'candidate-test-module-still-present'
+  | 'consumer-closure-not-empty'
+  | 'observation-obligation-not-empty'
+  | 'source-evidence-unresolved';
+
+export interface SourceProgramTestRetirementProof {
+  readonly path: string;
+  readonly status: 'retired' | 'blocked';
+  readonly reason: SourceProgramTestRetirementBlockReason | null;
+  readonly baselineTestIds: readonly string[];
+  readonly census: Readonly<{
+    readonly producerCount: number;
+    readonly consumerCount: number;
+    readonly externalContractCount: number;
+  }>;
+  readonly observationClasses: readonly SourceProgramTestSemanticClass[];
+  readonly consumerEvidence: readonly string[];
+  readonly unknownEvidence: readonly string[];
+  readonly proofDigest: string;
+}
+
+export interface SourceProgramTestRetirementReceipt {
+  readonly baselineSourceRevision: string;
+  readonly currentSourceRevision: string;
+  readonly baselineActionKey: string;
+  readonly currentActionKey: string;
+  readonly baselineTestPathsDigest: string;
+  readonly baselineRegistrationCensusDigest: string;
+  readonly currentRegistrationCensusDigest: string;
+  readonly currentTestCompilationDigest: string;
+  readonly supersessionReceiptDigest: string;
+  readonly proofs: readonly SourceProgramTestRetirementProof[];
+  readonly receiptDigest: string;
+}
+
+export interface CompileSourceProgramTestRetirementReceiptInput {
+  readonly baseline: SourceProgramSupersessionEvidence;
+  readonly current: SourceProgramSupersessionEvidence;
+  readonly supersession: SourceProgramSupersessionReceipt;
+  readonly currentModel: SourceProgramModel;
+  readonly currentTestCompilation: SourceProgramTestValueCompilation;
+  /** Exact tracked baseline bytes, not a caller-authored zero census. */
+  readonly baselineFiles: readonly SourceProgramFileInput[];
+  /** Exact current bytes compiled into currentModel/currentTestCompilation. */
+  readonly currentFiles: readonly SourceProgramFileInput[];
+}
+
+export interface SourceProgramTestRetirementDispositionProjection
+  extends Omit<SourceProgramTestDispositionProjection, 'projectionDigest'> {
+  readonly retirementReceiptDigest: string;
+  readonly projectionDigest: string;
+}
+
+const compiledSourceProgramTestRetirementReceipts = new WeakSet<object>();
+
+function sourceRevisionForExactFiles(files: readonly SourceProgramFileInput[]): string | null {
+  const canonical = [...files].sort((left, right) => compareCodeUnits(left.path, right.path));
+  if (new Set(canonical.map(({ path }) => path)).size !== canonical.length
+      || canonical.some(({ source, contentDigest }) => rawSha256(source) !== contentDigest)) return null;
+  return rawSha256(JSON.stringify(canonical.map(({ path, contentDigest }) => ({
+    path,
+    contentDigest
+  }))));
+}
+
+function supersessionReceiptBindsEvidence(
+  receipt: SourceProgramSupersessionReceipt,
+  baseline: SourceProgramSupersessionEvidence,
+  current: SourceProgramSupersessionEvidence
+): boolean {
+  const { receiptDigest: _receiptDigest, ...canonical } = receipt;
+  return DIGEST.test(receipt.receiptDigest)
+    && sha256(canonical) === receipt.receiptDigest
+    && receipt.baseline.sourceRevision === baseline.identity.sourceRevision
+    && receipt.baseline.modelDigest === baseline.source.modelDigest
+    && receipt.baseline.testCompilationDigest === baseline.source.testCompilationDigest
+    && receipt.current.sourceRevision === current.identity.sourceRevision
+    && receipt.current.modelDigest === current.source.modelDigest
+    && receipt.current.testCompilationDigest === current.source.testCompilationDigest;
+}
+
+function sourceProgramTestPathConsumers(
+  model: SourceProgramModel,
+  testPath: string,
+  knownPaths: ReadonlySet<string>
+): readonly string[] {
+  const consumers = new Set<string>();
+  for (const reference of model.references) {
+    if (reference.targetPath === testPath) {
+      consumers.add(`reference:${reference.path}:${reference.kind}`);
+    }
+  }
+  for (const entrypoint of model.entrypoints) {
+    if (entrypoint.targetPaths.includes(testPath)) {
+      consumers.add(`entrypoint:${entrypoint.kind}:${entrypoint.name}`);
+    }
+  }
+  for (const closure of model.entrypointClosures) {
+    if (closure.targetPaths.includes(testPath) || closure.reachablePaths.includes(testPath)) {
+      consumers.add(`entrypoint-closure:${closure.entrypointObservationId}`);
+    }
+  }
+  for (const literal of model.literals) {
+    const target = literal.value === testPath
+      ? testPath
+      : resolveRelativeModulePath(literal.path, literal.value, knownPaths);
+    if (target === testPath) consumers.add(`path-literal:${literal.path}`);
+  }
+  return Object.freeze([...consumers].sort(compareCodeUnits));
+}
+
+/**
+ * Sign consumer-zero test retirement from sealed baseline/current facts.  A
+ * syntactic zero census is necessary but never sufficient: the canonical
+ * model, registration observations, supersession receipt, exact bytes and all
+ * unknown frontiers must also close before one per-path proof is retired.
+ */
+export function compileSourceProgramTestRetirementReceipt(
+  input: CompileSourceProgramTestRetirementReceiptInput
+): SourceProgramTestRetirementReceipt {
+  const baselineRevision = sourceRevisionForExactFiles(input.baselineFiles);
+  const currentRevision = sourceRevisionForExactFiles(input.currentFiles);
+  if (!sourceProgramSupersessionEvidenceIsExact(input.baseline)
+      || !sourceProgramSupersessionEvidenceIsExact(input.current)
+      || !sourceProgramModelEvidenceIsExact(input.currentModel)
+      || !sourceProgramTestEvidenceIsExact(input.currentTestCompilation)
+      || baselineRevision !== input.baseline.identity.sourceRevision
+      || currentRevision !== input.current.identity.sourceRevision
+      || input.currentModel.sourceRevision !== currentRevision
+      || input.currentModel.modelDigest !== input.current.source.modelDigest
+      || input.currentTestCompilation.sourceRevision !== currentRevision
+      || input.currentTestCompilation.compilationDigest
+        !== input.current.source.testCompilationDigest
+      || !supersessionReceiptBindsEvidence(
+        input.supersession,
+        input.baseline,
+        input.current
+      )) {
+    throw new Error('Test retirement requires sealed baseline/current Source Program evidence');
+  }
+  const baselineTestPaths = Object.freeze(input.baselineFiles
+    .map(({ path }) => path)
+    .filter(isSourceProgramTestModulePath)
+    .sort(compareCodeUnits));
+  if (sha256(baselineTestPaths) !== sha256(input.currentTestCompilation.baselineTestPaths)) {
+    throw new Error('Test retirement tracked baseline differs from Test Value compilation');
+  }
+  const currentTestPaths = new Set(input.currentFiles
+    .map(({ path }) => path)
+    .filter(isSourceProgramTestModulePath));
+  const knownPaths = new Set([
+    ...input.baselineFiles.map(({ path }) => path),
+    ...input.currentFiles.map(({ path }) => path)
+  ]);
+  const censusByPath = new Map(compileSourceProgramTestBaselineEvidence(
+    baselineTestPaths,
+    input.baselineFiles.filter(({ path }) => isSourceProgramTestModulePath(path)),
+    input.baseline.identity.sourceRevision,
+    input.currentFiles
+  ).map((evidence) => [evidence.path, evidence] as const));
+  const baselineTestsByPath = new Map<string, SourceProgramSupersessionTestUnit[]>();
+  for (const test of input.baseline.tests) {
+    const tests = baselineTestsByPath.get(test.path) ?? [];
+    tests.push(test);
+    baselineTestsByPath.set(test.path, tests);
+  }
+  const currentTestsByPath = new Map<string, SourceProgramSupersessionTestUnit[]>();
+  for (const test of input.current.tests) {
+    const tests = currentTestsByPath.get(test.path) ?? [];
+    tests.push(test);
+    currentTestsByPath.set(test.path, tests);
+  }
+  const globalUnknowns = Object.freeze([
+    ...input.baseline.unknowns.map(({ code, path }) => `baseline:${path}:${code}`),
+    ...input.current.unknowns.map(({ code, path }) => `current:${path}:${code}`)
+  ].sort(compareCodeUnits));
+  const supersessionUnknowns = input.supersession.status === 'owner-decision-required'
+    ? Object.freeze(input.supersession.findings.map(({ code }) => `supersession:${code}`)
+      .sort(compareCodeUnits))
+    : Object.freeze([] as string[]);
+  const proofs = baselineTestPaths.map((testPath) => {
+    const evidence = censusByPath.get(testPath)!;
+    const baselineTests = Object.freeze([...(baselineTestsByPath.get(testPath) ?? [])]
+      .sort((left, right) => compareCodeUnits(left.testId, right.testId)));
+    const currentTests = Object.freeze([...(currentTestsByPath.get(testPath) ?? [])]
+      .sort((left, right) => compareCodeUnits(left.testId, right.testId)));
+    const observationClasses = Object.freeze([...new Set(baselineTests
+      .flatMap(({ semanticClasses }) => semanticClasses))].sort(compareCodeUnits));
+    const observationConsumers = Object.freeze([...new Set(baselineTests.flatMap((test) => [
+      ...test.observedProductionPaths.map((path) => `observed-production:${path}`),
+      ...test.capabilityOperations.map((operation) => `capability:${operation}`)
+    ]))].sort(compareCodeUnits));
+    const consumerEvidence = Object.freeze([
+      ...sourceProgramTestPathConsumers(input.currentModel, testPath, knownPaths),
+      ...observationConsumers,
+      ...currentTests.map(({ testId }) => `current-registration:${testId}`)
+    ].sort(compareCodeUnits));
+    const unknownEvidence = Object.freeze([
+      ...globalUnknowns,
+      ...supersessionUnknowns,
+      ...baselineTests.flatMap(({ testId, unknowns }) =>
+        unknowns.map((unknown) => `baseline-registration:${testId}:${unknown}`)),
+      ...currentTests.flatMap(({ testId, unknowns }) =>
+        unknowns.map((unknown) => `current-registration:${testId}:${unknown}`))
+    ].sort(compareCodeUnits));
+    const censusIsZero = evidence.census.producerCount === 0
+      && evidence.census.consumerCount === 0
+      && evidence.census.externalContractCount === 0;
+    const reason: SourceProgramTestRetirementBlockReason | null = currentTestPaths.has(testPath)
+      ? 'candidate-test-module-still-present'
+      : !censusIsZero || consumerEvidence.length > 0
+        ? 'consumer-closure-not-empty'
+        : observationClasses.length > 0
+          ? 'observation-obligation-not-empty'
+          : unknownEvidence.length > 0
+            ? 'source-evidence-unresolved'
+            : null;
+    const canonicalProof = Object.freeze({
+      path: testPath,
+      status: reason === null ? 'retired' as const : 'blocked' as const,
+      reason,
+      baselineTestIds: Object.freeze(baselineTests.map(({ testId }) => testId)),
+      census: evidence.census,
+      observationClasses,
+      consumerEvidence,
+      unknownEvidence
+    });
+    return Object.freeze({ ...canonicalProof, proofDigest: sha256(canonicalProof) });
+  });
+  const canonicalReceipt = Object.freeze({
+    baselineSourceRevision: input.baseline.identity.sourceRevision,
+    currentSourceRevision: input.current.identity.sourceRevision,
+    baselineActionKey: input.baseline.actionKey,
+    currentActionKey: input.current.actionKey,
+    baselineTestPathsDigest: sha256(baselineTestPaths),
+    baselineRegistrationCensusDigest: sha256(input.baseline.tests),
+    currentRegistrationCensusDigest: sha256(input.current.tests),
+    currentTestCompilationDigest: input.currentTestCompilation.compilationDigest,
+    supersessionReceiptDigest: input.supersession.receiptDigest,
+    proofs: Object.freeze(proofs)
+  });
+  const receipt = Object.freeze({
+    ...canonicalReceipt,
+    receiptDigest: sha256(canonicalReceipt)
+  });
+  compiledSourceProgramTestRetirementReceipts.add(receipt);
+  return receipt;
+}
+
+/**
+ * One-way terminal projection.  The receipt does not consume dispositions,
+ * and the derived DELETE projection cannot be fed back into Supersession.
+ */
+export function projectSourceProgramTestRetirementDispositions(
+  projection: SourceProgramTestDispositionProjection,
+  receipt: SourceProgramTestRetirementReceipt
+): SourceProgramTestRetirementDispositionProjection {
+  if (!compiledSourceProgramTestRetirementReceipts.has(receipt)
+      || receipt.currentSourceRevision !== projection.sourceRevision
+      || receipt.currentTestCompilationDigest !== projection.observationCompilationDigest
+      || receipt.baselineTestPathsDigest !== sha256(projection.baselineTestPaths)) {
+    throw new Error('Test retirement projection requires one compiler-issued exact receipt');
+  }
+  const retiredByPath = new Map(receipt.proofs
+    .filter(({ status }) => status === 'retired')
+    .map((proof) => [proof.path, proof] as const));
+  const resolvedPaths = new Set<string>();
+  const dispositions = projection.dispositions.map((disposition) => {
+    const proof = disposition.disposition === 'unknown'
+      ? retiredByPath.get(disposition.path)
+      : undefined;
+    if (proof === undefined) return disposition;
+    resolvedPaths.add(disposition.path);
+    const evidence = Object.freeze({
+      owner: 'source-program-reduction',
+      sourceRevision: projection.sourceRevision,
+      replacementTestIds: Object.freeze([] as string[]),
+      census: proof.census,
+      supersession: Object.freeze({
+        receiptDigest: receipt.receiptDigest,
+        baselineTestId: proof.baselineTestIds.length === 1
+          ? proof.baselineTestIds[0]!
+          : sha256({ path: proof.path, testIds: proof.baselineTestIds }),
+        proof: 'consumer-zero' as const
+      })
+    });
+    const canonicalDisposition = Object.freeze({
+      path: disposition.path,
+      disposition: 'delete' as const,
+      evidence,
+      baselineDigest: disposition.baselineDigest
+    });
+    return Object.freeze({
+      ...canonicalDisposition,
+      evidenceDigest: sha256(canonicalDisposition)
+    }) satisfies SourceProgramTestDisposition;
+  });
+  const findings = projection.findings.filter((finding) => !(
+    resolvedPaths.has(finding.path)
+    && finding.code === 'test-module-disposition-unknown'
+  ));
+  const canonicalProjection = Object.freeze({
+    sourceRevision: projection.sourceRevision,
+    baselineTestPaths: projection.baselineTestPaths,
+    baselineDigest: projection.baselineDigest,
+    baselineEvidenceDigest: projection.baselineEvidenceDigest,
+    dispositions: Object.freeze(dispositions),
+    findings: Object.freeze(findings),
+    observationCompilationDigest: projection.observationCompilationDigest,
+    supersessionReceiptDigest: projection.supersessionReceiptDigest,
+    retirementReceiptDigest: receipt.receiptDigest
+  });
+  return Object.freeze({
+    ...canonicalProjection,
+    projectionDigest: sha256(canonicalProjection)
+  });
 }
 
 const VERSIONED_DECLARATION_NAME = /^(.*?)(?:_?V)([1-9][0-9]*)$/u;
@@ -291,9 +1901,27 @@ function sourceSnapshotIdentity(
     sourceRevision: model.sourceRevision,
     modelDigest: model.modelDigest,
     files: Object.freeze([...files]
-      .map(({ path, contentDigest }) => Object.freeze({ path, contentDigest }))
+      .map(({ path, source }) => Object.freeze({ path, contentDigest: rawSha256(source) }))
       .sort((left, right) => compareCodeUnits(left.path, right.path)))
   });
+}
+
+function sourceFileSnapshotDigest(files: readonly SourceProgramFileInput[]): string {
+  return sha256(Object.freeze([...files]
+    .map(({ path, source }) => Object.freeze({ path, contentDigest: rawSha256(source) }))
+    .sort((left, right) => compareCodeUnits(left.path, right.path))));
+}
+
+function assertReductionSourceSnapshot(
+  expectedDigest: string,
+  files: readonly SourceProgramFileInput[]
+): void {
+  if (sourceFileSnapshotDigest(files) !== expectedDigest) {
+    throw new SourceProgramReductionAdmissionError(
+      'source-snapshot-drift',
+      'Reduction patch source bytes do not match the compiler-sealed Source Program snapshot'
+    );
+  }
 }
 
 /**
@@ -304,8 +1932,21 @@ function sourceSnapshotIdentity(
  */
 export function compileSourceProgramAggregateImportReductionPlan(
   model: SourceProgramModel,
-  files: readonly SourceProgramFileInput[]
+  files: readonly SourceProgramFileInput[],
+  architectureSnapshot: SourceProgramArchitectureSnapshot
 ): SourceProgramAggregateImportReductionPlan {
+  if (architectureSnapshot.sourceRevision !== model.sourceRevision) {
+    throw new SourceProgramReductionAdmissionError(
+      'source-snapshot-drift',
+      'Aggregate import reduction architecture does not bind the Source Program revision'
+    );
+  }
+  const sourceSnapshotDigest = sourceFileSnapshotDigest(files);
+  const architectureDigest = sha256(architectureSnapshot.architecture);
+  const snapshotReason = model.unknowns.some(({ code }) =>
+    code === 'working-tree-changed-during-source-program-census')
+    ? 'source snapshot changed during Source Program compilation'
+    : null;
   const sourceByPath = new Map(files.map(({ path, source }) => [path, source] as const));
   const knownPaths = new Set(sourceByPath.keys());
   const aggregatePaths = pureAggregateModulePaths(files);
@@ -381,33 +2022,49 @@ export function compileSourceProgramAggregateImportReductionPlan(
             ? ' type' : ts.isExportDeclaration(statement) && statement.isTypeOnly ? ' type' : '';
           return `${keyword}${typeOnly} { ${entries.map(({ text }) => text).join(', ')} } from '${relativeModuleSpecifier(path, targetPath)}';`;
         }).join('\n');
+      const reductionReason = reason ?? snapshotReason;
       reductions.push(Object.freeze({
-        status: reason === null ? 'ready' : 'blocked',
+        status: reductionReason === null ? 'ready' : 'blocked',
         path,
         moduleSpecifier,
         statementSpan: spanFor(sourceFile, statement.getStart(sourceFile, false), statement.getEnd()),
-        replacementText,
+        replacementText: reductionReason === null ? replacementText : null,
         targetPaths: Object.freeze([...resolved.keys()].sort(compareCodeUnits)),
-        reason
+        reason: reductionReason
       }));
     }
   }
   reductions.sort((left, right) => compareCodeUnits(left.path, right.path)
     || left.statementSpan.start - right.statementSpan.start);
-  return Object.freeze({
+  const plan = Object.freeze({
     sourceRevision: model.sourceRevision,
+    sourceSnapshotDigest,
+    architectureDigest,
+    snapshotStatus: snapshotReason === null ? 'sealed' : 'blocked',
+    snapshotReason,
     planDigest: sha256({
       snapshot: sourceSnapshotIdentity(model, files),
+      architectureDigest,
+      snapshotReason,
       reductions
     }),
     reductions: Object.freeze(reductions)
   });
+  compiledAggregateImportReductionPlans.add(plan);
+  return plan;
 }
 
 export function buildSourceProgramAggregateImportReductionPatch(
   plan: SourceProgramAggregateImportReductionPlan,
   files: readonly SourceProgramFileInput[]
 ): SourceProgramAggregateImportReductionPatch {
+  if (!compiledAggregateImportReductionPlans.has(plan)) {
+    throw new SourceProgramReductionAdmissionError(
+      'compiler-issued-plan-required',
+      'Aggregate import patch requires a compiler-issued plan'
+    );
+  }
+  assertReductionSourceSnapshot(plan.sourceSnapshotDigest, files);
   const sourceByPath = new Map(files.map(({ path, source }) => [path, source] as const));
   const editsByPath = new Map<string, SourceProgramAggregateImportReduction[]>();
   for (const reduction of plan.reductions) {
@@ -441,16 +2098,117 @@ export function buildSourceProgramAggregateImportReductionPatch(
   });
 }
 
+function graphCutVirtualFiles(
+  files: readonly SourceProgramFileInput[],
+  reductions: readonly SourceProgramGraphCutReduction[]
+): readonly SourceProgramFileInput[] {
+  const editsByPath = new Map<string, SourceProgramGraphCutReduction[]>();
+  for (const reduction of reductions) {
+    if (reduction.status !== 'ready' || reduction.removalSpan === null) continue;
+    const edits = editsByPath.get(reduction.path) ?? [];
+    edits.push(reduction);
+    editsByPath.set(reduction.path, edits);
+  }
+  return Object.freeze(files.map((file) => {
+    const edits = [...(editsByPath.get(file.path) ?? [])].sort((left, right) =>
+      right.removalSpan!.start - left.removalSpan!.start);
+    if (edits.length === 0) return file;
+    let source = file.source;
+    for (const edit of edits) {
+      source = `${source.slice(0, edit.removalSpan!.start)}${source.slice(edit.removalSpan!.end)}`;
+    }
+    if (source.length > 0) source = `${source.replace(/[\t \r\n]+$/u, '')}\n`;
+    return Object.freeze({
+      ...file,
+      source,
+      contentDigest: rawSha256(source)
+    });
+  }));
+}
+
+function graphCutSemanticProjection(
+  model: SourceProgramModel,
+  excludedDeclarationIds: ReadonlySet<string>
+): Readonly<{
+  declarations: readonly unknown[];
+  references: readonly unknown[];
+  entrypoints: readonly unknown[];
+  entrypointClosures: readonly unknown[];
+  capabilities: readonly unknown[];
+}> {
+  const declarationsById = new Map(model.declarations.map((declaration) =>
+    [declaration.observationId, declaration] as const));
+  const declarationIdentity = (declaration: SourceProgramDeclaration): unknown => ({
+    declarationDigest: declaration.declarationDigest,
+    exported: declaration.exported,
+    kind: declaration.kind,
+    moduleId: declaration.moduleId,
+    name: declaration.name,
+    path: declaration.path
+  });
+  const sorted = <Value>(values: readonly Value[]): readonly Value[] => Object.freeze(
+    [...values].sort((left, right) => compareCodeUnits(JSON.stringify(left), JSON.stringify(right)))
+  );
+  return Object.freeze({
+    declarations: sorted(model.declarations
+      .filter(({ observationId }) => !excludedDeclarationIds.has(observationId))
+      .map(declarationIdentity)),
+    references: sorted(model.references.map((reference) => ({
+      kind: reference.kind,
+      moduleSpecifier: reference.moduleSpecifier,
+      name: reference.name,
+      observationClass: reference.observationClass,
+      path: reference.path,
+      target: reference.targetObservationId === null
+        ? null
+        : declarationsById.has(reference.targetObservationId)
+          ? declarationIdentity(declarationsById.get(reference.targetObservationId)!)
+          : { unresolvedObservationId: reference.targetObservationId },
+      targetPath: reference.targetPath
+    }))),
+    entrypoints: sorted(model.entrypoints.map(({
+      observationId: _observationId,
+      span: _span,
+      ...entrypoint
+    }) => entrypoint)),
+    entrypointClosures: sorted(model.entrypointClosures.map(({
+      entrypointObservationId: _entrypointObservationId,
+      ...closure
+    }) => closure)),
+    capabilities: sorted(model.capabilities.map(({ span: _span, ...capability }) => capability))
+  });
+}
+
+function graphCutNewDiagnosticReason(
+  baseline: ReturnType<typeof compileSourceProgramTypeScriptDiagnosticSnapshot>,
+  virtual: ReturnType<typeof compileSourceProgramTypeScriptDiagnosticSnapshot>
+): string | null {
+  const counts = new Map<string, number>();
+  for (const diagnostic of baseline.diagnostics) {
+    const key = JSON.stringify(diagnostic);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  for (const diagnostic of virtual.diagnostics) {
+    const key = JSON.stringify(diagnostic);
+    const remaining = counts.get(key) ?? 0;
+    if (remaining === 0) {
+      return `virtual graph cut introduces TypeScript diagnostic ${diagnostic.code} at ${diagnostic.path ?? '<global>'}`;
+    }
+    counts.set(key, remaining - 1);
+  }
+  return null;
+}
+
 /**
- * Combines compiler-resolved consumer-zero evidence with Knip's independent
- * unused-export graph. Only complete top-level declarations are reducible;
- * test-only consumers, dynamic frontiers, entrypoint contracts and partial
- * declarations remain blocked instead of being guessed away.
+ * Combines the canonical Program/TypeChecker consumer closure with Knip's
+ * independent unused-export graph. All preliminary cuts are then applied to
+ * one virtual exact snapshot and recompiled by the same Source Program owner.
  */
 export function compileSourceProgramGraphCutReductionPlan(
   model: SourceProgramModel,
   files: readonly SourceProgramFileInput[],
-  unusedSymbols: readonly SourceProgramUnusedSymbolEvidence[]
+  unusedSymbols: readonly SourceProgramUnusedSymbolEvidence[],
+  context: SourceProgramReductionCompilerContext
 ): SourceProgramGraphCutReductionPlan {
   const sourceFileByPath = new Map(files
     .filter(({ path }) => /\.[cm]?[jt]sx?$/iu.test(path))
@@ -477,13 +2235,17 @@ export function compileSourceProgramGraphCutReductionPlan(
     .sort((left, right) => compareCodeUnits(left.path, right.path)
       || compareCodeUnits(left.name, right.name));
   const reductions: SourceProgramGraphCutReduction[] = [];
+  const declarationIdsByReductionKey = new Map<string, string>();
   const seen = new Set<string>();
   for (const item of evidence) {
     const key = `${item.path}\0${item.name}`;
-    if (seen.has(key) || !candidateKeys.has(key)) continue;
+    if (seen.has(key)) continue;
     seen.add(key);
-    const declaration = model.declarations.find((candidate) =>
+    const matchingDeclarations = model.declarations.filter((candidate) =>
       candidate.path === item.path && candidate.name === item.name);
+    const declaration = matchingDeclarations.length === 1 ? matchingDeclarations[0] : undefined;
+    const consumers = declaration === undefined ? [] : model.references.filter((reference) =>
+      reference.targetObservationId === declaration.observationId);
     const sourceFile = sourceFileByPath.get(item.path);
     const declarationNode = declaration === undefined || sourceFile === undefined
       ? null
@@ -493,32 +2255,122 @@ export function compileSourceProgramGraphCutReductionPlan(
       ? 'module entrypoint exports require an explicit external-consumer retirement'
       : dynamicFrontierPaths.has('.') || dynamicFrontierPaths.has(item.path)
         ? 'source file has an unresolved dynamic consumer frontier'
+        : matchingDeclarations.length > 1
+          ? 'unused symbol resolves to multiple declarations'
         : declaration === undefined || sourceFile === undefined
           ? 'declaration source snapshot is unresolved'
+          : consumers.length > 0
+            ? 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
+            : !candidateKeys.has(key)
+              ? 'canonical Source Program did not admit consumer-zero evidence'
           : removalNode === null
             ? 'declaration is not an independently removable top-level node'
             : null;
-    reductions.push(Object.freeze({
+    const reduction = Object.freeze({
       status: reason === null ? 'ready' : 'blocked',
       path: item.path,
       name: item.name,
       removalSpan: reason === null ? graphCutRemovalSpan(sourceFile!, removalNode!) : null,
       reason
-    }));
+    } satisfies SourceProgramGraphCutReduction);
+    reductions.push(reduction);
+    if (reason === null) declarationIdsByReductionKey.set(key, declaration!.observationId);
   }
-  reductions.sort((left, right) => compareCodeUnits(left.path, right.path)
+  const preliminaryReady = reductions.filter((reduction) =>
+    reduction.status === 'ready' && reduction.removalSpan !== null);
+  const overlappingKeys = new Set<string>();
+  const readyByPath = new Map<string, SourceProgramGraphCutReduction[]>();
+  for (const reduction of preliminaryReady) {
+    const current = readyByPath.get(reduction.path) ?? [];
+    current.push(reduction);
+    readyByPath.set(reduction.path, current);
+  }
+  for (const pathReductions of readyByPath.values()) {
+    const ordered = [...pathReductions].sort((left, right) =>
+      left.removalSpan!.start - right.removalSpan!.start
+      || left.removalSpan!.end - right.removalSpan!.end);
+    for (let index = 1; index < ordered.length; index += 1) {
+      if (ordered[index - 1]!.removalSpan!.end <= ordered[index]!.removalSpan!.start) continue;
+      overlappingKeys.add(`${ordered[index - 1]!.path}\0${ordered[index - 1]!.name}`);
+      overlappingKeys.add(`${ordered[index]!.path}\0${ordered[index]!.name}`);
+    }
+  }
+  let verifiedReductions = reductions.map((reduction) => overlappingKeys.has(`${reduction.path}\0${reduction.name}`)
+    ? Object.freeze({
+        ...reduction,
+        status: 'blocked' as const,
+        removalSpan: null,
+        reason: 'graph-cut removal overlaps another candidate declaration'
+      })
+    : reduction);
+  const ready = verifiedReductions.filter((reduction) =>
+    reduction.status === 'ready' && reduction.removalSpan !== null);
+  let verificationReason: string | null = null;
+  let verificationDigest = sha256({ status: 'no-ready-reductions' });
+  if (ready.length > 0) {
+    const virtualFiles = graphCutVirtualFiles(files, ready);
+    const virtualSourceRevision = sha256({
+      baseSourceRevision: model.sourceRevision,
+      files: virtualFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))
+    });
+    const baselineDiagnostics = compileSourceProgramTypeScriptDiagnosticSnapshot({
+      sourceRevision: model.sourceRevision,
+      files
+    });
+    const virtualDiagnostics = compileSourceProgramTypeScriptDiagnosticSnapshot({
+      sourceRevision: virtualSourceRevision,
+      files: virtualFiles
+    });
+    const virtualModel = compileRepositorySourceProgramModel({
+      sourceRevision: virtualSourceRevision,
+      files: virtualFiles,
+      moduleMembership: context.moduleMembership,
+      reviewedProcessDispatchers: context.reviewedProcessDispatchers
+    });
+    const excludedDeclarationIds = new Set(ready.map((reduction) =>
+      declarationIdsByReductionKey.get(`${reduction.path}\0${reduction.name}`)!).filter(Boolean));
+    const baselineProjection = graphCutSemanticProjection(model, excludedDeclarationIds);
+    const virtualProjection = graphCutSemanticProjection(virtualModel, new Set());
+    verificationReason = graphCutNewDiagnosticReason(baselineDiagnostics, virtualDiagnostics)
+      ?? (sha256(baselineProjection) === sha256(virtualProjection)
+        ? null
+        : 'virtual graph cut changes declarations, references, entrypoints, or capability semantics');
+    verificationDigest = sha256({
+      baselineDiagnostics,
+      baselineProjection,
+      virtualDiagnostics,
+      virtualProjection,
+      virtualSourceRevision
+    });
+    if (verificationReason !== null) {
+      verifiedReductions = verifiedReductions.map((reduction) => reduction.status === 'ready'
+        ? Object.freeze({
+            ...reduction,
+            status: 'blocked' as const,
+            removalSpan: null,
+            reason: verificationReason
+          })
+        : reduction);
+    }
+  }
+  verifiedReductions.sort((left, right) => compareCodeUnits(left.path, right.path)
     || compareCodeUnits(left.name, right.name));
   const evidenceDigest = sha256(evidence);
-  return Object.freeze({
+  const plan = Object.freeze({
     sourceRevision: model.sourceRevision,
+    sourceSnapshotDigest: sourceFileSnapshotDigest(files),
     evidenceDigest,
+    verificationDigest,
     planDigest: sha256({
       snapshot: sourceSnapshotIdentity(model, files),
       evidenceDigest,
-      reductions
+      verificationDigest,
+      reductions: verifiedReductions
     }),
-    reductions: Object.freeze(reductions)
+    reductions: Object.freeze(verifiedReductions)
   });
+  compiledGraphCutReductionPlans.add(plan);
+  return plan;
 }
 
 export function compileSourceProgramVersionSuffixReductionPlan(
@@ -770,6 +2622,13 @@ export function renderSourceProgramGraphCutReductionPatch(
   plan: SourceProgramGraphCutReductionPlan,
   files: readonly SourceProgramFileInput[]
 ): SourceProgramVersionSuffixReductionPatch {
+  if (!compiledGraphCutReductionPlans.has(plan)) {
+    throw new SourceProgramReductionAdmissionError(
+      'compiler-issued-plan-required',
+      'Graph-cut patch requires a compiler-issued verified plan'
+    );
+  }
+  assertReductionSourceSnapshot(plan.sourceSnapshotDigest, files);
   const ready = plan.reductions.filter((reduction): reduction is SourceProgramGraphCutReduction & {
     readonly status: 'ready';
     readonly removalSpan: SourceProgramSpan;

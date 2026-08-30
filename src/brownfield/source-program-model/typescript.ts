@@ -10,6 +10,7 @@ import type {
   SourceProgramEntrypoint,
   SourceProgramFile,
   SourceProgramFileInput,
+  SourceProgramFileSemanticKind,
   SourceProgramLiteral,
   SourceProgramLiteralContext,
   SourceProgramModel,
@@ -20,6 +21,12 @@ import type {
   SourceProgramUnknown
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
+import {
+  assembleTypeScriptSourceProgramModel,
+  compileTypeScriptSourceProgramFactShard,
+  SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
+  type TypeScriptSourceProgramFactShard
+} from './typescript-fact-shards.ts';
 
 export interface CompileTypeScriptSourceProgramModelInput {
   readonly sourceRevision: string;
@@ -37,6 +44,7 @@ export interface TypeScriptSourceProgramIncrementalState {
   readonly moduleDigests: Readonly<Record<string, string>>;
   /** Candidate-path reverse edges preserve additions, removals and resolver fallback changes. */
   readonly reverseConsumers: Readonly<Record<string, readonly string[]>>;
+  readonly factShards: readonly TypeScriptSourceProgramFactShard[];
   readonly model: SourceProgramModel;
 }
 
@@ -47,9 +55,24 @@ export interface TypeScriptSourceProgramIncrementalResult {
   readonly state: TypeScriptSourceProgramIncrementalState;
 }
 
+export interface SourceProgramTypeScriptDiagnosticEvidence {
+  readonly path: string | null;
+  readonly code: number;
+  readonly category: 'error' | 'warning' | 'suggestion' | 'message';
+  readonly message: string;
+}
+
+export interface SourceProgramTypeScriptDiagnosticSnapshot {
+  readonly sourceRevision: string;
+  readonly diagnostics: readonly SourceProgramTypeScriptDiagnosticEvidence[];
+  readonly evidenceDigest: string;
+}
+
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/iu;
 const RUNTIME_BUILTIN_MODULE = /^(?:node:|bun(?::|$))/u;
+const VERSIONED_IDENTIFIER = /(?:_?V[1-9][0-9]*)$/u;
 const compiledTypeScriptModels = new WeakSet<object>();
+const factShardsByModel = new WeakMap<object, readonly TypeScriptSourceProgramFactShard[]>();
 
 export function isCompiledTypeScriptSourceProgramModel(
   value: SourceProgramModel
@@ -114,6 +137,19 @@ function typeScriptWorkspaceDependencyGenerationDigest(): string {
 
 const TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST =
   typeScriptWorkspaceDependencyGenerationDigest();
+
+const TYPESCRIPT_SOURCE_PROGRAM_PROVIDER = Object.freeze({
+  id: 'typescript-compiler-api',
+  revision: ts.version
+});
+const TYPESCRIPT_SOURCE_PROGRAM_PROVIDER_REVISION = sha256(TYPESCRIPT_SOURCE_PROGRAM_PROVIDER);
+const TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION = sha256({
+  compilerConfigDigest: TYPESCRIPT_WORKSPACE_COMPILER_CONFIG_DIGEST,
+  dependencyGenerationDigest: TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST,
+  factShardSchemaDigest: SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
+  provider: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
+  semanticOwner: SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH
+});
 
 type ExactTypeScriptProgram = Readonly<{
   checker: ts.TypeChecker;
@@ -186,6 +222,12 @@ class TypeScriptSourceProgramWorkspace {
             };
           }
         }
+        // Source Program owns repository-local symbol and capability facts,
+        // not package typechecking. Loading external declaration graphs here
+        // duplicates the canonical TypeScript checker and turns one repository
+        // audit into an unbounded node_modules census. External packages remain
+        // explicit opaque dependencies in the model compiled below.
+        if (containingRepositoryPath !== null) return undefined;
         return ts.resolveModuleName(
           moduleName,
           containingFile,
@@ -254,7 +296,11 @@ class TypeScriptSourceProgramWorkspace {
   }
 
   dispose(): void {
+    this.#service.cleanupSemanticCache();
     this.#service.dispose();
+    this.#files.clear();
+    this.#canonicalByAbsolute.clear();
+    this.#projectVersion += 1;
   }
 
   #absoluteKey(value: string): string {
@@ -269,6 +315,13 @@ class TypeScriptSourceProgramWorkspace {
 
 let activeTypeScriptWorkspace: TypeScriptSourceProgramWorkspace | null = null;
 let activeTypeScriptWorkspaceRoot: string | null = null;
+
+/** Release one process-local edit snapshot after its compact evidence is sealed. */
+export function releaseTypeScriptSourceProgramWorkspace(): void {
+  activeTypeScriptWorkspace?.dispose();
+  activeTypeScriptWorkspace = null;
+  activeTypeScriptWorkspaceRoot = null;
+}
 
 function canonicalTypeScriptFile(raw: SourceProgramFileInput): SourceProgramFileInput {
   const repositoryPathValue = canonicalPath(raw.path);
@@ -295,6 +348,54 @@ function compileExactTypeScriptProgram(
     activeTypeScriptWorkspaceRoot = repositoryRoot;
   }
   return activeTypeScriptWorkspace.compile(filesByPath);
+}
+
+function diagnosticCategory(category: ts.DiagnosticCategory): SourceProgramTypeScriptDiagnosticEvidence['category'] {
+  switch (category) {
+    case ts.DiagnosticCategory.Error: return 'error';
+    case ts.DiagnosticCategory.Warning: return 'warning';
+    case ts.DiagnosticCategory.Suggestion: return 'suggestion';
+    case ts.DiagnosticCategory.Message: return 'message';
+  }
+}
+
+/**
+ * Diagnostic evidence for a virtual reduction is compiled by the same exact
+ * Program/LanguageService owner as repository facts.  Positions are omitted:
+ * deleting a declaration may shift later nodes without changing diagnostics.
+ */
+export function compileSourceProgramTypeScriptDiagnosticSnapshot(input: Readonly<{
+  readonly sourceRevision: string;
+  readonly files: readonly SourceProgramFileInput[];
+}>): SourceProgramTypeScriptDiagnosticSnapshot {
+  const filesByPath = new Map<string, SourceProgramFileInput>();
+  for (const raw of input.files) {
+    if (!SOURCE_EXTENSION.test(raw.path)
+        || sourceProgramSurfaceForPath(raw.path) !== 'production') continue;
+    const file = canonicalTypeScriptFile(raw);
+    if (filesByPath.has(file.path)) {
+      throw new Error(`Source Program diagnostic snapshot contains duplicate path: ${file.path}`);
+    }
+    filesByPath.set(file.path, file);
+  }
+  const exact = compileExactTypeScriptProgram(filesByPath);
+  const diagnostics = exact.sourceFiles.flatMap((sourceFile) => [
+    ...exact.program.getSyntacticDiagnostics(sourceFile),
+    ...exact.program.getSemanticDiagnostics(sourceFile)
+  ]).map((diagnostic): SourceProgramTypeScriptDiagnosticEvidence => Object.freeze({
+    path: diagnostic.file === undefined ? null : exact.repositoryPath(diagnostic.file),
+    code: diagnostic.code,
+    category: diagnosticCategory(diagnostic.category),
+    message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
+  })).sort((left, right) => compareCodeUnits(left.path ?? '', right.path ?? '')
+    || left.code - right.code
+    || compareCodeUnits(left.category, right.category)
+    || compareCodeUnits(left.message, right.message));
+  return Object.freeze({
+    sourceRevision: input.sourceRevision,
+    diagnostics: Object.freeze(diagnostics),
+    evidenceDigest: sha256(diagnostics)
+  });
 }
 
 
@@ -399,16 +500,40 @@ function literalContext(node: ts.Node): Readonly<{
   return Object.freeze({ context: 'literal', owner: null });
 }
 
-function sortByPathAndSpan<
-  Value extends { readonly path: string; readonly span?: SourceProgramSpan | null }
->(left: Value, right: Value): number {
-  return compareCodeUnits(left.path, right.path)
-    || (left.span?.start ?? -1) - (right.span?.start ?? -1)
-    || (left.span?.end ?? -1) - (right.span?.end ?? -1);
+function sourceProgramFileSemantics(sourceFile: ts.SourceFile): Readonly<{
+  readonly kind: SourceProgramFileSemanticKind;
+  readonly observationClass: 'derived' | 'unknown';
+}> {
+  const parseDiagnostics = (sourceFile as ts.SourceFile & {
+    readonly parseDiagnostics?: readonly ts.Diagnostic[];
+  }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) {
+    return Object.freeze({ kind: 'unknown', observationClass: 'unknown' });
+  }
+  const statements = sourceFile.statements;
+  if (statements.length > 0 && statements.every((statement) => (
+    ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined
+  ))) {
+    return Object.freeze({ kind: 'pure-reexport', observationClass: 'derived' });
+  }
+  const declarationOnly = statements.every((statement) => (
+    ts.isInterfaceDeclaration(statement)
+    || ts.isTypeAliasDeclaration(statement)
+    || (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly === true)
+    || (ts.isExportDeclaration(statement) && statement.isTypeOnly)
+    || (ts.canHaveModifiers(statement)
+      && (ts.getModifiers(statement)?.some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword) ?? false))
+  ));
+  return Object.freeze({
+    kind: declarationOnly ? 'declaration-owner' : 'executable',
+    observationClass: 'derived'
+  });
 }
 
 function canonicalTypeScriptModel(input: Readonly<{
   sourceRevision: string;
+  fileInputs: ReadonlyMap<string, SourceProgramFileInput>;
+  moduleMembership: SecRepositoryModuleMembership;
   files: readonly SourceProgramFile[];
   declarations: readonly SourceProgramDeclaration[];
   references: readonly SourceProgramReference[];
@@ -417,41 +542,68 @@ function canonicalTypeScriptModel(input: Readonly<{
   capabilities: readonly SourceProgramCapabilityInvocation[];
   unknowns: readonly SourceProgramUnknown[];
 }>): SourceProgramModel {
-  const providers = Object.freeze([
-    Object.freeze({ id: 'typescript-compiler-api', revision: ts.version })
-  ]);
-  const canonicalModel = {
-    sourceRevision: input.sourceRevision,
-    providers,
-    files: Object.freeze([...input.files].sort((left, right) => compareCodeUnits(left.path, right.path))),
-    declarations: Object.freeze([...input.declarations].sort((left, right) =>
-      sortByPathAndSpan(left, right) || compareCodeUnits(left.name, right.name)
-    )),
-    references: Object.freeze([...input.references].sort((left, right) =>
-      sortByPathAndSpan(left, right) || compareCodeUnits(left.kind, right.kind)
-    )),
-    literals: Object.freeze([...input.literals].sort((left, right) =>
-      sortByPathAndSpan(left, right) || compareCodeUnits(left.value, right.value)
-    )),
-    entrypoints: Object.freeze([...input.entrypoints].sort((left, right) =>
-      sortByPathAndSpan(left, right) || compareCodeUnits(left.name, right.name)
-    )),
-    entrypointClosures: Object.freeze([]),
-    packages: Object.freeze([]),
-    dependencies: Object.freeze([]),
-    capabilities: Object.freeze([...input.capabilities].sort((left, right) =>
-      sortByPathAndSpan(left, right) || compareCodeUnits(left.operation, right.operation)
-    )),
-    candidates: Object.freeze([]),
-    unknowns: Object.freeze([...input.unknowns].sort((left, right) =>
-      sortByPathAndSpan(left, right) || compareCodeUnits(left.code, right.code)
-    ))
+  const groupByPath = <Value extends { readonly path: string }>(
+    values: readonly Value[]
+  ): ReadonlyMap<string, readonly Value[]> => {
+    const groups = new Map<string, Value[]>();
+    for (const value of values) {
+      const group = groups.get(value.path);
+      if (group === undefined) groups.set(value.path, [value]);
+      else group.push(value);
+    }
+    return groups;
   };
-  const model: SourceProgramModel = Object.freeze({
-    ...canonicalModel,
-    modelDigest: sha256(canonicalModel)
+  const declarationsByPath = groupByPath(input.declarations);
+  const referencesByPath = groupByPath(input.references);
+  const literalsByPath = groupByPath(input.literals);
+  const entrypointsByPath = groupByPath(input.entrypoints);
+  const capabilitiesByPath = groupByPath(input.capabilities);
+  const unknownsByPath = groupByPath(input.unknowns);
+  const shards = input.files.map((file) => {
+    const fileInput = input.fileInputs.get(file.path);
+    if (fileInput === undefined) {
+      throw new Error(`TypeScript Source Program fact shard lacks raw source: ${file.path}`);
+    }
+    return compileTypeScriptSourceProgramFactShard({
+      compilerRevision: TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION,
+      providerRevision: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER_REVISION,
+      rawFileDigest: sourceProgramFileSnapshotDigest(fileInput),
+      moduleDigest: sha256(input.moduleMembership.moduleForPath(file.path)),
+      facts: Object.freeze({
+        path: file.path,
+        file,
+        declarations: declarationsByPath.get(file.path) ?? Object.freeze([]),
+        references: referencesByPath.get(file.path) ?? Object.freeze([]),
+        literals: literalsByPath.get(file.path) ?? Object.freeze([]),
+        entrypoints: entrypointsByPath.get(file.path) ?? Object.freeze([]),
+        capabilities: capabilitiesByPath.get(file.path) ?? Object.freeze([]),
+        unknowns: unknownsByPath.get(file.path) ?? Object.freeze([])
+      })
+    });
+  });
+  const model = assembleTypeScriptSourceProgramModel({
+    sourceRevision: input.sourceRevision,
+    compilerRevision: TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION,
+    provider: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
+    shards
   });
   compiledTypeScriptModels.add(model);
+  factShardsByModel.set(model, Object.freeze(shards));
+  return model;
+}
+
+function assembleCanonicalTypeScriptModel(
+  sourceRevision: string,
+  shards: readonly TypeScriptSourceProgramFactShard[]
+): SourceProgramModel {
+  const model = assembleTypeScriptSourceProgramModel({
+    sourceRevision,
+    compilerRevision: TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION,
+    provider: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
+    shards
+  });
+  compiledTypeScriptModels.add(model);
+  factShardsByModel.set(model, shards);
   return model;
 }
 
@@ -460,7 +612,8 @@ function assertReusableTypeScriptState(
   compilerRevision: string
 ): boolean {
   if (state.providerRevision !== compilerRevision
-      || state.model.sourceRevision !== state.sourceRevision) return false;
+      || state.model.sourceRevision !== state.sourceRevision
+      || !Array.isArray(state.factShards)) return false;
   return /^sha256:[0-9a-f]{64}$/u.test(state.model.modelDigest);
 }
 
@@ -470,9 +623,16 @@ function buildIncrementalState(
   reverseConsumers: Readonly<Record<string, readonly string[]>>,
   compilerRevision: string
 ): TypeScriptSourceProgramIncrementalState {
+  const factShards = factShardsByModel.get(model);
+  if (factShards === undefined) {
+    throw new Error('TypeScript Source Program incremental state requires canonical fact shards');
+  }
   const fileDigests = Object.freeze(Object.fromEntries(
     input.files
-      .filter(({ path: repositoryPathValue }) => SOURCE_EXTENSION.test(repositoryPathValue))
+      .filter(({ path: repositoryPathValue }) => (
+        SOURCE_EXTENSION.test(repositoryPathValue)
+        && sourceProgramSurfaceForPath(repositoryPathValue) === 'production'
+      ))
       .sort((left, right) => compareCodeUnits(left.path, right.path))
       .map((file) => [file.path, sourceProgramFileSnapshotDigest(file)])
   ));
@@ -488,6 +648,7 @@ function buildIncrementalState(
     fileDigests,
     moduleDigests,
     reverseConsumers,
+    factShards,
     model
   });
 }
@@ -502,11 +663,56 @@ export function compileTypeScriptSourceProgramModelIncremental(
   previous: TypeScriptSourceProgramIncrementalState | null
 ): TypeScriptSourceProgramIncrementalResult {
   const currentFiles = input.files
-    .filter(({ path: repositoryPathValue }) => SOURCE_EXTENSION.test(repositoryPathValue))
+    .filter(({ path: repositoryPathValue }) => (
+      SOURCE_EXTENSION.test(repositoryPathValue)
+      && sourceProgramSurfaceForPath(repositoryPathValue) === 'production'
+    ))
     .map(canonicalTypeScriptFile)
     .sort((left, right) => compareCodeUnits(left.path, right.path));
   const currentFileByPath = new Map(currentFiles.map((file) => [file.path, file] as const));
   const currentPaths = Object.freeze(currentFiles.map(({ path: repositoryPathValue }) => repositoryPathValue));
+  const compilerRevision = TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION;
+  const reusableState = previous !== null
+    && assertReusableTypeScriptState(previous, compilerRevision)
+    ? previous
+    : null;
+  let changed: readonly string[] | null = null;
+  if (reusableState !== null) {
+    const currentModuleDigests = new Map(currentPaths.map((repositoryPathValue) => [
+      repositoryPathValue,
+      sha256(input.moduleMembership.moduleForPath(repositoryPathValue))
+    ] as const));
+    const allPaths = new Set([...Object.keys(reusableState.fileDigests), ...currentPaths]);
+    changed = Object.freeze([...allPaths].filter((repositoryPathValue) => (
+      reusableState.fileDigests[repositoryPathValue]
+        !== (currentFileByPath.has(repositoryPathValue)
+          ? sourceProgramFileSnapshotDigest(currentFileByPath.get(repositoryPathValue)!)
+          : undefined)
+      || reusableState.moduleDigests[repositoryPathValue] !== currentModuleDigests.get(repositoryPathValue)
+    )));
+    if (changed.length === 0) {
+      if (input.sourceRevision === reusableState.sourceRevision) {
+        return Object.freeze({
+          mode: 'exact',
+          invalidatedPaths: Object.freeze([]),
+          model: reusableState.model,
+          state: reusableState
+        });
+      }
+      const model = assembleCanonicalTypeScriptModel(input.sourceRevision, reusableState.factShards);
+      return Object.freeze({
+        mode: 'exact',
+        invalidatedPaths: Object.freeze([]),
+        model,
+        state: buildIncrementalState(
+          input,
+          model,
+          reusableState.reverseConsumers,
+          compilerRevision
+        )
+      });
+    }
+  }
   const currentSources = new Map(currentFiles.map(({ path: repositoryPathValue, source }) =>
     [repositoryPathValue, source] as const));
   const graph = compileSecRepositoryModuleGraph({
@@ -529,28 +735,6 @@ export function compileTypeScriptSourceProgramModelIncremental(
         Object.freeze([...consumers].sort(compareCodeUnits))
       ])
   ));
-  const compilerClosure = new Set<string>();
-  const compilerQueue: string[] = [SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH];
-  while (compilerQueue.length > 0) {
-    const current = compilerQueue.shift()!;
-    if (compilerClosure.has(current) || !currentFileByPath.has(current)) continue;
-    compilerClosure.add(current);
-    for (const dependency of graph.directDependencies(current)) compilerQueue.push(dependency);
-  }
-  const compilerRevision = sha256({
-    compilerConfigDigest: TYPESCRIPT_WORKSPACE_COMPILER_CONFIG_DIGEST,
-    dependencyGenerationDigest: TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST,
-    provider: 'typescript-language-service',
-    implementation: compilerClosure.size === 0
-      ? Object.freeze([
-          compileTypeScriptSourceProgramModel.toString(),
-          compileTypeScriptSourceProgramModelIncremental.toString()
-        ])
-      : Object.freeze([...compilerClosure].sort(compareCodeUnits).map((repositoryPathValue) => ({
-          path: repositoryPathValue,
-          contentDigest: sourceProgramFileSnapshotDigest(currentFileByPath.get(repositoryPathValue)!)
-        })))
-  });
   const compileFull = (): TypeScriptSourceProgramIncrementalResult => {
     const model = compileTypeScriptSourceProgramModel(input);
     return Object.freeze({
@@ -560,45 +744,14 @@ export function compileTypeScriptSourceProgramModelIncremental(
       state: buildIncrementalState(input, model, reverseConsumers, compilerRevision)
     });
   };
-  if (previous === null || !assertReusableTypeScriptState(previous, compilerRevision)) return compileFull();
-
-  const currentModuleDigests = new Map(currentPaths.map((repositoryPathValue) => [
-    repositoryPathValue,
-    sha256(input.moduleMembership.moduleForPath(repositoryPathValue))
-  ] as const));
-  const allPaths = new Set([...Object.keys(previous.fileDigests), ...currentPaths]);
-  const changed = [...allPaths].filter((repositoryPathValue) => (
-    previous.fileDigests[repositoryPathValue]
-      !== (currentFileByPath.has(repositoryPathValue)
-        ? sourceProgramFileSnapshotDigest(currentFileByPath.get(repositoryPathValue)!)
-        : undefined)
-    || previous.moduleDigests[repositoryPathValue] !== currentModuleDigests.get(repositoryPathValue)
-  ));
-  if (changed.length === 0) {
-    const model = canonicalTypeScriptModel({
-      sourceRevision: input.sourceRevision,
-      files: previous.model.files,
-      declarations: previous.model.declarations,
-      references: previous.model.references,
-      literals: previous.model.literals,
-      entrypoints: previous.model.entrypoints,
-      capabilities: previous.model.capabilities,
-      unknowns: previous.model.unknowns
-    });
-    return Object.freeze({
-      mode: 'exact',
-      invalidatedPaths: Object.freeze([]),
-      model,
-      state: buildIncrementalState(input, model, reverseConsumers, compilerRevision)
-    });
-  }
+  if (reusableState === null || changed === null) return compileFull();
 
   const invalidated = new Set(changed);
   const queue = [...changed];
   while (queue.length > 0) {
     const changedPath = queue.shift()!;
     const consumers = new Set([
-      ...(previous.reverseConsumers[changedPath] ?? []),
+      ...(reusableState.reverseConsumers[changedPath] ?? []),
       ...(reverseConsumers[changedPath] ?? [])
     ]);
     for (const consumer of consumers) {
@@ -631,39 +784,14 @@ export function compileTypeScriptSourceProgramModelIncremental(
   const reusablePath = (repositoryPathValue: string): boolean =>
     currentFileByPath.has(repositoryPathValue) && !invalidated.has(repositoryPathValue);
   const regeneratedPath = (repositoryPathValue: string): boolean => invalidatedCurrent.has(repositoryPathValue);
-  const model = canonicalTypeScriptModel({
-    sourceRevision: input.sourceRevision,
-    files: currentFiles.map((file) => Object.freeze({
-      path: file.path,
-      contentDigest: file.contentDigest,
-      moduleId: input.moduleMembership.moduleForPath(file.path)?.moduleId ?? null,
-      surface: sourceProgramSurfaceForPath(file.path)
-    })),
-    declarations: [
-      ...previous.model.declarations.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-      ...regenerated.declarations.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-    ],
-    references: [
-      ...previous.model.references.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-      ...regenerated.references.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-    ],
-    literals: [
-      ...previous.model.literals.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-      ...regenerated.literals.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-    ],
-    entrypoints: [
-      ...previous.model.entrypoints.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-      ...regenerated.entrypoints.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-    ],
-    capabilities: [
-      ...previous.model.capabilities.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-      ...regenerated.capabilities.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-    ],
-    unknowns: [
-      ...previous.model.unknowns.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-      ...regenerated.unknowns.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-    ]
-  });
+  const regeneratedShards = factShardsByModel.get(regenerated);
+  if (regeneratedShards === undefined) {
+    throw new Error('TypeScript Source Program regeneration did not produce fact shards');
+  }
+  const model = assembleCanonicalTypeScriptModel(input.sourceRevision, [
+    ...reusableState.factShards.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
+    ...regeneratedShards.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
+  ]);
   return Object.freeze({
     mode: 'incremental',
     invalidatedPaths: Object.freeze([...invalidatedCurrent].sort(compareCodeUnits)),
@@ -680,7 +808,8 @@ export function compileTypeScriptSourceProgramModel(
   }
   const filesByPath = new Map<string, SourceProgramFileInput>();
   for (const raw of input.files) {
-    if (!SOURCE_EXTENSION.test(raw.path)) continue;
+    if (!SOURCE_EXTENSION.test(raw.path)
+        || sourceProgramSurfaceForPath(raw.path) !== 'production') continue;
     const file = canonicalTypeScriptFile(raw);
     const repositoryPathValue = file.path;
     if (filesByPath.has(repositoryPathValue)) {
@@ -690,6 +819,10 @@ export function compileTypeScriptSourceProgramModel(
   }
   const semanticProgram = compileExactTypeScriptProgram(filesByPath);
   const { checker, sourceFiles } = semanticProgram;
+  const sourceFileByPath = new Map(sourceFiles.map((sourceFile) => [
+    semanticProgram.repositoryPath(sourceFile),
+    sourceFile
+  ] as const));
   const files: SourceProgramFile[] = [];
   const declarations: SourceProgramDeclaration[] = [];
   const references: SourceProgramReference[] = [];
@@ -700,16 +833,23 @@ export function compileTypeScriptSourceProgramModel(
   const declarationByNode = new Map<ts.Node, SourceProgramDeclaration>();
 
   for (const [repositoryPathValue, file] of filesByPath) {
+    const sourceFile = sourceFileByPath.get(repositoryPathValue);
+    const semantics = sourceFile === undefined
+      ? Object.freeze({ kind: 'unknown' as const, observationClass: 'unknown' as const })
+      : sourceProgramFileSemantics(sourceFile);
     files.push(Object.freeze({
       path: repositoryPathValue,
       contentDigest: file.contentDigest,
       moduleId: input.moduleMembership.moduleForPath(repositoryPathValue)?.moduleId ?? null,
-      surface: sourceProgramSurfaceForPath(repositoryPathValue)
+      surface: sourceProgramSurfaceForPath(repositoryPathValue),
+      semanticKind: semantics.kind,
+      semanticObservationClass: semantics.observationClass
     }));
   }
 
   for (const sourceFile of sourceFiles) {
     const sourcePath = semanticProgram.repositoryPath(sourceFile);
+    if (sourceProgramSurfaceForPath(sourcePath) !== 'production') continue;
     const visit = (node: ts.Node): void => {
       const name = declarationName(node);
       if (name !== null) {
@@ -717,6 +857,10 @@ export function compileTypeScriptSourceProgramModel(
         while (topLevel && !ts.isSourceFile(topLevel.parent)) topLevel = topLevel.parent;
         const independentlyAddressable = topLevel === node
           || (ts.isVariableDeclaration(node) && topLevel !== undefined && ts.isVariableStatement(topLevel));
+        if (!independentlyAddressable) {
+          ts.forEachChild(node, visit);
+          return;
+        }
         const span = spanFor(sourceFile, node);
         const declarationDigest = sha256({
           kind: ts.SyntaxKind[node.kind],
@@ -838,6 +982,8 @@ export function compileTypeScriptSourceProgramModel(
       : null;
   for (const sourceFile of sourceFiles) {
     const sourcePath = semanticProgram.repositoryPath(sourceFile);
+    const sourceSurface = sourceProgramSurfaceForPath(sourcePath);
+    if (sourceSurface === 'fixture' || sourceSurface === 'resource' || sourceSurface === 'workflow') continue;
     const importedBindings = new Map<string, Readonly<{
       moduleSpecifier: string;
       targetName: string;
@@ -1183,6 +1329,8 @@ export function compileTypeScriptSourceProgramModel(
 
   return canonicalTypeScriptModel({
     sourceRevision: input.sourceRevision,
+    fileInputs: filesByPath,
+    moduleMembership: input.moduleMembership,
     files,
     declarations,
     references,

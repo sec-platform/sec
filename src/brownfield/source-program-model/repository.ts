@@ -15,11 +15,17 @@ import type {
   SourceProgramFile,
   SourceProgramFileInput,
   SourceProgramModel,
+  SourceProgramModuleRoleFact,
+  SourceProgramOwnerIntentEvidence,
   SourceProgramPackage,
   SourceProgramTopologySummary,
   SourceProgramUnknown
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
+import {
+  compileSourceProgramTestObservations,
+  type SourceProgramTestObservations
+} from './test-observations.ts';
 import {
   compileTypeScriptSourceProgramModel,
   isCompiledTypeScriptSourceProgramModel
@@ -37,6 +43,161 @@ export interface CompileRepositorySourceProgramModelInput {
    * The repository compiler validates the snapshot before consuming it.
    */
   readonly typescriptModel?: SourceProgramModel;
+  /** Lightweight test-only observations bound to the production model. */
+  readonly testObservations?: SourceProgramTestObservations;
+}
+
+const compiledRepositorySourceProgramModels = new WeakSet<object>();
+
+function unreachableModuleOperationIdentity(operation: never): never {
+  throw new Error(`Unsupported module operation identity: ${JSON.stringify(operation)}`);
+}
+
+/** In-process issuer check; durable consumers use compact strict evidence. */
+export function isCompiledRepositorySourceProgramModel(
+  value: SourceProgramModel
+): boolean {
+  return compiledRepositorySourceProgramModels.has(value);
+}
+
+/**
+ * Compile owner-issued design intent from the strict module descriptor and
+ * exact entrypoint closure.  A declaration name or comment cannot enter this
+ * projection, and an owner with no declared capability/entrypoint envelope
+ * remains explicitly empty rather than acquiring inferred future intent.
+ */
+export function compileSourceProgramOwnerIntentEvidence(
+  model: SourceProgramModel,
+  membership: SecRepositoryModuleMembership
+): readonly SourceProgramOwnerIntentEvidence[] {
+  const closureByEntrypoint = new Map(model.entrypointClosures.map((closure) =>
+    [closure.entrypointObservationId, closure] as const));
+  return Object.freeze(membership.descriptors.map((descriptor) => {
+    const capabilityEnvelope = Object.freeze(descriptor.capabilityProviders
+      .map(({ capability, operations }) => Object.freeze({
+        capability,
+        operations: Object.freeze([...operations].sort(compareCodeUnits))
+      }))
+      .sort((left, right) => compareCodeUnits(left.capability, right.capability)));
+    const publicEntrypointEnvelope = Object.freeze(model.entrypoints.flatMap((entrypoint) => {
+      const closure = closureByEntrypoint.get(entrypoint.observationId);
+      if (closure === undefined || !closure.handlerModuleIds.includes(descriptor.moduleId)) return [];
+      return [Object.freeze({
+        kind: entrypoint.kind,
+        name: entrypoint.name,
+        targetPackages: Object.freeze([...entrypoint.targetPackages].sort(compareCodeUnits)),
+        targetPaths: Object.freeze([...entrypoint.targetPaths].sort(compareCodeUnits)),
+        transports: Object.freeze([...closure.transports].sort(compareCodeUnits))
+      })];
+    }).sort((left, right) => compareCodeUnits(left.kind, right.kind)
+      || compareCodeUnits(left.name, right.name)));
+    const productionPaths = new Set(model.files
+      .filter(({ surface }) => surface === 'production')
+      .map(({ path }) => path));
+    const operationObligations = Object.freeze(descriptor.operationObligations.map((obligation) => {
+      const operation = obligation.operation;
+      let operationDeclarations: readonly SourceProgramDeclaration[];
+      switch (operation.kind) {
+        case 'capability':
+          operationDeclarations = model.declarations.filter(({ exported, moduleId, name }) => (
+            exported && moduleId === descriptor.moduleId && name === operation.operation
+          ));
+          break;
+        case 'public-entrypoint':
+          operationDeclarations = model.declarations.filter(({ path }) => path === operation.path);
+          break;
+        default:
+          return unreachableModuleOperationIdentity(operation);
+      }
+      const operationObservationIds = new Set(operationDeclarations.map(({ observationId }) => observationId));
+      const operationPaths = new Set(operationDeclarations.map(({ path }) => path));
+      if (operation.kind === 'public-entrypoint') {
+        for (const entrypoint of model.entrypoints.filter(({ targetPaths }) => (
+          targetPaths.includes(operation.path)
+        ))) {
+          const closure = model.entrypointClosures.find(({ entrypointObservationId }) => (
+            entrypointObservationId === entrypoint.observationId
+          ));
+          for (const path of closure?.reachablePaths ?? []) operationPaths.add(path);
+          for (const path of closure?.capabilityPaths ?? []) operationPaths.add(path);
+        }
+      }
+      const operationCapabilityFacts = model.capabilities.filter((capability) => (
+        capability.surface === 'production' && operationPaths.has(capability.path)
+      ));
+      const effectKinds = Object.freeze([...new Set(operationCapabilityFacts
+        .filter(({ observationClass }) => observationClass !== 'unknown')
+        .map(({ capability }) => capability))].sort(compareCodeUnits));
+      const actualConsumerModuleIds = Object.freeze([...new Set(model.references.flatMap((reference) => {
+        if (reference.observationClass === 'unknown'
+            || !productionPaths.has(reference.path)
+            || (reference.targetObservationId === null
+              ? reference.targetPath === null || !operationPaths.has(reference.targetPath)
+              : !operationObservationIds.has(reference.targetObservationId))) return [];
+        const sourceOwner = membership.moduleForPath(reference.path)?.moduleId ?? null;
+        return sourceOwner !== null && sourceOwner !== descriptor.moduleId ? [sourceOwner] : [];
+      }))].sort(compareCodeUnits));
+      const identityVerified = (() => {
+        switch (operation.kind) {
+          case 'capability':
+            return capabilityEnvelope.some(({ capability, operations }) => (
+              capability === operation.capability
+              && operations.includes(operation.operation)
+            ))
+              && model.moduleRoles.some(({ moduleId, observationClass, role }) => (
+                moduleId === descriptor.moduleId
+                && observationClass !== 'unknown'
+                && role === 'runtime'
+              ));
+          case 'public-entrypoint':
+            return publicEntrypointEnvelope.some(({ targetPaths }) => (
+              targetPaths.includes(operation.path)
+            ));
+          default:
+            return unreachableModuleOperationIdentity(operation);
+        }
+      })();
+      const consumersVerified = obligation.consumerSupport.consumers.length === actualConsumerModuleIds.length
+        && obligation.consumerSupport.consumers.every((consumer) => (
+          actualConsumerModuleIds.includes(consumer)
+          && membership.descriptors.some(({ moduleId }) => moduleId === consumer)
+        ));
+      const effectVerified = operationCapabilityFacts.every(({ observationClass, transport }) => (
+        observationClass !== 'unknown' && transport !== 'unknown'
+      )) && effectKinds.every((kind) => obligation.effect.kinds.includes(kind));
+      const reason = !identityVerified
+        ? 'identity-unresolved' as const
+        : !consumersVerified
+          ? 'consumer-closure-unresolved' as const
+          : !effectVerified
+            ? 'effect-closure-unresolved' as const
+            : 'verified' as const;
+      const observation = Object.freeze({
+        status: reason === 'verified' ? 'verified' as const : 'unknown' as const,
+        reason,
+        consumerModuleIds: actualConsumerModuleIds,
+        effectKinds
+      });
+      const canonicalObligation = Object.freeze({ obligation, observation });
+      return Object.freeze({
+        ...canonicalObligation,
+        evidenceDigest: sha256(canonicalObligation)
+      });
+    }).sort((left, right) => compareCodeUnits(
+      JSON.stringify(left.obligation.operation),
+      JSON.stringify(right.obligation.operation)
+    )));
+    const canonical = Object.freeze({
+      owner: descriptor.moduleId,
+      capabilityEnvelope,
+      publicEntrypointEnvelope,
+      operationObligations
+    });
+    return Object.freeze({
+      ...canonical,
+      evidenceDigest: sha256(canonical)
+    });
+  }).sort((left, right) => compareCodeUnits(left.owner, right.owner)));
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -176,7 +337,10 @@ export function compileRepositorySourceProgramModel(
     throw new Error('Repository Source Program Model received an invalid TypeScript fact snapshot');
   }
   const expectedTypeScriptFiles = input.files
-    .filter(({ path: repositoryPath }) => /\.(?:[cm]?[jt]sx?)$/iu.test(repositoryPath))
+    .filter(({ path: repositoryPath }) => (
+      /\.(?:[cm]?[jt]sx?)$/iu.test(repositoryPath)
+      && sourceProgramSurfaceForPath(repositoryPath) === 'production'
+    ))
     .map(({ path: repositoryPath, contentDigest }) => `${repositoryPath}\0${contentDigest}`)
     .sort(compareCodeUnits);
   const observedTypeScriptFiles = typescriptModel.files
@@ -186,16 +350,32 @@ export function compileRepositorySourceProgramModel(
       || expectedTypeScriptFiles.some((identity, index) => identity !== observedTypeScriptFiles[index])) {
     throw new Error('Repository Source Program Model TypeScript facts do not bind the exact source files');
   }
+  const testObservations = input.testObservations ?? compileSourceProgramTestObservations({
+    productionModel: typescriptModel,
+    files: input.files,
+    moduleMembership: input.moduleMembership
+  });
+  if (testObservations.sourceRevision !== input.sourceRevision
+      || testObservations.productionModelDigest !== typescriptModel.modelDigest) {
+    throw new Error('Repository Source Program Model test observations do not bind the production facts');
+  }
+  const semanticModel = Object.freeze({
+    ...typescriptModel,
+    references: Object.freeze([...typescriptModel.references, ...testObservations.references]),
+    literals: Object.freeze([...typescriptModel.literals, ...testObservations.literals]),
+    capabilities: Object.freeze([...typescriptModel.capabilities, ...testObservations.capabilities]),
+    unknowns: Object.freeze([...typescriptModel.unknowns, ...testObservations.unknowns])
+  });
   const entrypoints: SourceProgramEntrypoint[] = [...typescriptModel.entrypoints];
   const packages: SourceProgramPackage[] = [];
   const dependencies: SourceProgramDependency[] = [];
   const unknowns: SourceProgramUnknown[] = [
     ...(input.unknowns ?? []),
-    ...typescriptModel.unknowns
+    ...semanticModel.unknowns
   ];
   const filePaths = new Set(input.files.map(({ path: repositoryPath }) => repositoryPath));
   const externalConsumers = new Map<string, Set<string>>();
-  for (const unknown of typescriptModel.unknowns) {
+  for (const unknown of semanticModel.unknowns) {
     if (unknown.code !== 'external-module-opaque') continue;
     const dependency = dependencyPackageName(unknown.detail);
     const consumers = externalConsumers.get(dependency) ?? new Set<string>();
@@ -573,7 +753,9 @@ export function compileRepositorySourceProgramModel(
         path: file.path,
         contentDigest: file.contentDigest,
         moduleId: input.moduleMembership.moduleForPath(file.path)?.moduleId ?? null,
-        surface: sourceProgramSurfaceForPath(file.path)
+        surface: sourceProgramSurfaceForPath(file.path),
+        semanticKind: 'unknown',
+        semanticObservationClass: 'unknown'
       }))
   ].sort((left, right) => compareCodeUnits(left.path, right.path));
   entrypoints.sort((left, right) =>
@@ -647,8 +829,8 @@ export function compileRepositorySourceProgramModel(
       unresolved
     });
   };
-  const capabilitiesByPath = new Map<string, typeof typescriptModel.capabilities[number][]>();
-  for (const capability of typescriptModel.capabilities) {
+  const capabilitiesByPath = new Map<string, typeof semanticModel.capabilities[number][]>();
+  for (const capability of semanticModel.capabilities) {
     const group = capabilitiesByPath.get(capability.path) ?? [];
     group.push(capability);
     capabilitiesByPath.set(capability.path, group);
@@ -761,7 +943,7 @@ export function compileRepositorySourceProgramModel(
   const nativeProcessOwners = new Set(input.moduleMembership.descriptors
     .filter(({ capabilityProviders }) => capabilityProviders.some(({ capability }) => capability === 'process.native'))
     .map(({ moduleId }) => moduleId));
-  const directNativeProcessByPath = new Map<string, typeof typescriptModel.capabilities[number][]>();
+  const directNativeProcessByPath = new Map<string, typeof semanticModel.capabilities[number][]>();
   const reviewedProcessDispatchersByPath = new Map<string, number>();
   for (const identity of input.reviewedProcessDispatchers ?? []) {
     const separator = identity.indexOf('::');
@@ -772,7 +954,7 @@ export function compileRepositorySourceProgramModel(
       (reviewedProcessDispatchersByPath.get(dispatcherPath) ?? 0) + 1
     );
   }
-  for (const invocation of typescriptModel.capabilities) {
+  for (const invocation of semanticModel.capabilities) {
     if (invocation.capability !== 'process'
         || invocation.transport !== 'native-runtime'
         || invocation.surface !== 'production'
@@ -831,22 +1013,22 @@ export function compileRepositorySourceProgramModel(
     }));
   }
   const fileSurface = new Map(files.map((file) => [file.path, file.surface]));
-  const literalsByPath = new Map<string, typeof typescriptModel.literals[number][]>();
-  for (const literal of typescriptModel.literals) {
+  const literalsByPath = new Map<string, typeof semanticModel.literals[number][]>();
+  for (const literal of semanticModel.literals) {
     const pathLiterals = literalsByPath.get(literal.path) ?? [];
     pathLiterals.push(literal);
     literalsByPath.set(literal.path, pathLiterals);
   }
-  const referencesByTarget = new Map<string, typeof typescriptModel.references[number][]>();
+  const referencesByTarget = new Map<string, typeof semanticModel.references[number][]>();
   const productionNamespaceImportTargets = new Set(
-    typescriptModel.references
+    semanticModel.references
       .filter((reference) => reference.kind === 'import'
         && reference.name === '*'
         && reference.targetPath !== null
         && fileSurface.get(reference.path) === 'production')
       .map(({ targetPath }) => targetPath!)
   );
-  for (const reference of typescriptModel.references) {
+  for (const reference of semanticModel.references) {
     if (reference.targetObservationId === null) continue;
     const group = referencesByTarget.get(reference.targetObservationId) ?? [];
     group.push(reference);
@@ -1073,7 +1255,7 @@ export function compileRepositorySourceProgramModel(
     }
   }
   const productionReferencesByDeclaration = new Map<string, number>();
-  for (const reference of typescriptModel.references) {
+  for (const reference of semanticModel.references) {
     if (reference.targetObservationId === null || fileSurface.get(reference.path) !== 'production') continue;
     productionReferencesByDeclaration.set(
       reference.targetObservationId,
@@ -1086,7 +1268,7 @@ export function compileRepositorySourceProgramModel(
       declaration
     ] as const)
   );
-  for (const literal of typescriptModel.literals) {
+  for (const literal of semanticModel.literals) {
     if (literal.context !== 'producer' || literal.contextSpan === null) continue;
     const normalizedValue = literal.value.replaceAll('\\', '/').replace(/^\.\//u, '');
     if (!productionSourcePaths.has(normalizedValue)) continue;
@@ -1099,7 +1281,7 @@ export function compileRepositorySourceProgramModel(
     }
   }
   const productionSourcePathMirrors = new Map<string, Set<string>>();
-  for (const literal of typescriptModel.literals) {
+  for (const literal of semanticModel.literals) {
     if (fileSurface.get(literal.path) !== 'production') continue;
     const normalizedValue = literal.value.replaceAll('\\', '/').replace(/^\.\//u, '');
     if (normalizedValue === literal.path
@@ -1160,7 +1342,7 @@ export function compileRepositorySourceProgramModel(
   }
 
   const endpointPathsByLiteral = new Map<string, Set<string>>();
-  for (const literal of typescriptModel.literals) {
+  for (const literal of semanticModel.literals) {
     if (fileSurface.get(literal.path) !== 'production'
       || !/^https?:\/\/[^\s]+$/iu.test(literal.value)) continue;
     const ownerPaths = endpointPathsByLiteral.get(literal.value) ?? new Set<string>();
@@ -1179,7 +1361,7 @@ export function compileRepositorySourceProgramModel(
   }
 
   const sourcePathMirrors = new Map<string, Set<string>>();
-  for (const literal of typescriptModel.literals) {
+  for (const literal of semanticModel.literals) {
     if (fileSurface.get(literal.path) !== 'test' || literal.context !== 'assertion') continue;
     const normalizedValue = literal.value.replaceAll('\\', '/').replace(/^\.\//u, '');
     if (!productionSourcePaths.has(normalizedValue)) continue;
@@ -1205,6 +1387,73 @@ export function compileRepositorySourceProgramModel(
     || compareCodeUnits(left.subject, right.subject)
     || compareCodeUnits(left.paths.join('\0'), right.paths.join('\0'))
   );
+  const closureByEntrypoint = new Map(entrypointClosures.map((closure) => [
+    closure.entrypointObservationId,
+    closure
+  ] as const));
+  const moduleRoles: SourceProgramModuleRoleFact[] = input.moduleMembership.descriptors.map((descriptor) => {
+    const ownedTypeScriptFiles = files.filter((file) => (
+      file.moduleId === descriptor.moduleId
+      && file.surface === 'production'
+      && /\.[cm]?tsx?$/iu.test(file.path)
+    ));
+    const declarationOnly = descriptor.externalEntrypoints.length === 0
+      && descriptor.capabilityProviders.length === 0
+      && ownedTypeScriptFiles.length > 0
+      && ownedTypeScriptFiles.every(({ semanticKind, semanticObservationClass }) => (
+        semanticObservationClass !== 'unknown'
+        && (semanticKind === 'declaration-owner' || semanticKind === 'pure-reexport')
+      ));
+    const commandEntrypoints = entrypoints.filter((entrypoint) => (
+      entrypoint.kind === 'module-entrypoint'
+      && entrypoint.targetPaths.some((targetPath) => descriptor.externalEntrypoints.includes(targetPath))
+    ));
+    const command = descriptor.externalEntrypoints.length > 0
+      && descriptor.externalEntrypoints.every((targetPath) => commandEntrypoints.some((entrypoint) => {
+        const closure = closureByEntrypoint.get(entrypoint.observationId);
+        return entrypoint.targetPaths.includes(targetPath)
+          && entrypoint.observationClass !== 'unknown'
+          && closure?.observationClass !== 'unknown'
+          && closure?.handlerModuleIds.length === 1
+          && closure.handlerModuleIds[0] === descriptor.moduleId;
+      }));
+    const exportedOperations = exportedOperationsByModule.get(descriptor.moduleId) ?? new Set<string>();
+    const runtime = descriptor.capabilityProviders.length > 0
+      && descriptor.capabilityProviders.every(({ operations }) => (
+        operations.every((operation) => exportedOperations.has(operation))
+      ));
+    const query = descriptor.externalEntrypoints.length === 0
+      && descriptor.capabilityProviders.length === 0
+      && ownedTypeScriptFiles.length > 0
+      && ownedTypeScriptFiles.every(({ semanticObservationClass }) => (
+        semanticObservationClass !== 'unknown'
+      ))
+      && !typescriptModel.capabilities.some(({ moduleId, observationClass }) => (
+        moduleId === descriptor.moduleId && observationClass !== 'unknown'
+      ));
+    const derivedRoles = [
+      ...(declarationOnly ? ['contract' as const] : []),
+      ...(runtime ? ['runtime' as const] : []),
+      ...(command ? ['command' as const] : [])
+    ];
+    const declaredRoleSupported = descriptor.architectureRole === 'contract'
+      ? declarationOnly
+      : descriptor.architectureRole === 'runtime'
+        ? runtime
+        : descriptor.architectureRole === 'query'
+          ? query
+          : descriptor.architectureRole === 'command'
+            ? command
+            : false;
+    const role = descriptor.architectureRole === null
+      ? derivedRoles.length === 1 ? derivedRoles[0]! : 'unknown'
+      : declaredRoleSupported ? descriptor.architectureRole : 'unknown';
+    return Object.freeze({
+      moduleId: descriptor.moduleId,
+      role,
+      observationClass: role === 'unknown' ? 'unknown' : 'derived'
+    });
+  }).sort((left, right) => compareCodeUnits(left.moduleId, right.moduleId));
   const canonicalModel = {
     sourceRevision: typescriptModel.sourceRevision,
     providers: Object.freeze([
@@ -1212,21 +1461,24 @@ export function compileRepositorySourceProgramModel(
       Object.freeze({ id: 'ecmascript-json', revision: process.versions.bun })
     ]),
     files: Object.freeze(files),
+    moduleRoles: Object.freeze(moduleRoles),
     declarations: typescriptModel.declarations,
-    references: typescriptModel.references,
-    literals: typescriptModel.literals,
+    references: semanticModel.references,
+    literals: semanticModel.literals,
     entrypoints: Object.freeze(entrypoints),
     entrypointClosures: Object.freeze(entrypointClosures),
     packages: Object.freeze(packages),
     dependencies: Object.freeze(dependencies),
-    capabilities: typescriptModel.capabilities,
+    capabilities: semanticModel.capabilities,
     candidates: Object.freeze(deduplicatedCandidates),
     unknowns: Object.freeze(unknowns)
   };
-  return Object.freeze({
+  const model: SourceProgramModel = Object.freeze({
     ...canonicalModel,
     modelDigest: sha256(canonicalModel)
   });
+  compiledRepositorySourceProgramModels.add(model);
+  return model;
 }
 
 function countTopologyValues(values: readonly string[]): Readonly<Record<string, number>> {
