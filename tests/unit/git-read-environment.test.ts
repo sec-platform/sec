@@ -1,4 +1,4 @@
-import { mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +8,7 @@ import { runGitRead } from '../../src/development/tooling/git/git-read.ts';
 import {
   assertProductionGitReadSession,
   createAuthorityGitReadSession,
+  createAuthorityGitScratchIndexTreeSession,
   createHostGitReadSessionForTests,
   isProductionGitReadSession,
   isTestGitReadSession,
@@ -156,6 +157,7 @@ test('Git read grammar admits exact observations and terminally rejects mutation
   const cases = [
     { args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'], permitted: true },
     { args: ['rev-parse', '--verify', 'HEAD^{commit}'], permitted: true },
+    { args: ['rev-parse', '--absolute-git-dir'], permitted: true },
     { args: ['write-tree'], permitted: false },
     { args: ['hash-object', '-w', '--stdin'], permitted: false },
     { args: ['update-index', '-z', '--index-info'], permitted: false },
@@ -224,6 +226,85 @@ test('test sessions cannot cross the production GitRead issuer boundary', async 
   }
 });
 
+test.skipIf(process.platform !== 'win32')(
+  'production Git scratch computes and reads one repository-external index tree without widening GitRead',
+  async () => {
+    const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-index-tree-'));
+    const resolution = createAuthorityGitReadSession({
+      cwd: process.cwd(),
+      budget: { maxProcesses: 12 }
+    });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') return;
+    try {
+      const indexObservation = await resolution.session.run([
+        'rev-parse', '--path-format=absolute', '--git-path', 'index'
+      ]);
+      if (indexObservation.kind !== 'completed' || indexObservation.result.code !== 0) {
+        throw new Error('Test could not observe the canonical Git index.');
+      }
+      const indexPath = Buffer.from(indexObservation.result.stdout).toString('utf8').trim();
+      copyFileSync(indexPath, path.join(scratchRoot, 'index'));
+      mkdirSync(path.join(scratchRoot, 'objects'));
+
+      const scratchResolution = await createAuthorityGitScratchIndexTreeSession({
+        gitReadSession: resolution.session,
+        scratchRoot
+      });
+      expect(scratchResolution.status).toBe('ready');
+      if (scratchResolution.status !== 'ready') return;
+      const tree = await scratchResolution.session.writeTree();
+      expect(tree.status).toBe('ready');
+      if (tree.status !== 'ready') return;
+      const blob = await scratchResolution.session.observe(['show', `${tree.value}:package.json`]);
+      expect(blob.status).toBe('ready');
+      if (blob.status === 'ready') {
+        expect(Buffer.from(blob.value.stdout)).toEqual(readFileSync(path.join(process.cwd(), 'package.json')));
+      }
+      expect(await scratchResolution.session.close()).toBeNull();
+
+      const directMutation = await resolution.session.run(['write-tree']);
+      expect(directMutation).toMatchObject({
+        kind: 'unresolved-git-read-session',
+        reason: 'operation-not-permitted'
+      });
+    } finally {
+      await resolution.session.close?.();
+      rmSync(scratchRoot, { recursive: true, force: true });
+    }
+  }
+);
+
+test('test or structural GitRead sessions cannot issue scratch effect authority', async () => {
+  const testSession = createHostGitReadSessionForTests({ cwd: process.cwd() });
+  const scratchRoot = path.resolve(mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-forged-')));
+  try {
+    const testResolution = await createAuthorityGitScratchIndexTreeSession({
+      gitReadSession: testSession,
+      scratchRoot
+    });
+    expect(testResolution).toMatchObject({
+      status: 'unavailable',
+      reason: 'production-session-required'
+    });
+    expect(testSession.processCount).toBe(0);
+
+    const forged = { ...testSession };
+    const forgedResolution = await createAuthorityGitScratchIndexTreeSession({
+      gitReadSession: forged,
+      scratchRoot
+    });
+    expect(forgedResolution).toMatchObject({
+      status: 'unavailable',
+      reason: 'production-session-required'
+    });
+    expect(testSession.processCount).toBe(0);
+  } finally {
+    await testSession.close?.();
+    rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
 test('semantic GitRead helpers reject a test transport before any child starts', async () => {
   const session = createHostGitReadSessionForTests({ cwd: process.cwd() });
   try {
@@ -271,19 +352,20 @@ test('close waits for an admitted child before disposing the GitRead session', a
   });
 });
 
-test('the host provider resolves Git from its canonical child PATH', () => {
+test('the host provider resolves Git from its canonical child PATH', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-git-read-empty-path-'));
+  const session = createHostGitReadSessionForTests({
+    cwd: root,
+    source: { PATH: '' }
+  });
   try {
-    const session = createHostGitReadSessionForTests({
-      cwd: root,
-      source: { PATH: '' }
-    });
     expect(session.gitExecutable).toBe('');
     expect(session.failure).toMatchObject({
       kind: 'unresolved-git-read-session',
       reason: 'command-error'
     });
   } finally {
+    await session.close?.();
     rmSync(root, { recursive: true, force: true });
   }
 });

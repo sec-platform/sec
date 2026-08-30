@@ -83,6 +83,16 @@ export interface RetainedCommandBoundary {
   readonly workingDirectory: RetainedCommandWorkingDirectory;
 }
 
+export type RetainedCommandAuxiliaryInput = Readonly<{
+  readonly capability: RetainedNoFollowChildProcessDirectory | RetainedNoFollowOrdinaryFile;
+  readonly kind: 'directory' | 'ordinary-file';
+}>;
+
+const RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE = 5;
+const RETAINED_COMMAND_AUXILIARY_INPUT_LIMIT = 8;
+const RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS =
+  new WeakMap<RetainedCommandBoundary, readonly RetainedCommandAuxiliaryInput[]>();
+
 export type RunRetainedCommandOptions = Omit<
   RunCommandOptions,
   'cwd' | 'maxStderrBytes' | 'maxStdoutBytes' | 'timeoutMs'
@@ -106,6 +116,46 @@ export class RetainedCommandTransportError extends Error {
 
 export const RETAINED_EXECUTABLE_CHILD_DESCRIPTOR = 3 as const;
 export const RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR = 4 as const;
+
+/**
+ * Issue one closed retained process boundary from the physical owner's
+ * executable and cwd capabilities. Callers never receive a general stdio
+ * table and cannot structurally substitute either capability.
+ */
+export function issueRetainedCommandBoundary(input: Readonly<{
+  executable: RetainedCommandExecutable;
+  workingDirectory: RetainedCommandWorkingDirectory;
+  auxiliaryInputs?: readonly RetainedCommandAuxiliaryInput[];
+}>): RetainedCommandBoundary {
+  assertRetainedNoFollowCapability(input.executable, 'executable', 'retained command executable');
+  assertRetainedNoFollowCapability(
+    input.workingDirectory,
+    'working-directory',
+    'retained command working directory'
+  );
+  const auxiliaryInputs = Object.freeze([...(input.auxiliaryInputs ?? [])]);
+  if (auxiliaryInputs.length > RETAINED_COMMAND_AUXILIARY_INPUT_LIMIT) {
+    throw new Error(
+      `Retained command accepts at most ${RETAINED_COMMAND_AUXILIARY_INPUT_LIMIT} sealed auxiliary inputs`
+    );
+  }
+  for (const [index, auxiliary] of auxiliaryInputs.entries()) {
+    assertRetainedNoFollowCapability(
+      auxiliary.capability,
+      auxiliary.kind === 'directory' ? 'working-directory' : 'ordinary-file',
+      `retained command auxiliary input[${index}]`
+    );
+  }
+  const boundary = Object.freeze({
+    executable: input.executable,
+    workingDirectory: input.workingDirectory
+  });
+  RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS.set(boundary, auxiliaryInputs);
+  // Validate descriptor allocation before this capability can cross an effect
+  // boundary; retainedCommandSpawnBoundary repeats the check at every spawn.
+  retainedCommandSpawnBoundary(boundary);
+  return boundary;
+}
 
 const ISOLATED_READ_ONLY_ENV_KEYS = [
   'SYSTEMROOT',
@@ -236,12 +286,22 @@ function retainedCommandSpawnBoundary(boundary: RetainedCommandBoundary): Readon
     'working-directory',
     'retained command working directory'
   );
+  const auxiliaryInputs = RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS.get(boundary) ?? [];
+  for (const [index, auxiliary] of auxiliaryInputs.entries()) {
+    assertRetainedNoFollowCapability(
+      auxiliary.capability,
+      auxiliary.kind === 'directory' ? 'working-directory' : 'ordinary-file',
+      `retained command auxiliary input[${index}]`
+    );
+  }
   const stdio: RunCommandStdio = ['ignore', 'pipe', 'pipe'];
   if (process.platform === 'win32') {
     if (boundary.executable.stdioSourceDescriptor !== null
         || boundary.workingDirectory.stdioSourceDescriptor !== null
+        || auxiliaryInputs.some((entry) => entry.capability.stdioSourceDescriptor !== null)
         || !path.isAbsolute(boundary.executable.childPath)
-        || !path.isAbsolute(boundary.workingDirectory.childPath)) {
+        || !path.isAbsolute(boundary.workingDirectory.childPath)
+        || auxiliaryInputs.some((entry) => !path.isAbsolute(entry.capability.childPath))) {
       throw new Error(
         'Retained Windows command requires a writer-excluded absolute executable, a pinned cwd, and no inherited descriptor'
       );
@@ -252,7 +312,7 @@ function retainedCommandSpawnBoundary(boundary: RetainedCommandBoundary): Readon
     throw new Error(`Retained command process transport is unavailable on ${process.platform}`);
   }
   const parseDescriptor = (
-    capability: RetainedCommandExecutable | RetainedCommandWorkingDirectory,
+    capability: RetainedCommandExecutable | RetainedCommandWorkingDirectory | RetainedNoFollowOrdinaryFile,
     expectedChildDescriptor: number,
     label: string
   ): number => {
@@ -278,7 +338,13 @@ function retainedCommandSpawnBoundary(boundary: RetainedCommandBoundary): Readon
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'working directory'
   );
-  if (executableSource === workingDirectorySource
+  const auxiliarySources = auxiliaryInputs.map((entry, index) => parseDescriptor(
+    entry.capability,
+    RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE + index,
+    `auxiliary input[${index}]`
+  ));
+  const allSources = [executableSource, workingDirectorySource, ...auxiliarySources];
+  if (new Set(allSources).size !== allSources.length
       || executableSource === RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
       || workingDirectorySource === RETAINED_EXECUTABLE_CHILD_DESCRIPTOR) {
     throw new Error(
@@ -288,6 +354,11 @@ function retainedCommandSpawnBoundary(boundary: RetainedCommandBoundary): Readon
   while (stdio.length <= RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR) stdio.push('ignore');
   stdio[RETAINED_EXECUTABLE_CHILD_DESCRIPTOR] = executableSource;
   stdio[RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR] = workingDirectorySource;
+  for (const [index, source] of auxiliarySources.entries()) {
+    const childDescriptor = RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE + index;
+    while (stdio.length <= childDescriptor) stdio.push('ignore');
+    stdio[childDescriptor] = source;
+  }
   return Object.freeze({
     cwd: boundary.workingDirectory.childPath,
     stdio
@@ -307,6 +378,9 @@ function assertRetainedCommandBoundaryCurrent(boundary: RetainedCommandBoundary)
   );
   boundary.executable.assertCurrent();
   boundary.workingDirectory.assertCurrent();
+  for (const auxiliary of RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS.get(boundary) ?? []) {
+    auxiliary.capability.assertCurrent();
+  }
 }
 
 function runCommandCapture(

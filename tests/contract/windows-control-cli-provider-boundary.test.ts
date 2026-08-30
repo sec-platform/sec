@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import { expect, test } from 'bun:test';
 
 import { resolveWindowsControlCliSession } from '../../src/external-capabilities/windows-control-cli/runtime/session.ts';
@@ -54,4 +56,16 @@ test('resolution and terminal receipt surfaces contain no semantic or effect aut
   ]);
   const keys = Object.keys(resolveWindowsControlCliSession(request()));
   expect(keys.some((key) => forbiddenFields.has(key))).toBe(false);
+});
+
+test('document-control production reads consume GitRead and have no legacy Windows gate or raw Git literal', async () => {
+  const source = await readFile(
+    'src/control/documentation/document-control-plane.ts',
+    'utf8'
+  );
+  expect(source).toContain('withAuthorityGitReadSession');
+  expect(source).toContain('documentControlGitReadScope');
+  expect(source).not.toContain('resolveWindowsControlCliSession');
+  expect(source).not.toContain('documentControlCliAdmission');
+  expect(source).not.toContain("runCommandBytes('git'");
 });

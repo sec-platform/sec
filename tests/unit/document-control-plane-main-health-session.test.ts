@@ -3,11 +3,6 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import {
-  CodexDevelopmentDocumentControlCliAdmissionError,
-  resolveLiveControlPlane
-} from '../../src/control/documentation/document-control-plane.ts';
-
 function moduleHref(repositoryPath: string): string {
   return pathToFileURL(path.resolve(repositoryPath)).href;
 }
@@ -25,7 +20,7 @@ let sessionCount = 0;
 let calls = [];
 
 mock.module(${JSON.stringify(mainHealthHref)}, () => ({
-  withMainHealthGitHubReadSessionV2: async (input) => {
+  withMainHealthGitHubReadSession: async (input) => {
     if (sessionDepth !== 0) throw new Error('document-control opened a nested owner session');
     sessionCount += 1;
     calls.push('session:start');
@@ -37,8 +32,14 @@ mock.module(${JSON.stringify(mainHealthHref)}, () => ({
       calls.push('session:end');
     }
   },
-  assertMainHealthPublicationAuthorityStableV2: () => undefined,
-  observeCanonicalMainHealthForPublicationV2: async (input) => {
+  assertMainHealthPublicationAuthorityStable: () => undefined,
+  observeMainHealthGitHubControlInventory: async () => Object.freeze({
+    openPullRequests: Object.freeze([]),
+    openIssues: Object.freeze([]),
+    reviewThreads: Object.freeze([])
+  }),
+  observeMainHealthGitHubDefaultBranchSha: async () => 'a'.repeat(40),
+  observeCanonicalMainHealthForPublication: async (input) => {
     if (sessionDepth !== 1) throw new Error('MainHealth snapshot escaped the shared session');
     calls.push('repair:' + input.mainSha);
     return Object.freeze({
@@ -60,14 +61,14 @@ const selectionResult = Object.freeze({
 });
 
 mock.module(${JSON.stringify(selectionHref)}, () => ({
-  observeSecWorkSelectionLiveV1: async (input) => {
+  observeSecWorkSelectionLive: async (input) => {
     if (sessionDepth !== 1) throw new Error('selection escaped the shared MainHealth session');
     calls.push('selection:' + input.exactMain);
     return selectionResult;
   }
 }));
 
-const { observeDocumentControlWorkRoutingV1 } = await import(
+const { observeDocumentControlWorkRouting } = await import(
   ${JSON.stringify(documentControlHref)} + '?main-health-session-contract-v1'
 );
 const input = Object.freeze({
@@ -78,13 +79,13 @@ const input = Object.freeze({
   exactMainTreeSha: 'b'.repeat(40)
 });
 
-const ordinary = await observeDocumentControlWorkRoutingV1(input);
+const ordinary = await observeDocumentControlWorkRouting(input);
 const ordinaryCalls = calls;
 const ordinarySessionCount = sessionCount;
 calls = [];
 sessionCount = 0;
 routingState = 'repair-only';
-const repair = await observeDocumentControlWorkRoutingV1(input);
+const repair = await observeDocumentControlWorkRouting(input);
 
 process.stdout.write(JSON.stringify({
   ordinary: {
@@ -137,34 +138,3 @@ process.stdout.write(JSON.stringify({
     finalSessionDepth: 0
   });
 });
-
-test.skipIf(process.platform !== 'win32')(
-  'document-control Windows admission fails before PATH lookup or any child process',
-  async () => {
-    const originalWhich = Bun.which;
-    let whichCalls = 0;
-    Bun.which = (command: string) => {
-      whichCalls += 1;
-      return originalWhich(command);
-    };
-    try {
-      const failure = await resolveLiveControlPlane(process.cwd(), { observeGitHub: false }).then(
-        () => undefined,
-        (error: unknown) => error
-      );
-      expect(failure).toBeInstanceOf(CodexDevelopmentDocumentControlCliAdmissionError);
-      expect(failure).toMatchObject({
-        code: 'DOCUMENT-CONTROL-CLI-ADMISSION-001',
-        command: 'git',
-        operation: 'git-read',
-        status: 'unknown',
-        reason: 'installed-executable-capability-unproven'
-      });
-      expect((failure as CodexDevelopmentDocumentControlCliAdmissionError).detailDigest)
-        .toMatch(/^sha256:[0-9a-f]{64}$/u);
-      expect(whichCalls).toBe(0);
-    } finally {
-      Bun.which = originalWhich;
-    }
-  }
-);
