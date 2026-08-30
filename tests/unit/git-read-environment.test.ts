@@ -4,8 +4,13 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { runGitRead } from '../../src/development/tooling/git/git-read.ts';
 import {
+  assertProductionGitReadSession,
+  createAuthorityGitReadSession,
   createHostGitReadSessionForTests,
+  isProductionGitReadSession,
+  isTestGitReadSession,
   isolatedGitChildEnvironment,
   isolatedGitReadEnvironment
 } from '../../src/external-capabilities/git-read/test/session.ts';
@@ -147,6 +152,45 @@ test('the explicit host test route rejects aggregate argument overflow before st
   expect(session.processCount).toBe(0);
 });
 
+test('Git read grammar admits exact observations and terminally rejects mutation or helper execution', async () => {
+  const cases = [
+    { args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'], permitted: true },
+    { args: ['rev-parse', '--verify', 'HEAD^{commit}'], permitted: true },
+    { args: ['write-tree'], permitted: false },
+    { args: ['hash-object', '-w', '--stdin'], permitted: false },
+    { args: ['update-index', '-z', '--index-info'], permitted: false },
+    { args: ['config', 'user.name', 'unauthorized-writer'], permitted: false },
+    { args: ['branch', 'unauthorized-writer'], permitted: false },
+    { args: ['symbolic-ref', '--delete', 'HEAD'], permitted: false },
+    { args: ['-c', 'core.hooksPath=unauthorized', 'status'], permitted: false },
+    { args: ['diff', '--ext-diff'], permitted: false },
+    { args: ['diff', '--textconv'], permitted: false },
+    { args: ['cat-file', '--filters', 'HEAD:package.json'], permitted: false },
+    { args: ['rev-list', '--use-bitmap-index', '--filter=blob:none', 'HEAD'], permitted: false },
+    { args: ['show', '--format=%(trailers:only,unfold,key=SEC,separator=%x00)', 'HEAD'], permitted: false }
+  ] as const;
+  for (const testCase of cases) {
+    const session = createHostGitReadSessionForTests({ cwd: process.cwd() });
+    try {
+      const result = await session.run(testCase.args);
+      if (testCase.permitted) {
+        expect(result.kind).toBe('completed');
+        expect(session.processCount).toBe(1);
+      } else {
+        if (result.kind === 'completed') throw new Error('Forbidden Git grammar unexpectedly executed.');
+        expect(result).toMatchObject({
+          kind: 'unresolved-git-read-session',
+          reason: 'operation-not-permitted'
+        });
+        expect(session.processCount).toBe(0);
+        expect(session.failure).toBe(result);
+      }
+    } finally {
+      await session.close?.();
+    }
+  }
+});
+
 test('a terminal host-session failure cannot be consumed as additional records', async () => {
   const session = createHostGitReadSessionForTests({
     cwd: process.cwd(),
@@ -158,6 +202,73 @@ test('a terminal host-session failure cannot be consumed as additional records',
   expect(commandFailure.kind).toBe('unresolved-git-read-session');
   expect(recordFailure).toBe(session.failure);
   expect(session.recordCount).toBe(recordsBefore);
+});
+
+test('test sessions cannot cross the production GitRead issuer boundary', async () => {
+  const testSession = createHostGitReadSessionForTests({ cwd: process.cwd() });
+  expect(isTestGitReadSession(testSession)).toBe(true);
+  expect(isProductionGitReadSession(testSession)).toBe(false);
+  expect(() => assertProductionGitReadSession(testSession)).toThrow(/production issuer/u);
+  const structuralClone = { ...testSession };
+  expect(isProductionGitReadSession(structuralClone)).toBe(false);
+  expect(() => assertProductionGitReadSession(structuralClone)).toThrow(/production issuer/u);
+  await testSession.close?.();
+
+  const resolution = createAuthorityGitReadSession({ cwd: process.cwd() });
+  expect(resolution.status).toBe('ready');
+  if (resolution.status === 'ready') {
+    expect(isProductionGitReadSession(resolution.session)).toBe(true);
+    expect(isTestGitReadSession(resolution.session)).toBe(false);
+    expect(() => assertProductionGitReadSession(resolution.session)).not.toThrow();
+    await resolution.session.close?.();
+  }
+});
+
+test('semantic GitRead helpers reject a test transport before any child starts', async () => {
+  const session = createHostGitReadSessionForTests({ cwd: process.cwd() });
+  try {
+    const result = await runGitRead(session, ['--version']);
+    expect(result.status).toBeNull();
+    expect(result.error?.message).toMatch(/production-issued/u);
+    expect(session.processCount).toBe(0);
+  } finally {
+    await session.close?.();
+  }
+});
+
+test('provider admission preserves an expired parent deadline as a typed reason', () => {
+  const resolution = createAuthorityGitReadSession({
+    cwd: process.cwd(),
+    deadlineAtUnixMs: Date.now() - 1
+  });
+  expect(resolution).toMatchObject({
+    kind: 'unresolved-git-read-provider',
+    status: 'unavailable',
+    reason: 'git-session-deadline-exhausted'
+  });
+});
+
+test('close waits for an admitted child before disposing the GitRead session', async () => {
+  const session = createHostGitReadSessionForTests({ cwd: process.cwd() });
+  const command = session.run([
+    '--no-pager',
+    '-c', 'core.quotepath=false',
+    '-c', 'core.fsmonitor=false',
+    '-c', 'core.untrackedCache=false',
+    'status', '--porcelain=v1', '-z', '--untracked-files=no'
+  ]);
+  const close = session.close?.();
+  expect(close).toBeInstanceOf(Promise);
+  await close;
+  const result = await command;
+  expect(result.kind).toBe('completed');
+  expect(session.failure).toBeNull();
+
+  const afterClose = await session.run(['--version']);
+  expect(afterClose).toMatchObject({
+    kind: 'unresolved-git-read-session',
+    reason: 'command-error'
+  });
 });
 
 test('the host provider resolves Git from its canonical child PATH', () => {
@@ -197,7 +308,15 @@ test('the host transport fences the retained executable and cwd before and after
   expect(session.failure).toBeNull();
   const result = await session.run(['--version']);
   expect(result.kind).toBe('completed');
-  expect(session.processCount).toBe(1);
+  const status = await session.run([
+    '--no-pager',
+    '-c', 'core.quotepath=false',
+    '-c', 'core.fsmonitor=false',
+    '-c', 'core.untrackedCache=false',
+    'status', '--porcelain=v1', '-z', '--untracked-files=no'
+  ]);
+  expect(status.kind).toBe('completed');
+  expect(session.processCount).toBe(2);
   expect(session.failure).toBeNull();
 });
 

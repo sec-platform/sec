@@ -2,7 +2,7 @@ import { devNull } from 'node:os';
 import path from 'node:path';
 
 import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, resolveExecutableLocator, runCommandBytes, runRetainedCommandBytes, type ByteCommandResult, type RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
+import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, issueRetainedCommandBoundary, resolveExecutableLocator, runCommandBytes, runRetainedCommandBytes, type ByteCommandResult, type RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
 import { rawSha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 
 /**
@@ -205,7 +205,17 @@ export type GitReadProviderRoute = 'host-local-git-v1';
 export type GitReadHostProviderResolutionReason =
   | 'git-executable-unavailable'
   | 'git-executable-identity-unavailable'
-  | 'git-session-failed';
+  | 'git-session-failed'
+  | 'git-session-deadline-exhausted'
+  | 'git-session-process-budget-exhausted'
+  | 'git-session-stdout-budget-exhausted'
+  | 'git-session-stderr-budget-exhausted'
+  | 'git-session-record-budget-exhausted'
+  | 'git-session-root-observation-budget-exhausted'
+  | 'git-session-executable-budget-exhausted'
+  | 'git-session-argument-budget-exhausted'
+  | 'git-session-stdin-budget-exhausted'
+  | 'git-session-operation-not-permitted';
 
 export type GitReadProviderFailure = Readonly<{
   readonly kind: 'unresolved-git-read-provider';
@@ -237,6 +247,7 @@ export type GitReadSessionFailure = Readonly<{
     | 'executable-budget-exhausted'
     | 'argument-budget-exhausted'
     | 'stdin-budget-exhausted'
+    | 'operation-not-permitted'
     | 'command-error';
   detail: string;
   /** Bounded digest for correlating a provider/transport failure. */
@@ -318,6 +329,36 @@ export type GitReadSession = Readonly<{
   close?: () => Promise<void>;
 }>;
 
+/**
+ * A session's origin is deliberately not a public data property.  The
+ * factory result is structurally convenient for read-only helpers, but an
+ * object copied, spread, or constructed by a caller must not become a
+ * production authority.  These registries are the runtime issuer boundary;
+ * the test registry is intentionally never accepted by production gates.
+ */
+const PRODUCTION_GIT_READ_SESSIONS = new WeakSet<object>();
+const TEST_GIT_READ_SESSIONS = new WeakSet<object>();
+
+export function isProductionGitReadSession(session: GitReadSession): boolean {
+  return typeof session === 'object'
+    && session !== null
+    && PRODUCTION_GIT_READ_SESSIONS.has(session);
+}
+
+export function isTestGitReadSession(session: GitReadSession): boolean {
+  return typeof session === 'object'
+    && session !== null
+    && TEST_GIT_READ_SESSIONS.has(session);
+}
+
+export function assertProductionGitReadSession(session: GitReadSession): void {
+  if (!isProductionGitReadSession(session)) {
+    throw new Error(
+      'Git read session lacks a production issuer capability; test or structural sessions are not authority.'
+    );
+  }
+}
+
 const DEFAULT_GIT_READ_SESSION_BUDGET: GitReadSessionBudget = Object.freeze({
   deadlineMs: 5_000,
   maxProcesses: 32,
@@ -377,6 +418,196 @@ function gitReadCommandArgumentBytes(args: readonly string[]): number | null {
     if (!Number.isSafeInteger(bytes)) return null;
   }
   return bytes;
+}
+
+const GIT_READ_ONLY_COMMANDS = new Set([
+  'cat-file',
+  'branch',
+  'check-attr',
+  'config',
+  'diff',
+  'for-each-ref',
+  'ls-files',
+  'ls-tree',
+  'merge-base',
+  'remote',
+  'rev-list',
+  'rev-parse',
+  'show',
+  'status',
+  'symbolic-ref',
+  'worktree'
+]);
+
+const GIT_READ_FORBIDDEN_HELPER_ARGUMENTS = new Set([
+  '--ext-diff',
+  '--textconv',
+  '--filters',
+  '--use-bitmap-index',
+  '--exec',
+  '--recurse-submodules',
+  '--submodule'
+]);
+
+function gitReadArgumentsInvokeHelper(args: readonly string[]): boolean {
+  return args.some((argument) => (
+    GIT_READ_FORBIDDEN_HELPER_ARGUMENTS.has(argument)
+    || argument.startsWith('--filter=')
+    || argument.startsWith('--upload-pack=')
+    || argument.startsWith('--receive-pack=')
+  ));
+}
+
+const GIT_READ_SAFE_CONFIG_OVERRIDES = new Set([
+  'core.attributesFile=',
+  'core.fsmonitor=false',
+  'core.quotepath=false',
+  'core.untrackedCache=false'
+]);
+
+function gitReadCommandName(args: readonly string[]): string | null {
+  if (args.length === 1 && args[0] === '--version') return '--version';
+  let index = 0;
+  while (index < args.length) {
+    const argument = args[index]!;
+    if (argument === '-c') {
+      const value = args[index + 1];
+      if (value === undefined || !GIT_READ_SAFE_CONFIG_OVERRIDES.has(value)) return null;
+      index += 2;
+      continue;
+    }
+    if (argument === '--git-dir' || argument === '--work-tree') {
+      if (args[index + 1] === undefined) return null;
+      index += 2;
+      continue;
+    }
+    if (argument === '--no-pager' || argument === '--literal-pathspecs') {
+      index += 1;
+      continue;
+    }
+    return argument.startsWith('-') ? null : argument;
+  }
+  return null;
+}
+
+/**
+ * GitRead is an observation capability, not a generic Git process wrapper.
+ * Reject mutation grammar before any retained executable is invoked. Commands
+ * with read and write modes are narrowed to their observation-only form here;
+ * a semantic mutation owner must use a separately issued effect capability.
+ */
+function gitReadCommandIsObservation(args: readonly string[]): boolean {
+  const command = gitReadCommandName(args);
+  if (command === '--version') return true;
+  if (command === null || !GIT_READ_ONLY_COMMANDS.has(command)) return false;
+  const commandIndex = args.indexOf(command);
+  const commandArgs = args.slice(commandIndex + 1);
+  if (gitReadArgumentsInvokeHelper(commandArgs)) return false;
+  if (command === 'branch') return commandArgs.length === 1 && commandArgs[0] === '--show-current';
+  if (command === 'cat-file') {
+    return (commandArgs.length === 1 && commandArgs[0] === '--batch')
+      || (commandArgs.length === 2
+        && ['-e', '-s', '-t', 'blob', 'commit'].includes(commandArgs[0]!));
+  }
+  if (command === 'check-attr') {
+    return commandArgs.length === 6
+      && commandArgs[0] === '-z'
+      && commandArgs[1] === '--stdin'
+      && commandArgs[2] === '--source'
+      && !commandArgs[3]!.startsWith('-')
+      && commandArgs[4] === 'text'
+      && commandArgs[5] === 'eol';
+  }
+  if (command === 'config') {
+    return commandArgs.length === 2
+      && commandArgs[0] === '--get'
+      && !commandArgs[1]!.startsWith('-');
+  }
+  if (command === 'remote') {
+    return commandArgs.length >= 2
+      && commandArgs[0] === 'get-url'
+      && commandArgs.slice(1, -1).every((argument) => argument === '--all' || argument === '--push')
+      && !commandArgs.at(-1)!.startsWith('-');
+  }
+  if (command === 'worktree') {
+    return commandArgs[0] === 'list'
+      && commandArgs.slice(1).every((argument) => (
+        argument === '--porcelain' || argument === '-z' || argument === '-v'
+      ));
+  }
+  if (command === 'symbolic-ref') {
+    const positional = commandArgs.filter((argument) => !argument.startsWith('-'));
+    return positional.length === 1
+      && commandArgs.every((argument) => (
+        !argument.startsWith('-')
+        || argument === '--short'
+        || argument === '--quiet'
+        || argument === '-q'
+      ));
+  }
+  if (command === 'status') {
+    return commandArgs.every((argument) => (
+      argument === '--short'
+      || argument === '--porcelain'
+      || argument === '--porcelain=v1'
+      || argument === '--porcelain=v2'
+      || argument === '-z'
+      || argument === '--untracked-files=all'
+      || argument === '--untracked-files=no'
+      || argument === '--ignored=no'
+      || argument === '--ignored=matching'
+      || argument === '--'
+      || !argument.startsWith('-')
+    ));
+  }
+  if (command === 'show') {
+    return commandArgs.length === 1 && !commandArgs[0]!.startsWith('-');
+  }
+  if (command === 'merge-base') {
+    return (commandArgs.length === 2 && commandArgs.every((argument) => !argument.startsWith('-')))
+      || (commandArgs.length === 3
+        && commandArgs[0] === '--is-ancestor'
+        && commandArgs.slice(1).every((argument) => !argument.startsWith('-')));
+  }
+  if (command === 'for-each-ref') {
+    return commandArgs.length === 2
+      && commandArgs[0]!.startsWith('--format=')
+      && !commandArgs[1]!.startsWith('-');
+  }
+  if (command === 'diff') {
+    const allowed = new Set([
+      '--no-ext-diff', '--no-textconv', '--binary', '--full-index', '--no-renames',
+      '--name-status', '--name-only', '--exit-code', '-z', '--find-renames',
+      '--find-copies', '--cached', '--'
+    ]);
+    return commandArgs.every((argument) => (
+      allowed.has(argument)
+      || argument.startsWith('--diff-filter=')
+      || !argument.startsWith('-')
+    ));
+  }
+  if (command === 'ls-files') {
+    const allowed = new Set([
+      '-z', '--stage', '--cached', '--others', '--exclude-standard', '--ignored', '--'
+    ]);
+    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
+  }
+  if (command === 'ls-tree') {
+    const allowed = new Set(['-r', '-z', '-l', '--full-tree', '--name-only', '--']);
+    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
+  }
+  if (command === 'rev-parse') {
+    const allowed = new Set([
+      '--verify', '--quiet', '-q', '--end-of-options', '--show-toplevel', '--git-common-dir',
+      '--is-inside-work-tree', '--path-format=absolute', '--git-path'
+    ]);
+    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
+  }
+  if (command === 'rev-list') {
+    const allowed = new Set(['--parents', '-n', '1', '--count', '--not']);
+    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
+  }
+  return false;
 }
 
 function createGitReadBudget(
@@ -564,6 +795,7 @@ function createHostGitReadSession(input: Readonly<{
   budget?: Partial<GitReadSessionBudget>;
   source?: NodeJS.ProcessEnv;
   deadlineAtUnixMs?: number;
+  origin: 'production' | 'test';
 }>): GitReadSession {
   const budget = createGitReadBudget(input.budget);
   const startedAt = Date.now();
@@ -575,7 +807,7 @@ function createHostGitReadSession(input: Readonly<{
   );
   const deadlineMonotonicAt = startedMonotonicAt + Math.max(0, deadlineAt - startedAt);
   const env = Object.freeze(isolatedGitReadEnvironment(input.environment ?? {}, input.source));
-  const admissionDeadlineExpired = Date.now() >= deadlineAt
+  let admissionDeadlineExpired = Date.now() >= deadlineAt
     || performance.now() >= deadlineMonotonicAt;
   let workingDirectoryIdentity: PhysicalDirectoryChain | null = null;
   let workingDirectoryObservationFailure: string | null = null;
@@ -589,20 +821,43 @@ function createHostGitReadSession(input: Readonly<{
       workingDirectoryObservationFailure = error instanceof Error ? error.message : String(error);
     }
   }
+  // The no-follow cwd inspection is synchronous, so it cannot be cancelled
+  // midway.  It must nevertheless be followed by an absolute-deadline gate:
+  // an expired cwd observation may not continue into PATH discovery or
+  // executable inspection.
+  if (!admissionDeadlineExpired && (
+    Date.now() >= deadlineAt || performance.now() >= deadlineMonotonicAt
+  )) {
+    admissionDeadlineExpired = true;
+  }
   // Do not even perform executable/PATH discovery when the cwd observation
   // cannot be proved. This keeps an unsafe or unavailable cwd from becoming a
   // transport authority through a later child-process check.
-  const gitExecutable = workingDirectoryIdentity === null ? null : resolveExecutableLocator(
-    'git',
-    {
-      pathValue: readCaseInsensitiveEnvironmentValue(env, 'PATH') ?? '',
-      cwd: path.resolve(input.cwd)
-    }
-  );
-  const initialExecutableObservation = gitExecutable === null ? null : inspectGitExecutable(gitExecutable, {
-    deadlineAtMs: deadlineMonotonicAt,
-    maxBytes: budget.maxExecutableBytes
-  });
+  const gitExecutable = admissionDeadlineExpired || workingDirectoryIdentity === null
+    ? null
+    : resolveExecutableLocator(
+      'git',
+      {
+        pathValue: readCaseInsensitiveEnvironmentValue(env, 'PATH') ?? '',
+        cwd: path.resolve(input.cwd)
+      }
+    );
+  if (!admissionDeadlineExpired && (
+    Date.now() >= deadlineAt || performance.now() >= deadlineMonotonicAt
+  )) {
+    admissionDeadlineExpired = true;
+  }
+  const initialExecutableObservation = admissionDeadlineExpired || gitExecutable === null
+    ? null
+    : inspectGitExecutable(gitExecutable, {
+      deadlineAtMs: deadlineMonotonicAt,
+      maxBytes: budget.maxExecutableBytes
+    });
+  if (!admissionDeadlineExpired && (
+    Date.now() >= deadlineAt || performance.now() >= deadlineMonotonicAt
+  )) {
+    admissionDeadlineExpired = true;
+  }
   const gitExecutableIdentity = initialExecutableObservation !== null
       && 'identity' in initialExecutableObservation
     ? initialExecutableObservation.identity
@@ -610,6 +865,7 @@ function createHostGitReadSession(input: Readonly<{
   let retainedCommandBoundary: RetainedCommandBoundary | null = null;
   let retainedAdmissionFailure: string | null = null;
   if (process.platform === 'win32'
+      && !admissionDeadlineExpired
       && workingDirectoryIdentity !== null
       && physicalDirectoryChainObservedBytes(workingDirectoryIdentity) <= budget.maxRootObservedBytes
       && gitExecutable !== null
@@ -638,16 +894,61 @@ function createHostGitReadSession(input: Readonly<{
           || executableDigest.size !== gitExecutableIdentity.size) {
         throw new Error('Git retained executable bytes differ from the admitted executable identity');
       }
-      retainedCommandBoundary = Object.freeze({ executable, workingDirectory });
+      retainedCommandBoundary = issueRetainedCommandBoundary({ executable, workingDirectory });
     } catch (error) {
       workingDirectory?.dispose();
       executable?.dispose();
       retainedAdmissionFailure = error instanceof Error ? error.message : String(error);
     }
   }
+  // Retention is synchronous as well.  A slow capability admission must not
+  // turn an operation whose absolute deadline elapsed during that admission
+  // into a ready session, and it must not leave a retained child boundary
+  // behind while the provider is being rejected.
+  if (!admissionDeadlineExpired && (
+    Date.now() >= deadlineAt || performance.now() >= deadlineMonotonicAt
+  )) {
+    admissionDeadlineExpired = true;
+    if (retainedCommandBoundary !== null) {
+      let disposalFailure: unknown;
+      try {
+        retainedCommandBoundary.workingDirectory.dispose();
+      } catch (error) {
+        disposalFailure = error;
+      }
+      try {
+        retainedCommandBoundary.executable.dispose();
+      } catch (error) {
+        disposalFailure ??= error;
+      }
+      retainedCommandBoundary = null;
+      if (disposalFailure !== undefined && retainedAdmissionFailure === null) {
+        retainedAdmissionFailure = disposalFailure instanceof Error
+          ? disposalFailure.message
+          : String(disposalFailure);
+      }
+    }
+  }
   let processCount = 0;
   let activeProcesses = 0;
   let closed = false;
+  let closing = false;
+  let closePromise: Promise<void> | null = null;
+  const activeRunSettlements = new Set<Promise<void>>();
+  const registerActiveRun = (): (() => void) => {
+    let settled = false;
+    let settle!: () => void;
+    const completion = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    activeRunSettlements.add(completion);
+    return () => {
+      if (settled) return;
+      settled = true;
+      activeRunSettlements.delete(completion);
+      settle();
+    };
+  };
   let stdoutBytes = 0;
   let stderrBytes = 0;
   let argumentBytes = 0;
@@ -818,18 +1119,31 @@ function createHostGitReadSession(input: Readonly<{
         if (!stable) fail('command-error', 'The trusted Git working-directory physical identity changed.');
         return stable;
       } catch (error) {
-        fail(
-          'command-error',
-          'The trusted Git working-directory physical identity could not be re-observed.'
-            + (error instanceof Error ? ` ${error.message}` : ` ${String(error)}`)
-        );
+        if (Date.now() >= deadlineAt || performance.now() >= deadlineMonotonicAt) {
+          fail('deadline-exhausted', 'Git read session deadline elapsed while re-observing the working directory.');
+        } else {
+          fail(
+            'command-error',
+            'The trusted Git working-directory physical identity could not be re-observed.'
+              + (error instanceof Error ? ` ${error.message}` : ` ${String(error)}`)
+          );
+        }
         return false;
       }
     },
     verifyExecutable,
     async run(args: readonly string[], options: GitReadSessionRunOptions = {}): Promise<GitReadSessionCommand> {
       if (failure !== null) return failure;
-      if (closed) return fail('command-error', 'Git read session is closed.');
+      if (closed || closing) return fail(
+        'command-error',
+        closed ? 'Git read session is closed.' : 'Git read session is closing.'
+      );
+      if (!gitReadCommandIsObservation(args)) {
+        return fail(
+          'operation-not-permitted',
+          'Git session rejected command grammar outside its observation capability.'
+        );
+      }
       const remainingWallMs = deadlineAt - Date.now();
       const remainingMonotonicMs = deadlineMonotonicAt - performance.now();
       const remainingMs = Math.min(remainingWallMs, remainingMonotonicMs);
@@ -876,6 +1190,7 @@ function createHostGitReadSession(input: Readonly<{
       argumentBytes += commandArgumentBytes;
       stdinBytes += commandInput?.byteLength ?? 0;
       activeProcesses += 1;
+      const settleRun = registerActiveRun();
       try {
         const commandOptions = {
           env,
@@ -928,11 +1243,15 @@ function createHostGitReadSession(input: Readonly<{
         return fail('command-error', error instanceof Error ? error.message : String(error));
       } finally {
         activeProcesses -= 1;
+        settleRun();
       }
     },
     consumeRecords(count: number): GitReadSessionFailure | null {
       if (failure !== null) return failure;
-      if (closed) return fail('command-error', 'Git read session is closed.');
+      if (closed || closing) return fail(
+        'command-error',
+        closed ? 'Git read session is closed.' : 'Git read session is closing.'
+      );
       if (Date.now() >= deadlineAt || performance.now() > deadlineMonotonicAt) {
         return fail('deadline-exhausted', 'Git read session deadline elapsed while consuming records.');
       }
@@ -950,48 +1269,84 @@ function createHostGitReadSession(input: Readonly<{
     },
     async close(): Promise<void> {
       if (closed) return;
-      if (activeProcesses !== 0) {
-        fail('command-error', 'Git read session cannot close while a command is active.');
-        return;
-      }
-      let closeFailure: unknown;
-      try {
-        retainedCommandBoundary?.executable.assertCurrent();
-        retainedCommandBoundary?.workingDirectory.assertCurrent();
-      } catch (error) {
-        closeFailure = error;
-      } finally {
-        try {
-          retainedCommandBoundary?.workingDirectory.dispose();
-        } catch (error) {
-          closeFailure ??= error;
+      if (closePromise !== null) return closePromise;
+      // Closing is a state transition, not an observation failure.  Mark the
+      // session as closing so no new child can enter, then await every child
+      // already admitted.  This removes the old race where close returned
+      // early with retained capabilities still live and the caller could not
+      // retry because it had already treated the wrapper as closed.
+      closing = true;
+      closePromise = (async () => {
+        while (activeRunSettlements.size > 0) {
+          await Promise.all([...activeRunSettlements]);
         }
+        let closeFailure: unknown;
         try {
-          retainedCommandBoundary?.executable.dispose();
+          retainedCommandBoundary?.executable.assertCurrent();
+          retainedCommandBoundary?.workingDirectory.assertCurrent();
         } catch (error) {
-          closeFailure ??= error;
+          closeFailure = error;
+        } finally {
+          try {
+            retainedCommandBoundary?.workingDirectory.dispose();
+          } catch (error) {
+            closeFailure ??= error;
+          }
+          try {
+            retainedCommandBoundary?.executable.dispose();
+          } catch (error) {
+            closeFailure ??= error;
+          }
+          retainedCommandBoundary = null;
+          closed = true;
         }
-        retainedCommandBoundary = null;
-        closed = true;
-      }
-      if (closeFailure !== undefined) {
-        fail('command-error', `Git retained provider settlement failed. ${closeFailure instanceof Error ? closeFailure.message : String(closeFailure)}`);
-      }
+        if (closeFailure !== undefined) {
+          fail('command-error', `Git retained provider settlement failed. ${closeFailure instanceof Error ? closeFailure.message : String(closeFailure)}`);
+        }
+      })();
+      return closePromise;
     }
   };
-  return Object.freeze(session);
+  const issuedSession = Object.freeze(session);
+  if (input.origin === 'production') PRODUCTION_GIT_READ_SESSIONS.add(issuedSession);
+  else TEST_GIT_READ_SESSIONS.add(issuedSession);
+  return issuedSession;
 }
 
 function projectHostProviderFailure(
   session: GitReadSession
 ): GitReadProviderFailure {
-  const reason: GitReadHostProviderResolutionReason = session.workingDirectoryIdentity === null
-    ? 'git-executable-identity-unavailable'
-    : session.gitExecutable.length === 0
-      ? 'git-executable-unavailable'
-      : session.gitExecutableIdentity === null || session.providerIdentity === null
-        ? 'git-executable-identity-unavailable'
-        : 'git-session-failed';
+  const typedFailureReason: GitReadHostProviderResolutionReason | null = session.failure === null
+    ? null
+    : session.failure.reason === 'deadline-exhausted'
+      ? 'git-session-deadline-exhausted'
+      : session.failure.reason === 'process-budget-exhausted'
+        ? 'git-session-process-budget-exhausted'
+        : session.failure.reason === 'stdout-budget-exhausted'
+          ? 'git-session-stdout-budget-exhausted'
+          : session.failure.reason === 'stderr-budget-exhausted'
+            ? 'git-session-stderr-budget-exhausted'
+            : session.failure.reason === 'record-budget-exhausted'
+              ? 'git-session-record-budget-exhausted'
+              : session.failure.reason === 'root-observation-budget-exhausted'
+                ? 'git-session-root-observation-budget-exhausted'
+                : session.failure.reason === 'executable-budget-exhausted'
+                  ? 'git-session-executable-budget-exhausted'
+                  : session.failure.reason === 'argument-budget-exhausted'
+                    ? 'git-session-argument-budget-exhausted'
+                    : session.failure.reason === 'stdin-budget-exhausted'
+                      ? 'git-session-stdin-budget-exhausted'
+                      : session.failure.reason === 'operation-not-permitted'
+                        ? 'git-session-operation-not-permitted'
+                        : null;
+  const reason: GitReadHostProviderResolutionReason = typedFailureReason
+    ?? (session.workingDirectoryIdentity === null
+      ? 'git-executable-identity-unavailable'
+      : session.gitExecutable.length === 0
+        ? 'git-executable-unavailable'
+        : session.gitExecutableIdentity === null || session.providerIdentity === null
+          ? 'git-executable-identity-unavailable'
+          : 'git-session-failed');
   return Object.freeze({
     kind: 'unresolved-git-read-provider',
     route: 'host-local-git-v1',
@@ -1028,7 +1383,7 @@ export function createAuthorityGitReadSession(input: Readonly<{
   /** Optional parent absolute wall deadline; never broadens the local budget. */
   deadlineAtUnixMs?: number;
 }>): GitReadSessionResolution {
-  const session = createHostGitReadSession(input);
+  const session = createHostGitReadSession({ ...input, origin: 'production' });
   if (session.gitExecutable.length === 0
       || session.gitExecutableIdentity === null
       || session.providerIdentity === null
@@ -1055,5 +1410,5 @@ export function createHostGitReadSessionForTests(input: Readonly<{
   source?: NodeJS.ProcessEnv;
   deadlineAtUnixMs?: number;
 }>): GitReadSession {
-  return createHostGitReadSession(input);
+  return createHostGitReadSession({ ...input, origin: 'test' });
 }

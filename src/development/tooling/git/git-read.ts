@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { type GitReadSession, type GitReadSessionBudget } from '../../../external-capabilities/git-read/runtime/session.ts';
+import { isProductionGitReadSession, type GitReadSession, type GitReadSessionBudget } from '../../../external-capabilities/git-read/runtime/session.ts';
 
 export interface GitReadResult {
   readonly status: number | null;
@@ -67,6 +67,22 @@ export async function runGitRead(
     maxBuffer?: number;
   }> = {}
 ): Promise<GitReadResult> {
+  // This is the semantic GitRead choke point.  A host/test transport is
+  // useful for isolated unit fixtures, but it must never cross into a
+  // production reader merely because its structural fields look identical.
+  // Keep the rejection effect-free so callers receive the same typed
+  // non-completion path as any other provider failure.
+  if (!isProductionGitReadSession(session)) {
+    const error = new Error(
+      'Git read semantic helpers require a production-issued GitRead session.'
+    );
+    return Object.freeze({
+      status: null,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.from(error.message, 'utf8'),
+      error
+    });
+  }
   const maxBuffer = options.maxBuffer ?? GIT_READ_COMMAND_MAX_BUFFER;
   if (!Number.isSafeInteger(maxBuffer) || maxBuffer <= 0 || maxBuffer > session.budget.maxCommandStdoutBytes) {
     throw new Error(`Git command output bound must be a positive value no greater than ${session.budget.maxCommandStdoutBytes}`);
