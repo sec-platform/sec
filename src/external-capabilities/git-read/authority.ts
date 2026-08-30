@@ -1,5 +1,6 @@
 import {
   createAuthorityGitReadSession,
+  isProductionGitReadSession,
   type GitReadProviderResolutionFailure,
   type GitReadSession,
   type GitReadSessionFailure
@@ -32,6 +33,16 @@ export async function withAuthorityGitReadSession<T>(
   let result: T | undefined;
   let primaryError: unknown;
   try {
+    if (!isProductionGitReadSession(session)) {
+      throw new GitReadAuthorityError(
+        'Git read provider returned a session without a production issuer capability.',
+        Object.freeze({
+          kind: 'unresolved-git-read-session' as const,
+          reason: 'operation-not-permitted' as const,
+          detail: 'Only the canonical production GitRead issuer may cross this authority boundary.'
+        })
+      );
+    }
     result = await operation(session);
   } catch (error) {
     primaryError = error;
