@@ -154,7 +154,6 @@ src/
     <capability>/         capability-owned product, governance and infrastructure code
     sec.module.json       non-derivable import/bootstrap/capability facts only
     *.ts                  capability implementation grouped by semantic responsibility
-    index.ts              optional package-local convenience; never cross-capability
     *.ts                  keep a small capability flat
     <subcapability>/       only when a real internal capability exists
     *.test.ts             capability-owned behavior/failure/effect proofs
@@ -169,6 +168,11 @@ config/                   repository-wide host configuration only
 journal、cache、lifecycle、业务Decision或完成裁决。小capability保持平铺；只有真实子能力才建立子目录，禁止机械创建
 `contract/application/runtime/state/test-support`空层或barrel。contract/query/command是Source Program Model从符号、
 consumer和Effect闭包编译出的语义类别，不由文件名、目录名或descriptor清单冒充。
+
+公共面也不由`index.ts`、纯re-export barrel或全域facade冒充。跨capability consumer直接依赖目标owner签发的最窄行为入口；
+只有入口本身执行稳定投影、authority intersection、lifecycle或Effect admission时才形成facade。facade必须保持向外单向依赖，
+不能反向导入consumer、CLI或上层编排，也不能只为了缩短路径复制底层exports。零消费者facade与barrel直接图切；未来真实
+consumer出现时从canonical owner建立最窄入口，不预留“也许会用”的空公共面。
 
 测试与被保护capability同置；真正跨capability/system boundary的测试进入拥有该边界Decision的capability。测试文件不得
 成为production事实源，production也不得导入test/fault provider。fixture只表达外部输入或故障，不复制canonical
@@ -421,14 +425,22 @@ Evidence binding，不改变状态机语义。terminal work是首个完整canary
 
 路径只是物理 binding，不是跨域 identity。一个 workspace 至少区分：
 
-- `source/**`：开发者或受控 Mutation 拥有的 Authoring Source、Governed Source 与 Opaque Boundary；
-- `project/**`：生成目标或 adopted runtime artifact；人工修改形成 Drift 或受治理 Override；
-- `control/**`：Lock、Verification、Provenance、Review、Workflow 等持久治理投影；只有对应 owner 可写；
+- `sec.yaml`：workspace入口与显式产品约束，不复制派生路径、owner或dependency graph；
+- `model/**`：Semantic Model、Policy、Block/Extension声明及其他非可执行authoring input；它不能保存TypeScript/JavaScript
+  实现、生成物或运行时状态；
+- `src/**`：目标程序全部可执行authoring source的唯一物理owner；generated/adopted source也只能在同一编译事务中以
+  exact provenance绑定进入该树，禁止同时保留`source/code`、`project/custom`或第二份template source；
+- `tests/**`：目标程序对公共行为、持久状态、Effect与failure boundary的proof，不镜像`src`物理布局；
+- ecosystem-native根文件与目录（例如`package.json`、`tsconfig.json`、`prisma/**`）：目标工具链的真实输入，不包在
+  `project/`、`app/`或SEC专用技术容器中；
+- `.sec/artifacts/**`：Lock、Verification、Provenance、Review与其他可发布持久投影；只有对应owner可写；
 - `.sec/cache/**`、派生 build info 与可重建索引：可删除、可重算、不能成为 Evidence 或 authority；
 - `.sec/workspace-write-lease/**`、transaction journal、recovery state 与其他 identity-bound control state：不可按“本地缓存”整体删除；
 - runtime/toolchain materialization：可重建但绑定 package、lock、provider、platform、Implementation Binding和generation identity；ambient cache 不能冒充当前实例。
 
 因此 `.sec/**` 不是一种统一生命周期。任何清理器、fixture、worktree hygiene 或发布逻辑都必须先通过机器分类，unknown 默认拒绝删除、复制或并行共享。
+SEC编译器仓库自己的`src/`只保存SEC实现；用于dogfood或演示的目标workspace必须位于独立的`examples/<name>/`根，
+并在该根内使用上述native layout，不能把目标程序的`project/`、`source/`、`control/`平铺到编译器仓库根。
 
 ## 跨域引用
 
@@ -758,3 +770,28 @@ Verification、Review、MainHealth、IntegrationAuthorization 或 merge truth。
 - 对当前主线的收益高于上下文、维护和验证成本。
 
 大型未知探索只产生 Evidence。正式结果按唯一 owner 进入聚焦 Work Package；不能把完整 Spike 历史、并列总计划或未来状态机直接合并进主干。
+
+### Architecture Evolution transaction
+
+文件布局、package owner、公共入口、持久schema或跨域依赖方向的改变不是一组`git mv`，而是一笔可恢复的Architecture
+Evolution transaction。唯一repository architecture owner必须从同一exact revision编译：
+
+```text
+old repository/source/consumer/effect graph
+→ proposed canonical graph + net deletion set
+→ producer/consumer/external-contract/unknown census
+→ relocation + import/symbol rewrite + state migration plan
+→ one workspace lease + per-effect CAS/readback
+→ clean full graph equivalence and targeted behavior/effect proofs
+→ baseline/provenance/owner cutover
+→ old path, facade, alias, mirror and migration-state retirement
+```
+
+Plan必须绑定source revision、每个preimage/target physical identity、old/new module graph digest、unknown frontier、迁移顺序、
+验证闭包和terminal deletion set。进程崩溃或任一CAS失败时，只能从durable intent继续、回滚exact prior state或返回
+`recovery-required`；不得把部分移动解释为新架构，也不得删除baseline来绕过read-only protection。历史terminal transaction只作
+immutable Evidence，不能继续占有后来合法迁移或退役的旧目标路径。
+
+新反例若证明目标图仍有第二owner、反向依赖、不可恢复Effect、额外维护扇出或更低成本的成熟机制，当前target digest立即
+stale并从old graph重算；禁止在错误target旁加compatibility facade、V2目录、例外或第二迁移器。完成必须同时证明新图生效、
+旧图consumer-zero、unknown为零或typed blocker、净代码/状态减少，以及同一行为和failure boundary没有退化。
