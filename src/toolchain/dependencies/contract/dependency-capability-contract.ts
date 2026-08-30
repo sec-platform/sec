@@ -24,6 +24,7 @@ export const DEPENDENCY_CAPABILITY_SPECS: readonly Readonly<DependencyCapability
   { name: 'semver', section: 'dependencies', generatedRuntime: 'none' },
   { name: 'yaml', section: 'dependencies', generatedRuntime: 'dependency' },
   { name: 'zod', section: 'dependencies', generatedRuntime: 'none' },
+  { name: '@typescript/native', section: 'devDependencies', generatedRuntime: 'none' },
   { name: '@types/bun', section: 'devDependencies', generatedRuntime: 'devDependency' },
   { name: '@types/node', section: 'devDependencies', generatedRuntime: 'devDependency' },
   { name: '@types/semver', section: 'devDependencies', generatedRuntime: 'none' },
