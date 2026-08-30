@@ -238,6 +238,23 @@ function relativeModuleSpecifier(fromPath: string, targetPath: string): string {
   return relative.startsWith('.') ? relative : `./${relative}`;
 }
 
+function sourceSnapshotIdentity(
+  model: SourceProgramModel,
+  files: readonly SourceProgramFileInput[]
+): Readonly<{
+  sourceRevision: string;
+  modelDigest: string;
+  files: readonly Readonly<{ path: string; contentDigest: string }>[];
+}> {
+  return Object.freeze({
+    sourceRevision: model.sourceRevision,
+    modelDigest: model.modelDigest,
+    files: Object.freeze([...files]
+      .map(({ path, contentDigest }) => Object.freeze({ path, contentDigest }))
+      .sort((left, right) => compareCodeUnits(left.path, right.path)))
+  });
+}
+
 /**
  * Resolve broad barrel imports through the compiler-owned symbol graph. The
  * plan never guesses a public path: each imported/exported binding must map to
@@ -332,7 +349,10 @@ export function compileSourceProgramAggregateImportReductionPlan(
     || left.statementSpan.start - right.statementSpan.start);
   return Object.freeze({
     sourceRevision: model.sourceRevision,
-    planDigest: sha256({ sourceRevision: model.sourceRevision, reductions }),
+    planDigest: sha256({
+      snapshot: sourceSnapshotIdentity(model, files),
+      reductions
+    }),
     reductions: Object.freeze(reductions)
   });
 }
@@ -424,7 +444,7 @@ export function compileSourceProgramGraphCutReductionPlan(
     const removalNode = declarationNode === null ? null : graphCutRemovalNode(declarationNode);
     const reason = moduleEntrypointPaths.has(item.path)
       ? 'module entrypoint exports require an explicit external-consumer retirement'
-      : dynamicFrontierPaths.has(item.path)
+      : dynamicFrontierPaths.has('.') || dynamicFrontierPaths.has(item.path)
         ? 'source file has an unresolved dynamic consumer frontier'
         : declaration === undefined || sourceFile === undefined
           ? 'declaration source snapshot is unresolved'
@@ -445,7 +465,11 @@ export function compileSourceProgramGraphCutReductionPlan(
   return Object.freeze({
     sourceRevision: model.sourceRevision,
     evidenceDigest,
-    planDigest: sha256({ evidenceDigest, reductions }),
+    planDigest: sha256({
+      snapshot: sourceSnapshotIdentity(model, files),
+      evidenceDigest,
+      reductions
+    }),
     reductions: Object.freeze(reductions)
   });
 }
@@ -621,7 +645,10 @@ export function compileSourceProgramVersionSuffixReductionPlan(
     || compareCodeUnits(left.currentName, right.currentName));
   return Object.freeze({
     sourceRevision: model.sourceRevision,
-    planDigest: sha256(reductions),
+    planDigest: sha256({
+      snapshot: sourceSnapshotIdentity(model, files),
+      reductions
+    }),
     reductions: Object.freeze(reductions)
   });
 }

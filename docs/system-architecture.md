@@ -518,7 +518,7 @@ src/<domain>/<capability>/
   <operation>.test.ts    # behavior/effect/failure proof beside its owner
 ```
 
-跨package依赖必须直接指向Source Program Model证明的exported declaration owner；`contract`只能表达数据、schema、parser和纯投影，`query`只能提供bounded read，`command`才可提供显式Effect。类别属于symbol/consumer/effect closure，不属于路径。`runtime`、`internal`、`application`、`state`等目录名同样不声明私有性；需要私有的符号不得export。`index.ts`无法保存每个re-export的真实owner与依赖类别，因此只允许package内部使用，不能成为跨package facade；Reduction Compiler用TypeScript symbol resolution把旧barrel import机械改写到真实declaration。导入任何surface都不能在module evaluation阶段读取文件、环境、PATH、credential、provider、时钟、进程、网络或构造live session。默认配置实例、物理adoption和live provider必须由显式async operation创建。测试也只消费exported declaration或owner签发的test capability，不能因为方便读取真实默认实例或source-layout。生产DAG只由production-origin edge编译；测试观察edge单独校验而不反向制造生产SCC。
+跨package依赖默认必须直接指向Source Program Model证明的exported declaration owner；只有入口自身执行authority intersection、稳定投影、lifecycle或Effect admission时，consumer才依赖这个窄行为入口。`contract`只能表达数据、schema、parser和纯投影，`query`只能提供bounded read，`command`才可提供显式Effect。类别属于symbol/consumer/effect closure，不属于路径。`runtime`、`internal`、`application`、`state`等目录名同样不声明私有性；需要私有的符号不得export。`index.ts`无法保存每个re-export的真实owner与依赖类别，因此只允许package内部使用，不能成为跨package facade；Reduction Compiler用TypeScript symbol resolution把旧barrel import机械改写到真实declaration。导入任何surface都不能在module evaluation阶段读取文件、环境、PATH、credential、provider、时钟、进程、网络或构造live session。默认配置实例、物理adoption和live provider必须由显式async operation创建。测试也只消费exported declaration或owner签发的test capability，不能因为方便读取真实默认实例或source-layout。生产DAG只由production-origin edge编译；测试观察edge单独校验而不反向制造生产SCC。
 
 外部能力 package 必须至少分离：
 
@@ -544,16 +544,15 @@ package manager、Git、GitHub和编辑器强制要求的root文件/目录可以
 
 ### 依赖方向与机器拒绝
 
-package layer 的合法方向是：
+package graph 的合法方向是：
 
 ```text
-module-private implementation
-→ module public facade
-→ consuming module public facade
-→ app composition
+exported declaration owner
+→ optional narrow semantic/effect boundary
+→ consuming operation composition
 ```
 
-同层跨域引用也必须经目标 package public facade。以下状态必须由 module compiler、TypeScript import rule 或 contract test 拒绝：
+同层跨域引用同样直接依赖目标 declaration owner；禁止为了路径缩短或“统一出口”先穿过re-export facade。以下状态必须由 module compiler、TypeScript import rule 或 contract test 拒绝：
 
 - `src/`外出现一方production TypeScript/JavaScript代码；
 - production 导入 test/fixture/private surface；
