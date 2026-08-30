@@ -1,7 +1,5 @@
 import { expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import {
-  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -42,78 +40,7 @@ const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const BASELINE = '7'.repeat(40);
 const BASELINE_TREE = '8'.repeat(40);
-
-function installFakeMainHealthGh(
-  binHome: string,
-  conclusions: readonly ('failure' | 'success')[] = ['failure']
-): string {
-  const runId = '33109458351';
-  const operationId = createCiMainHealthRequestOperationId(MAIN);
-  const checkPages = conclusions.map((conclusion) => [{
-      total_count: 1,
-      check_runs: [{
-        id: Number(runId),
-        name: CI_MAIN_HEALTH_POLICY.context,
-        status: 'completed',
-        conclusion,
-        head_sha: MAIN,
-        details_url: `https://github.com/sec-platform/sec/actions/runs/${runId}`,
-        app: {
-          id: CI_MAIN_HEALTH_POLICY.app.id,
-          node_id: CI_MAIN_HEALTH_POLICY.app.nodeId,
-          slug: CI_MAIN_HEALTH_POLICY.app.slug
-        }
-      }]
-    }]);
-  const workflowRun = {
-    id: Number(runId),
-    path: CI_MAIN_HEALTH_POLICY.producer.workflowPath,
-    event: CI_MAIN_HEALTH_POLICY.producer.eventNames[0],
-    display_title: `SEC main health ${MAIN} operation ${operationId}`,
-    head_sha: MAIN
-  };
-  const scriptPath = path.join(binHome, 'gh.ts');
-  const counterPath = path.join(binHome, 'gh-observation-counter');
-  const statusPath = path.join(binHome, 'gh-supersession-statuses');
-  writeFileSync(scriptPath, [
-    `import { readFileSync, writeFileSync } from 'node:fs';`,
-    `const args = process.argv.slice(2).join(' ');`,
-    `const checkPages = ${JSON.stringify(checkPages)};`,
-    `const workflowRun = ${JSON.stringify(workflowRun)};`,
-    `const counterPath = ${JSON.stringify(counterPath)};`,
-    `const statusPath = ${JSON.stringify(statusPath)};`,
-    `const readStatuses = () => { try { return JSON.parse(readFileSync(statusPath, 'utf8')); } catch { return []; } };`,
-    `const current = (() => { try { return Number(readFileSync(counterPath, 'utf8')); } catch { return 0; } })();`,
-    `const index = Math.min(Math.max(current - (args.includes('/check-runs?') ? 0 : 1), 0), checkPages.length - 1);`,
-    `if (args.includes('/check-runs?')) { writeFileSync(counterPath, String(current + 1)); process.stdout.write(JSON.stringify(checkPages[index])); }`,
-    `else if (args.includes('/actions/runs/${runId}')) process.stdout.write(JSON.stringify(workflowRun));`,
-    `else if (args.includes('/commits/${MAIN}/statuses?')) process.stdout.write(JSON.stringify(readStatuses()));`,
-    `else if (args.includes('/statuses/${MAIN}') && args.includes('--method POST')) {`,
-    `  const statuses = readStatuses(); const body = JSON.parse(readFileSync(0, 'utf8'));`,
-    `  const createdAt = new Date(Date.UTC(2026, 7, 28, 0, 0, statuses.length)).toISOString();`,
-    `  const status = { id: 900001 + statuses.length, node_id: 'SC_kwDOMainHealth' + statuses.length, sha: ${JSON.stringify(MAIN)}, state: body.state, context: body.context, description: body.description, target_url: body.target_url, created_at: createdAt, updated_at: createdAt, creator: { login: 'maintainer', node_id: 'MDQ6VXNlcjE=' } };`,
-    `  statuses.push(status); writeFileSync(statusPath, JSON.stringify(statuses)); process.stdout.write(JSON.stringify(status));`,
-    `}`,
-    `else if (args === 'api user') process.stdout.write(JSON.stringify({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=' }));`,
-    `else if (args.includes('/collaborators/maintainer/permission')) process.stdout.write('maintain');`,
-    `else { process.stderr.write('unexpected fake gh request: ' + args); process.exit(2); }`,
-    ''
-  ].join('\n'), 'utf8');
-  const executablePath = path.join(binHome, process.platform === 'win32' ? 'gh.exe' : 'gh');
-  if (process.platform === 'win32') {
-    const compiled = spawnSync(process.execPath, [
-      'build', '--compile', scriptPath, '--outfile', executablePath
-    ], { encoding: 'utf8', windowsHide: true });
-    if (compiled.status !== 0) {
-      throw new Error(`cannot compile fake MainHealth gh: ${compiled.stderr || compiled.stdout}`);
-    }
-  } else {
-    const runtime = process.execPath.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-    writeFileSync(executablePath, `#!/usr/bin/env sh\nexec "${runtime}" "$(dirname "$0")/gh.ts" "$@"\n`, 'utf8');
-    chmodSync(executablePath, 0o755);
-  }
-  return executablePath;
-}
+const TEST_TOKEN = 'test-token-0123456789';
 
 test('production MainHealth entrypoints consume exact local evidence when hosted transport is unavailable', async () => {
   const repositoryRoot = process.cwd();
@@ -270,7 +197,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     };
     const readCapability = issueMainHealthGitHubTestCapabilityV2({
       repository: 'sec-platform/sec',
-      token: 'test-token',
+      token: TEST_TOKEN,
       issuer: {
         transport: 'github-rest-token',
         login: 'maintainer',
@@ -282,7 +209,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     });
     const unavailableCapability = issueMainHealthGitHubTestCapabilityV2({
       repository: 'sec-platform/sec',
-      token: 'test-token',
+      token: TEST_TOKEN,
       issuer: {
         transport: 'github-rest-token',
         login: 'maintainer',
@@ -362,7 +289,7 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
       ...input,
       githubCapability: issueMainHealthGitHubTestCapabilityV2({
         repository: 'sec-platform/sec',
-        token: 'test-token',
+        token: TEST_TOKEN,
         issuer: {
           transport: 'github-rest-token',
           login: 'maintainer',
@@ -604,7 +531,7 @@ test('MainHealth GitHub enrollment starts its one budget before credential acqui
       // Simulate the credential subprocess consuming the entire absolute
       // budget without sleeping or allowing a real child process to linger.
       now = 10;
-      return 'test-token';
+      return TEST_TOKEN;
     },
     fetchImpl: async () => {
       fetchCalls += 1;
@@ -628,7 +555,7 @@ test('MainHealth GitHub enrollment carries credential budget through principal r
     effect: 'read',
     timeoutMs: 10,
     now: () => now,
-    readToken: async () => 'test-token',
+    readToken: async () => TEST_TOKEN,
     fetchImpl: async (inputUrl) => {
       fetchCalls += 1;
       if (String(inputUrl).endsWith('/user')) {
@@ -653,7 +580,7 @@ test('nested MainHealth GitHub test sessions reuse the outer absolute budget', a
     effect: 'read',
     timeoutMs: 10,
     now: () => now,
-    readToken: async () => 'test-token',
+    readToken: async () => TEST_TOKEN,
     fetchImpl: async (inputUrl) => String(inputUrl).endsWith('/user')
       ? Response.json({ login: 'maintainer', node_id: 'MDQ6VXNlcjE=' })
       : Response.json({ permission: 'read' }),
@@ -684,7 +611,7 @@ test('MainHealth parent read budget admits T1 and fresh T2 but no third session'
   const result = await withMainHealthGitHubTestReadOperationBudgetV2({
     repository: 'sec-platform/sec',
     timeoutMs: 100,
-    readToken: async () => 'test-token',
+    readToken: async () => TEST_TOKEN,
     fetchImpl: async (inputUrl) => {
       fetchCalls += 1;
       return String(inputUrl).endsWith('/user')
@@ -722,7 +649,7 @@ test('MainHealth parent read budget carries its absolute deadline into T2', asyn
       tokenTimeouts.push(timeoutMs);
       if (tokenTimeouts.length === 1) now = 12;
       if (tokenTimeouts.length === 2) now = 20;
-      return 'test-token';
+      return TEST_TOKEN;
     },
     fetchImpl: async (inputUrl) => {
       fetchCalls += 1;
