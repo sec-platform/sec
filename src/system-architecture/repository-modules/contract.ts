@@ -57,13 +57,46 @@ export type SecRepositoryModuleGraph = Readonly<{
 export type SecRepositoryModuleBoundaryViolationCode =
   | 'cross-package-aggregate-surface'
   | 'module-dependency-cycle'
-  | 'pre-dependency-bootstrap-unavailable-package';
+  | 'pre-dependency-bootstrap-unavailable-package'
+  | 'repository-entrypoint-owner-ambiguous'
+  | 'repository-entrypoint-owner-unresolved'
+  | 'repository-entrypoint-not-declared'
+  | 'unowned-production-source';
 
 export type SecRepositoryModuleBoundaryViolation = Readonly<{
   readonly code: SecRepositoryModuleBoundaryViolationCode;
   readonly from: string;
   readonly to: string;
   readonly detail: string;
+}>;
+
+/**
+ * Narrow projection of the canonical Source Program Model facts consumed by
+ * repository-module admission.  This owner deliberately does not classify
+ * paths or parse package commands: the Source Program compiler supplies the
+ * observed surface and entrypoint closure from its exact snapshot.
+ */
+export type SecRepositoryModuleSourceProgramFacts = Readonly<{
+  readonly files: readonly Readonly<{
+    readonly path: string;
+    readonly moduleId: string | null;
+    readonly surface: 'production' | 'test' | 'fixture' | 'workflow' | 'resource';
+  }>[];
+  readonly entrypoints: readonly Readonly<{
+    readonly observationId: string;
+    readonly kind: 'package-script' | 'package-bin' | 'cli-command' | 'module-entrypoint' | 'git-hook' | 'workflow';
+    readonly path: string;
+    readonly name: string;
+    readonly observationClass: 'observed' | 'derived' | 'unknown';
+  }>[];
+  readonly entrypointClosures: readonly Readonly<{
+    readonly entrypointObservationId: string;
+    readonly targetPaths: readonly string[];
+    readonly handlerModuleIds: readonly string[];
+    readonly reachablePaths: readonly string[];
+    readonly capabilityPaths: readonly string[];
+    readonly observationClass: 'observed' | 'derived' | 'unknown';
+  }>[];
 }>;
 
 /**
@@ -858,6 +891,127 @@ export function collectSecRepositoryModuleBoundaryViolations(
   return Object.freeze([...unique.values()].sort((left, right) =>
     `${left.code}\0${left.from}\0${left.to}\0${left.detail}`
       .localeCompare(`${right.code}\0${right.from}\0${right.to}\0${right.detail}`, 'en-US')));
+}
+
+/**
+ * Close repository ownership over the canonical Source Program facts.  The
+ * descriptor graph does not rediscover source surfaces or package commands;
+ * it only rejects facts that the exact Source Program snapshot has already
+ * classified and resolved.
+ */
+export function collectSecRepositoryModuleSourceProgramViolations(
+  facts: SecRepositoryModuleSourceProgramFacts,
+  membership: SecRepositoryModuleMembership
+): readonly SecRepositoryModuleBoundaryViolation[] {
+  const violations: SecRepositoryModuleBoundaryViolation[] = [];
+  const descriptorsById = new Map(membership.descriptors.map((descriptor) => (
+    [descriptor.moduleId, descriptor] as const
+  )));
+
+  for (const file of facts.files) {
+    if (file.surface !== 'production'
+        || !normalizeSecRepositoryPath(file.path).startsWith('src/')
+        || !/\.[cm]?[jt]sx?$/iu.test(file.path)
+        || file.moduleId !== null) continue;
+    violations.push(Object.freeze({
+      code: 'unowned-production-source',
+      from: file.path,
+      to: 'sec.module.json',
+      detail: `${file.path} is production source with no repository module owner`
+    }));
+  }
+
+  const closureByEntrypoint = new Map(facts.entrypointClosures.map((closure) => (
+    [closure.entrypointObservationId, closure] as const
+  )));
+  for (const entrypoint of facts.entrypoints) {
+    if (entrypoint.kind !== 'package-script'
+        && entrypoint.kind !== 'package-bin'
+        && entrypoint.kind !== 'module-entrypoint') continue;
+    const closure = closureByEntrypoint.get(entrypoint.observationId);
+    if (closure === undefined) continue;
+    const repositoryHandlerPaths = [...new Set([
+      ...closure.targetPaths,
+      ...closure.capabilityPaths,
+      ...closure.reachablePaths
+    ].map(normalizeSecRepositoryPath).filter((repositoryPath) => (
+      repositoryPath.startsWith('src/')
+      && /\.[cm]?[jt]sx?$/iu.test(repositoryPath)
+    )))].sort((left, right) => left.localeCompare(right, 'en-US'));
+    const handlerModuleIds = [...new Set(closure.handlerModuleIds)]
+      .sort((left, right) => left.localeCompare(right, 'en-US'));
+    // External-package-only scripts have no repository handler and therefore
+    // do not claim a repository module entrypoint.
+    if (repositoryHandlerPaths.length === 0 && handlerModuleIds.length === 0) continue;
+    const entrypointIdentity = `${entrypoint.kind}:${entrypoint.path}#${entrypoint.name}`;
+    if (entrypoint.observationClass === 'unknown'
+        || closure.observationClass === 'unknown'
+        || handlerModuleIds.length === 0) {
+      violations.push(Object.freeze({
+        code: 'repository-entrypoint-owner-unresolved',
+        from: entrypoint.path,
+        to: entrypointIdentity,
+        detail: `${entrypointIdentity} has repository source but no resolved module owner`
+      }));
+      continue;
+    }
+    if (handlerModuleIds.length > 1) {
+      violations.push(Object.freeze({
+        code: 'repository-entrypoint-owner-ambiguous',
+        from: entrypoint.path,
+        to: entrypointIdentity,
+        detail: `${entrypointIdentity} resolves to multiple module owners: ${handlerModuleIds.join(', ')}`
+      }));
+      continue;
+    }
+    const owner = descriptorsById.get(handlerModuleIds[0]!);
+    if (owner === undefined) {
+      violations.push(Object.freeze({
+        code: 'repository-entrypoint-owner-unresolved',
+        from: entrypoint.path,
+        to: entrypointIdentity,
+        detail: `${entrypointIdentity} resolves to unknown module ${handlerModuleIds[0]}`
+      }));
+      continue;
+    }
+    const declaredEntrypoints = new Set(owner.externalEntrypoints.map(normalizeSecRepositoryPath));
+    const ownedHandlerPaths = repositoryHandlerPaths.filter((repositoryPath) => (
+      membership.moduleForPath(repositoryPath)?.moduleId === owner.moduleId
+    ));
+    if (ownedHandlerPaths.length === 0
+        || !ownedHandlerPaths.some((repositoryPath) => declaredEntrypoints.has(repositoryPath))) {
+      violations.push(Object.freeze({
+        code: 'repository-entrypoint-not-declared',
+        from: entrypoint.path,
+        to: owner.root,
+        detail: `${entrypointIdentity} resolves to ${owner.moduleId} but none of its handler paths are declared as externalEntrypoints: ${ownedHandlerPaths.join(', ') || '<none>'}`
+      }));
+    }
+  }
+
+  const unique = new Map<string, SecRepositoryModuleBoundaryViolation>();
+  for (const violation of violations) {
+    unique.set(
+      `${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`,
+      violation
+    );
+  }
+  return Object.freeze([...unique.values()].sort((left, right) =>
+    `${left.code}\0${left.from}\0${left.to}\0${left.detail}`
+      .localeCompare(`${right.code}\0${right.from}\0${right.to}\0${right.detail}`, 'en-US')));
+}
+
+export function assertSecRepositoryModuleSourceProgramBoundaries(
+  facts: SecRepositoryModuleSourceProgramFacts,
+  membership: SecRepositoryModuleMembership
+): void {
+  const violations = collectSecRepositoryModuleSourceProgramViolations(facts, membership);
+  if (violations.length === 0) return;
+  throw new Error([
+    `repository module source-program boundary violations (${violations.length})`,
+    ...violations.map((violation) =>
+      `[${violation.code}] ${violation.from} -> ${violation.to}: ${violation.detail}`)
+  ].join('\n'));
 }
 
 export function assertSecRepositoryModuleImportBoundaries(

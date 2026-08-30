@@ -1,0 +1,8 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/control/branch-lifecycle/trusted-runtime-closeout.ts"
+  ],
+  "capabilityProviders": [],
+  "preDependencyBootstrap": false
+}

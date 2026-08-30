@@ -1,4 +1,7 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [
+    "src/control/documentation/document-control-plane.ts",
+    "src/control/documentation/doctor/cli.ts"
+  ]
 }

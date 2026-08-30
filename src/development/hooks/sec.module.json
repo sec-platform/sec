@@ -1,0 +1,8 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/development/hooks/install.ts"
+  ],
+  "capabilityProviders": [],
+  "preDependencyBootstrap": false
+}

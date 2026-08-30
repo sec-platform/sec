@@ -1,0 +1,13 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "github-read-credential",
+      "operations": [
+        "readGitHubToken"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

@@ -1,0 +1,16 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/brownfield/repository-audit/cli.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "repository-audit",
+      "operations": [
+        "auditRepository",
+        "projectRepositorySourceGovernance"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}
