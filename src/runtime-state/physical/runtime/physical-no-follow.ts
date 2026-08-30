@@ -2369,12 +2369,6 @@ export function retainNoFollowOrdinaryFile(
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} capability role is invalid.`);
   }
   if (role === 'executable' && process.platform !== 'win32') {
-    // Linux execveat/proc-fd still observes the inode after a pre-existing
-    // writable descriptor can rewrite it. A digest/metadata fence detects
-    // most mutations but cannot exclude a same-size rewrite in the
-    // digest-to-image-mapping window. Keep ordinary reads available, but do
-    // not issue an executable role without a native sealed-image or mandatory
-    // writer-exclusion primitive.
     throw physicalError(
       'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
       `${label} executable admission requires a sealed image or mandatory writer-exclusion primitive.`
@@ -2434,7 +2428,9 @@ export function retainNoFollowOrdinaryFile(
         const lexicalLeaf = linuxOpenReadableLeafAt(retainedParent.target.fd, name, `${label} leaf readback`);
         try {
           const leaf = fstatSync(lexicalLeaf, { bigint: true });
-          if (!leaf.isFile() || leaf.dev !== initial.dev || leaf.ino !== initial.ino) {
+          if (!leaf.isFile() || leaf.dev !== initial.dev || leaf.ino !== initial.ino
+              || leaf.mode !== initialMode || leaf.size !== initialSize
+              || leaf.mtimeNs !== initialMtimeNs || leaf.ctimeNs !== initialCtimeNs) {
             throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} lexical leaf identity changed.`);
           }
         } finally {
@@ -4452,16 +4448,27 @@ export function publishExclusiveDurableCanonicalFile(input: {
   const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'Durable publication parent').target;
   const finalPath = path.join(parent.path, input.name);
   const expected = Buffer.from(input.bytes);
-  input.validate(expected);
+  const validateCanonicalBytes = (bytes: Uint8Array, label: string): void => {
+    try {
+      input.validate(bytes);
+    } catch (error) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+        `${label} is not canonical.`,
+        error
+      );
+    }
+  };
+  validateCanonicalBytes(expected, 'Durable publication input');
   const expectedDigest = bytesDigest(expected);
 
   const existing = (): Readonly<{ path: string; digest: string; created: boolean }> => {
     const current = readNoFollowOrdinaryFile(parent, input.name);
     if (current === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', 'Durable publication target disappeared before no-follow readback.');
-    input.validate(current);
     if (!Buffer.from(current).equals(expected)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Durable publication target conflicts with canonical bytes.');
     }
+    validateCanonicalBytes(current, 'Durable publication target');
     // An already-present byte-identical file is not a proof that a previous
     // publication reached the required parent-directory durability boundary.
     syncDirectory(parent);
@@ -4491,7 +4498,7 @@ export function publishExclusiveDurableCanonicalFile(input: {
       }
       const current = readNoFollowOrdinaryFile(parent, input.name);
       if (current === null || !Buffer.from(current).equals(expected)) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Exclusive durable publication retained readback differs.');
-      input.validate(current);
+      validateCanonicalBytes(current, 'Exclusive durable publication retained readback');
       return Object.freeze({ path: finalPath, digest: expectedDigest, created: true });
     } finally {
       if (candidateFd !== null) closeSync(candidateFd);
@@ -4537,12 +4544,12 @@ export function publishExclusiveDurableCanonicalFile(input: {
     } catch (error) {
       const current = windowsReadRelativeOrdinaryLeaf(parentHandle, parent, input.name, 'Exclusive durable publication existing');
       if (current === null) throw error;
-      input.validate(current);
       if (!Buffer.from(current).equals(expected)) throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Durable publication target conflicts with canonical bytes.', error);
+      validateCanonicalBytes(current, 'Durable publication target');
       return Object.freeze({ path: finalPath, digest: expectedDigest, created: false });
     }
     const current = windowsReadRenamedCandidate(candidate, parentHandle, parent, input.name, expected, 'Exclusive durable publication');
-    input.validate(current);
+    validateCanonicalBytes(current, 'Exclusive durable publication retained readback');
     return Object.freeze({ path: finalPath, digest: expectedDigest, created: true });
   } finally {
     try {

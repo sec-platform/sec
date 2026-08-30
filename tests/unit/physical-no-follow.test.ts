@@ -894,7 +894,10 @@ test('exclusive durable canonical publication is idempotent and refuses a confli
         parent,
         name: 'authorization.json',
         bytes: Buffer.from('{"schema":"different"}\n', 'utf8'),
-        validate: () => undefined
+        validate: (value) => {
+          const parsed = JSON.parse(Buffer.from(value).toString('utf8')) as { schema?: unknown };
+          if (parsed.schema !== 'different') throw new Error('existing value belongs to another canonical identity');
+        }
       }),
       'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED'
     );
