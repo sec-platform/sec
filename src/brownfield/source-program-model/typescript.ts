@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import ts from 'typescript';
 
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleGraph, normalizeSecRepositoryPath, resolveSecRepositoryModuleImportCandidates, type SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
 import type {
   SourceProgramCapabilityInvocation,
@@ -68,14 +68,6 @@ function canonicalPath(value: string): string {
   return normalized;
 }
 
-function scriptKindFor(fileName: string): ts.ScriptKind {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.tsx')) return ts.ScriptKind.TSX;
-  if (lower.endsWith('.jsx')) return ts.ScriptKind.JSX;
-  if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs')) return ts.ScriptKind.JS;
-  return ts.ScriptKind.TS;
-}
-
 function moduleExtensionFor(fileName: string): ts.Extension {
   const lower = fileName.toLowerCase();
   if (lower.endsWith('.d.mts')) return ts.Extension.Dmts;
@@ -91,115 +83,221 @@ function moduleExtensionFor(fileName: string): ts.Extension {
   return ts.Extension.Ts;
 }
 
-function compileExactTypeScriptProgram(
-  filesByPath: ReadonlyMap<string, SourceProgramFileInput>
-): Readonly<{
+const TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS: ts.CompilerOptions = Object.freeze({
+  allowImportingTsExtensions: true,
+  allowJs: true,
+  checkJs: false,
+  module: ts.ModuleKind.NodeNext,
+  moduleResolution: ts.ModuleResolutionKind.NodeNext,
+  noEmit: true,
+  lib: ['lib.es2022.d.ts'],
+  skipLibCheck: true,
+  target: ts.ScriptTarget.ES2022,
+  types: [],
+  verbatimModuleSyntax: true
+});
+
+const TYPESCRIPT_WORKSPACE_COMPILER_CONFIG_DIGEST =
+  sha256(TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS);
+
+function typeScriptWorkspaceDependencyGenerationDigest(): string {
+  const runtimePath = ts.sys.getExecutingFilePath();
+  const defaultLibraryPath = ts.getDefaultLibFilePath(TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS);
+  const runtimeSource = ts.sys.readFile(runtimePath);
+  const defaultLibrarySource = ts.sys.readFile(defaultLibraryPath);
+  if (runtimeSource === undefined || defaultLibrarySource === undefined) {
+    throw new Error('Source Program TypeScript dependency generation is unavailable');
+  }
+  return sha256({
+    defaultLibrary: sha256(defaultLibrarySource),
+    runtime: sha256(runtimeSource),
+    typescriptRevision: ts.version
+  });
+}
+
+const TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST =
+  typeScriptWorkspaceDependencyGenerationDigest();
+
+type ExactTypeScriptProgram = Readonly<{
   checker: ts.TypeChecker;
   program: ts.Program;
   repositoryPath(sourceFile: ts.SourceFile): string;
   sourceFiles: readonly ts.SourceFile[];
-}> {
-  const repositoryRoot = process.cwd();
-  const compilerOptions: ts.CompilerOptions = {
-    allowImportingTsExtensions: true,
-    allowJs: true,
-    checkJs: false,
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    noEmit: true,
-    lib: ['lib.es2022.d.ts'],
-    skipLibCheck: true,
-    target: ts.ScriptTarget.ES2022,
-    types: [],
-    verbatimModuleSyntax: true
-  };
-  const canonicalByAbsolute = new Map(
-    [...filesByPath.keys()].map((repositoryPathValue) => [
-      path.resolve(repositoryRoot, repositoryPathValue).replaceAll('\\', '/').toLowerCase(),
-      repositoryPathValue
-    ] as const)
-  );
-  const exactRepositoryPath = (fileName: string): string | null =>
-    canonicalByAbsolute.get(path.resolve(fileName).replaceAll('\\', '/').toLowerCase()) ?? null;
-  const delegate = ts.createCompilerHost(compilerOptions, true);
-  const host: ts.CompilerHost = {
-    ...delegate,
-    fileExists(fileName) {
-      return exactRepositoryPath(fileName) !== null || delegate.fileExists(fileName);
-    },
-    getCurrentDirectory() {
-      return repositoryRoot;
-    },
-    getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile) {
-      const repositoryPathValue = exactRepositoryPath(fileName);
-      if (repositoryPathValue === null) {
-        return delegate.getSourceFile(
-          fileName,
-          languageVersion,
-          onError,
-          shouldCreateNewSourceFile
-        );
-      }
-      const file = filesByPath.get(repositoryPathValue)!;
-      return ts.createSourceFile(
-        path.resolve(repositoryRoot, repositoryPathValue),
-        file.source,
-        languageVersion,
-        true,
-        scriptKindFor(repositoryPathValue)
-      );
-    },
-    readFile(fileName) {
-      const repositoryPathValue = exactRepositoryPath(fileName);
-      return repositoryPathValue === null
-        ? delegate.readFile(fileName)
-        : filesByPath.get(repositoryPathValue)!.source;
-    },
-    resolveModuleNames(moduleNames, containingFile) {
-      const containingRepositoryPath = exactRepositoryPath(containingFile);
-      return moduleNames.map((moduleName): ts.ResolvedModuleFull | undefined => {
-        if (containingRepositoryPath === null || !moduleName.startsWith('.')) return undefined;
-        const targetPath = resolveSecRepositoryModuleImportCandidates(
-          containingRepositoryPath,
-          moduleName
-        ).find((candidate) => filesByPath.has(candidate));
-        return targetPath === undefined
-          ? undefined
-          : {
+}>;
+
+/**
+ * One process owns one exact TypeScript workspace. LanguageService only reuses
+ * immutable compiler snapshots; repository facts remain owned by the canonical
+ * SourceProgramModel produced below. There is no watcher, daemon or second AST.
+ */
+class TypeScriptSourceProgramWorkspace {
+  readonly #repositoryRoot: string;
+  readonly #service: ts.LanguageService;
+  readonly #files = new Map<string, Readonly<{
+    identityDigest: string;
+    snapshot: ts.IScriptSnapshot;
+    version: number;
+  }>>();
+  #canonicalByAbsolute = new Map<string, string>();
+  #projectVersion = 0;
+
+  constructor(repositoryRoot: string) {
+    this.#repositoryRoot = repositoryRoot;
+    const host: ts.LanguageServiceHost = {
+      directoryExists: ts.sys.directoryExists,
+      fileExists: (fileName) => this.#repositoryPath(fileName) !== null || ts.sys.fileExists(fileName),
+      getCompilationSettings: () => TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
+      getCurrentDirectory: () => this.#repositoryRoot,
+      getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
+      getDirectories: ts.sys.getDirectories,
+      getProjectVersion: () => String(this.#projectVersion),
+      getScriptFileNames: () => [...this.#files.keys()]
+        .sort(compareCodeUnits)
+        .map((repositoryPathValue) => path.resolve(this.#repositoryRoot, repositoryPathValue)),
+      getScriptSnapshot: (fileName) => {
+        const repositoryPathValue = this.#repositoryPath(fileName);
+        if (repositoryPathValue !== null) return this.#files.get(repositoryPathValue)?.snapshot;
+        const source = ts.sys.readFile(fileName);
+        return source === undefined ? undefined : ts.ScriptSnapshot.fromString(source);
+      },
+      getScriptVersion: (fileName) => {
+        const repositoryPathValue = this.#repositoryPath(fileName);
+        return repositoryPathValue === null
+          ? TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST
+          : String(this.#files.get(repositoryPathValue)?.version ?? 0);
+      },
+      readDirectory: ts.sys.readDirectory,
+      readFile: (fileName) => {
+        const repositoryPathValue = this.#repositoryPath(fileName);
+        if (repositoryPathValue === null) return ts.sys.readFile(fileName);
+        const snapshot = this.#files.get(repositoryPathValue)?.snapshot;
+        return snapshot?.getText(0, snapshot.getLength());
+      },
+      realpath: ts.sys.realpath,
+      resolveModuleNames: (moduleNames, containingFile) => moduleNames.map((moduleName) => {
+        const containingRepositoryPath = this.#repositoryPath(containingFile);
+        if (containingRepositoryPath !== null && moduleName.startsWith('.')) {
+          const targetPath = resolveSecRepositoryModuleImportCandidates(
+            containingRepositoryPath,
+            moduleName
+          ).find((candidate) => this.#files.has(candidate));
+          if (targetPath !== undefined) {
+            return {
               extension: moduleExtensionFor(targetPath),
               isExternalLibraryImport: false,
-              resolvedFileName: path.resolve(repositoryRoot, targetPath)
+              resolvedFileName: path.resolve(this.#repositoryRoot, targetPath)
             };
-      });
-    },
-    writeFile() {
-      throw new Error('Source Program TypeScript provider is read-only');
-    }
-  };
-  const rootNames = [...filesByPath.keys()]
-    .sort(compareCodeUnits)
-    .map((repositoryPathValue) => path.resolve(repositoryRoot, repositoryPathValue));
-  const program = ts.createProgram({ host, options: compilerOptions, rootNames });
-  const sourceFiles = rootNames.map((rootName) => program.getSourceFile(rootName)).filter(
-    (sourceFile): sourceFile is ts.SourceFile => sourceFile !== undefined
-  );
-  if (sourceFiles.length !== rootNames.length) {
-    throw new Error(
-      `TypeScript Program omitted exact repository roots: expected ${rootNames.length}, got ${sourceFiles.length}`
-    );
+          }
+        }
+        return ts.resolveModuleName(
+          moduleName,
+          containingFile,
+          TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS,
+          ts.sys
+        ).resolvedModule;
+      }),
+      useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames
+    };
+    this.#service = ts.createLanguageService(host, ts.createDocumentRegistry());
   }
-  return Object.freeze({
-    checker: program.getTypeChecker(),
-    program,
-    repositoryPath(sourceFile) {
-      const repositoryPathValue = exactRepositoryPath(sourceFile.fileName);
-      if (repositoryPathValue === null) {
-        throw new Error(`TypeScript Program source escaped exact repository census: ${sourceFile.fileName}`);
-      }
-      return repositoryPathValue;
-    },
-    sourceFiles: Object.freeze(sourceFiles)
+
+  compile(filesByPath: ReadonlyMap<string, SourceProgramFileInput>): ExactTypeScriptProgram {
+    const nextPaths = new Set(filesByPath.keys());
+    let changed = false;
+    for (const repositoryPathValue of this.#files.keys()) {
+      if (nextPaths.has(repositoryPathValue)) continue;
+      this.#files.delete(repositoryPathValue);
+      changed = true;
+    }
+    for (const [repositoryPathValue, file] of filesByPath) {
+      const current = this.#files.get(repositoryPathValue);
+      const identityDigest = sourceProgramFileSnapshotDigest(file);
+      if (current?.identityDigest === identityDigest) continue;
+      this.#files.set(repositoryPathValue, Object.freeze({
+        identityDigest,
+        snapshot: ts.ScriptSnapshot.fromString(file.source),
+        version: (current?.version ?? 0) + 1
+      }));
+      changed = true;
+    }
+    if (changed) {
+      this.#canonicalByAbsolute = new Map(
+        [...this.#files.keys()].map((repositoryPathValue) => [
+          this.#absoluteKey(path.resolve(this.#repositoryRoot, repositoryPathValue)),
+          repositoryPathValue
+        ] as const)
+      );
+      this.#projectVersion += 1;
+    }
+    const program = this.#service.getProgram();
+    if (program === undefined) throw new Error('Source Program TypeScript workspace has no Program');
+    const rootNames = [...this.#files.keys()]
+      .sort(compareCodeUnits)
+      .map((repositoryPathValue) => path.resolve(this.#repositoryRoot, repositoryPathValue));
+    const sourceFiles = rootNames.map((rootName) => program.getSourceFile(rootName)).filter(
+      (sourceFile): sourceFile is ts.SourceFile => sourceFile !== undefined
+    );
+    if (sourceFiles.length !== rootNames.length) {
+      throw new Error(
+        `TypeScript Program omitted exact repository roots: expected ${rootNames.length}, got ${sourceFiles.length}`
+      );
+    }
+    return Object.freeze({
+      checker: program.getTypeChecker(),
+      program,
+      repositoryPath: (sourceFile) => {
+        const repositoryPathValue = this.#repositoryPath(sourceFile.fileName);
+        if (repositoryPathValue === null) {
+          throw new Error(`TypeScript Program source escaped exact repository census: ${sourceFile.fileName}`);
+        }
+        return repositoryPathValue;
+      },
+      sourceFiles: Object.freeze(sourceFiles)
+    });
+  }
+
+  dispose(): void {
+    this.#service.dispose();
+  }
+
+  #absoluteKey(value: string): string {
+    const normalized = value.replaceAll('\\', '/');
+    return ts.sys.useCaseSensitiveFileNames ? normalized : normalized.toLowerCase();
+  }
+
+  #repositoryPath(fileName: string): string | null {
+    return this.#canonicalByAbsolute.get(this.#absoluteKey(path.resolve(fileName))) ?? null;
+  }
+}
+
+let activeTypeScriptWorkspace: TypeScriptSourceProgramWorkspace | null = null;
+let activeTypeScriptWorkspaceRoot: string | null = null;
+
+function canonicalTypeScriptFile(raw: SourceProgramFileInput): SourceProgramFileInput {
+  const repositoryPathValue = canonicalPath(raw.path);
+  if (!/^sha256:[0-9a-f]{64}$/u.test(raw.contentDigest)) {
+    throw new Error(`Source Program Model file has invalid content digest: ${repositoryPathValue}`);
+  }
+  return Object.freeze({ ...raw, path: repositoryPathValue });
+}
+
+function sourceProgramFileSnapshotDigest(file: SourceProgramFileInput): string {
+  return sha256({
+    declaredContentDigest: file.contentDigest,
+    sourceDigest: rawSha256(file.source)
   });
+}
+
+function compileExactTypeScriptProgram(
+  filesByPath: ReadonlyMap<string, SourceProgramFileInput>
+): ExactTypeScriptProgram {
+  const repositoryRoot = process.cwd();
+  if (activeTypeScriptWorkspace === null || activeTypeScriptWorkspaceRoot !== repositoryRoot) {
+    activeTypeScriptWorkspace?.dispose();
+    activeTypeScriptWorkspace = new TypeScriptSourceProgramWorkspace(repositoryRoot);
+    activeTypeScriptWorkspaceRoot = repositoryRoot;
+  }
+  return activeTypeScriptWorkspace.compile(filesByPath);
 }
 
 function surfaceFor(repositoryPathValue: string): SourceProgramSurface {
@@ -387,7 +485,7 @@ function buildIncrementalState(
     input.files
       .filter(({ path: repositoryPathValue }) => SOURCE_EXTENSION.test(repositoryPathValue))
       .sort((left, right) => compareCodeUnits(left.path, right.path))
-      .map((file) => [file.path, file.contentDigest])
+      .map((file) => [file.path, sourceProgramFileSnapshotDigest(file)])
   ));
   const moduleDigests = Object.freeze(Object.fromEntries(
     Object.keys(fileDigests).map((repositoryPathValue) => [
@@ -416,7 +514,7 @@ export function compileTypeScriptSourceProgramModelIncremental(
 ): TypeScriptSourceProgramIncrementalResult {
   const currentFiles = input.files
     .filter(({ path: repositoryPathValue }) => SOURCE_EXTENSION.test(repositoryPathValue))
-    .map((file) => Object.freeze({ ...file, path: canonicalPath(file.path) }))
+    .map(canonicalTypeScriptFile)
     .sort((left, right) => compareCodeUnits(left.path, right.path));
   const currentFileByPath = new Map(currentFiles.map((file) => [file.path, file] as const));
   const currentPaths = Object.freeze(currentFiles.map(({ path: repositoryPathValue }) => repositoryPathValue));
@@ -451,8 +549,9 @@ export function compileTypeScriptSourceProgramModelIncremental(
     for (const dependency of graph.directDependencies(current)) compilerQueue.push(dependency);
   }
   const compilerRevision = sha256({
-    provider: 'typescript-compiler-api',
-    typescriptRevision: ts.version,
+    compilerConfigDigest: TYPESCRIPT_WORKSPACE_COMPILER_CONFIG_DIGEST,
+    dependencyGenerationDigest: TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST,
+    provider: 'typescript-language-service',
     implementation: compilerClosure.size === 0
       ? Object.freeze([
           compileTypeScriptSourceProgramModel.toString(),
@@ -460,7 +559,7 @@ export function compileTypeScriptSourceProgramModelIncremental(
         ])
       : Object.freeze([...compilerClosure].sort(compareCodeUnits).map((repositoryPathValue) => ({
           path: repositoryPathValue,
-          contentDigest: currentFileByPath.get(repositoryPathValue)!.contentDigest
+          contentDigest: sourceProgramFileSnapshotDigest(currentFileByPath.get(repositoryPathValue)!)
         })))
   });
   const compileFull = (): TypeScriptSourceProgramIncrementalResult => {
@@ -480,7 +579,10 @@ export function compileTypeScriptSourceProgramModelIncremental(
   ] as const));
   const allPaths = new Set([...Object.keys(previous.fileDigests), ...currentPaths]);
   const changed = [...allPaths].filter((repositoryPathValue) => (
-    previous.fileDigests[repositoryPathValue] !== currentFileByPath.get(repositoryPathValue)?.contentDigest
+    previous.fileDigests[repositoryPathValue]
+      !== (currentFileByPath.has(repositoryPathValue)
+        ? sourceProgramFileSnapshotDigest(currentFileByPath.get(repositoryPathValue)!)
+        : undefined)
     || previous.moduleDigests[repositoryPathValue] !== currentModuleDigests.get(repositoryPathValue)
   ));
   if (changed.length === 0) {
@@ -589,15 +691,13 @@ export function compileTypeScriptSourceProgramModel(
   }
   const filesByPath = new Map<string, SourceProgramFileInput>();
   for (const raw of input.files) {
-    const repositoryPathValue = canonicalPath(raw.path);
-    if (!SOURCE_EXTENSION.test(repositoryPathValue)) continue;
-    if (!/^sha256:[0-9a-f]{64}$/u.test(raw.contentDigest)) {
-      throw new Error(`Source Program Model file has invalid content digest: ${repositoryPathValue}`);
-    }
+    if (!SOURCE_EXTENSION.test(raw.path)) continue;
+    const file = canonicalTypeScriptFile(raw);
+    const repositoryPathValue = file.path;
     if (filesByPath.has(repositoryPathValue)) {
       throw new Error(`Source Program Model snapshot contains duplicate path: ${repositoryPathValue}`);
     }
-    filesByPath.set(repositoryPathValue, Object.freeze({ ...raw, path: repositoryPathValue }));
+    filesByPath.set(repositoryPathValue, file);
   }
   const semanticProgram = compileExactTypeScriptProgram(filesByPath);
   const { checker, sourceFiles } = semanticProgram;
