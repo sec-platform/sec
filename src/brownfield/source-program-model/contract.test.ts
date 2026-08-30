@@ -478,6 +478,46 @@ test('incremental source facts invalidate the reverse consumer closure and remai
   const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
   expect(initial.mode).toBe('full');
 
+  const changedBytesWithStaleDeclaredDigest = Object.freeze({
+    ...initialInput,
+    files: Object.freeze(initialInput.files.map((file) => file.path === 'src/example/contract.ts'
+      ? Object.freeze({ ...file, source: 'export const VALUE = 3;\n' })
+      : file))
+  });
+  const changedBytes = compileTypeScriptSourceProgramModelIncremental(
+    changedBytesWithStaleDeclaredDigest,
+    initial.state
+  );
+  expect(changedBytes.mode).toBe('incremental');
+  expect(changedBytes.invalidatedPaths).toEqual([
+    'src/example/consumer.ts',
+    'src/example/contract.ts'
+  ]);
+  expect(changedBytes.model).toEqual(
+    compileTypeScriptSourceProgramModel(changedBytesWithStaleDeclaredDigest)
+  );
+
+  const exact = compileTypeScriptSourceProgramModelIncremental(initialInput, initial.state);
+  expect(exact.mode).toBe('exact');
+  expect(exact.invalidatedPaths).toEqual([]);
+  expect(exact.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
+
+  const foreignProviderState = Object.freeze({
+    ...exact.state,
+    providerRevision: sha256('foreign-typescript-workspace-generation')
+  });
+  const providerChanged = compileTypeScriptSourceProgramModelIncremental(
+    initialInput,
+    foreignProviderState
+  );
+  expect(providerChanged.mode).toBe('full');
+  expect(providerChanged.invalidatedPaths).toEqual([
+    'src/example/consumer.ts',
+    'src/example/contract.ts',
+    'src/example/leaf.ts'
+  ]);
+  expect(providerChanged.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
+
   const leafInput = sourceInput({
     'src/example/contract.ts': 'export const VALUE = 1;\n',
     'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
