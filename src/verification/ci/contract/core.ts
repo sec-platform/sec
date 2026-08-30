@@ -1,6 +1,6 @@
 import { platformCommand } from '../../../interface/cli/contract.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS, ciArtifactUploadCommand } from '../../ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind } from '../../ci-artifacts/contract/types.ts';
 import { CI_ARTIFACT_KINDS } from '../../ci-artifacts/contract/types.ts';
 import { slowTestSuiteIds } from '../../test-impact/contract/budget.ts';
@@ -63,6 +63,10 @@ export const CI_MAIN_HEALTH_COMMANDS = [
   'bun run docs:doctor',
   'bun run test:fast'
 ] as const;
+
+export function ciArtifactUploadCommand(kind: CiArtifactKind): string {
+  return platformCommand('artifacts', '--paths', '--json', '--compact', '--kind', kind);
+}
 
 export type CiContractStep = {
   id: string;
