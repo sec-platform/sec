@@ -1,3 +1,5 @@
+import type { SecModuleOperationObligation } from '../../system-architecture/repository-modules/contract.ts';
+
 export const REPOSITORY_AUDIT_ENTRYPOINT_PATH = 'src/brownfield/repository-audit/cli.ts' as const;
 
 export type SourceProgramObservationClass = 'observed' | 'derived' | 'unknown';
@@ -24,7 +26,7 @@ export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgr
   if (SOURCE_PROGRAM_CATALOG_RESOURCE_PATH.test(repositoryPath)) return 'resource';
   if (repositoryPath.startsWith('.github/workflows/')) return 'workflow';
   if (SOURCE_PROGRAM_RESOURCE_EXTENSION.test(repositoryPath)) return 'resource';
-  return 'production';
+  return repositoryPath.startsWith('src/') ? 'production' : 'resource';
 }
 
 export interface SourceProgramSpan {
@@ -47,6 +49,26 @@ export interface SourceProgramFile {
   readonly contentDigest: string;
   readonly moduleId: string | null;
   readonly surface: SourceProgramSurface;
+  readonly semanticKind: SourceProgramFileSemanticKind;
+  readonly semanticObservationClass: SourceProgramObservationClass;
+}
+
+export type SourceProgramFileSemanticKind =
+  | 'pure-reexport'
+  | 'declaration-owner'
+  | 'executable'
+  | 'unknown';
+
+export type SourceProgramModuleRole =
+  | 'contract'
+  | 'runtime'
+  | 'query'
+  | 'command';
+
+export interface SourceProgramModuleRoleFact {
+  readonly moduleId: string;
+  readonly role: SourceProgramModuleRole | 'unknown';
+  readonly observationClass: SourceProgramObservationClass;
 }
 
 export interface SourceProgramDeclaration {
@@ -261,6 +283,7 @@ export interface SourceProgramModel {
     readonly revision: string;
   }>[];
   readonly files: readonly SourceProgramFile[];
+  readonly moduleRoles: readonly SourceProgramModuleRoleFact[];
   readonly declarations: readonly SourceProgramDeclaration[];
   readonly references: readonly SourceProgramReference[];
   readonly literals: readonly SourceProgramLiteral[];
@@ -272,6 +295,40 @@ export interface SourceProgramModel {
   readonly candidates: readonly SourceProgramCandidate[];
   readonly unknowns: readonly SourceProgramUnknown[];
   readonly modelDigest: string;
+}
+
+/**
+ * Machine-owned design purpose for one repository module.  This is compiled
+ * only from the strict module descriptor and the exact Source Program
+ * entrypoint closure; prose, filenames and dormant declarations are not
+ * intent evidence.
+ */
+export interface SourceProgramOwnerIntentEvidence {
+  readonly owner: string;
+  readonly capabilityEnvelope: readonly Readonly<{
+    readonly capability: string;
+    readonly operations: readonly string[];
+  }>[];
+  readonly publicEntrypointEnvelope: readonly Readonly<{
+    readonly kind: SourceProgramEntrypointKind;
+    readonly name: string;
+    readonly targetPackages: readonly string[];
+    readonly targetPaths: readonly string[];
+    readonly transports: readonly SourceProgramCapabilityTransport[];
+  }>[];
+  readonly operationObligations: readonly SourceProgramOperationObligationEvidence[];
+  readonly evidenceDigest: string;
+}
+
+export interface SourceProgramOperationObligationEvidence {
+  readonly obligation: SecModuleOperationObligation;
+  readonly observation: Readonly<{
+    readonly status: 'unknown' | 'verified';
+    readonly reason: 'consumer-closure-unresolved' | 'effect-closure-unresolved' | 'identity-unresolved' | 'verified';
+    readonly consumerModuleIds: readonly string[];
+    readonly effectKinds: readonly string[];
+  }>;
+  readonly evidenceDigest: string;
 }
 
 export interface SourceProgramTopologySummary {

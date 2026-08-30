@@ -15,8 +15,8 @@ import {
   resolveSecMarkdownSkillCoverage,
   resolveSecRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
-  SEC_REPOSITORY_BEHAVIOR_IDS,
-  SEC_REPOSITORY_BEHAVIOR_ROUTES,
+  SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
+  SEC_REPOSITORY_HEURISTIC_ROUTES,
   type SecAgentSkillId,
   type SecRepositorySurfaceKind
 } from '../../control/agent/skill.ts';
@@ -28,18 +28,29 @@ import {
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { type GitReadSession, type GitReadSessionCommand } from '../../external-capabilities/git-read/runtime/session.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
+import { parseWorktreeStatusPorcelainZ } from '../../runtime-state/worktree-closeout-contract.ts';
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { assertSecRepositoryModuleImportBoundaries, assertSecRepositoryModuleSourceProgramBoundaries, compileSecRepositoryModuleGraph, compileSecRepositoryModuleMembershipSnapshot, type SecRepositoryModuleGraph } from '../../system-architecture/repository-modules/contract.ts';
+import {
+  assertSecRepositoryModuleArchitectureBoundaries,
+  compileSecRepositoryModuleArchitectureProjection,
+  compileSecRepositoryModuleGraph,
+  compileSecRepositoryModuleMembershipSnapshot,
+  compileSecRepositoryModuleTopologyProjection,
+  type SecRepositoryModuleArchitectureProjection,
+  type SecRepositoryModuleGraph,
+  type SecRepositoryModuleMembership,
+  type SecRepositoryModuleTopologyProjection
+} from '../../system-architecture/repository-modules/contract.ts';
 import { compilerRuntimeLayout } from '../../toolchain/runtime.ts';
 import {
   SEC_TCB_CLOSURE_RUNTIME_PATH,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../verification/trust/contract/root.ts';
-import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel } from '../source-program-model/contract.ts';
-import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramVersionSuffixReductionPlan, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramUnusedSymbolEvidence } from '../source-program-model/reduction.ts';
-import { compileRepositorySourceProgramModel, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
-import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, isSourceProgramTestModulePath, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
-import { compileTypeScriptSourceProgramModelIncremental, querySourceProgramModel, type TypeScriptSourceProgramIncrementalState } from '../source-program-model/typescript.ts';
+import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence } from '../source-program-model/contract.ts';
+import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramSupersessionReceipt, type SourceProgramUnusedSymbolEvidence } from '../source-program-model/reduction.ts';
+import { compileRepositorySourceProgramModel, compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
+import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, isSourceProgramTestModulePath, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
+import { compileTypeScriptSourceProgramModelIncremental, querySourceProgramModel, releaseTypeScriptSourceProgramWorkspace } from '../source-program-model/typescript.ts';
 
 const DEFAULT_REPOSITORY_ROOT = compilerRuntimeLayout.packageRoot;
 const MAX_TEXT_FILE_BYTES = 2_000_000;
@@ -60,26 +71,6 @@ const TEST_FIXTURE_DIRECTORY = /(?:^|\/)(?:__)?(?:fixtures?|snapshots?)(?:__)?(?
 const MALFORMED_REPOSITORY_REFERENCE = /(?:\t(?:ests|platform|scripts|docs)\/|\\(?:tests|platform|scripts|docs)\/)/u;
 const DYNAMIC_IDENTITY = /(?:\b[0-9a-f]{40}\b|\bPR\s*#\d+\b|\b(?:run|job)\s*#?\d{8,}\b)/iu;
 
-function sourceProgramCachePath(repositoryRoot: string, cacheKey: string): string {
-  const platform = currentSecRuntimePlatform();
-  const cacheRoot = resolveSecRuntimeCacheRoot({
-    platform,
-    environment: secRuntimeStateEnvironment(),
-    repositoryRoot
-  });
-  return path.join(cacheRoot, 'source-program-model', `${cacheKey.slice('sha256:'.length)}.json`);
-}
-
-function typeScriptIncrementalCachePath(repositoryRoot: string): string {
-  const platform = currentSecRuntimePlatform();
-  const cacheRoot = resolveSecRuntimeCacheRoot({
-    platform,
-    environment: secRuntimeStateEnvironment(),
-    repositoryRoot
-  });
-  return path.join(cacheRoot, 'source-program-model', 'typescript-latest-state.json');
-}
-
 function reviewedProcessDispatcherCachePath(repositoryRoot: string): string {
   const platform = currentSecRuntimePlatform();
   const cacheRoot = resolveSecRuntimeCacheRoot({
@@ -88,6 +79,20 @@ function reviewedProcessDispatcherCachePath(repositoryRoot: string): string {
     repositoryRoot
   });
   return path.join(cacheRoot, 'source-program-model', 'reviewed-process-dispatchers.json');
+}
+
+function supersessionEvidenceCachePath(repositoryRoot: string, identityDigest: string): string {
+  const cacheRoot = resolveSecRuntimeCacheRoot({
+    platform: currentSecRuntimePlatform(),
+    environment: secRuntimeStateEnvironment(),
+    repositoryRoot
+  });
+  return path.join(
+    cacheRoot,
+    'source-program-model',
+    'supersession',
+    `${identityDigest.slice('sha256:'.length)}.json`
+  );
 }
 
 function encodeCacheEnvelope(identity: string, value: unknown): Buffer {
@@ -230,96 +235,50 @@ async function resolveReviewedProcessDispatchers(
   return projection.reviewedProcessDispatchers;
 }
 
-function parseTypeScriptIncrementalState(
-  value: unknown
-): TypeScriptSourceProgramIncrementalState | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  const state = value as Partial<TypeScriptSourceProgramIncrementalState>;
-  if (typeof state.providerRevision !== 'string' || state.providerRevision.length === 0
-      || typeof state.sourceRevision !== 'string'
-      || state.fileDigests === null || typeof state.fileDigests !== 'object'
-      || state.moduleDigests === null || typeof state.moduleDigests !== 'object'
-      || state.reverseConsumers === null || typeof state.reverseConsumers !== 'object'
-      || state.model === null || typeof state.model !== 'object'
-      || typeof state.model.modelDigest !== 'string'
-      || state.model.sourceRevision !== state.sourceRevision) return null;
-  return Object.freeze({
-    ...state,
-    model: Object.freeze(state.model)
-  }) as TypeScriptSourceProgramIncrementalState;
-}
-
-async function readTypeScriptIncrementalCache(
-  repositoryRoot: string
-): Promise<TypeScriptSourceProgramIncrementalState | null> {
-  try {
-    const bytes = await readFile(typeScriptIncrementalCachePath(repositoryRoot));
-    return parseTypeScriptIncrementalState(decodeCacheEnvelope(bytes, ts.version));
-  } catch {
-    return null;
-  }
-}
-
-async function writeTypeScriptIncrementalCache(
+async function readSupersessionEvidenceCache(
   repositoryRoot: string,
-  state: TypeScriptSourceProgramIncrementalState
-): Promise<void> {
-  const cachePath = typeScriptIncrementalCachePath(repositoryRoot);
-  const temporaryPath = `${cachePath}.${process.pid}.${randomUUID()}.tmp`;
-  await mkdir(path.dirname(cachePath), { recursive: true });
-  await writeFile(temporaryPath, encodeCacheEnvelope(ts.version, state), { flag: 'wx' });
+  identity: SourceProgramSupersessionEvidenceIdentity
+): Promise<SourceProgramSupersessionEvidence | null> {
+  const identityDigest = sha256(identity);
   try {
-    await rename(temporaryPath, cachePath);
-  } catch {
-    await unlink(temporaryPath).catch(() => undefined);
-  }
-}
-
-function parseSourceProgramCacheModel(
-  value: unknown,
-  expectedSourceRevision: string
-): SourceProgramModel | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  const model = value as Partial<SourceProgramModel>;
-  if (model.sourceRevision !== expectedSourceRevision
-      || typeof model.modelDigest !== 'string'
-      || !Array.isArray(model.files)
-      || !Array.isArray(model.declarations)
-      || !Array.isArray(model.references)
-      || !Array.isArray(model.candidates)) return null;
-  return Object.freeze(model) as SourceProgramModel;
-}
-
-async function readSourceProgramCache(
-  repositoryRoot: string,
-  cacheKey: string,
-  sourceRevision: string
-): Promise<SourceProgramModel | null> {
-  try {
-    const bytes = await readFile(sourceProgramCachePath(repositoryRoot, cacheKey));
-    return parseSourceProgramCacheModel(
-      decodeCacheEnvelope(bytes, cacheKey),
-      sourceRevision
+    const bytes = await readFile(supersessionEvidenceCachePath(repositoryRoot, identityDigest));
+    const parsed = parseSourceProgramSupersessionEvidence(
+      decodeCacheEnvelope(bytes, identityDigest)
     );
+    return sha256(parsed.identity) === identityDigest ? parsed : null;
   } catch {
     return null;
   }
 }
 
-async function writeSourceProgramCache(
+async function writeSupersessionEvidenceCache(
   repositoryRoot: string,
-  cacheKey: string,
-  model: SourceProgramModel
+  evidence: SourceProgramSupersessionEvidence
 ): Promise<void> {
-  const cachePath = sourceProgramCachePath(repositoryRoot, cacheKey);
+  const identityDigest = sha256(evidence.identity);
+  const cachePath = supersessionEvidenceCachePath(repositoryRoot, identityDigest);
   const temporaryPath = `${cachePath}.${process.pid}.${randomUUID()}.tmp`;
   await mkdir(path.dirname(cachePath), { recursive: true });
-  await writeFile(temporaryPath, encodeCacheEnvelope(cacheKey, model), { flag: 'wx' });
+  await writeFile(temporaryPath, encodeCacheEnvelope(identityDigest, evidence), { flag: 'wx' });
   try {
     await rename(temporaryPath, cachePath);
   } catch {
     await unlink(temporaryPath).catch(() => undefined);
   }
+}
+
+function supersessionEvidenceIdentity(input: Readonly<{
+  revisionDigest: string;
+  treeDigest: string;
+}>): SourceProgramSupersessionEvidenceIdentity {
+  return compileSourceProgramSupersessionEvidenceIdentity({
+    revisionDigest: input.revisionDigest,
+    treeDigest: input.treeDigest,
+    toolchainDigest: sha256({ bun: Bun.version, typescript: ts.version }),
+    // The complete tree is a conservative configuration closure: it may
+    // invalidate more often than necessary but cannot omit a semantic input.
+    configurationDigest: input.treeDigest
+  });
 }
 
 function repositoryAuditGitBudget(): Readonly<{
@@ -338,6 +297,16 @@ function repositoryAuditGitBudget(): Readonly<{
   });
 }
 
+function repositoryModuleTopologyGitBudget(): ReturnType<typeof repositoryAuditGitBudget> {
+  return Object.freeze({
+    deadlineMs: 15_000,
+    maxProcesses: 3,
+    maxStdinBytes: 1,
+    maxStdoutBytes: 24 * 1024 * 1024,
+    maxCommandStdoutBytes: 16 * 1024 * 1024
+  });
+}
+
 export type RepositoryAuditSeverity = 'critical' | 'high' | 'medium' | 'low';
 
 export interface RepositoryAuditFinding {
@@ -350,8 +319,9 @@ export interface RepositoryAuditFinding {
 }
 
 export interface RepositoryAuditReport {
+  architecture: SecRepositoryModuleArchitectureProjection;
   behaviorCandidates: readonly BehaviorCandidate[];
-  behaviorRoutes: typeof SEC_REPOSITORY_BEHAVIOR_ROUTES;
+  heuristicRoutes: typeof SEC_REPOSITORY_HEURISTIC_ROUTES;
   contentCoverage: readonly RepositoryContentCoverage[];
   findings: readonly RepositoryAuditFinding[];
   optimizations: readonly string[];
@@ -393,6 +363,13 @@ export interface RepositoryAuditReport {
 }
 
 export interface RepositoryAuditCliProjection {
+  readonly architecture: Readonly<{
+    readonly evidenceDigest: ReturnType<typeof sha256>;
+    readonly feedbackProjections: number;
+    readonly reciprocalPairs: number;
+    readonly strongComponents: number;
+    readonly violations: number;
+  }>;
   readonly reportDigest: `sha256:${string}`;
   readonly revision: RepositoryAuditReport['revision'];
   readonly summary: RepositoryAuditReport['summary'];
@@ -408,12 +385,61 @@ export function projectRepositoryAuditCli(
   report: RepositoryAuditReport
 ): RepositoryAuditCliProjection {
   return Object.freeze({
+    architecture: projectRepositoryModuleArchitectureCli(report.architecture),
     reportDigest: rawSha256(JSON.stringify(report)),
     revision: report.revision,
     summary: report.summary,
     findingCodes: Object.freeze([...new Set(report.findings.map(({ code }) => code))].sort()),
     unknownsDigest: rawSha256(JSON.stringify(report.unknowns))
   });
+}
+
+export type RepositoryModuleArchitectureAudit = Readonly<{
+  readonly feedbackProjections: SecRepositoryModuleArchitectureProjection['feedbackCuts'];
+  readonly reciprocalPairs: SecRepositoryModuleArchitectureProjection['reciprocalPairs'];
+  readonly strongComponents: SecRepositoryModuleArchitectureProjection['strongComponents'];
+  readonly violations: SecRepositoryModuleArchitectureProjection['violations'];
+}>;
+
+export function projectRepositoryModuleArchitectureCli(
+  architecture: SecRepositoryModuleArchitectureProjection
+): RepositoryAuditCliProjection['architecture'] {
+  return Object.freeze({
+    evidenceDigest: sha256(projectRepositoryModuleArchitectureAudit(architecture)),
+    feedbackProjections: architecture.feedbackCuts.length,
+    reciprocalPairs: architecture.reciprocalPairs.length,
+    strongComponents: architecture.strongComponents.length,
+    violations: architecture.violations.length
+  });
+}
+
+/**
+ * Bounded decision projection over the canonical repository-module graph.
+ * Feedback projections retain their deterministic DFS witnesses. They are
+ * diagnostic cycle evidence, not a minimum or automatically applicable cut.
+ */
+export function projectRepositoryModuleArchitectureAudit(
+  architecture: SecRepositoryModuleArchitectureProjection
+): RepositoryModuleArchitectureAudit {
+  return Object.freeze({
+    feedbackProjections: architecture.feedbackCuts,
+    reciprocalPairs: architecture.reciprocalPairs,
+    strongComponents: architecture.strongComponents,
+    violations: architecture.violations
+  });
+}
+
+export function repositoryModuleArchitectureShouldBlock(
+  architecture: Pick<SecRepositoryModuleArchitectureProjection, 'violations'>
+): boolean {
+  return architecture.violations.length > 0;
+}
+
+function compactRecordSet<T>(records: readonly T[]): Readonly<{
+  count: number;
+  digest: ReturnType<typeof sha256>;
+}> {
+  return Object.freeze({ count: records.length, digest: sha256(records) });
 }
 
 export interface BehaviorCandidate {
@@ -862,28 +888,53 @@ async function revisionTextCandidates(
   };
 }
 
-async function baselineTestSourceFiles(
+async function revisionSourceProgramFiles(
   session: GitReadSession,
-  entries: readonly GitTreeEntry[],
-  baselineTestPaths: readonly string[]
-): Promise<readonly SourceProgramFileInput[]> {
-  const pathSet = new Set(baselineTestPaths);
-  const testEntries = entries.filter(({ path: repositoryPath, type, mode, size }) =>
-    pathSet.has(repositoryPath)
-    && type === 'blob'
+  entries: readonly GitTreeEntry[]
+): Promise<Readonly<{
+  files: readonly SourceProgramFileInput[];
+  unknowns: readonly import('../source-program-model/contract.ts').SourceProgramUnknown[];
+}>> {
+  const readableEntries = entries.filter(({ type, mode, size }) =>
+    type === 'blob'
     && (mode === '100644' || mode === '100755')
     && size !== null
     && size <= MAX_TEXT_FILE_BYTES);
-  const blobs = await readBatchGitBlobs(session, testEntries);
+  const blobs = await readBatchGitBlobs(session, readableEntries);
   const files: SourceProgramFileInput[] = [];
-  for (const entry of testEntries) {
+  const unknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
+  for (const entry of entries) {
+    if (entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) continue;
+    if (entry.size === null || entry.size > MAX_TEXT_FILE_BYTES) {
+      unknowns.push(Object.freeze({
+        code: 'baseline-path-oversized',
+        path: entry.path,
+        detail: `${entry.size ?? '<unknown>'}>${MAX_TEXT_FILE_BYTES}`,
+        span: null
+      }));
+      continue;
+    }
     const read = blobs.get(entry.object);
-    if (read?.bytes === null || read === undefined) continue;
+    if (read?.bytes === null || read === undefined) {
+      unknowns.push(Object.freeze({
+        code: 'baseline-path-unreadable',
+        path: entry.path,
+        detail: `Git object ${entry.object} was not returned by the retained batch reader`,
+        span: null
+      }));
+      continue;
+    }
     if (knownBinaryReason(read.bytes) !== null || read.bytes.includes(0)) continue;
     let source: string;
     try {
       source = new TextDecoder('utf-8', { fatal: true }).decode(read.bytes);
     } catch {
+      unknowns.push(Object.freeze({
+        code: 'baseline-path-invalid-utf8',
+        path: entry.path,
+        detail: 'strict UTF-8 decode failed',
+        span: null
+      }));
       continue;
     }
     files.push(Object.freeze({
@@ -892,7 +943,71 @@ async function baselineTestSourceFiles(
       contentDigest: rawSha256(read.bytes)
     }));
   }
-  return Object.freeze(files.sort((left, right) => compareCodeUnits(left.path, right.path)));
+  return Object.freeze({
+    files: Object.freeze(files.sort((left, right) => compareCodeUnits(left.path, right.path))),
+    unknowns: Object.freeze(unknowns.sort((left, right) => compareCodeUnits(left.path, right.path)
+      || compareCodeUnits(left.code, right.code)))
+  });
+}
+
+async function compileRevisionSupersessionEvidence(
+  repositoryRoot: string,
+  files: readonly SourceProgramFileInput[],
+  unknowns: readonly import('../source-program-model/contract.ts').SourceProgramUnknown[],
+  identity: SourceProgramSupersessionEvidenceIdentity
+): Promise<SourceProgramSupersessionEvidence> {
+  const descriptorSources = files
+    .filter(({ path: repositoryPath }) => path.posix.basename(repositoryPath) === 'sec.module.json')
+    .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
+  const membership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
+    descriptorSources
+  });
+  const sourceRevision = rawSha256(JSON.stringify(files.map(({ path: repositoryPath, contentDigest }) => ({
+    path: repositoryPath,
+    contentDigest
+  }))));
+  const sourceFiles = files.filter(({ path: repositoryPath }) =>
+    JAVASCRIPT_OR_TYPESCRIPT_PATH.test(repositoryPath));
+  const sourceByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) =>
+    [repositoryPath, source] as const));
+  const moduleGraph = compileSecRepositoryModuleGraph({
+    files: sourceFiles.map(({ path: repositoryPath }) => repositoryPath),
+    readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
+  });
+  const revisionUnknowns = [...unknowns];
+  let reviewedProcessDispatchers: readonly string[] = Object.freeze([]);
+  try {
+    reviewedProcessDispatchers = await resolveReviewedProcessDispatchers(
+      repositoryRoot,
+      files,
+      moduleGraph
+    );
+  } catch (error) {
+    revisionUnknowns.push(Object.freeze({
+      code: 'baseline-trusted-runtime-projection-unresolved',
+      path: '.',
+      detail: error instanceof Error ? error.message : String(error),
+      span: null
+    }));
+  }
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership: membership,
+    reviewedProcessDispatchers,
+    unknowns: revisionUnknowns
+  });
+  return compileSourceProgramSupersessionEvidence({
+    model,
+    tests: compileSourceProgramTestValue({
+      repositoryRoot: DEFAULT_REPOSITORY_ROOT,
+      files,
+      model
+    }),
+    intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership),
+    identity
+  });
 }
 
 async function repositoryWorktreeState(
@@ -904,6 +1019,124 @@ async function repositoryWorktreeState(
   ], { allowFailure: true });
   if (status === null) return 'unresolved';
   return status.length === 0 ? 'clean' : 'dirty';
+}
+
+type WorkingTreeModuleTopology = Readonly<{
+  sourceRevision: `sha256:${string}`;
+  files: number;
+  references: number;
+  unresolvedFiles: readonly string[];
+  topology: SecRepositoryModuleTopologyProjection;
+}>;
+
+async function readTopologySources(
+  repositoryRoot: string,
+  repositoryPaths: readonly string[]
+): Promise<readonly SourceProgramFileInput[]> {
+  const candidatePaths = repositoryPaths.filter((repositoryPath) => (
+    (repositoryPath.startsWith('src/') && JAVASCRIPT_OR_TYPESCRIPT_PATH.test(repositoryPath))
+    || path.posix.basename(repositoryPath) === 'sec.module.json'
+  ));
+  const results = new Array<SourceProgramFileInput>(candidatePaths.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(16, candidatePaths.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    for (;;) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= candidatePaths.length) return;
+      const repositoryPath = candidatePaths[index]!;
+      const absolutePath = path.resolve(repositoryRoot, ...repositoryPath.split('/'));
+      const metadata = await lstat(absolutePath);
+      if (!metadata.isFile() || metadata.isSymbolicLink()) {
+        throw new Error(`Module topology input is not one ordinary file: ${repositoryPath}`);
+      }
+      if (metadata.size > MAX_TEXT_FILE_BYTES) {
+        throw new Error(`Module topology input exceeds ${MAX_TEXT_FILE_BYTES} bytes: ${repositoryPath}`);
+      }
+      const bytes = await readFile(absolutePath);
+      const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (!Buffer.from(source, 'utf8').equals(bytes)) {
+        throw new Error(`Module topology input is not canonical UTF-8: ${repositoryPath}`);
+      }
+      results[index] = Object.freeze({
+        path: repositoryPath,
+        source,
+        contentDigest: rawSha256(bytes)
+      });
+    }
+  }));
+  return Object.freeze(results);
+}
+
+async function compileWorkingTreeModuleTopology(
+  repositoryRoot: string
+): Promise<WorkingTreeModuleTopology> {
+  return withAuthorityGitReadSession(
+    { cwd: repositoryRoot, budget: repositoryModuleTopologyGitBudget() },
+    async (session) => {
+      const before = await runGitBytes(session, [
+        '-c', 'core.quotepath=false',
+        'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
+      ]);
+      const listed = await runGitBytes(session, [
+        '-c', 'core.quotepath=false',
+        'ls-files', '-z', '--cached', '--others', '--exclude-standard'
+      ]);
+      if (before === null || listed === null) {
+        throw new Error('Working-tree module topology requires Git status and path census');
+      }
+      const deletedPaths = new Set(parseWorktreeStatusPorcelainZ(before)
+        .filter(({ worktree }) => worktree === 'D')
+        .map(({ path: repositoryPath }) => repositoryPath));
+      const repositoryPaths = [...new Set(
+        exactGitUtf8(listed, 'git ls-files module topology census').split('\0').filter(Boolean)
+      )].filter((repositoryPath) => !deletedPaths.has(repositoryPath)).sort(compareCodeUnits);
+      const files = await readTopologySources(repositoryRoot, repositoryPaths);
+      const descriptorSources = files
+        .filter(({ path: repositoryPath }) => path.posix.basename(repositoryPath) === 'sec.module.json')
+        .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
+      if (descriptorSources.length === 0) {
+        throw new Error('Working-tree module topology requires at least one sec.module.json descriptor');
+      }
+      const membership = compileSecRepositoryModuleMembershipSnapshot({
+        repositoryFiles: repositoryPaths,
+        descriptorSources
+      });
+      const sourceFiles = files.filter(({ path: repositoryPath }) => (
+        repositoryPath.startsWith('src/') && JAVASCRIPT_OR_TYPESCRIPT_PATH.test(repositoryPath)
+      ));
+      const sourceByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) => (
+        [repositoryPath, source] as const
+      )));
+      const graph = compileSecRepositoryModuleGraph({
+        files: sourceFiles.map(({ path: repositoryPath }) => repositoryPath),
+        readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
+      });
+      const after = await runGitBytes(session, [
+        '-c', 'core.quotepath=false',
+        'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
+      ]);
+      if (after === null || !before.equals(after)) {
+        throw new Error('Working tree changed during module topology census');
+      }
+      const sourceRevision = rawSha256(JSON.stringify({
+        statusDigest: rawSha256(before),
+        repositoryPaths,
+        files: files.map(({ path: repositoryPath, contentDigest }) => ({
+          path: repositoryPath,
+          contentDigest
+        }))
+      }));
+      return Object.freeze({
+        sourceRevision,
+        files: graph.files.length,
+        references: graph.references.length,
+        unresolvedFiles: graph.unresolvedFiles,
+        topology: compileSecRepositoryModuleTopologyProjection(graph, membership)
+      });
+    }
+  );
 }
 
 async function compileKnipUnusedSymbolEvidence(
@@ -938,32 +1171,52 @@ async function compileKnipUnusedSymbolEvidence(
 }
 
 async function compileWorkingTreeSourceProgram(
-  repositoryRoot: string
+  repositoryRoot: string,
+  supersessionBaseline: string
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   invalidatedTypeScriptPaths: readonly string[];
   model: SourceProgramModel;
+  moduleArchitecture: SecRepositoryModuleArchitectureProjection;
   moduleBoundaryFailures: readonly string[];
   baselineTestPaths: readonly string[];
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
+  baselineSourceFiles: readonly SourceProgramFileInput[];
+  baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
+  currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
+  currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
+  moduleMembership: SecRepositoryModuleMembership;
+  reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly SourceProgramFileInput[];
 }>> {
   return withAuthorityGitReadSession(
     { cwd: repositoryRoot, budget: repositoryAuditGitBudget() },
-    async (session) => compileWorkingTreeSourceProgramWithSession(session, repositoryRoot)
+    async (session) => compileWorkingTreeSourceProgramWithSession(
+      session,
+      repositoryRoot,
+      supersessionBaseline
+    )
   );
 }
 
 async function compileWorkingTreeSourceProgramWithSession(
   session: GitReadSession,
-  repositoryRoot: string
+  repositoryRoot: string,
+  supersessionBaseline: string
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   invalidatedTypeScriptPaths: readonly string[];
   model: SourceProgramModel;
+  moduleArchitecture: SecRepositoryModuleArchitectureProjection;
   moduleBoundaryFailures: readonly string[];
   baselineTestPaths: readonly string[];
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
+  baselineSourceFiles: readonly SourceProgramFileInput[];
+  baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
+  currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
+  currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
+  moduleMembership: SecRepositoryModuleMembership;
+  reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly SourceProgramFileInput[];
 }>> {
   const before = await runGitBytes(session, [
@@ -980,7 +1233,50 @@ async function compileWorkingTreeSourceProgramWithSession(
   const repositoryPaths = [...new Set(
     exactGitUtf8(listed, 'git ls-files working-tree census').split('\0').filter(Boolean)
   )].sort((left, right) => compareCodeUnits(left, right));
-  const baselineEntries = await revisionTreeEntries(session, 'HEAD');
+  if (supersessionBaseline.startsWith('-')) {
+    throw new Error('--supersession-baseline cannot begin with -');
+  }
+  const exactSupersessionBaseline = await runGitText(session, [
+    'rev-parse', '--verify', `${supersessionBaseline}^{commit}`
+  ]);
+  if (exactSupersessionBaseline === null || !/^[0-9a-f]{40,64}$/u.test(exactSupersessionBaseline)) {
+    throw new Error('--supersession-baseline must resolve to one exact commit');
+  }
+  const exactCurrentHead = await runGitText(session, ['rev-parse', '--verify', 'HEAD^{commit}']);
+  if (exactCurrentHead === null || !/^[0-9a-f]{40,64}$/u.test(exactCurrentHead)) {
+    throw new Error('Working-tree Source Program Model requires one exact HEAD commit');
+  }
+  const baselineEntries = await revisionTreeEntries(session, exactSupersessionBaseline);
+  const baselineTreeDigest = rawSha256(JSON.stringify(baselineEntries.map(
+    ({ mode, object, path: repositoryPath, size, type }) => ({
+      mode,
+      object,
+      path: repositoryPath,
+      size,
+      type
+    })
+  )));
+  const baselineIdentity = supersessionEvidenceIdentity({
+    revisionDigest: rawSha256(Buffer.from(exactSupersessionBaseline, 'utf8')),
+    treeDigest: baselineTreeDigest
+  });
+  let baselineSource: Awaited<ReturnType<typeof revisionSourceProgramFiles>> | null = null;
+  let baselineSupersessionEvidence = await readSupersessionEvidenceCache(
+    repositoryRoot,
+    baselineIdentity
+  );
+  if (baselineSupersessionEvidence === null) {
+    baselineSource = await revisionSourceProgramFiles(session, baselineEntries);
+    baselineSupersessionEvidence = await compileRevisionSupersessionEvidence(
+      repositoryRoot,
+      baselineSource.files,
+      baselineSource.unknowns,
+      baselineIdentity
+    );
+    await writeSupersessionEvidenceCache(repositoryRoot, baselineSupersessionEvidence)
+      .catch(() => undefined);
+    releaseTypeScriptSourceProgramWorkspace();
+  }
   const baselineTestPaths = Object.freeze(
     baselineEntries
       .filter(({ path: repositoryPath }) => isSourceProgramTestModulePath(repositoryPath))
@@ -1057,13 +1353,15 @@ async function compileWorkingTreeSourceProgramWithSession(
   const candidateTestPaths = new Set(
     presentRepositoryPaths.filter((repositoryPath) => isSourceProgramTestModulePath(repositoryPath))
   );
+  const baselineTestSource = baselineSource ?? await revisionSourceProgramFiles(
+    session,
+    baselineEntries
+  );
   const baselineTestEvidence = compileSourceProgramTestBaselineEvidence(
     baselineTestPaths,
-    await baselineTestSourceFiles(
-      session,
-      baselineEntries,
-      baselineTestPaths.filter((repositoryPath) => !candidateTestPaths.has(repositoryPath))
-    ),
+    baselineTestSource.files.filter(({ path: repositoryPath }) =>
+      isSourceProgramTestModulePath(repositoryPath)
+      && !candidateTestPaths.has(repositoryPath)),
     baselineTestRevision,
     files
   );
@@ -1098,13 +1396,6 @@ async function compileWorkingTreeSourceProgramWithSession(
     files: sourceFiles.map(({ path: repositoryPath }) => repositoryPath),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
   });
-  if (descriptorSources.length > 0) {
-    try {
-      assertSecRepositoryModuleImportBoundaries(moduleGraph, moduleMembership);
-    } catch (error) {
-      moduleBoundaryFailures.push(error instanceof Error ? error.message : String(error));
-    }
-  }
   const after = await runGitBytes(session, [
     '-c', 'core.quotepath=false',
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
@@ -1123,57 +1414,61 @@ async function compileWorkingTreeSourceProgramWithSession(
       contentDigest
     }))
   ));
+  const currentSupersessionIdentity = supersessionEvidenceIdentity({
+    revisionDigest: rawSha256(Buffer.concat([
+      Buffer.from(`${exactCurrentHead}\n`, 'utf8'),
+      before
+    ])),
+    treeDigest: sourceRevision
+  });
   const reviewedProcessDispatchers = await resolveReviewedProcessDispatchers(
     repositoryRoot,
     files,
     moduleGraph
   );
-  const importBoundaryFailures = Object.freeze(moduleBoundaryFailures.sort(compareCodeUnits));
-  const cacheKey = sha256({
-    sourceRevision,
-    provider: Object.freeze({ id: 'typescript-compiler-api', revision: ts.version }),
-    reviewedProcessDispatchers,
-    unknowns,
-    moduleBoundaryFailures: importBoundaryFailures
-  });
-  const cachedModel = await readSourceProgramCache(repositoryRoot, cacheKey, sourceRevision);
-  const incrementalCompilation = cachedModel === null
-    ? compileTypeScriptSourceProgramModelIncremental(
-        { sourceRevision, files, moduleMembership },
-        await readTypeScriptIncrementalCache(repositoryRoot)
-      )
-    : null;
-  const model = cachedModel ?? compileRepositorySourceProgramModel({
+  // Full SourceProgramModel JSON expands by orders of magnitude when parsed
+  // and duplicated the same model inside the old incremental envelope. Keep
+  // the hot LanguageService process-local and persist only compact consumers
+  // such as supersession evidence.
+  const incrementalCompilation = compileTypeScriptSourceProgramModelIncremental(
+    { sourceRevision, files, moduleMembership },
+    null
+  );
+  const model = compileRepositorySourceProgramModel({
     sourceRevision,
     files,
     moduleMembership,
     reviewedProcessDispatchers,
     unknowns,
-    typescriptModel: incrementalCompilation!.model
+    typescriptModel: incrementalCompilation.model
   });
+  const moduleArchitecture = compileSecRepositoryModuleArchitectureProjection(
+    moduleGraph,
+    moduleMembership,
+    model
+  );
   try {
-    assertSecRepositoryModuleSourceProgramBoundaries(model, moduleMembership);
+    assertSecRepositoryModuleArchitectureBoundaries(moduleGraph, moduleMembership, model);
   } catch (error) {
     moduleBoundaryFailures.push(error instanceof Error ? error.message : String(error));
   }
   const sortedModuleBoundaryFailures = Object.freeze(
     [...new Set(moduleBoundaryFailures)].sort(compareCodeUnits)
   );
-  if (cachedModel === null) {
-    await Promise.all([
-      writeSourceProgramCache(repositoryRoot, cacheKey, model).catch(() => undefined),
-      writeTypeScriptIncrementalCache(repositoryRoot, incrementalCompilation!.state).catch(() => undefined)
-    ]);
-  }
   return Object.freeze({
-    cache: cachedModel !== null
-      ? 'hit'
-      : incrementalCompilation!.mode === 'full' ? 'miss' : 'incremental',
-    invalidatedTypeScriptPaths: incrementalCompilation?.invalidatedPaths ?? Object.freeze([]),
+    cache: 'miss',
+    invalidatedTypeScriptPaths: incrementalCompilation.invalidatedPaths,
     model,
+    moduleArchitecture,
     moduleBoundaryFailures: sortedModuleBoundaryFailures,
     baselineTestPaths,
     baselineTestEvidence,
+    baselineSourceFiles: baselineTestSource.files,
+    baselineSupersessionEvidence,
+    currentSupersessionIdentity,
+    currentIntentEvidence: compileSourceProgramOwnerIntentEvidence(model, moduleMembership),
+    moduleMembership,
+    reviewedProcessDispatchers,
     sourceFiles: Object.freeze(files)
   });
 }
@@ -1437,6 +1732,12 @@ export function sourceProgramBlockingTestFindings(
 ): readonly SourceProgramTestFinding[] {
   return Object.freeze(findings.filter(({ code }) =>
     SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODE_SET.has(code)));
+}
+
+export function repositoryAuditSupersessionShouldBlock(
+  receipt: Pick<SourceProgramSupersessionReceipt, 'status'>
+): boolean {
+  return receipt.status === 'owner-decision-required';
 }
 
 function appendSourceProgramBlockingFindings(
@@ -1725,34 +2026,25 @@ async function auditRepositoryWithSession(
     files: sourceFiles.map(({ path: repositoryPath }) => repositoryPath),
     readSource: (repositoryPath) => textByPath.get(repositoryPath) ?? null
   });
-  if (descriptorSources.length > 0) {
-    try {
-      assertSecRepositoryModuleImportBoundaries(moduleGraph, moduleMembership);
-    } catch (error) {
-      pushFinding(findings, {
-        code: 'repository-module-boundary-invalid',
-        message: error instanceof Error ? error.message : String(error),
-        path: 'platform',
-        severity: 'high'
-      });
-    }
-  }
   const sourceProgram = compileRepositorySourceProgramModel({
     sourceRevision: tree,
     files: programFiles,
     moduleMembership
   });
-  if (descriptorSources.length > 0) {
-    try {
-      assertSecRepositoryModuleSourceProgramBoundaries(sourceProgram, moduleMembership);
-    } catch (error) {
-      pushFinding(findings, {
-        code: 'repository-module-source-program-boundary-invalid',
-        message: error instanceof Error ? error.message : String(error),
-        path: 'src',
-        severity: 'high'
-      });
-    }
+  const architecture = compileSecRepositoryModuleArchitectureProjection(
+    moduleGraph,
+    moduleMembership,
+    sourceProgram
+  );
+  try {
+    assertSecRepositoryModuleArchitectureBoundaries(moduleGraph, moduleMembership, sourceProgram);
+  } catch (error) {
+    pushFinding(findings, {
+      code: 'repository-module-architecture-boundary-invalid',
+      message: error instanceof Error ? error.message : String(error),
+      path: 'src',
+      severity: 'high'
+    });
   }
   appendSourceProgramBlockingFindings(findings, sourceProgram);
   for (const coverage of contentCoverage) {
@@ -1842,11 +2134,8 @@ async function auditRepositoryWithSession(
   }
 
   for (const skillId of SEC_AGENT_SKILL_IDS) {
-    const routed = SEC_REPOSITORY_BEHAVIOR_IDS.filter(
-      (behavior) => {
-        const route = SEC_REPOSITORY_BEHAVIOR_ROUTES[behavior];
-        return route.kind === 'skill' && route.owner === skillId;
-      }
+    const routed = SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS.filter(
+      (behavior) => SEC_REPOSITORY_HEURISTIC_ROUTES[behavior].owner === skillId
     );
     if (routed.length === 0) {
       pushFinding(findings, {
@@ -1903,8 +2192,9 @@ async function auditRepositoryWithSession(
     || left.code.localeCompare(right.code));
 
   return Object.freeze({
+    architecture,
     behaviorCandidates: Object.freeze([...candidates]),
-    behaviorRoutes: SEC_REPOSITORY_BEHAVIOR_ROUTES,
+    heuristicRoutes: SEC_REPOSITORY_HEURISTIC_ROUTES,
     contentCoverage,
     findings: Object.freeze(findings),
     optimizations: Object.freeze([
@@ -2009,27 +2299,114 @@ async function main(): Promise<void> {
   const cliDefaultRef = defaultRefIndex >= 0 ? args[defaultRefIndex + 1] : undefined;
   const defaultRef = cliDefaultRef ?? process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF ?? undefined;
 
+  if (args.includes('--worktree-module-topology')) {
+    const result = await compileWorkingTreeModuleTopology(DEFAULT_REPOSITORY_ROOT);
+    const projection = Object.freeze({
+      sourceRevision: result.sourceRevision,
+      files: result.files,
+      references: result.references,
+      unresolvedFiles: full
+        ? result.unresolvedFiles
+        : compactRecordSet(result.unresolvedFiles),
+      topology: full
+        ? Object.freeze({
+            ownerEdges: result.topology.ownerEdges,
+            strongComponents: result.topology.strongComponents,
+            reciprocalPairs: result.topology.reciprocalPairs,
+            feedbackProjections: result.topology.feedbackCuts,
+            violations: result.topology.violations
+          })
+        : Object.freeze({
+            evidenceDigest: sha256(result.topology),
+            ownerEdges: result.topology.ownerEdges.length,
+            strongComponents: result.topology.strongComponents.length,
+            reciprocalPairs: result.topology.reciprocalPairs.length,
+            feedbackProjections: result.topology.feedbackCuts.length,
+            violations: result.topology.violations.length
+          })
+    });
+    const encoded = `${JSON.stringify(projection, null, 2)}\n`;
+    if (outputPath !== undefined) {
+      const absoluteOutput = path.resolve(outputPath);
+      await mkdir(path.dirname(absoluteOutput), { recursive: true });
+      await writeFile(absoluteOutput, encoded, 'utf8');
+    }
+    process.stdout.write(encoded);
+    if (args.includes('--enforce') && result.topology.violations.length > 0) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (args.includes('--worktree-source-program')) {
-    const worktreeAudit = await compileWorkingTreeSourceProgram(DEFAULT_REPOSITORY_ROOT);
+    const supersessionBaselineIndex = args.indexOf('--supersession-baseline');
+    const supersessionBaseline = supersessionBaselineIndex >= 0
+      ? args[supersessionBaselineIndex + 1]
+      : 'HEAD';
+    if (!supersessionBaseline || supersessionBaseline.startsWith('--')) {
+      throw new Error('--supersession-baseline requires one Git revision');
+    }
+    const worktreeAudit = await (async () => {
+      try {
+        return await compileWorkingTreeSourceProgram(
+          DEFAULT_REPOSITORY_ROOT,
+          supersessionBaseline
+        );
+      } finally {
+        // Every downstream audit consumes sealed fact shards, never the live
+        // Language Service. Release the compiler graph at this lifecycle seam
+        // even when projection compilation fails.
+        releaseTypeScriptSourceProgramWorkspace();
+      }
+    })();
     const { model } = worktreeAudit;
     const blockingCandidates = sourceProgramBlockingCandidates(model);
-    const testValue = compileSourceProgramTestValue({
+    const observedTestValue = compileSourceProgramTestValue({
       repositoryRoot: DEFAULT_REPOSITORY_ROOT,
       files: worktreeAudit.sourceFiles,
       model,
       baselineTestPaths: worktreeAudit.baselineTestPaths,
       baselineEvidence: worktreeAudit.baselineTestEvidence
     });
-    const blockingTestFindings = sourceProgramBlockingTestFindings(testValue.findings);
+    const currentSupersessionEvidence = compileSourceProgramSupersessionEvidence({
+      model,
+      tests: observedTestValue,
+      intentEvidence: worktreeAudit.currentIntentEvidence,
+      identity: worktreeAudit.currentSupersessionIdentity
+    });
+    await writeSupersessionEvidenceCache(DEFAULT_REPOSITORY_ROOT, currentSupersessionEvidence)
+      .catch(() => undefined);
+    const supersession = compileSourceProgramSupersessionReceipt({
+      baseline: worktreeAudit.baselineSupersessionEvidence,
+      current: currentSupersessionEvidence
+    });
+    const supersessionTestDisposition = reconcileSourceProgramTestValueWithSupersession(
+      observedTestValue,
+      supersession
+    );
+    const testRetirement = compileSourceProgramTestRetirementReceipt({
+      baseline: worktreeAudit.baselineSupersessionEvidence,
+      current: currentSupersessionEvidence,
+      supersession,
+      currentModel: model,
+      currentTestCompilation: observedTestValue,
+      baselineFiles: worktreeAudit.baselineSourceFiles,
+      currentFiles: worktreeAudit.sourceFiles
+    });
+    const testDisposition = projectSourceProgramTestRetirementDispositions(
+      supersessionTestDisposition,
+      testRetirement
+    );
+    const blockingTestFindings = sourceProgramBlockingTestFindings(testDisposition.findings);
     const unknownDispositionClusters = summarizeSourceProgramTestUnknownDispositionClusters(
-      testValue.dispositions,
-      testValue.findings
+      testDisposition.dispositions,
+      testDisposition.findings
     );
     const compactBlockingTestFindings = blockingTestFindings.filter(({ disposition }) =>
       disposition?.disposition !== 'unknown');
-    const compactDispositions = testValue.dispositions.filter(({ disposition }) =>
+    const compactDispositions = testDisposition.dispositions.filter(({ disposition }) =>
       disposition !== 'unknown');
-    const compactFindings = testValue.findings.filter(({ disposition }) =>
+    const compactFindings = testDisposition.findings.filter(({ disposition }) =>
       disposition?.disposition !== 'unknown');
     const reductionModeCount = [
       '--version-reductions',
@@ -2040,7 +2417,14 @@ async function main(): Promise<void> {
       throw new Error('Choose exactly one reduction mode per exact source snapshot');
     }
     const aggregateImportPlan = args.includes('--aggregate-import-reductions')
-      ? compileSourceProgramAggregateImportReductionPlan(model, worktreeAudit.sourceFiles)
+      ? compileSourceProgramAggregateImportReductionPlan(
+          model,
+          worktreeAudit.sourceFiles,
+          Object.freeze({
+            sourceRevision: model.sourceRevision,
+            architecture: worktreeAudit.moduleArchitecture
+          })
+        )
       : null;
     const aggregateImportPatch = aggregateImportPlan === null
       || aggregateImportPlan.reductions.every(({ status }) => status === 'blocked')
@@ -2063,7 +2447,11 @@ async function main(): Promise<void> {
       ? compileSourceProgramGraphCutReductionPlan(
           model,
           worktreeAudit.sourceFiles,
-          await compileKnipUnusedSymbolEvidence(DEFAULT_REPOSITORY_ROOT)
+          await compileKnipUnusedSymbolEvidence(DEFAULT_REPOSITORY_ROOT),
+          Object.freeze({
+            moduleMembership: worktreeAudit.moduleMembership,
+            reviewedProcessDispatchers: worktreeAudit.reviewedProcessDispatchers
+          })
         )
       : null;
     const graphCutPatch = graphCutPlan === null
@@ -2080,20 +2468,53 @@ async function main(): Promise<void> {
       await writeFile(absoluteOutput, reductionPatch.patch, 'utf8');
     }
     process.stdout.write(`${JSON.stringify({
+      architecture: full
+        ? projectRepositoryModuleArchitectureAudit(worktreeAudit.moduleArchitecture)
+        : projectRepositoryModuleArchitectureCli(worktreeAudit.moduleArchitecture),
       modelDigest: model.modelDigest,
       sourceRevision: model.sourceRevision,
       cache: worktreeAudit.cache,
-      invalidatedTypeScriptPaths: worktreeAudit.invalidatedTypeScriptPaths,
-      blockingCandidates,
-      blockingTestFindings: full ? blockingTestFindings : compactBlockingTestFindings,
-      unknownDispositionClusters,
+      invalidatedTypeScriptPaths: full
+        ? worktreeAudit.invalidatedTypeScriptPaths
+        : compactRecordSet(worktreeAudit.invalidatedTypeScriptPaths),
+      blockingCandidates: full ? blockingCandidates : compactRecordSet(blockingCandidates),
+      blockingTestFindings: full
+        ? blockingTestFindings
+        : compactRecordSet(compactBlockingTestFindings),
+      unknownDispositionClusters: full
+        ? unknownDispositionClusters
+        : compactRecordSet(unknownDispositionClusters),
+      supersession: full ? supersession : {
+        status: supersession.status,
+        receiptDigest: supersession.receiptDigest,
+        baseline: supersession.baseline,
+        current: supersession.current,
+        lifecycleCost: supersession.lifecycleCost,
+        replacements: {
+          entrypoint: supersession.replacements.filter(({ kind }) => kind === 'entrypoint').length,
+          production: supersession.replacements.filter(({ kind }) => kind === 'production').length,
+          resource: supersession.replacements.filter(({ kind }) => kind === 'resource').length,
+          test: supersession.replacements.filter(({ kind }) => kind === 'test').length
+        },
+        findings: compactRecordSet(supersession.findings)
+      },
+      testRetirement: full ? testRetirement : {
+        receiptDigest: testRetirement.receiptDigest,
+        retired: testRetirement.proofs.filter(({ status }) => status === 'retired').length,
+        blocked: testRetirement.proofs.filter(({ status }) => status === 'blocked').length,
+        proofsDigest: sha256(testRetirement.proofs)
+      },
       summary: {
         blockingCandidates: blockingCandidates.length,
         blockingTestFindings: blockingTestFindings.length,
         reportedBlockingTestFindings: (full ? blockingTestFindings : compactBlockingTestFindings).length,
         unknownDispositionClusters: unknownDispositionClusters.length,
-        unknownDispositions: testValue.dispositions.filter(({ disposition }) =>
+        unknownDispositions: testDisposition.dispositions.filter(({ disposition }) =>
           disposition === 'unknown').length,
+        architectureFeedbackProjections: worktreeAudit.moduleArchitecture.feedbackCuts.length,
+        architectureReciprocalPairs: worktreeAudit.moduleArchitecture.reciprocalPairs.length,
+        architectureStrongComponents: worktreeAudit.moduleArchitecture.strongComponents.length,
+        architectureViolations: worktreeAudit.moduleArchitecture.violations.length,
         moduleBoundaryFailures: worktreeAudit.moduleBoundaryFailures.length,
         capabilities: model.capabilities.length,
         candidates: model.candidates.length,
@@ -2105,36 +2526,48 @@ async function main(): Promise<void> {
         literals: model.literals.length,
         packages: model.packages.length,
         references: model.references.length,
-        baselineTestModules: testValue.baselineTestPaths.length,
-        testDispositionRecords: testValue.dispositions.length,
-        testRegistrations: testValue.records.length,
+        supersessionFindings: supersession.findings.length,
+        supersessionStatus: supersession.status,
+        baselineTestModules: observedTestValue.baselineTestPaths.length,
+        testDispositionRecords: testDisposition.dispositions.length,
+        testRegistrations: observedTestValue.records.length,
         unknowns: model.unknowns.length
       },
       topology: summarizeSourceProgramTopology(model),
       testValue: {
-        baselineDigest: testValue.baselineDigest,
-        baselineEvidenceDigest: testValue.baselineEvidenceDigest,
-        baselineTestPaths: testValue.baselineTestPaths,
-        compilationDigest: testValue.compilationDigest,
-        dispositions: full ? testValue.dispositions : compactDispositions,
-        findings: full ? testValue.findings : compactFindings,
+        baselineDigest: observedTestValue.baselineDigest,
+        baselineEvidenceDigest: observedTestValue.baselineEvidenceDigest,
+        baselineTestPaths: full
+          ? observedTestValue.baselineTestPaths
+          : compactRecordSet(observedTestValue.baselineTestPaths),
+        compilationDigest: observedTestValue.compilationDigest,
+        dispositionProjectionDigest: testDisposition.projectionDigest,
+        supersessionReceiptDigest: testDisposition.supersessionReceiptDigest,
+        dispositions: full
+          ? testDisposition.dispositions
+          : compactRecordSet(compactDispositions),
+        findings: full ? testDisposition.findings : compactRecordSet(compactFindings),
         candidateRegistrationCensus: {
-          count: testValue.records.length,
-          digest: sha256(testValue.records.map(({ testId, path: repositoryPath, span }) => ({
+          count: observedTestValue.records.length,
+          digest: sha256(observedTestValue.records.map(({ testId, path: repositoryPath, span }) => ({
             testId,
             path: repositoryPath,
             span
           }))),
-          paths: [...new Set(testValue.records.map(({ path: repositoryPath }) => repositoryPath))]
-            .sort(compareCodeUnits)
+          ...(full ? {
+            paths: [...new Set(observedTestValue.records.map(({ path: repositoryPath }) => repositoryPath))]
+              .sort(compareCodeUnits)
+          } : {})
         },
-        recordsWithUnknownSemantics: testValue.records.filter(({ unknowns }) => unknowns.length > 0).length,
+        recordsWithUnknownSemantics: observedTestValue.records
+          .filter(({ unknowns }) => unknowns.length > 0).length,
         semanticClasses: Object.fromEntries(
-          [...new Set(testValue.records.flatMap(({ semanticClasses }) => semanticClasses))]
+          [...new Set(observedTestValue.records.flatMap(({ semanticClasses }) => semanticClasses))]
             .sort(compareCodeUnits)
             .map((semanticClass) => [
               semanticClass,
-              testValue.records.filter(({ semanticClasses }) => semanticClasses.includes(semanticClass)).length
+              observedTestValue.records
+                .filter(({ semanticClasses }) => semanticClasses.includes(semanticClass)).length
             ])
         )
       },
@@ -2164,6 +2597,9 @@ async function main(): Promise<void> {
         aggregateImportPlan: {
           planDigest: aggregateImportPlan.planDigest,
           sourceRevision: aggregateImportPlan.sourceRevision,
+          architectureDigest: aggregateImportPlan.architectureDigest,
+          snapshotStatus: aggregateImportPlan.snapshotStatus,
+          snapshotReason: aggregateImportPlan.snapshotReason,
           ready: aggregateImportPlan.reductions.filter(({ status }) => status === 'ready').length,
           blocked: aggregateImportPlan.reductions.filter(({ status }) => status === 'blocked').length,
           patchDigest: aggregateImportPatch?.patchDigest ?? null,
@@ -2182,6 +2618,7 @@ async function main(): Promise<void> {
         graphCutPlan: {
           planDigest: graphCutPlan.planDigest,
           evidenceDigest: graphCutPlan.evidenceDigest,
+          verificationDigest: graphCutPlan.verificationDigest,
           sourceRevision: graphCutPlan.sourceRevision,
           ready: graphCutPlan.reductions.filter(({ status }) => status === 'ready').length,
           blocked: graphCutPlan.reductions.filter(({ status }) => status === 'blocked').length,
@@ -2198,7 +2635,11 @@ async function main(): Promise<void> {
         }
       }),
       ...(worktreeAudit.moduleBoundaryFailures.length > 0
-        ? { moduleBoundaryFailures: worktreeAudit.moduleBoundaryFailures }
+        ? {
+            moduleBoundaryFailures: full
+              ? worktreeAudit.moduleBoundaryFailures
+              : compactRecordSet(worktreeAudit.moduleBoundaryFailures)
+          }
         : {}),
       ...(query ? { result: querySourceProgramModel(model, query) } : {}),
       ...(args.includes('--candidates') ? { candidates: model.candidates } : {})
@@ -2206,6 +2647,8 @@ async function main(): Promise<void> {
     if (args.includes('--enforce')
       && (blockingCandidates.length > 0
         || blockingTestFindings.length > 0
+        || repositoryAuditSupersessionShouldBlock(supersession)
+        || repositoryModuleArchitectureShouldBlock(worktreeAudit.moduleArchitecture)
         || worktreeAudit.moduleBoundaryFailures.length > 0)) {
       process.exitCode = 1;
     }

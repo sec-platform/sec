@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   projectRepositoryAuditCli,
+  projectRepositoryModuleArchitectureAudit,
+  repositoryModuleArchitectureShouldBlock,
   type RepositoryAuditReport
 } from '../../src/brownfield/repository-audit/cli.ts';
 import {
@@ -11,8 +13,48 @@ import { projectSecWorkSelectionCli } from '../../src/control/main-health/work-s
 import { compileSecOperationDemandGraph } from '../../src/control/operation/demand.ts';
 import type { SecWorkSelectionLiveResult } from '../../src/control/work-selection/live-contract.ts';
 import { shouldReportDevRunnerSuccess } from '../../src/development/runner/cli.ts';
+import type { SecRepositoryModuleArchitectureProjection } from '../../src/system-architecture/repository-modules/contract.ts';
 
 describe('bounded control-plane CLI projections', () => {
+  test('repository architecture projection preserves deterministic feedback projections and blocks violations', () => {
+    const empty = {
+      ownerEdges: [], strongComponents: [], reciprocalPairs: [], feedbackCuts: [],
+      aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], moduleRoles: [], violations: []
+    } satisfies SecRepositoryModuleArchitectureProjection;
+    expect(repositoryModuleArchitectureShouldBlock(empty)).toBe(false);
+    expect(projectRepositoryModuleArchitectureAudit(empty)).toEqual({
+      feedbackProjections: [], reciprocalPairs: [], strongComponents: [], violations: []
+    });
+
+    const witness = {
+      fromOwner: 'contract-owner',
+      toOwner: 'runtime-owner',
+      witnesses: [{
+        fromPath: 'src/contract-owner/contract.ts',
+        toPath: 'src/runtime-owner/runtime.ts',
+        kind: 'static' as const,
+        specifier: '../runtime-owner/runtime.ts'
+      }]
+    };
+    const violation = {
+      code: 'repository-module-role-reverse-dependency' as const,
+      from: witness.witnesses[0].fromPath,
+      to: witness.witnesses[0].toPath,
+      detail: 'contract-owner (contract) depends on runtime-owner (runtime)'
+    };
+    const invalid = {
+      ...empty,
+      ownerEdges: [witness],
+      strongComponents: [{ ownerIds: ['contract-owner', 'runtime-owner'], edges: [witness] }],
+      feedbackCuts: [witness],
+      violations: [violation]
+    } satisfies SecRepositoryModuleArchitectureProjection;
+    const projected = projectRepositoryModuleArchitectureAudit(invalid);
+    expect(repositoryModuleArchitectureShouldBlock(invalid)).toBe(true);
+    expect(projected.feedbackProjections[0]?.witnesses).toEqual(witness.witnesses);
+    expect(projected.violations).toEqual([violation]);
+  });
+
   test('successful hook operations are silent while direct commands retain confirmation', () => {
     expect(shouldReportDevRunnerSuccess({ SEC_GIT_HOOK_ACTIVE: '1' })).toBe(false);
     expect(shouldReportDevRunnerSuccess({})).toBe(true);
@@ -20,6 +62,10 @@ describe('bounded control-plane CLI projections', () => {
 
   test('repository audit projects decision facts without path-scale report bodies', () => {
     const report = {
+      architecture: {
+        ownerEdges: [], strongComponents: [], reciprocalPairs: [], feedbackCuts: [],
+        aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], moduleRoles: [], violations: []
+      },
       revision: {
         defaultHead: 'a'.repeat(40), defaultRef: 'main', defaultRefInput: 'main',
         defaultRefMode: 'ref', head: 'b'.repeat(40), tree: 'c'.repeat(40), worktree: 'clean'

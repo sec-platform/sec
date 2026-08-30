@@ -1,19 +1,38 @@
 import { expect, test } from 'bun:test';
 import { applyPatch, parsePatch } from 'diff';
 
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
+import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  compileSecRepositoryModuleArchitectureProjection,
+  compileSecRepositoryModuleGraph,
+  compileSecRepositoryModuleMembershipSnapshot
+} from '../../system-architecture/repository-modules/contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
 import {
   buildSourceProgramAggregateImportReductionPatch,
   compileSourceProgramAggregateImportReductionPlan,
+  compileSourceProgramGraphCutReductionPlan,
+  compileSourceProgramSupersessionEvidence,
+  compileSourceProgramSupersessionEvidenceIdentity,
+  compileSourceProgramSupersessionReceipt,
+  compileSourceProgramTestRetirementReceipt,
   compileSourceProgramVersionSuffixReductionPlan,
-  renderSourceProgramVersionSuffixReductionPatch
+  parseSourceProgramSupersessionEvidence,
+  projectSourceProgramTestRetirementDispositions,
+  renderSourceProgramGraphCutReductionPatch,
+  renderSourceProgramVersionSuffixReductionPatch,
+  SourceProgramReductionAdmissionError
 } from './reduction.ts';
 import {
   compileRepositorySourceProgramModel,
+  compileSourceProgramOwnerIntentEvidence,
   summarizeSourceProgramTopology
 } from './repository.ts';
+import {
+  compileSourceProgramTestBaselineEvidence,
+  compileSourceProgramTestValue,
+  reconcileSourceProgramTestValueWithSupersession
+} from './test-value.ts';
 import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
@@ -26,6 +45,145 @@ test('source program classifies catalog-installed code as a resource surface', (
   )).toBe('resource');
   expect(sourceProgramSurfaceForPath('src/example.ts')).toBe('production');
   expect(sourceProgramSurfaceForPath('tests/unit/example.test.ts')).toBe('test');
+  expect(sourceProgramSurfaceForPath('examples/reference-workspace/src/example.ts')).toBe('resource');
+  expect(sourceProgramSurfaceForPath('source/code/example.ts')).toBe('resource');
+});
+
+test('TypeScript semantic compilation excludes test and resource declarations from the production authority graph', () => {
+  const moduleMembership = Object.freeze({
+    descriptors: Object.freeze([]),
+    graphRoots: Object.freeze([]),
+    moduleRoots: Object.freeze([]),
+    moduleForPath: () => null
+  });
+  const files = [
+    ['src/example.ts', 'export const productionValue = 1;\n'],
+    ['tests/example.test.ts', 'export const mirroredTestValue = 2;\n'],
+    ['catalog/registry/official/example/files/src/generated.ts', 'export const generatedResourceValue = 3;\n']
+  ].map(([path, source]) => Object.freeze({
+    path: path!,
+    source: source!,
+    contentDigest: rawSha256(source!)
+  }));
+  const model = compileTypeScriptSourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+
+  expect(model.files.map(({ path }) => path)).toEqual(['src/example.ts']);
+  expect(model.declarations.map(({ name }) => name)).toEqual(['productionValue']);
+});
+
+test('Source Program signs semantic file and module roles without path-name inference', () => {
+  const sources = new Map([
+    [
+      'src/public-contract/types.ts',
+      "import type { Runtime } from '../runtime-owner/service.ts';\n"
+      + 'export interface Contract { readonly runtime: Runtime; }\n'
+    ],
+    ['src/public-contract/facade.ts', "export type { Contract } from './types.ts';\n"],
+    [
+      'src/runtime-owner/service.ts',
+      'export interface Runtime { readonly ready: boolean; }\n'
+      + 'export function run(): Runtime { return { ready: true }; }\n'
+    ],
+    [
+      'src/command-owner/cli.ts',
+      "import type { Contract } from '../public-contract/facade.ts';\n"
+      + 'export function main(_contract?: Contract): void {}\n'
+    ],
+    ['src/declared-query/value.ts', 'export function read(): string { return \'value\'; }\n'],
+    ['src/looks-like-query/value.ts', 'export function read(): string { return \'value\'; }\n']
+  ]);
+  const descriptors = [
+    {
+      root: 'src/public-contract',
+      descriptor: { importGraph: 'runtime', architectureRole: 'contract', externalEntrypoints: [] }
+    },
+    {
+      root: 'src/runtime-owner',
+      descriptor: {
+        importGraph: 'runtime',
+        architectureRole: 'runtime',
+        externalEntrypoints: [],
+        capabilityProviders: [{ capability: 'runtime.service', operations: ['run'] }]
+      }
+    },
+    {
+      root: 'src/command-owner',
+      descriptor: {
+        importGraph: 'runtime',
+        architectureRole: 'command',
+        externalEntrypoints: ['src/command-owner/cli.ts']
+      }
+    },
+    {
+      root: 'src/declared-query',
+      descriptor: { importGraph: 'runtime', architectureRole: 'query', externalEntrypoints: [] }
+    },
+    {
+      root: 'src/looks-like-query',
+      descriptor: { importGraph: 'runtime', externalEntrypoints: [] }
+    }
+  ];
+  const descriptorSources = descriptors.map(({ root, descriptor }) => ({
+    descriptorPath: `${root}/sec.module.json`,
+    source: JSON.stringify(descriptor)
+  }));
+  const membership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)],
+    descriptorSources
+  });
+  const files = [...sources].map(([path, source]) => ({
+    path,
+    source,
+    contentDigest: rawSha256(source)
+  }));
+  const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership: membership
+  });
+  const graph = compileSecRepositoryModuleGraph({
+    files: files.map(({ path }) => path),
+    readSource: (path) => sources.get(path) ?? null
+  });
+  const projection = compileSecRepositoryModuleArchitectureProjection(graph, membership, model);
+
+  expect(model.files).toContainEqual(expect.objectContaining({
+    path: 'src/public-contract/facade.ts',
+    semanticKind: 'pure-reexport',
+    semanticObservationClass: 'derived'
+  }));
+  expect(model.files).toContainEqual(expect.objectContaining({
+    path: 'src/public-contract/types.ts',
+    semanticKind: 'declaration-owner',
+    semanticObservationClass: 'derived'
+  }));
+  expect(model.files).toContainEqual(expect.objectContaining({
+    path: 'src/runtime-owner/service.ts',
+    semanticKind: 'executable',
+    semanticObservationClass: 'derived'
+  }));
+  expect(model.moduleRoles).toEqual([
+    { moduleId: 'command-owner', role: 'command', observationClass: 'derived' },
+    { moduleId: 'declared-query', role: 'query', observationClass: 'derived' },
+    { moduleId: 'looks-like-query', role: 'unknown', observationClass: 'unknown' },
+    { moduleId: 'public-contract', role: 'contract', observationClass: 'derived' },
+    { moduleId: 'runtime-owner', role: 'runtime', observationClass: 'derived' }
+  ]);
+  expect(projection.aggregateFacadePaths).toContain('src/public-contract/facade.ts');
+  expect(projection.violations).toContainEqual(expect.objectContaining({
+    code: 'repository-module-role-reverse-dependency',
+    from: 'src/public-contract/types.ts',
+    to: 'src/runtime-owner/service.ts'
+  }));
+  expect(projection.violations).not.toContainEqual(expect.objectContaining({
+    code: 'repository-module-role-unresolved',
+    from: 'looks-like-query'
+  }));
 });
 
 test('source program model finds capability producers, consumers, literals, and opaque paths deterministically', () => {
@@ -181,9 +339,11 @@ test('source program model finds capability producers, consumers, literals, and 
   const files = [...sources, ['package.json', packageSource] as const].map(([path, source]) => ({
     path,
     source,
-    contentDigest: sha256(source)
+    contentDigest: rawSha256(source)
   }));
-  const sourceRevision = sha256(files.map(({ contentDigest, path }) => ({ contentDigest, path })));
+  const sourceRevision = rawSha256(JSON.stringify(
+    files.map(({ contentDigest, path }) => ({ path, contentDigest }))
+  ));
   const compile = (orderedFiles: typeof files) => compileRepositorySourceProgramModel({
     sourceRevision,
     files: orderedFiles,
@@ -243,7 +403,7 @@ test('source program model finds capability producers, consumers, literals, and 
   expect(reducedSource).not.toContain('calculateProjectionV1');
   const unboundPackageSource = JSON.stringify({ ...packageManifest, source: undefined });
   const unboundFiles = files.map((file) => file.path === 'package.json'
-    ? { ...file, source: unboundPackageSource, contentDigest: sha256(unboundPackageSource) }
+    ? { ...file, source: unboundPackageSource, contentDigest: rawSha256(unboundPackageSource) }
     : file);
   const unboundModel = compileRepositorySourceProgramModel({
     sourceRevision: sha256(unboundFiles.map(({ contentDigest, path }) => ({ contentDigest, path }))),
@@ -476,7 +636,7 @@ test('incremental source facts invalidate the reverse consumer closure and remai
   const sourceInput = (sources: Readonly<Record<string, string>>) => {
     const files = Object.entries(sources)
       .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
-      .map(([path, source]) => Object.freeze({ path, source, contentDigest: sha256(source) }));
+      .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
     return Object.freeze({
       sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
       files,
@@ -573,11 +733,25 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
   const files = [...sources].map(([path, source]) => ({
     path,
     source,
-    contentDigest: sha256(source)
+    contentDigest: rawSha256(source)
   }));
-  const sourceRevision = sha256(files.map(({ contentDigest, path }) => ({ contentDigest, path })));
+  const sourceRevision = rawSha256(JSON.stringify(
+    files.map(({ contentDigest, path }) => ({ path, contentDigest }))
+  ));
   const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership });
-  const plan = compileSourceProgramAggregateImportReductionPlan(model, files);
+  const moduleGraph = compileSecRepositoryModuleGraph({
+    files: [...sources.keys()],
+    readSource: (repositoryPath) => sources.get(repositoryPath) ?? null
+  });
+  const architecture = compileSecRepositoryModuleArchitectureProjection(
+    moduleGraph,
+    moduleMembership,
+    model
+  );
+  const plan = compileSourceProgramAggregateImportReductionPlan(model, files, {
+    sourceRevision,
+    architecture
+  });
   const patch = buildSourceProgramAggregateImportReductionPatch(plan, files);
 
   expect(plan.reductions).toContainEqual(expect.objectContaining({
@@ -588,4 +762,691 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
   }));
   expect(patch.files.map(({ path }) => path)).toEqual(['src/consumer/use.ts']);
   expect(patch.patch).toContain("from '../provider/operation.ts'");
+  expect(plan.snapshotStatus).toBe('sealed');
+  expect(plan.architectureDigest).toBe(sha256(architecture));
+  const changedFiles = files.map((file) => file.path === 'src/consumer/use.ts'
+    ? Object.freeze({
+        ...file,
+        source: `${file.source}// external drift\n`,
+        contentDigest: rawSha256(`${file.source}// external drift\n`)
+      })
+    : file);
+  try {
+    buildSourceProgramAggregateImportReductionPatch(plan, changedFiles);
+    throw new Error('expected aggregate source snapshot drift to block');
+  } catch (error) {
+    expect(error).toBeInstanceOf(SourceProgramReductionAdmissionError);
+    expect((error as SourceProgramReductionAdmissionError).code).toBe('source-snapshot-drift');
+  }
+
+  const driftedModel = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership,
+    unknowns: [{
+      code: 'working-tree-changed-during-source-program-census',
+      path: '.',
+      detail: 'synthetic drift',
+      span: null
+    }]
+  });
+  const driftedArchitecture = compileSecRepositoryModuleArchitectureProjection(
+    moduleGraph,
+    moduleMembership,
+    driftedModel
+  );
+  const driftedPlan = compileSourceProgramAggregateImportReductionPlan(driftedModel, files, {
+    sourceRevision,
+    architecture: driftedArchitecture
+  });
+  expect(driftedPlan.snapshotStatus).toBe('blocked');
+  expect(driftedPlan.reductions.every(({ status }) => status === 'blocked')).toBe(true);
+  expect(() => compileSourceProgramAggregateImportReductionPlan(model, files, {
+    sourceRevision: sha256('foreign-source-revision'),
+    architecture
+  })).toThrow('does not bind the Source Program revision');
+});
+
+function compileGraphCutFixture(sources: Readonly<Record<string, string>>) {
+  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorSource = JSON.stringify({
+    importGraph: 'runtime',
+    architectureRole: 'runtime',
+    externalEntrypoints: [],
+    capabilityProviders: [],
+    operationObligations: [],
+    preDependencyBootstrap: false
+  });
+  const files = Object.entries(sources)
+    .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
+    .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
+    descriptorSources: [{ descriptorPath, source: descriptorSource }]
+  });
+  const sourceRevision = sha256(files.map(({ contentDigest, path }) => ({ contentDigest, path })));
+  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership });
+  return Object.freeze({ files, model, moduleMembership, sourceRevision });
+}
+
+test('graph cut blocks a declaration with same-file type consumers from the canonical Program', () => {
+  const fixture = compileGraphCutFixture({
+    'src/example/contract.ts': [
+      "export type SourceProgramObservationClass = 'observed' | 'unknown';",
+      'export interface Observation { readonly observationClass: SourceProgramObservationClass; }',
+      ''
+    ].join('\n')
+  });
+  const plan = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    [{
+      path: 'src/example/contract.ts',
+      name: 'SourceProgramObservationClass',
+      provider: 'knip',
+      providerRevision: 'synthetic-knip'
+    }],
+    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+  );
+
+  expect(plan.reductions).toContainEqual(expect.objectContaining({
+    path: 'src/example/contract.ts',
+    name: 'SourceProgramObservationClass',
+    status: 'blocked',
+    reason: 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
+  }));
+});
+
+test('graph cut verifies one consumer-zero declaration against a virtual exact Program', () => {
+  const fixture = compileGraphCutFixture({
+    'src/example/contract.ts': 'export const UNUSED = 1;\nexport const KEPT = 2;\n'
+  });
+  const plan = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    [{
+      path: 'src/example/contract.ts',
+      name: 'UNUSED',
+      provider: 'knip',
+      providerRevision: 'synthetic-knip'
+    }],
+    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+  );
+  const patch = renderSourceProgramGraphCutReductionPatch(plan, fixture.files);
+
+  expect(plan.reductions).toContainEqual(expect.objectContaining({
+    path: 'src/example/contract.ts',
+    name: 'UNUSED',
+    status: 'ready',
+    reason: null
+  }));
+  expect(patch.patch).toContain('-export const UNUSED = 1;');
+  expect(patch.patch).toContain('export const KEPT');
+  expect(patch.files).toEqual([expect.objectContaining({
+    path: 'src/example/contract.ts',
+    afterDigest: rawSha256('export const KEPT = 2;\n')
+  })]);
+  const changedFiles = fixture.files.map((file) => Object.freeze({
+    ...file,
+    source: `${file.source}// external drift\n`,
+    contentDigest: rawSha256(`${file.source}// external drift\n`)
+  }));
+  try {
+    renderSourceProgramGraphCutReductionPatch(plan, changedFiles);
+    throw new Error('expected graph-cut source snapshot drift to block');
+  } catch (error) {
+    expect(error).toBeInstanceOf(SourceProgramReductionAdmissionError);
+    expect((error as SourceProgramReductionAdmissionError).code).toBe('source-snapshot-drift');
+  }
+  try {
+    renderSourceProgramGraphCutReductionPatch({ ...plan }, fixture.files);
+    throw new Error('expected forged graph-cut plan to block');
+  } catch (error) {
+    expect(error).toBeInstanceOf(SourceProgramReductionAdmissionError);
+    expect((error as SourceProgramReductionAdmissionError).code).toBe('compiler-issued-plan-required');
+  }
+});
+
+test('graph cut blocks a consumer-zero declaration whose body changes reference semantics', () => {
+  const fixture = compileGraphCutFixture({
+    'src/example/contract.ts': [
+      'function register(): number { return 1; }',
+      'export const UNUSED = register();',
+      'export const KEPT = 2;',
+      ''
+    ].join('\n')
+  });
+  const plan = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    [{
+      path: 'src/example/contract.ts',
+      name: 'UNUSED',
+      provider: 'knip',
+      providerRevision: 'synthetic-knip'
+    }],
+    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+  );
+
+  expect(plan.reductions).toContainEqual(expect.objectContaining({
+    path: 'src/example/contract.ts',
+    name: 'UNUSED',
+    status: 'blocked',
+    reason: 'virtual graph cut changes declarations, references, entrypoints, or capability semantics'
+  }));
+});
+
+test('graph cut blocks compiler-resolved cross-file aliases and re-exports', () => {
+  const fixture = compileGraphCutFixture({
+    'src/example/provider.ts': 'export type SharedContract = { readonly value: string };\n',
+    'src/example/facade.ts': "export { type SharedContract } from './provider.ts';\n",
+    'src/example/consumer.ts': "import type { SharedContract } from './facade.ts';\nexport const value: SharedContract = { value: 'ok' };\n"
+  });
+  const plan = compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    [{
+      path: 'src/example/provider.ts',
+      name: 'SharedContract',
+      provider: 'knip',
+      providerRevision: 'synthetic-knip'
+    }],
+    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+  );
+
+  expect(plan.reductions).toContainEqual(expect.objectContaining({
+    path: 'src/example/provider.ts',
+    name: 'SharedContract',
+    status: 'blocked',
+    reason: 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
+  }));
+});
+
+function compileSupersessionFixture(
+  sources: Readonly<Record<string, string>>,
+  declareIntent = true,
+  declareObligation = declareIntent
+) {
+  const descriptorSource = JSON.stringify({
+    importGraph: 'runtime',
+    externalEntrypoints: [],
+    capabilityProviders: declareIntent
+      ? [{ capability: 'example-operation', operations: ['execute'] }]
+      : [],
+    operationObligations: declareIntent && declareObligation
+      ? [{
+          operation: {
+            kind: 'capability',
+            capability: 'example-operation',
+            operation: 'execute'
+          },
+          consumerSupport: { consumers: [] },
+          effect: { kinds: [], failureKinds: [], recovery: 'not-applicable' },
+          evolution: {
+            migration: 'not-required',
+            retirement: 'replacement-obligations-satisfied'
+          },
+          resources: {
+            aggregateBudgets: [{ resource: 'duration-ms', maximum: 30_000 }]
+          },
+          futureSupport: { condition: 'semantic-superset-required' }
+        }]
+      : [],
+    preDependencyBootstrap: false
+  });
+  const descriptorPath = 'src/example/sec.module.json';
+  const files = Object.entries(sources)
+    .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
+    .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
+  const membership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
+    descriptorSources: [{ descriptorPath, source: descriptorSource }]
+  });
+  const sourceRevision = rawSha256(JSON.stringify(
+    files.map(({ contentDigest, path }) => ({ path, contentDigest }))
+  ));
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership: membership
+  });
+  const tests = compileSourceProgramTestValue({
+    repositoryRoot: 'C:/synthetic/repository',
+    files,
+    model
+  });
+  const full = Object.freeze({
+    model,
+    tests,
+    intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership)
+  });
+  const inputDigest = sha256({
+    paths: files.map(({ path, contentDigest }) => ({ path, contentDigest })),
+    descriptorSource
+  });
+  const identityInput = Object.freeze({
+    revisionDigest: sha256({ revision: sourceRevision }),
+    treeDigest: sourceRevision,
+    toolchainDigest: sha256({ toolchain: 'synthetic-typescript-compiler' }),
+    configurationDigest: inputDigest
+  });
+  const identity = compileSourceProgramSupersessionEvidenceIdentity(identityInput);
+  return Object.freeze({
+    files,
+    membership,
+    full,
+    identityInput,
+    identity,
+    evidence: compileSourceProgramSupersessionEvidence({
+      ...full,
+      identity
+    })
+  });
+}
+
+function compileSupersessionSnapshot(
+  sources: Readonly<Record<string, string>>,
+  declareIntent = true,
+  declareObligation = declareIntent
+) {
+  return compileSupersessionFixture(sources, declareIntent, declareObligation).evidence;
+}
+
+test('supersession proves a renamed implementation only through the same owner and semantic graph', () => {
+  const baseline = compileSupersessionSnapshot({
+    'src/example/legacy.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/legacy.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
+  });
+  const current = compileSupersessionSnapshot({
+    'src/example/current.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/current.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
+  });
+
+  const receipt = compileSourceProgramSupersessionReceipt({ baseline, current });
+  expect(receipt.status).toBe('equivalent');
+  expect(receipt.findings).toEqual([]);
+  expect(receipt.replacements.find(({ kind }) => kind === 'production')).toEqual(
+    expect.objectContaining({
+      baselinePaths: ['src/example/legacy.ts'],
+      currentPaths: ['src/example/current.ts'],
+      proof: 'exact-semantic-obligation'
+    })
+  );
+});
+
+function compileTestRetirementFixture(
+  baselineTestSource: string,
+  productionSource = "export const value = 'ok';\n"
+) {
+  const baseline = compileSupersessionFixture({
+    'src/example/operation.ts': productionSource,
+    'tests/obsolete.test.ts': baselineTestSource
+  });
+  const current = compileSupersessionFixture({
+    'src/example/operation.ts': productionSource
+  });
+  const baselineTestPaths = ['tests/obsolete.test.ts'];
+  const baselineEvidence = compileSourceProgramTestBaselineEvidence(
+    baselineTestPaths,
+    baseline.files,
+    baseline.evidence.identity.sourceRevision,
+    current.files
+  );
+  const currentTests = compileSourceProgramTestValue({
+    repositoryRoot: 'C:/synthetic/repository',
+    files: current.files,
+    model: current.full.model,
+    baselineTestPaths,
+    baselineEvidence
+  });
+  const currentEvidence = compileSourceProgramSupersessionEvidence({
+    model: current.full.model,
+    tests: currentTests,
+    intentEvidence: current.full.intentEvidence,
+    identity: current.identity
+  });
+  const supersession = compileSourceProgramSupersessionReceipt({
+    baseline: baseline.evidence,
+    current: currentEvidence
+  });
+  const observedProjection = reconcileSourceProgramTestValueWithSupersession(
+    currentTests,
+    supersession
+  );
+  const retirement = compileSourceProgramTestRetirementReceipt({
+    baseline: baseline.evidence,
+    current: currentEvidence,
+    supersession,
+    currentModel: current.full.model,
+    currentTestCompilation: currentTests,
+    baselineFiles: baseline.files,
+    currentFiles: current.files
+  });
+  return Object.freeze({ observedProjection, retirement });
+}
+
+test('test retirement derives DELETE only from one compiler-issued consumer-zero receipt', () => {
+  const fixture = compileTestRetirementFixture('// obsolete module with no observable contract\n');
+  const proof = fixture.retirement.proofs[0]!;
+  const projection = projectSourceProgramTestRetirementDispositions(
+    fixture.observedProjection,
+    fixture.retirement
+  );
+
+  expect(proof).toEqual(expect.objectContaining({
+    path: 'tests/obsolete.test.ts',
+    status: 'retired',
+    reason: null,
+    census: { producerCount: 0, consumerCount: 0, externalContractCount: 0 },
+    observationClasses: [],
+    consumerEvidence: [],
+    unknownEvidence: []
+  }));
+  expect(projection.dispositions).toContainEqual(expect.objectContaining({
+    path: 'tests/obsolete.test.ts',
+    disposition: 'delete',
+    evidence: expect.objectContaining({
+      replacementTestIds: [],
+      supersession: expect.objectContaining({ proof: 'consumer-zero' })
+    })
+  }));
+  expect(projection.findings.some(({ path, code }) =>
+    path === 'tests/obsolete.test.ts' && code === 'test-module-disposition-unknown')).toBe(false);
+  expect(() => projectSourceProgramTestRetirementDispositions(
+    fixture.observedProjection,
+    { ...fixture.retirement }
+  )).toThrow('compiler-issued exact receipt');
+});
+
+test('test retirement blocks real consumers, path contracts, dynamic imports, and parse unknowns', () => {
+  const fixtures = [
+    compileTestRetirementFixture(
+      "import { value } from '../src/example/operation.ts';\nvoid value;\n"
+    ),
+    compileTestRetirementFixture(
+      '// test path is consumed by the production registry\n',
+      "export const retiredPath = 'tests/obsolete.test.ts';\n"
+    ),
+    compileTestRetirementFixture(
+      "const target = '../src/example/operation.ts';\nvoid import(target);\n"
+    ),
+    compileTestRetirementFixture('export const malformed = ;\n')
+  ];
+
+  expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.status))
+    .toEqual(['blocked', 'blocked', 'blocked', 'blocked']);
+  expect(fixtures.map(({ retirement }) => retirement.proofs[0]?.reason))
+    .toEqual([
+      'consumer-closure-not-empty',
+      'consumer-closure-not-empty',
+      'consumer-closure-not-empty',
+      'consumer-closure-not-empty'
+    ]);
+  for (const fixture of fixtures) {
+    const projection = projectSourceProgramTestRetirementDispositions(
+      fixture.observedProjection,
+      fixture.retirement
+    );
+    expect(projection.dispositions).toContainEqual(expect.objectContaining({
+      path: 'tests/obsolete.test.ts',
+      disposition: 'unknown'
+    }));
+  }
+});
+
+test('test retirement preserves behavior, Effect, durable, failure, and algorithm observations', () => {
+  const fixtures = [
+    compileTestRetirementFixture(
+      "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('behavior', () => expect(execute()).toBe('ok'));\n",
+      "export function execute(): string { return 'ok'; }\n"
+    ),
+    compileTestRetirementFixture(
+      "import { test } from 'bun:test';\nimport { readFile } from 'node:fs/promises';\ntest('effect', async () => { await readFile('state'); });\n"
+    ),
+    compileTestRetirementFixture(
+      "import { expect, test } from 'bun:test';\nimport { readFile, writeFile } from 'node:fs/promises';\ntest('durable', async () => { await writeFile('state', 'x'); expect(await readFile('state', 'utf8')).toBe('x'); });\n"
+    ),
+    compileTestRetirementFixture(
+      "import { expect, test } from 'bun:test';\ntest('failure', () => expect(() => { throw new Error('failure'); }).toThrow());\n"
+    ),
+    compileTestRetirementFixture(
+      "import { expect, test } from 'bun:test';\ntest('property', () => { for (const value of [1, 2]) expect(value).toBeGreaterThan(0); });\n"
+    )
+  ];
+  const classes = fixtures.map(({ retirement }) => retirement.proofs[0]!.observationClasses);
+
+  expect(classes[0]).toContain('behavior');
+  expect(classes[1]).toContain('effect');
+  expect(classes[2]).toEqual(expect.arrayContaining(['durable-state', 'effect']));
+  expect(classes[3]).toContain('failure-boundary');
+  expect(classes[4]).toContain('algorithm-property');
+  expect(fixtures.every(({ retirement }) => retirement.proofs[0]?.status === 'blocked')).toBe(true);
+});
+
+test('supersession evidence is compact, deterministic, and reusable by exact ActionKey', () => {
+  const declarations = Array.from({ length: 96 }, (_, index) =>
+    `export function operation${index}(value: number): number { return value + ${index}; }`)
+    .join('\n');
+  const fixture = compileSupersessionFixture({
+    'src/example/operations.ts': `${declarations}\n`,
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { operation0 } from '../src/example/operations.ts';\ntest('executes', () => expect(operation0(1)).toBe(1));\n"
+  });
+  const replay = compileSourceProgramSupersessionEvidence({
+    ...fixture.full,
+    identity: fixture.identity
+  });
+  const identityFields = Object.keys(fixture.identityInput) as (keyof typeof fixture.identityInput)[];
+  const changedEvidence = identityFields.map((field) => compileSourceProgramSupersessionEvidence({
+    ...fixture.full,
+    identity: compileSourceProgramSupersessionEvidenceIdentity(Object.freeze({
+      ...fixture.identityInput,
+      [field]: sha256({ field, previous: fixture.identityInput[field] })
+    }))
+  }));
+  const { evidenceDigest: _evidenceDigest, ...validEvidence } = fixture.evidence;
+  const malformedCanonical = Object.freeze({
+    ...validEvidence,
+    duplicateProjection: fixture.evidence.productionUnits
+  });
+  const malformedEvidence = Object.freeze({
+    ...malformedCanonical,
+    evidenceDigest: sha256(malformedCanonical)
+  });
+  const fullBytes = Buffer.byteLength(JSON.stringify(fixture.full));
+  const compactBytes = Buffer.byteLength(JSON.stringify(fixture.evidence));
+
+  expect(replay).toEqual(fixture.evidence);
+  expect(replay.actionKey).toBe(fixture.evidence.actionKey);
+  expect(new Set([
+    fixture.evidence.actionKey,
+    ...changedEvidence.map(({ actionKey }) => actionKey)
+  ]).size).toBe(identityFields.length + 1);
+  expect(changedEvidence.every(({ evidenceDigest }) =>
+    evidenceDigest !== fixture.evidence.evidenceDigest)).toBe(true);
+  expect(() => compileSourceProgramSupersessionEvidence({
+    ...fixture.full,
+    identity: Object.freeze({
+      ...fixture.identity,
+      schemaDigest: sha256({ foreignSchema: fixture.identity.schemaDigest })
+    })
+  })).toThrow('exact revision-bound inputs');
+  expect(compactBytes).toBeLessThan(fullBytes / 2);
+  expect(compileSourceProgramSupersessionReceipt({
+    baseline: malformedEvidence,
+    current: fixture.evidence
+  }).findings).toContainEqual(expect.objectContaining({
+    code: 'baseline-evidence-invalid'
+  }));
+  expect(compileSourceProgramSupersessionReceipt({
+    baseline: fixture.evidence,
+    current: replay
+  })).toEqual(compileSourceProgramSupersessionReceipt({
+    baseline: replay,
+    current: fixture.evidence
+  }));
+});
+
+test('supersession evidence rejects a caller-forged observation that expands owner intent', () => {
+  const evidence = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
+  });
+  const owner = evidence.intentEvidence[0]!;
+  const original = owner.operationObligations[0]!;
+  const observation = Object.freeze({
+    ...original.observation,
+    effectKinds: Object.freeze(['process'])
+  });
+  const forgedObligationCanonical = Object.freeze({
+    obligation: original.obligation,
+    observation
+  });
+  const forgedObligation = Object.freeze({
+    ...forgedObligationCanonical,
+    evidenceDigest: sha256(forgedObligationCanonical)
+  });
+  const forgedOwnerCanonical = Object.freeze({
+    owner: owner.owner,
+    capabilityEnvelope: owner.capabilityEnvelope,
+    publicEntrypointEnvelope: owner.publicEntrypointEnvelope,
+    operationObligations: Object.freeze([forgedObligation])
+  });
+  const forgedOwner = Object.freeze({
+    ...forgedOwnerCanonical,
+    evidenceDigest: sha256(forgedOwnerCanonical)
+  });
+  const intentEvidence = Object.freeze([forgedOwner]);
+  const source = Object.freeze({
+    ...evidence.source,
+    intentEvidenceDigest: sha256(intentEvidence)
+  });
+  const { evidenceDigest: _digest, ...withoutDigest } = evidence;
+  const forgedCanonical = Object.freeze({
+    ...withoutDigest,
+    actionKey: sha256({ identity: evidence.identity, source }),
+    source,
+    intentEvidence
+  });
+  const forged = Object.freeze({
+    ...forgedCanonical,
+    evidenceDigest: sha256(forgedCanonical)
+  });
+
+  expect(() => parseSourceProgramSupersessionEvidence(forged))
+    .toThrow('not canonical or action-bound');
+});
+
+test('source observations can invalidate but never expand an owner operation envelope', () => {
+  const fixture = compileSupersessionFixture({
+    'src/example/operation.ts': "export function execute(): void { Bun.spawn(['tool']); }\n",
+    'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => execute());\n"
+  });
+  const evidence = fixture.full.intentEvidence[0]!.operationObligations[0]!;
+
+  expect(evidence.obligation.effect.kinds).toEqual([]);
+  expect(evidence.observation).toEqual(expect.objectContaining({
+    status: 'unknown',
+    reason: 'effect-closure-unresolved',
+    effectKinds: ['process']
+  }));
+});
+
+test('supersession accepts stronger effect and failure observation only with lower lifecycle risk', () => {
+  const baseline = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
+  });
+  const current = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { readFile } from 'node:fs/promises';\nimport { execute } from '../src/example/operation.ts';\ntest('executes and rejects invalid state', async () => { expect(execute()).toBe('ok'); await readFile('observation'); expect(() => { throw new Error('invalid'); }).toThrow(); });\n"
+  });
+
+  const receipt = compileSourceProgramSupersessionReceipt({ baseline, current });
+  expect(receipt.status).toBe('superseded');
+  expect(receipt.findings).toEqual([]);
+  expect(receipt.lifecycleCost.current.unobservedTestRisk).toBeLessThan(
+    receipt.lifecycleCost.baseline.unobservedTestRisk
+  );
+  expect(receipt.replacements.find(({ kind }) => kind === 'test')?.proof).toBe(
+    'strict-observation-superset'
+  );
+});
+
+test('supersession blocks a missing required production behavior', () => {
+  const baseline = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
+  });
+  const current = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute(): string { return 'changed'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', () => expect(execute()).toBe('changed'));\n"
+  });
+
+  const receipt = compileSourceProgramSupersessionReceipt({ baseline, current });
+  expect(receipt.status).toBe('owner-decision-required');
+  expect(receipt.findings).toContainEqual(expect.objectContaining({
+    code: 'required-production-behavior-missing',
+    baselinePaths: ['src/example/operation.ts']
+  }));
+});
+
+test('supersession blocks dynamic or external observations instead of inventing intent', () => {
+  const baseline = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export async function execute(specifier: string) { return import(specifier); }\n",
+    'tests/example.test.ts': "import { test } from 'bun:test';\nimport { execute } from '../src/example/operation.ts';\ntest('executes', async () => { await execute('external'); });\n"
+  });
+
+  const receipt = compileSourceProgramSupersessionReceipt({ baseline, current: baseline });
+  expect(receipt.status).toBe('owner-decision-required');
+  expect(receipt.findings).toContainEqual(expect.objectContaining({
+    code: 'dynamic-or-external-observation-unresolved'
+  }));
+});
+
+test('supersession requires owner obligations only when a declared operation is replaced', () => {
+  const baseline = compileSupersessionSnapshot({
+    'src/example/legacy.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/legacy.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
+  }, true, false);
+  const current = compileSupersessionSnapshot({
+    'src/example/current.ts': "export function execute(): string { return 'ok'; }\n",
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/current.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n"
+  }, true, false);
+
+  const receipt = compileSourceProgramSupersessionReceipt({
+    baseline,
+    current
+  });
+  expect(receipt.status).toBe('owner-decision-required');
+  expect(receipt.findings).toContainEqual(expect.objectContaining({
+    code: 'operation-obligation-unresolved',
+    owner: 'example'
+  }));
+});
+
+test('supersession resolves duplicate bytes by semantic target and never by relative path similarity', () => {
+  const provider = "import { VALUE } from './value.ts';\nexport function execute(): number { return VALUE; }\n";
+  const baseline = compileSupersessionSnapshot({
+    'src/example/legacy/provider.ts': provider,
+    'src/example/legacy/value.ts': 'export const VALUE = 1;\n',
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/legacy/provider.ts';\ntest('executes', () => expect(execute()).toBe(1));\n"
+  });
+  const current = compileSupersessionSnapshot({
+    'src/example/a/provider.ts': provider,
+    'src/example/a/value.ts': 'export const VALUE = 1;\n',
+    'src/example/b/provider.ts': provider,
+    'src/example/b/value.ts': 'export const VALUE = 2;\n',
+    'tests/example.test.ts': "import { expect, test } from 'bun:test';\nimport { execute } from '../src/example/a/provider.ts';\ntest('executes', () => expect(execute()).toBe(1));\n"
+  });
+
+  const receipt = compileSourceProgramSupersessionReceipt({ baseline, current });
+  expect(receipt.findings).not.toContainEqual(expect.objectContaining({
+    code: 'replacement-ambiguous',
+    baselinePaths: ['src/example/legacy/provider.ts']
+  }));
+  expect(receipt.replacements).toContainEqual(expect.objectContaining({
+    kind: 'production',
+    baselinePaths: ['src/example/legacy/provider.ts'],
+    currentPaths: ['src/example/a/provider.ts']
+  }));
 });
