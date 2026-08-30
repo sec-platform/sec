@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { renameSync, symlinkSync, writeFileSync } from 'node:fs';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path, { delimiter } from 'node:path';
 
@@ -11,6 +11,7 @@ import {
   installGitHooksMain,
   installGitHooks as installGitHooksProduction
 } from '../../src/development/hooks/install.ts';
+import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../src/development/runner/contract.ts';
 import {
   createHostGitReadSessionForTests,
   type GitReadSessionResolution
@@ -19,9 +20,9 @@ import {
 // Real repository, linked-worktree, and managed-hook lifecycle acceptance belongs to the slow lane.
 
 const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
-const depsEnsureCommand = 'bun ./src/development/runner/cli.ts deps:ensure';
-const hooksReconcileCommand = 'bun ./src/development/hooks/install.ts --lifecycle';
-const importsFreezeCommand = 'bun ./src/development/runner/cli.ts imports:freeze';
+const depsEnsureCommand = 'bun run deps:ensure';
+const hooksReconcileCommand = 'bun run postinstall';
+const importsFreezeCommand = 'bun run imports:freeze';
 
 function installGitHooks(options: {
   readonly repoRoot: string;
@@ -101,22 +102,7 @@ function runtimeBoundCommand(command: string): string {
 }
 
 function managedHookSource(hook: typeof managedHookNames[number]): string {
-  return hook === 'pre-commit' || hook === 'pre-push'
-    ? `#!/usr/bin/env sh\nset -eu\n\n${importsFreezeCommand}\n`
-    : [
-      '#!/usr/bin/env sh',
-      'set -eu',
-      '',
-      'export SEC_GIT_HOOK_ACTIVE=1',
-      '',
-      'if [ -f ./src/development/hooks/install.ts ]; then',
-      `  ${hooksReconcileCommand}`,
-      'fi',
-      'if [ -f ./src/development/runner/cli.ts ]; then',
-      `  ${depsEnsureCommand}`,
-      'fi',
-      ''
-    ].join('\n');
+  return readFileSync(path.resolve(import.meta.dir, '../../.githooks', hook), 'utf8');
 }
 
 function git(repoRoot: string, args: readonly string[]): string {
@@ -526,9 +512,15 @@ test('unknown managed generations remain retained and bounded capacity blocks ne
       commonRoot,
       `generation-${String(index + 1).padStart(64, '0')}`
     ));
-    for (const generation of unknownGenerations) await mkdir(generation);
+    await mkdir(unknownGenerations[0]!);
     git(repoRoot, ['config', '--local', 'extensions.worktreeConfig', 'false']);
 
+    expect(await installGitHooks({ repoRoot, lifecycle: true }))
+      .toMatchObject({ status: 'installed' });
+    expect((await lstat(unknownGenerations[0]!)).isDirectory()).toBe(true);
+
+    for (const generation of unknownGenerations.slice(1)) await mkdir(generation);
+    git(repoRoot, ['config', '--local', 'extensions.worktreeConfig', 'false']);
     expect(await installGitHooks({ repoRoot, lifecycle: true }))
       .toMatchObject({ status: 'conflict' });
     for (const generation of unknownGenerations) {
@@ -689,16 +681,19 @@ test('hook installer preserves an explicit broken symlink hooks path', async () 
 
 test('managed hooks execute the installed Bun identity without inheriting its PATH entry', async () => {
   await withRepository(async (repoRoot) => {
-    const runnerRoot = path.join(repoRoot, 'platform');
-    await mkdir(runnerRoot);
-    await writeFile(path.join(runnerRoot, 'dev-runner.ts'), [
-      "const marker = process.env.SEC_HOOK_RUNTIME_MARKER;",
-      "if (!marker) throw new Error('missing hook marker');",
-      "const command = process.argv[2]?.replace(':', '-') ?? 'missing';",
-      "await Bun.write(`${marker}.${command}`, process.execPath);",
-      ''
-    ].join('\n'), 'utf8');
-    git(repoRoot, ['add', 'src/development/runner/cli.ts']);
+    const runnerRoot = path.join(repoRoot, 'src', 'development', 'runner');
+    await mkdir(runnerRoot, { recursive: true });
+    await copyFile(
+      path.resolve(import.meta.dir, '../helpers/hook-runtime-runner.ts'),
+      path.join(runnerRoot, 'cli.ts')
+    );
+    await writeFile(path.join(repoRoot, 'package.json'), JSON.stringify({
+      scripts: {
+        'deps:ensure': `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} deps:ensure`,
+        'imports:freeze': `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} imports:freeze`
+      }
+    }), 'utf8');
+    git(repoRoot, ['add', 'package.json', DEV_RUNNER_ENTRYPOINT_PATH]);
     git(repoRoot, ['commit', '--quiet', '-m', 'add hook runtime fixture']);
 
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
@@ -1394,7 +1389,7 @@ test('primary bootstrap rejects staged managed-hook bytes that are not the remot
   });
 });
 
-test('primary bootstrap rejects self-referential and stale or divergent origin HEAD authority', async () => {
+test('primary bootstrap rejects invalid local tracking authority and accepts main descendants', async () => {
   await withCanonicalRemoteRepository(async (repoRoot) => {
     try {
       git(repoRoot, [
@@ -1426,8 +1421,8 @@ test('primary bootstrap rejects self-referential and stale or divergent origin H
     git(repoRoot, ['update-ref', 'refs/remotes/origin/main', initial]);
     git(repoRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
     expect(await installGitHooksProduction({ repoRoot, lifecycle: true }))
-      .toMatchObject({ status: 'conflict' });
-    expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
+      .toMatchObject({ status: 'installed' });
+    await expectManagedHooksMirror(repoRoot, configuredManagedHooksPath(repoRoot));
   });
 
   await withCanonicalRemoteRepository(async (repoRoot) => {
@@ -1435,12 +1430,12 @@ test('primary bootstrap rejects self-referential and stale or divergent origin H
     git(repoRoot, ['add', 'LOCAL.md']);
     git(repoRoot, ['commit', '--quiet', '-m', 'local ahead fixture']);
     expect(await installGitHooksProduction({ repoRoot, lifecycle: true }))
-      .toMatchObject({ status: 'conflict' });
-    expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
+      .toMatchObject({ status: 'installed' });
+    await expectManagedHooksMirror(repoRoot, configuredManagedHooksPath(repoRoot));
   });
 });
 
-test('primary bootstrap stops when live remote authority drifts before config effect', async () => {
+test('primary bootstrap pins its admitted local lineage while remote state advances independently', async () => {
   await withCanonicalRemoteRepository(async (repoRoot) => {
     const initial = git(repoRoot, ['rev-parse', 'HEAD']);
     let advanced = false;
@@ -1459,8 +1454,8 @@ test('primary bootstrap stops when live remote authority drifts before config ef
         git(actorRoot, ['update-ref', 'refs/remotes/origin/main', initial]);
         git(actorRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
       }
-    })).toMatchObject({ status: 'conflict' });
-    expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
+    })).toMatchObject({ status: 'installed' });
+    await expectManagedHooksMirror(repoRoot, configuredManagedHooksPath(repoRoot));
   });
 });
 

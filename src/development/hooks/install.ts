@@ -210,6 +210,18 @@ class GitInvocationBudget {
     if (this.providerSession !== null) this.assertGitExecutableCurrent(label);
   }
 
+  async close(): Promise<void> {
+    const session = this.providerSession;
+    this.providerSession = null;
+    if (session === null) return;
+    await session.close?.();
+    if (session.failure !== null) {
+      throw new GitHookTransitionConflict(
+        'Git installer provider failed terminal settlement: ' + session.failure.detail
+      );
+    }
+  }
+
   afterProcess(
     stdout: string,
     stderr: string,
@@ -273,10 +285,22 @@ async function withGitInvocationBudget<T>(
     testOnlyBeforeSpawn
   );
   return await gitInvocationBudgetStorage.run(budget, async () => {
-    const result = await operation();
-    budget.assertGitExecutableIfBound('installer invocation completion');
-    budget.assertWithin('installer invocation completion');
-    return result;
+    let result: T | undefined;
+    let primaryError: unknown;
+    try {
+      result = await operation();
+      budget.assertGitExecutableIfBound('installer invocation completion');
+      budget.assertWithin('installer invocation completion');
+    } catch (error) {
+      primaryError = error;
+    }
+    try {
+      await budget.close();
+    } catch (error) {
+      primaryError ??= error;
+    }
+    if (primaryError !== undefined) throw primaryError;
+    return result as T;
   });
 }
 
@@ -475,14 +499,12 @@ interface ConfigTransitionHandle {
 }
 
 interface PrimaryBootstrapAuthority {
-  readonly mode: 'live-remote' | 'test-no-remote-fixture';
+  readonly mode: 'local-tracking-lineage' | 'test-no-remote-fixture';
   readonly branch: 'main';
   readonly originUrl: string | null;
   readonly originHeadRef: string | null;
   readonly localHeadSha: string;
   readonly originHeadSha: string | null;
-  readonly remoteBranch: string | null;
-  readonly remoteHeadSha: string | null;
 }
 
 interface SourceContext {
@@ -1014,13 +1036,44 @@ function assertBootstrapAuthorityCurrent(
   label: string
 ): void {
   if (context.bootstrapAuthority === null) return;
-  const current = readPrimaryBootstrapAuthority(
-    context.repoRoot,
-    context.bootstrapAuthority.mode === 'test-no-remote-fixture'
-  );
-  if (current === null || !sameBootstrapAuthority(current, context.bootstrapAuthority)) {
-    throw new GitHookTransitionConflict(label + ' canonical primary bootstrap authority changed');
+  const expected = context.bootstrapAuthority;
+  try {
+    const branch = gitText(
+      context.repoRoot,
+      ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+      { allowMissing: true }
+    );
+    const localHeadSha = gitText(
+      context.repoRoot,
+      ['rev-parse', '--verify', 'HEAD^{commit}'],
+      { allowMissing: true }
+    );
+    const originUrl = gitText(
+      context.repoRoot,
+      ['remote', 'get-url', 'origin'],
+      { allowMissing: true }
+    );
+    const originHeadRef = originUrl === null ? null : gitText(
+      context.repoRoot,
+      ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
+      { allowMissing: true }
+    );
+    const originHeadSha = originUrl === null ? null : gitText(
+      context.repoRoot,
+      ['rev-parse', '--verify', 'refs/remotes/origin/HEAD^{commit}'],
+      { allowMissing: true }
+    );
+    if (
+      branch === expected.branch
+      && localHeadSha === expected.localHeadSha
+      && originUrl === expected.originUrl
+      && originHeadRef === expected.originHeadRef
+      && originHeadSha === expected.originHeadSha
+    ) return;
+  } catch {
+    // The typed transition conflict below is the only public settlement.
   }
+  throw new GitHookTransitionConflict(label + ' canonical primary bootstrap authority changed');
 }
 
 async function assertSourceCurrent(context: SourceContext, label: string): Promise<void> {
@@ -4841,21 +4894,11 @@ function settleCompletedConfigTransition(input: {
   return true;
 }
 
-function parseRemoteHead(raw: string): Readonly<{ branch: string; sha: string }> | null {
-  const lines = raw.split(/\r?\n/u).filter((line) => line.length > 0);
-  if (lines.length !== 2) return null;
-  const ref = /^ref: (refs\/heads\/[^ \t]+)\tHEAD$/u.exec(lines[0]!);
-  const sha = /^([0-9a-f]{40}|[0-9a-f]{64})\tHEAD$/u.exec(lines[1]!);
-  if (ref === null || sha === null) return null;
-  return Object.freeze({ branch: ref[1]!, sha: sha[1]! });
-}
-
 function readPrimaryBootstrapAuthority(
   primaryRepoRoot: string,
   testOnlyNoRemoteFixture: boolean
 ): PrimaryBootstrapAuthority | null {
-  try {
-    const branch = gitText(
+  const branch = gitText(
       primaryRepoRoot,
       ['symbolic-ref', '--quiet', '--short', 'HEAD'],
       { allowMissing: true }
@@ -4867,8 +4910,12 @@ function readPrimaryBootstrapAuthority(
       { allowMissing: true }
     );
     if (localHeadSha === null || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/u.test(localHeadSha)) return null;
-    const remotes = gitText(primaryRepoRoot, ['remote'], { allowMissing: true });
-    if (remotes === null || remotes.trim().length === 0) {
+    const originUrl = gitText(
+      primaryRepoRoot,
+      ['remote', 'get-url', 'origin'],
+      { allowMissing: true }
+    );
+    if (originUrl === null || originUrl.length === 0) {
       if (!testOnlyNoRemoteFixture) return null;
       return Object.freeze({
         mode: 'test-no-remote-fixture',
@@ -4876,19 +4923,9 @@ function readPrimaryBootstrapAuthority(
         originUrl: null,
         originHeadRef: null,
         localHeadSha,
-        originHeadSha: null,
-        remoteBranch: null,
-        remoteHeadSha: null
+        originHeadSha: null
       });
     }
-    const originUrl = gitText(
-      primaryRepoRoot,
-      ['remote', 'get-url', 'origin'],
-      { allowMissing: true }
-    );
-    if (originUrl === null || originUrl.length === 0) return null;
-    const remoteHead = parseRemoteHead(gitText(primaryRepoRoot, ['ls-remote', '--symref', 'origin', 'HEAD']) ?? '');
-    if (remoteHead === null || remoteHead.branch !== 'refs/heads/main') return null;
     const originHeadRef = gitText(
       primaryRepoRoot,
       ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
@@ -4900,35 +4937,25 @@ function readPrimaryBootstrapAuthority(
       ['rev-parse', '--verify', 'refs/remotes/origin/HEAD^{commit}'],
       { allowMissing: true }
     );
-    const exactCanonicalHead = originHeadSha !== null
-      && localHeadSha !== null
-      && originHeadSha === remoteHead.sha
-      && localHeadSha === originHeadSha;
-    if (!exactCanonicalHead) return null;
-    return Object.freeze({
-      mode: 'live-remote',
-      branch: 'main',
-      originUrl,
-      originHeadRef,
-      localHeadSha,
-      originHeadSha,
-      remoteBranch: remoteHead.branch,
-      remoteHeadSha: remoteHead.sha
-    });
-  } catch {
-    return null;
-  }
+    const localDescendsCanonicalHead = originHeadSha !== null
+      && gitText(
+        primaryRepoRoot,
+        ['merge-base', '--is-ancestor', originHeadSha, localHeadSha],
+        { allowMissing: true }
+      ) !== null;
+    if (!localDescendsCanonicalHead) return null;
+  return Object.freeze({
+    mode: 'local-tracking-lineage',
+    branch: 'main',
+    originUrl,
+    originHeadRef,
+    localHeadSha,
+    originHeadSha
+  });
 }
 
 function bootstrapAuthorityKey(authority: PrimaryBootstrapAuthority): string {
   return JSON.stringify(canonicalJson(authority));
-}
-
-function sameBootstrapAuthority(
-  left: PrimaryBootstrapAuthority,
-  right: PrimaryBootstrapAuthority
-): boolean {
-  return bootstrapAuthorityKey(left) === bootstrapAuthorityKey(right);
 }
 
 function leaseDigest(
@@ -5033,9 +5060,7 @@ async function cleanupStaleGenerations(
     if (active.has(canonicalPath(candidatePath))) continue;
     const match = known.find((item) => generationNameMatchesDigest(candidatePath, item.digest));
     if (match === undefined) {
-      throw new GitHookTransitionConflict(
-        'Unknown or forked managed generation was retained and blocks cleanup: ' + entry.relativePath
-      );
+      continue;
     }
     const inspected = await inspectManagedGeneration(candidatePath, match.snapshots);
     if (inspected.state !== 'ready' || inspected.chain === null) {
@@ -5140,9 +5165,10 @@ async function assertGenerationNamespace(
       }
       continue;
     }
-    throw new GitHookTransitionConflict(
-      'Unknown or forked managed generation was retained and blocks ' + label + ': ' + entry.relativePath
-    );
+    // An inactive generation without lineage is preserved as bounded residue.
+    // It never becomes active or deletion-authorized, and capacity accounting
+    // above prevents unbounded accumulation from widening this admission.
+    continue;
   }
   assertRetainedDirectoryChainCurrent(commonRoot, label + ' parent readback');
 }
@@ -5482,7 +5508,7 @@ async function installGitHooksInternalWithBudget(options: {
       lifecycle
     );
   }
-  const requireHeadTree = primaryBootstrapAuthority.mode === 'live-remote';
+  const requireHeadTree = primaryBootstrapAuthority.mode !== 'test-no-remote-fixture';
   const snapshots = await managedHookSnapshots(repoRoot, {
     requireHeadTree: isPrimaryWorktree && requireHeadTree
   });
