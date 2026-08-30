@@ -402,6 +402,58 @@ test('a new caller cannot retire a registration it did not birth or adopt in its
   }, options)).entries[0]).toMatchObject({ registrationState: 'active', settlement: 'protected' });
 });
 
+test('a fresh producer terminalizes only an exact active registration whose physical root is absent', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  const operationId = 'compiler-staging-interrupted-after-delete';
+  await mkdir(generatedRoot, { recursive: true });
+  const owner = generatedStateProducerHooks({ repositoryRoot }, options);
+  await owner.born(LIFECYCLE_FIXTURE_PATH, operationId);
+  const active = (await inspectGeneratedState({
+    repositoryRoot,
+    relativePaths: [LIFECYCLE_FIXTURE_PATH]
+  }, options)).entries[0]!;
+  if (active.physicalIdentity === null || active.registrationDigest === null) {
+    throw new Error('Fixture birth did not produce one exact active registration.');
+  }
+  await rm(generatedRoot, { recursive: true });
+
+  const resumed = generatedStateProducerHooks({ repositoryRoot }, options);
+  await expect(resumed.settleAbsent(LIFECYCLE_FIXTURE_PATH, {
+    owner: 'compiler-dependency-runtime',
+    producer: 'stage-compiler-dependency-generation',
+    ruleId: 'compiler-dependency-staging',
+    physical: { ...active.physicalIdentity, inode: `${active.physicalIdentity.inode}-foreign` }
+  }, 'compiler-stage-absent')).rejects.toBeInstanceOf(GeneratedStateProducerBindingBlockedError);
+  expect((await inspectGeneratedState({
+    repositoryRoot,
+    relativePaths: [LIFECYCLE_FIXTURE_PATH]
+  }, options)).entries[0]).toMatchObject({ registrationState: 'active', settlement: 'protected' });
+
+  const receipt = await resumed.settleAbsent(LIFECYCLE_FIXTURE_PATH, {
+    owner: 'compiler-dependency-runtime',
+    producer: 'stage-compiler-dependency-generation',
+    ruleId: 'compiler-dependency-staging',
+    physical: active.physicalIdentity
+  }, 'compiler-stage-absent');
+  expect(receipt).toMatchObject({
+    schema: 'sec-generated-state-absent-registration-settlement-v1',
+    relativePath: LIFECYCLE_FIXTURE_PATH,
+    registrationDigest: active.registrationDigest,
+    physical: active.physicalIdentity,
+    outcome: 'compiler-stage-absent',
+    terminal: 'disposed'
+  });
+  expect((await inspectGeneratedState({
+    repositoryRoot,
+    relativePaths: [LIFECYCLE_FIXTURE_PATH]
+  }, options)).entries[0]).toMatchObject({
+    blockers: [],
+    kind: 'missing',
+    registrationState: 'missing'
+  });
+});
+
 test('cleanup quarantines, bounded-deletes and reads back one retired physical generation', async () => {
   const { options, repositoryRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
