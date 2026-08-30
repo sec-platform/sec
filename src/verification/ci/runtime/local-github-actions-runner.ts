@@ -254,6 +254,35 @@ export class LocalGitHubActionsRunnerCommandFailure extends Error {
   }
 }
 
+export type LocalDockerDesktopAvailabilityFailureReason =
+  | 'deadline-exhausted'
+  | 'desktop-start-failed'
+  | 'endpoint-unavailable'
+  | 'reboot-required-stale-socket'
+  | 'service-permission-required';
+
+export class LocalDockerDesktopAvailabilityFailure extends Error {
+  readonly code = 'SEC-LOCAL-DOCKER-DESKTOP-UNAVAILABLE' as const;
+  readonly endpointHost: string;
+  readonly reason: LocalDockerDesktopAvailabilityFailureReason;
+  readonly detailDigest: `sha256:${string}`;
+
+  constructor(input: Readonly<{
+    endpointHost: string;
+    reason: LocalDockerDesktopAvailabilityFailureReason;
+  }>) {
+    super(`Local Docker Desktop is unavailable: ${input.reason}`);
+    this.name = 'LocalDockerDesktopAvailabilityFailure';
+    this.endpointHost = input.endpointHost;
+    this.reason = input.reason;
+    this.detailDigest = sha256({
+      code: this.code,
+      endpointHost: this.endpointHost,
+      reason: this.reason
+    }) as `sha256:${string}`;
+  }
+}
+
 const LOCAL_GITHUB_ACTIONS_RUNNER_GIT_READ_COMMANDS = new Set([
   'branch', 'cat-file', 'diff', 'for-each-ref', 'log', 'ls-files', 'ls-remote',
   'ls-tree', 'rev-parse', 'show', 'show-ref', 'status'
@@ -463,8 +492,12 @@ interface GitHubApiSession {
 const githubApiSessions = new Map<string, GitHubApiSession>();
 
 const LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS = Object.freeze([
-  'DOCKER_CONFIG', 'DOCKER_CONTEXT', 'DOCKER_HOST', 'HOME', 'PATH',
+  'HOME', 'PATH',
   'PROGRAMFILES', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR'
+] as const);
+const LOCAL_GITHUB_ACTIONS_DOCKER_DESKTOP_ENV_KEYS = Object.freeze([
+  ...LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS,
+  'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP'
 ] as const);
 
 const COMMAND_ENV_KEYS = Object.freeze({
@@ -478,16 +511,29 @@ const COMMAND_ENV_KEYS = Object.freeze({
   ])
 } satisfies Record<'docker' | 'gh' | 'git', readonly string[]>);
 
-function commandEnvironment(command: keyof typeof COMMAND_ENV_KEYS): NodeJS.ProcessEnv {
+function projectedCommandEnvironment(
+  keys: readonly string[],
+  source: NodeJS.ProcessEnv
+): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
-  for (const key of COMMAND_ENV_KEYS[command]) {
-    const actualKey = Object.keys(process.env).find((candidate) =>
+  for (const key of keys) {
+    const actualKey = Object.keys(source).find((candidate) =>
       candidate.toUpperCase() === key);
-    if (actualKey !== undefined && process.env[actualKey] !== undefined) {
-      environment[actualKey] = process.env[actualKey];
+    if (actualKey !== undefined && source[actualKey] !== undefined) {
+      environment[actualKey] = source[actualKey];
     }
   }
   return environment;
+}
+
+function commandEnvironment(command: keyof typeof COMMAND_ENV_KEYS): NodeJS.ProcessEnv {
+  return projectedCommandEnvironment(COMMAND_ENV_KEYS[command], process.env);
+}
+
+export function createLocalGitHubActionsRunnerDockerDesktopEnvironment(
+  source: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  return projectedCommandEnvironment(LOCAL_GITHUB_ACTIONS_DOCKER_DESKTOP_ENV_KEYS, source);
 }
 
 function fail(message: string): never {
@@ -586,7 +632,8 @@ function dockerContextName(value: unknown): string {
 
 function dockerEndpointHost(value: unknown): string {
   const result = boundedText(value, 'Docker endpoint host', 1024);
-  if (!/^(?:npipe|unix):\/\//u.test(result)) {
+  if (!/^unix:\/\/\/[^\u0000-\u0020]+$/u.test(result)
+      && !/^npipe:\/\/\/\/\.\/pipe\/[A-Za-z0-9_.-]+$/u.test(result)) {
     fail('Docker endpoint host must be a local npipe or unix transport');
   }
   return result;
@@ -939,6 +986,8 @@ async function runCommand(
     cwd: string;
     input?: Buffer;
     acceptedCodes?: readonly number[];
+    acceptAnyExitCode?: boolean;
+    dockerDesktopLifecycle?: boolean;
     timeoutMs?: number;
     stallTimeoutMs?: number;
     admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
@@ -965,7 +1014,12 @@ async function runCommand(
       timeoutMs
     });
   }
-  const childEnvironment = commandEnvironment(command);
+  if (options.dockerDesktopLifecycle === true && command !== 'docker') {
+    fail('Docker Desktop lifecycle environment is invalid for this command');
+  }
+  const childEnvironment = options.dockerDesktopLifecycle === true
+    ? createLocalGitHubActionsRunnerDockerDesktopEnvironment()
+    : commandEnvironment(command);
   if (options.githubToken !== undefined) {
     if (command !== 'gh' || !/^[^\s\u0000-\u001f]{20,1024}$/u.test(options.githubToken)) {
       fail('command GitHub credential binding is invalid');
@@ -1043,7 +1097,8 @@ async function runCommand(
         stdout: Buffer.concat(stdout),
         stderr: Buffer.concat(stderr)
       });
-      if (!(options.acceptedCodes ?? [0]).includes(result.code)) {
+      if (options.acceptAnyExitCode !== true
+          && !(options.acceptedCodes ?? [0]).includes(result.code)) {
         const stderrText = result.stderr.toString('utf8');
         const stderrEvidence = stderrText.length <= 8192
           ? stderrText
@@ -1112,45 +1167,183 @@ async function runDockerCommand(
   return await runCommand('docker', dockerCommandArgs(endpoint, args), options);
 }
 
+function parseDockerHostRuntimeJsonObject(source: Buffer): Record<string, unknown> | null {
+  const text = source.toString('utf8').trim();
+  if (text.length === 0 || text.length > MAX_COMMAND_OUTPUT_BYTES) return null;
+  try {
+    const value = JSON.parse(text) as unknown;
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+type DockerDesktopLifecycleCommand = (input: Readonly<{
+  args: readonly string[];
+  cwd: string;
+  timeoutMs: number;
+}>) => Promise<CommandResult>;
+
+type DockerDesktopHostBlockerInspection = () =>
+  LocalDockerDesktopAvailabilityFailureReason | null;
+
+type DockerDesktopAvailabilityInput = Readonly<{
+  cwd: string;
+  deadlineAt: number;
+  endpointHost: string;
+  inspectHostBlocker?: DockerDesktopHostBlockerInspection;
+  platform?: NodeJS.Platform;
+  run?: DockerDesktopLifecycleCommand;
+}>;
+
+function dockerDesktopFailure(
+  endpointHost: string,
+  reason: LocalDockerDesktopAvailabilityFailureReason
+): never {
+  throw new LocalDockerDesktopAvailabilityFailure({ endpointHost, reason });
+}
+
+function dockerDesktopHostBlocker(): LocalDockerDesktopAvailabilityFailureReason | null {
+  if (process.platform !== 'win32') return null;
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData === undefined || localAppData.length === 0) return null;
+  const ingestSocket = path.join(localAppData, 'Docker', 'run', 'sailor-ingest.sock');
+  try {
+    lstatSync(ingestSocket);
+    return null;
+  } catch (error) {
+    const code = error !== null && typeof error === 'object' && 'code' in error
+      ? (error as { code?: unknown }).code
+      : null;
+    return code === 'EACCES' || code === 'EPERM'
+      ? 'reboot-required-stale-socket'
+      : null;
+  }
+}
+
+function dockerDesktopStartFailureReason(result: CommandResult):
+LocalDockerDesktopAvailabilityFailureReason {
+  const detail = Buffer.concat([result.stdout, result.stderr]).toString('utf8');
+  return /access\s+is\s+denied|access\s+denied|permission\s+denied|requires?\s+administrator/iu
+    .test(detail)
+    ? 'service-permission-required'
+    : 'desktop-start-failed';
+}
+
+function dockerDesktopRemainingMs(input: DockerDesktopAvailabilityInput): number {
+  const remainingMs = input.deadlineAt - Date.now();
+  if (!Number.isSafeInteger(input.deadlineAt) || remainingMs < 1) {
+    dockerDesktopFailure(input.endpointHost, 'deadline-exhausted');
+  }
+  return remainingMs;
+}
+
+async function runDockerDesktopAvailabilityCommand(
+  input: DockerDesktopAvailabilityInput,
+  run: DockerDesktopLifecycleCommand,
+  args: readonly string[],
+  failureReason: LocalDockerDesktopAvailabilityFailureReason
+): Promise<CommandResult> {
+  try {
+    return await run({
+      args,
+      cwd: input.cwd,
+      timeoutMs: dockerDesktopRemainingMs(input)
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (Date.now() >= input.deadlineAt || /\b(?:abort|deadline|timeout)\b/iu.test(message)) {
+      dockerDesktopFailure(input.endpointHost, 'deadline-exhausted');
+    }
+    dockerDesktopFailure(input.endpointHost, failureReason);
+  }
+}
+
+async function ensureDockerEndpointAvailable(
+  input: DockerDesktopAvailabilityInput
+): Promise<CommandResult> {
+  const run = input.run ?? (async ({ args, cwd, timeoutMs }) => await runCommand(
+    'docker', args, {
+      cwd,
+      timeoutMs,
+      acceptAnyExitCode: true,
+      dockerDesktopLifecycle: args[0] === 'desktop'
+    }
+  ));
+  const infoArgs = Object.freeze([
+    '--host', input.endpointHost, 'info', '--format', '{{json .}}'
+  ]);
+  const initial = await runDockerDesktopAvailabilityCommand(
+    input, run, infoArgs, 'endpoint-unavailable'
+  );
+  if (initial.code === 0) return initial;
+  if ((input.platform ?? process.platform) !== 'win32'
+      || !/^npipe:\/{4}\.\/pipe\/dockerDesktop[A-Za-z0-9_.-]*$/u.test(input.endpointHost)) {
+    dockerDesktopFailure(input.endpointHost, 'endpoint-unavailable');
+  }
+
+  // Docker Desktop owns its startup state machine. The detached operation is
+  // the single start intent; the synchronous operation below joins its native
+  // lifecycle instead of polling process lists, sleeping, or retrying daemon
+  // commands while Desktop is still starting.
+  const startIntent = await runDockerDesktopAvailabilityCommand(
+    input, run, Object.freeze(['desktop', 'start', '--detach']), 'desktop-start-failed'
+  );
+  if (startIntent.code !== 0) {
+    dockerDesktopFailure(input.endpointHost, dockerDesktopStartFailureReason(startIntent));
+  }
+  const blocker = (input.inspectHostBlocker ?? dockerDesktopHostBlocker)();
+  if (blocker !== null) dockerDesktopFailure(input.endpointHost, blocker);
+
+  const lifecycleRemainingMs = dockerDesktopRemainingMs(input);
+  const lifecycle = await runDockerDesktopAvailabilityCommand(input, run, Object.freeze([
+    'desktop', 'start', '--timeout', String(Math.max(1, Math.floor(lifecycleRemainingMs / 1_000)))
+  ]), 'desktop-start-failed');
+  if (lifecycle.code !== 0) {
+    dockerDesktopFailure(input.endpointHost, dockerDesktopStartFailureReason(lifecycle));
+  }
+  const readback = await runDockerDesktopAvailabilityCommand(
+    input, run, infoArgs, 'endpoint-unavailable'
+  );
+  if (readback.code !== 0) dockerDesktopFailure(input.endpointHost, 'endpoint-unavailable');
+  return readback;
+}
+
+export async function ensureDockerEndpointAvailableForTests(
+  input: DockerDesktopAvailabilityInput
+): Promise<CommandResult> {
+  return await ensureDockerEndpointAvailable(input);
+}
+
 export async function observeDockerEndpointIdentity(cwd: string): Promise<DockerEndpointIdentity> {
   const contextName = dockerContextName((await runCommand('docker', ['context', 'show'], { cwd }))
     .stdout.toString('utf8').trim());
   const contextSource = (await runCommand('docker', [
     'context', 'inspect', contextName, '--format', '{{json .}}'
-  ], { cwd })).stdout.toString('utf8').trim();
-  const context = JSON.parse(contextSource) as unknown;
-  if (context === null || typeof context !== 'object' || Array.isArray(context)) {
-    fail('Docker context inspection is invalid');
-  }
-  const contextRecord = context as Record<string, unknown>;
-  const endpoints = contextRecord.Endpoints;
+  ], { cwd })).stdout;
+  const context = parseDockerHostRuntimeJsonObject(contextSource);
+  if (context === null || context.Name !== contextName) fail('Docker context endpoint is invalid');
+  const endpoints = context.Endpoints;
   const docker = endpoints !== null && typeof endpoints === 'object' && !Array.isArray(endpoints)
     ? (endpoints as Record<string, unknown>).docker
     : null;
-  if (contextRecord.Name !== contextName || docker === null || typeof docker !== 'object' || Array.isArray(docker)) {
+  if (docker === null || typeof docker !== 'object' || Array.isArray(docker)) {
     fail('Docker context endpoint is invalid');
   }
   const endpointHost = dockerEndpointHost((docker as Record<string, unknown>).Host);
-  const provisional = Object.freeze({
-    schema: 'sec-docker-endpoint-identity-v1' as const,
-    contextName,
-    endpointHost,
-    daemonId: 'provisional',
-    osType: 'linux' as const,
-    architecture: 'x86_64' as const
-  });
-  const infoSource = (await runDockerCommand(provisional, ['info', '--format', '{{json .}}'], { cwd }))
-    .stdout.toString('utf8').trim();
-  const info = JSON.parse(infoSource) as unknown;
-  if (info === null || typeof info !== 'object' || Array.isArray(info)) fail('Docker daemon inspection is invalid');
-  const record = info as Record<string, unknown>;
+  const deadlineAt = Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault;
+  const available = await ensureDockerEndpointAvailable({ cwd, endpointHost, deadlineAt });
+  const info = parseDockerHostRuntimeJsonObject(available.stdout);
+  if (info === null) fail('Docker daemon inspection is invalid');
   return dockerEndpointIdentity({
     schema: 'sec-docker-endpoint-identity-v1',
     contextName,
     endpointHost,
-    daemonId: dockerDaemonId(record.ID),
-    osType: record.OSType as 'linux',
-    architecture: record.Architecture as 'x86_64'
+    daemonId: dockerDaemonId(info.ID),
+    osType: info.OSType as 'linux',
+    architecture: info.Architecture as 'x86_64'
   });
 }
 
@@ -1159,25 +1352,7 @@ export async function assertDockerEndpointIdentity(
   cwd: string
 ): Promise<DockerEndpointIdentity> {
   const retained = dockerEndpointIdentity(expected);
-  const contextSource = (await runCommand('docker', [
-    'context', 'inspect', retained.contextName, '--format', '{{json .}}'
-  ], { cwd })).stdout.toString('utf8').trim();
-  const context = JSON.parse(contextSource) as Record<string, unknown>;
-  const endpoints = context?.Endpoints as Record<string, unknown> | undefined;
-  const docker = endpoints?.docker as Record<string, unknown> | undefined;
-  if (context?.Name !== retained.contextName || docker?.Host !== retained.endpointHost) {
-    fail('Docker context endpoint changed and external mutation is preserved');
-  }
-  const info = JSON.parse((await runDockerCommand(retained, ['info', '--format', '{{json .}}'], { cwd }))
-    .stdout.toString('utf8').trim()) as Record<string, unknown>;
-  const observed = dockerEndpointIdentity({
-    schema: 'sec-docker-endpoint-identity-v1',
-    contextName: retained.contextName,
-    endpointHost: retained.endpointHost,
-    daemonId: info.ID as string,
-    osType: info.OSType as 'linux',
-    architecture: info.Architecture as 'x86_64'
-  });
+  const observed = await observeDockerEndpointIdentity(cwd);
   if (JSON.stringify(observed) !== JSON.stringify(retained)) {
     fail('Docker daemon identity changed and external mutation is preserved');
   }

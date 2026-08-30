@@ -275,6 +275,16 @@ describe('provider-neutral trusted runtime container', () => {
     expect(environment.GIT_CONFIG_GLOBAL).toBe(process.platform === 'win32' ? 'NUL' : '/dev/null');
     expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
     expect(environment.GIT_TEMPLATE_DIR).toBeUndefined();
+
+    const dockerEnvironment = createTrustedRuntimeHostCommandEnvironment('docker', {
+      DOCKER_CONFIG: path.join('attacker', 'docker-config'),
+      DOCKER_CONTEXT: 'attacker-context',
+      DOCKER_HOST: 'tcp://attacker.example:2376',
+      PATH: 'C:\\tools'
+    });
+    expect(dockerEnvironment.DOCKER_CONFIG).toBeUndefined();
+    expect(dockerEnvironment.DOCKER_CONTEXT).toBeUndefined();
+    expect(dockerEnvironment.DOCKER_HOST).toBeUndefined();
   });
 
   test('retains bounded stdout and stderr when a provider command fails', () => {
