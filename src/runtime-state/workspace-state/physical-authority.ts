@@ -4,8 +4,9 @@ import path from 'node:path';
 import { assertPhysicallyDisjointDirectoryChains, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, physicallyContainsDirectoryChain, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../physical/runtime/physical-no-follow.ts';
 import {
   hardenExistingWindowsHostDirectoryAuthority,
+  WindowsHostDirectoryAuthorityError,
   type WindowsHostDirectoryAuthority
-} from '../physical/windows-host-filesystem.ts';
+} from '../physical/runtime/windows-host-filesystem-authority.ts';
 import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
 
 export interface SecRuntimeStatePhysicalAuthority {
@@ -14,6 +15,7 @@ export interface SecRuntimeStatePhysicalAuthority {
   readonly directory: (absolutePath: string) => PhysicalDirectoryIdentity;
   readonly directoryChain: (absolutePath: string) => PhysicalDirectoryChain;
   readonly assertCurrent: () => Promise<void>;
+  readonly release: () => Promise<void>;
 }
 
 export interface SecRuntimeCachePhysicalAuthority {
@@ -22,7 +24,126 @@ export interface SecRuntimeCachePhysicalAuthority {
   readonly assertCurrent: () => void;
 }
 
-const windowsRuntimeStateAuthorities = new Map<string, Promise<WindowsHostDirectoryAuthority>>();
+type WindowsRuntimeStateAuthorityGeneration = {
+  readonly key: string;
+  readonly authority: Promise<WindowsHostDirectoryAuthority>;
+  references: number;
+  state: 'active' | 'retired';
+  retirement?: Promise<void>;
+};
+
+type WindowsRuntimeStateAuthorityCapability = Readonly<{
+  assertCurrent: () => Promise<void>;
+  release: () => Promise<void>;
+}>;
+
+/**
+ * Process-local reuse index only. The generation and its native session own
+ * authority; every capability consumption revalidates that generation.
+ */
+const windowsRuntimeStateAuthorityGenerations =
+  new Map<string, WindowsRuntimeStateAuthorityGeneration>();
+
+function windowsRuntimeStateAuthorityKey(rootPath: string): string {
+  return path.win32.resolve(rootPath).toLocaleLowerCase('en-US');
+}
+
+async function retireWindowsRuntimeStateAuthorityGeneration(
+  generation: WindowsRuntimeStateAuthorityGeneration
+): Promise<void> {
+  if (generation.state === 'active') {
+    generation.state = 'retired';
+    if (windowsRuntimeStateAuthorityGenerations.get(generation.key) === generation) {
+      windowsRuntimeStateAuthorityGenerations.delete(generation.key);
+    }
+    generation.retirement = generation.authority.then(
+      (authority) => authority.release(),
+      () => undefined
+    );
+  }
+  await generation.retirement;
+}
+
+async function revalidateWindowsRuntimeStateAuthorityGeneration(
+  generation: WindowsRuntimeStateAuthorityGeneration
+): Promise<void> {
+  if (generation.state !== 'active' ||
+    windowsRuntimeStateAuthorityGenerations.get(generation.key) !== generation) {
+    throw new WindowsHostDirectoryAuthorityError(
+      'session-closed',
+      'Windows Runtime State authority generation is retired'
+    );
+  }
+  try {
+    const authority = await generation.authority;
+    if (generation.state !== 'active' ||
+      windowsRuntimeStateAuthorityGenerations.get(generation.key) !== generation) {
+      throw new WindowsHostDirectoryAuthorityError(
+        'session-closed',
+        'Windows Runtime State authority generation is retired'
+      );
+    }
+    await authority.assertCurrent();
+  } catch (error) {
+    await retireWindowsRuntimeStateAuthorityGeneration(generation);
+    throw error;
+  }
+}
+
+async function acquireWindowsRuntimeStateAuthorityCapability(
+  rootPath: string,
+  knownNew: boolean
+): Promise<WindowsRuntimeStateAuthorityCapability> {
+  const key = windowsRuntimeStateAuthorityKey(rootPath);
+  let generation = windowsRuntimeStateAuthorityGenerations.get(key);
+  if (generation === undefined) {
+    generation = {
+      key,
+      authority: hardenExistingWindowsHostDirectoryAuthority(rootPath, { knownNew }),
+      references: 0,
+      state: 'active'
+    };
+    windowsRuntimeStateAuthorityGenerations.set(key, generation);
+    try {
+      await generation.authority;
+    } catch (error) {
+      await retireWindowsRuntimeStateAuthorityGeneration(generation);
+      throw error;
+    }
+  } else {
+    await revalidateWindowsRuntimeStateAuthorityGeneration(generation);
+  }
+  const acquiredGeneration = generation;
+  if (acquiredGeneration.state !== 'active' ||
+    windowsRuntimeStateAuthorityGenerations.get(acquiredGeneration.key) !== acquiredGeneration) {
+    throw new WindowsHostDirectoryAuthorityError(
+      'session-closed',
+      'Windows Runtime State authority generation retired during acquisition'
+    );
+  }
+  acquiredGeneration.references += 1;
+
+  let released = false;
+  return Object.freeze({
+    assertCurrent: async (): Promise<void> => {
+      if (released) {
+        throw new WindowsHostDirectoryAuthorityError(
+          'session-closed',
+          'Windows Runtime State authority capability is released'
+        );
+      }
+      await revalidateWindowsRuntimeStateAuthorityGeneration(acquiredGeneration);
+    },
+    release: async (): Promise<void> => {
+      if (released) return;
+      released = true;
+      acquiredGeneration.references -= 1;
+      if (acquiredGeneration.references === 0) {
+        await retireWindowsRuntimeStateAuthorityGeneration(acquiredGeneration);
+      }
+    }
+  });
+}
 
 function assertPhysicallyDisjoint(
   left: PhysicalDirectoryChain,
@@ -277,100 +398,119 @@ export async function acquireSecRuntimeStatePhysicalAuthority(input: Readonly<{
   const directoryChains = new Map<string, PhysicalDirectoryChain>();
   const stateRootPath = path.resolve(input.stateRoot);
   const cacheRootPath = path.resolve(input.cacheRoot);
-  const windowsAuthorities: WindowsHostDirectoryAuthority[] = [];
-  for (const directoryPath of requested.sort((left, right) =>
-    left.split(path.sep).length - right.split(path.sep).length || left.localeCompare(right))) {
-    const authorityRoot = pathInside(directoryPath, stateRootPath)
-      ? directories.get(stateRootPath) ?? state.target
-      : directories.get(cacheRootPath) ?? cache.target;
-    let directory = materializeWithinPhysicalAuthority(
-      authorityRoot, directoryPath, 'state/cache directory'
-    ).target;
-    if (process.platform === 'win32' && directoryPath === path.resolve(input.stateRoot)) {
-      const cached = windowsRuntimeStateAuthorities.get(directory.path);
-      if (cached !== undefined) {
-        windowsAuthorities.push(await cached);
-      } else {
-        const pending = hardenExistingWindowsHostDirectoryAuthority(
+  const windowsAuthorities: WindowsRuntimeStateAuthorityCapability[] = [];
+  try {
+    for (const directoryPath of requested.sort((left, right) =>
+      left.split(path.sep).length - right.split(path.sep).length || left.localeCompare(right))) {
+      const authorityRoot = pathInside(directoryPath, stateRootPath)
+        ? directories.get(stateRootPath) ?? state.target
+        : directories.get(cacheRootPath) ?? cache.target;
+      let directory = materializeWithinPhysicalAuthority(
+        authorityRoot, directoryPath, 'state/cache directory'
+      ).target;
+      if (process.platform === 'win32' && directoryPath === path.resolve(input.stateRoot)) {
+        windowsAuthorities.push(await acquireWindowsRuntimeStateAuthorityCapability(
           directory.path,
-          { knownNew: !stateRootWasPresent }
-        )
-          .catch((error) => {
-            windowsRuntimeStateAuthorities.delete(directory.path);
-            throw error;
-          });
-        windowsRuntimeStateAuthorities.set(directory.path, pending);
-        const authority = await pending;
-        windowsAuthorities.push(authority);
+          !stateRootWasPresent
+        ));
+        directory = inspectNoFollowDirectoryChain(
+          directory.path,
+          'SEC runtime Windows authority readback'
+        ).target;
+      } else if (process.platform === 'win32') {
+        directory = inspectNoFollowDirectoryChain(
+          directory.path,
+          'SEC runtime Windows descendant readback'
+        ).target;
+      } else if (process.platform === 'linux') {
+        directory = hardenPosixDirectory(directory);
+      } else {
+        throw new Error('SEC runtime physical authority is unavailable on this platform.');
       }
-      directory = inspectNoFollowDirectoryChain(
-        directory.path,
-        'SEC runtime Windows authority readback'
-      ).target;
-    } else if (process.platform === 'win32') {
-      directory = inspectNoFollowDirectoryChain(
-        directory.path,
-        'SEC runtime Windows descendant readback'
-      ).target;
-    } else if (process.platform === 'linux') {
-      directory = hardenPosixDirectory(directory);
-    } else {
-      throw new Error('SEC runtime physical authority is unavailable on this platform.');
+      const directoryChain = bindMaterializedDirectory(
+        directory, directoryPath, 'state/cache directory authority'
+      );
+      directories.set(path.resolve(directoryPath), directoryChain.target);
+      directoryChains.set(path.resolve(directoryPath), directoryChain);
     }
-    const directoryChain = bindMaterializedDirectory(
-      directory, directoryPath, 'state/cache directory authority'
-    );
-    directories.set(path.resolve(directoryPath), directoryChain.target);
-    directoryChains.set(path.resolve(directoryPath), directoryChain);
-  }
 
-  state = inspectNoFollowDirectoryChain(path.resolve(input.stateRoot), 'SEC runtime state root');
-  cache = inspectNoFollowDirectoryChain(path.resolve(input.cacheRoot), 'SEC runtime cache root');
-  assertPhysicallyDisjoint(repository, state, 'durable state root and repository');
-  assertPhysicallyDisjoint(repository, cache, 'cache root and repository');
-  assertPhysicallyDisjoint(state, cache, 'durable state and cache roots');
+    state = inspectNoFollowDirectoryChain(path.resolve(input.stateRoot), 'SEC runtime state root');
+    cache = inspectNoFollowDirectoryChain(path.resolve(input.cacheRoot), 'SEC runtime cache root');
+    assertPhysicallyDisjoint(repository, state, 'durable state root and repository');
+    assertPhysicallyDisjoint(repository, cache, 'cache root and repository');
+    assertPhysicallyDisjoint(state, cache, 'durable state and cache roots');
 
-  const current = async (): Promise<void> => {
-    for (const [directoryPath, expected] of directories) {
-      const observed = assertSameNoFollowDirectoryIdentity(
-        expected,
-        `SEC runtime directory ${directoryPath}`
-      ).target;
-      if (process.platform === 'linux') {
-        const metadata = lstatSync(observed.path);
-        if ((metadata.mode & 0o077) !== 0) {
-          throw new Error('SEC runtime private directory permissions changed.');
+    let released = false;
+    const current = async (): Promise<void> => {
+      if (released) {
+        throw new WindowsHostDirectoryAuthorityError(
+          'session-closed',
+          'SEC Runtime State physical authority is released'
+        );
+      }
+      for (const [directoryPath, expected] of directories) {
+        const observed = assertSameNoFollowDirectoryIdentity(
+          expected,
+          `SEC runtime directory ${directoryPath}`
+        ).target;
+        if (process.platform === 'linux') {
+          const metadata = lstatSync(observed.path);
+          if ((metadata.mode & 0o077) !== 0) {
+            throw new Error('SEC runtime private directory permissions changed.');
+          }
         }
       }
-    }
-    // The issued Windows DACL admits only the current owner, SYSTEM and local
-    // administrators as capability writers. Those principals can already
-    // mutate this process and its files, so repeated PowerShell startup cannot
-    // strengthen the boundary; retained physical identity is the live check.
-    // ACL drift by an untrusted principal is impossible without first crossing
-    // the proved DACL. A new process proves/hardens the root again at issuance.
-    void windowsAuthorities;
-  };
+      for (const authority of windowsAuthorities) {
+        await authority.assertCurrent();
+      }
+    };
 
-  return Object.freeze({
-    stateRoot: directories.get(path.resolve(input.stateRoot))!,
-    cacheRoot: directories.get(path.resolve(input.cacheRoot))!,
-    directory: (absolutePath: string): PhysicalDirectoryIdentity => {
-      const value = directories.get(path.resolve(absolutePath));
-      if (value === undefined) {
-        throw new Error('SEC runtime directory is outside the acquired physical authority.');
+    const release = async (): Promise<void> => {
+      if (released) return;
+      released = true;
+      for (const authority of windowsAuthorities) {
+        await authority.release();
       }
-      return value;
-    },
-    directoryChain: (absolutePath: string): PhysicalDirectoryChain => {
-      const value = directoryChains.get(path.resolve(absolutePath));
-      if (value === undefined) {
-        throw new Error('SEC runtime directory chain is outside the acquired physical authority.');
-      }
-      return value;
-    },
-    assertCurrent: current
-  });
+    };
+
+    return Object.freeze({
+      stateRoot: directories.get(path.resolve(input.stateRoot))!,
+      cacheRoot: directories.get(path.resolve(input.cacheRoot))!,
+      directory: (absolutePath: string): PhysicalDirectoryIdentity => {
+        if (released) {
+          throw new WindowsHostDirectoryAuthorityError(
+            'session-closed',
+            'SEC Runtime State physical authority is released'
+          );
+        }
+        const value = directories.get(path.resolve(absolutePath));
+        if (value === undefined) {
+          throw new Error('SEC runtime directory is outside the acquired physical authority.');
+        }
+        return value;
+      },
+      directoryChain: (absolutePath: string): PhysicalDirectoryChain => {
+        if (released) {
+          throw new WindowsHostDirectoryAuthorityError(
+            'session-closed',
+            'SEC Runtime State physical authority is released'
+          );
+        }
+        const value = directoryChains.get(path.resolve(absolutePath));
+        if (value === undefined) {
+          throw new Error('SEC runtime directory chain is outside the acquired physical authority.');
+        }
+        return value;
+      },
+      assertCurrent: current,
+      release
+    });
+  } catch (error) {
+    for (const authority of windowsAuthorities) {
+      await authority.release();
+    }
+    throw error;
+  }
 }
 
 /** Acquires the one shared physical root used by both durable journal families. */
