@@ -7,9 +7,9 @@ import {
   loadAllManifests,
   loadManifestById,
   loadManifestForResolvedBlock
-} from '../../platform/compiler/parse/load-manifest.ts';
-import { manifestCache } from '../../platform/compiler/parse/manifest-cache.ts';
-import { blockDirName, resolveRegistryRoot } from '../../platform/shared/paths.ts';
+} from '../../src/compiler/parse/load-manifest.ts';
+import { manifestCache } from '../../src/compiler/parse/manifest-cache.ts';
+import { blockDirName, resolveRegistryRoot } from '../../src/workspace/paths.ts';
 
 const BLOCK_ID = 'ticket/basic';
 const temporaryRoots: string[] = [];
@@ -24,7 +24,7 @@ function manifestSource(id: string, version: string): string {
     `id: ${id}`,
     `version: ${version}`,
     'kind: capability',
-    'stackProfiles: [next-bun]',
+    'stackProfiles: [typescript-library]',
     'requires: []',
     'provides: []',
     'conflicts: []',

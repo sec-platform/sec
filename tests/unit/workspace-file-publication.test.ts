@@ -3,17 +3,17 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { applyOverrides } from '../../platform/compiler/compose/apply-overrides.ts';
+import { applyOverrides } from '../../src/compiler/compose/apply-overrides.ts';
 import {
-  publishExclusiveCanonicalWorkspaceFileV1,
-  publishExpectedCanonicalWorkspaceFileV1
-} from '../../platform/shared/workspace-file-publication.ts';
+  publishExclusiveCanonicalWorkspaceFile,
+  publishExpectedCanonicalWorkspaceFile
+} from '../../src/workspace/files.ts';
 
 test('exclusive workspace publication is idempotent for exact bytes and rejects conflicting bytes', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-workspace-publish-'));
   try {
     const targetPath = path.join(workspaceRoot, 'source', 'code', 'slots', 'demo.ts');
-    const first = await publishExclusiveCanonicalWorkspaceFileV1({
+    const first = await publishExclusiveCanonicalWorkspaceFile({
       workspaceRoot,
       targetPath,
       bytes: Buffer.from('export const value = 1;\n'),
@@ -21,7 +21,7 @@ test('exclusive workspace publication is idempotent for exact bytes and rejects 
     });
     expect(first.created).toBe(true);
 
-    const second = await publishExclusiveCanonicalWorkspaceFileV1({
+    const second = await publishExclusiveCanonicalWorkspaceFile({
       workspaceRoot,
       targetPath,
       bytes: Buffer.from('export const value = 1;\n'),
@@ -29,7 +29,7 @@ test('exclusive workspace publication is idempotent for exact bytes and rejects 
     });
     expect(second.created).toBe(false);
 
-    await expect(publishExclusiveCanonicalWorkspaceFileV1({
+    await expect(publishExclusiveCanonicalWorkspaceFile({
       workspaceRoot,
       targetPath,
       bytes: Buffer.from('export const value = 2;\n'),
@@ -48,7 +48,7 @@ test('expected workspace publication rejects a changed preimage without overwrit
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
     await fs.writeFile(targetPath, 'version: one\n');
 
-    await publishExpectedCanonicalWorkspaceFileV1({
+    await publishExpectedCanonicalWorkspaceFile({
       workspaceRoot,
       targetPath,
       expectedBytes: Buffer.from('version: one\n'),
@@ -57,7 +57,7 @@ test('expected workspace publication rejects a changed preimage without overwrit
     });
     expect(await fs.readFile(targetPath, 'utf8')).toBe('version: two\n');
 
-    await expect(publishExpectedCanonicalWorkspaceFileV1({
+    await expect(publishExpectedCanonicalWorkspaceFile({
       workspaceRoot,
       targetPath,
       expectedBytes: Buffer.from('version: one\n'),

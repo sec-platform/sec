@@ -1,0 +1,3055 @@
+import { lstatSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+
+import { acquireWorkspaceWriteLease } from '../../workspace/lease.ts';
+import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
+import { PhysicalNoFollowError, createExclusiveNoFollowDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../physical/runtime/physical-no-follow.ts';
+import { runCommandBytes, type ByteCommandResult } from '../physical/runtime/process.ts';
+import { createRuntimeStateJournalFileSystem } from '../workspace-state/journal-filesystem.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
+import { acquireSecRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
+import {
+  parseWorktreePorcelainZ,
+  parseWorktreeStatusPorcelainZ,
+  type WorktreeStatusPorcelainRecord
+} from '../worktree-closeout-contract.ts';
+import {
+  GENERATED_STATE_REGISTRY,
+  assertGeneratedStateWorktreeRetirement,
+  createGeneratedStateInventory,
+  createGeneratedStateRegistration,
+  createGeneratedStateSettlement,
+  createGeneratedStateWorktreeRetirement,
+  generatedStateCleanupAllowed,
+  generatedStateDigest,
+  generatedStateDomainProviderMaterialDigest,
+  generatedStateRuleForPath,
+  normalizeGeneratedStateRelativePath,
+  parseGeneratedStateRegistration,
+  retireGeneratedStateRegistration,
+  type GeneratedStateCleanupProfile,
+  type GeneratedStateInventory,
+  type GeneratedStateInventoryEntry,
+  type GeneratedStatePhysicalForm,
+  type GeneratedStatePhysicalIdentity,
+  type GeneratedStateRegistration,
+  type GeneratedStateRule,
+  type GeneratedStateSettlement,
+  type GeneratedStateWorktreeRetirement
+} from './contract.ts';
+
+const GENERATED_STATE_RUNTIME_VERSION = 'v1' as const;
+const MAXIMUM_CLEANUP_ENTRIES = 100_000;
+const CLEANUP_DEADLINE_MS = 30_000;
+
+export interface GeneratedStateLifecycleOptions {
+  readonly afterQuarantineEffect?: (relativePath: string) => void | Promise<void>;
+  readonly afterWorktreeRetirementRelocation?: (relativePath: string) => void | Promise<void>;
+  readonly afterWorktreeRetirementProviderEffect?: (relativePath: string) => void | Promise<void>;
+  readonly beforeCleanupEffect?: (relativePath: string) => void | Promise<void>;
+  readonly clock?: () => Date;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly worktreeRetirementProviders?: readonly GeneratedStateWorktreeRetirementProvider[];
+  readonly runGit?: (
+    command: string,
+    args: string[],
+    options: Readonly<{ cwd: string }>
+  ) => Promise<ByteCommandResult>;
+}
+
+export interface GeneratedStateWorktreeRetirementProvider {
+  readonly id: string;
+  plan(input: Readonly<{
+    repositoryRoot: string;
+    workspaceRoot: string;
+    relativePath: string;
+    source: GeneratedStatePhysicalIdentity;
+    registration: GeneratedStateRegistration;
+  }>): Promise<Readonly<{
+    bytes: string;
+    digest: `sha256:${string}`;
+  }>>;
+  retire(input: Readonly<{
+    operationId: `sha256:${string}`;
+    repositoryRoot: string;
+    workspaceRoot: string;
+    relativePath: string;
+    source: GeneratedStatePhysicalIdentity;
+    registration: GeneratedStateRegistration;
+    planBytes: string;
+    planDigest: `sha256:${string}`;
+  }>): Promise<Readonly<{
+    bytes: string;
+    digest: `sha256:${string}`;
+  }>>;
+}
+
+interface GeneratedStateRuntimeStore {
+  readonly legacyRegistrationsRoot: string;
+  readonly registrationsRoot: string;
+  readonly settlementsRoot: string;
+  readonly transactionsRoot: string;
+  readonly fs: ReturnType<typeof createRuntimeStateJournalFileSystem>;
+  readonly assertCurrent: () => Promise<void>;
+}
+
+interface GeneratedStateRuntimePaths {
+  readonly workspaceStateRoot: string;
+  readonly legacyRegistrationsRoot: string;
+  readonly registrationsRoot: string;
+  readonly settlementsRoot: string;
+  readonly transactionsRoot: string;
+}
+
+type ObservedGeneratedStateRoot = Readonly<{
+  kind: 'directory' | 'file' | 'link' | 'missing';
+  identity: GeneratedStatePhysicalIdentity | null;
+  directory: PhysicalDirectoryIdentity | null;
+  linkTarget: string | null;
+}>;
+
+function canonicalBytes(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function identityOf(value: Pick<PhysicalDirectoryIdentity, 'device' | 'inode' | 'objectId'>): GeneratedStatePhysicalIdentity {
+  return Object.freeze({ device: value.device, inode: value.inode, objectId: value.objectId });
+}
+
+function physicalFormForObservedKind(
+  rule: GeneratedStateRule,
+  kind: ObservedGeneratedStateRoot['kind']
+): GeneratedStatePhysicalForm | null {
+  if (kind === 'missing') return null;
+  return rule.physicalForms.find((form) => form.kind === kind) ?? null;
+}
+
+function sameIdentity(
+  left: GeneratedStatePhysicalIdentity,
+  right: GeneratedStatePhysicalIdentity
+): boolean {
+  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
+}
+
+function samePhysicalIdentity(
+  left: Pick<GeneratedStatePhysicalIdentity, 'device' | 'inode' | 'objectId'>,
+  right: Pick<GeneratedStatePhysicalIdentity, 'device' | 'inode' | 'objectId'>
+): boolean {
+  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
+}
+
+function registrationKey(relativePath: string): string {
+  return generatedStateDigest(Object.freeze({
+    schema: 'sec-generated-state-registration-key-v1',
+    relativePath: normalizeGeneratedStateRelativePath(relativePath)
+  })).slice('sha256:'.length);
+}
+
+function runtimePaths(
+  workspaceRoot: string,
+  options: GeneratedStateLifecycleOptions
+): GeneratedStateRuntimePaths {
+  const roots = resolveSecWorkspaceRuntimeRoots({
+    repositoryRoot: workspaceRoot,
+    environment: options.environment
+  });
+  const generatedRoot = path.join(roots.workspaceStateRoot, 'generated-state', GENERATED_STATE_RUNTIME_VERSION);
+  return Object.freeze({
+    workspaceStateRoot: roots.workspaceStateRoot,
+    legacyRegistrationsRoot: path.join(generatedRoot, 'registrations'),
+    registrationsRoot: path.join(generatedRoot, 'registrations-v2'),
+    settlementsRoot: path.join(generatedRoot, 'settlements'),
+    transactionsRoot: path.join(generatedRoot, 'transactions')
+  });
+}
+
+async function openRuntimeStore(
+  workspaceRoot: string,
+  options: GeneratedStateLifecycleOptions
+): Promise<GeneratedStateRuntimeStore> {
+  const roots = resolveSecWorkspaceRuntimeRoots({
+    repositoryRoot: workspaceRoot,
+    environment: options.environment
+  });
+  const locations = runtimePaths(workspaceRoot, options);
+  const authority = await acquireSecRuntimeStatePhysicalAuthority({
+    repositoryRoot: workspaceRoot,
+    stateRoot: roots.stateRoot,
+    cacheRoot: roots.cacheRoot,
+    requiredDirectories: [
+      roots.workspaceStateRoot,
+      path.dirname(locations.registrationsRoot),
+      locations.settlementsRoot,
+      locations.transactionsRoot
+    ]
+  });
+  return Object.freeze({
+    legacyRegistrationsRoot: locations.legacyRegistrationsRoot,
+    registrationsRoot: locations.registrationsRoot,
+    settlementsRoot: locations.settlementsRoot,
+    transactionsRoot: locations.transactionsRoot,
+    fs: createRuntimeStateJournalFileSystem(authority.directory(roots.workspaceStateRoot)),
+    assertCurrent: authority.assertCurrent
+  });
+}
+
+function openRuntimeStoreReadOnly(
+  workspaceRoot: string,
+  options: GeneratedStateLifecycleOptions
+): GeneratedStateRuntimeStore | null {
+  const locations = runtimePaths(workspaceRoot, options);
+  const presence = inspectExactNoFollowDirectoryPresence(
+    locations.workspaceStateRoot,
+    'Generated-state read-only Runtime State root'
+  );
+  if (presence.state === 'absent') return null;
+  return Object.freeze({
+    legacyRegistrationsRoot: locations.legacyRegistrationsRoot,
+    registrationsRoot: locations.registrationsRoot,
+    settlementsRoot: locations.settlementsRoot,
+    transactionsRoot: locations.transactionsRoot,
+    fs: createRuntimeStateJournalFileSystem(presence.directory.target),
+    assertCurrent: async () => {
+      inspectNoFollowDirectoryChain(
+        locations.workspaceStateRoot,
+        'Generated-state read-only Runtime State readback'
+      );
+    }
+  });
+}
+
+function observeRoot(workspaceRoot: string, relativePath: string): ObservedGeneratedStateRoot {
+  const absolutePath = path.join(workspaceRoot, ...normalizeGeneratedStateRelativePath(relativePath).split('/'));
+  let metadata: ReturnType<typeof lstatSync>;
+  try {
+    metadata = lstatSync(absolutePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
+    }
+    throw error;
+  }
+  if (metadata.isSymbolicLink()) {
+    const parent = inspectNoFollowDirectoryChain(path.dirname(absolutePath), 'Generated-state link parent').target;
+    const entry = inspectNoFollowLinkEntry(parent, path.basename(absolutePath));
+    if (entry === null || entry.linkTarget === null) {
+      return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
+    }
+    return Object.freeze({
+      kind: 'link',
+      identity: Object.freeze({
+        device: entry.device,
+        inode: entry.inode,
+        objectId: generatedStateDigest({ kind: 'link', target: entry.linkTarget })
+      }),
+      directory: null,
+      linkTarget: entry.linkTarget
+    });
+  }
+  if (metadata.isDirectory()) {
+    const directory = inspectNoFollowDirectoryChain(absolutePath, 'Generated-state root').target;
+    return Object.freeze({ kind: 'directory', identity: identityOf(directory), directory, linkTarget: null });
+  }
+  if (!metadata.isFile()) return Object.freeze({ kind: 'link', identity: null, directory: null, linkTarget: null });
+  const parent = inspectNoFollowDirectoryChain(path.dirname(absolutePath), 'Generated-state file parent').target;
+  const entry = inspectNoFollowOrdinaryFileEntry(parent, path.basename(absolutePath));
+  if (entry === null) return Object.freeze({ kind: 'missing', identity: null, directory: null, linkTarget: null });
+  return Object.freeze({
+    kind: 'file',
+    identity: Object.freeze({
+      device: entry.device,
+      inode: entry.inode,
+      objectId: `${entry.device}:${entry.inode}`
+    }),
+    directory: null,
+    linkTarget: null
+  });
+}
+
+function registrationPath(store: GeneratedStateRuntimeStore, relativePath: string): string {
+  return path.join(store.registrationsRoot, `${registrationKey(relativePath)}.json`);
+}
+
+const GENERATED_STATE_REGISTRATION_POINTER_SCHEMA = 'sec-generated-state-registration-pointer-v2' as const;
+const GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA = 'sec-generated-state-registration-ledger-v2' as const;
+const GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA = 'sec-generated-state-registration-migration-v1' as const;
+const GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY = 10_000;
+const GENERATED_STATE_REGISTRATION_ROOT_ENTRY_CAPACITY = 30_000;
+
+type GeneratedStateRegistrationPointer = Readonly<{
+  readonly schema: typeof GENERATED_STATE_REGISTRATION_POINTER_SCHEMA;
+  readonly registrationDigest: `sha256:${string}`;
+  readonly ledgerRecordDigest: `sha256:${string}`;
+}>;
+
+type GeneratedStateRegistrationLedgerRecord = Readonly<{
+  readonly schema: typeof GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA;
+  readonly recordDigest: `sha256:${string}`;
+  readonly previousRecordDigest: `sha256:${string}` | null;
+  readonly sequence: number;
+  readonly relativePath: string;
+  readonly registrationDigest: `sha256:${string}`;
+  /** Base64 of the exact canonical immutable generation bytes. */
+  readonly registrationBytes: string;
+}>;
+
+type GeneratedStateRegistrationLedgerObservation = Readonly<{
+  readonly tip: GeneratedStateRegistrationLedgerRecord | null;
+  readonly registration: GeneratedStateRegistration | null;
+  readonly retiredPredecessor: GeneratedStateRegistration | null;
+}>;
+
+type GeneratedStateRegistrationMigrationTarget = Readonly<{
+  readonly relativePath: string;
+  readonly registrationDigest: `sha256:${string}`;
+}>;
+
+type GeneratedStateRegistrationMigrationIntent = Readonly<{
+  readonly schema: typeof GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA;
+  readonly phase: 'prepared' | 'complete';
+  readonly migrationDigest: `sha256:${string}`;
+  readonly sourceRoot: GeneratedStatePhysicalIdentity;
+  readonly sourceInventoryDigest: `sha256:${string}`;
+  readonly sourceGenerationCount: number;
+  readonly sourcePointerCount: number;
+  readonly targets: readonly GeneratedStateRegistrationMigrationTarget[];
+  readonly previousIntentDigest: `sha256:${string}` | null;
+  readonly intentDigest: `sha256:${string}`;
+}>;
+
+type LegacyGeneratedStateRegistrationCensus = Readonly<{
+  readonly sourceRoot: PhysicalDirectoryIdentity;
+  readonly sourceInventoryDigest: `sha256:${string}`;
+  readonly sourceEntryIdentityDigest: `sha256:${string}`;
+  readonly sourceGenerationCount: number;
+  readonly sourcePointerCount: number;
+  readonly generations: ReadonlyMap<`sha256:${string}`, Readonly<{
+    readonly registration: GeneratedStateRegistration;
+    readonly bytes: Buffer;
+  }>>;
+  readonly pointers: ReadonlyMap<string, Readonly<{
+    readonly registration: GeneratedStateRegistration;
+    readonly bytes: Buffer;
+  }>>;
+}>;
+
+/**
+ * A migration admission is intentionally an in-process capability.  The
+ * durable intent below proves the bytes and physical roots involved, but a
+ * digest is not an issuer credential.  Only the owner lease creates this
+ * object, and the migration routine never accepts caller-shaped JSON as
+ * authority.
+ */
+interface GeneratedStateRegistrationMigrationAdmission {
+  readonly kind: 'generated-state-registration-migration-admission';
+}
+
+const generatedStateRegistrationMigrationAdmissions = new WeakSet<object>();
+
+function issueGeneratedStateRegistrationMigrationAdmission(): GeneratedStateRegistrationMigrationAdmission {
+  const admission = Object.freeze({
+    kind: 'generated-state-registration-migration-admission' as const
+  });
+  generatedStateRegistrationMigrationAdmissions.add(admission);
+  return admission;
+}
+
+function assertGeneratedStateRegistrationMigrationAdmission(
+  admission: GeneratedStateRegistrationMigrationAdmission
+): void {
+  if (!generatedStateRegistrationMigrationAdmissions.has(admission)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state registration migration requires an owner-issued admission.'
+    );
+  }
+}
+
+const GENERATED_STATE_REGISTRATION_POINTER_KEYS = Object.freeze([
+  'ledgerRecordDigest', 'registrationDigest', 'schema'
+]);
+const GENERATED_STATE_REGISTRATION_LEDGER_KEYS = Object.freeze([
+  'previousRecordDigest', 'recordDigest', 'registrationBytes', 'registrationDigest',
+  'relativePath', 'schema', 'sequence'
+]);
+const GENERATED_STATE_REGISTRATION_MIGRATION_KEYS = Object.freeze([
+  'intentDigest', 'migrationDigest', 'phase', 'previousIntentDigest', 'schema',
+  'sourceGenerationCount', 'sourceInventoryDigest', 'sourcePointerCount',
+  'sourceRoot', 'targets'
+]);
+const GENERATED_STATE_REGISTRATION_MIGRATION_TARGET_KEYS = Object.freeze([
+  'registrationDigest', 'relativePath'
+]);
+function hasExactObjectKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    Object.keys(value).sort().join('\0') === [...keys].sort().join('\0');
+}
+
+function registrationMigrationMaterial(input: Readonly<{
+  sourceRoot: GeneratedStatePhysicalIdentity;
+  sourceInventoryDigest: `sha256:${string}`;
+  sourceGenerationCount: number;
+  sourcePointerCount: number;
+  targets: readonly GeneratedStateRegistrationMigrationTarget[];
+}>): Readonly<{
+  schema: typeof GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA;
+  sourceRoot: GeneratedStatePhysicalIdentity;
+  sourceInventoryDigest: `sha256:${string}`;
+  sourceGenerationCount: number;
+  sourcePointerCount: number;
+  targets: readonly GeneratedStateRegistrationMigrationTarget[];
+}> {
+  return Object.freeze({
+    schema: GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA,
+    sourceRoot: input.sourceRoot,
+    sourceInventoryDigest: input.sourceInventoryDigest,
+    sourceGenerationCount: input.sourceGenerationCount,
+    sourcePointerCount: input.sourcePointerCount,
+    targets: Object.freeze([...input.targets].sort((left, right) => left.relativePath.localeCompare(right.relativePath)))
+  });
+}
+
+function makeRegistrationMigrationIntent(
+  material: ReturnType<typeof registrationMigrationMaterial>,
+  phase: GeneratedStateRegistrationMigrationIntent['phase'],
+  previousIntentDigest: `sha256:${string}` | null
+): GeneratedStateRegistrationMigrationIntent {
+  const migrationDigest = generatedStateDigest(material);
+  const unsigned = Object.freeze({
+    ...material,
+    phase,
+    migrationDigest,
+    previousIntentDigest
+  });
+  return Object.freeze({ ...unsigned, intentDigest: generatedStateDigest(unsigned) });
+}
+
+function registrationMigrationIntentName(intent: GeneratedStateRegistrationMigrationIntent): string {
+  return `registration-migration-${intent.migrationDigest.slice('sha256:'.length)}-${intent.phase}.json`;
+}
+
+function parseRegistrationMigrationIntent(
+  bytes: Uint8Array,
+  expectedName?: string
+): GeneratedStateRegistrationMigrationIntent {
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
+  } catch {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration migration intent is malformed.');
+  }
+  if (!hasExactObjectKeys(value, GENERATED_STATE_REGISTRATION_MIGRATION_KEYS) ||
+      value.schema !== GENERATED_STATE_REGISTRATION_MIGRATION_SCHEMA ||
+      (value.phase !== 'prepared' && value.phase !== 'complete') ||
+      typeof value.migrationDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.migrationDigest) ||
+      typeof value.sourceInventoryDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.sourceInventoryDigest) ||
+      !Number.isSafeInteger(value.sourceGenerationCount) || (value.sourceGenerationCount as number) < 0 ||
+      !Number.isSafeInteger(value.sourcePointerCount) || (value.sourcePointerCount as number) < 0 ||
+      !Array.isArray(value.targets) ||
+      (value.previousIntentDigest !== null && (
+        typeof value.previousIntentDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.previousIntentDigest)
+      )) ||
+      typeof value.intentDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.intentDigest) ||
+      !hasExactObjectKeys(value.sourceRoot, ['device', 'inode', 'objectId']) ||
+      typeof value.sourceRoot.device !== 'string' || typeof value.sourceRoot.inode !== 'string' ||
+      typeof value.sourceRoot.objectId !== 'string') {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration migration intent is malformed.');
+  }
+  const targets: GeneratedStateRegistrationMigrationTarget[] = [];
+  const targetPaths = new Set<string>();
+  for (const target of value.targets) {
+    if (!hasExactObjectKeys(target, GENERATED_STATE_REGISTRATION_MIGRATION_TARGET_KEYS) ||
+        typeof target.relativePath !== 'string' ||
+        target.relativePath !== normalizeGeneratedStateRelativePath(target.relativePath) ||
+        typeof target.registrationDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(target.registrationDigest) ||
+        targetPaths.has(target.relativePath)) {
+      throw new GeneratedStateProducerBindingBlockedError('Generated-state registration migration target is malformed.');
+    }
+    targetPaths.add(target.relativePath);
+    targets.push(Object.freeze({
+      relativePath: target.relativePath,
+      registrationDigest: target.registrationDigest as `sha256:${string}`
+    }));
+  }
+  const material = registrationMigrationMaterial({
+    sourceRoot: Object.freeze({
+      device: value.sourceRoot.device,
+      inode: value.sourceRoot.inode,
+      objectId: value.sourceRoot.objectId
+    }),
+    sourceInventoryDigest: value.sourceInventoryDigest as `sha256:${string}`,
+    sourceGenerationCount: value.sourceGenerationCount as number,
+    sourcePointerCount: value.sourcePointerCount as number,
+    targets
+  });
+  const rebuilt = makeRegistrationMigrationIntent(
+    material,
+    value.phase,
+    value.previousIntentDigest as `sha256:${string}` | null
+  );
+  if (rebuilt.migrationDigest !== value.migrationDigest || rebuilt.intentDigest !== value.intentDigest ||
+      canonicalBytes(rebuilt) !== Buffer.from(bytes).toString('utf8') ||
+      (expectedName !== undefined && expectedName !== registrationMigrationIntentName(rebuilt))) {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration migration intent is invalid.');
+  }
+  return rebuilt;
+}
+
+function registrationGenerationName(registrationDigest: `sha256:${string}`): string {
+  return `registration-${registrationDigest.slice('sha256:'.length)}.json`;
+}
+
+function registrationLedgerName(
+  relativePath: string,
+  recordDigest: `sha256:${string}`
+): string {
+  return `registration-ledger-${registrationKey(relativePath)}-${recordDigest.slice('sha256:'.length)}.json`;
+}
+
+function registrationBytesDigest(bytes: string): `sha256:${string}` {
+  return generatedStateDigest(Object.freeze({ encoding: 'base64', bytes }));
+}
+
+function registrationLedgerStableDigest(
+  record: Omit<GeneratedStateRegistrationLedgerRecord, 'recordDigest'>
+): `sha256:${string}` {
+  return generatedStateDigest(Object.freeze({
+    schema: record.schema,
+    previousRecordDigest: record.previousRecordDigest,
+    sequence: record.sequence,
+    relativePath: record.relativePath,
+    registrationDigest: record.registrationDigest,
+    registrationBytes: record.registrationBytes
+  }));
+}
+
+function makeRegistrationLedgerRecord(
+  registration: GeneratedStateRegistration,
+  previousRecordDigest: `sha256:${string}` | null,
+  sequence: number
+): GeneratedStateRegistrationLedgerRecord {
+  const registrationBytes = Buffer.from(canonicalBytes(registration), 'utf8');
+  const unsigned: Omit<GeneratedStateRegistrationLedgerRecord, 'recordDigest'> = Object.freeze({
+    schema: GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA,
+    previousRecordDigest,
+    sequence,
+    relativePath: registration.relativePath,
+    registrationDigest: registration.registrationDigest,
+    registrationBytes: registrationBytes.toString('base64')
+  });
+  return Object.freeze({
+    ...unsigned,
+    recordDigest: registrationLedgerStableDigest(unsigned)
+  });
+}
+
+function parseRegistrationPointer(bytes: Uint8Array): GeneratedStateRegistrationPointer {
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
+  } catch {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration pointer is malformed.');
+  }
+  if (!hasExactObjectKeys(value, GENERATED_STATE_REGISTRATION_POINTER_KEYS) ||
+      value.schema !== GENERATED_STATE_REGISTRATION_POINTER_SCHEMA ||
+      typeof value.registrationDigest !== 'string' ||
+      typeof value.ledgerRecordDigest !== 'string' ||
+      !/^sha256:[0-9a-f]{64}$/u.test(value.registrationDigest) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(value.ledgerRecordDigest) ||
+      canonicalBytes(value) !== Buffer.from(bytes).toString('utf8')) {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration pointer is malformed.');
+  }
+  return Object.freeze(value) as GeneratedStateRegistrationPointer;
+}
+
+function parseRegistrationLedgerRecord(
+  bytes: Uint8Array,
+  expectedName?: string
+): GeneratedStateRegistrationLedgerRecord {
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
+  } catch {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration ledger record is malformed.');
+  }
+  if (!hasExactObjectKeys(value, GENERATED_STATE_REGISTRATION_LEDGER_KEYS)) {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration ledger record has noncanonical keys.');
+  }
+  const record = value as unknown as GeneratedStateRegistrationLedgerRecord;
+  if (record.schema !== GENERATED_STATE_REGISTRATION_LEDGER_SCHEMA ||
+      !/^sha256:[0-9a-f]{64}$/u.test(record.recordDigest) ||
+      (record.previousRecordDigest !== null && !/^sha256:[0-9a-f]{64}$/u.test(record.previousRecordDigest)) ||
+      !Number.isSafeInteger(record.sequence) || record.sequence < 1 ||
+      typeof record.relativePath !== 'string' || record.relativePath !== normalizeGeneratedStateRelativePath(record.relativePath) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(record.registrationDigest) ||
+      typeof record.registrationBytes !== 'string' || record.registrationBytes.length === 0 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/u.test(record.registrationBytes) ||
+      Buffer.from(record.registrationBytes, 'base64').toString('base64') !== record.registrationBytes ||
+      registrationLedgerStableDigest({
+        schema: record.schema,
+        previousRecordDigest: record.previousRecordDigest,
+        sequence: record.sequence,
+        relativePath: record.relativePath,
+        registrationDigest: record.registrationDigest,
+        registrationBytes: record.registrationBytes
+      }) !== record.recordDigest ||
+      (expectedName !== undefined && expectedName !== registrationLedgerName(record.relativePath, record.recordDigest)) ||
+      canonicalBytes(record) !== Buffer.from(bytes).toString('utf8')) {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration ledger record is invalid.');
+  }
+  let registration: GeneratedStateRegistration;
+  try {
+    const registrationBytes = Buffer.from(record.registrationBytes, 'base64');
+    if (canonicalBytes(JSON.parse(registrationBytes.toString('utf8')) as unknown) !== registrationBytes.toString('utf8')) {
+      throw new Error('registration bytes are not canonical');
+    }
+    registration = parseGeneratedStateRegistration(JSON.parse(registrationBytes.toString('utf8')) as unknown);
+  } catch (error) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration ledger generation is invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (registration.relativePath !== record.relativePath ||
+      registration.registrationDigest !== record.registrationDigest) {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state registration ledger generation binding is invalid.');
+  }
+  return Object.freeze(record);
+}
+
+function readLegacyRegistrationCensus(
+  store: GeneratedStateRuntimeStore
+): LegacyGeneratedStateRegistrationCensus | null {
+  const presence = inspectExactNoFollowDirectoryPresence(
+    store.legacyRegistrationsRoot,
+    'Legacy generated-state registration root'
+  );
+  if (presence.state === 'absent') return null;
+  const sourceRoot = presence.directory.target;
+  const generations = new Map<`sha256:${string}`, Readonly<{
+    registration: GeneratedStateRegistration;
+    bytes: Buffer;
+  }>>();
+  const pointers = new Map<string, Readonly<{
+    registration: GeneratedStateRegistration;
+    bytes: Buffer;
+  }>>();
+  const inventory: Array<Readonly<{ name: string; bytesDigest: `sha256:${string}` }>> = [];
+  const entryIdentities: Array<Readonly<{
+    name: string;
+    device: string;
+    inode: string;
+    objectId: string;
+    size: number;
+  }>> = [];
+  const names = readdirSync(sourceRoot.path, { withFileTypes: true })
+    .map((entry) => entry.name)
+    .sort();
+  if (names.length > GENERATED_STATE_REGISTRATION_ROOT_ENTRY_CAPACITY) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Legacy generated-state registration root exceeds its bounded capacity: ${names.length}.`
+    );
+  }
+  for (const name of names) {
+    if (name === '.generated-state-registration-mutation.lock') continue;
+    if (!/^registration-[0-9a-f]{64}\.json$/u.test(name) && !/^[0-9a-f]{64}\.json$/u.test(name)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Legacy generated-state registration root contains unknown residue: ${name}.`
+      );
+    }
+    const entry = inspectNoFollowOrdinaryFileEntry(sourceRoot, name);
+    if (entry === null || entry.kind !== 'file' || entry.bytes === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Legacy generated-state registration entry is absent or foreign: ${name}.`
+      );
+    }
+    const bytes = Buffer.from(entry.bytes);
+    let registration: GeneratedStateRegistration;
+    try {
+      registration = parseGeneratedStateRegistration(JSON.parse(bytes.toString('utf8')) as unknown);
+      if (canonicalBytes(registration) !== bytes.toString('utf8')) {
+        throw new Error('registration bytes are not canonical');
+      }
+    } catch (error) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Legacy generated-state registration entry is invalid: ${name}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+    inventory.push(Object.freeze({
+      name,
+      bytesDigest: generatedStateDigest(Object.freeze({
+        encoding: 'base64',
+        bytes: bytes.toString('base64')
+      }))
+    }));
+    entryIdentities.push(Object.freeze({
+      name,
+      device: entry.device,
+      inode: entry.inode,
+      objectId: `${entry.device}:${entry.inode}`,
+      size: entry.size
+    }));
+    if (name.startsWith('registration-')) {
+      if (registrationGenerationName(registration.registrationDigest) !== name ||
+          generations.has(registration.registrationDigest)) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Legacy generated-state registration generation identity is invalid: ${name}.`
+        );
+      }
+      generations.set(registration.registrationDigest, Object.freeze({ registration, bytes }));
+      continue;
+    }
+    if (`${registrationKey(registration.relativePath)}.json` !== name || pointers.has(registration.relativePath)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Legacy generated-state registration pointer identity is invalid: ${name}.`
+      );
+    }
+    pointers.set(registration.relativePath, Object.freeze({ registration, bytes }));
+  }
+  for (const [relativePath, pointer] of pointers) {
+    const generation = generations.get(pointer.registration.registrationDigest);
+    if (generation === undefined || !generation.bytes.equals(pointer.bytes)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Legacy generated-state registration pointer does not bind an immutable generation: ${relativePath}.`
+      );
+    }
+  }
+  const sourceRootAfter = inspectNoFollowDirectoryChain(
+    store.legacyRegistrationsRoot,
+    'Legacy generated-state registration root readback'
+  ).target;
+  if (!samePhysicalIdentity(sourceRoot, sourceRootAfter)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Legacy generated-state registration root changed during migration census.'
+    );
+  }
+  return Object.freeze({
+    sourceRoot,
+    sourceInventoryDigest: generatedStateDigest(Object.freeze(inventory)),
+    sourceEntryIdentityDigest: generatedStateDigest(Object.freeze(entryIdentities)),
+    sourceGenerationCount: generations.size,
+    sourcePointerCount: pointers.size,
+    generations,
+    pointers
+  });
+}
+
+function assertRegistrationMigrationBoundary(
+  store: GeneratedStateRuntimeStore,
+  intents: readonly GeneratedStateRegistrationMigrationIntent[]
+): void {
+  const legacyPresence = inspectExactNoFollowDirectoryPresence(
+    store.legacyRegistrationsRoot,
+    'Legacy generated-state registration migration evidence'
+  );
+  if (legacyPresence.state === 'absent') {
+    if (intents.length !== 0) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        'Generated-state registration migration source evidence is absent.'
+      );
+    }
+    return;
+  }
+  const prepared = intents.filter(({ phase }) => phase === 'prepared');
+  const complete = intents.filter(({ phase }) => phase === 'complete');
+  if (prepared.length !== 1 || complete.length !== 1 ||
+      prepared[0]!.migrationDigest !== complete[0]!.migrationDigest ||
+      complete[0]!.previousIntentDigest !== prepared[0]!.intentDigest ||
+      !samePhysicalIdentity(prepared[0]!.sourceRoot, identityOf(legacyPresence.directory.target)) ||
+      !samePhysicalIdentity(complete[0]!.sourceRoot, prepared[0]!.sourceRoot)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state registration schema migration is required or incomplete.'
+    );
+  }
+}
+
+function transactionPointerPath(store: GeneratedStateRuntimeStore, relativePath: string): string {
+  return path.join(store.transactionsRoot, `current-${registrationKey(relativePath)}.json`);
+}
+
+interface GeneratedStateCleanupIntent {
+  readonly schema: 'sec-generated-state-cleanup-intent-v1';
+  readonly beforeInventoryDigest: `sha256:${string}`;
+  readonly relativePath: string;
+  readonly root: GeneratedStatePhysicalIdentity;
+  readonly tombstoneName: string;
+  readonly intentDigest: `sha256:${string}`;
+}
+
+function loadCleanupIntent(
+  store: GeneratedStateRuntimeStore,
+  relativePath: string
+): GeneratedStateCleanupIntent | null {
+  const locator = transactionPointerPath(store, relativePath);
+  if (!store.fs.exists(locator)) return null;
+  const value = JSON.parse(store.fs.readText(locator)) as Partial<GeneratedStateCleanupIntent>;
+  if (value.schema !== 'sec-generated-state-cleanup-intent-v1'
+      || value.relativePath !== normalizeGeneratedStateRelativePath(relativePath)
+      || typeof value.beforeInventoryDigest !== 'string'
+      || typeof value.tombstoneName !== 'string' || !/^q-[0-9a-f]{48}$/u.test(value.tombstoneName)
+      || value.root === undefined || typeof value.intentDigest !== 'string') {
+    throw new Error('Generated-state cleanup intent pointer is malformed.');
+  }
+  const material = Object.freeze({
+    schema: value.schema,
+    beforeInventoryDigest: value.beforeInventoryDigest,
+    relativePath: value.relativePath,
+    root: value.root,
+    tombstoneName: value.tombstoneName
+  });
+  if (generatedStateDigest(material) !== value.intentDigest) {
+    throw new Error('Generated-state cleanup intent digest is invalid.');
+  }
+  return Object.freeze({ ...material, intentDigest: value.intentDigest }) as GeneratedStateCleanupIntent;
+}
+
+function readRegistrationLedgerObservation(
+  store: GeneratedStateRuntimeStore,
+  relativePath: string
+): GeneratedStateRegistrationLedgerObservation {
+  const normalized = normalizeGeneratedStateRelativePath(relativePath);
+  const registrationsRoot = inspectNoFollowDirectoryChain(
+    store.registrationsRoot,
+    'Generated-state registration ledger root'
+  ).target;
+  const names = readdirSync(registrationsRoot.path, { withFileTypes: true })
+    .map((entry) => entry.name)
+    .sort();
+  if (names.length > GENERATED_STATE_REGISTRATION_ROOT_ENTRY_CAPACITY) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration ledger exceeds its bounded root capacity: ${names.length}.`
+    );
+  }
+  const generations = new Map<`sha256:${string}`, Readonly<{
+    readonly registration: GeneratedStateRegistration;
+    readonly bytes: Buffer;
+  }>>();
+  const records: GeneratedStateRegistrationLedgerRecord[] = [];
+  const pointers = new Map<string, GeneratedStateRegistrationPointer>();
+  const migrationIntents: GeneratedStateRegistrationMigrationIntent[] = [];
+  for (const name of names) {
+    if (/^[0-9a-f]{64}\.json$/u.test(name)) {
+      const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
+      if (entry === null || entry.bytes === null || entry.kind !== 'file') {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state registration pointer is absent or foreign: ${name}.`
+        );
+      }
+      pointers.set(name.slice(0, -'.json'.length), parseRegistrationPointer(entry.bytes));
+      continue;
+    }
+    if (/^registration-[0-9a-f]{64}\.json$/u.test(name)) {
+      const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
+      if (entry === null || entry.bytes === null || entry.kind !== 'file') {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state registration generation is absent or foreign: ${name}.`
+        );
+      }
+      let registration: GeneratedStateRegistration;
+      try {
+        const bytes = Buffer.from(entry.bytes);
+        registration = parseGeneratedStateRegistration(JSON.parse(bytes.toString('utf8')) as unknown);
+        if (canonicalBytes(registration) !== bytes.toString('utf8')) throw new Error('generation bytes are not canonical');
+        if (registrationGenerationName(registration.registrationDigest) !== name) {
+          throw new Error('generation filename does not match its digest');
+        }
+        if (generations.has(registration.registrationDigest)) throw new Error('duplicate generation digest');
+        generations.set(registration.registrationDigest, Object.freeze({ registration, bytes }));
+      } catch (error) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state registration generation is invalid: ${name}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      continue;
+    }
+    if (/^registration-ledger-[0-9a-f]{64}-[0-9a-f]{64}\.json$/u.test(name)) {
+      const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
+      if (entry === null || entry.bytes === null || entry.kind !== 'file') {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state registration ledger record is absent or foreign: ${name}.`
+        );
+      }
+      records.push(parseRegistrationLedgerRecord(entry.bytes, name));
+      continue;
+    }
+    if (/^registration-migration-[0-9a-f]{64}-(?:prepared|complete)\.json$/u.test(name)) {
+      const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
+      if (entry === null || entry.bytes === null || entry.kind !== 'file') {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state registration migration intent is absent or foreign: ${name}.`
+        );
+      }
+      migrationIntents.push(parseRegistrationMigrationIntent(entry.bytes, name));
+      continue;
+    }
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration root contains unknown residue: ${name}.`
+    );
+  }
+  const registrationsRootAfter = inspectNoFollowDirectoryChain(
+    store.registrationsRoot,
+    'Generated-state registration ledger root readback'
+  ).target;
+  if (!samePhysicalIdentity(registrationsRoot, registrationsRootAfter)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state registration ledger root changed during immutable census.'
+    );
+  }
+  assertRegistrationMigrationBoundary(store, migrationIntents);
+
+  const recordsByPath = new Map<string, GeneratedStateRegistrationLedgerRecord[]>();
+  const recordByDigest = new Map<`sha256:${string}`, GeneratedStateRegistrationLedgerRecord>();
+  const referencedGenerationDigests = new Set<`sha256:${string}`>();
+  for (const record of records) {
+    if (recordByDigest.has(record.recordDigest)) {
+      throw new GeneratedStateProducerBindingBlockedError('Generated-state registration ledger contains a duplicate record digest.');
+    }
+    const generation = generations.get(record.registrationDigest);
+    if (generation === undefined || !generation.bytes.equals(Buffer.from(record.registrationBytes, 'base64'))) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration ledger record does not bind its immutable generation: ${record.relativePath}.`
+      );
+    }
+    recordByDigest.set(record.recordDigest, record);
+    referencedGenerationDigests.add(record.registrationDigest);
+    const pathRecords = recordsByPath.get(record.relativePath) ?? [];
+    pathRecords.push(record);
+    recordsByPath.set(record.relativePath, pathRecords);
+  }
+
+  const rootsByPath = new Map<string, GeneratedStateRegistrationLedgerRecord>();
+  const tipsByPath = new Map<string, GeneratedStateRegistrationLedgerRecord>();
+  for (const [recordPath, pathRecords] of recordsByPath) {
+    if (pathRecords.length > GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration ledger exceeds its bounded path capacity: ${recordPath}.`
+      );
+    }
+    const byDigest = new Map(pathRecords.map((record) => [record.recordDigest, record]));
+    const children = new Map<`sha256:${string}`, `sha256:${string}`>();
+    const roots: GeneratedStateRegistrationLedgerRecord[] = [];
+    const registrationDigests = new Set<`sha256:${string}`>();
+    for (const record of pathRecords) {
+      if (registrationDigests.has(record.registrationDigest)) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state registration ledger repeats one generation in a path chain: ${recordPath}.`
+        );
+      }
+      registrationDigests.add(record.registrationDigest);
+      if (record.previousRecordDigest === null) {
+        if (record.sequence !== 1) {
+          throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger root sequence is invalid: ${recordPath}.`);
+        }
+        roots.push(record);
+        continue;
+      }
+      const predecessor = byDigest.get(record.previousRecordDigest);
+      if (predecessor === undefined || predecessor.sequence !== record.sequence - 1) {
+        throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger predecessor is missing: ${recordPath}.`);
+      }
+      const previousChild = children.get(record.previousRecordDigest);
+      if (previousChild !== undefined && previousChild !== record.recordDigest) {
+        throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger predecessor forks: ${recordPath}.`);
+      }
+      children.set(record.previousRecordDigest, record.recordDigest);
+    }
+    if (roots.length !== 1) {
+      throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger has multiple roots: ${recordPath}.`);
+    }
+    rootsByPath.set(recordPath, roots[0]!);
+    const visited = new Set<`sha256:${string}`>();
+    let cursor: GeneratedStateRegistrationLedgerRecord | undefined = roots[0];
+    while (cursor !== undefined) {
+      if (visited.has(cursor.recordDigest)) {
+        throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger contains a cycle: ${recordPath}.`);
+      }
+      visited.add(cursor.recordDigest);
+      const childDigest = children.get(cursor.recordDigest);
+      cursor = childDigest === undefined ? undefined : byDigest.get(childDigest);
+      if (childDigest !== undefined && cursor === undefined) {
+        throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger child disappeared: ${recordPath}.`);
+      }
+    }
+    if (visited.size !== pathRecords.length) {
+      throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger has a disconnected fork: ${recordPath}.`);
+    }
+    const tips = pathRecords.filter((record) => !children.has(record.recordDigest));
+    if (tips.length !== 1) {
+      throw new GeneratedStateProducerBindingBlockedError(`Generated-state registration ledger has no unique tip: ${recordPath}.`);
+    }
+    tipsByPath.set(recordPath, tips[0]!);
+  }
+
+  for (const [recordPath, tip] of tipsByPath) {
+    const pointer = pointers.get(registrationKey(recordPath));
+    const generation = generations.get(tip.registrationDigest);
+    if (generation === undefined) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration ledger tip generation disappeared: ${recordPath}.`
+      );
+    }
+    if (pointer === undefined) {
+      if (generation.registration.phase !== 'retired') {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state active registration pointer is absent: ${recordPath}.`
+        );
+      }
+      continue;
+    }
+    if (pointer.registrationDigest !== tip.registrationDigest ||
+        pointer.ledgerRecordDigest !== tip.recordDigest) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration pointer does not bind the ledger tip: ${recordPath}.`
+      );
+    }
+  }
+  for (const pointerKey of pointers.keys()) {
+    if (![...tipsByPath.keys()].some((recordPath) => registrationKey(recordPath) === pointerKey)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration pointer has no ledger chain: ${pointerKey}.`
+      );
+    }
+  }
+  if (migrationIntents.length > 0) {
+    const complete = migrationIntents.find(({ phase }) => phase === 'complete');
+    if (complete === undefined) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        'Generated-state registration migration lacks a completed intent.'
+      );
+    }
+    for (const target of complete.targets) {
+      if (rootsByPath.get(target.relativePath)?.registrationDigest !== target.registrationDigest) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state registration migration target differs: ${target.relativePath}.`
+        );
+      }
+    }
+  }
+
+  for (const generation of generations.values()) {
+    if (referencedGenerationDigests.has(generation.registration.registrationDigest)) continue;
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration generation is not bound to the immutable ledger: ${generation.registration.relativePath}.`
+    );
+  }
+  const tip = tipsByPath.get(normalized);
+  if (tip !== undefined) {
+    const generation = generations.get(tip.registrationDigest);
+    if (generation === undefined) throw new GeneratedStateProducerBindingBlockedError('Generated-state registration tip generation disappeared.');
+    if (!pointers.has(registrationKey(normalized))) {
+      return Object.freeze({ tip, registration: null, retiredPredecessor: generation.registration });
+    }
+    return Object.freeze({ tip, registration: generation.registration, retiredPredecessor: null });
+  }
+  return Object.freeze({ tip: null, registration: null, retiredPredecessor: null });
+}
+
+function loadRegistration(
+  store: GeneratedStateRuntimeStore | null,
+  relativePath: string
+): GeneratedStateRegistration | null {
+  if (store === null) return null;
+  const currentPresence = inspectExactNoFollowDirectoryPresence(
+    store.registrationsRoot,
+    'Generated-state registration ledger root'
+  );
+  if (currentPresence.state === 'absent') {
+    const legacyPresence = inspectExactNoFollowDirectoryPresence(
+      store.legacyRegistrationsRoot,
+      'Legacy generated-state registration root'
+    );
+    if (legacyPresence.state === 'present') {
+      throw new GeneratedStateProducerBindingBlockedError(
+        'Generated-state registration schema migration is required.'
+      );
+    }
+    return null;
+  }
+  return readRegistrationLedgerObservation(store, relativePath).registration;
+}
+
+type GeneratedStateRegistrationPointerSnapshot = Readonly<{
+  readonly identity: Readonly<{ device: string; inode: string }> | null;
+  readonly bytes: Buffer | null;
+}>;
+
+function assertGeneratedStateRegistrationBytes(bytes: Uint8Array): void {
+  parseGeneratedStateRegistration(JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown);
+}
+
+function assertGeneratedStateRegistrationPointerBytes(bytes: Uint8Array): void {
+  parseRegistrationPointer(bytes);
+}
+
+function inspectRegistrationPointer(
+  store: GeneratedStateRuntimeStore,
+  relativePath: string
+): Readonly<{
+  readonly parent: PhysicalDirectoryIdentity;
+  readonly name: string;
+  readonly snapshot: GeneratedStateRegistrationPointerSnapshot;
+}> {
+  const locator = registrationPath(store, relativePath);
+  const parent = inspectNoFollowDirectoryChain(
+    path.dirname(locator),
+    'Generated-state registration pointer parent'
+  ).target;
+  const name = path.basename(locator);
+  const entry = inspectNoFollowOrdinaryFileEntry(parent, name);
+  return Object.freeze({
+    parent,
+    name,
+    snapshot: Object.freeze({
+      identity: entry === null ? null : Object.freeze({ device: entry.device, inode: entry.inode }),
+      bytes: entry?.bytes === null || entry?.bytes === undefined ? null : Buffer.from(entry.bytes)
+    })
+  });
+}
+
+function sameRegistrationPointerSnapshot(
+  left: GeneratedStateRegistrationPointerSnapshot,
+  right: GeneratedStateRegistrationPointerSnapshot
+): boolean {
+  return (left.identity === null) === (right.identity === null) &&
+    (left.identity === null || (
+      left.identity.device === right.identity!.device &&
+      left.identity.inode === right.identity!.inode
+    )) &&
+    (left.bytes === null) === (right.bytes === null) &&
+    (left.bytes === null || left.bytes.equals(right.bytes!));
+}
+
+function persistRegistration(
+  store: GeneratedStateRuntimeStore,
+  registration: GeneratedStateRegistration,
+  expectedPointer: GeneratedStateRegistrationPointerSnapshot,
+  expectedPreviousRecordDigest: `sha256:${string}` | null
+): void {
+  const bytes = canonicalBytes(registration);
+  const pointer = inspectRegistrationPointer(store, registration.relativePath);
+  if (!sameRegistrationPointerSnapshot(pointer.snapshot, expectedPointer)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration pointer changed before durable CAS: ${registration.relativePath}.`
+    );
+  }
+  const observation = readRegistrationLedgerObservation(store, registration.relativePath);
+  let predecessor = observation.tip;
+  if (expectedPreviousRecordDigest === null) {
+    if (predecessor !== null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state birth cannot replace an existing immutable registration generation: ${registration.relativePath}.`
+      );
+    }
+  } else {
+    if (predecessor === null || predecessor.recordDigest !== expectedPreviousRecordDigest) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration predecessor changed or is unavailable: ${registration.relativePath}.`
+      );
+    }
+  }
+  const generationName = registrationGenerationName(registration.registrationDigest);
+  publishExclusiveDurableCanonicalFile({
+    parent: pointer.parent,
+    name: generationName,
+    bytes: Buffer.from(bytes, 'utf8'),
+    validate: assertGeneratedStateRegistrationBytes
+  });
+  const recordSequence = predecessor === null ? 1 : predecessor.sequence + 1;
+  if (!Number.isSafeInteger(recordSequence) || recordSequence < 1 ||
+      recordSequence > GENERATED_STATE_REGISTRATION_LEDGER_CAPACITY) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration ledger reached its bounded capacity: ${registration.relativePath}.`
+    );
+  }
+  const record = makeRegistrationLedgerRecord(
+    registration,
+    predecessor?.recordDigest ?? null,
+    recordSequence
+  );
+  const recordName = registrationLedgerName(record.relativePath, record.recordDigest);
+  publishExclusiveDurableCanonicalFile({
+    parent: pointer.parent,
+    name: recordName,
+    bytes: Buffer.from(canonicalBytes(record), 'utf8'),
+    validate: (candidate) => parseRegistrationLedgerRecord(candidate, recordName)
+  });
+  const pointerValue: GeneratedStateRegistrationPointer = Object.freeze({
+    schema: GENERATED_STATE_REGISTRATION_POINTER_SCHEMA,
+    registrationDigest: registration.registrationDigest,
+    ledgerRecordDigest: record.recordDigest
+  });
+  const pointerBytes = Buffer.from(canonicalBytes(pointerValue), 'utf8');
+  if (expectedPointer.identity === null) {
+    const published = publishExclusiveDurableCanonicalFile({
+      parent: pointer.parent,
+      name: pointer.name,
+      bytes: pointerBytes,
+      validate: assertGeneratedStateRegistrationPointerBytes
+    });
+    if (!published.created) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration pointer became occupied during durable CAS: ${registration.relativePath}.`
+      );
+    }
+  } else {
+    replaceDurableCanonicalFile({
+      parent: pointer.parent,
+      name: pointer.name,
+      bytes: pointerBytes,
+      expectedExisting: expectedPointer.identity,
+      validate: assertGeneratedStateRegistrationPointerBytes
+    });
+  }
+  const finalPointer = inspectRegistrationPointer(store, registration.relativePath).snapshot;
+  if (finalPointer.bytes === null || !finalPointer.bytes.equals(pointerBytes) || finalPointer.identity === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state registration pointer failed exact durable readback: ${registration.relativePath}.`
+    );
+  }
+}
+
+function publishExactRegistrationMigrationFile(
+  parent: PhysicalDirectoryIdentity,
+  name: string,
+  bytes: Buffer,
+  validate: (candidate: Uint8Array) => void
+): void {
+  const existing = inspectNoFollowOrdinaryFileEntry(parent, name);
+  if (existing !== null) {
+    if (existing.kind !== 'file' || existing.bytes === null || !Buffer.from(existing.bytes).equals(bytes)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration migration target collides with different bytes: ${name}.`
+      );
+    }
+    validate(existing.bytes);
+    return;
+  }
+  const published = publishExclusiveDurableCanonicalFile({ parent, name, bytes, validate });
+  if (!published.created) {
+    const readback = inspectNoFollowOrdinaryFileEntry(parent, name);
+    if (readback === null || readback.kind !== 'file' || readback.bytes === null ||
+        !Buffer.from(readback.bytes).equals(bytes)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration migration target was occupied during publish: ${name}.`
+      );
+    }
+  }
+}
+
+function readRegistrationMigrationIntents(
+  registrationsRoot: PhysicalDirectoryIdentity
+): readonly GeneratedStateRegistrationMigrationIntent[] {
+  const intents: GeneratedStateRegistrationMigrationIntent[] = [];
+  for (const name of readdirSync(registrationsRoot.path, { withFileTypes: true })
+    .map((entry) => entry.name)
+    .sort()) {
+    if (!/^registration-migration-[0-9a-f]{64}-(?:prepared|complete)\.json$/u.test(name)) continue;
+    const entry = inspectNoFollowOrdinaryFileEntry(registrationsRoot, name);
+    if (entry === null || entry.kind !== 'file' || entry.bytes === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration migration intent is absent or foreign: ${name}.`
+      );
+    }
+    intents.push(parseRegistrationMigrationIntent(entry.bytes, name));
+  }
+  return Object.freeze(intents);
+}
+
+function ensureRegistrationLedgerMigration(
+  store: GeneratedStateRuntimeStore,
+  legacy: LegacyGeneratedStateRegistrationCensus | null,
+  admission: GeneratedStateRegistrationMigrationAdmission
+): void {
+  assertGeneratedStateRegistrationMigrationAdmission(admission);
+  const registrationsRoot = inspectNoFollowDirectoryChain(
+    store.registrationsRoot,
+    'Generated-state registration migration target root'
+  ).target;
+  const existingIntents = readRegistrationMigrationIntents(registrationsRoot);
+  if (legacy === null) {
+    if (existingIntents.length !== 0) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        'Generated-state registration migration source evidence is absent.'
+      );
+    }
+    return;
+  }
+  const targets = Object.freeze([...legacy.pointers.values()]
+    .map(({ registration }) => Object.freeze({
+      relativePath: registration.relativePath,
+      registrationDigest: registration.registrationDigest
+    }))
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath)));
+  const material = registrationMigrationMaterial({
+    sourceRoot: identityOf(legacy.sourceRoot),
+    sourceInventoryDigest: legacy.sourceInventoryDigest,
+    sourceGenerationCount: legacy.sourceGenerationCount,
+    sourcePointerCount: legacy.sourcePointerCount,
+    targets
+  });
+  const prepared = makeRegistrationMigrationIntent(material, 'prepared', null);
+  const complete = makeRegistrationMigrationIntent(material, 'complete', prepared.intentDigest);
+  for (const intent of existingIntents) {
+    const expected = intent.phase === 'prepared' ? prepared : complete;
+    if (intent.intentDigest !== expected.intentDigest) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        'Generated-state registration migration intent does not bind the current legacy inventory.'
+      );
+    }
+  }
+  if (existingIntents.some(({ phase }) => phase === 'complete')) {
+    assertRegistrationMigrationBoundary(store, existingIntents);
+    // A complete marker is historical evidence, not a permanent bypass.  A
+    // later mutation must perform one complete target census before it can
+    // continue.  The census validates every generation, ledger chain,
+    // pointer, migration target and unknown-residue boundary; it also fences
+    // the target root identity before and after the read.  One call is enough
+    // because the census covers the whole namespace rather than only the
+    // requested registration path.
+    readRegistrationLedgerObservation(
+      store,
+      complete.targets[0]?.relativePath ?? '.generated-state-registration-migration-empty'
+    );
+    return;
+  }
+
+  const allowedTargetNames = new Set<string>([
+    registrationMigrationIntentName(prepared),
+    registrationMigrationIntentName(complete)
+  ]);
+  for (const { registration } of legacy.pointers.values()) {
+    const record = makeRegistrationLedgerRecord(registration, null, 1);
+    allowedTargetNames.add(registrationGenerationName(registration.registrationDigest));
+    allowedTargetNames.add(registrationLedgerName(record.relativePath, record.recordDigest));
+    allowedTargetNames.add(`${registrationKey(registration.relativePath)}.json`);
+  }
+  for (const name of readdirSync(registrationsRoot.path, { withFileTypes: true }).map((entry) => entry.name)) {
+    if (!allowedTargetNames.has(name)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration migration target contains unknown residue: ${name}.`
+      );
+    }
+  }
+
+  const preparedName = registrationMigrationIntentName(prepared);
+  publishExactRegistrationMigrationFile(
+    registrationsRoot,
+    preparedName,
+    Buffer.from(canonicalBytes(prepared), 'utf8'),
+    (candidate) => parseRegistrationMigrationIntent(candidate, preparedName)
+  );
+  for (const { registration, bytes } of legacy.pointers.values()) {
+    const generationName = registrationGenerationName(registration.registrationDigest);
+    publishExactRegistrationMigrationFile(
+      registrationsRoot,
+      generationName,
+      bytes,
+      assertGeneratedStateRegistrationBytes
+    );
+    const record = makeRegistrationLedgerRecord(registration, null, 1);
+    const recordName = registrationLedgerName(record.relativePath, record.recordDigest);
+    publishExactRegistrationMigrationFile(
+      registrationsRoot,
+      recordName,
+      Buffer.from(canonicalBytes(record), 'utf8'),
+      (candidate) => parseRegistrationLedgerRecord(candidate, recordName)
+    );
+    const pointer: GeneratedStateRegistrationPointer = Object.freeze({
+      schema: GENERATED_STATE_REGISTRATION_POINTER_SCHEMA,
+      registrationDigest: registration.registrationDigest,
+      ledgerRecordDigest: record.recordDigest
+    });
+    publishExactRegistrationMigrationFile(
+      registrationsRoot,
+      `${registrationKey(registration.relativePath)}.json`,
+      Buffer.from(canonicalBytes(pointer), 'utf8'),
+      assertGeneratedStateRegistrationPointerBytes
+    );
+  }
+  const sourceReadback = readLegacyRegistrationCensus(store);
+  if (sourceReadback === null ||
+      !samePhysicalIdentity(sourceReadback.sourceRoot, legacy.sourceRoot) ||
+      sourceReadback.sourceInventoryDigest !== legacy.sourceInventoryDigest ||
+      sourceReadback.sourceEntryIdentityDigest !== legacy.sourceEntryIdentityDigest ||
+      sourceReadback.sourceGenerationCount !== legacy.sourceGenerationCount ||
+      sourceReadback.sourcePointerCount !== legacy.sourcePointerCount) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Legacy generated-state registration source changed during migration.'
+    );
+  }
+  const completeName = registrationMigrationIntentName(complete);
+  publishExactRegistrationMigrationFile(
+    registrationsRoot,
+    completeName,
+    Buffer.from(canonicalBytes(complete), 'utf8'),
+    (candidate) => parseRegistrationMigrationIntent(candidate, completeName)
+  );
+  const finalIntents = readRegistrationMigrationIntents(registrationsRoot);
+  assertRegistrationMigrationBoundary(store, finalIntents);
+  for (const { registration } of legacy.pointers.values()) {
+    const readback = readRegistrationLedgerObservation(store, registration.relativePath);
+    if (readback.registration?.registrationDigest !== registration.registrationDigest ||
+        readback.tip?.registrationDigest !== registration.registrationDigest) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration migration readback differs: ${registration.relativePath}.`
+      );
+    }
+  }
+}
+
+async function withGeneratedStateMutationLease<Value>(
+  workspaceRoot: string,
+  options: GeneratedStateLifecycleOptions,
+  execute: (store: GeneratedStateRuntimeStore) => Promise<Value>
+): Promise<Value> {
+  const store = await openRuntimeStore(workspaceRoot, options);
+  const generatedRoot = inspectNoFollowDirectoryChain(
+    path.dirname(store.registrationsRoot),
+    'Generated-state registration mutation owner root'
+  ).target;
+  const lease = acquirePhysicalMutationLease(
+    generatedRoot,
+    '.generated-state-registration-mutation.lock'
+  );
+  if (lease === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state registration mutation lease is unavailable; registration bytes are preserved.'
+    );
+  }
+  try {
+    await store.assertCurrent();
+    // Validate the legacy source before materializing the new namespace.  A
+    // malformed/foreign source must leave no target directory behind; the
+    // parent lease is the only transient effect in that case.
+    const legacy = readLegacyRegistrationCensus(store);
+    const currentTarget = inspectExactNoFollowDirectoryPresence(
+      store.registrationsRoot,
+      'Generated-state registration mutation target'
+    );
+    if (currentTarget.state === 'absent') {
+      createExclusiveNoFollowDirectory(
+        generatedRoot,
+        path.basename(store.registrationsRoot)
+      );
+    }
+    await store.assertCurrent();
+    ensureRegistrationLedgerMigration(
+      store,
+      legacy,
+      issueGeneratedStateRegistrationMigrationAdmission()
+    );
+    await store.assertCurrent();
+    const value = await execute(store);
+    await store.assertCurrent();
+    return value;
+  } finally {
+    await lease.release();
+  }
+}
+
+async function ensureGeneratedStateRegistrationLedger(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<void> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const locations = runtimePaths(workspaceRoot, options);
+  const legacy = inspectExactNoFollowDirectoryPresence(
+    locations.legacyRegistrationsRoot,
+    'Generated-state legacy registration ledger admission'
+  );
+  const current = inspectExactNoFollowDirectoryPresence(
+    locations.registrationsRoot,
+    'Generated-state registration ledger admission'
+  );
+  if (legacy.state === 'absent' && current.state === 'absent') return;
+  await withGeneratedStateMutationLease(workspaceRoot, options, async () => undefined);
+}
+
+function requireRule(relativePath: string): GeneratedStateRule {
+  const rule = generatedStateRuleForPath(relativePath);
+  if (rule === null) throw new Error(`Generated-state path is not registered by policy: ${relativePath}`);
+  return rule;
+}
+
+async function registerGeneratedStateBirth(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  operationId: string;
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateRegistration> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  const rule = requireRule(relativePath);
+  if (rule.registration !== 'required-at-birth') {
+    throw new Error(`Generated-state rule ${rule.id} is registered by its domain owner, not this lifecycle.`);
+  }
+  return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    const workspace = inspectNoFollowDirectoryChain(workspaceRoot, 'Generated-state workspace root').target;
+    const observed = observeRoot(workspaceRoot, relativePath);
+    if (observed.identity === null || physicalFormForObservedKind(rule, observed.kind) === null) {
+      throw new Error('Generated-state birth requires one registered physical form with exact identity.');
+    }
+    const pointer = inspectRegistrationPointer(store, relativePath);
+    const currentObservation = readRegistrationLedgerObservation(store, relativePath);
+    if (currentObservation.registration !== null || pointer.snapshot.bytes !== null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state birth cannot adopt or replace an existing physical registration; use bind: ${relativePath}.`
+      );
+    }
+    if (currentObservation.retiredPredecessor !== null &&
+        sameIdentity(currentObservation.retiredPredecessor.root, observed.identity)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state birth cannot re-sign the disposed predecessor physical identity: ${relativePath}.`
+      );
+    }
+    const registration = createGeneratedStateRegistration({
+      repositoryRoot,
+      workspace: identityOf(workspace),
+      rule,
+      relativePath,
+      root: observed.identity,
+      operationId: input.operationId
+    }, { clock: options.clock });
+    persistRegistration(
+      store,
+      registration,
+      pointer.snapshot,
+      currentObservation.tip?.recordDigest ?? null
+    );
+    await store.assertCurrent();
+    return registration;
+  });
+}
+
+async function retireGeneratedState(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expectedRegistrationDigest: `sha256:${string}`;
+  outcome: string;
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateRegistration> {
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    const pointer = inspectRegistrationPointer(store, relativePath);
+    const currentObservation = readRegistrationLedgerObservation(store, relativePath);
+    const current = currentObservation.registration;
+    if (current === null) throw new Error('Generated-state retirement has no birth registration.');
+    if (current.registrationDigest !== input.expectedRegistrationDigest) {
+      throw new Error('Generated-state retirement is not bound to the producer session registration.');
+    }
+    const outcome = input.outcome.trim();
+    if (outcome.length === 0) throw new Error('Generated-state retirement outcome is empty.');
+    const retirementRef = generatedStateDigest(Object.freeze({
+      schema: 'sec-generated-state-owner-retirement-v1',
+      registrationId: current.registrationId,
+      registrationDigest: current.registrationDigest,
+      relativePath: current.relativePath,
+      owner: current.owner,
+      producer: current.producer,
+      operationId: current.operationId,
+      outcome
+    }));
+    if (current.phase === 'retired') {
+      if (current.retirementRef === retirementRef) return current;
+      throw new Error('Generated-state registration was retired by a different authority.');
+    }
+    const retired = retireGeneratedStateRegistration(current, retirementRef, {
+      clock: options.clock
+    });
+    const previousRecordDigest = currentObservation.tip?.recordDigest ?? null;
+    if (previousRecordDigest === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state retirement has no immutable predecessor ledger: ${relativePath}.`
+      );
+    }
+    persistRegistration(store, retired, pointer.snapshot, previousRecordDigest);
+    await store.assertCurrent();
+    return retired;
+  });
+}
+
+/**
+ * Re-activate one exact retired registration after an operation-owned
+ * rollback.  This is deliberately distinct from birth: the predecessor
+ * registration digest and physical preimage must both be supplied, and the
+ * new active registration carries a deterministic restore operation id.
+ */
+async function restoreGeneratedStateRegistration(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expectedRegistrationDigest: `sha256:${string}`;
+  expectedPhysical: GeneratedStatePhysicalIdentity;
+  outcome: string;
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateRegistration> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  const rule = requireRule(relativePath);
+  return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    const pointer = inspectRegistrationPointer(store, relativePath);
+    const currentObservation = readRegistrationLedgerObservation(store, relativePath);
+    const current = currentObservation.registration;
+    if (current === null || current.phase !== 'retired' ||
+        current.registrationDigest !== input.expectedRegistrationDigest) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state restore predecessor is missing, active, foreign, or stale: ${relativePath}.`
+      );
+    }
+    const workspace = inspectNoFollowDirectoryChain(
+      workspaceRoot,
+      'Generated-state restore workspace root'
+    ).target;
+    const observed = observeRoot(workspaceRoot, relativePath);
+    if (observed.identity === null || !samePhysicalIdentity(observed.identity, input.expectedPhysical) ||
+        !samePhysicalIdentity(observed.identity, current.root) ||
+        physicalFormForObservedKind(rule, observed.kind) === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state restore physical preimage differs from its retired predecessor: ${relativePath}.`
+      );
+    }
+    const outcome = input.outcome.trim();
+    if (outcome.length === 0) throw new GeneratedStateProducerBindingBlockedError('Generated-state restore outcome is empty.');
+    const restoreOperationId = generatedStateDigest(Object.freeze({
+      schema: 'sec-generated-state-restore-v1',
+      predecessorRegistrationDigest: current.registrationDigest,
+      predecessorRetirementRef: current.retirementRef,
+      relativePath,
+      physical: input.expectedPhysical,
+      outcome
+    }));
+    const restored = createGeneratedStateRegistration({
+      repositoryRoot,
+      workspace: identityOf(workspace),
+      rule,
+      relativePath,
+      root: observed.identity,
+      operationId: `restore:${restoreOperationId}`
+    }, { clock: options.clock });
+    const previousRecordDigest = currentObservation.tip?.recordDigest ?? null;
+    if (previousRecordDigest === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state restore has no immutable predecessor ledger: ${relativePath}.`
+      );
+    }
+    persistRegistration(store, restored, pointer.snapshot, previousRecordDigest);
+    await store.assertCurrent();
+    return restored;
+  });
+}
+
+async function disposeRetiredGeneratedStateDomain(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expected?: GeneratedStateProducerBindingExpectation;
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<boolean> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  const rule = requireRule(relativePath);
+  return withGeneratedStateMutationLease(workspaceRoot, options, async (store) => {
+    const observation = readRegistrationLedgerObservation(store, relativePath);
+    const registration = observation.registration;
+    if (registration === null) {
+      return observation.retiredPredecessor !== null && observeRoot(workspaceRoot, relativePath).kind === 'missing';
+    }
+    if (registration.phase !== 'retired') return false;
+    const expected = input.expected;
+    if (path.resolve(registration.repositoryRoot) !== repositoryRoot ||
+        registration.relativePath !== relativePath || registration.ruleId !== rule.id ||
+        (expected?.owner !== undefined && expected.owner !== registration.owner) ||
+        (expected?.producer !== undefined && expected.producer !== registration.producer) ||
+        (expected?.ruleId !== undefined && expected.ruleId !== registration.ruleId) ||
+        (expected?.physical !== undefined && !samePhysicalIdentity(expected.physical, registration.root))) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state retired domain registration is foreign: ${relativePath}.`
+      );
+    }
+    const observed = observeRoot(workspaceRoot, relativePath);
+    if (observed.kind !== 'missing') {
+      if (observed.identity === null || !samePhysicalIdentity(observed.identity, registration.root)) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state retired domain physical identity changed: ${relativePath}.`
+        );
+      }
+      const physicalForm = physicalFormForObservedKind(rule, observed.kind);
+      const retirement = physicalForm?.worktreeRetirement;
+      if (retirement?.mode !== 'domain-retire') return false;
+      const providers = options.worktreeRetirementProviders?.filter(
+        ({ id }) => id === retirement.providerId
+      ) ?? [];
+      if (providers.length !== 1) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state retired domain provider is unavailable or ambiguous: ${relativePath}.`
+        );
+      }
+      const provider = providers[0]!;
+      const plan = await provider.plan({ repositoryRoot, workspaceRoot, relativePath, source: observed.identity, registration });
+      if (plan.digest !== generatedStateDomainProviderMaterialDigest(provider.id, 'plan', plan.bytes)) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state retired domain provider plan digest is invalid: ${relativePath}.`
+        );
+      }
+      await store.assertCurrent();
+      const receipt = await provider.retire({
+        operationId: generatedStateDigest(Object.freeze({
+          schema: 'sec-generated-state-domain-disposal-operation-v1',
+          registrationDigest: registration.registrationDigest,
+          ledgerRecordDigest: observation.tip?.recordDigest,
+          planDigest: plan.digest
+        })),
+        repositoryRoot,
+        workspaceRoot,
+        relativePath,
+        source: observed.identity,
+        registration,
+        planBytes: plan.bytes,
+        planDigest: plan.digest
+      });
+      if (receipt.digest !== generatedStateDomainProviderMaterialDigest(provider.id, 'receipt', receipt.bytes) ||
+          observeRoot(workspaceRoot, relativePath).kind !== 'missing') {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state retired domain provider did not reach physical absence: ${relativePath}.`
+        );
+      }
+    }
+    const locator = registrationPath(store, relativePath);
+    if (!store.fs.deleteIfPresent(locator) && store.fs.exists(locator)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state retired domain registration pointer remains: ${relativePath}.`
+      );
+    }
+    const terminal = readRegistrationLedgerObservation(store, relativePath);
+    if (terminal.registration !== null ||
+        terminal.retiredPredecessor?.registrationDigest !== registration.registrationDigest) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state retired domain terminal readback differs: ${relativePath}.`
+      );
+    }
+    await store.assertCurrent();
+    return true;
+  });
+}
+
+export interface GeneratedStateProducerBindingExpectation {
+  readonly owner?: string;
+  readonly producer?: string;
+  readonly ruleId?: string;
+  readonly physical?: GeneratedStatePhysicalIdentity;
+}
+
+/**
+ * Adopt an issuer-created active registration without creating or replacing
+ * any registration bytes.  This is the only lifecycle entry point a producer
+ * may use when it is about to retire an already-published physical root from
+ * a fresh process.
+ */
+async function bindGeneratedStateRegistration(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expected?: GeneratedStateProducerBindingExpectation;
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateRegistration> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  const rule = requireRule(relativePath);
+  if (rule.registration !== 'required-at-birth') {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding is only valid for required-at-birth state: ${relativePath}.`
+    );
+  }
+
+  let workspace: PhysicalDirectoryIdentity;
+  let observed: ObservedGeneratedStateRoot;
+  try {
+    workspace = inspectNoFollowDirectoryChain(
+      workspaceRoot,
+      'Generated-state producer binding workspace root'
+    ).target;
+    observed = observeRoot(workspaceRoot, relativePath);
+  } catch (error) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding could not observe ${relativePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }.`
+    );
+  }
+  if (observed.identity === null || physicalFormForObservedKind(rule, observed.kind) === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding found no supported physical root: ${relativePath}.`
+    );
+  }
+  const expected = input.expected;
+  if (expected?.owner !== undefined && expected.owner !== rule.owner) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding owner differs from the registry: ${relativePath}.`
+    );
+  }
+  if (expected?.producer !== undefined && expected.producer !== rule.producer) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding producer differs from the registry: ${relativePath}.`
+    );
+  }
+  if (expected?.ruleId !== undefined && expected.ruleId !== rule.id) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding rule differs from the registry: ${relativePath}.`
+    );
+  }
+  if (expected?.physical !== undefined && !samePhysicalIdentity(expected.physical, observed.identity)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding physical identity differs: ${relativePath}.`
+    );
+  }
+
+
+  await ensureGeneratedStateRegistrationLedger({
+    repositoryRoot,
+    workspaceRoot
+  }, options);
+
+  const store = openRuntimeStoreReadOnly(workspaceRoot, options);
+  if (store === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding has no durable registration store: ${relativePath}.`
+    );
+  }
+  let registration: GeneratedStateRegistration | null;
+  let registrationLedgerObservation: GeneratedStateRegistrationLedgerObservation;
+  try {
+    registrationLedgerObservation = readRegistrationLedgerObservation(store, relativePath);
+    registration = registrationLedgerObservation.registration;
+  } catch (error) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding registration is invalid: ${relativePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }.`
+    );
+  }
+  if (registration === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding has no registration: ${relativePath}.`
+    );
+  }
+  if (registration.phase !== 'active') {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding requires an active registration: ${relativePath}.`
+    );
+  }
+  if (path.resolve(registration.repositoryRoot) !== repositoryRoot ||
+      registration.relativePath !== relativePath ||
+      registration.ruleId !== rule.id ||
+      registration.owner !== rule.owner ||
+      registration.producer !== rule.producer ||
+      !sameIdentity(registration.workspace, identityOf(workspace)) ||
+      !samePhysicalIdentity(registration.root, observed.identity)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding registration is foreign or physically stale: ${relativePath}.`
+    );
+  }
+  const readback = readRegistrationLedgerObservation(store, relativePath);
+  if (readback.registration?.registrationDigest !== registration.registrationDigest ||
+      readback.tip?.registrationDigest !== registrationLedgerObservation.tip?.registrationDigest) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state producer binding ledger tip changed during physical admission: ${relativePath}.`
+    );
+  }
+  await store.assertCurrent();
+  return registration;
+}
+
+function knownPathOrAncestor(relativePath: string): boolean {
+  return GENERATED_STATE_REGISTRY.rules.some(({ selector }) => {
+    const target = selector.kind === 'exact' ? selector.path : selector.parent;
+    return relativePath === target || target.startsWith(`${relativePath}/`);
+  });
+}
+
+function candidatePaths(workspaceRoot: string): readonly string[] {
+  const candidates = new Set<string>();
+  for (const rule of GENERATED_STATE_REGISTRY.rules) {
+    if (rule.selector.kind === 'exact') {
+      candidates.add(rule.selector.path);
+      continue;
+    }
+    const parentPath = path.join(workspaceRoot, ...rule.selector.parent.split('/'));
+    try {
+      for (const entry of readdirSync(parentPath, { withFileTypes: true })) {
+        if (entry.name.startsWith(rule.selector.prefix)) {
+          candidates.add(`${rule.selector.parent}/${entry.name}`);
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  for (const parent of new Set([
+    '.tmp',
+    ...GENERATED_STATE_REGISTRY.rules.flatMap(({ selector }) =>
+      selector.kind === 'direct-child-prefix' ? [selector.parent] : [])
+  ])) {
+    const parentPath = path.join(workspaceRoot, ...parent.split('/'));
+    try {
+      for (const entry of readdirSync(parentPath, { withFileTypes: true })) {
+        const relativePath = `${parent}/${entry.name}`;
+        if (!knownPathOrAncestor(relativePath)) candidates.add(relativePath);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  return Object.freeze([...candidates].sort());
+}
+
+async function workspaceRegistrationState(
+  repositoryRoot: string,
+  workspaceRoot: string,
+  options: GeneratedStateLifecycleOptions
+): Promise<GeneratedStateInventory['workspaceRegistration']> {
+  const result = await (options.runGit ?? ((command, args, runOptions) =>
+    runCommandBytes(command, args, { cwd: runOptions.cwd })))(
+      'git', ['worktree', 'list', '--porcelain', '-z'], { cwd: repositoryRoot }
+    );
+  if (result.code !== 0) return 'unresolved';
+  try {
+    const key = path.resolve(workspaceRoot).toLocaleLowerCase('en-US');
+    return parseWorktreePorcelainZ(result.stdout).some((record) =>
+      path.resolve(record.path).toLocaleLowerCase('en-US') === key
+    ) ? 'registered' : 'absent';
+  } catch {
+    return 'unresolved';
+  }
+}
+
+interface GeneratedStateWorktreeRetirementIntent {
+  readonly schema: 'sec-generated-state-worktree-retirement-intent-v1';
+  readonly operationId: `sha256:${string}`;
+  readonly repositoryRoot: string;
+  readonly workspacePath: string;
+  readonly workspace: GeneratedStatePhysicalIdentity;
+  readonly worktree: { readonly branch: string; readonly headSha: string; readonly treeSha: string };
+  readonly statusDigest: `sha256:${string}`;
+  readonly inventoryDigest: `sha256:${string}`;
+  readonly retentionRoot: ({ readonly path: string } & GeneratedStatePhysicalIdentity) | null;
+  readonly entries: readonly (
+    | Readonly<{
+        action: 'preserve';
+        relativePath: string;
+        destinationName: string;
+        source: GeneratedStatePhysicalIdentity;
+        inventoryDigest: `sha256:${string}`;
+        ruleIds: readonly string[];
+      }>
+    | Readonly<{
+        action: 'domain-retire';
+        relativePath: string;
+        source: GeneratedStatePhysicalIdentity;
+        inventoryDigest: `sha256:${string}`;
+        ruleIds: readonly string[];
+        registration: GeneratedStateRegistration;
+        providerId: string;
+        providerPlanBytes: string;
+        providerPlanDigest: `sha256:${string}`;
+      }>
+  )[];
+  readonly intentDigest: `sha256:${string}`;
+}
+
+const WORKTREE_RETIREMENT_ACTIVE_POINTER = 'worktree-retirement-active.json';
+const WORKTREE_RETIREMENT_LATEST_POINTER = 'worktree-retirement-latest.json';
+
+export class GeneratedStateWorktreeRetirementBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeneratedStateWorktreeRetirementBlockedError';
+  }
+}
+
+/**
+ * A producer may only retire state for which it can prove an issuer-created
+ * active registration.  This error is deliberately distinct from an ordinary
+ * lifecycle failure: callers must preserve the physical target and surface a
+ * typed provenance blocker rather than retrying with a new birth.
+ */
+export class GeneratedStateProducerBindingBlockedError extends Error {
+  readonly code = 'GENERATED_STATE_PROVENANCE_BLOCKED' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeneratedStateProducerBindingBlockedError';
+  }
+}
+
+export function isGeneratedStateWorktreeRetirementBlocked(error: unknown): error is GeneratedStateWorktreeRetirementBlockedError {
+  return error instanceof GeneratedStateWorktreeRetirementBlockedError;
+}
+
+function worktreeRetirementIntent(
+  input: Omit<GeneratedStateWorktreeRetirementIntent, 'schema' | 'intentDigest'>
+): GeneratedStateWorktreeRetirementIntent {
+  const material = Object.freeze({
+    schema: 'sec-generated-state-worktree-retirement-intent-v1' as const,
+    ...input,
+    entries: Object.freeze([...input.entries].sort((left, right) => left.relativePath.localeCompare(right.relativePath)))
+  });
+  return Object.freeze({ ...material, intentDigest: generatedStateDigest(material) });
+}
+
+function parseWorktreeRetirementIntent(value: unknown): GeneratedStateWorktreeRetirementIntent {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Generated-state worktree retirement intent is not an object.');
+  }
+  const candidate = value as GeneratedStateWorktreeRetirementIntent;
+  if (
+    candidate.schema !== 'sec-generated-state-worktree-retirement-intent-v1' ||
+    !Array.isArray(candidate.entries) ||
+    typeof candidate.intentDigest !== 'string'
+  ) {
+    throw new Error('Generated-state worktree retirement intent is malformed.');
+  }
+  const rebuilt = worktreeRetirementIntent({
+    operationId: candidate.operationId,
+    repositoryRoot: candidate.repositoryRoot,
+    workspacePath: candidate.workspacePath,
+    workspace: candidate.workspace,
+    worktree: candidate.worktree,
+    statusDigest: candidate.statusDigest,
+    inventoryDigest: candidate.inventoryDigest,
+    retentionRoot: candidate.retentionRoot,
+    entries: candidate.entries
+  });
+  if (rebuilt.intentDigest !== candidate.intentDigest || generatedStateDigest(rebuilt) !== generatedStateDigest(candidate)) {
+    throw new Error('Generated-state worktree retirement intent digest is invalid.');
+  }
+  return candidate;
+}
+
+function rulesOwningGeneratedPath(relativePath: string): readonly GeneratedStateRule[] {
+  return GENERATED_STATE_REGISTRY.rules.filter(({ selector }) => {
+    if (selector.kind === 'exact') {
+      return relativePath === selector.path || relativePath.startsWith(`${selector.path}/`);
+    }
+    if (!relativePath.startsWith(`${selector.parent}/`)) return false;
+    const child = relativePath.slice(selector.parent.length + 1).split('/')[0]!;
+    return child.startsWith(selector.prefix);
+  });
+}
+
+function rulesBelowGeneratedPath(relativePath: string): readonly GeneratedStateRule[] {
+  return GENERATED_STATE_REGISTRY.rules.filter(({ selector }) => {
+    const anchor = selector.kind === 'exact' ? selector.path : selector.parent;
+    return anchor === relativePath || anchor.startsWith(`${relativePath}/`);
+  });
+}
+
+async function exactIgnoredRootPlan(
+  repositoryRoot: string,
+  workspaceRoot: string,
+  relativePath: string,
+  excludedOwnerAnchor: string | null,
+  store: GeneratedStateRuntimeStore,
+  options: GeneratedStateLifecycleOptions
+): Promise<GeneratedStateWorktreeRetirementIntent['entries'][number]> {
+  const observed = observeRoot(workspaceRoot, relativePath);
+  const withoutExcludedOwner = (rules: readonly GeneratedStateRule[]) => rules.filter(({ selector }) =>
+    (selector.kind === 'exact' ? selector.path : selector.parent) !== excludedOwnerAnchor
+  );
+  const directOwners = withoutExcludedOwner(rulesOwningGeneratedPath(relativePath));
+  if (observed.identity === null || directOwners.length === 0) {
+    if (observed.kind !== 'directory' || observed.directory === null) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(
+        `Generated-state worktree retirement found an unowned physical root: ${relativePath}.`
+      );
+    }
+  }
+  const inventory =
+    directOwners.length > 0
+      ? Object.freeze([])
+      : scanNoFollowDirectoryTreeMetadata(observed.directory!, {
+          deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+          maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+        });
+  const coveredRules = new Set(directOwners.map(({ id }) => id));
+  if (directOwners.length === 0 && withoutExcludedOwner(rulesBelowGeneratedPath(relativePath)).length === 0) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement found an unknown ignored root: ${relativePath}.`
+    );
+  }
+  for (const entry of inventory) {
+    const childPath = `${relativePath}/${entry.relativePath}`;
+    const owners = withoutExcludedOwner(rulesOwningGeneratedPath(childPath));
+    const descendants = withoutExcludedOwner(rulesBelowGeneratedPath(childPath));
+    if (owners.length === 0 && descendants.length === 0) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(`Generated-state worktree retirement found unknown content: ${childPath}.`);
+    }
+    for (const rule of [...owners, ...descendants]) coveredRules.add(rule.id);
+  }
+  const source = observed.identity;
+  if (source === null) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement cannot identify root: ${relativePath}.`
+    );
+  }
+  const directForm = directOwners.length === 1
+    ? physicalFormForObservedKind(directOwners[0]!, observed.kind)
+    : null;
+  if (directOwners.length > 0 && directForm === null) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement physical form is not registered: ${relativePath}.`
+    );
+  }
+  if (directForm?.worktreeRetirement.mode === 'domain-retire') {
+    const providerId = directForm.worktreeRetirement.providerId;
+    const registration = loadRegistration(store, relativePath);
+    if (registration === null || registration.phase !== 'retired' ||
+        registration.ruleId !== directOwners[0]!.id || !sameIdentity(registration.root, source)) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(
+        `Generated-state worktree retirement lacks one exact retired domain registration: ${relativePath}.`
+      );
+    }
+    const providers = options.worktreeRetirementProviders?.filter(({ id }) =>
+      id === providerId
+    ) ?? [];
+    if (providers.length !== 1) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(
+        `Generated-state worktree retirement provider is unavailable or ambiguous: ${providerId}.`
+      );
+    }
+    const provider = providers[0]!;
+    const plan = await provider.plan({ repositoryRoot, workspaceRoot, relativePath, source, registration });
+    if (plan.digest !== generatedStateDomainProviderMaterialDigest(provider.id, 'plan', plan.bytes)) {
+      throw new Error(`Generated-state worktree retirement provider plan digest is invalid: ${provider.id}.`);
+    }
+    return Object.freeze({
+      action: 'domain-retire' as const,
+      relativePath,
+      source,
+      inventoryDigest: generatedStateDigest({ relativePath, source, providerId: provider.id, providerPlanDigest: plan.digest }),
+      ruleIds: Object.freeze([...coveredRules].sort()),
+      registration,
+      providerId: provider.id,
+      providerPlanBytes: plan.bytes,
+      providerPlanDigest: plan.digest
+    });
+  }
+  if (observed.kind !== 'directory' || observed.directory === null) {
+    throw new GeneratedStateWorktreeRetirementBlockedError(
+      `Generated-state worktree retirement only preserves ordinary directory roots: ${relativePath}.`
+    );
+  }
+  return Object.freeze({
+    action: 'preserve' as const,
+    relativePath,
+    destinationName: `g-${generatedStateDigest({ relativePath, source }).slice('sha256:'.length)}`,
+    source,
+    inventoryDigest: generatedStateDigest({ relativePath, source, inventory }),
+    ruleIds: Object.freeze([...coveredRules].sort())
+  });
+}
+
+async function worktreeRetirementGit(options: GeneratedStateLifecycleOptions, cwd: string, args: string[]): Promise<ByteCommandResult> {
+  return (options.runGit ?? ((command, commandArgs, runOptions) => runCommandBytes(command, commandArgs, { cwd: runOptions.cwd })))(
+    'git',
+    args,
+    { cwd }
+  );
+}
+
+function sameWorktreeRetirementIdentity(left: GeneratedStatePhysicalIdentity, right: GeneratedStatePhysicalIdentity): boolean {
+  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
+}
+
+async function worktreeRetirementStatus(
+  repositoryRoot: string,
+  workspaceRoot: string,
+  ownedLeaseRelativePath: string,
+  options: GeneratedStateLifecycleOptions
+): Promise<
+  Readonly<{
+    statusDigest: `sha256:${string}`;
+    ignoredRoots: readonly Readonly<{ relativePath: string; excludedOwnerAnchor: string | null }>[];
+    blockedByOrdinaryState: boolean;
+  }>
+> {
+  const status = await worktreeRetirementGit(options, repositoryRoot, [
+    '-C',
+    workspaceRoot,
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=all',
+    '--ignored=matching'
+  ]);
+  if (status.code !== 0) throw new Error('Generated-state worktree retirement cannot observe Git status.');
+  const records = parseWorktreeStatusPorcelainZ(status.stdout);
+  type ProjectedStatusRecord = Readonly<{
+    record: WorktreeStatusPorcelainRecord;
+    excludedOwnerAnchor: string | null;
+  }>;
+  const retained = records.flatMap<ProjectedStatusRecord>((record): ProjectedStatusRecord[] => {
+    const generatedProjection = (record.index === '!' && record.worktree === '!') || (record.index === '?' && record.worktree === '?');
+    if (!generatedProjection) return [Object.freeze({ record, excludedOwnerAnchor: null })];
+    if (record.path === ownedLeaseRelativePath || record.path.startsWith(`${ownedLeaseRelativePath}/`)) return [];
+    if (!ownedLeaseRelativePath.startsWith(`${record.path}/`)) {
+      return [Object.freeze({ record, excludedOwnerAnchor: null })];
+    }
+    const root = inspectNoFollowDirectoryChain(
+      path.join(workspaceRoot, ...record.path.split('/')),
+      'Generated-state worktree retirement lease ancestor'
+    ).target;
+    const suffix = ownedLeaseRelativePath.slice(record.path.length + 1);
+    const leaseChild = suffix.split('/')[0]!;
+    const inventory = scanNoFollowDirectoryTreeMetadata(root, {
+      deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+      maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+    });
+    return [...new Set(inventory.map(({ relativePath }) => relativePath.split('/')[0]!))]
+      .filter((topLevel) => topLevel !== leaseChild)
+      .sort()
+      .map((topLevel) => Object.freeze({
+        record: Object.freeze({ ...record, path: `${record.path}/${topLevel}` }),
+        excludedOwnerAnchor: record.path
+      }));
+  });
+  const nonIgnored = retained.filter(({ record: { index, worktree } }) => index !== '!' || worktree !== '!');
+  const ignoredRoots = retained.map(({ record: { path: relativePath }, excludedOwnerAnchor }) => Object.freeze({
+    relativePath: normalizeGeneratedStateRelativePath(relativePath),
+    excludedOwnerAnchor
+  })).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  for (let index = 0; index < ignoredRoots.length; index += 1) {
+    if (ignoredRoots.some((candidate, candidateIndex) =>
+      candidateIndex !== index && ignoredRoots[index]!.relativePath.startsWith(`${candidate.relativePath}/`)
+    )) {
+      throw new GeneratedStateWorktreeRetirementBlockedError(
+        `Generated-state worktree retirement ignored roots overlap: ${ignoredRoots[index]!.relativePath}.`
+      );
+    }
+  }
+  return Object.freeze({
+    statusDigest: generatedStateDigest({ records: retained }),
+    ignoredRoots: Object.freeze(ignoredRoots),
+    blockedByOrdinaryState:
+      nonIgnored.length > 0 || ignoredRoots.some(({ relativePath }) => ownedLeaseRelativePath.startsWith(`${relativePath}/`))
+  });
+}
+
+function validateWorktreeRetirementReceiptPhysical(receipt: GeneratedStateWorktreeRetirement): GeneratedStateWorktreeRetirement {
+  assertGeneratedStateWorktreeRetirement(receipt);
+  const retentionRoot = receipt.retentionRoot === null
+    ? null
+    : inspectNoFollowDirectoryChain(
+        receipt.retentionRoot.path,
+        'Generated-state worktree retirement retained root'
+      ).target;
+  if (retentionRoot !== null && !sameWorktreeRetirementIdentity(identityOf(retentionRoot), receipt.retentionRoot!)) {
+    throw new Error('Generated-state worktree retirement retained root identity changed.');
+  }
+  for (const entry of receipt.entries) {
+    if (observeRoot(receipt.workspacePath, entry.relativePath).kind !== 'missing') {
+      throw new Error(`Generated-state worktree retirement source reappeared: ${entry.relativePath}.`);
+    }
+    if (entry.action === 'domain-retired') continue;
+    if (retentionRoot === null) {
+      throw new Error('Generated-state worktree retirement preserved entry lacks a retention root.');
+    }
+    const retained = inspectNoFollowDirectoryChain(
+      path.join(retentionRoot.path, entry.destinationName),
+      `Generated-state worktree retirement retained ${entry.relativePath}`
+    ).target;
+    if (
+      !sameWorktreeRetirementIdentity(identityOf(retained), entry.retained) ||
+      !sameWorktreeRetirementIdentity(entry.source, entry.retained)
+    ) {
+      throw new Error(`Generated-state worktree retirement retained identity changed: ${entry.relativePath}.`);
+    }
+  }
+  return receipt;
+}
+
+export function assertGeneratedStateWorktreeRetirementEffectStart(
+  input: Readonly<{
+    receipt: GeneratedStateWorktreeRetirement;
+    repositoryRoot: string;
+    workspaceRoot: string;
+    expectedBranch: string;
+    expectedHeadSha: string;
+    expectedTreeSha: string;
+  }>
+): GeneratedStateWorktreeRetirement {
+  const receipt = validateWorktreeRetirementReceiptPhysical(input.receipt);
+  if (
+    path.resolve(input.repositoryRoot) !== receipt.repositoryRoot ||
+    path.resolve(input.workspaceRoot) !== receipt.workspacePath ||
+    input.expectedBranch !== receipt.worktree.branch ||
+    input.expectedHeadSha !== receipt.worktree.headSha ||
+    input.expectedTreeSha !== receipt.worktree.treeSha ||
+    receipt.terminal !== 'completed'
+  ) {
+    throw new Error('Generated-state worktree retirement Effect-start binding changed.');
+  }
+  return receipt;
+}
+
+export async function settleGeneratedStateForWorktreeRetirement(
+  input: Readonly<{
+    repositoryRoot: string;
+    workspaceRoot: string;
+    expectedBranch: string;
+    expectedHeadSha: string;
+    expectedTreeSha: string;
+  }>,
+  options: GeneratedStateLifecycleOptions = {}
+): Promise<GeneratedStateWorktreeRetirement | null> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot);
+  const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+  try {
+    await lease.assertOwned();
+    const ownedNamespace = await lease.ownedNamespace();
+    const workspace = inspectNoFollowDirectoryChain(workspaceRoot, 'Generated-state worktree retirement workspace').target;
+    const worktrees = await worktreeRetirementGit(options, repositoryRoot, ['worktree', 'list', '--porcelain', '-z']);
+    if (worktrees.code !== 0) throw new Error('Generated-state worktree retirement cannot observe worktree registry.');
+    const records = parseWorktreePorcelainZ(worktrees.stdout);
+    const workspaceKey = workspaceRoot.toLocaleLowerCase('en-US');
+    const record = records.find((candidate) => path.resolve(candidate.path).toLocaleLowerCase('en-US') === workspaceKey);
+    if (
+      record === undefined ||
+      records[0] === record ||
+      record.bare ||
+      record.detached ||
+      record.locked ||
+      record.prunable ||
+      record.branch !== input.expectedBranch ||
+      record.headSha !== input.expectedHeadSha
+    ) {
+      throw new Error('Generated-state worktree retirement admission does not match one ordinary linked worktree.');
+    }
+    const tree = await worktreeRetirementGit(options, repositoryRoot, ['-C', workspaceRoot, 'rev-parse', 'HEAD^{tree}']);
+    if (tree.code !== 0 || Buffer.from(tree.stdout).toString('utf8').trim() !== input.expectedTreeSha) {
+      throw new Error('Generated-state worktree retirement tree changed before admission.');
+    }
+    const readOnlyStore = openRuntimeStoreReadOnly(workspaceRoot, options);
+    const readOnlyActivePath =
+      readOnlyStore === null ? null : path.join(readOnlyStore.transactionsRoot, WORKTREE_RETIREMENT_ACTIVE_POINTER);
+    const readOnlyLatestPath = readOnlyStore === null ? null : path.join(readOnlyStore.settlementsRoot, WORKTREE_RETIREMENT_LATEST_POINTER);
+    const observedActive =
+      readOnlyStore !== null && readOnlyActivePath !== null && readOnlyStore.fs.exists(readOnlyActivePath)
+        ? parseWorktreeRetirementIntent(JSON.parse(readOnlyStore.fs.readText(readOnlyActivePath)) as unknown)
+        : null;
+    const status = await worktreeRetirementStatus(repositoryRoot, workspaceRoot, ownedNamespace.relativePath, options);
+    if (status.blockedByOrdinaryState) return null;
+    if (observedActive === null && status.ignoredRoots.length === 0) {
+      if (readOnlyStore === null || readOnlyLatestPath === null || !readOnlyStore.fs.exists(readOnlyLatestPath)) {
+        return null;
+      }
+      const receipt = validateWorktreeRetirementReceiptPhysical(
+        assertGeneratedStateWorktreeRetirement(
+          JSON.parse(readOnlyStore.fs.readText(readOnlyLatestPath)) as GeneratedStateWorktreeRetirement
+        )
+      );
+      await readOnlyStore.assertCurrent();
+      return receipt;
+    }
+    const store = await openRuntimeStore(workspaceRoot, options);
+    await store.assertCurrent();
+    const activePath = path.join(store.transactionsRoot, WORKTREE_RETIREMENT_ACTIVE_POINTER);
+    const latestPath = path.join(store.settlementsRoot, WORKTREE_RETIREMENT_LATEST_POINTER);
+    let intent = store.fs.exists(activePath) ? parseWorktreeRetirementIntent(JSON.parse(store.fs.readText(activePath)) as unknown) : null;
+    if (
+      (observedActive === null) !== (intent === null) ||
+      (observedActive !== null && intent !== null && observedActive.intentDigest !== intent.intentDigest)
+    ) {
+      throw new Error('Generated-state worktree retirement active intent changed during admission.');
+    }
+    if (intent === null) {
+      const entries = Object.freeze(await Promise.all(status.ignoredRoots.map(({ relativePath, excludedOwnerAnchor }) =>
+        exactIgnoredRootPlan(repositoryRoot, workspaceRoot, relativePath, excludedOwnerAnchor, store, options)
+      )));
+      const inventoryDigest = generatedStateDigest(entries);
+      const operationId = generatedStateDigest(
+        Object.freeze({
+          schema: 'sec-generated-state-worktree-retirement-operation-v1',
+          repositoryRoot,
+          workspacePath: workspaceRoot,
+          workspace: identityOf(workspace),
+          worktree: {
+            branch: input.expectedBranch,
+            headSha: input.expectedHeadSha,
+            treeSha: input.expectedTreeSha
+          },
+          statusDigest: status.statusDigest,
+          inventoryDigest,
+          registryDigest: GENERATED_STATE_REGISTRY.registryDigest
+        })
+      );
+      const needsRetentionRoot = entries.some(({ action }) => action === 'preserve');
+      let retentionRoot: PhysicalDirectoryIdentity | null = null;
+      if (needsRetentionRoot) {
+        const parent = inspectNoFollowDirectoryChain(
+          path.dirname(workspaceRoot),
+          'Generated-state worktree retirement retention parent'
+        ).target;
+        const retentionRootPath = path.join(
+          path.dirname(workspaceRoot),
+          `sec-generated-state-retirement-${operationId.slice('sha256:'.length)}`
+        );
+        if (inspectExactNoFollowDirectoryPresence(
+          retentionRootPath,
+          'Generated-state worktree retirement new retention root'
+        ).state !== 'absent') {
+          throw new Error('Generated-state worktree retirement retention root exists without an active intent.');
+        }
+        retentionRoot = createNoFollowOrdinaryDirectoryChain(parent, [path.basename(retentionRootPath)]);
+        if (retentionRoot.device !== workspace.device ||
+            scanNoFollowDirectoryTreeMetadata(retentionRoot, {
+              deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+              maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+            }).length !== 0) {
+          throw new Error('Generated-state worktree retirement new retention root is not one empty same-volume object.');
+        }
+      }
+      intent = worktreeRetirementIntent({
+        operationId,
+        repositoryRoot,
+        workspacePath: workspaceRoot,
+        workspace: identityOf(workspace),
+        worktree: {
+          branch: input.expectedBranch,
+          headSha: input.expectedHeadSha,
+          treeSha: input.expectedTreeSha
+        },
+        statusDigest: status.statusDigest,
+        inventoryDigest,
+        retentionRoot: retentionRoot === null ? null : { path: retentionRoot.path, ...identityOf(retentionRoot) },
+        entries
+      });
+      store.fs.replaceFsync(activePath, canonicalBytes(intent));
+    }
+    if (
+      intent.repositoryRoot !== repositoryRoot ||
+      intent.workspacePath !== workspaceRoot ||
+      !sameWorktreeRetirementIdentity(intent.workspace, identityOf(workspace)) ||
+      intent.worktree.branch !== input.expectedBranch ||
+      intent.worktree.headSha !== input.expectedHeadSha ||
+      intent.worktree.treeSha !== input.expectedTreeSha
+    ) {
+      throw new Error('Generated-state worktree retirement active intent belongs to another admission.');
+    }
+    const retentionRoot = intent.retentionRoot === null
+      ? null
+      : inspectNoFollowDirectoryChain(
+          intent.retentionRoot.path,
+          'Generated-state worktree retirement retention root'
+        ).target;
+    if (retentionRoot !== null && (retentionRoot.device !== workspace.device ||
+        !sameWorktreeRetirementIdentity(identityOf(retentionRoot), intent.retentionRoot!))) {
+      throw new Error('Generated-state worktree retirement retention root identity changed.');
+    }
+    if (retentionRoot !== null) {
+      const knownDestinations = new Set(intent.entries
+        .filter((entry) => entry.action === 'preserve')
+        .map(({ destinationName }) => destinationName));
+      const unknownRetentionEntries = scanNoFollowDirectoryTreeMetadata(retentionRoot, {
+        deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+        maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+      }).filter(({ relativePath }) => {
+        const top = relativePath.split('/')[0]!;
+        return !knownDestinations.has(top);
+      });
+      if (unknownRetentionEntries.length > 0) {
+        throw new Error('Generated-state worktree retirement retention root contains unknown content.');
+      }
+    }
+    const retainedEntries = [] as Array<GeneratedStateWorktreeRetirement['entries'][number]>;
+    for (const entry of intent.entries) {
+      await lease.assertOwned();
+      if (entry.action === 'domain-retire') {
+        const providers = options.worktreeRetirementProviders?.filter(({ id }) => id === entry.providerId) ?? [];
+        if (providers.length !== 1) {
+          throw new GeneratedStateWorktreeRetirementBlockedError(
+            `Generated-state worktree retirement provider is unavailable or ambiguous: ${entry.providerId}.`
+          );
+        }
+        const provider = providers[0]!;
+        const providerReceipt = await provider.retire({
+          operationId: intent.operationId,
+          repositoryRoot,
+          workspaceRoot,
+          relativePath: entry.relativePath,
+          source: entry.source,
+          registration: entry.registration,
+          planBytes: entry.providerPlanBytes,
+          planDigest: entry.providerPlanDigest
+        });
+        await options.afterWorktreeRetirementProviderEffect?.(entry.relativePath);
+        if (providerReceipt.digest !== generatedStateDomainProviderMaterialDigest(
+          provider.id,
+          'receipt',
+          providerReceipt.bytes
+        )) {
+          throw new Error(`Generated-state worktree retirement provider receipt digest is invalid: ${provider.id}.`);
+        }
+        if (observeRoot(workspaceRoot, entry.relativePath).kind !== 'missing') {
+          throw new Error(`Generated-state worktree retirement provider left source present: ${entry.relativePath}.`);
+        }
+        retainedEntries.push(Object.freeze({
+          relativePath: entry.relativePath,
+          source: entry.source,
+          inventoryDigest: entry.inventoryDigest,
+          ruleIds: entry.ruleIds,
+          action: 'domain-retired' as const,
+          providerId: entry.providerId,
+          providerPlanDigest: entry.providerPlanDigest,
+          providerReceiptBytes: providerReceipt.bytes,
+          providerReceiptDigest: providerReceipt.digest
+        }));
+        continue;
+      }
+      if (retentionRoot === null) {
+        throw new Error('Generated-state worktree retirement preserve intent lacks a retention root.');
+      }
+      const source = observeRoot(workspaceRoot, entry.relativePath);
+      const destinationPath = path.join(retentionRoot.path, entry.destinationName);
+      const destination = inspectExactNoFollowDirectoryPresence(destinationPath, `Generated-state retained ${entry.relativePath}`);
+      let retained: PhysicalDirectoryIdentity;
+      if (
+        source.kind === 'directory' &&
+        source.directory !== null &&
+        source.identity !== null &&
+        sameWorktreeRetirementIdentity(source.identity, entry.source) &&
+        destination.state === 'absent'
+      ) {
+        retained = relocateRetainedNoFollowDirectoryAcrossParents({
+          directory: source.directory,
+          destinationParent: retentionRoot,
+          tombstoneName: entry.destinationName
+        });
+        await options.afterWorktreeRetirementRelocation?.(entry.relativePath);
+      } else if (
+        source.kind === 'missing' &&
+        destination.state === 'present' &&
+        sameWorktreeRetirementIdentity(identityOf(destination.directory.target), entry.source)
+      ) {
+        retained = destination.directory.target;
+      } else {
+        throw new Error(`Generated-state worktree retirement cannot resume exact root: ${entry.relativePath}.`);
+      }
+      retainedEntries.push(
+        Object.freeze({
+          ...entry,
+          retained: identityOf(retained),
+          action: 'preserved' as const
+        })
+      );
+    }
+    await lease.assertOwned();
+    const receipt = createGeneratedStateWorktreeRetirement({
+      operationId: intent.operationId,
+      repositoryRoot,
+      workspacePath: workspaceRoot,
+      workspace: identityOf(workspace),
+      worktree: intent.worktree,
+      statusDigest: intent.statusDigest,
+      inventoryDigest: intent.inventoryDigest,
+      retentionRoot: retentionRoot === null ? null : { path: retentionRoot.path, ...identityOf(retentionRoot) },
+      entries: Object.freeze(retainedEntries),
+      blockers: Object.freeze([])
+    });
+    const receiptPath = path.join(store.settlementsRoot, `worktree-retirement-${receipt.receiptDigest.slice('sha256:'.length)}.json`);
+    const bytes = canonicalBytes(receipt);
+    if (!store.fs.createExclusiveFsync(receiptPath, bytes) && store.fs.readText(receiptPath) !== bytes) {
+      throw new Error('Generated-state worktree retirement receipt collides with different bytes.');
+    }
+    store.fs.replaceFsync(latestPath, bytes);
+    if (!store.fs.deleteIfPresent(activePath) && store.fs.exists(activePath)) {
+      throw new Error('Generated-state worktree retirement active intent remains after completion.');
+    }
+    await store.assertCurrent();
+    return validateWorktreeRetirementReceiptPhysical(receipt);
+  } finally {
+    await lease.release();
+  }
+}
+
+export async function inspectGeneratedState(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePaths?: readonly string[];
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateInventory> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const workspace = inspectNoFollowDirectoryChain(workspaceRoot, 'Generated-state workspace root').target;
+  const store = openRuntimeStoreReadOnly(workspaceRoot, options);
+  const entries: GeneratedStateInventoryEntry[] = [];
+  const relativePaths = input.relativePaths === undefined
+    ? candidatePaths(workspaceRoot)
+    : Object.freeze([...new Set(input.relativePaths.map(normalizeGeneratedStateRelativePath))].sort());
+  for (const relativePath of relativePaths) {
+    const observed = observeRoot(workspaceRoot, relativePath);
+    const rule = generatedStateRuleForPath(relativePath);
+    if (rule === null) {
+      entries.push(Object.freeze({
+        relativePath,
+        kind: observed.kind,
+        ruleId: null,
+        owner: null,
+        stateClass: 'unknown-unclassified',
+        registrationState: 'missing',
+        cleanupProfiles: Object.freeze([]),
+        settlement: 'blocked',
+        blockers: Object.freeze(['unknown-generated-state']),
+        physicalIdentity: observed.identity,
+        registrationDigest: null
+      }));
+      continue;
+    }
+    let registration: GeneratedStateRegistration | null = null;
+    let registrationState: GeneratedStateInventoryEntry['registrationState'] = 'not-required';
+    const blockers: string[] = [];
+    if (rule.registration === 'required-at-birth') {
+      try {
+        registration = loadRegistration(store, relativePath);
+        registrationState = registration?.phase ?? 'missing';
+      } catch {
+        registrationState = 'invalid';
+        blockers.push('registration-invalid');
+      }
+      if (registration === null && registrationState !== 'invalid' && observed.kind !== 'missing') {
+        blockers.push('registration-missing');
+      }
+      if (registration?.phase === 'active' && observed.identity === null) {
+        blockers.push('active-registered-root-absent');
+      }
+      if (registration !== null && observed.identity !== null && !sameIdentity(registration.root, observed.identity)) {
+        blockers.push('registered-root-identity-changed');
+      }
+      if (registration?.phase === 'active') blockers.push('owner-active');
+    }
+    const physicalForm = physicalFormForObservedKind(rule, observed.kind);
+    if (observed.kind !== 'missing' && physicalForm === null) {
+      blockers.push('root-kind-differs-from-policy');
+    }
+    if (physicalForm?.settlementEffect === 'domain-owner-only' && observed.kind !== 'missing') {
+      blockers.push('domain-owner-settlement-required');
+    }
+    const ready = observed.identity !== null && blockers.length === 0 && registration?.phase === 'retired';
+    entries.push(Object.freeze({
+      relativePath,
+      kind: observed.kind,
+      ruleId: rule.id,
+      owner: rule.owner,
+      stateClass: rule.stateClass,
+      registrationState,
+      cleanupProfiles: rule.cleanupProfiles,
+      settlement: ready ? 'ready' : 'protected',
+      blockers: Object.freeze(blockers.sort()),
+      physicalIdentity: observed.identity,
+      registrationDigest: registration?.registrationDigest ?? null
+    }));
+  }
+  const blockers = entries.flatMap((entry) => entry.blockers
+    .filter((blocker) => blocker !== 'owner-active')
+    .map((blocker) => `${entry.relativePath}:${blocker}`));
+  await store?.assertCurrent();
+  return createGeneratedStateInventory({
+    repositoryRoot,
+    workspace: identityOf(workspace),
+    workspaceRegistration: input.relativePaths === undefined
+      ? await workspaceRegistrationState(repositoryRoot, workspaceRoot, options)
+      : 'unresolved',
+    entries: Object.freeze(entries),
+    blockers: Object.freeze(blockers)
+  });
+}
+
+export function planGeneratedStateCleanup(input: Readonly<{
+  inventory: GeneratedStateInventory;
+  profile: GeneratedStateCleanupProfile;
+}>): Readonly<{ selected: readonly string[]; protected: readonly string[] }> {
+  const selected: string[] = [];
+  const protectedPaths: string[] = [];
+  for (const entry of input.inventory.entries) {
+    if (entry.kind === 'missing') continue;
+    if (generatedStateCleanupAllowed({ entry, profile: input.profile })) selected.push(entry.relativePath);
+    else protectedPaths.push(entry.relativePath);
+  }
+  return Object.freeze({
+    selected: Object.freeze(selected.sort()),
+    protected: Object.freeze(protectedPaths.sort())
+  });
+}
+
+function deleteQuarantinedTree(directory: PhysicalDirectoryIdentity): void {
+  const inventory = scanNoFollowDirectoryTreeMetadata(directory, {
+    deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+    maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+  });
+  const directories = new Map<string, { device: string; inode: string }>();
+  for (const entry of inventory) {
+    if (entry.kind === 'directory') directories.set(entry.relativePath, entry);
+  }
+  const ordered = [...inventory].sort((left, right) => {
+    const depth = (value: string): number => value.split('/').length;
+    return depth(right.relativePath) - depth(left.relativePath)
+      || (left.kind === 'directory' ? 1 : -1)
+      || right.relativePath.localeCompare(left.relativePath);
+  });
+  for (const entry of ordered) {
+    const parts = entry.relativePath.split('/');
+    const ancestors = parts.slice(0, -1).map((_, index) => {
+      const relativePath = parts.slice(0, index + 1).join('/');
+      const identity = directories.get(relativePath);
+      if (identity === undefined) throw new Error('Generated-state cleanup ancestor inventory is incomplete.');
+      return Object.freeze({ relativePath, device: identity.device, inode: identity.inode });
+    });
+    deleteRetainedNoFollowEntry({
+      root: directory,
+      relativePath: entry.relativePath,
+      kind: entry.kind,
+      device: entry.device,
+      inode: entry.inode,
+      ancestorDirectories: ancestors
+    });
+  }
+  const parent = inspectNoFollowDirectoryChain(path.dirname(directory.path), 'Generated-state quarantine parent').target;
+  deleteRetainedNoFollowEntry({
+    root: parent,
+    relativePath: path.basename(directory.path),
+    kind: 'directory',
+    device: directory.device,
+    inode: directory.inode,
+    ancestorDirectories: Object.freeze([])
+  });
+}
+
+export async function settleGeneratedState(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  profile: GeneratedStateCleanupProfile | 'inspect-only';
+  relativePaths?: readonly string[];
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateSettlement> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const before = await inspectGeneratedState({
+    repositoryRoot,
+    workspaceRoot,
+    relativePaths: input.relativePaths
+  }, options);
+  const plan = input.profile === 'inspect-only'
+    ? Object.freeze({ selected: Object.freeze([]) as readonly string[], protected: Object.freeze(
+      before.entries.filter(({ kind }) => kind !== 'missing').map(({ relativePath }) => relativePath).sort()
+    ) })
+    : planGeneratedStateCleanup({ inventory: before, profile: input.profile });
+  const attempts: Array<{
+    relativePath: string;
+    action: 'quarantined' | 'deleted' | 'protected' | 'residue';
+    detailRef: `sha256:${string}`;
+  }> = [];
+  const blockers: string[] = [];
+  if (input.profile === 'inspect-only') {
+    return createGeneratedStateSettlement({
+      repositoryRoot,
+      beforeInventoryDigest: before.inventoryDigest,
+      afterInventoryDigest: before.inventoryDigest,
+      profile: input.profile,
+      selected: plan.selected,
+      protected: plan.protected,
+      attempts: Object.freeze([]),
+      terminal: 'no-op',
+      blockers: Object.freeze([])
+    }, { clock: options.clock });
+  }
+  const store = await openRuntimeStore(workspaceRoot, options);
+  for (const entry of before.entries.filter((candidate) =>
+    candidate.kind === 'missing' && candidate.registrationState === 'retired'
+  )) {
+    const registration = loadRegistration(store, entry.relativePath);
+    const intent = loadCleanupIntent(store, entry.relativePath);
+    if (registration === null || intent === null || !sameIdentity(registration.root, intent.root)) {
+      blockers.push(`${entry.relativePath}:retired-absent-root-without-valid-intent`);
+      attempts.push(Object.freeze({
+        relativePath: entry.relativePath,
+        action: 'residue',
+        detailRef: generatedStateDigest('retired-absent-root-without-valid-intent')
+      }));
+      continue;
+    }
+    try {
+      const tombstonePath = path.join(
+        workspaceRoot, '.tmp', 'generated-state-quarantine', intent.tombstoneName
+      );
+      const tombstone = inspectExactNoFollowDirectoryPresence(
+        tombstonePath,
+        'Generated-state interrupted quarantine'
+      );
+      if (tombstone.state === 'present') {
+        if (!sameIdentity(identityOf(tombstone.directory.target), registration.root)) {
+          throw new Error('Generated-state interrupted quarantine identity changed.');
+        }
+        deleteQuarantinedTree(tombstone.directory.target);
+      }
+      const registrationLocator = registrationPath(store, entry.relativePath);
+      const transactionLocator = transactionPointerPath(store, entry.relativePath);
+      if ((!store.fs.deleteIfPresent(registrationLocator) && store.fs.exists(registrationLocator))
+          || (!store.fs.deleteIfPresent(transactionLocator) && store.fs.exists(transactionLocator))) {
+        throw new Error('Generated-state interrupted cleanup pointers remain.');
+      }
+      attempts.push(Object.freeze({
+        relativePath: entry.relativePath,
+        action: 'deleted',
+        detailRef: generatedStateDigest({
+          intentDigest: intent.intentDigest,
+          effect: 'interrupted-cleanup-physical-absence-readback'
+        })
+      }));
+    } catch (error) {
+      blockers.push(`${entry.relativePath}:interrupted-cleanup-residue`);
+      attempts.push(Object.freeze({
+        relativePath: entry.relativePath,
+        action: 'residue',
+        detailRef: generatedStateDigest(error instanceof Error ? error.message : String(error))
+      }));
+    }
+  }
+  if (plan.selected.length > 0) {
+    const workspace = inspectNoFollowDirectoryChain(
+      workspaceRoot,
+      'Generated-state cleanup workspace'
+    ).target;
+    createNoFollowOrdinaryDirectoryChain(workspace, ['.tmp', 'generated-state-quarantine']);
+    const quarantinePath = path.join(workspaceRoot, '.tmp', 'generated-state-quarantine');
+    const quarantine = inspectExactNoFollowDirectoryPresence(quarantinePath, 'Generated-state quarantine');
+    if (quarantine.state === 'absent') throw new Error('Generated-state quarantine materialization failed.');
+    for (const relativePath of plan.selected) {
+      const entry = before.entries.find((candidate) => candidate.relativePath === relativePath)!;
+      await options.beforeCleanupEffect?.(relativePath);
+      const current = observeRoot(workspaceRoot, relativePath);
+      if (current.kind !== 'directory' || current.directory === null || current.identity === null
+          || entry.physicalIdentity === null || !sameIdentity(entry.physicalIdentity, current.identity)) {
+        blockers.push(`${relativePath}:changed-after-inventory-or-unsupported-kind`);
+        attempts.push(Object.freeze({
+          relativePath,
+          action: 'protected',
+          detailRef: generatedStateDigest('changed-after-inventory-or-unsupported-kind')
+        }));
+        continue;
+      }
+      const tombstoneName = `q-${entry.registrationDigest!.slice('sha256:'.length, 'sha256:'.length + 48)}`;
+      const intent = Object.freeze({
+        schema: 'sec-generated-state-cleanup-intent-v1',
+        beforeInventoryDigest: before.inventoryDigest,
+        relativePath,
+        root: entry.physicalIdentity,
+        tombstoneName
+      });
+      const intentDigest = generatedStateDigest(intent);
+      const intentPath = path.join(store.transactionsRoot, `intent-${intentDigest.slice('sha256:'.length)}.json`);
+      const intentBytes = canonicalBytes(Object.freeze({ ...intent, intentDigest }));
+      if (!store.fs.createExclusiveFsync(intentPath, intentBytes) && store.fs.readText(intentPath) !== intentBytes) {
+        throw new Error('Generated-state cleanup intent collides with different bytes.');
+      }
+      store.fs.replaceFsync(transactionPointerPath(store, relativePath), intentBytes);
+      try {
+        await store.assertCurrent();
+        const moved = relocateRetainedNoFollowDirectoryAcrossParents({
+          directory: current.directory,
+          destinationParent: quarantine.directory.target,
+          tombstoneName
+        });
+        attempts.push(Object.freeze({ relativePath, action: 'quarantined', detailRef: intentDigest }));
+        await options.afterQuarantineEffect?.(relativePath);
+        deleteQuarantinedTree(moved);
+        const absent = inspectExactNoFollowDirectoryPresence(
+          path.join(quarantinePath, tombstoneName), 'Generated-state quarantine readback'
+        ).state === 'absent';
+        if (!absent) throw new Error('Generated-state quarantine residue remains after deletion.');
+        const registrationLocator = registrationPath(store, relativePath);
+        if (!store.fs.deleteIfPresent(registrationLocator) || store.fs.exists(registrationLocator)) {
+          throw new Error('Generated-state retired registration remains after physical deletion.');
+        }
+        const transactionLocator = transactionPointerPath(store, relativePath);
+        if (!store.fs.deleteIfPresent(transactionLocator) || store.fs.exists(transactionLocator)) {
+          throw new Error('Generated-state cleanup intent pointer remains after physical deletion.');
+        }
+        attempts.push(Object.freeze({
+          relativePath,
+          action: 'deleted',
+          detailRef: generatedStateDigest({ intentDigest, effect: 'physical-absence-readback' })
+        }));
+      } catch (error) {
+        blockers.push(`${relativePath}:cleanup-residue`);
+        attempts.push(Object.freeze({
+          relativePath,
+          action: 'residue',
+          detailRef: generatedStateDigest(error instanceof Error ? error.message : String(error))
+        }));
+      }
+    }
+  }
+  const quarantinePath = path.join(workspaceRoot, '.tmp', 'generated-state-quarantine');
+  const quarantine = inspectExactNoFollowDirectoryPresence(quarantinePath, 'Generated-state quarantine finalization');
+  if (quarantine.state === 'present') {
+    const quarantineInventory = scanNoFollowDirectoryTreeMetadata(quarantine.directory.target, {
+        deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
+        maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+      });
+    if (quarantineInventory.length === 0) {
+      const tmp = inspectNoFollowDirectoryChain(path.dirname(quarantinePath), 'Generated-state tmp root').target;
+      deleteRetainedNoFollowEntry({
+        root: tmp,
+        relativePath: path.basename(quarantinePath),
+        kind: 'directory',
+        device: quarantine.directory.target.device,
+        inode: quarantine.directory.target.inode,
+        ancestorDirectories: Object.freeze([])
+      });
+    } else {
+      const relativePath = '.tmp/generated-state-quarantine';
+      blockers.push(`${relativePath}:physical-residue`);
+      attempts.push(Object.freeze({
+        relativePath,
+        action: 'residue',
+        detailRef: generatedStateDigest(Object.freeze({
+          effect: 'quarantine-nonempty-readback',
+          entryCount: quarantineInventory.length
+        }))
+      }));
+    }
+  }
+  const after = await inspectGeneratedState({
+    repositoryRoot,
+    workspaceRoot,
+    relativePaths: input.relativePaths
+  }, options);
+  const terminal = blockers.length > 0
+    ? 'partial-residue'
+    : plan.selected.length === 0
+      ? attempts.length === 0 ? 'no-op' : 'completed'
+      : 'completed';
+  const settlement = createGeneratedStateSettlement({
+    repositoryRoot,
+    beforeInventoryDigest: before.inventoryDigest,
+    afterInventoryDigest: after.inventoryDigest,
+    profile: input.profile,
+    selected: plan.selected,
+    protected: plan.protected,
+    attempts: Object.freeze(attempts),
+    terminal,
+    blockers: Object.freeze(blockers)
+  }, { clock: options.clock });
+  const settlementPath = path.join(
+    store.settlementsRoot,
+    `settlement-${settlement.settlementDigest.slice('sha256:'.length)}.json`
+  );
+  const bytes = canonicalBytes(settlement);
+  if (!store.fs.createExclusiveFsync(settlementPath, bytes) && store.fs.readText(settlementPath) !== bytes) {
+    throw new Error('Generated-state settlement generation collides with different bytes.');
+  }
+  return settlement;
+}
+
+export function generatedStateProducerHooks(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+}>, options: GeneratedStateLifecycleOptions = {}): Readonly<{
+  born(relativePath: string, operationId: string): Promise<void>;
+  bind(
+    relativePath: string,
+    expected?: GeneratedStateProducerBindingExpectation
+  ): Promise<GeneratedStateRegistration>;
+  restore(
+    relativePath: string,
+    expectedRegistrationDigest: `sha256:${string}`,
+    expectedPhysical: GeneratedStatePhysicalIdentity,
+    outcome: string
+  ): Promise<GeneratedStateRegistration>;
+  retired(relativePath: string, outcome: string): Promise<GeneratedStateRegistration | void>;
+  settleRetired(
+    relativePath: string,
+    expected?: GeneratedStateProducerBindingExpectation
+  ): Promise<boolean>;
+  disposed(relativePath: string, outcome: string): Promise<void>;
+}> {
+  const producerSession = new Map<string, `sha256:${string}`>();
+  const requireProducerBinding = (relativePath: string): `sha256:${string}` => {
+    const normalized = normalizeGeneratedStateRelativePath(relativePath);
+    const registrationDigest = producerSession.get(normalized);
+    if (registrationDigest === undefined) {
+      throw new Error('Generated-state retirement requires birth in the same producer session.');
+    }
+    return registrationDigest;
+  };
+  return Object.freeze({
+    born: async (relativePath, operationId) => {
+      const registration = await registerGeneratedStateBirth(
+        { ...input, relativePath, operationId },
+        options
+      );
+      producerSession.set(registration.relativePath, registration.registrationDigest);
+    },
+    bind: async (relativePath, expected) => {
+      const registration = await bindGeneratedStateRegistration(
+        { ...input, relativePath, expected },
+        options
+      );
+      producerSession.set(registration.relativePath, registration.registrationDigest);
+      return registration;
+    },
+    restore: async (relativePath, expectedRegistrationDigest, expectedPhysical, outcome) => {
+      const registration = await restoreGeneratedStateRegistration({
+        ...input,
+        relativePath,
+        expectedRegistrationDigest,
+        expectedPhysical,
+        outcome
+      }, options);
+      producerSession.set(registration.relativePath, registration.registrationDigest);
+      return registration;
+    },
+    retired: async (relativePath, outcome) => {
+      const registration = await retireGeneratedState({
+        ...input,
+        relativePath,
+        expectedRegistrationDigest: requireProducerBinding(relativePath),
+        outcome
+      }, options);
+      producerSession.set(registration.relativePath, registration.registrationDigest);
+      return registration;
+    },
+    settleRetired: (relativePath, expected) => disposeRetiredGeneratedStateDomain({
+      ...input,
+      relativePath,
+      expected
+    }, options),
+    disposed: async (relativePath, outcome) => {
+      const normalized = normalizeGeneratedStateRelativePath(relativePath);
+      const registration = await retireGeneratedState({
+        ...input,
+        relativePath: normalized,
+        expectedRegistrationDigest: requireProducerBinding(normalized),
+        outcome
+      }, options);
+      if (await disposeRetiredGeneratedStateDomain({
+        ...input,
+        relativePath: normalized,
+        expected: Object.freeze({ physical: registration.root })
+      }, options)) {
+        producerSession.delete(normalized);
+        return;
+      }
+      const receipt = await settleGeneratedState({
+        ...input,
+        profile: 'automatic',
+        relativePaths: [relativePath]
+      }, options);
+      if (receipt.terminal !== 'completed' && receipt.terminal !== 'no-op') {
+        throw new Error(`Generated-state disposal did not close: ${receipt.settlementDigest}`);
+      }
+      producerSession.delete(normalized);
+    }
+  });
+}

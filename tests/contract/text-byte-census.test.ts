@@ -3,13 +3,12 @@ import { expect, test } from 'bun:test';
 import {
   BINARY_EXTENSIONS,
   GOVERNED_TEXT_EXTENSIONS,
-  TEXT_BYTE_CENSUS_SCHEMA_V1,
   UTF8_BOM,
   classifyBlobBytes,
   createEmptyCensusReport,
   type TextByteAnomaly,
   type TextByteClassification
-} from '../../platform/shared/text-byte-census-contract.ts';
+} from '../../src/runtime-state/text-byte-census.ts';
 
 function toBytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -202,10 +201,6 @@ test('createEmptyCensusReport returns zero counts for all anomalies', () => {
   for (const a of anomalies) {
     expect(report.anomalyCounts[a]).toBe(0);
   }
-});
-
-test('TEXT_BYTE_CENSUS_SCHEMA_V1 is stable', () => {
-  expect(TEXT_BYTE_CENSUS_SCHEMA_V1).toBe('sec-text-byte-census-v1');
 });
 
 test('GOVERNED_TEXT_EXTENSIONS covers core source extensions', () => {

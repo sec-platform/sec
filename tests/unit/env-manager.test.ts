@@ -10,22 +10,22 @@ import {
   bindTestWorkspaceSupervisorLeaseV1,
   createTestWorkspaceRunChildAssignmentV1,
   createTestWorkspaceSupervisorLeaseV1,
-  deriveTestWorkspaceRunNamespaceV1,
+  deriveTestWorkspaceRunNamespace,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
-  parseTestWorkspaceRunChildAssignmentV1,
-  prepareTestWorkspaceRunV1,
+  parseTestWorkspaceRunChildAssignment,
+  prepareTestWorkspaceRun,
   resolveTestWorkspaceNamespace,
   resolveTestWorkspaceRunChild,
-  settlePreparedTestWorkspaceRunV1,
+  settlePreparedTestWorkspaceRun,
   TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ENV,
-  testWorkspaceCleanupModeForPlatformV1,
+  testWorkspaceCleanupModeForPlatform,
   testWorkspaceSupervisorLeasePathV1
-} from '../../platform/dev-runner/env-manager.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
-import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
+} from '../../src/development/runner/env-manager.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { compilerRoot } from '../../src/workspace/paths.ts';
 
 const isolatedTestWorkspaceEnvironment = {
   [TEST_WORKSPACE_NAMESPACE_ENV]: undefined,
@@ -73,11 +73,11 @@ test('test workspace namespace rejects path traversal and nested paths', () => {
 });
 
 test('platform cleanup capability gives Darwin no destructive cleanup authority', () => {
-  expect(testWorkspaceCleanupModeForPlatformV1('win32', false)).toBe('retained');
-  expect(testWorkspaceCleanupModeForPlatformV1('linux', true)).toBe('retained');
-  expect(testWorkspaceCleanupModeForPlatformV1('darwin', false)).toBe('darwin-os-managed');
-  expect(testWorkspaceCleanupModeForPlatformV1('darwin', true)).toBe('unavailable');
-  expect(testWorkspaceCleanupModeForPlatformV1('freebsd', false)).toBe('unavailable');
+  expect(testWorkspaceCleanupModeForPlatform('win32', false)).toBe('retained');
+  expect(testWorkspaceCleanupModeForPlatform('linux', true)).toBe('retained');
+  expect(testWorkspaceCleanupModeForPlatform('darwin', false)).toBe('darwin-os-managed');
+  expect(testWorkspaceCleanupModeForPlatform('darwin', true)).toBe('unavailable');
+  expect(testWorkspaceCleanupModeForPlatform('freebsd', false)).toBe('unavailable');
 });
 
 test('run-owned workspace namespaces bind but never reuse the caller scope', () => {
@@ -87,15 +87,15 @@ test('run-owned workspace namespaces bind but never reuse the caller scope', () 
     processNonce: 'process-nonce',
     runSequence: 1
   } as const;
-  const first = deriveTestWorkspaceRunNamespaceV1(seed);
+  const first = deriveTestWorkspaceRunNamespace(seed);
 
   expect(first).toMatch(/^fast-[0-9a-f]{64}$/u);
   expect(first).not.toBe(seed.parentNamespace);
-  expect(deriveTestWorkspaceRunNamespaceV1(seed)).toBe(first);
-  expect(deriveTestWorkspaceRunNamespaceV1({ ...seed, runSequence: 2 })).not.toBe(first);
-  expect(deriveTestWorkspaceRunNamespaceV1({ ...seed, parentNamespace: 'verification-other-gate' }))
+  expect(deriveTestWorkspaceRunNamespace(seed)).toBe(first);
+  expect(deriveTestWorkspaceRunNamespace({ ...seed, runSequence: 2 })).not.toBe(first);
+  expect(deriveTestWorkspaceRunNamespace({ ...seed, parentNamespace: 'verification-other-gate' }))
     .not.toBe(first);
-  expect(() => deriveTestWorkspaceRunNamespaceV1({ ...seed, parentNamespace: '../outside' }))
+  expect(() => deriveTestWorkspaceRunNamespace({ ...seed, parentNamespace: '../outside' }))
     .toThrow('SEC_TEST_WORKSPACE_NAMESPACE must be a bounded safe single path segment');
 });
 
@@ -144,7 +144,7 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
       namespaceDevice: 'namespace-device-1',
       namespaceInode: 'namespace-inode-1'
     });
-    expect(() => parseTestWorkspaceRunChildAssignmentV1(
+    expect(() => parseTestWorkspaceRunChildAssignment(
       JSON.stringify(assignment),
       namespace,
       assignment.name
@@ -224,8 +224,8 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
       draftAssignment.name
     );
     await fs.mkdir(childRoot, { recursive: true });
-    const namespaceIdentity = inspectNoFollowDirectoryChainV1(path.dirname(childRoot)).target;
-    const childIdentity = inspectNoFollowDirectoryChainV1(childRoot).target;
+    const namespaceIdentity = inspectNoFollowDirectoryChain(path.dirname(childRoot)).target;
+    const childIdentity = inspectNoFollowDirectoryChain(childRoot).target;
     const assignment = createTestWorkspaceRunChildAssignmentV1({
       parentNamespace: namespace,
       issuerProcessId: process.pid,
@@ -337,7 +337,7 @@ test('a serialized assignment cannot be used as cleanup authority', () => {
     namespaceDevice: 'namespace-device',
     namespaceInode: 'namespace-inode'
   });
-  expect(() => prepareTestWorkspaceRunV1({
+  expect(() => prepareTestWorkspaceRun({
     [TEST_WORKSPACE_NAMESPACE_ENV]: namespace,
     [TEST_WORKSPACE_RUN_CHILD_ENV]: assignment.name
   }, assignment as never)).toThrow('cleanup authority is invalid');
@@ -357,21 +357,21 @@ test('opaque retained cleanup removes only the prepared physical child beneath i
   const parentRoot = getTestWorkspaceTempRoot(parentEnv);
   const root = getTestWorkspaceTempRoot(env);
   const siblingRoot = getTestWorkspaceTempRoot(siblingEnv);
-  let prepared: ReturnType<typeof prepareTestWorkspaceRunV1> | null = null;
+  let prepared: ReturnType<typeof prepareTestWorkspaceRun> | null = null;
   try {
     await fs.mkdir(parentRoot, { recursive: true });
     await fs.mkdir(siblingRoot, { recursive: true });
     await fs.writeFile(path.join(parentRoot, 'sentinel.txt'), 'parent', 'utf8');
-    prepared = prepareTestWorkspaceRunV1(env, null);
+    prepared = prepareTestWorkspaceRun(env, null);
     await fs.writeFile(path.join(root, 'residue.txt'), 'residue', 'utf8');
     await fs.writeFile(path.join(siblingRoot, 'residue.txt'), 'sibling', 'utf8');
 
-    settlePreparedTestWorkspaceRunV1(prepared);
+    settlePreparedTestWorkspaceRun(prepared);
 
     await expect(fs.access(root)).rejects.toThrow();
     expect(await fs.readFile(path.join(parentRoot, 'sentinel.txt'), 'utf8')).toBe('parent');
     expect(await fs.readFile(path.join(siblingRoot, 'residue.txt'), 'utf8')).toBe('sibling');
-    expect(() => settlePreparedTestWorkspaceRunV1(prepared!))
+    expect(() => settlePreparedTestWorkspaceRun(prepared!))
       .toThrow('cleanup capability is invalid or already consumed');
   } finally {
     await fs.rm(parentRoot, { recursive: true, force: true });
@@ -389,12 +389,12 @@ test('opaque retained cleanup rejects a replaced child and preserves the replace
   const root = getTestWorkspaceTempRoot(env);
   const displaced = path.join(parentRoot, 'displaced-original');
   try {
-    const prepared = prepareTestWorkspaceRunV1(env, null);
+    const prepared = prepareTestWorkspaceRun(env, null);
     await fs.rename(root, displaced);
     await fs.mkdir(root);
     await fs.writeFile(path.join(root, 'replacement-owner.txt'), 'foreign', 'utf8');
 
-    expect(() => settlePreparedTestWorkspaceRunV1(prepared)).toThrow(/identity|changed|different/iu);
+    expect(() => settlePreparedTestWorkspaceRun(prepared)).toThrow(/identity|changed|different/iu);
     expect(await fs.readFile(path.join(root, 'replacement-owner.txt'), 'utf8')).toBe('foreign');
     expect((await fs.lstat(displaced)).isDirectory()).toBe(true);
   } finally {

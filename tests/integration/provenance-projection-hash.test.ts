@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { buildProvenance } from '../../platform/compiler/emit/write-provenance.ts';
-import { CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS } from '../../platform/shared/ci-artifact-contract.ts';
-import { writeText } from '../../platform/shared/fs.ts';
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import { resolveWorkspaceArtifactPath } from '../../platform/shared/paths.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { buildProvenance } from '../../src/compiler/emit/write-provenance.ts';
+import { CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { writeText } from '../../src/workspace/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('provenance records projection outputs without recursively hashing them', async () => {
@@ -12,7 +12,7 @@ test('provenance records projection outputs without recursively hashing them', a
     const stablePath = 'generated/stable-output.ts';
     const lock: LockFile = {
       formatVersion: '1',
-      app: { id: 'projection-hash-test', name: 'projection-hash-test', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
+      app: { id: 'projection-hash-test', name: 'projection-hash-test', stack: 'typescript-library', mode: 'single-tenant' },
       resolvedBlocks: [],
       resolvedCapabilities: [],
       installPlan: [],

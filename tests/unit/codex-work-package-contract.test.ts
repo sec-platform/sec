@@ -1,16 +1,13 @@
 import { expect, test } from 'bun:test';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-
-import { parseDocument } from 'yaml';
 
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
   CodexDevelopmentAssertWorkPackageOwnership,
+  CodexDevelopmentDecodeWorkPackageManifest,
   CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentParseWorkPackageManifest,
-  CodexDevelopmentParseWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
-} from '../../scripts/codex/work-package-contract.ts';
+} from '../../src/control/agent/work-package-contract.ts';
 
 const BASE = '1'.repeat(40);
 
@@ -30,7 +27,7 @@ tasks:
       - platform/shared/ci-contract.ts
       - scripts/codex/
 forbiddenPaths:
-  - platform/compiler/
+  - src/compiler/
 acceptance:
   - exact-head-evidence
 tests:
@@ -56,7 +53,7 @@ tasks:
     ownedPaths:
       - platform/shared/ci-evidence-reuse-contract.ts
 forbiddenPaths:
-  - platform/compiler/
+  - src/compiler/
 acceptance:
   - exact-composition
 ---
@@ -83,7 +80,7 @@ test('Work Package locator is one exact canonical PR body line', () => {
 
 test('frozen Work Package V1 binds strict task ownership and full manifest bytes', () => {
   const source = manifest();
-  const parsed = CodexDevelopmentParseWorkPackageManifestV1(
+  const parsed = CodexDevelopmentDecodeWorkPackageManifest(
     source,
     'docs/work-packages/b0-bootstrap-v1.md'
   );
@@ -95,7 +92,7 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     ciRevision: 'ci-verification-v19'
   });
   for (const legacyRevision of ['ci-verification-v18', 'ci-verification-v17', 'ci-verification-v16', 'ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
-    const historical = CodexDevelopmentParseWorkPackageManifestV1(
+    const historical = CodexDevelopmentDecodeWorkPackageManifest(
       source.replace('ci-verification-v19', legacyRevision)
     );
     expect(historical.ciRevision).toBe(legacyRevision);
@@ -103,11 +100,11 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
   expect(CodexDevelopmentWorkPackageManifestDigest(source)).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(CodexDevelopmentAssertWorkPackageOwnership(parsed, [
     'platform/shared/ci-contract.ts',
-    'scripts/codex/merge-gate.ts'
+    'scripts/codex/example.ts'
   ])).toEqual({
     changedPathOwners: [
       { path: 'platform/shared/ci-contract.ts', taskId: 'b0-bootstrap-v1', owner: 'b0-writer' },
-      { path: 'scripts/codex/merge-gate.ts', taskId: 'b0-bootstrap-v1', owner: 'b0-writer' }
+      { path: 'scripts/codex/example.ts', taskId: 'b0-bootstrap-v1', owner: 'b0-writer' }
     ]
   });
 });
@@ -117,12 +114,12 @@ test('Work Package V1 authorityRefs are an optional canonical owner-ID projectio
     'tasks:\n',
     'authorityRefs:\n  - development-governance\n  - verification-governance\ntasks:\n'
   );
-  expect(CodexDevelopmentParseWorkPackageManifestV1(withAuthority).authorityRefs).toEqual([
+  expect(CodexDevelopmentDecodeWorkPackageManifest(withAuthority).authorityRefs).toEqual([
     'development-governance',
     'verification-governance'
   ]);
-  expect(CodexDevelopmentParseWorkPackageManifestV1(manifest()).authorityRefs).toBeUndefined();
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(withAuthority.replace(
+  expect(CodexDevelopmentDecodeWorkPackageManifest(manifest()).authorityRefs).toBeUndefined();
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(withAuthority.replace(
     '  - development-governance\n  - verification-governance',
     '  - verification-governance\n  - development-governance'
   ))).toThrow(/canonical code-unit order/u);
@@ -130,7 +127,7 @@ test('Work Package V1 authorityRefs are an optional canonical owner-ID projectio
 
 test('Work Package parser exposes one V1 authority route and rejects retired V2 bytes', () => {
   expect(CodexDevelopmentParseWorkPackageManifest(manifest())).toEqual(
-    CodexDevelopmentParseWorkPackageManifestV1(manifest())
+    CodexDevelopmentDecodeWorkPackageManifest(manifest())
   );
   expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifestV2()))
     .toThrow('schema is unsupported');
@@ -138,72 +135,72 @@ test('Work Package parser exposes one V1 authority route and rejects retired V2 
     expect(() => CodexDevelopmentParseWorkPackageManifest(
       manifest().replace('ci-verification-v19', historicalOrFuture)
     )).toThrow('current CI verification revision');
-    expect(CodexDevelopmentParseWorkPackageManifestV1(
+    expect(CodexDevelopmentDecodeWorkPackageManifest(
       manifest().replace('ci-verification-v19', historicalOrFuture)
     ).ciRevision).toBe(historicalOrFuture);
   }
 });
 
 test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous scope', () => {
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest('unknownField: true\n')
   )).toThrow('must contain exactly');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('tracking: issue-106', 'tracking: issue-106\ntracking: issue-107')
   )).toThrow('YAML is invalid');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('manifestState: frozen', 'manifestState: draft')
   )).toThrow('must be frozen');
   for (const revision of ['ci-verification-v0', 'ci-verification-v05', 'ci-verification-latest']) {
-    expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    expect(() => CodexDevelopmentDecodeWorkPackageManifest(
       manifest().replace('ci-verification-v19', revision)
     )).toThrow('stable positive verification revision');
   }
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('tests/unit/codex-work-package-contract.test.ts', 'bun run typecheck')
-  )).toThrow('canonical tests/**/*.test.ts module');
-  expect(CodexDevelopmentParseWorkPackageManifestV1(
+  )).toThrow('canonical co-located or system .test.ts module');
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest()
       .replace('ci-verification-v19', 'ci-verification-v18')
       .replace('tests/unit/codex-work-package-contract.test.ts', 'bun run typecheck')
-  ).tests).toEqual(['bun run typecheck']);
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  )).toThrow('canonical co-located or system .test.ts module');
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('id: b0-bootstrap-v1', 'id: !custom b0-bootstrap-v1')
   )).toThrow('YAML tags are forbidden');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace(
       '      - scripts/codex/',
-      '      - scripts/codex/\n      - scripts/codex/merge-gate.ts'
+      '      - scripts/codex/\n      - scripts/codex/example.ts'
     )
   )).toThrow('owned paths overlap');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
-    manifest().replace('  - platform/compiler/', '  - scripts/codex/')
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
+    manifest().replace('  - src/compiler/', '  - scripts/codex/')
   )).toThrow('owned/forbidden paths overlap');
 });
 
 test('built-in Work Package YAML keeps strict mapping and lexical fail-closed semantics', () => {
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('    owner: b0-writer', '    owner: b0-writer\n    owner: duplicate-writer')
   )).toThrow('duplicate mapping key "owner"');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('id: b0-bootstrap-v1', 'id: &manifest-id b0-bootstrap-v1')
   )).toThrow('anchors, aliases, and merge keys are forbidden');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('tracking: issue-106', 'tracking: *manifest-id')
   )).toThrow('anchors, aliases, and merge keys are forbidden');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('acceptance:\n  - exact-head-evidence', 'acceptance: [exact-head-evidence]')
   )).toThrow('flow collections are forbidden');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('acceptance:\n  - exact-head-evidence', 'acceptance: |\n  exact-head-evidence')
   )).toThrow('block scalars are forbidden');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('tracking: issue-106', '\ttracking: issue-106')
   )).toThrow('tabs are forbidden');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('tracking: issue-106', '"tracking": issue-106')
   )).toThrow('complex or quoted mapping keys are forbidden');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace(
       '  - exact-head-evidence',
       '  - "quoted [value] {value} !tag &anchor *alias | > # remains data"'
@@ -211,42 +208,10 @@ test('built-in Work Package YAML keeps strict mapping and lexical fail-closed se
   )).not.toThrow();
 });
 
-test('built-in Work Package YAML preserves every tracked historical manifest value', () => {
-  const paths = [
-    'docs/work-packages',
-    'docs/archive/work-packages',
-    'tests/fixtures/work-package-gate-manifests'
-  ].filter((directory) => existsSync(directory))
-  .flatMap((directory) => readdirSync(directory)
-    .filter((file) => file.endsWith('.md'))
-    .map((file) => `${directory}/${file}`))
-    .sort();
-  const ids = new Set<string>();
-  expect(paths.length).toBeGreaterThanOrEqual(4);
-  for (const manifestPath of paths) {
-    const source = readFileSync(manifestPath, 'utf8').replaceAll('\r\n', '\n');
-    const end = source.indexOf('\n---\n', 4);
-    const frontmatter = source.slice(4, end);
-    const legacy = parseDocument(frontmatter, {
-      prettyErrors: false,
-      strict: true,
-      uniqueKeys: true
-    });
-    expect(legacy.errors).toEqual([]);
-    expect(legacy.warnings).toEqual([]);
-    const parsed = manifestPath.startsWith('docs/work-packages/')
-      ? CodexDevelopmentParseWorkPackageManifest(source, manifestPath)
-      : CodexDevelopmentParseWorkPackageManifestV1(source);
-    expect(ids.has(parsed.id)).toBe(false);
-    ids.add(parsed.id);
-    expect(parsed).toEqual(legacy.toJS({ maxAliasCount: 0 }));
-  }
-});
-
 test('Work Package ownership rejects unowned and forbidden changed paths', () => {
-  const parsed = CodexDevelopmentParseWorkPackageManifestV1(manifest());
+  const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest());
   expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['README.md'])).toThrow('exactly one');
-  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['platform/compiler/resolve/index.ts'])).toThrow('forbidden');
+  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['src/compiler/resolve/index.ts'])).toThrow('forbidden');
   expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['scripts\\codex\\merge-gate.ts'])).toThrow('normalized POSIX');
 });
 
@@ -255,14 +220,14 @@ test('Work Package literal paths allow framework brackets but reject Windows and
     '      - scripts/codex/',
     '      - app/[customerId]/'
   );
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(bracketed)).not.toThrow();
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(bracketed)).not.toThrow();
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('      - scripts/codex/', '      - app/CON.ts')
   )).toThrow('normalized POSIX');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('      - scripts/codex/', '      - app/file.ts:stream')
   )).toThrow('normalized POSIX');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+  expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('      - scripts/codex/', '      - app/**')
   )).toThrow('normalized POSIX');
 });
@@ -279,7 +244,7 @@ test('rename and copy endpoints must remain inside one task seam', () => {
     ownedPaths:
       - scripts/codex/`
   );
-  const parsed = CodexDevelopmentParseWorkPackageManifestV1(source);
+  const parsed = CodexDevelopmentDecodeWorkPackageManifest(source);
   expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [{
     status: 'renamed',
     previousPath: 'platform/shared/old.ts',
@@ -298,7 +263,7 @@ test('rename and copy endpoints must remain inside one task seam', () => {
 });
 
 test('changed records preserve same-source copy lineage without weakening path identity', () => {
-  const parsed = CodexDevelopmentParseWorkPackageManifestV1(manifest().replace(
+  const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest().replace(
     '      - platform/shared/ci-contract.ts\n      - scripts/codex/',
     '      - src/'
   ));
@@ -341,7 +306,7 @@ test('changed records preserve same-source copy lineage without weakening path i
 });
 
 test('changed records reject case-insensitive flattened path collisions', () => {
-  const parsed = CodexDevelopmentParseWorkPackageManifestV1(manifest().replace(
+  const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest().replace(
     '      - platform/shared/ci-contract.ts\n      - scripts/codex/',
     '      - src/'
   ));

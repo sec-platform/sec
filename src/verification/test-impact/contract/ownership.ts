@@ -1,0 +1,62 @@
+import { isActiveDocumentationPath } from '../../../control/documentation/active.ts';
+
+export const TEST_IMPACT_SOURCE_KINDS = [
+  'typescript',
+  'manifest',
+  'semantic-contract',
+  'source-model',
+  'workflow',
+  'active-documentation',
+  'agent-skill',
+  'repository-config'
+] as const;
+
+export type TestImpactSourceKind = (typeof TEST_IMPACT_SOURCE_KINDS)[number];
+
+export type TestImpactRiskPolicy = 'slow-risk-baseline';
+
+export type ResolvedTestOwnership = {
+  source: string;
+  owner: string;
+  identity: { kind: 'module'; id: string };
+};
+
+/**
+ * Non-code inputs join the same module graph through semantic ownership.
+ * This is intentionally a small kind-to-owner relation, not a source/test
+ * path mirror. TypeScript and imported machine data use their real import and
+ * module membership edges directly.
+ */
+const TEST_IMPACT_SOURCE_KIND_MODULES: Readonly<
+  Partial<Record<TestImpactSourceKind, readonly string[]>>
+> = Object.freeze({
+  'active-documentation': Object.freeze(['control.documentation']),
+  'agent-skill': Object.freeze(['control.agent']),
+  manifest: Object.freeze(['compiler.registry', 'compiler']),
+  'semantic-contract': Object.freeze(['product.semantic-model', 'compiler']),
+  'source-model': Object.freeze(['product.semantic-model', 'compiler']),
+  workflow: Object.freeze(['verification']),
+  'repository-config': Object.freeze(['development.runner', 'toolchain', 'compiler'])
+});
+
+export function testImpactModuleIdsForSourceKind(
+  kind: TestImpactSourceKind | null
+): readonly string[] {
+  return kind === null ? [] : TEST_IMPACT_SOURCE_KIND_MODULES[kind] ?? [];
+}
+
+export function classifyTestImpactSource(
+  file: string,
+  activeDocumentationPath: (candidate: string) => boolean = isActiveDocumentationPath
+): TestImpactSourceKind | null {
+  if (activeDocumentationPath(file)) return 'active-documentation';
+  if (/^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file)) return 'agent-skill';
+  if (/^docs\//u.test(file)) return null;
+  if (/(?:^|\/)contracts\/[^/]+\.ya?ml$/u.test(file)) return 'semantic-contract';
+  if (/(?:^|\/)(?:block\.)?manifest\.ya?ml$/u.test(file) || /(?:^|\/)[^/]+\.manifest\.ya?ml$/u.test(file)) return 'manifest';
+  if (/^source\//u.test(file)) return 'source-model';
+  if (/\.[cm]?tsx?$/u.test(file)) return 'typescript';
+  if (/^\.github\/workflows\/[^/]+\.ya?ml$/u.test(file)) return 'workflow';
+  if (/^(?:package\.json|bun\.lock)$/u.test(file)) return 'repository-config';
+  return null;
+}

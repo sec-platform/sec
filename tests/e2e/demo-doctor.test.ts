@@ -1,9 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import {
-  CI_ARTIFACT_FILES,
-  CI_EXPLAIN_GRAPH_ARTIFACTS
-} from '../../platform/shared/ci-artifact-contract.ts';
+import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import {
   expectCliJson,
   expectCliSuccess,
@@ -48,7 +45,6 @@ test('CLI exposes demo checklist as text and JSON readiness contracts', async ()
       workspaceRoot,
       ['demo', 'checklist', '--json', '--compact'],
       {
-        formatVersion: '1',
         status: 'passed',
         itemCount: expectedDemoChecklistItemCount,
         missingCount: 0,
@@ -103,7 +99,7 @@ test('CLI exposes doctor as text and JSON readiness contracts', async () => {
       }
     });
 
-    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
+    await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
     await expectCliJson(
       workspaceRoot,
       ['doctor', '--json', '--compact'],

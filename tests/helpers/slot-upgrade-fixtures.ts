@@ -1,13 +1,46 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
-import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { rebaseRelativeImports } from '../../src/compiler/source/import-paths.ts';
+import { writeJson, writeText } from '../../src/workspace/files.ts';
+import {
+  getWorkspacePaths,
+  resolveWorkspaceArtifactPath,
+  toProjectRuntimePath
+} from '../../src/workspace/paths.ts';
+import { readYaml, writeYaml } from '../../src/workspace/yaml.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 import { buildSingleTenantLockApp } from './lock-fixtures.ts';
 import { buildPrivatePlanRegistrySource, buildSingleTenantPlanApp } from './plan-fixtures.ts';
+
+const SLOT_UPGRADE_WORKSPACE_FIXTURE_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'fixtures',
+  'slot-upgrade-workspace'
+);
+
+async function materializeSlotUpgradeWorkspaceFixture(
+  sourceRoot: string,
+  targetRoot: string
+): Promise<void> {
+  const entries = await fs.readdir(sourceRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceRoot, entry.name);
+    if (entry.isDirectory()) {
+      await materializeSlotUpgradeWorkspaceFixture(sourcePath, path.join(targetRoot, entry.name));
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.endsWith('.fixture')) {
+      throw new Error(`Unsupported slot-upgrade fixture entry: ${sourcePath}`);
+    }
+    const targetPath = path.join(targetRoot, entry.name.slice(0, -'.fixture'.length));
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.copyFile(sourcePath, targetPath);
+  }
+}
 
 type SlotUpgradeDryRunFixtureContext = {
   workspaceRoot: string;
@@ -94,15 +127,27 @@ export async function withSlotUpgradeDryRunFixture<T>(
 
 export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<void> {
   const { lockPath, planPath, privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+  const blockId = 'private/slot-contract';
+  const slotId = 'customer_normalizer';
+  const slotSourcePath = 'source/code/slots/customer_normalizer.ts';
+  const slotTargetPath = 'custom/customer_normalizer.ts';
   const blockRoot = path.join(privateRegistryRoot, 'private.slot-contract');
   const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
+  const acceptanceId = 'user_can_create_customer';
+  const acceptanceContract = {
+    id: acceptanceId,
+    covers: {
+      blocks: [blockId],
+      slots: [slotId]
+    }
+  };
   const baseManifest = {
-    id: 'private/slot-contract',
+    id: blockId,
     version: '0.1.0',
     kind: 'capability',
-    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    stackProfiles: ['typescript-library'],
     requires: [],
-    provides: ['private/slot-contract'],
+    provides: [blockId],
     conflicts: [],
     installs: [
       {
@@ -117,16 +162,16 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
     },
     slots: [
       {
-        id: 'customer_normalizer',
+        id: slotId,
         kind: 'adapter',
-        target: 'custom/customer_normalizer.ts',
+        target: slotTargetPath,
         symbol: 'normalizeCustomer',
-        inputType: 'CustomerInputV1',
-        outputType: 'CustomerRecordInput',
+        inputType: 'CustomerInput',
+        outputType: 'NormalizedCustomerInput',
         writableZones: ['custom/']
       }
     ],
-    acceptance: [],
+    acceptance: [acceptanceContract],
     routes: []
   };
 
@@ -135,9 +180,17 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
     registry: {
       sources: [buildPrivatePlanRegistrySource()]
     },
-    blocks: [{ id: 'private/slot-contract', version: '0.1.0' }],
-    slots: [],
-    acceptance: []
+    blocks: [{ id: blockId, version: '0.1.0' }],
+    slots: [{
+      id: slotId,
+      block: blockId,
+      kind: 'adapter',
+      target: slotTargetPath,
+      sourcePath: slotSourcePath,
+      symbol: 'normalizeCustomer',
+      description: 'Normalize customer input through the private slot contract.'
+    }],
+    acceptance: [{ id: acceptanceId }]
   });
   await writeYaml(path.join(blockRoot, 'block.manifest.yaml'), baseManifest);
   await writeYaml(path.join(versionRoot, 'block.manifest.yaml'), {
@@ -145,12 +198,12 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
     version: '0.2.0',
     slots: [
       {
-        id: 'customer_normalizer',
+        id: slotId,
         kind: 'adapter',
-        target: 'custom/customer_normalizer.ts',
+        target: slotTargetPath,
         symbol: 'normalizeCustomer',
-        inputType: 'CustomerInputV2',
-        outputType: 'CustomerRecordInput',
+        inputType: 'NormalizedCustomerInput',
+        outputType: 'NormalizedCustomerInput',
         writableZones: ['custom/']
       }
     ],
@@ -171,13 +224,22 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
   await writeJson(path.join(versionRoot, 'migrations', 'customer-normalizer-contract.json'), {
     id: 'mig-customer-normalizer-contract',
     kind: 'slot-contract-update',
-    reason: 'Update customer normalizer input contract to v2.',
-    target: 'custom/customer_normalizer.ts',
-    slotId: 'customer_normalizer',
-    inputType: 'CustomerInputV2',
-    outputType: 'CustomerRecordInput',
+    reason: 'Require the customer normalizer to consume normalized input.',
+    target: slotTargetPath,
+    slotId,
+    inputType: 'NormalizedCustomerInput',
+    outputType: 'NormalizedCustomerInput',
     writableZones: ['custom/']
   });
+  await materializeSlotUpgradeWorkspaceFixture(SLOT_UPGRADE_WORKSPACE_FIXTURE_ROOT, workspaceRoot);
+  const authoredSource = await fs.readFile(
+    resolveWorkspaceArtifactPath(workspaceRoot, slotSourcePath),
+    'utf8'
+  );
+  await writeText(
+    resolveWorkspaceArtifactPath(workspaceRoot, slotTargetPath),
+    rebaseRelativeImports(authoredSource, slotSourcePath, toProjectRuntimePath(slotTargetPath))
+  );
 
   const lock: LockFile = {
     formatVersion: '1',
@@ -187,7 +249,7 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
     installPlan: [],
     slotTasks: [],
     generatedPaths: [],
-    acceptancePlan: [],
+    acceptancePlan: [acceptanceId],
     passStatus: {
       parse: 'succeeded',
       align: 'succeeded',

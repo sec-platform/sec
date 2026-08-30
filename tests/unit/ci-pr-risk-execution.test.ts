@@ -12,14 +12,11 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import {
-  CodexDevelopmentAssertVerificationEvidenceV2,
-  type CodexDevelopmentVerificationEvidenceV2
-} from '../../platform/shared/ci-evidence-contract.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
+import { CodexDevelopmentAssertVerificationEvidenceV2, type CodexDevelopmentVerificationEvidenceV2 } from '../../src/verification/ci/contract/evidence.ts';
 import {
   CodexDevelopmentCiPrRiskMain
-} from '../../scripts/ci-pr-risk.ts';
+} from '../../src/verification/ci/pr-risk.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
 
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -38,9 +35,9 @@ tasks:
   - id: exact-risk
     owner: risk-writer
     ownedPaths:
-      - scripts/ci-pr-risk.ts
+      - src/verification/ci/pr-risk.ts
 forbiddenPaths:
-  - platform/compiler/
+  - src/compiler/
 acceptance:
   - exact-risk
 tests:
@@ -142,10 +139,10 @@ test('CI risk resolves changed files against the immutable PR base SHA', async (
 });
 
 test('CI risk rejects path-only transition injection and records that differ from its exact observation', async () => {
-  const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+  const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
     baseSha: BASE,
     headSha: HEAD,
-    records: [{ status: 'changed', path: 'scripts/ci-pr-risk.ts' }],
+    records: [{ status: 'changed', path: 'src/verification/ci/pr-risk.ts' }],
     readPathBlob: () => null
   });
   const common = {
@@ -160,11 +157,11 @@ test('CI risk rejects path-only transition injection and records that differ fro
   };
   expect(await CodexDevelopmentCiPrRiskMain({
     ...common,
-    changedFiles: () => ['scripts/ci-pr-risk.ts']
+    changedFiles: () => ['src/verification/ci/pr-risk.ts']
   })).toBe(1);
   expect(await CodexDevelopmentCiPrRiskMain({
     ...common,
-    changedRecords: () => [{ status: 'added', path: 'scripts/ci-pr-risk.ts' }]
+    changedRecords: () => [{ status: 'added', path: 'src/verification/ci/pr-risk.ts' }]
   })).toBe(1);
 });
 

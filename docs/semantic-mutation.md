@@ -7,7 +7,7 @@ last-reviewed: 2026-08-13
 
 # Semantic Mutation 事务
 
-本文拥有受限语义意图到 Authoring/Governed Source transaction 的状态机、权限分层、计划/执行分离、writer协调、原子发布和恢复不变量。精确request/plan/result union、operation registry、journal schema、diagnostic、path算法、lease实现和retention由 `platform/compiler/semantic-mutation/**`、共享workspace writer authority及合同/fault tests拥有。
+本文拥有受限语义意图到 Authoring/Governed Source transaction 的状态机、权限分层、计划/执行分离、writer协调、原子发布和恢复不变量。精确request/plan/result union、operation registry、journal schema、diagnostic、path算法、lease实现和retention由 `src/compiler/semantic-mutation/**`、共享workspace writer authority及合同/fault tests拥有。
 
 ## 定位
 
@@ -17,7 +17,7 @@ Semantic Mutation不是“让AI改文件”，也不是任意patch executor。�
 
 ## 角色与权力
 
-- **Caller / User / AI / Workbench / CLI**：提交intent、target、允许的参数和业务expectation；
+- **Caller / User / AI / CLI**：提交intent、target、允许的参数和业务expectation；
 - **Product Policy**：把caller身份、workspace policy和operation request组合为authorization draft；
 - **Operation Registry**：拥有支持的semantic operation、target kinds、required inputs、source adapters和minimum Verification；
 - **Source Ownership Resolver**：从validated state解析唯一owner、canonical path和writable region；
@@ -208,7 +208,7 @@ Journal不是Engineering IR、Authoring Source、Evidence替代品或UI状态。
 已发布的 Semantic Mutation v1 journal format 与 v2 contract revision domain 使用普通
 `JSON.stringify` 的 insertion-order bytes 计算结构化 `sha256:` identity；这项序列化是对应
 版本的一部分，不随平台通用 canonical primitive 的实现变化。Reader 与 writer 必须通过
-`platform/compiler/semantic-mutation/canonical.ts` 的唯一 digest owner 计算这些 revision，
+`src/compiler/semantic-mutation/canonical.ts` 的唯一 digest owner 计算这些 revision，
 包括 request、authorization、plan、verification、result、recovery、terminal 及 isolated
 verification bindings；source、artifact、bundle 与 stream bytes 仍使用 raw byte digest。
 
@@ -246,7 +246,7 @@ Pre-publication验证用于阻止已知无效变化；post-publication/readback�
 
 ## Product Adapter 与 Transport
 
-CLI、Workbench、HTTP和AI caller使用同一product adapter：raw DTO validation和local trust checks之后，调用canonical plan/apply/query/recover。Transport不实现owner、path、risk、Delta、Impact、Verification或terminal switch。
+CLI和AI caller使用同一product adapter：raw DTO validation和local trust checks之后，调用canonical plan/apply/query/recover。Transport不实现owner、path、risk、Delta、Impact、Verification或terminal switch。
 
 Local HTTP mutating route必须在读取workspace前验证loopback/Host/Origin/capability并脱敏错误；apply绑定expected plan revision。UI不能通过直接刷新本地state把blocked/recovery-required改为成功。
 
@@ -274,5 +274,5 @@ Audit记录operation/caller/product policy、authorization、plan/result digests
 - rollback不覆盖后继writer并能重建exact base canonical state；
 - accepted绑定actual Delta/Impact和required Verification/readback；
 - terminal replay不重复副作用；
-- CLI/Workbench/AI/HTTP消费同一adapter和结果；
+- CLI/Agent消费同一adapter和结果；
 - 至少一个canonical operation和一个Brownfield governed-source operation完成真实physical proof。

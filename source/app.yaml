@@ -1,7 +1,7 @@
 app:
   id: sec-reference
   name: SEC Reference
-  stack: nextjs-ts-prisma-sqlite
+  stack: typescript-library
   packageManager: pnpm
   mode: multi-tenant
 registry:
@@ -9,15 +9,11 @@ registry:
     - id: official
       kind: official
       location: compiler
-      path: platform/registry/official
-    - id: source-private
-      kind: private
-      location: workspace
-      path: source/blocks/private
+      path: catalog/registry/official
     - id: private
       kind: private
       location: workspace
-      path: platform/registry/private
+      path: source/blocks/private
 blocks:
   - id: auth/basic-session
     version: 0.1.0
@@ -44,12 +40,6 @@ slots:
     symbol: normalizeCustomerInput
     description: Name required; email lowercased; phone digits only; company
       defaults to Unknown.
-  - id: ticket_comment_delegate
-    block: ticket/basic
-    kind: adapter
-    target: custom/ticket_comment_delegate.ts
-    sourcePath: source/code/slots/ticket_comment_delegate.ts
-    symbol: addTicketCommentDelegate
 acceptance:
   - id: user_can_login
   - id: user_can_create_customer
@@ -59,6 +49,7 @@ acceptance:
   - id: ticket_status_can_transition
   - id: tenant_only_sees_own_tickets
   - id: assignee_can_filter_tickets
+  - id: customer_can_upload_attachment
   - id: ticket_attachment_can_be_uploaded
   - id: ticket_comment_can_be_added
   - id: agent_can_be_registered

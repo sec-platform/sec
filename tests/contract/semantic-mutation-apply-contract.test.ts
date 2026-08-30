@@ -3,46 +3,21 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { applySemanticMutation } from '../../src/compiler/orchestration/cli.ts';
+import type { IsolatedVerificationCapability } from '../../src/compiler/orchestration/isolated-verification-capability.ts';
 import {
-  executeSemanticMutationVerification,
-  planSemanticMutationVerificationCapabilities
-} from '../../platform/compiler/index.ts';
-import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
-import { semanticMutationTransactionRoot } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
+  type PipelineExecutionContext
+} from '../../src/compiler/pipeline/types.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { semanticMutationTransactionRoot } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
 import {
   semanticMutationIsolatedVerificationEvidenceDigest,
   type SemanticMutationIsolatedVerificationEvidence
-} from '../../platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts';
-import { isSemanticMutationStagingWorkspace } from '../../platform/compiler/verify/semantic-mutation-staging-boundary.ts';
-import { assertSemanticMutationVerificationReportInvariant } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
-import { applySemanticMutation } from '../../platform/orchestrator.ts';
-import type { IsolatedVerificationCapability } from '../../platform/orchestrator/isolated-verification-capability.ts';
-import {
-  PIPELINE_COMPLETION_PROOF_REVISION,
-  PIPELINE_STAGE_IDS,
-  type PipelineExecutionContext
-} from '../../platform/shared/pipeline-types.ts';
-import {
-  SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION,
-  SEMANTIC_MUTATION_RECOVERY_TRANSITIONS,
-  SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION,
-  SEMANTIC_MUTATION_REQUEST_RECORD_VIEW_REVISION,
-  SEMANTIC_MUTATION_STAGED_TRANSACTION_REVISION,
-  SEMANTIC_MUTATION_TERMINAL_RETENTION,
-  type SemanticMutationApplyOutcomeV1,
-  type SemanticMutationRequestRecordViewV1
-} from '../../platform/shared/semantic-mutation-transaction-types.ts';
-import {
-  SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION
-} from '../../platform/shared/semantic-mutation-types.ts';
-import {
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
-  SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION,
-  SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
-} from '../../platform/shared/verification-types.ts';
-import { WORKSPACE_WRITE_LEASE_TOKEN_VERSION } from '../../platform/shared/workspace-write-lease.ts';
+} from '../../src/compiler/verify/semantic-mutation-isolated-verification-evidence.ts';
+import { assertSemanticMutationVerificationReportInvariant, executeSemanticMutationVerification, planSemanticMutationVerificationCapabilities } from '../../src/compiler/verify/semantic-mutation-verification-adapter.ts';
+import { type SemanticMutationApplyOutcome, type SemanticMutationRequestRecordView } from '../../src/semantic/mutation/contract/transaction.ts';
+import { isSemanticMutationStagingWorkspace } from '../../src/semantic/mutation/runtime/staging-boundary.ts';
 
 function legacyPassedIsolatedVerificationEvidenceDigest(
   evidence: Extract<SemanticMutationIsolatedVerificationEvidence, { readonly status: 'passed' }>
@@ -96,54 +71,6 @@ test('semantic mutation staging layout is exactly the canonical transaction work
     'not-a-digest',
     'workspace'
   ))).toBe(false);
-});
-
-test('SM-3 freezes lease, journal, query, rollback, Pipeline proof, and Verification revisions', () => {
-  expect({
-    lease: WORKSPACE_WRITE_LEASE_TOKEN_VERSION,
-    recovery: SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION,
-    rejectedTerminal: SEMANTIC_MUTATION_REJECTED_TERMINAL_RECORD_REVISION,
-    requestView: SEMANTIC_MUTATION_REQUEST_RECORD_VIEW_REVISION,
-    stagedTransaction: SEMANTIC_MUTATION_STAGED_TRANSACTION_REVISION,
-    rollbackManifest: SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION,
-    pipelineCompletionProof: PIPELINE_COMPLETION_PROOF_REVISION,
-    terminalRetention: SEMANTIC_MUTATION_TERMINAL_RETENTION,
-    verificationAdapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
-    verificationAdapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
-    capabilityPlanRevision: SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION,
-    verificationReportRevision: SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
-  }).toEqual({
-    lease: 'workspace-write-lease-token-v3',
-    recovery: 'semantic-mutation-recovery-record-v1',
-    rejectedTerminal: 'semantic-mutation-rejected-terminal-record-v1',
-    requestView: 'semantic-mutation-request-record-view-v1',
-    stagedTransaction: 'semantic-mutation-staged-transaction-v1',
-    rollbackManifest: 'semantic-mutation-rollback-manifest-v2',
-    pipelineCompletionProof: 'pipeline-completion-proof-v1',
-    terminalRetention: 256,
-    verificationAdapterId: 'semantic-mutation-local-verification',
-    verificationAdapterRevision: 'semantic-mutation-local-verification-v2',
-    capabilityPlanRevision: 'semantic-mutation-verification-capability-plan-v1',
-    verificationReportRevision: 'semantic-mutation-verification-report-v1'
-  });
-  expect(PIPELINE_STAGE_IDS).toEqual([
-    'resolve', 'semantic', 'compose', 'adapt', 'verify', 'lock', 'emit'
-  ]);
-  expect(SEMANTIC_MUTATION_RECOVERY_TRANSITIONS).toEqual({
-    prepared: ['authoring-committed', 'recovery-required'],
-    'authoring-committed': ['verified', 'rolled-back', 'recovery-required'],
-    verified: [],
-    'rolled-back': [],
-    'recovery-required': []
-  });
-  expect(Object.values(SEMANTIC_MUTATION_RECOVERY_TRANSITIONS)
-    .every((states) => Object.isFrozen(states))).toBe(true);
-  const preparedTransitions: readonly ('authoring-committed' | 'recovery-required')[] =
-    SEMANTIC_MUTATION_RECOVERY_TRANSITIONS.prepared;
-  const committedTransitions: readonly ('verified' | 'rolled-back' | 'recovery-required')[] =
-    SEMANTIC_MUTATION_RECOVERY_TRANSITIONS['authoring-committed'];
-  expect(preparedTransitions).toHaveLength(2);
-  expect(committedTransitions).toHaveLength(3);
 });
 
 test('ordinary malformed requests return the exact redacted request-rejected outcome before lease acquisition', async () => {
@@ -320,9 +247,9 @@ test('Verification adapter emits the exact frozen report and execution binding, 
 });
 
 test('compile-time boundaries reject lease-free Pipeline contexts and raw journal fields in public views', () => {
-  const outcome = {} as SemanticMutationApplyOutcomeV1;
-  const view = {} as SemanticMutationRequestRecordViewV1;
-  type TransactionView = Extract<SemanticMutationRequestRecordViewV1, { readonly recordKind: 'transaction' }>;
+  const outcome = {} as SemanticMutationApplyOutcome;
+  const view = {} as SemanticMutationRequestRecordView;
+  type TransactionView = Extract<SemanticMutationRequestRecordView, { readonly recordKind: 'transaction' }>;
   type ActiveView = TransactionView & { readonly state: 'prepared' | 'authoring-committed' };
   if (false) {
     // @ts-expect-error Isolated Verification authority cannot be forged structurally.

@@ -2,13 +2,13 @@ import { expect, test } from 'bun:test';
 
 import {
   classifyGitHubObservationFailureV1,
-  parseGitHubCheckPagesV1
-} from '../../scripts/codex/verification-session-github.ts';
+  parseGitHubCheckPages
+} from '../../src/verification/ci/runtime/verification-session-github.ts';
 
 const HEAD = '1'.repeat(40);
 
 function parse(source: unknown) {
-  return parseGitHubCheckPagesV1({
+  return parseGitHubCheckPages({
     source,
     repository: 'sec-platform/sec',
     headSha: HEAD,

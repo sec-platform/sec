@@ -25,7 +25,7 @@
     "status": "FAIL",
     "durationMs": 4578,
     "failure": "Semantic Mutation isolated runner bundle has an invalid relocation source",
-    "sourceLine": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts:736"
+    "sourceLine": "src/compiler/verify/run-semantic-mutation-isolated-child.ts:736"
   },
   "nonSemanticGateNotes": {
     "architectureContract": "Not executed: the supplied test-name pattern matched zero tests",

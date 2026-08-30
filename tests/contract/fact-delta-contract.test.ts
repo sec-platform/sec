@@ -2,22 +2,16 @@ import { createHash } from 'node:crypto';
 
 import { expect, test } from 'bun:test';
 
-import {
-  buildEngineeringIR,
-  buildFactDelta,
-  buildValidatedEngineeringIR,
-  type BuildEngineeringIRInput
-} from '../../platform/compiler/index.ts';
-import type {
-  EngineeringIR,
-  FactAssertion,
-  FactDeltaEndpointContext,
-  SemanticFact,
-  ValidatedEngineeringIRSnapshot
-} from '../../platform/shared/engineering-ir-types.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import type { SemanticViewSet } from '../../platform/shared/semantic-view-types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
+import type { FactAssertion, SemanticFact } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
+import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
+import type { SemanticViewSet } from '../../src/semantic/projection/contract/types.ts';
 
 function source(): BuildEngineeringIRInput {
   return {

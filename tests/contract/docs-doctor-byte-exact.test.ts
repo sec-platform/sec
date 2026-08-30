@@ -4,20 +4,18 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { scanDocumentation } from '../../docs/scripts/docs-doctor.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/agent/work-package-contract.ts';
 import {
-  DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
   parseDocumentationAuthorityRegistry,
   renderDocumentationIndex
-} from '../../platform/shared/documentation-authority-contract.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
+} from '../../src/control/documentation/authority.ts';
+import { scanDocumentation } from '../../src/control/documentation/doctor/cli.ts';
 
 const PACKAGE_ID = 'docs-byte-exact-v1';
 const MANIFEST_PATH = `docs/work-packages/${PACKAGE_ID}.md`;
 
 function registrySource(): string {
   return JSON.stringify({
-    schema: DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
     documents: [
       {
         id: 'root-readme', path: 'README.md', kind: 'navigation', domain: 'entry',
@@ -93,7 +91,7 @@ tasks:
     ownedPaths:
       - ${MANIFEST_PATH}
 forbiddenPaths:
-  - platform/compiler/
+  - src/compiler/
 acceptance:
   - "Generated documentation bytes remain exact."
 tests:
@@ -118,7 +116,7 @@ last-reviewed: 2026-08-03
 `);
     await write(root, 'docs/work/current-state.yaml', `schema: sec-current-state-live-v1
 resolver:
-  command: bun scripts/codex/document-control-plane.ts status --json
+  command: bun src/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main

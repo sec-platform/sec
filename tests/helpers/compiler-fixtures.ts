@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readJson } from '../../platform/shared/fs.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { compilerRoot } from '../../src/workspace/paths.ts';
 
 const compilerFileCache = new Map<string, string>();
 

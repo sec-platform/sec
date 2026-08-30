@@ -1,0 +1,7 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/development/runner/cli.ts"
+  ],
+  "preDependencyBootstrap": true
+}

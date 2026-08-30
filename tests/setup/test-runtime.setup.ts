@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os';
 
-import { createTestProcessTempRootV1 } from '../../platform/dev-runner/test-process-temp.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
+import { createTestProcessTempRootV1 } from '../../src/development/runner/test-process-temp.ts';
+import { compilerRoot } from '../../src/workspace/paths.ts';
 
 declare const afterAll: (callback: () => void) => void;
 
@@ -19,8 +19,8 @@ async function configureTestTempRoot(): Promise<void> {
 }
 
 export default async function configureBunTestRuntime(): Promise<void> {
-  // Preload owns process-local isolation only. Dependencies and optional
-  // browser materialization belong to explicit dev-runner capability demand.
+  // Preload owns process-local isolation only. Dependency materialization
+  // belongs to explicit dev-runner capability demand.
   await configureTestTempRoot();
 }
 

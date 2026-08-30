@@ -1,20 +1,20 @@
 import { expect, test } from 'bun:test';
 
 import {
-  HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1,
-  HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1,
-  assertHostedIntegrationPhaseOwnershipV1,
-  type HostedIntegrationPhaseV1
-} from '../../scripts/codex/integration-authorization-publication.ts';
+  HOSTED_INTEGRATION_PHASE_JOB_NAMES,
+  HOSTED_INTEGRATION_PHASE_STEP_NAMES,
+  assertHostedIntegrationPhaseOwnership,
+  type HostedIntegrationPhase
+} from '../../src/control/integration/integration-authorization-publication.ts';
 import type {
-  GitHubWorkflowJobObservationV1,
-  GitHubWorkflowJobStepObservationV1
-} from '../../scripts/codex/verification-session-github.ts';
-import { parseGitHubWorkflowJobsForAttemptV1 } from '../../scripts/codex/verification-session-github.ts';
+  GitHubWorkflowJobObservation,
+  GitHubWorkflowJobStepObservation
+} from '../../src/verification/ci/contract/github-observation.ts';
+import { parseGitHubWorkflowJobsForAttempt } from '../../src/verification/ci/runtime/verification-session-github.ts';
 
 const WORKFLOW_SHA = '1111111111111111111111111111111111111111';
 
-function step(input: Partial<GitHubWorkflowJobStepObservationV1> & { name: string; number: number }) {
+function step(input: Partial<GitHubWorkflowJobStepObservation> & { name: string; number: number }) {
   return Object.freeze({
     name: input.name,
     number: input.number,
@@ -22,19 +22,19 @@ function step(input: Partial<GitHubWorkflowJobStepObservationV1> & { name: strin
     conclusion: input.conclusion ?? null,
     startedAt: input.startedAt === undefined ? '2026-08-09T00:00:00.000Z' : input.startedAt,
     completedAt: input.completedAt ?? null
-  } satisfies GitHubWorkflowJobStepObservationV1);
+  } satisfies GitHubWorkflowJobStepObservation);
 }
 
 function job(input: {
   attempt: number;
-  phase: HostedIntegrationPhaseV1;
+  phase: HostedIntegrationPhase;
   current?: boolean;
   phaseStarted?: boolean;
-  steps?: readonly GitHubWorkflowJobStepObservationV1[];
-}): GitHubWorkflowJobObservationV1 {
+  steps?: readonly GitHubWorkflowJobStepObservation[];
+}): GitHubWorkflowJobObservation {
   const current = input.current ?? false;
   const phaseStep = step({
-    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1[input.phase],
+    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES[input.phase],
     number: 5,
     status: current ? 'in_progress' : 'completed',
     conclusion: current ? null : input.phaseStarted === false ? 'skipped' : 'success',
@@ -45,7 +45,7 @@ function job(input: {
     id: String(1000 + input.attempt + (input.phase === 'recoveryPreparation' ? 100 : 0)),
     runId: '900',
     runAttempt: input.attempt,
-    name: HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1[input.phase],
+    name: HOSTED_INTEGRATION_PHASE_JOB_NAMES[input.phase],
     status: current ? 'in_progress' : 'completed',
     conclusion: current ? null : 'success',
     headSha: WORKFLOW_SHA,
@@ -56,15 +56,15 @@ function job(input: {
 }
 
 function observe(input: {
-  phase: HostedIntegrationPhaseV1;
-  attempts: readonly Readonly<{ runAttempt: number; jobs: readonly GitHubWorkflowJobObservationV1[] }>[];
+  phase: HostedIntegrationPhase;
+  attempts: readonly Readonly<{ runAttempt: number; jobs: readonly GitHubWorkflowJobObservation[] }>[];
   currentAttempt: number;
 }) {
-  return assertHostedIntegrationPhaseOwnershipV1({
+  return assertHostedIntegrationPhaseOwnership({
     attempts: input.attempts,
     runId: '900',
     currentRunAttempt: input.currentAttempt,
-    currentJobName: HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1[input.phase],
+    currentJobName: HOSTED_INTEGRATION_PHASE_JOB_NAMES[input.phase],
     workflowSha: WORKFLOW_SHA,
     phase: input.phase
   });
@@ -75,11 +75,11 @@ test('provider phase owner requires the exact current in-progress named step', (
   const ownership = observe({ phase, currentAttempt: 1,
     attempts: [{ runAttempt: 1, jobs: [job({ attempt: 1, phase, current: true })] }] });
   expect(ownership).toMatchObject({ runId: '900', runAttempt: 1, jobName: 'integrate',
-    phase, stepName: HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1.integration,
+    phase, stepName: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration,
     priorAttemptStarted: false });
 
   const queued = job({ attempt: 1, phase, current: true, steps: [step({
-    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1.integration,
+    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration,
     number: 5, status: 'queued', startedAt: null
   })] });
   expect(() => observe({ phase, currentAttempt: 1,
@@ -92,9 +92,9 @@ test('authorization recovery preparation belongs to the read-only authorize job'
   const ownership = observe({ phase, currentAttempt: 1,
     attempts: [{ runAttempt: 1, jobs: [job({ attempt: 1, phase, current: true })] }] });
   expect(ownership.jobName).toBe('authorize');
-  expect(ownership.stepName).toBe(HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1.recoveryPreparation);
+  expect(ownership.stepName).toBe(HOSTED_INTEGRATION_PHASE_STEP_NAMES.recoveryPreparation);
 
-  expect(() => assertHostedIntegrationPhaseOwnershipV1({
+  expect(() => assertHostedIntegrationPhaseOwnership({
     attempts: [{ runAttempt: 1, jobs: [job({ attempt: 1, phase, current: true })] }],
     runId: '900',
     currentRunAttempt: 1,
@@ -147,7 +147,7 @@ test('attempt gaps and duplicate canonical jobs fail closed', () => {
 test('same-name phase records with malformed completion facts fail closed', () => {
   const phase = 'closeoutMutation' as const;
   const malformed = job({ attempt: 1, phase, phaseStarted: true, steps: [step({
-    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1.closeoutMutation,
+    name: HOSTED_INTEGRATION_PHASE_STEP_NAMES.closeoutMutation,
     number: 5,
     status: 'completed',
     conclusion: null,
@@ -171,20 +171,20 @@ test('GitHub workflow job parser requires a complete page-object inventory', () 
     head_sha: WORKFLOW_SHA,
     started_at: '2026-08-09T00:00:00.000Z',
     completed_at: null,
-    steps: [{ name: HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1.integration, number: 5,
+    steps: [{ name: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration, number: 5,
       status: 'in_progress', conclusion: null, started_at: '2026-08-09T00:00:01.000Z',
       completed_at: null }]
   };
-  const exact = parseGitHubWorkflowJobsForAttemptV1({
+  const exact = parseGitHubWorkflowJobsForAttempt({
     source: [{ jobs: [providerJob] }],
     runId: '900',
     runAttempt: 1
   });
   expect(exact).toHaveLength(1);
   expect(exact[0]).toMatchObject({ id: '1001', runId: '900', runAttempt: 1,
-    name: 'integrate', steps: [{ name: HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1.integration }] });
+    name: 'integrate', steps: [{ name: HOSTED_INTEGRATION_PHASE_STEP_NAMES.integration }] });
 
-  expect(() => parseGitHubWorkflowJobsForAttemptV1({
+  expect(() => parseGitHubWorkflowJobsForAttempt({
     source: [providerJob],
     runId: '900',
     runAttempt: 1

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mergePrismaSchemas, parsePrismaSchema } from '../../platform/compiler/compose/merge-prisma-template.ts';
+import { mergePrismaSchemas, parsePrismaSchema } from '../../src/compiler/compose/merge-prisma-template.ts';
 
 test('parsePrismaSchema parses supported block kinds', () => {
   const schema = `

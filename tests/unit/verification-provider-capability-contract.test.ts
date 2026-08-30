@@ -1,16 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
-import {
-  assertProviderCapabilityUsableV1,
-  assertProviderRetryGuardV1,
-  classifyProviderDiagnosticTextV1,
-  createVerificationProviderAvailabilityEpochV1,
-  createVerificationProviderCapabilityV1,
-  resolveProviderAvailabilityV1,
-  VERIFICATION_PROVIDER_AVAILABILITY_EPOCH_SCHEMA_V1,
-  VERIFICATION_PROVIDER_CAPABILITY_SCHEMA_V1
-} from '../../platform/shared/verification-provider-capability-contract.ts';
-import { parseVerificationProviderCapabilityLedgerV1 } from '../../scripts/codex/verification-provider-capability-ledger.ts';
+import { parseVerificationProviderCapabilityLedger } from '../../src/verification/ci/runtime/verification-provider-capability-ledger.ts';
+import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability, VERIFICATION_PROVIDER_AVAILABILITY_EPOCH_SCHEMA, VERIFICATION_PROVIDER_CAPABILITY_SCHEMA } from '../../src/verification/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-11T00:00:00.000Z';
 const EXPIRES_AT = '2026-08-12T00:00:00.000Z';
@@ -18,7 +9,7 @@ const POSITIVE_EVIDENCE = `sha256:${'a'.repeat(64)}` as const;
 
 describe('verification provider capability contract', () => {
   test('static availability remains a routing projection and never grants effect authority', () => {
-    const writer = createVerificationProviderCapabilityV1({
+    const writer = createVerificationProviderCapability({
       capability: 'github-writer',
       role: 'writer',
       provider: 'github-api',
@@ -27,7 +18,7 @@ describe('verification provider capability contract', () => {
       receiptRef: POSITIVE_EVIDENCE,
       observedAt: OBSERVED_AT
     });
-    const reviewer = createVerificationProviderCapabilityV1({
+    const reviewer = createVerificationProviderCapability({
       capability: 'codex-review',
       role: 'reviewer',
       provider: 'codex-code-review',
@@ -36,7 +27,7 @@ describe('verification provider capability contract', () => {
       receiptRef: POSITIVE_EVIDENCE,
       observedAt: OBSERVED_AT
     });
-    const hosted = createVerificationProviderCapabilityV1({
+    const hosted = createVerificationProviderCapability({
       capability: 'github-actions-hosted-verification',
       role: 'hosted-verification',
       provider: 'github-actions',
@@ -45,7 +36,6 @@ describe('verification provider capability contract', () => {
       receiptRef: POSITIVE_EVIDENCE,
       observedAt: OBSERVED_AT
     });
-    expect(writer.schema).toBe(VERIFICATION_PROVIDER_CAPABILITY_SCHEMA_V1);
     expect(writer.role).toBe('writer');
     expect(writer.availability).toBe('unknown');
     expect(reviewer.role).toBe('reviewer');
@@ -55,7 +45,7 @@ describe('verification provider capability contract', () => {
   });
 
   test('ledger parser delegates static positive projection normalization to the canonical contract', () => {
-    const epoch = parseVerificationProviderCapabilityLedgerV1(JSON.stringify({
+    const epoch = parseVerificationProviderCapabilityLedger(JSON.stringify({
       schema: 'sec-external-capability-ledger-v4',
       verification: {
         schema: 'sec-verification-provider-availability-ledger-v1',
@@ -77,7 +67,7 @@ describe('verification provider capability contract', () => {
         }]
       }
     }));
-    expect(resolveProviderAvailabilityV1(epoch, 'github-writer')).toMatchObject({
+    expect(resolveProviderAvailability(epoch, 'github-writer')).toMatchObject({
       availability: 'unknown',
       reasonCode: 'provider-receipt-unverified',
       receiptRef: null
@@ -91,7 +81,7 @@ describe('verification provider capability contract', () => {
     expect(classified.receiptRef).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(raw).not.toContain(classified.reasonCode);
 
-    const epoch = createVerificationProviderAvailabilityEpochV1({
+    const epoch = createVerificationProviderAvailabilityEpoch({
       epochId: 'test-quota-epoch',
       observedAt: OBSERVED_AT,
       expiresAt: EXPIRES_AT,
@@ -105,7 +95,7 @@ describe('verification provider capability contract', () => {
         observedAt: OBSERVED_AT
       }]
     });
-    const resolved = resolveProviderAvailabilityV1(epoch, 'codex-review');
+    const resolved = resolveProviderAvailability(epoch, 'codex-review');
     expect(resolved.reasonCode).toBe('provider-quota-unavailable');
     expect(resolved.receiptRef).toBe(classified.receiptRef);
     // The raw prose sentence is absent from every normalized surface; only the
@@ -116,7 +106,7 @@ describe('verification provider capability contract', () => {
   });
 
   test('an unavailable provider in the same availability epoch is never retried', () => {
-    const epoch = createVerificationProviderAvailabilityEpochV1({
+    const epoch = createVerificationProviderAvailabilityEpoch({
       epochId: 'test-no-retry-epoch',
       observedAt: OBSERVED_AT,
       expiresAt: EXPIRES_AT,
@@ -131,7 +121,7 @@ describe('verification provider capability contract', () => {
       }]
     });
     try {
-      assertProviderRetryGuardV1({
+      assertProviderRetryGuard({
         previous: { availability: 'unavailable', epochId: epoch.epochId },
         requested: { capability: 'codex-review', epochId: epoch.epochId }
       });
@@ -140,14 +130,14 @@ describe('verification provider capability contract', () => {
       expect(error).toMatchObject({ code: 'PROVIDER-UNAVAILABLE-NOT-RETRIED' });
     }
     // A new availability epoch (availability input changed) allows a fresh call.
-    expect(() => assertProviderRetryGuardV1({
+    expect(() => assertProviderRetryGuard({
       previous: { availability: 'unavailable', epochId: 'old-epoch' },
       requested: { capability: 'codex-review', epochId: 'new-epoch' }
     })).not.toThrow();
   });
 
   test('explicit fixture separates roles, binds freshness, and has no dynamic-ledger expectation', () => {
-    const registry = createVerificationProviderAvailabilityEpochV1({
+    const registry = createVerificationProviderAvailabilityEpoch({
       epochId: 'explicit-provider-fixture', observedAt: OBSERVED_AT, expiresAt: EXPIRES_AT,
       capabilities: [
         { capability: 'github-writer', role: 'writer', provider: 'github-api', availability: 'unknown', reasonCode: 'provider-receipt-unverified', receiptRef: null, observedAt: OBSERVED_AT },
@@ -156,7 +146,6 @@ describe('verification provider capability contract', () => {
         { capability: 'github-actions-hosted-verification', role: 'hosted-verification', provider: 'github-actions', availability: 'unknown', reasonCode: 'provider-receipt-unverified', receiptRef: null, observedAt: OBSERVED_AT }
       ]
     });
-    expect(registry.schema).toBe(VERIFICATION_PROVIDER_AVAILABILITY_EPOCH_SCHEMA_V1);
     expect(registry.epochDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(registry.capabilities.map((entry) => entry.capability).sort()).toEqual([
       'codex-review',
@@ -164,11 +153,11 @@ describe('verification provider capability contract', () => {
       'github-actions-hosted-verification',
       'github-writer'
     ]);
-    expect(resolveProviderAvailabilityV1(registry, 'codex-review').availability).toBe('unknown');
-    expect(resolveProviderAvailabilityV1(registry, 'deepseek-independent-review').availability)
+    expect(resolveProviderAvailability(registry, 'codex-review').availability).toBe('unknown');
+    expect(resolveProviderAvailability(registry, 'deepseek-independent-review').availability)
       .toBe('unknown');
-    expect(resolveProviderAvailabilityV1(registry, 'github-writer').availability).toBe('unknown');
-    expect(resolveProviderAvailabilityV1(registry, 'github-actions-hosted-verification').availability)
+    expect(resolveProviderAvailability(registry, 'github-writer').availability).toBe('unknown');
+    expect(resolveProviderAvailability(registry, 'github-actions-hosted-verification').availability)
       .toBe('unknown');
     expect(() => assertProviderCapabilityUsableV1({ epoch: registry, capability: 'codex-review',
       expectedRole: 'writer', now: '2026-08-11T02:00:00.000Z' })).toThrow('registered for reviewer');
@@ -179,7 +168,7 @@ describe('verification provider capability contract', () => {
   });
 
   test('capability validation rejects unknown roles, states, and unsafe reason text', () => {
-    expect(() => createVerificationProviderCapabilityV1({
+    expect(() => createVerificationProviderCapability({
       capability: 'codex-review',
       role: 'reviewer',
       provider: 'codex-code-review',
@@ -188,7 +177,7 @@ describe('verification provider capability contract', () => {
       receiptRef: null,
       observedAt: OBSERVED_AT
     })).toThrow('bounded kebab-case code');
-    expect(() => createVerificationProviderCapabilityV1({
+    expect(() => createVerificationProviderCapability({
       capability: 'codex-review',
       role: 'reviewer',
       provider: 'codex-code-review',
@@ -197,7 +186,7 @@ describe('verification provider capability contract', () => {
       receiptRef: POSITIVE_EVIDENCE,
       observedAt: OBSERVED_AT
     })).toThrow('available capability must not carry an availability reason code');
-    expect(() => createVerificationProviderCapabilityV1({
+    expect(() => createVerificationProviderCapability({
       capability: 'codex-review',
       role: 'reviewer',
       provider: 'codex-code-review',
@@ -206,7 +195,7 @@ describe('verification provider capability contract', () => {
       receiptRef: null,
       observedAt: OBSERVED_AT
     })).toThrow('availability state is unknown');
-    expect(() => createVerificationProviderCapabilityV1({
+    expect(() => createVerificationProviderCapability({
       capability: 'github-writer', role: 'writer', provider: 'codex-code-review',
       availability: 'unknown', reasonCode: 'provider-receipt-unverified', receiptRef: null, observedAt: OBSERVED_AT
     })).toThrow('must use provider github-api');

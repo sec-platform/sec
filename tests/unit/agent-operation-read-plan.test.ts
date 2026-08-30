@@ -1,31 +1,31 @@
 import { expect, test } from 'bun:test';
 
 import {
-  compileSecOperationReadPlanV1,
-  parseSecOperationReadPlanV1,
-  projectSecSkillEnvelopeFromOperationReadPlanV1,
+  compileSecOperationReadPlan,
+  parseSecOperationReadPlan,
+  projectSecSkillEnvelopeFromOperationReadPlan,
   resolveSecMaintainerMutationV1,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlanInputV1
-} from '../../platform/shared/agent-operation-read-plan-contract.ts';
+  type SecOperationReadPlanInput
+} from '../../src/control/agent/read-plan.ts';
 import {
-  compileSecTaskCapsuleV1,
+  compileSecTaskCapsule,
   SEC_TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigestV1,
-  type SecTaskCapsulePlanningContextV1
-} from '../../platform/shared/agent-task-capsule-contract.ts';
+  type SecDigest,
+  type SecTaskCapsulePlanningContext
+} from '../../src/control/agent/task-capsule.ts';
 
-const digest = (character: string): SecDigestV1 => `sha256:${character.repeat(64)}`;
+const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: SecTaskCapsulePlanningContextV1): SecOperationReadPlanInputV1['taskCapsule'] {
-  return compileSecTaskCapsuleV1({
+function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
+  return compileSecTaskCapsule({
     schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:issue-346',
     planningContext
   });
 }
 
-function input(): SecOperationReadPlanInputV1 {
+function input(): SecOperationReadPlanInput {
   return {
     schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
     taskCapsule: capsule({
@@ -60,7 +60,7 @@ function input(): SecOperationReadPlanInputV1 {
         availableCapabilities: ['git'],
         authorizedResources: ['github:issue/346/comments'],
         authorizedGates: [],
-        changedPaths: ['platform/shared/agent-operation-read-plan-contract.ts']
+        changedPaths: ['src/control/agent/read-plan.ts']
       },
       verificationObligations: [
         { id: 'focused-contracts', revision: 'v1', reasonCode: 'public-contract-change' }
@@ -123,9 +123,9 @@ function input(): SecOperationReadPlanInputV1 {
 }
 
 test('Read Plan compiles deterministically while referencing rather than redefining Task Capsule', () => {
-  const first = compileSecOperationReadPlanV1(input());
+  const first = compileSecOperationReadPlan(input());
   const source = input();
-  const second = compileSecOperationReadPlanV1({
+  const second = compileSecOperationReadPlan({
     ...source,
     taskCapsule: {
       ...source.taskCapsule,
@@ -151,7 +151,7 @@ test('Read Plan compiles deterministically while referencing rather than redefin
 
 test('conditional reads require an explicit bidirectional frontier', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...malformed,
     unresolvedFrontier: []
   })).toThrow(/not admitted by frontier/u);
@@ -159,7 +159,7 @@ test('conditional reads require an explicit bidirectional frontier', () => {
 
 test('one operation context rejects duplicate source refs even under different ids', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...malformed,
     conditionalRefs: [{
       ...malformed.conditionalRefs[0]!,
@@ -170,11 +170,11 @@ test('one operation context rejects duplicate source refs even under different i
 
 test('read refs stay inside Capsule scope and mandatory deny sources cannot be removed', () => {
   const source = input();
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...source,
     requiredRefs: [{ ...source.requiredRefs[0]!, ref: 'README.md' }]
   })).toThrow(/outside the Capsule read proposal/u);
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...source,
     forbiddenSources: source.forbiddenSources.filter((value) => value !== 'assistant-memory')
   })).toThrow(/omits mandatory baseline source/u);
@@ -182,19 +182,19 @@ test('read refs stay inside Capsule scope and mandatory deny sources cannot be r
 
 test('read receipt binds planned owner revision reason and bytes', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...malformed,
     readReceipts: [{ ...malformed.readReceipts[0]!, owner: 'wrong-owner' }]
   })).toThrow(/planned owner, revision, and reason/u);
 });
 
 test('plan parser rejects tampering and Skill projection carries exact upstream capsule identity', () => {
-  const plan = compileSecOperationReadPlanV1(input());
-  const envelope = projectSecSkillEnvelopeFromOperationReadPlanV1(plan);
+  const plan = compileSecOperationReadPlan(input());
+  const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
   expect(envelope.taskCapsuleRef).toBe(plan.taskCapsule.ref);
   expect(envelope.taskCapsuleDigest).toBe(plan.taskCapsule.digest);
   expect(envelope.taskCapsuleRevision).toBe(plan.taskCapsule.revision);
-  expect(() => parseSecOperationReadPlanV1({
+  expect(() => parseSecOperationReadPlan({
     ...plan,
     readPlanDigest: digest('f')
   })).toThrow(/readPlanDigest mismatch/u);
@@ -202,7 +202,7 @@ test('plan parser rejects tampering and Skill projection carries exact upstream 
 
 test('zero Skill-body budget rejects selectable candidates', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...malformed,
     maxSkillBodies: 0
   })).toThrow(/skillCandidateIds must be empty/u);
@@ -211,20 +211,20 @@ test('zero Skill-body budget rejects selectable candidates', () => {
 test('Skill registry validates Capsule guidance candidates without owning Capsule identity', () => {
   const source = input();
   const planningContext = source.taskCapsule.planningContext;
-  const plan = compileSecOperationReadPlanV1({
+  const plan = compileSecOperationReadPlan({
     ...source,
     taskCapsule: capsule({
       ...planningContext,
       skillCandidateIds: ['candidate-defined-skill']
     })
   });
-  expect(() => projectSecSkillEnvelopeFromOperationReadPlanV1(plan))
+  expect(() => projectSecSkillEnvelopeFromOperationReadPlan(plan))
     .toThrow(/not in the trusted Skill registry/u);
 });
 
 test('Task Capsule digest binds all planning content and scope proposal rejects escape', () => {
   const malformed = input();
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...malformed,
     taskCapsule: {
       ...malformed.taskCapsule,
@@ -233,7 +233,7 @@ test('Task Capsule digest binds all planning content and scope proposal rejects 
   })).toThrow(/complete planning content/u);
 
   const planningContext = malformed.taskCapsule.planningContext;
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...malformed,
     taskCapsule: capsule({
       ...planningContext,
@@ -246,14 +246,14 @@ test('Task Capsule digest binds all planning content and scope proposal rejects 
     })
   })).toThrow(/overlaps forbidden/u);
 
-  expect(() => compileSecOperationReadPlanV1({
+  expect(() => compileSecOperationReadPlan({
     ...malformed,
     taskCapsule: capsule({
       ...planningContext,
       scopeProposal: {
         ...planningContext.scopeProposal,
         writePaths: ['docs/'],
-        changedPaths: ['platform/shared/agent-operation-read-plan-contract.ts']
+        changedPaths: ['src/control/agent/read-plan.ts']
       }
     })
   })).toThrow(/outside every proposed write path/u);

@@ -48,6 +48,31 @@ Source Program Model 必须独立 version、validate、canonical order、digest 
 
 Rename/move、declaration merge、overload、generated source、symlink/reparse、case folding、多 package/module resolution、条件导出和版本 skew 都必须有显式策略。
 
+### 入口、Package 与能力闭包
+
+Source Program Model 必须从同一 exact snapshot 编译 Package scripts/bin、CLI grammar、development runner、direct process main、hook、workflow、module entrypoint、declared dependency 与实际 import，不允许这些入口各自成为业务操作的第二 owner。入口闭包统一表示为：
+
+```text
+entrypoint → handler → transport → capability/provider → Effect → settlement/readback
+```
+
+- Package、workflow、hook 和帮助文本只是 canonical operation 的物理投影；相同业务操作不得靠多份手写命令字符串保持同步。
+- CLI 的未知命令、未知 option 和多余 positional argument 必须在 handler 与 Effect 前拒绝；自由参数只有在业务合同明确声明时存在。
+- direct source、`bun run`、package bin 与静态 workflow invocation必须解析为精确边；shell composition、动态 argv、反射加载和嵌入脚本无法安全解析时进入 `unknown/opaque`，不得标记为已闭合。
+- 每个可解析入口必须继续编译其静态 import closure、能力调用路径、transport 与 Provider 模块；入口数量、脚本名字或单个 sink 命中都不能替代整条 route。无法解析的 shell、动态加载与外部 runner保留为该入口的 unknown frontier。
+- 快速拓扑投影必须分开 repository operation、根Package executable、依赖提供的 executable、host hook/workflow 与真实进程边界；同时列出handler module、repository Provider、成熟external package API和仍未解决的transport。依赖`bin`不能冒充SEC业务命令，package API也不能因没有repository provider而被误报成同一种unknown。
+- package dependency 必须同时保留 manifest declaration、lock/integrity、source consumer、generated/runtime consumer 与 tool-only用途；没有 source import 只能形成删除候选，不能单独证明无业务消费者。
+- TypeScript Compiler API、dependency-cruiser、Knip、jscpd 和其他成熟工具只增加结构 Evidence 或候选；它们不能签发业务语义、Effect、删除、Verification 或完成 authority。
+- 查询一个命令、symbol、version/schema token、dependency 或 capability 时，结果必须返回其 producer、consumer、入口闭包、测试/资源关系及全部 unresolved frontier，而不是文本命中数量。
+- 原生进程、网络、文件系统等底层 transport 的唯一 owner 由模块描述符的 `capabilityProviders` 以 capability 与最小公开 operations 声明；Source Program Model 必须把每个调用投影为调用模块、目标 Provider、transport 类型与越权候选。目录名、import 名称或散落的路径允许列表不能代替这一所有权事实。
+- `capabilityProviders` 是双向机器边界：声明的 operation 没有导出实现时形成 unresolved；已有实现被声明为仓库外 capability operation 时，即使仓内没有调用者也不得被 unused/dead-export 结论删除。尚未实现的未来需求只存在于 canonical product/work owner，不通过预留孤儿函数证明；实现开始后必须先进入相应 module capability 或真实 consumer closure。
+- 删除候选只有在 source/import/call、Package/CLI/hook/workflow/module entrypoint、外部 capability、持久 reader/writer、generated/config/runtime consumer、migration/retirement 与 dynamic/opaque frontier 都得到 consumer-zero 后才能升级为 `orphan`。任一闭包未证明时保持 `unknown`，Knip 或文本零命中不能单独授权删除。
+- 工作树 admission 与 exact-revision 仓库审计必须消费同一模型：重复命令入口、测试断言镜像 production identity/source path、跨 package 私有 import 属确定性矛盾并直接失败；direct transport迁移、test-only consumer和 opaque/unknown 保留为显式 frontier，只有在唯一 owner 完成迁移后才能升级为阻断，不得用忽略、基线计数或放宽阈值伪装闭合。
+- `V1/V2/Vn` 不是默认命名风格。Source Program Model 必须按 symbol、module owner 与 consumer 图证明同一代码面存在并行版本；没有并存版本却带 `Vn` 的生产声明直接失败。持久或外部数据的真实 revision 保留在其 discriminator、strict parser、writer/readback、迁移与支持窗口中，当前 canonical API 不因数据版本机械携带后缀；测试不得只冻结版本数字。若旧代码版本确需并存，其旧/新 producer、consumer、退役条件必须同时可观察，零 consumer 的兼容壳按孤儿闭包处理。
+- PR 的唯一静态架构入口是 `bun run audit:static`：先由 Source Program Model 拒绝 SEC owner/入口/测试镜像矛盾，再顺序运行 dependency-cruiser、Knip 与 jscpd。成熟工具只负责各自擅长的结构发现；统一入口负责 fail-fast，Source Program Model 负责把候选投影到业务 owner、Effect 与 unknown frontier。不得在 workflow 中挑选其中一层形成旁路。
+- Source Program Model 的语法、符号、reference/rename 与模块解析优先复用 TypeScript Compiler/Language Service；unused、依赖边界与复制分别复用 Knip、dependency-cruiser 与 jscpd。SEC 只编译这些结构 Evidence 无法表达的业务 owner、Effect、capability、持久协议与删除裁决，不重写解析器。全量 pass 必须先消除 O(files²)、O(declarations×references/literals) 等重复扫描，再以 exact content digest 做增量；mtime、size、缓存绿灯或提高超时不能代替算法与 readback 正确性。
+- 工作树 Source Program 编译产物按所有纳入文件的 exact SHA-256、unknown ledger、模块边界结果与实际 TypeScript Provider revision 形成内容键，写入仓库外 SEC Runtime Cache。同一键命中时必须重验缓存记录与模型 canonical digest；损坏、缺失或任一输入字节变化只允许 miss 后重算，缓存不得签发业务、删除、Verification 或 Effect authority。当前 exact-snapshot 复用是第一层；file-fact 分片只在 declaration/reference identity 不再绑定整仓 revision、且反向 import/reexport/entrypoint 闭包能够精确失效后启用，禁止用 mtime/size 假装增量。
+
 ## Generic External Library Binding
 
 无专用Adapter的package不应被迫退化为“用户从零手写全部调用”。在Lift完成精确package/module/export/type绑定后，平台可以建立最低通用调用层：

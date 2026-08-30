@@ -1,8 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import type {
-  VerificationReport
-} from '../../platform/shared/types.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { expectCliJson, expectCliText, expectCliVariants } from '../testkit/cli.ts';
 import { withWorkspaceScenario } from '../testkit/workspace.ts';
 
@@ -15,7 +13,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
     }>(workspaceRoot, ['policy', 'report'], {
       text: [
         'Policy report passed; official=1; project=0; merged=1; violations=0',
-        'Policy tenant-scope-required; scope=official; source=platform/policies/official/policy.spec.yaml; targets=src/installed/entity/customer-service.ts'
+        'Policy tenant-scope-required; scope=official; source=catalog/policies/official/policy.spec.yaml; targets=src/installed/entity/customer-service.ts'
       ],
       compactJson: { status: 'passed' }
     });
@@ -32,7 +30,7 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
     await expectCliText(workspaceRoot, ['policy', 'sources'], [
       'Policy sources passed',
       'sources=2; policies=1',
-      'Source official; path=platform/policies/official/policy.spec.yaml; policies=tenant-scope-required',
+      'Source official; path=catalog/policies/official/policy.spec.yaml; policies=tenant-scope-required',
       'Source project; path=source/model/policies/policy.spec.yaml; policies=none'
     ]);
 
@@ -43,14 +41,13 @@ test('CLI exposes policy report as text and JSON contracts', async () => {
       { compact: true }
     );
     expect(sourcesPayload).toEqual({
-      formatVersion: '1',
       status: 'passed',
       sourceCount: 2,
       policyCount: 1,
       sources: [
         {
           scope: 'official',
-          path: 'platform/policies/official/policy.spec.yaml',
+          path: 'catalog/policies/official/policy.spec.yaml',
           policyCount: 1,
           policyIds: ['tenant-scope-required']
         },
@@ -117,7 +114,6 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
       workspaceRoot,
       ['acceptance', 'blocks', '--json', '--compact'],
       {
-        formatVersion: '1',
         status: 'passed',
         targetKind: 'blocks',
         targetCount: 3,
@@ -138,7 +134,6 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
       workspaceRoot,
       ['acceptance', 'slots', '--json', '--compact'],
       {
-        formatVersion: '1',
         status: 'passed',
         targetKind: 'slots',
         targetCount: 1,
@@ -190,7 +185,6 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
       workspaceRoot,
       ['runtime', 'steps', '--json', '--compact'],
       {
-        formatVersion: '1',
         status: 'passed',
         stepCount: 3,
         passedCount: 1,

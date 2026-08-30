@@ -7,11 +7,11 @@ last-reviewed: 2026-08-06
 
 # Engineering IR 语义模型
 
-本文拥有 Engineering IR 的概念模型、身份域、Semantic Responsibility、Assertion 生命周期、authority、冲突语义与 validated boundary。精确 TypeScript shape、Predicate signature、diagnostic、canonical ordering 和 digest payload 由 `platform/shared/engineering-ir/**`、`platform/compiler/ir/**` 及合同测试唯一拥有。
+本文拥有 Engineering IR 的概念模型、身份域、Semantic Responsibility、Assertion 生命周期、authority、冲突语义与 validated boundary。精确 TypeScript shape 由 `src/semantic/engineering-ir/index.ts` 公开，Predicate signature、diagnostic、canonical ordering 和 digest payload 由该合同、`src/compiler/ir/**` 及合同测试共同验证。
 
 ## 定位
 
-Engineering IR 是 SEC 接受的 canonical engineering semantics。它是有向、强类型、带属性的多重图，但不是 AST、Source Program Model、源码符号图、调用图、Implementation Resolution state、Target Program IR、ExplainGraph、Workbench View Model、Repository inventory 或 AI Knowledge Graph。
+Engineering IR 是 SEC 接受的 canonical engineering semantics。它是有向、强类型、带属性的多重图，但不是 AST、Source Program Model、源码符号图、调用图、Implementation Resolution state、Target Program IR、ExplainGraph、interface projection、Repository inventory 或 AI Knowledge Graph。
 
 它回答“哪些工程对象存在、哪些工程陈述成立、谁以什么依据作出陈述、哪个对象承担哪些工程责任”，不回答目标语言如何打印、文件如何布局、选用哪个具体类库、UI 如何排版或某次运行是否通过。
 
@@ -69,7 +69,7 @@ Reconcile/Adopt 可以接受、拒绝、拆分、合并或保留 opaque candidat
 - State/Effect/Permission 是 Responsibility facets，不单独代表完整 Responsibility；
 - Impact 可以传播到 Responsibility，但不拥有其 identity 或 canonical facets；
 - Implementation Requirement可以从Responsibility/Operation/Effect/Permission派生，但不成为新的业务语义来源；
-- Workbench 的 Architecture 节点只是 Responsibility projection。
+- Agent/CLI architecture view只是 Responsibility projection。
 
 ## 身份域
 
@@ -173,7 +173,7 @@ Raw IR 是不受信计算结果。统一 validator 至少验证：
 9. semantic revision 与 canonical payload；
 10. clone 后递归 deep-freeze。
 
-只有该边界可以签发 branded validated snapshot。Lowering、Implementation Resolution、Impact、Projection、Workbench 和 Mutation planner 等 IR-native consumer 只接受 validated snapshot，不接受调用方提供的 index、raw graph、Responsibility candidate 或自行拼装的“已验证”对象。
+只有该边界可以签发 branded validated snapshot。Lowering、Implementation Resolution、Impact、Projection、Agent/CLI interface 和 Mutation planner 等 IR-native consumer 只接受 validated snapshot，不接受调用方提供的 index、raw graph、Responsibility candidate 或自行拼装的“已验证”对象。
 
 ## 与 Implementation Resolution 的边界
 

@@ -1,17 +1,17 @@
 import { expect, test } from 'bun:test';
 
 import {
-  createBranchCloseoutOperationBindingV1,
-  createBranchCloseoutOperationReceiptV1,
+  createBranchCloseoutOperationBinding,
+  createBranchCloseoutOperationReceipt,
   createBranchCloseoutPreparation,
   createBranchCloseoutReceipt,
-  parseBranchCloseoutOperationReceiptV1
-} from '../../scripts/codex/branch-closeout-contract.ts';
+  parseBranchCloseoutOperationReceipt
+} from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
-  BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME_V1,
-  createBranchCloseoutEffectStartPublicationV1,
-  createBranchCloseoutOperationPublicationV1,
-  createHostedWorkflowCommentProvenanceV1,
+  BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
+  createBranchCloseoutEffectStartPublication,
+  createBranchCloseoutOperationPublication,
+  createHostedWorkflowCommentProvenance,
   hostedPublisherMatches,
   issueCommentRecord,
   parseBranchCloseoutEffectStartPublicationComment,
@@ -20,15 +20,15 @@ import {
   renderBranchCloseoutEffectStartPublicationComment,
   renderBranchCloseoutOperationPublicationComment,
   renderPublishedBranchCloseoutReceiptComment
-} from '../../scripts/codex/branch-closeout-receipt.ts';
-import { branchLifecycleDigest } from '../../scripts/codex/branch-lifecycle-audit.ts';
+} from '../../src/control/branch-lifecycle/branch-closeout-receipt.ts';
+import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import {
-  BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA_V1,
+  BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
   type BranchCloseoutReceiptObservation,
   type BranchLifecycleInventory,
-  type BranchPublishedCloseoutReceiptV1
-} from '../../scripts/codex/branch-lifecycle-types.ts';
-import { SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1 } from '../../scripts/codex/verification-session-github.ts';
+  type BranchPublishedCloseoutReceipt
+} from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
 
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
@@ -136,7 +136,7 @@ function operationReceipt(generatedAt = '2026-08-09T00:01:00.000Z', writerId = '
     before: snapshot,
     after: snapshot
   });
-  const binding = createBranchCloseoutOperationBindingV1({
+  const binding = createBranchCloseoutOperationBinding({
     integrationAuthorization: {
       authorizationId: 'authorization-42',
       consumptionOperationId: 'merge-42',
@@ -150,7 +150,7 @@ function operationReceipt(generatedAt = '2026-08-09T00:01:00.000Z', writerId = '
     newMainTreeSha: TREE_SHA,
     candidateTreeSha: TREE_SHA
   });
-  return createBranchCloseoutOperationReceiptV1({
+  return createBranchCloseoutOperationReceipt({
     binding,
     writerId,
     generatedAt,
@@ -162,7 +162,7 @@ function operationReceipt(generatedAt = '2026-08-09T00:01:00.000Z', writerId = '
 }
 
 function provenance() {
-  return createHostedWorkflowCommentProvenanceV1({
+  return createHostedWorkflowCommentProvenance({
     repositoryId: '123',
     workflowPath: '.github/workflows/sec-merge-gate.yml',
     workflowRef: `.github/workflows/sec-merge-gate.yml@${MAIN_SHA}`,
@@ -175,12 +175,12 @@ function provenance() {
     actorLogin: 'integrator',
     actorNodeId: 'MDQ6VXNlcjE=',
     actorPermission: 'maintain',
-    app: SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.app
+    app: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
   });
 }
 
 function effectStart(operation = operationReceipt(), commentId = 20) {
-  const publication = createBranchCloseoutEffectStartPublicationV1({
+  const publication = createBranchCloseoutEffectStartPublication({
     binding: operation.binding,
     authorizationPublication: {
       authorizationPublicationId: `sha256:${'e'.repeat(64)}`,
@@ -200,7 +200,7 @@ function effectStart(operation = operationReceipt(), commentId = 20) {
       jobId: '400',
       jobName: 'integrate',
       phase: 'closeoutMutation',
-      stepName: BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME_V1,
+      stepName: BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
       stepNumber: 7,
       workflowSha: MAIN_SHA
     },
@@ -209,27 +209,27 @@ function effectStart(operation = operationReceipt(), commentId = 20) {
   return Object.freeze({ publication, commentId });
 }
 
-function actionsComment(id: number, body: string, app: unknown = SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.app) {
+function actionsComment(id: number, body: string, app: unknown = CI_GITHUB_ACTIONS_IDENTITY_POLICY.app) {
   return {
     id,
     body,
     user: {
-      login: SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.bot.login,
-      id: SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.bot.id,
-      node_id: SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.bot.nodeId,
-      type: SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.bot.type
+      login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
+      id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
+      node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
+      type: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type
     },
     performed_via_github_app: app === null ? null : {
-      id: (app as typeof SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.app).id,
-      node_id: (app as typeof SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.app).nodeId,
-      slug: (app as typeof SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.app).slug
+      id: (app as typeof CI_GITHUB_ACTIONS_IDENTITY_POLICY.app).id,
+      node_id: (app as typeof CI_GITHUB_ACTIONS_IDENTITY_POLICY.app).nodeId,
+      slug: (app as typeof CI_GITHUB_ACTIONS_IDENTITY_POLICY.app).slug
     }
   };
 }
 
 test('legacy published closeout receipt remains a strict read-only round trip', () => {
-  const payload: Omit<BranchPublishedCloseoutReceiptV1, 'publicationDigest'> = {
-    schema: BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA_V1,
+  const payload: Omit<BranchPublishedCloseoutReceipt, 'publicationDigest'> = {
+    schema: BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
     repository: 'sec-platform/sec',
     pullRequest: 42,
     branch: 'feat/example',
@@ -263,14 +263,14 @@ test('legacy published closeout receipt remains a strict read-only round trip', 
 
 test('effect-start and terminal comments bind the exact operation and marker', () => {
   const operation = operationReceipt();
-  expect(parseBranchCloseoutOperationReceiptV1(
+  expect(parseBranchCloseoutOperationReceipt(
     `${JSON.stringify(operation, null, 2)}\n`
   )).toEqual(operation);
   const start = effectStart(operation);
   expect(parseBranchCloseoutEffectStartPublicationComment(
     renderBranchCloseoutEffectStartPublicationComment(start.publication)
   )).toEqual(start.publication);
-  const terminal = createBranchCloseoutOperationPublicationV1(operation, provenance(), start);
+  const terminal = createBranchCloseoutOperationPublication(operation, provenance(), start);
   expect(parseBranchCloseoutOperationPublicationComment(
     renderBranchCloseoutOperationPublicationComment(terminal)
   )).toEqual(terminal);
@@ -285,8 +285,8 @@ test('terminal publication is stable across host-local writer and generated time
   const first = operationReceipt('2026-08-09T00:01:00.000Z', 'writer-a');
   const second = operationReceipt('2026-08-09T00:02:00.000Z', 'writer-b');
   const start = effectStart(first);
-  const firstPublication = createBranchCloseoutOperationPublicationV1(first, provenance(), start);
-  const secondPublication = createBranchCloseoutOperationPublicationV1(second, provenance(), start);
+  const firstPublication = createBranchCloseoutOperationPublication(first, provenance(), start);
+  const secondPublication = createBranchCloseoutOperationPublication(second, provenance(), start);
   expect(secondPublication.publicationDigest).toBe(firstPublication.publicationDigest);
   expect(secondPublication.receipt).toEqual(firstPublication.receipt);
 });
@@ -295,8 +295,8 @@ test('hosted publisher requires the exact non-null Actions bot and App tuple', (
   const exact = issueCommentRecord(actionsComment(20, 'body'), 'exact comment');
   const absentApp = issueCommentRecord(actionsComment(21, 'body', null), 'null App comment');
   const wrongApp = issueCommentRecord(actionsComment(22, 'body', {
-    ...SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.app,
-    id: SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.app.id + 1
+    ...CI_GITHUB_ACTIONS_IDENTITY_POLICY.app,
+    id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id + 1
   }), 'wrong App comment');
   const human = issueCommentRecord({
     ...actionsComment(23, 'body'),
@@ -332,9 +332,9 @@ test('hosted publisher requires the exact non-null Actions bot and App tuple', (
 });
 
 test('public modules expose no permit, publisher, finalizer, or runner injection authority', async () => {
-  const receiptModule = await import('../../scripts/codex/branch-closeout-receipt.ts');
-  const closeoutModule = await import('../../scripts/codex/branch-closeout.ts');
-  const barrel = await import('../../scripts/codex/branch-lifecycle.ts');
+  const receiptModule = await import('../../src/control/branch-lifecycle/branch-closeout-receipt.ts');
+  const closeoutModule = await import('../../src/control/branch-lifecycle/branch-closeout.ts');
+  const barrel = await import('../../src/control/branch-lifecycle/branch-lifecycle.ts');
   for (const name of [
     'publishAndReadBackBranchCloseoutEffectStartV1',
     'publishAndReadBackIntegratedBranchCloseoutReceipt',
@@ -354,8 +354,8 @@ test('public modules expose no permit, publisher, finalizer, or runner injection
 });
 
 test('public branch lifecycle modules cannot mint or invoke arbitrary subprocess effects', async () => {
-  const command = await import('../../scripts/codex/branch-lifecycle-command.ts');
-  const barrel = await import('../../scripts/codex/branch-lifecycle.ts');
+  const command = await import('../../src/control/branch-lifecycle/branch-lifecycle-command.ts');
+  const barrel = await import('../../src/control/branch-lifecycle/branch-lifecycle.ts');
   for (const symbol of [
     'BranchLifecycleContext',
     'createBranchLifecycleContext',

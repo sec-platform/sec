@@ -20,35 +20,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
-import {
-  readCompilerTypeScriptMutationFixtureSync
-} from '../helpers/compiler-fixtures.ts';
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
-import {
-  PhysicalNoFollowError,
-  assertSameNoFollowDirectoryIdentityV1,
-  createExclusiveNoFollowDirectoryV1,
-  createNoFollowDirectoryChainV1,
-  deleteRetainedNoFollowEntryV1,
-  inspectExactNoFollowDirectoryPresenceV1,
-  inspectNoFollowDirectoryChainV1,
-  inspectNoFollowDirectoryChildV1,
-  inspectNoFollowOrdinaryFileDigestV1,
-  inspectNoFollowOrdinaryFileEntryV1,
-  publishExclusiveDurableCanonicalFileV1,
-  readNoFollowOrdinaryFileV1,
-  relocateRetainedNoFollowDirectoryV1,
-  replaceDurableCanonicalFileV1,
-  retainNoFollowDirectoryForChildProcessV1,
-  retainNoFollowOrdinaryFileForChildProcessV1,
-  scanNoFollowDirectoryTreeInventoryV1,
-  scanNoFollowDirectoryTreeMetadataV1,
-  scanNoFollowDirectoryTreeV1
-} from '../../platform/shared/physical-no-follow.ts';
+import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 function fixtureRoot(): string {
   return mkdtempSync(path.join(tmpdir(), 'sec-physical-no-follow-'));
@@ -70,11 +47,11 @@ test('no-follow directory inspection returns an ordered physical chain and only 
   try {
     const target = path.join(root, 'ordinary', 'target');
     mkdirSync(target, { recursive: true });
-    const observed = inspectNoFollowDirectoryChainV1(target, 'test target');
+    const observed = inspectNoFollowDirectoryChain(target, 'test target');
     expect(observed.target.path).toBe(path.resolve(target));
     expect(observed.ancestors.at(-1)).toEqual(observed.target);
     expect(observed.ancestors.length).toBeGreaterThan(1);
-    expect(inspectExactNoFollowDirectoryPresenceV1(path.join(root, 'missing'))).toEqual({ state: 'absent' });
+    expect(inspectExactNoFollowDirectoryPresence(path.join(root, 'missing'))).toEqual({ state: 'absent' });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -93,23 +70,51 @@ test('no-follow inspection rejects a symlink/junction target and a symlink/junct
     symlinkSync(path.join(root, 'missing-target'), dangling, process.platform === 'win32' ? 'junction' : 'dir');
 
     expectPhysicalCode(
-      () => inspectNoFollowDirectoryChainV1(alias, 'alias target'),
+      () => inspectNoFollowDirectoryChain(alias, 'alias target'),
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
     );
     expectPhysicalCode(
-      () => inspectNoFollowDirectoryChainV1(path.join(alias, 'child'), 'alias child'),
+      () => inspectNoFollowDirectoryChain(path.join(alias, 'child'), 'alias child'),
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
     );
     // A dangling link is unsafe, not the only allowed "absent" outcome.
     expectPhysicalCode(
-      () => inspectExactNoFollowDirectoryPresenceV1(dangling, 'dangling alias'),
+      () => inspectExactNoFollowDirectoryPresence(dangling, 'dangling alias'),
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
     );
-    expect(inspectNoFollowDirectoryChainV1(ordinary).target.path).toBe(path.resolve(ordinary));
+    expect(inspectNoFollowDirectoryChain(ordinary).target.path).toBe(path.resolve(ordinary));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows wrong-kind link inspection closes its opened native handle before returning the typed failure',
+  () => {
+    const root = fixtureRoot();
+    try {
+      const parentPath = path.join(root, 'parent');
+      const childPath = path.join(parentPath, 'ordinary-child');
+      const movedParent = path.join(root, 'parent-moved');
+      mkdirSync(childPath, { recursive: true });
+      const parent = inspectNoFollowDirectoryChain(parentPath, 'wrong-kind parent').target;
+
+      expectPhysicalCode(
+        () => inspectNoFollowLinkEntry(parent, 'ordinary-child'),
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+      );
+
+      // The relative open succeeds before link-kind validation rejects this
+      // ordinary directory.  A failed validator must close that native handle
+      // before ownership can return to the caller, or Windows pins this whole
+      // ancestor namespace until process exit.
+      renameSync(parentPath, movedParent);
+      renameSync(movedParent, parentPath);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test('same-identity readback rejects replacement rather than accepting same lexical bytes', () => {
   const root = fixtureRoot();
@@ -117,11 +122,11 @@ test('same-identity readback rejects replacement rather than accepting same lexi
     const target = path.join(root, 'target');
     const retained = path.join(root, 'retained');
     mkdirSync(target);
-    const original = inspectNoFollowDirectoryChainV1(target, 'replace target').target;
+    const original = inspectNoFollowDirectoryChain(target, 'replace target').target;
     renameSync(target, retained);
     mkdirSync(target);
     expectPhysicalCode(
-      () => assertSameNoFollowDirectoryIdentityV1(original, 'replace target'),
+      () => assertSameNoFollowDirectoryIdentity(original, 'replace target'),
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
   } finally {
@@ -136,21 +141,21 @@ test('retained child inspection is create-free and exclusive creation never adop
     const parentPath = path.join(root, 'parent');
     const displacedParent = path.join(root, 'parent-displaced');
     mkdirSync(parentPath);
-    const parent = inspectNoFollowDirectoryChainV1(parentPath).target;
+    const parent = inspectNoFollowDirectoryChain(parentPath).target;
 
-    expect(inspectNoFollowDirectoryChildV1(parent, 'child')).toBeNull();
+    expect(inspectNoFollowDirectoryChild(parent, 'child')).toBeNull();
     expect(existsSync(path.join(parentPath, 'child'))).toBe(false);
-    const child = createExclusiveNoFollowDirectoryV1(parent, 'child');
-    expect(inspectNoFollowDirectoryChildV1(parent, 'child')).toEqual(child);
+    const child = createExclusiveNoFollowDirectory(parent, 'child');
+    expect(inspectNoFollowDirectoryChild(parent, 'child')).toEqual(child);
     expectPhysicalCode(
-      () => createExclusiveNoFollowDirectoryV1(parent, 'child'),
+      () => createExclusiveNoFollowDirectory(parent, 'child'),
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
 
     renameSync(parentPath, displacedParent);
     mkdirSync(parentPath);
     expectPhysicalCode(
-      () => createExclusiveNoFollowDirectoryV1(parent, 'replacement-child'),
+      () => createExclusiveNoFollowDirectory(parent, 'replacement-child'),
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
     expect(existsSync(path.join(parentPath, 'replacement-child'))).toBe(false);
@@ -160,141 +165,87 @@ test('retained child inspection is create-free and exclusive creation never adop
   }
 });
 
-test('Linux directory-create transaction rejects parent, ancestor, and child replacement races', async () => {
+test('Linux directory-create transaction rejects parent, ancestor, and child replacement races', () => {
   if (process.platform !== 'linux') return;
   const root = fixtureRoot();
   try {
-    const mirrorRoot = path.join(root, 'mirror');
-    const mirrorShared = path.join(mirrorRoot, 'platform', 'shared');
-    mkdirSync(mirrorShared, { recursive: true });
-    let source = readCompilerTypeScriptMutationFixtureSync(
-      'platform/shared/physical-no-follow.ts',
-      'hostile-mutation'
-    );
-    const importNeedle = '  lstatSync,\n';
-    const transactionNeedle =
-      '): LinuxDirectoryCreateTransactionV1 {\n  const rootFd = linuxOpenRoot(label);\n';
-    const ancestorNeedle =
-      '      const nextFd = linuxOpenAt(currentFd, segment, `${label} ancestor`);\n';
-    const witnessNeedle =
-      '    linuxAssertDirectoryCreateWitness(\n' +
-      '      input.witness,\n' +
-      '      linuxReadDirectoryMutationEvents(input.witness, input.label),\n' +
-      '      input.name,\n' +
-      '      created,\n';
-    expect(source.split(importNeedle).length).toBe(2);
-    expect(source.split(transactionNeedle).length).toBe(2);
-    expect(source.split(ancestorNeedle).length).toBe(2);
-    expect(source.split(witnessNeedle).length).toBe(2);
-    source = source.replace(
-      importNeedle,
-      `${importNeedle}  mkdirSync as linuxRaceMkdirSync,\n  renameSync as linuxRaceRenameSync,\n`
-    ).replace(
-      transactionNeedle,
-      `): LinuxDirectoryCreateTransactionV1 {\n` +
-      `  if (process.env.SEC_PHYSICAL_PARENT_RACE_TARGET === expected.target.path) {\n` +
-      `    const displaced = process.env.SEC_PHYSICAL_PARENT_RACE_DISPLACED;\n` +
-      `    if (displaced === undefined) throw new Error('Missing deterministic Linux parent displacement.');\n` +
-      `    linuxRaceRenameSync(expected.target.path, displaced);\n` +
-      `    linuxRaceMkdirSync(expected.target.path);\n` +
-      `  }\n` +
-      `  const rootFd = linuxOpenRoot(label);\n`
-    ).replace(
-      ancestorNeedle,
-      ancestorNeedle +
-      `      if (process.env.SEC_PHYSICAL_ANCESTOR_RACE_TARGET === nextPath) {\n` +
-      `        const displaced = process.env.SEC_PHYSICAL_ANCESTOR_RACE_DISPLACED;\n` +
-      `        if (displaced === undefined) throw new Error('Missing deterministic Linux ancestor displacement.');\n` +
-      `        linuxRaceRenameSync(nextPath, displaced);\n` +
-      `        linuxRaceMkdirSync(nextPath);\n` +
-      `      }\n`
-    ).replace(
-      witnessNeedle,
-      `    if (process.env.SEC_PHYSICAL_CREATE_RACE_TARGET === input.absolutePath) {\n` +
-      `      const displaced = process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED;\n` +
-      `      if (displaced === undefined) throw new Error('Missing deterministic Linux race displacement.');\n` +
-      `      linuxRaceRenameSync(input.absolutePath, displaced);\n` +
-      `      linuxRaceMkdirSync(input.absolutePath);\n` +
-      `    }\n` + witnessNeedle
-    );
-    const raceModulePath = path.join(mirrorShared, 'physical-no-follow-race.ts');
-    writeFileSync(raceModulePath, source, 'utf8');
-    writeFileSync(
-      path.join(mirrorShared, 'canonical-primitives.ts'),
-      readCompilerTypeScriptMutationFixtureSync(
-        'platform/shared/canonical-primitives.ts',
-        'hostile-mutation'
-      ),
-      'utf8'
-    );
-    const racePhysical = await import(`${pathToFileURL(raceModulePath).href}?race=${Date.now()}`);
-    const expectRaceRejected = (action: () => unknown): void => {
-      try {
-        action();
-      } catch (error) {
-        expect((error as { code?: unknown }).code).toBe('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
-        return;
-      }
-      throw new Error('Expected the deterministic Linux create replacement to fail closed.');
+    const expectRaceRejected = (
+      point: LinuxNoFollowDirectoryCreateRacePoint,
+      targetPath: string,
+      displacedPath: string,
+      action: (actor: LinuxNoFollowDirectoryCreateRaceActor) => unknown
+    ): void => {
+      const actor = createLinuxNoFollowDirectoryCreateRaceActorForTests({
+        point,
+        targetPath,
+        displacedPath
+      });
+      expectPhysicalCode(() => action(actor), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
     };
 
     const exclusiveParentPath = path.join(root, 'exclusive-parent');
     mkdirSync(exclusiveParentPath);
-    const exclusiveParent = racePhysical.inspectNoFollowDirectoryChainV1(exclusiveParentPath).target;
+    const exclusiveParent = inspectNoFollowDirectoryChain(exclusiveParentPath).target;
     const exclusiveTarget = path.join(exclusiveParentPath, 'child');
     const exclusiveDisplaced = path.join(exclusiveParentPath, 'child-displaced');
-    process.env.SEC_PHYSICAL_CREATE_RACE_TARGET = exclusiveTarget;
-    process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED = exclusiveDisplaced;
-    expectRaceRejected(() => racePhysical.createExclusiveNoFollowDirectoryV1(exclusiveParent, 'child'));
+    expectRaceRejected(
+      'before-child-witness',
+      exclusiveTarget,
+      exclusiveDisplaced,
+      (actor) => createExclusiveNoFollowDirectory(exclusiveParent, 'child', actor)
+    );
     expect(lstatSync(exclusiveTarget).isDirectory()).toBe(true);
     expect(lstatSync(exclusiveDisplaced).isDirectory()).toBe(true);
 
     const chainParentPath = path.join(root, 'chain-parent');
     mkdirSync(chainParentPath);
-    const chainParent = racePhysical.inspectNoFollowDirectoryChainV1(chainParentPath).target;
+    const chainParent = inspectNoFollowDirectoryChain(chainParentPath).target;
     const chainTarget = path.join(chainParentPath, 'operation-root');
     const chainDisplaced = path.join(chainParentPath, 'operation-root-displaced');
-    process.env.SEC_PHYSICAL_CREATE_RACE_TARGET = chainTarget;
-    process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED = chainDisplaced;
     expectRaceRejected(
-      () => racePhysical.createNoFollowDirectoryChainV1(chainParent, ['operation-root', 'generation-one'])
+      'before-child-witness',
+      chainTarget,
+      chainDisplaced,
+      (actor) => createNoFollowDirectoryChain(
+        chainParent,
+        ['operation-root', 'generation-one'],
+        actor
+      )
     );
     expect(lstatSync(chainTarget).isDirectory()).toBe(true);
     expect(lstatSync(chainDisplaced).isDirectory()).toBe(true);
     expect(existsSync(path.join(chainTarget, 'generation-one'))).toBe(false);
     expect(existsSync(path.join(chainDisplaced, 'generation-one'))).toBe(false);
 
-    delete process.env.SEC_PHYSICAL_CREATE_RACE_TARGET;
-    delete process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED;
     const prewatchExclusiveParent = path.join(root, 'prewatch-exclusive-parent');
     const prewatchExclusiveDisplaced = path.join(root, 'prewatch-exclusive-parent-displaced');
     mkdirSync(prewatchExclusiveParent);
-    const prewatchExclusiveIdentity = racePhysical.inspectNoFollowDirectoryChainV1(
+    const prewatchExclusiveIdentity = inspectNoFollowDirectoryChain(
       prewatchExclusiveParent
     ).target;
-    process.env.SEC_PHYSICAL_PARENT_RACE_TARGET = prewatchExclusiveParent;
-    process.env.SEC_PHYSICAL_PARENT_RACE_DISPLACED = prewatchExclusiveDisplaced;
     expectRaceRejected(
-      () => racePhysical.createExclusiveNoFollowDirectoryV1(prewatchExclusiveIdentity, 'child')
+      'before-canonical-chain-open',
+      prewatchExclusiveParent,
+      prewatchExclusiveDisplaced,
+      (actor) => createExclusiveNoFollowDirectory(prewatchExclusiveIdentity, 'child', actor)
     );
     expect(lstatSync(prewatchExclusiveParent).isDirectory()).toBe(true);
     expect(lstatSync(prewatchExclusiveDisplaced).isDirectory()).toBe(true);
     expect(existsSync(path.join(prewatchExclusiveParent, 'child'))).toBe(false);
     expect(existsSync(path.join(prewatchExclusiveDisplaced, 'child'))).toBe(false);
 
-    delete process.env.SEC_PHYSICAL_PARENT_RACE_TARGET;
-    delete process.env.SEC_PHYSICAL_PARENT_RACE_DISPLACED;
     const ancestorExclusiveScope = path.join(root, 'ancestor-exclusive-scope');
     const ancestorExclusiveParent = path.join(ancestorExclusiveScope, 'run', 'parent');
     const ancestorExclusiveDisplaced = path.join(root, 'ancestor-exclusive-scope-displaced');
     mkdirSync(ancestorExclusiveParent, { recursive: true });
-    const ancestorExclusiveIdentity = racePhysical.inspectNoFollowDirectoryChainV1(
+    const ancestorExclusiveIdentity = inspectNoFollowDirectoryChain(
       ancestorExclusiveParent
     ).target;
-    process.env.SEC_PHYSICAL_ANCESTOR_RACE_TARGET = ancestorExclusiveScope;
-    process.env.SEC_PHYSICAL_ANCESTOR_RACE_DISPLACED = ancestorExclusiveDisplaced;
     expectRaceRejected(
-      () => racePhysical.createExclusiveNoFollowDirectoryV1(ancestorExclusiveIdentity, 'child')
+      'after-ancestor-open',
+      ancestorExclusiveScope,
+      ancestorExclusiveDisplaced,
+      (actor) => createExclusiveNoFollowDirectory(ancestorExclusiveIdentity, 'child', actor)
     );
     expect(lstatSync(ancestorExclusiveScope).isDirectory()).toBe(true);
     expect(lstatSync(ancestorExclusiveDisplaced).isDirectory()).toBe(true);
@@ -305,13 +256,15 @@ test('Linux directory-create transaction rejects parent, ancestor, and child rep
     const ancestorChainParent = path.join(ancestorChainScope, 'run', 'parent');
     const ancestorChainDisplaced = path.join(root, 'ancestor-chain-scope-displaced');
     mkdirSync(ancestorChainParent, { recursive: true });
-    const ancestorChainIdentity = racePhysical.inspectNoFollowDirectoryChainV1(ancestorChainParent).target;
-    process.env.SEC_PHYSICAL_ANCESTOR_RACE_TARGET = ancestorChainScope;
-    process.env.SEC_PHYSICAL_ANCESTOR_RACE_DISPLACED = ancestorChainDisplaced;
+    const ancestorChainIdentity = inspectNoFollowDirectoryChain(ancestorChainParent).target;
     expectRaceRejected(
-      () => racePhysical.createNoFollowDirectoryChainV1(
+      'after-ancestor-open',
+      ancestorChainScope,
+      ancestorChainDisplaced,
+      (actor) => createNoFollowDirectoryChain(
         ancestorChainIdentity,
-        ['operation-root', 'generation-one']
+        ['operation-root', 'generation-one'],
+        actor
       )
     );
     expect(lstatSync(ancestorChainScope).isDirectory()).toBe(true);
@@ -319,12 +272,6 @@ test('Linux directory-create transaction rejects parent, ancestor, and child rep
     expect(existsSync(path.join(ancestorChainScope, 'run', 'parent', 'operation-root'))).toBe(false);
     expect(existsSync(path.join(ancestorChainDisplaced, 'run', 'parent', 'operation-root'))).toBe(false);
   } finally {
-    delete process.env.SEC_PHYSICAL_CREATE_RACE_TARGET;
-    delete process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED;
-    delete process.env.SEC_PHYSICAL_PARENT_RACE_TARGET;
-    delete process.env.SEC_PHYSICAL_PARENT_RACE_DISPLACED;
-    delete process.env.SEC_PHYSICAL_ANCESTOR_RACE_TARGET;
-    delete process.env.SEC_PHYSICAL_ANCESTOR_RACE_DISPLACED;
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -332,10 +279,10 @@ test('Linux directory-create transaction rejects parent, ancestor, and child rep
 test('operation directory creation is retained-parent relative and returns exact created identities', () => {
   const root = fixtureRoot();
   try {
-    const retained = inspectNoFollowDirectoryChainV1(root, 'directory creation root').target;
-    const created = createNoFollowDirectoryChainV1(retained, ['operation-root', 'generation-one']);
+    const retained = inspectNoFollowDirectoryChain(root, 'directory creation root').target;
+    const created = createNoFollowDirectoryChain(retained, ['operation-root', 'generation-one']);
     expect(created.path).toBe(path.join(root, 'operation-root', 'generation-one'));
-    expect(inspectNoFollowDirectoryChainV1(created.path, 'created directory').target.inode).toBe(created.inode);
+    expect(inspectNoFollowDirectoryChain(created.path, 'created directory').target.inode).toBe(created.inode);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -348,10 +295,10 @@ test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced r
     mkdirSync(parentPath);
     writeFileSync(path.join(parentPath, 'ordinary.json'), '{"safe":true}\n', 'utf8');
     symlinkSync(path.join(root, 'missing.json'), path.join(parentPath, 'dangling.json'), 'file');
-    const parent = inspectNoFollowDirectoryChainV1(parentPath, 'reader parent').target;
-    expect(Buffer.from(readNoFollowOrdinaryFileV1(parent, 'ordinary.json')!).toString('utf8')).toBe('{"safe":true}\n');
+    const parent = inspectNoFollowDirectoryChain(parentPath, 'reader parent').target;
+    expect(Buffer.from(readNoFollowOrdinaryFile(parent, 'ordinary.json')!).toString('utf8')).toBe('{"safe":true}\n');
     expectPhysicalCode(
-      () => readNoFollowOrdinaryFileV1(parent, 'dangling.json'),
+      () => readNoFollowOrdinaryFile(parent, 'dangling.json'),
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
     );
     const moved = `${parentPath}-moved`;
@@ -359,7 +306,7 @@ test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced r
     mkdirSync(parentPath);
     writeFileSync(path.join(parentPath, 'ordinary.json'), '{"replaced":true}\n', 'utf8');
     expectPhysicalCode(
-      () => readNoFollowOrdinaryFileV1(parent, 'ordinary.json'),
+      () => readNoFollowOrdinaryFile(parent, 'ordinary.json'),
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
     expect(readFileSync(path.join(moved, 'ordinary.json'), 'utf8')).toBe('{"safe":true}\n');
@@ -375,12 +322,16 @@ test('retained child-process directory reads the authorized inode after lexical 
     const displaced = path.join(root, 'target-displaced');
     mkdirSync(target);
     writeFileSync(path.join(target, 'value.txt'), 'authorized\n', 'utf8');
-    const capability = retainNoFollowDirectoryForChildProcessV1(
-      inspectNoFollowDirectoryChainV1(target, 'retained child directory'),
+    const capability = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(target, 'retained child directory'),
       3,
       'retained child directory'
     );
     try {
+      if (process.platform === 'linux') {
+        expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
+        expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
+      }
       if (process.platform === 'linux') {
         renameSync(target, displaced);
         mkdirSync(target);
@@ -422,8 +373,8 @@ test('Windows retained child-process boundary blocks relocation above its pinned
     const target = path.join(parent, 'target');
     const displaced = path.join(root, 'ancestor-displaced');
     mkdirSync(target, { recursive: true });
-    const capability = retainNoFollowDirectoryForChildProcessV1(
-      inspectNoFollowDirectoryChainV1(target, 'retained descendant boundary'),
+    const capability = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(target, 'retained descendant boundary'),
       3,
       'retained descendant boundary'
     );
@@ -444,15 +395,23 @@ test('retained child-process file reads the observed inode after leaf replacemen
     const filePath = path.join(root, 'index');
     const displaced = path.join(root, 'index-displaced');
     writeFileSync(filePath, 'authorized-index\n', 'utf8');
-    const parent = inspectNoFollowDirectoryChainV1(root, 'retained file parent');
-    const entry = inspectNoFollowOrdinaryFileEntryV1(parent.target, 'index')!;
-    const capability = retainNoFollowOrdinaryFileForChildProcessV1(
+    const parent = inspectNoFollowDirectoryChain(root, 'retained file parent');
+    const entry = inspectNoFollowOrdinaryFileEntry(parent.target, 'index')!;
+    const capability = retainNoFollowOrdinaryFileForChildProcess(
       parent,
       entry,
       3,
       'retained index file'
     );
     try {
+      expect(capability.physical).toEqual({ device: entry!.device, inode: entry!.inode });
+      expect(capability.size).toBe(Buffer.byteLength('authorized-index\n'));
+      if (process.platform === 'linux') {
+        expect(capability.stdioSourceDescriptor).toEqual(expect.any(Number));
+        expect(capability.stdioSourceDescriptor!).toBeGreaterThanOrEqual(5);
+      } else {
+        expect(capability.stdioSourceDescriptor).toBeNull();
+      }
       if (process.platform === 'linux') {
         renameSync(filePath, displaced);
         writeFileSync(filePath, 'replacement-index\n', 'utf8');
@@ -469,6 +428,9 @@ test('retained child-process file reads the observed inode after leaf replacemen
       });
       expect(child.status).toBe(0);
       expect(child.stdout).toBe('authorized-index\n');
+      expect(capability.digest().byteDigest).toBe(
+        `sha256:${createHash('sha256').update('authorized-index\n').digest('hex')}`
+      );
       capability.assertCurrent();
     } finally {
       capability.dispose();
@@ -487,9 +449,9 @@ test('exact ordinary leaf observation does not scan unrelated parent entries', (
   try {
     writeFileSync(path.join(root, 'fence.json'), '{"safe":true}\n', 'utf8');
     writeFileSync(path.join(root, 'unrelated-large.bin'), Buffer.alloc(65 * 1024 * 1024));
-    const parent = inspectNoFollowDirectoryChainV1(root, 'exact leaf parent').target;
+    const parent = inspectNoFollowDirectoryChain(root, 'exact leaf parent').target;
 
-    const entry = inspectNoFollowOrdinaryFileEntryV1(parent, 'fence.json');
+    const entry = inspectNoFollowOrdinaryFileEntry(parent, 'fence.json');
 
     expect(entry?.relativePath).toBe('fence.json');
     expect(entry?.kind).toBe('file');
@@ -509,9 +471,9 @@ test('exact ordinary leaf observation enforces the same selected-leaf bound', ()
   const root = fixtureRoot();
   try {
     writeFileSync(path.join(root, 'oversized-fence.json'), Buffer.alloc(65 * 1024 * 1024));
-    const parent = inspectNoFollowDirectoryChainV1(root, 'oversized leaf parent').target;
+    const parent = inspectNoFollowDirectoryChain(root, 'oversized leaf parent').target;
     expectPhysicalCode(
-      () => inspectNoFollowOrdinaryFileEntryV1(parent, 'oversized-fence.json'),
+      () => inspectNoFollowOrdinaryFileEntry(parent, 'oversized-fence.json'),
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
     );
   } finally {
@@ -526,9 +488,9 @@ test('exact ordinary leaf identity follows the retained physical file rather tha
     const aliasPath = path.join(root, 'alias.json');
     writeFileSync(originalPath, '{"same":true}\n', 'utf8');
     linkSync(originalPath, aliasPath);
-    const parent = inspectNoFollowDirectoryChainV1(root, 'identity leaf parent').target;
-    const original = inspectNoFollowOrdinaryFileEntryV1(parent, 'original.json');
-    const alias = inspectNoFollowOrdinaryFileEntryV1(parent, 'alias.json');
+    const parent = inspectNoFollowDirectoryChain(root, 'identity leaf parent').target;
+    const original = inspectNoFollowOrdinaryFileEntry(parent, 'original.json');
+    const alias = inspectNoFollowOrdinaryFileEntry(parent, 'alias.json');
     expect(alias?.device).toBe(original?.device);
     expect(alias?.inode).toBe(original?.inode);
     expect(alias?.size).toBe(original?.size);
@@ -536,7 +498,7 @@ test('exact ordinary leaf identity follows the retained physical file rather tha
 
     rmSync(aliasPath);
     writeFileSync(aliasPath, '{"same":true}\n', 'utf8');
-    const replacement = inspectNoFollowOrdinaryFileEntryV1(parent, 'alias.json');
+    const replacement = inspectNoFollowOrdinaryFileEntry(parent, 'alias.json');
     expect(`${replacement?.device}:${replacement?.inode}`).not.toBe(`${original?.device}:${original?.inode}`);
     expect(Buffer.from(replacement?.bytes ?? [])).toEqual(Buffer.from(original?.bytes ?? []));
   } finally {
@@ -551,13 +513,13 @@ test('Linux exact ordinary leaf rejects a FIFO without a blocking open', async (
   try {
     const created = Bun.spawnSync({ cmd: ['mkfifo', fifoPath], stdout: 'pipe', stderr: 'pipe' });
     expect(created.exitCode).toBe(0);
-    const moduleUrl = new URL('../../platform/shared/physical-no-follow.ts', import.meta.url).href;
+    const moduleUrl = new URL('../../src/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
     const child = Bun.spawn({
       cmd: [process.execPath, '-e', `
-        import { inspectNoFollowDirectoryChainV1, inspectNoFollowOrdinaryFileEntryV1 } from ${JSON.stringify(moduleUrl)};
-        const parent = inspectNoFollowDirectoryChainV1(${JSON.stringify(root)}, 'fifo parent').target;
+        import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry } from ${JSON.stringify(moduleUrl)};
+        const parent = inspectNoFollowDirectoryChain(${JSON.stringify(root)}, 'fifo parent').target;
         try {
-          inspectNoFollowOrdinaryFileEntryV1(parent, 'retirement-fence.json');
+          inspectNoFollowOrdinaryFileEntry(parent, 'retirement-fence.json');
           process.exit(2);
         } catch (error) {
           process.exit(error?.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' ? 0 : 3);
@@ -587,13 +549,13 @@ test('retained directory relocation makes the original path absent and rejects a
     const target = path.join(root, 'target');
     mkdirSync(target);
     writeFileSync(path.join(target, 'keep.txt'), 'bound-to-target\n', 'utf8');
-    const original = inspectNoFollowDirectoryChainV1(target, 'relocation source').target;
-    const moved = relocateRetainedNoFollowDirectoryV1({ directory: original, tombstoneName: 'target-tombstone' });
+    const original = inspectNoFollowDirectoryChain(target, 'relocation source').target;
+    const moved = relocateRetainedNoFollowDirectory({ directory: original, tombstoneName: 'target-tombstone' });
     expect(existsSync(target)).toBe(false);
     expect(readFileSync(path.join(moved.path, 'keep.txt'), 'utf8')).toBe('bound-to-target\n');
     mkdirSync(target);
     expectPhysicalCode(
-      () => assertSameNoFollowDirectoryIdentityV1(original, 'rebuilt original path'),
+      () => assertSameNoFollowDirectoryIdentity(original, 'rebuilt original path'),
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
     );
     expect(existsSync(target)).toBe(true);
@@ -607,8 +569,8 @@ test.skipIf(process.platform !== 'linux')('Linux relocation preserves the retain
   try {
     const target = path.join(root, 'renameat-target');
     mkdirSync(target);
-    const original = inspectNoFollowDirectoryChainV1(target, 'Linux renameat source').target;
-    const moved = relocateRetainedNoFollowDirectoryV1({ directory: original, tombstoneName: 'renameat-tombstone' });
+    const original = inspectNoFollowDirectoryChain(target, 'Linux renameat source').target;
+    const moved = relocateRetainedNoFollowDirectory({ directory: original, tombstoneName: 'renameat-tombstone' });
     expect(moved.inode).toBe(original.inode);
     expect(existsSync(target)).toBe(false);
   } finally {
@@ -624,7 +586,7 @@ test('tree scan records a child link as an unsafe leaf and never traverses it', 
     mkdirSync(target);
     mkdirSync(external);
     symlinkSync(external, path.join(target, 'child-link'), process.platform === 'win32' ? 'junction' : 'dir');
-    const entries = scanNoFollowDirectoryTreeV1(inspectNoFollowDirectoryChainV1(target, 'scan target').target);
+    const entries = scanNoFollowDirectoryTree(inspectNoFollowDirectoryChain(target, 'scan target').target);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ relativePath: 'child-link', kind: 'link' });
   } finally {
@@ -639,8 +601,8 @@ test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact re
     mkdirSync(target);
     symlinkSync('../external-target', path.join(target, 'relative-link'), 'file');
     symlinkSync(path.join(root, 'missing-target'), path.join(target, 'absolute-link'), 'file');
-    const entries = new Map(scanNoFollowDirectoryTreeInventoryV1(
-      inspectNoFollowDirectoryChainV1(target, 'retained link inventory target').target
+    const entries = new Map(scanNoFollowDirectoryTreeInventory(
+      inspectNoFollowDirectoryChain(target, 'retained link inventory target').target
     ).map((entry) => [entry.relativePath, entry]));
     expect(entries.get('relative-link')).toMatchObject({
       kind: 'link', linkTarget: '../external-target'
@@ -671,14 +633,14 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     } finally {
       closeSync(largeHandle);
     }
-    const identity = inspectNoFollowDirectoryChainV1(target, 'streaming inventory target').target;
-    expect(() => scanNoFollowDirectoryTreeV1(identity)).toThrow('exceeds the bounded no-follow read size');
-    const first = new Map(scanNoFollowDirectoryTreeInventoryV1(identity).map((entry) => [entry.relativePath, entry]));
-    const second = new Map(scanNoFollowDirectoryTreeInventoryV1(identity).map((entry) => [entry.relativePath, entry]));
+    const identity = inspectNoFollowDirectoryChain(target, 'streaming inventory target').target;
+    expect(() => scanNoFollowDirectoryTree(identity)).toThrow('exceeds the bounded no-follow read size');
+    const first = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
+    const second = new Map(scanNoFollowDirectoryTreeInventory(identity).map((entry) => [entry.relativePath, entry]));
     expect(first.get('small.txt')?.contentDigest).toBe(
       sha256({ bytes: smallBytes.toString('hex') }) as `sha256:${string}`
     );
-    expect(inspectNoFollowOrdinaryFileDigestV1(identity, 'small.txt')).toEqual({
+    expect(inspectNoFollowOrdinaryFileDigest(identity, 'small.txt')).toEqual({
       size: smallBytes.byteLength,
       byteDigest: `sha256:${createHash('sha256').update(smallBytes).digest('hex')}`
     });
@@ -689,6 +651,183 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('retained ordinary-file capability binds raw digest, size, and leaf identity to one handle', () => {
+  if (process.platform !== 'linux' && process.platform !== 'win32') return;
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    const filePath = path.join(target, 'executable.bin');
+    const bytes = Buffer.from('retained executable bytes\n', 'utf8');
+    mkdirSync(target);
+    writeFileSync(filePath, bytes);
+    const parentChain = inspectNoFollowDirectoryChain(target, 'retained executable parent');
+    const entry = inspectNoFollowOrdinaryFileEntry(parentChain.target, 'executable.bin');
+    expect(entry).not.toBeNull();
+    const capability = retainNoFollowOrdinaryFile(
+      parentChain,
+      'executable.bin',
+      { device: entry!.device, inode: entry!.inode },
+      'retained executable'
+    );
+    try {
+      assertRetainedNoFollowCapability(capability, 'ordinary-file', 'retained executable test');
+      expect(() => assertRetainedNoFollowCapability(capability, 'executable', 'forged executable role'))
+        .toThrow('was not issued by the physical no-follow owner');
+      expect(() => assertRetainedNoFollowCapability({ ...capability }, 'ordinary-file', 'forged capability'))
+        .toThrow('was not issued by the physical no-follow owner');
+      expect(capability.size).toBe(bytes.byteLength);
+      expect(capability.physical).toEqual({ device: entry!.device, inode: entry!.inode });
+      expect(Buffer.from(capability.readBytes())).toEqual(bytes);
+      const observed = capability.digest();
+      expect(observed.size).toBe(bytes.byteLength);
+      expect(observed.byteDigest).toBe(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
+      capability.assertCurrent();
+
+      const displaced = path.join(target, 'executable-displaced.bin');
+      if (process.platform === 'win32') {
+        // The retained Windows handle withholds delete sharing, so a lexical
+        // replacement is rejected by the kernel while the capability lives.
+        expect(() => renameSync(filePath, displaced)).toThrow();
+        capability.assertCurrent();
+      } else {
+        renameSync(filePath, displaced);
+        writeFileSync(filePath, bytes);
+        expectPhysicalCode(
+          () => capability.assertCurrent(),
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+        );
+      }
+    } finally {
+      capability.dispose();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('retained ordinary-file digest rejects a same-size in-place rewrite', () => {
+  if (process.platform !== 'linux') return;
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    const filePath = path.join(target, 'executable.bin');
+    const original = Buffer.from('same-size-original\n', 'utf8');
+    const replacement = Buffer.from('same-size-replaced\n', 'utf8');
+    expect(replacement.byteLength).toBe(original.byteLength);
+    mkdirSync(target);
+    writeFileSync(filePath, original);
+    const parent = inspectNoFollowDirectoryChain(target, 'same-size rewrite parent');
+    const capability = retainNoFollowOrdinaryFile(
+      parent,
+      'executable.bin',
+      undefined,
+      'same-size rewrite capability',
+      3,
+      'executable'
+    );
+    try {
+      const writer = openSync(filePath, 'r+');
+      try {
+        writeSync(writer, replacement, 0, replacement.byteLength, 0);
+      } finally {
+        closeSync(writer);
+      }
+      expectPhysicalCode(
+        () => capability.digest(),
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+      );
+    } finally {
+      capability.dispose();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows executable role excludes existing and future writers until disposal',
+  () => {
+  const root = fixtureRoot();
+  let capability: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
+  try {
+    const target = path.join(root, 'target');
+    const filePath = path.join(target, 'executable.bin');
+    const displaced = path.join(target, 'executable-displaced.bin');
+    const original = Buffer.from('role-bound-original\n', 'utf8');
+    const replacement = Buffer.from('role-bound-replaced\n', 'utf8');
+    expect(replacement.byteLength).toBe(original.byteLength);
+    mkdirSync(target);
+    writeFileSync(filePath, original);
+    const parent = inspectNoFollowDirectoryChain(target, 'role admission parent');
+
+    const existingWriter = openSync(filePath, 'r+');
+    try {
+      expectPhysicalCode(() => retainNoFollowOrdinaryFile(
+        parent,
+        'executable.bin',
+        undefined,
+        'writer-conflicted executable role admission',
+        3,
+        'executable'
+      ), 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE');
+    } finally {
+      closeSync(existingWriter);
+    }
+
+    capability = retainNoFollowOrdinaryFile(
+      parent,
+      'executable.bin',
+      undefined,
+      'writer-excluded executable role admission',
+      3,
+      'executable'
+    );
+    assertRetainedNoFollowCapability(capability, 'executable', 'writer-excluded executable');
+    const admittedDigest = capability.digest();
+
+    expect(() => openSync(filePath, 'r+')).toThrow();
+    expect(() => writeFileSync(filePath, replacement)).toThrow();
+    expect(() => truncateSync(filePath, 0)).toThrow();
+    expect(() => renameSync(filePath, displaced)).toThrow();
+    expect(() => rmSync(filePath)).toThrow();
+    expect(capability.digest()).toEqual(admittedDigest);
+
+    capability.dispose();
+    capability = undefined;
+    writeFileSync(filePath, replacement);
+    renameSync(filePath, displaced);
+    expect(readFileSync(displaced)).toEqual(replacement);
+  } finally {
+    capability?.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+  }
+);
+
+test.skipIf(process.platform !== 'linux')(
+  'executable role admission is typed-unavailable without sealed image support',
+  () => {
+    const root = fixtureRoot();
+    try {
+      const target = path.join(root, 'target');
+      const filePath = path.join(target, 'executable.bin');
+      mkdirSync(target);
+      writeFileSync(filePath, 'role-bound executable\n');
+      const parent = inspectNoFollowDirectoryChain(target, 'role admission parent');
+      expect(() => retainNoFollowOrdinaryFile(
+        parent,
+        'executable.bin',
+        undefined,
+        'unsealed executable role admission',
+        3,
+        'executable'
+      )).toThrow('sealed image or mandatory writer-exclusion primitive');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test('metadata inventory does not read sparse file bytes and enforces entry and deadline bounds', () => {
   if (process.platform !== 'win32' && process.platform !== 'linux') return;
@@ -701,10 +840,10 @@ test('metadata inventory does not read sparse file bytes and enforces entry and 
     closeSync(openSync(sparse, 'w'));
     truncateSync(sparse, 512 * 1024 * 1024);
     writeFileSync(second, 'small');
-    const identity = inspectNoFollowDirectoryChainV1(target, 'metadata target').target;
+    const identity = inspectNoFollowDirectoryChain(target, 'metadata target').target;
 
     const startedAt = performance.now();
-    const inventory = new Map(scanNoFollowDirectoryTreeMetadataV1(identity, {
+    const inventory = new Map(scanNoFollowDirectoryTreeMetadata(identity, {
       deadlineAtMs: startedAt + 2_000,
       maximumEntries: 2
     }).map((entry) => [entry.relativePath, entry]));
@@ -715,14 +854,14 @@ test('metadata inventory does not read sparse file bytes and enforces entry and 
     });
     expect(performance.now() - startedAt).toBeLessThan(2_000);
     expectPhysicalCode(
-      () => scanNoFollowDirectoryTreeMetadataV1(identity, {
+      () => scanNoFollowDirectoryTreeMetadata(identity, {
         deadlineAtMs: performance.now() + 2_000,
         maximumEntries: 1
       }),
       'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
     );
     expectPhysicalCode(
-      () => scanNoFollowDirectoryTreeMetadataV1(identity, {
+      () => scanNoFollowDirectoryTreeMetadata(identity, {
         deadlineAtMs: performance.now() - 1,
         maximumEntries: 10
       }),
@@ -738,20 +877,20 @@ test('exclusive durable canonical publication is idempotent and refuses a confli
   try {
     const parentPath = path.join(root, 'durable');
     mkdirSync(parentPath);
-    const parent = inspectNoFollowDirectoryChainV1(parentPath, 'durable parent').target;
+    const parent = inspectNoFollowDirectoryChain(parentPath, 'durable parent').target;
     const bytes = Buffer.from('{"schema":"test-v1"}\n', 'utf8');
     const validate = (value: Uint8Array): void => {
       const parsed = JSON.parse(Buffer.from(value).toString('utf8')) as { schema?: unknown };
       if (parsed.schema !== 'test-v1') throw new Error('invalid test canonical bytes');
     };
-    const publish = () => publishExclusiveDurableCanonicalFileV1({ parent, name: 'authorization.json', bytes, validate });
+    const publish = () => publishExclusiveDurableCanonicalFile({ parent, name: 'authorization.json', bytes, validate });
     const first = publish();
     expect(first.created).toBe(true);
     expect(readFileSync(first.path)).toEqual(bytes);
-    const second = publishExclusiveDurableCanonicalFileV1({ parent, name: 'authorization.json', bytes, validate });
+    const second = publishExclusiveDurableCanonicalFile({ parent, name: 'authorization.json', bytes, validate });
     expect(second).toEqual({ ...first, created: false });
     expectPhysicalCode(
-      () => publishExclusiveDurableCanonicalFileV1({
+      () => publishExclusiveDurableCanonicalFile({
         parent,
         name: 'authorization.json',
         bytes: Buffer.from('{"schema":"different"}\n', 'utf8'),
@@ -770,14 +909,14 @@ test('durable canonical replacement uses retained-parent publication and exact f
   try {
     const parentPath = path.join(root, 'replacement');
     mkdirSync(parentPath);
-    const parent = inspectNoFollowDirectoryChainV1(parentPath, 'replacement parent').target;
+    const parent = inspectNoFollowDirectoryChain(parentPath, 'replacement parent').target;
     const validate = (value: Uint8Array): void => {
       if (!JSON.parse(Buffer.from(value).toString('utf8')).schema) throw new Error('invalid replacement bytes');
     };
     const first = Buffer.from('{"schema":"one"}\n', 'utf8');
     const second = Buffer.from('{"schema":"two"}\n', 'utf8');
-    replaceDurableCanonicalFileV1({ parent, name: 'latest.json', bytes: first, validate });
-    const replaced = replaceDurableCanonicalFileV1({ parent, name: 'latest.json', bytes: second, validate });
+    replaceDurableCanonicalFile({ parent, name: 'latest.json', bytes: first, validate });
+    const replaced = replaceDurableCanonicalFile({ parent, name: 'latest.json', bytes: second, validate });
     expect(readFileSync(replaced.path)).toEqual(second);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -800,11 +939,11 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
     mkdirSync(path.join(target, 'authorized-directory'));
     symlinkSync(external, path.join(target, 'authorized-link'), 'junction');
-    const identity = inspectNoFollowDirectoryChainV1(target, 'retained target').target;
-    const entries = new Map(scanNoFollowDirectoryTreeV1(identity).map((entry) => [entry.relativePath, entry]));
+    const identity = inspectNoFollowDirectoryChain(target, 'retained target').target;
+    const entries = new Map(scanNoFollowDirectoryTree(identity).map((entry) => [entry.relativePath, entry]));
     const authorizedLink = entries.get('authorized-link')!;
     expectPhysicalCode(
-      () => deleteRetainedNoFollowEntryV1({
+      () => deleteRetainedNoFollowEntry({
         root: identity,
         relativePath: authorizedLink.relativePath,
         kind: 'link',
@@ -818,7 +957,7 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     expect(existsSync(path.join(target, 'authorized-link'))).toBe(true);
     for (const name of ['authorized-file.txt', 'authorized-directory', 'authorized-link']) {
       const entry = entries.get(name)!;
-      deleteRetainedNoFollowEntryV1({
+      deleteRetainedNoFollowEntry({
         root: identity,
         relativePath: entry.relativePath,
         kind: entry.kind,
@@ -833,12 +972,12 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
     mkdirSync(path.join(target, 'replacement-parent'));
     writeFileSync(path.join(target, 'replacement-parent', 'retain.txt'), 'old\n', 'utf8');
-    const original = inspectNoFollowDirectoryChainV1(path.join(target, 'replacement-parent'), 'original parent').target;
+    const original = inspectNoFollowDirectoryChain(path.join(target, 'replacement-parent'), 'original parent').target;
     const old = `${original.path}-old`;
     renameSync(original.path, old);
     mkdirSync(original.path);
     expectPhysicalCode(
-      () => deleteRetainedNoFollowEntryV1({
+      () => deleteRetainedNoFollowEntry({
         root: original,
         relativePath: 'retain.txt',
         kind: 'file',
@@ -863,11 +1002,11 @@ test('Linux retained openat leaf deletion covers an ordinary file directory and 
     writeFileSync(path.join(target, 'authorized-file.txt'), 'only-this-file\n', 'utf8');
     mkdirSync(path.join(target, 'authorized-directory'));
     symlinkSync(path.join(root, 'does-not-exist'), path.join(target, 'authorized-link'), 'file');
-    const identity = inspectNoFollowDirectoryChainV1(target, 'retained target').target;
-    const entries = new Map(scanNoFollowDirectoryTreeV1(identity).map((entry) => [entry.relativePath, entry]));
+    const identity = inspectNoFollowDirectoryChain(target, 'retained target').target;
+    const entries = new Map(scanNoFollowDirectoryTree(identity).map((entry) => [entry.relativePath, entry]));
     for (const name of ['authorized-file.txt', 'authorized-directory', 'authorized-link']) {
       const entry = entries.get(name)!;
-      deleteRetainedNoFollowEntryV1({
+      deleteRetainedNoFollowEntry({
         root: identity,
         relativePath: entry.relativePath,
         kind: entry.kind,
@@ -889,15 +1028,15 @@ test('retained deletion rejects a replaced inventoried ancestor before touching 
     const parent = path.join(target, 'parent');
     mkdirSync(parent, { recursive: true });
     writeFileSync(path.join(parent, 'leaf.txt'), 'authorized inode\n', 'utf8');
-    const targetIdentity = inspectNoFollowDirectoryChainV1(target, 'ancestor target').target;
-    const inventory = new Map(scanNoFollowDirectoryTreeV1(targetIdentity).map((entry) => [entry.relativePath, entry]));
+    const targetIdentity = inspectNoFollowDirectoryChain(target, 'ancestor target').target;
+    const inventory = new Map(scanNoFollowDirectoryTree(targetIdentity).map((entry) => [entry.relativePath, entry]));
     const authorizedParent = inventory.get('parent')!;
     const authorizedLeaf = inventory.get('parent/leaf.txt')!;
     const retainedParent = `${parent}-retained`;
     renameSync(parent, retainedParent);
     mkdirSync(parent);
     linkSync(path.join(retainedParent, 'leaf.txt'), path.join(parent, 'leaf.txt'));
-    expectPhysicalCode(() => deleteRetainedNoFollowEntryV1({
+    expectPhysicalCode(() => deleteRetainedNoFollowEntry({
       root: targetIdentity,
       relativePath: 'parent/leaf.txt',
       kind: 'file',
@@ -920,9 +1059,9 @@ test('Linux retained deletion accepts selected-name absence when another hard li
     mkdirSync(target);
     writeFileSync(path.join(target, 'selected.txt'), 'shared inode\n', 'utf8');
     linkSync(path.join(target, 'selected.txt'), path.join(root, 'surviving-link.txt'));
-    const identity = inspectNoFollowDirectoryChainV1(target, 'hard-link target').target;
-    const selected = scanNoFollowDirectoryTreeV1(identity).find((entry) => entry.relativePath === 'selected.txt')!;
-    deleteRetainedNoFollowEntryV1({
+    const identity = inspectNoFollowDirectoryChain(target, 'hard-link target').target;
+    const selected = scanNoFollowDirectoryTree(identity).find((entry) => entry.relativePath === 'selected.txt')!;
+    deleteRetainedNoFollowEntry({
       root: identity,
       relativePath: selected.relativePath,
       kind: 'file',

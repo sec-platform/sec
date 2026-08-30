@@ -179,7 +179,7 @@ jobs:
               throw new Error('Work Package manifest digest is stale.');
             }
 
-            const registryPath = 'platform/shared/ci-trust-root-registry.json';
+            const registryPath = 'platform/verification/trust/contract/ci-trust-root-registry.json';
             const registryBlob = await readBlobFromTree(baseTree, registryPath, 'Trusted-base trust-root registry');
             let registry;
             try {
@@ -362,8 +362,8 @@ jobs:
               const importFromTrustedBase = async (repositoryPath) => import(pathToFileURL(
                 path.join(trustedRoot, ...repositoryPath.split("/"))
               ).href);
-              const tcb = await importFromTrustedBase("platform/shared/tcb-closure-lock.ts");
-              const registryContract = await importFromTrustedBase("platform/shared/tcb-trust-root-contract.ts");
+              const tcb = await importFromTrustedBase("platform/verification/trust/runtime/closure-lock.ts");
+              const registryContract = await importFromTrustedBase("platform/verification/trust/contract/root.ts");
               const gitEnvironment = Object.fromEntries(Object.entries(process.env)
                 .filter(([name]) => !name.startsWith("GIT_")));
               gitEnvironment.GIT_NO_REPLACE_OBJECTS = "1";
@@ -641,9 +641,9 @@ jobs:
                 candidateTrustRevision: candidateAction?.identity.trustRevision ?? null,
                 candidateModuleCount: candidateAction?.identity.moduleCount ?? null,
                 checkerProgramDigest: digest(readFileSync(import.meta.path)),
-                checkerToolBlob: blob(trustedRoot, "platform/shared/tcb-closure-lock.ts"),
+                checkerToolBlob: blob(trustedRoot, "platform/verification/trust/runtime/closure-lock.ts"),
                 checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
-                candidateToolBlob: blob(candidateRoot, "platform/shared/tcb-closure-lock.ts"),
+                candidateToolBlob: blob(candidateRoot, "platform/verification/trust/runtime/closure-lock.ts"),
                 candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
                 authorityVerdict,
                 authorityReason,

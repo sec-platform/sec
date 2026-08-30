@@ -2,7 +2,7 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-23
+last-reviewed: 2026-08-28
 ---
 
 # SEC 滚动近期计划
@@ -12,23 +12,18 @@ last-reviewed: 2026-08-23
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:f3002db74f403fc5b6c0efd7b37b5db1b50c5d5f510cebe3f8d6ad9857cf4910",
-    "manifestPath": "docs/work-packages/default-branch-health-repair-4291ea94f26858c6570144f6632100a568832039-9606c61e638edb6562dd98421c5442fd28aca119c1fd8a9f472d74c1f606c010.md",
-    "packageId": "default-branch-health-repair-4291ea94f26858c6570144f6632100a568832039-9606c61e638edb6562dd98421c5442fd28aca119c1fd8a9f472d74c1f606c010",
+    "manifestDigest": "sha256:f8708e20aaead96d4da5f43773c7eeb82725f9d422426b59029734d93cc4dfbe",
+    "manifestPath": "docs/work-packages/default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e.md",
+    "packageId": "default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e",
     "tracking": "none"
   },
   "authority": {
-    "bootstrapObservationDigest": "sha256:73d8afcd21593ff06f4298177eb8d12fd75852b7012429772bcbe5ebb6ef4317",
-    "defaultBranch": "main",
-    "failureFingerprints": [
-      "sha256:73d8afcd21593ff06f4298177eb8d12fd75852b7012429772bcbe5ebb6ef4317"
-    ],
-    "healthRevision": "sha256:5451991bcaa00c527ca761d9d34256ebed6182043cbfb10727f44dc5942346e6",
-    "kind": "manual-main-health-bootstrap",
-    "owner": "ci-verification-maintainer",
-    "publishedActivePackageId": "git-worktree-physical-closeout-v1",
-    "repository": "sec-platform/sec",
-    "retirementPolicy": "exact-new-main-readback"
+    "kind": "committed-candidate-replan",
+    "sourceHead": "21160041eb8cdbffd72e91d63501491eb7051061",
+    "sourceManifestDigest": "sha256:0369fe25da6990f295a690f93d7d9d6b9a9265c059e7a4f454c8ac111f81308c",
+    "sourcePointerRevision": "sha256:193887829b361aaa1df27aed49753cf7af38db3a91751db0663adf7cc81cc4cd",
+    "sourceRollingRevision": "sha256:b3d61721fce5659e6c147c949be064c2d24d57eec0bd5b39bc933af21131c4d7",
+    "sourceTree": "d73030fb9244aacde19e8502426e9ad541398afc"
   },
   "candidates": [
     "operation-read-plan-authority-canary-v1",
@@ -36,36 +31,36 @@ last-reviewed: 2026-08-23
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "4291ea94f26858c6570144f6632100a568832039",
-  "exactMainTree": "352af4cbae1b76276b312372b8c12170452ac3d7",
-  "projectionDigest": "sha256:0768c547a0442c41d2cf715533a6c91f1fbb9cce46f4e2dc5fb06a930e503fcc",
+  "exactMain": "36b174ebc783bb2b2e0c079d58fb825f0966b60b",
+  "exactMainTree": "f7dd21a385a00589ecf04a41e98fe9d9e4fb43d6",
+  "projectionDigest": "sha256:69774d7f15ba0141db1c70966a4dd1d29ab4ad2419eee269d75bda15028f48d9",
   "schema": "sec-work-rolling-transition-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### default-branch-health-repair-4291ea94f26858c6570144f6632100a568832039-9606c61e638edb6562dd98421c5442fd28aca119c1fd8a9f472d74c1f606c010
+### default-branch-health-repair-36b174ebc783bb2b2e0c079d58fb825f0966b60b-848e6d50f2852dc05566c9d272c71782a7c39fb6c1badea43b1f74e9064b3c8e
 
-Final manual MainHealth bootstrap bound to observation `sha256:73d8afcd21593ff06f4298177eb8d12fd75852b7012429772bcbe5ebb6ef4317`, health `sha256:5451991bcaa00c527ca761d9d34256ebed6182043cbfb10727f44dc5942346e6`, manifest `sha256:f3002db74f403fc5b6c0efd7b37b5db1b50c5d5f510cebe3f8d6ad9857cf4910`, and authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`; it retires only after exact new-main readback.
+Existing active package replan bound to exact source head `21160041eb8cdbffd72e91d63501491eb7051061`, source tree `d73030fb9244aacde19e8502426e9ad541398afc`, manifest `sha256:f8708e20aaead96d4da5f43773c7eeb82725f9d422426b59029734d93cc4dfbe`, and authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ## 候选 Work Package
 
 ### 1. operation-read-plan-authority-canary-v1
 
-Retained ordered candidate from transition authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`.
+Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ### 2. sec-static-convergence-v1
 
-Retained ordered candidate from transition authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`.
+Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ### 3. candidate-control-transaction-v1
 
-Retained ordered candidate from transition authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`.
+Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ### 4. typescript-7-checker-acceleration-v1
 
-Retained ordered candidate from transition authority `sha256:fc0b9ca889b84c881cee44a72893bb2d0949efe193981f4ed08bd96f114b6baa`.
+Retained ordered candidate from transition authority `sha256:4881437c944ac29140b56b1d692f9bc3d452ad521b2663067e0fadc889dd6d21`.
 
 ## 重新规划硬触发器
 

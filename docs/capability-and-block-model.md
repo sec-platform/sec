@@ -115,11 +115,20 @@ UI 连线、同名端点或 Provider 推断都只是 proposal/Evidence。只有�
 
 Port schema 演进必须说明兼容方向、consumer migration、serialization 和 failure behavior；不能用 `any`、未声明 coercion 或字符串同名吞掉不兼容。
 
-## Slot、Governed Extension 与 Private Block
+## Typed Extension、Governed Extension 与 Private Block
 
-Slot 是有限、局部、可验证的扩展点。它需要 target/source binding、输入输出、writable zone、required symbols、forbidden effects、Verification 和 Provenance。
+用户可替换的一小段实现是 Typed Extension，不是一个同时代表契约、源码、开发任务和验证结果的万能 `Slot`。canonical model 必须把下列对象分开：
 
-Slot 不是所有自定义代码的容器。当逻辑出现独立 owner、版本、复用、状态、Effect、升级或迁移时，应提升为 Governed Source Responsibility、Custom Provider或Private Block。复杂算法也可以长期保留为 Governed Extension；不应为了“全部结构化”无限扩张 Slot 或 Behavior IR。
+- **ExtensionContract**：由 Block owner 声明的单一局部语义孔，只拥有输入输出、确定性要求、允许的 capability ports、禁止的 Effect 和 acceptance binding；不拥有源码路径、生成状态或一次验证结果；
+- **ExtensionImplementationBinding**：resolver 对一个 ExtensionContract 选择的不可变实现，绑定 source/provider identity、exact content/contract/grant digest、Target 和 transitive Effect closure；
+- **ExtensionWorkItem**：为产生或修复实现而建立的可变任务，只拥有 write bounds、required symbols、budget 和当前状态；不得进入 Lock 充当实现 authority；
+- **ExtensionVerification**：对 exact implementation binding 的行为、Effect、Target 和 acceptance Evidence；不得把所有通过测试无差别复制给所有扩展点。
+
+只有无独立 owner、无独立版本、无持久状态、无外部资源、无环境依赖、无升级/迁移且 Effect 被显式禁止的局部确定性变换，才适合成为 Typed Extension。源码可以使用运行时语言原语，但不得直接取得 ambient host capability；允许的能力只能通过 ExtensionContract 中的 typed capability port 注入，并由 binding 与 runtime boundary 执行。静态 import/global 扫描只是廉价 authoring sentinel，不能证明 transitive dependency、动态行为、Effect 或物理隔离。
+
+事件回调、数据库读写、网络、时钟/随机源、进程、文件系统、credential、多个业务操作、独立复用、状态或迁移中的任一项出现时，必须提升为 Governed Extension、Custom Provider 或 Private Block，并声明 owner、Contract、Effect、Permission、lifecycle、failure、Verification 与 Migration。不得通过普通参数传入 `Database`/`Session` 等高权限对象后仍声称“零 capability”，也不得用 `forbiddenOperations` prose 或一个 lint PASS 代替 runtime enforcement。
+
+当前 `ManifestSlot`/`PlanSlot`/`SlotTask` 把上述四层混为一体，属于待退役的历史模型，不是后续设计模板。迁移必须从真实消费者图原子切换到上述对象并删除旧字段、旧任务状态和旧命名，不建立 `SlotV2`、双写、fallback 或长期 compatibility dispatcher。
 
 没有专用Adapter的外部调用可以先作为typed external invocation或Governed Extension存在；不能因它尚未成为Block/Provider就禁止使用，也不能因类型检查通过就虚构Effect、安全或support保证。
 

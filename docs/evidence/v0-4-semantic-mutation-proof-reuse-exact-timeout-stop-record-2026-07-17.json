@@ -40,21 +40,21 @@
     "gitBlob": "1fedb2907be9e405a864f7e1198ea0581a6b22bf"
   },
   "testedWorkingTreeBlobs": {
-    "platform/compiler/verify/run-runtime-verification.ts": "7f60ea111666f442344c1ef0aad156b90d65a09d",
-    "platform/compiler/verify/run-semantic-mutation-isolated-child.ts": "e407441a82932d9d039aefb02fb601d323a3c3bf",
-    "platform/compiler/verify/verify-project.ts": "e35d14dd488cf57bd51c6d2eddc3d78d32f98673",
-    "platform/orchestrator/pipeline-orchestrator.ts": "e22164a60ad6aa0d374ec9b2cd8f8bd5e453db9c",
-    "platform/orchestrator/semantic-mutation-orchestrator.ts": "512d826a658adb022a903136f1678452d406dc79",
-    "platform/orchestrator/verify-orchestrator.ts": "6e4fbc1595ed4c13f5a984397872a6d618be2eb2",
+    "src/compiler/verify/run-runtime-verification.ts": "7f60ea111666f442344c1ef0aad156b90d65a09d",
+    "src/compiler/verify/run-semantic-mutation-isolated-child.ts": "e407441a82932d9d039aefb02fb601d323a3c3bf",
+    "src/compiler/verify/verify-project.ts": "e35d14dd488cf57bd51c6d2eddc3d78d32f98673",
+    "src/compiler/orchestration/pipeline-orchestrator.ts": "e22164a60ad6aa0d374ec9b2cd8f8bd5e453db9c",
+    "src/compiler/orchestration/semantic-mutation-orchestrator.ts": "512d826a658adb022a903136f1678452d406dc79",
+    "src/compiler/orchestration/verify-orchestrator.ts": "6e4fbc1595ed4c13f5a984397872a6d618be2eb2",
     "platform/shared/project-base.ts": "4a6cc5e8a326dd54dd2dc05dc56c7a45960b44da",
     "platform/shared/workspace-write-lease.ts": "57a651b0693fde3cd465d13e7d77ae7cd2a40746",
     "tests/integration/project-runtime.test.ts": "478ab557fc2988377f3f4b43650e9b54865bfcc7",
     "tests/unit/runtime-verification.test.ts": "eded9446bc10f7112caf3398afa5b1318a8e8a31",
     "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "e520cb3be34c8889e9bbb13166bf30126eed50b0",
     "docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json": "1fedb2907be9e405a864f7e1198ea0581a6b22bf",
-    "platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts": "546dc37762d362870e827204c08fb471d5f4970a",
-    "platform/compiler/verify/semantic-mutation-staged-project-input.ts": "570d1cf1f3c068834148cc1d873a4b15ccbebeae",
-    "platform/compiler/verify/semantic-mutation-staged-verification-reuse.ts": "36a64455237dc0e07f860210984601d8a0e24f20"
+    "src/compiler/verify/semantic-mutation-isolated-verification-evidence.ts": "546dc37762d362870e827204c08fb471d5f4970a",
+    "src/compiler/verify/semantic-mutation-staged-project-input.ts": "570d1cf1f3c068834148cc1d873a4b15ccbebeae",
+    "src/compiler/verify/semantic-mutation-staged-verification-reuse.ts": "36a64455237dc0e07f860210984601d8a0e24f20"
   },
   "prerequisiteEvidence": {
     "focusedRuntimeAndIsolatedChild": "74/74 passed before the final authority tightening",

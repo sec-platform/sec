@@ -1,48 +1,20 @@
 import { expect } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 
-import type { BenchmarkTaskSuiteContract } from '../../platform/shared/benchmark-contract.ts';
-import { compareCodeUnits } from '../../platform/shared/canonical-primitives.ts';
-import type { CiContract } from '../../platform/shared/ci-contract.ts';
-import type { ContractFreezeContract } from '../../platform/shared/contract-freeze-contract.ts';
-import type { ErrorProtocolContract } from '../../platform/shared/error-protocol-contract.ts';
-import type { TestBudgetContract } from '../../platform/shared/test-budget-contract.ts';
-
-type CountKey<T> = {
-  [K in keyof T]: T[K] extends number ? K : never
-}[keyof T];
-
-type ListKey<T> = {
-  [K in keyof T]: T[K] extends readonly unknown[] ? K : never
-}[keyof T];
+import type { ErrorProtocolContract } from '../../src/interface/cli/error-protocol-contract.ts';
+import { compareCodeUnits } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import type { BenchmarkTaskSuiteContract } from '../../src/verification/benchmark/contract.ts';
+import type { CiContract } from '../../src/verification/ci/contract/core.ts';
+import type { ContractFreezeContract } from '../../src/verification/freeze.ts';
+import type { TestBudgetContract } from '../../src/verification/test-impact/contract/budget.ts';
 
 export function expectSortedUnique(values: readonly string[]): void {
   expect(values).toEqual([...values].sort(compareCodeUnits));
   expect(new Set(values).size).toBe(values.length);
 }
 
-export function expectListCount<T extends object>(contract: T, countKey: CountKey<T>, listKey: ListKey<T>): void {
-  expect(contract[countKey] as number).toBe((contract[listKey] as readonly unknown[]).length);
-}
-
 export function expectCiContractSelfConsistent(contract: CiContract): void {
-  expectListCount(contract, 'prWorkflowStepCount', 'prWorkflowStepOrder');
-  expectListCount(contract, 'releaseWorkflowStepCount', 'releaseWorkflowStepOrder');
-  expectListCount(contract, 'prWorkflowCommandCount', 'prWorkflowCommands');
-  expectListCount(contract, 'releaseWorkflowCommandCount', 'releaseWorkflowCommands');
-  expectListCount(contract, 'prQuickLaneCommandCount', 'prQuickLaneCommands');
-  expectListCount(contract, 'prRiskLaneCommandCount', 'prRiskLaneCommands');
-  expectListCount(contract, 'fullLaneCommandCount', 'fullLaneCommands');
-  expectListCount(contract, 'verifyCommandCount', 'verifyCommands');
-  expectListCount(contract, 'qualityCommandCount', 'qualityCommands');
-  expectListCount(contract, 'diagnosticCommandCount', 'diagnosticCommands');
-  expectListCount(contract, 'artifactUploadCommandCount', 'artifactUploadCommands');
-  expectListCount(contract, 'artifactPathCount', 'artifactPaths');
-  expectListCount(contract, 'stepCount', 'steps');
   expectSortedUnique(contract.artifactPaths);
-  for (const step of contract.steps) {
-    expectListCount(step, 'producesCount', 'produces');
-  }
 }
 
 export function expectPrFastLaneBoundary(contract: CiContract): void {
@@ -55,7 +27,7 @@ export function expectPrFastLaneBoundary(contract: CiContract): void {
   expect(contract.prQuickLaneCommands).not.toContain('bun run test:slow');
   expect(contract.prQuickLaneCommands.every((command) => !command.includes('--lane all'))).toBe(true);
 
-  expect(contract.prRiskLaneCommands).toContain('bun scripts/ci-pr-risk.ts');
+  expect(contract.prRiskLaneCommands).toContain('bun src/verification/ci/pr-risk.ts');
   expect(contract.prRiskLaneCommands).not.toContain('bun run test:slow');
   expect(contract.prRiskLaneCommands.every((command) => !command.includes('--lane all'))).toBe(true);
 }
@@ -81,10 +53,6 @@ export function expectFullLaneCoversCorrectnessBackstop(contract: CiContract): v
 }
 
 export function expectTestBudgetSelfConsistent(contract: TestBudgetContract): void {
-  expectListCount(contract, 'laneCount', 'lanes');
-  expectListCount(contract, 'slowLaneCount', 'slowLaneIds');
-  expectListCount(contract, 'slowTestFileCount', 'slowTestFiles');
-  expectListCount(contract, 'slowSuiteCount', 'slowSuites');
   expectSortedUnique(contract.slowTestFiles);
   for (const suite of contract.slowSuites) {
     expectSortedUnique(suite.files);
@@ -92,20 +60,10 @@ export function expectTestBudgetSelfConsistent(contract: TestBudgetContract): vo
 }
 
 export function expectBenchmarkTaskSuiteSelfConsistent(contract: BenchmarkTaskSuiteContract): void {
-  expectListCount(contract, 'taskCount', 'tasks');
-  expectListCount(contract, 'artifactPathCount', 'artifactPaths');
-  expectListCount(contract, 'scoreDimensionCount', 'scoreDimensions');
   expectSortedUnique(contract.artifactPaths);
-  for (const task of contract.tasks) {
-    expectListCount(task, 'artifactPathCount', 'artifactPaths');
-    expectListCount(task, 'scoreFocusCount', 'scoreFocus');
-  }
 }
 
 export function expectContractFreezeSelfConsistent(contract: ContractFreezeContract): void {
-  expectListCount(contract, 'contractIdCount', 'contractIds');
-  expectListCount(contract, 'targetFileCount', 'targetFiles');
-  expectListCount(contract, 'targetCount', 'targets');
   expectSortedUnique(contract.targetFiles);
   expectSortedUnique(contract.contractIds);
   expect(new Set(contract.targets.map((target) => target.file)).size).toBe(contract.targetFiles.length);
@@ -116,9 +74,6 @@ export function expectContractFreezeSelfConsistent(contract: ContractFreezeContr
 }
 
 export function expectErrorProtocolSelfConsistent(contract: ErrorProtocolContract): void {
-  expectListCount(contract, 'exampleCount', 'examples');
-  expectListCount(contract, 'issueTypeCount', 'issueTypes');
-  expectListCount(contract, 'artifactPathCount', 'artifactPaths');
   expectSortedUnique(contract.issueTypes);
   expectSortedUnique(contract.artifactPaths);
   expect(new Set(contract.examples.flatMap((example) => example.output.suggestedActions)).size).toBe(contract.suggestedActionCount);

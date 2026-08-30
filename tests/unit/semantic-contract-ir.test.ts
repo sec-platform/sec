@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
-import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
-import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
 
 function baseInput(): BuildEngineeringIRInput {
   return {

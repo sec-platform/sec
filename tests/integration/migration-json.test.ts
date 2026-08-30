@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { formatJsonFile, writeJson } from '../../platform/shared/fs.ts';
+import { formatJsonFile, writeJson } from '../../src/workspace/files.ts';
 import {
   configRewrite,
   jsonArrayAppend,

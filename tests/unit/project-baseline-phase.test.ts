@@ -3,15 +3,14 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { ensureDir, writeJson, writeText } from '../../platform/shared/fs.ts';
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeProjectBaseline } from '../../platform/shared/project-baseline.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import {
   checkProjectBeforeCompile,
-  checkProjectBeforeVerify
-} from '../../platform/shared/project-integrity.ts';
-import type { ProvenanceFile } from '../../platform/shared/provenance-types.ts';
+  checkProjectBeforeVerify, writeProjectBaseline
+} from '../../src/workspace/project.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function digest(content: string): string {
@@ -24,7 +23,7 @@ function lockFor(generatedPath: string): LockFile {
     app: {
       id: 'baseline-test',
       name: 'baseline-test',
-      stack: 'nextjs-ts-prisma-sqlite',
+      stack: 'typescript-library',
       mode: 'single-tenant'
     },
     resolvedBlocks: [],

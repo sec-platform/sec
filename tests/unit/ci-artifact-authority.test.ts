@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { validateCiArtifactManifestV1 } from '../../platform/shared/ci-artifact-authority.ts';
-import { emptyCiArtifactManifest } from '../../platform/shared/ci-artifact-contract.ts';
+import { emptyCiArtifactManifest } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { validateCiArtifactManifest } from '../../src/verification/ci-artifacts/runtime/authority.ts';
 
 test('CI artifact authority accepts canonical derived empty manifest', () => {
-  const manifest = validateCiArtifactManifestV1(emptyCiArtifactManifest());
+  const manifest = validateCiArtifactManifest(emptyCiArtifactManifest());
 
   expect(manifest.summary.artifactCount).toBe(0);
   expect(manifest.summary.artifactStatus).toBe('passed');
@@ -16,7 +16,7 @@ test('CI artifact authority rejects summary values that do not derive from artif
   const candidate = emptyCiArtifactManifest();
   candidate.summary.artifactCount = 1;
 
-  expect(() => validateCiArtifactManifestV1(candidate))
+  expect(() => validateCiArtifactManifest(candidate))
     .toThrow('summary differs from canonical artifacts/missing derivation');
 });
 
@@ -26,7 +26,7 @@ test('CI artifact authority rejects unknown fields instead of re-signing them', 
     hiddenAuthority: true
   };
 
-  expect(() => validateCiArtifactManifestV1(candidate))
+  expect(() => validateCiArtifactManifest(candidate))
     .toThrow('unsupported field');
 });
 
@@ -53,7 +53,7 @@ test('CI artifact authority rejects non-portable and normalized-on-read path spe
     }]
   };
 
-  expect(() => validateCiArtifactManifestV1(candidate))
+  expect(() => validateCiArtifactManifest(candidate))
     .toThrow('canonical CI artifact path');
 });
 
@@ -89,6 +89,6 @@ test('CI artifact authority rejects one path being both present and missing', ()
     }
   };
 
-  expect(() => validateCiArtifactManifestV1(candidate))
+  expect(() => validateCiArtifactManifest(candidate))
     .toThrow('both present and missing');
 });

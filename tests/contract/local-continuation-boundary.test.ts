@@ -7,6 +7,6 @@ const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
 
 test('continuation exposes one managed development entrypoint and retires manual resume alias', () => {
   expect(packageJson.scripts?.['dev:continue'])
-    .toBe('bun scripts/codex/local-continuation.ts continue');
+    .toBe('bun src/control/continuation/local-continuation.ts continue');
   expect(packageJson.scripts?.['work:resume']).toBeUndefined();
 });

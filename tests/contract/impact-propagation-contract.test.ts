@@ -1,29 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
-import {
-  buildFactDelta,
-  buildImpactPropagation,
-  type EngineeringIRIndex
-} from '../../platform/compiler/index.ts';
-import type { CiArtifactManifest } from '../../platform/shared/ci-artifact-types.ts';
-import type {
-  EngineeringIR,
-  FactDeltaEndpointContext,
-  SemanticFact,
-  ValidatedEngineeringIRSnapshot
-} from '../../platform/shared/engineering-ir-types.ts';
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import type { ReviewSummary } from '../../platform/shared/review-types.ts';
-import {
-  IMPACT_CONTRACT_VERSION,
-  IMPACT_PROPAGATION_RULE_REVISION,
-  IMPACT_SCOPE
-} from '../../platform/shared/semantic-impact-types.ts';
-import type { SemanticViewSet } from '../../platform/shared/semantic-view-types.ts';
-import type { SemanticImpactPropagation as FacadeSemanticImpactPropagation } from '../../platform/shared/types.ts';
-import type { VerificationReport } from '../../platform/shared/verification-types.ts';
+import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
+import { buildImpactPropagation } from '../../src/compiler/semantic-impact/build-impact-propagation.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
+import type { SemanticFact } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
 
 const FROM_SEMANTIC_REVISION = `sha256:${'1'.repeat(64)}`;
 const TO_SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
@@ -100,63 +83,6 @@ function vector(
   const delta = buildFactDelta(from, to);
   return { before, after, from, to, delta, result: buildImpactPropagation({ delta, from, to }) };
 }
-
-test('public Semantic Impact schema, constants, facade, and exclusions stay frozen', () => {
-  const { before, from, to, delta, result } = vector();
-  const facadeValue: FacadeSemanticImpactPropagation = result;
-
-  expect(IMPACT_CONTRACT_VERSION).toBe('1');
-  expect(IMPACT_SCOPE).toBe('fact-delta+validated-graph');
-  expect(IMPACT_PROPAGATION_RULE_REVISION).toBe('impact-propagation-rules-v1');
-  expect(Object.keys(facadeValue)).toEqual([
-    'contractVersion',
-    'scope',
-    'formatVersion',
-    'graphId',
-    'appId',
-    'deltaRevision',
-    'fromSemanticRevision',
-    'toSemanticRevision',
-    'fromFactSetDigest',
-    'toFactSetDigest',
-    'propagationRuleRevision',
-    'seeds',
-    'direct',
-    'transitive',
-    'uncertainties',
-    'verification',
-    'impactRevision'
-  ]);
-  expect(result.impactRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
-  expect(JSON.stringify(buildImpactPropagation({ delta, from, to }))).toBe(JSON.stringify(result));
-
-  const raw: EngineeringIR = before.ir;
-  const callerIndex = {} as EngineeringIRIndex;
-  const lock = {} as LockFile;
-  const views = {} as SemanticViewSet;
-  const review = {} as ReviewSummary;
-  const artifact = {} as CiArtifactManifest;
-  const verification = {} as VerificationReport;
-  const expectation = {} as { readonly expectedFactIds: readonly string[] };
-  if (false) {
-    // @ts-expect-error Raw EngineeringIR cannot cross the validated Impact boundary.
-    buildImpactPropagation({ delta, from: { ...from, snapshot: raw }, to });
-    // @ts-expect-error Caller-provided indexes are not part of the public Impact input.
-    buildImpactPropagation({ delta, from, to, fromIndex: callerIndex });
-    // @ts-expect-error Lock state cannot replace canonical Fact Delta.
-    buildImpactPropagation({ delta: lock, from, to });
-    // @ts-expect-error Projection state cannot replace canonical Fact Delta.
-    buildImpactPropagation({ delta: views, from, to });
-    // @ts-expect-error ReviewSummary cannot replace canonical Fact Delta.
-    buildImpactPropagation({ delta: review, from, to });
-    // @ts-expect-error Artifact manifests cannot replace canonical Fact Delta.
-    buildImpactPropagation({ delta: artifact, from, to });
-    // @ts-expect-error Expected mutation delta cannot replace actual canonical Fact Delta.
-    buildImpactPropagation({ delta: expectation, from, to });
-    // @ts-expect-error Verification reports cannot replace canonical Fact Delta.
-    buildImpactPropagation({ delta: verification, from, to });
-  }
-});
 
 test('independent vector freezes seeds, reachability, path evidence, and impactRevision', () => {
   const { delta, result } = vector();

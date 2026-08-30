@@ -1,17 +1,17 @@
 import { expect, test } from 'bun:test';
 
-import { resolveDefaultBranchRevisionHealthV1 } from '../../platform/shared/default-branch-revision-health.ts';
 import {
-  createMainHealthLedgerV1,
-  createMainHealthRepairWorkPackagePathV1
-} from '../../platform/shared/main-health-contract.ts';
+  createMainHealthLedger,
+  createMainHealthRepairWorkPackagePath
+} from '../../src/control/main-health/contract.ts';
+import { resolveDefaultBranchRevisionHealthV1 } from '../../src/control/main-health/default-branch-revision.ts';
 
 const SHA = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const DIGEST = `sha256:${'a'.repeat(64)}` as const;
 
 function healthy() {
-  return createMainHealthLedgerV1({
+  return createMainHealthLedger({
     repository: 'sec-platform/sec', defaultBranch: 'main', mainSha: SHA, mainTreeSha: TREE,
     status: 'healthy', failureFingerprints: [], owner: null, repairWorkPackage: null,
     observedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T01:00:00.000Z',
@@ -23,10 +23,10 @@ function healthy() {
 
 function degraded() {
   const owner = 'default-branch-health-maintainer';
-  return createMainHealthLedgerV1({
+  return createMainHealthLedger({
     repository: 'sec-platform/sec', defaultBranch: 'main', mainSha: SHA, mainTreeSha: TREE,
     status: 'degraded', failureFingerprints: [DIGEST], owner,
-    repairWorkPackage: createMainHealthRepairWorkPackagePathV1({ repository: 'sec-platform/sec',
+    repairWorkPackage: createMainHealthRepairWorkPackagePath({ repository: 'sec-platform/sec',
       defaultBranch: 'main', mainSha: SHA, mainTreeSha: TREE, owner, failureFingerprints: [DIGEST] }),
     observedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T01:00:00.000Z',
     allowedLanes: ['repair'], trustRevision: SHA,

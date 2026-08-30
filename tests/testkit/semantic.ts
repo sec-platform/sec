@@ -1,4 +1,4 @@
-import type { SemanticGeneratorTask } from '../../platform/shared/semantic-generator-types.ts';
+import type { SemanticGeneratorTask } from '../../src/semantic/generation/contract/types.ts';
 
 export function ticketSemanticGeneratorTask(): SemanticGeneratorTask {
   return {
@@ -11,7 +11,7 @@ export function ticketSemanticGeneratorTask(): SemanticGeneratorTask {
     semanticRevision: 'sha256:test-semantic',
     kind: 'generate-state-transition-map',
     contractId: 'ticket-core',
-    contractPath: 'platform/registry/official/ticket.basic/contracts/ticket.yaml',
+    contractPath: 'catalog/registry/official/ticket.basic/contracts/ticket.yaml',
     contractNamespace: 'ticket',
     stateId: 'ticket-status',
     stateEntityId: 'state:ticket:ticket-status',
@@ -33,7 +33,7 @@ export function ticketSemanticGeneratorTask(): SemanticGeneratorTask {
     registrySourceId: 'official',
     registryKind: 'official',
     registryLocation: 'compiler',
-    registryPath: 'platform/registry/official/ticket.basic',
+    registryPath: 'catalog/registry/official/ticket.basic',
     status: 'pending'
   };
 }

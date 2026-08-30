@@ -2,13 +2,13 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { runCliInProcess } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('Compose materializes Prisma schema without applying it to a database', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const initRes = await runCliInProcess(workspaceRoot, ['init', '--reset']);
+    const initRes = await runCliInProcess(workspaceRoot, ['init']);
     expect(initRes.code).toBe(0);
 
     const { developerSourceRoot, projectRoot } = getWorkspacePaths(workspaceRoot);

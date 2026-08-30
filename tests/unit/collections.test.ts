@@ -1,14 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import {
-  countMatching,
-  countPositiveValues,
-  mergeCountSummaries,
-  normalizeNewlines,
-  summarizeCounts,
-  uniqueSorted,
-  uniqueSortedLines
-} from '../../platform/shared/collections.ts';
+import { uniqueSorted } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { countMatching, countPositiveValues, mergeCountSummaries, normalizeNewlines, summarizeCounts, uniqueSortedLines } from '../../src/system-architecture/foundation/runtime/collections.ts';
 
 test('native collection primitives preserve canonical lodash-era value semantics', () => {
   expect(countPositiveValues([-2, 0, 1, 3, Number.NaN])).toBe(2);

@@ -2,12 +2,10 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type {
-  ReviewSummary
-} from '../../platform/shared/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import { writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -43,7 +41,6 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         artifactStatus: 'attention',
         artifactCount: 4,
         governanceCount: 3,
-        viewCount: 1,
         contractCount: 1,
         uploadGroupCount: 2,
         missingCount: 1,
@@ -93,8 +90,8 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       ],
       runtimeEntries: [
         {
-          path: 'app/customers/page.tsx',
-          kind: 'page',
+          path: 'src/installed/entity/customer-service.ts',
+          kind: 'service',
           vertical: 'customer',
           relatedBlocks: ['entity/customer-basic']
         }
@@ -107,7 +104,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
           sourceRoots: ['files'],
           targetPaths: ['src/installed/entity/customer-service.ts'],
           verticals: ['customer'],
-          runtimeEntries: ['app/customers/page.tsx']
+          runtimeEntries: ['src/installed/entity/customer-service.ts']
         }
       ],
       installImpactSummary: {
@@ -124,7 +121,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         sourceRoots: ['files'],
         targetPaths: ['src/installed/entity/customer-service.ts'],
         verticals: ['customer'],
-        runtimeEntries: ['app/customers/page.tsx'],
+        runtimeEntries: ['src/installed/entity/customer-service.ts'],
         groupSummaries: []
       },
       upgradeSummary: {

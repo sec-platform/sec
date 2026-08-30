@@ -105,7 +105,7 @@
     "appContainerClaimed": false
   },
   "nextRepair": {
-    "owner": "platform/shared/observed-process.ts",
+    "owner": "src/runtime-state/physical/index.ts",
     "strategy": "Retry a transient Windows Job accounting query for a short fixed count. Success still requires an observed active process count of zero, closed child streams, and exact output evidence; exhausted query failures remain fail-closed.",
     "affectedDirectCallers": 4,
     "gitNexusRisk": "LOW",

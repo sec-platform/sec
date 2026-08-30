@@ -1,13 +1,7 @@
 import { expect } from 'bun:test';
 
-import type {
-  ExplainGraph,
-  ExplainGraphEdge,
-  ExplainGraphNode,
-  ReviewConflictHint,
-  ReviewRegressionRisk,
-  ReviewSummary
-} from '../../platform/shared/types.ts';
+import type { ExplainGraph, ExplainGraphEdge, ExplainGraphNode } from '../../src/semantic/projection/contract/explain.ts';
+import type { ReviewConflictHint, ReviewRegressionRisk, ReviewSummary } from '../../src/verification/review/contract/types.ts';
 
 export function expectGraphNode(graph: Pick<ExplainGraph, 'nodes'>, expected: Partial<ExplainGraphNode>): void {
   expect(graph.nodes).toContainEqual(expect.objectContaining(expected));

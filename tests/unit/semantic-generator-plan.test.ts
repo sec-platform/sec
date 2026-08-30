@@ -1,12 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import {
-  buildEngineeringIR,
-  buildSemanticGeneratorPlan,
-  buildValidatedEngineeringIR,
-  type BuildEngineeringIRInput
-} from '../../platform/compiler/index.ts';
-import type { SemanticGeneratorDeclaration } from '../../platform/shared/semantic-generator-types.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { buildSemanticGeneratorPlan } from '../../src/compiler/semantic-plan.ts';
+import type { SemanticGeneratorDeclaration } from '../../src/semantic/generation/contract/types.ts';
 
 function input(): BuildEngineeringIRInput {
   return {

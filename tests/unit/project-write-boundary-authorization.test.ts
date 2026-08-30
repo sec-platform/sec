@@ -2,16 +2,15 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { writeText } from '../../platform/shared/fs.ts';
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { PhysicalNoFollowError } from '../../platform/shared/physical-no-follow.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
 import {
   failPipelineTransaction,
   startPipelineTransaction
-} from '../../platform/shared/pipeline-journal.ts';
-import { writeProjectBaseline } from '../../platform/shared/project-baseline.ts';
-import { checkProjectWriteBoundary } from '../../platform/shared/project-write-boundary.ts';
+} from '../../src/compiler/pipeline/journal.ts';
+import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { writeText } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { checkProjectWriteBoundary, writeProjectBaseline } from '../../src/workspace/project.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function lockFor(path: string): LockFile {
@@ -20,7 +19,7 @@ function lockFor(path: string): LockFile {
     app: {
       id: 'upgrade-authorization-test',
       name: 'upgrade-authorization-test',
-      stack: 'nextjs-ts-prisma-sqlite',
+      stack: 'typescript-library',
       mode: 'single-tenant'
     },
     resolvedBlocks: [],

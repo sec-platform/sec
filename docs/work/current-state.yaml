@@ -1,6 +1,6 @@
 schema: sec-current-state-live-v1
 resolver:
-  command: bun scripts/codex/document-control-plane.ts status --json
+  command: bun src/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -10,7 +10,7 @@ resolver:
 stableFacts:
   documentAuthority:
     registry: docs/authority.json
-    parser: platform/shared/documentation-authority-contract.ts
+    parser: src/control/documentation/authority.ts
   productAuthority:
     document: docs/product.md
   capabilityAuthority:

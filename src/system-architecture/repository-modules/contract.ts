@@ -1,0 +1,1144 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import nodePath from 'node:path';
+
+/**
+ * The repository graph frontier is owned here. Consumers must derive their
+ * source/test closure from this projection instead of keeping another list of
+ * platform/scripts/tooling roots. Descriptor coverage can become more precise
+ * over time without changing the graph owner or its import resolver.
+ */
+const SEC_MODULE_IMPORT_GRAPHS = Object.freeze([
+  'runtime',
+  'content'
+] as const);
+
+export type SecModuleDescriptor = Readonly<{
+  readonly moduleId: string;
+  readonly root: string;
+  readonly importGraph: typeof SEC_MODULE_IMPORT_GRAPHS[number];
+  readonly externalEntrypoints: readonly string[];
+  /** Low-level capabilities and public operations for which this module is the sole transport owner. */
+  readonly capabilityProviders: readonly SecModuleCapabilityProvider[];
+  /** Every external entrypoint must load before repository dependencies exist. */
+  readonly preDependencyBootstrap: boolean;
+}>;
+
+export type SecModuleCapabilityProvider = Readonly<{
+  readonly capability: string;
+  readonly operations: readonly string[];
+}>;
+
+export type SecModuleImportKind =
+  | 'static'
+  | 'dynamic'
+  | 'require';
+
+export type SecRepositoryModuleGraphImport = Readonly<{
+  readonly kind: SecModuleImportKind;
+  readonly specifier: string;
+}>;
+
+export type SecRepositoryModuleGraphReference = Readonly<{
+  readonly from: string;
+  readonly kind: SecModuleImportKind;
+  readonly specifier: string;
+  readonly candidateTargets: readonly string[];
+  readonly resolvedTarget: string | null;
+}>;
+
+export type SecRepositoryModuleGraph = Readonly<{
+  readonly files: readonly string[];
+  readonly references: readonly SecRepositoryModuleGraphReference[];
+  readonly unresolvedFiles: readonly string[];
+  readonly directConsumers: (modulePath: string) => readonly string[];
+  readonly directDependencies: (modulePath: string) => readonly string[];
+}>;
+
+export type SecRepositoryModuleBoundaryViolationCode =
+  | 'cross-package-aggregate-surface'
+  | 'module-dependency-cycle'
+  | 'pre-dependency-bootstrap-unavailable-package';
+
+export type SecRepositoryModuleBoundaryViolation = Readonly<{
+  readonly code: SecRepositoryModuleBoundaryViolationCode;
+  readonly from: string;
+  readonly to: string;
+  readonly detail: string;
+}>;
+
+/**
+ * A relocation is a semantic graph operation, rather than a path rename.
+ * Keeping the graph evidence on the entry prevents the physical transaction
+ * owner from silently moving a source whose import closure was not resolved.
+ * The transaction owner supplies the byte/identity preimage separately.
+ */
+export type SecRepositoryModuleRelocationUnresolvedReference = Readonly<{
+  readonly from: string;
+  readonly specifier: string;
+  readonly kind: SecModuleImportKind;
+  readonly reason: 'unresolved-target' | 'non-typescript-reference' | 'unresolved-source';
+}>;
+
+export type SecRepositoryModuleRelocationPlanEntry = Readonly<{
+  readonly sourcePath: string;
+  readonly targetPath: string;
+  readonly sourceKind: 'typescript' | 'unsupported';
+  readonly references: readonly SecRepositoryModuleGraphReference[];
+  readonly unresolvedReferences: readonly SecRepositoryModuleRelocationUnresolvedReference[];
+}>;
+
+export type SecRepositoryModuleGraphCompileInput = Readonly<{
+  readonly files: readonly string[];
+  /** Return null for an unavailable source. Empty source is a valid source. */
+  readonly readSource: (moduleFile: string) => string | null;
+  /**
+   * Optional cache seam. The parser remains owned by this module; callers may
+   * cache its returned records without implementing another parser.
+   */
+  readonly readImports?: (
+    moduleFile: string,
+    source: string
+  ) => readonly SecRepositoryModuleGraphImport[];
+  readonly unresolvedFiles?: readonly string[];
+}>;
+
+export type SecRepositoryModuleMembership = Readonly<{
+  readonly descriptors: readonly SecModuleDescriptor[];
+  readonly graphRoots: readonly string[];
+  readonly moduleRoots: readonly string[];
+  readonly moduleForPath: (path: string) => SecModuleDescriptor | null;
+}>;
+
+export type SecRepositoryModuleDescriptorSource = Readonly<{
+  readonly descriptorPath: string;
+  readonly source: string;
+}>;
+
+export type SecRepositoryModuleMembershipSnapshot = Readonly<{
+  readonly repositoryFiles: readonly string[];
+  readonly descriptorSources: readonly SecRepositoryModuleDescriptorSource[];
+}>;
+
+const SEC_MODULE_DESCRIPTOR_KEYS = Object.freeze([
+  'importGraph',
+  'externalEntrypoints',
+  'capabilityProviders',
+  'preDependencyBootstrap'
+] as const);
+
+const SEC_MODULE_ID_PATTERN = /^[a-z][a-z0-9.-]{1,127}$/u;
+const SEC_MODULE_PATH_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
+/**
+ * The repository no longer has a flat `src/modules` or `src/apps` layer.
+ * Keep this as an admission invariant at the graph owner so a stale path,
+ * descriptor, cache snapshot, or relocation request cannot silently recreate
+ * either retired namespace.
+ */
+const SEC_RETIRED_REPOSITORY_ROOTS = Object.freeze([
+  'src/apps',
+  'src/modules'
+] as const);
+
+function descriptorError(field: string, detail: string): never {
+  throw new Error(`invalid sec.module.json ${field}: ${detail}`);
+}
+
+function descriptorRecord(input: unknown): Record<string, unknown> {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return descriptorError('descriptor', 'expected an object');
+  }
+  const record = input as Record<string, unknown>;
+  const allowed = new Set<string>(SEC_MODULE_DESCRIPTOR_KEYS);
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) descriptorError(key, 'unknown field');
+  }
+  for (const key of SEC_MODULE_DESCRIPTOR_KEYS.filter(
+    (key) => key !== 'preDependencyBootstrap'
+      && key !== 'capabilityProviders'
+  )) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) {
+      descriptorError(key, 'required field is missing');
+    }
+  }
+  return record;
+}
+
+function descriptorString(
+  value: unknown,
+  field: string,
+  pattern?: RegExp
+): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    return descriptorError(field, 'expected a non-empty string');
+  }
+  if (pattern !== undefined && !pattern.test(value)) {
+    return descriptorError(field, 'has an invalid format');
+  }
+  return value;
+}
+
+function descriptorEnum<Value extends string>(
+  value: unknown,
+  field: string,
+  choices: readonly Value[]
+): Value {
+  if (typeof value !== 'string' || !choices.includes(value as Value)) {
+    return descriptorError(field, `expected one of ${choices.join(', ')}`);
+  }
+  return value as Value;
+}
+
+function descriptorStringArray(
+  value: unknown,
+  field: string,
+  itemPattern?: RegExp,
+  minimumLength = 0
+): readonly string[] {
+  if (!Array.isArray(value) || value.length > 128 || value.length < minimumLength) {
+    return descriptorError(field, `expected ${minimumLength === 0 ? 'at most' : 'between'} ${minimumLength === 0 ? '128' : `${minimumLength} and 128`} entries`);
+  }
+  const items = value.map((item, index) => descriptorString(item, `${field}[${index}]`, itemPattern));
+  if (new Set(items).size !== items.length) descriptorError(field, 'entries must be unique');
+  return Object.freeze(items);
+}
+
+function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabilityProvider[] {
+  if (!Array.isArray(value) || value.length > 32) {
+    return descriptorError('capabilityProviders', 'expected at most 32 entries');
+  }
+  const providers = value.map((item, index) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      return descriptorError(`capabilityProviders[${index}]`, 'expected an object');
+    }
+    const record = item as Record<string, unknown>;
+    if (Object.keys(record).some((key) => key !== 'capability' && key !== 'operations')) {
+      return descriptorError(`capabilityProviders[${index}]`, 'contains an unknown field');
+    }
+    const capability = descriptorString(
+      record.capability,
+      `capabilityProviders[${index}].capability`,
+      SEC_MODULE_ID_PATTERN
+    );
+    const operations = descriptorStringArray(
+      record.operations,
+      `capabilityProviders[${index}].operations`,
+      /^[A-Za-z_$][A-Za-z0-9_$]*$/u,
+      1
+    );
+    return Object.freeze({ capability, operations });
+  });
+  if (new Set(providers.map(({ capability }) => capability)).size !== providers.length) {
+    descriptorError('capabilityProviders', 'capability entries must be unique');
+  }
+  return Object.freeze(providers);
+}
+
+export function parseSecModuleDescriptor(
+  input: unknown,
+  descriptorPath: string
+): SecModuleDescriptor {
+  const record = descriptorRecord(input);
+  const normalizedDescriptorPath = normalizeSecRepositoryPath(descriptorPath);
+  if (isRetiredRepositoryRootPath(normalizedDescriptorPath)) {
+    descriptorError('descriptorPath', 'uses a retired repository root');
+  }
+  if (!isCanonicalSecRepositoryModulePath(normalizedDescriptorPath)
+      || nodePath.posix.basename(normalizedDescriptorPath) !== 'sec.module.json') {
+    descriptorError('descriptorPath', 'must be a canonical repository sec.module.json path');
+  }
+  const root = nodePath.posix.dirname(normalizedDescriptorPath);
+  if (root === '.') descriptorError('descriptorPath', 'repository-root descriptors are not supported');
+  const importGraph = descriptorEnum(record.importGraph, 'importGraph', SEC_MODULE_IMPORT_GRAPHS);
+  if (!root.startsWith('src/') && root !== 'tests' && importGraph !== 'content') {
+    descriptorError('descriptorPath', 'non-src module roots must be content-only');
+  }
+  const externalEntrypoints = descriptorStringArray(
+    record.externalEntrypoints,
+    'externalEntrypoints',
+    SEC_MODULE_PATH_PATTERN
+  );
+  const capabilityProviders = descriptorCapabilityProviders(record.capabilityProviders ?? []);
+  const preDependencyBootstrap = record.preDependencyBootstrap ?? false;
+  if (typeof preDependencyBootstrap !== 'boolean') {
+    descriptorError('preDependencyBootstrap', 'expected a boolean');
+  }
+  if (preDependencyBootstrap && externalEntrypoints.length === 0) {
+    descriptorError('preDependencyBootstrap', 'requires at least one external entrypoint');
+  }
+  return Object.freeze({
+    moduleId: secRepositoryModuleIdFromRoot(root),
+    root,
+    importGraph,
+    externalEntrypoints,
+    capabilityProviders,
+    preDependencyBootstrap
+  });
+}
+
+/**
+ * A package identity is a projection of its physical capability root. It is
+ * never repeated in sec.module.json, so a descriptor cannot self-assign a
+ * semantic owner or preserve a stale identity after relocation.
+ */
+export function secRepositoryModuleIdFromRoot(root: string): string {
+  const normalized = normalizeSecRepositoryPath(root);
+  if (normalized === 'tests') return 'verification.tests';
+  const isSource = normalized.startsWith('src/');
+  const segments = (isSource ? normalized.slice('src/'.length) : normalized).split('/');
+  if (segments.some((segment) => !/^[a-z][a-z0-9-]*$/u.test(segment))) {
+    return descriptorError('descriptorPath', 'contains a noncanonical capability segment');
+  }
+  return `${isSource ? '' : 'content.'}${segments.join('.')}`;
+}
+
+function pathWithinRoot(path: string, root: string): boolean {
+  const normalizedPath = path.toLocaleLowerCase('en-US');
+  const normalizedRoot = root.toLocaleLowerCase('en-US');
+  return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+}
+
+export function normalizeSecRepositoryPath(value: string): string {
+  return value.replaceAll('\\', '/').replace(/^\.\//u, '');
+}
+
+function isRetiredRepositoryRootPath(value: string): boolean {
+  const normalized = normalizeSecRepositoryPath(value).toLocaleLowerCase('en-US');
+  return SEC_RETIRED_REPOSITORY_ROOTS.some((root) => (
+    normalized === root || normalized.startsWith(`${root}/`)
+  ));
+}
+
+function normalizeRepositoryPath(value: string): string {
+  return normalizeSecRepositoryPath(value);
+}
+
+function isTestOnlyRepositoryModulePath(value: string): boolean {
+  const normalized = normalizeSecRepositoryPath(value);
+  return normalized.startsWith('tests/')
+    || normalized.includes('/test/')
+    || /(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized);
+}
+
+function absolutePathWithinRepository(repositoryRoot: string, relativePath: string): string {
+  const absolute = nodePath.resolve(repositoryRoot, ...relativePath.split('/'));
+  const relative = nodePath.relative(repositoryRoot, absolute);
+  if (relative === '..' || relative.startsWith(`..${nodePath.sep}`) || nodePath.isAbsolute(relative)) {
+    throw new Error(`repository module path escapes repository root: ${relativePath}`);
+  }
+  return absolute;
+}
+
+function skipWhitespaceAndComments(source: string, start: number): number {
+  let index = start;
+  while (index < source.length) {
+    if (/\s/u.test(source[index] ?? '')) {
+      index += 1;
+      continue;
+    }
+    if (source.startsWith('//', index)) {
+      const newline = source.indexOf('\n', index + 2);
+      index = newline === -1 ? source.length : newline + 1;
+      continue;
+    }
+    if (source.startsWith('/*', index)) {
+      const end = source.indexOf('*/', index + 2);
+      index = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    break;
+  }
+  return index;
+}
+
+function readQuotedString(
+  source: string,
+  start: number
+): { readonly value: string; readonly next: number } | null {
+  const quote = source[start];
+  if (quote !== '"' && quote !== "'") return null;
+  let value = '';
+  let index = start + 1;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === '\\') {
+      const escaped = source[index + 1];
+      if (escaped === undefined) return null;
+      value += escaped;
+      index += 2;
+      continue;
+    }
+    if (character === quote) return { value, next: index + 1 };
+    value += character;
+    index += 1;
+  }
+  return null;
+}
+
+function skipQuotedOrTemplate(source: string, start: number): number {
+  const quote = source[start];
+  if (quote === '`') {
+    let index = start + 1;
+    while (index < source.length) {
+      if (source[index] === '\\') {
+        index += 2;
+        continue;
+      }
+      if (source[index] === '`') return index + 1;
+      index += 1;
+    }
+    return source.length;
+  }
+  const parsed = readQuotedString(source, start);
+  return parsed?.next ?? source.length;
+}
+
+function isIdentifierStart(character: string | undefined): boolean {
+  return character !== undefined && /[A-Za-z_$]/u.test(character);
+}
+
+function isIdentifierPart(character: string | undefined): boolean {
+  return character !== undefined && /[A-Za-z0-9_$]/u.test(character);
+}
+
+type SecModuleImportReference = Readonly<{
+  readonly kind: SecModuleImportKind;
+  readonly specifier: string | null;
+}>;
+
+function extractImportReferences(source: string): readonly SecModuleImportReference[] {
+  const references: SecModuleImportReference[] = [];
+  let index = 0;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === '/' && source[index + 1] === '/') {
+      index = skipWhitespaceAndComments(source, index);
+      continue;
+    }
+    if (character === '/' && source[index + 1] === '*') {
+      index = skipWhitespaceAndComments(source, index);
+      continue;
+    }
+    if (character === '"' || character === "'" || character === '`') {
+      index = skipQuotedOrTemplate(source, index);
+      continue;
+    }
+    if (!isIdentifierStart(character)) {
+      index += 1;
+      continue;
+    }
+    const tokenStart = index;
+    index += 1;
+    while (isIdentifierPart(source[index])) index += 1;
+    const token = source.slice(tokenStart, index);
+    if (token !== 'import' && token !== 'export' && token !== 'require' && token !== 'from') {
+      continue;
+    }
+    let next = skipWhitespaceAndComments(source, index);
+    if (token === 'from') {
+      const parsed = readQuotedString(source, next);
+      if (parsed) references.push({ kind: 'static', specifier: parsed.value });
+      continue;
+    }
+    if (token === 'export') continue;
+    if (token === 'import' && source[next] !== '(') {
+      const parsed = readQuotedString(source, next);
+      if (parsed) references.push({ kind: 'static', specifier: parsed.value });
+      continue;
+    }
+    if (token === 'import' || token === 'require') {
+      if (source[next] === '(') {
+        next = skipWhitespaceAndComments(source, next + 1);
+        const parsed = readQuotedString(source, next);
+        if (parsed) {
+          references.push({
+            kind: token === 'import' ? 'dynamic' : 'require',
+            specifier: parsed.value
+          });
+        } else if (token === 'import') {
+          references.push({ kind: 'dynamic', specifier: null });
+        }
+      }
+    }
+  }
+  return Object.freeze(references);
+}
+
+/**
+ * The only import scanner exposed to downstream graph consumers.  It keeps
+ * the cache seam typed while preventing test-impact or another projection from
+ * growing a second source parser.
+ */
+export function scanSecRepositoryModuleImports(
+  source: string
+): readonly SecRepositoryModuleGraphImport[] {
+  return Object.freeze(extractImportReferences(source)
+    .filter((reference): reference is SecModuleImportReference & { readonly specifier: string } => (
+      reference.specifier !== null
+    ))
+    .map(({ kind, specifier }) => Object.freeze({ kind, specifier })));
+}
+
+/**
+ * Resolve import candidates without touching the filesystem.  Existing-file
+ * selection belongs to the graph compiler's supplied `files` snapshot; all
+ * candidate paths are retained so a removed target still affects consumers.
+ */
+export function resolveSecRepositoryModuleImportCandidates(
+  sourcePath: string,
+  specifier: string
+): readonly string[] {
+  if (!specifier.startsWith('.')) return Object.freeze([]);
+  const base = normalizeSecRepositoryPath(nodePath.posix.join(
+    nodePath.posix.dirname(normalizeSecRepositoryPath(sourcePath)),
+    specifier
+  ));
+  const extension = nodePath.posix.extname(base);
+  if (/^\.(?:[cm]?tsx?)$/u.test(extension)) return Object.freeze([base]);
+  if (/^\.(?:[cm]?jsx?)$/u.test(extension)) {
+    const stem = base.slice(0, -extension.length);
+    return Object.freeze([...new Set([
+      base,
+      `${stem}.ts`,
+      `${stem}.tsx`,
+      `${stem}.mts`,
+      `${stem}.cts`
+    ])].sort((left, right) => left.localeCompare(right, 'en-US')));
+  }
+  if (extension) return Object.freeze([base]);
+  return Object.freeze([
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.mts`,
+    `${base}.cts`,
+    `${base}.js`,
+    `${base}.jsx`,
+    `${base}.mjs`,
+    `${base}.cjs`,
+    `${base}/index.ts`,
+    `${base}/index.tsx`,
+    `${base}/index.mts`,
+    `${base}/index.cts`
+  ]);
+}
+
+function requiresLocalModuleResolution(specifier: string): boolean {
+  if (!specifier.startsWith('.')) return false;
+  const extension = nodePath.posix.extname(specifier);
+  return extension === '' || /^\.(?:[cm]?[jt]sx?)$/u.test(extension);
+}
+
+function isCanonicalSecRepositoryModulePath(value: string): boolean {
+  return value.length > 0
+    && !value.includes('\0')
+    && !value.startsWith('../')
+    && !value.includes('/../')
+    && !value.includes('/./')
+    && !nodePath.isAbsolute(value)
+    && !/^[A-Za-z]:/u.test(value)
+    && !isRetiredRepositoryRootPath(value)
+    && normalizeSecRepositoryPath(value) === value;
+}
+
+/**
+ * Compile one deterministic import graph from an already observed source
+ * snapshot.  This is the graph owner consumed by test-impact and any future
+ * reverse projection.  The optional import reader is cache-only: it must
+ * return records produced by `scanSecRepositoryModuleImports`.
+ */
+export function compileSecRepositoryModuleGraph(
+  input: SecRepositoryModuleGraphCompileInput
+): SecRepositoryModuleGraph {
+  const files = Object.freeze([...new Set(input.files.map((file) => {
+    const normalized = normalizeSecRepositoryPath(file);
+    if (isRetiredRepositoryRootPath(normalized)) {
+      throw new Error(`repository module graph path uses a retired repository root: ${file}`);
+    }
+    if (!isCanonicalSecRepositoryModulePath(normalized)) {
+      throw new Error(`repository module graph path is not canonical: ${file}`);
+    }
+    return normalized;
+  }))].sort((left, right) => left.localeCompare(right, 'en-US')));
+  const fileSet = new Set(files);
+  const unresolvedFiles = new Set<string>(
+    (input.unresolvedFiles ?? []).map(normalizeSecRepositoryPath)
+  );
+  const references: SecRepositoryModuleGraphReference[] = [];
+  const reverseConsumers = new Map<string, string[]>();
+  const forwardDependencies = new Map<string, Set<string>>();
+  for (const moduleFile of files) {
+    const source = input.readSource(moduleFile);
+    if (source === null) {
+      unresolvedFiles.add(moduleFile);
+      continue;
+    }
+    let imports: readonly SecRepositoryModuleGraphImport[];
+    try {
+      imports = input.readImports === undefined
+        ? scanSecRepositoryModuleImports(source)
+        : input.readImports(moduleFile, source);
+    } catch {
+      unresolvedFiles.add(moduleFile);
+      continue;
+    }
+    const uniqueImports = new Map<string, SecRepositoryModuleGraphImport>();
+    for (const reference of imports) {
+      uniqueImports.set(`${reference.kind}\0${reference.specifier}`, reference);
+    }
+    for (const reference of uniqueImports.values()) {
+      const candidates = resolveSecRepositoryModuleImportCandidates(
+        moduleFile,
+        reference.specifier
+      );
+      const retiredCandidate = candidates.find(isRetiredRepositoryRootPath);
+      if (retiredCandidate !== undefined) {
+        throw new Error(
+          `repository module import targets a retired repository root: `
+          + `${moduleFile} -> ${retiredCandidate}`
+        );
+      }
+      const local = reference.specifier.startsWith('.');
+      if (local && candidates.some((candidate) => !isCanonicalSecRepositoryModulePath(candidate))) {
+        unresolvedFiles.add(moduleFile);
+      }
+      const resolvedTarget = candidates.find((candidate) => fileSet.has(candidate)) ?? null;
+      if (resolvedTarget !== null
+          && isTestOnlyRepositoryModulePath(resolvedTarget)
+          && !isTestOnlyRepositoryModulePath(moduleFile)) {
+        throw new Error(
+          `production repository module imports test-only module: ${moduleFile} -> ${resolvedTarget}`
+        );
+      }
+      if (local
+          && resolvedTarget === null
+          && requiresLocalModuleResolution(reference.specifier)) {
+        unresolvedFiles.add(moduleFile);
+      }
+      const graphReference = Object.freeze({
+        from: moduleFile,
+        kind: reference.kind,
+        specifier: reference.specifier,
+        candidateTargets: Object.freeze([...new Set(candidates)].sort((left, right) => left.localeCompare(right, 'en-US'))),
+        resolvedTarget
+      });
+      references.push(graphReference);
+      if (resolvedTarget !== null) {
+        const dependencies = forwardDependencies.get(moduleFile) ?? new Set<string>();
+        dependencies.add(resolvedTarget);
+        forwardDependencies.set(moduleFile, dependencies);
+      }
+      for (const candidate of graphReference.candidateTargets) {
+        const consumers = reverseConsumers.get(candidate) ?? [];
+        if (!consumers.includes(moduleFile)) consumers.push(moduleFile);
+        reverseConsumers.set(candidate, consumers);
+      }
+    }
+  }
+  for (const consumers of reverseConsumers.values()) consumers.sort((left, right) => left.localeCompare(right, 'en-US'));
+  references.sort((left, right) => (
+    left.from.localeCompare(right.from, 'en-US')
+    || left.specifier.localeCompare(right.specifier, 'en-US')
+    || left.kind.localeCompare(right.kind, 'en-US')
+  ));
+  const frozenReferences = Object.freeze(references);
+  return Object.freeze({
+    files,
+    references: frozenReferences,
+    unresolvedFiles: Object.freeze([...unresolvedFiles].sort((left, right) => left.localeCompare(right, 'en-US'))),
+    directConsumers: (modulePath) => Object.freeze([
+      ...(reverseConsumers.get(normalizeSecRepositoryPath(modulePath)) ?? [])
+    ]),
+    directDependencies: (modulePath) => Object.freeze([
+      ...(forwardDependencies.get(normalizeSecRepositoryPath(modulePath)) ?? [])
+    ].sort((left, right) => left.localeCompare(right, 'en-US')))
+  });
+}
+
+function isTypeScriptRepositoryModulePath(value: string): boolean {
+  return /\.(?:[cm]?tsx?)$/u.test(value);
+}
+
+/**
+ * Derive one relocation entry from the already compiled repository graph.
+ * This is intentionally a pure projection: it never reads the worktree and
+ * never turns an unresolved/non-TypeScript edge into a best-effort move.
+ * Physical preimages and the effect transaction belong to the transaction
+ * owner, which consumes this entry.
+ */
+export function compileSecRepositoryModuleRelocationPlanEntry(
+  graph: SecRepositoryModuleGraph,
+  sourcePath: string,
+  targetPath: string
+): SecRepositoryModuleRelocationPlanEntry {
+  const source = normalizeSecRepositoryPath(sourcePath);
+  const target = normalizeSecRepositoryPath(targetPath);
+  if (isRetiredRepositoryRootPath(source) || isRetiredRepositoryRootPath(target)) {
+    throw new Error('repository relocation path uses a retired repository root');
+  }
+  if (!isCanonicalSecRepositoryModulePath(source)
+      || !isCanonicalSecRepositoryModulePath(target)
+      || source !== sourcePath
+      || target !== targetPath
+      || source === target) {
+    throw new Error('repository relocation paths must be distinct canonical repository paths');
+  }
+  const references = Object.freeze(graph.references.filter((reference) => reference.from === source));
+  const unresolved: SecRepositoryModuleRelocationUnresolvedReference[] = [];
+  const addUnresolved = (
+    reference: Readonly<{
+      readonly from: string;
+      readonly specifier: string;
+      readonly kind: SecModuleImportKind;
+    }>,
+    reason: SecRepositoryModuleRelocationUnresolvedReference['reason']
+  ): void => {
+    unresolved.push(Object.freeze({ ...reference, reason }));
+  };
+  const sourceIsTypeScript = isTypeScriptRepositoryModulePath(source);
+  if (!sourceIsTypeScript || !isTypeScriptRepositoryModulePath(target)) {
+    addUnresolved({ from: source, specifier: target, kind: 'static' }, 'non-typescript-reference');
+  }
+  if (!graph.files.includes(source) || graph.unresolvedFiles.includes(source)) {
+    addUnresolved({ from: source, specifier: '<source-file>', kind: 'static' }, 'unresolved-source');
+  }
+  for (const reference of references) {
+    if (reference.resolvedTarget === null) {
+      addUnresolved(reference, 'unresolved-target');
+      continue;
+    }
+    if (!isTypeScriptRepositoryModulePath(reference.resolvedTarget)) {
+      addUnresolved(reference, 'non-typescript-reference');
+    }
+  }
+  const uniqueUnresolved = new Map<string, SecRepositoryModuleRelocationUnresolvedReference>();
+  for (const reference of unresolved) {
+    uniqueUnresolved.set(
+      `${reference.from}\0${reference.kind}\0${reference.specifier}\0${reference.reason}`,
+      reference
+    );
+  }
+  return Object.freeze({
+    sourcePath: source,
+    targetPath: target,
+    sourceKind: sourceIsTypeScript && isTypeScriptRepositoryModulePath(target)
+      ? 'typescript' : 'unsupported',
+    references,
+    unresolvedReferences: Object.freeze([...uniqueUnresolved.values()])
+  });
+}
+
+/**
+ * Enforce the physical package contract on a graph compiled from one source
+ * snapshot. The low-level graph owns package membership, aggregate-barrel
+ * rejection, bootstrap admission, and the production DAG. It deliberately
+ * does not infer visibility from directory names: declaration visibility is a
+ * TypeScript symbol fact compiled by the Source Program Model.
+ */
+export function collectSecRepositoryModuleBoundaryViolations(
+  graph: SecRepositoryModuleGraph,
+  membership: SecRepositoryModuleMembership
+): readonly SecRepositoryModuleBoundaryViolation[] {
+  const violations: SecRepositoryModuleBoundaryViolation[] = [];
+  const crossModuleEdges = new Map<string, Set<string>>();
+  const edgeReferences = new Map<string, SecRepositoryModuleGraphReference>();
+  for (const reference of graph.references) {
+    if (reference.resolvedTarget === null) continue;
+    const sourceOwner = membership.moduleForPath(reference.from);
+    const targetOwner = membership.moduleForPath(reference.resolvedTarget);
+    if (sourceOwner === null || targetOwner === null || sourceOwner.moduleId === targetOwner.moduleId) continue;
+    // Tests observe production capabilities; they do not make the observed
+    // capability depend on the test package. Including test-origin edges in
+    // the production package DAG collapses every tested capability into one
+    // artificial SCC. Keep boundary checks below for test imports, but compile
+    // dependency cycles only from production-origin edges.
+    if (!isTestOnlyRepositoryModulePath(reference.from)) {
+      const dependencies = crossModuleEdges.get(sourceOwner.moduleId) ?? new Set<string>();
+      dependencies.add(targetOwner.moduleId);
+      crossModuleEdges.set(sourceOwner.moduleId, dependencies);
+      const edgeKey = `${sourceOwner.moduleId}\0${targetOwner.moduleId}`;
+      if (!edgeReferences.has(edgeKey)) edgeReferences.set(edgeKey, reference);
+    }
+    if (targetOwner.root.startsWith('src/')
+        && /^index\.[cm]?[jt]sx?$/u.test(nodePath.posix.basename(reference.resolvedTarget))) {
+      violations.push(Object.freeze({
+        code: 'cross-package-aggregate-surface',
+        from: reference.from,
+        to: reference.resolvedTarget,
+        detail: `${sourceOwner.moduleId} imports an aggregate barrel owned by ${targetOwner.moduleId}`
+      }));
+    }
+  }
+
+  const moduleIds = membership.descriptors.map(({ moduleId }) => moduleId).sort();
+  const indices = new Map<string, number>();
+  const lowLinks = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  let nextIndex = 0;
+  const visit = (moduleId: string): void => {
+    indices.set(moduleId, nextIndex);
+    lowLinks.set(moduleId, nextIndex);
+    nextIndex += 1;
+    stack.push(moduleId);
+    onStack.add(moduleId);
+    for (const dependency of [...(crossModuleEdges.get(moduleId) ?? [])].sort()) {
+      if (!indices.has(dependency)) {
+        visit(dependency);
+        lowLinks.set(moduleId, Math.min(lowLinks.get(moduleId)!, lowLinks.get(dependency)!));
+      } else if (onStack.has(dependency)) {
+        lowLinks.set(moduleId, Math.min(lowLinks.get(moduleId)!, indices.get(dependency)!));
+      }
+    }
+    if (lowLinks.get(moduleId) !== indices.get(moduleId)) return;
+    const component: string[] = [];
+    for (;;) {
+      const current = stack.pop()!;
+      onStack.delete(current);
+      component.push(current);
+      if (current === moduleId) break;
+    }
+    if (component.length < 2) return;
+    component.sort();
+    const componentSet = new Set(component);
+    const representative = component.flatMap((source) =>
+      [...(crossModuleEdges.get(source) ?? [])]
+        .filter((target) => componentSet.has(target))
+        .map((target) => ({ source, target, reference: edgeReferences.get(`${source}\0${target}`)! })))
+      .sort((left, right) => `${left.source}\0${left.target}`.localeCompare(`${right.source}\0${right.target}`, 'en-US'))[0];
+    violations.push(Object.freeze({
+      code: 'module-dependency-cycle',
+      from: representative.reference.from,
+      to: representative.reference.resolvedTarget!,
+      detail: `module dependency cycle: ${component.join(' -> ')} -> ${component[0]}`
+    }));
+  };
+  for (const moduleId of moduleIds) {
+    if (!indices.has(moduleId)) visit(moduleId);
+  }
+
+  for (const descriptor of membership.descriptors) {
+    if (!descriptor.preDependencyBootstrap) continue;
+    const pending = [...descriptor.externalEntrypoints];
+    const visited = new Set<string>();
+    while (pending.length > 0) {
+      const source = pending.pop()!;
+      if (visited.has(source)) continue;
+      visited.add(source);
+      for (const reference of graph.references) {
+        if (reference.from !== source) continue;
+        // Dynamic import is the explicit post-bootstrap loading boundary. The
+        // pre-dependency closure contains only modules evaluated by static
+        // import/require before dependency admission completes.
+        if (reference.kind === 'dynamic') continue;
+        if (reference.resolvedTarget !== null) {
+          pending.push(reference.resolvedTarget);
+          continue;
+        }
+        if (reference.specifier.startsWith('node:')
+            || reference.specifier.startsWith('bun:')
+            || reference.specifier === 'bun'
+            || (reference.specifier.startsWith('.') && reference.specifier.endsWith('.json'))) {
+          continue;
+        }
+        violations.push(Object.freeze({
+          code: 'pre-dependency-bootstrap-unavailable-package',
+          from: source,
+          to: reference.specifier,
+          detail: `${descriptor.moduleId} statically imports a package before dependency admission`
+        }));
+      }
+    }
+  }
+  const unique = new Map<string, SecRepositoryModuleBoundaryViolation>();
+  for (const violation of violations) {
+    unique.set(
+      `${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`,
+      violation
+    );
+  }
+  return Object.freeze([...unique.values()].sort((left, right) =>
+    `${left.code}\0${left.from}\0${left.to}\0${left.detail}`
+      .localeCompare(`${right.code}\0${right.from}\0${right.to}\0${right.detail}`, 'en-US')));
+}
+
+export function assertSecRepositoryModuleImportBoundaries(
+  graph: SecRepositoryModuleGraph,
+  membership: SecRepositoryModuleMembership
+): void {
+  const violations = collectSecRepositoryModuleBoundaryViolations(graph, membership);
+  if (violations.length === 0) return;
+  throw new Error([
+    `repository module boundary violations (${violations.length})`,
+    ...violations.map((violation) =>
+      `[${violation.code}] ${violation.from} -> ${violation.to}: ${violation.detail}`)
+  ].join('\n'));
+}
+
+function descriptorExternalEntrypointPaths(
+  descriptor: SecModuleDescriptor
+): readonly string[] {
+  return Object.freeze(descriptor.externalEntrypoints.map(normalizeRepositoryPath));
+}
+
+function descriptorGraphRoots(
+  descriptors: readonly SecModuleDescriptor[]
+): readonly string[] {
+  const candidates = [...new Set(descriptors.flatMap((descriptor) => [
+    descriptor.root,
+    ...descriptorExternalEntrypointPaths(descriptor)
+      .map((entrypoint) => normalizeRepositoryPath(nodePath.posix.dirname(entrypoint)))
+  ]))].sort((left, right) => (
+    left.split('/').length - right.split('/').length
+    || left.localeCompare(right, 'en-US')
+  ));
+  const roots: string[] = [];
+  for (const candidate of candidates) {
+    if (!roots.some((root) => pathWithinRoot(candidate, root))) roots.push(candidate);
+  }
+  return Object.freeze(roots.sort((left, right) => left.localeCompare(right, 'en-US')));
+}
+
+const DESCRIPTOR_DISCOVERY_IGNORED_DIRECTORIES = new Set([
+  '.git',
+  '.tmp',
+  'dist',
+  'node_modules',
+  'report'
+]);
+
+function discoverDescriptorPathsSync(
+  repositoryRoot: string
+): readonly string[] {
+  const paths: string[] = [];
+  const visit = (absoluteDirectory: string): void => {
+    const entries = readdirSync(absoluteDirectory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name, 'en-US'));
+    for (const entry of entries) {
+      if (entry.isDirectory() && DESCRIPTOR_DISCOVERY_IGNORED_DIRECTORIES.has(entry.name)) continue;
+      const absolutePath = nodePath.join(absoluteDirectory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolutePath);
+      } else if (entry.isFile() && entry.name === 'sec.module.json') {
+        paths.push(normalizeRepositoryPath(nodePath.relative(repositoryRoot, absolutePath)));
+      }
+    }
+  };
+  visit(repositoryRoot);
+  return Object.freeze(paths.sort((left, right) => left.localeCompare(right, 'en-US')));
+}
+
+/**
+ * Discover module descriptors once at the architecture owner.  Consumers may
+ * cache the returned membership projection, but may not rediscover descriptor
+ * roots or duplicate the path matcher.
+ */
+export function discoverSecModuleDescriptors(
+  repositoryRoot: string
+): readonly SecModuleDescriptor[] {
+  const absoluteRepositoryRoot = nodePath.resolve(repositoryRoot);
+  const descriptorPaths = discoverDescriptorPathsSync(absoluteRepositoryRoot);
+  return Object.freeze(descriptorPaths.map((descriptorPath) => {
+    const descriptorFile = nodePath.join(absoluteRepositoryRoot, ...descriptorPath.split('/'));
+    return parseSecModuleDescriptor(
+      JSON.parse(readFileSync(descriptorFile, 'utf8')),
+      descriptorPath
+    );
+  }).sort((left, right) => left.root.localeCompare(right.root, 'en-US')));
+}
+
+/**
+ * Compile only the descriptor/path facts consumed by the affected-test
+ * selector. Import edges are compiled separately from the selector's exact
+ * source snapshot; descriptors never rediscover or certify repository files.
+ */
+function compileSecRepositoryModuleMembershipFromDescriptors(
+  descriptors: readonly SecModuleDescriptor[],
+  observation: Readonly<{
+    directExecutableSources: (descriptor: SecModuleDescriptor) => readonly string[];
+    entrypointExists: (entrypoint: string) => boolean;
+    rootExists: (descriptor: SecModuleDescriptor) => boolean;
+  }>
+): SecRepositoryModuleMembership {
+  const moduleIds = new Set<string>();
+  const rootKeys = new Set<string>();
+  const bySpecificity = [...descriptors].sort((left, right) => right.root.length - left.root.length);
+  const entrypointOwners = new Map<string, SecModuleDescriptor>();
+  const capabilityOwners = new Map<string, SecModuleDescriptor>();
+  for (const descriptor of descriptors) {
+    if (isRetiredRepositoryRootPath(descriptor.root)) {
+      throw new Error(
+        `repository module descriptor uses a retired repository root: ${descriptor.root}`
+      );
+    }
+    if (moduleIds.has(descriptor.moduleId)) {
+      throw new Error(`duplicate repository moduleId: ${descriptor.moduleId}`);
+    }
+    moduleIds.add(descriptor.moduleId);
+    const rootKey = descriptor.root.toLocaleLowerCase('en-US');
+    if (rootKeys.has(rootKey)) throw new Error(`duplicate repository module root: ${descriptor.root}`);
+    rootKeys.add(rootKey);
+    if (!observation.rootExists(descriptor)) {
+      throw new Error(`repository module root is not a directory: ${descriptor.root}`);
+    }
+    if (descriptor.importGraph === 'content') {
+      const directExecutableSources = observation.directExecutableSources(descriptor);
+      if (directExecutableSources.length > 0) {
+        throw new Error(
+          `${descriptor.moduleId} content root mixes executable source: `
+          + directExecutableSources.join(', ')
+        );
+      }
+    }
+    for (const provider of descriptor.capabilityProviders) {
+      const previous = capabilityOwners.get(provider.capability);
+      if (previous !== undefined && previous.moduleId !== descriptor.moduleId) {
+        throw new Error(
+          `repository capability ${provider.capability} is claimed by multiple modules: `
+          + `${previous.moduleId}, ${descriptor.moduleId}`
+        );
+      }
+      capabilityOwners.set(provider.capability, descriptor);
+    }
+    for (const entrypoint of descriptorExternalEntrypointPaths(descriptor)) {
+      if (isRetiredRepositoryRootPath(entrypoint)) {
+        throw new Error(
+          `repository module entrypoint uses a retired repository root: ${entrypoint}`
+        );
+      }
+      const physicalOwner = bySpecificity.find((candidate) => pathWithinRoot(entrypoint, candidate.root));
+      if (physicalOwner !== undefined && physicalOwner.moduleId !== descriptor.moduleId) {
+        throw new Error(
+          `${descriptor.moduleId} external entrypoint is inside ${physicalOwner.moduleId}: ${entrypoint}`
+        );
+      }
+      if (!observation.entrypointExists(entrypoint)) {
+        throw new Error(`${descriptor.moduleId} entrypoint does not exist: ${entrypoint}`);
+      }
+      const entrypointKey = entrypoint.toLocaleLowerCase('en-US');
+      const previous = entrypointOwners.get(entrypointKey);
+      if (previous && previous.moduleId !== descriptor.moduleId) {
+        throw new Error(`repository module entrypoint is claimed by multiple modules: ${entrypoint}`);
+      }
+      entrypointOwners.set(entrypointKey, descriptor);
+    }
+  }
+  const ownershipRoots = bySpecificity.map((descriptor) => Object.freeze({
+    descriptor,
+    normalizedRoot: descriptor.root.toLocaleLowerCase('en-US')
+  }));
+  const moduleForPathCache = new Map<string, SecModuleDescriptor | null>();
+  const moduleForPath = (inputPath: string): SecModuleDescriptor | null => {
+    const normalized = normalizeSecRepositoryPath(inputPath);
+    const normalizedKey = normalized.toLocaleLowerCase('en-US');
+    const cached = moduleForPathCache.get(normalizedKey);
+    if (cached !== undefined || moduleForPathCache.has(normalizedKey)) return cached ?? null;
+    const owner = entrypointOwners.get(normalizedKey)
+      ?? ownershipRoots.find(({ normalizedRoot }) =>
+        normalizedKey === normalizedRoot || normalizedKey.startsWith(`${normalizedRoot}/`))
+        ?.descriptor
+      ?? null;
+    moduleForPathCache.set(normalizedKey, owner);
+    return owner;
+  };
+  return Object.freeze({
+    descriptors,
+    graphRoots: descriptorGraphRoots(descriptors),
+    moduleRoots: Object.freeze(descriptors.map(({ root }) => root)),
+    moduleForPath
+  });
+}
+
+/**
+ * Compile membership from one immutable repository snapshot. Descriptor bytes,
+ * repository paths, and the resulting ownership projection therefore share a
+ * single revision instead of consulting the caller's mutable filesystem.
+ */
+export function compileSecRepositoryModuleMembershipSnapshot(
+  snapshot: SecRepositoryModuleMembershipSnapshot
+): SecRepositoryModuleMembership {
+  const repositoryFiles = Object.freeze(snapshot.repositoryFiles.map((repositoryFile) => {
+    const normalized = normalizeSecRepositoryPath(repositoryFile);
+    if (isRetiredRepositoryRootPath(normalized)) {
+      throw new Error(
+        `repository snapshot path uses a retired repository root: ${repositoryFile}`
+      );
+    }
+    if (normalized !== repositoryFile || !isCanonicalSecRepositoryModulePath(normalized)) {
+      throw new Error(`repository snapshot contains a non-canonical path: ${repositoryFile}`);
+    }
+    return normalized;
+  }).sort((left, right) => left.localeCompare(right, 'en-US')));
+  if (new Set(repositoryFiles).size !== repositoryFiles.length) {
+    throw new Error('repository snapshot contains duplicate paths');
+  }
+  const repositoryFileSet = new Set(repositoryFiles);
+  const expectedDescriptorPaths = repositoryFiles.filter((repositoryFile) => (
+    nodePath.posix.basename(repositoryFile) === 'sec.module.json'
+  ));
+  if (expectedDescriptorPaths.length === 0) {
+    throw new Error('repository snapshot module descriptor census is missing');
+  }
+  const descriptorSourceByPath = new Map<string, string>();
+  for (const descriptorSource of snapshot.descriptorSources) {
+    const descriptorPath = normalizeSecRepositoryPath(descriptorSource.descriptorPath);
+    if (descriptorPath !== descriptorSource.descriptorPath
+        || nodePath.posix.basename(descriptorPath) !== 'sec.module.json'
+        || !repositoryFileSet.has(descriptorPath)) {
+      throw new Error(`repository snapshot descriptor is not one observed file: ${descriptorSource.descriptorPath}`);
+    }
+    if (descriptorSourceByPath.has(descriptorPath)) {
+      throw new Error(`repository snapshot contains duplicate descriptor bytes: ${descriptorPath}`);
+    }
+    descriptorSourceByPath.set(descriptorPath, descriptorSource.source);
+  }
+  const missingDescriptorPaths = expectedDescriptorPaths.filter((descriptorPath) => (
+    !descriptorSourceByPath.has(descriptorPath)
+  ));
+  if (missingDescriptorPaths.length > 0
+      || descriptorSourceByPath.size !== expectedDescriptorPaths.length) {
+    throw new Error(
+      `repository snapshot descriptor census is incomplete: ${missingDescriptorPaths.join(', ') || 'unexpected descriptor'}`
+    );
+  }
+  const descriptors = Object.freeze(expectedDescriptorPaths.map((descriptorPath) => {
+    const source = descriptorSourceByPath.get(descriptorPath)!;
+    try {
+      return parseSecModuleDescriptor(JSON.parse(source), descriptorPath);
+    } catch (error) {
+      throw new Error(`repository snapshot descriptor is invalid: ${descriptorPath}`, { cause: error });
+    }
+  }));
+  return compileSecRepositoryModuleMembershipFromDescriptors(descriptors, {
+    rootExists: (descriptor) => repositoryFileSet.has(`${descriptor.root}/sec.module.json`),
+    entrypointExists: (entrypoint) => repositoryFileSet.has(entrypoint),
+    directExecutableSources: (descriptor) => repositoryFiles
+      .filter((repositoryFile) => (
+        nodePath.posix.dirname(repositoryFile) === descriptor.root
+        && /\.(?:[cm]?[jt]sx?)$/u.test(nodePath.posix.basename(repositoryFile))
+      ))
+      .map((repositoryFile) => nodePath.posix.basename(repositoryFile))
+  });
+}
+
+export function compileSecRepositoryModuleMembership(
+  repositoryRoot: string
+): SecRepositoryModuleMembership {
+  const absoluteRepositoryRoot = nodePath.resolve(repositoryRoot);
+  const descriptors = discoverSecModuleDescriptors(absoluteRepositoryRoot);
+  return compileSecRepositoryModuleMembershipFromDescriptors(descriptors, {
+    rootExists: (descriptor) => statSync(absolutePathWithinRepository(
+      absoluteRepositoryRoot,
+      descriptor.root
+    )).isDirectory(),
+    entrypointExists: (entrypoint) => statSync(absolutePathWithinRepository(
+      absoluteRepositoryRoot,
+      entrypoint
+    )).isFile(),
+    directExecutableSources: (descriptor) => readdirSync(absolutePathWithinRepository(
+      absoluteRepositoryRoot,
+      descriptor.root
+    ), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.(?:[cm]?[jt]sx?)$/u.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((left, right) => left.localeCompare(right, 'en-US'))
+  });
+}

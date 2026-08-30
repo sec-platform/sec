@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { validatePlan } from '../../platform/compiler/parse/load-plan.ts';
-import { normalizeAndValidateSemanticManifestFields } from '../../platform/compiler/parse/validate-semantic-manifest.ts';
-import { isCanonicalAcceptanceId } from '../../platform/shared/acceptance-identity.ts';
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-import type { BlockManifest, PlanFile } from '../../platform/shared/plan-manifest-types.ts';
+import type { BlockManifest, PlanFile } from '../../src/compiler/contract.ts';
+import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
+import { validatePlan } from '../../src/compiler/parse/load-plan.ts';
+import { normalizeAndValidateSemanticManifestFields } from '../../src/compiler/parse/validate-semantic-manifest.ts';
+import { isCanonicalAcceptanceId } from '../../src/semantic/acceptance/contract/identity.ts';
 
 function basePlan(acceptanceIds: readonly string[]): PlanFile {
   return {

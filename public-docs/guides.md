@@ -53,7 +53,7 @@ Engineering Operation
 
 不要把“AI 生成了一段 patch”直接等同于 canonical mutation。
 
-## AI / Workbench
+## AI / 机器接口
 
 AI 提交 proposal，不直接取得 canonical write authority。
 
@@ -67,7 +67,7 @@ AI 提交 proposal，不直接取得 canonical write authority。
 - required Verification；
 - final terminal。
 
-精确 owner：`docs/workbench-and-ai-operations.md`。
+精确 owner：`docs/agent-and-user-machine-interface.md`。
 
 ## Block / Capability
 

@@ -28,8 +28,8 @@
       "priority": "P1",
       "kind": "deterministic-typecheck-failure",
       "observed": [
-        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:56 requires assertDirectory to return Promise<void>",
-        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:215 passes an async expression-body callback whose returned assertion resolves to string"
+        "src/compiler/semantic-mutation/mutation-terminal-record.ts:56 requires assertDirectory to return Promise<void>",
+        "src/compiler/semantic-mutation/mutation-terminal-record.ts:215 passes an async expression-body callback whose returned assertion resolves to string"
       ],
       "impact": "The implementation does not satisfy the required typecheck gate and cannot be frozen or promoted.",
       "requiredResolution": "Wrap the assertion in a block-body async callback that awaits it without returning its string result, then validate only in the next authorized combined batch."
@@ -39,12 +39,12 @@
       "priority": "P1",
       "kind": "journal-containment-and-cleanup-violation",
       "observed": [
-        "platform/compiler/semantic-mutation/mutation-recovery-record.ts:326 can create a temp record after the pre-open containment check",
-        "platform/compiler/semantic-mutation/mutation-recovery-record.ts:343 reasserts containment before line 345 cleanup, so a failing post-open containment check can prevent rm",
-        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:198 can create a completion temp after the pre-open containment check",
-        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:219 reasserts containment before line 221 cleanup, so a failing post-open containment check can prevent rm",
-        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:350 can create a rejected-terminal temp after the pre-open containment check",
-        "platform/compiler/semantic-mutation/mutation-terminal-record.ts:375 reasserts containment before line 377 cleanup, so a failing post-open containment check can prevent rm",
+        "src/compiler/semantic-mutation/mutation-recovery-record.ts:326 can create a temp record after the pre-open containment check",
+        "src/compiler/semantic-mutation/mutation-recovery-record.ts:343 reasserts containment before line 345 cleanup, so a failing post-open containment check can prevent rm",
+        "src/compiler/semantic-mutation/mutation-terminal-record.ts:198 can create a completion temp after the pre-open containment check",
+        "src/compiler/semantic-mutation/mutation-terminal-record.ts:219 reasserts containment before line 221 cleanup, so a failing post-open containment check can prevent rm",
+        "src/compiler/semantic-mutation/mutation-terminal-record.ts:350 can create a rejected-terminal temp after the pre-open containment check",
+        "src/compiler/semantic-mutation/mutation-terminal-record.ts:375 reasserts containment before line 377 cleanup, so a failing post-open containment check can prevent rm",
         "tests/unit/semantic-mutation-apply.test.ts:543-597 covers pre-created junction rejection but not a directory swap after the pre-open check"
       ],
       "impact": "If a verified journal directory is replaced by a junction between the pre-open check and open, the temp file may be created outside the transaction boundary. The post-open check rejects the write, but the finally block can throw before cleanup and leave the external temp behind.",

@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
 
 import {
   adaptWorkspace,
@@ -10,16 +9,16 @@ import {
   lockWorkspace,
   resolveWorkspace,
   verifyWorkspace
-} from '../../platform/orchestrator.ts';
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+} from '../../src/compiler/orchestration/cli.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 test('workspace private registry blocks resolve, compose, and verify through an explicit reference host', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-private-registry-');
 
-  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
+  await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   await installPrivateBannerBlock(workspaceRoot);
   await addBlock(workspaceRoot, 'private/banner-basic');
 
@@ -38,7 +37,7 @@ test('workspace private registry blocks resolve, compose, and verify through an 
   expect(locked.passStatus.lock).toBe('succeeded');
   await explainWorkspace(workspaceRoot);
 
-  const { provenancePath, reviewSummaryPath, sourceViewPath } = getWorkspacePaths(workspaceRoot);
+  const { provenancePath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
   const provenance = await readJson<{
     artifacts: Array<{ path: string; registrySourceId?: string; registryKind?: string; registryLocation?: string }>;
   }>(provenancePath);
@@ -54,7 +53,7 @@ test('workspace private registry blocks resolve, compose, and verify through an 
       registrySourceId?: string;
       registryKind?: string;
       registryLocation?: string;
-      runtimeKind?: 'page' | 'api';
+      runtimeKind?: 'library' | 'service';
       vertical?: string;
       relatedBlocks?: string[];
     }>;
@@ -64,8 +63,4 @@ test('workspace private registry blocks resolve, compose, and verify through an 
     registryKind: 'private',
     registryLocation: 'workspace'
   });
-
-  const sourceView = await fs.readFile(sourceViewPath, 'utf8');
-  expect(sourceView).toContain('Registry');
-  expect(sourceView).toContain('private (private, workspace)');
 }, 120000);

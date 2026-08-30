@@ -1,8 +1,4 @@
-import {
-  SEMANTIC_VIEW_FORMAT_VERSION,
-  SEMANTIC_VIEW_SET_FORMAT_VERSION,
-  type SemanticViewSet
-} from '../../platform/shared/semantic-view-types.ts';
+import { SEMANTIC_VIEW_FORMAT_VERSION, SEMANTIC_VIEW_SET_FORMAT_VERSION, type SemanticViewSet } from '../../src/semantic/projection/contract/types.ts';
 
 export function buildSemanticViewFixture(
   inputRevision = 'sha256:fixture-input',

@@ -1,0 +1,46 @@
+id: worklog/basic
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - auth/session
+  - tenant/context
+  - ticket/read
+provides:
+  - ticket/worklog
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/worklog/worklog-service.ts
+    to: src/installed/worklog/worklog-service.ts
+  - kind: merge-prisma
+    from: files/prisma/worklog.prisma
+    to: prisma/schema.prisma
+  - kind: copy
+    from: files/tests/unit/worklog-service.test.ts
+    to: tests/unit/worklog-service.test.ts
+  - kind: copy
+    from: files/tests/acceptance/worklog-flow.test.ts
+    to: tests/acceptance/worklog-flow.test.ts
+pins:
+  inputs:
+    - id: ticket_created
+      type: TicketRecord
+      required: true
+    - id: actor_identity
+      type: Session
+      required: true
+  outputs:
+    - id: worklog_recorded
+      type: WorklogRecord
+      required: true
+slots: []
+acceptance:
+  - id: worklog_can_be_recorded
+    dependsOn:
+      - ticket_can_be_created
+    covers:
+      blocks:
+        - ticket/basic
+        - worklog/basic

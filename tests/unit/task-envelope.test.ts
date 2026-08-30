@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { buildTaskEnvelope } from '../../platform/compiler/synthesize/build-task-envelope.ts';
+import { buildTaskEnvelope } from '../../src/compiler/synthesize/build-task-envelope.ts';
 import { buildCustomerNormalizerLock, buildCustomerNormalizerPlan } from '../helpers/repair-fixtures.ts';
 
 test('task envelope preserves typed slot contracts and fixed write constraints', () => {

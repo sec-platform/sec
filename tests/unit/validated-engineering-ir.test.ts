@@ -1,16 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import {
-  buildEngineeringIR,
-  buildValidatedEngineeringIR,
-  indexValidatedEngineeringIR,
-  validateEngineeringIR,
-  type BuildEngineeringIRInput
-} from '../../platform/compiler/index.ts';
-import { factAssertionId } from '../../platform/compiler/ir/ir-fact-store.ts';
-import { factIdentity } from '../../platform/compiler/ir/ir-identity.ts';
-import { digest } from '../../platform/compiler/ir/ir-revision.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { indexValidatedEngineeringIR } from '../../src/compiler/ir/index-engineering-ir.ts';
+import { factAssertionId } from '../../src/compiler/ir/ir-fact-store.ts';
+import { factIdentity } from '../../src/compiler/ir/ir-identity.ts';
+import { digest } from '../../src/compiler/ir/ir-revision.ts';
+import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 
 function input(): BuildEngineeringIRInput {
   return {
@@ -20,11 +16,11 @@ function input(): BuildEngineeringIRInput {
       version: '0.1.0',
       kind: 'capability',
       installOrder: 1,
-      manifestPath: 'platform/registry/official/ticket.basic/block.manifest.yaml',
+      manifestPath: 'catalog/registry/official/ticket.basic/block.manifest.yaml',
       registrySourceId: 'official',
       registryKind: 'official',
       registryLocation: 'compiler',
-      registryPath: 'platform/registry/official'
+      registryPath: 'catalog/registry/official'
     }],
     manifests: [],
     slotTasks: [],

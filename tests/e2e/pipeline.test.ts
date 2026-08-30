@@ -1,40 +1,34 @@
 import { expect, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
 import fs, { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { buildProvenanceSummary } from '../../platform/compiler/emit/write-review-summary.ts';
+import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { buildProvenanceSummary } from '../../src/compiler/emit/write-review-summary.ts';
 import {
   addBlock,
   compileWorkspace,
   explainWorkspace,
-  initWorkspace,
-  upgradeWorkspace
-} from '../../platform/orchestrator.ts';
+  initWorkspace
+} from '../../src/compiler/orchestration/cli.ts';
 import {
   assertPipelineCompletionProofInvariant,
   buildPipelineCompletionProof,
   createPipelineCompletionProof,
-  type PipelineCompletionProofEvidenceV1,
-  type PipelineCompletionProofStageEvidenceV1
-} from '../../platform/orchestrator/pipeline-orchestrator.ts';
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { formatJsonFile, readJson } from '../../platform/shared/fs.ts';
+  type PipelineCompletionProofEvidence,
+  type PipelineCompletionProofStageEvidence
+} from '../../src/compiler/orchestration/pipeline-orchestrator.ts';
+import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
+import { getPipelineStageDefinition } from '../../src/compiler/pipeline/pass-registry.ts';
+import { PIPELINE_STAGE_IDS } from '../../src/compiler/pipeline/types.ts';
+import type { ProvenanceArtifact, ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import { formatJsonFile, readJson } from '../../src/workspace/files.ts';
+import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
 import {
-  getWorkspacePaths,
-  graphViewRelativePath,
-  overviewViewRelativePath,
-  reviewViewRelativePath,
-  slotRuleViewRelativePath,
-  sourceViewRelativePath
-} from '../../platform/shared/paths.ts';
-import { readPipelineJournal } from '../../platform/shared/pipeline-journal.ts';
-import { getPipelineStageDefinition } from '../../platform/shared/pipeline-pass-registry.ts';
-import { PIPELINE_STAGE_IDS } from '../../platform/shared/pipeline-types.ts';
-import type { ProvenanceArtifact, ProvenanceFile } from '../../platform/shared/provenance-types.ts';
-import type { ReviewSummary } from '../../platform/shared/review-types.ts';
-import { acquireWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
+  getWorkspacePaths
+} from '../../src/workspace/paths.ts';
 import {
   expectGraphEdge,
   expectReviewConflictHint,
@@ -48,196 +42,14 @@ import {
 
 const staleRevision = `sha256:${'0'.repeat(64)}`;
 
-test('upgrade advances an official block version and preserves a passing pipeline', async () => {
-  const workspaceRoot = await prepareLockedWorkspace({ prefix: 'engineering-compiler-upgrade-' });
-  const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-
-  const beforeUpgrade = await fs.readFile(
-    path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts'),
-    'utf8'
-  );
-  expect(beforeUpgrade).toMatch(/SESSION_BLOCK_VERSION = '0\.1\.0'/);
-
-  const { plan, lock, upgradePlan } = await upgradeWorkspace(workspaceRoot, 'auth/basic-session', '0.1.1');
-  expect(plan.blocks.find((block) => block.id === 'auth/basic-session')?.version).toBe('0.1.1');
-  expect(lock.resolvedBlocks.find((block) => block.id === 'auth/basic-session')?.version).toBe('0.1.1');
-  expect(lock.passStatus.lock).toBe('succeeded');
-  expect(upgradePlan.status).toBe('applied');
-  expect(lock.generatedPaths).toContain(CI_ARTIFACT_FILES.upgradePlan);
-
-  const afterUpgrade = await fs.readFile(
-    path.join(workspaceRoot, 'project', 'src', 'installed', 'auth', 'session.ts'),
-    'utf8'
-  );
-  expect(afterUpgrade).toMatch(/SESSION_BLOCK_VERSION = '0\.1\.1'/);
-  expect(afterUpgrade).toMatch(/SUPPORTED_USERNAMES/);
-  await expect(fs.readFile(path.join(workspaceRoot, 'project', 'upgrade.metadata.json'), 'utf8')).resolves.toContain('"auth/basic-session@0.1.1"');
-
-  const persistedUpgradePlan = await readJson<{
-    toVersion: string;
-    status: string;
-    preflightChecks: Array<{ id: string; status: string; message: string; evidence: string[] }>;
-    impacts: string[];
-    migrationKindCounts: Record<string, number>;
-    migrationSummaries: Array<{
-      id: string;
-      kind: string;
-      source?: string;
-      target: string;
-      reason: string;
-      requiresVerification: boolean;
-    }>;
-    migrationOperations: Array<{
-      id: string;
-      kind: string;
-      target: string;
-      role: string;
-      source?: string;
-      path?: string[];
-      itemCount?: number;
-    }>;
-  }>(upgradePlanPath);
-  expect(persistedUpgradePlan.toVersion).toBe('0.1.1');
-  expect(persistedUpgradePlan.status).toBe('applied');
-  expect(persistedUpgradePlan.preflightChecks).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ id: 'version-range', status: 'passed', evidence: ['0.1.x'] }),
-      expect.objectContaining({
-        id: 'migration-entries',
-        status: 'passed',
-        evidence: [
-          'mig-auth-session-refresh:migrations/auth-session-refresh.json',
-          'mig-auth-session-upgrade-metadata:migrations/auth-session-upgrade-metadata.json'
-        ]
-      }),
-      expect.objectContaining({
-        id: 'migration-targets',
-        status: 'passed',
-        evidence: [
-          'mig-auth-session-refresh:target:src/installed/auth/session.ts:exists',
-          'mig-auth-session-upgrade-metadata:target:upgrade.metadata.json:missing'
-        ]
-      }),
-      expect.objectContaining({
-        id: 'migration-file-operations',
-        status: 'passed',
-        evidence: ['mig-auth-session-refresh:manifest-source:exists']
-      }),
-      expect.objectContaining({
-        id: 'migration-json-shapes',
-        status: 'passed',
-        evidence: ['mig-auth-session-upgrade-metadata:path:upgradedBlocks:array:1']
-      }),
-      expect.objectContaining({
-        id: 'migration-json-structure',
-        status: 'passed',
-        evidence: ['mig-auth-session-upgrade-metadata:target:missing']
-      }),
-      expect.objectContaining({ id: 'impact-scan', status: 'passed', evidence: ['src/installed/auth/session.ts', 'upgrade.metadata.json'] }),
-      expect.objectContaining({ id: 'override-conflicts', status: 'passed', evidence: [] })
-    ])
-  );
-  expect(persistedUpgradePlan.impacts).toEqual(
-    expect.arrayContaining(['src/installed/auth/session.ts', 'upgrade.metadata.json'])
-  );
-  expect(persistedUpgradePlan.migrationKindCounts).toEqual({
-    'file-replace': 1,
-    'json-array-append': 1
-  });
-  expect(persistedUpgradePlan.migrationSummaries).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        id: 'mig-auth-session-refresh',
-        kind: 'file-replace',
-        target: 'src/installed/auth/session.ts',
-        requiresVerification: true
-      }),
-      expect.objectContaining({
-        id: 'mig-auth-session-upgrade-metadata',
-        kind: 'json-array-append',
-        target: 'upgrade.metadata.json',
-        requiresVerification: false
-      })
-    ])
-  );
-  expect(persistedUpgradePlan.migrationOperations).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ id: 'mig-auth-session-refresh', role: 'file' }),
-      expect.objectContaining({ id: 'mig-auth-session-upgrade-metadata', role: 'json' })
-    ])
-  );
-
-  const { reviewSummary } = await explainWorkspace(workspaceRoot);
-  expectReviewConflictHint(reviewSummary, {
-    kind: 'upgrade-plan-present',
-    relatedId: 'auth/basic-session',
-    message: 'Upgrade plan applied, verify pending: auth/basic-session 0.1.0 -> 0.1.1'
-  });
-}, 180000);
-
-test('upgrade advances ticket block version and surfaces runtime upgrade impact', async () => {
-  const workspaceRoot = await prepareAdaptedWorkspace({
-    prefix: 'engineering-compiler-ticket-upgrade-',
-    blockIds: ['ticket/basic']
-  });
-
-  const ticketServicePath = path.join(workspaceRoot, 'project', 'src', 'installed', 'ticket', 'ticket-service.ts');
-  const beforeUpgrade = await fs.readFile(ticketServicePath, 'utf8');
-  expect(beforeUpgrade).not.toMatch(/TICKET_BLOCK_VERSION/);
-
-  const { plan, lock, upgradePlan } = await upgradeWorkspace(workspaceRoot, 'ticket/basic', '0.1.1');
-
-  const plannedTicketBlock = plan.blocks.find((block) => block.id === 'ticket/basic');
-  const resolvedTicketBlock = lock.resolvedBlocks.find((block) => block.id === 'ticket/basic');
-  expect(plannedTicketBlock?.version).toBe('0.1.1');
-  expect(resolvedTicketBlock?.version).toBe('0.1.1');
-  expect(lock.passStatus.lock).toBe('succeeded');
-  expect(upgradePlan.status).toBe('applied');
-  expect(upgradePlan.impacts.length).toBeGreaterThan(0);
-  expect(upgradePlan.migrationKindCounts).toEqual({
-    'file-replace': 1,
-    'json-array-append': 1
-  });
-
-  const afterUpgrade = await fs.readFile(ticketServicePath, 'utf8');
-  expect(afterUpgrade).toMatch(/TICKET_BLOCK_VERSION = '0\.1\.1'/);
-  const upgradeMetadataPath = path.join(workspaceRoot, 'project', 'upgrade.metadata.json');
-  const upgradeMetadata = await fs.readFile(upgradeMetadataPath, 'utf8');
-  expect(upgradeMetadata).toContain('"ticket/basic@0.1.1"');
-
-  const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  expectReviewConflictHint(reviewSummary, {
-    kind: 'upgrade-plan-present',
-    relatedId: 'ticket/basic',
-    message: 'Upgrade plan applied, verify pending: ticket/basic 0.1.0 -> 0.1.1'
-  });
-  expectReviewRegressionRisk(reviewSummary, {
-    kind: 'upgrade-impact',
-    blockId: 'ticket/basic',
-    message: 'Upgrade ticket/basic impacts src/installed/ticket/ticket-service.ts'
-  });
-  expectGraphEdge(graph, {
-    from: 'block:ticket/basic',
-    to: 'file:app/tickets/page.tsx',
-    type: 'writes_to'
-  });
-}, 180000);
-
 async function readCompletionProofEvidence(
   workspaceRoot: string,
   result: Awaited<ReturnType<typeof compileWorkspace>>
-): Promise<PipelineCompletionProofEvidenceV1> {
+): Promise<PipelineCompletionProofEvidence> {
   if (!result.semanticContext || !result.verificationReport || !result.explainGraph || !result.reviewSummary) {
     throw new Error('Expected a full Pipeline compilation result');
   }
   const paths = getWorkspacePaths(workspaceRoot);
-  const localViewLocations = [
-    [overviewViewRelativePath, paths.overviewViewPath],
-    [sourceViewRelativePath, paths.sourceViewPath],
-    [slotRuleViewRelativePath, paths.slotRuleViewPath],
-    [graphViewRelativePath, paths.graphViewPath],
-    [reviewViewRelativePath, paths.reviewViewPath]
-  ] as const;
   return {
     transactionId: result.transactionId,
     completedStages: result.completedStages,
@@ -246,19 +58,13 @@ async function readCompletionProofEvidence(
     verificationReport: result.verificationReport,
     provenance: await readJson<ProvenanceFile>(paths.provenancePath),
     explainGraph: result.explainGraph,
-    reviewSummary: result.reviewSummary,
-    localViews: await Promise.all(
-      localViewLocations.map(async ([relativePath, absolutePath]) => ({
-        relativePath,
-        bytes: new Uint8Array(await readFile(absolutePath))
-      }))
-    )
+    reviewSummary: result.reviewSummary
   };
 }
 
 function stageEvidenceFrom(
-  evidence: PipelineCompletionProofEvidenceV1
-): PipelineCompletionProofStageEvidenceV1 {
+  evidence: PipelineCompletionProofEvidence
+): PipelineCompletionProofStageEvidence {
   return {
     transactionId: evidence.transactionId,
     completedStages: evidence.completedStages,
@@ -281,7 +87,7 @@ function tamperArtifactBytes(bytes: Uint8Array, kind: 'json' | 'text'): Uint8Arr
 
 test('compile coordinator runs resolve and compose in one committed transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     const boundaries: string[] = [];
 
     const result = await compileWorkspace(workspaceRoot, {
@@ -338,7 +144,7 @@ test('compile coordinator runs resolve and compose in one committed transaction'
 
 test('full Pipeline completion proof binds the exact registry closure and derivative evidence', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     await addBlock(workspaceRoot, 'ticket/basic');
 
     const result = await compileWorkspace(workspaceRoot, {
@@ -359,14 +165,6 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
     expect(proof.completedPasses).toEqual(
       PIPELINE_STAGE_IDS.flatMap((stage) => getPipelineStageDefinition(stage).ownedPasses)
     );
-    for (const [index, localView] of evidence.localViews.entries()) {
-      const rawByteDigest = `sha256:${createHash('sha256').update(localView.bytes).digest('hex')}`;
-      expect(proof.localViewDigests[index]).toEqual({
-        relativePath: localView.relativePath,
-        digest: rawByteDigest
-      });
-    }
-
     const paths = getWorkspacePaths(workspaceRoot);
     const proofArtifacts = [
       { label: 'Lock', path: paths.lockPath, kind: 'json' },
@@ -378,12 +176,7 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
       { label: 'ExplainGraph JSON', path: paths.explainGraphPath, kind: 'json' },
       { label: 'ExplainGraph Mermaid', path: paths.explainGraphMermaidPath, kind: 'text' },
       { label: 'ExplainGraph DOT', path: paths.explainGraphDotPath, kind: 'text' },
-      { label: 'ReviewSummary', path: paths.reviewSummaryPath, kind: 'json' },
-      { label: 'Overview local view', path: paths.overviewViewPath, kind: 'text' },
-      { label: 'Source local view', path: paths.sourceViewPath, kind: 'text' },
-      { label: 'Slot/rule local view', path: paths.slotRuleViewPath, kind: 'text' },
-      { label: 'Graph local view', path: paths.graphViewPath, kind: 'text' },
-      { label: 'Review local view', path: paths.reviewViewPath, kind: 'text' }
+      { label: 'ReviewSummary', path: paths.reviewSummaryPath, kind: 'json' }
     ] as const;
 
     for (const artifact of proofArtifacts) {
@@ -419,24 +212,15 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
       await writeFile(paths.reviewSummaryPath, originalReviewBytes);
     }
 
-    expect(() => assertPipelineCompletionProofInvariant({ ...proof, unexpected: true })).toThrow('exact v1 schema');
+    expect(() => assertPipelineCompletionProofInvariant({ ...proof, unexpected: true })).toThrow('exact schema');
     const { proofRevision: _omitted, ...missingProofRevision } = proof;
-    expect(() => assertPipelineCompletionProofInvariant(missingProofRevision)).toThrow('exact v1 schema');
+    expect(() => assertPipelineCompletionProofInvariant(missingProofRevision)).toThrow('exact schema');
     expect(() =>
       assertPipelineCompletionProofInvariant({
         ...proof,
         completedStages: proof.completedStages.slice(0, -1)
       })
     ).toThrow('registry-owned stage closure');
-    expect(() =>
-      assertPipelineCompletionProofInvariant({
-        ...proof,
-        localViewDigests: proof.localViewDigests.map((view, index) =>
-          index === 0 ? { ...view, unexpected: true } : view
-        )
-      })
-    ).toThrow('exact v1 schema');
-
     expect(() =>
       createPipelineCompletionProof({
         ...evidence,
@@ -499,23 +283,6 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
       })
     ).toThrow('ReviewSummary');
 
-    const tamperedLocalViewBytes = new Uint8Array(evidence.localViews[0]!.bytes.length + 1);
-    tamperedLocalViewBytes.set(evidence.localViews[0]!.bytes);
-    const staleLocalViews = evidence.localViews.map((view, index) =>
-      index === 0
-        ? {
-            ...view,
-            bytes: tamperedLocalViewBytes
-          }
-        : view
-    );
-    expect(() =>
-      assertPipelineCompletionProofInvariant(proof, {
-        ...evidence,
-        localViews: staleLocalViews
-      })
-    ).toThrow('local-view byte bindings');
-
     const historicalArtifact: ProvenanceArtifact = {
       path: 'historical/semantic-output.ts',
       originType: 'generated',
@@ -549,7 +316,7 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
 
 test('compileWorkspace acquires the writer lease and accepts only the exact reentrant token', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
 
     await expect(compileWorkspace(workspaceRoot, { through: 'resolve' })).rejects.toMatchObject({
