@@ -3,7 +3,8 @@ import path from 'node:path';
 import { parseUpgradeDiagnosticsJson, parseUpgradePlanJson, type UpgradeDiagnostics, type UpgradePlan } from '../../change-management/upgrade/contract/types.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryLeaf, retainOptionalDirectory } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
 import type { PolicyReport } from '../policies/contract/types.ts';
 import { readOptionalPolicyReport, validatePolicyReport } from '../policies/runtime/report-authority.ts';
 
@@ -34,7 +35,10 @@ export function readReviewGovernanceReports(
   workspaceRoot: string,
   policySnapshot?: PolicyReport
 ): ReviewGovernanceReports {
-  const { policyReportPath, repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+  const policyReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
+  const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
+  const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics);
+  const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
   const workflowRoot = path.dirname(repairPlanPath);
   if (
     path.dirname(upgradePlanPath) !== workflowRoot ||

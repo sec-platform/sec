@@ -13,16 +13,29 @@ import { parseRepairPlanJson, REPAIR_PLAN_FORMAT_VERSION, type RepairPlan } from
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { buildCustomerNormalizerLock, buildCustomerNormalizerPlan } from '../helpers/repair-fixtures.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-const plan = buildCustomerNormalizerPlan();
-const lock = buildCustomerNormalizerLock({
+const NATIVE_SLOT_TARGET = 'src/slots/customer_normalizer.ts';
+const basePlan = buildCustomerNormalizerPlan();
+const plan = {
+  ...basePlan,
+  slots: basePlan.slots.map((slot) => ({ ...slot, target: NATIVE_SLOT_TARGET }))
+};
+const baseLock = buildCustomerNormalizerLock({
   slotStatus: 'filled',
   passStatus: { repair: 'skipped' }
 });
+const lock = {
+  ...baseLock,
+  slotTasks: baseLock.slotTasks.map((slot) => ({
+    ...slot,
+    target: NATIVE_SLOT_TARGET,
+    writableZones: [NATIVE_SLOT_TARGET]
+  }))
+};
 
 const policyViolations: VerificationReport['policy']['violations'] = [
   {
@@ -77,7 +90,9 @@ const failedReport: VerificationReport = buildPassingReviewReport({
 
 test('writeRepairPlan persists generated path in a missing generated directory', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { lockPath, repairPlanPath } = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
+    const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
     const persistedLockInput: LockFile = {
       ...lock,
       generatedPaths: []
@@ -90,6 +105,7 @@ test('writeRepairPlan persists generated path in a missing generated directory',
       tasks: []
     };
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await fs.mkdir(path.dirname(provenancePath), { recursive: true });
     await writeJson(lockPath, persistedLockInput);
 
     await expect(writeRepairPlan(
@@ -205,7 +221,7 @@ test('repair plan includes structured failure points for slot and spec failures'
     forbiddenOperationCount: 4,
     testCount: 2,
     failureTargetCount: 3,
-    writeBounds: ['custom/customer_normalizer.ts'],
+    writeBounds: [NATIVE_SLOT_TARGET],
     requiredSymbols: ['normalizeCustomerInput'],
     forbiddenOperations: [
       'modify_other_files',
@@ -290,7 +306,7 @@ test('repair plan falls back when failed summary has no lane details', () => {
         phase: 'repair',
         sourceSlotId: 'customer_normalizer',
         targetBlock: 'entity/customer-basic',
-        targetFile: 'custom/customer_normalizer.ts'
+        targetFile: NATIVE_SLOT_TARGET
       })
     ],
     blockers: [

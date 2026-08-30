@@ -7,7 +7,13 @@ import { countLineDiff } from '../../system-architecture/foundation/runtime/diff
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { writeJson, writeText, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../workspace/paths.ts';
+import {
+  getWorkspacePaths,
+  isCanonicalWorkspaceArtifactPath,
+  resolvePathInside,
+  resolveWorkspaceArtifactPath,
+  testsRelativePath
+} from '../../workspace/paths.ts';
 import type { LockFile, PlanFile } from '../contract.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
 import { CompilerError } from '../errors.ts';
@@ -42,9 +48,13 @@ function slotWritePath(task: { sourcePath?: string; target: string }): string {
 function resolveRepairTargetPath(workspaceRoot: string, root: string, targetFile: string): string {
   let targetPath: string;
   try {
-    targetPath = resolveWorkspaceArtifactPath(workspaceRoot, targetFile);
+    targetPath = isCanonicalWorkspaceArtifactPath(targetFile)
+      ? resolveWorkspaceArtifactPath(workspaceRoot, targetFile)
+      : resolvePathInside(workspaceRoot, targetFile) ?? (() => {
+          throw new Error('target escapes native workspace root');
+        })();
   } catch {
-    throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${targetFile}" escapes workspace root`);
+    throw new CompilerError('REPAIR-SCOPE-004', `Repair target "${targetFile}" escapes native workspace root`);
   }
   const rootWithSeparator = `${root}${path.sep}`;
   if (targetPath !== root && !targetPath.startsWith(rootWithSeparator)) {
@@ -131,7 +141,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
     kind: 'unit',
     issueType: 'slot',
     repairable: true,
-    artifactPath: 'tests/unit',
+    artifactPath: `${testsRelativePath}/unit`,
     message: report.fast.logs.stderr || 'Unit verification failed'
   });
   addFailedRepairPoint(points, report.acceptance.status, {
@@ -139,7 +149,7 @@ function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
     kind: 'acceptance',
     issueType: 'slot',
     repairable: true,
-    artifactPath: 'tests/acceptance',
+    artifactPath: `${testsRelativePath}/acceptance`,
     message: report.fast.logs.stderr || 'Acceptance verification failed',
     targetIds: uniqueSorted(report.acceptance.failed)
   });
@@ -360,10 +370,18 @@ export async function applyRepairPlan(
   for (const { targetPath, slotTask, source } of writeTasks) {
     await writeText(targetPath, source, commitFence);
     if (slotTask.sourcePath) {
-      const runtimeTargetPath = resolveWorkspaceArtifactPath(workspaceRoot, slotTask.target);
+      const runtimeTargetPath = isCanonicalWorkspaceArtifactPath(slotTask.target)
+        ? resolveWorkspaceArtifactPath(workspaceRoot, slotTask.target)
+        : resolvePathInside(workspaceRoot, slotTask.target);
+      if (!runtimeTargetPath) {
+        throw new CompilerError(
+          'REPAIR-SCOPE-004',
+          `Repair runtime target "${slotTask.target}" escapes native workspace root`
+        );
+      }
       await writeText(
         runtimeTargetPath,
-        rebaseRelativeImports(source, slotTask.sourcePath, toProjectRuntimePath(slotTask.target)),
+        rebaseRelativeImports(source, slotTask.sourcePath, slotTask.target),
         commitFence
       );
     }
@@ -377,7 +395,8 @@ export async function writeRepairPlan(
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<void> {
-  const { repairPlanPath, lockPath } = getWorkspacePaths(workspaceRoot);
+  const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   await writeJson(repairPlanPath, validateRepairPlan(plan), commitFence);
   await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_FILES.repairPlan], commitFence);
   await writeProvenance(workspaceRoot, lock, commitFence);
