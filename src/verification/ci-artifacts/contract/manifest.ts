@@ -1,7 +1,5 @@
-import { platformCommand } from '../../../interface/cli/contract.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { countPositiveValues } from '../../../system-architecture/foundation/runtime/collections.ts';
-import { posixPath } from '../../../workspace/paths.ts';
 import {
   CI_ARTIFACT_FORMAT_VERSION,
   CI_ARTIFACT_KINDS,
@@ -14,24 +12,31 @@ import {
   type CiArtifactUploadGroup
 } from './types.ts';
 
+/**
+ * The artifact contract owns every publishable path below this root. A
+ * workspace path resolver consumes this root; it does not copy the artifact
+ * subpath table into another owner.
+ */
+export const CI_ARTIFACT_ROOT_RELATIVE_PATH = '.sec/artifacts' as const;
+
 export const CI_ARTIFACT_FILES = {
-  artifactManifest: 'control/ci/artifacts.json',
-  graphLock: 'control/state/graph.lock.json',
-  provenance: 'control/provenance/provenance.json',
-  blockUsageMap: 'control/evidence/block-usage-map.json',
-  installManifest: 'control/evidence/install-manifest.json',
-  verificationReport: 'control/evidence/verification-report.json',
-  runtimeReport: 'control/evidence/runtime-report.json',
-  policyReport: 'control/evidence/policy-report.json',
-  acceptanceCoverage: 'control/evidence/acceptance-coverage.json',
-  explainGraph: 'control/graph/explain-graph.json',
-  explainGraphMermaid: 'control/graph/explain-graph.mmd',
-  explainGraphDot: 'control/graph/explain-graph.dot',
-  reviewSummary: 'control/evidence/review-summary.json',
-  repairPlan: 'control/workflow/repair-plan.json',
-  upgradePlan: 'control/workflow/upgrade-plan.json',
-  upgradeDiagnostics: 'control/workflow/upgrade-diagnostics.json',
-  testResults: 'test-results/**'
+  artifactManifest: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/ci/artifacts.json`,
+  graphLock: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/state/graph.lock.json`,
+  provenance: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/provenance/provenance.json`,
+  blockUsageMap: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/block-usage-map.json`,
+  installManifest: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/install-manifest.json`,
+  verificationReport: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/verification-report.json`,
+  runtimeReport: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/runtime-report.json`,
+  policyReport: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/policy-report.json`,
+  acceptanceCoverage: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/acceptance-coverage.json`,
+  explainGraph: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/graph/explain-graph.json`,
+  explainGraphMermaid: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/graph/explain-graph.mmd`,
+  explainGraphDot: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/graph/explain-graph.dot`,
+  reviewSummary: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/review-summary.json`,
+  repairPlan: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/workflow/repair-plan.json`,
+  upgradePlan: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/workflow/upgrade-plan.json`,
+  upgradeDiagnostics: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/workflow/upgrade-diagnostics.json`,
+  testResults: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/test-results/**`
 } as const;
 
 export const CI_ARTIFACT_MANIFEST_PATH = CI_ARTIFACT_FILES.artifactManifest;
@@ -77,8 +82,17 @@ export const CI_EMIT_ARTIFACT_PATHS: readonly string[] = [
   ...CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS
 ];
 
+function slashPath(value: string): string {
+  return value.replaceAll('\\', '/');
+}
+
 export function normalizeCiArtifactPath(value: string): string {
-  return posixPath(value);
+  return slashPath(value);
+}
+
+export function isCiArtifactPath(artifactPath: string): boolean {
+  return artifactPath === CI_ARTIFACT_ROOT_RELATIVE_PATH
+    || artifactPath.startsWith(`${CI_ARTIFACT_ROOT_RELATIVE_PATH}/`);
 }
 
 export function uniqueSortedCiArtifactPaths(values: readonly string[]): string[] {
@@ -98,14 +112,15 @@ export function ciArtifactUploadName(artifactPath: string): string {
 }
 
 export function isCiContractArtifactPath(artifactPath: string): boolean {
-  return artifactPath.startsWith('generated/') && artifactPath.endsWith('-contract.json');
+  return artifactPath.startsWith(`${CI_ARTIFACT_ROOT_RELATIVE_PATH}/generated/`)
+    && artifactPath.endsWith('-contract.json');
 }
 
 export function ciArtifactKindForPath(artifactPath: string): CiArtifactKind {
   if (isCiContractArtifactPath(artifactPath)) {
     return 'contract';
   }
-  if (artifactPath.startsWith('test-results/')) {
+  if (artifactPath.startsWith(`${CI_ARTIFACT_ROOT_RELATIVE_PATH}/test-results/`)) {
     return 'test';
   }
   return 'governance';
@@ -179,8 +194,4 @@ export function emptyCiArtifactManifest(): CiArtifactManifest {
     uploadGroups: [],
     missing: []
   };
-}
-
-export function ciArtifactUploadCommand(kind: CiArtifactKind): string {
-  return platformCommand('artifacts', '--paths', '--json', '--compact', '--kind', kind);
 }

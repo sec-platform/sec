@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
-import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, ciArtifactUploadCommand } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { CI_ARTIFACT_KINDS } from '../../src/verification/ci-artifacts/contract/types.ts';
-import { buildCiContract, formatCiContract } from '../../src/verification/ci/contract/core.ts';
+import { buildCiContract, ciArtifactUploadCommand, formatCiContract } from '../../src/verification/ci/contract/core.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import {
   expectCiContractSelfConsistent,
