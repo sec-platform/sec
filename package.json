@@ -11,6 +11,7 @@
   "scripts": {
     "sec": "bun ./src/interface/cli/index.ts",
     "dev": "bun ./src/development/runner/cli.ts",
+    "dev:status": "bun src/control/documentation/document-control-plane.ts status",
     "dev:continue": "bun src/control/continuation/local-continuation.ts continue",
     "sec:closeout": "bun src/control/branch-lifecycle/trusted-runtime-closeout.ts",
     "sec:main-health": "bun src/control/branch-lifecycle/trusted-runtime-closeout.ts --main-health",

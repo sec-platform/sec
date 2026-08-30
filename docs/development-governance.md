@@ -1186,7 +1186,7 @@ raw-byte observation、显式CAS publication与紧邻readback；scratch解释无
 所有 provider-neutral GitHub publication 在 effect 前后都从 repository observation解析default branch，
 要求PR base ref、base SHA与该分支同一subject，并把首次default-branch identity带到effect后的readback；
 `main`只是当前仓库事实，不能硬编码为Provider合同。所有可能物化到Windows、Linux或macOS的逻辑写入计划
-则先消费`src/system-architecture/foundation/paths.ts`的唯一portable collision key，对大小写与Unicode case
+则先消费`src/system-architecture/foundation/contract/logical-path.ts`的唯一portable collision key，对大小写与Unicode case
 别名作保守去重，再进入任何并行writer。该lexical key只负责跨平台计划唯一性；retained no-follow
 filesystem authority仍负责实际containment、symlink/reparse、existing-entry与FileId/inode identity，二者不得
 互相替代或各自复制一份路径规则。

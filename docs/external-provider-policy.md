@@ -85,6 +85,19 @@ readback。禁止为 Git、GitHub CLI、MainHealth 或 WorkSelection 各造一�
 EnvironmentSpec 和相应的 live provider session。unsupported platform 必须返回 typed unavailable，不能静默使用
 另一个平台或裸 PATH 命令。
 
+维护者更正：通用 `windows-control-cli-session` 不能作为 document-control 的 Git/GitHub semantic admission。
+这个前提已经被当前实现证伪：canonical Git read owner 已能从 retained executable/cwd 产生 bounded session，
+而 document-control 的旧 gate 仍只返回 `installed-executable-capability-unproven`，且没有 ready consumer，导致
+Windows 上的 canonical control-plane 入口永久自锁。修复不得删除物理 identity、deadline、resource ledger、
+credential、Effect 或 terminal readback 边界，也不得恢复裸 PATH fallback；必须把调用图原子收敛为：Git observation
+只消费唯一 Git read session，外部 scratch index/object 写入只消费窄 grammar 的 Git mutation session，GitHub
+observation/effect 只消费各自的 credential-bound semantic session。document-control 自有的通用
+`run('git' | 'gh', argv)`、重复 admission 和任意 per-command budget reset 在替代 consumer 完成后必须
+consumer-zero 并删除。迁移完成的机器条件是：production raw Git/GH transport 为零；每个 operation 只有一个
+absolute deadline 与 aggregate ledger；read session 无 mutation operation；mutation 无 lease/CAS/readback 时零
+Effect；GitHub host/principal/credential 漂移 typed block；旧 Windows gate 无 production consumer。任何一项未知时
+保持 typed unresolved，不能把当前 gate 的存在或测试绿灯投影为 control-plane capability ready。
+
 ## 目标
 
 SEC 不应因目标宏大而重造所有轮子，也不能把外部工具的能力、宣传、类型声明或内部数据模型直接变成 Core truth。
