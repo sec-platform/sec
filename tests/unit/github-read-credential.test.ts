@@ -3,10 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import {
-  GitHubCredentialUnavailableError,
-  readGitHubToken
-} from '../../src/external-capabilities/github-read/credential.ts';
+import { readGitHubToken } from '../../src/external-capabilities/github-read/credential.ts';
 
 if (import.meta.main && path.basename(process.execPath).toLowerCase() === 'gh.exe') {
   const forbidden = [
@@ -82,7 +79,7 @@ test.serial('rejects an expired deadline before executable discovery', async () 
     cwd: root,
     hostname: 'github.com',
     deadlineAtUnixMs: Date.now() - 1
-  })).rejects.toEqual(expect.objectContaining<Partial<GitHubCredentialUnavailableError>>({
+  })).rejects.toEqual(expect.objectContaining({
     code: 'github-credential-unavailable',
     reason: 'deadline'
   }));
