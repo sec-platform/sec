@@ -3,17 +3,30 @@ import { applyPatch, parsePatch } from 'diff';
 
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
+import { sourceProgramSurfaceForPath } from './contract.ts';
 import {
   buildSourceProgramAggregateImportReductionPatch,
-  compileRepositorySourceProgramModel,
   compileSourceProgramAggregateImportReductionPlan,
   compileSourceProgramVersionSuffixReductionPlan,
+  renderSourceProgramVersionSuffixReductionPatch
+} from './reduction.ts';
+import {
+  compileRepositorySourceProgramModel,
+  summarizeSourceProgramTopology
+} from './repository.ts';
+import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
-  querySourceProgramModel,
-  renderSourceProgramVersionSuffixReductionPatch,
-  summarizeSourceProgramTopology
-} from './index.ts';
+  querySourceProgramModel
+} from './typescript.ts';
+
+test('source program classifies catalog-installed code as a resource surface', () => {
+  expect(sourceProgramSurfaceForPath(
+    'catalog/registry/official/example/files/src/installed/example.ts'
+  )).toBe('resource');
+  expect(sourceProgramSurfaceForPath('src/example.ts')).toBe('production');
+  expect(sourceProgramSurfaceForPath('tests/unit/example.test.ts')).toBe('test');
+});
 
 test('source program model finds capability producers, consumers, literals, and opaque paths deterministically', () => {
   const lazyDomainPath = 'src/example/lazy-domain.ts';

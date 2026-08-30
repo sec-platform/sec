@@ -9,6 +9,24 @@ export type SourceProgramSurface =
   | 'workflow'
   | 'resource';
 
+const SOURCE_PROGRAM_TEST_PATH =
+  /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$/iu;
+const SOURCE_PROGRAM_FIXTURE_PATH =
+  /(?:^|\/)(?:fixtures?|snapshots?)(?:\/|$)/iu;
+const SOURCE_PROGRAM_RESOURCE_EXTENSION =
+  /\.(?:json|ya?ml|toml|md|markdown|txt|sql|prisma|ejs|template)$/iu;
+const SOURCE_PROGRAM_CATALOG_RESOURCE_PATH =
+  /^catalog\/registry\/[^/]+\/.+\/files\//iu;
+
+export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
+  if (SOURCE_PROGRAM_FIXTURE_PATH.test(repositoryPath)) return 'fixture';
+  if (SOURCE_PROGRAM_TEST_PATH.test(repositoryPath)) return 'test';
+  if (SOURCE_PROGRAM_CATALOG_RESOURCE_PATH.test(repositoryPath)) return 'resource';
+  if (repositoryPath.startsWith('.github/workflows/')) return 'workflow';
+  if (SOURCE_PROGRAM_RESOURCE_EXTENSION.test(repositoryPath)) return 'resource';
+  return 'production';
+}
+
 export interface SourceProgramSpan {
   readonly start: number;
   readonly end: number;
