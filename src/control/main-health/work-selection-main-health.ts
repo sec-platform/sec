@@ -1,11 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
-import { isolatedGitReadEnvironment } from '../../external-capabilities/git-read/runtime/session.ts';
-import { resolveWindowsControlCliSession, type WindowsControlCliSessionFailure, type WindowsControlCliSessionRequest } from '../../external-capabilities/windows-control-cli/runtime/session.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createNoFollowDirectoryChain, inspectExactNoFollowDirectoryPresence, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { runCommand } from '../../runtime-state/physical/runtime/process.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -121,6 +118,8 @@ const MAIN_HEALTH_GITHUB_MAX_REQUESTS = 2_048;
 const MAIN_HEALTH_GITHUB_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 const MAIN_HEALTH_GITHUB_MAX_READ_SESSIONS = 2;
 export const MAIN_HEALTH_GITHUB_READ_OPERATION_TIMEOUT_MS = 10 * 60_000;
+const MAIN_HEALTH_GITHUB_API_ORIGIN = 'https://api.github.com' as const;
+const MAIN_HEALTH_GITHUB_CREDENTIAL_MAX_TOKEN_BYTES = 1024 as const;
 
 function createMainHealthGitHubRequestSession(input: Readonly<{
   capability?: MainHealthGitHubCapability;
@@ -1249,19 +1248,27 @@ class MainHealthGitHubProviderError extends Error {
   }
 }
 
-export class MainHealthControlCliUnavailableError extends MainHealthGitHubProviderError {
-  readonly code = 'main-health-control-cli-unavailable' as const;
+export type MainHealthGitHubCredentialUnavailableReason =
+  'credential-provider-unavailable';
 
-  constructor(
-    readonly providerStatus: WindowsControlCliSessionFailure['status'],
-    readonly providerReason: string,
-    readonly providerDetailDigest: `sha256:${string}`
-  ) {
-    super(
-      `MainHealth Windows control CLI is ${providerStatus}: ${providerReason} `
-      + `(${providerDetailDigest})`
-    );
-    this.name = 'MainHealthControlCliUnavailableErrorV2';
+/**
+ * Typed provider-unavailable result for the credential admission boundary.
+ * Its fixed redacted digest carries no host path, executable, configuration,
+ * or other credential-adjacent material into semantic observations.
+ */
+export class MainHealthGitHubCredentialUnavailableError extends MainHealthGitHubProviderError {
+  readonly code = 'credential-provider-unavailable' as const;
+  readonly detailDigest: `sha256:${string}`;
+
+  constructor(readonly reason: MainHealthGitHubCredentialUnavailableReason) {
+    const detailDigest = sha256(Object.freeze({
+      schema: 'sec-main-health-github-credential-unavailable-v1',
+      reason,
+      detailDigest: rawSha256('canonical physical credential provider has not issued')
+    })) as `sha256:${string}`;
+    super(`MainHealth GitHub credential provider is unavailable (${detailDigest})`);
+    this.name = 'MainHealthGitHubCredentialUnavailableErrorV1';
+    this.detailDigest = detailDigest;
   }
 }
 
@@ -1336,7 +1343,7 @@ async function requestMainHealthGitHubJsonWithToken<T>(input: Readonly<{
     await Promise.race([operation, deadline]);
   try {
     const response = await raceDeadline(Promise.resolve().then(() => input.fetchImpl(
-      `https://api.github.com${input.endpoint}`,
+      `${MAIN_HEALTH_GITHUB_API_ORIGIN}${input.endpoint}`,
       {
         method: input.method,
         headers: {
@@ -1661,89 +1668,15 @@ export async function observeWorkSelectionGitHubBranchRefs(input: Readonly<{
   throw new MainHealthGitHubProviderError('WorkSelection GitHub branch census exceeded 100,000 refs');
 }
 
-function mainHealthGitHubCredentialEnvironment(): NodeJS.ProcessEnv {
-  const environment = isolatedGitReadEnvironment();
-  const forbidden = new Set([
-    'GH_HOST',
-    'GH_TOKEN',
-    'GITHUB_TOKEN',
-    'GH_ENTERPRISE_TOKEN',
-    'GITHUB_ENTERPRISE_TOKEN',
-    'GITHUB_HOST'
-  ]);
-  for (const key of Object.keys(environment)) {
-    if (forbidden.has(key.toUpperCase())) delete environment[key];
-  }
-  environment.GH_PROMPT_DISABLED = '1';
-  return environment;
-}
-
-function mainHealthWindowsControlCliRequest(
-  repositoryRoot: string,
-  session: MainHealthGitHubRequestSession
-): WindowsControlCliSessionRequest {
-  const deadlineAtUnixMs = Math.floor(Math.min(
-    session.deadlineAt,
-    session.operationBudget?.deadlineAt ?? session.deadlineAt
-  ));
-  return Object.freeze({
-    workingDirectoryPathHint: path.resolve(repositoryRoot),
-    deadlineAtUnixMs,
-    // Two provider-owned version probes plus the one credential read.
-    maxCommandsPerSession: 3,
-    maxTotalArgumentBytes: 64 * 1024,
-    maxTotalOutputBytes: 4 * 1024 * 1024 + 16 * 1024,
-    maxRootObservedBytes: 256 * 1024 * 1024,
-    maxExecutableObservedBytes: 256 * 1024 * 1024,
-    maxRecords: 100_000,
-    maxReopenRefreshes: 10_000,
-    maxSettlementAttempts: 3
-  });
-}
-
 async function readMainHealthGitHubToken(
-  repositoryRoot: string,
+  _repositoryRoot: string,
   session: MainHealthGitHubRequestSession
 ): Promise<string> {
-  const timeoutMs = remainingMainHealthGitHubSessionMs(session);
-  reserveMainHealthGitHubRequest(session);
-  if (process.platform === 'win32') {
-    const resolution = resolveWindowsControlCliSession(
-      mainHealthWindowsControlCliRequest(repositoryRoot, session)
-    );
-    throw new MainHealthControlCliUnavailableError(
-      resolution.status,
-      resolution.reason,
-      resolution.detailDigest
-    );
-  }
-  let result;
-  try {
-    result = await runCommand('gh', ['auth', 'token', '--hostname', 'github.com'], {
-      cwd: path.resolve(repositoryRoot),
-      envMode: 'replace',
-      env: mainHealthGitHubCredentialEnvironment(),
-      timeoutMs,
-      signal: session.abortController.signal,
-      maxStdoutBytes: 16 * 1024,
-      maxStderrBytes: 4 * 1024 * 1024
-    });
-  } catch (error) {
-    throw new MainHealthGitHubProviderError(
-      `MainHealth GitHub token acquisition unavailable: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
   remainingMainHealthGitHubSessionMs(session);
-  recordMainHealthGitHubResponseBytes(
-    session,
-    Buffer.byteLength(result.stdout, 'utf8')
+  reserveMainHealthGitHubRequest(session);
+  throw new MainHealthGitHubCredentialUnavailableError(
+    'credential-provider-unavailable'
   );
-  if (result.code !== 0 || result.stdout.trim().length === 0) {
-    throw new MainHealthGitHubProviderError(
-      `MainHealth GitHub token acquisition failed: ${result.stderr.trim().slice(-2048)}`
-    );
-  }
-  return result.stdout.trim();
 }
 
 type MainHealthGitHubTokenReader = (
@@ -1825,6 +1758,12 @@ async function enrollMainHealthGitHubCapability(input: Readonly<{
         'MainHealth GitHub token repository permission is invalid'
       );
     }
+    if (input.origin === 'production'
+        && permission !== 'admin' && permission !== 'maintain') {
+      throw new MainHealthGitHubProviderError(
+        'MainHealth GitHub production credential requires maintain/admin permission'
+      );
+    }
     if (input.effect === 'status-write'
         && permission !== 'admin' && permission !== 'maintain') {
       throw new MainHealthGitHubProviderError(
@@ -1854,10 +1793,10 @@ async function enrollMainHealthGitHubCapability(input: Readonly<{
 }
 
 /**
- * The only production MainHealth GitHub capability issuer.  Credential
- * acquisition is explicitly pinned to github.com, while principal and
- * repository permission are read back through the same canonical REST
- * dispatcher used by every later provider observation.
+ * The only production MainHealth GitHub capability issuer. The credential
+ * source remains unavailable until the canonical physical provider issues it;
+ * once issued, principal and repository permission must be read back through
+ * the same fixed GitHub REST dispatcher used by later provider observations.
  */
 async function resolveMainHealthGitHubCapability(input: Readonly<{
   repositoryRoot: string;
@@ -1904,14 +1843,19 @@ async function readMainHealthGitHubTestToken(
       deadline
     ]);
     remainingMainHealthGitHubSessionMs(session);
-    if (typeof token !== 'string' || token.trim().length === 0) {
-      throw new MainHealthGitHubProviderError('MainHealth test token is empty or invalid');
+    if (typeof token !== 'string') {
+      throw new MainHealthGitHubProviderError('MainHealth test token grammar is invalid');
     }
     recordMainHealthGitHubResponseBytes(
       session,
       Buffer.byteLength(token, 'utf8')
     );
-    return token.trim();
+    const normalizedToken = token.trim();
+    if (Buffer.byteLength(token, 'utf8') > MAIN_HEALTH_GITHUB_CREDENTIAL_MAX_TOKEN_BYTES
+        || !/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(normalizedToken)) {
+      throw new MainHealthGitHubProviderError('MainHealth test token grammar is invalid');
+    }
+    return normalizedToken;
   } catch (error) {
     if (error instanceof MainHealthGitHubProviderError) throw error;
     throw new MainHealthGitHubProviderError(

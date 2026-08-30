@@ -344,7 +344,7 @@ export function isKnownSlowTestSuiteId(suiteId: string): boolean {
 }
 
 export function slowTestSuiteIds(): string[] {
-  return getSlowTestSuitesSync().map((suite) => suite.id);
+  return slowTestSuiteDefinitions.map((suite) => suite.id);
 }
 
 /** Canonical suite identity for a live, removed, or renamed test path. */
