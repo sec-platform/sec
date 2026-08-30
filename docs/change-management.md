@@ -64,6 +64,8 @@ Change Management拥有跨revision和跨系统的：
 8. **Recovery strategy**：哪些步骤可由transaction rollback恢复，哪些需要compensation、forward recovery、backup或operator；
 9. **Retirement**：旧owner、Provider、Adapter、Binding、schema、path、Gate和兼容代码何时删除。
 
+替换计划还必须包含 **Intent absorption**：从旧对象的 canonical owner 读取已被真实 consumer、正式 transition、支持窗口或重新激活条件证明的设计目的和未来能力边界，并证明 target binding 以更小或更强的 primitive 覆盖这些要求。只证明当前样例、当前输出或 consumer-zero 不足以签发 supersession；缺少 owner-issued intent、target coverage 或 lifecycle-cost comparison 时必须返回 `design-intent-unresolved`。开放世界猜测、注释、死代码、Vn 名称和测试镜像不得进入 intent evidence。
+
 Plan必须绑定exact source/current/target revisions、Fact/Binding Delta revisions、old/new Implementation Binding revisions、Compatibility rule revisions、required operations和deployment environment，并在执行前重新验证。旧Plan不能在source、policy、dependency、provider、consumer、Delta、Evidence或environment改变后继续使用。
 
 ## Compatibility
