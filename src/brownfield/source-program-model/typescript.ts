@@ -17,9 +17,9 @@ import type {
   SourceProgramReference,
   SourceProgramReferenceKind,
   SourceProgramSpan,
-  SourceProgramSurface,
   SourceProgramUnknown
 } from './contract.ts';
+import { sourceProgramSurfaceForPath } from './contract.ts';
 
 export interface CompileTypeScriptSourceProgramModelInput {
   readonly sourceRevision: string;
@@ -48,9 +48,6 @@ export interface TypeScriptSourceProgramIncrementalResult {
 }
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/iu;
-const TEST_PATH = /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$/iu;
-const FIXTURE_PATH = /(?:^|\/)(?:fixtures?|snapshots?)(?:\/|$)/iu;
-const RESOURCE_EXTENSION = /\.(?:json|ya?ml|toml|md|markdown|txt|sql|prisma|ejs|template)$/iu;
 const RUNTIME_BUILTIN_MODULE = /^(?:node:|bun(?::|$))/u;
 const compiledTypeScriptModels = new WeakSet<object>();
 
@@ -300,14 +297,6 @@ function compileExactTypeScriptProgram(
   return activeTypeScriptWorkspace.compile(filesByPath);
 }
 
-function surfaceFor(repositoryPathValue: string): SourceProgramSurface {
-  if (FIXTURE_PATH.test(repositoryPathValue)) return 'fixture';
-  if (TEST_PATH.test(repositoryPathValue)) return 'test';
-  if (/^platform\/registry\/[^/]+\/.+\/files\//iu.test(repositoryPathValue)) return 'resource';
-  if (repositoryPathValue.startsWith('.github/workflows/')) return 'workflow';
-  if (RESOURCE_EXTENSION.test(repositoryPathValue)) return 'resource';
-  return 'production';
-}
 
 function spanFor(sourceFile: ts.SourceFile, node: ts.Node): SourceProgramSpan {
   const start = node.getStart(sourceFile, false);
@@ -648,7 +637,7 @@ export function compileTypeScriptSourceProgramModelIncremental(
       path: file.path,
       contentDigest: file.contentDigest,
       moduleId: input.moduleMembership.moduleForPath(file.path)?.moduleId ?? null,
-      surface: surfaceFor(file.path)
+      surface: sourceProgramSurfaceForPath(file.path)
     })),
     declarations: [
       ...previous.model.declarations.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
@@ -715,7 +704,7 @@ export function compileTypeScriptSourceProgramModel(
       path: repositoryPathValue,
       contentDigest: file.contentDigest,
       moduleId: input.moduleMembership.moduleForPath(repositoryPathValue)?.moduleId ?? null,
-      surface: surfaceFor(repositoryPathValue)
+      surface: sourceProgramSurfaceForPath(repositoryPathValue)
     }));
   }
 
@@ -1122,7 +1111,7 @@ export function compileTypeScriptSourceProgramModel(
           capabilities.push(Object.freeze({
             path: sourcePath,
             moduleId,
-            surface: surfaceFor(sourcePath),
+            surface: sourceProgramSurfaceForPath(sourcePath),
             capability,
             operation,
             subject,

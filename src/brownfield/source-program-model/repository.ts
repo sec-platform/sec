@@ -16,10 +16,10 @@ import type {
   SourceProgramFileInput,
   SourceProgramModel,
   SourceProgramPackage,
-  SourceProgramSurface,
   SourceProgramTopologySummary,
   SourceProgramUnknown
 } from './contract.ts';
+import { sourceProgramSurfaceForPath } from './contract.ts';
 import {
   compileTypeScriptSourceProgramModel,
   isCompiledTypeScriptSourceProgramModel
@@ -41,9 +41,6 @@ export interface CompileRepositorySourceProgramModelInput {
 
 type JsonRecord = Record<string, unknown>;
 
-const TEST_PATH = /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$/iu;
-const FIXTURE_PATH = /(?:^|\/)(?:fixtures?|snapshots?)(?:\/|$)/iu;
-const RESOURCE_EXTENSION = /\.(?:json|ya?ml|toml|md|markdown|txt|sql|prisma|ejs|template)$/iu;
 const DIRECT_BUN_SOURCE = /^bun\s+(?:\.\/)?([A-Za-z0-9_./-]+\.[cm]?[jt]sx?)(?:\s|$)/u;
 const BUN_SCRIPT_REFERENCE = /^bun\s+run\s+([A-Za-z0-9:_-]+)(?:\s+.*)?$/u;
 const UNSUPPORTED_SHELL_COMPOSITION = /(?:\|\||[;|]|`|\$\(|&&)/u;
@@ -64,14 +61,6 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function surfaceFor(repositoryPath: string): SourceProgramSurface {
-  if (FIXTURE_PATH.test(repositoryPath)) return 'fixture';
-  if (TEST_PATH.test(repositoryPath)) return 'test';
-  if (/^platform\/registry\/[^/]+\/.+\/files\//iu.test(repositoryPath)) return 'resource';
-  if (repositoryPath.startsWith('.github/workflows/')) return 'workflow';
-  if (RESOURCE_EXTENSION.test(repositoryPath)) return 'resource';
-  return 'production';
-}
 
 function dependencyPackageName(specifier: string): string {
   if (specifier.startsWith('@')) return specifier.split('/').slice(0, 2).join('/');
@@ -140,7 +129,7 @@ function executableSourceLiteralPaths(
 ): readonly Readonly<{ ownerPath: string; digest: string }>[] {
   const observations: Readonly<{ ownerPath: string; digest: string }>[] = [];
   for (const file of files) {
-    if (surfaceFor(file.path) !== 'production' || !/\.[cm]?[jt]sx?$/iu.test(file.path)) continue;
+    if (sourceProgramSurfaceForPath(file.path) !== 'production' || !/\.[cm]?[jt]sx?$/iu.test(file.path)) continue;
     const sourceFile = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
     const visit = (node: ts.Node): void => {
       if (ts.isStringLiteralLike(node) && node.text.includes('\n') && node.text.length >= 32) {
@@ -584,7 +573,7 @@ export function compileRepositorySourceProgramModel(
         path: file.path,
         contentDigest: file.contentDigest,
         moduleId: input.moduleMembership.moduleForPath(file.path)?.moduleId ?? null,
-        surface: surfaceFor(file.path)
+        surface: sourceProgramSurfaceForPath(file.path)
       }))
   ].sort((left, right) => compareCodeUnits(left.path, right.path));
   entrypoints.sort((left, right) =>
