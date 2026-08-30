@@ -1,7 +1,7 @@
 import { devNull } from 'node:os';
 import path from 'node:path';
 
-import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, issueRetainedCommandBoundary, resolveExecutableLocator, runCommandBytes, runRetainedCommandBytes, type ByteCommandResult, type RetainedCommandAuxiliaryInput, type RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
 import { rawSha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 
@@ -1563,38 +1563,43 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
     if (repositoryIndexEntry === null || repositoryIndexEntry.kind !== 'file') {
       throw new Error('Git repository index is absent or not an ordinary file.');
     }
-    repositoryObjectsCapability = retainNoFollowDirectoryForChildProcess(
+    const retainedRepositoryObjectsCapability = retainNoFollowDirectoryForChildProcess(
       repositoryObjectsChain,
       5,
       'Git repository object directory'
     );
-    scratchObjectsCapability = retainNoFollowDirectoryForChildProcess(
+    repositoryObjectsCapability = retainedRepositoryObjectsCapability;
+    const retainedScratchObjectsCapability = retainNoFollowDirectoryForChildProcess(
       scratchObjectsChain,
       6,
       'Git scratch object directory'
     );
-    scratchIndexCapability = retainNoFollowOrdinaryFileForChildProcess(
+    scratchObjectsCapability = retainedScratchObjectsCapability;
+    const retainedScratchIndexCapability = retainNoFollowOrdinaryFile(
       scratchChain,
-      scratchIndexEntry,
-      7,
-      'Git scratch index'
+      scratchIndexEntry.relativePath,
+      { device: scratchIndexEntry.device, inode: scratchIndexEntry.inode },
+      'Git scratch index',
+      7
     );
-    repositoryIndexCapability = retainNoFollowOrdinaryFile(
+    scratchIndexCapability = retainedScratchIndexCapability;
+    const retainedRepositoryIndexCapability = retainNoFollowOrdinaryFile(
       repositoryIndexParent,
       path.basename(canonicalRepositoryIndex),
       { device: repositoryIndexEntry.device, inode: repositoryIndexEntry.inode },
       'Git repository index fence',
       8
     );
+    repositoryIndexCapability = retainedRepositoryIndexCapability;
     const boundary = executionOwner.issueBoundary(Object.freeze([
-      Object.freeze({ kind: 'directory' as const, capability: repositoryObjectsCapability }),
-      Object.freeze({ kind: 'directory' as const, capability: scratchObjectsCapability }),
-      Object.freeze({ kind: 'ordinary-file' as const, capability: scratchIndexCapability })
+      Object.freeze({ kind: 'directory' as const, capability: retainedRepositoryObjectsCapability }),
+      Object.freeze({ kind: 'directory' as const, capability: retainedScratchObjectsCapability }),
+      Object.freeze({ kind: 'ordinary-file' as const, capability: retainedScratchIndexCapability })
     ]));
     const environment = Object.freeze(isolatedGitReadEnvironment({
-      GIT_INDEX_FILE: scratchIndexCapability.childPath,
-      GIT_OBJECT_DIRECTORY: scratchObjectsCapability.childPath,
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjectsCapability.childPath
+      GIT_INDEX_FILE: retainedScratchIndexCapability.childPath,
+      GIT_OBJECT_DIRECTORY: retainedScratchObjectsCapability.childPath,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: retainedRepositoryObjectsCapability.childPath
     }, input.gitReadSession.env));
     let closed = false;
     let terminalFailure: GitScratchIndexTreeFailureReason | null = null;
@@ -1608,10 +1613,10 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         return false;
       }
       try {
-        repositoryObjectsCapability!.assertCurrent();
-        scratchObjectsCapability!.assertCurrent();
-        scratchIndexCapability!.assertCurrent();
-        repositoryIndexCapability!.assertCurrent();
+        retainedRepositoryObjectsCapability.assertCurrent();
+        retainedScratchObjectsCapability.assertCurrent();
+        retainedScratchIndexCapability.assertCurrent();
+        retainedRepositoryIndexCapability.assertCurrent();
         return true;
       } catch (error) {
         terminalFailure ??= 'scratch-identity-changed';
@@ -1657,12 +1662,12 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         assertCurrent();
         const failures: unknown[] = [];
         for (const capability of [
-          repositoryIndexCapability,
-          scratchIndexCapability,
-          scratchObjectsCapability,
-          repositoryObjectsCapability
+          retainedRepositoryIndexCapability,
+          retainedScratchIndexCapability,
+          retainedScratchObjectsCapability,
+          retainedRepositoryObjectsCapability
         ]) {
-          try { capability!.dispose(); } catch (error) { failures.push(error); }
+          try { capability.dispose(); } catch (error) { failures.push(error); }
         }
         closed = true;
         if (failures.length > 0) {
