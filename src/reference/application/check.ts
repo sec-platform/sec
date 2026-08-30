@@ -1,7 +1,6 @@
 import { CompilerError } from '../../compiler/errors.ts';
-import { platformCommand } from '../../interface/cli/contract.ts';
 import { runCommand } from '../../runtime-state/physical/runtime/process.ts';
-import { compilerRoot } from '../../workspace/paths.ts';
+import { compilerRoot } from '../../workspace/runtime/paths.ts';
 import {
   REFERENCE_TRACKED_DIFF_ARGS,
   REFERENCE_UNTRACKED_SCAN_ARGS,
@@ -16,7 +15,6 @@ export type ReferenceCheckReport = {
   status: ReferenceCheckStatus;
   failedStage: ReferenceCheckFailedStage;
   root: string;
-  command: string;
   runnerCommand: string;
   refreshCommand: string;
   refreshExitCode: number;
@@ -72,7 +70,6 @@ export async function buildReferenceCheckReport(options: {
     status,
     failedStage,
     root,
-    command: platformCommand('reference', 'check', '--json'),
     runnerCommand: 'bun run reference:check',
     refreshCommand: 'bun run reference:refresh',
     refreshExitCode: refreshResult.code,
@@ -94,11 +91,11 @@ export async function buildReferenceCheckReport(options: {
   };
 }
 
-export function formatReferenceCheck(report: ReferenceCheckReport): string {
+export function formatReferenceCheck(report: ReferenceCheckReport, command: string): string {
   return [
     `Reference workspace ${report.status}`,
     `Failed stage: ${report.failedStage}`,
-    `Command: ${report.command}`,
+    `Command: ${command}`,
     `Runner command: ${report.runnerCommand}`,
     `Commands: refresh=${report.refreshCommand}; diff=${report.diffCommand}; untracked=${report.untrackedScanCommand}`,
     `Refresh: exit=${report.refreshExitCode}; diff: exit=${report.diffExitCode}; tracked=${report.trackedDiffExitCode}; untracked=${report.untrackedScanExitCode}`,

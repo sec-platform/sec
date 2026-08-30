@@ -1,8 +1,12 @@
 import { Argument, type Command } from 'commander';
-import type { UpgradeDiagnostics, UpgradePlan } from '../../change-management/upgrade/contract/types.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
+import { readLockFile } from '../../compiler/lock.ts';
 import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
+import {
+  decodeExactUtf8,
+  readOptionalRetainedOrdinaryFile
+} from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import type { TextByteCensusReport, TextByteClassification } from '../../runtime-state/text-byte-census.ts';
 import type { WorktreeSettlementReceipt } from '../../runtime-state/worktree-settlement.ts';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
@@ -11,18 +15,24 @@ import type { RepairPlan } from '../../semantic/repair/contract/types.ts';
 import { countMatching } from '../../system-architecture/foundation/runtime/collections.ts';
 import type { DependencyCleanOptions } from '../../toolchain/dependencies/environment.ts';
 import { buildBenchmarkTaskSuiteContract, formatBenchmarkTaskSuiteContract } from '../../verification/benchmark/contract.ts';
-import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS, isCiContractArtifactPath } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind } from '../../verification/ci-artifacts/contract/types.ts';
 import { buildCiContract, formatCiContract } from '../../verification/ci/contract/core.ts';
 import type { RuntimeVerificationLaneReport, VerificationLane, VerificationReport } from '../../verification/contract/types.ts';
 import { buildContractFreezeContract, formatContractFreezeContract } from '../../verification/freeze.ts';
 import { buildReviewPolicySummary } from '../../verification/review/contract/policy.ts';
+import { parseReviewSummaryJson } from '../../verification/review/contract/summary.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../../verification/review/contract/upgrade-artifact.ts';
 import { buildE2eMatrix } from '../../verification/review/runtime/matrix.ts';
 import { pathExists, readJson } from '../../workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspaceProvenancePath } from '../../workspace/paths.ts';
 import type { ProjectOverview } from '../../workspace/project.ts';
-import { platformCommand } from './contract.ts';
+import {
+  resolveWorkspaceArtifactPath,
+  resolveWorkspaceLockPath,
+  resolveWorkspaceProvenancePath
+} from '../../workspace/runtime/paths.ts';
+import { platformCommand } from './contract/command.ts';
 import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
@@ -63,7 +73,6 @@ import {
   type PostgresContract
 } from './formatters.ts';
 import {
-  adaptWorkspace,
   addBlock,
   composeWorkspace,
   explainWorkspace,
@@ -139,6 +148,12 @@ async function readRequiredJson<T>(filePath: string, missingMessage: string): Pr
   return readJson<T>(filePath);
 }
 
+function readRequiredReviewSummary(filePath: string, missingMessage: string): ReviewSummary {
+  const bytes = readOptionalRetainedOrdinaryFile(filePath, 'Review summary');
+  if (bytes === null) throw new Error(missingMessage);
+  return parseReviewSummaryJson(decodeExactUtf8(bytes, 'Review summary'));
+}
+
 async function printRequiredJson<T>(
   filePath: string, missingMessage: string, output: JsonOpts, formatText: (v: T) => string
 ): Promise<void> {
@@ -147,10 +162,40 @@ async function printRequiredJson<T>(
 }
 
 async function printWorkspaceJson<T>(
-  cwd: string, selectPath: (p: ReturnType<typeof getWorkspacePaths>) => string,
+  cwd: string, selectPath: (workspaceRoot: string) => string,
   missingMessage: string, output: JsonOpts, formatText: (v: T) => string
 ): Promise<void> {
-  await printRequiredJson<T>(selectPath(getWorkspacePaths(cwd)), missingMessage, output, formatText);
+  await printRequiredJson<T>(selectPath(cwd), missingMessage, output, formatText);
+}
+
+/**
+ * Dynamic generated contracts are enumerated by the graph lock. The CLI only
+ * selects the contract by its decoded semantic payload; it never mirrors a
+ * producer's generated filename or invents a second artifact path owner.
+ */
+async function printGeneratedContract<T>(
+  workspaceRoot: string,
+  missingMessage: string,
+  output: JsonOpts,
+  formatText: (value: T) => string,
+  matches: (value: T) => boolean
+): Promise<void> {
+  let lock: LockFile;
+  try {
+    lock = readLockFile(workspaceRoot);
+  } catch {
+    throw new Error(missingMessage);
+  }
+  const candidatePaths = lock.generatedPaths.filter(isCiContractArtifactPath);
+  const candidates: T[] = [];
+  for (const artifactPath of candidatePaths) {
+    const absolutePath = resolveWorkspaceArtifactPath(workspaceRoot, artifactPath);
+    if (!(await pathExists(absolutePath))) continue;
+    const value = await readJson<T>(absolutePath);
+    if (matches(value)) candidates.push(value);
+  }
+  if (candidates.length !== 1) throw new Error(missingMessage);
+  printJsonOrText(candidates[0]!, output, formatText);
 }
 
 function addJsonFlags(cmd: Command): Command {
@@ -232,51 +277,50 @@ function formatSettlementReceipt(r: WorktreeSettlementReceipt): string {
 }
 
 async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
-  const paths = getWorkspacePaths(workspaceRoot);
   const explainGraphChecklistPaths: Record<
     (typeof CI_EXPLAIN_GRAPH_ARTIFACTS)[number]['id'],
     string
   > = {
-    'explain-graph': paths.explainGraphPath,
-    'explain-graph-mermaid': paths.explainGraphMermaidPath,
-    'explain-graph-dot': paths.explainGraphDotPath
+    'explain-graph': resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph),
+    'explain-graph-mermaid': resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphMermaid),
+    'explain-graph-dot': resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphDot)
   };
   const items: DemoChecklistItem[] = await Promise.all([
     {
       id: 'verification-report',
-      absolutePath: paths.verificationReportPath,
+      absolutePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport),
       artifactPath: CI_ARTIFACT_FILES.verificationReport,
       command: platformCommand('verify', '--lane', 'all')
     },
     {
       id: 'runtime-report',
-      absolutePath: paths.runtimeReportPath,
+      absolutePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
       artifactPath: CI_ARTIFACT_FILES.runtimeReport,
       command: platformCommand('verify', '--lane', 'all')
     },
     {
       id: 'policy-report',
-      absolutePath: paths.policyReportPath,
+      absolutePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),
       artifactPath: CI_ARTIFACT_FILES.policyReport,
       command: platformCommand('verify')
     },
     {
       id: 'acceptance-coverage',
-      absolutePath: paths.acceptanceCoveragePath,
+      absolutePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
       artifactPath: CI_ARTIFACT_FILES.acceptanceCoverage,
       command: platformCommand('verify')
     },
     {
       id: 'graph-lock',
-      absolutePath: paths.lockPath,
+      absolutePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock),
       artifactPath: CI_ARTIFACT_FILES.graphLock,
       command: platformCommand('lock')
     },
     {
       id: 'provenance-registry',
-      absolutePath: paths.provenancePath,
+      absolutePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance),
       artifactPath: CI_ARTIFACT_FILES.provenance,
-      command: platformCommand('adapt')
+      command: platformCommand('compose')
     },
     ...CI_EXPLAIN_GRAPH_ARTIFACTS.map((artifact) => ({
       id: artifact.id,
@@ -286,7 +330,7 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
     })),
     {
       id: 'review-summary',
-      absolutePath: paths.reviewSummaryPath,
+      absolutePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary),
       artifactPath: CI_ARTIFACT_FILES.reviewSummary,
       command: platformCommand('explain')
     }
@@ -343,13 +387,6 @@ export function registerCommands(
       console.log('Composed project');
     });
 
-  program.command('adapt')
-    .description('Adapt slots')
-    .action(async () => {
-      await withSpinner('Adapting slots', () => adaptWorkspace(process.cwd()));
-      console.log('Adapted slots');
-    });
-
   addJsonFlags(program.command('verify'))
     .description('Run verification')
     .option('--lane <lane>', 'Verification lane', 'fast')
@@ -369,7 +406,7 @@ export function registerCommands(
     .action(async (mode: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
       if (mode === 'plan') {
-        const { repairPlanPath } = getWorkspacePaths(process.cwd());
+        const repairPlanPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.repairPlan);
         await printRequiredJson<RepairPlan>(repairPlanPath, `Repair plan not found; run ${commandPath(cmd)} --dry-run first`, output, (p) => formatRepairSummary(p, true));
         return;
       }
@@ -381,7 +418,7 @@ export function registerCommands(
         );
         printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, !!opts.dryRun));
       } catch (error) {
-        const { repairPlanPath } = getWorkspacePaths(process.cwd());
+        const repairPlanPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.repairPlan);
         if (await pathExists(repairPlanPath)) {
           const repairPlan = await readJson<RepairPlan>(repairPlanPath);
           printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, !!opts.dryRun));
@@ -403,12 +440,12 @@ export function registerCommands(
     ) => {
       const output = jsonOpts(opts);
       if (subject === 'plan' && targetVersion === undefined) {
-        const { upgradePlanPath } = getWorkspacePaths(process.cwd());
+        const upgradePlanPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.upgradePlan);
         await printRequiredJson<UpgradePlan>(upgradePlanPath, `Upgrade plan not found; run ${commandPath(cmd)} <block-id> <target-version> --dry-run first`, output, (p) => formatUpgradeSummary(p, true));
         return;
       }
       if (subject === 'diagnostics' && targetVersion === undefined) {
-        const { upgradeDiagnosticsPath } = getWorkspacePaths(process.cwd());
+        const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.upgradeDiagnostics);
         await printRequiredJson<UpgradeDiagnostics>(upgradeDiagnosticsPath, `Upgrade diagnostics not found; run ${commandPath(cmd)} <block-id> <target-version> --dry-run first`, output, formatUpgradeDiagnostics);
         return;
       }
@@ -442,7 +479,7 @@ export function registerCommands(
       const output = jsonOpts(opts);
       if (mode === 'graph') {
         await printWorkspaceJson<import('../../semantic/projection/contract/explain.ts').ExplainGraph>(
-          process.cwd(), (p) => p.explainGraphPath, `Explain graph not found; run ${commandPath(cmd)} first`, output, formatExplainGraphInspect
+          process.cwd(), (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.explainGraph), `Explain graph not found; run ${commandPath(cmd)} first`, output, formatExplainGraphInspect
         );
         return;
       }
@@ -458,7 +495,7 @@ export function registerCommands(
       const output = jsonOpts(opts);
       if (mode === 'manifest') {
         await printWorkspaceJson<import('../../verification/ci-artifacts/contract/types.ts').CiArtifactManifest>(
-          process.cwd(), (p) => p.ciArtifactsPath, `Artifact manifest not found; run ${commandPath(cmd)} --json first`, output, formatCiArtifactManifest
+          process.cwd(), (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.artifactManifest), `Artifact manifest not found; run ${commandPath(cmd)} --json first`, output, formatCiArtifactManifest
         );
         return;
       }
@@ -518,7 +555,8 @@ export function registerCommands(
     const output = jsonOpts(opts);
     const domain = await loadReferenceCheckDomain();
     const report = await domain.buildReferenceCheckReport();
-    printJsonOrText(report, output, domain.formatReferenceCheck);
+    const command = platformCommand('reference', 'check', '--json');
+    printJsonOrText({ ...report, command }, output, () => domain.formatReferenceCheck(report, command));
     domain.assertReferenceCheckClean(report);
   });
 
@@ -537,7 +575,7 @@ export function registerCommands(
     .description('Policy inspection')
     .action(async (mode: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
-      const { policyReportPath } = getWorkspacePaths(process.cwd());
+      const policyReportPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.policyReport);
       const report = await readRequiredJson<PolicyReport>(policyReportPath, `Policy report not found; run ${commandFromRoot(cmd, 'verify')} first`);
       if (mode === 'sources') {
         printJsonOrText(buildPolicySourceInspect(report), output, formatPolicySources);
@@ -546,14 +584,14 @@ export function registerCommands(
       printJsonOrText(report, output, (v) => formatPolicyReport(buildReviewPolicySummary(v)));
     });
 
-  addJsonFlags(optionalModeCommand(program.command('acceptance'), 'mode', ['blocks', 'slots']))
+  addJsonFlags(optionalModeCommand(program.command('acceptance'), 'mode', ['blocks']))
     .description('Acceptance inspection')
     .action(async (mode: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
-      const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
+      const acceptanceCoveragePath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.acceptanceCoverage);
       const report = await readRequiredJson<AcceptanceCoverageReport>(acceptanceCoveragePath, `Acceptance coverage report not found; run ${commandFromRoot(cmd, 'verify')} first`);
-      if (mode === 'blocks' || mode === 'slots') {
-        printJsonOrText(buildAcceptanceTargetInspect(report, mode), output, formatAcceptanceTargets);
+      if (mode === 'blocks') {
+        printJsonOrText(buildAcceptanceTargetInspect(report), output, formatAcceptanceTargets);
         return;
       }
       printJsonOrText(report, output, formatAcceptanceCoverage);
@@ -563,7 +601,7 @@ export function registerCommands(
     .description('Runtime inspection')
     .action(async (mode: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
-      const { runtimeReportPath } = getWorkspacePaths(process.cwd());
+      const runtimeReportPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.runtimeReport);
       const report = await readRequiredJson<RuntimeVerificationLaneReport>(runtimeReportPath, `Runtime report not found; run ${commandFromRoot(cmd, 'verify')} first`);
       if (mode === 'steps') {
         printJsonOrText(buildRuntimeStepsInspect(report), output, formatRuntimeStepsInspect);
@@ -576,7 +614,7 @@ export function registerCommands(
     .description('Verification inspection')
     .action(async (opts: Record<string, unknown>) => {
       const output = jsonOpts(opts);
-      await printWorkspaceJson<VerificationReport>(process.cwd(), (p) => p.verificationReportPath, 'Verification report not found', output, formatVerificationReport);
+      await printWorkspaceJson<VerificationReport>(process.cwd(), (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.verificationReport), 'Verification report not found', output, formatVerificationReport);
     });
 
   addJsonFlags(program.command('provenance'))
@@ -591,8 +629,11 @@ export function registerCommands(
     .description('Review inspection')
     .action(async (mode: string | undefined, opts: Record<string, unknown>, cmd: Command) => {
       const output = jsonOpts(opts);
-      const { reviewSummaryPath } = getWorkspacePaths(process.cwd());
-      const summary = await readRequiredJson<ReviewSummary>(reviewSummaryPath, `Review summary not found; run ${commandFromRoot(cmd, 'explain')} first`);
+      const reviewSummaryPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.reviewSummary);
+      const summary = readRequiredReviewSummary(
+        reviewSummaryPath,
+        `Review summary not found; run ${commandFromRoot(cmd, 'explain')} first`
+      );
       if (mode === 'matrix') {
         printJsonOrText(buildE2eMatrix(summary), output, formatE2eMatrix);
         return;
@@ -644,15 +685,21 @@ export function registerCommands(
     });
 
   addJsonFlags(program.command('install')).action(async (opts: Record<string, unknown>, cmd: Command) => {
-    await printWorkspaceJson<InstallManifestEntry[]>(process.cwd(), (p) => p.installManifestPath, `Install manifest not found; run ${commandFromRoot(cmd, 'compose')} first`, jsonOpts(opts), formatInstallManifest);
+    await printWorkspaceJson<InstallManifestEntry[]>(process.cwd(), (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.installManifest), `Install manifest not found; run ${commandFromRoot(cmd, 'compose')} first`, jsonOpts(opts), formatInstallManifest);
   });
 
   addJsonFlags(program.command('blocks')).action(async (opts: Record<string, unknown>, cmd: Command) => {
-    await printWorkspaceJson<BlockUsageMap>(process.cwd(), (p) => p.blockUsageMapPath, `Block usage map not found; run ${commandFromRoot(cmd, 'compose')} first`, jsonOpts(opts), formatBlockUsageMap);
+    await printWorkspaceJson<BlockUsageMap>(process.cwd(), (root) => resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.blockUsageMap), `Block usage map not found; run ${commandFromRoot(cmd, 'compose')} first`, jsonOpts(opts), formatBlockUsageMap);
   });
 
   addJsonFlags(program.command('postgres')).action(async (opts: Record<string, unknown>, cmd: Command) => {
-    await printWorkspaceJson<PostgresContract>(process.cwd(), (p) => p.postgresContractPath, `Postgres contract not found; run ${commandFromRoot(cmd, 'compose')} first`, jsonOpts(opts), formatPostgresContract);
+    await printGeneratedContract<PostgresContract>(
+      process.cwd(),
+      `Postgres contract not found; run ${commandFromRoot(cmd, 'compose')} first`,
+      jsonOpts(opts),
+      formatPostgresContract,
+      (contract) => contract.provider === 'postgres'
+    );
   });
 
   const textCmd = program.command('text').description('Text byte policy inspection');
