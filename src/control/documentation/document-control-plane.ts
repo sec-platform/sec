@@ -12,9 +12,17 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { isolatedGitReadEnvironment } from '../../external-capabilities/git-read/runtime/session.ts';
-import { resolveWindowsControlCliSession, type WindowsControlCliSessionRequest, type WindowsControlCliSessionResolution, type WindowsControlCliSessionResolutionReason } from '../../external-capabilities/windows-control-cli/runtime/session.ts';
-import { runCommand, runCommandBytes } from '../../runtime-state/physical/runtime/process.ts';
+import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import {
+  createAuthorityGitScratchIndexTreeSession,
+  isolatedGitReadEnvironment,
+  type GitReadHostProviderResolutionReason,
+  type GitReadSession,
+  type GitReadSessionFailure,
+  type GitScratchIndexTreeFailureReason,
+  type GitScratchIndexTreeSession
+} from '../../external-capabilities/git-read/runtime/session.ts';
+import { runCommandBytes, type ByteCommandResult } from '../../runtime-state/physical/runtime/process.ts';
 import { digest, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
 import { withWorkspaceWriteLease } from '../../workspace/lease.ts';
@@ -25,6 +33,8 @@ import {
 import {
   assertMainHealthPublicationAuthorityStable,
   observeCanonicalMainHealthForPublication,
+  observeMainHealthGitHubControlInventory,
+  observeMainHealthGitHubDefaultBranchSha,
   withMainHealthGitHubReadSession,
   type MainHealthRuntimeAuthority
 } from '../main-health/work-selection-main-health.ts';
@@ -140,11 +150,9 @@ type CommandOptions = {
 };
 
 /**
- * A document-control child is either a read observation or a Git object/index
- * effect.  The physical Windows control-CLI session is deliberately not an
- * effect grant: a ready provider must still be consumed by an asynchronous
- * semantic owner, so these legacy synchronous sinks fail closed rather than
- * treating a transport session as permission to mutate or query.
+ * Git observations consume the canonical production GitRead session. Git
+ * object/index writes and GitHub calls remain separate semantic capabilities;
+ * neither can inherit authority from the read session or raw transport.
  */
 export type CodexDevelopmentDocumentControlCliOperation =
   | 'git-read'
@@ -157,19 +165,26 @@ export type CodexDevelopmentDocumentControlCliAdmissionStatus =
   | 'unknown'
   | 'unavailable';
 
+export type CodexDevelopmentDocumentControlCliAdmissionReason =
+  | GitReadHostProviderResolutionReason
+  | GitReadSessionFailure['reason']
+  | GitScratchIndexTreeFailureReason
+  | 'semantic-closure-unproven'
+  | 'working-directory-binding-drift';
+
 export class CodexDevelopmentDocumentControlCliAdmissionError extends Error {
   readonly code = 'DOCUMENT-CONTROL-CLI-ADMISSION-001' as const;
   readonly command: 'git' | 'gh';
   readonly operation: CodexDevelopmentDocumentControlCliOperation;
   readonly status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-  readonly reason: WindowsControlCliSessionResolutionReason | 'semantic-closure-unproven';
+  readonly reason: CodexDevelopmentDocumentControlCliAdmissionReason;
   readonly detailDigest: `sha256:${string}`;
 
   constructor(input: Readonly<{
     command: 'git' | 'gh';
     operation: CodexDevelopmentDocumentControlCliOperation;
     status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-    reason: WindowsControlCliSessionResolutionReason | 'semantic-closure-unproven';
+    reason: CodexDevelopmentDocumentControlCliAdmissionReason;
     detailDigest: `sha256:${string}`;
   }>) {
     super(`Document-control ${input.command} ${input.operation} admission is ${input.status}.`);
@@ -182,19 +197,9 @@ export class CodexDevelopmentDocumentControlCliAdmissionError extends Error {
   }
 }
 
-const DOCUMENT_CONTROL_CLI_SESSION_LIMITS = Object.freeze({
-  maxCommandsPerSession: 1,
-  maxTotalArgumentBytes: 16 * 1024 * 1024,
-  maxTotalOutputBytes: 16 * 1024 * 1024,
-  maxRootObservedBytes: 256 * 1024 * 1024,
-  maxExecutableObservedBytes: 64 * 1024 * 1024,
-  maxRecords: 100_000,
-  maxReopenRefreshes: 10_000,
-  maxSettlementAttempts: 3
-});
-
 const documentControlHostCliTestScope = new AsyncLocalStorage<symbol>();
 const documentControlHostCliTestIssuer = Symbol('sec-document-control-host-cli-test-issuer-v1');
+const documentControlGitReadScope = new AsyncLocalStorage<GitReadSession>();
 
 /**
  * @internal Test-only host transport scope for the crash/CAS fixture suite.
@@ -207,21 +212,12 @@ export function withDocumentControlHostCliTestSessionV1<T>(operation: () => T): 
   return documentControlHostCliTestScope.run(documentControlHostCliTestIssuer, operation);
 }
 
-function documentControlCliSessionRequest(cwd: string): WindowsControlCliSessionRequest {
-  return Object.freeze({
-    // The resolver treats this as a locator hint only.  It must retain and
-    // re-read the actual directory before any Windows command can execute.
-    workingDirectoryPathHint: path.resolve(cwd),
-    deadlineAtUnixMs: Date.now() + ExternalCommandTimeoutMs,
-    ...DOCUMENT_CONTROL_CLI_SESSION_LIMITS
-  });
-}
-
 function documentControlCliFailureDigest(input: Readonly<{
   command: 'git' | 'gh';
   operation: CodexDevelopmentDocumentControlCliOperation;
   status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-  reason: WindowsControlCliSessionResolutionReason | 'semantic-closure-unproven';
+  reason: CodexDevelopmentDocumentControlCliAdmissionReason;
+  sourceDetailDigest?: `sha256:${string}`;
 }>): `sha256:${string}` {
   return sha256({
     schema: 'sec-document-control-cli-admission-failure-v1',
@@ -253,38 +249,25 @@ function commandOperation(
   return objectOrIndexEffect ? 'git-object-index-effect' : 'git-read';
 }
 
-function documentControlCliAdmission(
+function documentControlCliFailure(
   command: 'git' | 'gh',
-  cwd: string,
-  operation: CodexDevelopmentDocumentControlCliOperation
-): void {
-  if (documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer) return;
-  // POSIX uses the separately named host-local route.  This gate is only the
-  // Windows boundary and must never turn a non-Windows route into a fallback.
-  if (process.platform !== 'win32') return;
-
-  let resolution: WindowsControlCliSessionResolution;
-  try {
-    resolution = resolveWindowsControlCliSession(
-      documentControlCliSessionRequest(cwd)
-    );
-  } catch {
-    const status = 'unknown' as const;
-    const reason = 'session-request-invalid' as const;
-    throw new CodexDevelopmentDocumentControlCliAdmissionError({
+  operation: CodexDevelopmentDocumentControlCliOperation,
+  status: CodexDevelopmentDocumentControlCliAdmissionStatus,
+  reason: CodexDevelopmentDocumentControlCliAdmissionReason,
+  sourceDetailDigest?: `sha256:${string}`
+): CodexDevelopmentDocumentControlCliAdmissionError {
+  return new CodexDevelopmentDocumentControlCliAdmissionError({
+    command,
+    operation,
+    status,
+    reason,
+    detailDigest: documentControlCliFailureDigest({
       command,
       operation,
       status,
       reason,
-      detailDigest: documentControlCliFailureDigest({ command, operation, status, reason })
-    });
-  }
-  throw new CodexDevelopmentDocumentControlCliAdmissionError({
-    command,
-    operation,
-    status: resolution.status,
-    reason: resolution.reason,
-    detailDigest: resolution.detailDigest
+      ...(sourceDetailDigest === undefined ? {} : { sourceDetailDigest })
+    })
   });
 }
 
@@ -2679,22 +2662,33 @@ async function run(
   if (command !== 'git' && command !== 'gh') {
     throw new Error(`Document-control command is outside the Git/GitHub boundary: ${command}`);
   }
-  documentControlCliAdmission(command, cwd, commandOperation(command, args));
-  const environment = command === 'git'
-    ? isolatedGitReadEnvironment(options.environment ?? {}, process.env)
-    : {
-        ...process.env,
-        ...options.environment,
-        GH_PROMPT_DISABLED: '1',
-        GIT_TERMINAL_PROMPT: '0',
-        GIT_OPTIONAL_LOCKS: '0'
-      };
+  const operation = commandOperation(command, args);
+  const testTransport = documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer;
+  if (command === 'gh' && !testTransport) {
+    throw documentControlCliFailure(command, operation, 'unknown', 'semantic-closure-unproven');
+  }
+  const result = command === 'git'
+    ? await runDocumentControlGitReadBytes(args, cwd, options)
+    : await runDocumentControlTestCliBytes(command, args, cwd, options);
+  return Object.freeze({
+    code: result.code,
+    stdout: Buffer.from(result.stdout).toString('utf8'),
+    stderr: Buffer.from(result.stderr).toString('utf8')
+  });
+}
+
+async function runDocumentControlTestCliBytes(
+  command: 'git' | 'gh',
+  args: readonly string[],
+  cwd: string,
+  options: CommandOptions
+): Promise<ByteCommandResult> {
   const inputBytes = options.input === undefined
     ? undefined
     : typeof options.input === 'string'
       ? Buffer.from(options.input, 'utf8')
       : Buffer.from(options.input);
-  const result = await runCommand(command, args, {
+  const result = await runCommandBytes(command, [...args], {
     cwd,
     ...(inputBytes === undefined ? {} : {
       input: inputBytes,
@@ -2704,15 +2698,57 @@ async function run(
     maxStdoutBytes: ExternalCommandMaxBufferBytes,
     maxStderrBytes: ExternalCommandMaxBufferBytes,
     envMode: 'replace',
-    env: environment
+    env: command === 'git'
+      ? isolatedGitReadEnvironment(options.environment ?? {}, process.env)
+      : {
+          ...process.env,
+          ...options.environment,
+          GH_PROMPT_DISABLED: '1',
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_OPTIONAL_LOCKS: '0'
+        }
   });
-  return {
-    code: result.code,
-    stdout: typeof result.stdout === 'string'
-      ? result.stdout
-      : Buffer.from(result.stdout).toString('utf8'),
-    stderr: result.stderr
-  };
+  return result;
+}
+
+async function runDocumentControlGitReadBytes(
+  args: readonly string[],
+  cwd: string,
+  options: CommandOptions = {}
+): Promise<ByteCommandResult> {
+  if (documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer) {
+    return runDocumentControlTestCliBytes('git', args, cwd, options);
+  }
+
+  const operation = commandOperation('git', args);
+  if (operation !== 'git-read') {
+    throw documentControlCliFailure('git', operation, 'unknown', 'semantic-closure-unproven');
+  }
+  const session = documentControlGitReadScope.getStore();
+  if (session === undefined) {
+    throw documentControlCliFailure('git', operation, 'unknown', 'semantic-closure-unproven');
+  }
+  if (pathComparisonValue(path.resolve(cwd)) !== pathComparisonValue(path.resolve(session.cwd))) {
+    throw documentControlCliFailure('git', operation, 'unavailable', 'working-directory-binding-drift');
+  }
+  if ((options.environment !== undefined && Object.keys(options.environment).length > 0)
+      || options.input !== undefined) {
+    // Per-command repository/index/object overrides are a different semantic
+    // capability. They must not be smuggled into the read session or reset its
+    // immutable environment and aggregate budget.
+    throw documentControlCliFailure('git', operation, 'unknown', 'semantic-closure-unproven');
+  }
+  const outcome = await session.run(args);
+  if (outcome.kind !== 'completed') {
+    throw documentControlCliFailure(
+      'git',
+      operation,
+      'unavailable',
+      outcome.reason,
+      outcome.detailDigest
+    );
+  }
+  return outcome.result;
 }
 
 function requireCommand(result: CommandResult, label: string): string {
@@ -2734,15 +2770,11 @@ async function readGitBlob(
   spec: string,
   environment: Readonly<Record<string, string>> = {}
 ): Promise<Buffer | undefined> {
-  documentControlCliAdmission('git', cwd, 'git-read');
-  const result = await runCommandBytes('git', ['show', spec], {
+  const result = await runDocumentControlGitReadBytes(
+    ['show', spec],
     cwd,
-    timeoutMs: ExternalCommandTimeoutMs,
-    maxStdoutBytes: ExternalCommandMaxBufferBytes,
-    maxStderrBytes: ExternalCommandMaxBufferBytes,
-    envMode: 'replace',
-    env: isolatedGitReadEnvironment(environment, process.env)
-  });
+    Object.keys(environment).length === 0 ? {} : { environment }
+  );
   return result.code === 0 ? Buffer.from(result.stdout) : undefined;
 }
 
@@ -2759,32 +2791,35 @@ type ReadOnlyResolverGitObserver = (event: Readonly<{
 function createReadOnlyResolverGit(
   observer?: ReadOnlyResolverGitObserver
 ): ReadOnlyResolverGit {
-  const childEnvironment = (
+  const observeEnvironment = (
     args: readonly string[],
     environment: Readonly<Record<string, string>> | undefined
   ): Readonly<Record<string, string>> => {
-    const forced = Object.freeze(isolatedGitReadEnvironment(environment ?? {}, process.env));
-    observer?.(Object.freeze({ args: Object.freeze([...args]), environment: forced }));
-    return forced;
+    const observed = documentControlGitReadScope.getStore()?.env
+      ?? Object.freeze(isolatedGitReadEnvironment(environment ?? {}, process.env));
+    observer?.(Object.freeze({ args: Object.freeze([...args]), environment: observed }));
+    return observed;
   };
   return Object.freeze({
     run(args: readonly string[], cwd: string, options: CommandOptions = {}) {
+      const environment = observeEnvironment(args, options.environment);
       return run('git', [...args], cwd, {
         ...options,
-        environment: childEnvironment(args, options.environment)
+        ...(documentControlGitReadScope.getStore() === undefined
+          ? { environment }
+          : {})
       });
     },
     async readBlob(cwd: string, spec: string, options: CommandOptions = {}) {
       const args = ['show', spec] as const;
-      documentControlCliAdmission('git', cwd, 'git-read');
-      const result = await runCommandBytes('git', [...args], {
+      const environment = observeEnvironment(args, options.environment);
+      const result = await runDocumentControlGitReadBytes(
+        args,
         cwd,
-        timeoutMs: ExternalCommandTimeoutMs,
-        maxStdoutBytes: ExternalCommandMaxBufferBytes,
-        maxStderrBytes: ExternalCommandMaxBufferBytes,
-        envMode: 'replace',
-        env: childEnvironment(args, options.environment)
-      });
+        documentControlGitReadScope.getStore() === undefined
+          ? { ...options, environment }
+          : options
+      );
       return result.code === 0 ? Buffer.from(result.stdout) : undefined;
     }
   });
@@ -2917,32 +2952,93 @@ async function withRepositoryIndexTreeThroughExternalScratch<T>(
         GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjects,
         GIT_OPTIONAL_LOCKS: '0'
       };
-      const treeSha = shaValue(requireCommand(
-        await (input.resolverGit === undefined
-          ? run('git', ['write-tree'], input.repositoryRoot, { environment })
-          : input.resolverGit.run(['write-tree'], input.repositoryRoot, { environment })),
-        'Repository index tree through external scratch'
-      ), 'Repository index tree through external scratch');
+      const testTransport = documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer;
+      let productionScratch: GitScratchIndexTreeSession | null = null;
+      if (!testTransport) {
+        const gitReadSession = documentControlGitReadScope.getStore();
+        if (gitReadSession === undefined) {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unknown', 'semantic-closure-unproven'
+          );
+        }
+        const resolution = await createAuthorityGitScratchIndexTreeSession({
+          gitReadSession,
+          scratchRoot: canonicalScratchRoot
+        });
+        if (resolution.status !== 'ready') {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unavailable', resolution.reason
+          );
+        }
+        productionScratch = resolution.session;
+      }
       const scratchEnvironment = (options: CommandOptions = {}): CommandOptions => Object.freeze({
         ...options,
         environment: Object.freeze({ ...options.environment, ...environment })
       });
-      return await observe(Object.freeze({
-        treeSha,
-        index: before,
-        async run(args: readonly string[], options: CommandOptions = {}) {
+      const runScratch = async (
+        args: readonly string[],
+        options: CommandOptions = {}
+      ): Promise<CommandResult> => {
+        if (productionScratch === null) {
           const scratchOptions = scratchEnvironment(options);
           return input.resolverGit === undefined
             ? run('git', [...args], input.repositoryRoot, scratchOptions)
             : input.resolverGit.run(args, input.repositoryRoot, scratchOptions);
-        },
-        async readBlob(spec: string) {
-          const options = scratchEnvironment();
-          return input.resolverGit === undefined
-            ? readGitBlob(input.repositoryRoot, spec, options.environment)
-            : input.resolverGit.readBlob(input.repositoryRoot, spec, options);
         }
-      }));
+        if (options.input !== undefined || (options.environment !== undefined
+            && Object.keys(options.environment).length > 0)) {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unknown', 'semantic-closure-unproven'
+          );
+        }
+        if (args.length === 1 && args[0] === 'write-tree') {
+          const result = await productionScratch.writeTree();
+          if (result.status !== 'ready') {
+            throw documentControlCliFailure(
+              'git', 'git-object-index-effect', 'unavailable', result.reason
+            );
+          }
+          return Object.freeze({ code: 0, stdout: `${result.value}\n`, stderr: '' });
+        }
+        const result = await productionScratch.observe(args);
+        if (result.status !== 'ready') {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unavailable', result.reason
+          );
+        }
+        return Object.freeze({
+          code: result.value.code,
+          stdout: Buffer.from(result.value.stdout).toString('utf8'),
+          stderr: Buffer.from(result.value.stderr).toString('utf8')
+        });
+      };
+      let primaryFailure: unknown;
+      try {
+        const treeSha = shaValue(requireCommand(
+          await runScratch(['write-tree']),
+          'Repository index tree through external scratch'
+        ), 'Repository index tree through external scratch');
+        return await observe(Object.freeze({
+          treeSha,
+          index: before,
+          run: runScratch,
+          async readBlob(spec: string) {
+            const result = await runScratch(['show', spec]);
+            return result.code === 0 ? Buffer.from(result.stdout) : undefined;
+          }
+        }));
+      } catch (error) {
+        primaryFailure = error;
+        throw error;
+      } finally {
+        const closeFailure = await productionScratch?.close();
+        if (primaryFailure === undefined && closeFailure !== null && closeFailure !== undefined) {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unavailable', closeFailure
+          );
+        }
+      }
     } finally {
       const after = await readAnchoredIndexSnapshot({
         boundaryRoot: indexPaths.gitDirectory,
@@ -7101,14 +7197,12 @@ async function observeLiveDefaultSha(input: Readonly<{
   const githubRepository = parseGitHubRepositoryIdentityFromRemoteUrl(remoteUrl.stdout);
   if (githubRepository !== null) {
     if (githubRepository.toLowerCase() !== input.repository.toLowerCase()) return undefined;
-    const result = await run(
-      'gh',
-      buildGitHubDefaultBranchRefArgs(input.repository, input.defaultBranch),
-      input.repositoryRoot
-    );
-    if (result.code !== 0) return undefined;
     try {
-      return parseGitHubDefaultBranchRef(result.stdout);
+      return await observeMainHealthGitHubDefaultBranchSha({
+        repositoryRoot: input.repositoryRoot,
+        repository: input.repository,
+        defaultBranch: input.defaultBranch
+      });
     } catch {
       return undefined;
     }
@@ -7123,6 +7217,18 @@ async function observeGitHubControlFacts(
   repositoryRoot: string,
   repository: string
 ): Promise<Readonly<Record<string, unknown>>> {
+  if (documentControlHostCliTestScope.getStore() !== documentControlHostCliTestIssuer) {
+    try {
+      const inventory = await withMainHealthGitHubReadSession({
+        repositoryRoot,
+        repository,
+        operation: async () => await observeMainHealthGitHubControlInventory({ repository })
+      });
+      return Object.freeze({ status: 'resolved', ...inventory });
+    } catch (error) {
+      return unresolvedGitHubObservation(error instanceof Error ? error.message : String(error));
+    }
+  }
   const countBeforeResult = await run(
     'gh',
     buildGitHubOpenInventoryCountsArgs(repository),
@@ -7323,19 +7429,53 @@ function optionalLiveDefaultSha(result: CommandResult, label: string): string | 
   return shaValue(result.stdout.trim().split(/\s+/u)[0], label);
 }
 
+type ResolveLiveControlPlaneOptions = Readonly<{
+  observeGitHub?: boolean;
+  /** Deterministic contract-test seam for the journal/snapshot double-read race. */
+  afterIndexSnapshot?: () => Promise<void> | void;
+  /** Deterministic contract-test seam for exact-SHA/index/ref readback races. */
+  beforeObservationReadback?: () => Promise<void> | void;
+  /** Deterministic contract-test seam between anchored residue census reads. */
+  beforeJournalRecoveryCensusReadback?: () => Promise<void> | void;
+  /** Deterministic contract-test observation of the final read-only Git child environment. */
+  resolverGitCommandObserver?: ReadOnlyResolverGitObserver;
+}>;
+
 export async function resolveLiveControlPlane(
   cwd: string,
-  options: Readonly<{
-    observeGitHub?: boolean;
-    /** Deterministic contract-test seam for the journal/snapshot double-read race. */
-    afterIndexSnapshot?: () => Promise<void> | void;
-    /** Deterministic contract-test seam for exact-SHA/index/ref readback races. */
-    beforeObservationReadback?: () => Promise<void> | void;
-    /** Deterministic contract-test seam between anchored residue census reads. */
-    beforeJournalRecoveryCensusReadback?: () => Promise<void> | void;
-    /** Deterministic contract-test observation of the final read-only Git child environment. */
-    resolverGitCommandObserver?: ReadOnlyResolverGitObserver;
-  }> = {}
+  options: ResolveLiveControlPlaneOptions = {}
+): Promise<Record<string, unknown>> {
+  if (documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer) {
+    return resolveLiveControlPlaneWithGitReadSession(cwd, options);
+  }
+  try {
+    const absoluteDeadline = Date.now() + ExternalCommandTimeoutMs;
+    return await withAuthorityGitReadSession({
+      cwd: path.resolve(cwd),
+      budget: { deadlineMs: ExternalCommandTimeoutMs },
+      deadlineAtUnixMs: absoluteDeadline
+    }, (session) => documentControlGitReadScope.run(
+      session,
+      () => resolveLiveControlPlaneWithGitReadSession(cwd, options)
+    ));
+  } catch (error) {
+    if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
+    if (error instanceof GitReadAuthorityError) {
+      throw documentControlCliFailure(
+        'git',
+        'git-read',
+        'unavailable',
+        error.failure.reason,
+        error.failure.detailDigest
+      );
+    }
+    throw error;
+  }
+}
+
+async function resolveLiveControlPlaneWithGitReadSession(
+  cwd: string,
+  options: ResolveLiveControlPlaneOptions
 ): Promise<Record<string, unknown>> {
   const resolverGit = createReadOnlyResolverGit(options.resolverGitCommandObserver);
   const repositoryRoot = requireCommand(
@@ -7494,13 +7634,11 @@ export async function resolveLiveControlPlane(
   } catch {
     indexTreeReadback = null;
   }
-  const [headReadbackResult, localDefaultReadbackResult] = await Promise.all([
-    resolverGit.run(['rev-parse', 'HEAD'], repositoryRoot),
-    resolverGit.run(
-      ['rev-parse', '--verify', spec.resolver.defaultRef],
-      repositoryRoot
-    )
-  ]);
+  const headReadbackResult = await resolverGit.run(['rev-parse', 'HEAD'], repositoryRoot);
+  const localDefaultReadbackResult = await resolverGit.run(
+    ['rev-parse', '--verify', spec.resolver.defaultRef],
+    repositoryRoot
+  );
   const headShaReadback = optionalCommandSha(headReadbackResult, 'Candidate HEAD readback');
   const localDefaultShaReadback = optionalCommandSha(localDefaultReadbackResult, 'Local default ref readback');
   const liveDefaultShaReadback = await observeLiveDefaultSha({
@@ -7607,11 +7745,12 @@ export function projectDocumentControlPlaneStatusCli(
     ? github.openPullRequests
     : undefined;
   const openIssues = Array.isArray(github.openIssues) ? github.openIssues : undefined;
-  const reviewThreads = github.reviewThreads !== null
-    && typeof github.reviewThreads === 'object'
-    && !Array.isArray(github.reviewThreads)
-    ? github.reviewThreads as Record<string, unknown>
-    : undefined;
+  const reviewThreadPullRequestCount = Array.isArray(github.reviewThreads)
+    ? github.reviewThreads.length
+    : github.reviewThreads !== null
+        && typeof github.reviewThreads === 'object'
+      ? Object.keys(github.reviewThreads).length
+      : undefined;
   return Object.freeze({
     schema: 'sec-document-control-plane-status-cli-projection-v1',
     resultDigest: rawSha256(JSON.stringify(resolved)),
@@ -7629,9 +7768,7 @@ export function projectDocumentControlPlaneStatusCli(
         )))
       }),
       ...(openIssues === undefined ? {} : { openIssueCount: openIssues.length }),
-      ...(reviewThreads === undefined ? {} : {
-        reviewThreadPullRequestCount: Object.keys(reviewThreads).length
-      })
+      ...(reviewThreadPullRequestCount === undefined ? {} : { reviewThreadPullRequestCount })
     }),
     activeWorkPackage: resolved.activeWorkPackage,
     activation: resolved.activation

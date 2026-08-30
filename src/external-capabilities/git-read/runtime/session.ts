@@ -1,8 +1,8 @@
 import { devNull } from 'node:os';
 import path from 'node:path';
 
-import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, issueRetainedCommandBoundary, resolveExecutableLocator, runCommandBytes, runRetainedCommandBytes, type ByteCommandResult, type RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
+import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, issueRetainedCommandBoundary, resolveExecutableLocator, runCommandBytes, runRetainedCommandBytes, type ByteCommandResult, type RetainedCommandAuxiliaryInput, type RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
 import { rawSha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 
 /**
@@ -329,6 +329,48 @@ export type GitReadSession = Readonly<{
   close?: () => Promise<void>;
 }>;
 
+export type GitScratchIndexTreeFailureReason =
+  | 'production-session-required'
+  | 'retained-provider-unavailable'
+  | 'invalid-scratch-layout'
+  | 'scratch-identity-changed'
+  | 'session-failed'
+  | 'closed';
+
+export type GitScratchIndexTreeResult<T> = Readonly<
+  { status: 'ready'; value: T } |
+  { status: 'unavailable'; reason: GitScratchIndexTreeFailureReason }
+>;
+
+/**
+ * Narrow Git effect capability for computing a tree from one immutable index.
+ * It intentionally exposes no argv, config, ref, index-update, or object-write
+ * primitive beyond Git's internally-required tree object publication inside
+ * the retained repository-external scratch object directory.
+ */
+export type GitScratchIndexTreeSession = Readonly<{
+  readonly scratchRoot: string;
+  readonly objectFormat: 'sha1' | 'sha256';
+  writeTree(): Promise<GitScratchIndexTreeResult<string>>;
+  observe(args: readonly string[]): Promise<GitScratchIndexTreeResult<ByteCommandResult>>;
+  close(): Promise<GitScratchIndexTreeFailureReason | null>;
+}>;
+
+export type GitScratchIndexTreeResolution =
+  | Readonly<{ readonly status: 'ready'; readonly session: GitScratchIndexTreeSession }>
+  | Readonly<{ readonly status: 'unavailable'; readonly reason: GitScratchIndexTreeFailureReason }>;
+
+type GitScratchExecutionOwner = Readonly<{
+  issueBoundary(auxiliaryInputs: readonly RetainedCommandAuxiliaryInput[]): RetainedCommandBoundary;
+  run(
+    args: readonly string[],
+    environment: Readonly<Record<string, string>>,
+    boundary: RetainedCommandBoundary
+  ): Promise<GitReadSessionCommand>;
+}>;
+
+const GIT_SCRATCH_EXECUTION_OWNERS = new WeakMap<object, GitScratchExecutionOwner>();
+
 /**
  * A session's origin is deliberately not a public data property.  The
  * factory result is structurally convenient for read-only helpers, but an
@@ -428,6 +470,7 @@ const GIT_READ_ONLY_COMMANDS = new Set([
   'diff',
   'for-each-ref',
   'ls-files',
+  'ls-remote',
   'ls-tree',
   'merge-base',
   'remote',
@@ -548,6 +591,7 @@ function gitReadCommandIsObservation(args: readonly string[]): boolean {
   if (command === 'status') {
     return commandArgs.every((argument) => (
       argument === '--short'
+      || argument === '--branch'
       || argument === '--porcelain'
       || argument === '--porcelain=v1'
       || argument === '--porcelain=v2'
@@ -588,7 +632,7 @@ function gitReadCommandIsObservation(args: readonly string[]): boolean {
   }
   if (command === 'ls-files') {
     const allowed = new Set([
-      '-z', '--stage', '--cached', '--others', '--exclude-standard', '--ignored', '--'
+      '-z', '--stage', '--unmerged', '--cached', '--others', '--exclude-standard', '--ignored', '--'
     ]);
     return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
@@ -596,10 +640,17 @@ function gitReadCommandIsObservation(args: readonly string[]): boolean {
     const allowed = new Set(['-r', '-z', '-l', '--full-tree', '--name-only', '--']);
     return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
+  if (command === 'ls-remote') {
+    const positional = commandArgs[0] === '--exit-code' ? commandArgs.slice(1) : commandArgs;
+    return positional.length === 2
+      && positional.every((argument) => argument.length > 0 && !argument.startsWith('-'))
+      && positional[1]!.startsWith('refs/heads/');
+  }
   if (command === 'rev-parse') {
     const allowed = new Set([
       '--verify', '--quiet', '-q', '--end-of-options', '--show-toplevel', '--git-common-dir',
-      '--is-inside-work-tree', '--path-format=absolute', '--git-path'
+      '--absolute-git-dir', '--is-inside-work-tree', '--path-format=absolute', '--git-path',
+      '--show-object-format'
     ]);
     return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
@@ -1063,6 +1114,11 @@ function createHostGitReadSession(input: Readonly<{
     return stable;
   };
 
+  let authorizedScratchInvocation: Readonly<{
+    readonly args: readonly string[];
+    readonly boundary: RetainedCommandBoundary;
+    readonly environment: Readonly<Record<string, string>>;
+  }> | null = null;
   const session: GitReadSession = {
     cwd: input.cwd,
     gitExecutable: gitExecutable ?? '',
@@ -1138,7 +1194,10 @@ function createHostGitReadSession(input: Readonly<{
         'command-error',
         closed ? 'Git read session is closed.' : 'Git read session is closing.'
       );
-      if (!gitReadCommandIsObservation(args)) {
+      const scratchInvocation = authorizedScratchInvocation?.args === args
+        ? authorizedScratchInvocation
+        : null;
+      if (scratchInvocation === null && !gitReadCommandIsObservation(args)) {
         return fail(
           'operation-not-permitted',
           'Git session rejected command grammar outside its observation capability.'
@@ -1192,8 +1251,10 @@ function createHostGitReadSession(input: Readonly<{
       activeProcesses += 1;
       const settleRun = registerActiveRun();
       try {
+        const commandEnvironment = scratchInvocation?.environment ?? env;
+        const commandBoundary = scratchInvocation?.boundary ?? retainedCommandBoundary;
         const commandOptions = {
-          env,
+          env: commandEnvironment,
           envMode: 'replace' as const,
           ...(commandInput === null ? {} : {
             input: commandInput,
@@ -1203,9 +1264,9 @@ function createHostGitReadSession(input: Readonly<{
           maxStdoutBytes: Math.min(budget.maxCommandStdoutBytes, remainingStdout),
           maxStderrBytes: Math.min(budget.maxCommandStderrBytes, remainingStderr)
         };
-        const result = retainedCommandBoundary === null
+        const result = commandBoundary === null
           ? await runCommandBytes(gitExecutable!, [...args], { cwd: input.cwd, ...commandOptions })
-          : await runRetainedCommandBytes(retainedCommandBoundary, [...args], commandOptions);
+          : await runRetainedCommandBytes(commandBoundary, [...args], commandOptions);
         stdoutBytes += result.stdout.byteLength;
         stderrBytes += Buffer.byteLength(result.stderr, 'utf8');
         // Always close the child boundary with the same executable fence,
@@ -1310,6 +1371,33 @@ function createHostGitReadSession(input: Readonly<{
   const issuedSession = Object.freeze(session);
   if (input.origin === 'production') PRODUCTION_GIT_READ_SESSIONS.add(issuedSession);
   else TEST_GIT_READ_SESSIONS.add(issuedSession);
+  GIT_SCRATCH_EXECUTION_OWNERS.set(issuedSession, Object.freeze({
+    issueBoundary(auxiliaryInputs: readonly RetainedCommandAuxiliaryInput[]): RetainedCommandBoundary {
+      if (retainedCommandBoundary === null) {
+        throw new Error('Git retained executable/cwd provider is unavailable for scratch computation.');
+      }
+      return issueRetainedCommandBoundary({
+        executable: retainedCommandBoundary.executable,
+        workingDirectory: retainedCommandBoundary.workingDirectory,
+        auxiliaryInputs
+      });
+    },
+    async run(
+      args: readonly string[],
+      environment: Readonly<Record<string, string>>,
+      boundary: RetainedCommandBoundary
+    ): Promise<GitReadSessionCommand> {
+      if (authorizedScratchInvocation !== null) {
+        throw new Error('Git scratch computation does not permit concurrent or nested invocation.');
+      }
+      authorizedScratchInvocation = Object.freeze({ args, boundary, environment });
+      try {
+        return await issuedSession.run(args);
+      } finally {
+        authorizedScratchInvocation = null;
+      }
+    }
+  }));
   return issuedSession;
 }
 
@@ -1395,6 +1483,211 @@ export function createAuthorityGitReadSession(input: Readonly<{
     route: 'host-local-git-v1' as const,
     session
   });
+}
+
+function pathIsInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+/**
+ * Issues the one Git effect needed to compute a tree from an already-created,
+ * immutable index snapshot. The scratch root is caller-materialized but must
+ * be repository-external and contain exactly the retained `index` file and
+ * `objects` directory. The returned object has no generic command surface.
+ */
+export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<{
+  readonly gitReadSession: GitReadSession;
+  readonly scratchRoot: string;
+}>): Promise<GitScratchIndexTreeResolution> {
+  if (!isProductionGitReadSession(input.gitReadSession)) {
+    return Object.freeze({ status: 'unavailable', reason: 'production-session-required' });
+  }
+  const executionOwner = GIT_SCRATCH_EXECUTION_OWNERS.get(input.gitReadSession);
+  if (executionOwner === undefined) {
+    return Object.freeze({ status: 'unavailable', reason: 'retained-provider-unavailable' });
+  }
+  const scratchRoot = path.resolve(input.scratchRoot);
+  if (!path.isAbsolute(input.scratchRoot) || scratchRoot !== input.scratchRoot) {
+    return Object.freeze({ status: 'unavailable', reason: 'invalid-scratch-layout' });
+  }
+  const identity = await input.gitReadSession.run([
+    'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-path', 'objects',
+    '--git-path', 'index', '--show-object-format'
+  ]);
+  if (identity.kind !== 'completed' || identity.result.code !== 0) {
+    return Object.freeze({ status: 'unavailable', reason: 'session-failed' });
+  }
+  const lines = Buffer.from(identity.result.stdout).toString('utf8').trim().split(/\r?\n/u);
+  const [repositoryRoot, repositoryObjects, repositoryIndex, objectFormat] = lines;
+  if (lines.length !== 4 || repositoryRoot === undefined || repositoryObjects === undefined
+      || repositoryIndex === undefined || (objectFormat !== 'sha1' && objectFormat !== 'sha256')) {
+    return Object.freeze({ status: 'unavailable', reason: 'session-failed' });
+  }
+  const canonicalRepositoryRoot = path.resolve(repositoryRoot);
+  const canonicalRepositoryObjects = path.resolve(repositoryObjects);
+  const canonicalRepositoryIndex = path.resolve(repositoryIndex);
+  if (pathIsInside(canonicalRepositoryRoot, scratchRoot)
+      || pathIsInside(scratchRoot, canonicalRepositoryRoot)
+      || pathIsInside(canonicalRepositoryObjects, scratchRoot)
+      || pathIsInside(scratchRoot, canonicalRepositoryObjects)) {
+    return Object.freeze({ status: 'unavailable', reason: 'invalid-scratch-layout' });
+  }
+
+  let repositoryObjectsCapability: RetainedNoFollowChildProcessDirectory | null = null;
+  let scratchObjectsCapability: RetainedNoFollowChildProcessDirectory | null = null;
+  let scratchIndexCapability: RetainedNoFollowOrdinaryFile | null = null;
+  let repositoryIndexCapability: RetainedNoFollowOrdinaryFile | null = null;
+  try {
+    const scratchChain = inspectNoFollowDirectoryChain(scratchRoot, 'Git scratch root');
+    const scratchIndexEntry = inspectNoFollowOrdinaryFileEntry(scratchChain.target, 'index');
+    if (scratchIndexEntry === null || scratchIndexEntry.kind !== 'file') {
+      throw new Error('Git scratch index is absent or not an ordinary file.');
+    }
+    const scratchObjectsChain = inspectNoFollowDirectoryChain(
+      path.join(scratchRoot, 'objects'),
+      'Git scratch object directory'
+    );
+    const repositoryObjectsChain = inspectNoFollowDirectoryChain(
+      canonicalRepositoryObjects,
+      'Git repository object directory'
+    );
+    const repositoryIndexParent = inspectNoFollowDirectoryChain(
+      path.dirname(canonicalRepositoryIndex),
+      'Git repository index parent'
+    );
+    const repositoryIndexEntry = inspectNoFollowOrdinaryFileEntry(
+      repositoryIndexParent.target,
+      path.basename(canonicalRepositoryIndex)
+    );
+    if (repositoryIndexEntry === null || repositoryIndexEntry.kind !== 'file') {
+      throw new Error('Git repository index is absent or not an ordinary file.');
+    }
+    repositoryObjectsCapability = retainNoFollowDirectoryForChildProcess(
+      repositoryObjectsChain,
+      5,
+      'Git repository object directory'
+    );
+    scratchObjectsCapability = retainNoFollowDirectoryForChildProcess(
+      scratchObjectsChain,
+      6,
+      'Git scratch object directory'
+    );
+    scratchIndexCapability = retainNoFollowOrdinaryFileForChildProcess(
+      scratchChain,
+      scratchIndexEntry,
+      7,
+      'Git scratch index'
+    );
+    repositoryIndexCapability = retainNoFollowOrdinaryFile(
+      repositoryIndexParent,
+      path.basename(canonicalRepositoryIndex),
+      { device: repositoryIndexEntry.device, inode: repositoryIndexEntry.inode },
+      'Git repository index fence',
+      8
+    );
+    const boundary = executionOwner.issueBoundary(Object.freeze([
+      Object.freeze({ kind: 'directory' as const, capability: repositoryObjectsCapability }),
+      Object.freeze({ kind: 'directory' as const, capability: scratchObjectsCapability }),
+      Object.freeze({ kind: 'ordinary-file' as const, capability: scratchIndexCapability })
+    ]));
+    const environment = Object.freeze(isolatedGitReadEnvironment({
+      GIT_INDEX_FILE: scratchIndexCapability.childPath,
+      GIT_OBJECT_DIRECTORY: scratchObjectsCapability.childPath,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjectsCapability.childPath
+    }, input.gitReadSession.env));
+    let closed = false;
+    let terminalFailure: GitScratchIndexTreeFailureReason | null = null;
+    const unavailable = <T>(reason: GitScratchIndexTreeFailureReason): GitScratchIndexTreeResult<T> => {
+      terminalFailure ??= reason;
+      return Object.freeze({ status: 'unavailable', reason: terminalFailure });
+    };
+    const assertCurrent = (): boolean => {
+      if (closed) {
+        terminalFailure ??= 'closed';
+        return false;
+      }
+      try {
+        repositoryObjectsCapability!.assertCurrent();
+        scratchObjectsCapability!.assertCurrent();
+        scratchIndexCapability!.assertCurrent();
+        repositoryIndexCapability!.assertCurrent();
+        return true;
+      } catch (error) {
+        terminalFailure ??= 'scratch-identity-changed';
+        return false;
+      }
+    };
+    const run = async (args: readonly string[]): Promise<GitReadSessionCommand | null> => {
+      if (!assertCurrent()) return null;
+      const result = await executionOwner.run(args, environment, boundary);
+      if (!assertCurrent()) return null;
+      return result;
+    };
+    const scratchSession: GitScratchIndexTreeSession = Object.freeze({
+      scratchRoot,
+      objectFormat,
+      async writeTree(): Promise<GitScratchIndexTreeResult<string>> {
+        if (terminalFailure !== null) return unavailable(terminalFailure);
+        const command = await run(Object.freeze(['write-tree']));
+        if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
+          return unavailable(terminalFailure ?? 'session-failed');
+        }
+        const value = Buffer.from(command.result.stdout).toString('utf8').trim();
+        const expectedLength = objectFormat === 'sha1' ? 40 : 64;
+        if (!new RegExp(`^[0-9a-f]{${expectedLength}}$`, 'u').test(value)) {
+          return unavailable('session-failed');
+        }
+        return Object.freeze({ status: 'ready', value });
+      },
+      async observe(args: readonly string[]): Promise<GitScratchIndexTreeResult<ByteCommandResult>> {
+        if (terminalFailure !== null) return unavailable(terminalFailure);
+        if (!gitReadCommandIsObservation(args)) {
+          return unavailable('session-failed');
+        }
+        const result = await run(Object.freeze([...args]));
+        if (result === null) return unavailable(terminalFailure ?? 'session-failed');
+        if (result.kind !== 'completed') {
+          return unavailable('session-failed');
+        }
+        return Object.freeze({ status: 'ready', value: result.result });
+      },
+      async close(): Promise<GitScratchIndexTreeFailureReason | null> {
+        if (closed) return terminalFailure;
+        assertCurrent();
+        const failures: unknown[] = [];
+        for (const capability of [
+          repositoryIndexCapability,
+          scratchIndexCapability,
+          scratchObjectsCapability,
+          repositoryObjectsCapability
+        ]) {
+          try { capability!.dispose(); } catch (error) { failures.push(error); }
+        }
+        closed = true;
+        if (failures.length > 0) {
+          terminalFailure ??= 'scratch-identity-changed';
+        }
+        return terminalFailure;
+      }
+    });
+    return Object.freeze({ status: 'ready', session: scratchSession });
+  } catch (error) {
+    for (const capability of [
+      repositoryIndexCapability,
+      scratchIndexCapability,
+      scratchObjectsCapability,
+      repositoryObjectsCapability
+    ]) {
+      try { capability?.dispose(); } catch { /* preserve the primary admission error */ }
+    }
+    return Object.freeze({
+      status: 'unavailable',
+      reason: error instanceof PhysicalNoFollowError
+        ? 'retained-provider-unavailable'
+        : 'invalid-scratch-layout'
+    });
+  }
 }
 
 /**

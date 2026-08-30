@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
+import { readGitHubToken } from '../../external-capabilities/github-read/credential.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createNoFollowDirectoryChain, inspectExactNoFollowDirectoryPresence, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
@@ -1323,6 +1324,7 @@ async function requestMainHealthGitHubJsonWithToken<T>(input: Readonly<{
 }>): Promise<T> {
   if (input.token.length < 1
       || (input.endpoint !== '/user'
+        && input.endpoint !== '/graphql'
         && !input.endpoint.startsWith(`/repos/${input.repository}/`))) {
     throw new MainHealthGitHubProviderError(
       'MainHealth GitHub token request is not explicitly repository-bound'
@@ -1563,6 +1565,309 @@ async function workSelectionGitHubGet<T>(repository: string, endpoint: string): 
   });
 }
 
+type MainHealthGitHubNumberedInventoryEntry = Readonly<{
+  number: number;
+  title: string;
+}>;
+
+type MainHealthGitHubReviewThreadConnection = Readonly<{
+  totalCount: number;
+  nodes: readonly Readonly<{ isResolved: boolean }>[];
+  pageInfo: Readonly<{ hasNextPage: false; endCursor: null }>;
+}>;
+
+export type MainHealthGitHubControlInventory = Readonly<{
+  openPullRequests: readonly MainHealthGitHubNumberedInventoryEntry[];
+  openIssues: readonly MainHealthGitHubNumberedInventoryEntry[];
+  reviewThreads: readonly Readonly<{
+    number: number;
+    reviewThreads: MainHealthGitHubReviewThreadConnection;
+  }>[];
+}>;
+
+const MAIN_HEALTH_GITHUB_OPEN_COUNTS_QUERY =
+  'query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(states:OPEN){totalCount}issues(states:OPEN){totalCount}}}';
+
+const MAIN_HEALTH_GITHUB_REVIEW_THREADS_QUERY =
+  'query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number reviewThreads(first:100,after:$endCursor){totalCount nodes{isResolved}pageInfo{hasNextPage endCursor}}}}}';
+
+function mainHealthGitHubRepositoryParts(repository: string): Readonly<{
+  owner: string;
+  name: string;
+}> {
+  const parts = repository.split('/');
+  if (parts.length !== 2
+      || parts.some((part) => !/^[A-Za-z0-9_.-]+$/u.test(part))) {
+    throw new MainHealthGitHubProviderError(
+      'MainHealth GitHub repository must be an exact owner/name pair'
+    );
+  }
+  return Object.freeze({ owner: parts[0]!, name: parts[1]! });
+}
+
+function mainHealthGitHubNonNegativeCount(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new MainHealthGitHubProviderError(`${label} must be a non-negative safe integer`);
+  }
+  return value as number;
+}
+
+function mainHealthGitHubPositiveNumber(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) {
+    throw new MainHealthGitHubProviderError(`${label} must be a positive safe integer`);
+  }
+  return value as number;
+}
+
+async function requestMainHealthGitHubReadGraphQL<T>(input: Readonly<{
+  repository: string;
+  query: string;
+  variables: Readonly<Record<string, string | number | null>>;
+}>): Promise<T> {
+  const capability = currentMainHealthGitHubReadCapability(input.repository);
+  const binding = mainHealthGitHubCapabilityBinding(capability);
+  const session = mainHealthGitHubRequestSession.getStore();
+  if (session === undefined || session.capability !== capability) {
+    throw new MainHealthGitHubProviderError(
+      'MainHealth GitHub GraphQL read requires the active exact operation session'
+    );
+  }
+  return await requestMainHealthGitHubJsonWithToken<T>({
+    repository: input.repository,
+    token: binding.token,
+    fetchImpl: binding.fetchImpl,
+    session,
+    method: 'POST',
+    endpoint: '/graphql',
+    body: Object.freeze({ query: input.query, variables: input.variables })
+  });
+}
+
+function mainHealthGitHubGraphQLRepository(
+  value: unknown,
+  label: string
+): Record<string, unknown> {
+  const root = workSelectionGitHubRecord(value, `${label} response`);
+  if ('errors' in root
+      && (!Array.isArray(root.errors) || root.errors.length !== 0)) {
+    throw new MainHealthGitHubProviderError(`${label} response contains GraphQL errors`);
+  }
+  const data = workSelectionGitHubRecord(root.data, `${label} data`);
+  return workSelectionGitHubRecord(data.repository, `${label} repository`);
+}
+
+async function observeMainHealthGitHubOpenCounts(repository: string): Promise<Readonly<{
+  pullRequests: number;
+  issues: number;
+}>> {
+  const parts = mainHealthGitHubRepositoryParts(repository);
+  const repositoryValue = mainHealthGitHubGraphQLRepository(
+    await requestMainHealthGitHubReadGraphQL<unknown>({
+      repository,
+      query: MAIN_HEALTH_GITHUB_OPEN_COUNTS_QUERY,
+      variables: parts
+    }),
+    'MainHealth GitHub open inventory count'
+  );
+  const pullRequests = workSelectionGitHubRecord(
+    repositoryValue.pullRequests,
+    'open pull request count'
+  );
+  const issues = workSelectionGitHubRecord(repositoryValue.issues, 'open issue count');
+  return Object.freeze({
+    pullRequests: mainHealthGitHubNonNegativeCount(
+      pullRequests.totalCount,
+      'MainHealth GitHub open pull request totalCount'
+    ),
+    issues: mainHealthGitHubNonNegativeCount(
+      issues.totalCount,
+      'MainHealth GitHub open issue totalCount'
+    )
+  });
+}
+
+async function observeMainHealthGitHubOpenNumberedInventory(repository: string): Promise<Readonly<{
+  pullRequests: readonly MainHealthGitHubNumberedInventoryEntry[];
+  issues: readonly MainHealthGitHubNumberedInventoryEntry[];
+}>> {
+  const pullRequests: MainHealthGitHubNumberedInventoryEntry[] = [];
+  const issues: MainHealthGitHubNumberedInventoryEntry[] = [];
+  const observedNumbers = new Set<number>();
+  for (let page = 1; page <= 1_000; page += 1) {
+    const value = await workSelectionGitHubGet<unknown>(
+      repository,
+      `/repos/${repository}/issues?state=open&per_page=100&page=${page}`
+    );
+    if (!Array.isArray(value)) {
+      throw new MainHealthGitHubProviderError(
+        'MainHealth GitHub open issue inventory response is not an array'
+      );
+    }
+    for (const [index, entry] of value.entries()) {
+      const record = workSelectionGitHubRecord(entry, `open inventory ${page}:${index}`);
+      const number = mainHealthGitHubPositiveNumber(
+        record.number,
+        `MainHealth GitHub open inventory ${page}:${index} number`
+      );
+      if (observedNumbers.has(number) || typeof record.title !== 'string') {
+        throw new MainHealthGitHubProviderError(
+          `MainHealth GitHub open inventory ${page}:${index} is duplicate or malformed`
+        );
+      }
+      observedNumbers.add(number);
+      const observation = Object.freeze({ number, title: record.title });
+      if ('pull_request' in record) pullRequests.push(observation);
+      else issues.push(observation);
+    }
+    if (value.length < 100) {
+      const byNumber = (
+        left: MainHealthGitHubNumberedInventoryEntry,
+        right: MainHealthGitHubNumberedInventoryEntry
+      ): number => left.number - right.number;
+      return Object.freeze({
+        pullRequests: Object.freeze(pullRequests.sort(byNumber)),
+        issues: Object.freeze(issues.sort(byNumber))
+      });
+    }
+  }
+  throw new MainHealthGitHubProviderError(
+    'MainHealth GitHub open inventory exceeded 100,000 records'
+  );
+}
+
+async function observeMainHealthGitHubReviewThreads(
+  repository: string,
+  pullRequestNumbers: readonly number[]
+): Promise<MainHealthGitHubControlInventory['reviewThreads']> {
+  const parts = mainHealthGitHubRepositoryParts(repository);
+  const result: Array<MainHealthGitHubControlInventory['reviewThreads'][number]> = [];
+  for (const number of pullRequestNumbers) {
+    mainHealthGitHubPositiveNumber(number, 'MainHealth GitHub review-thread pull request');
+    let cursor: string | null = null;
+    let expectedTotalCount: number | null = null;
+    const nodes: Readonly<{ isResolved: boolean }>[] = [];
+    for (let page = 1; page <= 1_000; page += 1) {
+      const repositoryValue = mainHealthGitHubGraphQLRepository(
+        await requestMainHealthGitHubReadGraphQL<unknown>({
+          repository,
+          query: MAIN_HEALTH_GITHUB_REVIEW_THREADS_QUERY,
+          variables: Object.freeze({ ...parts, number, endCursor: cursor })
+        }),
+        `MainHealth GitHub pull request ${number} review threads page ${page}`
+      );
+      const pullRequest = workSelectionGitHubRecord(
+        repositoryValue.pullRequest,
+        `pull request ${number}`
+      );
+      if (pullRequest.number !== number) {
+        throw new MainHealthGitHubProviderError(
+          `MainHealth GitHub review-thread response resolved the wrong pull request ${number}`
+        );
+      }
+      const connection = workSelectionGitHubRecord(
+        pullRequest.reviewThreads,
+        `pull request ${number} reviewThreads`
+      );
+      const totalCount = mainHealthGitHubNonNegativeCount(
+        connection.totalCount,
+        `pull request ${number} reviewThreads totalCount`
+      );
+      expectedTotalCount ??= totalCount;
+      if (totalCount !== expectedTotalCount || !Array.isArray(connection.nodes)) {
+        throw new MainHealthGitHubProviderError(
+          `MainHealth GitHub pull request ${number} review-thread census drifted or is malformed`
+        );
+      }
+      for (const [index, entry] of connection.nodes.entries()) {
+        const node = workSelectionGitHubRecord(
+          entry,
+          `pull request ${number} reviewThreads node ${index}`
+        );
+        if (typeof node.isResolved !== 'boolean') {
+          throw new MainHealthGitHubProviderError(
+            `MainHealth GitHub pull request ${number} review-thread node is malformed`
+          );
+        }
+        nodes.push(Object.freeze({ isResolved: node.isResolved }));
+      }
+      const pageInfo = workSelectionGitHubRecord(
+        connection.pageInfo,
+        `pull request ${number} reviewThreads pageInfo`
+      );
+      if (typeof pageInfo.hasNextPage !== 'boolean') {
+        throw new MainHealthGitHubProviderError(
+          `MainHealth GitHub pull request ${number} review-thread pageInfo is malformed`
+        );
+      }
+      if (!pageInfo.hasNextPage) {
+        if (nodes.length !== expectedTotalCount) {
+          throw new MainHealthGitHubProviderError(
+            `MainHealth GitHub pull request ${number} review-thread terminal page is incomplete: `
+            + `expected ${expectedTotalCount}, observed ${nodes.length}`
+          );
+        }
+        result.push(Object.freeze({
+          number,
+          reviewThreads: Object.freeze({
+            totalCount: expectedTotalCount,
+            nodes: Object.freeze(nodes),
+            pageInfo: Object.freeze({ hasNextPage: false as const, endCursor: null })
+          })
+        }));
+        break;
+      }
+      if (typeof pageInfo.endCursor !== 'string'
+          || pageInfo.endCursor.length === 0
+          || pageInfo.endCursor === cursor) {
+        throw new MainHealthGitHubProviderError(
+          `MainHealth GitHub pull request ${number} review-thread cursor is invalid`
+        );
+      }
+      cursor = pageInfo.endCursor;
+      if (page === 1_000) {
+        throw new MainHealthGitHubProviderError(
+          `MainHealth GitHub pull request ${number} review-thread pagination exceeded 100,000 records`
+        );
+      }
+    }
+  }
+  return Object.freeze(result);
+}
+
+/**
+ * Complete PR/Issue/review-thread inventory from the active repository-bound
+ * MainHealth read session. Transport, credential, pagination, counts and the
+ * final drift fence remain private to this semantic owner.
+ */
+export async function observeMainHealthGitHubControlInventory(input: Readonly<{
+  repository: string;
+}>): Promise<MainHealthGitHubControlInventory> {
+  currentMainHealthGitHubReadCapability(input.repository);
+  const before = await observeMainHealthGitHubOpenCounts(input.repository);
+  const inventory = await observeMainHealthGitHubOpenNumberedInventory(input.repository);
+  if (inventory.pullRequests.length !== before.pullRequests
+      || inventory.issues.length !== before.issues) {
+    throw new MainHealthGitHubProviderError(
+      'MainHealth GitHub open inventory is incomplete or changed after its first count fence'
+    );
+  }
+  const reviewThreads = await observeMainHealthGitHubReviewThreads(
+    input.repository,
+    inventory.pullRequests.map((entry) => entry.number)
+  );
+  const after = await observeMainHealthGitHubOpenCounts(input.repository);
+  if (after.pullRequests !== before.pullRequests || after.issues !== before.issues) {
+    throw new MainHealthGitHubProviderError(
+      'MainHealth GitHub open inventory changed during its final count fence'
+    );
+  }
+  return Object.freeze({
+    openPullRequests: inventory.pullRequests,
+    openIssues: inventory.issues,
+    reviewThreads
+  });
+}
+
 export async function observeWorkSelectionGitHubDefaultRef(input: Readonly<{
   repository: string;
   defaultBranch: string;
@@ -1669,14 +1974,28 @@ export async function observeWorkSelectionGitHubBranchRefs(input: Readonly<{
 }
 
 async function readMainHealthGitHubToken(
-  _repositoryRoot: string,
+  repositoryRoot: string,
   session: MainHealthGitHubRequestSession
 ): Promise<string> {
-  remainingMainHealthGitHubSessionMs(session);
+  const remainingMs = remainingMainHealthGitHubSessionMs(session);
   reserveMainHealthGitHubRequest(session);
-  throw new MainHealthGitHubCredentialUnavailableError(
-    'credential-provider-unavailable'
-  );
+  let tokenBytes: Uint8Array | null = null;
+  try {
+    tokenBytes = await readGitHubToken({
+      cwd: path.resolve(repositoryRoot),
+      hostname: 'github.com',
+      deadlineAtUnixMs: Math.min(session.deadlineAt, Date.now() + remainingMs)
+    });
+    remainingMainHealthGitHubSessionMs(session);
+    recordMainHealthGitHubResponseBytes(session, tokenBytes.byteLength);
+    return new TextDecoder('utf-8', { fatal: true }).decode(tokenBytes);
+  } catch {
+    throw new MainHealthGitHubCredentialUnavailableError(
+      'credential-provider-unavailable'
+    );
+  } finally {
+    tokenBytes?.fill(0);
+  }
 }
 
 type MainHealthGitHubTokenReader = (
