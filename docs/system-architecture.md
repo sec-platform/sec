@@ -117,6 +117,8 @@ unknown          coverage或authority不足，禁止假KEEP也禁止破坏性删
 `derivable`改为projection，`duplicate-owner`保留唯一owner并删除其余writer/parser/registry，`dominated`合并或删除，
 `orphan`删除；只有`required`保留，`unknown`形成bounded frontier。新增对象如果不对应新的真实Responsibility，必须证明
 它让总代码、状态、测试、验证成本或故障空间净减少；“更安全”“便于测试”“未来可能使用”或局部green不能授权净膨胀。
+
+`dominated | superseded` 的证明必须同时覆盖 `current semantics` 与 `owner-issued design intent`。后者只能来自 canonical 产品/Contract/capability owner 中已有真实 consumer、演进 transition、支持窗口或重新激活条件的机器事实，并投影为可比较的 capability、Effect/failure、migration/retirement 与 lifecycle-cost envelope；不得从名称、注释、历史实现形状或 Agent 推测反推。当前等价但 intent envelope 未闭合时，分类必须保持 `design-intent-unresolved`，既不能删除旧 owner，也不能把旧表示原样并入新系统。闭合后只保留满足该 envelope 的最小新原语，旧 API、path、schema、test 和 compatibility surface 同批退役。
 一个版本/revision/digest/path/status字段没有独立consumer时，字段和围绕它的测试一起删除；一个测试只重演类型、strict
 parser、module compiler、常量或更强Effect/readback proof时删除；一个wrapper没有新增protocol、credential、Effect、
 security、compatibility或performance boundary时删除；一个Skill/WP复制machine rule或canonical principle时降为locator或删除。
