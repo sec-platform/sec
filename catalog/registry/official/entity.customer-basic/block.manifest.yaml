@@ -35,15 +35,6 @@ pins:
     - id: customer_created
       type: CustomerRecord
       required: true
-slots:
-  - id: customer_normalizer
-    kind: adapter
-    target: custom/customer_normalizer.ts
-    symbol: normalizeCustomerInput
-    inputType: CustomerInput
-    outputType: NormalizedCustomerInput
-    writableZones:
-      - custom/
 acceptance:
   - id: user_can_create_customer
     dependsOn:
@@ -51,8 +42,6 @@ acceptance:
     covers:
       blocks:
         - entity/customer-basic
-      slots:
-        - customer_normalizer
   - id: user_can_list_customers
     dependsOn:
       - user_can_create_customer
@@ -67,5 +56,3 @@ acceptance:
       blocks:
         - tenant/basic-workspace
         - entity/customer-basic
-      slots:
-        - customer_normalizer

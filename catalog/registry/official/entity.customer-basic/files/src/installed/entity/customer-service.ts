@@ -1,7 +1,17 @@
-import { normalizeCustomerInput } from '../../../custom/customer_normalizer.ts';
-import type { CustomerInput, CustomerRecord, Database } from '../../runtime/database.ts';
+import type { CustomerInput, CustomerRecord, Database, NormalizedCustomerInput } from '../../runtime/database.ts';
 import type { Session } from '../auth/session.ts';
 import { currentTenant } from '../tenant/context.ts';
+
+function normalizeCustomerInput(input: CustomerInput): NormalizedCustomerInput {
+  const name = String(input.name ?? '').trim();
+  if (!name) {
+    throw new Error('customer name is required');
+  }
+  const email = input.email ? String(input.email).trim().toLowerCase() : '';
+  const phone = input.phone ? String(input.phone).replace(/[\s-]+/g, '') : '';
+  const company = String(input.company ?? '').trim() || 'Unknown';
+  return { name, email, phone, company };
+}
 
 export function createCustomer(
   db: Database,
