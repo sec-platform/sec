@@ -1,23 +1,23 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
+import { readLockFile } from '../../src/compiler/lock.ts';
 import {
   composeWorkspace,
   initWorkspace
-} from '../../platform/orchestrator.ts';
+} from '../../src/compiler/orchestration/cli.ts';
 import {
   assertIsolatedVerificationCapability,
   mintIsolatedVerificationCapability
-} from '../../platform/orchestrator/isolated-verification-capability.ts';
-import { readLockFile } from '../../platform/shared/lock-utils.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+} from '../../src/compiler/orchestration/isolated-verification-capability.ts';
 import {
   commitPipelineTransaction,
   readPipelineJournal,
   recordPipelinePassStart,
   REFERENCE_PIPELINE_TRANSACTION_ID,
   startPipelineTransaction
-} from '../../platform/shared/pipeline-journal.ts';
+} from '../../src/compiler/pipeline/journal.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const staleRevision = `sha256:${'0'.repeat(64)}`;
@@ -45,7 +45,7 @@ test('isolated Verification capability is opaque and bound to one exact workspac
 
 test('blocked stage is persisted as blocked instead of a pass execution failure', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
 
     await expect(composeWorkspace(workspaceRoot)).rejects.toMatchObject({
       code: 'PIPELINE-BLOCKED-002'

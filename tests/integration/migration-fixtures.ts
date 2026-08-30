@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import type { UpgradeMigrationEntry } from '../../platform/shared/types.ts';
+import type { UpgradeMigrationEntry } from '../../src/change-management/upgrade/contract/manifest-types.ts';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -168,8 +168,8 @@ export function slotContractUpdate(target: string): UpgradeMigrationEntry {
     reason: 'test slot contract update',
     target,
     slotId: 'customer_normalizer',
-    inputType: 'CustomerInputV2',
-    outputType: 'CustomerRecordInput',
+    inputType: 'NormalizedCustomerInput',
+    outputType: 'NormalizedCustomerInput',
     writableZones: [target]
   };
 }

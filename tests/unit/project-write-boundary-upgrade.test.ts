@@ -1,24 +1,25 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { writeJson, writeText } from '../../platform/shared/fs.ts';
-import type { LockFile } from '../../platform/shared/lock-types.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { failPipelineTransaction, startPipelineTransaction } from '../../platform/shared/pipeline-journal.ts';
-import { writeProjectBaseline } from '../../platform/shared/project-baseline.ts';
-import { checkProjectWriteBoundary } from '../../platform/shared/project-write-boundary.ts';
-import type { UpgradePlan } from '../../platform/shared/upgrade-types.ts';
+import { parseUpgradeDiagnosticsJson, parseUpgradePlanJson, UpgradeContractError, type UpgradePlan } from '../../src/change-management/upgrade/contract/types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { readReviewGovernanceReports } from '../../src/compiler/emit/read-review-governance-reports.ts';
+import { failPipelineTransaction, startPipelineTransaction } from '../../src/compiler/pipeline/journal.ts';
+import { writeJson, writeText } from '../../src/workspace/files.ts';
 import {
   createWorkspaceWriteCommitFence,
   withWorkspaceWriteLease
-} from '../../platform/shared/workspace-write-lease.ts';
+} from '../../src/workspace/lease.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { checkProjectWriteBoundary, writeProjectBaseline } from '../../src/workspace/project.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function lockFor(paths: string[]): LockFile {
   return {
     formatVersion: '1',
-    app: { id: 'upgrade-boundary-test', name: 'upgrade-boundary-test', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
+    app: { id: 'upgrade-boundary-test', name: 'upgrade-boundary-test', stack: 'typescript-library', mode: 'single-tenant' },
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [],
@@ -96,4 +97,86 @@ test('active upgrade transaction authorizes only declared project impacts', asyn
       }
     });
   }, 'engineering-compiler-upgrade-write-boundary-');
+});
+
+test('upgrade durable contracts reject ambiguous JSON and unbound authority', () => {
+  const plan = plannedUpgrade(['app/page.tsx']);
+  expect(parseUpgradePlanJson(JSON.stringify(plan))).toMatchObject({
+    formatVersion: '1',
+    blockId: 'auth/basic-session',
+    status: 'planned',
+    impacts: ['app/page.tsx']
+  });
+
+  const expectFailure = (
+    operation: () => unknown,
+    kind: UpgradeContractError['kind']
+  ): void => {
+    try {
+      operation();
+      throw new Error('expected upgrade contract rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UpgradeContractError);
+      expect(error).toMatchObject({ kind });
+    }
+  };
+
+  expectFailure(
+    () => parseUpgradePlanJson('{"formatVersion":"1","formatVersion":"1"}'),
+    'duplicate-key'
+  );
+  expectFailure(
+    () => parseUpgradePlanJson(JSON.stringify({ ...plan, formatVersion: 'future' })),
+    'schema'
+  );
+  expectFailure(
+    () => parseUpgradePlanJson(JSON.stringify({ ...plan, unsupportedField: true })),
+    'schema'
+  );
+  expectFailure(
+    () => parseUpgradePlanJson(JSON.stringify({ ...plan, impacts: ['../outside'] })),
+    'status-impact'
+  );
+  expectFailure(
+    () => parseUpgradePlanJson(JSON.stringify({ ...plan, blockId: '../foreign' })),
+    'provenance'
+  );
+
+  const diagnostics = {
+    formatVersion: '1',
+    status: 'blocked',
+    phase: 'planning',
+    blockId: 'auth/basic-session',
+    targetVersion: '0.1.1',
+    failedCheck: 'migration-targets',
+    errorCode: 'UPGRADE-MIGRATION-004',
+    message: 'target is missing'
+  };
+  expect(parseUpgradeDiagnosticsJson(JSON.stringify(diagnostics))).toMatchObject(diagnostics);
+  expectFailure(
+    () => parseUpgradeDiagnosticsJson('{"formatVersion":"1","formatVersion":"1"}'),
+    'duplicate-key'
+  );
+  expectFailure(
+    () => parseUpgradeDiagnosticsJson(JSON.stringify({ ...diagnostics, unsupportedField: true })),
+    'schema'
+  );
+  expectFailure(
+    () => parseUpgradeDiagnosticsJson(JSON.stringify({ ...diagnostics, blockId: '../foreign' })),
+    'provenance'
+  );
+});
+
+test('review governance rejects ambiguous persisted upgrade artifacts before object parsing', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+    await fs.mkdir(path.dirname(upgradePlanPath), { recursive: true });
+    await fs.writeFile(
+      upgradePlanPath,
+      '{"formatVersion":"1","formatVersion":"1"}',
+      'utf8'
+    );
+
+    expect(() => readReviewGovernanceReports(workspaceRoot)).toThrow(/duplicate.*key/iu);
+  }, 'engineering-compiler-upgrade-review-reader-');
 });

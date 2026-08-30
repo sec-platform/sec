@@ -6,12 +6,12 @@ import path from 'node:path';
 
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 
-import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 import {
-  createLocalMainCloseoutBindingV3,
-  executeLocalMainCloseoutV3,
-  inspectLocalMainCloseoutV3
-} from '../../scripts/codex/local-main-closeout.ts';
+  createLocalMainCloseoutBinding,
+  executeLocalMainCloseout,
+  inspectLocalMainCloseout
+} from '../../src/control/branch-lifecycle/local-main-closeout.ts';
+import { withWorkspaceWriteLease } from '../../src/workspace/lease.ts';
 
 function git(repoRoot: string, args: readonly string[], options: { quiet?: boolean } = {}): string {
   const result = spawnSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
@@ -36,7 +36,7 @@ function binding(expectedLocalPreimageSha = git(protectedRoot!, ['rev-parse', 'H
   const remoteSha = git(remoteRoot!, ['rev-parse', 'main']).trim();
   const remoteTree = git(remoteRoot!, ['rev-parse', 'main^{tree}']).trim();
   const localTree = git(protectedRoot!, ['rev-parse', `${expectedLocalPreimageSha}^{tree}`]).trim();
-  return createLocalMainCloseoutBindingV3({ repository: 'sec-platform/sec', pullRequestNumber: 42,
+  return createLocalMainCloseoutBinding({ repository: 'sec-platform/sec', pullRequestNumber: 42,
     protectedRootRealPath: protectedRoot!,
     expectedLocalPreimageSha, expectedRemoteMainSha: remoteSha,
     expectedLocalPreimageTreeSha: localTree, expectedCandidateHeadSha: remoteSha,
@@ -50,7 +50,7 @@ function binding(expectedLocalPreimageSha = git(protectedRoot!, ['rev-parse', 'H
 
 async function execute(bindingValue: ReturnType<typeof binding>) {
   return withWorkspaceWriteLease(protectedRoot!, undefined, (lease) => (
-    executeLocalMainCloseoutV3(protectedRoot!, bindingValue, gitRunner, lease)
+    executeLocalMainCloseout(protectedRoot!, bindingValue, gitRunner, lease)
   ));
 }
 
@@ -106,7 +106,7 @@ test.serial('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via 
 });
 
 test.serial('already-current protected main returns LOCAL_MAIN_READY without mutation', () => {
-  const status = inspectLocalMainCloseoutV3(protectedRoot!, binding(), gitRunner);
+  const status = inspectLocalMainCloseout(protectedRoot!, binding(), gitRunner);
   expect(status.status).toBe('LOCAL_MAIN_READY');
   if (status.status === 'LOCAL_MAIN_READY') expect(status.action).toBe('already-current');
 });

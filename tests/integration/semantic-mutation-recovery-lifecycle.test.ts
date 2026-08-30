@@ -3,24 +3,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import {
-  buildFactDelta,
-  buildWorkspaceSemanticBundle,
-  type SemanticMutationAuthorizationContextV2,
-  type SemanticMutationBaseV2,
-  type SemanticMutationRequestV2
-} from '../../platform/compiler/index.ts';
-import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
-import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
-import { loadSemanticMutationRecoveryRecords } from '../../platform/compiler/semantic-mutation/mutation-recovery-record.ts';
-import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
-import { renderSemanticContractYamlEdit } from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
-import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
-import {
-  semanticMutationRequestIdentityDigest,
-  semanticMutationTransactionRoot
-} from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
-import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
+import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import {
   addBlock,
   applySemanticMutation,
@@ -28,15 +11,28 @@ import {
   querySemanticMutationRequest,
   recoverSemanticMutationWorkspace,
   resolveWorkspace
-} from '../../platform/orchestrator.ts';
+} from '../../src/compiler/orchestration/cli.ts';
 import {
   applySemanticMutationWithAfterPreparedTestCrash,
   applySemanticMutationWithTestDependencies,
   planSemanticMutationTransactionWithTestDependencies,
   recoverSemanticMutationWorkspaceWithTestDependencies
-} from '../../platform/orchestrator/semantic-mutation-orchestrator.ts';
-import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
-import type { SemanticMutationRecoveryState } from '../../platform/shared/semantic-mutation-transaction-types.ts';
+} from '../../src/compiler/orchestration/semantic-mutation-orchestrator.ts';
+import { buildWorkspaceSemanticBundle } from '../../src/compiler/semantic-frontend.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import { expectationFromFactDelta } from '../../src/compiler/semantic-mutation/match-expectation.ts';
+import { loadSemanticMutationRecoveryRecords } from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
+import { semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
+import { renderSemanticContractYamlEdit } from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
+import {
+  semanticMutationRequestIdentityDigest,
+  semanticMutationTransactionRoot
+} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/semantic-mutation/verification-policy.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
+import type { SemanticMutationRecoveryState } from '../../src/semantic/mutation/contract/transaction.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationBase, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 import { copyWorkspaceFixture, withTempWorkspace } from '../testkit/workspace.ts';
@@ -103,8 +99,8 @@ function endpoint(
   };
 }
 
-function authorization(stateId = 'item-status'): SemanticMutationAuthorizationContextV2 {
-  const draft: Omit<SemanticMutationAuthorizationContextV2, 'authorizationRevision'> = {
+function authorization(stateId = 'item-status'): SemanticMutationAuthorizationContext {
+  const draft: Omit<SemanticMutationAuthorizationContext, 'authorizationRevision'> = {
     taskId: 'task:sm3-lifecycle',
     envelopeRevision: 'envelope:v2',
     allowedOperationKinds: ['add-state-transition'],
@@ -122,7 +118,7 @@ async function createTemplate(
   workspaceRoot: string,
   authoringSource = AUTHORING_SOURCE
 ): Promise<void> {
-  await initWorkspace(workspaceRoot, { reset: true });
+  await initWorkspace(workspaceRoot);
   await installPrivateBannerBlock(workspaceRoot);
   await addBlock(workspaceRoot, 'private/banner-basic');
   await resolveWorkspace(workspaceRoot);
@@ -162,7 +158,7 @@ type RecoveryTestDependencies = Parameters<
 >[2];
 
 function createRecoveryTestDependencies(): RecoveryTestDependencies {
-  let staged: SemanticMutationBaseV2 | undefined;
+  let staged: SemanticMutationBase | undefined;
   return {
     isolationCapabilityProbe: RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE,
     verify: async (derived) => {
@@ -213,7 +209,7 @@ async function mutationInput(
   const expectedAfter = endpoint(afterBundle.snapshot, 'tx:sm3-lifecycle-expected');
   const expectedDelta = buildFactDelta(base, expectedAfter);
   await writeFile(sourcePath, beforeBytes);
-  const request: SemanticMutationRequestV2 = {
+  const request: SemanticMutationRequest = {
     contractVersion: '2',
     requestId,
     graphId: base.snapshot.ir.graphId,

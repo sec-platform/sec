@@ -1,11 +1,10 @@
 import { expect, test } from 'bun:test';
-import { defaultInstallRegistry } from '../../platform/compiler/compose/install-strategies.ts';
-import { validateManifest } from '../../platform/compiler/parse/load-manifest.ts';
-import { loadPlan } from '../../platform/compiler/parse/load-plan.ts';
-import type { InstallPlanStep } from '../../platform/shared/lock-types.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { BlockManifest } from '../../platform/shared/plan-manifest-types.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+import { defaultInstallRegistry } from '../../src/compiler/compose/install-strategies.ts';
+import type { BlockManifest, InstallPlanStep } from '../../src/compiler/contract.ts';
+import { validateManifest } from '../../src/compiler/parse/load-manifest.ts';
+import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('plan validation rejects registry paths that traverse outside their base root', async () => {
@@ -16,7 +15,7 @@ test('plan validation rejects registry paths that traverse outside their base ro
       app: {
         id: 'customer-admin',
         name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
+        stack: 'typescript-library',
         packageManager: 'pnpm',
         mode: 'single-tenant'
       },
@@ -48,7 +47,7 @@ test('plan validation rejects slot targets that traverse outside custom', async 
       app: {
         id: 'customer-admin',
         name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
+        stack: 'typescript-library',
         packageManager: 'pnpm',
         mode: 'single-tenant'
       },
@@ -77,7 +76,7 @@ test('manifest validation rejects install paths that traverse outside allowed ro
     id: 'private/path-test',
     version: '0.1.0',
     kind: 'capability',
-    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    stackProfiles: ['typescript-library'],
     requires: [],
     provides: ['private/path-test'],
     conflicts: [],
@@ -116,7 +115,7 @@ test('install strategy rejects persisted lock targets that escape project root',
       registrySourceId: 'private',
       registryKind: 'private',
       registryLocation: 'workspace',
-      registryPath: 'platform/registry/private',
+      registryPath: 'src/compiler/registry/private',
       sourceRoot: '',
       action: 'copy',
       from: 'files/source.ts',
@@ -128,7 +127,7 @@ test('install strategy rejects persisted lock targets that escape project root',
       projectRoot,
       lock: {
         formatVersion: '1',
-        app: { id: 'customer-admin', name: 'customer-admin', stack: 'nextjs-ts-prisma-sqlite', mode: 'single-tenant' },
+        app: { id: 'customer-admin', name: 'customer-admin', stack: 'typescript-library', mode: 'single-tenant' },
         resolvedBlocks: [],
         resolvedCapabilities: [],
         installPlan: [],

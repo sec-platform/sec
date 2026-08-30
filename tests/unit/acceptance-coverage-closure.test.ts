@@ -2,15 +2,13 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { buildAcceptanceCoverage } from '../../platform/compiler/verify/build-acceptance-coverage.ts';
 import type {
   BlockManifest,
-  FastVerificationLaneReport,
-  LockFile,
-  RuntimeVerificationLaneReport,
-  VerificationReport
-} from '../../platform/shared/types.ts';
-import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
+  LockFile
+} from '../../src/compiler/contract.ts';
+import { buildAcceptanceCoverage } from '../../src/compiler/verify/build-acceptance-coverage.ts';
+import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationReport } from '../../src/verification/contract/types.ts';
+import { readYaml, writeYaml } from '../../src/workspace/yaml.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
 import {
   emptyVerificationLogs,
@@ -23,7 +21,7 @@ function manifest(acceptance: BlockManifest['acceptance']): BlockManifest {
     id: 'source/block',
     version: '0.1.0',
     kind: 'capability',
-    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    stackProfiles: ['typescript-library'],
     requires: [],
     provides: [],
     conflicts: [],
@@ -41,7 +39,7 @@ function lock(acceptancePlan: string[]): LockFile {
     app: {
       id: 'coverage-closure',
       name: 'coverage-closure',
-      stack: 'nextjs-ts-prisma-sqlite',
+      stack: 'typescript-library',
       mode: 'single-tenant'
     },
     resolvedBlocks: [{
@@ -97,7 +95,7 @@ function runtime(): RuntimeVerificationLaneReport {
     status: 'passed',
     build: {
       status: 'passed',
-      passed: ['next build'],
+      passed: ['bun run build'],
       failed: [],
       command: 'bun run build'
     },
@@ -220,7 +218,7 @@ test('coverage readback restores fast acceptance from the matching canonical rep
 });
 
 test('every official registry slot is declared by at least one acceptance cover', async () => {
-  const officialRoot = path.resolve(import.meta.dir, '../../platform/registry/official');
+  const officialRoot = path.resolve(import.meta.dir, '../../catalog/registry/official');
   const manifests = (await fs.readdir(officialRoot, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(officialRoot, entry.name, 'block.manifest.yaml'));

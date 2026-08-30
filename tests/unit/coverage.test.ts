@@ -2,14 +2,13 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { buildAcceptanceCoverage } from '../../platform/compiler/verify/build-acceptance-coverage.ts';
 import type {
   BlockManifest,
-  FastVerificationLaneReport,
-  LockFile,
-  RuntimeVerificationLaneReport
-} from '../../platform/shared/types.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+  LockFile
+} from '../../src/compiler/contract.ts';
+import { buildAcceptanceCoverage } from '../../src/compiler/verify/build-acceptance-coverage.ts';
+import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../src/verification/contract/types.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 import { emptyVerificationLogs } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -18,7 +17,7 @@ function manifest(id: string, acceptance: BlockManifest['acceptance']): BlockMan
     id,
     version: '0.1.0',
     kind: 'capability',
-    stackProfiles: ['nextjs-ts-prisma-sqlite'],
+    stackProfiles: ['typescript-library'],
     requires: [],
     provides: [],
     conflicts: [],
@@ -53,7 +52,7 @@ function runtime(passed: string[]): RuntimeVerificationLaneReport {
   return {
     status: 'passed',
     build: {
-      status: 'passed', passed: ['next build'], failed: [], command: 'bun run build'
+      status: 'passed', passed: ['bun run build'], failed: [], command: 'bun run build'
     },
     unit: {
       status: 'passed',
@@ -77,7 +76,7 @@ function lock(acceptancePlan: string[]): LockFile {
     app: {
       id: 'coverage-test',
       name: 'coverage-test',
-      stack: 'nextjs-ts-prisma-sqlite',
+      stack: 'typescript-library',
       mode: 'single-tenant'
     },
     resolvedBlocks: [
@@ -177,7 +176,10 @@ test('fast and runtime files close every declared semantic acceptance', async ()
         'user_can_create_customer',
         'customer_can_upload_attachment'
       ]),
-      runtime(['tests/runtime/acceptance/customer-flow.spec.ts']),
+      runtime([
+        'tests/acceptance/auth-flow.test.ts',
+        'tests/acceptance/customer-attachments-flow.test.ts'
+      ]),
       fast(['customer-flow.test.ts'])
     );
 
@@ -238,7 +240,8 @@ test('partial, unmapped and empty observations remain uncovered', async () => {
       workspaceRoot,
       currentLock,
       runtime([
-        'tests/runtime/acceptance/customer-flow.spec.ts'
+        'tests/acceptance/customer-attachments-flow.test.ts',
+        'tests/acceptance/customer-flow.test.ts'
       ]),
       fast([])
     );

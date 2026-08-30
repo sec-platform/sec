@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
-  createMainHealthLedgerV1,
-  createMainHealthRepairWorkPackagePathV1
-} from '../../platform/shared/main-health-contract.ts';
-import { compileMainHealthRepairDecisionV1 } from '../../platform/shared/main-health-repair-contract.ts';
+  createMainHealthLedger,
+  createMainHealthRepairWorkPackagePath
+} from '../../src/control/main-health/contract.ts';
+import { compileMainHealthRepairDecision } from '../../src/control/main-health/repair.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -13,7 +13,7 @@ const FAILURE = sha256('main-health failure') as `sha256:${string}`;
 const SOURCE = sha256('provider source') as `sha256:${string}`;
 const OBSERVED_AT = '2026-08-12T00:00:00.000Z';
 
-function ledger(overrides: Partial<Parameters<typeof createMainHealthLedgerV1>[0]> = {}) {
+function ledger(overrides: Partial<Parameters<typeof createMainHealthLedger>[0]> = {}) {
   const value = {
     repository: 'sec-platform/sec',
     defaultBranch: 'main',
@@ -36,12 +36,12 @@ function ledger(overrides: Partial<Parameters<typeof createMainHealthLedgerV1>[0
       sourceDigest: SOURCE
     },
     ...overrides
-  } satisfies Parameters<typeof createMainHealthLedgerV1>[0];
-  return createMainHealthLedgerV1({
+  } satisfies Parameters<typeof createMainHealthLedger>[0];
+  return createMainHealthLedger({
     ...value,
     repairWorkPackage: Object.hasOwn(overrides, 'repairWorkPackage')
       ? overrides.repairWorkPackage ?? null
-      : createMainHealthRepairWorkPackagePathV1({
+      : createMainHealthRepairWorkPackagePath({
           repository: value.repository,
           defaultBranch: value.defaultBranch,
           mainSha: value.mainSha,
@@ -57,7 +57,7 @@ function decide(value: unknown, overrides: Partial<{
   expectedRepository: string;
   expectedMainSha: string;
 }> = {}) {
-  return compileMainHealthRepairDecisionV1({
+  return compileMainHealthRepairDecision({
     observation: { kind: 'available', ledger: value },
     now: overrides.now ?? OBSERVED_AT,
     expectedRepository: overrides.expectedRepository ?? 'sec-platform/sec',
@@ -80,7 +80,7 @@ test('degraded exact-main repair decision binds the whole routing identity', () 
     owner: 'ci-verification-maintainer',
     failureFingerprints: [FAILURE]
   });
-  expect(result.binding?.manifestPath).toBe(createMainHealthRepairWorkPackagePathV1({
+  expect(result.binding?.manifestPath).toBe(createMainHealthRepairWorkPackagePath({
     repository: 'sec-platform/sec', defaultBranch: 'main', mainSha: MAIN, mainTreeSha: TREE,
     owner: 'ci-verification-maintainer', failureFingerprints: [FAILURE]
   }));
@@ -99,7 +99,7 @@ test('provider absence, transport failure, invalidity, and conflict remain disti
     ['provider-invalid', 'repair-provider-invalid'],
     ['provider-conflict', 'repair-provider-conflict']
   ] as const) {
-    const result = compileMainHealthRepairDecisionV1({
+    const result = compileMainHealthRepairDecision({
       observation: { kind, observationRef: SOURCE },
       now: OBSERVED_AT,
       expectedRepository: 'sec-platform/sec',
@@ -114,7 +114,7 @@ test('provider absence, transport failure, invalidity, and conflict remain disti
 });
 
 test('repair routing distinguishes ineligible, expired, drifted, malformed, and invalid identities', () => {
-  const healthy = createMainHealthLedgerV1({
+  const healthy = createMainHealthLedger({
     ...ledger(),
     status: 'healthy',
     failureFingerprints: [],

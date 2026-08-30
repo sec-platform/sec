@@ -2,38 +2,67 @@ import { expect, test } from 'bun:test';
 
 
 import {
-  assertStableWorktreePhysicalWorkingStateV1,
-  assertWorktreePhysicalCloseoutAuthorizationV1,
-  assertWorktreePhysicalCloseoutReceiptV1,
-  classifyAuthorizedWorktreeResidueV1,
-  createWorktreePhysicalCloseoutAuthorizationV1,
-  createWorktreePhysicalCloseoutReceiptV1,
-  createWorktreePhysicalInventoryV1,
-  detailDigestV1,
-  parseWorktreePorcelainZV1,
-  parseWorktreeStatusPorcelainZV1,
-  type WorktreePhysicalEntryV1
-} from '../../scripts/codex/worktree-physical-closeout-contract.ts';
+  assertStableWorktreePhysicalWorkingState,
+  assertWorktreePhysicalCloseoutAuthorization,
+  assertWorktreePhysicalCloseoutReceipt,
+  classifyAuthorizedWorktreeResidue,
+  createWorktreePhysicalCloseoutAuthorization,
+  createWorktreePhysicalCloseoutReceipt,
+  createWorktreePhysicalInventory,
+  detailDigest,
+  parseGitWorktreeAdminLocator,
+  parseGitWorktreeAdminPath,
+  parseWorktreePorcelainZ,
+  parseWorktreeStatusPorcelainZ,
+  type WorktreePhysicalEntry
+} from '../../src/runtime-state/worktree-closeout-contract.ts';
 
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 
-function entry(overrides: Partial<WorktreePhysicalEntryV1> = {}): WorktreePhysicalEntryV1 {
+test('linked-worktree control path files are strict bounded single-line machine records', () => {
+  expect(parseGitWorktreeAdminLocator(
+    Buffer.from('gitdir: ../repository/.git/worktrees/candidate\n')
+  )).toBe('../repository/.git/worktrees/candidate');
+  expect(parseGitWorktreeAdminPath(Buffer.from('../..\r\n'), 'commondir'))
+    .toBe('../..');
+  expect(parseGitWorktreeAdminPath(
+    Buffer.from('D:/repository-candidate/.git\n'),
+    'gitdir back-reference'
+  )).toBe('D:/repository-candidate/.git');
+  for (const invalid of [
+    '',
+    'gitdir: ',
+    'gitdir: one\nsecond\n',
+    'gitdir: one\rsecond',
+    'gitdir: one\0second'
+  ]) {
+    expect(() => parseGitWorktreeAdminLocator(Buffer.from(invalid)))
+      .toThrow('Worktree physical closeout contract');
+  }
+  expect(() => parseGitWorktreeAdminLocator(Uint8Array.from([
+    ...Buffer.from('gitdir: ', 'utf8'),
+    0xff
+  ])))
+    .toThrow('invalid UTF-8');
+});
+
+function entry(overrides: Partial<WorktreePhysicalEntry> = {}): WorktreePhysicalEntry {
   return {
     relativePath: 'tracked.txt',
     kind: 'file',
     device: '7',
     inode: '11',
     size: 7,
-    contentDigest: detailDigestV1('tracked'),
+    contentDigest: detailDigest('tracked'),
     linkTarget: null,
     ...overrides
   };
 }
 
 function authorization(proofLeaf = 'sec-worktree-closeout-proof-0000000000000000000000000000000000000000000000000000000000000000') {
-  const inventory = createWorktreePhysicalInventoryV1([
-    entry({ relativePath: '.git', inode: '12', contentDigest: detailDigestV1('gitdir') }),
+  const inventory = createWorktreePhysicalInventory([
+    entry({ relativePath: '.git', inode: '12', contentDigest: detailDigest('gitdir') }),
     entry(),
     entry({
       relativePath: 'folder',
@@ -44,7 +73,7 @@ function authorization(proofLeaf = 'sec-worktree-closeout-proof-0000000000000000
     }),
     entry({ relativePath: 'folder/nested.txt', inode: '14' })
   ]);
-  return createWorktreePhysicalCloseoutAuthorizationV1({
+  return createWorktreePhysicalCloseoutAuthorization({
     repository: {
       root: '/repo',
       rootDevice: '7',
@@ -60,19 +89,19 @@ function authorization(proofLeaf = 'sec-worktree-closeout-proof-0000000000000000
       branch: 'codex/example',
       headSha: HEAD,
       treeSha: TREE,
-      recoveryAuthorityDigest: detailDigestV1('recovery')
+      recoveryAuthorityDigest: detailDigest('recovery')
     },
     registryAdmin: {
       relativePath: 'worktrees/codex-fixture',
       tombstoneName: 'worktree-admin-closeout-0000000000000000000000000000000000000000000000000000000000000000',
       device: 'dev-admin',
       inode: 'ino-admin',
-      inventory: createWorktreePhysicalInventoryV1([])
+      inventory: createWorktreePhysicalInventory([])
     },
     targetLeaseNamespace: { device: '7', inode: 'lease-namespace' },
     proofRoot: { path: `/repo-parent/${proofLeaf}`, device: '7', inode: `proof-${proofLeaf.slice(-4)}` },
-    registryBeforeDigest: detailDigestV1('registry-before'),
-    workingStateDigest: detailDigestV1('clean'),
+    registryBeforeDigest: detailDigest('registry-before'),
+    workingStateDigest: detailDigest('clean'),
     generatedStateRetirement: null,
     inventory,
     tombstoneName: 'worktree-closeout-tombstone-0000000000000000000000000000000000000000000000000000000000000000',
@@ -86,20 +115,20 @@ test('proof-root binding is authorization-digest-bound without operation-id circ
   const finalized = authorization(`sec-worktree-closeout-proof-${provisional.operationId.slice('sha256:'.length)}`);
   expect(finalized.operationId).toBe(provisional.operationId);
   expect(finalized.authorizationDigest).not.toBe(provisional.authorizationDigest);
-  expect(assertWorktreePhysicalCloseoutAuthorizationV1(finalized)).toEqual(finalized);
+  expect(assertWorktreePhysicalCloseoutAuthorization(finalized)).toEqual(finalized);
 });
 
 test('working-state readback drift is a pure pre-effect rejection ordered before authorization publication', () => {
-  const clean = detailDigestV1('clean-working-state');
-  expect(() => assertStableWorktreePhysicalWorkingStateV1(clean, {
+  const clean = detailDigest('clean-working-state');
+  expect(() => assertStableWorktreePhysicalWorkingState(clean, {
     digest: clean,
     blocker: 'working-state-not-clean'
   })).toThrow('working-state-not-clean');
-  expect(() => assertStableWorktreePhysicalWorkingStateV1(clean, {
-    digest: detailDigestV1('changed-working-state'),
+  expect(() => assertStableWorktreePhysicalWorkingState(clean, {
+    digest: detailDigest('changed-working-state'),
     blocker: null
   })).toThrow('working-state-changed-during-authorization');
-  expect(() => assertStableWorktreePhysicalWorkingStateV1(clean, {
+  expect(() => assertStableWorktreePhysicalWorkingState(clean, {
     digest: clean,
     blocker: null
   })).not.toThrow();
@@ -113,7 +142,7 @@ test('strict porcelain-z parser accepts canonical records and retains provider f
     ].join(''),
     'utf8'
   );
-  expect(parseWorktreePorcelainZV1(source)).toEqual([
+  expect(parseWorktreePorcelainZ(source)).toEqual([
     {
       path: 'C:/repo',
       headSha: HEAD,
@@ -136,79 +165,79 @@ test('strict porcelain-z parser accepts canonical records and retains provider f
 });
 
 test('strict porcelain-z parser rejects truncation unknown duplicate and conflicting fields', () => {
-  expect(() => parseWorktreePorcelainZV1(Buffer.from(`worktree /repo\0HEAD ${HEAD}`))).toThrow('must end with NUL');
-  expect(() => parseWorktreePorcelainZV1(Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0future value\0\0`))).toThrow(
+  expect(() => parseWorktreePorcelainZ(Buffer.from(`worktree /repo\0HEAD ${HEAD}`))).toThrow('must end with NUL');
+  expect(() => parseWorktreePorcelainZ(Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0future value\0\0`))).toThrow(
     'unsupported porcelain field'
   );
-  expect(() => parseWorktreePorcelainZV1(Buffer.from(`worktree /repo\0HEAD ${HEAD}\0HEAD ${HEAD}\0branch refs/heads/main\0\0`))).toThrow(
+  expect(() => parseWorktreePorcelainZ(Buffer.from(`worktree /repo\0HEAD ${HEAD}\0HEAD ${HEAD}\0branch refs/heads/main\0\0`))).toThrow(
     'duplicate HEAD'
   );
-  expect(() => parseWorktreePorcelainZV1(Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0detached\0\0`))).toThrow(
+  expect(() => parseWorktreePorcelainZ(Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0detached\0\0`))).toThrow(
     'conflicting detached'
   );
   expect(() =>
-    parseWorktreePorcelainZV1(
+    parseWorktreePorcelainZ(
       Buffer.from([...Buffer.from(`worktree /repo-`, 'utf8'), 0xff, 0, ...Buffer.from(`HEAD ${HEAD}\0branch refs/heads/main\0\0`, 'utf8')])
     )
   ).toThrow('invalid UTF-8');
-  expect(() => parseWorktreePorcelainZV1(Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0\0\0`))).toThrow(
+  expect(() => parseWorktreePorcelainZ(Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0\0\0`))).toThrow(
     'unexpected empty porcelain field'
   );
   expect(() =>
-    parseWorktreePorcelainZV1(
+    parseWorktreePorcelainZ(
       Buffer.from(`worktree /repo\0HEAD ${HEAD}\0branch refs/heads/main\0\0worktree /repo\0HEAD ${HEAD}\0branch refs/heads/other\0\0`)
     )
   ).toThrow('duplicate worktree path');
 });
 
 test('strict status porcelain-z parser preserves ignored and rename identities without presentation parsing', () => {
-  expect(parseWorktreeStatusPorcelainZV1(Buffer.from('!! .shared-deps/\0R  renamed.ts\0original.ts\0?? note.txt\0', 'utf8'))).toEqual([
+  expect(parseWorktreeStatusPorcelainZ(Buffer.from('!! .shared-deps/\0R  renamed.ts\0original.ts\0?? note.txt\0', 'utf8'))).toEqual([
     { index: '!', worktree: '!', path: '.shared-deps', originalPath: null },
     { index: 'R', worktree: ' ', path: 'renamed.ts', originalPath: 'original.ts' },
     { index: '?', worktree: '?', path: 'note.txt', originalPath: null }
   ]);
-  expect(() => parseWorktreeStatusPorcelainZV1(Buffer.from('!! cache'))).toThrow('must end with NUL');
-  expect(() => parseWorktreeStatusPorcelainZV1(Buffer.from([0xff, 0x00]))).toThrow('invalid UTF-8');
+  expect(() => parseWorktreeStatusPorcelainZ(Buffer.from('!! cache'))).toThrow('must end with NUL');
+  expect(() => parseWorktreeStatusPorcelainZ(Buffer.from([0xff, 0x00]))).toThrow('invalid UTF-8');
 });
 
 test('authorization binds exact repository target inventory and durable recovery paths', () => {
   const value = authorization();
   expect(value.operationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(value.authorizationDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(assertWorktreePhysicalCloseoutAuthorizationV1(value)).toBe(value);
+  expect(assertWorktreePhysicalCloseoutAuthorization(value)).toBe(value);
   const tampered = {
     ...structuredClone(value),
     target: { ...value.target, headSha: '9'.repeat(40) }
   };
-  expect(() => assertWorktreePhysicalCloseoutAuthorizationV1(tampered)).toThrow('canonical content mismatch');
+  expect(() => assertWorktreePhysicalCloseoutAuthorization(tampered)).toThrow('canonical content mismatch');
 });
 
 test('authorized residue admits only unchanged subsets and rejects new or replaced entries', () => {
   const expected = authorization().inventory;
-  const unchangedSubset = createWorktreePhysicalInventoryV1(
+  const unchangedSubset = createWorktreePhysicalInventory(
     expected.entries.filter(({ relativePath }) => relativePath === 'folder' || relativePath === 'folder/nested.txt')
   );
-  expect(classifyAuthorizedWorktreeResidueV1(unchangedSubset, expected)).toEqual([]);
+  expect(classifyAuthorizedWorktreeResidue(unchangedSubset, expected)).toEqual([]);
 
-  const unknown = createWorktreePhysicalInventoryV1([
+  const unknown = createWorktreePhysicalInventory([
     ...unchangedSubset.entries,
     entry({ relativePath: 'appeared-after-authorization.txt', inode: '91' })
   ]);
-  expect(classifyAuthorizedWorktreeResidueV1(unknown, expected)).toEqual(['unknown-residue:appeared-after-authorization.txt']);
+  expect(classifyAuthorizedWorktreeResidue(unknown, expected)).toEqual(['unknown-residue:appeared-after-authorization.txt']);
 
-  const replaced = createWorktreePhysicalInventoryV1([entry({ relativePath: 'tracked.txt', inode: '99' })]);
-  expect(classifyAuthorizedWorktreeResidueV1(replaced, expected)).toEqual(['changed-residue:tracked.txt']);
+  const replaced = createWorktreePhysicalInventory([entry({ relativePath: 'tracked.txt', inode: '99' })]);
+  expect(classifyAuthorizedWorktreeResidue(replaced, expected)).toEqual(['changed-residue:tracked.txt']);
 });
 
 test('completed receipt requires simultaneous registry and physical absence and is digest-bound', () => {
   const auth = authorization();
-  const receipt = createWorktreePhysicalCloseoutReceiptV1({
+  const receipt = createWorktreePhysicalCloseoutReceipt({
     operationId: auth.operationId,
     authorizationDigest: auth.authorizationDigest,
     repository: auth.repository,
     target: auth.target,
     registryBeforeDigest: auth.registryBeforeDigest,
-    registryAfterDigest: detailDigestV1('registry-after'),
+    registryAfterDigest: detailDigest('registry-after'),
     workingStateDigest: auth.workingStateDigest,
     inventoryBeforeDigest: auth.inventory.inventoryDigest,
     inventoryAfterDigest: null,
@@ -218,7 +247,7 @@ test('completed receipt requires simultaneous registry and physical absence and 
         operation: 'readback',
         status: 'success',
         relativePath: null,
-        detailDigest: detailDigestV1('absent')
+        detailDigest: detailDigest('absent')
       }
     ],
     readback: {
@@ -229,10 +258,10 @@ test('completed receipt requires simultaneous registry and physical absence and 
     terminal: 'completed',
     blockers: []
   });
-  expect(assertWorktreePhysicalCloseoutReceiptV1(receipt)).toBe(receipt);
+  expect(assertWorktreePhysicalCloseoutReceipt(receipt)).toBe(receipt);
   const tampered = {
     ...structuredClone(receipt),
     readback: { ...receipt.readback, physicalPresent: true }
   };
-  expect(() => assertWorktreePhysicalCloseoutReceiptV1(tampered)).toThrow('receipt terminal must be derived');
+  expect(() => assertWorktreePhysicalCloseoutReceipt(tampered)).toThrow('receipt terminal must be derived');
 });

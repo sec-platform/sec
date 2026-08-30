@@ -98,9 +98,9 @@
     "isolatedChildProgressObserved": false,
     "cleanupAttemptedByAgent": false,
     "observedArtifacts": [
-      ".isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-bootstrap.mjs",
-      ".isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-loader.mjs",
-      ".isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-runner.mjs",
+      ".isolated-compiler/src/compiler/orchestration/semantic-mutation-isolated-verification-bootstrap.mjs",
+      ".isolated-compiler/src/compiler/orchestration/semantic-mutation-isolated-verification-loader.mjs",
+      ".isolated-compiler/src/compiler/orchestration/semantic-mutation-isolated-verification-runner.mjs",
       ".isolated-process/phase-telemetry/semantic-mutation-isolated-phase-telemetry-v1-source-snapshot-capture-started.json",
       ".isolated-process/phase-telemetry/semantic-mutation-isolated-phase-telemetry-v1-source-snapshot-capture-completed.json"
     ]

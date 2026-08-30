@@ -148,7 +148,24 @@ L0 physical dependency
 - 当前阻塞来自产品语义、实现资格、工程能力、环境、Evidence、Compatibility、Support 还是治理条件；
 - 一个结果属于 declared、implemented、physically verified、packaged/deployed 还是 product-supported。
 
-UI、CLI、AI Adapter 和报告可以使用不同投影，但必须指向同一 canonical identity、revision、plan、Decision、Binding、result 与 Evidence，不能分别维护成功或实现选择状态。
+CLI、AI Adapter 和报告可以使用不同投影，但必须指向同一 canonical identity、revision、plan、Decision、Binding、result 与 Evidence，不能分别维护成功或实现选择状态。
+
+## 终局业务意图
+
+任何设计先绑定产品或领域唯一 owner 中的终局业务意图，而不是当前报错、现有文件、测试数量或最后一句实现建议。闭包只包含已由产品、roadmap、current spec、重新激活条件或真实 consumer 证明的事实：
+
+```text
+terminal user outcome
++ user-observable acceptance
++ hard constraints / must-preserve / non-goals
++ known consumer and lifecycle horizon
++ whole-lifecycle cost objective
++ reversal / retirement condition
+```
+
+“终局”不是开放世界猜测。不能证明的未来保持 unknown；但已经证明的后继、升级、替换、运维和退役 consumer 不能因“当前只调用一次”被忽略。业务价值是所有代码、测试、Provider、文档和治理对象存在的最终理由；不能改善用户结果或降低正确变化全生命周期成本的对象必须派生、合并或删除。
+
+充分探究也不是无界读取。每次任务先冻结会改变裁决的问题、unknown 与 Evidence 类型，再从 authority、依赖、因果、consumer 和 Impact 图编译最小完整闭包；删掉任一必要引用会使裁决不完整，加入不能回答未决问题的材料则是噪声。根因、owner、机制、验证或退役被新证据推翻时，全部下游设计和 Evidence 必须失效并重算。
 
 ## 核心价值
 
@@ -160,7 +177,7 @@ UI、CLI、AI Adapter 和报告可以使用不同投影，但必须指向同一 
 
 以 Block、Semantic Contract、Provider、Adapter、Reference Provider、Governed Source 和受治理扩展复用工程能力。复用单位包含合同、类型、Target、验证、来源、权限、迁移和失败边界，而不是只复制文件或API调用。
 
-平台优先采用成熟可靠轮子，但只在真实consumer、同条件A/B、安全/许可证审查、conformance和退出条件闭合后正式采用。SEC原生实现只承担自身独有语义或少量Reference基准，不重写整个软件生态。
+平台优先采用成熟可靠轮子，但只在真实consumer、同条件A/B、安全/许可证审查、conformance和退出条件闭合后正式采用。`defer`只能保持显式unknown或推迟采用，不能授权把临时自研同构实现固化成长期第二owner。SEC原生实现只承担自身独有语义或少量Reference基准，不重写整个软件生态。
 
 ### 演进
 
@@ -194,10 +211,10 @@ UI、CLI、AI Adapter 和报告可以使用不同投影，但必须指向同一 
 ## 产品形态
 
 - **CLI**：确定性编译、实现解析、查询、验证、迁移与恢复的薄入口。
-- **Local Workbench**：理解、Review、Implementation解释、影响预览、决策和受控操作面，不是普通 IDE 或低代码私有运行时。
+- **Agent / CLI Interface**：通过稳定 machine JSON、语义图和受控操作解释实现、影响、Evidence 与决策，不拥有浏览器 UI 或第二写路径。
 - **AI / Tool Adapter**：只暴露有权限的查询与 proposal 接口，不暴露第二套写路径或实现选择器。
 - **Registry**：分发 Block、Contract、Generator、Provider/Adapter声明、Verification 与 Migration；长期资产不是模板数量。
-- **Provider 层**：语言前端、静态分析、运行时观察、应用类库、浏览器、构建和外部工具以可替换能力接入。
+- **Provider 层**：语言前端、静态分析、运行时观察、应用类库、构建和外部工具以可替换能力接入。
 - **Agent Operation System**：以 Role、typed Operation Envelope、一个 Primary Skill、确定性服务和外部 Run State 组织 SEC 自身开发，不让 Skill prose 成为第二状态机。
 
 所有入口必须消费同一 canonical producer、Implementation Resolver、Operation/Mutation facade 和 Verification 结果真值。
@@ -245,7 +262,7 @@ SEC 也不以一次性生成大量 IR、Provider、Domain、Skill、Gate 或治�
 ## 永久边界
 
 - `main` 与 canonical Authoring Source 是正式工程事实；PR、聊天、报告和投影不是。
-- AI、Workbench、CLI 和 Provider 不直接写 canonical IR、Implementation Decision、Verification、Evidence 或治理 terminal result。
+- AI、Agent/CLI interface 和 Provider 不直接写 canonical IR、Implementation Decision、Verification、Evidence 或治理 terminal result。
 - Projection、报告、图、缓存和 Evidence 不反向成为事实源。
 - Brownfield 与 deterministic generation 共用同一 Engineering Semantic Model。
 - Engineering semantics、Implementation Resolution、Binding Delta、Compatibility/Migration、Verification和Artifact publication各有唯一owner。
@@ -294,7 +311,7 @@ SEC 达到首个真实 TypeScript 产品闭环时，应同时满足：
 11. 依赖升级或Provider替换不会静默改变timeout、retry、error、serialization、consistency、安全或Effect；无法保持时产生明确Migration。
 12. 至少一个 canonical Authoring Source operation 和一个 Brownfield Governed Source operation完成 authorization、CAS、transaction、Verification、rollback/recovery 与 readback。
 13. 未完整理解的源码仍可被安全观察、显式拥有并在受限边界内修改。
-14. Workbench/CLI可以从intent/constraint到pin/custom执行主要Semantic Operations，并解释选择、淘汰原因与迁移影响，不建立第二写路径或Resolver。
+14. Agent/CLI可以从intent/constraint到pin/custom执行主要Semantic Operations，并解释选择、淘汰原因与迁移影响，不建立第二写路径或Resolver。
 15. AI 只在小而明确的 Context Packet、Operation Envelope、角色权限、实现约束和路径交集内提交 proposal/candidate。
 16. 失败要么在发布前拒绝，要么恢复 exact prior state/Binding，要么进入可诊断的 recovery-required。
 17. 用户看到健康、实现、影响、证据、未知和阻塞，不需要理解内部脚本或精通每个类库才能判断工程状态。

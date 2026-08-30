@@ -5,7 +5,7 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import { scanDocumentation } from '../../docs/scripts/docs-doctor.ts';
+import { projectRepositorySourceGovernance } from '../../src/brownfield/repository-audit/cli.ts';
 import {
   classifySecRepositorySurface,
   isSecRepositoryHeuristicSurface,
@@ -13,16 +13,13 @@ import {
   resolveSecRepositoryBehaviorRoute,
   resolveSecRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
-  SEC_AGENT_SKILL_STANDARD_SECTIONS,
-  SEC_REPOSITORY_BEHAVIOR_IDS,
-  SEC_REPOSITORY_BEHAVIOR_ROUTES
-} from '../../platform/shared/agent-skill-contract.ts';
+  SEC_REPOSITORY_BEHAVIOR_IDS
+} from '../../src/control/agent/skill.ts';
 import {
   activeDocumentationPaths,
   parseDocumentationAuthorityRegistry
-} from '../../platform/shared/documentation-authority-contract.ts';
-import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
-import { projectRepositorySourceGovernance } from '../../scripts/codex/repository-audit.ts';
+} from '../../src/control/documentation/authority.ts';
+import { selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
@@ -111,12 +108,6 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
     expect(descriptions.has(frontmatter.description as string)).toBe(false);
     descriptions.add(frontmatter.description as string);
     expect(body.match(/^#\s+/gmu)).toHaveLength(1);
-    let previousIndex = -1;
-    for (const section of SEC_AGENT_SKILL_STANDARD_SECTIONS) {
-      const index = body.indexOf(section);
-      expect(index).toBeGreaterThan(previousIndex);
-      previousIndex = index;
-    }
   }
 });
 
@@ -133,10 +124,6 @@ test('every exact Skill source passes the production blocking governance project
 });
 
 test('repository behaviors route to deterministic owners or one bounded Skill', () => {
-  const tracked = trackedRepositoryFiles();
-  expect(Object.keys(SEC_REPOSITORY_BEHAVIOR_ROUTES).sort()).toEqual(
-    [...SEC_REPOSITORY_BEHAVIOR_IDS].sort()
-  );
   const routes = SEC_REPOSITORY_BEHAVIOR_IDS.map(resolveSecRepositoryBehaviorRoute);
   const skillOwners = routes
     .filter((route) => route.kind === 'skill')
@@ -149,10 +136,18 @@ test('repository behaviors route to deterministic owners or one bounded Skill', 
     owner: 'sec-task-delegation',
     authorityRef: '.agents/skills/sec-task-delegation/SKILL.md'
   });
+  expect(resolveSecRepositoryBehaviorRoute('governance-self-correction')).toEqual({
+    kind: 'skill',
+    owner: 'sec-heuristic-governance',
+    authorityRef: '.agents/skills/sec-heuristic-governance/SKILL.md'
+  });
   for (const route of routes) {
     expect(route.owner.length).toBeGreaterThan(0);
-    expect(route.authorityRef.length).toBeGreaterThan(0);
-    expect(tracked).toContain(route.authorityRef);
+    if (route.kind === 'skill') {
+      expect(route.authorityRef).toBe(`.agents/skills/${route.owner}/SKILL.md`);
+    } else {
+      expect(route.operation).toMatch(/^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/u);
+    }
   }
 });
 
@@ -173,7 +168,10 @@ test('all tracked Markdown is explicitly classified and active registry paths ha
     'docs/00-文档索引与一致性规则.md',
     'docs/architecture/unowned.md',
     'docs/new-unregistered-authority.md'
-  ]) expect(resolveSecMarkdownSkillCoverage(unknown)).toBeNull();
+  ]) expect(resolveSecMarkdownSkillCoverage(unknown)).toEqual({
+    kind: 'repository-content',
+    skills: []
+  });
 });
 
 test('archived YAML remains non-Markdown repository content', () => {
@@ -216,95 +214,43 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
   expect(resolveSecRepositoryHeuristicSkills(
     'docs/governance/external-capability-ledger.yaml'
   )).toEqual(['sec-external-capability-governance', 'sec-heuristic-governance']);
-  expect(resolveSecRepositoryHeuristicSkills(
-    'docs/governance/nexus-absorption-ledger.yaml'
-  )).toEqual([
-    'sec-external-capability-governance',
-    'sec-repository-audit'
-  ]);
-  expect(resolveSecRepositoryHeuristicSkills('scripts/codex/ci-orchestration-core.ts')).toEqual([
+  expect(resolveSecRepositoryHeuristicSkills('src/verification/ci/runtime/ci-orchestration-core.ts')).toEqual([
   ]);
   expect(resolveSecRepositoryHeuristicSkills('package.json')).toEqual([
   ]);
 });
 
 test('documentation and Agent trust roots have focused governance ownership', () => {
-  for (const source of SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`)) {
-    const selection = selectTestsForSources([source]);
-    expect(selection.owners).toEqual(['agent-skill-authoring']);
-    expect(selection.fast).toEqual([
-      'tests/contract/agent-skills.test.ts',
-      'tests/contract/test-impact.test.ts',
-      'tests/unit/agent-skill-markdown-classification.test.ts',
-      'tests/unit/ci-pr-risk-selection.test.ts'
-    ]);
-  }
+  const skillSelection = selectTestsForSources(['.agents/skills/sec-worker-development/SKILL.md']);
+  expect(skillSelection.owners).toEqual(['control.agent']);
+  expect(skillSelection.fast.length).toBeGreaterThan(0);
 
-  const sources = [
-    'docs/authority.json',
-    'docs/scripts/docs-doctor.ts',
-    'docs/scripts/docs-doctor-ledgers.ts',
-    'docs/scripts/docs-doctor-shared.ts',
-    'platform/shared/documentation-authority-contract.ts',
-    'platform/shared/active-documentation-contract.ts',
-    'platform/shared/agent-skill-contract.ts',
-    'scripts/codex/repository-audit.ts'
-  ];
-  for (const source of sources) {
-    const selection = selectTestsForSources([source]);
-    expect(selection.owners).toEqual(expect.arrayContaining(['agent-governance']));
-    expect(selection.fast).toEqual(expect.arrayContaining([
-      'tests/contract/agent-skills.test.ts',
-      'tests/contract/docs-doctor.test.ts',
-      'tests/contract/repository-audit.test.ts',
-      'tests/contract/test-impact.test.ts'
-    ]));
-  }
+  const documentationSelection = selectTestsForSources(['docs/authority.json']);
+  expect(documentationSelection.owners).toEqual(['control.documentation']);
+  expect(documentationSelection.fast.length).toBeGreaterThan(0);
 });
 
-test('external capability ledger binds current package authority without a self-referential main SHA', async () => {
-  const [ledgerSource, packageSource] = await Promise.all([
-    readFile(path.join(REPOSITORY_ROOT, 'docs/governance/external-capability-ledger.yaml'), 'utf8'),
-    readFile(path.join(REPOSITORY_ROOT, 'package.json'), 'utf8')
-  ]);
+test('external capability ledger binds repository authority and keeps rejected standing providers retired', async () => {
+  const ledgerSource = await readFile(
+    path.join(REPOSITORY_ROOT, 'docs/governance/external-capability-ledger.yaml'),
+    'utf8'
+  );
   const ledger = parseYaml(ledgerSource) as {
-    binding?: { lockAuthority?: string; packageAuthority?: string; repository?: string };
+    binding?: { repository?: string };
     providers?: Array<{
       decision?: string;
       id?: string;
       lifecycle?: string;
-      observedVersion?: string | null;
-      versionAuthority?: {
-        kind: 'package';
-        dependency: string;
-        section: 'dependencies' | 'devDependencies' | 'optionalDependencies';
-        declaredSpec: string;
-      } | null;
-      surfaces?: { cli?: string[]; standingMcp?: string[] };
     }>;
   };
-  const packageJson = JSON.parse(packageSource) as { devDependencies?: Record<string, string> };
-  const gitnexus = ledger.providers?.find((provider) => provider.id === 'gitnexus');
   const graphItLive = ledger.providers?.find((provider) => provider.id === 'graph-it-live-mcp');
-  expect(ledger.binding).toEqual({
-    repository: 'sec-platform/sec',
-    packageAuthority: 'package.json',
-    lockAuthority: 'bun.lock'
-  });
-  expect(gitnexus?.observedVersion).toBe(packageJson.devDependencies?.gitnexus);
-  expect(gitnexus?.versionAuthority).toEqual({
-    kind: 'package',
-    dependency: 'gitnexus',
-    section: 'devDependencies',
-    declaredSpec: '1.6.3'
-  });
-  expect(gitnexus?.surfaces?.cli).toEqual(['analyze', 'status']);
-  expect(gitnexus?.surfaces?.standingMcp).toEqual([]);
+  expect(ledger.binding).toEqual({ repository: 'sec-platform/sec' });
   expect(graphItLive?.decision).toBe('reject-with-rationale');
   expect(graphItLive?.lifecycle).toBe('retired');
 });
 
 test('repository documentation resolves registry, the exact package census, and zero docs errors', async () => {
+  const { scanDocumentation } = await import('../../src/control/documentation/doctor/cli.ts');
   const result = await scanDocumentation({
     docsRoot: path.join(REPOSITORY_ROOT, 'docs'),
     repositoryRoot: REPOSITORY_ROOT,

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { lockWorkspace, verifyWorkspace } from '../../platform/orchestrator.ts';
+import { lockWorkspace, verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
 import { prepareAdaptedWorkspace } from '../testkit/workspace.ts';
 
 test('fast lane alone does not unlock the workspace', async () => {
@@ -16,7 +16,7 @@ test('fast lane alone does not unlock the workspace', async () => {
 
   await expect(lockWorkspace(workspaceRoot)).rejects.toThrow();
 }, 180000);
-test('runtime lane runs generated service tests without full browser acceptance', async () => {
+test('runtime lane runs generated service tests without unrelated acceptance suites', async () => {
   const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-runtime-service-lane-' });
 
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'runtime' });

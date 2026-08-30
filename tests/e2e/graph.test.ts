@@ -1,32 +1,22 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
-import { buildExplainGraph, writeExplainGraph } from '../../platform/compiler/emit/write-explain-graph.ts';
-import {
-  buildSemanticViewSet,
-  buildValidatedEngineeringIR,
-  loadWorkspaceEngineeringIRBuildInput
-} from '../../platform/compiler/index.ts';
-import {
-  CI_ARTIFACT_FILES,
-  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS
-} from '../../platform/shared/ci-artifact-contract.ts';
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type {
-  AcceptanceCoverageReport,
-  LockFile,
-  PolicyReport,
-  ProvenanceFile,
-  RepairPlan,
-  UpgradeDiagnostics,
-  UpgradePlan
-} from '../../platform/shared/types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../../src/change-management/upgrade/contract/types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { buildExplainGraph, writeExplainGraph } from '../../src/compiler/emit/write-explain-graph.ts';
+import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
+import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
+import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { readJson, writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { expectGraphEdge, expectGraphNode } from '../helpers/graph-assertions.ts';
-import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
-import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
-import { createWorkspace, prepareResolvedWorkspace } from '../testkit/workspace.ts';
+import { prepareResolvedWorkspace } from '../testkit/workspace.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
   return {
@@ -75,7 +65,7 @@ test('explain graph consumes canonical ports, policies, and policy violation gov
       policies: ['tenant-scope-required'],
       sources: [
         {
-          path: 'platform/policies/official/policy.spec.yaml',
+          path: 'catalog/policies/official/policy.spec.yaml',
           policyIds: ['tenant-scope-required']
         }
       ],
@@ -87,7 +77,7 @@ test('explain graph consumes canonical ports, policies, and policy violation gov
         {
           id: 'tenant-scope-required',
           sourceScope: 'official',
-          sourcePath: 'platform/policies/official/policy.spec.yaml',
+          sourcePath: 'catalog/policies/official/policy.spec.yaml',
           targets: ['src/installed/entity/customer-service.ts']
         }
       ]
@@ -101,7 +91,7 @@ test('explain graph consumes canonical ports, policies, and policy violation gov
         files: ['src/installed/entity/customer-service.ts'],
         message: 'Entity customer queries must derive tenant context and filter by tenantId.',
         sourceScope: 'official',
-        sourcePath: 'platform/policies/official/policy.spec.yaml'
+        sourcePath: 'catalog/policies/official/policy.spec.yaml'
       },
       {
         id: 'tenant-scope-required',
@@ -111,7 +101,7 @@ test('explain graph consumes canonical ports, policies, and policy violation gov
         files: ['src/installed/entity/customer-service.ts'],
         message: 'Entity customer queries must derive tenant context and filter by tenantId.',
         sourceScope: 'official',
-        sourcePath: 'platform/policies/official/policy.spec.yaml'
+        sourcePath: 'catalog/policies/official/policy.spec.yaml'
       }
     ]
   };
@@ -422,76 +412,6 @@ test('explain graph connects repair tasks to slots and files', async () => {
       { from: 'repair:repair_customer_normalizer', to: 'repair-category:slot-rewrite', type: 'depends_on' },
       { from: 'repair:repair_customer_normalizer', to: 'slot:entity/customer-basic:customer_normalizer', type: 'connects_to' },
       { from: 'repair:repair_customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
-    ])
-  );
-}, 180000);
-test('explain graph links generated ticket runtime routes back to related blocks', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-explain-runtime-attribution-');
-  const lock: LockFile = {
-    formatVersion: '1',
-    app: {
-      id: 'customer-admin',
-      name: 'customer-admin',
-      stack: 'nextjs',
-      mode: 'single-tenant'
-    },
-    resolvedBlocks: [
-      buildOfficialResolvedBlock({ id: 'ticket/basic', installOrder: 1 }),
-      buildOfficialResolvedBlock({ id: 'export/csv-basic', installOrder: 2 }),
-      buildOfficialResolvedBlock({ id: 'reporting/ticket-summary', installOrder: 3 })
-    ],
-    resolvedCapabilities: [],
-    installPlan: [],
-    slotTasks: [],
-    semanticViews: buildSemanticViewFixture(),
-    generatedPaths: ['app/api/tickets/summary/export/route.ts'],
-    acceptancePlan: [],
-    passStatus: {
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
-      verify: 'succeeded',
-      repair: 'skipped',
-      lock: 'succeeded',
-      emit: 'pending'
-    }
-  };
-  const provenance: ProvenanceFile = {
-    formatVersion: '1',
-    artifacts: [
-      {
-        path: 'app/api/tickets/summary/export/route.ts',
-        originType: 'generated',
-        originId: 'app/api/tickets/summary/export/route.ts',
-        generatedByPass: 'compose',
-        verifiedBy: [],
-        overrideStatus: 'none'
-      }
-    ]
-  };
-
-  const graph = await buildExplainGraph(workspaceRoot, lock, provenance, emptyCoverage(), null);
-
-  // FIXME: arrayContaining hides unexpected extras; need exact edge count assertion
-  expect(graph.edges).toEqual(
-    expect.arrayContaining([
-      {
-        from: 'block:ticket/basic',
-        to: 'file:app/api/tickets/summary/export/route.ts',
-        type: 'writes_to'
-      },
-      {
-        from: 'block:reporting/ticket-summary',
-        to: 'file:app/api/tickets/summary/export/route.ts',
-        type: 'writes_to'
-      },
-      {
-        from: 'block:export/csv-basic',
-        to: 'file:app/api/tickets/summary/export/route.ts',
-        type: 'writes_to'
-      }
     ])
   );
 }, 180000);

@@ -5,31 +5,30 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/agent/work-package-contract.ts';
 import {
-  captureDocsDoctorIndexTree,
-  DOCUMENT_AUTHORITY_REGISTRY_PATH,
-  parseCapturedGitTreeBlobFrameV1,
-  readCapturedGitTreeBlob,
-  scanDocumentation,
-  type DocsDoctorResult
-} from '../../docs/scripts/docs-doctor.ts';
-import { CI_VERIFICATION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-plan.ts';
-import {
-  compileDocsDoctorIndexSnapshotLayoutV3,
-  DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3
-} from '../../platform/shared/docs-doctor-index-snapshot-contract.ts';
-import {
-  DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
   parseDocumentationAuthorityRegistry,
   renderDocumentationIndex,
   type DocumentationAuthorityRegistry
-} from '../../platform/shared/documentation-authority-contract.ts';
+} from '../../src/control/documentation/authority.ts';
+import {
+  captureDocsDoctorIndexTree,
+  DOCUMENT_AUTHORITY_REGISTRY_PATH,
+  parseCapturedGitTreeBlobFrame,
+  readCapturedGitTreeBlob,
+  scanDocumentation,
+  type DocsDoctorResult
+} from '../../src/control/documentation/doctor/cli.ts';
+import { CodexDevelopmentParseActivePointer } from '../../src/control/documentation/document-control-plane-contract.ts';
+import {
+  compileDocsDoctorIndexSnapshotLayout,
+  DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT
+} from '../../src/control/documentation/index-snapshot.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END
-} from '../../platform/shared/work-selection-live-contract.ts';
-import { CodexDevelopmentParseActivePointerV2 } from '../../scripts/codex/document-control-plane-contract.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
+} from '../../src/control/work-selection/live-contract.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/ci/contract/plan.ts';
 
 const ACTIVE_PACKAGE_ID = 'fixture-active-v1';
 const ACTIVE_MANIFEST = `docs/work-packages/${ACTIVE_PACKAGE_ID}.md`;
@@ -70,7 +69,6 @@ Stable fixture content.
 
 function fixtureRegistry(): DocumentationAuthorityRegistry {
   return parseDocumentationAuthorityRegistry(JSON.stringify({
-    schema: DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
     documents: [
       {
         id: 'root-readme',
@@ -269,7 +267,7 @@ tasks:
     ownedPaths:
       - docs/work-packages/${packageId}.md
 forbiddenPaths:
-  - platform/compiler/
+  - src/compiler/
 acceptance:
   - "Published predecessor fixture remains exact."
 tests:
@@ -296,7 +294,7 @@ tasks:
     ownedPaths:
       - ${ACTIVE_MANIFEST}
 forbiddenPaths:
-  - platform/compiler/
+  - src/compiler/
 acceptance:
   - "Registry-backed docs fixture passes."
 tests:
@@ -322,7 +320,7 @@ tests:
   await write('docs/product.md', document('Fixture Product', 'product'));
   await write('docs/work/current-state.yaml', `schema: sec-current-state-live-v1
 resolver:
-  command: bun scripts/codex/document-control-plane.ts status --json
+  command: bun src/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -512,7 +510,7 @@ test('production docs-doctor ignores ambient index redirection and captures the 
       env: environment
     });
     expect(pointerResult.status).toBe(0);
-    const pointer = CodexDevelopmentParseActivePointerV2(pointerResult.stdout);
+    const pointer = CodexDevelopmentParseActivePointer(pointerResult.stdout);
     const replacementBlob = spawnSync('git', ['rev-parse', 'HEAD:README.md'], {
       cwd: process.cwd(),
       encoding: 'utf8',
@@ -542,29 +540,29 @@ test('production docs-doctor ignores ambient index redirection and captures the 
         longCacheRoot,
         'docs-doctor', 'index-snapshots', 'v1', `snapshot-${'0'.repeat(36)}`, 'index.lock'
       ).length).toBeGreaterThan(259);
-      const layout = compileDocsDoctorIndexSnapshotLayoutV3({
+      const layout = compileDocsDoctorIndexSnapshotLayout({
         cacheRoot: longCacheRoot,
         objectFormat: 'sha1',
         platform: process.platform,
         snapshotToken: '0'.repeat(
-          DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.snapshotTokenHexLength
+          DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT.snapshotTokenHexLength
         )
       });
       expect(layout.childProcessPathBudget.longestPathLength)
-        .toBeLessThanOrEqual(DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.windowsLegacyChildPathMax);
+        .toBeLessThanOrEqual(DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT.windowsLegacyChildPathMax);
       expect(layout.childProcessPathBudget.longestPath)
-        .toContain(`${path.sep}${DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.objectDirectoryName}${path.sep}`);
-      expect(() => compileDocsDoctorIndexSnapshotLayoutV3({
+        .toContain(`${path.sep}${DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT.objectDirectoryName}${path.sep}`);
+      expect(() => compileDocsDoctorIndexSnapshotLayout({
         cacheRoot: longCacheRoot,
         objectFormat: 'sha256',
         platform: process.platform,
         snapshotToken: '0'.repeat(
-          DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT_V3.snapshotTokenHexLength
+          DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT.snapshotTokenHexLength
         )
       })).toThrow(/Windows legacy child-process limit/u);
     }
     environment.SEC_CACHE_HOME = longCacheRoot;
-    const cli = spawnSync(process.execPath, [path.resolve('docs/scripts/docs-doctor.ts')], {
+    const cli = spawnSync(process.execPath, [path.resolve('src/control/documentation/doctor/cli.ts')], {
       cwd: process.cwd(),
       encoding: 'utf8',
       windowsHide: true,
@@ -590,24 +588,24 @@ test('captured-tree reader validates complete batch framing and reads a deep con
     payload,
     Buffer.from('\n', 'ascii')
   ]);
-  expect(parseCapturedGitTreeBlobFrameV1(validFrame, repositoryPath)).toEqual(payload);
+  expect(parseCapturedGitTreeBlobFrame(validFrame, repositoryPath)).toEqual(payload);
   const sha256ObjectId = 'c'.repeat(64);
-  expect(parseCapturedGitTreeBlobFrameV1(Buffer.concat([
+  expect(parseCapturedGitTreeBlobFrame(Buffer.concat([
     Buffer.from(`${sha256ObjectId} blob ${payload.length}\n`, 'ascii'),
     payload,
     Buffer.from('\n', 'ascii')
   ]), repositoryPath, 'sha256')).toEqual(payload);
-  expect(() => parseCapturedGitTreeBlobFrameV1(validFrame, repositoryPath, 'sha256'))
+  expect(() => parseCapturedGitTreeBlobFrame(validFrame, repositoryPath, 'sha256'))
     .toThrow('object id is invalid');
-  expect(() => parseCapturedGitTreeBlobFrameV1(
+  expect(() => parseCapturedGitTreeBlobFrame(
     Buffer.from(`${objectSha} blob ${payload.length}\n`, 'ascii'),
     repositoryPath
   )).toThrow('framing is invalid');
-  expect(() => parseCapturedGitTreeBlobFrameV1(
+  expect(() => parseCapturedGitTreeBlobFrame(
     Buffer.concat([validFrame, Buffer.from('extra')]),
     repositoryPath
   )).toThrow('framing is invalid');
-  expect(() => parseCapturedGitTreeBlobFrameV1(
+  expect(() => parseCapturedGitTreeBlobFrame(
     Buffer.from(`${objectSha} tree 0\n\n`, 'ascii'),
     repositoryPath
   )).toThrow('header is invalid');
@@ -698,95 +696,6 @@ test('captured index tree propagates SHA-256 object identity through write-tree 
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 }, 60_000);
-
-test('machine ledger version drift is rejected against package authority', async () => {
-  const fixture = await createFixture();
-  try {
-    const raw = JSON.parse(await readFile(
-      path.join(fixture.repositoryRoot, DOCUMENT_AUTHORITY_REGISTRY_PATH),
-      'utf8'
-    )) as { documents: Array<Record<string, unknown>>; schema: string };
-    raw.documents.push({
-      id: 'external-provider-ledger',
-      path: 'docs/governance/external-capability-ledger.yaml',
-      kind: 'machine-ledger',
-      domain: 'external-provider',
-      lifecycle: 'active',
-      dynamicPolicy: 'machine-state',
-      owns: ['provider.state'],
-      projects: ['product'],
-      audience: ['machine'],
-      consumers: ['provider-governance'],
-      updateTriggers: ['provider-observation']
-    });
-    const registry = parseDocumentationAuthorityRegistry(JSON.stringify(raw));
-    await fixture.write(DOCUMENT_AUTHORITY_REGISTRY_PATH, JSON.stringify(registry, null, 2) + '\n');
-    await fixture.write('docs/README.md', renderDocumentationIndex(registry));
-    await fixture.write('package.json', JSON.stringify({ devDependencies: { gitnexus: '1.6.3' } }));
-    await fixture.write('docs/governance/external-capability-ledger.yaml', `schema: sec-external-capability-ledger-v2
-status: revalidation-required
-binding:
-  repository: sec-platform/sec
-  packageAuthority: package.json
-  lockAuthority: bun.lock
-providers:
-  - id: gitnexus
-    observedVersion: 1.6.9
-    versionAuthority: package.json#devDependencies.gitnexus
-    surfaces:
-      cli: [analyze, status]
-      standingMcp: []
-`);
-    expect((await fixture.scan()).errors.map((issue) => issue.code))
-      .toContain('machine-ledger-invalid');
-  } finally {
-    await fixture.dispose();
-  }
-});
-
-test('Nexus ledger cannot claim completion without materialized coverage', async () => {
-  const fixture = await createFixture();
-  try {
-    const raw = JSON.parse(await readFile(
-      path.join(fixture.repositoryRoot, DOCUMENT_AUTHORITY_REGISTRY_PATH),
-      'utf8'
-    )) as { documents: Array<Record<string, unknown>>; schema: string };
-    raw.documents.push({
-      id: 'nexus-ledger',
-      path: 'docs/governance/nexus-absorption-ledger.yaml',
-      kind: 'machine-ledger',
-      domain: 'nexus-corpus',
-      lifecycle: 'active',
-      dynamicPolicy: 'machine-state',
-      owns: ['corpus.nexus.state'],
-      projects: ['product'],
-      audience: ['machine'],
-      consumers: ['repository-audit'],
-      updateTriggers: ['nexus-census']
-    });
-    const registry = parseDocumentationAuthorityRegistry(JSON.stringify(raw));
-    await fixture.write(DOCUMENT_AUTHORITY_REGISTRY_PATH, JSON.stringify(registry, null, 2) + '\n');
-    await fixture.write('docs/README.md', renderDocumentationIndex(registry));
-    await fixture.write('docs/governance/nexus-absorption-ledger.yaml', `schema: sec-nexus-corpus-ledger-v2
-status: complete
-coverage:
-  pathClassification: { materialized: false, classified: 0, total: null }
-  eprBindings: { bound: 29, expected: 29 }
-  skillBindings: { bound: 17, expected: 17 }
-  acceptedParity: { proven: 1, accepted: 1 }
-  unexplainedDeltaCount: 0
-completion:
-  censusComplete: true
-  parityComplete: true
-  retirementComplete: true
-  noOmissionProven: true
-`);
-    expect((await fixture.scan()).errors.map((issue) => issue.code))
-      .toContain('machine-ledger-invalid');
-  } finally {
-    await fixture.dispose();
-  }
-});
 
 test('portable link and deprecated-token diagnostics remain available', async () => {
   const fixture = await createFixture();

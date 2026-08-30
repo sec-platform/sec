@@ -4,20 +4,19 @@ import { Glob } from 'bun';
 import { describe, expect, test } from 'bun:test';
 
 import {
-  parseDocumentationAuthorityRegistry,
-  resolveDocumentationOperationOwnersV1
-} from '../../platform/shared/documentation-authority-contract.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
-import { parseSecRoadmapWorkCatalogV1 } from '../../platform/shared/work-selection-live-contract.ts';
-import {
-  CodexDevelopmentParseActivePointerV2,
-  CodexDevelopmentParseRollingPlanV1
-} from '../../scripts/codex/document-control-plane-contract.ts';
-import { NEXUS_EPR_BINDINGS_V1 } from '../../scripts/codex/repository-audit.ts';
-import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
-} from '../../scripts/codex/work-package-contract.ts';
+} from '../../src/control/agent/work-package-contract.ts';
+import {
+  parseDocumentationAuthorityRegistry,
+  resolveDocumentationOperationOwners
+} from '../../src/control/documentation/authority.ts';
+import {
+  CodexDevelopmentParseActivePointer,
+  CodexDevelopmentParseRollingPlan
+} from '../../src/control/documentation/document-control-plane-contract.ts';
+import { parseSecRoadmapWorkCatalog } from '../../src/control/work-selection/live-contract.ts';
+import { compilerRoot } from '../../src/workspace/paths.ts';
 import { readCompilerFile, readCompilerTextFile } from '../helpers/compiler-fixtures.ts';
 
 describe('canonical documentation authority', () => {
@@ -31,7 +30,7 @@ describe('canonical documentation authority', () => {
       'docs/work/active-work-package.md',
       'docs/work/rolling-plan.md'
     ].sort();
-    expect(resolveDocumentationOperationOwnersV1({
+    expect(resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['development-governance', 'verification-governance'],
       changedPaths
@@ -40,32 +39,32 @@ describe('canonical documentation authority', () => {
       'roadmap',
       'verification-governance'
     ]);
-    expect(() => resolveDocumentationOperationOwnersV1({
+    expect(() => resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['agents-entry'],
       changedPaths: []
     })).toThrow(/non-owning/u);
-    expect(() => resolveDocumentationOperationOwnersV1({
+    expect(() => resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['verification-governance'],
       changedPaths: []
     })).toThrow(/development-governance/u);
-    expect(resolveDocumentationOperationOwnersV1({
+    expect(resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['development-governance', 'product'],
       changedPaths: []
     }).map(({ id }) => id)).toEqual(['development-governance', 'product']);
-    expect(resolveDocumentationOperationOwnersV1({
+    expect(resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['development-governance', 'system-architecture'],
       changedPaths: []
     }).map(({ id }) => id)).toEqual(['development-governance', 'system-architecture']);
-    expect(() => resolveDocumentationOperationOwnersV1({
+    expect(() => resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['development-governance', 'development-governance'],
       changedPaths: []
     })).toThrow(/sorted and unique/u);
-    expect(() => resolveDocumentationOperationOwnersV1({
+    expect(() => resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['development-governance', 'unknown-owner'],
       changedPaths: []
@@ -74,7 +73,7 @@ describe('canonical documentation authority', () => {
 
   test('roadmap exposes one structured work catalog without dynamic project identities', async () => {
     const roadmap = await readCompilerFile('docs/roadmap.md');
-    const workCatalog = parseSecRoadmapWorkCatalogV1(roadmap);
+    const workCatalog = parseSecRoadmapWorkCatalog(roadmap);
     expect(workCatalog.stageRef).toBe('r14-agent-operation');
     expect(workCatalog.items.length).toBeGreaterThanOrEqual(3);
     expect(workCatalog.items.length).toBeLessThanOrEqual(7);
@@ -90,9 +89,9 @@ describe('canonical documentation authority', () => {
       readCompilerFile('docs/work/active-work-package.md'),
       readCompilerFile('docs/roadmap.md')
     ]);
-    const rollingPlan = CodexDevelopmentParseRollingPlanV1(rollingPlanSource);
-    const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
-    const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
+    const rollingPlan = CodexDevelopmentParseRollingPlan(rollingPlanSource);
+    const pointer = CodexDevelopmentParseActivePointer(pointerSource);
+    const catalog = parseSecRoadmapWorkCatalog(roadmapSource);
     const selectedManifestId = path.posix.basename(pointer.manifest, '.md');
     const manifestSource = await readCompilerTextFile(pointer.manifest);
     const manifest = CodexDevelopmentParseWorkPackageManifest(
@@ -144,43 +143,5 @@ describe('canonical documentation authority', () => {
     )).length).toBeGreaterThan(0);
   });
 
-  test('Nexus absorption ledger binds the exact corpus baseline and the 29 EPR binding records', async () => {
-    const ledger = await readCompilerFile('docs/governance/nexus-absorption-ledger.yaml');
-    const parsed = Bun.YAML.parse(ledger) as {
-      status: string;
-      source: {
-        repository: string;
-        baselineCommit: string;
-        baselineTree: string;
-        trackedPaths: number;
-      };
-      coverage: { eprBindings: { bound: number; expected: number } };
-      completion: {
-        censusComplete: boolean;
-        parityComplete: boolean;
-        retirementComplete: boolean;
-        noOmissionProven: boolean;
-      };
-    };
 
-    expect(parsed.status).toBe('incomplete');
-    expect(parsed.source.repository).toBe('QzCrane/nexus');
-    expect(parsed.source.baselineCommit).toMatch(/^[0-9a-f]{40}$/);
-    expect(parsed.source.baselineTree).toMatch(/^[0-9a-f]{40}$/);
-    expect(parsed.source.trackedPaths).toBeGreaterThan(0);
-    expect(parsed.coverage.eprBindings.expected).toBe(29);
-    expect(parsed.coverage.eprBindings.bound).toBe(
-      NEXUS_EPR_BINDINGS_V1.filter((entry) => entry.binding === 'bound').length
-    );
-    expect(NEXUS_EPR_BINDINGS_V1).toHaveLength(29);
-    expect(NEXUS_EPR_BINDINGS_V1.filter((entry) => entry.binding === 'blocked')).toHaveLength(
-      29 - parsed.coverage.eprBindings.bound
-    );
-    expect(parsed.completion).toEqual({
-      censusComplete: false,
-      parityComplete: false,
-      retirementComplete: false,
-      noOmissionProven: false
-    });
-  });
 });

@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { runStagedImportOrganizer } from '../../platform/dev-runner/import-organizer.ts';
-import { generatedStateProducerHooksV1 } from '../../tooling/sec-dev/generated-state-lifecycle.ts';
+import { runStagedImportOrganizer } from '../../src/development/runner/import-organizer.ts';
+import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
 
 function git(repoRoot: string, args: readonly string[], bytes = false): string | Buffer {
   const result = spawnSync('git', [...args], {
@@ -106,7 +106,7 @@ test('candidate snapshot retained capability rejects ancestor substitution witho
   if (process.platform !== 'linux') return;
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-import-snapshot-fence-'));
   const fixturePath = path.join(repoRoot, 'fixture.ts');
-  const lifecycle = generatedStateProducerHooksV1({ repositoryRoot: repoRoot });
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot: repoRoot });
   let snapshotRoot: string | null = null;
   let movedRoot: string | null = null;
   let relativePath: string | null = null;

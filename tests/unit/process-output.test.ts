@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
-import { compilerRoot } from '../../platform/shared/paths.ts';
-import { runCommand, runCommandBytes } from '../../platform/shared/process.ts';
+import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes, type RetainedCommandBoundary } from '../../src/runtime-state/physical/runtime/process.ts';
+import { compilerRoot } from '../../src/workspace/paths.ts';
 
 const splitUtf8Script = [
   "const chunks = [Buffer.from('docs/'), Buffer.from([0xe4]), Buffer.from([0xb8]), Buffer.from([0xad]), Buffer.from('.md\\0')];",
@@ -54,6 +56,28 @@ test('runCommand keeps the default stdout contract textual', async () => {
   ], { cwd: compilerRoot, timeoutMs: 5_000 });
 
   expect(result).toEqual({ code: 0, stdout: 'text-output', stderr: '' });
+});
+
+test('command stdin is exact and rejected before spawn when it exceeds its bound', async () => {
+  const input = new Uint8Array([0, 1, 2, 10, 255]);
+  const result = await runCommandBytes(process.execPath, [
+    '--no-env-file',
+    '--eval',
+    'process.stdin.pipe(process.stdout)'
+  ], {
+    cwd: compilerRoot,
+    input,
+    maxStdinBytes: input.byteLength,
+    timeoutMs: 5_000
+  });
+  expect(result).toEqual({ code: 0, stdout: input, stderr: '' });
+
+  await expect(runCommandBytes('command-must-not-start', [], {
+    cwd: compilerRoot,
+    input,
+    maxStdinBytes: input.byteLength - 1,
+    timeoutMs: 5_000
+  })).rejects.toThrow(`stdin exceeds ${input.byteLength - 1} bytes`);
 });
 
 test('runCommandBytes enforces stdout and stderr byte limits before accumulation', async () => {
@@ -111,3 +135,212 @@ test('runCommand rejects a stall deadline without a stricter absolute deadline a
     stallTimeoutMs: 100
   })).rejects.toThrow('stallTimeoutMs requires');
 });
+
+const RETAINED_TEST_COMMAND_BUDGET = Object.freeze({
+  maxStderrBytes: 1024 * 1024,
+  maxStdoutBytes: 1024 * 1024,
+  timeoutMs: 5_000
+});
+
+test.skipIf(process.platform !== 'win32')(
+  'retained byte transport executes and revalidates one writer-excluded executable image',
+  async () => {
+  const executablePath = path.resolve(process.execPath);
+  const parent = inspectNoFollowDirectoryChain(path.dirname(executablePath), 'test executable parent');
+  const retained = retainNoFollowOrdinaryFile(
+    parent,
+    path.basename(executablePath),
+    undefined,
+    'test executable',
+    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+    'executable'
+  );
+  const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
+    inspectNoFollowDirectoryChain(compilerRoot, 'test command cwd'),
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'test command cwd'
+  );
+  const boundary = Object.freeze({
+    executable: retained,
+    workingDirectory: retainedWorkingDirectory
+  });
+  try {
+    const bytes = await runRetainedCommandBytes(boundary, [
+      '--no-env-file',
+      '--eval',
+      "const chunks=[];process.stdin.on('data',(chunk)=>chunks.push(chunk));process.stdin.on('end',()=>process.stdout.write(Buffer.concat(chunks)))"
+    ], {
+      ...RETAINED_TEST_COMMAND_BUDGET,
+      input: new Uint8Array([0, 1, 255]),
+      maxStdinBytes: 3
+    });
+    expect(bytes).toEqual({ code: 0, stdout: new Uint8Array([0, 1, 255]), stderr: '' });
+    retained.assertCurrent();
+    retainedWorkingDirectory.assertCurrent();
+  } finally {
+    retainedWorkingDirectory.dispose();
+    retained.dispose();
+  }
+  }
+);
+
+test.skipIf(process.platform === 'win32')(
+  'retained executable admission stays typed unavailable without a sealed image primitive',
+  () => {
+    const executablePath = path.resolve(process.execPath);
+    let failure: unknown;
+    try {
+      retainNoFollowOrdinaryFile(
+        inspectNoFollowDirectoryChain(path.dirname(executablePath), 'unsealed executable parent'),
+        path.basename(executablePath),
+        undefined,
+        'unsealed executable admission',
+        RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+        'executable'
+      );
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(PhysicalNoFollowError);
+    expect((failure as PhysicalNoFollowError).code).toBe(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
+    );
+    expect((failure as Error).message).toContain(
+      'sealed image or mandatory writer-exclusion primitive'
+    );
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'retained command timeout returns only after process-tree and stream settlement',
+  async () => {
+  const executablePath = path.resolve(process.execPath);
+  const retained = retainNoFollowOrdinaryFile(
+    inspectNoFollowDirectoryChain(path.dirname(executablePath), 'timeout executable parent'),
+    path.basename(executablePath),
+    undefined,
+    'timeout executable',
+    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+    'executable'
+  );
+  const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
+    inspectNoFollowDirectoryChain(compilerRoot, 'timeout command cwd'),
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'timeout command cwd'
+  );
+  let failure: unknown;
+  try {
+    await runRetainedCommand({
+      executable: retained,
+      workingDirectory: retainedWorkingDirectory
+    }, [
+      '--no-env-file',
+      '--eval',
+      [
+        "const { spawn } = require('node:child_process');",
+        "spawn(process.execPath, ['--no-env-file', '--eval', 'setInterval(() => {}, 1_000)'], { stdio: 'ignore' });",
+        'setInterval(() => {}, 1_000);'
+      ].join('\n')
+    ], {
+      maxStderrBytes: 1024,
+      maxStdoutBytes: 1024,
+      terminationDeadlineMs: 2_000,
+      terminationGraceMs: 250,
+      timeoutMs: 100
+    });
+  } catch (error) {
+    failure = error;
+  } finally {
+    retainedWorkingDirectory.dispose();
+    retained.dispose();
+  }
+
+  expect(failure).toBeInstanceOf(RetainedCommandTransportError);
+  const typed = failure as RetainedCommandTransportError;
+  expect(typed.outcome).toMatchObject({
+    status: 'timed-out',
+    trigger: 'timed-out',
+    termination: {
+      requested: true,
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
+    }
+  });
+  }
+);
+
+test('retained command transport rejects an invalid platform descriptor contract before spawn', async () => {
+  const invalid = Object.freeze({
+    executable: Object.freeze({
+      childPath: process.platform === 'linux' ? '/proc/self/fd/65' : path.resolve(process.execPath),
+      stdioSourceDescriptor: 0,
+      assertCurrent: () => {}
+    }),
+    workingDirectory: Object.freeze({
+      childPath: process.platform === 'linux'
+        ? `/proc/self/fd/${RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR}`
+        : path.resolve(compilerRoot),
+      stdioSourceDescriptor: process.platform === 'linux' ? 4 : null,
+      assertCurrent: () => {}
+    })
+  }) as unknown as RetainedCommandBoundary;
+  await expect(runRetainedCommand(invalid, ['--version'], {
+    ...RETAINED_TEST_COMMAND_BUDGET
+  })).rejects.toThrow('was not issued by the physical no-follow owner');
+});
+
+test('retained command transport rejects a physical file not issued for executable use', async () => {
+  const executablePath = path.resolve(process.execPath);
+  const ordinaryFile = retainNoFollowOrdinaryFile(
+    inspectNoFollowDirectoryChain(path.dirname(executablePath), 'ordinary file parent'),
+    path.basename(executablePath),
+    undefined,
+    'ordinary file role confusion',
+    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR
+  );
+  const workingDirectory = retainNoFollowDirectoryForChildProcess(
+    inspectNoFollowDirectoryChain(compilerRoot, 'role confusion cwd'),
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'role confusion cwd'
+  );
+  try {
+    await expect(runRetainedCommand({
+      executable: ordinaryFile,
+      workingDirectory
+    }, ['--version'], RETAINED_TEST_COMMAND_BUDGET)).rejects.toThrow('role executable');
+  } finally {
+    workingDirectory.dispose();
+    ordinaryFile.dispose();
+  }
+});
+
+test.skipIf(process.platform !== 'win32')(
+  'retained command transport rejects a disposed capability before spawn',
+  async () => {
+  const executablePath = path.resolve(process.execPath);
+  const parent = inspectNoFollowDirectoryChain(path.dirname(executablePath), 'disposed executable parent');
+  const retained = retainNoFollowOrdinaryFile(
+    parent,
+    path.basename(executablePath),
+    undefined,
+    'disposed executable',
+    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+    'executable'
+  );
+  const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
+    inspectNoFollowDirectoryChain(compilerRoot, 'disposed command cwd'),
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'disposed command cwd'
+  );
+  retained.dispose();
+  try {
+    await expect(runRetainedCommand({
+      executable: retained,
+      workingDirectory: retainedWorkingDirectory
+    }, ['--version'], RETAINED_TEST_COMMAND_BUDGET)).rejects.toThrow('capability is disposed');
+  } finally {
+    retainedWorkingDirectory.dispose();
+  }
+  }
+);

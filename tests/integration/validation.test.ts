@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import path from 'node:path';
 
-import { writeJson } from '../../platform/shared/fs.ts';
+import { writeJson } from '../../src/workspace/files.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import {
   expectUpgradeDryRunFailure,
@@ -350,7 +350,7 @@ test('upgrade rejects slot contract mismatches before planning', async () => {
         target: 'custom/customer_normalizer.ts',
         slotId: 'customer_normalizer',
         inputType: 'CustomerInputV3',
-        outputType: 'CustomerRecordInput',
+        outputType: 'NormalizedCustomerInput',
         writableZones: ['custom/customer_normalizer.ts']
       }
     }

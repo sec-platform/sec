@@ -5,19 +5,14 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import {
-  buildCiVerificationActionPlanClosureV1,
-  ciVerificationNormalizedOperationArgvV2,
-  type CiVerificationActionCandidateV1,
-  type CiVerificationProducerGateV1
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import { CodexDevelopmentExecuteCiActionClosureV1 } from '../../scripts/ci-verification.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationNormalizedOperationArgv, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
+import { CodexDevelopmentExecuteCiActionClosure } from '../../src/verification/ci/verification.ts';
 
 const digest = (value: string): `sha256:${string}` => (
   `sha256:${createHash('sha256').update(value).digest('hex')}`
 );
 
-function candidateFor(testIdentity: string): CiVerificationActionCandidateV1 {
+function candidateFor(testIdentity: string): CiVerificationActionCandidate {
   return {
   baseSha: '1'.repeat(40), baseTreeSha: '2'.repeat(40), headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40),
   manifestPath: 'docs/work-packages/composition-v2.md', manifestDigest: digest(`manifest:${testIdentity}`),
@@ -34,7 +29,7 @@ function candidateFor(testIdentity: string): CiVerificationActionCandidateV1 {
 }
 
 const candidate = candidateFor('successful-composition');
-const gates: readonly CiVerificationProducerGateV1[] = [
+const gates: readonly CiVerificationProducerGate[] = [
   {
     id: 'composition-scope-a', phase: 'quick',
     argv: ['bun', 'test', 'tests/a.test.ts', '--test-name-pattern', '^scope a$', '--timeout', '180000'],
@@ -56,9 +51,9 @@ function clock(): () => Date {
 test('composition gates execute through the same Action runner and preserve producer env/scope identity', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-'));
   try {
-    const plan = buildCiVerificationActionPlanClosureV1({ candidate, gates });
+    const plan = buildCiVerificationActionPlanClosure({ candidate, gates });
     const calls: Array<{ id: string; argv: readonly string[] }> = [];
-    const result = await CodexDevelopmentExecuteCiActionClosureV1({
+    const result = await CodexDevelopmentExecuteCiActionClosure({
       repositoryRoot: root,
       actionPlan: plan,
       gates: gates.map((gate) => ({ gate, env: { SEC_CHANGED_BASE: candidate.baseSha } })),
@@ -72,7 +67,7 @@ test('composition gates execute through the same Action runner and preserve prod
     expect(result.failed).toBe(false);
     expect(calls.map(({ id }) => id)).toEqual(gates.map((gate) => gate.id));
     expect(calls.map(({ argv }) => argv)).toEqual(gates.map(({ argv }) => argv));
-    expect(plan.normalizedOperations.map(ciVerificationNormalizedOperationArgvV2))
+    expect(plan.normalizedOperations.map(ciVerificationNormalizedOperationArgv))
       .toEqual(gates.map(({ argv }) => argv));
     expect(result.gates.map((gate) => gate.action.operation.declaredEnvironment.find(
       (entry) => entry.name === 'ci-env-v1:environment'
@@ -88,8 +83,8 @@ test('composition failure remains failed and later Action is canonical not-run',
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-fail-'));
   try {
     const failureCandidate = candidateFor('failed-composition');
-    const plan = buildCiVerificationActionPlanClosureV1({ candidate: failureCandidate, gates });
-    const result = await CodexDevelopmentExecuteCiActionClosureV1({
+    const plan = buildCiVerificationActionPlanClosure({ candidate: failureCandidate, gates });
+    const result = await CodexDevelopmentExecuteCiActionClosure({
       repositoryRoot: root,
       actionPlan: plan,
       gates: gates.map((gate) => ({ gate, env: {} })),
@@ -106,7 +101,7 @@ test('composition failure remains failed and later Action is canonical not-run',
 });
 
 test('composition rejects same-id descriptor argv or runtime substitution before physical execution', async () => {
-  const plan = buildCiVerificationActionPlanClosureV1({ candidate, gates: [gates[0]!] });
+  const plan = buildCiVerificationActionPlanClosure({ candidate, gates: [gates[0]!] });
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-substitution-'));
   try {
     for (const gate of [
@@ -114,7 +109,7 @@ test('composition rejects same-id descriptor argv or runtime substitution before
       { ...gates[0]!, runtime: 'bun@1.3.14' }
     ]) {
       let physicalExecutions = 0;
-      await expect(CodexDevelopmentExecuteCiActionClosureV1({
+      await expect(CodexDevelopmentExecuteCiActionClosure({
         repositoryRoot: root,
         actionPlan: plan,
         gates: [{ gate, env: {} }],
@@ -133,19 +128,19 @@ test('composition rejects same-id descriptor argv or runtime substitution before
 });
 
 test('composition environment, argv, and topology drift change the Action plan digest', () => {
-  const baseline = buildCiVerificationActionPlanClosureV1({ candidate, gates });
-  const variants: readonly (readonly CiVerificationProducerGateV1[])[] = [
+  const baseline = buildCiVerificationActionPlanClosure({ candidate, gates });
+  const variants: readonly (readonly CiVerificationProducerGate[])[] = [
     gates.map((gate, index) => index === 0 ? { ...gate, environment: { 'ci-env-v1:environment': digest('8') } } : gate),
     [...gates].reverse()
   ];
   for (const variant of variants) {
-    expect(buildCiVerificationActionPlanClosureV1({ candidate, gates: variant }).actionPlanDigest)
+    expect(buildCiVerificationActionPlanClosure({ candidate, gates: variant }).actionPlanDigest)
       .not.toBe(baseline.actionPlanDigest);
   }
   const forgedArgv = gates.map((gate, index) => index === 0
     ? { ...gate, argv: [...gate.argv, '--forged'] }
     : gate);
-  expect(() => buildCiVerificationActionPlanClosureV1({ candidate, gates: forgedArgv })).toThrow(
+  expect(() => buildCiVerificationActionPlanClosure({ candidate, gates: forgedArgv })).toThrow(
     /outside the canonical producer-owned grammar/
   );
 });

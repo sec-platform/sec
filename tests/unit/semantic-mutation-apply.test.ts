@@ -2,27 +2,25 @@ import { mkdir } from 'node:fs/promises';
 
 import { expect, test } from 'bun:test';
 
-import { semanticMutationStagedRebuildDiagnostic } from '../../platform/compiler/semantic-mutation/derive-staged-mutation.ts';
+import {
+  querySemanticMutationRequest
+} from '../../src/compiler/orchestration/cli.ts';
+import { semanticMutationStagedRebuildDiagnostic } from '../../src/compiler/semantic-mutation/derive-staged-mutation.ts';
 import {
   appendSemanticMutationRecoveryRecord,
   assertSemanticMutationRecoveryRecordInvariant,
   loadSemanticMutationRecoveryRecords,
   semanticMutationRecoveryRecordRevision
-} from '../../platform/compiler/semantic-mutation/mutation-recovery-record.ts';
+} from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
 import {
   writeRejectedSemanticMutationTerminal
-} from '../../platform/compiler/semantic-mutation/mutation-terminal-record.ts';
+} from '../../src/compiler/semantic-mutation/mutation-terminal-record.ts';
 import {
   semanticMutationRequestIdentityDigest,
   semanticMutationStagedTransactionId,
   semanticMutationTransactionRoot
-} from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
-import {
-  querySemanticMutationRequest
-} from '../../platform/orchestrator.ts';
-import {
-  type SemanticMutationRecoveryRecordV1
-} from '../../platform/shared/semantic-mutation-transaction-types.ts';
+} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+import { type SemanticMutationRecoveryRecord } from '../../src/semantic/mutation/contract/transaction.ts';
 import {
   digest,
   recoveryDraft,
@@ -119,7 +117,7 @@ test('SM-3 recovery generations are immutable, chained, digest-bound, and fail c
     const forged = structuredClone(committed) as unknown as Record<string, unknown>;
     forged.committedByteDigest = digest('forged');
     expect(() => assertSemanticMutationRecoveryRecordInvariant(
-      forged as unknown as SemanticMutationRecoveryRecordV1,
+      forged as unknown as SemanticMutationRecoveryRecord,
       prepared
     )).toThrow(
       'revision chain or content is invalid'

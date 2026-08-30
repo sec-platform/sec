@@ -2,17 +2,17 @@ import { afterAll, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { buildReviewSummary, writeReviewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
-import { verifyWorkspace } from '../../platform/orchestrator.ts';
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
-import { readJson, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type {
-  AcceptanceCoverageReport,
-  LockFile,
-  ProvenanceFile,
-  VerificationReport
-} from '../../platform/shared/types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { publishReviewSummary } from '../../src/compiler/emit/publish-review-summary.ts';
+import { buildReviewSummary } from '../../src/compiler/emit/write-review-summary.ts';
+import { verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
+import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
+import { validateReviewSummary } from '../../src/verification/review/contract/summary.ts';
+import { readJson, writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import {
   buildOfficialCopyInstallStep,
   buildOfficialResolvedBlock
@@ -55,18 +55,18 @@ async function readReviewInputs(workspaceRoot: string): Promise<{
   return { lock, provenance, report, coverage };
 }
 
-test('writeReviewSummary persists generated path in lock', async () => {
+test('canonical Review Summary publication persists the artifact and generated path', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-write-');
   const { lockPath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
   const { lock, provenance, report, coverage } = buildReviewInputs({
     lock: {
-      app: { stack: 'nextjs' },
+      app: { stack: 'typescript-library' },
       passStatus: { lock: 'succeeded' }
     }
   });
   await writeJson(lockPath, lock);
 
-  const summary = await writeReviewSummary(workspaceRoot, lock, provenance, report, coverage);
+  const summary = await publishReviewSummary(workspaceRoot, lock, provenance, report, coverage);
   const persistedLock = await readJson<LockFile>(lockPath);
   const persistedSummary = await readJson<typeof summary>(reviewSummaryPath);
 
@@ -85,7 +85,9 @@ test('writeReviewSummary persists generated path in lock', async () => {
     installImpactCount: 0
   });
   expect(summary.conflictHints).toHaveLength(0);
-  expect(persistedSummary).toEqual(summary);
+  expect(validateReviewSummary(persistedSummary)).toEqual(summary);
+  expect(() => validateReviewSummary({ ...persistedSummary, formatVersion: 'unknown' })).toThrow();
+  expect(() => validateReviewSummary({ ...persistedSummary, undeclared: true })).toThrow();
   expect(persistedLock.generatedPaths).toContain('control/evidence/review-summary.json');
 }, 180000);
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
@@ -103,7 +105,6 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
   const { lock, provenance, report, coverage } = await readReviewInputs(workspaceRoot);
   const summary = await buildReviewSummary(workspaceRoot, lock, provenance, report, coverage);
 
-  expect(summary.formatVersion).toBe('2');
   expect(summary.ciSummary.status).toBe('failed');
   expect(summary.ciSummary.failureCount).toBeGreaterThanOrEqual(2);
   expect(summary.failurePoints).toEqual(
@@ -126,7 +127,7 @@ test('buildReviewSummary captures fast-lane policy failures as structured failur
 test('buildReviewSummary adds failed verification targets as structured failure points', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-runtime-targets-');
   const lock = buildReviewLock({
-    app: { stack: 'nextjs' },
+    app: { stack: 'typescript-library' },
     resolvedBlocks: [buildOfficialResolvedBlock({ id: 'entity/customer-basic', installOrder: 1 })],
     passStatus: {
       verify: 'failed',
@@ -150,14 +151,14 @@ test('buildReviewSummary adds failed verification targets as structured failure 
     },
     runtime: buildRuntimeVerificationReport({
       status: 'failed',
-      build: { passed: ['next build'] },
+      build: { passed: ['runtime unit'] },
       unit: {
         status: 'failed',
         failed: ['tests/runtime/unit/customer-runtime.test.ts', 'tests/runtime/unit/customer-runtime.test.ts']
       },
       acceptance: {
         status: 'failed',
-        failed: ['tests/runtime/acceptance/customer-flow.spec.ts']
+        failed: ['tests/acceptance/customer-flow.test.ts']
       },
       logs: { stdout: '', stderr: 'runtime failed' }
     }),
@@ -205,7 +206,7 @@ test('buildReviewSummary adds failed verification targets as structured failure 
         lane: 'runtime',
         kind: 'acceptance',
         artifactPath: CI_ARTIFACT_FILES.runtimeReport,
-        message: 'Runtime acceptance test failed: tests/runtime/acceptance/customer-flow.spec.ts'
+        message: 'Runtime acceptance test failed: tests/acceptance/customer-flow.test.ts'
       }
     ])
   );
@@ -219,7 +220,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
   const workspaceRoot = await createWorkspace('engineering-compiler-review-ticket-attribution-');
   const { lock, provenance, coverage, report } = buildReviewInputs({
     lock: {
-      app: { stack: 'nextjs' },
+      app: { stack: 'typescript-library' },
       resolvedBlocks: [
         buildOfficialResolvedBlock({ id: 'ticket/basic', installOrder: 1 }),
         buildOfficialResolvedBlock({ id: 'export/csv-basic', installOrder: 2 }),
@@ -230,22 +231,22 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
           stepId: 'ticket/basic:1',
           blockId: 'ticket/basic',
           sourceRoot: 'ticket.basic',
-          from: 'files/app/tickets/page.tsx',
-          to: 'app/tickets/page.tsx'
+          from: 'files/src/installed/ticket/ticket-service.ts',
+          to: 'src/installed/ticket/ticket-service.ts'
         }),
         buildOfficialCopyInstallStep({
           stepId: 'export/csv-basic:2',
           blockId: 'export/csv-basic',
           sourceRoot: 'export.csv-basic',
-          from: 'files/app/api/tickets/export/route.ts',
-          to: 'app/api/tickets/export/route.ts'
+          from: 'files/src/installed/export/customer-csv.ts',
+          to: 'src/installed/export/customer-csv.ts'
         }),
         buildOfficialCopyInstallStep({
           stepId: 'reporting/ticket-summary:3',
           blockId: 'reporting/ticket-summary',
           sourceRoot: 'reporting.ticket-summary',
-          from: 'files/app/api/tickets/summary/route.ts',
-          to: 'app/api/tickets/summary/route.ts'
+          from: 'files/src/installed/reporting/ticket-summary.ts',
+          to: 'src/installed/reporting/ticket-summary.ts'
         }),
         buildOfficialCopyInstallStep({
           stepId: 'reporting/ticket-summary:4',
@@ -256,35 +257,35 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
         })
       ],
       generatedPaths: [
-        'app/tickets/page.tsx',
-        'app/api/tickets/route.ts',
-        'app/api/tickets/export/route.ts',
-        'app/api/tickets/summary/route.ts',
-        'app/api/tickets/summary/export/route.ts'
+        'src/installed/ticket/ticket-service.ts',
+        'src/installed/ticket/ticket-command.ts',
+        'src/installed/export/customer-csv.ts',
+        'src/installed/reporting/ticket-summary.ts',
+        'src/installed/composed/ticket-export.ts'
       ],
       passStatus: { lock: 'succeeded' }
     },
     provenance: [
       {
-        path: 'app/tickets/page.tsx',
+        path: 'src/installed/ticket/ticket-service.ts',
         originType: 'generated',
-        originId: 'app/tickets/page.tsx',
+        originId: 'src/installed/ticket/ticket-service.ts',
         generatedByPass: 'compose',
         verifiedBy: [],
         overrideStatus: 'none'
       },
       {
-        path: 'app/api/tickets/summary/route.ts',
+        path: 'src/installed/reporting/ticket-summary.ts',
         originType: 'generated',
-        originId: 'app/api/tickets/summary/route.ts',
+        originId: 'src/installed/reporting/ticket-summary.ts',
         generatedByPass: 'compose',
         verifiedBy: [],
         overrideStatus: 'none'
       },
       {
-        path: 'app/api/tickets/summary/export/route.ts',
+        path: 'src/installed/composed/ticket-export.ts',
         originType: 'generated',
-        originId: 'app/api/tickets/summary/export/route.ts',
+        originId: 'src/installed/composed/ticket-export.ts',
         generatedByPass: 'compose',
         verifiedBy: [],
         overrideStatus: 'none'
@@ -308,14 +309,14 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
   expect(summary.runtimeEntries).toEqual(
     expect.arrayContaining([
       {
-        path: 'app/api/tickets/summary/route.ts',
-        kind: 'api',
+        path: 'src/installed/reporting/ticket-summary.ts',
+        kind: 'service',
         vertical: 'ticket',
         relatedBlocks: ['reporting/ticket-summary', 'ticket/basic']
       },
       {
-        path: 'app/api/tickets/summary/export/route.ts',
-        kind: 'api',
+        path: 'src/installed/composed/ticket-export.ts',
+        kind: 'service',
         relatedBlocks: []
       }
     ])
@@ -324,8 +325,8 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
     {
       id: 'ticket',
       runtimeEntries: [
-        'app/api/tickets/summary/route.ts',
-        'app/tickets/page.tsx'
+        'src/installed/reporting/ticket-summary.ts',
+        'src/installed/ticket/ticket-service.ts'
       ],
       relatedBlocks: ['reporting/ticket-summary', 'ticket/basic']
     }
@@ -335,28 +336,28 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
       blockId: 'export/csv-basic',
       actionKinds: ['copy'],
       sourceRoots: ['export.csv-basic'],
-      targetPaths: ['app/api/tickets/export/route.ts'],
+      targetPaths: ['src/installed/export/customer-csv.ts'],
       verticals: [],
-      runtimeEntries: ['app/api/tickets/export/route.ts']
+      runtimeEntries: ['src/installed/export/customer-csv.ts']
     },
     {
       blockId: 'reporting/ticket-summary',
       actionKinds: ['copy'],
       sourceRoots: ['reporting.ticket-summary'],
       targetPaths: [
-        'app/api/tickets/summary/route.ts',
+        'src/installed/reporting/ticket-summary.ts',
         'src/installed/reporting/ticket-summary.ts'
       ],
       verticals: [],
-      runtimeEntries: ['app/api/tickets/summary/route.ts']
+      runtimeEntries: ['src/installed/reporting/ticket-summary.ts']
     },
     {
       blockId: 'ticket/basic',
       actionKinds: ['copy'],
       sourceRoots: ['ticket.basic'],
-      targetPaths: ['app/tickets/page.tsx'],
+      targetPaths: ['src/installed/ticket/ticket-service.ts'],
       verticals: [],
-      runtimeEntries: ['app/tickets/page.tsx']
+      runtimeEntries: ['src/installed/ticket/ticket-service.ts']
     }
   ]);
   expect(summary.installImpactSummary).toEqual({
@@ -372,16 +373,16 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
     actionKinds: ['copy'],
     sourceRoots: ['export.csv-basic', 'reporting.ticket-summary', 'ticket.basic'],
     targetPaths: [
-      'app/api/tickets/export/route.ts',
-      'app/api/tickets/summary/route.ts',
-      'app/tickets/page.tsx',
+      'src/installed/export/customer-csv.ts',
+      'src/installed/reporting/ticket-summary.ts',
+      'src/installed/ticket/ticket-service.ts',
       'src/installed/reporting/ticket-summary.ts'
     ],
     verticals: [],
     runtimeEntries: [
-      'app/api/tickets/export/route.ts',
-      'app/api/tickets/summary/route.ts',
-      'app/tickets/page.tsx'
+      'src/installed/export/customer-csv.ts',
+      'src/installed/reporting/ticket-summary.ts',
+      'src/installed/ticket/ticket-service.ts'
     ],
     groupSummaries: [
       {
@@ -393,24 +394,24 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
         blocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic'],
         actionKinds: ['copy'],
         runtimeEntries: [
-          'app/api/tickets/export/route.ts',
-          'app/api/tickets/summary/route.ts',
-          'app/tickets/page.tsx'
+          'src/installed/export/customer-csv.ts',
+          'src/installed/reporting/ticket-summary.ts',
+          'src/installed/ticket/ticket-service.ts'
         ],
         targetPaths: [
-          'app/api/tickets/export/route.ts',
-          'app/api/tickets/summary/route.ts',
-          'app/tickets/page.tsx',
+          'src/installed/export/customer-csv.ts',
+          'src/installed/reporting/ticket-summary.ts',
+          'src/installed/ticket/ticket-service.ts',
           'src/installed/reporting/ticket-summary.ts'
         ]
       }
     ]
   });
-  expect(summary.changeSources.find((source) => source.path === 'app/api/tickets/summary/export/route.ts')).toEqual({
-    path: 'app/api/tickets/summary/export/route.ts',
+  expect(summary.changeSources.find((source) => source.path === 'src/installed/composed/ticket-export.ts')).toEqual({
+    path: 'src/installed/composed/ticket-export.ts',
     originType: 'generated',
-    originId: 'app/api/tickets/summary/export/route.ts',
-    runtimeKind: 'api',
+    originId: 'src/installed/composed/ticket-export.ts',
+    runtimeKind: 'service',
     relatedBlocks: []
   });
 }, 180000);
@@ -464,8 +465,7 @@ test('CLI exposes project overview as compact JSON contract', async () => {
   const workspaceRoot = await getSharedOverviewWorkspace();
   const payload = await expectCliJson<{
     formatVersion: string;
-    navigation: { workbenchViews: Array<{ id: string; path?: string }> };
-    quality: { reports: Array<{ kind: string; available: boolean; status: string }> };
+    navigation: { machineArtifacts: Array<{ id: string; path?: string }> };
   }>(
     workspaceRoot,
     ['overview', '--json', '--compact'],
@@ -473,17 +473,10 @@ test('CLI exposes project overview as compact JSON contract', async () => {
     { compact: true }
   );
 
-  expect(payload.navigation.workbenchViews[0]?.id).toBe('overview');
-  expect(payload.navigation.workbenchViews).toEqual(
+  expect(payload.navigation.machineArtifacts[0]?.id).toBe('graph');
+  expect(payload.navigation.machineArtifacts).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ id: 'overview' })
-    ])
-  );
-  expect(payload.quality.reports).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ kind: 'code-quality', available: false, status: 'unavailable' }),
-      expect.objectContaining({ kind: 'architecture-boundary', available: false, status: 'unavailable' }),
-      expect.objectContaining({ kind: 'semantic-pattern', available: false, status: 'unavailable' })
+      expect.objectContaining({ id: 'verification' })
     ])
   );
 }, 120000);

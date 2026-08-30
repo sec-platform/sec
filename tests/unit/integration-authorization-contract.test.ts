@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 
 import {
-  INTEGRATION_AUTHORIZATION_SCHEMA_V1,
-  assertIntegrationAuthorizationUsableV1,
-  createIntegrationAuthorizationV1,
-  parseIntegrationAuthorizationV1,
-  type IntegrationAuthorizationInputV1,
-  type IntegrationAuthorizationLiveStateV1
-} from '../../platform/shared/integration-authorization-contract.ts';
+  INTEGRATION_AUTHORIZATION_SCHEMA,
+  assertIntegrationAuthorizationUsable,
+  createIntegrationAuthorization,
+  parseIntegrationAuthorization,
+  type IntegrationAuthorizationInput,
+  type IntegrationAuthorizationLiveState
+} from '../../src/control/integration/authorization.ts';
 
 const SHA_A = '1'.repeat(40);
 const SHA_B = '2'.repeat(40);
@@ -30,8 +30,8 @@ function issuer() {
 }
 
 function input(
-  overrides: Partial<IntegrationAuthorizationInputV1> = {}
-): IntegrationAuthorizationInputV1 {
+  overrides: Partial<IntegrationAuthorizationInput> = {}
+): IntegrationAuthorizationInput {
   return {
     consumptionOperationId: 'merge-pr-11',
     repository: 'sec-platform/sec',
@@ -59,11 +59,11 @@ function input(
   };
 }
 
-function authorization(overrides: Partial<IntegrationAuthorizationInputV1> = {}) {
-  return createIntegrationAuthorizationV1(input(overrides));
+function authorization(overrides: Partial<IntegrationAuthorizationInput> = {}) {
+  return createIntegrationAuthorization(input(overrides));
 }
 
-function live(current = authorization()): IntegrationAuthorizationLiveStateV1 {
+function live(current = authorization()): IntegrationAuthorizationLiveState {
   return {
     now: current.expiresAt,
     consumedAuthorizationIds: new Set<string>(),
@@ -91,10 +91,9 @@ function live(current = authorization()): IntegrationAuthorizationLiveStateV1 {
 
 test('IntegrationAuthorization round-trips and exact expiry boundary is usable once', () => {
   const current = authorization();
-  expect(current.schema).toBe(INTEGRATION_AUTHORIZATION_SCHEMA_V1);
-  expect(parseIntegrationAuthorizationV1(JSON.stringify(current))).toEqual(current);
-  expect(() => assertIntegrationAuthorizationUsableV1(current, live(current))).not.toThrow();
-  expect(() => assertIntegrationAuthorizationUsableV1(current, {
+  expect(parseIntegrationAuthorization(JSON.stringify(current))).toEqual(current);
+  expect(() => assertIntegrationAuthorizationUsable(current, live(current))).not.toThrow();
+  expect(() => assertIntegrationAuthorizationUsable(current, {
     ...live(current),
     now: '2026-08-09T01:00:00.001Z'
   })).toThrow('expired');
@@ -102,7 +101,7 @@ test('IntegrationAuthorization round-trips and exact expiry boundary is usable o
 
 test('every live IntegrationAuthorization binding drifts fail closed', () => {
   const current = authorization();
-  const cases: readonly [string, Partial<IntegrationAuthorizationLiveStateV1>][] = [
+  const cases: readonly [string, Partial<IntegrationAuthorizationLiveState>][] = [
     ['consumption operation', { consumptionOperationId: 'merge-pr-12' }],
     ['repository', { repository: 'sec-platform/other' }],
     ['prNumber', { prNumber: 12 }],
@@ -124,7 +123,7 @@ test('every live IntegrationAuthorization binding drifts fail closed', () => {
     ['rulesetDigest', { rulesetDigest: D_C }]
   ];
   for (const [label, override] of cases) {
-    expect(() => assertIntegrationAuthorizationUsableV1(current, {
+    expect(() => assertIntegrationAuthorizationUsable(current, {
       ...live(current),
       ...override
     }), label).toThrow('drift');
@@ -138,7 +137,7 @@ test('consumed authorization rejects regardless of Set insertion order or duplic
     new Set(['other', current.authorizationId]),
     new Set([current.authorizationId, 'other', current.authorizationId])
   ]) {
-    expect(() => assertIntegrationAuthorizationUsableV1(current, {
+    expect(() => assertIntegrationAuthorizationUsable(current, {
       ...live(current),
       consumedAuthorizationIds: consumed
     })).toThrow('already consumed');
@@ -147,7 +146,7 @@ test('consumed authorization rejects regardless of Set insertion order or duplic
 
 test('authorizationId changes for every stable decision field', () => {
   const current = authorization();
-  const cases: readonly [string, IntegrationAuthorizationInputV1][] = [
+  const cases: readonly [string, IntegrationAuthorizationInput][] = [
     ['operation', input({ consumptionOperationId: 'merge-pr-12' })],
     ['repository', input({ repository: 'sec-platform/other' })],
     ['prNumber', input({ prNumber: 12 })],
@@ -171,14 +170,14 @@ test('authorizationId changes for every stable decision field', () => {
     ['issuer producer', input({ issuer: { ...issuer(), producerIdentity: 'other-runtime' } })]
   ];
   for (const [label, candidate] of cases) {
-    expect(createIntegrationAuthorizationV1(candidate).authorizationId, label)
+    expect(createIntegrationAuthorization(candidate).authorizationId, label)
       .not.toBe(current.authorizationId);
   }
 });
 
 test('receipt-only provenance changes receipt digest but not authorizationId', () => {
   const current = authorization();
-  const cases: readonly [string, Partial<IntegrationAuthorizationInputV1>][] = [
+  const cases: readonly [string, Partial<IntegrationAuthorizationInput>][] = [
     ['scope receipt', { scopeAuthorizationReceiptDigest: D_A }],
     ['review receipt', { reviewReceiptDigest: D_B }],
     ['MainHealth receipt', { mainHealthReceiptDigest: D_A }],
@@ -199,14 +198,14 @@ test('receipt-only provenance changes receipt digest but not authorizationId', (
 });
 
 test('IntegrationAuthorization rejects invalid issuer provenance and time bounds', () => {
-  const invalid: readonly [string, IntegrationAuthorizationInputV1][] = [
+  const invalid: readonly [string, IntegrationAuthorizationInput][] = [
     ['issuer trust mismatch', input({ issuer: { ...issuer(), trustedRevision: SHA_B } })],
     ['issuer transport', input({ issuer: { ...issuer(), sourceTransport: 'unknown' as never } })],
     ['issuer source digest', input({ issuer: { ...issuer(), sourceDigest: 'bad' as never } })],
     ['empty producer identity', input({ issuer: { ...issuer(), producerIdentity: '' } })]
   ];
   for (const [label, candidate] of invalid) {
-    expect(() => createIntegrationAuthorizationV1(candidate), label).toThrow();
+    expect(() => createIntegrationAuthorization(candidate), label).toThrow();
   }
   expect(() => authorization({ expiresAt: '2026-08-09T00:00:00.000Z' }))
     .toThrow('after issuedAt');
@@ -222,6 +221,6 @@ test('IntegrationAuthorization parser rejects schema, unknown fields, issuer sha
     { ...current, issuer: { ...current.issuer, extra: true } }
   ];
   for (const candidate of invalid) {
-    expect(() => parseIntegrationAuthorizationV1(JSON.stringify(candidate))).toThrow();
+    expect(() => parseIntegrationAuthorization(JSON.stringify(candidate))).toThrow();
   }
 });

@@ -1,7 +1,10 @@
-import { loadAllManifests } from '../../platform/compiler/parse/load-manifest.ts';
-import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
-import { officialRegistryRelativePath, privateRegistryRelativePath } from '../../platform/shared/paths.ts';
-import type { ManifestEntry, PlanFile } from '../../platform/shared/types.ts';
+import type {
+  ManifestEntry,
+  PlanFile
+} from '../../src/compiler/contract.ts';
+import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
+import { loadAllManifests } from '../../src/compiler/parse/load-manifest.ts';
+import { officialRegistryRelativePath, privateRegistryRelativePath } from '../../src/workspace/paths.ts';
 
 export function buildSingleTenantPlanApp(options: Partial<PlanFile['app']> = {}): PlanFile['app'] {
   return {

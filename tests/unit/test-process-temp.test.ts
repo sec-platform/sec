@@ -15,19 +15,19 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  createTestInvocationRuntimeRootsV1,
+  createTestInvocationRuntimeRoots,
   createTestProcessTempRootV1,
-  testInvocationRuntimeIsolationModeForPlatformV1
-} from '../../platform/dev-runner/test-process-temp.ts';
+  testInvocationRuntimeIsolationModeForPlatform
+} from '../../src/development/runner/test-process-temp.ts';
 
 function generation(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix));
 }
 
 test('test invocation runtime advertises only platforms with retained physical authority', () => {
-  expect(testInvocationRuntimeIsolationModeForPlatformV1('win32')).toBe('retained');
-  expect(testInvocationRuntimeIsolationModeForPlatformV1('linux')).toBe('retained');
-  expect(testInvocationRuntimeIsolationModeForPlatformV1('darwin')).toBe('unavailable');
+  expect(testInvocationRuntimeIsolationModeForPlatform('win32')).toBe('retained');
+  expect(testInvocationRuntimeIsolationModeForPlatform('linux')).toBe('retained');
+  expect(testInvocationRuntimeIsolationModeForPlatform('darwin')).toBe('unavailable');
 });
 
 test('test process temp owns one disjoint generation and removes only that generation', async () => {
@@ -87,13 +87,13 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
   mkdirSync(repositoryRoot);
   symlinkSync(repositoryRoot, stateAlias, process.platform === 'win32' ? 'junction' : 'dir');
   try {
-    await expect(createTestInvocationRuntimeRootsV1({
+    await expect(createTestInvocationRuntimeRoots({
       repositoryRoot,
       environment: { SEC_STATE_HOME: stateAlias, SEC_CACHE_HOME: cacheRoot }
     })).rejects.toThrow();
     expect(existsSync(path.join(repositoryRoot, 'test-invocation-runs'))).toBe(false);
 
-    const owned = await createTestInvocationRuntimeRootsV1({
+    const owned = await createTestInvocationRuntimeRoots({
       repositoryRoot,
       environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
     });
@@ -113,7 +113,7 @@ test('test invocation runtime owns private roots, rejects aliases, and surfaces 
       chmodSync(stateRoot, 0o755);
       chmodSync(cacheRoot, 0o755);
     }
-    const replaced = await createTestInvocationRuntimeRootsV1({
+    const replaced = await createTestInvocationRuntimeRoots({
       repositoryRoot,
       environment: { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot }
     });

@@ -1,56 +1,39 @@
 import { expect, test } from 'bun:test';
 
-import {
-  assertSemanticMutationPlanInvariant,
-  assertSemanticMutationResultInvariant,
-  buildEngineeringIR,
-  buildFactDelta,
-  buildImpactPropagation,
-  buildSemanticMutationResult,
-  buildSemanticMutationVerificationPlanningContext,
-  buildValidatedEngineeringIR,
-  normalizeSemanticMutationRequest,
-  planSemanticMutation,
-  preflightSemanticMutation,
-  validateEngineeringIR,
-  type BuildEngineeringIRInput,
-  type SemanticMutationAuthorizationContextV2,
-  type SemanticMutationInputV2,
-  type SemanticMutationPlanV2,
-  type SemanticMutationRequestV2,
-  type VerificationRequirementV1
-} from '../../platform/compiler/index.ts';
-import { factAssertionId } from '../../platform/compiler/ir/ir-fact-store.ts';
-import { digest, semanticRevisionPayload } from '../../platform/compiler/ir/ir-revision.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
+import { factAssertionId } from '../../src/compiler/ir/ir-fact-store.ts';
+import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
+import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { buildImpactPropagation } from '../../src/compiler/semantic-impact/build-impact-propagation.ts';
 import {
   canonicalVerificationUnion,
   nestedDiagnostic,
   sha256
-} from '../../platform/compiler/semantic-mutation/canonical.ts';
+} from '../../src/compiler/semantic-mutation/canonical.ts';
 import {
   semanticMutationAssertionDigest,
   semanticMutationEntityDigest
-} from '../../platform/compiler/semantic-mutation/match-conditions.ts';
-import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
-import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
+} from '../../src/compiler/semantic-mutation/match-conditions.ts';
+import { expectationFromFactDelta } from '../../src/compiler/semantic-mutation/match-expectation.ts';
+import { normalizeSemanticMutationRequest, semanticMutationAuthorizationRevision } from '../../src/compiler/semantic-mutation/normalize-request.ts';
 import {
-  planSemanticMutationWithAsyncProducerSeamForTest,
+  assertSemanticMutationPlanInvariant, planSemanticMutation, planSemanticMutationWithAsyncProducerSeamForTest,
   planSemanticMutationWithProducerSeamForTest,
   semanticMutationPlanRevision,
   type SemanticMutationPlanProducerSeamForTest
-} from '../../platform/compiler/semantic-mutation/plan-semantic-mutation.ts';
-import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
+} from '../../src/compiler/semantic-mutation/plan-semantic-mutation.ts';
+import { preflightSemanticMutation } from '../../src/compiler/semantic-mutation/preflight-semantic-mutation.ts';
+import { assertSemanticMutationResultInvariant, buildSemanticMutationResult, buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../src/compiler/semantic-mutation/semantic-mutation-result.ts';
 import {
-  evaluateSemanticMutationVerificationPlanning,
+  buildSemanticMutationVerificationPlanningContext, evaluateSemanticMutationVerificationPlanning,
   semanticMutationRequiredVerificationDigest
-} from '../../platform/compiler/semantic-mutation/verification-policy.ts';
-import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
-import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
-import {
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
-  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION
-} from '../../platform/shared/verification-types.ts';
+} from '../../src/compiler/semantic-mutation/verification-policy.ts';
+import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
+import { type SemanticMutationAuthorizationContext, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRequest, type VerificationRequirement } from '../../src/semantic/mutation/contract/types.ts';
+import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION } from '../../src/verification/contract/types.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 
 function contract(withTransition: boolean): LoadedSemanticContract {
@@ -173,8 +156,8 @@ function snapshotWithExtraTransitionFact() {
   return buildValidatedEngineeringIR(source);
 }
 
-function authorization(): SemanticMutationAuthorizationContextV2 {
-  const draft: Omit<SemanticMutationAuthorizationContextV2, 'authorizationRevision'> = {
+function authorization(): SemanticMutationAuthorizationContext {
+  const draft: Omit<SemanticMutationAuthorizationContext, 'authorizationRevision'> = {
     taskId: 'task:mutation',
     envelopeRevision: 'envelope:v2',
     allowedOperationKinds: ['add-state-transition'],
@@ -194,7 +177,7 @@ function fixture() {
   const base = endpoint(before, 'tx:base');
   const staged = endpoint(after, 'tx:staged');
   const delta = buildFactDelta(base, staged);
-  const request: SemanticMutationRequestV2 = {
+  const request: SemanticMutationRequest = {
     contractVersion: '2',
     requestId: 'request:add-transition',
     graphId: before.ir.graphId,
@@ -224,7 +207,7 @@ function fixture() {
     throw new Error(`Expected ready preflight: ${JSON.stringify(preflight)}`);
   }
   const impact = buildImpactPropagation({ delta, from: base, to: staged });
-  const impactVerification: VerificationRequirementV1[] = impact.verification.map((entry) => entry.kind === 'acceptance'
+  const impactVerification: VerificationRequirement[] = impact.verification.map((entry) => entry.kind === 'acceptance'
     ? { kind: 'acceptance', acceptanceEntityId: entry.acceptanceEntityId }
     : { kind: 'selector', selector: entry.selector });
   const requiredVerification = canonicalVerificationUnion(
@@ -314,7 +297,7 @@ test('preflight freezes entity, fact, and assertion condition variants plus oper
   const entity = value.before.ir.entities.find((entry) => entry.id === 'state:item:item-status')!;
   const fact = value.before.ir.facts.find((entry) => entry.subject === entity.id && entry.predicate === 'GUARANTEES')!;
   const assertion = fact.assertions[0]!;
-  const requestWithConditions: SemanticMutationRequestV2 = {
+  const requestWithConditions: SemanticMutationRequest = {
     ...value.request,
     preconditions: [
       {
@@ -349,7 +332,7 @@ test('preflight freezes entity, fact, and assertion condition variants plus oper
 
   const assertionCondition = requestWithConditions.preconditions[2];
   if (assertionCondition?.kind !== 'assertion') throw new Error('Missing assertion condition');
-  const staleAssertion: SemanticMutationRequestV2 = {
+  const staleAssertion: SemanticMutationRequest = {
     ...requestWithConditions,
     preconditions: [
       ...requestWithConditions.preconditions.slice(0, 2),
@@ -364,7 +347,7 @@ test('preflight freezes entity, fact, and assertion condition variants plus oper
   expect(conditionRejected).toMatchObject({ status: 'rejected', rejectedAt: 'precondition' });
   expect(conditionRejected.diagnostics[0]?.code).toBe('SEMANTIC-MUTATION-003');
 
-  const conflicting: SemanticMutationRequestV2 = {
+  const conflicting: SemanticMutationRequest = {
     ...value.request,
     operations: [
       { ...value.request.operations[0]!, operationId: 'operation:a' },
@@ -536,7 +519,7 @@ test('expectation and operation allowlist reject missing, extra, and entity drif
 
 test('planner stops later producers at every frozen failure boundary', () => {
   const value = fixture();
-  const input: SemanticMutationInputV2 = {
+  const input: SemanticMutationInput = {
     request: value.request,
     base: value.base,
     authorization: value.auth,
@@ -544,7 +527,7 @@ test('planner stops later producers at every frozen failure boundary', () => {
     verificationPlanning: value.verificationPlanning
   };
   const run = (
-    candidate: SemanticMutationInputV2,
+    candidate: SemanticMutationInput,
     failAt?: 'fact-delta' | 'impact'
   ) => {
     const calls = { factDelta: 0, impact: 0, verification: 0 };
@@ -753,14 +736,14 @@ test('plan invariant rejects digest-correct wrong-stage shapes and empty Verific
   delete missingStaged.staged;
   const { planRevision: _missingRevision, ...missingDraft } = missingStaged;
   missingStaged.planRevision = semanticMutationPlanRevision(missingDraft as never);
-  expect(() => assertSemanticMutationPlanInvariant(missingStaged as unknown as SemanticMutationPlanV2))
+  expect(() => assertSemanticMutationPlanInvariant(missingStaged as unknown as SemanticMutationPlan))
     .toThrow('invariants');
 
   const emptyAdapter = structuredClone(plan) as unknown as Record<string, unknown>;
   emptyAdapter.verificationAdapterId = '';
   const { planRevision: _adapterRevision, ...adapterDraft } = emptyAdapter;
   emptyAdapter.planRevision = semanticMutationPlanRevision(adapterDraft as never);
-  expect(() => assertSemanticMutationPlanInvariant(emptyAdapter as unknown as SemanticMutationPlanV2))
+  expect(() => assertSemanticMutationPlanInvariant(emptyAdapter as unknown as SemanticMutationPlan))
     .toThrow('verification planning');
 
   const unknownStatus = structuredClone(plan) as unknown as Record<string, unknown>;

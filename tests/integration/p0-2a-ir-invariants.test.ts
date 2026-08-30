@@ -1,23 +1,17 @@
 import { beforeAll, expect, test } from "bun:test";
 
-import {
-  buildValidatedEngineeringIR,
-  loadWorkspaceEngineeringIRBuildInput,
-  projectScenarioView,
-  validateEngineeringIR,
-  type BuildEngineeringIRInput,
-} from "../../platform/compiler/index.ts";
+import { type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
 import {
   PREDICATE_SIGNATURE_REGISTRY,
   assertEngineeringIRPredicateSignatures,
   assertPredicateSignatureRegistry,
-} from "../../platform/compiler/ir/predicate-signatures.ts";
-import { deriveScenarioDefinitions } from "../../platform/compiler/ir/scenario-facts.ts";
-import {
-  SEMANTIC_PREDICATES,
-  type EngineeringIR,
-  type ValidatedEngineeringIRSnapshot,
-} from "../../platform/shared/engineering-ir-types.ts";
+} from "../../src/compiler/ir/predicate-signatures.ts";
+import { deriveScenarioDefinitions } from "../../src/compiler/ir/scenario-facts.ts";
+import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
+import { type EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
+import { type ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
 import { prepareResolvedWorkspace } from "../testkit/workspace.ts";
 
 let ticketIR: EngineeringIR;
@@ -35,7 +29,6 @@ beforeAll(async () => {
 });
 
 test("Ticket closes the P0-2A identity, assertion, signature, and Scenario ownership vertical", () => {
-  expect(ticketIR.formatVersion).toBe("2");
   expect(ticketIR.appId).toBe("app:customer-admin");
   expect(ticketIR.graphId).toBe("engineering-ir:customer-admin");
   expect(ticketIR.inputRevision).toStartWith("sha256:");
@@ -59,9 +52,6 @@ test("Ticket closes the P0-2A identity, assertion, signature, and Scenario owner
     ),
   ).toBe(true);
 
-  expect(Object.keys(PREDICATE_SIGNATURE_REGISTRY).sort()).toEqual(
-    [...SEMANTIC_PREDICATES].sort(),
-  );
   expect(() => assertPredicateSignatureRegistry()).not.toThrow();
   expect(() =>
     assertEngineeringIRPredicateSignatures(ticketIR.entities, ticketIR.facts),

@@ -11,19 +11,21 @@ last-reviewed: 2026-08-06
 
 Fact/Binding Delta与Impact由`docs/delta-and-impact.md`拥有；Compatibility与Migration由`docs/change-management.md`拥有；Verification Result由`docs/verification-governance.md`拥有。Runtime只产生物理capability、materialization、package/install/runtime和support Evidence，不建立第二Resolver、Comparator或Compatibility evaluator。
 
-精确版本、release schedule、当前支持矩阵、依赖清单、可执行路径、协议字段和 physical Gate 结果由 package metadata、代码合同、release/support profile 与 Evidence 拥有。
+除已注册 EnvironmentSpec 明确拥有的静态环境合同值外，精确 release schedule、当前支持矩阵、依赖清单、
+可执行路径、协议字段和 physical Gate 结果由 package metadata、代码合同、release/support profile 与 Evidence
+拥有。EnvironmentSpec 的静态值不能被 package metadata、ledger projection 或 live Evidence 复制成第二 owner。
 
 ## 正交轴
 
 - **Semantic Core**：runtime-neutral 的 Engineering IR、identity、revision、validation、pure Delta/Impact、lowering 与 projection。
-- **Host Runtime Profile**：执行 SEC CLI、Workbench server 或 adapter 的进程平台和能力。
+- **Host Runtime Profile**：执行 SEC CLI 或 adapter 的进程平台和能力。
 - **Toolchain Provider**：install、test、typecheck、bundle、format、package 等工程命令的独立 executable/version authority。
 - **Target Profile reference**：由 Compiler authority 提供的生成目标 language/runtime/module/delivery/capability要求；本文不复制其字段或 validator。
 - **Implementation Binding reference**：由Compiler authority冻结的具体Provider/package/version/config/Adapter/Target/dependency requirements；本文只验证和materialize物理要求，不重新选择实现。
 - **ImplementationBindingDelta reference**：由Delta/Impact authority比较old/new Binding产生；本文只为其physical facets提供Evidence，不修改Delta。
 - **Compatibility / Migration reference**：由Change Management基于Delta、Contract和Evidence产生；本文只执行被授权的物理步骤。
 - **Runtime Environment**：被测试或部署的目标程序实际运行环境，与 SEC Host 和生成 Target identity分离。
-- **Optional Capability Adapter**：native、FFI、container、browser、OS hardening 或平台专有能力；缺失时返回明确 capability result。
+- **Optional Capability Adapter**：native、FFI、container、OS hardening 或平台专有能力；缺失时返回明确 capability result。
 - **Distribution / Support**：package/public artifact、安装、发布、部署 Evidence 与支持成熟度。
 
 任何一轴都不能推断另一轴。某 Host 成功不证明另一 Host；Target runtime requirement不决定当前Toolchain；`process.execPath`不代表Toolchain authority；在一个Toolchain下生成另一Target也不证明该Target、Runtime Environment、Binding或Host已受支持。一个Provider可安装也不证明它满足Semantic Contract、会被Implementation Resolver选择、Binding未变化或Compatibility成立。
@@ -49,6 +51,51 @@ Host Profile 表达 SEC 当前执行进程需要的能力，例如：
 - security、sandbox、credential 和 local transport边界。
 
 Host Profile 只描述 SEC executor，不决定生成项目的 Target Profile或ImplementationBinding。它具有独立 identity、revision、capability validator、physical Evidence 和 support maturity。
+
+### Host tool provisioning 与 adoption
+
+已安装 host tool 的 runtime adoption 不能拥有 provisioning。install、upgrade、uninstall 与 distribution cache
+属于系统、用户或显式 package-manager workflow；production command session 只能采用当前机器上已经存在的
+capability。session open、health、discovery、cache warmup 和 recovery 均禁止下载 archive、执行 installer、
+解压或复制工具发行版。不可采用时返回 typed unavailable，由单独授权的 provisioning operation 处理。
+
+adoption 只认证 invocation 的最小因果闭包：retained launcher/effective executable、真实 app-local/system loader
+dependencies、retained cwd、exact version/bytes/physical identity 与 pre/post settlement fence。不得用递归安装树
+inventory、完整发行版 copy 或 SEC-owned executable cache代替；admission 成本必须由固定 entries/bytes/deadline
+约束并与最小闭包成正比。PATH/registry/standard location 都只是 candidate locator，不是 authority；physical
+capability 只能流向 semantic session，再流向 operation，consumer 不能自行 spawn 或反向触发安装。
+
+### Windows native control CLI EnvironmentSpec
+
+Windows native control 的 Git/GitHub CLI candidate layout、exact executable/loader binding 与 command/resource contract 只由
+`src/external-capabilities/windows-control-cli/profile/sec-windows-control-cli-v1.json` 拥有，并由
+`src/external-capabilities/windows-control-cli/contract/environment.ts` 以 strict parser、关系 validator、deep-freeze
+和 canonical digest 暴露；这个 JSON 是既有 external-provider 合同的 machine projection，不建立新的
+semantic、credential 或 effect owner；TS 不复制 JSON 的具体版本、digest 或日期。ledger 是 route projection owner，
+只允许一个 `host-command-execution` / `sec-windows-control-cli-v1` entry，并且只记录profile、surface、lifecycle与
+unresolved reason；不得复制`observedVersion`、spec path/digest/revision、artifact、executable、layout或endpoint。
+当前唯一 CLI surface 是将由运行时 owner 提供的 `windows-control-cli-session`；parser module 不是 live surface。
+docs-doctor从唯一EnvironmentSpec registry按route profile解析descriptor，再从传入repository root对canonical spec做
+bounded no-follow raw readback和digest核对。当前 root
+production positive 只能由当前已安装 capability 的 retained executable/cwd、minimal loader closure 与最终
+settlement readback产生；archive download/extraction、installer 与完整安装树 census 不属于这个 surface。这里的
+EnvironmentSpec不维护独立`specRevision`：schema标识grammar，canonical digest标识exact content；两者都不是live
+availability epoch、executable runtime version、credential epoch或effect grant。EnvironmentSpec parser 不执行命令、不解析 credential、
+不判断本机 availability，且不保存绝对机器路径。全局 capability ledger 的状态是各 Provider 的 routing
+projection；其中无关 Provider 的 `revalidation-required` 不会改变该 exact profile 的结论。
+
+四层边界为：(1) JSON EnvironmentSpec 的静态布局、artifact、version/digest、endpoint 和 resource/command
+contract；(2) capability ledger 的 route/profile 与 routing projection；(3) live retained
+no-follow physical session 的真实 availability、lease、identity 和 readback；(4) Git repository semantics 与
+GitHub credential/principal/API/effect semantics。live execution 必须消费第 (3) 层，不能由第 (1) 或第 (2) 层
+自签 live authority。
+
+PATH 解析仅是不可信 hint；session 要在 effect 前后绑定 launcher/effective executable 的 raw bytes digest、
+native identity、父目录链和版本输出。EnvironmentSpec 的 `observedSizeBytes` / `observedSha256` 是 adoption
+contract 的一个物理 facet；缺少 authenticated retained root/loader/session readback 时必须保持 typed
+unavailable/unknown。Git 的 `bin/git.exe` / `cmd/git.exe` 只是有限 launcher candidates，
+effective executable 由 validated official layout 决定；不存在可验证 Windows provider 时上层返回 typed
+`unsupported | unavailable | unknown`，禁止裸 PATH、跨平台替换或按 consumer 复制 wrapper。
 
 ## Toolchain Provider
 
@@ -185,9 +232,9 @@ WSL/Linux Evidence不替代Windows native，Windows Evidence也不替代Linux/ma
 
 ## 依赖作用域
 
-每个依赖必须唯一归属于：Semantic Core、Host、Toolchain、Verification、Generated Target、Workbench、External Provider或Release。根manifest不应长期同时充当Core、Web target、browser verification、native helper和外部分析工具的发布authority。
+每个依赖必须唯一归属于：Semantic Core、Host、Toolchain、Verification、Generated Target、Agent/CLI Interface、External Provider或Release。根manifest不应长期同时充当Core、生成目标、native helper和外部分析工具的发布authority。
 
-`package.json`与lockfile保持单一writer。ImplementationBinding只能请求一个exact dependency closure；Dependency authority验证并materialize它，不能让Resolver、Backend、Adapter或Workbench直接修改package/lock。
+`package.json`与lockfile保持单一writer。ImplementationBinding只能请求一个exact dependency closure；Dependency authority验证并materialize它，不能让Resolver、Backend、Adapter或Agent/CLI interface直接修改package/lock。
 
 派生dependency root只允许保存canonical manifest投影、materialized modules、cache、lease与readiness
 stamp；它不是第二个package authority，不能持有lockfile、package-manager config或workspace config。

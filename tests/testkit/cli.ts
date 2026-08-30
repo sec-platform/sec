@@ -2,12 +2,12 @@ import { expect } from 'bun:test';
 import { Command } from 'commander';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+import { buildErrorProtocol } from '../../src/compiler/error-protocol.ts';
+import type { CompilerErrorDetails } from '../../src/compiler/errors.ts';
 import {
   registerCommands,
   type CliCommandDomainLoaders
-} from '../../platform/cli/register-commands.ts';
-import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
-import type { CompilerErrorDetails } from '../../platform/shared/errors.ts';
+} from '../../src/interface/cli/register-commands.ts';
 
 function normalizeCliStderr(stderr: string): string {
   return stderr
@@ -101,6 +101,13 @@ export async function expectCliSuccess(
   expectedStdout?: string
 ): Promise<CliResult> {
   const result = await runCliInProcess(workspaceRoot, args);
+  if (result.code !== 0) {
+    throw new Error([
+      `CLI exited with code ${result.code}: ${args.join(' ')}`,
+      `stdout:\n${result.stdout}`,
+      `stderr:\n${result.stderr}`
+    ].join('\n'));
+  }
   expect(result.code).toBe(0);
   expect(normalizeCliStderr(result.stderr)).toBe('');
   if (expectedStdout !== undefined) {
@@ -178,7 +185,7 @@ export async function runCliPipeline(
   options: { init?: boolean; target?: 'composed' | 'adapted'; verifyLane?: 'fast' | 'all'; lock?: boolean; explain?: boolean } = {}
 ): Promise<void> {
   if (options.init !== false) {
-    await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
+    await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
   }
   await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 3 blocks\n');
   await expectCliSuccess(workspaceRoot, ['compose'], 'Composed project\n');

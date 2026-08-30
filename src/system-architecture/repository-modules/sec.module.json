@@ -1,0 +1,16 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "repository-module-graph",
+      "operations": [
+        "assertSecRepositoryModuleImportBoundaries",
+        "compileSecRepositoryModuleGraph",
+        "compileSecRepositoryModuleMembershipSnapshot",
+        "compileSecRepositoryModuleRelocationPlanEntry"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

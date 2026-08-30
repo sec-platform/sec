@@ -80,6 +80,40 @@ Document Control Plane拥有；候选分支中的manifest、类型、测试或wo
 
 真实browser/server/native/durable acceptance即使偶尔很快仍属于physical layer；反之，位于acceptance目录但不请求browser capability的contract test不应被迫启动无关browser。Gate definition和fixture实际需求共同决定capability。
 
+### 测试存在证明与全量审计完整性
+
+保留或删除一个测试时，机器必须能从canonical Claim/owner、subject与输入闭包、observation层、assertion、fixture/
+Provider/Effect、failure或counterexample空间、test-impact边、资源成本和失效条件临时派生裁决理由。这个理由不是名为
+任何新对象，不由测试作者填写，也不持久化为registry；它只来自exact tracked universe、唯一module/consumer/test-impact
+图、真实fixture/Effect边和canonical Claim。任一边无法证明就输出`unknown`，禁止用默认
+`pure | cheap | no-effect`补齐。测试名称、文件路径、注册数量、历史失败、覆盖率百分比或“看起来重要”不能代替该理由。
+
+测试只证明canonical owner发布的公共行为或独立readback。`schema`、`profileId`、`version`、`revision`、`digest`、
+路径、状态、枚举、参数表和消息字面若可从同一structured authority确定性派生，测试必须消费该投影，禁止在fixture、
+断言和逐字段mutation表中再手写一份。版本号只在兼容性policy、迁移边界或Provider negotiation真实消费它时测试；
+把`2.0.0`改成`2.0.1`并期待失败不能证明任何独立业务不变量。类型、strict parser、closed-world registry或module
+compiler已经完整拒绝的非法状态，不再用运行时测试逐字段重演；需要验证的是唯一边界确实消费该机器结果。
+
+`AssertionDominance`以Claim、subject、counterexample/failure space、真实Effect/readback和applicability比较证明强度，
+不按测试名字或文本相似度评分。若测试B完整包含测试A的输入空间与observable，并且A没有独有的failure boundary、
+平台能力、Effect readback、资源竞争或诊断合同，则A被B支配：同层完全重复时删除，跨层仍有独立快速哨兵价值时把A
+收窄为消费同一projection的廉价contract，不复制fixture和断言。source字符串、AST/callee名称、Markdown布局、调用次数、
+sleep/wall-clock以及生产源码hash只能作为定位或独立tamper subject；它们不能冒充行为证明。
+
+production module不得export可被普通caller取得的`ForTests`/`testOnly` provider、credential、clock、Effect callback、
+lifecycle writer、cache reset或receipt issuer。测试控制面必须属于test-only package，并由module compiler拒绝
+production到test-only的依赖；需要在真实事务点注入race/crash时，由production owner签发bounded、single-use、
+不可伪造且不携带production authority的test actor。函数名、注释、structural TypeScript type或同形状对象不是origin gate。
+
+任何声称“全仓测试审计完成”的Evidence必须同时具备：全部tracked path的NUL-safe census和零未分类ledger；所有注册、
+参数化展开、alias注册和conditional skip的解析；canonical module/import/test-impact graph引用；assertion/fixture/failure-space
+fingerprint及dominance graph；production source中的手写事实镜像与test-only export census；source/prose/layout proof census；
+Effect、Provider、进程、网络、持久状态、墙钟和资源成本分类；以及每个不能确定分类的typed unknown。缺少任一维时，
+该审计只能是partial hint，禁止给出全量`KEEP/DELETE`结论。新反例暴露某维缺失时，必须立即invalid旧Evidence、修审计owner，
+再重新分类全部受影响测试，不能只修这一个样例。
+审计编译器、mirror scanner和Evidence JSON也受同一存在证明约束：没有真实retention/selection/deletion consumer、复制
+module/import parser或只能输出文本启发式时，它们是`orphan | duplicate-owner | diagnostic-hint`，不得因“用于治理”而保留。
+
 ## 不可违反的不变量
 
 - 未运行、缺失、skipped、超时、取消、平台不匹配、scope mismatch、stale、损坏或candidate self-proof都不是PASS。
@@ -337,6 +371,30 @@ source digest绑定policy与canonical matching subset，nonmatching provider noi
 provenance churn。完整raw response若需审计，必须由独立provider observation receipt owner签发，不能在
 MainHealth compiler里复制transport authority。
 
+local trusted receipt与hosted ledger是并列provider observation，不是先后覆盖的cache层。同一exact
+main/tree/trust出现语义冲突时，resolver只能消费canonical supersession operation：它把本地receipt的canonical
+payload、raw bytes digest、device/inode/size preimage、计算出的health revision以及完整hosted ledger绑定进不可变
+authorization。production owner从固定host token经REST `/user`和repository permission读回当前login/node与
+`maintain | admin`，只在当前进程保留opaque repository-bound capability；caller token/fetch/issuer JSON不能签发它。
+每次观察或reconciliation使用新的total-deadline与request/response/matching-workflow预算；deadline从credential
+acquisition开始并覆盖token subprocess、principal/permission enrollment与全部provider request，底层request缺少active
+exact session时必须拒绝，不能按请求重建预算。完整check页集及所消费workflow provenance必须stable reread。进程内
+capability只保护当前调用，不能成为跨进程credential；durable authority
+来自exact main上发布并完整读回的唯一commit status。本地self-digest record、caller JSON、文件ACL或知道creator公开
+identity不能伪造这个provider receipt。
+
+owner在exact receipt subject的唯一mutation lease内先CAS maximal predecessor并durable发布prepared intent；一次性write
+permit只在完整status history为零时允许至多一个POST，response丢失也不能重发。status读回后，owner必须在同一lease内
+再次观察hosted authority和本地preimage，才发布terminal content-addressed record并逐字读回。prepared已经取得status但
+hosted authority漂移时，旧intent/status必须发布为authenticated inactive terminal并作为下一operation predecessor，不能
+形成fork或永久死锁。该operation绝不删除本地receipt：GitHub provider没有跨本地文件系统的原子CAS，先删除再做hosted
+readback会在provider漂移或transport不可用时不可逆地丢失恢复源。resolver只在每次调用都重新观察到同一exact hosted
+authority、external authorization、live issuer permission、record文件名/digest和本地文件仍是record绑定的同一物理
+preimage时，才把本地provider逻辑投影为superseded并选择hosted；任一record冲突、复制/改名/duplicate/in-flight、外部
+替换、source absence、capability unavailable或hosted provenance漂移都保持locked。production `sec:main-health`
+publication v2最后先读回local receipt、Runtime State authority和clean exact live-main Git，再做最终完整hosted provider
+observation/decision并绑定supersession locator；任何local-only或final-hosted-before-local-readback success都不是终态。
+
 MainHealth的GitHub check/App投影与Linux物理计算不是同一authority。required workflow可在固定
 `self-hosted + Linux + X64 + sec-linux-verification-v1` capability profile上执行；runner必须由canonical lifecycle owner
 按exact release/base-image/Node archive/Python archive-inspection runtime/final image digest建立，operation结束即注销和删除。一个atomic
@@ -370,18 +428,16 @@ API目标相同的`owner/name`；start、status、stop和recovery都对完整rep
 预留最长role suffix，确保lease发布前最终instance name已满足100字符上限。任何额外eligible对象均分类为external
 maintainer mutation，保留lease且拒绝继续。因而Provider切换不会改写五份Workflow。Node/runner进入content-addressed image，
 同一final image ID不重复下载；cache miss才执行exact archive下载和digest校验，结果身份漂移即形成新provider
-revision。Playwright/Chromium是该profile可提供的条件子能力：现有test-impact owner把
-`project-base`、runtime dependency、runtime host等因果source映射到browser slow closure；selector在启动
-测试进程前一次性编译closure，未命中browser的变化立即标记not-applicable，不创建浏览器进程、不等待浏览器
-timeout，也不抢安装锁；命中时才按锁定Playwright revision读取或填充provider-independent browser cache。
+revision。SEC core 不拥有 Web runtime 或浏览器验证能力；未来独立可选界面的 browser closure、缓存和 Evidence
+由该界面的 package/repository owner 管理，不能进入 core 的 MainHealth、默认测试闭包或 runner image。
 operation closeout只注销并删除三个exact runner/container与remote lease，默认保留已验证final image和
 content-addressed cache。显式image retirement必须先证明零owned container和exact image ID，只删除已superseded的
 SEC revision；全局Docker prune、prefix/glob删除和其他工程对象永远不属于该lifecycle authority。
 
 ### Capability Delta选择图
 
-角色不是“只有三类可执行文件”：`control/trusted/sut`是进程与证据的信任域，Bun、Node、Git、Docker、
-Playwright/Chromium及测试二进制仍由各自tool/dependency closure精确绑定。一次candidate只编译一次
+角色不是“只有三类可执行文件”：`control/trusted/sut`是进程与证据的信任域，Bun、Node、Git、Docker及测试
+二进制仍由各自tool/dependency closure精确绑定。一次candidate只编译一次
 base→candidate delta，后续执行只取`RequiredClosure ∩ MissingOrStale`；已fresh PASS直接复用，fresh failure
 直接停止同一无效路径，not-applicable在启动Provider或等待锁之前立即形成typed skip。
 
@@ -394,7 +450,6 @@ SEC 的平台目标是一套平台无关的 Truth Kernel、Action/Result/Evidenc
 | semantic/control | 当前 Windows 主控制工作区，未来可迁移 | schema、selector、DAG、ledger、authority、pure contract | 同一 ActionKey 只执行、join 或 reuse 一次 |
 | windows-native | Windows x64 | NTFS/reparse、PowerShell、Windows process/native host | Linux/WSL不能替代 |
 | linux-native-runtime | Docker Linux x86_64 | Ubuntu toolchain、namespace、cgroup、Linux filesystem/process | WSL2只作Docker substrate，不另算一份Evidence |
-| web-runtime | impact选中的真实Chromium/Playwright provider | navigation/render/runtime acceptance | 非browser closure在selector内立即not-applicable，不安装browser |
 | darwin-native | 当前无provider | Darwin专属filesystem/process/runtime | 未命中Darwin owner时not-applicable；命中时typed unavailable，禁止Linux冒充PASS |
 
 因此“全平台”表示公共contract、identity、错误和provider conformance可移植；某次delta只消费其Requirement
@@ -414,20 +469,12 @@ flowchart LR
   role --> control["control coordinator and downstream join"]
   role --> trusted["trusted readback and assembly"]
   role --> sut["candidate SUT sandbox"]
-  sut --> browser{"Browser capability selected?"}
-  browser -->|"No"| nobrowser["No install, launch, timeout, or browser lock"]
-  browser -->|"Yes"| cache["Exact Playwright revision and browser cache"]
-  cache --> cached{"Exact cache present?"}
-  cached -->|"Yes"| run["Run browser acceptance"]
-  cached -->|"No"| install["Single locked install, digest and path readback"]
-  install --> run
 ```
 
 该图是local/remote provider共同消费的唯一选择语义。位置切换只改变provider lifecycle binding；delta、owner、
 role label、cache identity和skip receipt不变，因此不需要反复改Workflow或为remote另建一套测试定义。
 Linux capability只在provider/sandbox revision或对应owner发生变化、缓存Evidence缺失/过期时重证；普通业务delta
-不会重新校准Linux substrate。Playwright也只有browser closure命中且exact revision cache缺失时才下载，缓存命中
-直接复用；不存在“每次运行先等待安装再决定skip”的路径。
+不会重新校准Linux substrate。任何外部可选界面都必须在独立边界内选择自己的验证，core 不下载或启动浏览器。
 
 `sandbox-v5`保留并延续v4已冻结的CPU聚合边界：outer SUT cgroup固定2 CPU，unit wall bound固定3600秒且
 `--kill-child=KILL`关闭全部descendant，所以整棵进程树最多消费7200 CPU秒；同值`RLIMIT_CPU`只是冗余的
@@ -630,6 +677,13 @@ invocation，使failure receipt的`selectedTestFiles`精确等于失败文件，
 receipt只拥有diagnostic定位，`replayAuthority=none-diagnostic-only`；修复后必须重新编译当前delta的
 affected closure，并只把精确旧失败与修复新增影响合并。裸argv、旧receipt或Agent手选清单不能跳过
 新影响，也不能把局部authoring PASS升级为formal Evidence。
+
+test-impact中的**physical universe sentinel**与semantic TestOwnershipDeclaration严格分离：前者只把文件新增、删除、
+移动和跨boundary placement变化映射到独立sentinel evidence，不得向`selection.owners`注入语义owner，也不能创建module
+graph或第二ownership truth。对目录级universe规则，
+source不存在仍必须命中删除/迁移sentinel；移动owner时同一变更同时覆盖旧路径和新路径、tooling boundary、shared
+classification与TCB closure。TCB测试从真实dispatcher/source contract派生identity，不复制源码SHA、argv或正则镜像；
+否则实现和测试会一起陈旧并让选择器静默漏跑。
 
 开发循环只运行被当前编辑直接影响的owner-local sentinel；昂贵的Program、物理恢复、Linux或浏览器
 closure必须等candidate source、manifest和生成锁全部冻结后，编译成一个并行frozen union且只执行一次。

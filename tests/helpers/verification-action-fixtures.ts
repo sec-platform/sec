@@ -1,47 +1,25 @@
-import {
-  CodexDevelopmentFinalizeVerificationActionTerminalArtifactV2,
-  CodexDevelopmentVerificationActionCandidateBytesDigestV2,
-  CodexDevelopmentVerificationDigest,
-  type CodexDevelopmentVerificationActionTerminalArtifactV2
-} from '../../platform/shared/ci-evidence-contract.ts';
-import {
-  CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA_V1,
-  CodexDevelopmentCreateHostedSutExecutionAuthorizationV1,
-  CodexDevelopmentFinalizeHostedActionRawResultV2,
-  CodexDevelopmentReduceHostedSutObservationV1,
-  type CodexDevelopmentHostedSutSandboxReceiptV1
-} from '../../platform/shared/ci-hosted-sut-observation-contract.ts';
-import {
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1
-} from '../../platform/shared/ci-verification-revision.ts';
-import {
-  CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
-  type CiVerificationNormalizedOperationV2
-} from '../../platform/shared/verification-action-ci-contract.ts';
-import type {
-  VerificationActionKeyDigest,
-  VerificationActionPlanV2
-} from '../../platform/shared/verification-action-contract.ts';
-import type {
-  VerificationActionProviderOriginV2
-} from '../../platform/shared/verification-action-provider-contract.ts';
+import type { VerificationActionKeyDigest, VerificationActionPlan } from '../../src/verification/action/contract/action.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, type CiVerificationNormalizedOperation } from '../../src/verification/action/contract/ci.ts';
+import type { VerificationActionProviderOrigin } from '../../src/verification/action/contract/provider.ts';
+import { CodexDevelopmentFinalizeVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionTerminalArtifact } from '../../src/verification/ci/contract/evidence.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/verification/ci/contract/hosted-sut-observation.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/verification/ci/contract/revision.ts';
 
 function verificationFixtureDigest(value: unknown): VerificationActionKeyDigest {
   return CodexDevelopmentVerificationDigest(value) as VerificationActionKeyDigest;
 }
 
 export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Readonly<{
-  actionPlan: VerificationActionPlanV2;
-  normalizedOperation: CiVerificationNormalizedOperationV2;
+  actionPlan: VerificationActionPlan;
+  normalizedOperation: CiVerificationNormalizedOperation;
   baseSha: string;
   baseTreeSha: string;
   headSha: string;
   headTreeSha: string;
   manifestPath: string;
   manifestDigest: VerificationActionKeyDigest;
-  producer: VerificationActionProviderOriginV2;
-}>): CodexDevelopmentVerificationActionTerminalArtifactV2 {
+  producer: VerificationActionProviderOrigin;
+}>): CodexDevelopmentVerificationActionTerminalArtifact {
   const artifactInput = Object.freeze({
     baseSha: input.baseSha,
     baseTreeSha: input.baseTreeSha,
@@ -50,7 +28,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     manifestPath: input.manifestPath,
     manifestDigest: input.manifestDigest,
     inputClosureDigest: CodexDevelopmentVerificationDigest(input.actionPlan.action.inputClosure),
-    candidateBytesDigest: CodexDevelopmentVerificationActionCandidateBytesDigestV2({
+    candidateBytesDigest: CodexDevelopmentVerificationActionCandidateBytesDigest({
       baseSha: input.baseSha,
       baseTreeSha: input.baseTreeSha,
       headSha: input.headSha,
@@ -68,7 +46,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     dependencyClosureDigest: verificationFixtureDigest('unsupported-terminal-dependencies'),
     gitBundleDigest: verificationFixtureDigest('unsupported-terminal-git-closure')
   });
-  const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorizationV1({
+  const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
     resolutionDigest: verificationFixtureDigest('unsupported-terminal-resolution'),
     ticketDigest: verificationFixtureDigest('unsupported-terminal-ticket'),
     actionPlan: input.actionPlan,
@@ -83,8 +61,8 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
   const outputDigest = verificationFixtureDigest('unsupported-terminal-output');
   const residueDigest = verificationFixtureDigest('unsupported-terminal-residue');
   const receiptWithoutDigest = Object.freeze({
-    schema: CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA_V1,
-    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
+    schema: CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
+    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
     actionKey: input.actionPlan.action.actionKey,
     capability: Object.freeze({
       commandPlanDigest: authorization.physicalCommand.projectionDigest,
@@ -100,7 +78,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
       diagnostic: unsupportedDiagnostic
     }),
     commandPlanDigest: null,
-    resources: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits,
+    resources: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits,
     authenticatedArchive: Object.freeze({
       archiveDigest: inventoryClosure.archiveDigest,
       inventoryDigest: inventoryClosure.inventoryDigest,
@@ -110,14 +88,14 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
       totalFileBytes: inventoryClosure.totalFileBytes
     }),
     rootIsolation: Object.freeze({
-      substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.substrate,
-      namespaces: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.namespaces,
-      uid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid,
-      gid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid,
-      network: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.network,
-      inputMount: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.inputMount,
-      workspace: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.workspace,
-      outputTransport: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outputTransport,
+      substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.substrate,
+      namespaces: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.namespaces,
+      uid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedUid,
+      gid: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedGid,
+      network: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.network,
+      inputMount: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.inputMount,
+      workspace: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.workspace,
+      outputTransport: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outputTransport,
       candidateEnvironmentNames: Object.freeze([])
     }),
     execution: Object.freeze({
@@ -150,15 +128,15 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
   const sandboxReceipt = Object.freeze({
     ...receiptWithoutDigest,
     receiptDigest: verificationFixtureDigest(receiptWithoutDigest)
-  }) as CodexDevelopmentHostedSutSandboxReceiptV1;
-  const observation = CodexDevelopmentFinalizeHostedActionRawResultV2({
+  }) as CodexDevelopmentHostedSutSandboxReceipt;
+  const observation = CodexDevelopmentFinalizeHostedActionRawResult({
     executionAuthorizationDigest: authorization.authorizationDigest,
     command: null,
     sandboxReceipt,
     startedAt: '2026-08-09T00:00:00.000Z',
     finishedAt: '2026-08-09T00:00:01.000Z'
   });
-  const terminal = CodexDevelopmentReduceHostedSutObservationV1({
+  const terminal = CodexDevelopmentReduceHostedSutObservation({
     actionPlan: input.actionPlan,
     normalizedOperation: input.normalizedOperation,
     candidateSha: input.headSha,
@@ -169,12 +147,12 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     observation,
     expectedRawResultDigest: observation.rawResultDigest
   });
-  return CodexDevelopmentFinalizeVerificationActionTerminalArtifactV2({
+  return CodexDevelopmentFinalizeVerificationActionTerminalArtifact({
     actionPlan: input.actionPlan,
     normalizedOperation: input.normalizedOperation,
     result: terminal.result,
     cleanup: terminal.cleanup,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
+    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
     input: artifactInput,
     producer: input.producer,
     executionProof: terminal.proof

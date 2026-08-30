@@ -1,8 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile, PolicyReport, VerificationReport } from '../../platform/shared/types.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { expectWorkspaceVerifies, prepareAdaptedWorkspace } from '../testkit/workspace.ts';
 
 test('smoke: init -> resolve -> compose -> adapt -> verify --lane fast passes', async () => {

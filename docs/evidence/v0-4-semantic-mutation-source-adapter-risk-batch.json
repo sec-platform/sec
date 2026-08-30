@@ -12,7 +12,7 @@
   "changedPathDigestInput": "UTF-8 compact JSON of the 16 code-unit-sorted implementation paths",
   "argv": [
     "bun",
-    "scripts/ci-pr-risk.ts",
+    "src/verification/ci/pr-risk.ts",
     "--suite",
     "e2e-graph",
     "--suite",

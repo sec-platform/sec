@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { installOpaqueModules } from '../../platform/compiler/compose/install-opaque-modules.ts';
-import { pathExists, readJson, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+import { installOpaqueModules } from '../../src/compiler/compose/install-opaque-modules.ts';
+import { pathExists, readJson, writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('installOpaqueModules', () => {

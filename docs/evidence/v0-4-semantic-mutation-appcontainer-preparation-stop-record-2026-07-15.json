@@ -95,7 +95,7 @@
     "ownedPaths": [
       "platform/shared/windows-appcontainer-executor.ts",
       "platform/shared/windows-appcontainer-native-helper.ts",
-      "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "src/compiler/verify/run-semantic-mutation-isolated-child.ts",
       "tests/unit/windows-appcontainer-executor.test.ts",
       "tests/unit/semantic-mutation-isolated-child-fence.test.ts"
     ],

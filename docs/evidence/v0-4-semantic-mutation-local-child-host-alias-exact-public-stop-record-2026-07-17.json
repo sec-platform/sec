@@ -36,11 +36,11 @@
   },
   "testedWorkingTreeFiles": [
     {
-      "path": "platform/compiler/verify/run-runtime-verification.ts",
+      "path": "src/compiler/verify/run-runtime-verification.ts",
       "gitBlob": "7f60ea111666f442344c1ef0aad156b90d65a09d"
     },
     {
-      "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+      "path": "src/compiler/verify/run-semantic-mutation-isolated-child.ts",
       "gitBlob": "8e71dff9736813c6e13e8a1573e8fb9e2432a6ab"
     },
     {
@@ -137,37 +137,37 @@
     ],
     "codeEvidence": [
       {
-        "path": "platform/orchestrator/semantic-mutation-isolated-verification-runner.ts",
+        "path": "src/compiler/orchestration/semantic-mutation-isolated-verification-runner.ts",
         "line": 95,
         "fact": "The production isolated runner calls compileWorkspace with verificationLane all and has no timing suppression input."
       },
       {
-        "path": "platform/orchestrator/pipeline-orchestrator.ts",
+        "path": "src/compiler/orchestration/pipeline-orchestrator.ts",
         "line": 720,
         "fact": "The verify stage forwards only the lane and isolated capability."
       },
       {
-        "path": "platform/orchestrator/verify-orchestrator.ts",
+        "path": "src/compiler/orchestration/verify-orchestrator.ts",
         "line": 97,
         "fact": "An absent timing option remains undefined when verifyProject is called."
       },
       {
-        "path": "platform/compiler/verify/run-runtime-verification.ts",
+        "path": "src/compiler/verify/run-runtime-verification.ts",
         "line": 1525,
         "fact": "Runtime verification defaults emitTiming to true."
       },
       {
-        "path": "platform/compiler/verify/run-runtime-verification.ts",
+        "path": "src/compiler/verify/run-runtime-verification.ts",
         "line": 1495,
         "fact": "Each completed timed runtime phase logs an info record."
       },
       {
-        "path": "platform/shared/logger.ts",
+        "path": "src/system-architecture/foundation/logger.ts",
         "line": 37,
         "fact": "The default logger writes each info record to process stdout."
       },
       {
-        "path": "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
+        "path": "src/compiler/verify/run-semantic-mutation-isolated-child.ts",
         "line": 989,
         "fact": "The production supervisor rejects exit code 0 when stdout or stderr has any bytes."
       }

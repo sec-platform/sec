@@ -14,12 +14,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  executeMergedLocalBranchResidueCloseoutV1,
-  parseMergedPullRequestHeadsV1,
-  parseRepositoryProviderObservationV1,
-  planMergedLocalBranchResidueCloseoutV1
-} from '../../scripts/codex/branch-local-residue-closeout.ts';
-import { acquireBranchRecoveryStoreV1 } from '../../scripts/codex/branch-recovery.ts';
+  executeMergedLocalBranchResidueCloseout,
+  parseMergedPullRequestHeads,
+  parseRepositoryProviderObservation,
+  planMergedLocalBranchResidueCloseout
+} from '../../src/control/branch-lifecycle/branch-local-residue-closeout.ts';
+import { acquireBranchRecoveryStore } from '../../src/control/branch-lifecycle/branch-recovery.ts';
 
 const MAIN = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
@@ -149,7 +149,7 @@ function merged(branch = 'fix/example', headSha = HEAD) {
 }
 
 test('plans only exact merged local-only refs and protects worktree-owned branches', () => {
-  const plan = planMergedLocalBranchResidueCloseoutV1({
+  const plan = planMergedLocalBranchResidueCloseout({
     defaultBranch: 'main',
     localRefs: {
       main: MAIN,
@@ -186,7 +186,7 @@ test('prefixes never authorize a drifted PR, duplicate identity, or wrong base',
     [merged(), { ...merged(), number: 43, url: 'https://github.com/sec-platform/sec/pull/43' }],
     [{ ...merged(), baseBranch: 'release' }]
   ]) {
-    expect(planMergedLocalBranchResidueCloseoutV1({
+    expect(planMergedLocalBranchResidueCloseout({
       defaultBranch: 'main',
       localRefs: { main: MAIN, 'fix/example': HEAD },
       remoteRefs: { main: MAIN },
@@ -198,7 +198,7 @@ test('prefixes never authorize a drifted PR, duplicate identity, or wrong base',
 });
 
 test('parses canonical merged PR facts and rejects bounded-query saturation', () => {
-  expect(parseMergedPullRequestHeadsV1(JSON.stringify([{
+  expect(parseMergedPullRequestHeads(JSON.stringify([{
     number: 42,
     headRefName: 'fix/example',
     headRefOid: HEAD,
@@ -217,25 +217,25 @@ test('parses canonical merged PR facts and rejects bounded-query saturation', ()
     mergeCommit: { oid: MERGE },
     url: `https://github.com/sec-platform/sec/pull/${index + 1}`
   }));
-  expect(() => parseMergedPullRequestHeadsV1(
+  expect(() => parseMergedPullRequestHeads(
     JSON.stringify(saturated),
     'sec-platform/sec'
   )).toThrow(/bounded 1000-item limit/u);
 });
 
 test('binds repository provider identity and exact PR repository URLs', () => {
-  expect(parseRepositoryProviderObservationV1(JSON.stringify({
+  expect(parseRepositoryProviderObservation(JSON.stringify({
     nameWithOwner: 'sec-platform/sec',
     defaultBranchRef: { name: 'main' }
   }), 'sec-platform/sec')).toEqual({
     repository: 'sec-platform/sec',
     defaultBranch: 'main'
   });
-  expect(() => parseRepositoryProviderObservationV1(JSON.stringify({
+  expect(() => parseRepositoryProviderObservation(JSON.stringify({
     nameWithOwner: 'other/repository',
     defaultBranchRef: { name: 'main' }
   }), 'sec-platform/sec')).toThrow(/identity differs/u);
-  expect(() => parseMergedPullRequestHeadsV1(JSON.stringify([{
+  expect(() => parseMergedPullRequestHeads(JSON.stringify([{
     number: 42,
     headRefName: 'fix/example',
     headRefOid: HEAD,
@@ -250,7 +250,7 @@ test('resumes the same durable authorization after crashes before and after the 
   for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback'] as const) {
     const fixture = createEffectFixture(boundary);
     try {
-      await expect(executeMergedLocalBranchResidueCloseoutV1({
+      await expect(executeMergedLocalBranchResidueCloseout({
         repositoryRoot: fixture.repositoryRoot,
         recoveryRoot: fixture.recoveryRoot,
         run: fixture.run,
@@ -266,7 +266,7 @@ test('resumes the same durable authorization after crashes before and after the 
       expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example'))
         .toBe(boundary === 'afterAuthorization');
 
-      const result = await executeMergedLocalBranchResidueCloseoutV1({
+      const result = await executeMergedLocalBranchResidueCloseout({
         repositoryRoot: fixture.repositoryRoot,
         recoveryRoot: fixture.recoveryRoot,
         run: fixture.run,
@@ -306,7 +306,7 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
   const fixture = createEffectFixture('recovery-boundary');
   try {
     const commonDir = path.join(fixture.repositoryRoot, '.git');
-    expect(() => acquireBranchRecoveryStoreV1({
+    expect(() => acquireBranchRecoveryStore({
       repositoryRoot: fixture.repositoryRoot,
       commonDir,
       worktreeRoots: [fixture.repositoryRoot],
@@ -317,14 +317,14 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
     const alias = path.join(fixture.root, 'recovery-alias');
     mkdirSync(target);
     symlinkSync(target, alias, process.platform === 'win32' ? 'junction' : 'dir');
-    expect(() => acquireBranchRecoveryStoreV1({
+    expect(() => acquireBranchRecoveryStore({
       repositoryRoot: fixture.repositoryRoot,
       commonDir,
       worktreeRoots: [fixture.repositoryRoot],
       recoveryRoot: alias
     })).toThrow();
 
-    await expect(executeMergedLocalBranchResidueCloseoutV1({
+    await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
       run: fixture.run,
@@ -348,7 +348,7 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
 
   const parentFixture = createEffectFixture('recovery-parent-substitution');
   try {
-    await expect(executeMergedLocalBranchResidueCloseoutV1({
+    await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: parentFixture.repositoryRoot,
       recoveryRoot: parentFixture.recoveryRoot,
       run: parentFixture.run,
@@ -367,7 +367,7 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
 
   const restartedFixture = createEffectFixture('cross-process-substitution');
   try {
-    await expect(executeMergedLocalBranchResidueCloseoutV1({
+    await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: restartedFixture.repositoryRoot,
       recoveryRoot: restartedFixture.recoveryRoot,
       run: restartedFixture.run,
@@ -380,7 +380,7 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
     renameSync(restartedFixture.recoveryRoot, oldRecovery);
     cpSync(oldRepository, restartedFixture.repositoryRoot, { recursive: true });
     cpSync(oldRecovery, restartedFixture.recoveryRoot, { recursive: true });
-    await expect(executeMergedLocalBranchResidueCloseoutV1({
+    await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: restartedFixture.repositoryRoot,
       recoveryRoot: restartedFixture.recoveryRoot,
       run: restartedFixture.run,
@@ -393,7 +393,7 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
 
   const dynamicWorktreeFixture = createEffectFixture('dynamic-worktree-alias');
   try {
-    await expect(executeMergedLocalBranchResidueCloseoutV1({
+    await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: dynamicWorktreeFixture.repositoryRoot,
       recoveryRoot: dynamicWorktreeFixture.recoveryRoot,
       run: dynamicWorktreeFixture.run,

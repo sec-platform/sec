@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { runSettlement } from '../../tooling/sec-dev/workspace/worktree-settlement.ts';
+import { runSettlement } from '../../src/development/tooling/workspace/worktree-settlement.ts';
 
 function git(cwd: string, args: string[]): void {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
@@ -34,5 +34,20 @@ test('worktree settlement reads Git configuration from the requested repository 
     expect(receipt.status).toBe('settled');
   } finally {
     await fs.rm(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('worktree settlement preserves a typed authority block before any Git child', async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-settlement-missing-root-'));
+  const repositoryRoot = path.join(parent, 'missing');
+  try {
+    const receipt = await runSettlement(repositoryRoot);
+
+    expect(receipt.status).toBe('unsafe');
+    expect(receipt.totalFiles).toBe(0);
+    expect(receipt.summary).toContain('Git read authority was unavailable');
+    expect(receipt.summary).toMatch(/reason=git-executable-identity-unavailable/u);
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
   }
 });

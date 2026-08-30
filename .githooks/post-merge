@@ -3,4 +3,9 @@ set -eu
 
 export SEC_GIT_HOOK_ACTIVE=1
 
-bun ./platform/dev-runner.ts deps:ensure
+if [ -f ./package.json ]; then
+  bun run postinstall
+fi
+if [ -f ./package.json ]; then
+  bun run deps:ensure
+fi

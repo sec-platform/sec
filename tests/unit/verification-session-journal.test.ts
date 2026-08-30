@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
 import {
-  appendVerificationSessionJournalEventV1,
-  claimVerificationSessionOperationV1,
+  appendVerificationSessionJournalEvent,
+  claimVerificationSessionOperation,
   createVerificationSessionOperationId,
-  readVerificationSessionJournalV1,
+  readVerificationSessionJournal,
   type VerificationSessionJournalFileSystem
-} from '../../scripts/codex/verification-session-journal.ts';
+} from '../../src/verification/ci/runtime/verification-session-journal.ts';
 
 const SESSION = `sha256:${'a'.repeat(64)}` as const;
 const INPUT = `sha256:${'b'.repeat(64)}` as const;
@@ -50,7 +50,7 @@ function base() {
 
 test('session journal persists a monotonic fsync/CAS hash chain outside the repository tree', () => {
   const fs = new MemoryFs();
-  const frozen = appendVerificationSessionJournalEventV1({
+  const frozen = appendVerificationSessionJournalEvent({
     ...base(),
     targetStage: 'frozen',
     kind: 'completed',
@@ -58,7 +58,7 @@ test('session journal persists a monotonic fsync/CAS hash chain outside the repo
     recordedAt: at(1),
     fs
   });
-  const actions = appendVerificationSessionJournalEventV1({
+  const actions = appendVerificationSessionJournalEvent({
     ...base(),
     targetStage: 'actions-terminal',
     kind: 'completed',
@@ -67,12 +67,12 @@ test('session journal persists a monotonic fsync/CAS hash chain outside the repo
     fs
   });
   expect(actions.previousDigest).toBe(frozen.eventDigest);
-  const readback = readVerificationSessionJournalV1({ ...base(), fs });
+  const readback = readVerificationSessionJournal({ ...base(), fs });
   expect(readback).toMatchObject({ completedStage: 'actions-terminal', completedStageIndex: 1 });
   expect(readback.filePath.replaceAll('\\', '/'))
     .toContain('/state/sec/workspace/verification-sessions/v2/');
   expect(readback.filePath).not.toContain('R:/repo/.tmp');
-  expect(() => appendVerificationSessionJournalEventV1({
+  expect(() => appendVerificationSessionJournalEvent({
     ...base(),
     targetStage: 'hosted-verification-terminal',
     kind: 'completed',
@@ -83,21 +83,21 @@ test('session journal persists a monotonic fsync/CAS hash chain outside the repo
 
 test('waiting and failed observations do not advance the completed stage', () => {
   const fs = new MemoryFs();
-  appendVerificationSessionJournalEventV1({
+  appendVerificationSessionJournalEvent({
     ...base(),
     targetStage: 'frozen',
     kind: 'completed',
     recordedAt: at(1),
     fs
   });
-  appendVerificationSessionJournalEventV1({
+  appendVerificationSessionJournalEvent({
     ...base(),
     targetStage: 'actions-terminal',
     kind: 'waiting',
     recordedAt: at(2),
     fs
   });
-  expect(readVerificationSessionJournalV1({ ...base(), fs }))
+  expect(readVerificationSessionJournal({ ...base(), fs }))
     .toMatchObject({ completedStage: 'frozen', completedStageIndex: 0 });
 });
 
@@ -108,14 +108,14 @@ test('stable operation claim is immutable and prevents duplicate side effects', 
     operationKind: 'request-review',
     semanticInputDigest: INPUT
   });
-  const first = claimVerificationSessionOperationV1({
+  const first = claimVerificationSessionOperation({
     ...base(),
     operationId,
     operationKind: 'request-review',
     claimedAt: at(1),
     fs
   });
-  const second = claimVerificationSessionOperationV1({
+  const second = claimVerificationSessionOperation({
     ...base(),
     operationId,
     operationKind: 'request-review',
@@ -131,7 +131,7 @@ test('stable operation claim is immutable and prevents duplicate side effects', 
 test('concurrent journal append fails closed and corrupt tails are rejected', () => {
   const fs = new MemoryFs();
   fs.failNextCas = true;
-  expect(() => appendVerificationSessionJournalEventV1({
+  expect(() => appendVerificationSessionJournalEvent({
     ...base(),
     targetStage: 'frozen',
     kind: 'completed',
@@ -140,7 +140,7 @@ test('concurrent journal append fails closed and corrupt tails are rejected', ()
   })).toThrow('changed concurrently');
 
   fs.files.clear();
-  appendVerificationSessionJournalEventV1({
+  appendVerificationSessionJournalEvent({
     ...base(),
     targetStage: 'frozen',
     kind: 'completed',
@@ -149,6 +149,6 @@ test('concurrent journal append fails closed and corrupt tails are rejected', ()
   });
   const journal = [...fs.files.keys()].find((filePath) => filePath.endsWith('journal.jsonl'))!;
   fs.files.set(journal, `${fs.files.get(journal)!}{"partial":true}`);
-  expect(() => readVerificationSessionJournalV1({ ...base(), fs }))
+  expect(() => readVerificationSessionJournal({ ...base(), fs }))
     .toThrow('partial final line');
 });

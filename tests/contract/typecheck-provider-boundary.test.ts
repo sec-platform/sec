@@ -3,63 +3,142 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { resolveTypecheckBuildInfoPathV1 } from '../../platform/dev-runner/typecheck-runner.ts';
 import {
-  resolveInstalledTypecheckProviderV1,
-  typecheckProviderArguments,
-  typecheckProviderExecutionArguments
-} from '../../platform/toolchain/typecheck-provider.ts';
+  resolveTypecheckBuildInfoPath,
+  runTypecheckWithProvider
+} from '../../src/development/runner/typecheck-runner.ts';
+import { canonicalTypeScriptDiagnosticArguments, resolveInstalledTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/toolchain/typescript/checker.ts';
 
-test('installed TypeCheck Provider revision comes from the actual package manifest', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-typecheck-provider-'));
+const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
+const PROJECT_CONFIG_DIGEST = `sha256:${'b'.repeat(64)}` as const;
+const FIXTURE_PROVIDER_VERSION = '37.11.5';
+
+function currentNativePackageName(): `@typescript/typescript-${string}` {
+  const suffix = `${process.platform}-${process.arch}`;
+  if (!['win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'].includes(suffix)) {
+    throw new Error(`Test host has no admitted native TypeScript package: ${suffix}`);
+  }
+  return `@typescript/typescript-${suffix}`;
+}
+
+async function writeNativeCheckerFixture(
+  root: string,
+  input: Readonly<{
+    version?: string;
+    nativeVersion?: string;
+    wrapperBytes?: string;
+    executableBytes?: string;
+  }> = {}
+): Promise<string> {
+  const version = input.version ?? FIXTURE_PROVIDER_VERSION;
+  const nativeVersion = input.nativeVersion ?? version;
+  const nativePackageName = currentNativePackageName();
+  const nodeModulesPath = path.join(root, 'node_modules');
+  const aliasRoot = path.join(nodeModulesPath, '@typescript', 'native');
+  const nativeRoot = path.join(nodeModulesPath, ...nativePackageName.split('/'));
+  const executable = process.platform === 'win32' ? 'tsc.exe' : 'tsc';
+  await Promise.all([
+    fs.mkdir(path.join(aliasRoot, 'bin'), { recursive: true }),
+    fs.mkdir(path.join(nativeRoot, 'lib'), { recursive: true })
+  ]);
+  await Promise.all([
+    fs.writeFile(path.join(aliasRoot, 'package.json'), JSON.stringify({
+      name: 'typescript',
+      version,
+      bin: { tsc: './bin/tsc' },
+      optionalDependencies: { [nativePackageName]: version }
+    })),
+    fs.writeFile(path.join(aliasRoot, 'bin', 'tsc'), input.wrapperBytes ?? 'native-wrapper'),
+    fs.writeFile(path.join(nativeRoot, 'package.json'), JSON.stringify({
+      name: nativePackageName,
+      version: nativeVersion
+    })),
+    fs.writeFile(path.join(nativeRoot, 'lib', executable), input.executableBytes ?? 'native-executable')
+  ]);
+  return nodeModulesPath;
+}
+
+test('native TypeScript checker identity comes from the selected installation bytes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-'));
   try {
-    const nodeModulesPath = path.join(root, 'node_modules');
-    const packageRoot = path.join(nodeModulesPath, 'typescript');
-    await fs.mkdir(packageRoot, { recursive: true });
-    await fs.writeFile(
-      path.join(packageRoot, 'package.json'),
-      `${JSON.stringify({ name: 'typescript', version: '6.0.3', bin: { tsc: './bin/tsc' } })}\n`,
-      'utf8'
-    );
-
-    const provider = await resolveInstalledTypecheckProviderV1(nodeModulesPath);
-    expect(provider.providerRevision).toBe('typescript@6.0.3');
-    expect(provider.cliEntryRelativePath).toBe('bin/tsc');
-    expect(typecheckProviderArguments(provider)).toEqual(['--noEmit', '-p', 'tsconfig.json']);
-    const buildInfoFile = resolveTypecheckBuildInfoPathV1({
-      provider,
-      compilerRootPath: path.join(root, 'compiler'),
-      cacheRoot: path.join(root, 'cache')
-    });
-    expect(buildInfoFile).toMatch(/[\\/]cache[\\/][0-9a-f]{64}[\\/]tsconfig\.tsbuildinfo$/u);
-    expect(typecheckProviderExecutionArguments(provider, buildInfoFile)).toEqual([
-      '--noEmit', '-p', 'tsconfig.json', '--incremental', '--tsBuildInfoFile', buildInfoFile
-    ]);
-    expect(() => typecheckProviderArguments(provider, ['--tsBuildInfoFile', buildInfoFile]))
-      .toThrow('provider-owned');
+    const nodeModulesPath = await writeNativeCheckerFixture(root);
+    const checker = await resolveInstalledTypeScriptNativeChecker(nodeModulesPath);
+    expect(checker.provider.packageAlias).toBe('@typescript/native');
+    expect(checker.provider.providerRevision).toBe(`typescript@${FIXTURE_PROVIDER_VERSION}`);
+    expect(checker.provider.wrapperDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(checker.provider.platformNativeExecutableDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(checker.provider.toolchainBindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
-test('TypeCheck build-info is deterministic derived cache outside the compiler tree', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-typecheck-cache-boundary-'));
+test('native checker selection fails closed without falling back to the programmatic API', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-unavailable-'));
+  try {
+    expect(await selectInstalledTypeScriptNativeChecker(path.join(root, 'node_modules')))
+      .toMatchObject({ status: 'unavailable', reason: 'package-not-installed' });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('native checker rejects an alias and platform package from different revisions', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-mismatch-'));
+  try {
+    const nodeModulesPath = await writeNativeCheckerFixture(root, { nativeVersion: '37.11.6' });
+    expect(await selectInstalledTypeScriptNativeChecker(nodeModulesPath))
+      .toMatchObject({ status: 'mismatch', reason: 'provider-version-mismatch' });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('native checker preserves unverified artifact failures as a terminal selection result', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-unverified-'));
+  try {
+    const nodeModulesPath = await writeNativeCheckerFixture(root);
+    const wrapperPath = path.join(nodeModulesPath, '@typescript', 'native', 'bin', 'tsc');
+    await fs.rm(wrapperPath);
+    await fs.mkdir(wrapperPath);
+    expect(await selectInstalledTypeScriptNativeChecker(nodeModulesPath))
+      .toMatchObject({ status: 'unverified', reason: 'artifact-unreadable' });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('incremental cache identity changes with configuration, dependency generation, or provider bytes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-cache-'));
   try {
     const compilerRootPath = path.join(root, 'compiler');
-    const packageRoot = path.join(compilerRootPath, 'node_modules', 'typescript');
-    await fs.mkdir(packageRoot, { recursive: true });
-    await fs.writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({
-      name: 'typescript', version: '6.0.3', bin: { tsc: './bin/tsc' }
-    }));
-    const provider = await resolveInstalledTypecheckProviderV1(path.join(compilerRootPath, 'node_modules'));
-    const cacheRoot = path.join(root, 'external-cache');
-    const first = resolveTypecheckBuildInfoPathV1({ provider, compilerRootPath, cacheRoot });
-    const second = resolveTypecheckBuildInfoPathV1({ provider, compilerRootPath, cacheRoot });
-    expect(second).toBe(first);
-    expect(first.startsWith(`${path.resolve(cacheRoot)}${path.sep}`)).toBe(true);
-    expect(() => resolveTypecheckBuildInfoPathV1({
-      provider,
+    const nodeModulesPath = await writeNativeCheckerFixture(compilerRootPath);
+    const firstProvider = (await resolveInstalledTypeScriptNativeChecker(nodeModulesPath)).provider;
+    const cacheRoot = path.join(root, 'cache');
+    const identity = {
+      provider: firstProvider,
+      dependencyManifestHash: 'compiler-manifest-a',
+      dependencyTransitionDigest: DEPENDENCY_TRANSITION_DIGEST,
+      projectConfigDigest: PROJECT_CONFIG_DIGEST,
       compilerRootPath,
+      cacheRoot
+    } as const;
+    const first = resolveTypecheckBuildInfoPath(identity);
+    expect(resolveTypecheckBuildInfoPath(identity)).toBe(first);
+    expect(resolveTypecheckBuildInfoPath({
+      ...identity,
+      projectConfigDigest: `sha256:${'c'.repeat(64)}`
+    })).not.toBe(first);
+    expect(resolveTypecheckBuildInfoPath({
+      ...identity,
+      dependencyTransitionDigest: `sha256:${'d'.repeat(64)}`
+    })).not.toBe(first);
+
+    await fs.writeFile(path.join(nodeModulesPath, '@typescript', 'native', 'bin', 'tsc'), 'changed-wrapper');
+    const changedProvider = (await resolveInstalledTypeScriptNativeChecker(nodeModulesPath)).provider;
+    expect(resolveTypecheckBuildInfoPath({ ...identity, provider: changedProvider })).not.toBe(first);
+    expect(() => resolveTypecheckBuildInfoPath({
+      ...identity,
       cacheRoot: path.join(compilerRootPath, '.tmp')
     })).toThrow('outside the compiler tree');
   } finally {
@@ -67,76 +146,42 @@ test('TypeCheck build-info is deterministic derived cache outside the compiler t
   }
 });
 
-test('TypeCheck Provider permits diagnostics but callers cannot override project or checking semantics', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-typecheck-provider-args-'));
+test('checker diagnostic arguments are canonical and cannot override checking semantics', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-args-'));
   try {
-    const nodeModulesPath = path.join(root, 'node_modules');
-    const packageRoot = path.join(nodeModulesPath, 'typescript');
-    await fs.mkdir(packageRoot, { recursive: true });
-    await fs.writeFile(
-      path.join(packageRoot, 'package.json'),
-      `${JSON.stringify({ name: 'typescript', version: '6.0.3', bin: { tsc: './bin/tsc' } })}\n`,
-      'utf8'
-    );
-    const provider = await resolveInstalledTypecheckProviderV1(nodeModulesPath);
-
-    expect(typecheckProviderArguments(provider, [
-      '--pretty', 'false', '--extendedDiagnostics', '--locale', 'en'
-    ])).toEqual([
-      '--noEmit', '-p', 'tsconfig.json',
-      '--pretty', 'false', '--extendedDiagnostics', '--locale', 'en'
+    const provider = (await resolveInstalledTypeScriptNativeChecker(
+      await writeNativeCheckerFixture(root)
+    )).provider;
+    expect(canonicalTypeScriptDiagnosticArguments([
+      '--traceResolution', '--pretty', 'false', '--locale', 'en'
+    ])).toEqual(['--locale', 'en', '--pretty', 'false', '--traceResolution']);
+    const buildInfoFile = path.join(root, 'cache', 'tsconfig.tsbuildinfo');
+    expect(typeScriptCheckerArguments(provider, buildInfoFile)).toEqual([
+      '--noEmit', '-p', 'tsconfig.json', '--incremental', '--tsBuildInfoFile', path.resolve(buildInfoFile)
     ]);
-
     for (const args of [
-      ['-p', 'other.json'],
-      ['--project', 'other.json'],
-      ['--noEmit'],
-      ['--build'],
-      ['--watch'],
-      ['--incremental'],
-      ['--emitDeclarationOnly'],
-      ['--listFilesOnly'],
-      ['src/file.ts']
+      ['-p', 'other.json'], ['--project', 'other.json'], ['--noEmit'], ['--build'],
+      ['--watch'], ['--incremental'], ['--tsBuildInfoFile', buildInfoFile], ['src/file.ts']
     ]) {
-      expect(() => typecheckProviderArguments(provider, args)).toThrow('provider-owned');
+      expect(() => canonicalTypeScriptDiagnosticArguments(args)).toThrow('provider-owned');
     }
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
-test('TypeCheck Provider fails closed on package identity or revision ambiguity', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-typecheck-provider-invalid-'));
+test('unsupported checker arguments fail before cache or process effects', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-pre-effect-'));
   try {
-    const nodeModulesPath = path.join(root, 'node_modules');
-    const packageRoot = path.join(nodeModulesPath, 'typescript');
-    await fs.mkdir(packageRoot, { recursive: true });
-
-    await fs.writeFile(
-      path.join(packageRoot, 'package.json'),
-      `${JSON.stringify({ name: '@typescript/typescript6', version: '6.0.3' })}\n`,
-      'utf8'
-    );
-    await expect(resolveInstalledTypecheckProviderV1(nodeModulesPath))
-      .rejects.toThrow('TypeCheck Provider package identity mismatch');
-
-    await fs.writeFile(
-      path.join(packageRoot, 'package.json'),
-      `${JSON.stringify({
-        name: 'typescript', version: 'workspace:*', bin: { tsc: './bin/tsc' }
-      })}\n`,
-      'utf8'
-    );
-    await expect(resolveInstalledTypecheckProviderV1(nodeModulesPath))
-      .rejects.toThrow('exact semantic version');
-
-    await fs.writeFile(
-      path.join(packageRoot, 'package.json'),
-      `${JSON.stringify({ name: 'typescript', version: '6.0.3', bin: { tsc: './bin/other' } })}\n`,
-      'utf8'
-    );
-    await expect(resolveInstalledTypecheckProviderV1(nodeModulesPath))
-      .rejects.toThrow('canonical tsc CLI entry');
+    const nodeModulesPath = await writeNativeCheckerFixture(root);
+    const installed = await resolveInstalledTypeScriptNativeChecker(nodeModulesPath);
+    await expect(runTypecheckWithProvider({
+      nodeModulesPath,
+      manifestHash: 'fixture-manifest',
+      requiresFreshProcess: false,
+      source: 'existing',
+      transitionDigest: DEPENDENCY_TRANSITION_DIGEST,
+    }, installed, ['--project', 'other.json'])).rejects.toThrow('provider-owned');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
-import { formatOutputFiles } from '../../platform/compiler/compose/format-output-files.ts';
-import { pathExists, readText, writeText } from '../../platform/shared/fs.ts';
+import { formatOutputFiles } from '../../src/compiler/compose/format-output-files.ts';
+import { pathExists, readText, writeText } from '../../src/workspace/files.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('formatOutputFiles', () => {

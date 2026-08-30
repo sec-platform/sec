@@ -1,11 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type {
-  ExplainGraph,
-  RepairPlan
-} from '../../platform/shared/types.ts';
+import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
+import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import {
   writeFailedFastUnitVerification,
   writePassingVerificationState
@@ -59,12 +57,6 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
         forbiddenOperationCount: 4,
         testCount: 2,
         failureTargetCount: 0,
-        sourceSlotStatus: 'filled',
-        sourceWritableZones: ['source/code/slots/customer_normalizer.ts', 'custom/'],
-        sourceProvenanceHints: {
-          generator: 'mock-local-synthesizer',
-          verifiedBy: []
-        },
         writeBounds: ['source/code/slots/customer_normalizer.ts'],
         requiredSymbols: ['normalizeCustomerInput'],
         forbiddenOperations: [

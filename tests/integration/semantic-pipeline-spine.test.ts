@@ -1,20 +1,20 @@
 import { expect, test } from 'bun:test';
 
+import { readLockFile, saveLock } from '../../src/compiler/lock.ts';
 import {
   addBlock,
   compileWorkspace,
   initWorkspace
-} from '../../platform/orchestrator.ts';
-import { readLockFile, saveLock } from '../../platform/shared/lock-utils.ts';
+} from '../../src/compiler/orchestration/cli.ts';
 import {
   readPipelineJournal,
   REFERENCE_PIPELINE_TRANSACTION_ID
-} from '../../platform/shared/pipeline-journal.ts';
+} from '../../src/compiler/pipeline/journal.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('Ticket canonical compile binds one validated semantic snapshot to each transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     await addBlock(workspaceRoot, 'ticket/basic');
 
     const first = await compileWorkspace(workspaceRoot, {
@@ -106,7 +106,7 @@ test('Ticket canonical compile binds one validated semantic snapshot to each tra
 
 test('reference recompilation keeps a stable binding to its current named transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     await addBlock(workspaceRoot, 'ticket/basic');
 
     const first = await compileWorkspace(workspaceRoot, {
@@ -139,7 +139,7 @@ test('reference recompilation keeps a stable binding to its current named transa
 
 test('Semantic Frontend failure blocks mutating passes and a new transaction can retry safely', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     await addBlock(workspaceRoot, 'ticket/basic');
     await compileWorkspace(workspaceRoot, {
       source: 'ci',

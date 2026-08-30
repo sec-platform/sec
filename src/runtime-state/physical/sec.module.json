@@ -1,0 +1,18 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "process.native",
+      "operations": [
+        "runCommand",
+        "runCommandBytes",
+        "runCommandWithRetry",
+        "runObservedCommand",
+        "runRetainedCommand",
+        "runRetainedCommandBytes",
+        "resolveExecutableLocator"
+      ]
+    }
+  ]
+}

@@ -3,8 +3,8 @@ import { expect, test } from 'bun:test';
 import {
   buildMinimalWorkspacePlan,
   buildWorkspaceCreatePlan
-} from '../../platform/orchestrator/workspace-create-template.ts';
-import { buildReferenceWorkspacePlan } from '../../platform/reference/reference-workspace-template.ts';
+} from '../../src/compiler/orchestration/workspace-create-template.ts';
+import { buildReferenceWorkspacePlan } from '../../src/reference/reference-workspace-template.ts';
 
 test('ordinary workspace creation defaults to business-neutral minimal Plan data', () => {
   const minimal = buildMinimalWorkspacePlan();

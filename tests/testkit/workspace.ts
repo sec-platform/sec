@@ -1,4 +1,5 @@
 import { afterAll, expect } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 import type { BigIntStats, Dirent } from 'node:fs';
 import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -6,17 +7,17 @@ import { availableParallelism } from 'node:os';
 import path from 'node:path';
 
 import {
-  getTestWorkspaceTemplateRoot,
-  getTestWorkspaceTempRoot
-} from '../../platform/dev-runner/env-manager.ts';
-import {
   addBlock,
   compileWorkspace,
   initWorkspace,
   verifyWorkspace
-} from '../../platform/orchestrator.ts';
-import { createConcurrencyLimit } from '../../platform/shared/concurrency.ts';
-import type { PipelineStageId } from '../../platform/shared/pipeline-types.ts';
+} from '../../src/compiler/orchestration/cli.ts';
+import type { PipelineStageId } from '../../src/compiler/pipeline/types.ts';
+import {
+  getTestWorkspaceTemplateRoot,
+  getTestWorkspaceTempRoot
+} from '../../src/development/runner/env-manager.ts';
+import { createConcurrencyLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
 import {
   createWorkspaceWithDeferredCleanup,
   removeWorkspaceDirectoryWithRetry,
@@ -24,8 +25,7 @@ import {
 } from './workspace-cleanup.ts';
 
 const workspaceParent = getTestWorkspaceTempRoot();
-const templateParent = getTestWorkspaceTemplateRoot();
-const templateCacheVersion = 'v5-typescript-incremental-pruning';
+const templateParent = path.join(getTestWorkspaceTemplateRoot(), `run-${process.pid}-${randomUUID()}`);
 const deferredCleanupDirs = new Set<string>();
 const deferredCleanupConcurrency = createConcurrencyLimit(Math.min(availableParallelism(), 16));
 
@@ -54,6 +54,7 @@ afterAll(async () => {
       deferredCleanupConcurrency(() => removeWorkspaceDirectory(directory))
     )
   );
+  await fs.rm(templateParent, { recursive: true, force: true });
 }, 120000);
 
 function sleepMs(delayMs: number): Promise<void> {
@@ -147,7 +148,7 @@ async function prepareWorkspacePipeline(
   options: WorkspacePipelineFixtureOptions,
   target: WorkspaceTemplateKind
 ): Promise<void> {
-  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
+  await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   const pipelineTarget = templatePipelineTarget(target);
   if (!pipelineTarget) return;
 
@@ -210,7 +211,7 @@ async function assertTemplateComplete(templateRoot: string, kind: WorkspaceTempl
 }
 
 function templateReadyMarker(kind: WorkspaceTemplateKind): string {
-  return `${kind}\n${templateCacheVersion}\n`;
+  return `${kind}\n`;
 }
 
 async function templateIsReady(kind: WorkspaceTemplateKind, markerPath: string): Promise<boolean> {
@@ -226,10 +227,8 @@ async function pruneTransientWorkspaceState(workspaceRoot: string): Promise<void
   await Promise.all([
     fs.rm(path.join(workspaceRoot, 'node_modules'), { recursive: true, force: true }),
     fs.rm(path.join(workspaceRoot, 'project', 'node_modules'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', '.next'), { recursive: true, force: true }),
     fs.rm(path.join(workspaceRoot, 'project', 'tsconfig.tsbuildinfo'), { recursive: true, force: true }),
     fs.rm(path.join(workspaceRoot, 'project', 'test-results'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', 'playwright-report'), { recursive: true, force: true }),
     fs.rm(path.join(workspaceRoot, 'project', 'coverage'), { recursive: true, force: true })
   ]);
 }
@@ -514,9 +513,9 @@ export async function cloneWorkspaceTemplate(
 ): Promise<string> {
   const templateRoot = await ensureTemplate(kind);
   const workspaceRoot = await createWorkspace(prefix);
-  // Template is immutable after ensureTemplate returns: templateCacheVersion
-  // is a hardcoded constant, so the .template-ready marker never becomes
-  // stale within a single run, and createTemplate uses staging + atomic rename.
+  // The template is run-owned and immutable after ensureTemplate returns;
+  // createTemplate uses staging plus atomic rename, while afterAll retires the
+  // entire run directory. No cross-run cache identity or manual version exists.
   // Concurrent independent copies from the read-only template to distinct targets are safe
   // and do not need the creation lock — holding it here serialized all clones
   // of the same kind, defeating --concurrent --max-concurrency.

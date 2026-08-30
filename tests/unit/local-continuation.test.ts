@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
 import {
-  admitLocalContinuationV1,
-  createLocalContinuationCheckpointV1,
-  parseLocalContinuationCheckpointV1,
-  type LocalContinuationObservationV1
-} from '../../platform/shared/local-continuation-checkpoint.ts';
-import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
+  admitLocalContinuation,
+  createLocalContinuationCheckpoint,
+  parseLocalContinuationCheckpoint,
+  type LocalContinuationObservation
+} from '../../src/control/continuation/checkpoint.ts';
+import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
 
 const BASE = '1'.repeat(40);
 const BASE_TREE = '2'.repeat(40);
@@ -15,7 +15,7 @@ const HEAD_TREE = '4'.repeat(40);
 const MANIFEST = `sha256:${'a'.repeat(64)}` as const;
 
 function checkpoint() {
-  return createLocalContinuationCheckpointV1({
+  return createLocalContinuationCheckpoint({
     repository: 'sec-platform/sec',
     prNumber: 496,
     branch: 'integration/sec-static-convergence-20260818',
@@ -27,7 +27,7 @@ function checkpoint() {
   });
 }
 
-function observation(): LocalContinuationObservationV1 {
+function observation(): LocalContinuationObservation {
   return Object.freeze({
     repositoryRoot: '/repo',
     branch: 'integration/sec-static-convergence-20260818',
@@ -54,8 +54,8 @@ test('checkpoint carries only irreducible remote/frozen facts and admission deri
     'baseSha', 'baseTreeSha', 'branch', 'checkpointDigest', 'headSha', 'headTreeSha',
     'manifestPath', 'prNumber', 'repository', 'schema'
   ]);
-  expect(parseLocalContinuationCheckpointV1(encodeVerificationActionDataV2(frozen))).toEqual(frozen);
-  const admitted = admitLocalContinuationV1({ checkpoint: frozen, observation: observation() });
+  expect(parseLocalContinuationCheckpoint(encodeVerificationActionData(frozen))).toEqual(frozen);
+  const admitted = admitLocalContinuation({ checkpoint: frozen, observation: observation() });
   expect(admitted).toMatchObject({
     status: 'admitted',
     authority: 'context-compression-only',
@@ -81,12 +81,12 @@ test('checkpoint carries only irreducible remote/frozen facts and admission deri
 
 test('checkpoint tamper and local identity/scope admission drift fail closed', () => {
   const frozen = checkpoint();
-  const serialized = JSON.parse(encodeVerificationActionDataV2(frozen)) as Record<string, unknown>;
+  const serialized = JSON.parse(encodeVerificationActionData(frozen)) as Record<string, unknown>;
   serialized.headSha = '5'.repeat(40);
-  expect(() => parseLocalContinuationCheckpointV1(JSON.stringify(serialized)))
+  expect(() => parseLocalContinuationCheckpoint(JSON.stringify(serialized)))
     .toThrow('checkpoint digest mismatch');
 
-  const driftCases: Array<Partial<LocalContinuationObservationV1>> = [
+  const driftCases: Array<Partial<LocalContinuationObservation>> = [
     { branch: 'other' },
     { headSha: '5'.repeat(40) },
     { headTreeSha: '6'.repeat(40) },
@@ -98,7 +98,7 @@ test('checkpoint tamper and local identity/scope admission drift fail closed', (
     { changedPathCount: 0 }
   ];
   for (const patch of driftCases) {
-    expect(() => admitLocalContinuationV1({
+    expect(() => admitLocalContinuation({
       checkpoint: frozen,
       observation: Object.freeze({ ...observation(), ...patch })
     })).toThrow();
@@ -107,13 +107,13 @@ test('checkpoint tamper and local identity/scope admission drift fail closed', (
 
 test('checkpoint rejects invalid branch names and inactive same-base head', () => {
   for (const invalidBranch of ['@', '.hidden', 'refs//double', 'topic.lock', 'topic@{x}', 'topic..x']) {
-    expect(() => createLocalContinuationCheckpointV1({
+    expect(() => createLocalContinuationCheckpoint({
       ...checkpoint(),
       branch: invalidBranch,
       checkpointDigest: undefined
     } as never)).toThrow('branch');
   }
-  expect(() => createLocalContinuationCheckpointV1({
+  expect(() => createLocalContinuationCheckpoint({
     ...checkpoint(),
     headSha: BASE,
     checkpointDigest: undefined
@@ -121,11 +121,11 @@ test('checkpoint rejects invalid branch names and inactive same-base head', () =
 });
 
 test('admission requires one-parent child of the frozen base', () => {
-  expect(() => admitLocalContinuationV1({
+  expect(() => admitLocalContinuation({
     checkpoint: checkpoint(),
     observation: Object.freeze({ ...observation(), parentShas: Object.freeze([BASE, '9'.repeat(40)]) })
   })).toThrow('one-parent child');
-  expect(() => admitLocalContinuationV1({
+  expect(() => admitLocalContinuation({
     checkpoint: checkpoint(),
     observation: Object.freeze({ ...observation(), parentShas: Object.freeze(['9'.repeat(40)]) })
   })).toThrow('one-parent child');

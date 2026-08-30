@@ -1,29 +1,33 @@
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import {
-  createSecAgentOperationActivationPreparationV1,
-  createSecAgentOperationActivationProviderV1,
-  createSecAgentOperationActivationPublicationV1,
-  createSecAgentOperationActivationReceiptV1,
-  createSecAgentOperationActivationRequestV1,
-  parseSecAgentOperationActivationPreparationV1,
-  parseSecAgentOperationActivationPublicationCommentV1,
-  parseSecAgentOperationActivationReceiptV1,
-  renderSecAgentOperationActivationPublicationCommentV1,
-  secAgentOperationActivationArtifactNameV1,
-  secAgentOperationActivationOperationIdV1,
-  type SecAgentOperationActivationPreparationInputV1,
-  type SecAgentOperationActivationProviderV1,
-  type SecAgentOperationActivationRequestV1
-} from '../../platform/shared/agent-operation-activation-contract.ts';
+  assertAgentOperationActivationWorkPackageCensus
+} from '../../src/control/agent/agent-operation-activation-census.ts';
 import {
-  assertAgentOperationActivationWorkPackageCensusV1
-} from '../../scripts/codex/agent-operation-activation-census.ts';
+  createSecAgentOperationActivationPreparation,
+  createSecAgentOperationActivationProvider,
+  createSecAgentOperationActivationPublication,
+  createSecAgentOperationActivationReceipt,
+  createSecAgentOperationActivationRequest,
+  parseSecAgentOperationActivationPreparation,
+  parseSecAgentOperationActivationPublicationComment,
+  parseSecAgentOperationActivationReceipt,
+  renderSecAgentOperationActivationPublicationComment,
+  secAgentOperationActivationArtifactName,
+  secAgentOperationActivationOperationId,
+  type SecAgentOperationActivationPreparationInput,
+  type SecAgentOperationActivationProvider,
+  type SecAgentOperationActivationRequest
+} from '../../src/control/agent/operation-activation.ts';
 
 const sha = (character: string): string => character.repeat(40);
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
-function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActivationProviderV1 {
-  return createSecAgentOperationActivationProviderV1({
+function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActivationProvider {
+  return createSecAgentOperationActivationProvider({
     repositoryId: '123',
     workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${workflowSha}`,
@@ -40,8 +44,8 @@ function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActiv
   });
 }
 
-function prepareRequest(): SecAgentOperationActivationRequestV1 {
-  return createSecAgentOperationActivationRequestV1({
+function prepareRequest(): SecAgentOperationActivationRequest {
+  return createSecAgentOperationActivationRequest({
     phase: 'prepare',
     pullRequestNumber: 400,
     expectedBaseSha: sha('a'),
@@ -52,7 +56,7 @@ function prepareRequest(): SecAgentOperationActivationRequestV1 {
   });
 }
 
-function preparationInput(): SecAgentOperationActivationPreparationInputV1 {
+function preparationInput(): SecAgentOperationActivationPreparationInput {
   const request = prepareRequest();
   return {
     request,
@@ -80,7 +84,7 @@ function preparationInput(): SecAgentOperationActivationPreparationInputV1 {
       'docs/work/active-work-package.md',
       'docs/work/rolling-plan.md',
       'docs/work-packages/delegation-consumer-zero-retirement-v1.md',
-      'platform/shared/agent-task-capsule-contract.ts',
+      'src/control/agent/task-capsule.ts',
       'scripts/codex/'
     ],
     forbiddenPaths: ['source/'],
@@ -89,7 +93,7 @@ function preparationInput(): SecAgentOperationActivationPreparationInputV1 {
       'docs/work/rolling-plan.md',
       'docs/work-packages/delegation-consumer-zero-retirement-v1.md'
     ],
-    operationId: secAgentOperationActivationOperationIdV1(request.requestOperationId),
+    operationId: secAgentOperationActivationOperationId(request.requestOperationId),
     role: 'worker',
     operationKind: 'implement',
     availableCapabilities: ['git'],
@@ -114,7 +118,7 @@ tasks:
     ownedPaths:
       - docs/work-packages/${packageId}.md
 forbiddenPaths:
-  - platform/compiler/
+  - src/compiler/
 acceptance:
   - exact package census fixture
 tests:
@@ -124,21 +128,21 @@ tests:
 }
 
 test('hosted PRE is canonical and binds request, provider, and full manifest scope', () => {
-  const first = createSecAgentOperationActivationPreparationV1(preparationInput());
-  const second = createSecAgentOperationActivationPreparationV1({
+  const first = createSecAgentOperationActivationPreparation(preparationInput());
+  const second = createSecAgentOperationActivationPreparation({
     ...preparationInput(),
     authorizedPaths: [...preparationInput().authorizedPaths].reverse(),
     proposalChangedPaths: [...preparationInput().proposalChangedPaths].reverse()
   });
   expect(second).toEqual(first);
-  expect(parseSecAgentOperationActivationPreparationV1(
+  expect(parseSecAgentOperationActivationPreparation(
     JSON.parse(JSON.stringify(first))
   )).toEqual(first);
-  expect(() => createSecAgentOperationActivationPreparationV1({
+  expect(() => createSecAgentOperationActivationPreparation({
     ...preparationInput(),
     proposalChangedPaths: ['source/forbidden.ts']
   })).toThrow(/scope is inconsistent/u);
-  expect(() => createSecAgentOperationActivationPreparationV1({
+  expect(() => createSecAgentOperationActivationPreparation({
     ...preparationInput(),
     provider: provider('11', sha('e'))
   })).toThrow(/scope is inconsistent/u);
@@ -149,12 +153,12 @@ test('hosted PRE requires every stale default-branch Work Package to be deleted'
   const predecessorPath = 'docs/work-packages/predecessor-v1.md';
   const selectedBytes = workPackageManifest('selected-v1', 'issue-999');
   const predecessorBytes = workPackageManifest('predecessor-v1', 'issue-998');
-  expect(assertAgentOperationActivationWorkPackageCensusV1({
+  expect(assertAgentOperationActivationWorkPackageCensus({
     selectedManifestPath: selectedPath,
     candidateEntries: [{ path: selectedPath, candidateBytes: selectedBytes, defaultBytes: null }],
     defaultPackagePaths: [predecessorPath]
   })).toEqual([predecessorPath]);
-  expect(() => assertAgentOperationActivationWorkPackageCensusV1({
+  expect(() => assertAgentOperationActivationWorkPackageCensus({
     selectedManifestPath: selectedPath,
     candidateEntries: [
       { path: selectedPath, candidateBytes: selectedBytes, defaultBytes: null },
@@ -163,7 +167,7 @@ test('hosted PRE requires every stale default-branch Work Package to be deleted'
     defaultPackagePaths: [predecessorPath]
   })).toThrow(/not activatable/u);
   for (const historicalOrFuture of ['ci-verification-v18', 'ci-verification-v20']) {
-    expect(() => assertAgentOperationActivationWorkPackageCensusV1({
+    expect(() => assertAgentOperationActivationWorkPackageCensus({
       selectedManifestPath: selectedPath,
       candidateEntries: [{
         path: selectedPath,
@@ -178,8 +182,8 @@ test('hosted PRE requires every stale default-branch Work Package to be deleted'
 });
 
 test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE scope', () => {
-  const preparation = createSecAgentOperationActivationPreparationV1(preparationInput());
-  const request = createSecAgentOperationActivationRequestV1({
+  const preparation = createSecAgentOperationActivationPreparation(preparationInput());
+  const request = createSecAgentOperationActivationRequest({
     phase: 'finalize',
     pullRequestNumber: preparation.proposal.number,
     expectedBaseSha: preparation.trustedBaseSha,
@@ -188,7 +192,7 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
     manifestDigest: preparation.proposal.manifestDigest,
     preparationCommentId: 501
   });
-  const receipt = createSecAgentOperationActivationReceiptV1({
+  const receipt = createSecAgentOperationActivationReceipt({
     request,
     preparation,
     pullRequest: {
@@ -199,21 +203,21 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
     controlDigests: preparation.controlDigests,
     changedPaths: [
       'docs/work/active-work-package.md',
-      'scripts/codex/task-capsule.ts'
+      'src/control/agent/task-capsule-host.ts'
     ],
     workDecisionReceiptDigest: digest('8'),
     workDecisionDecisionDigest: digest('9'),
     provider: provider('12')
   });
-  expect(parseSecAgentOperationActivationReceiptV1(
+  expect(parseSecAgentOperationActivationReceipt(
     JSON.parse(JSON.stringify(receipt))
   )).toEqual(receipt);
   const { schema: _receiptSchema, activationDigest: _activationDigest, ...receiptInput } = receipt;
-  expect(() => createSecAgentOperationActivationReceiptV1({
+  expect(() => createSecAgentOperationActivationReceipt({
     ...receiptInput,
     changedPaths: ['source/forbidden.ts']
   })).toThrow(/exact PRE authority/u);
-  expect(() => createSecAgentOperationActivationReceiptV1({
+  expect(() => createSecAgentOperationActivationReceipt({
     ...receiptInput,
     controlDigests: { ...preparation.controlDigests, rollingPlan: digest('f') }
   })).toThrow(/exact PRE authority/u);
@@ -221,22 +225,22 @@ test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE sc
 
 test('App comment is only a canonical immutable-artifact locator', () => {
   const request = prepareRequest();
-  const publication = createSecAgentOperationActivationPublicationV1({
+  const publication = createSecAgentOperationActivationPublication({
     request,
     payloadDigest: digest('a'),
     artifactId: '9001',
-    artifactName: secAgentOperationActivationArtifactNameV1(
+    artifactName: secAgentOperationActivationArtifactName(
       request.phase, request.requestOperationId
     ),
     artifactFileName: 'agent-operation-activation.json',
     artifactDigest: digest('b'),
     provider: provider('11')
   });
-  const rendered = renderSecAgentOperationActivationPublicationCommentV1(publication);
-  expect(parseSecAgentOperationActivationPublicationCommentV1(rendered)).toEqual(publication);
+  const rendered = renderSecAgentOperationActivationPublicationComment(publication);
+  expect(parseSecAgentOperationActivationPublicationComment(rendered)).toEqual(publication);
   expect(rendered).not.toContain('authorizedPaths');
   const { schema: _publicationSchema, publicationDigest: _publicationDigest, ...publicationInput } = publication;
-  expect(() => createSecAgentOperationActivationPublicationV1({
+  expect(() => createSecAgentOperationActivationPublication({
     ...publicationInput,
     artifactName: 'candidate-local-ref'
   })).toThrow(/artifact name/u);
@@ -244,15 +248,65 @@ test('App comment is only a canonical immutable-artifact locator', () => {
 
 test('candidate-local objects cannot satisfy the hosted provider schema', () => {
   const { schema: _providerSchema, providerDigest: _providerDigest, ...providerInput } = provider('11');
-  expect(() => createSecAgentOperationActivationProviderV1({
+  expect(() => createSecAgentOperationActivationProvider({
     ...providerInput,
     workflowPath: '.github/workflows/candidate.yml',
     workflowRef: `.github/workflows/candidate.yml@${sha('a')}`
   } as never)).toThrow(/provider workflow/u);
   const { schema: _requestSchema, requestOperationId: _requestOperationId, ...requestInput } = prepareRequest();
-  expect(() => createSecAgentOperationActivationRequestV1({
+  expect(() => createSecAgentOperationActivationRequest({
     ...requestInput,
     phase: 'finalize',
     preparationCommentId: null
   })).toThrow(/finalize requires/u);
+});
+
+test('Windows activation fails closed before fake PATH Git or GitHub children and ambient CLI state', () => {
+  if (process.platform !== 'win32') return;
+
+  const binHome = mkdtempSync(path.join(tmpdir(), 'sec-agent-activation-fake-cli-'));
+  const gitExecutionSentinel = path.join(binHome, 'git-executed.txt');
+  const ghExecutionSentinel = path.join(binHome, 'gh-executed.txt');
+  const installFake = (name: string, sentinel: string): void => {
+    writeFileSync(path.join(binHome, `${name}.cmd`), [
+      '@echo off',
+      `echo executed>"${sentinel}"`,
+      ''
+    ].join('\r\n'), 'utf8');
+  };
+  installFake('git', gitExecutionSentinel);
+  installFake('gh', ghExecutionSentinel);
+
+  try {
+    const runner = path.resolve(import.meta.dir, '../../src/control/agent/agent-operation-activation.ts');
+    const result = spawnSync(process.execPath, [
+      runner,
+      'request',
+      '--phase', 'prepare',
+      '--candidate-root', process.cwd(),
+      '--json'
+    ], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PATH: binHome,
+        GIT_CONFIG: path.join(binHome, 'ambient-git-config'),
+        GIT_DIR: path.join(binHome, 'ambient-git-dir'),
+        GH_HOST: 'evil.example.invalid',
+        GH_TOKEN: 'ambient-token-must-not-be-consumed'
+      }
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      schema: 'sec-agent-operation-activation-blocked-v1',
+      reasonCode: 'activation-provider-unavailable'
+    });
+    expect(existsSync(gitExecutionSentinel)).toBe(false);
+    expect(existsSync(ghExecutionSentinel)).toBe(false);
+  } finally {
+    rmSync(binHome, { recursive: true, force: true });
+  }
 });

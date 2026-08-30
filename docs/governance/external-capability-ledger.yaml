@@ -2,8 +2,6 @@ schema: sec-external-capability-ledger-v4
 status: revalidation-required
 binding:
   repository: sec-platform/sec
-  packageAuthority: package.json
-  lockAuthority: bun.lock
 policy:
   owner: docs/external-provider-policy.md
 verification:
@@ -61,12 +59,6 @@ executionTopology:
       substrate:
         wsl2: implementation-only-not-independent-evidence
       localRemoteSwitch: same-profile-conformance-no-workflow-change
-    - id: web-runtime
-      availability: on-demand
-      capabilities:
-        - chromium-playwright
-      applicability: browser-impact-only
-      cache: exact-revision-content-addressed
     - id: darwin-native
       availability: unavailable
       capabilities:
@@ -170,7 +162,7 @@ providers:
     activeRoutingProfile: sec-linux-verification-v1
     surfaces:
       cli:
-        - scripts/codex/local-github-actions-runner.ts
+        - src/verification/ci/runtime/local-github-actions-runner.ts
       standingMcp: []
     forbiddenAuthority:
       - AgentOperationsAuthority
@@ -178,6 +170,24 @@ providers:
       - actualDelta
       - canonicalImpact
       - sourceWriter
+  - id: windows-native-control-cli
+    category: runtime
+    capability: host-command-execution
+    decision: integrate-provider
+    lifecycle: revalidation-required
+    activeRoutingProfile: sec-windows-control-cli-v1
+    surfaces:
+      cli:
+        - windows-control-cli-session
+      standingMcp: []
+    forbiddenAuthority:
+      - AgentOperationsAuthority
+      - EngineeringIR
+      - actualDelta
+      - canonicalImpact
+      - sourceWriter
+    unresolved:
+      - installed-executable-capability-unproven
   - id: dagger-environment-materializer
     category: build-runtime
     capability: environment-materialization
@@ -227,32 +237,6 @@ providers:
       - exact-version
       - license
       - sec-and-nexus-benchmark
-  - id: gitnexus
-    category: graph
-    capability: architecture-analysis
-    decision: use-as-development-tool
-    lifecycle: revalidation-required
-    observedVersion: 1.6.3
-    versionAuthority:
-      kind: package
-      dependency: gitnexus
-      section: devDependencies
-      declaredSpec: 1.6.3
-    activeRoutingProfile: architecture
-    surfaces:
-      cli:
-        - analyze
-        - status
-      standingMcp: []
-    forbiddenAuthority:
-      - AgentOperationsAuthority
-      - EngineeringIR
-      - actualDelta
-      - canonicalImpact
-      - sourceWriter
-    unresolved:
-      - freshness-and-coverage-validation
-      - repository-specific-benchmark
   - id: graph-it-live-mcp
     category: graph
     capability: source-context
@@ -272,6 +256,8 @@ providers:
       - sourceWriter
     rationale: standing MCP surface had no required consumer or validated advantage
 invariants:
+  deferCannotAuthorizeCustomSubstitute: true
   maxStandingGraphProviders: 1
   providerOutputCannotBecomeCanonical: true
   providerWriteRequiresWorkPackage: true
+  terminalConsumerHorizonRequired: true

@@ -1,26 +1,25 @@
 import { describe, expect, test } from 'bun:test';
 
-import { shouldReportDevRunnerSuccessV1 } from '../../platform/dev-runner.ts';
-import { compileSecOperationDemandGraphV1 } from '../../platform/shared/operation-demand-contract.ts';
-import type { SecWorkSelectionLiveResultV1 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
-  projectDocumentControlPlaneStatusCliV1
-} from '../../scripts/codex/document-control-plane.ts';
-import {
-  projectRepositoryAuditCliV1,
+  projectRepositoryAuditCli,
   type RepositoryAuditReport
-} from '../../scripts/codex/repository-audit.ts';
-import { projectSecWorkSelectionCliV1 } from '../../scripts/codex/work-selection.ts';
+} from '../../src/brownfield/repository-audit/cli.ts';
+import {
+  projectDocumentControlPlaneStatusCli
+} from '../../src/control/documentation/document-control-plane.ts';
+import { projectSecWorkSelectionCli } from '../../src/control/main-health/work-selection.ts';
+import { compileSecOperationDemandGraph } from '../../src/control/operation/demand.ts';
+import type { SecWorkSelectionLiveResult } from '../../src/control/work-selection/live-contract.ts';
+import { shouldReportDevRunnerSuccess } from '../../src/development/runner/cli.ts';
 
 describe('bounded control-plane CLI projections', () => {
   test('successful hook operations are silent while direct commands retain confirmation', () => {
-    expect(shouldReportDevRunnerSuccessV1({ SEC_GIT_HOOK_ACTIVE: '1' })).toBe(false);
-    expect(shouldReportDevRunnerSuccessV1({})).toBe(true);
+    expect(shouldReportDevRunnerSuccess({ SEC_GIT_HOOK_ACTIVE: '1' })).toBe(false);
+    expect(shouldReportDevRunnerSuccess({})).toBe(true);
   });
 
   test('repository audit projects decision facts without path-scale report bodies', () => {
     const report = {
-      schema: 'sec-repository-audit-v2',
       revision: {
         defaultHead: 'a'.repeat(40), defaultRef: 'main', defaultRefInput: 'main',
         defaultRefMode: 'ref', head: 'b'.repeat(40), tree: 'c'.repeat(40), worktree: 'clean'
@@ -40,7 +39,7 @@ describe('bounded control-plane CLI projections', () => {
       })),
       contentCoverage: Array.from({ length: 500 }, (_, index) => ({ path: `path-${index}` }))
     } as unknown as RepositoryAuditReport;
-    const projected = projectRepositoryAuditCliV1(report);
+    const projected = projectRepositoryAuditCli(report);
     expect(projected.findingCodes).toEqual(['one-root-class']);
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');
@@ -50,7 +49,7 @@ describe('bounded control-plane CLI projections', () => {
   test('work selection keeps authority identity and the actionable decision only', () => {
     const result = {
       status: 'resolved', resultDigest: 'sha256:result',
-      demandGraph: compileSecOperationDemandGraphV1({
+      demandGraph: compileSecOperationDemandGraph({
         operation: 'work-selection-observe',
         terminalWorkIds: []
       }),
@@ -66,8 +65,8 @@ describe('bounded control-plane CLI projections', () => {
           blockedCandidateRefs: ['issue-999'], requiredPreconditions: [{}, {}]
         }
       }
-    } as unknown as SecWorkSelectionLiveResultV1;
-    const projected = projectSecWorkSelectionCliV1(result);
+    } as unknown as SecWorkSelectionLiveResult;
+    const projected = projectSecWorkSelectionCli(result);
     expect(projected).toMatchObject({
       status: 'resolved', exactMain: 'a'.repeat(40),
       decision: { selectedWorkId: 'issue-346', requiredPreconditions: 2 }
@@ -90,7 +89,7 @@ describe('bounded control-plane CLI projections', () => {
       activation: null,
       stableFacts: Array.from({ length: 500 }, () => 'noise')
     };
-    const projected = projectDocumentControlPlaneStatusCliV1(resolved);
+    const projected = projectDocumentControlPlaneStatusCli(resolved);
     expect(projected.github).toEqual({
       status: 'resolved', openPullRequestNumbers: [539], openIssueCount: 500,
       reviewThreadPullRequestCount: 1

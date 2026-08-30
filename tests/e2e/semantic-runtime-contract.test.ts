@@ -4,14 +4,17 @@ import { pathToFileURL } from 'node:url';
 
 import { expect, test } from 'bun:test';
 
+import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import {
-  buildValidatedEngineeringIR,
-  loadWorkspaceEngineeringIRBuildInput,
-  projectArchitectureView,
-  projectScenarioView,
-  projectStateView
-} from '../../platform/compiler/index.ts';
-import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
+  applySemanticMutation,
+  querySemanticMutationRequest,
+  recoverSemanticMutationWorkspace
+} from '../../src/compiler/orchestration/cli.ts';
+import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
+import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
+import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
 import {
   appendSemanticMutationRecoveryRecord,
   assertSemanticMutationRecoveryRecordInvariant,
@@ -20,7 +23,7 @@ import {
   pruneSemanticMutationTerminalRecords,
   querySemanticMutationRequestRecord,
   semanticMutationRecoveryRecordRevision
-} from '../../platform/compiler/semantic-mutation/mutation-recovery-record.ts';
+} from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
 import {
   assertSemanticMutationRejectedTerminalRecordInvariant,
   readRejectedSemanticMutationTerminal,
@@ -28,24 +31,16 @@ import {
   writeRejectedSemanticMutationTerminal,
   type SemanticMutationTerminalIoObservation,
   type SemanticMutationTerminalWriteTestHooks
-} from '../../platform/compiler/semantic-mutation/mutation-terminal-record.ts';
+} from '../../src/compiler/semantic-mutation/mutation-terminal-record.ts';
 import {
   assertSemanticMutationTransactionRoot,
   semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot
-} from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
-import {
-  applySemanticMutation,
-  querySemanticMutationRequest,
-  recoverSemanticMutationWorkspace
-} from '../../platform/orchestrator.ts';
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import {
-  SEMANTIC_MUTATION_TERMINAL_RETENTION,
-  type SemanticMutationRecoveryRecordV1
-} from '../../platform/shared/semantic-mutation-transaction-types.ts';
-import type { VerificationReport } from '../../platform/shared/verification-types.ts';
+} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+import { SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord } from '../../src/semantic/mutation/contract/transaction.ts';
+import type { VerificationReport } from '../../src/verification/contract/types.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import {
   acceptedResult,
   digest,
@@ -473,10 +468,10 @@ test('SM-3 recovery journal freezes cross-bindings and keeps retained terminals 
     forged.requestRevision = digest('forged-request');
     const { recordRevision: _oldRevision, ...forgedDraft } = forged;
     forged.recordRevision = semanticMutationRecoveryRecordRevision(
-      forgedDraft as unknown as Omit<SemanticMutationRecoveryRecordV1, 'recordRevision'>
+      forgedDraft as unknown as Omit<SemanticMutationRecoveryRecord, 'recordRevision'>
     );
     expect(() => assertSemanticMutationRecoveryRecordInvariant(
-      forged as unknown as SemanticMutationRecoveryRecordV1,
+      forged as unknown as SemanticMutationRecoveryRecord,
       prepared
     )).toThrow(
       'identity/revision/source bindings'
@@ -580,7 +575,7 @@ test('SM-3 rejected terminals are immutable, ordered, non-destructive, and proje
   }, 'engineering-compiler-sm3-rejected-terminal-');
 });
 
-test('SM-3 terminal allocator audits legacy receipts and uses a durable constant-I/O head', async () => {
+test('SM-3 terminal allocator requires and advances one durable constant-I/O head', async () => {
   const completionPath = (workspaceRoot: string, sequence: number): string => path.join(
     workspaceRoot,
     '.sec',
@@ -616,29 +611,6 @@ test('SM-3 terminal allocator audits legacy receipts and uses a durable constant
       testHooks
     );
   };
-
-  await withTempWorkspace(async (workspaceRoot) => {
-    await writeRejected(workspaceRoot, 'receipt-one');
-    await writeRejected(workspaceRoot, 'receipt-two');
-    await writeRejected(workspaceRoot, 'receipt-three');
-    const firstPath = completionPath(workspaceRoot, 1);
-    const first = JSON.parse(await readFile(firstPath, 'utf8')) as Record<string, unknown>;
-    first.completionRevision = digest('corrupted-non-latest-receipt');
-    await writeFile(firstPath, `${JSON.stringify(first, null, 2)}\n`, 'utf8');
-    await rm(headPath(workspaceRoot));
-    await expect(writeRejected(workspaceRoot, 'receipt-four'))
-      .rejects.toThrow('terminal completion content is invalid');
-  }, 'engineering-compiler-sm3-terminal-order-full-scan-');
-
-  await withTempWorkspace(async (workspaceRoot) => {
-    await writeRejected(workspaceRoot, 'sequence-one');
-    await writeRejected(workspaceRoot, 'sequence-two');
-    const firstReceipt = await readFile(completionPath(workspaceRoot, 1), 'utf8');
-    await writeFile(completionPath(workspaceRoot, 2), firstReceipt, 'utf8');
-    await rm(headPath(workspaceRoot));
-    await expect(writeRejected(workspaceRoot, 'sequence-three'))
-      .rejects.toThrow('terminal completion content is invalid');
-  }, 'engineering-compiler-sm3-terminal-order-duplicate-');
 
   await withTempWorkspace(async (workspaceRoot) => {
     const draft = recoveryDraft('request:terminal-sequence-exhausted');
@@ -1095,15 +1067,13 @@ test('ticket semantic contract lowers into the runtime transition contract', asy
     expectTransition(fixture.runtimeContract, 'closed', 'open');
     expectTransition(fixture.runtimeContract, 'in_progress', 'closed');
     expectTransition(fixture.runtimeContract, 'open', 'in_progress');
-    expect(fixture.ticketForm).toContain('NEXT_TICKET_STATUS[currentStatus]');
-    expect(fixture.ticketForm).not.toContain('const NEXT_STATUS');
     expect(fixture.ticketService).toContain("import { NEXT_TICKET_STATUS } from './ticket-semantic-contract.ts'");
     expect(fixture.ticketService).toContain('Invalid ticket status transition');
     expect(fixture.runtimeContractProvenance).toMatchObject({
       originType: 'generated',
       originId: 'generator:ticket/basic:ticket-status-runtime-contract',
       sourceBlock: 'ticket/basic',
-      sourcePath: 'platform/registry/official/ticket.basic/contracts/ticket.yaml',
+      sourcePath: 'catalog/registry/official/ticket.basic/contracts/ticket.yaml',
       runtimeTarget: fixture.runtimeTarget,
       generatedByPass: 'compose',
       generatorTaskId: 'generator:ticket/basic:ticket-status-runtime-contract',

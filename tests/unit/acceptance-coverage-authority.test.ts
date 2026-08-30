@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { validateAcceptanceCoverageReportV1 } from '../../platform/shared/acceptance-coverage-authority.ts';
+import { ACCEPTANCE_COVERAGE_FORMAT_VERSION } from '../../src/semantic/acceptance/contract/types.ts';
+import { validateAcceptanceCoverageReport } from '../../src/verification/acceptance/runtime/coverage-authority.ts';
 
 function canonicalCoverage() {
   return {
-    formatVersion: '1',
+    formatVersion: ACCEPTANCE_COVERAGE_FORMAT_VERSION,
     status: 'passed',
     acceptancePassed: ['acceptance_login'],
     blocks: [{
@@ -24,19 +25,23 @@ function canonicalCoverage() {
   } as const;
 }
 
-test('Acceptance Coverage authority accepts canonical derived coverage', () => {
-  const coverage = validateAcceptanceCoverageReportV1(canonicalCoverage());
+test('Acceptance Coverage authority accepts canonical derived coverage and rejects an unknown schema', () => {
+  const coverage = validateAcceptanceCoverageReport(canonicalCoverage());
 
   expect(coverage.status).toBe('passed');
   expect(coverage.uncoveredBlocks).toEqual([]);
   expect(Object.isFrozen(coverage)).toBe(true);
+  expect(() => validateAcceptanceCoverageReport({
+    ...canonicalCoverage(),
+    formatVersion: 'future'
+  })).toThrow('unsupported formatVersion');
 });
 
 test('Acceptance Coverage authority rejects covered acceptance not declared by target', () => {
   const candidate = structuredClone(canonicalCoverage()) as any;
   candidate.blocks[0].coveredBy = ['acceptance_other'];
 
-  expect(() => validateAcceptanceCoverageReportV1(candidate))
+  expect(() => validateAcceptanceCoverageReport(candidate))
     .toThrow('undeclared Acceptance ID');
 });
 
@@ -45,7 +50,7 @@ test('Acceptance Coverage authority rejects forged uncovered projection', () => 
   candidate.blocks[0].uncovered = true;
   candidate.uncoveredBlocks = ['auth/basic-session'];
 
-  expect(() => validateAcceptanceCoverageReportV1(candidate))
+  expect(() => validateAcceptanceCoverageReport(candidate))
     .toThrow('.uncovered differs');
 });
 
@@ -53,19 +58,19 @@ test('Acceptance Coverage authority rejects uncovered list that differs from ent
   const candidate = structuredClone(canonicalCoverage()) as any;
   candidate.uncoveredBlocks = ['auth/basic-session'];
 
-  expect(() => validateAcceptanceCoverageReportV1(candidate))
+  expect(() => validateAcceptanceCoverageReport(candidate))
     .toThrow('differ from coverage entries');
 });
 
 test('Acceptance Coverage authority rejects duplicate or noncanonical Acceptance identities', () => {
   const duplicate = structuredClone(canonicalCoverage()) as any;
   duplicate.acceptancePassed = ['acceptance_login', 'acceptance_login'];
-  expect(() => validateAcceptanceCoverageReportV1(duplicate))
+  expect(() => validateAcceptanceCoverageReport(duplicate))
     .toThrow('unique and canonically ordered');
 
   const noncanonical = structuredClone(canonicalCoverage()) as any;
   noncanonical.acceptancePassed = ['Acceptance Login'];
-  expect(() => validateAcceptanceCoverageReportV1(noncanonical))
+  expect(() => validateAcceptanceCoverageReport(noncanonical))
     .toThrow('canonical Acceptance IDs');
 });
 
@@ -80,7 +85,7 @@ test('Acceptance Coverage authority rejects noncanonical block and slot ordering
     },
     ...blockOrder.blocks
   ];
-  expect(() => validateAcceptanceCoverageReportV1(blockOrder))
+  expect(() => validateAcceptanceCoverageReport(blockOrder))
     .toThrow('blocks must be canonically ordered');
 
   const slotOrder = structuredClone(canonicalCoverage()) as any;
@@ -93,6 +98,6 @@ test('Acceptance Coverage authority rejects noncanonical block and slot ordering
     },
     ...slotOrder.slots
   ];
-  expect(() => validateAcceptanceCoverageReportV1(slotOrder))
+  expect(() => validateAcceptanceCoverageReport(slotOrder))
     .toThrow('slots must be canonically ordered');
 });

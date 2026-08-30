@@ -3,31 +3,25 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { PHYSICAL_MUTATION_LEASE_SCHEMA_V1 } from '../../platform/shared/physical-mutation-lease.ts';
-import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
+import { PHYSICAL_MUTATION_LEASE_SCHEMA } from '../../src/runtime-state/physical/runtime/mutation-lease.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { createRuntimeStateJournalFileSystem, runtimeStateJournalMutationLeaseName } from '../../src/runtime-state/workspace-state/journal-filesystem.ts';
+import { createVerificationActionKey, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
 import {
-  createVerificationActionKeyV2,
-  type VerificationActionKeyInputV2
-} from '../../platform/shared/verification-action-contract.ts';
-import {
-  createRuntimeStateJournalFileSystemV1,
-  runtimeStateJournalMutationLeaseNameV1
-} from '../../tooling/sec-dev/runtime-state-journal-filesystem.ts';
-import {
-  acquireVerificationActionClaimV1,
-  appendVerificationActionJournalEventV2,
+  acquireVerificationActionClaim,
+  appendVerificationActionJournalEvent,
   deleteVerificationActionJournalV2,
-  readVerificationActionClaimV1,
-  readVerificationActionJournalV2,
-  releaseVerificationActionClaimV1,
-  renewVerificationActionClaimV1,
-  VERIFICATION_ACTION_JOURNAL_DIRECTORY_V2
-} from '../../tooling/sec-dev/verification-action-journal.ts';
+  readVerificationActionClaim,
+  readVerificationActionJournal,
+  releaseVerificationActionClaim,
+  renewVerificationActionClaim,
+  VERIFICATION_ACTION_JOURNAL_DIRECTORY
+} from '../../src/verification/action/journal.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 
-function action(): ReturnType<typeof createVerificationActionKeyV2> {
-  const input: VerificationActionKeyInputV2 = {
+function action(): ReturnType<typeof createVerificationActionKey> {
+  const input: VerificationActionKeyInput = {
     actionKind: 'journal-contract',
     producer: { identity: 'journal-test', revision: 'r1' },
     operation: {
@@ -47,7 +41,7 @@ function action(): ReturnType<typeof createVerificationActionKeyV2> {
     upstreamActionKeys: [],
     resultSchemaRevision: 'sec-verification-result-v1'
   };
-  return createVerificationActionKeyV2(input);
+  return createVerificationActionKey(input);
 }
 
 function at(index: number): string {
@@ -55,8 +49,8 @@ function at(index: number): string {
 }
 
 function journalFs(root: string) {
-  return createRuntimeStateJournalFileSystemV1(
-    inspectNoFollowDirectoryChainV1(root, 'VerificationAction journal test root').target
+  return createRuntimeStateJournalFileSystem(
+    inspectNoFollowDirectoryChain(root, 'VerificationAction journal test root').target
   );
 }
 
@@ -71,10 +65,10 @@ test('journal mutation lease reclaims only an identity-stable owner proven dead'
     mkdirSync(path.dirname(filePath), { recursive: true });
     const lockPath = path.join(
       path.dirname(filePath),
-      runtimeStateJournalMutationLeaseNameV1(root, filePath)
+      runtimeStateJournalMutationLeaseName(root, filePath)
     );
     writeFileSync(lockPath, `${JSON.stringify({
-      schema: PHYSICAL_MUTATION_LEASE_SCHEMA_V1,
+      schema: PHYSICAL_MUTATION_LEASE_SCHEMA,
       host: 'journal-test-host',
       pid: 22001,
       processNonce: '11111111-1111-4111-8111-111111111111',
@@ -83,8 +77,8 @@ test('journal mutation lease reclaims only an identity-stable owner proven dead'
       expiresAtMs: 30_001
     })}\n`, 'utf8');
 
-    const recovered = createRuntimeStateJournalFileSystemV1(
-      inspectNoFollowDirectoryChainV1(root, 'VerificationAction journal recovery test root').target,
+    const recovered = createRuntimeStateJournalFileSystem(
+      inspectNoFollowDirectoryChain(root, 'VerificationAction journal recovery test root').target,
       {
         now: () => 40_000,
         ownerHost: 'journal-test-host',
@@ -98,7 +92,7 @@ test('journal mutation lease reclaims only an identity-stable owner proven dead'
     expect(existsSync(lockPath)).toBe(false);
 
     writeFileSync(lockPath, `${JSON.stringify({
-      schema: PHYSICAL_MUTATION_LEASE_SCHEMA_V1,
+      schema: PHYSICAL_MUTATION_LEASE_SCHEMA,
       host: 'journal-test-host',
       pid: 22003,
       processNonce: '44444444-4444-4444-8444-444444444444',
@@ -119,30 +113,29 @@ test('V2 journal append/readback validates lifecycle and digest chain in externa
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-'));
   try {
     const key = action();
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
+    appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'queued' as const, recordedAt: at(1)
     }));
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
+    appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(2)
     }));
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
+    appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'terminal' as const, recordedAt: at(3),
       terminal: { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: DIGEST_A }
     }));
-    const readback = readVerificationActionJournalV2(journalFs(root), key.actionKey);
-    expect(readback.schemaState).toBe('current');
+    const readback = readVerificationActionJournal(journalFs(root), key.actionKey);
     expect(readback.events).toHaveLength(3);
     expect(readback.latestState).toBe('terminal');
     expect(readback.terminal?.status).toBe('passed');
     expect(readback.events[1]!.previousDigest).toBe(readback.events[0]!.eventDigest);
     expect(readback.events[2]!.previousDigest).toBe(readback.events[1]!.eventDigest);
-    expect(readback.filePath).toBe(path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY_V2, `${key.actionKey.slice(7)}.jsonl`));
+    expect(readback.filePath).toBe(path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY, `${key.actionKey.slice(7)}.jsonl`));
     expect(readback.filePath).not.toContain('.tmp/codex');
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
+    appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'invalidated' as const,
       recordedAt: at(4), note: 'input changed'
     }));
-    const invalidated = readVerificationActionJournalV2(journalFs(root), key.actionKey);
+    const invalidated = readVerificationActionJournal(journalFs(root), key.actionKey);
     expect(invalidated.latestState).toBe('invalidated');
     expect(invalidated.terminal).toBeNull();
     expect(invalidated.events[2]!.terminal?.status).toBe('passed');
@@ -155,62 +148,30 @@ test('journal rejects corrupt and partial tails before exposing any projection',
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-corrupt-'));
   try {
     const key = action();
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
+    appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'queued' as const, recordedAt: at(1)
     }));
-    const filePath = path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY_V2, `${key.actionKey.slice(7)}.jsonl`);
+    const filePath = path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY, `${key.actionKey.slice(7)}.jsonl`);
     const original = readFileSync(filePath, 'utf8');
     writeFileSync(filePath, `${original.slice(0, -1)}{"partial":true}`, 'utf8');
-    expect(() => readVerificationActionJournalV2(journalFs(root), key.actionKey)).toThrow(/invalid JSON|partial/);
+    expect(() => readVerificationActionJournal(journalFs(root), key.actionKey)).toThrow(/invalid JSON|partial/);
     writeFileSync(filePath, original.replace('"recordedAt":"2026-08-09T13:00:01.000Z"', '"recordedAt":"2026-08-09T13:00:02.000Z"'), 'utf8');
-    expect(() => readVerificationActionJournalV2(journalFs(root), key.actionKey)).toThrow(/digest mismatch/);
+    expect(() => readVerificationActionJournal(journalFs(root), key.actionKey)).toThrow(/digest mismatch/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('old V1 journal records are stale and cannot be projected into V2', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-stale-'));
-  try {
-    const key = action();
-    const filePath = path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY_V2, `${key.actionKey.slice(7)}.jsonl`);
-    const oldEvent = {
-      schema: 'sec-verification-action-journal-event-v1',
-      sequence: 1,
-      actionKey: key.actionKey,
-      action: { ...key, schema: 'sec-verification-action-key-v1' },
-      state: 'terminal',
-      recordedAt: at(1),
-      terminal: { status: 'passed', reasonCode: 'executed-success', resultDigest: null },
-      note: null,
-      previousDigest: null,
-      eventDigest: DIGEST_A
-    };
-    mkdirForFile(filePath);
-    writeFileSync(filePath, `${JSON.stringify(oldEvent)}\n`, 'utf8');
-    expect(readVerificationActionJournalV2(journalFs(root), key.actionKey).schemaState).toBe('stale');
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
-      repositoryRoot: 'R:/repo', action: key, state: 'queued' as const, recordedAt: at(2)
-    }));
-    const fresh = readVerificationActionJournalV2(journalFs(root), key.actionKey);
-    expect(fresh.schemaState).toBe('current');
-    expect(fresh.latestState).toBe('queued');
-    expect(fresh.events).toHaveLength(1);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('a mixed V2 prefix and V1 tail is corruption, not a disposable stale journal', () => {
+test('a current prefix and foreign-schema tail is corruption, not disposable state', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-mixed-'));
   try {
     const key = action();
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
+    appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'queued' as const, recordedAt: at(1)
     }));
-    const filePath = path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY_V2, `${key.actionKey.slice(7)}.jsonl`);
-    const oldTail = {
-      schema: 'sec-verification-action-journal-event-v1',
+    const filePath = path.join(root, VERIFICATION_ACTION_JOURNAL_DIRECTORY, `${key.actionKey.slice(7)}.jsonl`);
+    const foreignTail = {
+      schema: 'foreign-verification-action-event',
       sequence: 2,
       actionKey: key.actionKey,
       action: { ...key, schema: 'sec-verification-action-key-v1' },
@@ -221,12 +182,12 @@ test('a mixed V2 prefix and V1 tail is corruption, not a disposable stale journa
       previousDigest: null,
       eventDigest: DIGEST_A
     };
-    writeFileSync(filePath, `${readFileSync(filePath, 'utf8')}${JSON.stringify(oldTail)}\n`, 'utf8');
-    expect(() => readVerificationActionJournalV2(journalFs(root), key.actionKey)).toThrow(/schema mismatch|V1 journal records/);
-    expect(() => appendVerificationActionJournalEventV2(withStateRoot(root, {
+    writeFileSync(filePath, `${readFileSync(filePath, 'utf8')}${JSON.stringify(foreignTail)}\n`, 'utf8');
+    expect(() => readVerificationActionJournal(journalFs(root), key.actionKey)).toThrow(/schema mismatch/);
+    expect(() => appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(3)
-    }))).toThrow(/schema mismatch|V1 journal records/);
-    expect(readFileSync(filePath, 'utf8')).toContain('sec-verification-action-journal-event-v1');
+    }))).toThrow(/schema mismatch/);
+    expect(readFileSync(filePath, 'utf8')).toContain('foreign-verification-action-event');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -241,21 +202,21 @@ test('illegal transitions are rejected and deleting the journal returns a clean 
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-journal-v2-delete-'));
   try {
     const key = action();
-    expect(() => appendVerificationActionJournalEventV2(withStateRoot(root, {
+    expect(() => appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(1)
     }))).toThrow('must begin with queued');
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
+    appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'queued' as const, recordedAt: at(1)
     }));
-    appendVerificationActionJournalEventV2(withStateRoot(root, {
+    appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'cancelled' as const,
       recordedAt: at(2), note: 'cancelled by test'
     }));
-    expect(() => appendVerificationActionJournalEventV2(withStateRoot(root, {
+    expect(() => appendVerificationActionJournalEvent(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, state: 'running' as const, recordedAt: at(3)
     }))).toThrow('illegal transition');
     deleteVerificationActionJournalV2(journalFs(root), key.actionKey);
-    expect(readVerificationActionJournalV2(journalFs(root), key.actionKey)).toMatchObject({
+    expect(readVerificationActionJournal(journalFs(root), key.actionKey)).toMatchObject({
       events: [], latestState: null, terminal: null
     });
   } finally {
@@ -267,20 +228,20 @@ test('atomic claim joins one live physical owner and rejects wrong-owner release
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-race-'));
   try {
     const key = action();
-    const first = acquireVerificationActionClaimV1(withStateRoot(root, {
+    const first = acquireVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key,
       ownerToken: 'owner-a', now: '2026-08-09T00:00:00.000Z', leaseDurationMs: 60_000
     }));
-    const second = acquireVerificationActionClaimV1(withStateRoot(root, {
+    const second = acquireVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key,
       ownerToken: 'owner-b', now: '2026-08-09T00:00:01.000Z', leaseDurationMs: 60_000
     }));
     expect(first.disposition).toBe('acquired');
     expect(second.disposition).toBe('joined');
-    expect(() => releaseVerificationActionClaimV1(withStateRoot(root, {
+    expect(() => releaseVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', actionKey: key.actionKey, ownerToken: 'owner-b'
     }))).toThrow('owner mismatch');
-    expect(readVerificationActionClaimV1(journalFs(root), key.actionKey)?.ownerToken).toBe('owner-a');
+    expect(readVerificationActionClaim(journalFs(root), key.actionKey)?.ownerToken).toBe('owner-a');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -288,22 +249,22 @@ test('expired crash lease permanently blocks blind re-execution under the same A
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-recovery-'));
   try {
     const key = action();
-    acquireVerificationActionClaimV1(withStateRoot(root, {
+    acquireVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, ownerToken: 'crashed',
       now: '2026-08-09T00:00:00.000Z', leaseDurationMs: 1_000
     }));
-    const blocked = acquireVerificationActionClaimV1(withStateRoot(root, {
+    const blocked = acquireVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key,
       ownerToken: 'successor', now: '2026-08-09T00:00:02.000Z', leaseDurationMs: 60_000
     }));
-    const contender = acquireVerificationActionClaimV1(withStateRoot(root, {
+    const contender = acquireVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key,
       ownerToken: 'other', now: '2026-08-09T00:00:03.000Z', leaseDurationMs: 60_000
     }));
     expect(blocked.disposition).toBe('blocked');
     expect(blocked.reason).toContain('blind re-execution is forbidden');
     expect(contender.disposition).toBe('blocked');
-    expect(readVerificationActionClaimV1(journalFs(root), key.actionKey)?.ownerToken).toBe('crashed');
+    expect(readVerificationActionClaim(journalFs(root), key.actionKey)?.ownerToken).toBe('crashed');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -311,19 +272,19 @@ test('only the current owner can renew a live lease', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-renew-'));
   try {
     const key = action();
-    acquireVerificationActionClaimV1(withStateRoot(root, {
+    acquireVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', action: key, ownerToken: 'owner-a',
       now: '2026-08-09T00:00:00.000Z', leaseDurationMs: 1_000
     }));
-    expect(renewVerificationActionClaimV1(withStateRoot(root, {
+    expect(renewVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', actionKey: key.actionKey,
       ownerToken: 'owner-a', now: '2026-08-09T00:00:00.500Z', leaseDurationMs: 60_000
     }))).toBe(true);
-    expect(renewVerificationActionClaimV1(withStateRoot(root, {
+    expect(renewVerificationActionClaim(withStateRoot(root, {
       repositoryRoot: 'R:/repo', actionKey: key.actionKey,
       ownerToken: 'owner-b', now: '2026-08-09T00:00:01.000Z', leaseDurationMs: 60_000
     }))).toBe(false);
-    expect(readVerificationActionClaimV1(journalFs(root), key.actionKey)?.expiresAt)
+    expect(readVerificationActionClaim(journalFs(root), key.actionKey)?.expiresAt)
       .toBe('2026-08-09T00:01:00.500Z');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

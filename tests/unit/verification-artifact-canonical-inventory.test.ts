@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { publishVerificationArtifactSetV1 } from '../../platform/compiler/verify/verification-artifact-publication.ts';
-import { buildBlockedProductVerificationClaimSummary } from '../../platform/shared/product-verification-profile.ts';
-import { readOptionalCanonicalVerificationArtifactSetV1 } from '../../platform/shared/verification-artifact-authority.ts';
-import { isCanonicalVerificationArtifactSet } from '../../platform/shared/verification-artifact-contract.ts';
+import { publishVerificationArtifactSet } from '../../src/compiler/verify/verification-artifact-publication.ts';
+import { isCanonicalVerificationArtifactSet } from '../../src/verification/artifact/contract/artifact.ts';
+import { readOptionalCanonicalVerificationArtifactSet } from '../../src/verification/artifact/runtime/authority.ts';
+import { buildBlockedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
 import { buildReviewLock } from '../helpers/review-fixtures.ts';
+import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function skippedPolicyReport() {
@@ -71,7 +72,10 @@ function blockedArtifactSet() {
         status: 'failed' as const,
         requestedLane: 'all' as const,
         failedLanes: ['fast' as const],
-        claimSummary: buildBlockedProductVerificationClaimSummary('all')
+        claimSummary: buildBlockedProductVerificationClaimSummary(
+          'all',
+          productVerificationObservationsFixture()
+        )
       },
       logs: { stdout: '', stderr: '' }
     },
@@ -88,13 +92,13 @@ test('Verification artifact accepts the canonical blocked inventory projection',
 test('Verification artifact publisher bytes round-trip through the canonical reader', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const artifacts = blockedArtifactSet();
-    await publishVerificationArtifactSetV1({
+    await publishVerificationArtifactSet({
       workspaceRoot,
       lock: buildReviewLock({ passStatus: { verify: 'failed' } }),
       artifacts
     });
 
-    expect(readOptionalCanonicalVerificationArtifactSetV1(workspaceRoot)).toEqual(artifacts);
+    expect(readOptionalCanonicalVerificationArtifactSet(workspaceRoot)).toEqual(artifacts);
   });
 });
 

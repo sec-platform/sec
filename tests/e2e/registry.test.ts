@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import pLimit from 'p-limit';
 
-import { loadAllManifests, loadManifestById } from '../../platform/compiler/parse/load-manifest.ts';
-import { resolveGraph } from '../../platform/compiler/resolve/resolve-graph.ts';
-import { validateResolvedTemplates } from '../../platform/compiler/verify/validate-resolved-templates.ts';
+import { loadAllManifests, loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
+import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
+import { validateResolvedTemplates } from '../../src/compiler/verify/validate-resolved-templates.ts';
 import { buildManifestValidationPlan } from '../helpers/plan-fixtures.ts';
 
 type RegistryValidationFailure = {
@@ -19,24 +19,6 @@ function registryValidationConcurrency(): number {
   return parsed;
 }
 
-test('versioned official registry manifests inherit root manifest fields', async () => {
-  const rootEntry = await loadManifestById('ticket/basic');
-  const entry = await loadManifestById('ticket/basic', { version: '0.1.1' });
-
-  expect(entry.manifest.version).toBe('0.1.1');
-  expect(entry.manifest.requires).toEqual(rootEntry.manifest.requires);
-  expect(entry.manifest.installs.map((install) => install.to)).toEqual(
-    rootEntry.manifest.installs.map((install) => install.to)
-  );
-  expect(entry.manifest.pins).toEqual(rootEntry.manifest.pins);
-  expect(entry.manifest.acceptance).toEqual(rootEntry.manifest.acceptance);
-  expect(entry.manifest.upgrade?.migrations.map((migration) => migration.id)).toEqual([
-    'mig-ticket-service-refresh',
-    'mig-ticket-upgrade-metadata'
-  ]);
-  expect(entry.manifestPath.replaceAll('\\', '/')).toContain('/versions/0.1.1/block.manifest.yaml');
-  expect(entry.manifestRoot.replaceAll('\\', '/')).toContain('/versions/0.1.1');
-}, 180000);
 test('official registry blocks typecheck in their minimal resolved closure', async () => {
   const manifests = await loadAllManifests();
   expect(manifests.length).toBeGreaterThan(0);

@@ -154,7 +154,6 @@ test('CLI emits explain JSON for CI consumers', async () => {
       { compact: true }
     );
     expect(matrixPayload).toEqual(payload.e2eMatrix);
-    expect(payload.reviewSummary.formatVersion).toBe('2');
     expect(payload.reviewSummary.ciSummary).toMatchObject({
       status: 'passed',
       failureCount: 0
@@ -233,7 +232,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
       sourceSummaries: [
         {
           scope: 'official',
-          path: 'platform/policies/official/policy.spec.yaml',
+          path: 'catalog/policies/official/policy.spec.yaml',
           policyIds: ['tenant-scope-required']
         },
         {

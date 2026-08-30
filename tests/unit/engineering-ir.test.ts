@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import type { BuildEngineeringIRInput } from '../../platform/compiler/ir/build-engineering-ir.ts';
-import { buildEngineeringIR } from '../../platform/compiler/ir/build-engineering-ir.ts';
-import { indexEngineeringIR } from '../../platform/compiler/ir/index-engineering-ir.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
+import { CompilerError } from '../../src/compiler/errors.ts';
+import type { BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { buildEngineeringIR } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { indexEngineeringIR } from '../../src/compiler/ir/index-engineering-ir.ts';
 
 function fixture(): BuildEngineeringIRInput {
   return {
@@ -14,28 +14,28 @@ function fixture(): BuildEngineeringIRInput {
         version: '0.1.0',
         kind: 'capability',
         installOrder: 2,
-        manifestPath: 'platform/registry/official/ticket.basic/block.manifest.yaml',
+        manifestPath: 'catalog/registry/official/ticket.basic/block.manifest.yaml',
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
+        registryPath: 'catalog/registry/official'
       },
       {
         id: 'auth/basic-session',
         version: '0.1.0',
         kind: 'capability',
         installOrder: 1,
-        manifestPath: 'platform/registry/official/auth.basic-session/block.manifest.yaml',
+        manifestPath: 'catalog/registry/official/auth.basic-session/block.manifest.yaml',
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
-        registryPath: 'platform/registry/official'
+        registryPath: 'catalog/registry/official'
       }
     ],
     manifests: [
       {
         blockId: 'ticket/basic',
-        manifestPath: 'platform/registry/official/ticket.basic/block.manifest.yaml',
+        manifestPath: 'catalog/registry/official/ticket.basic/block.manifest.yaml',
         manifest: {
           requires: ['auth/session'],
           provides: ['ticket/write', 'ticket/read'],
@@ -56,14 +56,14 @@ function fixture(): BuildEngineeringIRInput {
     ],
     slotTasks: [
       {
-        id: 'ticket_comment_delegate',
+        id: 'ticket_title_formatter',
         block: 'ticket/basic',
-        target: 'custom/ticket_comment_delegate.ts',
-        sourcePath: 'source/code/slots/ticket_comment_delegate.ts',
-        symbol: 'addTicketCommentDelegate',
+        target: 'custom/ticket_title_formatter.ts',
+        sourcePath: 'source/code/slots/ticket_title_formatter.ts',
+        symbol: 'formatTicketTitle',
         kind: 'adapter',
-        inputType: 'TicketCommentInput',
-        outputType: 'TicketCommentRecord',
+        inputType: 'TicketTitleInput',
+        outputType: 'FormattedTicketTitle',
         status: 'filled',
         writableZones: ['custom/'],
         provenanceHints: { generator: null, verifiedBy: [] }
@@ -93,7 +93,6 @@ function expectCompilerError(run: () => unknown, code: string): void {
 test('buildEngineeringIR creates stable semantic entities, facts, and revision domains', () => {
   const ir = buildEngineeringIR(fixture());
 
-  expect(ir.formatVersion).toBe('2');
   expect(ir.appId).toBe('app:ticket-app');
   expect(ir.inputRevision.startsWith('sha256:')).toBe(true);
   expect(ir.semanticRevision.startsWith('sha256:')).toBe(true);
@@ -156,7 +155,7 @@ test('buildEngineeringIR preserves distinct assertions for the same semantic tri
     {
       kind: 'contract',
       sourceId: 'manifest:ticket/basic',
-      sourcePath: 'platform/registry/official/ticket.basic/block.manifest.yaml'
+      sourcePath: 'catalog/registry/official/ticket.basic/block.manifest.yaml'
     },
     {
       kind: 'contract',

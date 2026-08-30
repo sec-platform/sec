@@ -10,7 +10,7 @@ import {
   semanticMutationIsolatedPhaseTelemetryOwnedPaths,
   withSemanticMutationIsolatedPhaseTelemetry,
   type SemanticMutationIsolatedPhase
-} from '../../platform/compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
+} from '../../src/compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const RUNTIME_PRECOMMAND_PHASES = [
@@ -72,7 +72,6 @@ test('isolated phase telemetry is durable, path-free, reset-scoped, and non-auth
       'source-snapshot-single-flight-wait',
       'runtime-materialize',
       'compile-workspace',
-      'next-build',
       'unit'
     ] as const satisfies readonly SemanticMutationIsolatedPhase[]) {
       await withSemanticMutationIsolatedPhaseTelemetry(workspaceRoot, phase, async () => undefined);
@@ -94,7 +93,6 @@ test('isolated phase telemetry is durable, path-free, reset-scoped, and non-auth
     for (const phase of [
       'runtime-materialize',
       'compile-workspace',
-      'next-build',
       'unit'
     ] as const satisfies readonly SemanticMutationIsolatedPhase[]) {
       await withSemanticMutationIsolatedPhaseTelemetry(workspaceRoot, phase, async () => undefined);
@@ -102,9 +100,10 @@ test('isolated phase telemetry is durable, path-free, reset-scoped, and non-auth
 
     const release = deferred();
     const entered = deferred();
+    await resetSemanticMutationIsolatedExecutionPhaseTelemetry(workspaceRoot);
     const running = withSemanticMutationIsolatedPhaseTelemetry(
       workspaceRoot,
-      'playwright',
+      'unit',
       async () => {
         entered.resolve();
         await release.promise;
@@ -117,7 +116,7 @@ test('isolated phase telemetry is durable, path-free, reset-scoped, and non-auth
     if (during.status !== 'valid') throw new Error('Phase telemetry was not readable');
     expect(during.events.at(-1)).toEqual({
       formatVersion: 'semantic-mutation-isolated-phase-telemetry-v1',
-      phase: 'playwright',
+      phase: 'unit',
       state: 'started',
       durationMs: 0
     });
@@ -146,7 +145,7 @@ test('isolated phase telemetry is durable, path-free, reset-scoped, and non-auth
     expect(completed.status).toBe('valid');
     if (completed.status !== 'valid') throw new Error('Completed phase telemetry was not readable');
     expect(completed.events.at(-1)).toMatchObject({
-      phase: 'playwright',
+      phase: 'unit',
       state: 'completed'
     });
     expect(completed.events.at(-1)!.durationMs).toBeGreaterThanOrEqual(0);

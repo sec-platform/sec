@@ -1,14 +1,14 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 
+import type { LockFile } from '../../src/compiler/contract.ts';
 import {
   adaptWorkspace,
   verifyWorkspace
-} from '../../platform/orchestrator.ts';
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
+} from '../../src/compiler/orchestration/cli.ts';
+import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('expanded official block set composes and verifies as one project', async () => {
@@ -27,13 +27,11 @@ test('expanded official block set composes and verifies as one project', async (
       'worklog/basic'
     ]
   });
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const { lockPath, postgresContractPath } = getWorkspacePaths(workspaceRoot);
   const resolvedLock = await readJson<LockFile>(lockPath);
   expect(resolvedLock.resolvedBlocks.length).toBe(13);
-  expect(resolvedLock.slotTasks).toHaveLength(2);
+  expect(resolvedLock.slotTasks).toHaveLength(1);
 
-  const storeSource = await fs.readFile(path.join(workspaceRoot, 'project', 'lib', 'store.ts'), 'utf8');
-  expect(storeSource).toContain('createRuntimeStore("postgres-contract")');
   await adaptWorkspace(workspaceRoot);
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   expect(report.summary.status).toBe('passed');
@@ -44,7 +42,7 @@ test('expanded official block set composes and verifies as one project', async (
     provider: string;
     persistenceMode: string;
     tables: Array<{ name: string; columns: string[] }>;
-  }>(path.join(workspaceRoot, 'project', 'generated', 'postgres-contract.json'));
+  }>(postgresContractPath);
   expect(postgresContract.provider).toBe('postgres');
   expect(postgresContract.persistenceMode).toBe('contract-only');
   expect(postgresContract.tables.map((table) => table.name)).toEqual(
@@ -85,57 +83,27 @@ test('expanded official block set composes and verifies as one project', async (
   expect(lock.installPlan.some((step) => step.to === 'tests/unit/worklog-service.test.ts')).toBe(true);
   expect(lock.generatedPaths).toEqual(
     expect.arrayContaining([
-      'app/tickets/page.tsx',
-      'app/api/tickets/route.ts',
-      'app/api/tickets/export/route.ts',
-      'app/api/tickets/summary/route.ts',
-      'app/api/tickets/summary/export/route.ts',
-      'app/api/tickets/[ticketId]/attachments/route.ts',
-      'app/api/tickets/[ticketId]/comments/route.ts',
-      'app/api/tickets/[ticketId]/status/route.ts',
-      'app/api/tickets/[ticketId]/worklogs/route.ts',
-      'components/ticket-attachment-form.tsx',
-      'components/ticket-comment-form.tsx',
-      'components/ticket-worklog-form.tsx',
-      'components/ticket-form.tsx',
-      'components/ticket-status-form.tsx',
+      'lib/store.ts',
+      'src/runtime/database.ts',
       'tests/runtime/unit/ticket-runtime.test.ts',
-      'tests/runtime/acceptance/ticket-flow.spec.ts'
+      'tests/runtime/unit/customer-runtime.test.ts'
     ])
   );
-
-  const routesSource = await fs.readFile(path.join(workspaceRoot, 'project', 'generated', 'routes.ts'), 'utf8');
-  expect(routesSource).toContain('path: "/tickets"');
-  const ticketsPageSource = await fs.readFile(path.join(workspaceRoot, 'project', 'app', 'tickets', 'page.tsx'), 'utf8');
-  expect(ticketsPageSource).toContain('Ticket status filter');
-  expect(ticketsPageSource).toContain('Ticket SLA summary');
-  expect(ticketsPageSource).toContain('Due date: {ticket.dueDate');
-  expect(ticketsPageSource).toContain('summaryExportHref');
-  expect(ticketsPageSource).toContain('Attachments for ${ticket.title}');
-  expect(ticketsPageSource).toContain('Comments for ${ticket.title}');
-  expect(ticketsPageSource).toContain('Worklogs for ${ticket.title}');
-  expect(ticketsPageSource).toContain('Total worklog minutes');
+  expect(lock.generatedPaths.some((entry) => (
+    /^(?:app|components)(?:\/|$)|^next(?:-env\.d\.ts|\.config\.mjs)$|^tests\/runtime\/acceptance\//u.test(entry)
+  ))).toBe(false);
 
 }, 180000);
 test('reference project coverage has no uncovered blocks after runtime acceptance passes', async () => {
   const { acceptanceCoveragePath } = getWorkspacePaths(process.cwd());
-  if (!(await fs.access(acceptanceCoveragePath).then(() => true, () => false))) {
-    return;
-  }
-  const coverage = await readJson<{
-    status: 'passed' | 'failed' | 'skipped';
-    uncoveredBlocks: string[];
-    uncoveredSlots: string[];
-  }>(acceptanceCoveragePath);
-
-  if (coverage.status !== 'passed') {
-    return;
-  }
+  await fs.access(acceptanceCoveragePath);
+  const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
+  expect(coverage.status).toBe('passed');
 
   const uncovered = coverage.uncoveredBlocks.filter((b) => b !== 'collaboration/enterprise-hub' && b !== 'file/upload');
   expect(uncovered).toHaveLength(0);
   const uncoveredSlots = coverage.uncoveredSlots.filter((s) =>
-    !s.includes('collaboration/enterprise-hub') && s !== 'ticket_comment_delegate'
+    !s.includes('collaboration/enterprise-hub')
   );
   expect(uncoveredSlots).toHaveLength(0);
 }, 180000);

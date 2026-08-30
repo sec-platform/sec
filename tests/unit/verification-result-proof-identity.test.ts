@@ -1,12 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import {
-  CodexDevelopmentAggregateVerificationClaimsV1,
-  CodexDevelopmentBuildVerificationGateResultV1,
-  CodexDevelopmentVerificationEnvironmentIdentityV1,
-  type VerificationGateResultV1,
-  type VerificationResultStatus
-} from '../../platform/shared/verification-result-contract.ts';
+import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, type VerificationGateResult, type VerificationResultStatus } from '../../src/verification/result/contract/result.ts';
 
 const CLAIM_ID = 'claim:product';
 const GATE_ID = 'gate:product';
@@ -21,12 +15,12 @@ function gate(input: {
   requiredForClaims?: string[];
   supportedClaims?: string[];
   reasonCode?: 'executed-failure' | 'selection-unresolved' | 'input-invalidated' | 'not-dispatched';
-}): VerificationGateResultV1 {
+}): VerificationGateResult {
   const passed = input.status === 'passed';
   const failed = input.status === 'failed';
   const invalidated = input.status === 'invalidated';
   const executed = passed || failed;
-  return CodexDevelopmentBuildVerificationGateResultV1({
+  return CodexDevelopmentBuildVerificationGateResult({
     gateId: GATE_ID,
     gateRevision: input.gateRevision ?? 'gate-v1',
     owner: 'verification-owner',
@@ -79,9 +73,9 @@ function gate(input: {
 
 function aggregate(
   owningEnvironments: string[],
-  gateResults: VerificationGateResultV1[]
+  gateResults: VerificationGateResult[]
 ) {
-  return CodexDevelopmentAggregateVerificationClaimsV1({
+  return CodexDevelopmentAggregateVerificationClaims({
     claims: [{
       claimId: CLAIM_ID,
       requiredGateIds: [GATE_ID],
@@ -92,8 +86,8 @@ function aggregate(
 }
 
 test('a real owning failure outranks a malformed owning observation', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentityV1('linux', 'x64');
-  const win32 = CodexDevelopmentVerificationEnvironmentIdentityV1('win32', 'x64');
+  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
+  const win32 = CodexDevelopmentVerificationEnvironmentIdentity('win32', 'x64');
   const malformed = gate({
     os: 'win32',
     status: 'invalidated',
@@ -110,7 +104,7 @@ test('a real owning failure outranks a malformed owning observation', () => {
 });
 
 test('non-owning proof identity cannot invalidate the owning observation', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentityV1('linux', 'x64');
+  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
   const result = aggregate([linux], [
     gate({ os: 'linux', status: 'passed', gateRevision: 'gate-v1' }),
     gate({ os: 'darwin', status: 'passed', gateRevision: 'gate-v2' })
@@ -119,7 +113,7 @@ test('non-owning proof identity cannot invalidate the owning observation', () =>
 });
 
 test('a non-owning failure observation does not change an owning pass', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentityV1('linux', 'x64');
+  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
   const result = aggregate([linux], [
     gate({ os: 'linux', status: 'passed', gateRevision: 'gate-v1' }),
     gate({ os: 'darwin', status: 'failed', gateRevision: 'gate-v2' })
@@ -128,8 +122,8 @@ test('a non-owning failure observation does not change an owning pass', () => {
 });
 
 test('owning observations with mixed proof revisions invalidate a pass', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentityV1('linux', 'x64');
-  const win32 = CodexDevelopmentVerificationEnvironmentIdentityV1('win32', 'x64');
+  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
+  const win32 = CodexDevelopmentVerificationEnvironmentIdentity('win32', 'x64');
   const result = aggregate([linux, win32], [
     gate({ os: 'linux', status: 'passed', gateRevision: 'gate-v1' }),
     gate({ os: 'win32', status: 'passed', gateRevision: 'gate-v2' })
@@ -139,8 +133,8 @@ test('owning observations with mixed proof revisions invalidate a pass', () => {
 });
 
 test('invalidation rules participate in the owning logical proof identity', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentityV1('linux', 'x64');
-  const win32 = CodexDevelopmentVerificationEnvironmentIdentityV1('win32', 'x64');
+  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
+  const win32 = CodexDevelopmentVerificationEnvironmentIdentity('win32', 'x64');
   const result = aggregate([linux, win32], [
     gate({ os: 'linux', status: 'passed', invalidationRules: ['source-change'] }),
     gate({ os: 'win32', status: 'passed', invalidationRules: ['toolchain-change'] })
@@ -149,7 +143,7 @@ test('invalidation rules participate in the owning logical proof identity', () =
 });
 
 test('[not-run, invalidated] is order-independent and later invalidated wins', () => {
-  const win32 = CodexDevelopmentVerificationEnvironmentIdentityV1('win32', 'x64');
+  const win32 = CodexDevelopmentVerificationEnvironmentIdentity('win32', 'x64');
   const notRun = gate({
     os: 'win32',
     status: 'not-run',
@@ -170,7 +164,7 @@ test('[not-run, invalidated] is order-independent and later invalidated wins', (
 });
 
 test('duplicate gate observations fail closed', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentityV1('linux', 'x64');
+  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
   expect(() => aggregate([linux], [
     gate({ os: 'linux', status: 'passed' }),
     gate({ os: 'linux', status: 'failed' })
@@ -178,7 +172,7 @@ test('duplicate gate observations fail closed', () => {
 });
 
 test('zero observations for a required gate never produce passed', () => {
-  const linux = CodexDevelopmentVerificationEnvironmentIdentityV1('linux', 'x64');
+  const linux = CodexDevelopmentVerificationEnvironmentIdentity('linux', 'x64');
   const result = aggregate([linux], []);
   expect(result.overallStatus).toBe('not-run');
   expect(result.overallReasonCode).toBe('not-dispatched');

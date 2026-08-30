@@ -1,7 +1,0 @@
-{
-  "id": "mig-ticket-service-refresh",
-  "kind": "file-replace",
-  "reason": "Refresh ticket service to 0.1.1 and expose version metadata.",
-  "source": "files/src/installed/ticket/ticket-service.ts",
-  "target": "src/installed/ticket/ticket-service.ts"
-}

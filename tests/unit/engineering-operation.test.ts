@@ -4,14 +4,14 @@ import fs from 'node:fs/promises';
 import {
   applyEngineeringOperations,
   type EngineeringOperation
-} from '../../platform/compiler/operations/engineering-operation.ts';
-import { initWorkspace } from '../../platform/orchestrator/workspace-orchestrator.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+} from '../../src/compiler/operations/engineering-operation.ts';
+import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease
-} from '../../platform/shared/workspace-write-lease.ts';
-import { readYaml } from '../../platform/shared/yaml.ts';
+} from '../../src/workspace/lease.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { readYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function applyWithLease(workspaceRoot: string, operations: readonly EngineeringOperation[]) {
@@ -22,9 +22,9 @@ async function applyWithLease(workspaceRoot: string, operations: readonly Engine
   ));
 }
 
-test('canonical Engineering Operation writer applies Plan operations outside Workbench', async () => {
+test('canonical Engineering Operation writer applies Plan operations through the sole mutation owner', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     const results = await applyWithLease(workspaceRoot, [
       { id: 'rename-app', kind: 'set-app-name', value: 'renamed-app' },
       { id: 'add-proof', kind: 'add-acceptance', acceptanceId: 'acceptance_extra_proof' }
@@ -45,7 +45,7 @@ test('canonical Engineering Operation writer applies Plan operations outside Wor
 
 test('failed operation batch publishes no partial Plan mutation', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
+    await initWorkspace(workspaceRoot);
     const { planPath } = getWorkspacePaths(workspaceRoot);
     const before = await fs.readFile(planPath);
 

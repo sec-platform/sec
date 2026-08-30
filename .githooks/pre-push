@@ -10,4 +10,4 @@ if ! git diff --cached --quiet HEAD --; then
   exit 1
 fi
 
-bun ./platform/dev-runner.ts imports:freeze
+bun run imports:freeze

@@ -5,11 +5,11 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 import { readCompilerTypeScriptMutationFixture } from '../helpers/compiler-fixtures.ts';
 
-import { runObservedCommand } from '../../platform/shared/observed-process.ts';
+import { runObservedCommand } from '../../src/runtime-state/physical/runtime/observed-process.ts';
 import {
   arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
   createWindowsAppContainerNativeExecutionBudgetForTests
-} from '../../platform/shared/windows-appcontainer-executor.ts';
+} from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
 
 const RECOVERY_OWNER_OBSERVATION_SCHEMA = 'sec-recovery-owner-behavior-observation-v1' as const;
 const RECOVERY_OWNER_OBSERVATION_LIMIT_BYTES = 512;
@@ -184,7 +184,7 @@ async function buildRecoveryOwnerProjection(
     plugins: [{
       name: 'recovery-owner-exact-module-projection-v1',
       setup(build) {
-        build.onLoad({ filter: /windows-appcontainer-executor\.ts$/u }, async (args) => {
+        build.onLoad({ filter: /executor\.ts$/u }, async (args) => {
           if (foldedLocalPath(args.path) !== canonicalEntryPath) return undefined;
           return {
             contents: `${source}\n${recoveryOwnerProjectionHarness()}`,
@@ -342,7 +342,7 @@ async function assertRecoveryOwnerBehavioralProjection(
 
 test('Windows AppContainer recovery ownership and deadlines are behaviorally closed', async () => {
   const root = path.resolve(import.meta.dir, '../..');
-  const executorPath = 'platform/shared/windows-appcontainer-executor.ts';
+  const executorPath = 'src/runtime-state/physical/runtime/windows-appcontainer/executor.ts';
   const executorSource = await readCompilerTypeScriptMutationFixture(executorPath, 'transpile-input');
 
   await assertRecoveryOwnerBehavioralProjection(

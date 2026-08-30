@@ -2,16 +2,16 @@ import { expect, test } from 'bun:test';
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { relocateSemanticMutationIsolatedRunnerBundleForTests } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
+import { relocateSemanticMutationIsolatedRunnerBundleForTests } from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import {
   probeWindowsAppContainerCapabilityForTests,
   redactWindowsAppContainerProbeCapabilityForTests,
   runWindowsAppContainerChild,
-  WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
+  WINDOWS_APPCONTAINER_RECOVERY_CONTRACT,
   windowsAppContainerCapability,
   WindowsAppContainerExecutionError
-} from '../../platform/shared/windows-appcontainer-executor.ts';
-import { acquireWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
+} from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
+import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -189,7 +189,7 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
     'workspace'
   );
   const runnerRelativePath =
-    '.isolated-compiler/platform/orchestrator/bundled-compiler-sentinel.mjs';
+    '.isolated-compiler/src/compiler/orchestration/bundled-compiler-sentinel.mjs';
   const runnerPath = path.join(stagingRoot, runnerRelativePath);
   const bundleEntryPath = path.join(workspaceRoot, 'bundled-compiler-sentinel.ts');
   const stagedTypeScriptRoot = path.join(
@@ -229,7 +229,7 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
         path.dirname(bundleEntryPath),
         path.join(process.cwd(), 'platform', 'compiler', 'verify', 'assert-isolated-staging-tree.ts')
       ).split(path.sep).join('/'))};`,
-      "import ejs from 'ejs';",
+      "import { parse as parseYaml } from 'yaml';",
       "import { Project } from 'ts-morph';",
       "import typescript from 'typescript';",
       'const stdinText = await Bun.stdin.text();',
@@ -238,7 +238,7 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
       "const sourceFile = typescript.createSourceFile('sentinel.ts', 'const value: number = 1;', typescript.ScriptTarget.Latest);",
       'const project = new Project({ useInMemoryFileSystem: true });',
       "const projectFile = project.createSourceFile('project-sentinel.ts', 'export const value = 1;');",
-      "const rendered = ejs.render('<%= value %>', { value: 'ejs-ok' });",
+      "const parsedYaml = parseYaml('value: yaml-ok');",
       "let stagingTreeBoundary = 'passed';",
       "let stagingTreeErrorCode = 'none';",
       "let stagingTreeOperation = 'none';",
@@ -253,7 +253,7 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
       "}",
       "await Bun.write('bundled-compiler-sentinel.json', JSON.stringify({",
       "  ciExact: process.env.CI === 'true',",
-      "  ejs: rendered === 'ejs-ok',",
+      "  yaml: parsedYaml?.value === 'yaml-ok',",
       "  isolatedVerificationExact: process.env.SEC_ISOLATED_VERIFICATION === '1',",
       "  pathExact: process.env.PATH === '',",
       '  stagingTreeBoundary,',
@@ -324,7 +324,7 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
     expect(execution).toEqual({ exitCode: 0 });
     expect(JSON.parse(await readFile(resultPath, 'utf8'))).toEqual({
       ciExact: true,
-      ejs: true,
+      yaml: true,
       isolatedVerificationExact: true,
       pathExact: true,
       stagingTreeBoundary: 'passed',
@@ -368,11 +368,11 @@ test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launc
   const processMarkerPath = path.join(stagingRoot, 'long-path-process.json');
   const ownerPath = path.join(
     transactionRoot,
-    WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1.ownerFileName
+    WINDOWS_APPCONTAINER_RECOVERY_CONTRACT.ownerFileName
   );
   const nativeResultPath = path.join(
     transactionRoot,
-    WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1.resultFileName
+    WINDOWS_APPCONTAINER_RECOVERY_CONTRACT.resultFileName
   );
   let lease: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>> | undefined;
 
@@ -484,7 +484,7 @@ test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launc
     expect(await exists(nativeResultPath)).toBe(false);
     expect(await exists(path.join(
       stagingRoot,
-      WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1.runtimeRelativePath
+      WINDOWS_APPCONTAINER_RECOVERY_CONTRACT.runtimeRelativePath
     ))).toBe(false);
     expect(await exists(path.join(stagingRoot, '.sm3h'))).toBe(false);
     expect(await exists(path.join(stagingRoot, '.sm3p'))).toBe(false);

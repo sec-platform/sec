@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 import path from 'node:path';
 
-import { parseGitHubPullRequestClosingFactsPageV1 } from '../../platform/shared/issue-disposition-contract.ts';
+import { parseGitHubPullRequestClosingFactsPage } from '../../src/control/issues/disposition.ts';
 import {
-  parseGitHubIssueObservationV1,
-  parseGitHubLatestClosedEventV1
-} from '../../scripts/codex/issue-disposition-github.ts';
+  parseGitHubIssueObservation,
+  parseGitHubLatestClosedEvent
+} from '../../src/control/issues/issue-disposition-github.ts';
 
 const REPOSITORY = 'sec-platform/sec';
 
@@ -29,32 +29,32 @@ function pullPage(input: { nodes?: unknown[]; totalCount?: number; hasNextPage?:
 }
 
 test('Issue observation binds exact ordinary-Issue identity, specification, state, and raw bytes', () => {
-  const observed = parseGitHubIssueObservationV1({ source: issue(), repository: REPOSITORY,
+  const observed = parseGitHubIssueObservation({ source: issue(), repository: REPOSITORY,
     issueNumber: 352 });
   expect(observed).toMatchObject({ repository: REPOSITORY, issueNumber: 352,
     issueNodeId: 'I_node', state: 'OPEN', title: 'Focused Issue',
     body: 'Exact current specification' });
   expect(observed.specRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(parseGitHubIssueObservationV1({ source: issue({ body: 'changed' }),
+  expect(parseGitHubIssueObservation({ source: issue({ body: 'changed' }),
     repository: REPOSITORY, issueNumber: 352 }).specRevision).not.toBe(observed.specRevision);
-  expect(parseGitHubIssueObservationV1({ source: `${issue()} `, repository: REPOSITORY,
+  expect(parseGitHubIssueObservation({ source: `${issue()} `, repository: REPOSITORY,
     issueNumber: 352 }).responseDigest).not.toBe(observed.responseDigest);
-  expect(parseGitHubIssueObservationV1({ source: issue({
+  expect(parseGitHubIssueObservation({ source: issue({
     updated_at: '2026-08-12T00:00:00Z'
   }), repository: REPOSITORY, issueNumber: 352 }).updatedAt)
     .toBe('2026-08-12T00:00:00.000Z');
 });
 
 test('Issue observation rejects PR resources, identity drift, and malformed provider shape', () => {
-  expect(() => parseGitHubIssueObservationV1({ source: issue({ pull_request: {} }),
+  expect(() => parseGitHubIssueObservation({ source: issue({ pull_request: {} }),
     repository: REPOSITORY, issueNumber: 352 })).toThrow('cannot target a pull request');
-  expect(() => parseGitHubIssueObservationV1({ source: issue({ number: 351 }),
+  expect(() => parseGitHubIssueObservation({ source: issue({ number: 351 }),
     repository: REPOSITORY, issueNumber: 352 })).toThrow('differs');
-  expect(() => parseGitHubIssueObservationV1({ source: 'provider raw secret',
+  expect(() => parseGitHubIssueObservation({ source: 'provider raw secret',
     repository: REPOSITORY, issueNumber: 352 })).toThrow(/decoded response digest sha256:/u);
   const failure = (source: string) => {
     try {
-      parseGitHubIssueObservationV1({ source, repository: REPOSITORY, issueNumber: 352 });
+      parseGitHubIssueObservation({ source, repository: REPOSITORY, issueNumber: 352 });
       throw new Error('expected malformed provider response');
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
@@ -68,31 +68,31 @@ test('Issue observation rejects PR resources, identity drift, and malformed prov
 });
 
 test('PR closing reference pages require sequential bounded pagination and stable identity', () => {
-  const first = parseGitHubPullRequestClosingFactsPageV1({ source: pullPage({
+  const first = parseGitHubPullRequestClosingFactsPage({ source: pullPage({
     nodes: [{ number: 352, repository: { nameWithOwner: REPOSITORY } }],
     totalCount: 2, hasNextPage: true, endCursor: 'cursor-1' }), repository: REPOSITORY,
   prNumber: 357, expectedCursor: null, observedBeforeCount: 0, expectedTotalCount: null });
   expect(first.closingIssues).toEqual([{ repository: REPOSITORY, issueNumber: 352 }]);
   expect(first.nextCursor).toBe('cursor-1');
-  const last = parseGitHubPullRequestClosingFactsPageV1({ source: pullPage({ totalCount: 2,
+  const last = parseGitHubPullRequestClosingFactsPage({ source: pullPage({ totalCount: 2,
     nodes: [{ number: 353, repository: { nameWithOwner: REPOSITORY } }],
     hasNextPage: false, endCursor: null }), repository: REPOSITORY,
   prNumber: 357, expectedCursor: 'cursor-1', observedBeforeCount: 1,
   expectedTotalCount: 2 });
   expect(last.nextCursor).toBeNull();
-  expect(() => parseGitHubPullRequestClosingFactsPageV1({ source: pullPage({
+  expect(() => parseGitHubPullRequestClosingFactsPage({ source: pullPage({
     hasNextPage: true, endCursor: 'same' }), repository: REPOSITORY,
   prNumber: 357, expectedCursor: 'same', observedBeforeCount: 0,
   expectedTotalCount: null })).toThrow('did not advance');
-  expect(() => parseGitHubPullRequestClosingFactsPageV1({ source: pullPage({
+  expect(() => parseGitHubPullRequestClosingFactsPage({ source: pullPage({
     errors: [{ message: 'partial provider failure' }] }), repository: REPOSITORY,
   prNumber: 357, expectedCursor: null, observedBeforeCount: 0,
   expectedTotalCount: null })).toThrow('contains provider errors');
-  expect(() => parseGitHubPullRequestClosingFactsPageV1({ source: pullPage({
+  expect(() => parseGitHubPullRequestClosingFactsPage({ source: pullPage({
     nodes: [], totalCount: 1 }), repository: REPOSITORY,
   prNumber: 357, expectedCursor: null, observedBeforeCount: 0,
   expectedTotalCount: null })).toThrow('incomplete or inconsistent');
-  expect(() => parseGitHubPullRequestClosingFactsPageV1({ source: pullPage({
+  expect(() => parseGitHubPullRequestClosingFactsPage({ source: pullPage({
     totalCount: 3 }), repository: REPOSITORY, prNumber: 357, expectedCursor: 'cursor-1',
   observedBeforeCount: 1, expectedTotalCount: 2 })).toThrow('changed during pagination');
 });
@@ -104,7 +104,7 @@ test('latest ClosedEvent exposes exact PR and merge causality, while reopen or a
       closer: { __typename: 'PullRequest', number: 351,
         repository: { nameWithOwner: REPOSITORY }, mergeCommit: { oid: 'a'.repeat(40) } } }] }
   } } } });
-  expect(parseGitHubLatestClosedEventV1({ source, repository: REPOSITORY, issueNumber: 346 }))
+  expect(parseGitHubLatestClosedEvent({ source, repository: REPOSITORY, issueNumber: 346 }))
     .toMatchObject({ eventId: 'CE_1', closer: { repository: REPOSITORY, prNumber: 351,
       mergeCommitSha: 'a'.repeat(40) }, createdAt: '2026-08-11T12:04:29.000Z' });
   const reopened = JSON.stringify({ data: { repository: { issue: { number: 346,
@@ -112,6 +112,6 @@ test('latest ClosedEvent exposes exact PR and merge causality, while reopen or a
       createdAt: '2026-08-11T12:04:29.000Z', actor: { login: 'QzCrane' }, closer: null },
     { __typename: 'ReopenedEvent', id: 'RE_1', createdAt: '2026-08-11T12:15:05.000Z',
       actor: { login: 'QzCrane' } }] } } } } });
-  expect(parseGitHubLatestClosedEventV1({ source: reopened, repository: REPOSITORY,
+  expect(parseGitHubLatestClosedEvent({ source: reopened, repository: REPOSITORY,
     issueNumber: 346 })).toBeNull();
 });

@@ -1,0 +1,260 @@
+{
+  "schema": "sec-generated-state-registry-v1",
+  "rules": [
+    {
+      "id": "workspace-local-state",
+      "selector": { "kind": "exact", "path": ".sec" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "workspace-local-state",
+      "producer": "project-base",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "opaque-protected-tree",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "workspace",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "owner-recovery-only",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "import-transform-transactions",
+      "selector": { "kind": "exact", "path": ".sec/import-transform-transactions" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "import-organizer",
+      "producer": "import-transform-transaction",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "opaque-protected-tree",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "workspace",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "owner-recovery-only",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "codex-control-plane-state",
+      "selector": { "kind": "exact", "path": ".tmp/codex" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "codex-control-plane",
+      "producer": "codex-control-plane",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "opaque-protected-tree",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "workspace",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "owner-recovery-only",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "gate-execution-snapshots",
+      "selector": { "kind": "exact", "path": ".tmp/gate-execution-snapshots" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "work-package-gate",
+      "producer": "work-package-gate",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "opaque-protected-tree",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "operation",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "owner-recovery-only",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "compiler-dependency-install-lock",
+      "selector": { "kind": "exact", "path": ".tmp/dependency-installs/compiler.lock" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "compiler-dependency-runtime",
+      "producer": "ensure-compiler-deps-ready",
+      "physicalForms": [{
+        "kind": "file",
+        "contentsPolicy": "ordinary-file",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "operation",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "producer-recompute",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "compiler-dependency-staging",
+      "selector": { "kind": "direct-child-prefix", "parent": ".tmp/dependency-installs", "prefix": "c.staging-" },
+      "stateClass": "active-ephemeral-workspace",
+      "owner": "compiler-dependency-runtime",
+      "producer": "stage-compiler-dependency-generation",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "owner-bounded-tree",
+        "settlementEffect": "generated-state-quarantine-delete-readback",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "operation",
+      "activeOwnerSignal": "birth-registration",
+      "capacityPolicyRef": "issue-316",
+      "registration": "required-at-birth",
+      "reconstruction": "producer-recompute",
+      "cleanupProfiles": ["automatic", "safe"],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "compiler-dependency-backups",
+      "selector": { "kind": "exact", "path": ".tmp/dependency-installs/compiler-backups" },
+      "stateClass": "recovery-authority",
+      "owner": "compiler-dependency-runtime",
+      "producer": "publish-compiler-dependency-generation",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "opaque-protected-tree",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "workspace",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "owner-recovery-only",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "compiler-node-modules",
+      "selector": { "kind": "exact", "path": "node_modules" },
+      "stateClass": "rebuildable-derived-cache",
+      "owner": "compiler-dependency-runtime",
+      "producer": "ensure-compiler-deps-ready",
+      "physicalForms": [
+        {
+          "kind": "directory",
+          "contentsPolicy": "owner-bounded-tree",
+          "settlementEffect": "generated-state-quarantine-delete-readback",
+          "worktreeRetirement": { "mode": "preserve" }
+        },
+        {
+          "kind": "link",
+          "contentsPolicy": "owner-bound-locator",
+          "settlementEffect": "domain-owner-only",
+          "worktreeRetirement": {
+            "mode": "domain-retire",
+            "providerId": "compiler-dependency-locator"
+          }
+        }
+      ],
+      "scope": "workspace",
+      "activeOwnerSignal": "birth-registration",
+      "capacityPolicyRef": "issue-316",
+      "registration": "required-at-birth",
+      "reconstruction": "producer-recompute",
+      "cleanupProfiles": ["all-rebuildable"],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "shared-dependency-cache",
+      "selector": { "kind": "exact", "path": ".shared-deps" },
+      "stateClass": "external-provider-cache",
+      "owner": "project-runtime",
+      "producer": "ensure-shared-deps-ready",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "owner-bounded-tree",
+        "settlementEffect": "generated-state-quarantine-delete-readback",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "workspace",
+      "activeOwnerSignal": "birth-registration",
+      "capacityPolicyRef": "issue-316",
+      "registration": "required-at-birth",
+      "reconstruction": "producer-recompute",
+      "cleanupProfiles": ["all-rebuildable"],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "test-workspace-root",
+      "selector": { "kind": "exact", "path": ".tmp/test-workspaces" },
+      "stateClass": "active-ephemeral-workspace",
+      "owner": "hermetic-test-runtime",
+      "producer": "prepared-test-workspace-run",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "opaque-protected-tree",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "operation",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "fixture-rebuild",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "generated-state-quarantine",
+      "selector": { "kind": "exact", "path": ".tmp/generated-state-quarantine" },
+      "stateClass": "identity-bound-control-state",
+      "owner": "generated-state-lifecycle",
+      "producer": "generated-state-settlement",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "opaque-protected-tree",
+        "settlementEffect": "domain-owner-only",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "operation",
+      "activeOwnerSignal": "domain-owner-receipt",
+      "capacityPolicyRef": "owner-defined-protected",
+      "registration": "domain-owned",
+      "reconstruction": "owner-recovery-only",
+      "cleanupProfiles": [],
+      "retirement": "domain-receipt-required"
+    },
+    {
+      "id": "import-candidate-snapshots",
+      "selector": {
+        "kind": "direct-child-prefix",
+        "parent": ".tmp/import-candidate-snapshots",
+        "prefix": "snapshot-"
+      },
+      "stateClass": "active-ephemeral-workspace",
+      "owner": "import-organizer",
+      "producer": "import-candidate-snapshot",
+      "physicalForms": [{
+        "kind": "directory",
+        "contentsPolicy": "owner-bounded-tree",
+        "settlementEffect": "generated-state-quarantine-delete-readback",
+        "worktreeRetirement": { "mode": "preserve" }
+      }],
+      "scope": "operation",
+      "activeOwnerSignal": "birth-registration",
+      "capacityPolicyRef": "issue-316",
+      "registration": "required-at-birth",
+      "reconstruction": "producer-recompute",
+      "cleanupProfiles": ["automatic", "safe"],
+      "retirement": "domain-receipt-required"
+    }
+  ]
+}

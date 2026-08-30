@@ -1,13 +1,13 @@
-import type { LockFile } from '../../platform/shared/lock-types.ts';
+import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../../src/compiler/contract.ts';
 import { ticketSemanticGeneratorTask } from './semantic.ts';
 
 export function semanticArtifactLock(target: string): LockFile {
   return {
-    formatVersion: '1',
+    formatVersion: LOCK_FILE_FORMAT_VERSION,
     app: {
       id: 'semantic-artifact-test',
       name: 'semantic-artifact-test',
-      stack: 'nextjs-ts-prisma-sqlite',
+      stack: 'typescript-library',
       mode: 'single-tenant'
     },
     resolvedBlocks: [],

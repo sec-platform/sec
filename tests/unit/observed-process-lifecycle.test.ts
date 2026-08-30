@@ -5,10 +5,7 @@ import { PassThrough } from 'node:stream';
 
 import { expect, test } from 'bun:test';
 
-import {
-  runObservedCommand,
-  type ObservedCommandDependencies
-} from '../../platform/shared/observed-process.ts';
+import { runObservedCommand, type ObservedCommandDependencies } from '../../src/runtime-state/physical/runtime/observed-process.ts';
 
 interface FakeChild extends EventEmitter {
   readonly stdout: PassThrough;
@@ -228,4 +225,74 @@ test('natural child close triggers bounded cleanup when census cannot prove tree
     }
   });
   expect(terminations).toBe(1);
+});
+
+test('observed command evaluates its final fence only after tree and stream settlement', async () => {
+  const child = fakeChild();
+  let treeInspected = false;
+  let finalFenceCalls = 0;
+  setTimeout(() => closeChild(child), 0);
+
+  const outcome = await runObservedCommand('host-tool.exe', [], {
+    afterSettlement: async () => {
+      finalFenceCalls += 1;
+      expect(treeInspected).toBe(true);
+      throw new Error('retained boundary drifted after settlement');
+    },
+    cwd: String.raw`C:\Windows\System32`,
+    timeoutMs: 100,
+    dependencies: {
+      ...dependencies(child, async () => ({
+        gracefulAttempted: false,
+        forcedAttempted: false,
+        treeClosed: true
+      })),
+      inspectProcessTreeClosed: async () => {
+        treeInspected = true;
+        return true;
+      }
+    }
+  });
+
+  expect(finalFenceCalls).toBe(1);
+  expect(outcome).toMatchObject({
+    status: 'fence-lost',
+    trigger: 'fence-lost',
+    termination: {
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
+    }
+  });
+});
+
+test('observed command absolute deadline covers beforeSpawn and prevents a late spawn', async () => {
+  const child = fakeChild();
+  let spawnCalls = 0;
+  const outcome = await runObservedCommand('host-tool.exe', [], {
+    beforeSpawn: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    },
+    cwd: String.raw`C:\Windows\System32`,
+    timeoutMs: 5,
+    dependencies: {
+      ...dependencies(child, async () => ({
+        gracefulAttempted: false,
+        forcedAttempted: false,
+        treeClosed: true
+      })),
+      spawnChild: () => {
+        spawnCalls += 1;
+        return child as unknown as ChildProcess;
+      }
+    }
+  });
+
+  expect(spawnCalls).toBe(0);
+  expect(outcome).toMatchObject({
+    status: 'timed-out',
+    trigger: 'timed-out',
+    started: false,
+    termination: { treeClosed: true }
+  });
 });

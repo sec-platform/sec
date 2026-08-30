@@ -1,0 +1,6 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/compiler/orchestration/cli.ts"
+  ]
+}

@@ -2,23 +2,22 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { readJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { ensureProjectBase } from '../../platform/shared/project-base.ts';
+import {
+  buildRuntimeDepsPreboundBinding,
+  loadRuntimeDependencySpec,
+  RUNTIME_DEPENDENCY_PACKAGE_NAMES,
+  RUNTIME_DEPS_PREBOUND_BINDING_FILE
+} from '../../src/toolchain/dependencies/spec.ts';
 import {
   ensureProjectDependencies,
   ensureSharedDepsReady,
   readRuntimeDepsStamp,
   SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES,
   withProjectDependencyBridge
-} from '../../platform/shared/project-runtime.ts';
-import {
-  buildRuntimeDepsPreboundBinding,
-  EXACT_PLAYWRIGHT_PACKAGE_NAMES,
-  loadRuntimeDependencySpec,
-  RUNTIME_DEPENDENCY_PACKAGE_NAMES,
-  RUNTIME_DEPS_PREBOUND_BINDING_FILE
-} from '../../platform/shared/runtime-dependency-spec.ts';
+} from '../../src/toolchain/dependencies/test/runtime.ts';
+import { readJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { ensureProjectBase } from '../../src/workspace/project.ts';
 import { readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -33,18 +32,12 @@ async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Pr
     ...runtimeSpec.dependencies,
     ...runtimeSpec.devDependencies
   };
-  const packageNames = new Set([
-    ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
-    ...EXACT_PLAYWRIGHT_PACKAGE_NAMES
-  ]);
-  await Promise.all([...packageNames].map(async (packageName) => {
+  await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
     const packageRoot = path.join(nodeModulesRoot, ...packageName.split('/'));
     await fs.mkdir(packageRoot, { recursive: true });
     await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
       name: packageName,
-      version: EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(
-        packageName as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
-      ) ? runtimeSpec.devDependencies['@playwright/test'] : exactVersions[packageName]
+      version: exactVersions[packageName]
     })}\n`, 'utf8');
   }));
 }
@@ -255,8 +248,7 @@ describe('project and shared runtime manifests', () => {
       const projectPackage = await readJson<RuntimePackageJson>(projectPackagePath);
       const sharedPackage = await readJson<RuntimePackageJson>(path.join(sharedDepsRoot, 'package.json'));
 
-      expect(projectPackage.dependencies.next).toBe(rootPackage.dependencies?.next as string);
-      expect(projectPackage.dependencies.react).toBe(rootPackage.dependencies?.react as string);
+      expect(projectPackage.dependencies.yaml).toBe(rootPackage.dependencies?.yaml as string);
       expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node'] as string);
       expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript as string);
       expect(sharedPackage.dependencies).toEqual(projectPackage.dependencies);
@@ -275,7 +267,7 @@ describe('dependency bridge', () => {
       await withProjectDependencyBridge(projectRoot, async () => {
         const bridgeStats = await fs.lstat(bridgePath);
         expect(bridgeStats.isSymbolicLink()).toBe(true);
-        await expect(fs.stat(path.join(bridgePath, 'next', 'package.json'))).resolves.toBeDefined();
+        await expect(fs.stat(path.join(bridgePath, 'yaml', 'package.json'))).resolves.toBeDefined();
       });
 
       await expect(fs.stat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -332,7 +324,7 @@ describe('ensureProjectDependencies', () => {
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
       const nodeModulesRoot = path.join(projectRoot, 'node_modules');
       const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
-      const reactManifest = path.join(nodeModulesRoot, 'react', 'package.json');
+      const yamlManifest = path.join(nodeModulesRoot, 'yaml', 'package.json');
       const runtimeSpec = await loadRuntimeDependencySpec();
       await installRuntimePackageManifestClosure(nodeModulesRoot);
       await fs.writeFile(
@@ -341,15 +333,15 @@ describe('ensureProjectDependencies', () => {
         'utf8'
       );
 
-      await fs.rm(reactManifest);
+      await fs.rm(yamlManifest);
       await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
         .rejects.toThrow('Plan-bound dependency tree is unavailable');
 
-      await fs.writeFile(reactManifest, '{"name":"forged-react","version":"0.0.0"}\n', 'utf8');
+      await fs.writeFile(yamlManifest, '{"name":"forged-yaml","version":"0.0.0"}\n', 'utf8');
       await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
         .rejects.toThrow('Plan-bound dependency tree is unavailable');
 
-      await fs.writeFile(reactManifest, '{"name":"react","version":"0.0.0"}\n', 'utf8');
+      await fs.writeFile(yamlManifest, '{"name":"yaml","version":"0.0.0"}\n', 'utf8');
       await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
         .rejects.toThrow('Plan-bound dependency tree is unavailable');
     }, 'engineering-compiler-runtime-prebound-package-closure-');
@@ -360,17 +352,17 @@ describe('ensureProjectDependencies', () => {
       await ensureProjectBase(workspaceRoot);
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
       const nodeModulesRoot = path.join(projectRoot, 'node_modules');
-      const nextPackageFile = path.join(nodeModulesRoot, 'next', 'package.json');
+      const yamlPackageFile = path.join(nodeModulesRoot, 'yaml', 'package.json');
       const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
-      await fs.mkdir(path.dirname(nextPackageFile), { recursive: true });
-      await fs.writeFile(nextPackageFile, '{"name":"next","version":"0.0.0"}\n', 'utf8');
+      await fs.mkdir(path.dirname(yamlPackageFile), { recursive: true });
+      await fs.writeFile(yamlPackageFile, '{"name":"yaml","version":"0.0.0"}\n', 'utf8');
       await fs.writeFile(bindingPath, JSON.stringify({
         formatVersion: 'runtime-deps-prebound-binding-v1',
         manifestHash: 'stale',
         unexpected: true
       }), 'utf8');
-      const before = await fs.stat(nextPackageFile);
-      const beforeBytes = await fs.readFile(nextPackageFile);
+      const before = await fs.stat(yamlPackageFile);
+      const beforeBytes = await fs.readFile(yamlPackageFile);
       let installCalls = 0;
 
       await expect(ensureProjectDependencies(projectRoot, {
@@ -392,10 +384,10 @@ describe('ensureProjectDependencies', () => {
         sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
       })).rejects.toThrow('Plan-bound dependency tree is unavailable');
 
-      const after = await fs.stat(nextPackageFile);
+      const after = await fs.stat(yamlPackageFile);
       expect(installCalls).toBe(0);
       expect({ dev: after.dev, ino: after.ino }).toEqual({ dev: before.dev, ino: before.ino });
-      expect(await fs.readFile(nextPackageFile)).toEqual(beforeBytes);
+      expect(await fs.readFile(yamlPackageFile)).toEqual(beforeBytes);
     }, 'engineering-compiler-runtime-prebound-stale-');
   });
 
@@ -437,7 +429,7 @@ describe('ensureProjectDependencies', () => {
       expect(sequence).not.toContain('unexpected-spawn');
       expect(sequence.filter((entry) => entry === 'fence').length).toBeGreaterThanOrEqual(6);
       expect((await fs.lstat(path.join(projectRoot, 'node_modules'))).isSymbolicLink()).toBe(false);
-      await expect(fs.stat(path.join(projectRoot, 'node_modules', 'next', 'package.json')))
+      await expect(fs.stat(path.join(projectRoot, 'node_modules', 'yaml', 'package.json')))
         .resolves.toBeDefined();
       expect(await readRuntimeDepsStamp(path.join(projectRoot, '.runtime-deps.stamp.json')))
         .toMatchObject({ binding: { revision: shared.binding.revision }, packageManager: 'bun' });

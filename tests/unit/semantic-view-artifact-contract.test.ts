@@ -2,24 +2,20 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { buildCiArtifactManifest } from '../../src/compiler/emit/ci-artifacts.ts';
 import {
   assertSemanticViewArtifactsAreCurrent,
   requireLockSemanticViews,
   semanticViewArtifactsAreCurrent
-} from '../../platform/compiler/emit/semantic-view-artifact-contract.ts';
-import { buildSemanticViewRows, writeLocalViews } from '../../platform/compiler/emit/write-local-views.ts';
-import { buildSemanticViewSummary } from '../../platform/compiler/emit/write-review-summary.ts';
-import { buildCiArtifactManifest } from '../../platform/compiler/index.ts';
-import { writeWorkspaceArtifacts } from '../../platform/orchestrator.ts';
-import {
-  CI_ARTIFACT_FILES,
-  CI_ARTIFACT_MISSING_REASON,
-  CI_EMIT_ARTIFACT_PATHS
-} from '../../platform/shared/ci-artifact-contract.ts';
-import type { ExplainGraph } from '../../platform/shared/explain-types.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { semanticViewFactIds, type SemanticView } from '../../platform/shared/semantic-view-types.ts';
+} from '../../src/compiler/emit/semantic-view-artifact-contract.ts';
+import { buildSemanticViewSummary } from '../../src/compiler/emit/write-review-summary.ts';
+import { writeWorkspaceArtifacts } from '../../src/compiler/orchestration/cli.ts';
+import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
+import { semanticViewFactIds, type SemanticView } from '../../src/semantic/projection/contract/types.ts';
+import { CI_ARTIFACT_FILES, CI_EMIT_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_MISSING_REASON } from '../../src/verification/ci-artifacts/contract/types.ts';
+import { writeJson } from '../../src/workspace/files.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { buildReviewLock } from '../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -36,7 +32,7 @@ function graphWithRevision(inputRevision: string, semanticRevision: string): Exp
   };
 }
 
-test('ReviewSummary and Workbench share the complete canonical Fact identity set', () => {
+test('ReviewSummary preserves the complete canonical Fact identity set', () => {
   const view: SemanticView = {
     ...buildSemanticViewFixture().views[0]!,
     nodes: [{
@@ -73,14 +69,6 @@ test('ReviewSummary and Workbench share the complete canonical Fact identity set
   expect(factIds).toEqual(['fact:inspector', 'fact:node', 'fact:overlay']);
   expect(buildSemanticViewSummary(lock)?.views[0]?.factIds).toEqual(factIds);
   expect(buildSemanticViewSummary(lock)?.factIds).toEqual(factIds);
-  expect(buildSemanticViewRows(semanticViews)[0]).toEqual([
-    'architecture',
-    'app:fixture',
-    '1',
-    '0',
-    '3',
-    'fact:inspector, fact:node, fact:overlay'
-  ]);
 });
 
 test('canonical projection rejects missing and lowering-task-stale Lock revisions', () => {
@@ -155,7 +143,7 @@ test('canonical projection rejects missing and lowering-task-stale Lock revision
   expect(() => requireLockSemanticViews(lock)).toThrow('does not match SemanticViewSet');
 });
 
-test('A to B semantic refresh is blocked before Workbench can leak the A projection', async () => {
+test('A to B semantic refresh blocks stale machine projection publication', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const paths = getWorkspacePaths(workspaceRoot);
     const lock = buildReviewLock({
@@ -163,12 +151,9 @@ test('A to B semantic refresh is blocked before Workbench can leak the A project
       passStatus: { lock: 'succeeded', emit: 'succeeded' }
     });
     const staleGraph = graphWithRevision('sha256:input-a', 'sha256:semantic-a');
-    const marker = '<!doctype html><title>semantic-a</title>\n';
 
     await writeJson(paths.lockPath, lock);
     await writeJson(paths.explainGraphPath, staleGraph);
-    await fs.mkdir(path.dirname(paths.graphViewPath), { recursive: true });
-    await fs.writeFile(paths.graphViewPath, marker, 'utf8');
 
     expect(semanticViewArtifactsAreCurrent(lock, staleGraph)).toBe(false);
     const manifest = await buildCiArtifactManifest(workspaceRoot);
@@ -181,14 +166,10 @@ test('A to B semantic refresh is blocked before Workbench can leak the A project
     expect(() => assertSemanticViewArtifactsAreCurrent(lock, staleGraph)).toThrow(
       'does not match the current graph lock revision'
     );
-    await expect(writeLocalViews(workspaceRoot)).rejects.toThrow(
-      'does not match the current graph lock revision'
-    );
-    expect(await fs.readFile(paths.graphViewPath, 'utf8')).toBe(marker);
   }, 'engineering-compiler-semantic-artifact-revision-');
 });
 
-test('artifact refresh does not rewrite review or Workbench while emit is not succeeded', async () => {
+test('artifact refresh does not rewrite review while emit is not succeeded', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const paths = getWorkspacePaths(workspaceRoot);
     const lock = buildReviewLock({
@@ -196,7 +177,6 @@ test('artifact refresh does not rewrite review or Workbench while emit is not su
       passStatus: { lock: 'succeeded', emit: 'pending' }
     });
     const reviewMarker = '{"semantic":"before-refresh"}\n';
-    const workbenchMarker = '<!doctype html><title>before-refresh</title>\n';
 
     await writeJson(paths.lockPath, lock);
     await writeJson(paths.explainGraphPath, graphWithRevision(
@@ -204,9 +184,7 @@ test('artifact refresh does not rewrite review or Workbench while emit is not su
       lock.semanticViews!.semanticRevision
     ));
     await fs.mkdir(path.dirname(paths.reviewSummaryPath), { recursive: true });
-    await fs.mkdir(path.dirname(paths.graphViewPath), { recursive: true });
     await fs.writeFile(paths.reviewSummaryPath, reviewMarker, 'utf8');
-    await fs.writeFile(paths.graphViewPath, workbenchMarker, 'utf8');
 
     const result = await writeWorkspaceArtifacts(workspaceRoot);
 
@@ -219,7 +197,6 @@ test('artifact refresh does not rewrite review or Workbench while emit is not su
       }
     });
     expect(await fs.readFile(paths.reviewSummaryPath, 'utf8')).toBe(reviewMarker);
-    expect(await fs.readFile(paths.graphViewPath, 'utf8')).toBe(workbenchMarker);
   }, 'engineering-compiler-semantic-artifact-status-');
 });
 
@@ -228,13 +205,10 @@ test('artifact selection fails closed when a corrupt Lock leaves stale emit file
     const paths = getWorkspacePaths(workspaceRoot);
     await fs.mkdir(path.dirname(paths.lockPath), { recursive: true });
     await fs.mkdir(path.dirname(paths.explainGraphPath), { recursive: true });
-    await fs.mkdir(path.dirname(paths.graphViewPath), { recursive: true });
     await fs.writeFile(paths.lockPath, '{broken-json', 'utf8');
     await fs.writeFile(paths.explainGraphPath, '{"semantic":"stale"}\n', 'utf8');
-    await fs.writeFile(paths.graphViewPath, '<!doctype html><title>stale</title>\n', 'utf8');
 
     expect(() => buildCiArtifactManifest(workspaceRoot)).toThrow(SyntaxError);
     expect(await fs.readFile(paths.explainGraphPath, 'utf8')).toBe('{"semantic":"stale"}\n');
-    expect(await fs.readFile(paths.graphViewPath, 'utf8')).toBe('<!doctype html><title>stale</title>\n');
   }, 'engineering-compiler-semantic-artifact-corrupt-lock-');
 });

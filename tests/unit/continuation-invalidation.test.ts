@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { compileContinuationInvalidationV1 } from '../../platform/shared/continuation-invalidation-contract.ts';
+import { compileContinuationInvalidation } from '../../src/control/continuation/invalidation.ts';
 
 const CHECKPOINT = `sha256:${'a'.repeat(64)}` as const;
 
-function decide(overrides: Partial<Parameters<typeof compileContinuationInvalidationV1>[0]> = {}) {
-  return compileContinuationInvalidationV1({
+function decide(overrides: Partial<Parameters<typeof compileContinuationInvalidation>[0]> = {}) {
+  return compileContinuationInvalidation({
     checkpointDigest: CHECKPOINT,
     localState: 'exact-snapshot',
     externalChangeKnown: false,

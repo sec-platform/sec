@@ -3,7 +3,7 @@
   "app": {
     "id": "sec-reference",
     "name": "SEC Reference",
-    "stack": "nextjs-ts-prisma-sqlite",
+    "stack": "typescript-library",
     "mode": "multi-tenant"
   },
   "resolvedBlocks": [
@@ -12,88 +12,88 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 1,
-      "manifestPath": "platform/registry/official/auth.basic-session/block.manifest.yaml",
+      "manifestPath": "catalog/registry/official/auth.basic-session/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
+      "registryPath": "catalog/registry/official"
     },
     {
       "id": "tenant/basic-workspace",
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 2,
-      "manifestPath": "platform/registry/official/tenant.basic-workspace/block.manifest.yaml",
+      "manifestPath": "catalog/registry/official/tenant.basic-workspace/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
+      "registryPath": "catalog/registry/official"
     },
     {
       "id": "agent/harness",
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 3,
-      "manifestPath": "platform/registry/official/agent.harness/block.manifest.yaml",
+      "manifestPath": "catalog/registry/official/agent.harness/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
+      "registryPath": "catalog/registry/official"
     },
     {
       "id": "entity/customer-basic",
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 4,
-      "manifestPath": "platform/registry/official/entity.customer-basic/block.manifest.yaml",
+      "manifestPath": "catalog/registry/official/entity.customer-basic/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
+      "registryPath": "catalog/registry/official"
     },
     {
       "id": "file/upload",
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 5,
-      "manifestPath": "platform/registry/official/file.upload/block.manifest.yaml",
+      "manifestPath": "catalog/registry/official/file.upload/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
+      "registryPath": "catalog/registry/official"
     },
     {
       "id": "ticket/basic",
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 6,
-      "manifestPath": "platform/registry/official/ticket.basic/block.manifest.yaml",
+      "manifestPath": "catalog/registry/official/ticket.basic/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
+      "registryPath": "catalog/registry/official"
     },
     {
       "id": "comment/basic",
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 7,
-      "manifestPath": "platform/registry/official/comment.basic/block.manifest.yaml",
+      "manifestPath": "catalog/registry/official/comment.basic/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
+      "registryPath": "catalog/registry/official"
     },
     {
       "id": "agent/executor",
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 8,
-      "manifestPath": "platform/registry/official/agent.executor/block.manifest.yaml",
+      "manifestPath": "catalog/registry/official/agent.executor/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official"
+      "registryPath": "catalog/registry/official"
     }
   ],
   "resolvedCapabilities": [
@@ -115,23 +115,23 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "auth.basic-session",
       "action": "copy",
       "from": "files/src/installed/auth/session.ts",
       "to": "src/installed/auth/session.ts"
     },
     {
-      "stepId": "tenant/basic-workspace:2",
-      "blockId": "tenant/basic-workspace",
+      "stepId": "auth/basic-session:2",
+      "blockId": "auth/basic-session",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "tenant.basic-workspace",
+      "registryPath": "catalog/registry/official",
+      "sourceRoot": "auth.basic-session",
       "action": "copy",
-      "from": "files/src/installed/tenant/context.ts",
-      "to": "src/installed/tenant/context.ts"
+      "from": "files/tests/acceptance/auth-flow.test.ts",
+      "to": "tests/acceptance/auth-flow.test.ts"
     },
     {
       "stepId": "tenant/basic-workspace:3",
@@ -139,23 +139,23 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
+      "sourceRoot": "tenant.basic-workspace",
+      "action": "copy",
+      "from": "files/src/installed/tenant/context.ts",
+      "to": "src/installed/tenant/context.ts"
+    },
+    {
+      "stepId": "tenant/basic-workspace:4",
+      "blockId": "tenant/basic-workspace",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "tenant.basic-workspace",
       "action": "copy",
       "from": "files/tests/shared/tenant-runtime-fixture.ts",
       "to": "tests/shared/tenant-runtime-fixture.ts"
-    },
-    {
-      "stepId": "agent/harness:4",
-      "blockId": "agent/harness",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "agent.harness",
-      "action": "merge-prisma",
-      "from": "files/prisma/agent.prisma",
-      "to": "prisma/schema.prisma"
     },
     {
       "stepId": "agent/harness:5",
@@ -163,23 +163,23 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
+      "sourceRoot": "agent.harness",
+      "action": "merge-prisma",
+      "from": "files/prisma/agent.prisma",
+      "to": "prisma/schema.prisma"
+    },
+    {
+      "stepId": "agent/harness:6",
+      "blockId": "agent/harness",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "agent.harness",
       "action": "copy",
       "from": "files/src/installed/agent/harness-service.ts",
       "to": "src/installed/agent/harness-service.ts"
-    },
-    {
-      "stepId": "entity/customer-basic:6",
-      "blockId": "entity/customer-basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "entity.customer-basic",
-      "action": "copy",
-      "from": "files/src/installed/entity/customer-service.ts",
-      "to": "src/installed/entity/customer-service.ts"
     },
     {
       "stepId": "entity/customer-basic:7",
@@ -187,11 +187,11 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "entity.customer-basic",
-      "action": "merge-prisma",
-      "from": "files/prisma/customer.prisma",
-      "to": "prisma/schema.prisma"
+      "action": "copy",
+      "from": "files/src/installed/entity/customer-service.ts",
+      "to": "src/installed/entity/customer-service.ts"
     },
     {
       "stepId": "entity/customer-basic:8",
@@ -199,11 +199,11 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "entity.customer-basic",
-      "action": "copy",
-      "from": "files/tests/unit/customer-normalizer.test.ts",
-      "to": "tests/unit/customer-normalizer.test.ts"
+      "action": "merge-prisma",
+      "from": "files/prisma/customer.prisma",
+      "to": "prisma/schema.prisma"
     },
     {
       "stepId": "entity/customer-basic:9",
@@ -211,23 +211,23 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
+      "sourceRoot": "entity.customer-basic",
+      "action": "copy",
+      "from": "files/tests/unit/customer-normalizer.test.ts",
+      "to": "tests/unit/customer-normalizer.test.ts"
+    },
+    {
+      "stepId": "entity/customer-basic:10",
+      "blockId": "entity/customer-basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "entity.customer-basic",
       "action": "copy",
       "from": "files/tests/acceptance/customer-flow.test.ts",
       "to": "tests/acceptance/customer-flow.test.ts"
-    },
-    {
-      "stepId": "file/upload:10",
-      "blockId": "file/upload",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "file.upload",
-      "action": "copy",
-      "from": "files/src/installed/file/customer-attachments.ts",
-      "to": "src/installed/file/customer-attachments.ts"
     },
     {
       "stepId": "file/upload:11",
@@ -235,23 +235,23 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "file.upload",
       "action": "copy",
-      "from": "files/tests/unit/customer-attachments.test.ts",
-      "to": "tests/unit/customer-attachments.test.ts"
+      "from": "files/src/installed/file/customer-attachments.ts",
+      "to": "src/installed/file/customer-attachments.ts"
     },
     {
-      "stepId": "ticket/basic:12",
-      "blockId": "ticket/basic",
+      "stepId": "file/upload:12",
+      "blockId": "file/upload",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "ticket.basic",
+      "registryPath": "catalog/registry/official",
+      "sourceRoot": "file.upload",
       "action": "copy",
-      "from": "files/src/installed/ticket/ticket-service.ts",
-      "to": "src/installed/ticket/ticket-service.ts"
+      "from": "files/tests/acceptance/customer-attachments-flow.test.ts",
+      "to": "tests/acceptance/customer-attachments-flow.test.ts"
     },
     {
       "stepId": "ticket/basic:13",
@@ -259,11 +259,11 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "ticket.basic",
-      "action": "merge-prisma",
-      "from": "files/prisma/ticket.prisma",
-      "to": "prisma/schema.prisma"
+      "action": "copy",
+      "from": "files/src/installed/ticket/ticket-service.ts",
+      "to": "src/installed/ticket/ticket-service.ts"
     },
     {
       "stepId": "ticket/basic:14",
@@ -271,11 +271,11 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "ticket.basic",
-      "action": "copy",
-      "from": "files/tests/shared/ticket-service-suite.ts",
-      "to": "tests/shared/ticket-service-suite.ts"
+      "action": "merge-prisma",
+      "from": "files/prisma/ticket.prisma",
+      "to": "prisma/schema.prisma"
     },
     {
       "stepId": "ticket/basic:15",
@@ -283,11 +283,11 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "ticket.basic",
       "action": "copy",
-      "from": "files/tests/unit/ticket-service.test.ts",
-      "to": "tests/unit/ticket-service.test.ts"
+      "from": "files/tests/shared/ticket-service-suite.ts",
+      "to": "tests/shared/ticket-service-suite.ts"
     },
     {
       "stepId": "ticket/basic:16",
@@ -295,23 +295,23 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
+      "sourceRoot": "ticket.basic",
+      "action": "copy",
+      "from": "files/tests/unit/ticket-service.test.ts",
+      "to": "tests/unit/ticket-service.test.ts"
+    },
+    {
+      "stepId": "ticket/basic:17",
+      "blockId": "ticket/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "ticket.basic",
       "action": "copy",
       "from": "files/tests/acceptance/ticket-flow.test.ts",
       "to": "tests/acceptance/ticket-flow.test.ts"
-    },
-    {
-      "stepId": "comment/basic:17",
-      "blockId": "comment/basic",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "comment.basic",
-      "action": "copy",
-      "from": "files/src/installed/comment/comment-service.ts",
-      "to": "src/installed/comment/comment-service.ts"
     },
     {
       "stepId": "comment/basic:18",
@@ -319,11 +319,11 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "comment.basic",
-      "action": "merge-prisma",
-      "from": "files/prisma/comment.prisma",
-      "to": "prisma/schema.prisma"
+      "action": "copy",
+      "from": "files/src/installed/comment/comment-service.ts",
+      "to": "src/installed/comment/comment-service.ts"
     },
     {
       "stepId": "comment/basic:19",
@@ -331,11 +331,11 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "comment.basic",
-      "action": "copy",
-      "from": "files/tests/unit/comment-service.test.ts",
-      "to": "tests/unit/comment-service.test.ts"
+      "action": "merge-prisma",
+      "from": "files/prisma/comment.prisma",
+      "to": "prisma/schema.prisma"
     },
     {
       "stepId": "comment/basic:20",
@@ -343,23 +343,23 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
+      "sourceRoot": "comment.basic",
+      "action": "copy",
+      "from": "files/tests/unit/comment-service.test.ts",
+      "to": "tests/unit/comment-service.test.ts"
+    },
+    {
+      "stepId": "comment/basic:21",
+      "blockId": "comment/basic",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "comment.basic",
       "action": "copy",
       "from": "files/tests/acceptance/comment-flow.test.ts",
       "to": "tests/acceptance/comment-flow.test.ts"
-    },
-    {
-      "stepId": "agent/executor:21",
-      "blockId": "agent/executor",
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "sourceRoot": "agent.executor",
-      "action": "copy",
-      "from": "files/src/installed/agent/executor-service.ts",
-      "to": "src/installed/agent/executor-service.ts"
     },
     {
       "stepId": "agent/executor:22",
@@ -367,7 +367,19 @@
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
+      "registryPath": "catalog/registry/official",
+      "sourceRoot": "agent.executor",
+      "action": "copy",
+      "from": "files/src/installed/agent/executor-service.ts",
+      "to": "src/installed/agent/executor-service.ts"
+    },
+    {
+      "stepId": "agent/executor:23",
+      "blockId": "agent/executor",
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "catalog/registry/official",
       "sourceRoot": "agent.executor",
       "action": "copy",
       "from": "files/tests/acceptance/agent-classifier-flow.test.ts",
@@ -384,188 +396,17 @@
       "kind": "adapter",
       "inputType": "CustomerInput",
       "outputType": "NormalizedCustomerInput",
-      "status": "verified",
+      "status": "pending",
       "writableZones": [
         "source/code/slots/customer_normalizer.ts",
         "custom/"
       ],
       "provenanceHints": {
         "generator": "mock-local-synthesizer",
-        "verifiedBy": [
-          "tests/acceptance/agent-classifier-flow.test.ts",
-          "tests/acceptance/comment-flow.test.ts",
-          "tests/acceptance/customer-flow.test.ts",
-          "tests/acceptance/ticket-flow.test.ts",
-          "tests/runtime/acceptance/customer-flow.spec.ts",
-          "tests/runtime/acceptance/ticket-flow.spec.ts",
-          "tests/runtime/unit/customer-runtime.test.ts",
-          "tests/runtime/unit/ticket-runtime.test.ts",
-          "tests/unit/comment-service.test.ts",
-          "tests/unit/customer-attachments.test.ts",
-          "tests/unit/customer-normalizer.test.ts",
-          "tests/unit/ticket-service.test.ts"
-        ]
+        "verifiedBy": []
       }
-    },
-    {
-      "id": "ticket_comment_delegate",
-      "block": "ticket/basic",
-      "target": "custom/ticket_comment_delegate.ts",
-      "sourcePath": "source/code/slots/ticket_comment_delegate.ts",
-      "symbol": "addTicketCommentDelegate",
-      "kind": "adapter",
-      "inputType": "TicketCommentInput",
-      "outputType": "TicketCommentRecord",
-      "status": "verified",
-      "writableZones": [
-        "source/code/slots/ticket_comment_delegate.ts",
-        "custom/"
-      ],
-      "provenanceHints": {
-        "generator": "mock-local-synthesizer",
-        "verifiedBy": [
-          "tests/acceptance/agent-classifier-flow.test.ts",
-          "tests/acceptance/comment-flow.test.ts",
-          "tests/acceptance/customer-flow.test.ts",
-          "tests/acceptance/ticket-flow.test.ts",
-          "tests/runtime/acceptance/customer-flow.spec.ts",
-          "tests/runtime/acceptance/ticket-flow.spec.ts",
-          "tests/runtime/unit/customer-runtime.test.ts",
-          "tests/runtime/unit/ticket-runtime.test.ts",
-          "tests/unit/comment-service.test.ts",
-          "tests/unit/customer-attachments.test.ts",
-          "tests/unit/customer-normalizer.test.ts",
-          "tests/unit/ticket-service.test.ts"
-        ]
-      },
-      "exports": [
-        {
-          "symbol": "addTicketCommentDelegate",
-          "params": [
-            {
-              "name": "db",
-              "type": "Database",
-              "importFrom": "../src/runtime/database.ts"
-            },
-            {
-              "name": "session",
-              "type": "Session",
-              "importFrom": "../src/installed/auth/session.ts"
-            },
-            {
-              "name": "input",
-              "type": "TicketCommentInput",
-              "importFrom": "../src/runtime/database.ts"
-            }
-          ],
-          "outputType": "TicketCommentRecord",
-          "outputImportFrom": "../src/runtime/database.ts"
-        },
-        {
-          "symbol": "listTicketCommentsDelegate",
-          "params": [
-            {
-              "name": "db",
-              "type": "Database",
-              "importFrom": "../src/runtime/database.ts"
-            },
-            {
-              "name": "session",
-              "type": "Session",
-              "importFrom": "../src/installed/auth/session.ts"
-            },
-            {
-              "name": "ticketId",
-              "type": "number"
-            }
-          ],
-          "outputType": "TicketCommentRecord[]",
-          "outputImportFrom": "../src/runtime/database.ts"
-        }
-      ],
-      "mockTemplate": "import type { Database, TicketCommentInput, TicketCommentRecord } from '../src/runtime/database.ts';\nimport type { Session } from '../src/installed/auth/session.ts';\n\nfunction assertTenantTicket(db: Database, ticketId: number, tenantId: string) {\n  const ticket = db.tickets.find((entry) => entry.id === ticketId);\n  if (!ticket || ticket.tenantId !== tenantId) {\n    throw new Error('Ticket is not available for this tenant');\n  }\n  return ticket;\n}\n\nexport function addTicketCommentDelegate(db: Database, session: Session, input: TicketCommentInput): TicketCommentRecord {\n  if (!input.body || !input.body.trim()) {\n    throw new Error('Ticket comment is required');\n  }\n  assertTenantTicket(db, input.ticketId, session.tenantId);\n  const comment: TicketCommentRecord = {\n    id: db.nextTicketCommentId++,\n    tenantId: session.tenantId,\n    ticketId: input.ticketId,\n    body: input.body.trim(),\n    authorId: session.userId,\n    createdAt: new Date(0).toISOString()\n  };\n  db.ticketComments.push(comment);\n  return comment;\n}\n\nexport function listTicketCommentsDelegate(db: Database, session: Session, ticketId: number): TicketCommentRecord[] {\n  assertTenantTicket(db, ticketId, session.tenantId);\n  return db.ticketComments.filter(c => c.tenantId === session.tenantId && c.ticketId === ticketId);\n}\n"
     }
   ],
-  "generatedPaths": [
-    "app/api/customers/[customerId]/attachments/route.ts",
-    "app/api/customers/route.ts",
-    "app/api/session/current/route.ts",
-    "app/api/session/login/route.ts",
-    "app/api/session/logout/route.ts",
-    "app/api/tickets/[ticketId]/attachments/route.ts",
-    "app/api/tickets/[ticketId]/comments/route.ts",
-    "app/api/tickets/[ticketId]/status/route.ts",
-    "app/api/tickets/route.ts",
-    "app/customers/page.tsx",
-    "app/globals.css",
-    "app/layout.tsx",
-    "app/login/page.tsx",
-    "app/page.tsx",
-    "app/tickets/page.tsx",
-    "app/workspace/page.tsx",
-    "components/customer-attachment-form.tsx",
-    "components/customer-form.tsx",
-    "components/login-form.tsx",
-    "components/logout-button.tsx",
-    "components/ticket-attachment-form.tsx",
-    "components/ticket-comment-form.tsx",
-    "components/ticket-form.tsx",
-    "components/ticket-status-form.tsx",
-    "control/evidence/acceptance-coverage.json",
-    "control/evidence/block-usage-map.json",
-    "control/evidence/install-manifest.json",
-    "control/evidence/policy-report.json",
-    "control/evidence/review-summary.json",
-    "control/evidence/runtime-report.json",
-    "control/evidence/verification-report.json",
-    "control/graph/explain-graph.dot",
-    "control/graph/explain-graph.json",
-    "control/graph/explain-graph.mmd",
-    "control/provenance/provenance.json",
-    "control/workbench/views/graph-view.html",
-    "control/workbench/views/overview-view.html",
-    "control/workbench/views/review-view.html",
-    "control/workbench/views/slot-rule-view.html",
-    "control/workbench/views/source-view.html",
-    "generated/routes.ts",
-    "lib/session.ts",
-    "lib/store.ts",
-    "next-env.d.ts",
-    "next.config.mjs",
-    "package.json",
-    "src/installed/ticket/ticket-semantic-contract.ts",
-    "tests/runtime/acceptance/customer-flow.spec.ts",
-    "tests/runtime/acceptance/ticket-flow.spec.ts",
-    "tests/runtime/unit/customer-runtime.test.ts",
-    "tests/runtime/unit/ticket-runtime.test.ts",
-    "tsconfig.json"
-  ],
-  "acceptancePlan": [
-    "user_can_login",
-    "user_can_create_customer",
-    "user_can_list_customers",
-    "tenant_only_sees_own_customers",
-    "ticket_can_be_created",
-    "ticket_status_can_transition",
-    "tenant_only_sees_own_tickets",
-    "assignee_can_filter_tickets",
-    "ticket_attachment_can_be_uploaded",
-    "ticket_comment_can_be_added",
-    "agent_can_be_registered",
-    "agent_can_automatically_classify_ticket"
-  ],
-  "passStatus": {
-    "parse": "succeeded",
-    "align": "succeeded",
-    "resolve": "succeeded",
-    "build-ir": "succeeded",
-    "compose": "succeeded",
-    "adapt": "succeeded",
-    "verify": "failed",
-    "repair": "blocked",
-    "lock": "blocked",
-    "emit": "blocked"
-  },
   "semanticLoweringTasks": [
     {
       "id": "generator:ticket/basic:ticket-status-runtime-contract",
@@ -573,12 +414,29 @@
       "generatorId": "ticket-status-runtime-contract",
       "generatorEntityId": "generator:ticket/basic:ticket-status-runtime-contract",
       "artifactEntityId": "artifact:src/installed/ticket/ticket-semantic-contract.ts",
-      "inputRevision": "sha256:80ee5c07408ae94a15387ae0d2ce7c3e5d9028d905d21457fa659c74fd55f352",
-      "semanticRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d",
-      "kind": "generate-state-transition-map",
+      "inputRevision": "sha256:b739a2e22ec53e042fae033489500dcead03fce897df3ca31d5178d103a3012d",
+      "semanticRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2",
       "contractId": "ticket-core",
-      "contractPath": "platform/registry/official/ticket.basic/contracts/ticket.yaml",
+      "contractPath": "catalog/registry/official/ticket.basic/contracts/ticket.yaml",
       "contractNamespace": "ticket",
+      "target": "src/installed/ticket/ticket-semantic-contract.ts",
+      "consumes": [
+        "state",
+        "transition"
+      ],
+      "produces": "typescript-runtime-contract",
+      "verification": [
+        "ticket_status_can_transition",
+        "typecheck"
+      ],
+      "verifiedByEntityIds": [
+        "acceptance:ticket_status_can_transition"
+      ],
+      "registrySourceId": "official",
+      "registryKind": "official",
+      "registryLocation": "compiler",
+      "registryPath": "catalog/registry/official",
+      "kind": "generate-state-transition-map",
       "stateId": "ticket-status",
       "stateEntityId": "state:ticket:ticket-status",
       "stateValues": [
@@ -606,40 +464,17 @@
           "operationEntityId": "operation:ticket:transitionTicketStatus"
         }
       ],
-      "target": "src/installed/ticket/ticket-semantic-contract.ts",
-      "consumes": [
-        "state",
-        "transition"
-      ],
-      "produces": "typescript-runtime-contract",
       "typeBinding": {
         "name": "TicketStatus",
         "importFrom": "../../runtime/database.ts"
       },
-      "verification": [
-        "ticket_status_can_transition",
-        "typecheck"
-      ],
-      "verifiedByEntityIds": [
-        "acceptance:ticket_status_can_transition"
-      ],
-      "registrySourceId": "official",
-      "registryKind": "official",
-      "registryLocation": "compiler",
-      "registryPath": "platform/registry/official",
-      "status": "generated",
-      "artifactBinding": {
-        "generatorEntityId": "generator:ticket/basic:ticket-status-runtime-contract",
-        "artifactEntityId": "artifact:src/installed/ticket/ticket-semantic-contract.ts",
-        "semanticRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d",
-        "compilationTransactionId": "tx:reference-workspace"
-      }
+      "status": "pending"
     }
   ],
   "semanticViews": {
     "formatVersion": "1",
-    "inputRevision": "sha256:80ee5c07408ae94a15387ae0d2ce7c3e5d9028d905d21457fa659c74fd55f352",
-    "semanticRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d",
+    "inputRevision": "sha256:b739a2e22ec53e042fae033489500dcead03fce897df3ca31d5178d103a3012d",
+    "semanticRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2",
     "views": [
       {
         "formatVersion": "1",
@@ -1219,10 +1054,6 @@
               {
                 "kind": "fact",
                 "ref": "fact:f0c0f76dc311c2931c6fae11"
-              },
-              {
-                "kind": "fact",
-                "ref": "fact:f14f29de1b65692534ce3a8c"
               },
               {
                 "kind": "fact",
@@ -3578,24 +3409,6 @@
             ]
           },
           {
-            "id": "slot:ticket/basic:ticket_comment_delegate",
-            "entityId": "slot:ticket/basic:ticket_comment_delegate",
-            "entityKind": "slot",
-            "label": "ticket_comment_delegate",
-            "badges": [],
-            "group": "slot",
-            "references": [
-              {
-                "kind": "entity",
-                "ref": "slot:ticket/basic:ticket_comment_delegate"
-              },
-              {
-                "kind": "fact",
-                "ref": "fact:f14f29de1b65692534ce3a8c"
-              }
-            ]
-          },
-          {
             "id": "state:ticket:ticket-status",
             "entityId": "state:ticket:ticket-status",
             "entityKind": "state",
@@ -4258,19 +4071,6 @@
               {
                 "kind": "fact",
                 "ref": "fact:ca66465a5fb87560f2daa39e"
-              }
-            ]
-          },
-          {
-            "id": "edge:block:ticket/basic:CONTAINS:slot:ticket/basic:ticket_comment_delegate:fact:f14f29de1b65692534ce3a8c",
-            "source": "block:ticket/basic",
-            "target": "slot:ticket/basic:ticket_comment_delegate",
-            "relation": "CONTAINS",
-            "label": "contains",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:f14f29de1b65692534ce3a8c"
               }
             ]
           },
@@ -5419,19 +5219,6 @@
             ]
           },
           {
-            "id": "edge:operation:ticket:addTicketAttachment:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:e146637532a9a12cf05c3edd",
-            "source": "operation:ticket:addTicketAttachment",
-            "target": "permission:ticket:ticket-write",
-            "relation": "REQUIRES_PERMISSION",
-            "label": "requires permission",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:e146637532a9a12cf05c3edd"
-              }
-            ]
-          },
-          {
             "id": "edge:operation:ticket:addTicketAttachment:REQUIRES:policy:tenant:tenant-scope:fact:8be7e14a6512a5c33e75d4be",
             "source": "operation:ticket:addTicketAttachment",
             "target": "policy:tenant:tenant-scope",
@@ -5441,6 +5228,19 @@
               {
                 "kind": "fact",
                 "ref": "fact:8be7e14a6512a5c33e75d4be"
+              }
+            ]
+          },
+          {
+            "id": "edge:operation:ticket:addTicketAttachment:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:e146637532a9a12cf05c3edd",
+            "source": "operation:ticket:addTicketAttachment",
+            "target": "permission:ticket:ticket-write",
+            "relation": "REQUIRES_PERMISSION",
+            "label": "requires permission",
+            "references": [
+              {
+                "kind": "fact",
+                "ref": "fact:e146637532a9a12cf05c3edd"
               }
             ]
           },
@@ -5523,19 +5323,6 @@
             ]
           },
           {
-            "id": "edge:operation:ticket:addTicketComment:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:dc72c1edc14c8bb49f79b006",
-            "source": "operation:ticket:addTicketComment",
-            "target": "permission:ticket:ticket-write",
-            "relation": "REQUIRES_PERMISSION",
-            "label": "requires permission",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:dc72c1edc14c8bb49f79b006"
-              }
-            ]
-          },
-          {
             "id": "edge:operation:ticket:addTicketComment:REQUIRES:policy:tenant:tenant-scope:fact:ec5da99de3e50ba5a6e9d2f9",
             "source": "operation:ticket:addTicketComment",
             "target": "policy:tenant:tenant-scope",
@@ -5545,6 +5332,19 @@
               {
                 "kind": "fact",
                 "ref": "fact:ec5da99de3e50ba5a6e9d2f9"
+              }
+            ]
+          },
+          {
+            "id": "edge:operation:ticket:addTicketComment:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:dc72c1edc14c8bb49f79b006",
+            "source": "operation:ticket:addTicketComment",
+            "target": "permission:ticket:ticket-write",
+            "relation": "REQUIRES_PERMISSION",
+            "label": "requires permission",
+            "references": [
+              {
+                "kind": "fact",
+                "ref": "fact:dc72c1edc14c8bb49f79b006"
               }
             ]
           },
@@ -5601,19 +5401,6 @@
             ]
           },
           {
-            "id": "edge:operation:ticket:createTicket:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:48dc5961515ea150938d64d3",
-            "source": "operation:ticket:createTicket",
-            "target": "permission:ticket:ticket-write",
-            "relation": "REQUIRES_PERMISSION",
-            "label": "requires permission",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:48dc5961515ea150938d64d3"
-              }
-            ]
-          },
-          {
             "id": "edge:operation:ticket:createTicket:REQUIRES:policy:tenant:tenant-scope:fact:f9b35c241448b69ebd3272ea",
             "source": "operation:ticket:createTicket",
             "target": "policy:tenant:tenant-scope",
@@ -5623,6 +5410,19 @@
               {
                 "kind": "fact",
                 "ref": "fact:f9b35c241448b69ebd3272ea"
+              }
+            ]
+          },
+          {
+            "id": "edge:operation:ticket:createTicket:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:48dc5961515ea150938d64d3",
+            "source": "operation:ticket:createTicket",
+            "target": "permission:ticket:ticket-write",
+            "relation": "REQUIRES_PERMISSION",
+            "label": "requires permission",
+            "references": [
+              {
+                "kind": "fact",
+                "ref": "fact:48dc5961515ea150938d64d3"
               }
             ]
           },
@@ -5679,19 +5479,6 @@
             ]
           },
           {
-            "id": "edge:operation:ticket:listTicketAttachments:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:54c27ca20b3997a54557b421",
-            "source": "operation:ticket:listTicketAttachments",
-            "target": "permission:ticket:ticket-read",
-            "relation": "REQUIRES_PERMISSION",
-            "label": "requires permission",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:54c27ca20b3997a54557b421"
-              }
-            ]
-          },
-          {
             "id": "edge:operation:ticket:listTicketAttachments:REQUIRES:policy:tenant:tenant-scope:fact:e4f00a1048bfeb18c8f6a294",
             "source": "operation:ticket:listTicketAttachments",
             "target": "policy:tenant:tenant-scope",
@@ -5701,6 +5488,19 @@
               {
                 "kind": "fact",
                 "ref": "fact:e4f00a1048bfeb18c8f6a294"
+              }
+            ]
+          },
+          {
+            "id": "edge:operation:ticket:listTicketAttachments:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:54c27ca20b3997a54557b421",
+            "source": "operation:ticket:listTicketAttachments",
+            "target": "permission:ticket:ticket-read",
+            "relation": "REQUIRES_PERMISSION",
+            "label": "requires permission",
+            "references": [
+              {
+                "kind": "fact",
+                "ref": "fact:54c27ca20b3997a54557b421"
               }
             ]
           },
@@ -5744,19 +5544,6 @@
             ]
           },
           {
-            "id": "edge:operation:ticket:listTicketComments:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:2649fef6ee5194c5678f97c7",
-            "source": "operation:ticket:listTicketComments",
-            "target": "permission:ticket:ticket-read",
-            "relation": "REQUIRES_PERMISSION",
-            "label": "requires permission",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:2649fef6ee5194c5678f97c7"
-              }
-            ]
-          },
-          {
             "id": "edge:operation:ticket:listTicketComments:REQUIRES:policy:tenant:tenant-scope:fact:6139c1c5e79a3fb4af8862f0",
             "source": "operation:ticket:listTicketComments",
             "target": "policy:tenant:tenant-scope",
@@ -5766,6 +5553,19 @@
               {
                 "kind": "fact",
                 "ref": "fact:6139c1c5e79a3fb4af8862f0"
+              }
+            ]
+          },
+          {
+            "id": "edge:operation:ticket:listTicketComments:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:2649fef6ee5194c5678f97c7",
+            "source": "operation:ticket:listTicketComments",
+            "target": "permission:ticket:ticket-read",
+            "relation": "REQUIRES_PERMISSION",
+            "label": "requires permission",
+            "references": [
+              {
+                "kind": "fact",
+                "ref": "fact:2649fef6ee5194c5678f97c7"
               }
             ]
           },
@@ -5796,19 +5596,6 @@
             ]
           },
           {
-            "id": "edge:operation:ticket:listTickets:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:b675c895671cd77106f796a6",
-            "source": "operation:ticket:listTickets",
-            "target": "permission:ticket:ticket-read",
-            "relation": "REQUIRES_PERMISSION",
-            "label": "requires permission",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:b675c895671cd77106f796a6"
-              }
-            ]
-          },
-          {
             "id": "edge:operation:ticket:listTickets:REQUIRES:policy:tenant:tenant-scope:fact:9f941d820b9dd51b04914346",
             "source": "operation:ticket:listTickets",
             "target": "policy:tenant:tenant-scope",
@@ -5818,6 +5605,19 @@
               {
                 "kind": "fact",
                 "ref": "fact:9f941d820b9dd51b04914346"
+              }
+            ]
+          },
+          {
+            "id": "edge:operation:ticket:listTickets:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:b675c895671cd77106f796a6",
+            "source": "operation:ticket:listTickets",
+            "target": "permission:ticket:ticket-read",
+            "relation": "REQUIRES_PERMISSION",
+            "label": "requires permission",
+            "references": [
+              {
+                "kind": "fact",
+                "ref": "fact:b675c895671cd77106f796a6"
               }
             ]
           },
@@ -5861,19 +5661,6 @@
             ]
           },
           {
-            "id": "edge:operation:ticket:listTicketsWithFilters:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:143caa220a2f9c4bd384809e",
-            "source": "operation:ticket:listTicketsWithFilters",
-            "target": "permission:ticket:ticket-read",
-            "relation": "REQUIRES_PERMISSION",
-            "label": "requires permission",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:143caa220a2f9c4bd384809e"
-              }
-            ]
-          },
-          {
             "id": "edge:operation:ticket:listTicketsWithFilters:REQUIRES:policy:tenant:tenant-scope:fact:04a205bcfeeefb7f8a30645b",
             "source": "operation:ticket:listTicketsWithFilters",
             "target": "policy:tenant:tenant-scope",
@@ -5883,6 +5670,19 @@
               {
                 "kind": "fact",
                 "ref": "fact:04a205bcfeeefb7f8a30645b"
+              }
+            ]
+          },
+          {
+            "id": "edge:operation:ticket:listTicketsWithFilters:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:143caa220a2f9c4bd384809e",
+            "source": "operation:ticket:listTicketsWithFilters",
+            "target": "permission:ticket:ticket-read",
+            "relation": "REQUIRES_PERMISSION",
+            "label": "requires permission",
+            "references": [
+              {
+                "kind": "fact",
+                "ref": "fact:143caa220a2f9c4bd384809e"
               }
             ]
           },
@@ -5991,19 +5791,6 @@
             ]
           },
           {
-            "id": "edge:operation:ticket:transitionTicketStatus:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:a3eb04bcd89b1552533bee87",
-            "source": "operation:ticket:transitionTicketStatus",
-            "target": "permission:ticket:ticket-write",
-            "relation": "REQUIRES_PERMISSION",
-            "label": "requires permission",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:a3eb04bcd89b1552533bee87"
-              }
-            ]
-          },
-          {
             "id": "edge:operation:ticket:transitionTicketStatus:REQUIRES:policy:tenant:tenant-scope:fact:445d053906c32dc58dcef497",
             "source": "operation:ticket:transitionTicketStatus",
             "target": "policy:tenant:tenant-scope",
@@ -6013,6 +5800,19 @@
               {
                 "kind": "fact",
                 "ref": "fact:445d053906c32dc58dcef497"
+              }
+            ]
+          },
+          {
+            "id": "edge:operation:ticket:transitionTicketStatus:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:a3eb04bcd89b1552533bee87",
+            "source": "operation:ticket:transitionTicketStatus",
+            "target": "permission:ticket:ticket-write",
+            "relation": "REQUIRES_PERMISSION",
+            "label": "requires permission",
+            "references": [
+              {
+                "kind": "fact",
+                "ref": "fact:a3eb04bcd89b1552533bee87"
               }
             ]
           },
@@ -6434,7 +6234,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -6468,7 +6268,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -6502,7 +6302,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -6536,7 +6336,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -6570,7 +6370,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -6604,7 +6404,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -6638,7 +6438,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -6672,7 +6472,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -6989,7 +6789,6 @@
                   "fact:eaf9169089c67a9dccc62095",
                   "fact:efd6fd86e33162fb5ae461fc",
                   "fact:f0c0f76dc311c2931c6fae11",
-                  "fact:f14f29de1b65692534ce3a8c",
                   "fact:f263bb6d3ce9ec5d2e54bc47",
                   "fact:f351de0b9ca269e655308c98",
                   "fact:f413777853dd52e7488aeebd",
@@ -8187,26 +7986,6 @@
                 },
                 "provenanceKinds": [
                   "contract"
-                ],
-                "evidenceRefs": []
-              },
-              {
-                "targetId": "edge:block:ticket/basic:CONTAINS:slot:ticket/basic:ticket_comment_delegate:fact:f14f29de1b65692534ce3a8c",
-                "factIds": [
-                  "fact:f14f29de1b65692534ce3a8c"
-                ],
-                "status": "uniform",
-                "authorities": [
-                  "derived"
-                ],
-                "hasInferred": false,
-                "hasConflict": false,
-                "confidence": {
-                  "min": 1,
-                  "max": 1
-                },
-                "provenanceKinds": [
-                  "compiler"
                 ],
                 "evidenceRefs": []
               },
@@ -9971,9 +9750,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:addTicketAttachment:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:e146637532a9a12cf05c3edd",
+                "targetId": "edge:operation:ticket:addTicketAttachment:REQUIRES:policy:tenant:tenant-scope:fact:8be7e14a6512a5c33e75d4be",
                 "factIds": [
-                  "fact:e146637532a9a12cf05c3edd"
+                  "fact:8be7e14a6512a5c33e75d4be"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -9991,9 +9770,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:addTicketAttachment:REQUIRES:policy:tenant:tenant-scope:fact:8be7e14a6512a5c33e75d4be",
+                "targetId": "edge:operation:ticket:addTicketAttachment:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:e146637532a9a12cf05c3edd",
                 "factIds": [
-                  "fact:8be7e14a6512a5c33e75d4be"
+                  "fact:e146637532a9a12cf05c3edd"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10131,9 +9910,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:addTicketComment:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:dc72c1edc14c8bb49f79b006",
+                "targetId": "edge:operation:ticket:addTicketComment:REQUIRES:policy:tenant:tenant-scope:fact:ec5da99de3e50ba5a6e9d2f9",
                 "factIds": [
-                  "fact:dc72c1edc14c8bb49f79b006"
+                  "fact:ec5da99de3e50ba5a6e9d2f9"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10151,9 +9930,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:addTicketComment:REQUIRES:policy:tenant:tenant-scope:fact:ec5da99de3e50ba5a6e9d2f9",
+                "targetId": "edge:operation:ticket:addTicketComment:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:dc72c1edc14c8bb49f79b006",
                 "factIds": [
-                  "fact:ec5da99de3e50ba5a6e9d2f9"
+                  "fact:dc72c1edc14c8bb49f79b006"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10251,9 +10030,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:createTicket:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:48dc5961515ea150938d64d3",
+                "targetId": "edge:operation:ticket:createTicket:REQUIRES:policy:tenant:tenant-scope:fact:f9b35c241448b69ebd3272ea",
                 "factIds": [
-                  "fact:48dc5961515ea150938d64d3"
+                  "fact:f9b35c241448b69ebd3272ea"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10271,9 +10050,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:createTicket:REQUIRES:policy:tenant:tenant-scope:fact:f9b35c241448b69ebd3272ea",
+                "targetId": "edge:operation:ticket:createTicket:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:48dc5961515ea150938d64d3",
                 "factIds": [
-                  "fact:f9b35c241448b69ebd3272ea"
+                  "fact:48dc5961515ea150938d64d3"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10371,9 +10150,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:listTicketAttachments:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:54c27ca20b3997a54557b421",
+                "targetId": "edge:operation:ticket:listTicketAttachments:REQUIRES:policy:tenant:tenant-scope:fact:e4f00a1048bfeb18c8f6a294",
                 "factIds": [
-                  "fact:54c27ca20b3997a54557b421"
+                  "fact:e4f00a1048bfeb18c8f6a294"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10391,9 +10170,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:listTicketAttachments:REQUIRES:policy:tenant:tenant-scope:fact:e4f00a1048bfeb18c8f6a294",
+                "targetId": "edge:operation:ticket:listTicketAttachments:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:54c27ca20b3997a54557b421",
                 "factIds": [
-                  "fact:e4f00a1048bfeb18c8f6a294"
+                  "fact:54c27ca20b3997a54557b421"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10471,9 +10250,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:listTicketComments:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:2649fef6ee5194c5678f97c7",
+                "targetId": "edge:operation:ticket:listTicketComments:REQUIRES:policy:tenant:tenant-scope:fact:6139c1c5e79a3fb4af8862f0",
                 "factIds": [
-                  "fact:2649fef6ee5194c5678f97c7"
+                  "fact:6139c1c5e79a3fb4af8862f0"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10491,9 +10270,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:listTicketComments:REQUIRES:policy:tenant:tenant-scope:fact:6139c1c5e79a3fb4af8862f0",
+                "targetId": "edge:operation:ticket:listTicketComments:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:2649fef6ee5194c5678f97c7",
                 "factIds": [
-                  "fact:6139c1c5e79a3fb4af8862f0"
+                  "fact:2649fef6ee5194c5678f97c7"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10551,9 +10330,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:listTickets:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:b675c895671cd77106f796a6",
+                "targetId": "edge:operation:ticket:listTickets:REQUIRES:policy:tenant:tenant-scope:fact:9f941d820b9dd51b04914346",
                 "factIds": [
-                  "fact:b675c895671cd77106f796a6"
+                  "fact:9f941d820b9dd51b04914346"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10571,9 +10350,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:listTickets:REQUIRES:policy:tenant:tenant-scope:fact:9f941d820b9dd51b04914346",
+                "targetId": "edge:operation:ticket:listTickets:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:b675c895671cd77106f796a6",
                 "factIds": [
-                  "fact:9f941d820b9dd51b04914346"
+                  "fact:b675c895671cd77106f796a6"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10651,9 +10430,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:listTicketsWithFilters:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:143caa220a2f9c4bd384809e",
+                "targetId": "edge:operation:ticket:listTicketsWithFilters:REQUIRES:policy:tenant:tenant-scope:fact:04a205bcfeeefb7f8a30645b",
                 "factIds": [
-                  "fact:143caa220a2f9c4bd384809e"
+                  "fact:04a205bcfeeefb7f8a30645b"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10671,9 +10450,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:listTicketsWithFilters:REQUIRES:policy:tenant:tenant-scope:fact:04a205bcfeeefb7f8a30645b",
+                "targetId": "edge:operation:ticket:listTicketsWithFilters:REQUIRES_PERMISSION:permission:ticket:ticket-read:fact:143caa220a2f9c4bd384809e",
                 "factIds": [
-                  "fact:04a205bcfeeefb7f8a30645b"
+                  "fact:143caa220a2f9c4bd384809e"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10851,9 +10630,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:transitionTicketStatus:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:a3eb04bcd89b1552533bee87",
+                "targetId": "edge:operation:ticket:transitionTicketStatus:REQUIRES:policy:tenant:tenant-scope:fact:445d053906c32dc58dcef497",
                 "factIds": [
-                  "fact:a3eb04bcd89b1552533bee87"
+                  "fact:445d053906c32dc58dcef497"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -10871,9 +10650,9 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "edge:operation:ticket:transitionTicketStatus:REQUIRES:policy:tenant:tenant-scope:fact:445d053906c32dc58dcef497",
+                "targetId": "edge:operation:ticket:transitionTicketStatus:REQUIRES_PERMISSION:permission:ticket:ticket-write:fact:a3eb04bcd89b1552533bee87",
                 "factIds": [
-                  "fact:445d053906c32dc58dcef497"
+                  "fact:a3eb04bcd89b1552533bee87"
                 ],
                 "status": "uniform",
                 "authorities": [
@@ -12891,26 +12670,6 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "slot:ticket/basic:ticket_comment_delegate",
-                "factIds": [
-                  "fact:f14f29de1b65692534ce3a8c"
-                ],
-                "status": "uniform",
-                "authorities": [
-                  "derived"
-                ],
-                "hasInferred": false,
-                "hasConflict": false,
-                "confidence": {
-                  "min": 1,
-                  "max": 1
-                },
-                "provenanceKinds": [
-                  "compiler"
-                ],
-                "evidenceRefs": []
-              },
-              {
                 "targetId": "state:ticket:ticket-status",
                 "factIds": [
                   "fact:228e27c254139a4c1bf79b36",
@@ -13263,14 +13022,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:6f07807af3ba3a0c63ca6708",
+                      "id": "assertion:ca44584fc9f8702e46d2da35",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -13297,14 +13056,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:0ee71b3b0b2df19be255d2da",
+                      "id": "assertion:1784f9de1bad405b61578fc6",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -13331,14 +13090,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:6ead211c7a313e768cf15311",
+                      "id": "assertion:346f7c538546067b395b4f4e",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -13365,14 +13124,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:be9c1663606ead4603ba5432",
+                      "id": "assertion:f27f1dcf580614e1f37cacbc",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -13843,14 +13602,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:7c05ec7f39c6ac82102ebb14",
+                      "id": "assertion:05e110acd5b3033c98f7a51d",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -13877,14 +13636,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:ed1f7fbb30f0b06b57adb50b",
+                      "id": "assertion:4924bd24d6a18f64d90c1543",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -13911,14 +13670,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:0783a3d36eca7a90c131e44d",
+                      "id": "assertion:6db9e4bbddd8b572d00f842b",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -13945,14 +13704,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:19b6663b575ef612c414e031",
+                      "id": "assertion:aa18d9c46970d83faa3fa8ad",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -14442,14 +14201,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:d154c27f224ce993f462f427",
+                      "id": "assertion:e4d80e9c1aef762cfd173d35",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -14476,14 +14235,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:e520ed803f1b9f27890e18de",
+                      "id": "assertion:b4d6c0687df3e7086feb9e1c",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -14510,14 +14269,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:7668554078e328c21fa3845c",
+                      "id": "assertion:fff26d419d8cfefbc7a27d10",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -14544,14 +14303,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:06f195b072a6c97de38e9e34",
+                      "id": "assertion:04f0a0940793dd346b6088b3",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15297,14 +15056,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:50e5597f37b1ad27bcc1a61c",
+                      "id": "assertion:8990dfe17862d304cae62eb3",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15331,14 +15090,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:aa5965b0df5813f77702a0c6",
+                      "id": "assertion:e7c86519493b8dec76ec834a",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15365,14 +15124,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:d087438c1f6fc7708b2ccd11",
+                      "id": "assertion:1d31dbc55c37d0f757987095",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15399,14 +15158,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:adf9d2bf43f8874792fe7fc9",
+                      "id": "assertion:777103aaac783f1408803b5a",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15433,14 +15192,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:414536dc0ae105845e04a2f0",
+                      "id": "assertion:b468ede794d75a0b3981838a",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15467,14 +15226,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:995ec2e7c0ee3f38bd67bcd6",
+                      "id": "assertion:8e5e4dd2ddeec32eca38551e",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15501,14 +15260,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:5c9b4f5c05bf63312b8e7449",
+                      "id": "assertion:fc66fc238ffe95feecb75752",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15535,14 +15294,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:ec36242636e33fd2eb221e5a",
+                      "id": "assertion:423b850989581a4014cb4849",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:manifest:ticket/basic"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15569,14 +15328,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:a7d8722cac1d1113fe8b304f",
+                      "id": "assertion:9d77dafc4a8d4389c2a199cf",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15610,7 +15369,7 @@
                         "compiler:generator:generator:ticket/basic:ticket-status-runtime-contract:lowering"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15637,14 +15396,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:a38553f3ff054ba25a603ff4",
+                      "id": "assertion:ad63f33a69215f4fccb320cd",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15671,14 +15430,14 @@
                   },
                   "assertions": [
                     {
-                      "id": "assertion:82cb9130f2e33fc513bb5e77",
+                      "id": "assertion:c5264a34d5d3564a365c84fa",
                       "authority": "authoritative",
                       "confidence": 1,
                       "provenance": [
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:10760889f43e265b44ba431a89d47b40a67fe41ded106315ac3bbbc06b499f0d"
+                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
                     }
                   ]
                 },
@@ -15939,5 +15698,36 @@
         ]
       }
     ]
+  },
+  "generatedPaths": [
+    "control/evidence/block-usage-map.json",
+    "control/evidence/install-manifest.json"
+  ],
+  "acceptancePlan": [
+    "agent_can_automatically_classify_ticket",
+    "agent_can_be_registered",
+    "assignee_can_filter_tickets",
+    "customer_can_upload_attachment",
+    "tenant_only_sees_own_customers",
+    "tenant_only_sees_own_tickets",
+    "ticket_attachment_can_be_uploaded",
+    "ticket_can_be_created",
+    "ticket_comment_can_be_added",
+    "ticket_status_can_transition",
+    "user_can_create_customer",
+    "user_can_list_customers",
+    "user_can_login"
+  ],
+  "passStatus": {
+    "parse": "succeeded",
+    "align": "succeeded",
+    "resolve": "succeeded",
+    "build-ir": "succeeded",
+    "compose": "failed",
+    "adapt": "blocked",
+    "verify": "blocked",
+    "repair": "blocked",
+    "lock": "blocked",
+    "emit": "blocked"
   }
 }

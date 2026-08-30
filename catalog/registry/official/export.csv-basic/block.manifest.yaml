@@ -1,0 +1,29 @@
+id: export/csv-basic
+version: 0.1.0
+kind: capability
+stackProfiles:
+  - typescript-library
+requires:
+  - customer/read
+provides:
+  - customer/export
+conflicts: []
+installs:
+  - kind: copy
+    from: files/src/installed/export/customer-csv.ts
+    to: src/installed/export/customer-csv.ts
+  - kind: copy
+    from: files/tests/unit/customer-export.test.ts
+    to: tests/unit/customer-export.test.ts
+pins:
+  inputs:
+    - id: customer_created
+      type: CustomerRecord
+      required: true
+  outputs:
+    - id: customer_csv
+      type: CsvDocument
+      required: true
+slots: []
+acceptance:
+  - id: customer_can_be_exported

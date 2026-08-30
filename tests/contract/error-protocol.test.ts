@@ -1,11 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
+import { buildErrorProtocol } from '../../src/compiler/error-protocol.ts';
 import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
-} from '../../platform/shared/error-protocol-contract.ts';
-import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
+} from '../../src/interface/cli/error-protocol-contract.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { expectErrorProtocolSelfConsistent } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -21,7 +21,6 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
   expect(formatted).toContain('Example engineering-operation-error; code=ENGINEERING-OPERATION-001');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
-    formatVersion: '1',
     status: 'active',
     command: 'bun run sec -- contract errors --json',
     issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
@@ -32,10 +31,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
       CI_ARTIFACT_FILES.repairPlan,
       CI_ARTIFACT_FILES.upgradeDiagnostics,
       CI_ARTIFACT_FILES.upgradePlan,
-      CI_ARTIFACT_FILES.viewMutationReport,
       'source/app.yaml',
-      'source/code/slots',
-      'source/views/mutations'
+      'source/code/slots'
     ].sort(),
     examples: expect.arrayContaining([
       expect.objectContaining({
@@ -109,15 +106,6 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         })
       }),
       expect.objectContaining({
-        id: 'workbench-mutation-error',
-        output: expect.objectContaining({
-          recoverable: true,
-          issueType: 'spec',
-          suggestedActions: ['inspect-workbench-mutations', 'run-platform-workbench-mutations-apply'],
-          artifactPaths: ['source/views/mutations', CI_ARTIFACT_FILES.viewMutationReport]
-        })
-      }),
-      expect.objectContaining({
         id: 'drift-error',
         output: expect.objectContaining({
           recoverable: false,
@@ -140,7 +128,6 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
         'Example slot-capability-lint-error; code=SLOT-LINT-005',
         'Example engineering-operation-error; code=ENGINEERING-OPERATION-001',
-        'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002',
         'Example drift-error; code=ERROR-DRIFT-001'
       ],
       json: {

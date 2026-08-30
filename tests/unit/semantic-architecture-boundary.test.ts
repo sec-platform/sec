@@ -1,12 +1,9 @@
 import { expect, test } from 'bun:test';
 
-import {
-  buildEngineeringIR,
-  projectArchitectureView,
-  validateEngineeringIR,
-  type BuildEngineeringIRInput
-} from '../../platform/compiler/index.ts';
-import { digest, semanticRevisionPayload } from '../../platform/compiler/ir/ir-revision.ts';
+import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
+import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
+import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 
 function inputFixture(): BuildEngineeringIRInput {
   return {

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   resolveSecMarkdownSkillCoverage
-} from '../../platform/shared/agent-skill-contract.ts';
+} from '../../src/control/agent/skill.ts';
 
 test('unknown root and docs-external Markdown fail closed', () => {
   for (const path of [
