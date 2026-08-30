@@ -12,16 +12,18 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
     root: '/repo',
     commandRunner: async () => ({ code: 0, stdout: '', stderr: '' }),
     gitCommandRunner: async (_command, args) => args[0] === 'diff'
-      ? { code: 1, stdout: bytes('source/app.yaml\0'), stderr: '' }
-      : { code: 0, stdout: bytes('control/evidence/summary.json\0'), stderr: '' }
+      ? { code: 1, stdout: bytes('examples/reference-workspace/sec.yaml\0'), stderr: '' }
+      : { code: 0, stdout: bytes('examples/reference-workspace/model/new-policy.yaml\0'), stderr: '' }
   });
 
   expect(report.status).toBe('drifted');
   expect(report.changedPaths).toEqual([
-    'control/evidence/summary.json',
-    'source/app.yaml'
+    'examples/reference-workspace/model/new-policy.yaml',
+    'examples/reference-workspace/sec.yaml'
   ]);
-  expect(formatReferenceCheck(report)).toContain('Reference workspace drifted');
+  const formatted = formatReferenceCheck(report, 'sec reference check');
+  expect(formatted).toContain('Reference workspace drifted');
+  expect(formatted).toContain('Command: sec reference check');
   expect(() => assertReferenceCheckClean(report)).toThrow('reference workspace drift detected');
 });
 
@@ -47,7 +49,7 @@ test('reference check never reports clean when refresh or Git observation fails'
 });
 
 test('reference drift preserves NUL-delimited path identity and rejects invalid UTF-8', async () => {
-  const changedPath = 'source/line\nbreak.ts';
+  const changedPath = 'examples/reference-workspace/src/line\nbreak.ts';
   const scan = await scanReferenceDrift('/unused', async (_command, args) => args[0] === 'diff'
     ? { code: 1, stdout: bytes(`${changedPath}\0`), stderr: '' }
     : { code: 0, stdout: new Uint8Array(), stderr: '' });
