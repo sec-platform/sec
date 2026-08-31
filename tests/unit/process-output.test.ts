@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes, type RetainedCommandBoundary } from '../../src/runtime-state/physical/runtime/process.ts';
-import { compilerRoot } from '../../src/workspace/paths.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 const splitUtf8Script = [
   "const chunks = [Buffer.from('docs/'), Buffer.from([0xe4]), Buffer.from([0xb8]), Buffer.from([0xad]), Buffer.from('.md\\0')];",
@@ -142,8 +142,8 @@ const RETAINED_TEST_COMMAND_BUDGET = Object.freeze({
   timeoutMs: 5_000
 });
 
-test.skipIf(process.platform !== 'win32')(
-  'retained byte transport executes and revalidates one writer-excluded executable image',
+test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
+  'retained byte transport executes and revalidates one immutable executable image',
   async () => {
   const executablePath = path.resolve(process.execPath);
   const parent = inspectNoFollowDirectoryChain(path.dirname(executablePath), 'test executable parent');
@@ -184,8 +184,8 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test.skipIf(process.platform === 'win32')(
-  'retained executable admission stays typed unavailable without a sealed image primitive',
+test.skipIf(process.platform === 'win32' || process.platform === 'linux')(
+  'retained executable admission stays typed unavailable on unsupported platforms',
   () => {
     const executablePath = path.resolve(process.execPath);
     let failure: unknown;
@@ -205,9 +205,7 @@ test.skipIf(process.platform === 'win32')(
     expect((failure as PhysicalNoFollowError).code).toBe(
       'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
     );
-    expect((failure as Error).message).toContain(
-      'sealed image or mandatory writer-exclusion primitive'
-    );
+    expect((failure as Error).message).toMatch(/backend is available|backend is unavailable/u);
   }
 );
 

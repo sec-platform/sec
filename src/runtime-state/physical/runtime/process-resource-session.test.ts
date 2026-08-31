@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { chmod, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
@@ -97,6 +99,15 @@ test('process sessions reject structural operation and session clones', async ()
     maxStdoutBytes: 0
   })).rejects.toThrow(/owner-issued session/u);
   session.close();
+});
+
+test('process session admission preserves pre-cancelled classification', () => {
+  const controller = new AbortController();
+  controller.abort(new Error('cancelled before admission'));
+  expect(() => openProcessResourceSession({
+    operation: boundOperation({ deadlineAtUnixMs: Date.now() - 1 }),
+    signal: controller.signal
+  })).toThrow('Process resource session is cancelled.');
 });
 
 test('process sessions require one process Effect and complete aggregate budgets exactly once', async () => {
@@ -226,3 +237,80 @@ test('process session deadline is one fixed wall and monotonic cancellation boun
   })).rejects.toThrow(/cancelled|deadline/u);
   session.close();
 });
+
+test.skipIf(process.platform !== 'linux')(
+  'Linux retained executable uses one sealed descriptor image and rejects lexical ABA',
+  async () => {
+    const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-retained-executable-'));
+    const executablePath = path.join(temporaryRoot, 'tool');
+    const displacedPath = path.join(temporaryRoot, 'tool.displaced');
+    const replacementPath = path.join(temporaryRoot, 'tool.replacement');
+    const source = [
+      '#!/bin/sh',
+      'if printf x >&3 2>/dev/null; then exit 91; fi',
+      'printf sealed'
+    ].join('\n');
+    await writeFile(executablePath, source, { mode: 0o755 });
+    const parent = inspectNoFollowDirectoryChain(temporaryRoot, 'Linux executable test parent');
+    const executable = retainNoFollowOrdinaryFile(
+      parent,
+      'tool',
+      undefined,
+      'Linux retained executable test',
+      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+      'executable'
+    );
+    const workingDirectory = retainNoFollowDirectoryForChildProcess(
+      parent,
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'Linux retained executable cwd'
+    );
+    const boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
+    const session = openProcessResourceSession({ operation: boundOperation() });
+    try {
+      const executed = await session.run(boundary, [], {
+        maxStderrBytes: 0,
+        maxStdoutBytes: 6
+      });
+      expect(Buffer.from(executed.result.stdout).toString('utf8')).toBe('sealed');
+
+      await rename(executablePath, displacedPath);
+      await writeFile(executablePath, source, { mode: 0o755 });
+      await rename(executablePath, replacementPath);
+      await rename(displacedPath, executablePath);
+      expect(() => executable.assertCurrent()).toThrow(/lexical executable edge changed/u);
+      await expect(session.run(boundary, [], {
+        maxStderrBytes: 0,
+        maxStdoutBytes: 1
+      })).rejects.toThrow(/lexical executable edge changed/u);
+      session.close();
+    } finally {
+      workingDirectory.dispose();
+      executable.dispose();
+      expect(() => executable.assertCurrent()).toThrow(/disposed/u);
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'linux')(
+  'Linux executable admission rejects a retained ordinary file without execute permission',
+  async () => {
+    const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sec-non-executable-'));
+    const executablePath = path.join(temporaryRoot, 'tool');
+    try {
+      await writeFile(executablePath, '#!/bin/sh\nexit 0');
+      await chmod(executablePath, 0o644);
+      expect(() => retainNoFollowOrdinaryFile(
+        inspectNoFollowDirectoryChain(temporaryRoot, 'Linux non-executable test parent'),
+        'tool',
+        undefined,
+        'Linux non-executable test',
+        RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+        'executable'
+      )).toThrow(/not an executable ordinary file/u);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }
+);
