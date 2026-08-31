@@ -487,6 +487,16 @@ test('source program model finds capability producers, consumers, literals, and 
   });
 
   const model = compile(files);
+  const tcbReviewedModel = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership,
+    reviewedProcessDispatchers: ['src/example/cli.ts::spawnSync:git']
+  });
+  expect(tcbReviewedModel.candidates).toContainEqual(expect.objectContaining({
+    code: 'direct-process-transport-outside-owner',
+    subject: 'src/example/cli.ts'
+  }));
   expect(new Set(model.candidates.map((candidate) => sha256(candidate))).size)
     .toBe(model.candidates.length);
   const versionReductionPlan = compileSourceProgramVersionSuffixReductionPlan(model, files);
@@ -758,6 +768,65 @@ test('source program model finds capability producers, consumers, literals, and 
       'capability-provider-operation-unresolved': 1,
       'direct-process-transport-outside-owner': 1
     })
+  }));
+});
+
+test('source program blocks owner-internal process primitives at repository provider boundaries', () => {
+  const providerPath = 'src/physical-provider/process.ts';
+  const consumerPath = 'src/consumer/run.ts';
+  const descriptorPath = 'src/physical-provider/sec.module.json';
+  const files = [
+    {
+      path: providerPath,
+      source: 'export function nativePrimitive(): void {}\n'
+    },
+    {
+      path: consumerPath,
+      source: "import { nativePrimitive } from '../physical-provider/process.ts';\nnativePrimitive();\n"
+    }
+  ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [descriptorPath, 'src/consumer/sec.module.json', ...files.map(({ path }) => path)],
+    descriptorSources: [
+      {
+        descriptorPath,
+        source: JSON.stringify({
+          importGraph: 'runtime',
+          externalEntrypoints: [],
+          capabilityProviders: [{
+            capability: 'process.native',
+            operations: ['nativePrimitive'],
+            effectKinds: ['process'],
+            ownerInternalOperations: ['nativePrimitive']
+          }]
+        })
+      },
+      {
+        descriptorPath: 'src/consumer/sec.module.json',
+        source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
+      }
+    ]
+  });
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: rawSha256(JSON.stringify(files.map(({ path, contentDigest }) => ({
+      path,
+      contentDigest
+    })))),
+    files,
+    moduleMembership
+  });
+
+  expect(model.capabilities).toContainEqual(expect.objectContaining({
+    path: consumerPath,
+    operation: 'nativePrimitive',
+    providerCapability: 'process.native',
+    providerModuleId: 'physical-provider',
+    transport: 'repository-provider'
+  }));
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'direct-process-transport-outside-owner',
+    subject: consumerPath,
+    paths: [consumerPath]
   }));
 });
 

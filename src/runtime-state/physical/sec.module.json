@@ -13,7 +13,73 @@
         "runRetainedCommand",
         "runRetainedCommandBytes",
         "resolveExecutableLocator"
+      ],
+      "effectKinds": [
+        "process"
+      ],
+      "ownerInternalOperations": [
+        "runCommand",
+        "runCommandBytes",
+        "runCommandWithRetry",
+        "runObservedCommand",
+        "runRetainedCommand",
+        "runRetainedCommandBytes",
+        "resolveExecutableLocator"
       ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "process.native",
+        "operation": "openProcessResourceSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "external-capabilities.git-read",
+          "verification.action"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process"
+        ],
+        "failureKinds": [
+          "process-budget-exhausted",
+          "process-identity-drift",
+          "process-settlement-failed",
+          "process-unavailable"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 16777216
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33554432
+          },
+          {
+            "resource": "processes",
+            "maximum": 128
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
     }
   ]
 }
