@@ -120,7 +120,7 @@ test('process sessions require one process Effect and complete aggregate budgets
     operation: boundOperation({ budgets: [
       { resource: 'duration-ms', maximum: 15_000 },
       { resource: 'input-bytes', maximum: 3 },
-      { resource: 'output-bytes', maximum: 5 },
+      { resource: 'output-bytes', maximum: 6 },
       { resource: 'processes', maximum: 2 }
     ] })
   });
@@ -133,7 +133,7 @@ test('process sessions require one process Effect and complete aggregate budgets
       input: new Uint8Array([0, 1, 255]),
       maxStdinBytes: 3,
       maxStderrBytes: 0,
-      maxStdoutBytes: 3
+      maxStdoutBytes: 5
     });
     expect(first).toEqual({
       ordinal: 1,
@@ -148,14 +148,14 @@ test('process sessions require one process Effect and complete aggregate budgets
     })).rejects.toThrow(/input-byte budget/u);
     await expect(session.run(retained.boundary, ['--version'], {
       maxStderrBytes: 0,
-      maxStdoutBytes: 3
+      maxStdoutBytes: 4
     })).rejects.toThrow(/output-byte admission/u);
 
     const second = await session.run(retained.boundary, [
       '--no-env-file',
       '--eval',
       "process.stdout.write('ok')"
-    ], { maxStderrBytes: 0, maxStdoutBytes: 2 });
+    ], { maxStderrBytes: 0, maxStdoutBytes: 3 });
     expect(second.ordinal).toBe(2);
     expect(Buffer.from(second.result.stdout).toString('utf8')).toBe('ok');
     expect(session.processCount).toBe(2);

@@ -243,6 +243,18 @@ export function openProcessResourceSession(input: Readonly<{
           stdout: new Uint8Array(result.stdout),
           stderr: result.stderr
         });
+        const observedOutputBytes = immutableResult.stdout.byteLength
+          + Buffer.byteLength(immutableResult.stderr, 'utf8');
+        if (observedOutputBytes > admittedOutputBytes) {
+          throw new Error('Process resource session observed output exceeds its admitted command bound.');
+        }
+        // The command bound is a live reservation, not historical usage. The
+        // session is single-flight, so after settlement the unused reservation
+        // can be released without admitting overlapping output. Aggregate
+        // receipts record bytes actually observed; failed settlements retain
+        // the full reservation conservatively because their final byte count
+        // is not trustworthy.
+        outputBytes -= admittedOutputBytes - observedOutputBytes;
         return Object.freeze({ ordinal, result: immutableResult });
       } catch (error) {
         failedProcessCount += 1;
