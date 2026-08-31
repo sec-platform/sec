@@ -143,15 +143,20 @@ export type WorkspaceTypeScriptSourceFact = Readonly<{
   path: string;
   contentDigest: `sha256:${string}`;
   moduleId: string | null;
+  moduleDigest: `sha256:${string}`;
 }>;
 
 export interface WorkspaceTypeScriptProjectInput {
   readonly [workspaceTypeScriptProjectInputBrand]: true;
   readonly sourceRevision: string;
+  readonly snapshotDigest: `sha256:${string}`;
   readonly workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  readonly moduleMembershipDigest: `sha256:${string}`;
+  readonly moduleGraphDigest: `sha256:${string}`;
   readonly projectConfigPath: string;
   readonly projectConfigDigest: `sha256:${string}`;
   readonly sourceFacts: readonly WorkspaceTypeScriptSourceFact[];
+  readonly orderedSourceFactsDigest: `sha256:${string}`;
   readonly projectInputDigest: `sha256:${string}`;
   readonly observationDigest: `sha256:${string}`;
 }
@@ -161,6 +166,21 @@ export function assertWorkspaceTypeScriptProjectInput(
 ): void {
   if (!issuedWorkspaceTypeScriptProjectInputs.has(input)) {
     throw new Error('TypeScript ProjectInput was not issued by the Workspace Source Snapshot owner');
+  }
+}
+
+export function assertWorkspaceTypeScriptProjectInputMatchesSnapshot(
+  input: WorkspaceTypeScriptProjectInput,
+  snapshot: WorkspaceSourceSnapshot
+): void {
+  assertWorkspaceTypeScriptProjectInput(input);
+  assertWorkspaceSourceSnapshot(snapshot);
+  if (input.sourceRevision !== snapshot.sourceRevision
+      || input.snapshotDigest !== snapshot.snapshotDigest
+      || input.workspaceSnapshotIdentityDigest !== snapshot.identityDigest
+      || input.moduleMembershipDigest !== snapshot.moduleMembershipDigest
+      || input.moduleGraphDigest !== snapshot.moduleGraphDigest) {
+    throw new Error('TypeScript ProjectInput does not belong to the Workspace Source Snapshot');
   }
 }
 
@@ -182,14 +202,20 @@ export function compileWorkspaceTypeScriptProjectInput(
     .map(({ path: repositoryPath, contentDigest }) => Object.freeze({
       path: repositoryPath,
       contentDigest: contentDigest as `sha256:${string}`,
-      moduleId: snapshot.moduleMembership.moduleForPath(repositoryPath)?.moduleId ?? null
+      moduleId: snapshot.moduleMembership.moduleForPath(repositoryPath)?.moduleId ?? null,
+      moduleDigest: sha256(snapshot.moduleMembership.moduleForPath(repositoryPath)) as `sha256:${string}`
     })));
+  const orderedSourceFactsDigest = sha256(sourceFacts) as `sha256:${string}`;
   const canonical = Object.freeze({
     sourceRevision: snapshot.sourceRevision,
+    snapshotDigest: snapshot.snapshotDigest,
     workspaceSnapshotIdentityDigest: snapshot.identityDigest,
+    moduleMembershipDigest: snapshot.moduleMembershipDigest,
+    moduleGraphDigest: snapshot.moduleGraphDigest,
     projectConfigPath,
     projectConfigDigest: projectConfig.contentDigest as `sha256:${string}`,
-    sourceFacts
+    sourceFacts,
+    orderedSourceFactsDigest
   });
   const projectInputDigest = sha256(canonical) as `sha256:${string}`;
   const input: WorkspaceTypeScriptProjectInput = Object.freeze({

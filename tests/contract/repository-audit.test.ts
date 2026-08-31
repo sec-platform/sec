@@ -9,12 +9,13 @@ import { expect, test } from 'bun:test';
 import {
   auditRepository,
   extractHeuristicBehaviorCandidates,
-  repositoryAuditShouldFail
+  repositoryAuditShouldFail,
+  repositoryAuditSupersessionShouldBlock
 } from '../../src/brownfield/repository-audit/cli.ts';
 import {
   SEC_AGENT_SKILL_IDS,
-  SEC_REPOSITORY_BEHAVIOR_IDS,
-  SEC_REPOSITORY_BEHAVIOR_ROUTES
+  SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
+  SEC_REPOSITORY_HEURISTIC_ROUTES
 } from '../../src/control/agent/skill.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
@@ -30,13 +31,17 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-test('behavior registry separates deterministic routes from bounded Skills', () => {
-  expect(SEC_REPOSITORY_BEHAVIOR_IDS.length).toBeGreaterThan(SEC_AGENT_SKILL_IDS.length);
-  const routes = Object.values(SEC_REPOSITORY_BEHAVIOR_ROUTES);
-  expect(routes.filter((route) => route.kind === 'deterministic').length).toBeGreaterThan(0);
-  expect(new Set(routes
-    .filter((route) => route.kind === 'skill')
-    .map((route) => route.owner))).toEqual(new Set(SEC_AGENT_SKILL_IDS));
+test('heuristic registry contains no copied machine capability graph', () => {
+  expect(SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(SEC_AGENT_SKILL_IDS.length);
+  const routes = Object.values(SEC_REPOSITORY_HEURISTIC_ROUTES);
+  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(SEC_AGENT_SKILL_IDS));
+  for (const route of routes) expect('operation' in route).toBeFalse();
+});
+
+test('repository enforcement blocks only unresolved supersession evidence', () => {
+  expect(repositoryAuditSupersessionShouldBlock({ status: 'equivalent' })).toBe(false);
+  expect(repositoryAuditSupersessionShouldBlock({ status: 'superseded' })).toBe(false);
+  expect(repositoryAuditSupersessionShouldBlock({ status: 'owner-decision-required' })).toBe(true);
 });
 
 test('heuristic candidate extraction ignores historical authority but exposes hidden Agent rules', () => {
@@ -201,7 +206,8 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
     git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
     git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
     await writeFile(path.join(repositoryRoot, 'README.md'), '# Fixture\n', 'utf8');
-    git(repositoryRoot, ['add', 'README.md']);
+    await writeFile(path.join(repositoryRoot, 'tsconfig.json'), '{"compilerOptions":{}}\n', 'utf8');
+    git(repositoryRoot, ['add', 'README.md', 'tsconfig.json']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
     const base = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
@@ -347,6 +353,12 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
     const report = await auditRepository(repositoryRoot, { defaultRef: base });
 
     expect(report.revision).toMatchObject({ head, tree, worktree: 'dirty' });
+    expect(report.sourceProgramCompilation).toEqual({
+      subjectDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+      snapshotDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+      moduleGraphDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+      receiptDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
+    });
     expect(report.behaviorCandidates.map(({ text }) => text)).toContain(
       'Agent must use the canonical owner.'
     );
@@ -452,7 +464,8 @@ async function createTempRepo(prefix: string): Promise<{ root: string; headSha: 
   git(root, ['config', 'user.email', 'sec-test@example.invalid']);
   git(root, ['config', 'core.autocrlf', 'false']);
   await writeFile(path.join(root, 'README.md'), '# Fixture\n', 'utf8');
-  git(root, ['add', 'README.md']);
+  await writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{}}\n', 'utf8');
+  git(root, ['add', 'README.md', 'tsconfig.json']);
   git(root, ['commit', '--quiet', '-m', 'initial']);
   const headSha = git(root, ['rev-parse', 'HEAD']);
   return { root, headSha };

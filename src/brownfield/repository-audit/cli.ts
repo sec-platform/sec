@@ -44,6 +44,7 @@ import {
   SEC_TCB_CLOSURE_RUNTIME_PATH,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../verification/trust/contract/root.ts';
+import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence } from '../source-program-model/contract.ts';
 import { compileSourceProgramImplementationDominance } from '../source-program-model/implementation-dominance.ts';
 import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramSupersessionReceipt, type SourceProgramUnusedSymbolEvidence } from '../source-program-model/reduction.ts';
@@ -53,7 +54,8 @@ import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue
 import { querySourceProgramModel, releaseTypeScriptSourceProgramWorkspace } from '../source-program-model/typescript.ts';
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
-  acquireWorkingTreeWorkspaceSourceSnapshot
+  acquireWorkingTreeWorkspaceSourceSnapshot,
+  compileWorkspaceTypeScriptProjectInput
 } from '../source-program-model/workspace-source-snapshot.ts';
 
 const DEFAULT_REPOSITORY_ROOT = compilerRuntimeLayout.packageRoot;
@@ -1004,8 +1006,13 @@ async function compileRevisionSupersessionEvidence(
     repositoryRoot,
     commitSha
   });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(
+    workspaceSnapshot,
+    tsconfigRelativePath
+  );
   const compilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,
+    projectInput,
     reviewedProcessDispatchers,
     unknowns: revisionUnknowns
   });
@@ -1286,12 +1293,20 @@ async function compileWorkingTreeSourceProgramWithSession(
       span: null
     }));
   }
+  const projectInput = compileWorkspaceTypeScriptProjectInput(
+    workspaceSnapshot,
+    tsconfigRelativePath
+  );
   const compilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,
+    projectInput,
     repositoryRoot,
     reviewedProcessDispatchers,
     unknowns
   });
+  if (compilation.projectGeneration === null) {
+    throw new Error('repository worktree Source Program project generation is unavailable');
+  }
   const moduleGraph = compilation.workspaceSnapshot.moduleGraph;
   const incrementalCompilation = compilation.typeScriptCompilation;
   const model = compilation.model;
@@ -1878,10 +1893,18 @@ async function auditRepositoryWithSession(
     repositoryRoot,
     commitSha: head
   });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(
+    workspaceSnapshot,
+    tsconfigRelativePath
+  );
   const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,
+    projectInput,
     repositoryRoot
   });
+  if (sourceProgramCompilation.projectGeneration === null) {
+    throw new Error('repository audit Source Program project generation is unavailable');
+  }
   const moduleGraph = sourceProgramCompilation.workspaceSnapshot.moduleGraph;
   const sourceProgram = sourceProgramCompilation.model;
   const architecture = compileSecRepositoryModuleArchitectureProjection(
