@@ -4,6 +4,10 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import {
+  createDockerEndpointIdentity,
+  type DockerEndpointIdentity
+} from '../../src/external-capabilities/docker/contract/daemon.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
 import { acquirePhysicalMutationLease } from '../../src/runtime-state/physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -23,18 +27,15 @@ import {
   createLocalGitHubActionsProviderLedger,
   createLocalGitHubActionsProviderLedgerCommitBytes,
   createLocalGitHubActionsRunnerBuildInputProjection,
-  createLocalGitHubActionsRunnerDockerDesktopEnvironment,
   createLocalGitHubActionsRunnerDockerfile,
   createLocalGitHubActionsRunnerEnvironmentSpec,
   createLocalGitHubActionsRunnerOciBakeDefinition,
   createLocalGitHubActionsRunnerOciCandidateBinding,
   createLocalGitHubActionsRunnerProjectionBuildxArgs,
   createLocalGitHubActionsRunnerState,
-  ensureDockerEndpointAvailableForTests,
   LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER,
   LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
   LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT,
-  LocalDockerDesktopAvailabilityFailure,
   LocalGitHubActionsRunnerCommandFailure,
   observeGitHubEndpointIdentity,
   observeLocalGitHubActionsProvider,
@@ -44,7 +45,6 @@ import {
   readValidatedRunnerOciLayoutIdentity,
   reconcileReclaimedLocalGitHubActionsRunnerOciCandidate,
   retireLocalGitHubActionsRunnerOciCandidate,
-  type DockerEndpointIdentity,
   type GitHubEndpointIdentity,
   type LocalGitHubActionsRunnerInstance,
   type LocalGitHubActionsRunnerRole
@@ -115,8 +115,7 @@ function createOciFixture() {
   return Object.freeze({ root, blobs, runtime, nested, layer, provenance, attestation });
 }
 
-const dockerEndpoint: DockerEndpointIdentity = Object.freeze({
-  schema: 'sec-docker-endpoint-identity-v1',
+const dockerEndpoint: DockerEndpointIdentity = createDockerEndpointIdentity({
   contextName: 'desktop-linux',
   endpointHost: 'npipe:////./pipe/dockerDesktopLinuxEngine',
   daemonId: '01234567-89ab-cdef-0123-456789abcdef',
@@ -250,219 +249,6 @@ function initialLedger() {
 }
 
 describe('local GitHub Actions runner contract', () => {
-  test('retains Docker Desktop launcher roots without accepting Docker selector authority', () => {
-    const environment = createLocalGitHubActionsRunnerDockerDesktopEnvironment({
-      APPDATA: 'C:\\profile',
-      DOCKER_CONFIG: 'C:\\attacker-config',
-      DOCKER_CONTEXT: 'attacker-context',
-      DOCKER_HOST: 'tcp://attacker.example:2376',
-      LOCALAPPDATA: 'C:\\local-profile',
-      PATH: 'C:\\tools',
-      TEMP: 'C:\\temp',
-      TMP: 'C:\\temp'
-    });
-    expect(environment).toEqual({
-      APPDATA: 'C:\\profile',
-      LOCALAPPDATA: 'C:\\local-profile',
-      PATH: 'C:\\tools',
-      TEMP: 'C:\\temp',
-      TMP: 'C:\\temp'
-    });
-  });
-
-  test('binds Docker Desktop launcher roots from Windows known-folder authority', () => {
-    const environment = createLocalGitHubActionsRunnerDockerDesktopEnvironment(
-      {
-        DOCKER_CONTEXT: 'attacker-context',
-        PATH: 'C:\\tools'
-      },
-      {
-        appData: 'C:\\canonical-roaming',
-        localAppData: 'C:\\canonical-local',
-        programData: 'C:\\canonical-program-data'
-      }
-    );
-    expect(environment).toEqual({
-      APPDATA: 'C:\\canonical-roaming',
-      LOCALAPPDATA: 'C:\\canonical-local',
-      PATH: 'C:\\tools',
-      PROGRAMDATA: 'C:\\canonical-program-data'
-    });
-  });
-
-  test('reuses a ready daemon without issuing a Docker Desktop start intent', async () => {
-    const calls: string[][] = [];
-    const result = await ensureDockerEndpointAvailableForTests({
-      cwd: process.cwd(),
-      endpointHost: dockerEndpoint.endpointHost,
-      deadlineAt: Date.now() + 1_000,
-      platform: 'win32',
-      run: async ({ args }) => {
-        calls.push([...args]);
-        return { code: 0, stdout: Buffer.from('{"ID":"daemon"}'), stderr: Buffer.alloc(0) };
-      }
-    });
-    expect(result.code).toBe(0);
-    expect(calls).toEqual([[
-      '--host', dockerEndpoint.endpointHost, 'info', '--format', '{{json .}}'
-    ]]);
-  });
-
-  test('issues one synchronous start intent and reads back the daemon', async () => {
-    const calls: string[][] = [];
-    const result = await ensureDockerEndpointAvailableForTests({
-      cwd: process.cwd(),
-      endpointHost: dockerEndpoint.endpointHost,
-      deadlineAt: Date.now() + 1_000,
-      platform: 'win32',
-      run: async ({ args }) => {
-        calls.push([...args]);
-        const isInfo = args[0] === '--host';
-        return {
-          code: isInfo && calls.length === 1 ? 1 : 0,
-          stdout: isInfo && calls.length > 1 ? Buffer.from('{"ID":"daemon"}') : Buffer.alloc(0),
-          stderr: Buffer.alloc(0)
-        };
-      }
-    });
-    expect(result.code).toBe(0);
-    expect(calls[1]?.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
-    expect(calls[2]).toEqual([
-      '--host', dockerEndpoint.endpointHost, 'info', '--format', '{{json .}}'
-    ]);
-  });
-
-  test('settles one failed lifecycle, quarantines its socket epoch, and starts once more', async () => {
-    const calls: string[][] = [];
-    let recoveries = 0;
-    const result = await ensureDockerEndpointAvailableForTests({
-      cwd: process.cwd(),
-      endpointHost: dockerEndpoint.endpointHost,
-      deadlineAt: Date.now() + 10_000,
-      platform: 'win32',
-      recoverStoppedSocketEpochs: () => {
-        recoveries += 1;
-        return 2;
-      },
-      run: async ({ args }) => {
-        calls.push([...args]);
-        if (calls.length === 1) {
-          return { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
-        }
-        if (calls.length === 2) {
-          return {
-            code: 1,
-            stdout: Buffer.alloc(0),
-            stderr: Buffer.from('context deadline exceeded')
-          };
-        }
-        return {
-          code: 0,
-          stdout: args[0] === '--host' ? Buffer.from('{"ID":"daemon"}') : Buffer.alloc(0),
-          stderr: Buffer.alloc(0)
-        };
-      }
-    });
-    expect(result.code).toBe(0);
-    expect(recoveries).toBe(1);
-    expect(calls[1]?.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
-    expect(calls[2]?.slice(0, 3)).toEqual(['desktop', 'stop', '--force']);
-    expect(calls[3]?.slice(0, 3)).toEqual(['desktop', 'start', '--timeout']);
-    expect(calls[4]).toEqual([
-      '--host', dockerEndpoint.endpointHost, 'info', '--format', '{{json .}}'
-    ]);
-  });
-
-  test('does not retry a failed lifecycle when no socket epoch was recovered', async () => {
-    let calls = 0;
-    try {
-      await ensureDockerEndpointAvailableForTests({
-        cwd: process.cwd(),
-        endpointHost: dockerEndpoint.endpointHost,
-        deadlineAt: Date.now() + 10_000,
-        platform: 'win32',
-        recoverStoppedSocketEpochs: () => 0,
-        run: async ({ args }) => {
-          calls += 1;
-          return args[0] === 'desktop' && args[1] === 'stop'
-            ? { code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
-            : { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
-        }
-      });
-      throw new Error('expected Docker Desktop blocker');
-    } catch (error) {
-      expect(error).toBeInstanceOf(LocalDockerDesktopAvailabilityFailure);
-      expect((error as LocalDockerDesktopAvailabilityFailure).reason)
-        .toBe('desktop-start-failed');
-      expect(calls).toBe(3);
-    }
-  });
-
-  test('keeps service authorization failure distinct from daemon unavailability', async () => {
-    try {
-      await ensureDockerEndpointAvailableForTests({
-        cwd: process.cwd(),
-        endpointHost: dockerEndpoint.endpointHost,
-        deadlineAt: Date.now() + 1_000,
-        platform: 'win32',
-        run: async ({ args }) => args[0] === '--host'
-          ? { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
-          : { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.from('Access is denied') }
-      });
-      throw new Error('expected Docker Desktop blocker');
-    } catch (error) {
-      expect(error).toBeInstanceOf(LocalDockerDesktopAvailabilityFailure);
-      expect((error as LocalDockerDesktopAvailabilityFailure).reason)
-        .toBe('service-permission-required');
-    }
-  });
-
-  test('blocks before retry when the Windows launcher environment is unavailable', async () => {
-    let calls = 0;
-    try {
-      await ensureDockerEndpointAvailableForTests({
-        cwd: process.cwd(),
-        endpointHost: dockerEndpoint.endpointHost,
-        deadlineAt: Date.now() + 1_000,
-        platform: 'win32',
-        run: async ({ args }) => {
-          calls += 1;
-          if (args[0] === '--host') {
-            return { code: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
-          }
-          throw new Error('Windows known folder local-app-data is unavailable');
-        }
-      });
-      throw new Error('expected Docker Desktop environment blocker');
-    } catch (error) {
-      expect(error).toBeInstanceOf(LocalDockerDesktopAvailabilityFailure);
-      expect((error as LocalDockerDesktopAvailabilityFailure).reason)
-        .toBe('desktop-environment-unavailable');
-      expect(calls).toBe(2);
-    }
-  });
-
-  test('rejects an exhausted startup deadline before any Docker effect', async () => {
-    let commands = 0;
-    try {
-      await ensureDockerEndpointAvailableForTests({
-        cwd: process.cwd(),
-        endpointHost: dockerEndpoint.endpointHost,
-        deadlineAt: Date.now() - 1,
-        platform: 'win32',
-        run: async () => {
-          commands += 1;
-          return { code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
-        }
-      });
-      throw new Error('expected Docker Desktop blocker');
-    } catch (error) {
-      expect(error).toBeInstanceOf(LocalDockerDesktopAvailabilityFailure);
-      expect((error as LocalDockerDesktopAvailabilityFailure).reason).toBe('deadline-exhausted');
-      expect(commands).toBe(0);
-    }
-  });
-
   test('pins the Linux provider toolchain and contains the SUT sandbox', () => {
     const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
     const retiredImage = authority.image.retirements.find(({ imageTag }) =>
@@ -810,7 +596,7 @@ describe('local GitHub Actions runner contract', () => {
     expect(() => parseLocalGitHubActionsProviderLedger(JSON.stringify({
       ...ledger,
       dockerEndpoint: { ...ledger.dockerEndpoint, extra: true }
-    }))).toThrow('keys are invalid');
+    }))).toThrow('keys are noncanonical');
     expect(() => createLocalGitHubActionsProviderLedger({
       ...ledger,
       dockerEndpoint: { ...ledger.dockerEndpoint, endpointHost: 'tcp://remote.example:2376' }

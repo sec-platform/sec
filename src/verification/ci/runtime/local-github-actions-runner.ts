@@ -1,8 +1,17 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { lstatSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { lstatSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
+import {
+  createDockerEndpointIdentity,
+  parseDockerEndpointIdentity,
+  type DockerEndpointIdentity
+} from '../../../external-capabilities/docker/contract/daemon.ts';
+import {
+  ensureDockerDaemonStarted,
+  observeDockerDaemon
+} from '../../../external-capabilities/docker/runtime/daemon.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST
@@ -14,7 +23,6 @@ import {
 import { resolveWindowsControlCliSession, type WindowsControlCliSessionRequest, type WindowsControlCliSessionResolution, type WindowsControlCliSessionResolutionReason } from '../../../external-capabilities/windows-control-cli/runtime/session.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveWindowsKnownFolderPath } from '../../../runtime-state/physical/runtime/windows-known-folders.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
@@ -114,15 +122,6 @@ export interface LocalGitHubActionsRunnerInstance {
   readonly runnerId: number;
   readonly containerId: string;
   readonly containerName: string;
-}
-
-export interface DockerEndpointIdentity {
-  readonly schema: 'sec-docker-endpoint-identity-v1';
-  readonly contextName: string;
-  readonly endpointHost: string;
-  readonly daemonId: string;
-  readonly osType: 'linux';
-  readonly architecture: 'x86_64';
 }
 
 export interface GitHubEndpointIdentity {
@@ -250,37 +249,6 @@ export class LocalGitHubActionsRunnerCommandFailure extends Error {
       kind: this.kind,
       providerStatus: this.providerStatus,
       providerReason: this.providerReason,
-      reason: this.reason
-    }) as `sha256:${string}`;
-  }
-}
-
-export type LocalDockerDesktopAvailabilityFailureReason =
-  | 'deadline-exhausted'
-  | 'desktop-environment-unavailable'
-  | 'desktop-start-failed'
-  | 'desktop-stop-failed'
-  | 'endpoint-unavailable'
-  | 'host-socket-recovery-unavailable'
-  | 'service-permission-required';
-
-export class LocalDockerDesktopAvailabilityFailure extends Error {
-  readonly code = 'SEC-LOCAL-DOCKER-DESKTOP-UNAVAILABLE' as const;
-  readonly endpointHost: string;
-  readonly reason: LocalDockerDesktopAvailabilityFailureReason;
-  readonly detailDigest: `sha256:${string}`;
-
-  constructor(input: Readonly<{
-    endpointHost: string;
-    reason: LocalDockerDesktopAvailabilityFailureReason;
-  }>) {
-    super(`Local Docker Desktop is unavailable: ${input.reason}`);
-    this.name = 'LocalDockerDesktopAvailabilityFailure';
-    this.endpointHost = input.endpointHost;
-    this.reason = input.reason;
-    this.detailDigest = sha256({
-      code: this.code,
-      endpointHost: this.endpointHost,
       reason: this.reason
     }) as `sha256:${string}`;
   }
@@ -498,10 +466,6 @@ const LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS = Object.freeze([
   'HOME', 'PATH',
   'PROGRAMFILES', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR'
 ] as const);
-const LOCAL_GITHUB_ACTIONS_DOCKER_DESKTOP_ENV_KEYS = Object.freeze([
-  ...LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS,
-  'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'TEMP', 'TMP'
-] as const);
 
 const COMMAND_ENV_KEYS = Object.freeze({
   docker: LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS,
@@ -531,41 +495,6 @@ function projectedCommandEnvironment(
 
 function commandEnvironment(command: keyof typeof COMMAND_ENV_KEYS): NodeJS.ProcessEnv {
   return projectedCommandEnvironment(COMMAND_ENV_KEYS[command], process.env);
-}
-
-export function createLocalGitHubActionsRunnerDockerDesktopEnvironment(
-  source: NodeJS.ProcessEnv = process.env,
-  knownFolders?: Readonly<{ appData: string; localAppData: string; programData: string }>
-): NodeJS.ProcessEnv {
-  const environment = projectedCommandEnvironment(
-    LOCAL_GITHUB_ACTIONS_DOCKER_DESKTOP_ENV_KEYS,
-    source
-  );
-  if (knownFolders !== undefined) {
-    environment.APPDATA = knownFolders.appData;
-    environment.LOCALAPPDATA = knownFolders.localAppData;
-    environment.PROGRAMDATA = knownFolders.programData;
-  }
-  return environment;
-}
-
-async function createDockerDesktopLifecycleEnvironment(): Promise<NodeJS.ProcessEnv> {
-  const [localAppData, appData, programData] = await Promise.all([
-    resolveWindowsKnownFolderPath('local-app-data'),
-    resolveWindowsKnownFolderPath('roaming-app-data'),
-    resolveWindowsKnownFolderPath('program-data')
-  ]);
-  for (const [label, directory] of Object.entries({ localAppData, appData, programData })) {
-    const entry = lstatSync(directory, { throwIfNoEntry: false });
-    if (entry === undefined || !entry.isDirectory() || entry.isSymbolicLink()) {
-      throw new Error(`Docker Desktop ${label} known folder is not an ordinary directory`);
-    }
-  }
-  return createLocalGitHubActionsRunnerDockerDesktopEnvironment(process.env, {
-    appData,
-    localAppData,
-    programData
-  });
 }
 
 function fail(message: string): never {
@@ -678,28 +607,13 @@ function dockerDaemonId(value: unknown): string {
 }
 
 function dockerEndpointIdentity(input: DockerEndpointIdentity): DockerEndpointIdentity {
-  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-    fail('Docker endpoint identity is invalid');
-  }
-  exactKeys(input as unknown as Record<string, unknown>, [
-    'schema', 'contextName', 'endpointHost', 'daemonId', 'osType', 'architecture'
-  ], 'Docker endpoint identity');
-  if (input.schema !== 'sec-docker-endpoint-identity-v1'
-      || input.osType !== 'linux' || input.architecture !== 'x86_64') {
-    fail('Docker endpoint capability identity is invalid');
-  }
+  const parsed = parseDockerEndpointIdentity(input);
   return Object.freeze({
-    schema: 'sec-docker-endpoint-identity-v1' as const,
-    contextName: dockerContextName(input.contextName),
-    endpointHost: dockerEndpointHost(input.endpointHost),
-    daemonId: dockerDaemonId(input.daemonId),
-    osType: 'linux' as const,
-    architecture: 'x86_64' as const
+    ...parsed,
+    contextName: dockerContextName(parsed.contextName),
+    endpointHost: dockerEndpointHost(parsed.endpointHost),
+    daemonId: dockerDaemonId(parsed.daemonId)
   });
-}
-
-export function parseDockerEndpointIdentity(value: unknown): DockerEndpointIdentity {
-  return dockerEndpointIdentity(value as DockerEndpointIdentity);
 }
 
 function githubEndpointIdentity(input: GitHubEndpointIdentity): GitHubEndpointIdentity {
@@ -1019,7 +933,6 @@ async function runCommand(
     input?: Buffer;
     acceptedCodes?: readonly number[];
     acceptAnyExitCode?: boolean;
-    dockerDesktopLifecycle?: boolean;
     timeoutMs?: number;
     stallTimeoutMs?: number;
     admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
@@ -1046,12 +959,7 @@ async function runCommand(
       timeoutMs
     });
   }
-  if (options.dockerDesktopLifecycle === true && command !== 'docker') {
-    fail('Docker Desktop lifecycle environment is invalid for this command');
-  }
-  const childEnvironment = options.dockerDesktopLifecycle === true
-    ? await createDockerDesktopLifecycleEnvironment()
-    : commandEnvironment(command);
+  const childEnvironment = commandEnvironment(command);
   if (options.githubToken !== undefined) {
     if (command !== 'gh' || !/^[^\s\u0000-\u001f]{20,1024}$/u.test(options.githubToken)) {
       fail('command GitHub credential binding is invalid');
@@ -1199,8 +1107,8 @@ async function runDockerCommand(
   return await runCommand('docker', dockerCommandArgs(endpoint, args), options);
 }
 
-function parseDockerHostRuntimeJsonObject(source: Buffer): Record<string, unknown> | null {
-  const text = source.toString('utf8').trim();
+function parseDockerHostRuntimeJsonObject(source: Buffer | string): Record<string, unknown> | null {
+  const text = (typeof source === 'string' ? source : source.toString('utf8')).trim();
   if (text.length === 0 || text.length > MAX_COMMAND_OUTPUT_BYTES) return null;
   try {
     const value = JSON.parse(text) as unknown;
@@ -1212,223 +1120,10 @@ function parseDockerHostRuntimeJsonObject(source: Buffer): Record<string, unknow
   }
 }
 
-type DockerDesktopLifecycleCommand = (input: Readonly<{
-  args: readonly string[];
-  cwd: string;
-  timeoutMs: number;
-}>) => Promise<CommandResult>;
-
-type DockerDesktopStoppedSocketEpochRecovery = () => number | Promise<number>;
-
-type DockerDesktopAvailabilityInput = Readonly<{
-  cwd: string;
-  deadlineAt: number;
+async function observeDockerEndpointConfiguration(cwd: string): Promise<Readonly<{
+  contextName: string;
   endpointHost: string;
-  platform?: NodeJS.Platform;
-  recoverStoppedSocketEpochs?: DockerDesktopStoppedSocketEpochRecovery;
-  run?: DockerDesktopLifecycleCommand;
-}>;
-
-function dockerDesktopFailure(
-  endpointHost: string,
-  reason: LocalDockerDesktopAvailabilityFailureReason
-): never {
-  throw new LocalDockerDesktopAvailabilityFailure({ endpointHost, reason });
-}
-
-async function recoverDockerDesktopStoppedSocketEpochs(): Promise<number> {
-  const resolvedLocalAppData = await resolveWindowsKnownFolderPath('local-app-data');
-  const localAppDataEntry = lstatSync(resolvedLocalAppData, { throwIfNoEntry: false });
-  if (localAppDataEntry === undefined || !localAppDataEntry.isDirectory()
-      || localAppDataEntry.isSymbolicLink()) {
-    throw new Error('Docker Desktop LOCALAPPDATA is not an ordinary directory');
-  }
-  const epochs = Object.freeze([
-    Object.freeze({
-      path: path.win32.join(resolvedLocalAppData, 'Docker', 'run'),
-      socketNames: new Set([
-        'dockerEthernetVfkit',
-        'dockerInference',
-        'sailor-ingest.sock',
-        'userAnalyticsOtlpHttp.sock'
-      ])
-    }),
-    Object.freeze({
-      path: path.win32.join(resolvedLocalAppData, 'docker-secrets-engine'),
-      socketNames: new Set(['engine.sock'])
-    })
-  ]);
-  const recoveryId = randomBytes(8).toString('hex');
-  let recovered = 0;
-  for (const candidate of epochs) {
-    const epochPath = candidate.path;
-    const parentPath = path.win32.dirname(epochPath);
-    const parent = lstatSync(parentPath, { throwIfNoEntry: false });
-    if (parent === undefined || !parent.isDirectory() || parent.isSymbolicLink()) {
-      throw new Error(`Docker Desktop socket epoch parent is not ordinary: ${parentPath}`);
-    }
-    const epoch = lstatSync(epochPath, { throwIfNoEntry: false });
-    if (epoch === undefined) continue;
-    if (!epoch.isDirectory() || epoch.isSymbolicLink()) {
-      throw new Error(`Docker Desktop socket epoch is not an ordinary directory: ${epochPath}`);
-    }
-    const entries = readdirSync(epochPath, { withFileTypes: true });
-    if (entries.length === 0) continue;
-    if (entries.length > candidate.socketNames.size
-        || entries.some((entry) =>
-          !entry.isSymbolicLink() || !candidate.socketNames.has(entry.name))) {
-      throw new Error(`Docker Desktop socket epoch contains non-socket residue: ${epochPath}`);
-    }
-    const target = path.win32.join(
-      parentPath,
-      `${path.win32.basename(epochPath)}.sec-stopped-socket-epoch-${recoveryId}`
-    );
-    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined) {
-      throw new Error(`Docker Desktop socket epoch recovery target already exists: ${target}`);
-    }
-    renameSync(epochPath, target);
-    if (lstatSync(epochPath, { throwIfNoEntry: false }) !== undefined
-        || lstatSync(target, { throwIfNoEntry: false }) === undefined) {
-      throw new Error(`Docker Desktop socket epoch recovery readback failed: ${epochPath}`);
-    }
-    recovered += 1;
-  }
-  return recovered;
-}
-
-function dockerDesktopStartFailureReason(result: CommandResult):
-LocalDockerDesktopAvailabilityFailureReason {
-  const detail = Buffer.concat([result.stdout, result.stderr]).toString('utf8');
-  return /access\s+is\s+denied|access\s+denied|permission\s+denied|requires?\s+administrator/iu
-    .test(detail)
-    ? 'service-permission-required'
-    : 'desktop-start-failed';
-}
-
-function dockerDesktopRemainingMs(input: DockerDesktopAvailabilityInput): number {
-  const remainingMs = input.deadlineAt - Date.now();
-  if (!Number.isSafeInteger(input.deadlineAt) || remainingMs < 1) {
-    dockerDesktopFailure(input.endpointHost, 'deadline-exhausted');
-  }
-  return remainingMs;
-}
-
-async function runDockerDesktopAvailabilityCommand(
-  input: DockerDesktopAvailabilityInput,
-  run: DockerDesktopLifecycleCommand,
-  args: readonly string[],
-  failureReason: LocalDockerDesktopAvailabilityFailureReason
-): Promise<CommandResult> {
-  try {
-    return await run({
-      args,
-      cwd: input.cwd,
-      timeoutMs: dockerDesktopRemainingMs(input)
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (Date.now() >= input.deadlineAt || /\b(?:abort|deadline|timeout)\b/iu.test(message)) {
-      dockerDesktopFailure(input.endpointHost, 'deadline-exhausted');
-    }
-    if (/\b(?:known folder|LOCALAPPDATA|APPDATA)\b/iu.test(message)) {
-      dockerDesktopFailure(input.endpointHost, 'desktop-environment-unavailable');
-    }
-    dockerDesktopFailure(input.endpointHost, failureReason);
-  }
-}
-
-async function ensureDockerEndpointAvailable(
-  input: DockerDesktopAvailabilityInput
-): Promise<CommandResult> {
-  const run = input.run ?? (async ({ args, cwd, timeoutMs }) => await runCommand(
-    'docker', args, {
-      cwd,
-      timeoutMs,
-      acceptAnyExitCode: true,
-      dockerDesktopLifecycle: args[0] === 'desktop'
-    }
-  ));
-  const infoArgs = Object.freeze([
-    '--host', input.endpointHost, 'info', '--format', '{{json .}}'
-  ]);
-  const initial = await runDockerDesktopAvailabilityCommand(
-    input, run, infoArgs, 'endpoint-unavailable'
-  );
-  if (initial.code === 0) return initial;
-  if ((input.platform ?? process.platform) !== 'win32'
-      || !/^npipe:\/{4}\.\/pipe\/dockerDesktop[A-Za-z0-9_.-]*$/u.test(input.endpointHost)) {
-    dockerDesktopFailure(input.endpointHost, 'endpoint-unavailable');
-  }
-
-  // Docker Desktop owns its startup state machine. A synchronous start is both
-  // the single intent and the event-driven lifecycle join; no process polling,
-  // sleep, or detached duplicate start is required.
-  const lifecycleRemainingMs = dockerDesktopRemainingMs(input);
-  const initialLifecycleSeconds = Math.max(
-    1,
-    Math.floor(lifecycleRemainingMs / 2_000)
-  );
-  const lifecycle = await runDockerDesktopAvailabilityCommand(input, run, Object.freeze([
-    'desktop', 'start', '--timeout', String(initialLifecycleSeconds)
-  ]), 'desktop-start-failed');
-  if (lifecycle.code !== 0) {
-    const lifecycleReason = dockerDesktopStartFailureReason(lifecycle);
-    if (lifecycleReason === 'service-permission-required') {
-      dockerDesktopFailure(input.endpointHost, lifecycleReason);
-    }
-    const stopRemainingMs = dockerDesktopRemainingMs(input);
-    const stop = await runDockerDesktopAvailabilityCommand(input, run, Object.freeze([
-      'desktop', 'stop', '--force', '--timeout',
-      String(Math.max(1, Math.floor(stopRemainingMs / 4_000)))
-    ]), 'desktop-stop-failed');
-    if (stop.code !== 0) {
-      const stopReason = dockerDesktopStartFailureReason(stop);
-      dockerDesktopFailure(
-        input.endpointHost,
-        stopReason === 'service-permission-required' ? stopReason : 'desktop-stop-failed'
-      );
-    }
-    let recoveredEpochs: number;
-    try {
-      recoveredEpochs = await (input.recoverStoppedSocketEpochs
-        ?? recoverDockerDesktopStoppedSocketEpochs)();
-    } catch {
-      dockerDesktopFailure(input.endpointHost, 'host-socket-recovery-unavailable');
-    }
-    if (recoveredEpochs < 1) {
-      dockerDesktopFailure(input.endpointHost, 'desktop-start-failed');
-    }
-    const recoveryRemainingMs = dockerDesktopRemainingMs(input);
-    const recoveredLifecycle = await runDockerDesktopAvailabilityCommand(
-      input,
-      run,
-      Object.freeze([
-        'desktop', 'start', '--timeout',
-        String(Math.max(1, Math.floor(recoveryRemainingMs / 1_000)))
-      ]),
-      'desktop-start-failed'
-    );
-    if (recoveredLifecycle.code !== 0) {
-      dockerDesktopFailure(
-        input.endpointHost,
-        dockerDesktopStartFailureReason(recoveredLifecycle)
-      );
-    }
-  }
-  const readback = await runDockerDesktopAvailabilityCommand(
-    input, run, infoArgs, 'endpoint-unavailable'
-  );
-  if (readback.code !== 0) dockerDesktopFailure(input.endpointHost, 'endpoint-unavailable');
-  return readback;
-}
-
-export async function ensureDockerEndpointAvailableForTests(
-  input: DockerDesktopAvailabilityInput
-): Promise<CommandResult> {
-  return await ensureDockerEndpointAvailable(input);
-}
-
-export async function observeDockerEndpointIdentity(cwd: string): Promise<DockerEndpointIdentity> {
+}>> {
   const contextName = dockerContextName((await runCommand('docker', ['context', 'show'], { cwd }))
     .stdout.toString('utf8').trim());
   const contextSource = (await runCommand('docker', [
@@ -1444,18 +1139,48 @@ export async function observeDockerEndpointIdentity(cwd: string): Promise<Docker
     fail('Docker context endpoint is invalid');
   }
   const endpointHost = dockerEndpointHost((docker as Record<string, unknown>).Host);
-  const deadlineAt = Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault;
-  const available = await ensureDockerEndpointAvailable({ cwd, endpointHost, deadlineAt });
-  const info = parseDockerHostRuntimeJsonObject(available.stdout);
+  return Object.freeze({ contextName, endpointHost });
+}
+
+function dockerEndpointFromDaemonInfo(input: Readonly<{
+  contextName: string;
+  endpointHost: string;
+  infoSource: Buffer | string;
+}>): DockerEndpointIdentity {
+  const info = parseDockerHostRuntimeJsonObject(input.infoSource);
   if (info === null) fail('Docker daemon inspection is invalid');
-  return dockerEndpointIdentity({
-    schema: 'sec-docker-endpoint-identity-v1',
-    contextName,
-    endpointHost,
+  return dockerEndpointIdentity(createDockerEndpointIdentity({
+    contextName: input.contextName,
+    endpointHost: input.endpointHost,
     daemonId: dockerDaemonId(info.ID),
     osType: info.OSType as 'linux',
     architecture: info.Architecture as 'x86_64'
+  }));
+}
+
+/** Observe the selected daemon without starting, stopping, or repairing it. */
+export async function observeDockerEndpointIdentity(cwd: string): Promise<DockerEndpointIdentity> {
+  const configuration = await observeDockerEndpointConfiguration(cwd);
+  const available = await observeDockerDaemon({
+    cwd,
+    endpointHost: configuration.endpointHost,
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
   });
+  return dockerEndpointFromDaemonInfo({ ...configuration, infoSource: available.stdout });
+}
+
+/**
+ * Effectful availability operation used only by workflows that are about to
+ * materialize or execute containers. It issues at most one official start.
+ */
+export async function ensureDockerEndpointIdentity(cwd: string): Promise<DockerEndpointIdentity> {
+  const configuration = await observeDockerEndpointConfiguration(cwd);
+  const available = await ensureDockerDaemonStarted({
+    cwd,
+    endpointHost: configuration.endpointHost,
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  });
+  return dockerEndpointFromDaemonInfo({ ...configuration, infoSource: available.stdout });
 }
 
 export async function assertDockerEndpointIdentity(
@@ -2775,7 +2500,7 @@ export interface LocalGitHubActionsRunnerToolchainMaterialization {
 export async function ensureLocalGitHubActionsRunnerToolchainMaterialization(
   cwd: string
 ): Promise<LocalGitHubActionsRunnerToolchainMaterialization> {
-  const endpoint = await observeDockerEndpointIdentity(cwd);
+  const endpoint = await ensureDockerEndpointIdentity(cwd);
   await ensureImage(cwd, endpoint);
   const cache = await inspectRunnerOciCache(cwd);
   if (cache.state !== 'matching' || cache.receipt === null) {
@@ -3456,7 +3181,7 @@ export async function startLocalGitHubActionsProvider(input: Readonly<{
   if (readStateProjection(context.commonDirectory) !== null) {
     fail(`active state already exists at ${statePath(context.commonDirectory)}`);
   }
-  const dockerEndpoint = await observeDockerEndpointIdentity(context.repositoryRoot);
+  const dockerEndpoint = await ensureDockerEndpointIdentity(context.repositoryRoot);
   const githubEndpoint = await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
   await ensureImage(context.repositoryRoot, dockerEndpoint);
   const startedAt = new Date().toISOString();

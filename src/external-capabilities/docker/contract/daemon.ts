@@ -1,0 +1,88 @@
+import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+
+export const DOCKER_ENDPOINT_IDENTITY_SCHEMA = 'sec-docker-endpoint-identity-v1' as const;
+
+export interface DockerEndpointIdentity {
+  readonly schema: typeof DOCKER_ENDPOINT_IDENTITY_SCHEMA;
+  readonly contextName: string;
+  readonly endpointHost: string;
+  readonly daemonId: string;
+  readonly osType: 'linux';
+  readonly architecture: 'x86_64';
+}
+
+function boundedIdentityText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 512
+      || /[\u0000-\u001f]/u.test(value)) {
+    throw new Error(`Docker daemon ${label} must be bounded non-control text`);
+  }
+  return value;
+}
+
+export function parseDockerEndpointIdentity(value: unknown): DockerEndpointIdentity {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Docker daemon endpoint identity must be an object');
+  }
+  const input = value as Record<string, unknown>;
+  const keys = Object.keys(input).sort();
+  const expectedKeys = [
+    'architecture', 'contextName', 'daemonId', 'endpointHost', 'osType', 'schema'
+  ];
+  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) {
+    throw new Error('Docker daemon endpoint identity keys are noncanonical');
+  }
+  if (input.schema !== DOCKER_ENDPOINT_IDENTITY_SCHEMA
+      || input.osType !== 'linux' || input.architecture !== 'x86_64') {
+    throw new Error('Docker daemon endpoint identity contract is invalid');
+  }
+  return Object.freeze({
+    schema: input.schema,
+    contextName: boundedIdentityText(input.contextName, 'context name'),
+    endpointHost: boundedIdentityText(input.endpointHost, 'endpoint host'),
+    daemonId: boundedIdentityText(input.daemonId, 'identity'),
+    osType: input.osType,
+    architecture: input.architecture
+  });
+}
+
+export function createDockerEndpointIdentity(
+  input: Omit<DockerEndpointIdentity, 'schema'>
+): DockerEndpointIdentity {
+  return parseDockerEndpointIdentity({
+    ...input,
+    schema: DOCKER_ENDPOINT_IDENTITY_SCHEMA
+  });
+}
+
+export type DockerDaemonAvailabilityFailureReason =
+  | 'deadline-exhausted'
+  | 'desktop-environment-unavailable'
+  | 'desktop-launcher-busy'
+  | 'desktop-launcher-settlement-unknown'
+  | 'desktop-start-failed'
+  | 'desktop-stop-failed'
+  | 'endpoint-unavailable'
+  | 'host-socket-recovery-unavailable'
+  | 'service-permission-required';
+
+export class DockerDaemonAvailabilityFailure extends Error {
+  readonly code = 'SEC-DOCKER-DAEMON-UNAVAILABLE' as const;
+  readonly endpointHost: string;
+  readonly reason: DockerDaemonAvailabilityFailureReason;
+  readonly detailDigest: `sha256:${string}`;
+
+  constructor(input: Readonly<{
+    endpointHost: string;
+    reason: DockerDaemonAvailabilityFailureReason;
+  }>) {
+    super(`Docker daemon is unavailable: ${input.reason}`);
+    this.name = 'DockerDaemonAvailabilityFailure';
+    this.endpointHost = boundedIdentityText(input.endpointHost, 'endpoint host');
+    this.reason = input.reason;
+    this.detailDigest = sha256({
+      code: this.code,
+      endpointHost: this.endpointHost,
+      reason: this.reason
+    }) as `sha256:${string}`;
+  }
+}
