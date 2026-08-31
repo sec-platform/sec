@@ -3,15 +3,20 @@ import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
+import type {
+  ContainerEngineOperation,
+  ContainerEngineOperationOptions
+} from '../../../external-capabilities/docker/contract/container-engine-session.ts';
 import {
-  createDockerEndpointIdentity,
   parseDockerEndpointIdentity,
   type DockerEndpointIdentity
 } from '../../../external-capabilities/docker/contract/daemon.ts';
 import {
-  ensureDockerDaemonStarted,
-  observeDockerDaemon
-} from '../../../external-capabilities/docker/runtime/daemon.ts';
+  assertContainerEngineEndpointIdentity,
+  ensureContainerEngineEndpointIdentity,
+  executeContainerEngineOperation,
+  observeContainerEngineEndpointIdentity
+} from '../../../external-capabilities/docker/runtime/container-engine-session.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST
@@ -199,7 +204,7 @@ interface CommandResult {
   readonly stderr: Buffer;
 }
 
-export type LocalGitHubActionsRunnerCommandKind = 'read' | 'effect' | 'docker';
+export type LocalGitHubActionsRunnerCommandKind = 'read' | 'effect';
 
 export type LocalGitHubActionsRunnerCommandFailureReason =
   | WindowsControlCliSessionResolutionReason
@@ -221,7 +226,7 @@ export type LocalGitHubActionsRunnerCommandProviderStatus =
 export class LocalGitHubActionsRunnerCommandFailure extends Error {
   readonly code = 'SEC-LOCAL-GITHUB-ACTIONS-COMMAND-BLOCKED' as const;
   readonly command: 'gh' | 'git';
-  readonly kind: Exclude<LocalGitHubActionsRunnerCommandKind, 'docker'>;
+  readonly kind: LocalGitHubActionsRunnerCommandKind;
   readonly providerStatus: LocalGitHubActionsRunnerCommandProviderStatus;
   readonly providerReason: WindowsControlCliSessionResolutionReason | null;
   readonly reason: LocalGitHubActionsRunnerCommandFailureReason;
@@ -229,7 +234,7 @@ export class LocalGitHubActionsRunnerCommandFailure extends Error {
 
   constructor(input: Readonly<{
     command: 'gh' | 'git';
-    kind: Exclude<LocalGitHubActionsRunnerCommandKind, 'docker'>;
+    kind: LocalGitHubActionsRunnerCommandKind;
     providerStatus: LocalGitHubActionsRunnerCommandProviderStatus;
     providerReason?: WindowsControlCliSessionResolutionReason | null;
     reason: LocalGitHubActionsRunnerCommandFailureReason;
@@ -278,18 +283,12 @@ export function classifyLocalGitHubActionsRunnerCommandV1(
   command: 'gh' | 'git',
   args: readonly string[],
   inputPresent?: boolean
-): Exclude<LocalGitHubActionsRunnerCommandKind, 'docker'>;
+): LocalGitHubActionsRunnerCommandKind;
 export function classifyLocalGitHubActionsRunnerCommandV1(
-  command: 'docker',
-  args: readonly string[],
-  inputPresent?: boolean
-): 'docker';
-export function classifyLocalGitHubActionsRunnerCommandV1(
-  command: 'docker' | 'gh' | 'git',
+  command: 'gh' | 'git',
   args: readonly string[],
   inputPresent = false
 ): LocalGitHubActionsRunnerCommandKind {
-  if (command === 'docker') return 'docker';
   if (inputPresent) return 'effect';
   if (command === 'git') {
     const verb = args[0];
@@ -462,13 +461,7 @@ interface GitHubApiSession {
 
 const githubApiSessions = new Map<string, GitHubApiSession>();
 
-const LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS = Object.freeze([
-  'HOME', 'PATH',
-  'PROGRAMFILES', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR'
-] as const);
-
 const COMMAND_ENV_KEYS = Object.freeze({
-  docker: LOCAL_GITHUB_ACTIONS_DOCKER_COMMAND_ENV_KEYS,
   gh: Object.freeze([
     'APPDATA', 'GH_CONFIG_DIR', 'GH_TOKEN', 'GITHUB_TOKEN', 'HOME',
     'LOCALAPPDATA', 'PATH', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR', 'XDG_CONFIG_HOME'
@@ -476,7 +469,7 @@ const COMMAND_ENV_KEYS = Object.freeze({
   git: Object.freeze([
     'HOME', 'PATH', 'SYSTEMROOT', 'USERPROFILE', 'WINDIR', 'XDG_CONFIG_HOME'
   ])
-} satisfies Record<'docker' | 'gh' | 'git', readonly string[]>);
+} satisfies Record<'gh' | 'git', readonly string[]>);
 
 function projectedCommandEnvironment(
   keys: readonly string[],
@@ -926,7 +919,7 @@ export function createLocalGitHubActionsRunnerProjectionBuildxArgs(
 }
 
 async function runCommand(
-  command: 'docker' | 'gh' | 'git',
+  command: 'gh' | 'git',
   args: readonly string[],
   options: Readonly<{
     cwd: string;
@@ -949,11 +942,10 @@ async function runCommand(
       || stallTimeoutMs < 1 || stallTimeoutMs > timeoutMs || options.admitProgress === undefined)) {
     fail('command stall timeout is invalid');
   }
-  // Docker is an independent provider surface. Git/GH on Windows must pass
-  // the retained control-CLI admission before any host child can be created;
+  // Git/GH on Windows must pass the retained control-CLI admission before any host child can be created;
   // there is deliberately no PATH fallback when that provider is unknown or
   // unavailable. Non-Windows keeps its separately governed host route.
-  if (command !== 'docker' && process.platform === 'win32') {
+  if (process.platform === 'win32') {
     return await runWindowsControlCliCommand(command, args, {
       ...options,
       timeoutMs
@@ -1081,118 +1073,47 @@ async function runGitHubApi(
   ], { ...options, githubToken: session.token });
 }
 
-function dockerCommandArgs(endpoint: DockerEndpointIdentity, args: readonly string[]): readonly string[] {
-  return Object.freeze(['--host', dockerEndpointIdentity(endpoint).endpointHost, ...args]);
-}
-
-export function dockerEndpointCommandArgs(
+async function runContainerEngineOperation(
   endpoint: DockerEndpointIdentity,
-  args: readonly string[]
-): readonly string[] {
-  return dockerCommandArgs(endpoint, args);
-}
-
-async function runDockerCommand(
-  endpoint: DockerEndpointIdentity,
-  args: readonly string[],
+  operation: ContainerEngineOperation,
   options: Readonly<{
     cwd: string;
     input?: Buffer;
     acceptedCodes?: readonly number[];
+    acceptAnyExitCode?: boolean;
     timeoutMs?: number;
     stallTimeoutMs?: number;
     admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
   }>
 ): Promise<CommandResult> {
-  return await runCommand('docker', dockerCommandArgs(endpoint, args), options);
-}
-
-function parseDockerHostRuntimeJsonObject(source: Buffer | string): Record<string, unknown> | null {
-  const text = (typeof source === 'string' ? source : source.toString('utf8')).trim();
-  if (text.length === 0 || text.length > MAX_COMMAND_OUTPUT_BYTES) return null;
-  try {
-    const value = JSON.parse(text) as unknown;
-    return value !== null && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
+  const timeoutMs = options.timeoutMs ?? ENVIRONMENT.provider.timeoutsMs.commandDefault;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1
+      || timeoutMs > ENVIRONMENT.provider.timeoutsMs.commandMaximum) {
+    fail('Container Engine operation timeout is invalid');
   }
-}
-
-async function observeDockerEndpointConfiguration(cwd: string): Promise<Readonly<{
-  contextName: string;
-  endpointHost: string;
-}>> {
-  const contextName = dockerContextName((await runCommand('docker', ['context', 'show'], { cwd }))
-    .stdout.toString('utf8').trim());
-  const contextSource = (await runCommand('docker', [
-    'context', 'inspect', contextName, '--format', '{{json .}}'
-  ], { cwd })).stdout;
-  const context = parseDockerHostRuntimeJsonObject(contextSource);
-  if (context === null || context.Name !== contextName) fail('Docker context endpoint is invalid');
-  const endpoints = context.Endpoints;
-  const docker = endpoints !== null && typeof endpoints === 'object' && !Array.isArray(endpoints)
-    ? (endpoints as Record<string, unknown>).docker
-    : null;
-  if (docker === null || typeof docker !== 'object' || Array.isArray(docker)) {
-    fail('Docker context endpoint is invalid');
-  }
-  const endpointHost = dockerEndpointHost((docker as Record<string, unknown>).Host);
-  return Object.freeze({ contextName, endpointHost });
-}
-
-function dockerEndpointFromDaemonInfo(input: Readonly<{
-  contextName: string;
-  endpointHost: string;
-  infoSource: Buffer | string;
-}>): DockerEndpointIdentity {
-  const info = parseDockerHostRuntimeJsonObject(input.infoSource);
-  if (info === null) fail('Docker daemon inspection is invalid');
-  return dockerEndpointIdentity(createDockerEndpointIdentity({
-    contextName: input.contextName,
-    endpointHost: input.endpointHost,
-    daemonId: dockerDaemonId(info.ID),
-    osType: info.OSType as 'linux',
-    architecture: info.Architecture as 'x86_64'
-  }));
-}
-
-/** Observe the selected daemon without starting, stopping, or repairing it. */
-export async function observeDockerEndpointIdentity(cwd: string): Promise<DockerEndpointIdentity> {
-  const configuration = await observeDockerEndpointConfiguration(cwd);
-  const available = await observeDockerDaemon({
-    cwd,
-    endpointHost: configuration.endpointHost,
-    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  const operationOptions: ContainerEngineOperationOptions = Object.freeze({
+    ...(options.input === undefined ? {} : {
+      input: options.input,
+      maxStdinBytes: options.input.byteLength
+    }),
+    ...(options.acceptedCodes === undefined ? {} : { acceptedCodes: options.acceptedCodes }),
+    ...(options.acceptAnyExitCode === undefined ? {} : {
+      acceptAnyExitCode: options.acceptAnyExitCode
+    }),
+    ...(options.stallTimeoutMs === undefined ? {} : {
+      stallTimeoutMs: options.stallTimeoutMs,
+      admitProgress: options.admitProgress
+    })
   });
-  return dockerEndpointFromDaemonInfo({ ...configuration, infoSource: available.stdout });
-}
-
-/**
- * Effectful availability operation used only by workflows that are about to
- * materialize or execute containers. It issues at most one official start.
- */
-export async function ensureDockerEndpointIdentity(cwd: string): Promise<DockerEndpointIdentity> {
-  const configuration = await observeDockerEndpointConfiguration(cwd);
-  const available = await ensureDockerDaemonStarted({
-    cwd,
-    endpointHost: configuration.endpointHost,
-    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  return await executeContainerEngineOperation({
+    cwd: path.resolve(options.cwd),
+    deadlineAtUnixMs: Date.now() + timeoutMs,
+    endpoint: dockerEndpointIdentity(endpoint),
+    operation,
+    options: operationOptions,
+    maxStdoutBytes: MAX_COMMAND_OUTPUT_BYTES,
+    maxStderrBytes: MAX_COMMAND_OUTPUT_BYTES
   });
-  return dockerEndpointFromDaemonInfo({ ...configuration, infoSource: available.stdout });
-}
-
-export async function assertDockerEndpointIdentity(
-  expected: DockerEndpointIdentity,
-  cwd: string
-): Promise<DockerEndpointIdentity> {
-  const retained = dockerEndpointIdentity(expected);
-  const observed = await observeDockerEndpointIdentity(cwd);
-  if (JSON.stringify(observed) !== JSON.stringify(retained)) {
-    fail('Docker daemon identity changed and external mutation is preserved');
-  }
-  return observed;
 }
 
 export async function observeGitHubEndpointIdentity(
@@ -1371,9 +1292,10 @@ async function listContainerIdentityRows(
   endpoint: DockerEndpointIdentity,
   filters: readonly string[] = []
 ): Promise<readonly Readonly<{ id: string; name: string }>[]> {
-  const inventory = await runDockerCommand(endpoint, [
-    'container', 'ls', '--all', '--no-trunc', ...filters, '--format', '{{.ID}}\t{{.Names}}'
-  ], { cwd });
+  const inventory = await runContainerEngineOperation(endpoint, {
+    kind: 'container-list',
+    arguments: ['--all', '--no-trunc', ...filters, '--format', '{{.ID}}\t{{.Names}}']
+  }, { cwd });
   const rows = inventory.stdout.toString('utf8').trim().split(/\r?\n/u).filter(Boolean).map((line) => {
     const [id, name, ...extra] = line.split('\t');
     if (!/^[0-9a-f]{64}$/u.test(id ?? '') || name === undefined || extra.length !== 0) {
@@ -1408,7 +1330,9 @@ async function inspectContainerById(
   const matches = (await listContainerIdentityRows(cwd, endpoint)).filter(({ id }) => id === containerId);
   if (matches.length === 0) return null;
   if (matches.length !== 1) fail('Docker exact-ID inventory is ambiguous');
-  const result = await runDockerCommand(endpoint, ['container', 'inspect', containerId], { cwd });
+  const result = await runContainerEngineOperation(endpoint, {
+    kind: 'container-inspect', arguments: [containerId]
+  }, { cwd });
   const parsed = JSON.parse(result.stdout.toString('utf8')) as unknown;
   if (!Array.isArray(parsed) || parsed.length !== 1 || parsed[0] === null
       || typeof parsed[0] !== 'object' || Array.isArray(parsed[0])) {
@@ -1801,7 +1725,9 @@ async function cleanupLedgerInstance(
         operationLabel: cursor.ledger.operationLabel,
         allowLegacyDetachedRunnerDuringTeardown: true
       });
-      await runDockerCommand(cursor.ledger.dockerEndpoint, ['rm', '--force', retained.containerId], { cwd });
+      await runContainerEngineOperation(cursor.ledger.dockerEndpoint, {
+        kind: 'container-remove', arguments: ['--force', retained.containerId]
+      }, { cwd });
     }
     if (await inspectContainerById(retained.containerId, cwd, cursor.ledger.dockerEndpoint) !== null
         || await inspectContainerByName(retained.name, cwd, cursor.ledger.dockerEndpoint) !== null) {
@@ -1860,16 +1786,20 @@ export function assertLocalGitHubActionsRunnerReplacementImageIdentity(
 }
 
 async function inspectImage(cwd: string, endpoint: DockerEndpointIdentity): Promise<Record<string, unknown> | null> {
-  const inventory = await runDockerCommand(endpoint, [
-    'image', 'ls', '--no-trunc', '--filter', `reference=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE}`,
-    '--format', '{{.ID}}'
-  ], { cwd });
+  const inventory = await runContainerEngineOperation(endpoint, {
+    kind: 'image-list',
+    arguments: [
+      '--no-trunc', '--filter', `reference=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE}`, '--format', '{{.ID}}'
+    ]
+  }, { cwd });
   const identities = [...new Set(inventory.stdout.toString('utf8').trim().split(/\r?\n/u).filter(Boolean))];
   if (identities.length === 0) return null;
   if (identities.length !== 1 || !/^sha256:[0-9a-f]{64}$/u.test(identities[0]!)) {
     fail('runner image inventory is ambiguous');
   }
-  const result = await runDockerCommand(endpoint, ['image', 'inspect', identities[0]!], { cwd });
+  const result = await runContainerEngineOperation(endpoint, {
+    kind: 'image-inspect', arguments: [identities[0]!]
+  }, { cwd });
   const parsed = JSON.parse(result.stdout.toString('utf8')) as unknown;
   if (!Array.isArray(parsed) || parsed.length !== 1 || parsed[0] === null
       || typeof parsed[0] !== 'object' || Array.isArray(parsed[0])) fail('Docker image inspect is invalid');
@@ -1882,12 +1812,14 @@ async function inspectImageById(
   endpoint: DockerEndpointIdentity
 ): Promise<Record<string, unknown> | null> {
   if (!/^sha256:[0-9a-f]{64}$/u.test(imageId)) fail('Docker image identity is invalid');
-  const inventory = await runDockerCommand(endpoint, [
-    'image', 'ls', '--all', '--no-trunc', '--format', '{{.ID}}'
-  ], { cwd });
+  const inventory = await runContainerEngineOperation(endpoint, {
+    kind: 'image-list', arguments: ['--all', '--no-trunc', '--format', '{{.ID}}']
+  }, { cwd });
   const identities = new Set(inventory.stdout.toString('utf8').trim().split(/\r?\n/u).filter(Boolean));
   if (!identities.has(imageId)) return null;
-  const result = await runDockerCommand(endpoint, ['image', 'inspect', imageId], { cwd });
+  const result = await runContainerEngineOperation(endpoint, {
+    kind: 'image-inspect', arguments: [imageId]
+  }, { cwd });
   const parsed = JSON.parse(result.stdout.toString('utf8')) as unknown;
   if (!Array.isArray(parsed) || parsed.length !== 1 || parsed[0] === null
       || typeof parsed[0] !== 'object' || Array.isArray(parsed[0])
@@ -2279,9 +2211,10 @@ async function projectRunnerOciLayout(
   if (ENVIRONMENT.provenance.dockerProjectionMode !== 'disabled') {
     fail('unsupported Docker projection provenance policy');
   }
-  await runDockerCommand(endpoint, createLocalGitHubActionsRunnerProjectionBuildxArgs(
-    cache.layoutPath
-  ), {
+  await runContainerEngineOperation(endpoint, {
+    kind: 'buildx-build',
+    arguments: createLocalGitHubActionsRunnerProjectionBuildxArgs(cache.layoutPath).slice(2)
+  }, {
     cwd: cache.directory.path,
     input: Buffer.from('FROM runtime\n', 'utf8'),
     timeoutMs: ENVIRONMENT.provider.timeoutsMs.projectionAbsolute,
@@ -2453,10 +2386,10 @@ async function ensureImage(cwd: string, endpoint: DockerEndpointIdentity): Promi
       if (cache === null || materialization === null) fail('OCI materialization has no acquired cache lease');
       const candidatePath = path.join(cache.directory.path, materialization.binding.candidateName);
       const progress = createBuildxRawJsonProgressAdmission();
-      await runDockerCommand(endpoint, [
-        'buildx', 'bake', '--file', '-',
-        `--progress=${ENVIRONMENT.provider.progressMode}`,
-      ], {
+      await runContainerEngineOperation(endpoint, {
+        kind: 'buildx-bake',
+        arguments: ['--file', '-', `--progress=${ENVIRONMENT.provider.progressMode}`]
+      }, {
         cwd,
         input: Buffer.from(createLocalGitHubActionsRunnerOciBakeDefinition(candidatePath), 'utf8'),
         timeoutMs: ENVIRONMENT.provider.timeoutsMs.materializeAbsolute,
@@ -2500,7 +2433,10 @@ export interface LocalGitHubActionsRunnerToolchainMaterialization {
 export async function ensureLocalGitHubActionsRunnerToolchainMaterialization(
   cwd: string
 ): Promise<LocalGitHubActionsRunnerToolchainMaterialization> {
-  const endpoint = await ensureDockerEndpointIdentity(cwd);
+  const endpoint = await ensureContainerEngineEndpointIdentity({
+    cwd: path.resolve(cwd),
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  });
   await ensureImage(cwd, endpoint);
   const cache = await inspectRunnerOciCache(cwd);
   if (cache.state !== 'matching' || cache.receipt === null) {
@@ -3085,7 +3021,9 @@ async function startRunnerInstance(input: Readonly<{
     LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID,
     '-ceu', LOCAL_GITHUB_ACTIONS_RUNNER_SUPERVISOR_SCRIPT
   ];
-  const container = await runDockerCommand(input.cursor.ledger.dockerEndpoint, args, { cwd: input.cwd });
+  const container = await runContainerEngineOperation(input.cursor.ledger.dockerEndpoint, {
+    kind: 'container-run', arguments: args.slice(1)
+  }, { cwd: input.cwd });
   const containerId = container.stdout.toString('utf8').trim();
   if (!/^[0-9a-f]{64}$/u.test(containerId)) fail('Docker returned an invalid container identity');
   const byId = await inspectContainerById(containerId, input.cwd, input.cursor.ledger.dockerEndpoint);
@@ -3121,9 +3059,10 @@ async function startRunnerInstance(input: Readonly<{
       + `${LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[input.role]},${input.cursor.ledger.operationLabel} --work _work`,
     'unset RUNNER_TOKEN'
   ].join('\n');
-  await runDockerCommand(input.cursor.ledger.dockerEndpoint, [
-    'exec', '--interactive', containerId, 'bash', '-lc', configureScript
-  ], {
+  await runContainerEngineOperation(input.cursor.ledger.dockerEndpoint, {
+    kind: 'container-exec',
+    arguments: ['--interactive', containerId, 'bash', '-lc', configureScript]
+  }, {
     cwd: input.cwd,
     input: Buffer.from(`${token}\n`, 'utf8')
   });
@@ -3137,9 +3076,9 @@ async function startRunnerInstance(input: Readonly<{
     'trap - EXIT',
     '[ -f "$marker" ] && [ ! -L "$marker" ]'
   ].join('\n');
-  await runDockerCommand(input.cursor.ledger.dockerEndpoint, [
-    'exec', containerId, 'bash', '-ceu', configuredMarkerScript
-  ], { cwd: input.cwd });
+  await runContainerEngineOperation(input.cursor.ledger.dockerEndpoint, {
+    kind: 'container-exec', arguments: [containerId, 'bash', '-ceu', configuredMarkerScript]
+  }, { cwd: input.cwd });
   const runner = await waitForRunner(input.cursor.ledger.repository, name, input.cwd, 60);
   const runnerId = assertOwnedLocalGitHubActionsRunner(runner, {
     name,
@@ -3181,7 +3120,10 @@ export async function startLocalGitHubActionsProvider(input: Readonly<{
   if (readStateProjection(context.commonDirectory) !== null) {
     fail(`active state already exists at ${statePath(context.commonDirectory)}`);
   }
-  const dockerEndpoint = await ensureDockerEndpointIdentity(context.repositoryRoot);
+  const dockerEndpoint = await ensureContainerEngineEndpointIdentity({
+    cwd: context.repositoryRoot,
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  });
   const githubEndpoint = await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
   await ensureImage(context.repositoryRoot, dockerEndpoint);
   const startedAt = new Date().toISOString();
@@ -3246,7 +3188,11 @@ export async function startLocalGitHubActionsProvider(input: Readonly<{
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     try {
-      await assertDockerEndpointIdentity(cursor.ledger.dockerEndpoint, context.repositoryRoot);
+      await assertContainerEngineEndpointIdentity({
+        expectedEndpoint: cursor.ledger.dockerEndpoint,
+        cwd: context.repositoryRoot,
+        deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+      });
       await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
       if (cursor.ledger.lifecycle !== 'teardown') {
         await advanceProviderLedger(cursor, { cwd: context.repositoryRoot, lifecycle: 'teardown' });
@@ -3415,7 +3361,11 @@ async function convergeProviderLedgerToTerminal(
   cursor: ProviderLedgerCursor,
   cwd: string
 ): Promise<void> {
-  await assertDockerEndpointIdentity(cursor.ledger.dockerEndpoint, cwd);
+  await assertContainerEngineEndpointIdentity({
+    expectedEndpoint: cursor.ledger.dockerEndpoint,
+    cwd: path.resolve(cwd),
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  });
   await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, cwd);
   await assertNoForeignProviderLedgerInventory(cursor, cwd, true);
   if (cursor.ledger.lifecycle === 'terminal') return;
@@ -3477,7 +3427,11 @@ export async function stopLocalGitHubActionsProvider(input: Readonly<{
   await assertOriginRepositoryIdentity(context.repositoryRoot, state.repository);
   const cursor = await loadCurrentProviderLedgerCursor(context.repositoryRoot, state.repository);
   if (cursor === null) fail('remote provider ledger is absent while local projection remains');
-  await assertDockerEndpointIdentity(cursor.ledger.dockerEndpoint, context.repositoryRoot);
+  await assertContainerEngineEndpointIdentity({
+    expectedEndpoint: cursor.ledger.dockerEndpoint,
+    cwd: context.repositoryRoot,
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  });
   await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
   assertStateProjectionBoundToLedger(state, cursor.ledger);
   if (cursor.ledger.lifecycle === 'active') {
@@ -3529,7 +3483,10 @@ export async function recoverLocalGitHubActionsProvider(input: Readonly<{
       fail('local state projection remains without remote destructive identity authority');
     }
     await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
-    const dockerEndpoint = await observeDockerEndpointIdentity(context.repositoryRoot);
+    const dockerEndpoint = await observeContainerEngineEndpointIdentity({
+      cwd: context.repositoryRoot,
+      deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+    });
     const exactNames = new Set(LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.map((role) =>
       instanceName(providerName, role)));
     const runners = await listRepositoryRunners(repository, context.repositoryRoot);
@@ -3547,7 +3504,11 @@ export async function recoverLocalGitHubActionsProvider(input: Readonly<{
     if (cursor.ledger.repository !== repository || cursor.ledger.providerName !== providerName) {
       fail('remote provider ledger belongs to another operation and is preserved');
     }
-    await assertDockerEndpointIdentity(cursor.ledger.dockerEndpoint, context.repositoryRoot);
+    await assertContainerEngineEndpointIdentity({
+      expectedEndpoint: cursor.ledger.dockerEndpoint,
+      cwd: context.repositoryRoot,
+      deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+    });
     await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
     if (projection !== null) {
       if (projection.state.repositoryRoot !== context.repositoryRoot
@@ -3589,7 +3550,10 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{ cwd: s
       });
     }
     await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
-    const dockerEndpoint = await observeDockerEndpointIdentity(context.repositoryRoot);
+    const dockerEndpoint = await observeContainerEngineEndpointIdentity({
+      cwd: context.repositoryRoot,
+      deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+    });
     const profileRunners = (await listRepositoryRunners(repository, context.repositoryRoot))
       .filter(isProviderProfileEligibleRunner);
     const profileContainers = await listProviderProfileContainers(
@@ -3615,7 +3579,11 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{ cwd: s
   if (cursor.ledger.repository.toLowerCase() !== repository.toLowerCase()) {
     fail('remote provider ledger repository differs from origin and is preserved');
   }
-  await assertDockerEndpointIdentity(cursor.ledger.dockerEndpoint, context.repositoryRoot);
+  await assertContainerEngineEndpointIdentity({
+    expectedEndpoint: cursor.ledger.dockerEndpoint,
+    cwd: context.repositoryRoot,
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  });
   await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
   if (projection !== null) assertStateProjectionBoundToLedger(projection.state, cursor.ledger);
   await assertNoForeignProviderLedgerInventory(cursor, context.repositoryRoot);
@@ -3694,7 +3662,10 @@ export async function retireSupersededLocalGitHubActionsRunnerImage(input: Reado
   ) !== null) {
     fail('image retirement is blocked while the provider ledger is active');
   }
-  const endpoint = await observeDockerEndpointIdentity(context.repositoryRoot);
+  const endpoint = await observeContainerEngineEndpointIdentity({
+    cwd: context.repositoryRoot,
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  });
   const replacement = await inspectImageById(
     decision.replacementImageId,
     context.repositoryRoot,
@@ -3709,8 +3680,14 @@ export async function retireSupersededLocalGitHubActionsRunnerImage(input: Reado
     fail('superseded image still has container references and is preserved');
   }
   if (await inspectImageById(decision.imageId, context.repositoryRoot, endpoint) !== null) {
-    await assertDockerEndpointIdentity(endpoint, context.repositoryRoot);
-    await runDockerCommand(endpoint, ['image', 'rm', decision.imageId], {
+    await assertContainerEngineEndpointIdentity({
+      expectedEndpoint: endpoint,
+      cwd: context.repositoryRoot,
+      deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+    });
+    await runContainerEngineOperation(endpoint, {
+      kind: 'image-remove', arguments: [decision.imageId]
+    }, {
       cwd: context.repositoryRoot
     });
   }
@@ -3720,7 +3697,11 @@ export async function retireSupersededLocalGitHubActionsRunnerImage(input: Reado
       ])).length !== 0) {
     fail('superseded image retirement readback is not absent');
   }
-  await assertDockerEndpointIdentity(endpoint, context.repositoryRoot);
+  await assertContainerEngineEndpointIdentity({
+    expectedEndpoint: endpoint,
+    cwd: context.repositoryRoot,
+    deadlineAtUnixMs: Date.now() + ENVIRONMENT.provider.timeoutsMs.commandDefault
+  });
   return Object.freeze({
     schema: 'sec-local-github-actions-image-retirement-v3' as const,
     imageId: decision.imageId,

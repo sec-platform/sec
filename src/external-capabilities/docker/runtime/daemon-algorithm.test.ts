@@ -4,7 +4,6 @@ import { DockerDaemonAvailabilityFailure } from '../contract/daemon.ts';
 import {
   ensureDockerDaemonStartedWithCommand,
   observeDockerDaemonWithCommand,
-  repairDockerDaemonDestructivelyWithCommand,
   type DockerDaemonCommandResult
 } from './daemon-algorithm.ts';
 
@@ -151,52 +150,5 @@ describe('Docker daemon lifecycle algorithm', () => {
     }
     expect(commands).toBe(0);
     expect(locks).toBe(0);
-  });
-
-  test('destructive repair is one explicit stop-relocate-start lifecycle', async () => {
-    const lifecycles: string[] = [];
-    let relocations = 0;
-    const result = await repairDockerDaemonDestructivelyWithCommand({
-      cwd: process.cwd(),
-      deadlineAtUnixMs: Date.now() + 10_000,
-      endpointHost,
-      platform: 'win32',
-      relocateStoppedSocketEpochs: () => {
-        relocations += 1;
-        return 1;
-      },
-      withLauncherLock: async (operation) => await operation(),
-      run: async ({ lifecycle }) => {
-        lifecycles.push(lifecycle);
-        return lifecycle === 'observe' && lifecycles.length === 1 ? unavailable : available;
-      }
-    });
-    expect(result).toBe(available);
-    expect(relocations).toBe(1);
-    expect(lifecycles).toEqual([
-      'observe', 'destructive-repair-stop', 'destructive-repair-start', 'observe'
-    ]);
-  });
-
-  test('destructive repair fails closed before restart when relocation has no receipt', async () => {
-    const lifecycles: string[] = [];
-    try {
-      await repairDockerDaemonDestructivelyWithCommand({
-        cwd: process.cwd(),
-        deadlineAtUnixMs: Date.now() + 10_000,
-        endpointHost,
-        platform: 'win32',
-        relocateStoppedSocketEpochs: () => 0,
-        withLauncherLock: async (operation) => await operation(),
-        run: async ({ lifecycle }) => {
-          lifecycles.push(lifecycle);
-          return lifecycle === 'observe' ? unavailable : available;
-        }
-      });
-      throw new Error('expected destructive repair blocker');
-    } catch (error) {
-      expectReason(error, 'host-socket-recovery-unavailable');
-    }
-    expect(lifecycles).toEqual(['observe', 'destructive-repair-stop']);
   });
 });

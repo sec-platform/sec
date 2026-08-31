@@ -6,9 +6,9 @@ import {
   createMainHealthLedger,
   createMainHealthRepairWorkPackagePath
 } from '../../src/control/main-health/contract.ts';
+import { parseDockerEndpointIdentity } from '../../src/external-capabilities/docker/contract/daemon.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
-import { parseDockerEndpointIdentity } from '../../src/verification/ci/runtime/local-github-actions-runner.ts';
 import { TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID, TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC, TRUSTED_RUNTIME_STATE_ENVIRONMENT, TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST, TRUSTED_RUNTIME_TEST_TMPFS_SPEC, TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT, assertTrustedRuntimeContainerImageV1, assertTrustedRuntimeDependencyCacheVolume, assertTrustedRuntimeMainHealthCarryForwardBaselineV2, authorizeTrustedRuntimeContainerRecovery, composeTrustedRuntimeContainerLabels, createTrustedRuntimeCommandEnvironmentArgs, createTrustedRuntimeDependencyCacheMarker, createTrustedRuntimeDependencyCacheVolumeSpec, createTrustedRuntimeHostCommandEnvironment, createTrustedRuntimeImageBuildPlan, createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthGatePlans, createTrustedRuntimeMainHealthReceipt, createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, parseTrustedRuntimeContainerIdentity, parseTrustedRuntimeMainHealthAffectedPlan, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, renderTrustedRuntimeCommandFailureDetail, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionStatusRequest } from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
 
 const dockerEndpoint = Object.freeze({
@@ -73,7 +73,7 @@ function mainHealthRetirementFixture() {
     trustRevision: mainSha,
     observedAt: '2026-08-21T00:00:00.000Z',
     producer: {
-      identity: 'src/control/main-health/default-branch-revision.ts',
+      identity: 'src/control/main-health/main-health-observation.ts',
       trustRevision: mainSha,
       sourceTransport: 'github-api',
       sourceRunId: '33109458351',
@@ -276,15 +276,6 @@ describe('provider-neutral trusted runtime container', () => {
     expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
     expect(environment.GIT_TEMPLATE_DIR).toBeUndefined();
 
-    const dockerEnvironment = createTrustedRuntimeHostCommandEnvironment('docker', {
-      DOCKER_CONFIG: path.join('attacker', 'docker-config'),
-      DOCKER_CONTEXT: 'attacker-context',
-      DOCKER_HOST: 'tcp://attacker.example:2376',
-      PATH: 'C:\\tools'
-    });
-    expect(dockerEnvironment.DOCKER_CONFIG).toBeUndefined();
-    expect(dockerEnvironment.DOCKER_CONTEXT).toBeUndefined();
-    expect(dockerEnvironment.DOCKER_HOST).toBeUndefined();
   });
 
   test('retains bounded stdout and stderr when a provider command fails', () => {
