@@ -12,7 +12,6 @@ import {
   parseMainHealthLedger,
   type MainHealthLedger
 } from '../../control/main-health/contract.ts';
-import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../development/runner/contract.ts';
 import type {
   ContainerEngineOperation,
   ContainerEngineOperationOptions,
@@ -27,7 +26,12 @@ import {
   openContainerEngineSession
 } from '../../external-capabilities/docker/runtime/container-engine-session.ts';
 import { isolatedGitChildEnvironment } from '../../external-capabilities/git-read/runtime/session.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../external-capabilities/linux-verification/contract.ts';
+import {
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
+  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
+  SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
+} from '../../external-capabilities/linux-verification/contract.ts';
 import { acquirePhysicalMutationLease } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { type NoFollowDirectoryTreeEntry } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../runtime-state/physical/runtime/process.ts';
@@ -46,6 +50,7 @@ import {
   type SecOwnerTerminalJoinReceipt,
   type SecProviderSettlementReceipt
 } from '../../system-architecture/operation/semantic.ts';
+import { compilerRuntimeLayout } from '../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../toolchain/typescript/canary.ts';
 import { createVerificationActionKey, createVerificationActionPlan, encodeVerificationActionData, issueVerificationActionTerminalSettlement, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
 import { createCiVerificationLocalExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
@@ -97,11 +102,23 @@ export interface TrustedRuntimeImageBuildPlan {
   readonly stallTimeoutMs: number;
 }
 
+function trustedRuntimeDockerfilePath(): string {
+  const packageRoot = path.resolve(compilerRuntimeLayout.packageRoot);
+  const dockerfile = path.resolve(
+    packageRoot,
+    ...SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH.split('/')
+  );
+  const relativeReadback = path.relative(packageRoot, dockerfile).split(path.sep).join('/');
+  if (relativeReadback !== SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH) {
+    fail('trusted runtime Dockerfile projection escapes the canonical package root');
+  }
+  return dockerfile;
+}
+
 export function createTrustedRuntimeImageBuildPlan(
-  dockerfile: string,
   toolchain: LocalGitHubActionsRunnerToolchainMaterialization
 ): TrustedRuntimeImageBuildPlan {
-  if (!path.isAbsolute(dockerfile)) fail('trusted runtime Dockerfile path must be absolute');
+  const dockerfile = trustedRuntimeDockerfilePath();
   if (!path.isAbsolute(toolchain.layoutPath)
       || toolchain.runtimeManifestDigest !== ENVIRONMENT.image.runtimeContentDigest
       || toolchain.dockerProjectionDigest !== ENVIRONMENT.image.dockerProjectionDigest) {
@@ -116,6 +133,8 @@ export function createTrustedRuntimeImageBuildPlan(
       '--build-arg', `SEC_RUNNER_IMAGE_ID=${ENVIRONMENT.image.dockerProjectionDigest}`,
       '--build-arg', `SEC_BUN_ARCHIVE_URL=${ENVIRONMENT.trustedRuntime.bunArchiveUrl}`,
       '--build-arg', `SEC_BUN_ARCHIVE_DIGEST=${ENVIRONMENT.trustedRuntime.bunArchiveDigest}`,
+      '--build-arg',
+      `SEC_BUN_EXECUTABLE_DIGEST=${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST}`,
       '--build-arg', `SEC_BUN_VERSION=${ENVIRONMENT.trustedRuntime.bunVersion}`,
       '--tag', TRUSTED_RUNTIME_CONTAINER_IMAGE,
       '--file', dockerfile,
@@ -155,6 +174,11 @@ export const TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC =
 const TRUSTED_RUNTIME_TRUSTED_TREE = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/trusted`;
 const TRUSTED_RUNTIME_WORKSPACE = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/workspace`;
 const TRUSTED_RUNTIME_OUTPUT = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/output`;
+const TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND = Object.freeze([
+  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
+  'run',
+  'deps:ensure'
+] as const);
 export const TRUSTED_RUNTIME_STATE_ENVIRONMENT = Object.freeze({
   SEC_STATE_HOME: `${TRUSTED_RUNTIME_OUTPUT}/state`,
   SEC_CACHE_HOME: `${TRUSTED_RUNTIME_OUTPUT}/cache`
@@ -356,7 +380,7 @@ export interface TrustedRuntimeDependencyCacheMarker {
   readonly repository: string;
   readonly bunLockBlobSha: string;
   readonly imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID;
-  readonly bunVersion: '1.3.14';
+  readonly bunVersion: string;
   readonly deletionEffect: 'performance-loss-only';
   readonly activeUseFence: 'docker-mounted-volume-plus-operation-lease-v1';
   readonly cacheKey: Digest;
@@ -493,7 +517,7 @@ export function createTrustedRuntimeMainHealthGatePlans(input: Readonly<{
         { path: 'affected.plan', digest: input.affectedPlan.planDigest }
       ],
       environment: {
-        toolchainRevision: 'bun@1.3.14-linux-x64',
+        toolchainRevision: `bun@${ENVIRONMENT.trustedRuntime.bunVersion}-linux-x64`,
         providerRevision: `trusted-container:${digestValue({
           imageId: input.imageId,
           dockerEndpoint: input.dockerEndpoint
@@ -565,11 +589,13 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
     requirements: [{
       id: 'external.container-engine-process',
       contractDigest,
-      effectKinds: ['process'],
+      effectKinds: ['filesystem', 'process', 'provider'],
       failureKinds: [
         'container-engine.admission-failed',
+        'container-engine.desktop-launcher-path-unavailable',
         'container-engine.endpoint-unavailable',
-        'container-engine.process-settlement-failed'
+        'container-engine.process-settlement-failed',
+        'container-engine.runtime-endpoint-residue'
       ]
     }],
     attempt: issueSecSemanticOperationAttemptContext({
@@ -774,7 +800,7 @@ export function createTrustedRuntimeDependencyCacheMarker(input: Readonly<{
     repository: repository(input.repository),
     bunLockBlobSha: sha(input.bunLockBlobSha, 'dependency cache bunLockBlobSha'),
     imageId: input.imageId,
-    bunVersion: '1.3.14' as const,
+    bunVersion: ENVIRONMENT.trustedRuntime.bunVersion,
     deletionEffect: 'performance-loss-only' as const,
     activeUseFence: 'docker-mounted-volume-plus-operation-lease-v1' as const
   });
@@ -1320,6 +1346,8 @@ function imageObservation(source: string): TrustedRuntimeContainerImageObservati
     'sec.trusted-runtime.image-schema': TRUSTED_RUNTIME_CONTAINER_SCHEMA,
     'sec.trusted-runtime.base-image-id': TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
     'sec.trusted-runtime.bun-archive-sha256': TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
+    'sec.trusted-runtime.bun-executable-sha256':
+      SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
     'sec.trusted-runtime.bun-version': ENVIRONMENT.trustedRuntime.bunVersion
   });
   for (const [key, value] of Object.entries(expected)) {
@@ -1354,8 +1382,7 @@ async function ensureImage(
   if (toolchain.dockerProjectionDigest !== TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID) {
     fail('trusted toolchain base image identity drifted');
   }
-  const dockerfile = path.join(import.meta.dir, 'trusted-runtime.Dockerfile');
-  const plan = createTrustedRuntimeImageBuildPlan(dockerfile, toolchain);
+  const plan = createTrustedRuntimeImageBuildPlan(toolchain);
   const progress = createBuildxRawJsonProgressAdmission();
   const built = await observeContainerEngineOperation(session, {
     kind: 'buildx-build', arguments: plan.args.slice(2)
@@ -1490,7 +1517,7 @@ export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT = [
   `  cd ${TRUSTED_RUNTIME_TRUSTED_TREE}`,
   '  mkdir -p .shared-deps',
   `  ln -s ${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH} .shared-deps/.bun-cache`,
-  `  CI=1 bun ${DEV_RUNNER_ENTRYPOINT_PATH} deps:ensure`,
+  `  CI=1 ${TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND.join(' ')}`,
   '  if [ "$mode" = "full" ]; then',
   `    rm -rf ${TRUSTED_RUNTIME_WORKSPACE}/node_modules`,
   `    ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE}/node_modules ${TRUSTED_RUNTIME_WORKSPACE}/node_modules`,
@@ -3257,7 +3284,7 @@ export async function executeTrustedRuntimeWorkspaceCanary(input: Readonly<{
           kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
           ...createTrustedRuntimeCommandEnvironmentArgs({ CI: '1', HOME: '/home/ubuntu' }),
           containerName,
-          'bun', DEV_RUNNER_ENTRYPOINT_PATH, 'deps:ensure']
+          ...TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND]
         });
         const providerIdentity = await containerEngineOutput(containerEngineSession, {
             kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,

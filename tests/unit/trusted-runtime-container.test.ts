@@ -7,7 +7,12 @@ import {
   createMainHealthRepairWorkPackagePath
 } from '../../src/control/main-health/contract.ts';
 import { parseDockerEndpointIdentity } from '../../src/external-capabilities/docker/contract/daemon.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
+import {
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
+  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
+  SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
+} from '../../src/external-capabilities/linux-verification/contract.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   bindSecSemanticOperation,
@@ -101,7 +106,10 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
         'sec.trusted-runtime.image-schema': 'sec-trusted-runtime-container-v1',
         'sec.trusted-runtime.base-image-id': TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
         'sec.trusted-runtime.bun-archive-sha256': TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
-        'sec.trusted-runtime.bun-version': '1.3.14',
+        'sec.trusted-runtime.bun-executable-sha256':
+          SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+        'sec.trusted-runtime.bun-version':
+          SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunVersion,
         ...overrides
       }
     }
@@ -173,9 +181,17 @@ describe('provider-neutral trusted runtime container', () => {
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain('git fetch origin');
   });
 
+  test('enters dependency materialization through the exact Bun package runner', () => {
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
+      `CI=1 ${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH} run deps:ensure`
+    );
+    expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain(
+      'src/development/runner/cli.ts deps:ensure'
+    );
+  });
+
   test('builds through Buildx with authority-owned absolute and semantic stall deadlines', () => {
     const plan = createTrustedRuntimeImageBuildPlan(
-      path.resolve('config/verification/trusted-runtime.Dockerfile'),
       Object.freeze({
         specDigest: `sha256:${'1'.repeat(64)}` as const,
         layoutPath: path.resolve('.tmp/runner-layout'),
@@ -192,6 +208,12 @@ describe('provider-neutral trusted runtime container', () => {
     ).test(value))).toBe(true);
     expect(plan.args).not.toContain(expect.stringContaining('SEC_RUNNER_IMAGE='));
     expect(plan.args).toContain(`SEC_RUNNER_IMAGE_ID=${TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID}`);
+    expect(plan.args).toContain(
+      `SEC_BUN_EXECUTABLE_DIGEST=${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST}`
+    );
+    expect(plan.args[plan.args.indexOf('--file') + 1]).toBe(path.resolve(
+      ...SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH.split('/')
+    ));
     expect(plan.stallTimeoutMs).toBeLessThan(plan.absoluteTimeoutMs);
   });
 
@@ -301,10 +323,13 @@ describe('provider-neutral trusted runtime container', () => {
       kind: 'local',
       os: 'linux',
       arch: 'x64',
-      toolchainRevision: 'bun@1.3.14'
+      toolchainRevision:
+        `bun@${SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunVersion}`
     });
     expect(TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT.executionEnvironmentRevision)
-      .toContain('local-dev-runner:linux:x64:bun-1.3.14');
+      .toContain(
+        `local-dev-runner:linux:x64:bun-${SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunVersion}`
+      );
   });
 
   test('rejects mutable or mislabeled execution images', () => {

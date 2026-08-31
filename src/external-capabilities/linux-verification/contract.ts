@@ -88,7 +88,12 @@ const authoritySchema = z.object({
     imageSchema: boundedText,
     bunVersion: boundedText,
     bunArchiveUrl: httpsUrl,
-    bunArchiveDigest: digest
+    bunArchiveDigest: digest,
+    bunExecutablePath: z.string().regex(/^\/(?:[A-Za-z0-9._+-]+\/)*[A-Za-z0-9._+-]+$/u),
+    bunExecutableDigest: digest,
+    dockerfilePath: z.string().regex(/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u)
+      .refine((value) => value.split('/').every((segment) => segment !== '.' && segment !== '..')),
+    retirements: z.array(imageRetirement).min(1)
   }).strict(),
   runtime: z.object({
     pythonVersion: boundedText,
@@ -169,6 +174,40 @@ export function parseSecLinuxVerificationEnvironmentAuthority(
     retiredImageIds.add(retirement.imageId);
     retiredImageTags.add(retirement.imageTag);
   }
+  const retiredTrustedRuntimeImageIds = new Set<string>();
+  const retiredTrustedRuntimeImageTags = new Set<string>();
+  for (const retirement of value.trustedRuntime.retirements) {
+    if (retirement.imageId === value.trustedRuntime.imageDigest) {
+      fail('current trusted runtime image cannot be retired');
+    }
+    if (retirement.imageId === retirement.replacementImageId) {
+      fail('trusted runtime retirement must change immutable identity');
+    }
+    if (retiredTrustedRuntimeImageIds.has(retirement.imageId)
+        || retiredTrustedRuntimeImageTags.has(retirement.imageTag)) {
+      fail('trusted runtime retirements must have unique immutable identities and tags');
+    }
+    retiredTrustedRuntimeImageIds.add(retirement.imageId);
+    retiredTrustedRuntimeImageTags.add(retirement.imageTag);
+  }
+  const trustedRuntimeRetirementByImageId = new Map(
+    value.trustedRuntime.retirements.map((retirement) => [retirement.imageId, retirement])
+  );
+  for (const retirement of value.trustedRuntime.retirements) {
+    const observed = new Set<string>([retirement.imageId]);
+    let replacementImageId = retirement.replacementImageId;
+    while (replacementImageId !== value.trustedRuntime.imageDigest) {
+      if (observed.has(replacementImageId)) {
+        fail('trusted runtime retirement chain cannot contain a cycle');
+      }
+      observed.add(replacementImageId);
+      const successor = trustedRuntimeRetirementByImageId.get(replacementImageId);
+      if (successor === undefined) {
+        fail('trusted runtime retirement chain must terminate at the current immutable image');
+      }
+      replacementImageId = successor.replacementImageId;
+    }
+  }
   if (!value.ubuntu.baseReference.endsWith(`@${value.ubuntu.baseDigest}`)) {
     fail('Ubuntu base reference must bind its declared digest');
   }
@@ -177,6 +216,9 @@ export function parseSecLinuxVerificationEnvironmentAuthority(
   )) fail('Dockerfile frontend reference must bind its declared digest');
   if (!value.trustedRuntime.bunArchiveUrl.includes(`bun-v${value.trustedRuntime.bunVersion}/`)) {
     fail('trusted runtime Bun archive URL must bind its declared version');
+  }
+  if (!value.trustedRuntime.dockerfilePath.endsWith('/trusted-runtime.Dockerfile')) {
+    fail('trusted runtime Dockerfile path must bind the trusted runtime image definition');
   }
   if (value.provider.githubHost !== 'github.com') {
     fail('GitHub provider host must remain github.com');
@@ -223,6 +265,12 @@ export function parseSecLinuxVerificationEnvironmentAuthority(
 
 export const SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY =
   parseSecLinuxVerificationEnvironmentAuthority(source);
+export const SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH =
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutablePath;
+export const SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST =
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutableDigest;
+export const SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH =
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.dockerfilePath;
 export const SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST =
   computeSecLinuxVerificationRunnerInputDigest(
     SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY

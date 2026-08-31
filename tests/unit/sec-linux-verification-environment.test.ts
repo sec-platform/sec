@@ -3,7 +3,10 @@ import { describe, expect, test } from 'bun:test';
 import {
   computeSecLinuxVerificationRunnerInputDigest,
   parseSecLinuxVerificationEnvironmentAuthority,
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
+  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
+  SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../src/external-capabilities/linux-verification/contract.ts';
 
 describe('SEC Linux verification environment authority', () => {
@@ -41,6 +44,32 @@ describe('SEC Linux verification environment authority', () => {
     )).not.toBe(originalInputDigest);
   });
 
+  test('binds the trusted Bun generation to one executable capability', () => {
+    const trustedRuntime = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime;
+    expect(trustedRuntime.bunArchiveUrl)
+      .toContain(`/bun-v${trustedRuntime.bunVersion}/`);
+    expect(trustedRuntime.bunExecutablePath)
+      .toBe(SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH);
+    expect(trustedRuntime.bunExecutableDigest)
+      .toBe(SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST);
+    expect(trustedRuntime.bunExecutableDigest).not.toBe(trustedRuntime.bunArchiveDigest);
+    expect(trustedRuntime.dockerfilePath)
+      .toBe(SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH);
+    expect(trustedRuntime.dockerfilePath.endsWith('/trusted-runtime.Dockerfile')).toBe(true);
+    const generationImageIds = new Set([
+      trustedRuntime.imageDigest,
+      ...trustedRuntime.retirements.map(({ imageId }) => imageId)
+    ]);
+    expect(trustedRuntime.retirements.every((retirement) =>
+      retirement.imageId !== trustedRuntime.imageDigest
+        && retirement.imageId !== retirement.replacementImageId
+        && generationImageIds.has(retirement.replacementImageId)
+    )).toBe(true);
+    expect(trustedRuntime.retirements.some((retirement) =>
+      retirement.replacementImageId === trustedRuntime.imageDigest
+    )).toBe(true);
+  });
+
   test('rejects cross-field drift and unknown parallel owners', () => {
     const badBase = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY) as unknown as Record<string, unknown>;
     (badBase.ubuntu as Record<string, unknown>).baseDigest = `sha256:${'f'.repeat(64)}`;
@@ -57,5 +86,21 @@ describe('SEC Linux verification environment authority', () => {
     );
     expect(() => parseSecLinuxVerificationEnvironmentAuthority(untrustedArchive))
       .toThrow('outside the governed trust domain');
+
+    const unboundRetirement = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY);
+    unboundRetirement.trustedRuntime.retirements[0]!.replacementImageId =
+      `sha256:${'e'.repeat(64)}`;
+    expect(() => parseSecLinuxVerificationEnvironmentAuthority(unboundRetirement))
+      .toThrow('retirement chain must terminate at the current immutable image');
+
+    for (const dockerfilePath of [
+      '../trusted-runtime.Dockerfile',
+      '/config/verification/trusted-runtime.Dockerfile',
+      'config\\verification\\trusted-runtime.Dockerfile'
+    ]) {
+      const escapedDockerfile = structuredClone(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY);
+      escapedDockerfile.trustedRuntime.dockerfilePath = dockerfilePath;
+      expect(() => parseSecLinuxVerificationEnvironmentAuthority(escapedDockerfile)).toThrow();
+    }
   });
 });
