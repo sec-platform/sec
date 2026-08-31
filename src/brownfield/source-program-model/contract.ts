@@ -59,18 +59,6 @@ export type SourceProgramFileSemanticKind =
   | 'executable'
   | 'unknown';
 
-export type SourceProgramModuleRole =
-  | 'contract'
-  | 'runtime'
-  | 'query'
-  | 'command';
-
-export interface SourceProgramModuleRoleFact {
-  readonly moduleId: string;
-  readonly role: SourceProgramModuleRole | 'unknown';
-  readonly observationClass: SourceProgramObservationClass;
-}
-
 export interface SourceProgramDeclaration {
   readonly observationId: string;
   readonly declarationDigest: string;
@@ -283,7 +271,6 @@ export interface SourceProgramModel {
     readonly revision: string;
   }>[];
   readonly files: readonly SourceProgramFile[];
-  readonly moduleRoles: readonly SourceProgramModuleRoleFact[];
   readonly declarations: readonly SourceProgramDeclaration[];
   readonly references: readonly SourceProgramReference[];
   readonly literals: readonly SourceProgramLiteral[];

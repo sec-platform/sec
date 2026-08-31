@@ -21,6 +21,7 @@ import type {
   SourceProgramUnknown
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
+import type { IssuedRepositoryCompilationContext } from './repository-compilation-context.ts';
 import {
   assembleTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramFactShard,
@@ -34,10 +35,15 @@ export interface CompileTypeScriptSourceProgramModelInput {
   readonly moduleMembership: SecRepositoryModuleMembership;
 }
 
+type CompileTypeScriptSourceProgramModelInternalInput = CompileTypeScriptSourceProgramModelInput & Readonly<{
+  repositoryCompilation?: IssuedRepositoryCompilationContext;
+}>;
+
 export const SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH =
   'src/brownfield/source-program-model/typescript.ts' as const;
 
 export interface TypeScriptSourceProgramIncrementalState {
+  readonly [typeScriptIncrementalStateBrand]: true;
   readonly providerRevision: string;
   readonly sourceRevision: string;
   readonly fileDigests: Readonly<Record<string, string>>;
@@ -73,6 +79,27 @@ const RUNTIME_BUILTIN_MODULE = /^(?:node:|bun(?::|$))/u;
 const VERSIONED_IDENTIFIER = /(?:_?V[1-9][0-9]*)$/u;
 const compiledTypeScriptModels = new WeakSet<object>();
 const factShardsByModel = new WeakMap<object, readonly TypeScriptSourceProgramFactShard[]>();
+const repositoryCompilationDigestByModel = new WeakMap<object, `sha256:${string}`>();
+const typeScriptIncrementalStateBrand: unique symbol = Symbol('typescript-source-program-incremental-state');
+const issuedTypeScriptIncrementalStates = new WeakSet<object>();
+const typeScriptCompilerIdentityBrand: unique symbol = Symbol('typescript-source-program-compiler-identity');
+const issuedTypeScriptCompilerIdentities = new WeakSet<object>();
+
+export function repositoryCompilationDigestForTypeScriptModel(
+  model: SourceProgramModel
+): `sha256:${string}` | null {
+  return repositoryCompilationDigestByModel.get(model) ?? null;
+}
+
+function bindTypeScriptModelToRepositoryCompilation(
+  model: SourceProgramModel,
+  context: IssuedRepositoryCompilationContext | undefined
+): SourceProgramModel {
+  if (context !== undefined) {
+    repositoryCompilationDigestByModel.set(model, context.contextDigest);
+  }
+  return model;
+}
 
 export function isCompiledTypeScriptSourceProgramModel(
   value: SourceProgramModel
@@ -150,6 +177,81 @@ const TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION = sha256({
   provider: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
   semanticOwner: SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH
 });
+
+export interface SourceProgramTypeScriptCompilerIdentity {
+  readonly [typeScriptCompilerIdentityBrand]: true;
+  readonly compilerRevision: `sha256:${string}`;
+  readonly providerRevision: `sha256:${string}`;
+  readonly compilerConfigDigest: `sha256:${string}`;
+  readonly dependencyGenerationDigest: `sha256:${string}`;
+  readonly environmentDigest: `sha256:${string}`;
+  readonly provider: Readonly<{ readonly id: string; readonly revision: string }>;
+}
+
+export function typeScriptSourceProgramCompilerImplementationDigest(
+  input: CompileTypeScriptSourceProgramModelInput,
+  repositoryCompilation?: IssuedRepositoryCompilationContext
+): `sha256:${string}` | null {
+  const canonicalFiles = input.files.map(canonicalTypeScriptFile);
+  const fileByPath = new Map(canonicalFiles.map((file) => [file.path, file] as const));
+  const compilerClosure = new Set<string>();
+  if (fileByPath.has(SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH)) {
+    compilerClosure.add(SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH);
+    const graph = repositoryCompilation?.moduleGraphFor('typescript') ?? compileSecRepositoryModuleGraph({
+      files: canonicalFiles.map(({ path: repositoryPathValue }) => repositoryPathValue),
+      readSource: (repositoryPathValue) => fileByPath.get(repositoryPathValue)?.source ?? null
+    });
+    const queue: string[] = [SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const reference of graph.references) {
+        if (reference.from !== current) continue;
+        for (const candidate of reference.candidateTargets) {
+          if (!fileByPath.has(candidate) || compilerClosure.has(candidate)) continue;
+          compilerClosure.add(candidate);
+          queue.push(candidate);
+        }
+      }
+    }
+  }
+  if (compilerClosure.size === 0) return null;
+  return sha256([...compilerClosure]
+    .sort(compareCodeUnits)
+    .map((repositoryPathValue) => ({
+      path: repositoryPathValue,
+      snapshotDigest: sourceProgramFileSnapshotDigest(fileByPath.get(repositoryPathValue)!)
+    }))) as `sha256:${string}`;
+}
+
+/**
+ * Canonical projection of the semantic inputs owned by this compiler. Cache
+ * consumers bind to this receipt; they never reproduce compiler identity.
+ */
+export function sourceProgramTypeScriptCompilerIdentity(): SourceProgramTypeScriptCompilerIdentity {
+  const identity = Object.freeze({
+    [typeScriptCompilerIdentityBrand]: true as const,
+    compilerRevision: TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION as `sha256:${string}`,
+    providerRevision: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER_REVISION as `sha256:${string}`,
+    compilerConfigDigest: TYPESCRIPT_WORKSPACE_COMPILER_CONFIG_DIGEST as `sha256:${string}`,
+    dependencyGenerationDigest: TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST as `sha256:${string}`,
+    environmentDigest: sha256({
+      architecture: process.arch,
+      caseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+      platform: process.platform
+    }) as `sha256:${string}`,
+    provider: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER
+  });
+  issuedTypeScriptCompilerIdentities.add(identity);
+  return identity;
+}
+
+export function assertSourceProgramTypeScriptCompilerIdentity(
+  identity: SourceProgramTypeScriptCompilerIdentity
+): void {
+  if (!issuedTypeScriptCompilerIdentities.has(identity)) {
+    throw new Error('TypeScript Source Program compiler identity is not owner-issued');
+  }
+}
 
 type ExactTypeScriptProgram = Readonly<{
   checker: ts.TypeChecker;
@@ -569,6 +671,7 @@ function canonicalTypeScriptModel(input: Readonly<{
       providerRevision: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER_REVISION,
       rawFileDigest: sourceProgramFileSnapshotDigest(fileInput),
       moduleDigest: sha256(input.moduleMembership.moduleForPath(file.path)),
+      semanticDependencyScope: typeScriptSemanticDependencyScope(fileInput),
       facts: Object.freeze({
         path: file.path,
         file,
@@ -607,11 +710,46 @@ function assembleCanonicalTypeScriptModel(
   return model;
 }
 
+function typeScriptSemanticDependencyScope(
+  file: SourceProgramFileInput
+): TypeScriptSourceProgramFactShard['semanticDependencyScope'] {
+  if (/\.d\.[cm]?ts$/iu.test(file.path)) return 'global-or-ambient';
+  const sourceFile = ts.createSourceFile(
+    file.path,
+    file.source,
+    ts.ScriptTarget.Latest,
+    true,
+    moduleExtensionFor(file.path)
+  );
+  const parseDiagnostics = (sourceFile as ts.SourceFile & {
+    readonly parseDiagnostics?: readonly ts.Diagnostic[];
+  }).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) return 'unknown';
+  if (!ts.isExternalModule(sourceFile)) return 'global-or-ambient';
+  let globalOrAmbient = false;
+  const visit = (node: ts.Node): void => {
+    if (globalOrAmbient) return;
+    if (ts.isModuleDeclaration(node)) {
+      const declared = ts.canHaveModifiers(node)
+        && (ts.getModifiers(node)?.some(({ kind }) => kind === ts.SyntaxKind.DeclareKeyword) ?? false);
+      if ((node.flags & ts.NodeFlags.GlobalAugmentation) !== 0
+          || (declared && (ts.isStringLiteral(node.name) || node.name.text === 'global'))) {
+        globalOrAmbient = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return globalOrAmbient ? 'global-or-ambient' : 'module-scoped';
+}
+
 function assertReusableTypeScriptState(
   state: TypeScriptSourceProgramIncrementalState,
   compilerRevision: string
 ): boolean {
-  if (state.providerRevision !== compilerRevision
+  if (!issuedTypeScriptIncrementalStates.has(state)
+      || state.providerRevision !== compilerRevision
       || state.model.sourceRevision !== state.sourceRevision
       || !Array.isArray(state.factShards)) return false;
   return /^sha256:[0-9a-f]{64}$/u.test(state.model.modelDigest);
@@ -642,7 +780,8 @@ function buildIncrementalState(
       sha256(input.moduleMembership.moduleForPath(repositoryPathValue))
     ])
   ));
-  return Object.freeze({
+  const state = Object.freeze({
+    [typeScriptIncrementalStateBrand]: true as const,
     providerRevision: compilerRevision,
     sourceRevision: input.sourceRevision,
     fileDigests,
@@ -651,6 +790,65 @@ function buildIncrementalState(
     factShards,
     model
   });
+  issuedTypeScriptIncrementalStates.add(state);
+  return state;
+}
+
+/**
+ * Reconstitute a reusable state from one validated immutable fact pack. The
+ * physical store supplies bytes only; this TypeScript owner rebinds the facts
+ * to the current compilation and signs the process-local incremental state.
+ */
+export function adoptTypeScriptSourceProgramFactShardsFromRepositoryCompilation(
+  input: CompileTypeScriptSourceProgramModelInput,
+  shards: readonly TypeScriptSourceProgramFactShard[],
+  repositoryCompilation: IssuedRepositoryCompilationContext
+): TypeScriptSourceProgramIncrementalState {
+  repositoryCompilation.assertMatches(input);
+  const graph = repositoryCompilation.moduleGraphFor('typescript');
+  const currentPaths = input.files
+    .filter(({ path: repositoryPathValue }) => (
+      SOURCE_EXTENSION.test(repositoryPathValue)
+      && sourceProgramSurfaceForPath(repositoryPathValue) === 'production'
+    ))
+    .map(({ path: repositoryPathValue }) => repositoryPathValue)
+    .sort(compareCodeUnits);
+  const shardPaths = shards.map(({ path: repositoryPathValue }) => repositoryPathValue).sort(compareCodeUnits);
+  if (JSON.stringify(currentPaths) !== JSON.stringify(shardPaths)) {
+    throw new Error('TypeScript fact pack does not match the current source path census');
+  }
+  const consumersByPath = new Map<string, Set<string>>();
+  const addConsumer = (target: string, consumer: string): void => {
+    const consumers = consumersByPath.get(target) ?? new Set<string>();
+    consumers.add(consumer);
+    consumersByPath.set(target, consumers);
+  };
+  for (const reference of graph.references) {
+    for (const candidate of reference.candidateTargets) addConsumer(candidate, reference.from);
+  }
+  for (const shard of shards) {
+    for (const reference of shard.references) {
+      if (reference.targetPath !== null) addConsumer(reference.targetPath, reference.path);
+    }
+  }
+  const reverseConsumers = Object.freeze(Object.fromEntries(
+    [...consumersByPath]
+      .sort(([left], [right]) => compareCodeUnits(left, right))
+      .map(([repositoryPathValue, consumers]) => [
+        repositoryPathValue,
+        Object.freeze([...consumers].sort(compareCodeUnits))
+      ])
+  ));
+  const model = bindTypeScriptModelToRepositoryCompilation(
+    assembleCanonicalTypeScriptModel(input.sourceRevision, shards),
+    repositoryCompilation
+  );
+  return buildIncrementalState(
+    input,
+    model,
+    reverseConsumers,
+    TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION
+  );
 }
 
 /**
@@ -658,10 +856,11 @@ function buildIncrementalState(
  * import-resolution or module-provider facts. The dependency closure is still
  * supplied to the compiler so named/star re-exports retain full semantics.
  */
-export function compileTypeScriptSourceProgramModelIncremental(
-  input: CompileTypeScriptSourceProgramModelInput,
+function compileTypeScriptSourceProgramModelIncrementalInternal(
+  input: CompileTypeScriptSourceProgramModelInternalInput,
   previous: TypeScriptSourceProgramIncrementalState | null
 ): TypeScriptSourceProgramIncrementalResult {
+  input.repositoryCompilation?.assertMatches(input);
   const currentFiles = input.files
     .filter(({ path: repositoryPathValue }) => (
       SOURCE_EXTENSION.test(repositoryPathValue)
@@ -691,7 +890,10 @@ export function compileTypeScriptSourceProgramModelIncremental(
       || reusableState.moduleDigests[repositoryPathValue] !== currentModuleDigests.get(repositoryPathValue)
     )));
     if (changed.length === 0) {
-      if (input.sourceRevision === reusableState.sourceRevision) {
+      if (input.sourceRevision === reusableState.sourceRevision
+          && (input.repositoryCompilation === undefined
+            || repositoryCompilationDigestForTypeScriptModel(reusableState.model)
+              === input.repositoryCompilation.contextDigest)) {
         return Object.freeze({
           mode: 'exact',
           invalidatedPaths: Object.freeze([]),
@@ -699,7 +901,10 @@ export function compileTypeScriptSourceProgramModelIncremental(
           state: reusableState
         });
       }
-      const model = assembleCanonicalTypeScriptModel(input.sourceRevision, reusableState.factShards);
+      const model = bindTypeScriptModelToRepositoryCompilation(
+        assembleCanonicalTypeScriptModel(input.sourceRevision, reusableState.factShards),
+        input.repositoryCompilation
+      );
       return Object.freeze({
         mode: 'exact',
         invalidatedPaths: Object.freeze([]),
@@ -715,7 +920,7 @@ export function compileTypeScriptSourceProgramModelIncremental(
   }
   const currentSources = new Map(currentFiles.map(({ path: repositoryPathValue, source }) =>
     [repositoryPathValue, source] as const));
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraphFor('typescript') ?? compileSecRepositoryModuleGraph({
     files: currentPaths,
     readSource: (repositoryPathValue) => currentSources.get(repositoryPathValue) ?? null
   });
@@ -736,7 +941,7 @@ export function compileTypeScriptSourceProgramModelIncremental(
       ])
   ));
   const compileFull = (): TypeScriptSourceProgramIncrementalResult => {
-    const model = compileTypeScriptSourceProgramModel(input);
+    const model = compileTypeScriptSourceProgramModelInternal(input);
     return Object.freeze({
       mode: 'full',
       invalidatedPaths: currentPaths,
@@ -777,9 +982,10 @@ export function compileTypeScriptSourceProgramModelIncremental(
       }
     }
   }
-  const regenerated = compileTypeScriptSourceProgramModel({
-    ...input,
-    files: currentFiles.filter(({ path: repositoryPathValue }) => compilePaths.has(repositoryPathValue))
+  const regenerated = compileTypeScriptSourceProgramModelInternal({
+    sourceRevision: input.sourceRevision,
+    files: currentFiles.filter(({ path: repositoryPathValue }) => compilePaths.has(repositoryPathValue)),
+    moduleMembership: input.moduleMembership
   });
   const reusablePath = (repositoryPathValue: string): boolean =>
     currentFileByPath.has(repositoryPathValue) && !invalidated.has(repositoryPathValue);
@@ -788,10 +994,13 @@ export function compileTypeScriptSourceProgramModelIncremental(
   if (regeneratedShards === undefined) {
     throw new Error('TypeScript Source Program regeneration did not produce fact shards');
   }
-  const model = assembleCanonicalTypeScriptModel(input.sourceRevision, [
-    ...reusableState.factShards.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
-    ...regeneratedShards.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
-  ]);
+  const model = bindTypeScriptModelToRepositoryCompilation(
+    assembleCanonicalTypeScriptModel(input.sourceRevision, [
+      ...reusableState.factShards.filter(({ path: repositoryPathValue }) => reusablePath(repositoryPathValue)),
+      ...regeneratedShards.filter(({ path: repositoryPathValue }) => regeneratedPath(repositoryPathValue))
+    ]),
+    input.repositoryCompilation
+  );
   return Object.freeze({
     mode: 'incremental',
     invalidatedPaths: Object.freeze([...invalidatedCurrent].sort(compareCodeUnits)),
@@ -800,9 +1009,29 @@ export function compileTypeScriptSourceProgramModelIncremental(
   });
 }
 
-export function compileTypeScriptSourceProgramModel(
-  input: CompileTypeScriptSourceProgramModelInput
+export function compileTypeScriptSourceProgramModelIncremental(
+  input: CompileTypeScriptSourceProgramModelInput,
+  previous: TypeScriptSourceProgramIncrementalState | null
+): TypeScriptSourceProgramIncrementalResult {
+  return compileTypeScriptSourceProgramModelIncrementalInternal(input, previous);
+}
+
+export function compileTypeScriptSourceProgramModelIncrementalFromRepositoryCompilation(
+  input: CompileTypeScriptSourceProgramModelInput,
+  previous: TypeScriptSourceProgramIncrementalState | null,
+  repositoryCompilation: IssuedRepositoryCompilationContext
+): TypeScriptSourceProgramIncrementalResult {
+  repositoryCompilation.assertMatches(input);
+  return compileTypeScriptSourceProgramModelIncrementalInternal({
+    ...input,
+    repositoryCompilation
+  }, previous);
+}
+
+function compileTypeScriptSourceProgramModelInternal(
+  input: CompileTypeScriptSourceProgramModelInternalInput
 ): SourceProgramModel {
+  input.repositoryCompilation?.assertMatches(input);
   if (input.sourceRevision.trim().length === 0) {
     throw new Error('Source Program Model requires a non-empty exact source revision');
   }
@@ -1327,18 +1556,35 @@ export function compileTypeScriptSourceProgramModel(
     visit(sourceFile);
   }
 
-  return canonicalTypeScriptModel({
-    sourceRevision: input.sourceRevision,
-    fileInputs: filesByPath,
-    moduleMembership: input.moduleMembership,
-    files,
-    declarations,
-    references,
-    literals,
-    entrypoints,
-    capabilities,
-    unknowns
-  });
+  return bindTypeScriptModelToRepositoryCompilation(
+    canonicalTypeScriptModel({
+      sourceRevision: input.sourceRevision,
+      fileInputs: filesByPath,
+      moduleMembership: input.moduleMembership,
+      files,
+      declarations,
+      references,
+      literals,
+      entrypoints,
+      capabilities,
+      unknowns
+    }),
+    input.repositoryCompilation
+  );
+}
+
+export function compileTypeScriptSourceProgramModel(
+  input: CompileTypeScriptSourceProgramModelInput
+): SourceProgramModel {
+  return compileTypeScriptSourceProgramModelInternal(input);
+}
+
+export function compileTypeScriptSourceProgramModelFromRepositoryCompilation(
+  input: CompileTypeScriptSourceProgramModelInput,
+  repositoryCompilation: IssuedRepositoryCompilationContext
+): SourceProgramModel {
+  repositoryCompilation.assertMatches(input);
+  return compileTypeScriptSourceProgramModelInternal({ ...input, repositoryCompilation });
 }
 
 export function querySourceProgramModel(

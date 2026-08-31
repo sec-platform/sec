@@ -1,7 +1,11 @@
 import { expect, test } from 'bun:test';
 
-import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST } from './typescript-fact-shards.ts';
+import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  encodeTypeScriptSourceProgramFactShard,
+  parseTypeScriptSourceProgramFactShard,
+  SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
+} from './typescript-fact-shards.ts';
 import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
@@ -112,5 +116,32 @@ test('non-production TypeScript files cannot poison the exact incremental identi
   expect(exact.model).toBe(initial.model);
   expect(exact.state).toBe(initial.state);
   expect(exact.state.factShards[0]).toBe(initial.state.factShards[0]);
+  releaseTypeScriptSourceProgramWorkspace();
+});
+
+test('empty observed literals remain canonical facts without weakening structural rejection', () => {
+  const input = sourceInput({
+    'src/example/empty.ts': "export const EMPTY = '';\n"
+  });
+  const compiled = compileTypeScriptSourceProgramModelIncremental(input, null);
+  const shard = compiled.state.factShards[0]!;
+  const bytes = encodeTypeScriptSourceProgramFactShard(shard);
+  const parsed = parseTypeScriptSourceProgramFactShard(bytes);
+
+  expect(parsed).toEqual(shard);
+  expect(parsed.literals.some(({ value }) => value === '')).toBe(true);
+
+  const nonString = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+  (nonString.literals as Record<string, unknown>[])[0]!.value = 0;
+  expect(() => parseTypeScriptSourceProgramFactShard(new TextEncoder().encode(
+    JSON.stringify(canonicalJson(nonString))
+  ))).toThrow('must be text');
+
+  const missing = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+  delete (missing.literals as Record<string, unknown>[])[0]!.value;
+  expect(() => parseTypeScriptSourceProgramFactShard(new TextEncoder().encode(
+    JSON.stringify(canonicalJson(missing))
+  ))).toThrow('noncanonical keys');
+
   releaseTypeScriptSourceProgramWorkspace();
 });

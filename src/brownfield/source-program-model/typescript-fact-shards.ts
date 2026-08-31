@@ -1,4 +1,11 @@
-import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { decodeExactUtf8 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import {
+  canonicalJson,
+  compareCodeUnits,
+  isPlainObject,
+  sha256
+} from '../../system-architecture/foundation/runtime/canonical.ts';
+import { normalizeSecRepositoryPath } from '../../system-architecture/repository-modules/contract.ts';
 import type {
   SourceProgramCapabilityInvocation,
   SourceProgramDeclaration,
@@ -12,6 +19,21 @@ import type {
 } from './contract.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
+const SHARD_KEYS = Object.freeze([
+  'capabilities', 'compilerRevision', 'declarations', 'entrypoints', 'file',
+  'literals', 'moduleDigest', 'path', 'providerRevision', 'rawFileDigest', 'semanticDependencyScope',
+  'references', 'schemaDigest', 'shardDigest', 'unknowns'
+]);
+const ENUMS = Object.freeze({
+  observationClass: new Set(['observed', 'derived', 'unknown']),
+  surface: new Set(['production', 'test', 'fixture', 'workflow', 'resource']),
+  semanticKind: new Set(['pure-reexport', 'declaration-owner', 'executable', 'unknown']),
+  referenceKind: new Set(['reference', 'import', 'reexport', 'call', 'construct']),
+  literalContext: new Set(['producer', 'reader', 'argument', 'assertion', 'literal']),
+  entrypointKind: new Set(['package-script', 'package-bin', 'cli-command', 'module-entrypoint', 'git-hook', 'workflow']),
+  capability: new Set(['process', 'filesystem', 'network', 'dynamic-code', 'provider']),
+  transport: new Set(['native-runtime', 'repository-provider', 'runtime-built-in-api', 'package-api', 'unknown'])
+});
 
 export const SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA = Object.freeze({
   identity: 'typescript-source-program-file-semantic-facts',
@@ -29,6 +51,7 @@ export const SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA = Object.freeze({
     'references',
     'unknowns'
   ]),
+  invalidation: 'typescript-owner-semantic-dependency-scope',
   root: 'ordered-content-addressed-shards'
 });
 
@@ -41,6 +64,7 @@ export interface TypeScriptSourceProgramFactShard {
   readonly providerRevision: string;
   readonly rawFileDigest: string;
   readonly moduleDigest: string;
+  readonly semanticDependencyScope: 'module-scoped' | 'global-or-ambient' | 'unknown';
   readonly path: string;
   readonly file: SourceProgramFile;
   readonly declarations: readonly SourceProgramDeclaration[];
@@ -55,6 +79,152 @@ export interface TypeScriptSourceProgramFactShard {
 type ShardFacts = Omit<TypeScriptSourceProgramFactShard,
   'compilerRevision' | 'moduleDigest' | 'providerRevision' | 'rawFileDigest'
   | 'schemaDigest' | 'shardDigest'>;
+
+function exactObject(
+  value: unknown,
+  keys: readonly string[],
+  label: string
+): asserts value is Record<string, unknown> {
+  if (!isPlainObject(value)) throw new Error(`${label} must be one exact object`);
+  const actual = Object.keys(value).sort(compareCodeUnits);
+  const expected = [...keys].sort(compareCodeUnits);
+  if (actual.length !== expected.length
+      || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(`${label} has noncanonical keys`);
+  }
+}
+
+function exactString(value: unknown, label: string, nullable = false): asserts value is string | null {
+  if ((nullable && value === null) || (typeof value === 'string' && value.length > 0)) return;
+  throw new Error(`${label} must be ${nullable ? 'null or ' : ''}non-empty text`);
+}
+
+/** Exact observed text whose empty value is semantically distinct from absence. */
+function exactText(value: unknown, label: string, nullable = false): asserts value is string | null {
+  if ((nullable && value === null) || typeof value === 'string') return;
+  throw new Error(`${label} must be ${nullable ? 'null or ' : ''}text`);
+}
+
+function exactDigest(value: unknown, label: string, nullable = false): asserts value is string | null {
+  if ((nullable && value === null) || (typeof value === 'string' && DIGEST.test(value))) return;
+  throw new Error(`${label} must be ${nullable ? 'null or ' : ''}an exact digest`);
+}
+
+function exactStringArray(value: unknown, label: string): asserts value is string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`${label} must be a text array`);
+  }
+}
+
+function exactEnum(value: unknown, values: ReadonlySet<string>, label: string): asserts value is string {
+  if (typeof value !== 'string' || !values.has(value)) throw new Error(`${label} is invalid`);
+}
+
+function exactSpan(value: unknown, label: string, nullable = false): void {
+  if (nullable && value === null) return;
+  exactObject(value, ['start', 'end', 'startLine', 'startColumn', 'endLine', 'endColumn'], label);
+  for (const key of ['start', 'end', 'startLine', 'startColumn', 'endLine', 'endColumn']) {
+    const number = value[key];
+    if (!Number.isSafeInteger(number) || (number as number) < 0) {
+      throw new Error(`${label}.${key} must be a non-negative safe integer`);
+    }
+  }
+  if ((value.start as number) > (value.end as number)) throw new Error(`${label} is reversed`);
+}
+
+function exactShardFacts(value: Record<string, unknown>): void {
+  exactObject(value.file, [
+    'contentDigest', 'moduleId', 'path', 'semanticKind',
+    'semanticObservationClass', 'surface'
+  ], 'TypeScript fact shard file');
+  exactString(value.file.path, 'TypeScript fact shard file path');
+  exactDigest(value.file.contentDigest, 'TypeScript fact shard file content digest');
+  exactString(value.file.moduleId, 'TypeScript fact shard file module', true);
+  exactEnum(value.file.surface, ENUMS.surface, 'TypeScript fact shard file surface');
+  exactEnum(value.file.semanticKind, ENUMS.semanticKind, 'TypeScript fact shard file semantic kind');
+  exactEnum(value.file.semanticObservationClass, ENUMS.observationClass, 'TypeScript fact shard file observation class');
+
+  const collection = (name: string, keys: readonly string[], validate: (entry: Record<string, unknown>, index: number) => void): void => {
+    const values = value[name];
+    if (!Array.isArray(values)) throw new Error(`TypeScript fact shard ${name} must be an array`);
+    values.forEach((entry, index) => {
+      exactObject(entry, keys, `TypeScript fact shard ${name}[${index}]`);
+      validate(entry, index);
+    });
+  };
+  collection('declarations', [
+    'declarationDigest', 'exported', 'kind', 'moduleId', 'name',
+    'observationId', 'path', 'span'
+  ], (entry, index) => {
+    exactDigest(entry.declarationDigest, `declarations[${index}].declarationDigest`);
+    exactDigest(entry.observationId, `declarations[${index}].observationId`);
+    exactString(entry.path, `declarations[${index}].path`);
+    exactString(entry.moduleId, `declarations[${index}].moduleId`, true);
+    exactString(entry.name, `declarations[${index}].name`);
+    exactString(entry.kind, `declarations[${index}].kind`);
+    if (typeof entry.exported !== 'boolean') throw new Error(`declarations[${index}].exported must be boolean`);
+    exactSpan(entry.span, `declarations[${index}].span`);
+  });
+  collection('references', [
+    'kind', 'moduleSpecifier', 'name', 'observationClass', 'path', 'span',
+    'targetObservationId', 'targetPath'
+  ], (entry, index) => {
+    exactString(entry.path, `references[${index}].path`);
+    exactEnum(entry.kind, ENUMS.referenceKind, `references[${index}].kind`);
+    exactString(entry.name, `references[${index}].name`);
+    exactText(entry.moduleSpecifier, `references[${index}].moduleSpecifier`, true);
+    exactDigest(entry.targetObservationId, `references[${index}].targetObservationId`, true);
+    exactString(entry.targetPath, `references[${index}].targetPath`, true);
+    exactEnum(entry.observationClass, ENUMS.observationClass, `references[${index}].observationClass`);
+    exactSpan(entry.span, `references[${index}].span`);
+  });
+  collection('literals', ['context', 'contextSpan', 'path', 'span', 'value'], (entry, index) => {
+    exactString(entry.path, `literals[${index}].path`);
+    exactText(entry.value, `literals[${index}].value`);
+    exactEnum(entry.context, ENUMS.literalContext, `literals[${index}].context`);
+    exactSpan(entry.contextSpan, `literals[${index}].contextSpan`, true);
+    exactSpan(entry.span, `literals[${index}].span`);
+  });
+  collection('entrypoints', [
+    'command', 'kind', 'name', 'observationClass', 'observationId', 'path',
+    'span', 'targetEntrypoints', 'targetPackages', 'targetPaths'
+  ], (entry, index) => {
+    exactDigest(entry.observationId, `entrypoints[${index}].observationId`);
+    exactString(entry.path, `entrypoints[${index}].path`);
+    exactEnum(entry.kind, ENUMS.entrypointKind, `entrypoints[${index}].kind`);
+    exactString(entry.name, `entrypoints[${index}].name`);
+    exactText(entry.command, `entrypoints[${index}].command`, true);
+    exactStringArray(entry.targetEntrypoints, `entrypoints[${index}].targetEntrypoints`);
+    exactStringArray(entry.targetPaths, `entrypoints[${index}].targetPaths`);
+    exactStringArray(entry.targetPackages, `entrypoints[${index}].targetPackages`);
+    exactEnum(entry.observationClass, ENUMS.observationClass, `entrypoints[${index}].observationClass`);
+    exactSpan(entry.span, `entrypoints[${index}].span`, true);
+  });
+  collection('capabilities', [
+    'capability', 'moduleId', 'moduleSpecifier', 'observationClass', 'operation',
+    'path', 'providerCapability', 'providerModuleId', 'span', 'subject',
+    'surface', 'transport'
+  ], (entry, index) => {
+    exactString(entry.path, `capabilities[${index}].path`);
+    exactEnum(entry.surface, ENUMS.surface, `capabilities[${index}].surface`);
+    exactEnum(entry.capability, ENUMS.capability, `capabilities[${index}].capability`);
+    exactString(entry.operation, `capabilities[${index}].operation`);
+    exactEnum(entry.transport, ENUMS.transport, `capabilities[${index}].transport`);
+    exactEnum(entry.observationClass, ENUMS.observationClass, `capabilities[${index}].observationClass`);
+    exactString(entry.moduleId, `capabilities[${index}].moduleId`, true);
+    exactText(entry.subject, `capabilities[${index}].subject`, true);
+    exactText(entry.moduleSpecifier, `capabilities[${index}].moduleSpecifier`, true);
+    exactString(entry.providerCapability, `capabilities[${index}].providerCapability`, true);
+    exactString(entry.providerModuleId, `capabilities[${index}].providerModuleId`, true);
+    exactSpan(entry.span, `capabilities[${index}].span`);
+  });
+  collection('unknowns', ['code', 'detail', 'path', 'span'], (entry, index) => {
+    exactString(entry.code, `unknowns[${index}].code`);
+    exactString(entry.path, `unknowns[${index}].path`);
+    exactText(entry.detail, `unknowns[${index}].detail`);
+    exactSpan(entry.span, `unknowns[${index}].span`, true);
+  });
+}
 
 function sortByPathAndSpan<
   Value extends { readonly path: string; readonly span?: SourceProgramSpan | null }
@@ -73,12 +243,16 @@ export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
   providerRevision: string;
   rawFileDigest: string;
   moduleDigest: string;
+  semanticDependencyScope: TypeScriptSourceProgramFactShard['semanticDependencyScope'];
   facts: ShardFacts;
 }>): TypeScriptSourceProgramFactShard {
   const { facts } = input;
   if (![input.compilerRevision, input.providerRevision, input.rawFileDigest, input.moduleDigest]
     .every((digest) => DIGEST.test(digest))) {
     throw new Error(`TypeScript Source Program fact shard has invalid identity: ${facts.path}`);
+  }
+  if (!['module-scoped', 'global-or-ambient', 'unknown'].includes(input.semanticDependencyScope)) {
+    throw new Error(`TypeScript Source Program fact shard has invalid semantic dependency scope: ${facts.path}`);
   }
   if (facts.file.path !== facts.path || ![
     facts.declarations,
@@ -112,12 +286,72 @@ export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
     providerRevision: input.providerRevision,
     rawFileDigest: input.rawFileDigest,
     moduleDigest: input.moduleDigest,
+    semanticDependencyScope: input.semanticDependencyScope,
     ...canonicalFacts
   });
   return Object.freeze({
     ...canonical,
     shardDigest: sha256(canonical)
   });
+}
+
+export function encodeTypeScriptSourceProgramFactShard(
+  shard: TypeScriptSourceProgramFactShard
+): Uint8Array {
+  const parsed = parseTypeScriptSourceProgramFactShard(
+    new TextEncoder().encode(JSON.stringify(canonicalJson(shard)))
+  );
+  return new TextEncoder().encode(JSON.stringify(canonicalJson(parsed)));
+}
+
+export function parseTypeScriptSourceProgramFactShard(
+  bytes: Uint8Array
+): TypeScriptSourceProgramFactShard {
+  const source = decodeExactUtf8(bytes, 'TypeScript Source Program fact shard');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source) as unknown;
+  } catch (error) {
+    throw new Error('TypeScript Source Program fact shard is not exact JSON', { cause: error });
+  }
+  exactObject(parsed, SHARD_KEYS, 'TypeScript Source Program fact shard');
+  for (const key of [
+    'schemaDigest', 'compilerRevision', 'providerRevision', 'rawFileDigest',
+    'moduleDigest', 'shardDigest'
+  ]) exactDigest(parsed[key], `TypeScript fact shard ${key}`);
+  exactString(parsed.path, 'TypeScript fact shard path');
+  exactEnum(
+    parsed.semanticDependencyScope,
+    new Set(['module-scoped', 'global-or-ambient', 'unknown']),
+    'TypeScript fact shard semantic dependency scope'
+  );
+  if (normalizeSecRepositoryPath(parsed.path as string) !== parsed.path) {
+    throw new Error('TypeScript fact shard path is not canonical');
+  }
+  exactShardFacts(parsed);
+  const canonical = compileTypeScriptSourceProgramFactShard({
+    compilerRevision: parsed.compilerRevision as string,
+    providerRevision: parsed.providerRevision as string,
+    rawFileDigest: parsed.rawFileDigest as string,
+    moduleDigest: parsed.moduleDigest as string,
+    semanticDependencyScope: parsed.semanticDependencyScope as TypeScriptSourceProgramFactShard['semanticDependencyScope'],
+    facts: Object.freeze({
+      path: parsed.path as string,
+      file: parsed.file as unknown as SourceProgramFile,
+      declarations: parsed.declarations as unknown as readonly SourceProgramDeclaration[],
+      references: parsed.references as unknown as readonly SourceProgramReference[],
+      literals: parsed.literals as unknown as readonly SourceProgramLiteral[],
+      entrypoints: parsed.entrypoints as unknown as readonly SourceProgramEntrypoint[],
+      capabilities: parsed.capabilities as unknown as readonly SourceProgramCapabilityInvocation[],
+      unknowns: parsed.unknowns as unknown as readonly SourceProgramUnknown[]
+    })
+  });
+  if (parsed.schemaDigest !== SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
+      || parsed.shardDigest !== canonical.shardDigest
+      || source !== JSON.stringify(canonicalJson(canonical))) {
+    throw new Error('TypeScript Source Program fact shard is not canonical or digest-bound');
+  }
+  return canonical;
 }
 
 const EMPTY_COMPONENT = Object.freeze([]);
@@ -151,7 +385,6 @@ export function assembleTypeScriptSourceProgramModel(input: Readonly<{
       candidates: EMPTY_COMPONENT_DIGEST,
       dependencies: EMPTY_COMPONENT_DIGEST,
       entrypointClosures: EMPTY_COMPONENT_DIGEST,
-      moduleRoles: EMPTY_COMPONENT_DIGEST,
       packages: EMPTY_COMPONENT_DIGEST
     })
   });
@@ -159,7 +392,6 @@ export function assembleTypeScriptSourceProgramModel(input: Readonly<{
     sourceRevision: input.sourceRevision,
     providers,
     files: Object.freeze(shards.map(({ file }) => file)),
-    moduleRoles: EMPTY_COMPONENT,
     declarations: Object.freeze(shards.flatMap(({ declarations }) => declarations)),
     references: Object.freeze(shards.flatMap(({ references }) => references)),
     literals: Object.freeze(shards.flatMap(({ literals }) => literals)),

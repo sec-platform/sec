@@ -15,20 +15,24 @@ import type {
   SourceProgramFile,
   SourceProgramFileInput,
   SourceProgramModel,
-  SourceProgramModuleRoleFact,
   SourceProgramOwnerIntentEvidence,
   SourceProgramPackage,
   SourceProgramTopologySummary,
   SourceProgramUnknown
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
+import type { IssuedRepositoryCompilationContext } from './repository-compilation-context.ts';
 import {
   compileSourceProgramTestObservations,
+  compileSourceProgramTestObservationsFromRepositoryCompilation,
+  repositoryCompilationDigestForTestObservations,
   type SourceProgramTestObservations
 } from './test-observations.ts';
 import {
   compileTypeScriptSourceProgramModel,
-  isCompiledTypeScriptSourceProgramModel
+  compileTypeScriptSourceProgramModelFromRepositoryCompilation,
+  isCompiledTypeScriptSourceProgramModel,
+  repositoryCompilationDigestForTypeScriptModel
 } from './typescript.ts';
 
 export interface CompileRepositorySourceProgramModelInput {
@@ -46,6 +50,10 @@ export interface CompileRepositorySourceProgramModelInput {
   /** Lightweight test-only observations bound to the production model. */
   readonly testObservations?: SourceProgramTestObservations;
 }
+
+type CompileRepositorySourceProgramModelInternalInput = CompileRepositorySourceProgramModelInput & Readonly<{
+  repositoryCompilation?: IssuedRepositoryCompilationContext;
+}>;
 
 const compiledRepositorySourceProgramModels = new WeakSet<object>();
 
@@ -144,11 +152,7 @@ export function compileSourceProgramOwnerIntentEvidence(
               capability === operation.capability
               && operations.includes(operation.operation)
             ))
-              && model.moduleRoles.some(({ moduleId, observationClass, role }) => (
-                moduleId === descriptor.moduleId
-                && observationClass !== 'unknown'
-                && role === 'runtime'
-              ));
+              && operationDeclarations.length === 1;
           case 'public-entrypoint':
             return publicEntrypointEnvelope.some(({ targetPaths }) => (
               targetPaths.includes(operation.path)
@@ -328,13 +332,31 @@ function executableSourceLiteralPaths(
   return Object.freeze(observations);
 }
 
-export function compileRepositorySourceProgramModel(
-  input: CompileRepositorySourceProgramModelInput
+function compileRepositorySourceProgramModelInternal(
+  input: CompileRepositorySourceProgramModelInternalInput
 ): SourceProgramModel {
-  const typescriptModel = input.typescriptModel ?? compileTypeScriptSourceProgramModel(input);
+  input.repositoryCompilation?.assertMatches(input);
+  const typescriptInput = Object.freeze({
+    sourceRevision: input.sourceRevision,
+    files: input.files,
+    moduleMembership: input.moduleMembership
+  });
+  const typescriptModel = input.typescriptModel ?? (
+    input.repositoryCompilation === undefined
+      ? compileTypeScriptSourceProgramModel(typescriptInput)
+      : compileTypeScriptSourceProgramModelFromRepositoryCompilation(
+          typescriptInput,
+          input.repositoryCompilation
+        )
+  );
   if (typescriptModel.sourceRevision !== input.sourceRevision
       || !isCompiledTypeScriptSourceProgramModel(typescriptModel)) {
     throw new Error('Repository Source Program Model received an invalid TypeScript fact snapshot');
+  }
+  if (input.repositoryCompilation !== undefined
+      && repositoryCompilationDigestForTypeScriptModel(typescriptModel)
+        !== input.repositoryCompilation.contextDigest) {
+    throw new Error('Repository Source Program Model cannot mix TypeScript facts from another compilation');
   }
   const expectedTypeScriptFiles = input.files
     .filter(({ path: repositoryPath }) => (
@@ -350,14 +372,27 @@ export function compileRepositorySourceProgramModel(
       || expectedTypeScriptFiles.some((identity, index) => identity !== observedTypeScriptFiles[index])) {
     throw new Error('Repository Source Program Model TypeScript facts do not bind the exact source files');
   }
-  const testObservations = input.testObservations ?? compileSourceProgramTestObservations({
+  const testObservationInput = Object.freeze({
     productionModel: typescriptModel,
     files: input.files,
     moduleMembership: input.moduleMembership
   });
+  const testObservations = input.testObservations ?? (
+    input.repositoryCompilation === undefined
+      ? compileSourceProgramTestObservations(testObservationInput)
+      : compileSourceProgramTestObservationsFromRepositoryCompilation(
+          testObservationInput,
+          input.repositoryCompilation
+        )
+  );
   if (testObservations.sourceRevision !== input.sourceRevision
       || testObservations.productionModelDigest !== typescriptModel.modelDigest) {
     throw new Error('Repository Source Program Model test observations do not bind the production facts');
+  }
+  if (input.repositoryCompilation !== undefined
+      && repositoryCompilationDigestForTestObservations(testObservations)
+        !== input.repositoryCompilation.contextDigest) {
+    throw new Error('Repository Source Program Model cannot mix test facts from another compilation');
   }
   const semanticModel = Object.freeze({
     ...typescriptModel,
@@ -789,7 +824,7 @@ export function compileRepositorySourceProgramModel(
   const sourceByPath = new Map(input.files
     .filter(({ path: repositoryPath }) => /\.[cm]?[jt]sx?$/iu.test(repositoryPath))
     .map((file) => [file.path, file.source] as const));
-  const importGraph = compileSecRepositoryModuleGraph({
+  const importGraph = input.repositoryCompilation?.moduleGraphFor('repository-model') ?? compileSecRepositoryModuleGraph({
     files: Object.freeze([...sourceByPath.keys()].sort(compareCodeUnits)),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
   });
@@ -1387,73 +1422,6 @@ export function compileRepositorySourceProgramModel(
     || compareCodeUnits(left.subject, right.subject)
     || compareCodeUnits(left.paths.join('\0'), right.paths.join('\0'))
   );
-  const closureByEntrypoint = new Map(entrypointClosures.map((closure) => [
-    closure.entrypointObservationId,
-    closure
-  ] as const));
-  const moduleRoles: SourceProgramModuleRoleFact[] = input.moduleMembership.descriptors.map((descriptor) => {
-    const ownedTypeScriptFiles = files.filter((file) => (
-      file.moduleId === descriptor.moduleId
-      && file.surface === 'production'
-      && /\.[cm]?tsx?$/iu.test(file.path)
-    ));
-    const declarationOnly = descriptor.externalEntrypoints.length === 0
-      && descriptor.capabilityProviders.length === 0
-      && ownedTypeScriptFiles.length > 0
-      && ownedTypeScriptFiles.every(({ semanticKind, semanticObservationClass }) => (
-        semanticObservationClass !== 'unknown'
-        && (semanticKind === 'declaration-owner' || semanticKind === 'pure-reexport')
-      ));
-    const commandEntrypoints = entrypoints.filter((entrypoint) => (
-      entrypoint.kind === 'module-entrypoint'
-      && entrypoint.targetPaths.some((targetPath) => descriptor.externalEntrypoints.includes(targetPath))
-    ));
-    const command = descriptor.externalEntrypoints.length > 0
-      && descriptor.externalEntrypoints.every((targetPath) => commandEntrypoints.some((entrypoint) => {
-        const closure = closureByEntrypoint.get(entrypoint.observationId);
-        return entrypoint.targetPaths.includes(targetPath)
-          && entrypoint.observationClass !== 'unknown'
-          && closure?.observationClass !== 'unknown'
-          && closure?.handlerModuleIds.length === 1
-          && closure.handlerModuleIds[0] === descriptor.moduleId;
-      }));
-    const exportedOperations = exportedOperationsByModule.get(descriptor.moduleId) ?? new Set<string>();
-    const runtime = descriptor.capabilityProviders.length > 0
-      && descriptor.capabilityProviders.every(({ operations }) => (
-        operations.every((operation) => exportedOperations.has(operation))
-      ));
-    const query = descriptor.externalEntrypoints.length === 0
-      && descriptor.capabilityProviders.length === 0
-      && ownedTypeScriptFiles.length > 0
-      && ownedTypeScriptFiles.every(({ semanticObservationClass }) => (
-        semanticObservationClass !== 'unknown'
-      ))
-      && !typescriptModel.capabilities.some(({ moduleId, observationClass }) => (
-        moduleId === descriptor.moduleId && observationClass !== 'unknown'
-      ));
-    const derivedRoles = [
-      ...(declarationOnly ? ['contract' as const] : []),
-      ...(runtime ? ['runtime' as const] : []),
-      ...(command ? ['command' as const] : [])
-    ];
-    const declaredRoleSupported = descriptor.architectureRole === 'contract'
-      ? declarationOnly
-      : descriptor.architectureRole === 'runtime'
-        ? runtime
-        : descriptor.architectureRole === 'query'
-          ? query
-          : descriptor.architectureRole === 'command'
-            ? command
-            : false;
-    const role = descriptor.architectureRole === null
-      ? derivedRoles.length === 1 ? derivedRoles[0]! : 'unknown'
-      : declaredRoleSupported ? descriptor.architectureRole : 'unknown';
-    return Object.freeze({
-      moduleId: descriptor.moduleId,
-      role,
-      observationClass: role === 'unknown' ? 'unknown' : 'derived'
-    });
-  }).sort((left, right) => compareCodeUnits(left.moduleId, right.moduleId));
   const canonicalModel = {
     sourceRevision: typescriptModel.sourceRevision,
     providers: Object.freeze([
@@ -1461,7 +1429,6 @@ export function compileRepositorySourceProgramModel(
       Object.freeze({ id: 'ecmascript-json', revision: process.versions.bun })
     ]),
     files: Object.freeze(files),
-    moduleRoles: Object.freeze(moduleRoles),
     declarations: typescriptModel.declarations,
     references: semanticModel.references,
     literals: semanticModel.literals,
@@ -1479,6 +1446,20 @@ export function compileRepositorySourceProgramModel(
   });
   compiledRepositorySourceProgramModels.add(model);
   return model;
+}
+
+export function compileRepositorySourceProgramModel(
+  input: CompileRepositorySourceProgramModelInput
+): SourceProgramModel {
+  return compileRepositorySourceProgramModelInternal(input);
+}
+
+export function compileRepositorySourceProgramModelFromRepositoryCompilation(
+  input: CompileRepositorySourceProgramModelInput,
+  repositoryCompilation: IssuedRepositoryCompilationContext
+): SourceProgramModel {
+  repositoryCompilation.assertMatches(input);
+  return compileRepositorySourceProgramModelInternal({ ...input, repositoryCompilation });
 }
 
 function countTopologyValues(values: readonly string[]): Readonly<Record<string, number>> {

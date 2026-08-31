@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import nodePath from 'node:path';
 
@@ -19,6 +20,8 @@ export type SecModuleDescriptor = Readonly<{
   readonly externalEntrypoints: readonly string[];
   /** Low-level capabilities and public operations for which this module is the sole transport owner. */
   readonly capabilityProviders: readonly SecModuleCapabilityProvider[];
+  /** Required only for operations that may be removed or replaced. */
+  readonly operationObligations: readonly SecModuleOperationObligation[];
   /** Every external entrypoint must load before repository dependencies exist. */
   readonly preDependencyBootstrap: boolean;
 }>;
@@ -26,6 +29,33 @@ export type SecModuleDescriptor = Readonly<{
 export type SecModuleCapabilityProvider = Readonly<{
   readonly capability: string;
   readonly operations: readonly string[];
+}>;
+
+export type SecModuleOperationIdentity =
+  | Readonly<{ readonly kind: 'capability'; readonly capability: string; readonly operation: string }>
+  | Readonly<{ readonly kind: 'public-entrypoint'; readonly path: string }>;
+
+export type SecModuleOperationObligation = Readonly<{
+  readonly operation: SecModuleOperationIdentity;
+  readonly consumerSupport: Readonly<{ readonly consumers: readonly string[] }>;
+  readonly effect: Readonly<{
+    readonly kinds: readonly ('dynamic-code' | 'filesystem' | 'network' | 'persistent-state' | 'process' | 'provider')[];
+    readonly failureKinds: readonly string[];
+    readonly recovery: 'idempotent-retry' | 'not-applicable' | 'owner-intervention' | 'resume' | 'rollback';
+  }>;
+  readonly evolution: Readonly<{
+    readonly migration: 'durable-read-migration' | 'not-required' | 'one-shot-owner-migration';
+    readonly retirement: 'consumer-zero' | 'never' | 'replacement-obligations-satisfied';
+  }>;
+  readonly resources: Readonly<{
+    readonly aggregateBudgets: readonly Readonly<{
+      readonly resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'processes' | 'records';
+      readonly maximum: number;
+    }>[];
+  }>;
+  readonly futureSupport: Readonly<{
+    readonly condition: 'explicit-owner-decision' | 'preserve-obligations' | 'semantic-superset-required';
+  }>;
 }>;
 
 export type SecModuleImportKind =
@@ -57,6 +87,11 @@ export type SecRepositoryModuleGraph = Readonly<{
 export type SecRepositoryModuleBoundaryViolationCode =
   | 'cross-package-aggregate-surface'
   | 'module-dependency-cycle'
+  | 'repository-node-responsibility-reverse-dependency'
+  | 'repository-node-responsibility-unresolved'
+  | 'repository-module-surface-unresolved'
+  | 'repository-module-role-reverse-dependency'
+  | 'repository-module-role-unresolved'
   | 'pre-dependency-bootstrap-unavailable-package'
   | 'repository-entrypoint-owner-ambiguous'
   | 'repository-entrypoint-owner-unresolved'
@@ -81,12 +116,15 @@ export type SecRepositoryModuleSourceProgramFacts = Readonly<{
     readonly path: string;
     readonly moduleId: string | null;
     readonly surface: 'production' | 'test' | 'fixture' | 'workflow' | 'resource';
+    readonly semanticKind?: 'pure-reexport' | 'declaration-owner' | 'executable' | 'unknown';
+    readonly semanticObservationClass?: 'observed' | 'derived' | 'unknown';
   }>[];
   readonly entrypoints: readonly Readonly<{
     readonly observationId: string;
     readonly kind: 'package-script' | 'package-bin' | 'cli-command' | 'module-entrypoint' | 'git-hook' | 'workflow';
     readonly path: string;
     readonly name: string;
+    readonly targetPaths?: readonly string[];
     readonly observationClass: 'observed' | 'derived' | 'unknown';
   }>[];
   readonly entrypointClosures: readonly Readonly<{
@@ -95,8 +133,103 @@ export type SecRepositoryModuleSourceProgramFacts = Readonly<{
     readonly handlerModuleIds: readonly string[];
     readonly reachablePaths: readonly string[];
     readonly capabilityPaths: readonly string[];
+    readonly transports?: readonly string[];
+    readonly unknownPaths?: readonly string[];
     readonly observationClass: 'observed' | 'derived' | 'unknown';
   }>[];
+  readonly capabilities?: readonly Readonly<{
+    readonly path?: string;
+    readonly moduleId: string | null;
+    readonly surface: 'production' | 'test' | 'fixture' | 'workflow' | 'resource';
+    readonly capability?: string;
+    readonly operation?: string;
+    readonly transport: string;
+    readonly observationClass: 'observed' | 'derived' | 'unknown';
+  }>[];
+  readonly declarations?: readonly Readonly<{
+    readonly path: string;
+    readonly moduleId: string | null;
+    readonly name: string;
+    readonly exported: boolean;
+  }>[];
+}>;
+
+export type SecRepositoryNodeResponsibility =
+  | 'contract'
+  | 'computation'
+  | 'capability'
+  | 'operation'
+  | 'workflow'
+  | 'interface';
+
+export type SecRepositoryNodeResponsibilityReason =
+  | 'capability-provider-export'
+  | 'declaration-surface'
+  | 'external-entrypoint-target'
+  | 'operation-consumes-capability'
+  | 'pure-computation'
+  | 'responsibility-evidence-conflict'
+  | 'responsibility-evidence-unresolved'
+  | 'workflow-consumes-operation';
+
+export type SecRepositoryNodeResponsibilityProjection = Readonly<{
+  readonly path: string;
+  readonly moduleId: string;
+  readonly responsibility: SecRepositoryNodeResponsibility | 'unknown';
+  readonly evidenceDigest: `sha256:${string}`;
+  readonly reason: SecRepositoryNodeResponsibilityReason;
+}>;
+
+export type SecRepositoryModuleEdgeWitness = Readonly<{
+  readonly fromPath: string;
+  readonly toPath: string;
+  readonly kind: SecModuleImportKind;
+  readonly specifier: string;
+}>;
+
+export type SecRepositoryModuleOwnerEdge = Readonly<{
+  readonly fromOwner: string;
+  readonly toOwner: string;
+  readonly witnesses: readonly SecRepositoryModuleEdgeWitness[];
+}>;
+
+export type SecRepositoryModuleStrongComponent = Readonly<{
+  readonly ownerIds: readonly string[];
+  readonly edges: readonly SecRepositoryModuleOwnerEdge[];
+}>;
+
+export type SecRepositoryModuleReciprocalPair = Readonly<{
+  readonly ownerIds: readonly [string, string];
+  readonly forward: SecRepositoryModuleOwnerEdge;
+  readonly reverse: SecRepositoryModuleOwnerEdge;
+}>;
+
+/**
+ * Exact structural projection compiled from the canonical repository import
+ * graph. It is intentionally independent from TypeScript semantic facts so
+ * editor and migration loops can observe ownership cycles without compiling
+ * the full Source Program. The semantic architecture projection below extends
+ * this result; it does not maintain a second graph.
+ */
+export type SecRepositoryModuleTopologyProjection = Readonly<{
+  readonly ownerEdges: readonly SecRepositoryModuleOwnerEdge[];
+  readonly strongComponents: readonly SecRepositoryModuleStrongComponent[];
+  readonly reciprocalPairs: readonly SecRepositoryModuleReciprocalPair[];
+  readonly feedbackCuts: readonly SecRepositoryModuleOwnerEdge[];
+  readonly violations: readonly SecRepositoryModuleBoundaryViolation[];
+}>;
+
+export type SecRepositoryModuleArchitectureProjection = Readonly<{
+  readonly ownerEdges: readonly SecRepositoryModuleOwnerEdge[];
+  readonly strongComponents: readonly SecRepositoryModuleStrongComponent[];
+  readonly reciprocalPairs: readonly SecRepositoryModuleReciprocalPair[];
+  /** Removing these exact owner edges makes the projected owner graph acyclic. */
+  readonly feedbackCuts: readonly SecRepositoryModuleOwnerEdge[];
+  readonly aggregateFacadePaths: readonly string[];
+  readonly unresolvedAggregateSurfacePaths: readonly string[];
+  /** The only responsibility authority: one decision per production node. */
+  readonly nodeResponsibilities: readonly SecRepositoryNodeResponsibilityProjection[];
+  readonly violations: readonly SecRepositoryModuleBoundaryViolation[];
 }>;
 
 /**
@@ -156,6 +289,7 @@ const SEC_MODULE_DESCRIPTOR_KEYS = Object.freeze([
   'importGraph',
   'externalEntrypoints',
   'capabilityProviders',
+  'operationObligations',
   'preDependencyBootstrap'
 ] as const);
 
@@ -188,6 +322,7 @@ function descriptorRecord(input: unknown): Record<string, unknown> {
   for (const key of SEC_MODULE_DESCRIPTOR_KEYS.filter(
     (key) => key !== 'preDependencyBootstrap'
       && key !== 'capabilityProviders'
+      && key !== 'operationObligations'
   )) {
     if (!Object.prototype.hasOwnProperty.call(record, key)) {
       descriptorError(key, 'required field is missing');
@@ -266,6 +401,206 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
   return Object.freeze(providers);
 }
 
+function descriptorExactRecord(
+  value: unknown,
+  field: string,
+  keys: readonly string[]
+): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return descriptorError(field, 'expected an object');
+  }
+  const record = value as Record<string, unknown>;
+  const actual = Object.keys(record).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length
+      || actual.some((key, index) => key !== expected[index])) {
+    return descriptorError(field, `expected exact keys ${expected.join(', ')}`);
+  }
+  return record;
+}
+
+function descriptorOperationObligations(
+  value: unknown,
+  capabilityProviders: readonly SecModuleCapabilityProvider[],
+  externalEntrypoints: readonly string[]
+): readonly SecModuleOperationObligation[] {
+  if (!Array.isArray(value) || value.length > 64) {
+    return descriptorError('operationObligations', 'expected at most 64 entries');
+  }
+  const obligations = value.map((item, index) => {
+    const field = `operationObligations[${index}]`;
+    const record = descriptorExactRecord(item, field, [
+      'operation', 'consumerSupport', 'effect', 'evolution', 'resources', 'futureSupport'
+    ]);
+    const operationRecord = descriptorExactRecord(
+      record.operation,
+      `${field}.operation`,
+      (record.operation as { kind?: unknown } | null)?.kind === 'capability'
+        ? ['kind', 'capability', 'operation'] : ['kind', 'path']
+    );
+    const operationKind = descriptorEnum(
+      operationRecord.kind,
+      `${field}.operation.kind`,
+      ['capability', 'public-entrypoint'] as const
+    );
+    const operation: SecModuleOperationIdentity = operationKind === 'capability'
+      ? Object.freeze({
+          kind: operationKind,
+          capability: descriptorString(
+            operationRecord.capability,
+            `${field}.operation.capability`,
+            SEC_MODULE_ID_PATTERN
+          ),
+          operation: descriptorString(
+            operationRecord.operation,
+            `${field}.operation.operation`,
+            /^[A-Za-z_$][A-Za-z0-9_$]*$/u
+          )
+        })
+      : Object.freeze({
+          kind: operationKind,
+          path: descriptorString(
+            operationRecord.path,
+            `${field}.operation.path`,
+            SEC_MODULE_PATH_PATTERN
+          )
+        });
+    if (operation.kind === 'capability') {
+      const provider = capabilityProviders.find(({ capability }) => (
+        capability === operation.capability
+      ));
+      if (provider === undefined || !provider.operations.includes(operation.operation)) {
+        descriptorError(`${field}.operation`, 'must bind one declared capability provider operation');
+      }
+    } else if (!externalEntrypoints.includes(operation.path)) {
+      descriptorError(`${field}.operation`, 'must bind one declared external entrypoint');
+    }
+
+    const consumerSupportRecord = descriptorExactRecord(
+      record.consumerSupport,
+      `${field}.consumerSupport`,
+      ['consumers']
+    );
+    const consumerSupport = Object.freeze({
+      consumers: descriptorStringArray(
+        consumerSupportRecord.consumers,
+        `${field}.consumerSupport.consumers`,
+        SEC_MODULE_ID_PATTERN
+      )
+    });
+    const effectRecord = descriptorExactRecord(
+      record.effect,
+      `${field}.effect`,
+      ['kinds', 'failureKinds', 'recovery']
+    );
+    const effectKinds = Array.isArray(effectRecord.kinds)
+      ? effectRecord.kinds.map((kind, effectIndex) => descriptorEnum(
+          kind,
+          `${field}.effect.kinds[${effectIndex}]`,
+          ['dynamic-code', 'filesystem', 'network', 'persistent-state', 'process', 'provider'] as const
+        ))
+      : descriptorError(`${field}.effect.kinds`, 'expected an array');
+    if (new Set(effectKinds).size !== effectKinds.length) {
+      descriptorError(`${field}.effect.kinds`, 'entries must be unique');
+    }
+    const failureKinds = descriptorStringArray(
+      effectRecord.failureKinds,
+      `${field}.effect.failureKinds`,
+      /^[a-z][a-z0-9.-]{0,127}$/u
+    );
+    const recovery = descriptorEnum(
+      effectRecord.recovery,
+      `${field}.effect.recovery`,
+      ['idempotent-retry', 'not-applicable', 'owner-intervention', 'resume', 'rollback'] as const
+    );
+    if (effectKinds.length === 0 && (failureKinds.length > 0 || recovery !== 'not-applicable')) {
+      descriptorError(`${field}.effect`, 'effect-free operations require no failures and not-applicable recovery');
+    }
+    if (effectKinds.length > 0 && (failureKinds.length === 0 || recovery === 'not-applicable')) {
+      descriptorError(`${field}.effect`, 'effectful operations require failure kinds and recovery');
+    }
+    const effect = Object.freeze({
+      kinds: Object.freeze(effectKinds),
+      failureKinds,
+      recovery
+    });
+
+    const evolutionRecord = descriptorExactRecord(
+      record.evolution,
+      `${field}.evolution`,
+      ['migration', 'retirement']
+    );
+    const evolution = Object.freeze({
+      migration: descriptorEnum(
+        evolutionRecord.migration,
+        `${field}.evolution.migration`,
+        ['durable-read-migration', 'not-required', 'one-shot-owner-migration'] as const
+      ),
+      retirement: descriptorEnum(
+        evolutionRecord.retirement,
+        `${field}.evolution.retirement`,
+        ['consumer-zero', 'never', 'replacement-obligations-satisfied'] as const
+      )
+    });
+
+    const resourcesRecord = descriptorExactRecord(
+      record.resources,
+      `${field}.resources`,
+      ['aggregateBudgets']
+    );
+    if (!Array.isArray(resourcesRecord.aggregateBudgets)
+        || resourcesRecord.aggregateBudgets.length < 1
+        || resourcesRecord.aggregateBudgets.length > 16) {
+      descriptorError(`${field}.resources.aggregateBudgets`, 'expected between 1 and 16 entries');
+    }
+    const aggregateBudgets = resourcesRecord.aggregateBudgets.map((budget, budgetIndex) => {
+      const budgetRecord = descriptorExactRecord(
+        budget,
+        `${field}.resources.aggregateBudgets[${budgetIndex}]`,
+        ['resource', 'maximum']
+      );
+      const resource = descriptorEnum(
+        budgetRecord.resource,
+        `${field}.resources.aggregateBudgets[${budgetIndex}].resource`,
+        ['duration-ms', 'input-bytes', 'output-bytes', 'processes', 'records'] as const
+      );
+      if (!Number.isSafeInteger(budgetRecord.maximum) || (budgetRecord.maximum as number) <= 0) {
+        descriptorError(`${field}.resources.aggregateBudgets[${budgetIndex}].maximum`, 'expected a positive safe integer');
+      }
+      return Object.freeze({ resource, maximum: budgetRecord.maximum as number });
+    });
+    if (new Set(aggregateBudgets.map(({ resource }) => resource)).size !== aggregateBudgets.length) {
+      descriptorError(`${field}.resources.aggregateBudgets`, 'resource entries must be unique');
+    }
+    const resources = Object.freeze({ aggregateBudgets: Object.freeze(aggregateBudgets) });
+    const futureSupportRecord = descriptorExactRecord(
+      record.futureSupport,
+      `${field}.futureSupport`,
+      ['condition']
+    );
+    const futureSupport = Object.freeze({
+      condition: descriptorEnum(
+        futureSupportRecord.condition,
+        `${field}.futureSupport.condition`,
+        ['explicit-owner-decision', 'preserve-obligations', 'semantic-superset-required'] as const
+      )
+    });
+    return Object.freeze({
+      operation,
+      consumerSupport,
+      effect,
+      evolution,
+      resources,
+      futureSupport
+    });
+  });
+  const identities = obligations.map(({ operation }) => JSON.stringify(operation));
+  if (new Set(identities).size !== identities.length) {
+    descriptorError('operationObligations', 'operation identities must be unique');
+  }
+  return Object.freeze(obligations);
+}
+
 export function parseSecModuleDescriptor(
   input: unknown,
   descriptorPath: string
@@ -291,6 +626,11 @@ export function parseSecModuleDescriptor(
     SEC_MODULE_PATH_PATTERN
   );
   const capabilityProviders = descriptorCapabilityProviders(record.capabilityProviders ?? []);
+  const operationObligations = descriptorOperationObligations(
+    record.operationObligations ?? [],
+    capabilityProviders,
+    externalEntrypoints
+  );
   const preDependencyBootstrap = record.preDependencyBootstrap ?? false;
   if (typeof preDependencyBootstrap !== 'boolean') {
     descriptorError('preDependencyBootstrap', 'expected a boolean');
@@ -304,6 +644,7 @@ export function parseSecModuleDescriptor(
     importGraph,
     externalEntrypoints,
     capabilityProviders,
+    operationObligations,
     preDependencyBootstrap
   });
 }
@@ -759,53 +1100,76 @@ export function compileSecRepositoryModuleRelocationPlanEntry(
   });
 }
 
-/**
- * Enforce the physical package contract on a graph compiled from one source
- * snapshot. The low-level graph owns package membership, aggregate-barrel
- * rejection, bootstrap admission, and the production DAG. It deliberately
- * does not infer visibility from directory names: declaration visibility is a
- * TypeScript symbol fact compiled by the Source Program Model.
- */
-export function collectSecRepositoryModuleBoundaryViolations(
+function repositoryModuleTextOrder(left: string, right: string): number {
+  return left.localeCompare(right, 'en-US');
+}
+
+function repositoryModuleOwnerEdgeKey(fromOwner: string, toOwner: string): string {
+  return `${fromOwner}\0${toOwner}`;
+}
+
+function compileRepositoryModuleOwnerEdges(
   graph: SecRepositoryModuleGraph,
   membership: SecRepositoryModuleMembership
-): readonly SecRepositoryModuleBoundaryViolation[] {
-  const violations: SecRepositoryModuleBoundaryViolation[] = [];
-  const crossModuleEdges = new Map<string, Set<string>>();
-  const edgeReferences = new Map<string, SecRepositoryModuleGraphReference>();
+): readonly SecRepositoryModuleOwnerEdge[] {
+  const witnessesByEdge = new Map<string, SecRepositoryModuleEdgeWitness[]>();
   for (const reference of graph.references) {
-    if (reference.resolvedTarget === null) continue;
+    if (reference.resolvedTarget === null || isTestOnlyRepositoryModulePath(reference.from)) continue;
     const sourceOwner = membership.moduleForPath(reference.from);
     const targetOwner = membership.moduleForPath(reference.resolvedTarget);
     if (sourceOwner === null || targetOwner === null || sourceOwner.moduleId === targetOwner.moduleId) continue;
-    // Tests observe production capabilities; they do not make the observed
-    // capability depend on the test package. Including test-origin edges in
-    // the production package DAG collapses every tested capability into one
-    // artificial SCC. Keep boundary checks below for test imports, but compile
-    // dependency cycles only from production-origin edges.
-    if (!isTestOnlyRepositoryModulePath(reference.from)) {
-      const dependencies = crossModuleEdges.get(sourceOwner.moduleId) ?? new Set<string>();
-      dependencies.add(targetOwner.moduleId);
-      crossModuleEdges.set(sourceOwner.moduleId, dependencies);
-      const edgeKey = `${sourceOwner.moduleId}\0${targetOwner.moduleId}`;
-      if (!edgeReferences.has(edgeKey)) edgeReferences.set(edgeKey, reference);
-    }
-    if (targetOwner.root.startsWith('src/')
-        && /^index\.[cm]?[jt]sx?$/u.test(nodePath.posix.basename(reference.resolvedTarget))) {
-      violations.push(Object.freeze({
-        code: 'cross-package-aggregate-surface',
-        from: reference.from,
-        to: reference.resolvedTarget,
-        detail: `${sourceOwner.moduleId} imports an aggregate barrel owned by ${targetOwner.moduleId}`
-      }));
-    }
+    const key = repositoryModuleOwnerEdgeKey(sourceOwner.moduleId, targetOwner.moduleId);
+    const witnesses = witnessesByEdge.get(key) ?? [];
+    witnesses.push(Object.freeze({
+      fromPath: reference.from,
+      toPath: reference.resolvedTarget,
+      kind: reference.kind,
+      specifier: reference.specifier
+    }));
+    witnessesByEdge.set(key, witnesses);
   }
+  return Object.freeze([...witnessesByEdge.entries()].map(([key, witnesses]) => {
+    const separator = key.indexOf('\0');
+    const uniqueWitnesses = new Map<string, SecRepositoryModuleEdgeWitness>();
+    for (const witness of witnesses) {
+      uniqueWitnesses.set(
+        `${witness.fromPath}\0${witness.toPath}\0${witness.kind}\0${witness.specifier}`,
+        witness
+      );
+    }
+    return Object.freeze({
+      fromOwner: key.slice(0, separator),
+      toOwner: key.slice(separator + 1),
+      witnesses: Object.freeze([...uniqueWitnesses.values()].sort((left, right) => (
+        repositoryModuleTextOrder(left.fromPath, right.fromPath)
+        || repositoryModuleTextOrder(left.toPath, right.toPath)
+        || repositoryModuleTextOrder(left.kind, right.kind)
+        || repositoryModuleTextOrder(left.specifier, right.specifier)
+      )))
+    });
+  }).sort((left, right) => (
+    repositoryModuleTextOrder(left.fromOwner, right.fromOwner)
+    || repositoryModuleTextOrder(left.toOwner, right.toOwner)
+  )));
+}
 
-  const moduleIds = membership.descriptors.map(({ moduleId }) => moduleId).sort();
+function compileRepositoryModuleStrongComponents(
+  ownerIds: readonly string[],
+  ownerEdges: readonly SecRepositoryModuleOwnerEdge[]
+): readonly SecRepositoryModuleStrongComponent[] {
+  const dependencies = new Map<string, string[]>();
+  for (const edge of ownerEdges) {
+    const targets = dependencies.get(edge.fromOwner) ?? [];
+    targets.push(edge.toOwner);
+    dependencies.set(edge.fromOwner, targets);
+  }
+  for (const targets of dependencies.values()) targets.sort(repositoryModuleTextOrder);
+
   const indices = new Map<string, number>();
   const lowLinks = new Map<string, number>();
   const stack: string[] = [];
   const onStack = new Set<string>();
+  const components: SecRepositoryModuleStrongComponent[] = [];
   let nextIndex = 0;
   const visit = (moduleId: string): void => {
     indices.set(moduleId, nextIndex);
@@ -813,7 +1177,7 @@ export function collectSecRepositoryModuleBoundaryViolations(
     nextIndex += 1;
     stack.push(moduleId);
     onStack.add(moduleId);
-    for (const dependency of [...(crossModuleEdges.get(moduleId) ?? [])].sort()) {
+    for (const dependency of dependencies.get(moduleId) ?? []) {
       if (!indices.has(dependency)) {
         visit(dependency);
         lowLinks.set(moduleId, Math.min(lowLinks.get(moduleId)!, lowLinks.get(dependency)!));
@@ -822,30 +1186,145 @@ export function collectSecRepositoryModuleBoundaryViolations(
       }
     }
     if (lowLinks.get(moduleId) !== indices.get(moduleId)) return;
-    const component: string[] = [];
+    const componentOwnerIds: string[] = [];
     for (;;) {
       const current = stack.pop()!;
       onStack.delete(current);
-      component.push(current);
+      componentOwnerIds.push(current);
       if (current === moduleId) break;
     }
-    if (component.length < 2) return;
-    component.sort();
-    const componentSet = new Set(component);
-    const representative = component.flatMap((source) =>
-      [...(crossModuleEdges.get(source) ?? [])]
-        .filter((target) => componentSet.has(target))
-        .map((target) => ({ source, target, reference: edgeReferences.get(`${source}\0${target}`)! })))
-      .sort((left, right) => `${left.source}\0${left.target}`.localeCompare(`${right.source}\0${right.target}`, 'en-US'))[0];
-    violations.push(Object.freeze({
-      code: 'module-dependency-cycle',
-      from: representative.reference.from,
-      to: representative.reference.resolvedTarget!,
-      detail: `module dependency cycle: ${component.join(' -> ')} -> ${component[0]}`
+    if (componentOwnerIds.length < 2) return;
+    componentOwnerIds.sort(repositoryModuleTextOrder);
+    const componentSet = new Set(componentOwnerIds);
+    components.push(Object.freeze({
+      ownerIds: Object.freeze(componentOwnerIds),
+      edges: Object.freeze(ownerEdges.filter((edge) => (
+        componentSet.has(edge.fromOwner) && componentSet.has(edge.toOwner)
+      )))
     }));
   };
-  for (const moduleId of moduleIds) {
-    if (!indices.has(moduleId)) visit(moduleId);
+  for (const ownerId of [...ownerIds].sort(repositoryModuleTextOrder)) {
+    if (!indices.has(ownerId)) visit(ownerId);
+  }
+  return Object.freeze(components.sort((left, right) => (
+    repositoryModuleTextOrder(left.ownerIds[0]!, right.ownerIds[0]!)
+  )));
+}
+
+function compileRepositoryModuleReciprocalPairs(
+  ownerEdges: readonly SecRepositoryModuleOwnerEdge[]
+): readonly SecRepositoryModuleReciprocalPair[] {
+  const byKey = new Map(ownerEdges.map((edge) => [
+    repositoryModuleOwnerEdgeKey(edge.fromOwner, edge.toOwner),
+    edge
+  ] as const));
+  const pairs: SecRepositoryModuleReciprocalPair[] = [];
+  for (const forward of ownerEdges) {
+    if (repositoryModuleTextOrder(forward.fromOwner, forward.toOwner) >= 0) continue;
+    const reverse = byKey.get(repositoryModuleOwnerEdgeKey(forward.toOwner, forward.fromOwner));
+    if (reverse === undefined) continue;
+    pairs.push(Object.freeze({
+      ownerIds: Object.freeze([forward.fromOwner, forward.toOwner]) as readonly [string, string],
+      forward,
+      reverse
+    }));
+  }
+  return Object.freeze(pairs);
+}
+
+/**
+ * Repeatedly remove the deterministic DFS back-edge until no cycle remains.
+ * This is a guaranteed feedback edge set, not a claim that an NP-hard minimum
+ * feedback set was solved.  Each cut retains every exact source witness so a
+ * human or codemod can choose the semantic seam rather than guessing a file.
+ */
+function compileRepositoryModuleFeedbackCuts(
+  ownerIds: readonly string[],
+  ownerEdges: readonly SecRepositoryModuleOwnerEdge[]
+): readonly SecRepositoryModuleOwnerEdge[] {
+  const remaining = new Map(ownerEdges.map((edge) => [
+    repositoryModuleOwnerEdgeKey(edge.fromOwner, edge.toOwner),
+    edge
+  ] as const));
+  const cuts: SecRepositoryModuleOwnerEdge[] = [];
+  const findBackEdge = (): SecRepositoryModuleOwnerEdge | null => {
+    const state = new Map<string, 'active' | 'complete'>();
+    const visit = (ownerId: string): SecRepositoryModuleOwnerEdge | null => {
+      state.set(ownerId, 'active');
+      const outgoing = [...remaining.values()]
+        .filter((edge) => edge.fromOwner === ownerId)
+        .sort((left, right) => repositoryModuleTextOrder(left.toOwner, right.toOwner));
+      for (const edge of outgoing) {
+        const targetState = state.get(edge.toOwner);
+        if (targetState === 'active') return edge;
+        if (targetState === undefined) {
+          const nested = visit(edge.toOwner);
+          if (nested !== null) return nested;
+        }
+      }
+      state.set(ownerId, 'complete');
+      return null;
+    };
+    for (const ownerId of [...ownerIds].sort(repositoryModuleTextOrder)) {
+      if (state.has(ownerId)) continue;
+      const edge = visit(ownerId);
+      if (edge !== null) return edge;
+    }
+    return null;
+  };
+  for (;;) {
+    const cut = findBackEdge();
+    if (cut === null) break;
+    cuts.push(cut);
+    remaining.delete(repositoryModuleOwnerEdgeKey(cut.fromOwner, cut.toOwner));
+  }
+  return Object.freeze(cuts);
+}
+
+/**
+ * Compile the low-cost ownership topology from the same canonical graph used
+ * by full architecture admission. This is the edit-loop projection: it keeps
+ * exact witnesses and never guesses semantic roles or aggregate facades.
+ */
+export function compileSecRepositoryModuleTopologyProjection(
+  graph: SecRepositoryModuleGraph,
+  membership: SecRepositoryModuleMembership
+): SecRepositoryModuleTopologyProjection {
+  const ownerEdges = compileRepositoryModuleOwnerEdges(graph, membership);
+  const ownerIds = membership.descriptors.map(({ moduleId }) => moduleId);
+  return Object.freeze({
+    ownerEdges,
+    strongComponents: compileRepositoryModuleStrongComponents(ownerIds, ownerEdges),
+    reciprocalPairs: compileRepositoryModuleReciprocalPairs(ownerEdges),
+    feedbackCuts: compileRepositoryModuleFeedbackCuts(ownerIds, ownerEdges),
+    violations: collectSecRepositoryModuleBoundaryViolations(graph, membership)
+  });
+}
+
+/**
+ * Enforce the physical package contract on a graph compiled from one source
+ * snapshot. The low-level graph owns package membership, bootstrap admission,
+ * and the production DAG. Aggregate surfaces require Source Program semantic
+ * facts and are enforced by the architecture projection below. This layer
+ * does not infer visibility from directory names: declaration visibility is a
+ * TypeScript symbol fact compiled by the Source Program Model.
+ */
+export function collectSecRepositoryModuleBoundaryViolations(
+  graph: SecRepositoryModuleGraph,
+  membership: SecRepositoryModuleMembership
+): readonly SecRepositoryModuleBoundaryViolation[] {
+  const violations: SecRepositoryModuleBoundaryViolation[] = [];
+  const ownerEdges = compileRepositoryModuleOwnerEdges(graph, membership);
+  const moduleIds = membership.descriptors.map(({ moduleId }) => moduleId);
+  const components = compileRepositoryModuleStrongComponents(moduleIds, ownerEdges);
+  for (const component of components) {
+    const representative = component.edges[0]!.witnesses[0]!;
+    violations.push(Object.freeze({
+      code: 'module-dependency-cycle',
+      from: representative.fromPath,
+      to: representative.toPath,
+      detail: `module dependency cycle: ${component.ownerIds.join(' -> ')} -> ${component.ownerIds[0]}`
+    }));
   }
 
   for (const descriptor of membership.descriptors) {
@@ -891,6 +1370,372 @@ export function collectSecRepositoryModuleBoundaryViolations(
   return Object.freeze([...unique.values()].sort((left, right) =>
     `${left.code}\0${left.from}\0${left.to}\0${left.detail}`
       .localeCompare(`${right.code}\0${right.from}\0${right.to}\0${right.detail}`, 'en-US')));
+}
+
+type RepositoryModuleAggregateSurface = 'aggregate' | 'implementation' | 'unknown';
+
+function classifyRepositoryModuleAggregateSurface(
+  repositoryPath: string,
+  facts: SecRepositoryModuleSourceProgramFacts
+): RepositoryModuleAggregateSurface {
+  const fileFacts = facts.files.filter(({ path }) => (
+    normalizeSecRepositoryPath(path) === repositoryPath
+  ));
+  if (fileFacts.length !== 1
+      || fileFacts[0]!.semanticObservationClass === undefined
+      || fileFacts[0]!.semanticObservationClass === 'unknown'
+      || fileFacts[0]!.semanticKind === undefined
+      || fileFacts[0]!.semanticKind === 'unknown') return 'unknown';
+  return fileFacts[0]!.semanticKind === 'pure-reexport' ? 'aggregate' : 'implementation';
+}
+
+function compileRepositoryNodeResponsibilities(
+  graph: SecRepositoryModuleGraph,
+  membership: SecRepositoryModuleMembership,
+  facts: SecRepositoryModuleSourceProgramFacts
+): readonly SecRepositoryNodeResponsibilityProjection[] {
+  const digest = (value: unknown): `sha256:${string}` => (
+    `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`
+  );
+  const normalizedProductionFacts = [...facts.files]
+    .filter(({ path, surface }) => (
+      surface === 'production'
+      && /\.[cm]?[jt]sx?$/iu.test(path)
+    ))
+    .flatMap((file) => {
+      const path = normalizeSecRepositoryPath(file.path);
+      const moduleId = membership.moduleForPath(path)?.moduleId ?? null;
+      return moduleId === null ? [] : [{
+        ...file,
+        path,
+        moduleId,
+        observedModuleId: file.moduleId
+      }];
+    })
+    .sort((left, right) => repositoryModuleTextOrder(left.path, right.path));
+  const factsByPath = new Map<string, typeof normalizedProductionFacts>();
+  for (const fact of normalizedProductionFacts) {
+    const values = factsByPath.get(fact.path) ?? [];
+    values.push(fact);
+    factsByPath.set(fact.path, values);
+  }
+  const duplicateFactPaths = new Set([...factsByPath]
+    .filter(([, values]) => values.length !== 1)
+    .map(([path]) => path));
+  const productionFiles = [...factsByPath.values()]
+    .map((values) => values[0]!)
+    .sort((left, right) => repositoryModuleTextOrder(left.path, right.path));
+  const fileByPath = new Map(productionFiles.map((file) => [file.path, file] as const));
+  const declarations = (facts.declarations ?? [])
+    .filter(({ exported, moduleId }) => exported && moduleId !== null)
+    .map((declaration) => {
+      const path = normalizeSecRepositoryPath(declaration.path);
+      return {
+        ...declaration,
+        path,
+        canonicalModuleId: membership.moduleForPath(path)?.moduleId ?? null
+      };
+    });
+  const capabilityPaths = new Map<string, string[]>();
+  const unresolvedCapabilityModules = new Set<string>();
+  for (const descriptor of membership.descriptors) {
+    for (const provider of descriptor.capabilityProviders) {
+      for (const operation of provider.operations) {
+        const matches = declarations.filter((declaration) => (
+          declaration.moduleId === descriptor.moduleId
+          && declaration.canonicalModuleId === descriptor.moduleId
+          && declaration.name === operation
+        ));
+        if (matches.length !== 1) {
+          unresolvedCapabilityModules.add(descriptor.moduleId);
+          continue;
+        }
+        const values = capabilityPaths.get(matches[0]!.path) ?? [];
+        values.push(`${provider.capability}:${operation}`);
+        capabilityPaths.set(matches[0]!.path, values);
+      }
+    }
+  }
+
+  const closureByObservation = new Map(facts.entrypointClosures.map((closure) => (
+    [closure.entrypointObservationId, closure] as const
+  )));
+  const interfacePaths = new Set<string>();
+  const unresolvedInterfacePaths = new Set<string>();
+  for (const descriptor of membership.descriptors) {
+    for (const targetPathRaw of descriptor.externalEntrypoints) {
+      const targetPath = normalizeSecRepositoryPath(targetPathRaw);
+      const matches = facts.entrypoints.filter((entrypoint) => (
+        entrypoint.kind === 'module-entrypoint'
+        && (entrypoint.targetPaths ?? []).map(normalizeSecRepositoryPath).includes(targetPath)
+      ));
+      const valid = membership.moduleForPath(targetPath)?.moduleId === descriptor.moduleId
+        && matches.length === 1 && matches.every((entrypoint) => {
+        const closure = closureByObservation.get(entrypoint.observationId);
+        return entrypoint.observationClass !== 'unknown'
+          && closure?.observationClass !== 'unknown'
+          && closure?.handlerModuleIds.length === 1
+          && closure.handlerModuleIds[0] === descriptor.moduleId
+          && closure.unknownPaths !== undefined
+          && closure.unknownPaths.length === 0;
+      });
+      (valid ? interfacePaths : unresolvedInterfacePaths).add(targetPath);
+    }
+  }
+
+  type MutableDecision = {
+    responsibility: SecRepositoryNodeResponsibility | 'unknown';
+    reason: SecRepositoryNodeResponsibilityReason;
+  };
+  const decisions = new Map<string, MutableDecision>();
+  for (const file of productionFiles) {
+    const claims = capabilityPaths.get(file.path) ?? [];
+    const isInterface = interfacePaths.has(file.path);
+    const unresolved = file.semanticKind === undefined
+      || file.semanticKind === 'unknown'
+      || file.semanticObservationClass === undefined
+      || file.semanticObservationClass === 'unknown'
+      || duplicateFactPaths.has(file.path)
+      || file.observedModuleId !== file.moduleId
+      || unresolvedInterfacePaths.has(file.path)
+      || (unresolvedCapabilityModules.has(file.moduleId!) && file.semanticKind === 'executable');
+    if (unresolved) {
+      decisions.set(file.path, {
+        responsibility: 'unknown',
+        reason: 'responsibility-evidence-unresolved'
+      });
+    } else if (claims.length > 0 && isInterface) {
+      decisions.set(file.path, {
+        responsibility: 'unknown',
+        reason: 'responsibility-evidence-conflict'
+      });
+    } else if (isInterface) {
+      decisions.set(file.path, {
+        responsibility: 'interface',
+        reason: 'external-entrypoint-target'
+      });
+    } else if (claims.length > 0) {
+      decisions.set(file.path, {
+        responsibility: 'capability',
+        reason: 'capability-provider-export'
+      });
+    } else if (file.semanticKind === 'declaration-owner' || file.semanticKind === 'pure-reexport') {
+      decisions.set(file.path, {
+        responsibility: 'contract',
+        reason: 'declaration-surface'
+      });
+    } else {
+      decisions.set(file.path, {
+        responsibility: 'computation',
+        reason: 'pure-computation'
+      });
+    }
+  }
+
+  const dependencies = new Map<string, string[]>();
+  for (const reference of graph.references) {
+    if (reference.resolvedTarget === null) continue;
+    const from = normalizeSecRepositoryPath(reference.from);
+    const to = normalizeSecRepositoryPath(reference.resolvedTarget);
+    if (!fileByPath.has(from) || !fileByPath.has(to)) continue;
+    const values = dependencies.get(from) ?? [];
+    values.push(to);
+    dependencies.set(from, values);
+  }
+  for (const values of dependencies.values()) values.sort(repositoryModuleTextOrder);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const file of productionFiles) {
+      const current = decisions.get(file.path)!;
+      if (current.responsibility !== 'computation') continue;
+      const targets = dependencies.get(file.path) ?? [];
+      const targetResponsibilities = targets.map((target) => (
+        decisions.get(target)?.responsibility ?? 'unknown'
+      ));
+      let next: MutableDecision | null = null;
+      if (targetResponsibilities.includes('unknown')) {
+        next = {
+          responsibility: 'unknown',
+          reason: 'responsibility-evidence-unresolved'
+        };
+      } else if (targetResponsibilities.includes('capability')) {
+        next = {
+          responsibility: 'operation',
+          reason: 'operation-consumes-capability'
+        };
+      } else if (targetResponsibilities.some((responsibility) => (
+        responsibility === 'operation' || responsibility === 'workflow'
+      ))) {
+        next = {
+          responsibility: 'workflow',
+          reason: 'workflow-consumes-operation'
+        };
+      }
+      if (next !== null) {
+        decisions.set(file.path, next);
+        changed = true;
+      }
+    }
+  }
+
+  return Object.freeze(productionFiles.map((file) => {
+    const decision = decisions.get(file.path)!;
+    const evidence = {
+      path: file.path,
+      moduleId: file.moduleId,
+      semanticKind: file.semanticKind ?? null,
+      semanticObservationClass: file.semanticObservationClass ?? null,
+      capabilityClaims: [...(capabilityPaths.get(file.path) ?? [])].sort(repositoryModuleTextOrder),
+      interface: interfacePaths.has(file.path),
+      unresolvedInterface: unresolvedInterfacePaths.has(file.path),
+      dependencies: dependencies.get(file.path) ?? [],
+      decision
+    };
+    return Object.freeze({
+      path: file.path,
+      moduleId: file.moduleId!,
+      responsibility: decision.responsibility,
+      reason: decision.reason,
+      evidenceDigest: digest(evidence)
+    });
+  }));
+}
+
+function repositoryNodeDependencyAllowed(
+  from: SecRepositoryNodeResponsibility,
+  to: SecRepositoryNodeResponsibility
+): boolean {
+  if (from === 'contract') return to === 'contract';
+  if (from === 'computation') return to === 'contract' || to === 'computation';
+  if (from === 'capability') {
+    return to === 'contract' || to === 'computation' || to === 'capability';
+  }
+  if (from === 'operation') {
+    return to === 'contract' || to === 'computation' || to === 'capability' || to === 'operation';
+  }
+  if (from === 'workflow') {
+    return to === 'contract' || to === 'computation' || to === 'operation' || to === 'workflow';
+  }
+  return to === 'contract'
+    || to === 'computation'
+    || to === 'operation'
+    || to === 'workflow'
+    || to === 'interface';
+}
+
+/**
+ * Compile architecture evidence from the already canonical import graph and
+ * TypeScript Source Program facts.  This is a projection, not another graph:
+ * it retains the graph's exact references and never reparses source, guesses
+ * roles from paths, or turns missing semantic facts into an allow decision.
+ */
+export function compileSecRepositoryModuleArchitectureProjection(
+  graph: SecRepositoryModuleGraph,
+  membership: SecRepositoryModuleMembership,
+  facts: SecRepositoryModuleSourceProgramFacts
+): SecRepositoryModuleArchitectureProjection {
+  const topology = compileSecRepositoryModuleTopologyProjection(graph, membership);
+  const { ownerEdges, strongComponents, reciprocalPairs, feedbackCuts } = topology;
+  const importedCrossModulePaths = new Set<string>();
+  for (const edge of ownerEdges) {
+    for (const witness of edge.witnesses) importedCrossModulePaths.add(witness.toPath);
+  }
+  const aggregateFacadePaths: string[] = [];
+  const unresolvedAggregateSurfacePaths: string[] = [];
+  for (const repositoryPath of [...importedCrossModulePaths].sort(repositoryModuleTextOrder)) {
+    const surface = classifyRepositoryModuleAggregateSurface(repositoryPath, facts);
+    if (surface === 'aggregate') aggregateFacadePaths.push(repositoryPath);
+    if (surface === 'unknown') unresolvedAggregateSurfacePaths.push(repositoryPath);
+  }
+  const aggregateSet = new Set(aggregateFacadePaths);
+  const unresolvedAggregateSet = new Set(unresolvedAggregateSurfacePaths);
+  const nodeResponsibilities = compileRepositoryNodeResponsibilities(graph, membership, facts);
+  const responsibilityByPath = new Map(nodeResponsibilities.map((node) => (
+    [node.path, node] as const
+  )));
+  const violations: SecRepositoryModuleBoundaryViolation[] = [...topology.violations];
+  for (const edge of ownerEdges) {
+    for (const witness of edge.witnesses) {
+      if (aggregateSet.has(witness.toPath)) {
+        violations.push(Object.freeze({
+          code: 'cross-package-aggregate-surface',
+          from: witness.fromPath,
+          to: witness.toPath,
+          detail: `${edge.fromOwner} imports a pure aggregate facade owned by ${edge.toOwner}`
+        }));
+      } else if (unresolvedAggregateSet.has(witness.toPath)) {
+        violations.push(Object.freeze({
+          code: 'repository-module-surface-unresolved',
+          from: witness.fromPath,
+          to: witness.toPath,
+          detail: `Source Program facts cannot distinguish aggregate facade from declaration owner`
+        }));
+      }
+    }
+  }
+  for (const reference of graph.references) {
+    if (reference.resolvedTarget === null) continue;
+    const from = responsibilityByPath.get(normalizeSecRepositoryPath(reference.from));
+    const to = responsibilityByPath.get(normalizeSecRepositoryPath(reference.resolvedTarget));
+    if (from === undefined || to === undefined
+        || from.responsibility === 'unknown'
+        || to.responsibility === 'unknown') continue;
+    if (!repositoryNodeDependencyAllowed(from.responsibility, to.responsibility)) {
+      violations.push(Object.freeze({
+        code: 'repository-node-responsibility-reverse-dependency',
+        from: from.path,
+        to: to.path,
+        detail: `${from.moduleId}:${from.responsibility} depends on ${to.moduleId}:${to.responsibility}`
+      }));
+    }
+  }
+  for (const node of nodeResponsibilities) {
+    if (node.responsibility !== 'unknown') continue;
+    violations.push(Object.freeze({
+      code: 'repository-node-responsibility-unresolved',
+      from: node.path,
+      to: node.moduleId,
+      detail: `${node.path} has no unique responsibility; reason=${node.reason}; evidence=${node.evidenceDigest}`
+    }));
+  }
+  const uniqueViolations = new Map<string, SecRepositoryModuleBoundaryViolation>();
+  for (const violation of violations) {
+    uniqueViolations.set(
+      `${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`,
+      violation
+    );
+  }
+  return Object.freeze({
+    ownerEdges,
+    strongComponents,
+    reciprocalPairs,
+    feedbackCuts,
+    aggregateFacadePaths: Object.freeze(aggregateFacadePaths),
+    unresolvedAggregateSurfacePaths: Object.freeze(unresolvedAggregateSurfacePaths),
+    nodeResponsibilities,
+    violations: Object.freeze([...uniqueViolations.values()].sort((left, right) => (
+      repositoryModuleTextOrder(
+        `${left.code}\0${left.from}\0${left.to}\0${left.detail}`,
+        `${right.code}\0${right.from}\0${right.to}\0${right.detail}`
+      )
+    )))
+  });
+}
+
+export function assertSecRepositoryModuleArchitectureBoundaries(
+  graph: SecRepositoryModuleGraph,
+  membership: SecRepositoryModuleMembership,
+  facts: SecRepositoryModuleSourceProgramFacts
+): void {
+  const projection = compileSecRepositoryModuleArchitectureProjection(graph, membership, facts);
+  if (projection.violations.length === 0) return;
+  throw new Error([
+    `repository module architecture boundary violations (${projection.violations.length})`,
+    ...projection.violations.map((violation) =>
+      `[${violation.code}] ${violation.from} -> ${violation.to}: ${violation.detail}`)
+  ].join('\n'));
 }
 
 /**

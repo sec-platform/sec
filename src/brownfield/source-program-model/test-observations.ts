@@ -20,7 +20,11 @@ import {
   type SourceProgramSpan,
   type SourceProgramUnknown
 } from './contract.ts';
-import { isCompiledTypeScriptSourceProgramModel } from './typescript.ts';
+import type { IssuedRepositoryCompilationContext } from './repository-compilation-context.ts';
+import {
+  isCompiledTypeScriptSourceProgramModel,
+  repositoryCompilationDigestForTypeScriptModel
+} from './typescript.ts';
 
 export interface CompileSourceProgramTestObservationsInput {
   /** Production-only facts signed by the canonical Source Program compiler. */
@@ -30,6 +34,10 @@ export interface CompileSourceProgramTestObservationsInput {
   readonly moduleMembership: SecRepositoryModuleMembership;
   readonly repositoryRoot?: string;
 }
+
+type CompileSourceProgramTestObservationsInternalInput = CompileSourceProgramTestObservationsInput & Readonly<{
+  repositoryCompilation?: IssuedRepositoryCompilationContext;
+}>;
 
 export type SourceProgramTestSemanticClass =
   | 'behavior'
@@ -83,6 +91,13 @@ const observationsByFiles = new WeakMap<
   readonly SourceProgramFileInput[],
   SourceProgramTestObservations
 >();
+const repositoryCompilationDigestByObservations = new WeakMap<object, `sha256:${string}`>();
+
+export function repositoryCompilationDigestForTestObservations(
+  observations: SourceProgramTestObservations
+): `sha256:${string}` | null {
+  return repositoryCompilationDigestByObservations.get(observations) ?? null;
+}
 
 export function sourceProgramTestObservationsForFiles(
   files: readonly SourceProgramFileInput[],
@@ -538,12 +553,18 @@ function semanticClassesForRegistration(
  * every production symbol identity comes from the already-signed production
  * model.  Anything else remains a typed unknown.
  */
-export function compileSourceProgramTestObservations(
-  input: CompileSourceProgramTestObservationsInput
+function compileSourceProgramTestObservationsInternal(
+  input: CompileSourceProgramTestObservationsInternalInput
 ): SourceProgramTestObservations {
+  input.repositoryCompilation?.assertMatches(input);
   if (!isCompiledTypeScriptSourceProgramModel(input.productionModel)
       || input.productionModel.files.some(({ surface }) => surface !== 'production')) {
     throw new Error('test observations require an exact production-only Source Program model');
+  }
+  if (input.repositoryCompilation !== undefined
+      && repositoryCompilationDigestForTypeScriptModel(input.productionModel)
+        !== input.repositoryCompilation.contextDigest) {
+    throw new Error('test observations cannot mix a production model from another repository compilation');
   }
   const files = [...input.files].sort((left, right) => compareCodeUnits(left.path, right.path));
   if (new Set(files.map(({ path }) => path)).size !== files.length
@@ -556,7 +577,7 @@ export function compileSourceProgramTestObservations(
     throw new Error('test observations do not bind the production model bytes');
   }
   const sourceByPath = new Map(files.map((file) => [file.path, file.source] as const));
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraphFor('test-observations') ?? compileSecRepositoryModuleGraph({
     files: files.map(({ path }) => path),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
   });
@@ -940,6 +961,26 @@ export function compileSourceProgramTestObservations(
     ...canonical,
     observationDigest: sha256(canonical)
   });
+  if (input.repositoryCompilation !== undefined) {
+    repositoryCompilationDigestByObservations.set(
+      observations,
+      input.repositoryCompilation.contextDigest
+    );
+  }
   observationsByFiles.set(input.files, observations);
   return observations;
+}
+
+export function compileSourceProgramTestObservations(
+  input: CompileSourceProgramTestObservationsInput
+): SourceProgramTestObservations {
+  return compileSourceProgramTestObservationsInternal(input);
+}
+
+export function compileSourceProgramTestObservationsFromRepositoryCompilation(
+  input: CompileSourceProgramTestObservationsInput,
+  repositoryCompilation: IssuedRepositoryCompilationContext
+): SourceProgramTestObservations {
+  repositoryCompilation.assertMatches(input);
+  return compileSourceProgramTestObservationsInternal({ ...input, repositoryCompilation });
 }
