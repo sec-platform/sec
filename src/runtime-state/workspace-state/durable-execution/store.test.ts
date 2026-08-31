@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +8,9 @@ import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
+  issueSecRecoveredDomainReadbackReceipt,
+  issueSecRecoveredOwnerTerminalJoinReceipt,
+  issueSecRecoveredRetryAdmission,
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation
 } from '../../../system-architecture/operation/semantic.ts';
@@ -16,8 +19,12 @@ import { createRuntimeStateJournalFileSystem } from '../journal-filesystem.ts';
 import { type SecDurableExecutionDigest } from './contract.ts';
 import {
   createDurableExecutionStore,
+  createInternalDurableExecutionWriter,
   durableExecutionAttemptStartInput,
-  durableExecutionJournalIdentity
+  durableExecutionJournalIdentity,
+  durableExecutionOwnerTerminalResolutionInput,
+  durableExecutionRetryAdmissionResolutionInput,
+  type SecDurableExecutionStoreLimits
 } from './store.ts';
 
 const digest = (value: string): SecDurableExecutionDigest =>
@@ -48,7 +55,22 @@ function boundOperation(run: string): SecBoundSemanticOperation {
   })]);
 }
 
-function fixture() {
+function limits(
+  overrides: Partial<Omit<SecDurableExecutionStoreLimits, 'deadlineAtMonotonicMs'>> = {}
+): SecDurableExecutionStoreLimits {
+  return Object.freeze({
+    deadlineAtMonotonicMs: performance.now() + 30_000,
+    maximumRecords: 32,
+    maximumStateBytes: 128 * 1024,
+    maximumAttempts: 2,
+    maximumProviderSettlementsPerAttempt: 2,
+    ...overrides
+  });
+}
+
+function fixture(
+  overrides: Partial<Omit<SecDurableExecutionStoreLimits, 'deadlineAtMonotonicMs'>> = {}
+) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-durable-execution-'));
   const stateRoot = path.join(root, 'state');
   const journalRoot = path.join(stateRoot, 'durable-local-executions');
@@ -56,11 +78,14 @@ function fixture() {
   const fileSystem = createRuntimeStateJournalFileSystem(
     inspectNoFollowDirectoryChain(stateRoot, 'Durable execution test state root').target
   );
+  const storeLimits = limits(overrides);
   return {
     root,
     journalRoot,
     fileSystem,
-    store: createDurableExecutionStore({ fileSystem, journalRoot })
+    storeLimits,
+    reader: createDurableExecutionStore({ fileSystem, journalRoot, limits: storeLimits }),
+    store: createInternalDurableExecutionWriter({ fileSystem, journalRoot, limits: storeLimits })
   };
 }
 
@@ -90,6 +115,10 @@ function fdJournalCount(root: string): number {
   return Array.from(new Bun.Glob('**/*.jsonl').scanSync({ cwd: root, onlyFiles: true })).length;
 }
 
+function journalPath(root: string, operationKeyDigest: SecDurableExecutionDigest): string {
+  return path.join(root, `${operationKeyDigest.slice(7)}.jsonl`);
+}
+
 test('journal lineage derives from a live bound operation and rejects structural clones', () => {
   const operation = boundOperation('owner-issued run');
   const identity = durableExecutionJournalIdentity(operation);
@@ -108,12 +137,49 @@ test('journal lineage derives from a live bound operation and rejects structural
     .toThrow('owner-issued bound semantic operation');
 });
 
+test('owner terminal resolution references only an exact owner-issued join receipt', () => {
+  const operation = boundOperation('owner terminal join');
+  const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(operation, {
+    durableObservationDigest: digest('81'),
+    readbackContractDigest: digest('82'),
+    readbackReferenceDigest: digest('83'),
+    currentPhysicalEpochDigest: digest('84'),
+    disposition: 'applied'
+  });
+  const join = issueSecRecoveredOwnerTerminalJoinReceipt(operation, recoveredReadback, {
+    ownerTerminalContractDigest: digest('85'),
+    ownerTerminalReferenceDigest: digest('86')
+  });
+  expect(durableExecutionOwnerTerminalResolutionInput(operation, join)).toEqual({
+    ...durableExecutionJournalIdentity(operation),
+    attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
+    resolutionKind: 'owner-terminal-reference',
+    resolutionReferenceDigest: join.joinReceiptDigest
+  });
+  expect(() => durableExecutionOwnerTerminalResolutionInput(operation, { ...join }))
+    .toThrow('not owner-issued');
+});
+
 test('constructing and reading an absent store performs zero filesystem writes', () => {
   const value = fixture();
   const identity = { operationKeyDigest: digest('58') } as const;
   try {
     expect(existsSync(value.journalRoot)).toBe(false);
-    expect(value.store.read(identity)).toBeNull();
+    expect(value.reader.read(identity)).toBeNull();
+    expect(existsSync(value.journalRoot)).toBe(false);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test('expired monotonic admission is rejected before any journal path observation or write', () => {
+  const value = fixture();
+  try {
+    expect(() => createDurableExecutionStore({
+      fileSystem: value.fileSystem,
+      journalRoot: value.journalRoot,
+      limits: { ...value.storeLimits, deadlineAtMonotonicMs: performance.now() - 1 }
+    })).toThrow('unexpired finite absolute monotonic deadline');
     expect(existsSync(value.journalRoot)).toBe(false);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
@@ -136,23 +202,125 @@ test('store persists only opaque owner references and retry admission is the sol
       providerBindingDigest: digest('61'),
       providerSettlementReferenceDigest: digest('62')
     });
+    const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(first, {
+      durableObservationDigest: digest('63'),
+      readbackContractDigest: digest('64'),
+      readbackReferenceDigest: digest('65'),
+      currentPhysicalEpochDigest: digest('66'),
+      disposition: 'not-applied'
+    });
     value.store.appendDomainReadbackReference({
       ...identity,
       attemptNonceDigest: attempt.attemptNonceDigest,
-      readbackContractDigest: digest('63'),
-      domainReadbackReferenceDigest: digest('64')
+      readbackContractDigest: recoveredReadback.readbackContractDigest,
+      domainReadbackReferenceDigest: recoveredReadback.readbackReceiptDigest
     });
-    const admitted = value.store.appendAttemptResolution({
-      ...identity,
-      attemptNonceDigest: attempt.attemptNonceDigest,
-      resolutionKind: 'retry-admission-reference',
-      resolutionReferenceDigest: digest('65')
-    });
+    const retryAdmission = issueSecRecoveredRetryAdmission(recoveredReadback);
+    const admitted = value.store.appendAttemptResolution(
+      durableExecutionRetryAdmissionResolutionInput(first, retryAdmission)
+    );
     expect(admitted.latestResolution?.resolutionKind).toBe('retry-admission-reference');
     expect(() => value.store.appendAttemptStart(
       durableExecutionAttemptStartInput(next, digest('66'))
     )).not.toThrow();
     expect(Object.keys(admitted)).not.toContain('effectAuthority');
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test('attempt boundary plus one is rejected before CAS and preserves exact journal bytes', () => {
+  const value = fixture({
+    maximumRecords: 8,
+    maximumAttempts: 1,
+    maximumProviderSettlementsPerAttempt: 0
+  });
+  const first = boundOperation('bounded first run');
+  const next = boundOperation('bounded retry run');
+  const identity = durableExecutionJournalIdentity(first);
+  const attempt = durableExecutionAttemptStartInput(first, digest('70'));
+  const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
+  try {
+    value.store.createIntent({ ...identity, intentReferenceDigest: digest('71') });
+    value.store.appendAttemptStart(attempt);
+    value.store.appendDomainReadbackReference({
+      ...identity,
+      attemptNonceDigest: attempt.attemptNonceDigest,
+      readbackContractDigest: digest('72'),
+      domainReadbackReferenceDigest: digest('73')
+    });
+    value.store.appendAttemptResolution({
+      ...identity,
+      attemptNonceDigest: attempt.attemptNonceDigest,
+      resolutionKind: 'retry-admission-reference',
+      resolutionReferenceDigest: digest('74')
+    });
+    const before = readFileSync(filePath);
+    expect(() => value.store.appendAttemptStart(
+      durableExecutionAttemptStartInput(next, digest('75'))
+    )).toThrow('complete bounded attempt-settlement closure');
+    expect(readFileSync(filePath)).toEqual(before);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test('attempt start reserves its worst settlement closure before changing bytes', () => {
+  const value = fixture({
+    maximumRecords: 16,
+    maximumStateBytes: 8 * 1024,
+    maximumAttempts: 1,
+    maximumProviderSettlementsPerAttempt: 2
+  });
+  const operation = boundOperation('oversize reservation');
+  const identity = durableExecutionJournalIdentity(operation);
+  const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
+  try {
+    value.store.createIntent({ ...identity, intentReferenceDigest: digest('76') });
+    const before = readFileSync(filePath);
+    expect(() => value.store.appendAttemptStart(
+      durableExecutionAttemptStartInput(operation, digest('77'))
+    )).toThrow('complete bounded attempt-settlement closure');
+    expect(readFileSync(filePath)).toEqual(before);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test('retained reader rejects an existing oversized journal before parsing or allocating it', () => {
+  const value = fixture({ maximumStateBytes: 1_024 });
+  const identity = { operationKeyDigest: digest('78') } as const;
+  const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
+  try {
+    mkdirSync(value.journalRoot, { recursive: true });
+    writeFileSync(filePath, 'x'.repeat(1_025), 'utf8');
+    expect(() => value.reader.read(identity)).toThrow('exceeds maximumBytes 1024');
+    expect(readFileSync(filePath).byteLength).toBe(1_025);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test('failed CAS append is conflict-only and leaves the preimage byte-exact', () => {
+  const value = fixture({ maximumProviderSettlementsPerAttempt: 0 });
+  const operation = boundOperation('cas conflict');
+  const identity = durableExecutionJournalIdentity(operation);
+  const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
+  try {
+    value.store.createIntent({ ...identity, intentReferenceDigest: digest('79') });
+    const before = readFileSync(filePath);
+    const conflicting = createInternalDurableExecutionWriter({
+      fileSystem: Object.freeze({
+        ...value.fileSystem,
+        appendFsyncCas: () => false
+      }),
+      journalRoot: value.journalRoot,
+      limits: value.storeLimits
+    });
+    expect(() => conflicting.appendAttemptStart(
+      durableExecutionAttemptStartInput(operation, digest('80'))
+    )).toThrow('changed during CAS append');
+    expect(readFileSync(filePath)).toEqual(before);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }

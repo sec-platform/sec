@@ -2,12 +2,31 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseOptions } from '../physical/runtime/mutation-lease.ts';
-import { PhysicalNoFollowError, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, retainNoFollowOrdinaryFile, type PhysicalDirectoryIdentity, type RetainedNoFollowOrdinaryFile } from '../physical/runtime/physical-no-follow.ts';
+
+export interface RuntimeStateJournalReadBounds {
+  readonly deadlineAtMonotonicMs: number;
+  readonly maximumBytes: number;
+}
+
+export type RuntimeStateJournalReadFailureKind = 'deadline-exhausted' | 'maximum-bytes-exceeded';
+
+export class RuntimeStateJournalReadError extends Error {
+  readonly kind: RuntimeStateJournalReadFailureKind;
+
+  constructor(kind: RuntimeStateJournalReadFailureKind, message: string) {
+    super(`Runtime State journal ${message}`);
+    this.name = 'RuntimeStateJournalReadError';
+    this.kind = kind;
+  }
+}
 
 export interface RuntimeStateJournalFileSystem {
   readonly rootPath: string;
   exists(filePath: string): boolean;
   readText(filePath: string): string;
+  /** Retains, bounds and reads one exact file handle; null means only that the leaf is absent. */
+  readTextRetained(filePath: string, bounds: RuntimeStateJournalReadBounds): string | null;
   ensureDirectory(directoryPath: string): void;
   appendFsyncCas(filePath: string, expectedText: string, text: string): boolean;
   createExclusiveFsync(filePath: string, text: string): boolean;
@@ -46,6 +65,24 @@ function exactBytes(expected: Buffer): (actual: Uint8Array) => void {
       throw new Error('Runtime State journal durable readback differs from requested bytes.');
     }
   };
+}
+
+function assertReadBounds(bounds: RuntimeStateJournalReadBounds): void {
+  if (!Number.isFinite(bounds.deadlineAtMonotonicMs) || bounds.deadlineAtMonotonicMs < 0) {
+    throw new RuntimeStateJournalReadError(
+      'deadline-exhausted',
+      'read deadline must be one finite absolute monotonic timestamp.'
+    );
+  }
+  if (!Number.isSafeInteger(bounds.maximumBytes) || bounds.maximumBytes < 0) {
+    throw new RuntimeStateJournalReadError(
+      'maximum-bytes-exceeded',
+      'read byte ceiling must be one nonnegative safe integer.'
+    );
+  }
+  if (performance.now() >= bounds.deadlineAtMonotonicMs) {
+    throw new RuntimeStateJournalReadError('deadline-exhausted', 'read deadline is exhausted.');
+  }
 }
 
 export function createRuntimeStateJournalFileSystem(
@@ -94,6 +131,55 @@ export function createRuntimeStateJournalFileSystem(
     return bytes === null ? null : Buffer.from(bytes);
   };
 
+  const readTextRetained = (
+    filePath: string,
+    bounds: RuntimeStateJournalReadBounds
+  ): string | null => {
+    assertReadBounds(bounds);
+    const retained = fileParent(filePath, false);
+    if (retained === null) return null;
+    const parentChain = inspectNoFollowDirectoryChain(
+      retained.parent.path,
+      'Runtime State journal retained read parent'
+    );
+    let file: RetainedNoFollowOrdinaryFile;
+    try {
+      file = retainNoFollowOrdinaryFile(
+        parentChain,
+        retained.name,
+        undefined,
+        'Runtime State journal retained read'
+      );
+    } catch (error) {
+      if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
+        return null;
+      }
+      throw error;
+    }
+    try {
+      assertReadBounds(bounds);
+      if (file.size > bounds.maximumBytes) {
+        throw new RuntimeStateJournalReadError(
+          'maximum-bytes-exceeded',
+          `retained file size ${file.size} exceeds maximumBytes ${bounds.maximumBytes}.`
+        );
+      }
+      const bytes = file.readBytes();
+      if (performance.now() >= bounds.deadlineAtMonotonicMs) {
+        throw new RuntimeStateJournalReadError('deadline-exhausted', 'read deadline expired during observation.');
+      }
+      if (bytes.byteLength > bounds.maximumBytes) {
+        throw new RuntimeStateJournalReadError(
+          'maximum-bytes-exceeded',
+          `retained bytes ${bytes.byteLength} exceed maximumBytes ${bounds.maximumBytes}.`
+        );
+      }
+      return Buffer.from(bytes).toString('utf8');
+    } finally {
+      file.dispose();
+    }
+  };
+
   const withMutationLease = <T>(filePath: string, operation: () => T): T | null => {
     const retained = fileParent(filePath, true)!;
     const lockName = runtimeStateJournalMutationLeaseName(rootPath, filePath);
@@ -114,6 +200,7 @@ export function createRuntimeStateJournalFileSystem(
       if (bytes === null) throw new Error(`Runtime State journal file is absent: ${filePath}`);
       return bytes.toString('utf8');
     },
+    readTextRetained,
     ensureDirectory: (directoryPath: string): void => { ensuredDirectory(directoryPath); },
     appendFsyncCas(filePath: string, expectedText: string, text: string): boolean {
       return withMutationLease(filePath, () => {

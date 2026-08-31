@@ -1,5 +1,6 @@
 import type {
   SecBoundSemanticOperation,
+  SecOperationDigest,
   SecProviderSettlementReceipt
 } from '../../../system-architecture/operation/semantic.ts';
 import type { DockerEndpointIdentity } from './daemon.ts';
@@ -49,11 +50,28 @@ export interface ContainerEngineSession {
   readonly cwd: string;
   readonly executable: string;
   readonly deadlineAtUnixMs: number;
+  /** Runtime-issued identity of the retained executable/cwd/endpoint provider. */
+  readonly providerIdentityDigest: SecOperationDigest;
+  openOperationScope(input: Readonly<{
+    operation: SecBoundSemanticOperation;
+    requirementId: string;
+  }>): ContainerEngineOperationScope;
+  /** Independent exact endpoint/daemon readback outside any Effect scope. */
+  observeEndpoint(): Promise<DockerEndpointIdentity>;
+  /** Executes only inside the one currently open, unsettled scope. */
   execute(
     operation: ContainerEngineOperation,
     options?: ContainerEngineOperationOptions
   ): Promise<ContainerEngineCommandResult>;
-  close(): SecProviderSettlementReceipt;
+  /** Physical session close only; never signs a semantic operation settlement. */
+  close(): void;
+}
+
+export interface ContainerEngineOperationScope {
+  readonly operationIdentityDigest: SecOperationDigest;
+  readonly boundAttemptDigest: SecOperationDigest;
+  readonly requirementId: string;
+  settle(): SecProviderSettlementReceipt;
 }
 
 export interface OpenContainerEngineSessionInput {

@@ -359,10 +359,13 @@ process/input/output aggregate budget；每次child admission不可逆消费同�
 close只在全部child完成termination settlement后签发digest-bound receipt。业务runner不得重开deadline、退回失败attempt的资源、
 接受caller duration扩大窗口、结构克隆session、注入第二command runner或用static plan/budget声明代替真实计量。
 
-physical session只证明进程、输入输出与retained executable/cwd已经物理结算；它不证明领域成功。semantic operation必须先消费
-provider settlement，再执行自身最终readback并签发domain outcome，最后才能形成terminal envelope。Hosted sandbox、Container Engine、
-Git、TypeScript与本地Verification可以使用不同物理provider，但必须满足同一operation requirements；它们不得通过一个接受任意
-callback/argv的通用facade互相冒充，也不得让一个provider的session成为另一个provider的credential或完成authority。
+physical session只证明进程、输入输出与retained executable/cwd已经物理结算；它不证明领域成功。每个effectful requirement必须由
+对应provider owner签发一张绑定exact attempt、binding与physical disposition的settlement，operation compiler随后验证与execution plan
+精确相等的settlement set。domain owner再独立执行handle-independent readback；normal路径绑定exact provider set，lost-handle recovery
+只绑定durable observation与current physical epoch，不能补造缺失provider settlement。最终只形成不含业务状态的owner-terminal join，
+业务`status/reason/result`仍由具体Action或domain terminal owner唯一签发。Hosted sandbox、Container Engine、Git、TypeScript与本地
+Verification可以使用不同物理provider，但必须满足同一operation requirements；它们不得通过一个接受任意callback/argv的通用facade
+互相冒充，也不得让一个provider的session成为另一个provider的credential、readback或完成authority。
 
 ### 纯逻辑、能力原子、领域操作与流程
 

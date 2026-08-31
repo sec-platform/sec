@@ -20,15 +20,26 @@ import {
   CodexDevelopmentWorkPackageManifestDigest, type CodexDevelopmentWorkPackageManifest
 } from '../../control/agent/work-package-contract.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../development/runner/contract.ts';
-import { executeVerifiedCiActionPlan } from '../../development/runner/verification-action-executor.ts';
 import {
   CodexDevelopmentReadExactGitBlob,
   type CodexDevelopmentExactGitBlobReadOptions
 } from '../../external-capabilities/git-read/exact-blob.ts';
 import { type GitBlobBytes } from '../../external-capabilities/git-read/runtime/session.ts';
 import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, scanNoFollowDirectoryTreeInventory, type NoFollowDirectoryTreeInventoryEntry, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { createVerificationActionTerminal, encodeVerificationActionData, isVerificationActionRunnable, parseVerificationActionPlan, type VerificationActionDependencyResolution, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, parseCiVerificationActionProviderEnvelope, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProposal, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecProviderSettlementSet,
+  compileSecSemanticOperationPlan,
+  issueSecNormalDomainReadbackReceipt,
+  issueSecNormalOwnerTerminalJoinReceipt,
+  issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../../system-architecture/operation/semantic.ts';
+import { encodeVerificationActionData, issueVerificationActionTerminalSettlement, isVerificationActionRunnable, parseVerificationActionPlan, type VerificationActionDependencyResolution, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProposal, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchorV2, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarkerV2 } from '../action/contract/provider.ts';
 import {
@@ -41,62 +52,68 @@ import {
   type VerificationActionRunOutcome
 } from '../action/runner.ts';
 import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../result/contract/result.ts';
-import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile } from '../test-impact/runtime/impact.ts';
+import { isTestImpactModuleGraphInputFile } from '../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
-import type { VerificationSessionHostedRequest } from './contract/session-request.ts';
 import {
   aggregateV4Status,
-  assertCiExpectedHead,
-  CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA,
-  CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
-  CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA,
-  CI_VERIFICATION_CONTRACT_REVISION,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
-  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
-  CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT,
-  CI_VERIFICATION_SESSION_CONTRACT_REVISION,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-  CI_VERIFICATION_WORKFLOW_PATH,
   CodexDevelopmentAssertVerificationActionTerminalArtifact,
-  CodexDevelopmentBuildVerificationPlan,
-  CodexDevelopmentCreateHostedSutExecutionAuthorization,
   CodexDevelopmentCreateVerificationEvidenceProducer,
-  CodexDevelopmentFinalizeHostedActionRawResult,
   CodexDevelopmentFinalizeVerificationActionTerminalArtifact,
   CodexDevelopmentFinalizeVerificationEvidenceV4,
-  CodexDevelopmentHostedSutCandidateEnvironment,
-  CodexDevelopmentParseHostedSutSandboxReceipt,
   CodexDevelopmentParseVerificationActionTerminalArtifact,
   CodexDevelopmentPrepareVerificationEvidenceTarget,
-  CodexDevelopmentReduceHostedSutObservation,
   CodexDevelopmentVerificationActionCandidateBytesDigest,
   CodexDevelopmentVerificationArtifactRetentionDays,
   CodexDevelopmentVerificationDigest,
   CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic,
   CodexDevelopmentWriteVerificationEvidenceV4Atomic,
+  type CodexDevelopmentVerificationActionArtifactInput,
+  type CodexDevelopmentVerificationActionArtifactProducer,
+  type CodexDevelopmentVerificationActionTerminalArtifact,
+  type CodexDevelopmentVerificationEvidenceV4,
+  type CodexDevelopmentVerificationGateEvidenceV4
+} from './contract/evidence.ts';
+import {
+  CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA,
+  CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
+  CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA,
+  CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT,
+  CodexDevelopmentCreateHostedSutExecutionAuthorization,
+  CodexDevelopmentFinalizeHostedActionRawResult,
+  CodexDevelopmentHostedSutCandidateEnvironment,
+  CodexDevelopmentParseHostedSutSandboxReceipt,
+  CodexDevelopmentReduceHostedSutObservation,
   CodexDevelopmentParseHostedActionRawResult as parseHostedActionRawResultContractV2,
   type CodexDevelopmentHostedActionRawResult,
   type CodexDevelopmentHostedSutExecutionAuthorization,
   type CodexDevelopmentHostedSutInventoryClosure,
-  type CodexDevelopmentHostedSutSandboxReceipt,
-  type CodexDevelopmentVerificationActionArtifactInput,
-  type CodexDevelopmentVerificationActionArtifactProducer,
-  type CodexDevelopmentVerificationActionTerminalArtifact,
-  type CodexDevelopmentVerificationEvidenceV2,
-  type CodexDevelopmentVerificationEvidenceV4,
-  type CodexDevelopmentVerificationGateEvidenceV2,
-  type CodexDevelopmentVerificationGateEvidenceV4,
+  type CodexDevelopmentHostedSutSandboxReceipt
+} from './contract/hosted-sut-observation.ts';
+import {
+  assertCiExpectedHead,
+  CI_VERIFICATION_CONTRACT_REVISION,
+  CodexDevelopmentBuildVerificationPlan,
   type CodexDevelopmentVerificationPlanProfile
-} from './index.ts';
+} from './contract/plan.ts';
+import {
+  CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
+  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
+  CI_VERIFICATION_SESSION_CONTRACT_REVISION,
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  CI_VERIFICATION_WORKFLOW_PATH
+} from './contract/revision.ts';
+import type { VerificationSessionHostedRequest } from './contract/session-request.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentCreateNotRunGate,
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentDefaultGitRevision,
   CodexDevelopmentDefaultTrackedTreeIsClean,
+  CodexDevelopmentExactGitTestImpactSourceProvider,
   CodexDevelopmentFailureTail,
   CodexDevelopmentRunGateProcess,
+  type CodexDevelopmentGateExecutionObservation,
   type CodexDevelopmentGateProcessResult
 } from './runtime/ci-orchestration-core.ts';
 import {
@@ -113,7 +130,7 @@ export {
   CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
   type CodexDevelopmentHostedActionRawResult,
   type CodexDevelopmentHostedSutSandboxReceipt
-} from './index.ts';
+} from './contract/hosted-sut-observation.ts';
 
 const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
 const FORMAL_VERIFICATION_ENV_KEYS = Object.freeze([
@@ -2064,7 +2081,6 @@ const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
   'tests/contract/ci-contract.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
-  'tests/contract/default-branch-revision-health.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/documentation-authority.test.ts',
   'tests/contract/test-impact.test.ts',
@@ -3096,29 +3112,24 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     candidateEnvironment: env,
     executionAuthorization
   });
+  const authorizedOperation = resolveCiVerificationDevRunnerTarget({
+    plan: resolution.actionPlan,
+    authorizedClosure: resolution.actionPlanClosure
+  });
+  if (authorizedOperation.semanticDigest !== normalizedOperation.semanticDigest) {
+    throw new Error('Hosted SUT executor received a substituted normalized operation.');
+  }
   let physical: CodexDevelopmentHostedSutSandboxProcessObservation | null = null;
   let executionObservationLost = false;
-  const exitCode = await executeVerifiedCiActionPlan({
-    plan: resolution.actionPlan,
-    authorizedClosure: resolution.actionPlanClosure,
-    repositoryRoot: '/',
-    environment: env,
-    executeNormalizedOperation: async (operation) => {
-      if (operation.semanticDigest !== normalizedOperation.semanticDigest) {
-        throw new Error('Hosted SUT executor received a substituted normalized operation.');
-      }
-      try {
-        physical = await runSandboxProcess(commandPlan, retainedArchive);
-        return physical.code;
-      } catch (error) {
-        executionObservationLost = true;
-        physical = syntheticHostedSutSandboxProcessObservation(
-          1, error instanceof Error ? error.message : String(error)
-        );
-        return 1;
-      }
-    }
-  });
+  try {
+    physical = await runSandboxProcess(commandPlan, retainedArchive);
+  } catch (error) {
+    executionObservationLost = true;
+    physical = syntheticHostedSutSandboxProcessObservation(
+      1, error instanceof Error ? error.message : String(error)
+    );
+  }
+  const exitCode = physical.code;
   const observedPhysical = physical as CodexDevelopmentHostedSutSandboxProcessObservation | null;
   if (observedPhysical === null || exitCode !== observedPhysical.code) {
     throw new Error('Hosted Action facade lost its one physical process observation.');
@@ -3663,6 +3674,125 @@ export interface CodexDevelopmentCiActionExecution {
   readonly failed: boolean;
 }
 
+const CI_ACTION_EFFECT_LEASE_MS = 300_000;
+
+function bindCiActionEffect(
+  plan: VerificationActionPlan,
+  operation: CiVerificationActionPlanClosure['normalizedOperations'][number],
+  deadlineAtUnixMs: number
+): SecBoundSemanticOperation {
+  const contractDigest = CodexDevelopmentVerificationDigest({
+    schema: 'sec-ci-action-effect-contract-v1',
+    actionKey: plan.action.actionKey,
+    operation
+  }) as SecOperationDigest;
+  const semanticPlan = compileSecSemanticOperationPlan({
+    operation: 'verification.hosted-ci',
+    intentDigest: plan.action.actionKey as SecOperationDigest,
+    decisionDigest: operation.semanticDigest as SecOperationDigest,
+    deadlineAtUnixMs,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: CI_ACTION_EFFECT_LEASE_MS },
+      { resource: 'processes', maximum: 1 }
+    ],
+    requirements: [{
+      id: 'verification.hosted-process',
+      contractDigest,
+      effectKinds: ['process'],
+      failureKinds: ['process.failed', 'process.settlement-failed']
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    })
+  });
+  return bindSecSemanticOperation(semanticPlan, [compileSecCapabilityBinding({
+    requirementId: 'verification.hosted-process',
+    contractDigest,
+    providerIdentityDigest: CodexDevelopmentVerificationDigest({
+      schema: 'sec-ci-action-provider-binding-v1',
+      environment: plan.action.environment,
+      declaredEnvironment: plan.action.operation.declaredEnvironment
+    }) as SecOperationDigest
+  })]);
+}
+
+function issueCiActionEffectSettlement(
+  operation: SecBoundSemanticOperation,
+  plan: VerificationActionPlan,
+  gateId: string,
+  result: CodexDevelopmentGateProcessResult
+) {
+  if (!Number.isSafeInteger(result.code) || result.code < 0
+      || !/^sha256:[0-9a-f]{64}$/u.test(result.rawOutputDigest)) {
+    throw new Error('CI Action process settlement is not canonical.');
+  }
+  const providerSettlement = issueSecProviderSettlementReceipt(operation, {
+    requirementId: 'verification.hosted-process',
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest({
+      schema: 'sec-ci-action-provider-settlement-reference-v1',
+      actionKey: plan.action.actionKey,
+      gateId,
+      status: 'exited',
+      exitCode: result.code,
+      rawOutputDigest: result.rawOutputDigest
+    }) as SecOperationDigest
+  });
+  const providerSettlementSet = compileSecProviderSettlementSet(
+    operation,
+    [providerSettlement]
+  );
+  const failureTailDigest = CodexDevelopmentVerificationDigest(result.failureTail);
+  const readback = issueSecNormalDomainReadbackReceipt(
+    operation,
+    providerSettlementSet,
+    {
+      readbackContractDigest: CodexDevelopmentVerificationDigest({
+        schema: 'sec-ci-action-domain-readback-contract-v1',
+        resultSchemaRevision: plan.action.resultSchemaRevision
+      }) as SecOperationDigest,
+      readbackReferenceDigest: CodexDevelopmentVerificationDigest({
+        schema: 'sec-ci-action-domain-readback-reference-v1',
+        actionKey: plan.action.actionKey,
+        gateId,
+        exitCode: result.code,
+        rawOutputDigest: result.rawOutputDigest,
+        failureTailDigest
+      }) as SecOperationDigest,
+      currentPhysicalEpochDigest: CodexDevelopmentVerificationDigest({
+        schema: 'sec-ci-action-physical-epoch-v1',
+        actionKey: plan.action.actionKey,
+        gateId,
+        rawOutputDigest: result.rawOutputDigest
+      }) as SecOperationDigest,
+      disposition: 'applied'
+    }
+  );
+  const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+    operation,
+    providerSettlementSet,
+    readback,
+    {
+      ownerTerminalContractDigest: CodexDevelopmentVerificationDigest({
+        schema: 'sec-verification-action-terminal-contract-v1',
+        resultSchemaRevision: plan.action.resultSchemaRevision
+      }) as SecOperationDigest,
+      ownerTerminalReferenceDigest: CodexDevelopmentVerificationDigest({
+        schema: 'sec-ci-action-owner-terminal-reference-v1',
+        actionKey: plan.action.actionKey,
+        gateId,
+        status: result.code === 0 ? 'passed' : 'failed',
+        rawOutputDigest: result.rawOutputDigest,
+        failureTailDigest
+      }) as SecOperationDigest
+    }
+  );
+  return issueVerificationActionTerminalSettlement(ownerTerminalJoin, {
+    status: result.code === 0 ? 'passed' : 'failed',
+    reasonCode: result.code === 0 ? 'executed-success' : 'executed-failure'
+  });
+}
+
 export async function CodexDevelopmentExecuteCiActionClosure(options: {
   readonly repositoryRoot: string;
   readonly actionPlan: CiVerificationActionPlanClosure;
@@ -3747,19 +3877,26 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
       action: plan.action,
       plan,
       executionDomain: 'hosted-ci',
+      leaseDurationMs: CI_ACTION_EFFECT_LEASE_MS,
       executor: async () => {
         gateStarted = options.now();
+        const boundEffect = bindCiActionEffect(
+          plan,
+          operation,
+          gateStarted.getTime() + CI_ACTION_EFFECT_LEASE_MS
+        );
         physical = await options.runGate({
           id: operation.gateId,
           argv: [...authorizedArgv],
           env: descriptor.env
         });
         gateFinished = options.now();
-        return createVerificationActionTerminal({
-          status: physical.code === 0 ? 'passed' : 'failed',
-          reasonCode: physical.code === 0 ? 'executed-success' : 'executed-failure',
-          resultDigest: physical.rawOutputDigest
-        });
+        return issueCiActionEffectSettlement(
+          boundEffect,
+          plan,
+          operation.gateId,
+          physical
+        );
       }
     });
     let result: VerificationGateResult;
@@ -3962,7 +4099,7 @@ function defaultReadGitBlob(
   }
 }
 
-function notRunGate(step: CiVerificationGateStep): CodexDevelopmentVerificationGateEvidenceV2 {
+function notRunGate(step: CiVerificationGateStep): CodexDevelopmentGateExecutionObservation {
   return CodexDevelopmentCreateNotRunGate({
     id: step.id,
     argv: ['bun', ...step.args]
@@ -4044,12 +4181,12 @@ export async function CodexDevelopmentCiVerificationMain(
   let files: string[] | null = null;
   let selectionResolved = false;
   let steps: CiVerificationGateStep[] = [];
-  let gates: CodexDevelopmentVerificationGateEvidenceV2[] = [];
+  let gates: CodexDevelopmentGateExecutionObservation[] = [];
   let actionPlan: CiVerificationActionPlanClosure | null = null;
   let actionCandidate: CiVerificationActionCandidate | null = null;
   let actionGates: readonly CodexDevelopmentVerificationGateEvidenceV4[] = [];
   let formalBinding: ReturnType<typeof formalVerificationBinding> = null;
-  let failure: CodexDevelopmentVerificationEvidenceV2['failure'] = null;
+  let failure: { stage: string; tail: string } | null = null;
   let exitCode = 0;
   let stage = 'argv';
   let binding: ManifestBinding = { manifestPath: null, manifestDigest: null, manifest: null };
@@ -4136,7 +4273,7 @@ export async function CodexDevelopmentCiVerificationMain(
     const testImpactProvider = changedRecordResolver === undefined
       && changedFileResolver === undefined
       && rawChangedFiles?.some((file) => isTestImpactModuleGraphInputFile(file))
-      ? createRepositoryTestImpactSourceProvider()
+      ? CodexDevelopmentExactGitTestImpactSourceProvider(repositoryRoot, headSha)
       : undefined;
     const plan = CodexDevelopmentBuildVerificationPlan(
       profile,
@@ -4148,7 +4285,7 @@ export async function CodexDevelopmentCiVerificationMain(
     selectionResolved = plan.selectionResolved;
     steps = plan.gates;
     gates = steps.map(notRunGate);
-    if (steps.some((step) => step.id === 'impact-risk')) {
+    if (steps.some((step) => step.phase === 'risk')) {
       console.log(`CI verification: risk gate required; reasons=[${plan.selectionReasons.join(', ')}]; owners=[${plan.affectedOwners.join(', ')}]`);
     } else {
       console.log('CI verification: no slow/workspace risk impact detected; risk gate skipped.');

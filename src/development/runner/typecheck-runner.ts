@@ -14,23 +14,33 @@ import { sha256 } from '../../system-architecture/foundation/runtime/canonical.t
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
+  compileSecProviderSettlementSet,
   compileSecSemanticOperationPlan,
-  issueSecDomainOutcomeReceipt,
-  issueSecOperationSettlementEnvelope,
+  issueSecNormalDomainReadbackReceipt,
+  issueSecNormalOwnerTerminalJoinReceipt,
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext,
   projectSecCapabilityDiagnostic,
   type SecBoundSemanticOperation,
+  type SecDomainReadbackDisposition,
   type SecOperationDigest,
-  type SecOperationSettlementEnvelope,
-  type SecOperationTerminalClass
+  type SecProviderPhysicalDisposition
 } from '../../system-architecture/operation/semantic.ts';
 import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, type InstalledTypeScriptNativeChecker, type TypeScriptNativeCheckerProvider } from '../../toolchain/typescript/checker.ts';
 import { prepareTypeScriptIncrementalState } from '../../toolchain/typescript/incremental-state.ts';
-import { type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../verification/action/contract/action.ts';
+import {
+  issueVerificationActionTerminalSettlement,
+  type VerificationActionKeyDigest,
+  type VerificationActionKeyInput,
+  type VerificationActionTerminalSettlement
+} from '../../verification/action/contract/action.ts';
 import {
   VerificationActionRunner
 } from '../../verification/action/runner.ts';
+import type {
+  VerificationReasonCode,
+  VerificationResultStatus
+} from '../../verification/result/contract/result.ts';
 import { compilerRoot, isPathInside } from '../../workspace/runtime/paths.ts';
 import {
   ensureOperationDependencies,
@@ -48,6 +58,10 @@ const TYPECHECK_ACTION_OPERATION = Object.freeze({
 });
 const TYPECHECK_ACTION_CONTRACT = 'typescript-native-checker-action' as const;
 const TYPECHECK_ACTION_RESULT = 'typescript-project-typecheck-terminal' as const;
+const TYPECHECK_REQUIREMENT = Object.freeze({
+  sourceObservation: 'repository.source-observation',
+  projectCheck: 'typescript.project-check'
+} as const);
 const typecheckActionRunner = new VerificationActionRunner();
 const TYPECHECK_SOURCE_OBSERVATION_BUDGET = Object.freeze({
   deadlineMs: 30_000,
@@ -79,26 +93,72 @@ function issueTypecheckOperationSettlement(
   operation: SecBoundSemanticOperation,
   input: Readonly<{
     actionKey: VerificationActionKeyDigest;
-    providerTerminalClass: SecOperationTerminalClass;
-    terminalClass: SecOperationTerminalClass;
-    effectOutcome: unknown;
+    sourceObservationDisposition: SecProviderPhysicalDisposition;
+    checkerDisposition: SecProviderPhysicalDisposition;
+    executionObservation: unknown;
     readback: unknown;
-    domainOutcome: unknown;
+    readbackDisposition: SecDomainReadbackDisposition;
+    status: VerificationResultStatus;
+    reasonCode: VerificationReasonCode;
   }>
-): SecOperationSettlementEnvelope {
-  const providerSettlement = issueSecProviderSettlementReceipt(operation, {
-    terminalClass: input.providerTerminalClass,
-    providerSettlement: Object.freeze({
+): VerificationActionTerminalSettlement {
+  const sourceObservation = issueSecProviderSettlementReceipt(operation, {
+    requirementId: TYPECHECK_REQUIREMENT.sourceObservation,
+    physicalDisposition: input.sourceObservationDisposition,
+    providerSettlementReferenceDigest: actionDigest({
       actionKey: input.actionKey,
-      effectOutcome: input.effectOutcome
-    })
+      requirement: TYPECHECK_REQUIREMENT.sourceObservation,
+      readback: input.readback
+    }) as SecOperationDigest
   });
-  const domainOutcome = issueSecDomainOutcomeReceipt(providerSettlement, {
-    terminalClass: input.terminalClass,
-    effectReadback: Object.freeze({ actionKey: input.actionKey, readback: input.readback }),
-    domainOutcome: Object.freeze({ actionKey: input.actionKey, outcome: input.domainOutcome })
+  const checker = issueSecProviderSettlementReceipt(operation, {
+    requirementId: TYPECHECK_REQUIREMENT.projectCheck,
+    physicalDisposition: input.checkerDisposition,
+    providerSettlementReferenceDigest: actionDigest({
+      actionKey: input.actionKey,
+      requirement: TYPECHECK_REQUIREMENT.projectCheck,
+      executionObservation: input.executionObservation
+    }) as SecOperationDigest
   });
-  return issueSecOperationSettlementEnvelope(operation, providerSettlement, domainOutcome);
+  const providerSettlementSet = compileSecProviderSettlementSet(operation, [
+    sourceObservation,
+    checker
+  ]);
+  const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
+    readbackContractDigest: actionDigest({
+      contract: 'typescript-project-check-readback',
+      requirements: Object.values(TYPECHECK_REQUIREMENT)
+    }) as SecOperationDigest,
+    readbackReferenceDigest: actionDigest({
+      actionKey: input.actionKey,
+      readback: input.readback
+    }) as SecOperationDigest,
+    currentPhysicalEpochDigest: actionDigest({
+      actionKey: input.actionKey,
+      operationAttempt: operation.boundAttemptDigest,
+      readback: input.readback
+    }) as SecOperationDigest,
+    disposition: input.readbackDisposition
+  });
+  const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+    operation,
+    providerSettlementSet,
+    readback,
+    {
+      ownerTerminalContractDigest: actionDigest({
+        contract: 'verification-action.typescript-project-check-terminal'
+      }) as SecOperationDigest,
+      ownerTerminalReferenceDigest: actionDigest({
+        actionKey: input.actionKey,
+        executionObservation: input.executionObservation,
+        readbackReceiptDigest: readback.readbackReceiptDigest
+      }) as SecOperationDigest
+    }
+  );
+  return issueVerificationActionTerminalSettlement(ownerTerminalJoin, {
+    status: input.status,
+    reasonCode: input.reasonCode
+  });
 }
 
 
@@ -238,7 +298,7 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
     ],
     requirements: [
       {
-        id: 'repository.source-observation',
+        id: TYPECHECK_REQUIREMENT.sourceObservation,
         contractDigest: sourceObservationContractDigest,
         effectKinds: ['process'],
         failureKinds: [
@@ -250,7 +310,7 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
         ]
       },
       {
-        id: 'typescript.project-check',
+        id: TYPECHECK_REQUIREMENT.projectCheck,
         contractDigest: checkerContractDigest,
         effectKinds: ['process'],
         failureKinds: [
@@ -266,12 +326,12 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
   });
   return bindSecSemanticOperation(plan, [
     compileSecCapabilityBinding({
-      requirementId: 'repository.source-observation',
+      requirementId: TYPECHECK_REQUIREMENT.sourceObservation,
       contractDigest: sourceObservationContractDigest,
       providerIdentityDigest: sourceObservationContractDigest
     }),
     compileSecCapabilityBinding({
-      requirementId: 'typescript.project-check',
+      requirementId: TYPECHECK_REQUIREMENT.projectCheck,
       contractDigest: checkerContractDigest,
       providerIdentityDigest: input.provider.toolchainBindingDigest as SecOperationDigest
     })
@@ -429,18 +489,24 @@ async function executeObservedTypecheckWithProvider(
         name: error instanceof Error ? error.name : typeof error
       });
       const settlement = (
-        providerTerminalClass: SecOperationTerminalClass,
-        terminalClass: SecOperationTerminalClass,
-        effectOutcome: unknown,
+        checkerDisposition: SecProviderPhysicalDisposition,
+        readbackDisposition: SecDomainReadbackDisposition,
+        status: VerificationResultStatus,
+        reasonCode: VerificationReasonCode,
+        executionObservation: unknown,
         readback: unknown,
-        domainOutcome: unknown
       ) => issueTypecheckOperationSettlement(semanticOperation, {
         actionKey: action.actionKey,
-        providerTerminalClass,
-        terminalClass,
-        effectOutcome,
+        sourceObservationDisposition: 'settled',
+        checkerDisposition,
+        executionObservation: Object.freeze({
+          ...domainBinding,
+          observation: executionObservation
+        }),
         readback,
-        domainOutcome: Object.freeze({ ...domainBinding, outcome: domainOutcome })
+        readbackDisposition,
+        status,
+        reasonCode
       });
       const postReadback = async (
         cacheAuthority?: ReturnType<typeof acquireSecRuntimeCachePhysicalAuthority>
@@ -491,11 +557,12 @@ async function executeObservedTypecheckWithProvider(
           errorDigest: errorDigest(error)
         });
         return settlement(
+          'not-started',
+          'not-applied',
           'invalidated',
-          'invalidated',
+          'input-invalidated',
           Object.freeze({ status: 'not-started', reason: 'provider-drift' }),
-          readback,
-          Object.freeze({ status: 'provider-drift' })
+          readback
         );
       }
       let cacheAuthority: ReturnType<typeof acquireSecRuntimeCachePhysicalAuthority>;
@@ -512,18 +579,19 @@ async function executeObservedTypecheckWithProvider(
       } catch (error) {
         const readback = await postReadback();
         return settlement(
-          'not-run',
+          'not-started',
+          'unknown',
+          'failed',
           'process-settlement-failed',
           Object.freeze({
             status: 'setup-failed',
             errorDigest: errorDigest(error)
           }),
-          readback,
-          Object.freeze({ status: 'incremental-state-setup-failed' })
+          readback
         );
       }
 
-      const executeAndSettle = async (): Promise<SecOperationSettlementEnvelope> => {
+      const executeAndSettle = async (): Promise<VerificationActionTerminalSettlement> => {
         let execution: Awaited<ReturnType<typeof executeTypeScriptNativeChecker>>;
         try {
           execution = await executeTypeScriptNativeChecker(installed, {
@@ -536,16 +604,17 @@ async function executeObservedTypecheckWithProvider(
         } catch (error) {
           const readback = await postReadback(cacheAuthority);
           return settlement(
-            'process-settlement-failed',
+            'unknown',
+            'unknown',
+            'failed',
             'process-settlement-failed',
             Object.freeze({ status: 'execution-unsettled', errorDigest: errorDigest(error) }),
-            readback,
-            Object.freeze({ status: 'native-checker-threw' })
+            readback
           );
         }
         if (execution.status === 'unverified') {
           const checkerBinding = semanticOperation.bindings.find(({ requirementId }) => (
-            requirementId === 'typescript.project-check'
+            requirementId === TYPECHECK_REQUIREMENT.projectCheck
           ));
           if (checkerBinding === undefined) {
             throw new Error('Typecheck semantic operation lost its checker capability binding.');
@@ -557,25 +626,27 @@ async function executeObservedTypecheckWithProvider(
             rawEvidence: execution.detail
           });
           const readback = await postReadback(cacheAuthority);
-          const terminalClass: SecOperationTerminalClass = readback.status === 'invalidated'
-            ? 'invalidated'
+          const terminal = readback.status === 'invalidated'
+            ? { status: 'invalidated', reasonCode: 'input-invalidated' } as const
             : execution.reason === 'deadline-exhausted'
-              ? 'timed-out'
+              ? { status: 'failed', reasonCode: 'timeout' } as const
               : execution.reason === 'cancelled'
-                ? 'cancelled'
+                ? { status: 'invalidated', reasonCode: 'cancelled' } as const
                 : execution.reason === 'process-boundary-unavailable'
-                  ? 'unsupported'
-                  : 'invalidated';
+                  ? { status: 'unsupported', reasonCode: 'capability-unsupported' } as const
+                  : { status: 'invalidated', reasonCode: 'input-invalidated' } as const;
           return settlement(
-            terminalClass,
-            terminalClass,
+            'unknown',
+            'unknown',
+            terminal.status,
+            terminal.reasonCode,
             Object.freeze({
               status: 'unverified',
               reason: execution.reason,
-              detailDigest: actionDigest(execution.detail)
+              detailDigest: actionDigest(execution.detail),
+              diagnostic
             }),
-            readback,
-            Object.freeze({ status: 'provider-execution-unverified', diagnostic })
+            readback
           );
         }
         let incrementalPublished: boolean;
@@ -584,22 +655,25 @@ async function executeObservedTypecheckWithProvider(
         } catch (error) {
           const readback = await postReadback(cacheAuthority);
           return settlement(
-            'completed',
+            'settled',
+            'applied',
+            'failed',
             'cleanup-failed',
             Object.freeze({
               status: 'incremental-publication-failed',
               exitCode: execution.code,
               errorDigest: errorDigest(error)
             }),
-            readback,
-            Object.freeze({ status: 'incremental-publication-failed' })
+            readback
           );
         }
         const readback = await postReadback(cacheAuthority);
         if (readback.status === 'invalidated') {
           return settlement(
-            'completed',
+            'settled',
+            'applied',
             'invalidated',
+            'input-invalidated',
             Object.freeze({
               status: 'exited',
               exitCode: execution.code,
@@ -607,13 +681,14 @@ async function executeObservedTypecheckWithProvider(
               stdoutDigest: actionDigest(execution.stdout),
               stderrDigest: actionDigest(execution.stderr)
             }),
-            readback,
-            Object.freeze({ status: 'post-execution-input-drift' })
+            readback
           );
         }
         return settlement(
-          'completed',
-          execution.code === 0 ? 'completed' : 'failed',
+          'settled',
+          'applied',
+          execution.code === 0 ? 'passed' : 'failed',
+          execution.code === 0 ? 'executed-success' : 'executed-failure',
           Object.freeze({
             status: 'exited',
             exitCode: execution.code,
@@ -621,22 +696,22 @@ async function executeObservedTypecheckWithProvider(
             stdoutDigest: actionDigest(execution.stdout),
             stderrDigest: actionDigest(execution.stderr)
           }),
-          readback,
-          Object.freeze({ status: execution.code === 0 ? 'passed' : 'failed', exitCode: execution.code })
+          readback
         );
       };
 
-      let issued: SecOperationSettlementEnvelope;
+      let issued: VerificationActionTerminalSettlement;
       try {
         issued = await executeAndSettle();
       } catch (error) {
         const readback = await postReadback(cacheAuthority);
         issued = settlement(
-          'process-settlement-failed',
+          'unknown',
+          'unknown',
+          'failed',
           'process-settlement-failed',
           Object.freeze({ status: 'unexpected-settlement-failure', errorDigest: errorDigest(error) }),
-          readback,
-          Object.freeze({ status: 'typecheck-settlement-unresolved' })
+          readback
         );
       }
       try {
@@ -644,11 +719,16 @@ async function executeObservedTypecheckWithProvider(
       } catch (error) {
         const readback = await postReadback(cacheAuthority);
         issued = settlement(
-          'completed',
+          'settled',
+          'applied',
+          'failed',
           'cleanup-failed',
-          Object.freeze({ status: 'incremental-disposal-failed', errorDigest: errorDigest(error) }),
-          readback,
-          Object.freeze({ status: 'incremental-disposal-failed', priorSettlement: issued.settlementDigest })
+          Object.freeze({
+            status: 'incremental-disposal-failed',
+            errorDigest: errorDigest(error),
+            priorSettlement: issued.ownerTerminalJoinReceipt.joinReceiptDigest
+          }),
+          readback
         );
       }
       return issued;

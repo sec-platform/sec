@@ -24,14 +24,14 @@ import { resolveSecWorkspaceRuntimeRoots } from '../../src/runtime-state/workspa
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
+  compileSecProviderSettlementSet,
   compileSecSemanticOperationPlan,
-  issueSecDomainOutcomeReceipt,
-  issueSecOperationSettlementEnvelope,
+  issueSecNormalDomainReadbackReceipt,
+  issueSecNormalOwnerTerminalJoinReceipt,
   issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationTerminalClass
+  issueSecSemanticOperationAttemptContext
 } from '../../src/system-architecture/operation/semantic.ts';
-import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionPlan, issueVerificationActionTerminalSettlement, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
 import {
   appendVerificationActionJournalEvent as appendJournalEvent,
@@ -45,6 +45,8 @@ import {
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
+const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
+const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;
 const TEST_PROCESS_ISSUER = issueVerificationActionTestProcessIssuerForTests();
 const BASE_SHA = '1'.repeat(40);
 const BASE_TREE_SHA = '2'.repeat(40);
@@ -55,9 +57,12 @@ const CROSS_PROCESS_CHILD_ROOT = process.env.SEC_VERIFICATION_ACTION_CHILD_ROOT;
 const CROSS_PROCESS_CHILD_MARKER = process.env.SEC_VERIFICATION_ACTION_CHILD_MARKER;
 
 function issuedSettlement(
-  terminalClass: SecOperationTerminalClass = 'completed',
+  terminalClass: 'completed' | 'failed' | 'recovery-required' = 'completed',
   deadlineAtUnixMs = 1_900_000_000_000
 ) {
+  if (terminalClass === 'recovery-required') {
+    throw new Error('Operation requires owner recovery before terminal projection.');
+  }
   const operationPlan = compileSecSemanticOperationPlan({
     operation: 'verification.action-runner-test',
     intentDigest: DIGEST_A,
@@ -80,15 +85,30 @@ function issuedSettlement(
     providerIdentityDigest: DIGEST_A
   })]);
   const provider = issueSecProviderSettlementReceipt(bound, {
-    terminalClass,
-    providerSettlement: { status: 'exited', exitCode: terminalClass === 'completed' ? 0 : 1 }
+    requirementId: 'verification.test-effect',
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: terminalClass === 'completed' ? DIGEST_B : DIGEST_C
   });
-  const domain = issueSecDomainOutcomeReceipt(provider, {
-    terminalClass,
-    effectReadback: { candidateTree: `sha256:${'b'.repeat(64)}` },
-    domainOutcome: { status: terminalClass }
+  const providerSet = compileSecProviderSettlementSet(bound, [provider]);
+  const readback = issueSecNormalDomainReadbackReceipt(bound, providerSet, {
+    readbackContractDigest: DIGEST_A,
+    readbackReferenceDigest: DIGEST_B,
+    currentPhysicalEpochDigest: DIGEST_C,
+    disposition: 'applied'
   });
-  return issueSecOperationSettlementEnvelope(bound, provider, domain);
+  const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+    bound,
+    providerSet,
+    readback,
+    {
+      ownerTerminalContractDigest: DIGEST_A,
+      ownerTerminalReferenceDigest: terminalClass === 'completed' ? DIGEST_B : DIGEST_C
+    }
+  );
+  return issueVerificationActionTerminalSettlement(ownerTerminalJoin, {
+    status: terminalClass === 'completed' ? 'passed' : 'failed',
+    reasonCode: terminalClass === 'completed' ? 'executed-success' : 'executed-failure'
+  });
 }
 
 test.skipIf(CROSS_PROCESS_CHILD_ROOT === undefined || CROSS_PROCESS_CHILD_MARKER === undefined)(
@@ -297,9 +317,10 @@ test('concurrent callers in different execution domains join one physical execut
     release();
     const [firstResult, secondResult] = await Promise.all([first, second]);
     expect(invocations).toBe(1);
-    expect(firstResult.disposition).toBe('executed');
-    expect(secondResult.disposition).toBe('joined');
-    expect(firstResult.terminal?.status).toBe('passed');
+    expect(new Set([firstResult.disposition, secondResult.disposition])).toEqual(
+      new Set(['executed', 'joined'])
+    );
+    expect([firstResult, secondResult].every(({ terminal }) => terminal?.status === 'passed')).toBeTrue();
     expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState).toBe('terminal');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });

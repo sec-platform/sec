@@ -12,8 +12,8 @@ import path from 'node:path';
 import { types as nodeTypes } from 'node:util';
 
 import {
-  assertSecOperationSettlementEnvelope,
-  type SecOperationSettlementEnvelope
+  assertSecOwnerTerminalJoinReceipt,
+  type SecOwnerTerminalJoinReceipt
 } from '../../../system-architecture/operation/semantic.ts';
 import type { VerificationReasonCode, VerificationResultStatus } from '../../result/contract/result.ts';
 import { CodexDevelopmentAssertVerificationStatusReason } from '../../result/contract/result.ts';
@@ -96,6 +96,18 @@ export type VerificationActionTerminal = Readonly<{
   reasonCode: VerificationReasonCode;
   resultDigest: VerificationActionKeyDigest | null;
 }>;
+
+/**
+ * Verification-owned projection of an operation owner's terminal join.
+ * Semantic operation infrastructure proves only exact provider/readback/join
+ * closure; it never chooses a Verification business status.
+ */
+export type VerificationActionTerminalSettlement = Readonly<{
+  terminal: VerificationActionTerminal;
+  ownerTerminalJoinReceipt: SecOwnerTerminalJoinReceipt;
+}>;
+
+const ISSUED_VERIFICATION_ACTION_TERMINAL_SETTLEMENTS = new WeakSet<object>();
 
 export type VerificationActionDependencyKind = 'cheap-preflight' | 'upstream';
 export type VerificationActionDependencyState =
@@ -594,44 +606,36 @@ export function createVerificationActionTerminal(
   });
 }
 
-/**
- * Project one owner-issued Effect settlement into the durable Action terminal.
- * The terminal persists only the envelope digest; that digest commits the
- * attempt, binding set, exact readback and opaque domain receipt without
- * copying domain-private receipt fields into the Action contract.
- */
+/** Issue the sole Verification business terminal after exact owner settlement. */
+export function issueVerificationActionTerminalSettlement(
+  ownerTerminalJoinReceipt: SecOwnerTerminalJoinReceipt,
+  input: Readonly<{
+    status: VerificationResultStatus;
+    reasonCode: VerificationReasonCode;
+  }>
+): VerificationActionTerminalSettlement {
+  assertSecOwnerTerminalJoinReceipt(ownerTerminalJoinReceipt);
+  const settlement = Object.freeze({
+    terminal: createVerificationActionTerminal({
+      status: input.status,
+      reasonCode: input.reasonCode,
+      resultDigest: ownerTerminalJoinReceipt.joinReceiptDigest
+    }),
+    ownerTerminalJoinReceipt
+  });
+  ISSUED_VERIFICATION_ACTION_TERMINAL_SETTLEMENTS.add(settlement);
+  return settlement;
+}
+
+/** Project only a Verification-owner-issued settlement into durable state. */
 export function projectVerificationActionTerminal(
   settlement: unknown
 ): VerificationActionTerminal {
-  assertSecOperationSettlementEnvelope(settlement);
-  const projection = (() => {
-    switch (settlement.terminalClass) {
-      case 'completed':
-        return { status: 'passed', reasonCode: 'executed-success' } as const;
-      case 'failed':
-        return { status: 'failed', reasonCode: 'executed-failure' } as const;
-      case 'not-run':
-        return { status: 'not-run', reasonCode: 'not-dispatched' } as const;
-      case 'unsupported':
-        return { status: 'unsupported', reasonCode: 'capability-unsupported' } as const;
-      case 'invalidated':
-        return { status: 'invalidated', reasonCode: 'input-invalidated' } as const;
-      case 'cancelled':
-        return { status: 'invalidated', reasonCode: 'cancelled' } as const;
-      case 'timed-out':
-        return { status: 'failed', reasonCode: 'timeout' } as const;
-      case 'cleanup-failed':
-        return { status: 'failed', reasonCode: 'cleanup-failed' } as const;
-      case 'process-settlement-failed':
-        return { status: 'failed', reasonCode: 'process-settlement-failed' } as const;
-      case 'recovery-required':
-        throw new Error('Operation requires owner recovery before terminal projection.');
-    }
-  })();
-  return createVerificationActionTerminal({
-    ...projection,
-    resultDigest: settlement.settlementDigest
-  });
+  if (settlement === null || typeof settlement !== 'object'
+      || !ISSUED_VERIFICATION_ACTION_TERMINAL_SETTLEMENTS.has(settlement)) {
+    throw new Error('VerificationAction terminal settlement is not Verification-owner-issued.');
+  }
+  return (settlement as VerificationActionTerminalSettlement).terminal;
 }
 
 export function createVerificationActionPlan(input: unknown): VerificationActionPlan {

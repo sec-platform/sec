@@ -16,6 +16,7 @@ import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../development/runner/contract.ts
 import type {
   ContainerEngineOperation,
   ContainerEngineOperationOptions,
+  ContainerEngineOperationScope,
   ContainerEngineSession
 } from '../../external-capabilities/docker/contract/container-engine-session.ts';
 import {
@@ -35,16 +36,18 @@ import { acquireSecRuntimeStatePhysicalAuthority } from '../../runtime-state/wor
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
+  compileSecProviderSettlementSet,
   compileSecSemanticOperationPlan,
-  issueSecDomainOutcomeReceipt,
-  issueSecOperationSettlementEnvelope,
-  issueSecProviderSettlementReceipt,
+  issueSecNormalDomainReadbackReceipt,
+  issueSecNormalOwnerTerminalJoinReceipt,
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
-  type SecOperationDigest
+  type SecOperationDigest,
+  type SecOwnerTerminalJoinReceipt,
+  type SecProviderSettlementReceipt
 } from '../../system-architecture/operation/semantic.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../toolchain/typescript/canary.ts';
-import { createVerificationActionKey, createVerificationActionPlan, encodeVerificationActionData, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionPlan, encodeVerificationActionData, issueVerificationActionTerminalSettlement, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
 import { createCiVerificationLocalExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
 import { VerificationActionRunner } from '../action/runner.ts';
 import { type CodexDevelopmentVerificationEvidenceV4 } from '../ci/contract/evidence.ts';
@@ -529,6 +532,8 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
   headSha: string;
   operationKey: string;
   setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
+  providerIdentityDigest: SecOperationDigest;
+  deadlineAtUnixMs?: number;
 }>): SecBoundSemanticOperation {
   const contractDigest = digestValue(Object.freeze({
     schema: 'sec-trusted-runtime-container-engine-contract-v1',
@@ -549,7 +554,8 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
       contractDigest,
       budget: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET
     })) as SecOperationDigest,
-    deadlineAtUnixMs: Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs,
+    deadlineAtUnixMs: input.deadlineAtUnixMs
+      ?? Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs },
       { resource: 'input-bytes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.inputBytes },
@@ -573,11 +579,7 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
   return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
-    providerIdentityDigest: digestValue(Object.freeze({
-      schema: 'sec-trusted-runtime-container-engine-provider-binding-v1',
-      providerRequirement: ENVIRONMENT.provider.requirement,
-      repositoryRoot: input.repositoryRoot
-    })) as SecOperationDigest
+    providerIdentityDigest: input.providerIdentityDigest
   })]);
 }
 
@@ -586,6 +588,7 @@ function bindTrustedRuntimeMainHealthEffect(input: Readonly<{
   dockerEndpoint: DockerEndpointIdentity;
   imageId: typeof TRUSTED_RUNTIME_CONTAINER_IMAGE_ID;
   deadlineAtUnixMs: number;
+  providerIdentityDigest: SecOperationDigest;
 }>): SecBoundSemanticOperation {
   const contractDigest = digestValue(Object.freeze({
     schema: 'sec-trusted-runtime-main-health-effect-contract-v1',
@@ -599,6 +602,8 @@ function bindTrustedRuntimeMainHealthEffect(input: Readonly<{
     deadlineAtUnixMs: input.deadlineAtUnixMs,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: TRUSTED_RUNTIME_MAIN_HEALTH_ACTION_LEASE_MS },
+      { resource: 'input-bytes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.inputBytes },
+      { resource: 'output-bytes', maximum: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.outputBytes },
       { resource: 'processes', maximum: 1 }
     ],
     requirements: [{
@@ -614,47 +619,145 @@ function bindTrustedRuntimeMainHealthEffect(input: Readonly<{
   return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
     requirementId: 'verification.trusted-container-process',
     contractDigest,
-    providerIdentityDigest: digestValue(Object.freeze({
-      schema: 'sec-trusted-runtime-main-health-provider-binding-v1',
-      imageId: input.imageId,
-      dockerEndpoint: input.dockerEndpoint,
-      environment: input.gate.action.environment
-    })) as SecOperationDigest
+    providerIdentityDigest: input.providerIdentityDigest
   })]);
+}
+
+export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Readonly<{
+  operation: SecBoundSemanticOperation;
+  providerSettlement: SecProviderSettlementReceipt;
+  endpointReadback: DockerEndpointIdentity;
+  ownerTerminalContractDigest: SecOperationDigest;
+  ownerTerminalReferenceDigest: SecOperationDigest;
+}>): SecOwnerTerminalJoinReceipt {
+  const providerSettlementSet = compileSecProviderSettlementSet(
+    input.operation,
+    [input.providerSettlement]
+  );
+  const readback = issueSecNormalDomainReadbackReceipt(input.operation, providerSettlementSet, {
+    readbackContractDigest: digestValue(Object.freeze({
+      schema: 'sec-container-engine-endpoint-readback-contract-v1',
+      contextName: input.endpointReadback.contextName,
+      endpointHost: input.endpointReadback.endpointHost
+    })) as SecOperationDigest,
+    readbackReferenceDigest: digestValue(Object.freeze({
+      schema: 'sec-container-engine-endpoint-readback-v1',
+      endpoint: input.endpointReadback
+    })) as SecOperationDigest,
+    currentPhysicalEpochDigest: digestValue(Object.freeze({
+      schema: 'sec-container-engine-physical-epoch-v1',
+      endpointHost: input.endpointReadback.endpointHost,
+      daemonId: input.endpointReadback.daemonId
+    })) as SecOperationDigest,
+    disposition: input.providerSettlement.physicalDisposition === 'settled'
+      ? 'applied'
+      : 'unknown'
+  });
+  return issueSecNormalOwnerTerminalJoinReceipt(
+    input.operation,
+    providerSettlementSet,
+    readback,
+    {
+      ownerTerminalContractDigest: input.ownerTerminalContractDigest,
+      ownerTerminalReferenceDigest: input.ownerTerminalReferenceDigest
+    }
+  );
+}
+
+async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
+  session: ContainerEngineSession;
+  operation: SecBoundSemanticOperation;
+  scope: ContainerEngineOperationScope;
+  ownerTerminalReference: Readonly<Record<string, unknown>>;
+}>): Promise<SecOwnerTerminalJoinReceipt> {
+  const providerSettlement = input.scope.settle();
+  const endpointReadback = await input.session.observeEndpoint();
+  return issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
+    operation: input.operation,
+    providerSettlement,
+    endpointReadback,
+    ownerTerminalContractDigest: digestValue(Object.freeze({
+      schema: 'sec-trusted-runtime-container-engine-owner-terminal-contract-v1',
+      operation: input.operation.plan.identity.operation
+    })) as SecOperationDigest,
+    ownerTerminalReferenceDigest: digestValue(Object.freeze({
+      schema: 'sec-trusted-runtime-container-engine-owner-terminal-reference-v1',
+      ...input.ownerTerminalReference
+    })) as SecOperationDigest
+  });
+}
+
+async function executeTrustedRuntimeContainerEngineOwnerOperation<T>(input: Readonly<{
+  session: ContainerEngineSession;
+  repositoryRoot: string;
+  repository: string;
+  baseSha: string;
+  headSha: string;
+  operationKey: string;
+  setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
+  execute: () => Promise<T>;
+}>): Promise<T> {
+  const operation = bindTrustedRuntimeContainerEngineOperation({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    operationKey: input.operationKey,
+    setupMode: input.setupMode,
+    providerIdentityDigest: input.session.providerIdentityDigest,
+    deadlineAtUnixMs: input.session.deadlineAtUnixMs
+  });
+  const scope = input.session.openOperationScope({
+    operation,
+    requirementId: 'external.container-engine-process'
+  });
+  try {
+    return await input.execute();
+  } finally {
+    await settleTrustedRuntimeContainerEngineOperation({
+      session: input.session,
+      operation,
+      scope,
+      ownerTerminalReference: Object.freeze({
+        phase: 'owner-operation',
+        operationKey: input.operationKey
+      })
+    });
+  }
 }
 
 function issueTrustedRuntimeMainHealthEffectSettlement(input: Readonly<{
   operation: SecBoundSemanticOperation;
+  providerSettlement: SecProviderSettlementReceipt;
   actionKey: VerificationActionKeyDigest;
   exitCode: number;
   stdout: string;
   stderr: string;
   endpointReadback: DockerEndpointIdentity;
 }>) {
-  const providerSettlement = issueSecProviderSettlementReceipt(input.operation, {
-    terminalClass: input.exitCode === 0 ? 'completed' : 'failed',
-    providerSettlement: Object.freeze({
-      schema: 'sec-container-engine-process-settlement-v1',
+  const passed = input.exitCode === 0
+    && input.providerSettlement.physicalDisposition === 'settled';
+  const ownerTerminalJoinReceipt = issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
+    operation: input.operation,
+    providerSettlement: input.providerSettlement,
+    endpointReadback: input.endpointReadback,
+    ownerTerminalContractDigest: digestValue(Object.freeze({
+      schema: 'sec-trusted-runtime-main-health-owner-terminal-contract-v1',
+      actionKey: input.actionKey
+    })) as SecOperationDigest,
+    ownerTerminalReferenceDigest: digestValue(Object.freeze({
+      schema: 'sec-trusted-runtime-main-health-owner-terminal-reference-v1',
       actionKey: input.actionKey,
+      passed,
       exitCode: input.exitCode,
       stdoutDigest: digestValue(input.stdout),
       stderrDigest: digestValue(input.stderr)
-    })
+    })) as SecOperationDigest
   });
-  const domainOutcome = issueSecDomainOutcomeReceipt(providerSettlement, {
-    terminalClass: input.exitCode === 0 ? 'completed' : 'failed',
-    effectReadback: Object.freeze({
-      schema: 'sec-container-engine-endpoint-readback-v1',
-      endpoint: input.endpointReadback
-    }),
-    domainOutcome: Object.freeze({
-      schema: 'sec-trusted-runtime-main-health-gate-outcome-v2',
-      actionKey: input.actionKey,
-      passed: input.exitCode === 0,
-      outputDigest: digestValue(Object.freeze({ stdout: input.stdout, stderr: input.stderr }))
-    })
+  return issueVerificationActionTerminalSettlement(ownerTerminalJoinReceipt, {
+    status: passed ? 'passed' : 'failed',
+    reasonCode: passed ? 'executed-success' : 'executed-failure'
   });
-  return issueSecOperationSettlementEnvelope(input.operation, providerSettlement, domainOutcome);
 }
 
 export function createTrustedRuntimeDependencyCacheMarker(input: Readonly<{
@@ -2515,13 +2618,19 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   }
   let containerEngineSession: ContainerEngineSession | null = null;
   try {
+    const resourceEnvelopeProviderIdentityDigest = digestValue(Object.freeze({
+      schema: 'sec-container-engine-session-resource-envelope-provider-v1',
+      repository: repositoryIdentity,
+      operationKey: input.operationKey
+    })) as SecOperationDigest;
     const operation = bindTrustedRuntimeContainerEngineOperation({
       repositoryRoot,
       repository: repositoryIdentity,
       baseSha,
       headSha,
       operationKey: input.operationKey,
-      setupMode: input.setupMode
+      setupMode: input.setupMode,
+      providerIdentityDigest: resourceEnvelopeProviderIdentityDigest
     });
     containerEngineSession = await openContainerEngineSession({
       operation,
@@ -2530,6 +2639,21 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
     });
     const session = containerEngineSession;
     const dockerEndpoint = session.endpoint;
+    const setupOperation = bindTrustedRuntimeContainerEngineOperation({
+      repositoryRoot,
+      repository: repositoryIdentity,
+      baseSha,
+      headSha,
+      operationKey: `${input.operationKey}-setup`,
+      setupMode: input.setupMode,
+      providerIdentityDigest: session.providerIdentityDigest,
+      deadlineAtUnixMs: session.deadlineAtUnixMs
+    });
+    const setupScope = session.openOperationScope({
+      operation: setupOperation,
+      requirementId: 'external.container-engine-process'
+    });
+    let setupSettled = false;
     const image = await ensureImage(repositoryRoot, session);
     const endpointDigest = digestValue(dockerEndpoint);
     const dependencyCacheMarker = input.setupMode === 'lifecycle-canary'
@@ -2681,6 +2805,18 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
       if (Object.keys(isolated).length !== 0) {
         fail('network isolation readback is not empty before trusted execution');
       }
+      await settleTrustedRuntimeContainerEngineOperation({
+        session,
+        operation: setupOperation,
+        scope: setupScope,
+        ownerTerminalReference: Object.freeze({
+          phase: 'setup',
+          operationKey: input.operationKey,
+          containerName: containerTarget,
+          imageId: image.imageId
+        })
+      });
+      setupSettled = true;
       return await input.execute(Object.freeze({
         containerName: containerTarget,
         temporaryRoot,
@@ -2690,11 +2826,52 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         dependencyCacheKey: dependencyCacheMarker?.cacheKey ?? null
       }));
     } finally {
+      if (!setupSettled) {
+        await settleTrustedRuntimeContainerEngineOperation({
+          session,
+          operation: setupOperation,
+          scope: setupScope,
+          ownerTerminalReference: Object.freeze({
+            phase: 'setup-failure',
+            operationKey: input.operationKey
+          })
+        });
+      }
       if (containerCreated) {
-        const removed = await observeContainerEngineOperation(session, {
-          kind: 'container-remove', arguments: ['--force', containerId ?? containerName]
-        }, { acceptAnyExitCode: true });
-        if (removed.code !== 0) fail(`container cleanup failed and ${containerName} was retained`);
+        const cleanupOperation = bindTrustedRuntimeContainerEngineOperation({
+          repositoryRoot,
+          repository: repositoryIdentity,
+          baseSha,
+          headSha,
+          operationKey: `${input.operationKey}-cleanup`,
+          setupMode: input.setupMode,
+          providerIdentityDigest: session.providerIdentityDigest,
+          deadlineAtUnixMs: session.deadlineAtUnixMs
+        });
+        const cleanupScope = session.openOperationScope({
+          operation: cleanupOperation,
+          requirementId: 'external.container-engine-process'
+        });
+        let removed: Awaited<ReturnType<typeof observeContainerEngineOperation>> | null = null;
+        try {
+          removed = await observeContainerEngineOperation(session, {
+            kind: 'container-remove', arguments: ['--force', containerId ?? containerName]
+          }, { acceptAnyExitCode: true });
+        } finally {
+          await settleTrustedRuntimeContainerEngineOperation({
+            session,
+            operation: cleanupOperation,
+            scope: cleanupScope,
+            ownerTerminalReference: Object.freeze({
+              phase: 'cleanup',
+              operationKey: input.operationKey,
+              containerName: containerId ?? containerName
+            })
+          });
+        }
+        if (removed === null || removed.code !== 0) {
+          fail(`container cleanup failed and ${containerName} was retained`);
+        }
       }
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
@@ -2740,6 +2917,15 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       containerEngineSession,
       dockerEndpoint
     }) => {
+      return await executeTrustedRuntimeContainerEngineOwnerOperation({
+        session: containerEngineSession,
+        repositoryRoot,
+        repository: session.repository,
+        baseSha: session.baseSha,
+        headSha: session.headSha,
+        operationKey: `session-${session.sessionRevision.slice(7, 23)}-verification`,
+        setupMode: 'full',
+        execute: async () => {
       const outputPath = path.join(temporaryRoot, 'verification-evidence.json');
       const executionId = `trusted-runtime-${digestValue(Object.freeze({
         sessionRevision: session.sessionRevision,
@@ -2789,6 +2975,8 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       producerSourceDigest: digest(parsed.producer.sourceDigest, 'producer.sourceDigest')
     });
     return Object.freeze({ evidence: parsed, canonicalEvidenceBytes, receipt });
+        }
+      });
     }
   });
 }
@@ -2820,10 +3008,19 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
     operationKey: `main-${mainSha.slice(0, 24)}`,
     setupMode: 'full',
     execute: async ({ containerName, image, containerEngineSession, dockerEndpoint }) => {
-      const observedTree = await containerEngineOutput(containerEngineSession, {
-        kind: 'container-exec',
-        arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-          containerName, 'git', 'rev-parse', 'HEAD^{tree}']
+      const observedTree = await executeTrustedRuntimeContainerEngineOwnerOperation({
+        session: containerEngineSession,
+        repositoryRoot,
+        repository: repositoryIdentity,
+        baseSha: mainSha,
+        headSha: mainSha,
+        operationKey: `main-${mainSha.slice(0, 16)}-preflight`,
+        setupMode: 'full',
+        execute: async () => await containerEngineOutput(containerEngineSession, {
+          kind: 'container-exec',
+          arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
+            containerName, 'git', 'rev-parse', 'HEAD^{tree}']
+        })
       });
       if (observedTree !== mainTreeSha) fail('MainHealth exact main tree differs before execution');
       const actionResults: Array<Readonly<{
@@ -2847,11 +3044,20 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
           SEC_AFFECTED_TESTS_BASE: baseline.baselineSha,
           SEC_CHANGED_BASE: baseline.baselineSha
         });
-        const planResult = await containerEngineOperationResult(containerEngineSession, {
-          kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-          ...mainHealthEnvironment,
-          containerName, 'bun', 'run', 'check:affected', '--', '--plan'
-          ]
+        const planResult = await executeTrustedRuntimeContainerEngineOwnerOperation({
+          session: containerEngineSession,
+          repositoryRoot,
+          repository: repositoryIdentity,
+          baseSha: mainSha,
+          headSha: mainSha,
+          operationKey: `main-${mainSha.slice(0, 12)}-${action.id}-plan`,
+          setupMode: 'full',
+          execute: async () => await containerEngineOperationResult(containerEngineSession, {
+            kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
+            ...mainHealthEnvironment,
+            containerName, 'bun', 'run', 'check:affected', '--', '--plan'
+            ]
+          })
         });
         const affectedPlan = parseTrustedRuntimeMainHealthAffectedPlan(planResult.stdout);
         const gatePlans = createTrustedRuntimeMainHealthGatePlans({
@@ -2872,7 +3078,11 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
             gate,
             dockerEndpoint,
             imageId: image.imageId,
-            deadlineAtUnixMs: Date.now() + TRUSTED_RUNTIME_MAIN_HEALTH_ACTION_LEASE_MS
+            deadlineAtUnixMs: Math.min(
+              Date.now() + TRUSTED_RUNTIME_MAIN_HEALTH_ACTION_LEASE_MS,
+              containerEngineSession.deadlineAtUnixMs
+            ),
+            providerIdentityDigest: containerEngineSession.providerIdentityDigest
           });
           const outcome = await runner.execute({
             repositoryRoot,
@@ -2881,22 +3091,36 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
             executionDomain: 'trusted-runtime-main-health',
             leaseDurationMs: TRUSTED_RUNTIME_MAIN_HEALTH_ACTION_LEASE_MS,
             executor: async () => {
-              const result = await observeContainerEngineOperation(containerEngineSession, {
-                kind: 'container-exec', arguments: ['--user', '1000:1000',
-                '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-                ...mainHealthEnvironment,
-                containerName, ...gate.argv]
-              }, {
-                acceptAnyExitCode: true
+              const scope = containerEngineSession.openOperationScope({
+                operation: boundEffect,
+                requirementId: 'verification.trusted-container-process'
               });
+              let result: Awaited<ReturnType<typeof observeContainerEngineOperation>> | null = null;
+              let providerSettlement: SecProviderSettlementReceipt | null = null;
+              try {
+                result = await observeContainerEngineOperation(containerEngineSession, {
+                  kind: 'container-exec', arguments: ['--user', '1000:1000',
+                  '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
+                  ...mainHealthEnvironment,
+                  containerName, ...gate.argv]
+                }, {
+                  acceptAnyExitCode: true
+                });
+              } finally {
+                providerSettlement = scope.settle();
+              }
+              if (result === null || providerSettlement === null) {
+                fail('MainHealth provider scope did not settle its exact command attempt');
+              }
               if (result.code !== 0) executedFailureDetail = renderTrustedRuntimeCommandFailureDetail(result);
               return issueTrustedRuntimeMainHealthEffectSettlement({
                 operation: boundEffect,
+                providerSettlement,
                 actionKey: gate.action.actionKey,
                 exitCode: result.code,
                 stdout: result.stdout,
                 stderr: result.stderr,
-                endpointReadback: containerEngineSession.endpoint
+                endpointReadback: await containerEngineSession.observeEndpoint()
               });
             }
           });
@@ -2927,17 +3151,28 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
           }))
         }));
       }
-      const finalIdentity = await containerEngineOutput(containerEngineSession, {
-        kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-          containerName, 'git', 'status', '--porcelain=v1', '--untracked-files=all']
-      });
-      const finalHead = await containerEngineOutput(containerEngineSession, {
-        kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-          containerName, 'git', 'rev-parse', 'HEAD']
-      });
-      const finalTree = await containerEngineOutput(containerEngineSession, {
-        kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-          containerName, 'git', 'rev-parse', 'HEAD^{tree}']
+      const { finalIdentity, finalHead, finalTree } = await executeTrustedRuntimeContainerEngineOwnerOperation({
+        session: containerEngineSession,
+        repositoryRoot,
+        repository: repositoryIdentity,
+        baseSha: mainSha,
+        headSha: mainSha,
+        operationKey: `main-${mainSha.slice(0, 16)}-postflight`,
+        setupMode: 'full',
+        execute: async () => Object.freeze({
+          finalIdentity: await containerEngineOutput(containerEngineSession, {
+            kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
+              containerName, 'git', 'status', '--porcelain=v1', '--untracked-files=all']
+          }),
+          finalHead: await containerEngineOutput(containerEngineSession, {
+            kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
+              containerName, 'git', 'rev-parse', 'HEAD']
+          }),
+          finalTree: await containerEngineOutput(containerEngineSession, {
+            kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
+              containerName, 'git', 'rev-parse', 'HEAD^{tree}']
+          })
+        })
       });
       if (finalIdentity !== '' || finalHead !== mainSha || finalTree !== mainTreeSha) {
         fail('MainHealth exact main identity or clean state changed during execution');
@@ -3006,6 +3241,15 @@ export async function executeTrustedRuntimeWorkspaceCanary(input: Readonly<{
       dockerEndpoint,
       dependencyCacheKey
     }) => {
+      return await executeTrustedRuntimeContainerEngineOwnerOperation({
+        session: containerEngineSession,
+        repositoryRoot,
+        repository: repositoryIdentity,
+        baseSha: headSha,
+        headSha,
+        operationKey: `${input.dependencies === true ? 'dependency' : 'canary'}-${headSha.slice(0, 16)}-execute`,
+        setupMode: input.dependencies === true ? 'dependency-canary' : 'lifecycle-canary',
+        execute: async () => {
       if (input.dependencies === true) {
         await containerEngineOutput(containerEngineSession, {
           kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
@@ -3057,6 +3301,8 @@ export async function executeTrustedRuntimeWorkspaceCanary(input: Readonly<{
         dependencyCacheKey,
         imageId: image.imageId,
         dockerEndpoint
+      });
+        }
       });
     }
   });

@@ -2,15 +2,24 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { sha256 } from '../foundation/runtime/canonical.ts';
 import {
-  assertSecOperationSettlementEnvelope,
+  assertSecDomainReadbackReceipt,
+  assertSecOwnerTerminalJoinReceipt,
+  assertSecProviderSettlementReceipt,
+  assertSecRecoveredRetryAdmission,
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
+  compileSecProviderSettlementSet,
   compileSecSemanticOperationPlan,
-  issueSecDomainOutcomeReceipt,
-  issueSecOperationSettlementEnvelope,
+  consumeSecRecoveredRetryAdmission,
+  issueSecNormalDomainReadbackReceipt,
+  issueSecNormalOwnerTerminalJoinReceipt,
   issueSecProviderSettlementReceipt,
+  issueSecRecoveredDomainReadbackReceipt,
+  issueSecRecoveredOwnerTerminalJoinReceipt,
+  issueSecRecoveredRetryAdmission,
   issueSecSemanticOperationAttemptContext,
   projectSecCapabilityDiagnostic,
+  type SecBoundSemanticOperation,
   type SecOperationDigest
 } from './semantic.ts';
 
@@ -50,6 +59,64 @@ function bound(deadlineAtUnixMs = 1_900_000_000_000) {
     contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   })]);
+}
+
+function multiPlan(
+  attempt = issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: digest('repository-publish-authority-grant')
+  }),
+  operation = 'repository.publish'
+) {
+  return compileSecSemanticOperationPlan({
+    operation,
+    intentDigest: digest({ target: 'candidate-ref' }),
+    decisionDigest: digest({ mode: 'fast-forward' }),
+    deadlineAtUnixMs: 1_900_000_000_000,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: 30_000 },
+      { resource: 'processes', maximum: 2 }
+    ],
+    requirements: [
+      {
+        id: 'git.object-write',
+        contractDigest: digest('git-object-write-contract'),
+        effectKinds: ['persistent-state', 'process'],
+        failureKinds: ['provider.unavailable']
+      },
+      {
+        id: 'git.ref-update',
+        contractDigest: digest('git-ref-update-contract'),
+        effectKinds: ['persistent-state', 'process'],
+        failureKinds: ['provider.conflict']
+      }
+    ],
+    attempt
+  });
+}
+
+function bindMultiPlan(
+  operationPlan = multiPlan(),
+  providerSuffix = 'canonical'
+): SecBoundSemanticOperation {
+  return bindSecSemanticOperation(operationPlan, operationPlan.execution.requirements.map(
+    (requirement) => compileSecCapabilityBinding({
+      requirementId: requirement.id,
+      contractDigest: requirement.contractDigest,
+      providerIdentityDigest: digest(`${requirement.id}:${providerSuffix}`)
+    })
+  ));
+}
+
+function providerSettlement(
+  operation: SecBoundSemanticOperation,
+  requirementId: string,
+  reference: string
+) {
+  return issueSecProviderSettlementReceipt(operation, {
+    requirementId,
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: digest(reference)
+  });
 }
 
 test('semantic plan remains provider-neutral while exact bindings are replaceable', () => {
@@ -152,95 +219,165 @@ test('provider diagnostics expose typed identity and digest without raw evidence
   );
 });
 
-test('settlement is owner-issued, attempt-bound and commits the opaque domain receipt', () => {
-  const first = bound(1_900_000_000_000);
-  const second = bound(1_900_000_000_001);
-  const sharedObservation = { status: 'exited', exitCode: 0 };
-  const firstProvider = issueSecProviderSettlementReceipt(first, {
-    terminalClass: 'completed',
-    providerSettlement: sharedObservation
-  });
-  const firstOutcome = issueSecDomainOutcomeReceipt(firstProvider, {
-    terminalClass: 'completed',
-    effectReadback: sharedObservation,
-    domainOutcome: sharedObservation
-  });
-  const secondProvider = issueSecProviderSettlementReceipt(second, {
-    terminalClass: 'completed',
-    providerSettlement: { status: 'exited', exitCode: 0 }
-  });
-  const secondOutcome = issueSecDomainOutcomeReceipt(secondProvider, {
-    terminalClass: 'completed',
-    effectReadback: { candidateTree: digest('tree-after-effect') },
-    domainOutcome: { status: 'passed', diagnosticCount: 0 }
-  });
-  const firstSettlement = issueSecOperationSettlementEnvelope(
-    first,
-    firstProvider,
-    firstOutcome
+test('provider settlement set is permutation-invariant and exact before normal readback', () => {
+  const operation = bindMultiPlan();
+  const objectWrite = providerSettlement(
+    operation,
+    'git.object-write',
+    'object-write-settlement'
   );
-  const secondSettlement = issueSecOperationSettlementEnvelope(
-    second,
-    secondProvider,
-    secondOutcome
-  );
+  const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update-settlement');
+  const forward = compileSecProviderSettlementSet(operation, [objectWrite, refUpdate]);
+  const reverse = compileSecProviderSettlementSet(operation, [refUpdate, objectWrite]);
 
-  expect(first.plan.identity.identityDigest).toBe(second.plan.identity.identityDigest);
-  expect(first.boundAttemptDigest).not.toBe(second.boundAttemptDigest);
-  expect(firstSettlement.settlementDigest).not.toBe(secondSettlement.settlementDigest);
-  expect(new Set([
-    firstSettlement.effectSettlementDigest,
-    firstSettlement.effectReadbackDigest,
-    firstSettlement.domainReceiptDigest
-  ]).size).toBe(3);
-  expect(() => assertSecOperationSettlementEnvelope(firstSettlement)).not.toThrow();
-  expect(() => assertSecOperationSettlementEnvelope({ ...firstSettlement })).toThrow(
-    'not owner-issued'
+  expect(forward.providerSettlementSetDigest).toBe(reverse.providerSettlementSetDigest);
+  expect(forward.settlements.map(({ requirementId }) => requirementId)).toEqual([
+    'git.object-write',
+    'git.ref-update'
+  ]);
+
+  const readback = issueSecNormalDomainReadbackReceipt(operation, reverse, {
+    readbackContractDigest: digest('repository-ref-readback-contract'),
+    readbackReferenceDigest: digest('exact-ref-and-object-readback'),
+    currentPhysicalEpochDigest: digest('repository-physical-epoch'),
+    disposition: 'applied'
+  });
+  const join = issueSecNormalOwnerTerminalJoinReceipt(operation, forward, readback, {
+    ownerTerminalContractDigest: digest('repository-publication-terminal-contract'),
+    ownerTerminalReferenceDigest: digest('repository-publication-terminal-reference')
+  });
+
+  expect(readback.recoveryMode).toBe('normal');
+  expect(join.providerSettlementSetDigest).toBe(forward.providerSettlementSetDigest);
+  expect(JSON.stringify(join)).not.toMatch(/status|success|failed|completed/u);
+  expect(() => assertSecProviderSettlementReceipt({ ...objectWrite })).toThrow(
+    'not provider-issued'
   );
+  expect(() => assertSecDomainReadbackReceipt({ ...readback })).toThrow('not domain-issued');
+  expect(() => assertSecOwnerTerminalJoinReceipt({ ...join })).toThrow('not owner-issued');
 });
 
-test('settlement rejects structural clones, cross-attempt receipts and terminal upgrades', () => {
-  const operation = bound();
-  const provider = issueSecProviderSettlementReceipt(operation, {
-    terminalClass: 'completed',
-    providerSettlement: { status: 'exited', exitCode: 0 }
+test('provider settlement set rejects missing duplicate extra foreign attempts and bindings', () => {
+  const operationPlan = multiPlan();
+  const operation = bindMultiPlan(operationPlan);
+  const objectWrite = providerSettlement(operation, 'git.object-write', 'object-write');
+  const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update');
+
+  expect(() => compileSecProviderSettlementSet(operation, [objectWrite])).toThrow(
+    'exactly one receipt per requirement'
+  );
+  expect(() => compileSecProviderSettlementSet(operation, [objectWrite, objectWrite])).toThrow(
+    'exactly one receipt per requirement'
+  );
+  expect(() => compileSecProviderSettlementSet(
+    operation,
+    [objectWrite, refUpdate, objectWrite]
+  )).toThrow('exactly one receipt per requirement');
+
+  const otherAttempt = bindMultiPlan(multiPlan());
+  const foreignAttemptRef = providerSettlement(otherAttempt, 'git.ref-update', 'foreign-attempt');
+  expect(() => compileSecProviderSettlementSet(
+    operation,
+    [objectWrite, foreignAttemptRef]
+  )).toThrow('does not bind the exact requirement attempt');
+
+  const otherBinding = bindMultiPlan(operationPlan, 'alternate');
+  const foreignBindingRef = providerSettlement(otherBinding, 'git.ref-update', 'foreign-binding');
+  expect(otherBinding.plan.attempt.attemptDigest).toBe(operation.plan.attempt.attemptDigest);
+  expect(otherBinding.bindings[1]!.bindingDigest).not.toBe(operation.bindings[1]!.bindingDigest);
+  expect(() => compileSecProviderSettlementSet(
+    operation,
+    [objectWrite, foreignBindingRef]
+  )).toThrow('does not bind the exact requirement attempt');
+});
+
+test('recovered readback joins owner terminal without manufacturing provider settlement', () => {
+  const operation = bindMultiPlan();
+  const recovered = issueSecRecoveredDomainReadbackReceipt(operation, {
+    durableObservationDigest: digest('durable-attempt-observation'),
+    readbackContractDigest: digest('repository-ref-readback-contract'),
+    readbackReferenceDigest: digest('recovered-exact-ref-readback'),
+    currentPhysicalEpochDigest: digest('repository-epoch-after-lost-handle'),
+    disposition: 'applied'
   });
-  const domain = issueSecDomainOutcomeReceipt(provider, {
-    terminalClass: 'completed',
-    effectReadback: { exactTree: digest('tree') },
-    domainOutcome: { status: 'passed' }
+  const join = issueSecRecoveredOwnerTerminalJoinReceipt(operation, recovered, {
+    ownerTerminalContractDigest: digest('repository-publication-terminal-contract'),
+    ownerTerminalReferenceDigest: digest('recovered-publication-terminal-reference')
   });
 
-  expect(() => issueSecDomainOutcomeReceipt({ ...provider }, {
-    terminalClass: 'completed',
-    effectReadback: { exactTree: digest('tree') },
-    domainOutcome: { status: 'passed' }
-  })).toThrow('not provider-issued');
-  expect(() => issueSecOperationSettlementEnvelope(operation, provider, {
-    ...domain
-  })).toThrow('not domain-issued');
+  expect(recovered.recoveryMode).toBe('recovered');
+  expect(recovered.providerSettlementSetDigest).toBeNull();
+  expect(join.recoveryMode).toBe('recovered');
+  expect(join.providerSettlementSetDigest).toBeNull();
+  expect(() => assertSecOwnerTerminalJoinReceipt(join)).not.toThrow();
 
-  const failedProvider = issueSecProviderSettlementReceipt(operation, {
-    terminalClass: 'failed',
-    providerSettlement: { status: 'exited', exitCode: 1 }
+  const objectWrite = providerSettlement(operation, 'git.object-write', 'object-write');
+  const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update');
+  const settlementSet = compileSecProviderSettlementSet(operation, [objectWrite, refUpdate]);
+  expect(() => issueSecNormalOwnerTerminalJoinReceipt(
+    operation,
+    settlementSet,
+    recovered as never,
+    {
+      ownerTerminalContractDigest: digest('terminal-contract'),
+      ownerTerminalReferenceDigest: digest('terminal-reference')
+    }
+  )).toThrow('requires its exact provider settlement set');
+});
+
+test('retry admission is recovered-only conclusive not-applied and single-use', () => {
+  const operation = bindMultiPlan();
+  const objectWrite = providerSettlement(operation, 'git.object-write', 'object-write');
+  const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update');
+  const settlementSet = compileSecProviderSettlementSet(operation, [objectWrite, refUpdate]);
+  const normal = issueSecNormalDomainReadbackReceipt(operation, settlementSet, {
+    readbackContractDigest: digest('readback-contract'),
+    readbackReferenceDigest: digest('normal-not-applied-readback'),
+    currentPhysicalEpochDigest: digest('physical-epoch'),
+    disposition: 'not-applied'
   });
-  expect(() => issueSecDomainOutcomeReceipt(failedProvider, {
-    terminalClass: 'completed',
-    effectReadback: { exactTree: digest('tree') },
-    domainOutcome: { status: 'passed' }
-  })).toThrow('cannot upgrade');
+  expect(() => issueSecRecoveredRetryAdmission(normal as never)).toThrow(
+    'conclusive recovered not-applied'
+  );
 
-  const structuralOperation = { ...operation };
-  expect(() => issueSecOperationSettlementEnvelope(
-    structuralOperation,
-    provider,
-    domain
-  )).toThrow('owner-issued bound semantic operation');
+  for (const disposition of ['applied', 'unknown'] as const) {
+    const inconclusive = issueSecRecoveredDomainReadbackReceipt(operation, {
+      durableObservationDigest: digest(`durable-${disposition}`),
+      readbackContractDigest: digest('readback-contract'),
+      readbackReferenceDigest: digest(`readback-${disposition}`),
+      currentPhysicalEpochDigest: digest('physical-epoch'),
+      disposition
+    });
+    expect(() => issueSecRecoveredRetryAdmission(inconclusive)).toThrow(
+      'conclusive recovered not-applied'
+    );
+  }
 
-  const otherOperation = bound(1_900_000_000_001);
-  expect(() => issueSecOperationSettlementEnvelope(
-    otherOperation,
-    provider,
-    domain
-  )).toThrow('do not bind the exact operation attempt');
+  const notApplied = issueSecRecoveredDomainReadbackReceipt(operation, {
+    durableObservationDigest: digest('durable-not-applied'),
+    readbackContractDigest: digest('readback-contract'),
+    readbackReferenceDigest: digest('readback-not-applied'),
+    currentPhysicalEpochDigest: digest('physical-epoch'),
+    disposition: 'not-applied'
+  });
+  const admission = issueSecRecoveredRetryAdmission(notApplied);
+  expect(() => issueSecRecoveredRetryAdmission(notApplied)).toThrow(
+    'already issued its retry admission'
+  );
+  expect(() => assertSecRecoveredRetryAdmission({ ...admission })).toThrow('not owner-issued');
+  const foreignSuccessor = bindMultiPlan(multiPlan(
+    issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: digest('repository-repair-authority')
+    }),
+    'repository.repair'
+  ));
+  expect(() => consumeSecRecoveredRetryAdmission(admission, foreignSuccessor)).toThrow(
+    'does not authorize this successor attempt'
+  );
+
+  const successor = bindMultiPlan(multiPlan());
+  expect(() => consumeSecRecoveredRetryAdmission(admission, successor)).not.toThrow();
+  expect(() => consumeSecRecoveredRetryAdmission(admission, bindMultiPlan(multiPlan()))).toThrow(
+    'already been consumed'
+  );
 });

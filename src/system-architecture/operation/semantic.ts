@@ -92,71 +92,97 @@ export type SecBoundSemanticOperation = Readonly<{
   readonly boundAttemptDigest: SecOperationDigest;
 }>;
 
-export const SEC_OPERATION_TERMINAL_CLASSES = [
-  'completed',
-  'failed',
-  'not-run',
-  'unsupported',
-  'invalidated',
-  'cancelled',
-  'timed-out',
-  'cleanup-failed',
-  'process-settlement-failed',
-  'recovery-required'
+export const SEC_PROVIDER_PHYSICAL_DISPOSITIONS = [
+  'not-started',
+  'settled',
+  'unknown'
 ] as const;
 
-export type SecOperationTerminalClass =
-  (typeof SEC_OPERATION_TERMINAL_CLASSES)[number];
+export type SecProviderPhysicalDisposition =
+  (typeof SEC_PROVIDER_PHYSICAL_DISPOSITIONS)[number];
 
-/**
- * Ephemeral proof that one bound provider attempt reached a physical
- * settlement.  It deliberately excludes domain outcome/readback semantics:
- * the provider cannot declare the business result of its own Effect.
- */
+export const SEC_DOMAIN_READBACK_DISPOSITIONS = [
+  'applied',
+  'not-applied',
+  'unknown'
+] as const;
+
+export type SecDomainReadbackDisposition =
+  (typeof SEC_DOMAIN_READBACK_DISPOSITIONS)[number];
+
+/** Physical settlement for exactly one requirement of one bound attempt. */
 export type SecProviderSettlementReceipt = Readonly<{
+  readonly requirementId: string;
+  readonly contractDigest: SecOperationDigest;
+  readonly bindingDigest: SecOperationDigest;
   readonly operationIdentityDigest: SecOperationDigest;
+  readonly executionPlanDigest: SecOperationDigest;
   readonly boundAttemptDigest: SecOperationDigest;
-  readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly providerTerminalClass: SecOperationTerminalClass;
-  readonly effectSettlementDigest: SecOperationDigest;
+  readonly physicalDisposition: SecProviderPhysicalDisposition;
+  readonly providerSettlementReferenceDigest: SecOperationDigest;
   readonly providerReceiptDigest: SecOperationDigest;
 }>;
 
-/**
- * Ephemeral proof issued by a domain parser after consuming an exact provider
- * settlement and an independently observed readback.  It cannot be forged by
- * cloning either input receipt and it cannot upgrade a provider failure to a
- * completed domain outcome.
- */
-export type SecDomainOutcomeReceipt = Readonly<{
+/** Canonical exact set: one provider settlement for every requirement. */
+export type SecProviderSettlementSet = Readonly<{
   readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly executionPlanDigest: SecOperationDigest;
   readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly providerReceiptDigest: SecOperationDigest;
-  readonly terminalClass: SecOperationTerminalClass;
-  readonly effectReadbackDigest: SecOperationDigest;
-  readonly domainReceiptDigest: SecOperationDigest;
-  readonly outcomeReceiptDigest: SecOperationDigest;
+  readonly boundAttemptDigest: SecOperationDigest;
+  readonly settlements: readonly SecProviderSettlementReceipt[];
+  readonly providerReceiptDigests: readonly SecOperationDigest[];
+  readonly providerSettlementSetDigest: SecOperationDigest;
 }>;
 
-/**
- * Ephemeral, owner-issued bridge from one exact Effect attempt to a domain
- * terminal projection.  The opaque domain receipt remains owned by the
- * executing domain; this envelope only binds its digest to the semantic
- * operation, capability set, physical settlement and exact readback.
- *
- * This value deliberately has no parser or serialized compatibility surface.
- * A structural clone is not authority and is rejected by the issuer check.
- */
-export type SecOperationSettlementEnvelope = Readonly<{
+type SecDomainReadbackReceiptBase = Readonly<{
   readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly executionPlanDigest: SecOperationDigest;
   readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly effectSettlementDigest: SecOperationDigest;
-  readonly effectReadbackDigest: SecOperationDigest;
-  readonly terminalClass: SecOperationTerminalClass;
-  readonly domainReceiptDigest: SecOperationDigest;
-  readonly settlementDigest: SecOperationDigest;
+  readonly boundAttemptDigest: SecOperationDigest;
+  readonly readbackContractDigest: SecOperationDigest;
+  readonly readbackReferenceDigest: SecOperationDigest;
+  readonly currentPhysicalEpochDigest: SecOperationDigest;
+  readonly disposition: SecDomainReadbackDisposition;
+  readonly readbackReceiptDigest: SecOperationDigest;
+}>;
+
+export type SecNormalDomainReadbackReceipt = SecDomainReadbackReceiptBase & Readonly<{
+  readonly recoveryMode: 'normal';
+  readonly providerSettlementSetDigest: SecOperationDigest;
+  readonly durableObservationDigest: null;
+}>;
+
+export type SecRecoveredDomainReadbackReceipt = SecDomainReadbackReceiptBase & Readonly<{
+  readonly recoveryMode: 'recovered';
+  readonly providerSettlementSetDigest: null;
+  readonly durableObservationDigest: SecOperationDigest;
+}>;
+
+export type SecDomainReadbackReceipt =
+  | SecNormalDomainReadbackReceipt
+  | SecRecoveredDomainReadbackReceipt;
+
+export type SecOwnerTerminalJoinReceipt = Readonly<{
+  readonly recoveryMode: 'normal' | 'recovered';
+  readonly operationIdentityDigest: SecOperationDigest;
+  readonly executionPlanDigest: SecOperationDigest;
+  readonly bindingSetIdentityDigest: SecOperationDigest;
+  readonly boundAttemptDigest: SecOperationDigest;
+  readonly providerSettlementSetDigest: SecOperationDigest | null;
+  readonly readbackReceiptDigest: SecOperationDigest;
+  readonly ownerTerminalContractDigest: SecOperationDigest;
+  readonly ownerTerminalReferenceDigest: SecOperationDigest;
+  readonly joinReceiptDigest: SecOperationDigest;
+}>;
+
+export type SecRecoveredRetryAdmission = Readonly<{
+  readonly operationIdentityDigest: SecOperationDigest;
+  readonly previousExecutionPlanDigest: SecOperationDigest;
+  readonly previousBindingSetIdentityDigest: SecOperationDigest;
+  readonly previousBoundAttemptDigest: SecOperationDigest;
+  readonly recoveredReadbackReceiptDigest: SecOperationDigest;
+  readonly currentPhysicalEpochDigest: SecOperationDigest;
+  readonly retryAdmissionDigest: SecOperationDigest;
 }>;
 
 export type SecCapabilityDiagnostic = Readonly<{
@@ -172,8 +198,15 @@ const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u;
 const ISSUED_BOUND_OPERATIONS = new WeakSet<object>();
 const ISSUED_ATTEMPT_CONTEXTS = new WeakSet<object>();
 const ISSUED_PROVIDER_SETTLEMENTS = new WeakSet<object>();
-const ISSUED_DOMAIN_OUTCOMES = new WeakSet<object>();
-const ISSUED_SETTLEMENT_ENVELOPES = new WeakSet<object>();
+const ISSUED_PROVIDER_SETTLEMENT_SETS = new WeakSet<object>();
+const ISSUED_DOMAIN_READBACKS = new WeakSet<object>();
+const ISSUED_OWNER_TERMINAL_JOINS = new WeakSet<object>();
+const ISSUED_RECOVERED_RETRY_ADMISSIONS = new WeakSet<object>();
+const CONSUMED_RECOVERED_RETRY_ADMISSIONS = new WeakSet<object>();
+const RETRY_ADMISSION_BY_RECOVERED_READBACK = new WeakMap<
+  object,
+  SecRecoveredRetryAdmission
+>();
 
 function requireDigest(value: string, label: string): SecOperationDigest {
   if (!DIGEST_PATTERN.test(value)) {
@@ -397,38 +430,43 @@ export function assertSecBoundSemanticOperation(
   }
 }
 
-function canonicalTerminalClass(value: string): SecOperationTerminalClass {
-  if (!SEC_OPERATION_TERMINAL_CLASSES.includes(value as SecOperationTerminalClass)) {
-    throw new Error('Operation settlement terminal class is not canonical.');
-  }
-  return value as SecOperationTerminalClass;
-}
-
-function observationDigest(domain: string, observation: unknown): SecOperationDigest {
-  return sha256({ domain, observation }) as SecOperationDigest;
-}
-
 export function issueSecProviderSettlementReceipt(
   operation: SecBoundSemanticOperation,
   input: Readonly<{
-    readonly terminalClass: SecOperationTerminalClass;
-    readonly providerSettlement: unknown;
+    readonly requirementId: string;
+    readonly physicalDisposition: SecProviderPhysicalDisposition;
+    readonly providerSettlementReferenceDigest: SecOperationDigest;
   }>
 ): SecProviderSettlementReceipt {
   if (!ISSUED_BOUND_OPERATIONS.has(operation)) {
     throw new Error('Provider settlement requires an owner-issued bound semantic operation.');
   }
-  const providerTerminalClass = canonicalTerminalClass(input.terminalClass);
-  const effectSettlementDigest = observationDigest(
-    'sec.operation.provider-settlement',
-    input.providerSettlement
+  const requirementId = requireId(input.requirementId, 'Provider settlement requirement id');
+  const requirement = operation.plan.execution.requirements.find(
+    ({ id }) => id === requirementId
   );
+  const binding = operation.bindings.find(
+    ({ requirementId: candidate }) => candidate === requirementId
+  );
+  if (requirement === undefined || binding === undefined
+      || binding.contractDigest !== requirement.contractDigest) {
+    throw new Error('Provider settlement does not bind an exact operation requirement.');
+  }
+  if (!SEC_PROVIDER_PHYSICAL_DISPOSITIONS.includes(input.physicalDisposition)) {
+    throw new Error('Provider physical disposition is not canonical.');
+  }
   const withoutDigest = deepFreeze({
+    requirementId,
+    contractDigest: requirement.contractDigest,
+    bindingDigest: binding.bindingDigest,
     operationIdentityDigest: operation.plan.identity.identityDigest,
+    executionPlanDigest: operation.plan.execution.executionPlanDigest,
     boundAttemptDigest: operation.boundAttemptDigest,
-    bindingSetIdentityDigest: operation.bindingSetIdentityDigest,
-    providerTerminalClass,
-    effectSettlementDigest
+    physicalDisposition: input.physicalDisposition,
+    providerSettlementReferenceDigest: requireDigest(
+      input.providerSettlementReferenceDigest,
+      'Provider settlement reference digest'
+    )
   });
   const receipt = deepFreeze({
     ...withoutDigest,
@@ -450,153 +488,335 @@ export function assertSecProviderSettlementReceipt(
   }
 }
 
-export function issueSecDomainOutcomeReceipt(
-  providerSettlement: SecProviderSettlementReceipt,
-  input: Readonly<{
-    readonly terminalClass: SecOperationTerminalClass;
-    readonly effectReadback: unknown;
-    readonly domainOutcome: unknown;
-  }>
-): SecDomainOutcomeReceipt {
-  assertSecProviderSettlementReceipt(providerSettlement);
-  const terminalClass = canonicalTerminalClass(input.terminalClass);
-  if (providerSettlement.providerTerminalClass !== 'completed'
-      && terminalClass === 'completed') {
-    throw new Error('Domain outcome cannot upgrade a non-completed provider settlement.');
+export function compileSecProviderSettlementSet(
+  operation: SecBoundSemanticOperation,
+  suppliedSettlements: readonly SecProviderSettlementReceipt[]
+): SecProviderSettlementSet {
+  if (!ISSUED_BOUND_OPERATIONS.has(operation)) {
+    throw new Error('Provider settlement set requires an owner-issued bound semantic operation.');
   }
-  const effectReadbackDigest = observationDigest(
-    'sec.operation.effect-readback',
-    input.effectReadback
-  );
-  const domainReceiptDigest = observationDigest(
-    'sec.operation.domain-outcome',
-    input.domainOutcome
-  );
-  if (effectReadbackDigest === providerSettlement.effectSettlementDigest
-      || domainReceiptDigest === providerSettlement.effectSettlementDigest
-      || domainReceiptDigest === effectReadbackDigest) {
-    throw new Error('Provider settlement, Effect readback and domain outcome must be independent.');
+  const settlements = [...suppliedSettlements].sort((left, right) => (
+    compareCodeUnits(left.requirementId, right.requirementId)
+  ));
+  if (settlements.length !== operation.plan.execution.requirements.length
+      || new Set(settlements.map(({ requirementId }) => requirementId)).size
+        !== settlements.length) {
+    throw new Error('Provider settlement set requires exactly one receipt per requirement.');
   }
+  for (const [index, requirement] of operation.plan.execution.requirements.entries()) {
+    const settlement = settlements[index];
+    assertSecProviderSettlementReceipt(settlement);
+    const binding = operation.bindings[index];
+    if (settlement.requirementId !== requirement.id
+        || binding?.requirementId !== requirement.id
+        || settlement.contractDigest !== requirement.contractDigest
+        || settlement.bindingDigest !== binding.bindingDigest
+        || settlement.operationIdentityDigest !== operation.plan.identity.identityDigest
+        || settlement.executionPlanDigest !== operation.plan.execution.executionPlanDigest
+        || settlement.boundAttemptDigest !== operation.boundAttemptDigest) {
+      throw new Error(
+        `Provider settlement for ${requirement.id} does not bind the exact requirement attempt.`
+      );
+    }
+  }
+  const frozenSettlements = Object.freeze(settlements);
+  const providerReceiptDigests = Object.freeze(
+    settlements.map(({ providerReceiptDigest }) => providerReceiptDigest)
+  );
   const withoutDigest = deepFreeze({
-    operationIdentityDigest: providerSettlement.operationIdentityDigest,
-    boundAttemptDigest: providerSettlement.boundAttemptDigest,
-    bindingSetIdentityDigest: providerSettlement.bindingSetIdentityDigest,
-    providerReceiptDigest: providerSettlement.providerReceiptDigest,
-    terminalClass,
-    effectReadbackDigest,
-    domainReceiptDigest
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    executionPlanDigest: operation.plan.execution.executionPlanDigest,
+    bindingSetIdentityDigest: operation.bindingSetIdentityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest,
+    settlements: frozenSettlements,
+    providerReceiptDigests
+  });
+  const settlementSet = deepFreeze({
+    ...withoutDigest,
+    providerSettlementSetDigest: sha256({
+      domain: 'sec.operation.provider-settlement-set',
+      settlementSet: withoutDigest
+    }) as SecOperationDigest
+  });
+  ISSUED_PROVIDER_SETTLEMENT_SETS.add(settlementSet);
+  return settlementSet;
+}
+
+export function assertSecProviderSettlementSet(
+  value: unknown
+): asserts value is SecProviderSettlementSet {
+  if (value === null || typeof value !== 'object'
+      || !ISSUED_PROVIDER_SETTLEMENT_SETS.has(value)) {
+    throw new Error('Provider settlement set is not owner-issued.');
+  }
+}
+
+function requireBoundReadbackOperation(operation: SecBoundSemanticOperation): void {
+  if (!ISSUED_BOUND_OPERATIONS.has(operation)) {
+    throw new Error('Domain readback requires an owner-issued bound semantic operation.');
+  }
+}
+
+function canonicalReadbackDisposition(value: string): SecDomainReadbackDisposition {
+  if (!SEC_DOMAIN_READBACK_DISPOSITIONS.includes(value as SecDomainReadbackDisposition)) {
+    throw new Error('Domain readback disposition is not canonical.');
+  }
+  return value as SecDomainReadbackDisposition;
+}
+
+function issueDomainReadbackReceipt(input: Readonly<{
+  readonly operation: SecBoundSemanticOperation;
+  readonly recoveryMode: 'normal' | 'recovered';
+  readonly providerSettlementSetDigest: SecOperationDigest | null;
+  readonly durableObservationDigest: SecOperationDigest | null;
+  readonly readbackContractDigest: SecOperationDigest;
+  readonly readbackReferenceDigest: SecOperationDigest;
+  readonly currentPhysicalEpochDigest: SecOperationDigest;
+  readonly disposition: SecDomainReadbackDisposition;
+}>): SecDomainReadbackReceipt {
+  const withoutDigest = deepFreeze({
+    recoveryMode: input.recoveryMode,
+    operationIdentityDigest: input.operation.plan.identity.identityDigest,
+    executionPlanDigest: input.operation.plan.execution.executionPlanDigest,
+    bindingSetIdentityDigest: input.operation.bindingSetIdentityDigest,
+    boundAttemptDigest: input.operation.boundAttemptDigest,
+    providerSettlementSetDigest: input.providerSettlementSetDigest,
+    durableObservationDigest: input.durableObservationDigest,
+    readbackContractDigest: requireDigest(
+      input.readbackContractDigest,
+      'Domain readback contract digest'
+    ),
+    readbackReferenceDigest: requireDigest(
+      input.readbackReferenceDigest,
+      'Domain readback reference digest'
+    ),
+    currentPhysicalEpochDigest: requireDigest(
+      input.currentPhysicalEpochDigest,
+      'Domain readback physical epoch digest'
+    ),
+    disposition: canonicalReadbackDisposition(input.disposition)
   });
   const receipt = deepFreeze({
     ...withoutDigest,
-    outcomeReceiptDigest: sha256({
-      domain: 'sec.operation.domain-outcome-receipt',
-      receipt: withoutDigest
+    readbackReceiptDigest: sha256({
+      domain: 'sec.operation.domain-readback-receipt',
+      readback: withoutDigest
     }) as SecOperationDigest
-  });
-  ISSUED_DOMAIN_OUTCOMES.add(receipt);
+  }) as SecDomainReadbackReceipt;
+  ISSUED_DOMAIN_READBACKS.add(receipt);
   return receipt;
 }
 
-export function assertSecDomainOutcomeReceipt(
+export function issueSecNormalDomainReadbackReceipt(
+  operation: SecBoundSemanticOperation,
+  providerSettlementSet: SecProviderSettlementSet,
+  input: Readonly<{
+    readonly readbackContractDigest: SecOperationDigest;
+    readonly readbackReferenceDigest: SecOperationDigest;
+    readonly currentPhysicalEpochDigest: SecOperationDigest;
+    readonly disposition: SecDomainReadbackDisposition;
+  }>
+): SecNormalDomainReadbackReceipt {
+  requireBoundReadbackOperation(operation);
+  assertSecProviderSettlementSet(providerSettlementSet);
+  if (providerSettlementSet.operationIdentityDigest !== operation.plan.identity.identityDigest
+      || providerSettlementSet.executionPlanDigest
+        !== operation.plan.execution.executionPlanDigest
+      || providerSettlementSet.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
+      || providerSettlementSet.boundAttemptDigest !== operation.boundAttemptDigest) {
+    throw new Error('Normal domain readback does not bind the exact provider settlement set.');
+  }
+  return issueDomainReadbackReceipt({
+    operation,
+    recoveryMode: 'normal',
+    providerSettlementSetDigest: providerSettlementSet.providerSettlementSetDigest,
+    durableObservationDigest: null,
+    ...input
+  }) as SecNormalDomainReadbackReceipt;
+}
+
+export function issueSecRecoveredDomainReadbackReceipt(
+  operation: SecBoundSemanticOperation,
+  input: Readonly<{
+    readonly durableObservationDigest: SecOperationDigest;
+    readonly readbackContractDigest: SecOperationDigest;
+    readonly readbackReferenceDigest: SecOperationDigest;
+    readonly currentPhysicalEpochDigest: SecOperationDigest;
+    readonly disposition: SecDomainReadbackDisposition;
+  }>
+): SecRecoveredDomainReadbackReceipt {
+  requireBoundReadbackOperation(operation);
+  return issueDomainReadbackReceipt({
+    operation,
+    recoveryMode: 'recovered',
+    providerSettlementSetDigest: null,
+    durableObservationDigest: requireDigest(
+      input.durableObservationDigest,
+      'Recovered domain durable observation digest'
+    ),
+    readbackContractDigest: input.readbackContractDigest,
+    readbackReferenceDigest: input.readbackReferenceDigest,
+    currentPhysicalEpochDigest: input.currentPhysicalEpochDigest,
+    disposition: input.disposition
+  }) as SecRecoveredDomainReadbackReceipt;
+}
+
+export function assertSecDomainReadbackReceipt(
   value: unknown
-): asserts value is SecDomainOutcomeReceipt {
+): asserts value is SecDomainReadbackReceipt {
   if (value === null || typeof value !== 'object'
-      || !ISSUED_DOMAIN_OUTCOMES.has(value)) {
-    throw new Error('Domain outcome receipt is not domain-issued.');
+      || !ISSUED_DOMAIN_READBACKS.has(value)) {
+    throw new Error('Domain readback receipt is not domain-issued.');
   }
 }
 
-function settlementWithoutDigest(input: Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
-  readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly effectSettlementDigest: SecOperationDigest;
-  readonly effectReadbackDigest: SecOperationDigest;
-  readonly terminalClass: SecOperationTerminalClass;
-  readonly domainReceiptDigest: SecOperationDigest;
-}>): Omit<SecOperationSettlementEnvelope, 'settlementDigest'> {
-  const effectSettlementDigest = requireDigest(
-    input.effectSettlementDigest,
-    'Operation Effect settlement digest'
-  );
-  const effectReadbackDigest = requireDigest(
-    input.effectReadbackDigest,
-    'Operation Effect readback digest'
-  );
-  if (effectSettlementDigest === effectReadbackDigest) {
-    throw new Error('Operation Effect settlement and readback must be independently observed.');
+function assertReadbackBindsOperation(
+  operation: SecBoundSemanticOperation,
+  readback: SecDomainReadbackReceipt
+): void {
+  assertSecDomainReadbackReceipt(readback);
+  if (readback.operationIdentityDigest !== operation.plan.identity.identityDigest
+      || readback.executionPlanDigest !== operation.plan.execution.executionPlanDigest
+      || readback.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
+      || readback.boundAttemptDigest !== operation.boundAttemptDigest) {
+    throw new Error('Domain readback does not bind the exact operation attempt.');
   }
-  return deepFreeze({
-    operationIdentityDigest: requireDigest(
-      input.operationIdentityDigest,
-      'Operation settlement identity digest'
+}
+
+function issueOwnerTerminalJoinReceipt(input: Readonly<{
+  readonly operation: SecBoundSemanticOperation;
+  readonly readback: SecDomainReadbackReceipt;
+  readonly ownerTerminalContractDigest: SecOperationDigest;
+  readonly ownerTerminalReferenceDigest: SecOperationDigest;
+}>): SecOwnerTerminalJoinReceipt {
+  const withoutDigest = deepFreeze({
+    recoveryMode: input.readback.recoveryMode,
+    operationIdentityDigest: input.operation.plan.identity.identityDigest,
+    executionPlanDigest: input.operation.plan.execution.executionPlanDigest,
+    bindingSetIdentityDigest: input.operation.bindingSetIdentityDigest,
+    boundAttemptDigest: input.operation.boundAttemptDigest,
+    providerSettlementSetDigest: input.readback.providerSettlementSetDigest,
+    readbackReceiptDigest: input.readback.readbackReceiptDigest,
+    ownerTerminalContractDigest: requireDigest(
+      input.ownerTerminalContractDigest,
+      'Owner terminal contract digest'
     ),
-    boundAttemptDigest: requireDigest(
-      input.boundAttemptDigest,
-      'Operation settlement bound attempt digest'
-    ),
-    bindingSetIdentityDigest: requireDigest(
-      input.bindingSetIdentityDigest,
-      'Operation settlement binding-set digest'
-    ),
-    effectSettlementDigest,
-    effectReadbackDigest,
-    terminalClass: canonicalTerminalClass(input.terminalClass),
-    domainReceiptDigest: requireDigest(
-      input.domainReceiptDigest,
-      'Operation settlement domain receipt digest'
+    ownerTerminalReferenceDigest: requireDigest(
+      input.ownerTerminalReferenceDigest,
+      'Owner terminal reference digest'
     )
   });
-}
-
-export function issueSecOperationSettlementEnvelope(
-  operation: SecBoundSemanticOperation,
-  providerSettlement: SecProviderSettlementReceipt,
-  domainOutcome: SecDomainOutcomeReceipt
-): SecOperationSettlementEnvelope {
-  if (!ISSUED_BOUND_OPERATIONS.has(operation)) {
-    throw new Error('Operation settlement requires an owner-issued bound semantic operation.');
-  }
-  assertSecProviderSettlementReceipt(providerSettlement);
-  assertSecDomainOutcomeReceipt(domainOutcome);
-  if (providerSettlement.operationIdentityDigest !== operation.plan.identity.identityDigest
-      || providerSettlement.boundAttemptDigest !== operation.boundAttemptDigest
-      || providerSettlement.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
-      || domainOutcome.operationIdentityDigest !== operation.plan.identity.identityDigest
-      || domainOutcome.boundAttemptDigest !== operation.boundAttemptDigest
-      || domainOutcome.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
-      || domainOutcome.providerReceiptDigest !== providerSettlement.providerReceiptDigest) {
-    throw new Error('Operation settlement receipts do not bind the exact operation attempt.');
-  }
-  const withoutDigest = settlementWithoutDigest({
-    operationIdentityDigest: operation.plan.identity.identityDigest,
-    boundAttemptDigest: operation.boundAttemptDigest,
-    bindingSetIdentityDigest: operation.bindingSetIdentityDigest,
-    effectSettlementDigest: providerSettlement.effectSettlementDigest,
-    effectReadbackDigest: domainOutcome.effectReadbackDigest,
-    terminalClass: domainOutcome.terminalClass,
-    domainReceiptDigest: domainOutcome.domainReceiptDigest
-  });
-  const envelope = deepFreeze({
+  const receipt = deepFreeze({
     ...withoutDigest,
-    settlementDigest: sha256(withoutDigest) as SecOperationDigest
+    joinReceiptDigest: sha256({
+      domain: 'sec.operation.owner-terminal-join',
+      join: withoutDigest
+    }) as SecOperationDigest
   });
-  ISSUED_SETTLEMENT_ENVELOPES.add(envelope);
-  return envelope;
+  ISSUED_OWNER_TERMINAL_JOINS.add(receipt);
+  return receipt;
 }
 
-export function assertSecOperationSettlementEnvelope(
-  value: unknown
-): asserts value is SecOperationSettlementEnvelope {
-  if (value === null || typeof value !== 'object'
-      || !ISSUED_SETTLEMENT_ENVELOPES.has(value)) {
-    throw new Error('Operation settlement envelope is not owner-issued.');
+export function issueSecNormalOwnerTerminalJoinReceipt(
+  operation: SecBoundSemanticOperation,
+  providerSettlementSet: SecProviderSettlementSet,
+  readback: SecNormalDomainReadbackReceipt,
+  input: Readonly<{
+    readonly ownerTerminalContractDigest: SecOperationDigest;
+    readonly ownerTerminalReferenceDigest: SecOperationDigest;
+  }>
+): SecOwnerTerminalJoinReceipt {
+  requireBoundReadbackOperation(operation);
+  assertSecProviderSettlementSet(providerSettlementSet);
+  assertReadbackBindsOperation(operation, readback);
+  if (readback.recoveryMode !== 'normal'
+      || readback.providerSettlementSetDigest
+        !== providerSettlementSet.providerSettlementSetDigest) {
+    throw new Error('Normal owner terminal join requires its exact provider settlement set.');
   }
-  const envelope = value as SecOperationSettlementEnvelope;
-  const withoutDigest = settlementWithoutDigest(envelope);
-  if (requireDigest(envelope.settlementDigest, 'Operation settlement digest')
-      !== sha256(withoutDigest)) {
-    throw new Error('Operation settlement envelope digest mismatch.');
+  return issueOwnerTerminalJoinReceipt({ operation, readback, ...input });
+}
+
+export function issueSecRecoveredOwnerTerminalJoinReceipt(
+  operation: SecBoundSemanticOperation,
+  readback: SecRecoveredDomainReadbackReceipt,
+  input: Readonly<{
+    readonly ownerTerminalContractDigest: SecOperationDigest;
+    readonly ownerTerminalReferenceDigest: SecOperationDigest;
+  }>
+): SecOwnerTerminalJoinReceipt {
+  requireBoundReadbackOperation(operation);
+  assertReadbackBindsOperation(operation, readback);
+  if (readback.recoveryMode !== 'recovered') {
+    throw new Error('Recovered owner terminal join requires a recovered readback.');
+  }
+  return issueOwnerTerminalJoinReceipt({ operation, readback, ...input });
+}
+
+export function assertSecOwnerTerminalJoinReceipt(
+  value: unknown
+): asserts value is SecOwnerTerminalJoinReceipt {
+  if (value === null || typeof value !== 'object'
+      || !ISSUED_OWNER_TERMINAL_JOINS.has(value)) {
+    throw new Error('Owner terminal join receipt is not owner-issued.');
+  }
+}
+
+export function issueSecRecoveredRetryAdmission(
+  readback: SecRecoveredDomainReadbackReceipt
+): SecRecoveredRetryAdmission {
+  assertSecDomainReadbackReceipt(readback);
+  if (readback.recoveryMode !== 'recovered'
+      || readback.disposition !== 'not-applied') {
+    throw new Error('Retry admission requires a conclusive recovered not-applied readback.');
+  }
+  if (RETRY_ADMISSION_BY_RECOVERED_READBACK.has(readback)) {
+    throw new Error('Recovered readback has already issued its retry admission.');
+  }
+  const withoutDigest = deepFreeze({
+    operationIdentityDigest: readback.operationIdentityDigest,
+    previousExecutionPlanDigest: readback.executionPlanDigest,
+    previousBindingSetIdentityDigest: readback.bindingSetIdentityDigest,
+    previousBoundAttemptDigest: readback.boundAttemptDigest,
+    recoveredReadbackReceiptDigest: readback.readbackReceiptDigest,
+    currentPhysicalEpochDigest: readback.currentPhysicalEpochDigest
+  });
+  const admission = deepFreeze({
+    ...withoutDigest,
+    retryAdmissionDigest: sha256({
+      domain: 'sec.operation.recovered-retry-admission',
+      admission: withoutDigest
+    }) as SecOperationDigest
+  });
+  ISSUED_RECOVERED_RETRY_ADMISSIONS.add(admission);
+  RETRY_ADMISSION_BY_RECOVERED_READBACK.set(readback, admission);
+  return admission;
+}
+
+export function consumeSecRecoveredRetryAdmission(
+  admission: SecRecoveredRetryAdmission,
+  successor: SecBoundSemanticOperation
+): void {
+  if (!ISSUED_RECOVERED_RETRY_ADMISSIONS.has(admission)) {
+    throw new Error('Recovered retry admission is not owner-issued.');
+  }
+  if (CONSUMED_RECOVERED_RETRY_ADMISSIONS.has(admission)) {
+    throw new Error('Recovered retry admission has already been consumed.');
+  }
+  if (!ISSUED_BOUND_OPERATIONS.has(successor)
+      || successor.plan.identity.identityDigest !== admission.operationIdentityDigest
+      || successor.boundAttemptDigest === admission.previousBoundAttemptDigest) {
+    throw new Error('Recovered retry admission does not authorize this successor attempt.');
+  }
+  CONSUMED_RECOVERED_RETRY_ADMISSIONS.add(admission);
+}
+
+export function assertSecRecoveredRetryAdmission(
+  value: unknown
+): asserts value is SecRecoveredRetryAdmission {
+  if (value === null || typeof value !== 'object'
+      || !ISSUED_RECOVERED_RETRY_ADMISSIONS.has(value)) {
+    throw new Error('Recovered retry admission is not owner-issued.');
   }
 }
 

@@ -2,15 +2,23 @@ import path from 'node:path';
 
 import {
   assertSecBoundSemanticOperation,
-  type SecBoundSemanticOperation
+  assertSecOwnerTerminalJoinReceipt,
+  assertSecRecoveredRetryAdmission,
+  type SecBoundSemanticOperation,
+  type SecOwnerTerminalJoinReceipt,
+  type SecRecoveredRetryAdmission
 } from '../../../system-architecture/operation/semantic.ts';
-import type { RuntimeStateJournalFileSystem } from '../journal-filesystem.ts';
 import {
+  RuntimeStateJournalReadError,
+  type RuntimeStateJournalFileSystem
+} from '../journal-filesystem.ts';
+import {
+  SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES,
   SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
   encodeDurableExecutionRecord,
   observeDurableExecutionJournal,
   parseDurableExecutionJournal,
-  sealDurableExecutionRecord,
+  sealDurableExecutionRecordForInternalWriter,
   type SecDurableAttemptResolutionKind,
   type SecDurableExecutionAttemptStartRecord,
   type SecDurableExecutionDigest,
@@ -18,7 +26,12 @@ import {
   type SecDurableExecutionRecord
 } from './contract.ts';
 
-export type SecDurableExecutionStoreFailureKind = 'absent' | 'conflict' | 'identity-mismatch';
+export type SecDurableExecutionStoreFailureKind =
+  | 'absent'
+  | 'conflict'
+  | 'identity-mismatch'
+  | 'deadline-exhausted'
+  | 'resource-exhausted';
 
 export class SecDurableExecutionStoreError extends Error {
   readonly kind: SecDurableExecutionStoreFailureKind;
@@ -34,6 +47,21 @@ export interface SecDurableExecutionJournalIdentity {
   readonly operationKeyDigest: SecDurableExecutionDigest;
 }
 
+export interface SecDurableExecutionStoreLimits {
+  readonly deadlineAtMonotonicMs: number;
+  readonly maximumRecords: number;
+  readonly maximumStateBytes: number;
+  readonly maximumAttempts: number;
+  readonly maximumProviderSettlementsPerAttempt: number;
+}
+
+const LIMIT_CEILINGS = Object.freeze({
+  maximumRecords: 4_096,
+  maximumStateBytes: 8 * 1024 * 1024,
+  maximumAttempts: 128,
+  maximumProviderSettlementsPerAttempt: 32
+});
+
 /**
  * Projects the stable journal address from one live owner-issued operation.
  * The parsed journal remains observation-only; this projection merely prevents
@@ -46,6 +74,27 @@ export function durableExecutionJournalIdentity(
   return Object.freeze({
     operationKeyDigest: operation.plan.identity.identityDigest
   });
+}
+
+export function createDurableExecutionStore(input: Readonly<{
+  fileSystem: RuntimeStateJournalFileSystem;
+  journalRoot: string;
+  limits: SecDurableExecutionStoreLimits;
+}>): SecDurableExecutionStore {
+  const writer = createStoreCore(input);
+  return Object.freeze({ read: writer.read });
+}
+
+/**
+ * @internal Consumer-zero construction seam for focused Runtime State tests.
+ * Delete this structural writer when semantic receipt issuers own append inputs.
+ */
+export function createInternalDurableExecutionWriter(input: Readonly<{
+  fileSystem: RuntimeStateJournalFileSystem;
+  journalRoot: string;
+  limits: SecDurableExecutionStoreLimits;
+}>): InternalSecDurableExecutionWriter {
+  return createStoreCore(input);
 }
 
 type CreateIntentInput = SecDurableExecutionJournalIdentity & Readonly<{
@@ -105,9 +154,59 @@ type AppendAttemptResolutionInput = SecDurableExecutionJournalIdentity & Readonl
   resolutionReferenceDigest: SecDurableExecutionDigest;
 }>;
 
+export function durableExecutionOwnerTerminalResolutionInput(
+  operation: SecBoundSemanticOperation,
+  receipt: SecOwnerTerminalJoinReceipt
+): AppendAttemptResolutionInput {
+  const identity = durableExecutionJournalIdentity(operation);
+  assertSecOwnerTerminalJoinReceipt(receipt);
+  if (receipt.operationIdentityDigest !== identity.operationKeyDigest
+      || receipt.executionPlanDigest !== operation.plan.execution.executionPlanDigest
+      || receipt.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
+      || receipt.boundAttemptDigest !== operation.boundAttemptDigest) {
+    throw new SecDurableExecutionStoreError(
+      'identity-mismatch',
+      'owner terminal receipt does not bind the exact operation attempt.'
+    );
+  }
+  return Object.freeze({
+    ...identity,
+    attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
+    resolutionKind: 'owner-terminal-reference',
+    resolutionReferenceDigest: receipt.joinReceiptDigest
+  });
+}
+
+export function durableExecutionRetryAdmissionResolutionInput(
+  operation: SecBoundSemanticOperation,
+  admission: SecRecoveredRetryAdmission
+): AppendAttemptResolutionInput {
+  const identity = durableExecutionJournalIdentity(operation);
+  assertSecRecoveredRetryAdmission(admission);
+  if (admission.operationIdentityDigest !== identity.operationKeyDigest
+      || admission.previousExecutionPlanDigest !== operation.plan.execution.executionPlanDigest
+      || admission.previousBindingSetIdentityDigest !== operation.bindingSetIdentityDigest
+      || admission.previousBoundAttemptDigest !== operation.boundAttemptDigest) {
+    throw new SecDurableExecutionStoreError(
+      'identity-mismatch',
+      'retry admission does not bind the exact recovered operation attempt.'
+    );
+  }
+  return Object.freeze({
+    ...identity,
+    attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
+    resolutionKind: 'retry-admission-reference',
+    resolutionReferenceDigest: admission.retryAdmissionDigest
+  });
+}
+
 export interface SecDurableExecutionStore {
   /** Reads durable observations. The result is never execution or replay authority. */
   read(identity: SecDurableExecutionJournalIdentity): SecDurableExecutionJournalObservation | null;
+}
+
+/** @internal Structural writes remain private until semantic receipts own their issuance. */
+export interface InternalSecDurableExecutionWriter extends SecDurableExecutionStore {
   createIntent(input: CreateIntentInput): SecDurableExecutionJournalObservation;
   appendAttemptStart(input: AppendAttemptStartInput): SecDurableExecutionJournalObservation;
   appendCancelRequest(input: AppendCancelRequestInput): SecDurableExecutionJournalObservation;
@@ -123,6 +222,96 @@ function canonicalDigest(value: string, label: string): SecDurableExecutionDiges
     throw new SecDurableExecutionStoreError('identity-mismatch', `${label} is not canonical.`);
   }
   return value as SecDurableExecutionDigest;
+}
+
+function normalizeLimits(input: SecDurableExecutionStoreLimits): SecDurableExecutionStoreLimits {
+  if (!Number.isFinite(input.deadlineAtMonotonicMs) || input.deadlineAtMonotonicMs <= performance.now()) {
+    throw new SecDurableExecutionStoreError(
+      'deadline-exhausted',
+      'deadlineAtMonotonicMs must be one unexpired finite absolute monotonic deadline.'
+    );
+  }
+  for (const key of [
+    'maximumRecords',
+    'maximumStateBytes',
+    'maximumAttempts',
+    'maximumProviderSettlementsPerAttempt'
+  ] as const) {
+    const value = input[key];
+    const minimum = key === 'maximumProviderSettlementsPerAttempt' ? 0 : 1;
+    if (!Number.isSafeInteger(value) || value < minimum || value > LIMIT_CEILINGS[key]) {
+      throw new SecDurableExecutionStoreError(
+        'resource-exhausted',
+        `${key} must be a safe integer within its canonical ceiling ${LIMIT_CEILINGS[key]}.`
+      );
+    }
+  }
+  return Object.freeze({ ...input });
+}
+
+function assertDeadline(limits: SecDurableExecutionStoreLimits): void {
+  if (performance.now() >= limits.deadlineAtMonotonicMs) {
+    throw new SecDurableExecutionStoreError('deadline-exhausted', 'operation deadline is exhausted.');
+  }
+}
+
+function attemptCount(observation: SecDurableExecutionJournalObservation): number {
+  return observation.records.filter(({ kind }) => kind === 'attempt-start').length;
+}
+
+function limitsMatchIntent(
+  observation: SecDurableExecutionJournalObservation,
+  limits: SecDurableExecutionStoreLimits
+): boolean {
+  const intent = observation.intent;
+  return intent.maximumRecords === limits.maximumRecords
+    && intent.maximumStateBytes === limits.maximumStateBytes
+    && intent.maximumAttempts === limits.maximumAttempts
+    && intent.maximumProviderSettlementsPerAttempt === limits.maximumProviderSettlementsPerAttempt;
+}
+
+function reservedClosureRecords(
+  observation: SecDurableExecutionJournalObservation,
+  limits: SecDurableExecutionStoreLimits
+): number {
+  const active = observation.activeAttempt;
+  if (active === null) return 0;
+  const remainingProviders = active.cancelRequest === null
+    ? limits.maximumProviderSettlementsPerAttempt - active.providerSettlements.length
+    : 0;
+  if (remainingProviders < 0) {
+    throw new SecDurableExecutionStoreError(
+      'resource-exhausted',
+      'active attempt exceeds its provider settlement reservation.'
+    );
+  }
+  return remainingProviders
+    + (active.cancelRequest === null ? 1 : 0)
+    + (active.domainReadback === null ? 1 : 0)
+    + 1;
+}
+
+function assertCumulativeLimits(
+  observation: SecDurableExecutionJournalObservation,
+  limits: SecDurableExecutionStoreLimits,
+  exactStateBytes: number,
+  reserveSettlementClosure: boolean
+): void {
+  assertDeadline(limits);
+  const reservedRecords = reserveSettlementClosure
+    ? reservedClosureRecords(observation, limits)
+    : 0;
+  const recordsWithReservation = observation.records.length + reservedRecords;
+  const bytesWithReservation = exactStateBytes
+    + reservedRecords * (SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES + 1);
+  if (recordsWithReservation > limits.maximumRecords
+      || bytesWithReservation > limits.maximumStateBytes
+      || attemptCount(observation) > limits.maximumAttempts) {
+    throw new SecDurableExecutionStoreError(
+      'resource-exhausted',
+      'journal cannot reserve its complete bounded attempt-settlement closure.'
+    );
+  }
 }
 
 function identityPath(
@@ -173,40 +362,72 @@ function sameAttemptStart(
     && record.executionPlanReferenceDigest === input.executionPlanReferenceDigest;
 }
 
-export function createDurableExecutionStore(input: Readonly<{
+function createStoreCore(input: Readonly<{
   fileSystem: RuntimeStateJournalFileSystem;
   journalRoot: string;
-}>): SecDurableExecutionStore {
+  limits: SecDurableExecutionStoreLimits;
+}>): InternalSecDurableExecutionWriter {
   const journalRoot = path.resolve(input.journalRoot);
+  const limits = normalizeLimits(input.limits);
   if (!path.isAbsolute(input.journalRoot) || !pathInside(journalRoot, input.fileSystem.rootPath)) {
     throw new SecDurableExecutionStoreError(
       'identity-mismatch',
       'journal root must be an absolute descendant of the retained Runtime State root.'
     );
   }
-  const read = (
+  const readState = (
     identity: SecDurableExecutionJournalIdentity
-  ): SecDurableExecutionJournalObservation | null => {
+  ): Readonly<{
+    observation: SecDurableExecutionJournalObservation;
+    source: string;
+  }> | null => {
+    assertDeadline(limits);
     const journalPath = identityPath(journalRoot, identity);
-    if (!input.fileSystem.exists(journalPath)) return null;
-    const observation = parseDurableExecutionJournal(input.fileSystem.readText(journalPath));
+    let source: string | null;
+    try {
+      source = input.fileSystem.readTextRetained(journalPath, {
+        deadlineAtMonotonicMs: limits.deadlineAtMonotonicMs,
+        maximumBytes: limits.maximumStateBytes
+      });
+    } catch (error) {
+      if (error instanceof RuntimeStateJournalReadError) {
+        throw new SecDurableExecutionStoreError(
+          error.kind === 'deadline-exhausted' ? 'deadline-exhausted' : 'resource-exhausted',
+          error.message
+        );
+      }
+      throw error;
+    }
+    if (source === null) return null;
+    const observation = parseDurableExecutionJournal(source);
     if (!sameIdentity(observation, identity)) {
       throw new SecDurableExecutionStoreError(
         'identity-mismatch',
         'journal bytes do not match their OperationKey address.'
       );
     }
-    return observation;
+    if (!limitsMatchIntent(observation, limits)) {
+      throw new SecDurableExecutionStoreError(
+        'identity-mismatch',
+        'journal limits differ from their immutable operation intent.'
+      );
+    }
+    assertCumulativeLimits(observation, limits, Buffer.byteLength(source, 'utf8'), true);
+    return Object.freeze({ observation, source });
   };
+
+  const read = (
+    identity: SecDurableExecutionJournalIdentity
+  ): SecDurableExecutionJournalObservation | null => readState(identity)?.observation ?? null;
 
   const required = (
     identity: SecDurableExecutionJournalIdentity
   ): SecDurableExecutionJournalObservation => {
-    const observation = read(identity);
-    if (observation === null) {
+    const state = readState(identity);
+    if (state === null) {
       throw new SecDurableExecutionStoreError('absent', 'journal intent is absent.');
     }
-    return observation;
+    return state.observation;
   };
 
   const append = (
@@ -214,15 +435,26 @@ export function createDurableExecutionStore(input: Readonly<{
     build: (current: SecDurableExecutionJournalObservation) => SecDurableExecutionRecord,
     equivalent: (record: SecDurableExecutionRecord) => boolean
   ): SecDurableExecutionJournalObservation => {
-    const current = required(identity);
+    assertDeadline(limits);
+    const currentState = readState(identity);
+    if (currentState === null) {
+      throw new SecDurableExecutionStoreError('absent', 'journal intent is absent.');
+    }
+    const current = currentState.observation;
     const existing = current.records.find(equivalent);
     if (existing !== undefined) return current;
     const record = build(current);
     const next = observeDurableExecutionJournal([...current.records, record]);
-    const journalPath = identityPath(journalRoot, identity);
-    const expected = current.records.map((entry) => `${encodeDurableExecutionRecord(entry)}\n`).join('');
     const appended = `${encodeDurableExecutionRecord(record)}\n`;
-    if (input.fileSystem.appendFsyncCas(journalPath, expected, appended)) return next;
+    assertCumulativeLimits(
+      next,
+      limits,
+      Buffer.byteLength(currentState.source, 'utf8') + Buffer.byteLength(appended, 'utf8'),
+      true
+    );
+    const journalPath = identityPath(journalRoot, identity);
+    assertDeadline(limits);
+    if (input.fileSystem.appendFsyncCas(journalPath, currentState.source, appended)) return next;
     const concurrent = required(identity);
     if (concurrent.records.some(equivalent)) return concurrent;
     throw new SecDurableExecutionStoreError('conflict', 'journal changed during CAS append.');
@@ -232,15 +464,27 @@ export function createDurableExecutionStore(input: Readonly<{
     read,
     createIntent(intentInput: CreateIntentInput): SecDurableExecutionJournalObservation {
       const journalPath = identityPath(journalRoot, intentInput);
-      const intent = sealDurableExecutionRecord({
+      assertDeadline(limits);
+      const intent = sealDurableExecutionRecordForInternalWriter({
         schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
         kind: 'intent',
         sequence: 0,
         operationKeyDigest: canonicalDigest(intentInput.operationKeyDigest, 'operationKeyDigest'),
         intentReferenceDigest: canonicalDigest(intentInput.intentReferenceDigest, 'intentReferenceDigest'),
+        maximumRecords: limits.maximumRecords,
+        maximumStateBytes: limits.maximumStateBytes,
+        maximumAttempts: limits.maximumAttempts,
+        maximumProviderSettlementsPerAttempt: limits.maximumProviderSettlementsPerAttempt,
         previousRecordDigest: null
       });
       const source = `${encodeDurableExecutionRecord(intent)}\n`;
+      assertCumulativeLimits(
+        observeDurableExecutionJournal([intent]),
+        limits,
+        Buffer.byteLength(source, 'utf8'),
+        false
+      );
+      assertDeadline(limits);
       if (input.fileSystem.createExclusiveFsync(journalPath, source)) {
         return observeDurableExecutionJournal([intent]);
       }
@@ -249,7 +493,7 @@ export function createDurableExecutionStore(input: Readonly<{
       throw new SecDurableExecutionStoreError('conflict', 'OperationKey already binds another intent.');
     },
     appendAttemptStart(attemptInput: AppendAttemptStartInput): SecDurableExecutionJournalObservation {
-      return append(attemptInput, (current) => sealDurableExecutionRecord({
+      return append(attemptInput, (current) => sealDurableExecutionRecordForInternalWriter({
         ...commonRecord(current, 'attempt-start'),
         runIdDigest: attemptInput.runIdDigest === null
           ? null
@@ -269,7 +513,7 @@ export function createDurableExecutionStore(input: Readonly<{
         && sameAttemptStart(record, attemptInput));
     },
     appendCancelRequest(cancelInput: AppendCancelRequestInput): SecDurableExecutionJournalObservation {
-      return append(cancelInput, (current) => sealDurableExecutionRecord({
+      return append(cancelInput, (current) => sealDurableExecutionRecordForInternalWriter({
         ...commonRecord(current, 'cancel-request'),
         attemptNonceDigest: canonicalDigest(cancelInput.attemptNonceDigest, 'attemptNonceDigest'),
         cancelRequestReferenceDigest: canonicalDigest(cancelInput.cancelRequestReferenceDigest,
@@ -281,7 +525,7 @@ export function createDurableExecutionStore(input: Readonly<{
     appendProviderSettlementReference(
       settlementInput: AppendProviderSettlementInput
     ): SecDurableExecutionJournalObservation {
-      return append(settlementInput, (current) => sealDurableExecutionRecord({
+      return append(settlementInput, (current) => sealDurableExecutionRecordForInternalWriter({
         ...commonRecord(current, 'provider-settlement-reference'),
         attemptNonceDigest: canonicalDigest(settlementInput.attemptNonceDigest, 'attemptNonceDigest'),
         requirementId: settlementInput.requirementId,
@@ -298,7 +542,7 @@ export function createDurableExecutionStore(input: Readonly<{
     appendDomainReadbackReference(
       readbackInput: AppendDomainReadbackInput
     ): SecDurableExecutionJournalObservation {
-      return append(readbackInput, (current) => sealDurableExecutionRecord({
+      return append(readbackInput, (current) => sealDurableExecutionRecordForInternalWriter({
         ...commonRecord(current, 'domain-readback-reference'),
         attemptNonceDigest: canonicalDigest(readbackInput.attemptNonceDigest, 'attemptNonceDigest'),
         readbackContractDigest: canonicalDigest(
@@ -320,7 +564,7 @@ export function createDurableExecutionStore(input: Readonly<{
           throw new SecDurableExecutionStoreError(
             'conflict', 'attempt resolution does not target the active attempt.');
         }
-        return sealDurableExecutionRecord({
+        return sealDurableExecutionRecordForInternalWriter({
           ...commonRecord(current, 'attempt-resolution'),
           attemptNonceDigest: canonicalDigest(
             resolutionInput.attemptNonceDigest, 'attemptNonceDigest'),
