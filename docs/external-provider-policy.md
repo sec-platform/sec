@@ -2,12 +2,11 @@
 title: 外部 Provider 政策
 status: stable
 domain: external-provider
-last-reviewed: 2026-08-15
 ---
 
 # 外部 Provider 政策
 
-本文拥有外部工具、MCP、语言/编译器基础设施、程序分析器、类库/SDK、构建/测试/发布服务和 Agent 工具的治理政策、owner 分离、边界、评估、接入、conformance、吸收、替换与退役规则；它不拥有任何具体 Provider 值、live availability 或 effect receipt。具体候选、品牌、当前路由、A/B结果和复核状态只存在于 `docs/governance/external-capability-ledger.yaml` 及相应 Evidence；已注册 EnvironmentSpec 的静态 artifact、layout、endpoint、version 与 digest 只存在于它所引用的 JSON spec。
+本文拥有外部工具、MCP、语言/编译器基础设施、程序分析器、类库/SDK、构建/测试/发布服务和 Agent 工具的治理政策、owner 分离、边界、评估、接入、conformance、吸收、替换与退役规则；它不拥有任何具体 Provider 值、live availability 或 effect receipt。具体候选、品牌、当前路由、A/B结果和复核状态只存在于 external capability ledger 及相应 Evidence；已注册 EnvironmentSpec 的静态 artifact、layout、endpoint、version、resource profile 与 digest 只存在于 registry 定位的 machine spec。稳定政策不得复制这些值、物理路径或当前状态；文档只拥有跨 Provider 都成立的关系和拒绝条件。
 
 Provider quota、billing、credit、rate-limit 与 upsell 原文在类型化归一后可丢弃；它们最多产生 bounded reason code 与内容 digest，删除后的原文绝不能支持 positive availability、Review、Gate、merge 或 completion 声明。availability/health 是路由和同一 epoch 的 negative circuit-breaker projection，不是 effect authorization：Evidence 缺失、过期或无法复核时一律归一为 `unknown`；`unknown` 不能支持 positive availability claim，也不授予 effect，但它本身不禁止一个已由 operation-specific authority、idempotency/recovery 与 exact readback 授权的 provider operation。只有 current-epoch 的 explicit `unavailable` 禁止重复；实际 provider response/readback 才产生 availability evidence。external capability ledger 拥有 route/availability projection data，canonical provider capability contract 拥有 ledger shape、freshness、role mapping、normalization 与 retry transition validator；注册的 EnvironmentSpec 拥有其静态环境合同值，不能由 ledger 或 live evidence 反向写回。
 
@@ -42,62 +41,15 @@ projection；它不得复制 executable bytes，不得成为 authority，live se
 重新发行。
 
 机器约束必须阻止这条边界退化：production adoption module 不得 import download/archive extraction/installer
-surface；Windows provider unavailable 的 negative test 必须证明 zero network、zero install/cache publication、
-zero child spawn；candidate path、same-path ABA、executable/app-local dependency drift、cwd replacement、deadline、
-close settlement 和 origin forgery 必须 typed fail closed。tracked production census 还必须保证 Git/GitHub 等成熟
-工具只有一个 physical owner，raw child transport 不能成为第二 provider。
+surface；unsupported/unavailable provider 的 negative test 必须证明 zero network、zero install/cache publication、zero child spawn；
+candidate path、same-path ABA、executable/dependency drift、cwd replacement、deadline、close settlement 和 origin forgery 必须 typed
+fail closed。tracked production census 还必须保证每个成熟工具只有一个 physical owner，raw child transport 不能成为第二 provider。
 
-## Windows native control CLI EnvironmentSpec
+## Registered host control capability projection
 
-`src/external-capabilities/windows-control-cli/profile/sec-windows-control-cli-v1.json` 是既有 external-provider 治理合同的
-machine projection，并且是 Windows native control CLI 的唯一静态 EnvironmentSpec 内容 owner；它不是新的
-semantic、credential 或 effect owner。`src/external-capabilities/windows-control-cli/contract/environment.ts` 只提供严格
-closed-schema parser、关系校验、deep-freeze 与 canonical digest，不复制具体版本、可执行文件
-或日期值。`docs/governance/external-capability-ledger.yaml` 是 route projection owner：只能有一个
-`host-command-execution` / `sec-windows-control-cli-v1` route；它只记录active profile、surface、lifecycle与
-unresolved reason，不得再复制`observedVersion`、spec path/digest/revision、artifact、executable、layout或endpoint。
-docs-doctor从唯一EnvironmentSpec registry按route profile解析canonical descriptor，再对传入repository root中的
-spec做bounded no-follow raw readback；ledger不能选择另一个path或自报digest。当前 route 的唯一 CLI surface 是将由运行时 owner 提供的
-`windows-control-cli-session`；parser module 不是 live surface。docs-doctor 必须从传入 repository root 对该
-canonical path 做 bounded no-follow raw readback，解析后比较canonical digest，拒绝额外、缺失、替换或漂移。production positive
-只允许来自当前机器上已存在 capability 的 retained executable/cwd、exact bytes/version、minimal loader closure
-与 session settlement readback；任何 archive、installer、下载缓存或完整安装树 census 都不能参与 runtime
-admission。EnvironmentSpec不维护独立`specRevision`：schema拥有grammar identity，canonical digest拥有exact content
-identity；live availability epoch、executable runtime version、credential epoch和effect grant由各自owner持有。
-全局 ledger 的 `revalidation-required` 可以由任一仍在评估的 Provider stale projection 触发；
-它不能把这个 exact profile 伪造为 available/unavailable，也不能替代其独立 live proof。
+已注册EnvironmentSpec只是上述通用adoption DAG的machine projection示例，不建立新的semantic、credential或Effect owner。External Provider policy只要求：静态profile由registry定位且strict parse；live route/state由ledger投影；physical owner从当前已安装能力签发opaque retained session；Git、GitHub或其他semantic owner再消费该session。exact profile、artifact、layout、endpoint、version、digest、resource ceiling、surface name、物理路径和当前availability只存在于machine spec、ledger与live receipt，不在稳定政策重复。
 
-四层必须保持不可互换：(1) JSON EnvironmentSpec 只拥有可审计的 candidate layout、静态版本/摘要、
-endpoint 和 bounded command/resource contract；(2) capability ledger 只投影 route、profile
-和 live routing 状态；(3) live provider session 只由真实执行器以 retained no-follow physical evidence 产生
-availability/lease/identity/readback；(4) Git/GitHub provider 各自拥有 repository semantics、credential、principal、
-permission、API 与 remote effect。任一层都不能为另一层自签 authority。
-
-PATH 只能作为不可信 locator hint；执行前后必须由 Windows no-follow retained session 重新解析并绑定真实
-launcher/effective executable 的物理身份、原始 bytes digest、版本输出、父目录链和 provider epoch。单个
-`executableEntries` 中的 `observedSizeBytes` / `observedSha256` 仍只是 adoption contract 的一个物理 facet；
-缺少 retained candidate/root/loader/session readback 时必须保持 typed unavailable/unknown。Git for
-Windows 的有限 `bin/git.exe` / `cmd/git.exe` 候选不能直接成为最终 authority，最终执行路径必须是
-EnvironmentSpec 绑定的 effective layout；Git 语义与安全 read session 由各自 owner 提供。GitHub CLI 的
-`github.com`、`https://api.github.com` 与 `https://api.github.com/graphql` 只定义 endpoint contract；credential、
-principal、permission、REST 请求和 remote mutation 仍由 GitHub provider owner 认证、限额、effect lease 与
-readback。禁止为 Git、GitHub CLI、MainHealth 或 WorkSelection 各造一层 one-to-one wrapper；它们消费同一
-EnvironmentSpec 和相应的 live provider session。unsupported platform 必须返回 typed unavailable，不能静默使用
-另一个平台或裸 PATH 命令。
-
-维护者更正：通用 `windows-control-cli-session` 不能作为 document-control 的 Git/GitHub semantic admission。
-这个前提已经被当前实现证伪：canonical Git read owner 已能从 retained executable/cwd 产生 bounded session，
-而 document-control 的旧 gate 仍只返回 `installed-executable-capability-unproven`，且没有 ready consumer，导致
-Windows 上的 canonical control-plane 入口永久自锁。修复不得删除物理 identity、deadline、resource ledger、
-credential、Effect 或 terminal readback 边界，也不得恢复裸 PATH fallback；必须把调用图原子收敛为：Git observation
-只消费唯一 Git read session，外部 scratch index/object 写入只消费窄 grammar 的 Git mutation session，GitHub
-observation/effect 只消费各自的 credential-bound semantic session。document-control 自有的通用
-`run('git' | 'gh', argv)`、重复 admission 和任意 per-command budget reset 在替代 consumer 完成后必须
-consumer-zero 并删除。迁移完成的机器条件是：production raw Git/GH transport 为零；每个 operation 只有一个
-absolute deadline 与 aggregate ledger；read session 无 mutation operation；mutation 无 lease/CAS/readback 时零
-Effect；GitHub host/principal/credential 漂移 typed block；旧 Windows gate 无 production consumer。任何一项未知时
-保持 typed unresolved，不能把当前 gate 的存在或测试绿灯投影为 control-plane capability ready。
-
+Runtime owner可以公开opaque physical session，但不能把parser、PATH candidate、spec digest或ledger row当作live authority。production positive必须来自最小retained invocation closure、pre/post identity、operation budget和terminal settlement；unsupported platform或不可证明状态typed fail closed，禁止裸PATH、跨平台替换、安装fallback和按consumer复制wrapper。该具体capability是否已ready只由live owner和Evidence证明，本文不作current claim。
 ## 目标
 
 SEC 不应因目标宏大而重造所有轮子，也不能把外部工具的能力、宣传、类型声明或内部数据模型直接变成 Core truth。
@@ -106,133 +58,29 @@ SEC 不应因目标宏大而重造所有轮子，也不能把外部工具的能�
 
 > 以最小、可替换、可验证的组合补足 SEC 缺失能力；把结果纳入统一 identity、Evidence、authority、transaction、Verification 和 lifecycle 边界；成熟机制被吸收后删除重复实现。
 
-## 本地 Linux Workflow Runner 边界
+## Workflow executor / container Adapter
 
-GitHub Actions 的 dispatch、App/check identity 与 GitHub-hosted compute 是三个不同能力，不能因当前
-workflow 同时消费它们就合并成一个不可替换 Provider。SEC 的
-`sec-linux-verification-v1` route 使用仓库范围的 self-hosted runner 作为物理计算 Adapter；GitHub 只保留
-dispatch、repository identity、check 与协作投影。hosted runner quota 不再是 required Linux 计算的唯一能力。
-该 route 名是位置无关的 capability identity，不是本机名称：本机隔离 container 与未来远端
-self-hosted executor 必须先通过同一 conformance contract。同一 repository 在任一时刻只能有一个
-atomic provider lease 持有该 profile；该 Provider 必须同时注册恰好一个`control`、一个`trusted`和一个
-`sut`角色实例。任何会dispatch并等待下游producer的任务（包括Session coordinator与post-merge
-MainHealth join）只在control实例；不等待同角色下游的credential/readback/assembler叶任务在trusted
-实例；candidate或dependency可执行内容只在sut实例。不得让等待者占用被等待的唯一角色实例，也不得让
-SUT污染trusted容器。
-切换物理 Provider 只替换 lifecycle binding 与 provider/environment revision；Workflow 不改名、不改 job，
-也不得让两个 Provider 同时竞争同一 profile。标准 GitHub-hosted image 不能
-冒充该自定义 capability；若未来重新采用 hosted compute，必须作为新的受控 routing profile 迁移。
+Workflow dispatch、repository/check transport与物理compute是不同capability；具体绑定由machine profile、external capability ledger和Verification owner共同定位，稳定政策不固定品牌、位置、角色名、镜像、工具版本、endpoint或当前active route。只有当Adapter新增了credential隔离、immutable execution identity、sandbox boundary、remote/local CAS、destructive-resource ownership、settlement和readback等真实SEC invariant时，它才优于直接调用成熟工具；否则使用最窄稳定machine interface并删除wrapper。
 
-该 Adapter 必须同时满足：
+每个lifecycle operation——start、observe/status、stop、recover、retire——必须消费owner签发的opaque operation session。session绑定exact repository/provider endpoint、credential principal与permission epoch、immutable runtime/materialization identity、monotonic absolute deadline和aggregate command/argument/output/process/request/record budget；credential acquisition、physical adoption、全部child/request、stream settlement与最终absence/readback只消费同一剩余预算，并为terminal settlement保留资源。禁止按命令重开timeout、按cwd缓存无operation identity的credential、用mutable name/tag/label自签authority，或在cancel/timeout后仅凭父进程退出宣称完成。
 
-- 镜像与OCI物化图采用Docker Buildx Bake/BuildKit；真正包含多个长期service/profile/health/dependency的本地运行拓扑以Docker Compose为唯一候选owner。当前v3 runner lifecycle仍是待迁移的raw Docker adapter，只有一次性registration token不落盘、三角色identity/lease/readback与故障恢复能被Compose投影等价证明后才能切换，不能先写Compose文档再宣称已实现。单镜像Buildx物化不为形式统一套Compose。Kubernetes不在当前本地开发和Verification capability closure内，不安装、不生成manifest、不建立第二编排owner；未来只有受治理resolution证明Compose能力不足且迁移总收益成立时才能改变该边界；
+需要用户级或机器级物理根、endpoint、lock或其他provider runtime state的adapter，必须由Runtime Physical owner按当前platform profile从主机权威API解析和保留，不得把ambient environment、caller path、presentation error或手写allowlist当作根。任一必需root/endpoint/generation缺失、foreign、inaccessible或unknown时，必须在首个provider Effect前返回domain machine contract定义的typed unavailable/recovery result，并保持zero fallback、zero第二provider与zero state publication。当前profile、路径、endpoint形式、generation grammar、failure union、生产入口与availability只存在相应Runtime/Provider machine contract和capability ledger/generated projection。
 
-- runner release、archive digest、Node LTS官方archive digest、GitHub CLI官方archive digest、Python archive-inspection runtime、Ubuntu base image digest、最终Docker image ID、
-  三角色label profile与lifecycle owner全部进入
-  `docs/governance/external-capability-ledger.yaml`；
-- image首次构建才下载并校验这些exact artifacts；`gh`是trusted WorkDecision/activation的必需API capability，
-  必须在任何runner registration token effect之前由固定版本、archive SHA-256、镜像label和实际`gh --version`
-  build readback共同证明，禁止在job内`apt install`、临时下载或因ambient host工具碰巧存在而通过。后续启动必须按final image ID复用本地content-addressed
-  Docker layers。cache absent才允许重新下载，重建出的image ID不同则需要新的provider revision，禁止把
-  mutable apt结果静默冒充旧revision。Action/Evidence所消费的hosted provider revision必须显式绑定同一
-  GitHub CLI version、archive SHA-256与final image ID；focused CI contract直接把runner owner常量与revision projection比较，
-  禁止ledger、image、revision或测试fixture只更新其中一部分；
-- runner环境的稳定身份拆为OCI runtime content digest与Docker image-store projection digest；BuildKit provenance按受治理policy生成，其每次materialization artifact digest只进入动态receipt，不能充当稳定runtime identity。仓库外canonical SEC Runtime Cache保存绑定spec digest的完整OCI layout与canonical receipt；Docker tag/image缺失时先用该layout经Buildx本地投影恢复并readback，只有layout也缺失且provider plan明确为materialize时才允许remote solve。删除Docker image本身不得导致联网，OCI、Docker projection、provenance与runtime resource profile按各自依赖粒度独立失效；
-- Dagger v0.21.8是已测量、未安装的`environment-materialization`候选，不因体积或依赖数量先验拒绝：Windows CLI 22,437,680 bytes，linux/amd64 Engine压缩layers 371,606,760 bytes，默认TypeScript Node runtime再增加56,181,947 bytes，冷启动已知下限约394 MB/450 MB。裁决门槛是默认privileged Engine、独立`/var/lib/dagger` cache与现有Buildx cache无自动复用合同，以及真实runner provider首次接入净源码收益仅约0–150 LOC。Phase 1 pilot只能位于SEC-owned EnvironmentSpec/materialization plan/receipt之下，必须用同一输入证明cold/warm/offline/cache-loss/digest/provenance/progress并真实退休旧glue；Dagger digest、Engine state或task success不得成为SEC identity、trust root、Verification PASS或closeout authority；
-- 注册 token 只经进程 stdin 进入一次性配置，不进入argv、environment、image、日志或durable state；
-- container 不挂载host path或Docker socket，不接收repository secret目录；
-- 三个持久runner container均由Docker `--init`提供PID-1 child reaper；start与每次readback都必须验证
-  `HostConfig.Init=true`和`docker-init-v1` container label，禁止把无reaper旧实例或同名替换实例解释为合规capacity；
-- control/trusted container显式drop全部capability；只有sut container的受信构造层获得精确
-  `CHOWN + SETGID + SETPCAP + SETUID + SYS_ADMIN + SYS_CHROOT`，分别只用于构造私有tmpfs/chroot、切换到
-  UID/GID 65532并清空bounding set。候选进程本身必须实时证明`CapEff=0`、`NoNewPrivs=1`、私有
-  mount/PID/network namespace、固定cgroup/prlimit、runner根与继承FD不可见，且只消费authenticated input archive；
-- SUT直接使用`unshare --mount --pid --fork --kill-child=KILL --net`和retained private tmpfs `chroot`，
-  不依赖systemd、sudo、host bind mount、Docker socket或unconfined seccomp。namespace内trap只做best-effort
-  mount teardown；外层唯一teardown owner在unshare关闭后对deterministic root与sentinel做exact absence readback；
-- persistent runner workflow只能从实时default branch的`repository_dispatch`加载受信workflow与仓库字节；
-  `workflow_dispatch`/`workflow_call`不得把caller-selected ref带入runner root。非default release/candidate必须
-  走authenticated archive到private SUT chroot或一次性runner，禁止root checkout/install/test。archive
-  inventory由镜像内显式冻结并在构建时导入验证的Python 3.12.3标准库`tarfile`解析canonical tar，并在解压前拒绝
-  checksum、type、path/link、mode、size或trusted digest漂移；Python版本、镜像label与最终image ID共同进入
-  provider revision，缺失`hashlib/json/tarfile`时镜像构建和provider启动都fail closed；
-- provider以固定remote CAS tag持有一个bounded operation的immutable generation ledger；首代先绑定
-  GitHub API host/principal/repository、Docker context endpoint/daemon identity、exact image ID、三角色预期name与
-  operation identity，之后每个container create、runner registration、active、teardown和terminal effect都必须在
-  下一effect前用expected-old object SHA推进一代并readback。三实例共用operation identity但不共用
-  filesystem/process/container；本地state只可缓存当前remote generation，self-digest、name、tag、label和当前census
-  都不能签发destructive ownership。effect后、generation前的process death只能保留为typed external residue，恢复者
-  不得从当前对象反推或自签exact ID；
-- 每次status/stop/recover必须从remote generation重载并显式重用已绑定的GitHub API host/principal与Docker
-  context/endpoint/daemon；GitHub credential在进程内解析一次、验证principal后只通过子进程environment复用，Docker
-  effect直接发送到retained local `npipe://`或`unix://` endpoint host而不是mutable context name；远端provider必须在
-  远端executor本机运行adapter，不能把未绑定TLS/principal的`tcp://`或`ssh://` daemon冒充同一能力。ambient `GH_HOST`、`DOCKER_HOST`、变化的keyring
-  或另一个config/context不能把错误endpoint上的空集解释为absence。container必须以frozen image ID启动，registration token和全部`exec`只发送给刚按exact ID重验的container；
-  结束时只以remote-retained runner ID和container ID执行effect，并分别证明ID与retained name都absent。缺失、额外、
-  duplicate、cross-role、case-varied或同名替换对象全部fail closed；standing offline runner、prefix cleanup和foreign
-  object adoption都禁止；
-- provider stop默认只删除remote ledger精确绑定的runner、container、local projection和remote ledger，保留已验证的
-  active final image及content-addressed dependency cache供后续exact revision复用。active image retirement不属于
-  ordinary stop；只可由独立authority-bound retirement operation消费canonical superseded decision，在exact daemon上
-  证明零引用后按immutable image ID删除并readback。禁止caller布尔开关、mutable tag、`docker system/image/container
-  prune`、prefix/glob清理或触及其他工程的container、image、volume与cache；
-- provider ledger是固定tag上的非源码control ref；它只允许exact absent-create、object-SHA
-  `force-with-lease` generation advance和terminal generation后的CAS删除。每代是一个Git commit，parent是上一代，
-  tree中只有canonical `provider-ledger.json`，因此ref的reachability保留完整历史而不依赖unreachable-object宽限期。
-  恢复必须从generation 0逐代验证commit parent、tree、payload与exact单effect transition；本地object存在时zero-network
-  读取，缺失时只fetch一次exact ledger ref，不为每一代重复调用API。该窄通道不执行用于源码/index sealing的pre-push hook，普通branch/tag push仍必须经过原Gate；脚本与
-  contract必须拒绝任意ref、任意remote、非CAS advance/delete或用local projection替代remote readback；
-- provider name在lease发布前为最长role suffix预留8字符；GitHub labels以case-insensitive集合比较，fetch URL和
-  全部effective push URL必须同仓。即使local state丢失，status/recovery也必须查询remote lease、全部profile/role
-  eligible runner与repository-labeled container，禁止把未知第四实例或大小写变体误报为absent；
-- runner readiness必须读回每个retained ID/name、exact labels和`online` eligibility。`busy=true`是注册成功后可能立即
-  被dispatcher认领的瞬时调度状态，不能把正确capacity误报为未就绪；destructive stop/cleanup则必须重新census并在
-  任一exact runner仍busy时拒绝effect。ready与cleanup因此消费同一identity，但拥有不同的状态谓词；
-- MainHealth不由`main` push直接占用尚未active的本地runner。control plane先对exact live main建立remote ledger、
-  三角色container/runner完整census和active projection，再发布唯一`sec-produce-main-health-v1` repository dispatch；
-  本地、远端或未来其他平台provider只改变受治理execution binding，不要求修改workflow/job/check合同。hosted
-  MainHealth provider的enrollment、exact check selection与source digest必须消费同一个闭合predicate，完整绑定App、
-  workflow、event、exact main、check name和event-specific display title；近似同名、其他event或错误provenance只能是
-  nonmatching noise，不能在不同阶段被先接纳后排除或先排除后接纳；
-- MainHealth production credential owner只从固定`github.com`登录读取bearer token，再经同一GitHub REST transport的
-  `/user`与repository permission endpoint绑定login/node和`maintain | admin`。它只向当前进程签发opaque、repository-
-  bound capability；token、fetch、caller JSON、测试issuer或公开constructor都不能签发production authority。每次provider
-  observation与reconciliation分别创建一个total-deadline、request-count、response-byte和matching-workflow-count受限的
-  session；total-deadline从credential acquisition开始并覆盖token subprocess、principal/permission enrollment与全部后续
-  request，任何阶段只能消费剩余预算。底层request helper缺少active exact session时必须拒绝，不能自动为单个request重建
-  session从而重置总预算。check pagination必须对完整页集和所消费workflow provenance做stable reread，不能只用page 1
-  或`total_count`证明完整快照；
-- local/hosted MainHealth conflict的reconciliation是独立operation-specific Effect，不由availability ledger或本地
-  self-digest授权。adapter只调用GitHub稳定REST commit-status machine interface：在exact receipt subject的唯一mutation
-  lease内先CAS maximal predecessor并发布immutable prepared intent，prepared中的一次性write permit必须在任何POST前
-  durable readback。owner先查询完整bounded status history；只有零个matching status且permit尚未消费时才允许发起至多
-  一次POST，随后无论成功、错误或响应丢失都只靠同一完整history收敛，绝不重发。只有唯一case-insensitive context、exact
-  request、status ID/node、creator login/node、append-only timestamp与target URL全部读回才产生external authorization
-  receipt；零个保持unknown，多个或任何字段漂移为conflict。若prepared status已存在但hosted authority漂移，旧intent/status
-  必须成为authenticated inactive terminal并作为下一operation predecessor，不能删除、重写或永久占住namespace。该status
-  只授权同一local supersession publication，不签发MainHealth provider、Verification、merge或完成authority；每次消费仍
-  独立重验hosted check provenance、本地physical preimage、live issuer permission与subject chain；
-- SUT cgroup固定2 CPU并由3600秒wall kill界定整棵descendant tree，真实aggregate上限为7200 CPU秒；同值
-  per-process `prlimit`只作冗余。candidate依赖由exact trusted-base lock/package以`--ignore-scripts`物化，下载cache
-  保留在runner私有路径且不进入chroot，命中cache不得重复下载。runner image还必须冻结workflow setup所需的
-  archive tools：Node `.tar.xz`由`xz`处理，`setup-bun`的`.zip`由Info-ZIP `unzip 6.00`处理；两者都在
-  Docker build内做可执行readback并由build revision与最终image ID绑定，缺少能力不得延迟到job内重复安装；
-- image rebuild只由其canonical capability tuple变化触发：base digest、runner/Node/GitHub CLI/Python或系统库、
-  sandbox substrate、entrypoint/label recipe。仓库业务源码、`package.json`/`bun.lock`、TypeScript、Prettier、
-  测试或Workflow内容变化只失效各自dependency/Evidence节点，不重建runner
-  image；新增能力层追加在稳定base/Node/runner层之后，使单一工具升级只失效自身及后续label层。版本检查只
-  产生候选decision，不自动升级；只有consumer需要、security/support触发或量化收益成立才一次性更新tuple、
-  重建、冻结新image ID并将旧ID登记为superseded；
-- workflow route、runner version或sandbox substrate变化会改变provider/environment revision并使对应
-  Evidence失效，但branch、PR、amend和无因果文档变化不会单独要求重跑Linux SUT；
-- GitHub不可用时本地runner输出只保留为诊断或产品Evidence；在独立local issuer上线前，不能伪造
-  GitHub check、MainHealth或merge authority。
+provider runtime state必须按physical owner签发的generation管理，不能按文件名或错误字符串特判。启动admission对profile派生的retained roots执行bounded no-follow census，并将观察绑定物理identity与attempt。恢复只能在provider process tree/service settled后对exact generation执行identity-bound可恢复迁移并保留source evidence；新generation只在endpoint、provider identity与幂等readback均通过后发布ready。历史generation只在live handle、consumer、recovery、external contract与unknown全为zero后由authenticated GC回收；普通caller不得删除、glob清理或维护endpoint路径清单。
 
-退出条件：机器拥有的local Evidence issuer与provider-independent MainHealth projection进入main并完成
-parity后，删除GitHub Actions runner Adapter和workflow route，不保留双执行writer。
+Provider-neutral安全不变量包括：untrusted execution看不到host repository credential、provider socket或trusted runner state；可信与不可信角色的capability/identity隔离由machine profile签发并readback；registration secret不进入argv、image、log或durable projection；所有create/delete只作用于retained exact identity且完成physical/remote absence readback；unknown、foreign、duplicate、replacement、partial settlement或deadline exhaustion保留typed residue，禁止prefix/glob/global prune。cache、image、archive、OCI layout与provenance各自只有在真实consumer区分时才拥有identity，不能互相替代或被presentation状态冒充。
 
-引入一个工具不是成果。只有它解决了明确问题、现实提升经过同条件验证、failure/security/upgrade成本可接受、consumer已迁移且没有第二 authority，才形成工程结果。
+需要provider child脱离普通parent/job生命周期时，External Provider只要求consumer在spawn边界消费Runtime Physical owner签发的opaque capability，并核对当前operation、attempt与provider binding；为其他operation、attempt或provider签发的capability一律不可移植。capability的brand、issuance、process-tree与physical lifecycle只属于Runtime Physical machine contract。provider child仍进入provider settlement与domain readback，不能因parent settled而被解释为provider ready或terminal。
 
+External Provider对cleanup、close、termination与physical readback分别观察并签发provider settlement set。cleanup失败不得覆盖先发生的provider failure，也不得被catch后丢弃；每个retained handle即使identity readback失败也必须在`finally`尝试安全释放，释放失败与identity drift分别保留。一个root/session close失败不能阻止其余已持有资源的settlement。External Provider不签发包含业务primary outcome的DomainTerminal；只有domain operation才能把自己的primary outcome、全部provider settlement、independent domain readback与recovery refs组合为terminal。partial或unknown provider settlement始终保持typed residue。
+
+Provider identity在首次可能产生Effect之前由其lifecycle owner从retained executable/cwd、profile、endpoint/generation candidates与当前
+operation binding签发admission identity；consumer输入摘要、resource envelope、日志路径或启动后的presentation digest不能冒充。generation
+census、breakaway capability、process session和residue observation绑定该同一admission identity，ready session identity只能是它经过最终
+endpoint/process/readback验证的successor。任何observer exception、physical identity drift或profile外路径都返回typed unknown，不得被
+catch并降格为“没有residue”或普通启动失败。
+
+MainHealth、status/check mutation、hosted/local reconciliation、Verification result与merge仍由Verification/Control owner拥有；External Provider只交付受约束的physical/semantic session及provider settlement receipt/set。任一Adapter只有在operation-scoped deadline、credential lifecycle、aggregate budget、settlement和readback由代码与Evidence闭合后才可投影为ready；具体current status只来自capability ledger/generated projection。替换physical executor只迁移binding并通过同一conformance contract，旧route在consumer-zero和unknown-zero后原子退役，不保留双writer。
 ## 能力角色
 
 外部能力只能处于以下一种主要角色：

@@ -2,7 +2,6 @@
 title: 运行时与分发
 status: stable
 domain: runtime-distribution
-last-reviewed: 2026-08-06
 ---
 
 # 运行时与分发
@@ -32,7 +31,7 @@ Fact/Binding Delta与Impact由`docs/delta-and-impact.md`拥有；Compatibility�
 
 ## Runtime-neutral Core
 
-Semantic Core 的公共类型、builder、validator、identity/revision、canonical ordering、pure Delta/Impact 和 target-independent lowering 不得加载 Node/Bun/Browser/OS adapter或具体类库实现。平台 I/O、process、path、watcher、crypto、clock 和 random 必须经明确 Port/Provider 注入或停留在 Host/Toolchain/Verification 层。
+Semantic Core 的公共类型、builder、validator、identity/revision、canonical ordering、pure Delta/Impact 和 target-independent lowering 不得加载Host-runtime、browser、OS/platform-specific adapter或具体类库实现。平台 I/O、process、path、watcher、crypto、clock 和 random 必须经明确 Port/Provider 注入或停留在 Host/Toolchain/Verification 层。
 
 “使用标准库”不自动等于 runtime-neutral；静态可达图、初始化副作用、package exports 和 transitive dependencies 都属于公共图验证范围。
 
@@ -52,6 +51,12 @@ Host Profile 表达 SEC 当前执行进程需要的能力，例如：
 
 Host Profile 只描述 SEC executor，不决定生成项目的 Target Profile或ImplementationBinding。它具有独立 identity、revision、capability validator、physical Evidence 和 support maturity。
 
+### SEC host runtime 唯一性
+
+SEC first-party source、CLI、development operation与canonical local Verification只支持一个Bun Host Runtime generation。`node`可执行文件、ambient Node installation、Node-only entrypoint、双runtime selector或Bun失败后回退Node均不在SEC host support面；它们不得进入PATH discovery、provider selection、测试分支、package script或support claim。当前exact Bun version、archive、digest与generation由package metadata、EnvironmentSpec与capability ledger/generated projection拥有，稳定文档不复制版本号。
+
+Bun实现的`node:`标准库API、`NodeJS.*`类型名或`node_modules`物理布局只是Bun capability/package contract的一部分，不代表Node Host support。只有当Bun native API在实测中同时给出更小依赖闭包、更强typed semantics、更低resource/settlement成本且不创建第二owner时，才用它替换已由Bun正式支持的标准API；禁止按import字符串机械改写。外部Provider内部需要的Node runtime是该Provider的opaque implementation dependency，必须留在其sandbox、credential、version与settlement合同内，不扩大SEC Host Profile。
+
 ### Host tool provisioning 与 adoption
 
 已安装 host tool 的 runtime adoption 不能拥有 provisioning。install、upgrade、uninstall 与 distribution cache
@@ -65,41 +70,14 @@ inventory、完整发行版 copy 或 SEC-owned executable cache代替；admissio
 约束并与最小闭包成正比。PATH/registry/standard location 都只是 candidate locator，不是 authority；physical
 capability 只能流向 semantic session，再流向 operation，consumer 不能自行 spawn 或反向触发安装。
 
-### Windows native control CLI EnvironmentSpec
+### Registered host control capability
 
-Windows native control 的 Git/GitHub CLI candidate layout、exact executable/loader binding 与 command/resource contract 只由
-`src/external-capabilities/windows-control-cli/profile/sec-windows-control-cli-v1.json` 拥有，并由
-`src/external-capabilities/windows-control-cli/contract/environment.ts` 以 strict parser、关系 validator、deep-freeze
-和 canonical digest 暴露；这个 JSON 是既有 external-provider 合同的 machine projection，不建立新的
-semantic、credential 或 effect owner；TS 不复制 JSON 的具体版本、digest 或日期。ledger 是 route projection owner，
-只允许一个 `host-command-execution` / `sec-windows-control-cli-v1` entry，并且只记录profile、surface、lifecycle与
-unresolved reason；不得复制`observedVersion`、spec path/digest/revision、artifact、executable、layout或endpoint。
-当前唯一 CLI surface 是将由运行时 owner 提供的 `windows-control-cli-session`；parser module 不是 live surface。
-docs-doctor从唯一EnvironmentSpec registry按route profile解析descriptor，再从传入repository root对canonical spec做
-bounded no-follow raw readback和digest核对。当前 root
-production positive 只能由当前已安装 capability 的 retained executable/cwd、minimal loader closure 与最终
-settlement readback产生；archive download/extraction、installer 与完整安装树 census 不属于这个 surface。这里的
-EnvironmentSpec不维护独立`specRevision`：schema标识grammar，canonical digest标识exact content；两者都不是live
-availability epoch、executable runtime version、credential epoch或effect grant。EnvironmentSpec parser 不执行命令、不解析 credential、
-不判断本机 availability，且不保存绝对机器路径。全局 capability ledger 的状态是各 Provider 的 routing
-projection；其中无关 Provider 的 `revalidation-required` 不会改变该 exact profile 的结论。
+Runtime/Distribution只消费External Provider owner签发的opaque physical session，并把它作为Host Profile的可选能力；不拥有provisioning、EnvironmentSpec内容、route状态、repository/remote-service语义、credential或Effect。静态profile、artifact、layout、endpoint、version、digest与resource ceiling由machine spec唯一拥有，live availability由ledger/session receipt拥有，稳定runtime文档不复制具体值或当前状态。
 
-四层边界为：(1) JSON EnvironmentSpec 的静态布局、artifact、version/digest、endpoint 和 resource/command
-contract；(2) capability ledger 的 route/profile 与 routing projection；(3) live retained
-no-follow physical session 的真实 availability、lease、identity 和 readback；(4) Git repository semantics 与
-GitHub credential/principal/API/effect semantics。live execution 必须消费第 (3) 层，不能由第 (1) 或第 (2) 层
-自签 live authority。
-
-PATH 解析仅是不可信 hint；session 要在 effect 前后绑定 launcher/effective executable 的 raw bytes digest、
-native identity、父目录链和版本输出。EnvironmentSpec 的 `observedSizeBytes` / `observedSha256` 是 adoption
-contract 的一个物理 facet；缺少 authenticated retained root/loader/session readback 时必须保持 typed
-unavailable/unknown。Git 的 `bin/git.exe` / `cmd/git.exe` 只是有限 launcher candidates，
-effective executable 由 validated official layout 决定；不存在可验证 Windows provider 时上层返回 typed
-`unsupported | unavailable | unknown`，禁止裸 PATH、跨平台替换或按 consumer 复制 wrapper。
-
+session必须绑定本次invocation的retained executable/cwd与最小loader closure、operation deadline/aggregate budget、pre/post identity和terminal settlement。parser、PATH candidate、profile digest或ledger row都不能自签live authority；不可证明、unsupported或provider unavailable时typed fail closed，禁止裸PATH、跨平台替换、安装fallback与consumer-specific wrapper。
 ## Toolchain Provider
 
-Repository可以使用与公共Host不同的Toolchain Provider。Node Host可以调用独立Bun Toolchain；Bun Host可以生成Node Target；这些组合必须绑定两个 executable identities、版本、platform、command contract和Evidence。
+Repository可以使用与Host runtime不同的Toolchain Provider，也可以生成另一Target runtime；这些组合必须分别绑定Host、Toolchain与Target identity、版本、platform、command contract和Evidence。
 
 Toolchain Provider至少声明：
 
@@ -110,7 +88,43 @@ Toolchain Provider至少声明：
 - timeout、process cleanup和receipt；
 - platform compatibility、unsupported和retirement。
 
-Bun-only、Node-only或native library只能进入明确Host/Toolchain/Target/Adapter包边界。只有进入common public graph的依赖才必须同时满足所有声明Host的静态加载和物理运行合同。
+runtime-specific、toolchain-specific或native library只能进入明确Host/Toolchain/Target/Adapter边界。只有进入common public graph的依赖才必须同时满足所有声明Host的静态加载和物理运行合同。
+
+### Language semantics 与 typecheck physical Effect
+
+language-semantic observation与项目typecheck Effect是不同capability。Source Program owner拥有exact source snapshot上的symbol、type、
+reference与module projection及其incremental lifecycle；Verification owner拥有Action identity、reuse和terminal result；Dependency owner
+拥有generation、transition与recovery。Runtime/Toolchain只拥有selected physical capability、command contract、retained executable/cwd、
+canonical environment、aggregate deadline/budget、process/stream settlement和post-execution physical readback。
+
+selection必须返回opaque selected capability或typed terminal unavailable/mismatch/unverified；非selected状态保持零typecheck Effect，
+不得fallback到ambient PATH、全局package、另一checker或caller runner。任何materialization完成后产生新的selection epoch，不能把
+unknown或mismatch改写为absent。
+
+cache、incremental compiler state与build information只是各自semantic owner签发的derived acceleration；它们必须位于authoring tree之外，
+绑定exact inputs，可丢弃且不拥有PASS、Evidence、dependency readiness或provider authority。hot/cold选择不能改变observable result，
+旧snapshot/provider epoch必须终止live resources后才可回收。
+
+编辑期与正式检查的Action identity、ActionKey、Result、Evidence与复用只由Verification Governance拥有；Runtime只消费两类owner-issued action requirement，并保证它们不会因共享物理checker或cache而被相互升级、别名或复制。Source Program owner拥有exact source/declaration/module-resolution closure、unknown frontier与content-addressed fact shards；Runtime不重建Program、不扫描第二份source graph，也不把cache hit、shard、index或mtime投影为PASS。
+
+Runtime只在物理层保证：选中的checker capability、retained executable/cwd、canonical environment、dependency/provider generation、absolute deadline与aggregate ledger、process/stream settlement、final physical fence、cache位置与回收。Git对frozen candidate、Review、merge、publish和Evidence所需的exact tree观察仍由Git/Verification owner拥有；普通编辑期检查不得为此重扫全工作树。
+
+增量build information采用per-Action private generation；稳定seed只作可丢弃性能输入，不进入Action identity或Evidence。检查完成、final input
+fence通过后，才在短publication lease内CAS发布新seed；publication竞争或失败只丢弃cache更新，不改变检查terminal。不同Action不得并发写
+同一build-info，崩溃残留不能触发dependency install、恢复Effect或把partial state提升为PASS。
+
+性能根治以删除重复事实生产和昂贵物理admission为先，不以常驻language daemon掩盖边界错误。Source Program签发唯一exact project
+input/module closure，所有消费者复用同一generation；Runtime State将跨进程可复用的fact/cache投影绑定完整producer closure。
+runtime/cache root的permission与ownership proof由physical owner通过retained host capability一次完成并在同一operation内复用，不得让每个短命进程
+各自启动presentation tool重做证明。若强度等价的host proof不可用，返回typed unavailable/unknown，不回退到较弱证明。
+
+一次language-check operation的source observation、capability adoption、checker child、stream、cleanup、final fence和terminal readback共享一个
+absolute deadline与aggregate filesystem/process/input/output/entry/byte ledger。terminal失败必须持久化bounded typed result body及其digest，
+CLI只能投影该canonical settlement；只保存`process-settlement-failed`与opaque digest而无法区分setup、execution、cleanup或readback的结果
+不是可恢复合同。fresh terminal或fresh failure的复用由Verification owner按其Action identity决定；Runtime只保证相应物理settlement未被第二次执行或弱化。
+
+具体language frontend、runtime/package品牌、Program/API对象、cache布局、Git observation、ActionKey grammar、dependency journal states、
+provider selection实现和测试集合只属于对应machine contract与generated current projection，不进入Runtime stable prose。
 
 ## Target Profile reference
 
@@ -148,19 +162,19 @@ artifact and package materialization requirements
 - materialize由Dependency authority批准的exact closure；
 - 对clean package/install/runtime surface产生physical Evidence；
 - 输出package、dependency、native、install/build、resource和support observations；
-- 把不满足项返回Compiler、Delta/Impact、Verification和Change Management的typed consumers。
+- 发布绑定旧Binding与physical observation identity的typed result，由外层Operation owner决定后续失效、验证或新epoch；
 
 本文不负责：
 
 - 在多个Provider/版本间排名或选择；
 - 因某实现安装成功而把它标为eligible；
 - 因当前Host缺失能力而静默换Provider、降低Semantic Contract或改变Target；
-- 从package.json、lock、ambient executable或已有node_modules反向推导Binding；
+- 从package manifest、lock、ambient executable或已有materialized dependency tree反向推导Binding；
 - 比较old/new Binding或生成`ImplementationBindingDelta`；
 - 按物理结果签发Compatibility或Migration；
 - 把Runtime fallback写成第二Implementation Resolver。
 
-Binding引用的Target、Host、Toolchain、Provider或Support revision变化时，旧physical结果失效。若需要新实现，由Compiler重新Resolution产生new Binding；Delta/Impact比较old/new Binding；Change Management再裁决Compatibility/Migration。Runtime不能跳过这条链直接替换依赖或发布。
+Binding引用的Target、Host、Toolchain、Provider或Support revision变化时，旧physical结果失效。若需要新实现，外层Operation owner必须获得新的resolution authorization并启动新的Compiler/Resolution epoch；Delta/Impact比较old/new Binding，Change Management再裁决Compatibility/Migration。Runtime不能调用Compiler、请求重选、修改旧Binding或直接替换依赖/发布。
 
 ## 支持版本策略
 
@@ -230,17 +244,17 @@ WSL/Linux Evidence不替代Windows native，Windows Evidence也不替代Linux/ma
 
 通用path/process/watcher/temp库可以作为Provider实现，但不能替代SEC对owner、capability、lease、cleanup、platform binding和Evidence的合同。
 
+Windows Durable Runtime State 的 owner、受保护 DACL 与 writer principal 证明只由 Runtime State physical owner 的 native retained session签发。session在同一进程内复用Win32 security-descriptor读取，但每次消费都重验root physical identity、owner、DACL protection与exact descriptor digest；root或ACL变化、session关闭、provider不可用、取消或deadline耗尽一律fail closed。PowerShell、`icacls`、shell文本和环境路径不能成为production authority或每进程admission路径。
+
 ## 依赖作用域
 
 每个依赖必须唯一归属于：Semantic Core、Host、Toolchain、Verification、Generated Target、Agent/CLI Interface、External Provider或Release。根manifest不应长期同时充当Core、生成目标、native helper和外部分析工具的发布authority。
 
-`package.json`与lockfile保持单一writer。ImplementationBinding只能请求一个exact dependency closure；Dependency authority验证并materialize它，不能让Resolver、Backend、Adapter或Agent/CLI interface直接修改package/lock。
+package manifest与lock保持单一writer。ImplementationBinding只能请求一个exact dependency closure；Dependency authority验证并materialize它，不能让Resolver、Backend、Adapter或Agent/CLI interface直接修改package/lock。
 
 派生dependency root只允许保存canonical manifest投影、materialized modules、cache、lease与readiness
 stamp；它不是第二个package authority，不能持有lockfile、package-manager config或workspace config。
-唯一resolution effect由根`package.json + bun.lock + bunfig.toml + canonical Bun executable/version`生成compiler dependency
-generation；shared/project root不得再次调用package manager，只能从该generation复制完整有界closure或建立
-exact bridge。Materialization binding必须同时绑定lock、根manifest与install config raw digest、Bun物理可执行文件与digest、
+唯一resolution effect消费Dependency owner签发的canonical root manifest、lock、install configuration与package-manager executable binding，生成compiler dependency generation；shared/project root不得再次调用package manager，只能从该generation复制完整有界closure或建立exact bridge。具体文件名、package-manager品牌、版本与路径只存在于machine contract。Materialization binding必须同时绑定lock、根manifest与install config raw digest、package-manager物理可执行文件与digest、
 platform/architecture、每个direct/transitive package manifest和resolution edge。首次publish必须验证source
 generation与staged projection，后续cache hit只验证current root/toolchain、strict stamp与目标tree，不重复扫描
 已不参与运行的source generation。任何竞争authority残留一律保留并typed-block；只有显式
@@ -266,9 +280,9 @@ target whole-object readback。
 
 ## Browser、container 与 native Provider
 
-Browser Provider只服务需要真实浏览器行为的Acceptance；request-only、DOM-free或pure semantic test使用更窄Provider。测试文件位于acceptance目录不自动意味着必须启动browser；Gate contract、test fixture需求和实际capability共同决定。
+Browser Provider只服务验证Target workspace真实浏览器行为的Acceptance，不构成SEC产品自身的browser/Workbench/UI runtime；request-only、DOM-free或pure semantic test使用更窄Provider。测试文件位于acceptance目录不自动意味着必须启动browser；Gate contract、test fixture需求和实际capability共同决定。
 
-Container、AppContainer、Job Object、native helper、FFI和Testcontainers等属于Optional Capability Adapter。缺失、unsupported、not-run和failed必须区分；是否阻断由相应Implementation/Verification/Compatibility/Support contract决定。临时目录、进程隔离或browser context不自动构成恶意代码sandbox。
+container isolation、OS process containment、native helper、FFI与test-environment providers属于Optional Capability Adapter。具体机制与品牌由machine binding选择。缺失、unsupported、not-run和failed必须区分；是否阻断由相应Implementation/Verification/Compatibility/Support contract决定。临时目录、进程隔离或browser context不自动构成恶意代码sandbox。
 
 ## 公共分发
 
