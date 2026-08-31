@@ -11,13 +11,11 @@ import {
   observeDurableExecutionJournal,
   parseDurableExecutionJournal,
   sealDurableExecutionRecord,
-  type SecDurableDomainReadbackClass,
+  type SecDurableAttemptResolutionKind,
   type SecDurableExecutionAttemptStartRecord,
   type SecDurableExecutionDigest,
   type SecDurableExecutionJournalObservation,
-  type SecDurableExecutionRecord,
-  type SecDurableExecutionTerminalClass,
-  type SecDurableProviderSettlementClass
+  type SecDurableExecutionRecord
 } from './contract.ts';
 
 export type SecDurableExecutionStoreFailureKind = 'absent' | 'conflict' | 'identity-mismatch';
@@ -34,7 +32,6 @@ export class SecDurableExecutionStoreError extends Error {
 
 export interface SecDurableExecutionJournalIdentity {
   readonly operationKeyDigest: SecDurableExecutionDigest;
-  readonly runIdDigest: SecDurableExecutionDigest;
 }
 
 /**
@@ -46,15 +43,8 @@ export function durableExecutionJournalIdentity(
   operation: SecBoundSemanticOperation
 ): SecDurableExecutionJournalIdentity {
   assertSecBoundSemanticOperation(operation);
-  if (operation.plan.attempt.runIdDigest === null) {
-    throw new SecDurableExecutionStoreError(
-      'identity-mismatch',
-      'durable execution requires an owner-issued run identity.'
-    );
-  }
   return Object.freeze({
-    operationKeyDigest: operation.plan.identity.identityDigest,
-    runIdDigest: operation.plan.attempt.runIdDigest
+    operationKeyDigest: operation.plan.identity.identityDigest
   });
 }
 
@@ -62,7 +52,8 @@ type CreateIntentInput = SecDurableExecutionJournalIdentity & Readonly<{
   intentReferenceDigest: SecDurableExecutionDigest;
 }>;
 type AppendAttemptStartInput = SecDurableExecutionJournalIdentity & Readonly<{
-  resumeEpochDigest: SecDurableExecutionDigest;
+  runIdDigest: SecDurableExecutionDigest | null;
+  resumeEpochDigest: SecDurableExecutionDigest | null;
   attemptNonceDigest: SecDurableExecutionDigest;
   workerIdentityDigest: SecDurableExecutionDigest;
   authorityGrantReferenceDigest: SecDurableExecutionDigest;
@@ -80,15 +71,11 @@ export function durableExecutionAttemptStartInput(
   workerIdentityDigest: SecDurableExecutionDigest
 ): AppendAttemptStartInput {
   const identity = durableExecutionJournalIdentity(operation);
+  const runIdDigest = operation.plan.attempt.runIdDigest;
   const resumeEpochDigest = operation.plan.attempt.resumeEpochDigest;
-  if (resumeEpochDigest === null) {
-    throw new SecDurableExecutionStoreError(
-      'identity-mismatch',
-      'durable execution requires an owner-issued resume epoch.'
-    );
-  }
   return Object.freeze({
     ...identity,
+    runIdDigest,
     resumeEpochDigest,
     attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
     workerIdentityDigest: canonicalDigest(workerIdentityDigest, 'workerIdentityDigest'),
@@ -103,18 +90,19 @@ type AppendCancelRequestInput = SecDurableExecutionJournalIdentity & Readonly<{
 }>;
 type AppendProviderSettlementInput = SecDurableExecutionJournalIdentity & Readonly<{
   attemptNonceDigest: SecDurableExecutionDigest;
-  settlementClass: SecDurableProviderSettlementClass;
+  requirementId: string;
+  providerBindingDigest: SecDurableExecutionDigest;
   providerSettlementReferenceDigest: SecDurableExecutionDigest;
 }>;
 type AppendDomainReadbackInput = SecDurableExecutionJournalIdentity & Readonly<{
   attemptNonceDigest: SecDurableExecutionDigest;
-  readbackClass: SecDurableDomainReadbackClass;
+  readbackContractDigest: SecDurableExecutionDigest;
   domainReadbackReferenceDigest: SecDurableExecutionDigest;
 }>;
-type AppendTerminalInput = SecDurableExecutionJournalIdentity & Readonly<{
+type AppendAttemptResolutionInput = SecDurableExecutionJournalIdentity & Readonly<{
   attemptNonceDigest: SecDurableExecutionDigest;
-  terminalClass: SecDurableExecutionTerminalClass;
-  terminalReferenceDigest: SecDurableExecutionDigest;
+  resolutionKind: SecDurableAttemptResolutionKind;
+  resolutionReferenceDigest: SecDurableExecutionDigest;
 }>;
 
 export interface SecDurableExecutionStore {
@@ -125,7 +113,7 @@ export interface SecDurableExecutionStore {
   appendCancelRequest(input: AppendCancelRequestInput): SecDurableExecutionJournalObservation;
   appendProviderSettlementReference(input: AppendProviderSettlementInput): SecDurableExecutionJournalObservation;
   appendDomainReadbackReference(input: AppendDomainReadbackInput): SecDurableExecutionJournalObservation;
-  appendTerminal(input: AppendTerminalInput): SecDurableExecutionJournalObservation;
+  appendAttemptResolution(input: AppendAttemptResolutionInput): SecDurableExecutionJournalObservation;
 }
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
@@ -142,8 +130,7 @@ function identityPath(
   identity: SecDurableExecutionJournalIdentity
 ): string {
   const operationKey = canonicalDigest(identity.operationKeyDigest, 'operationKeyDigest').slice(7);
-  const runId = canonicalDigest(identity.runIdDigest, 'runIdDigest').slice(7);
-  return path.join(journalRoot, operationKey, `${runId}.jsonl`);
+  return path.join(journalRoot, `${operationKey}.jsonl`);
 }
 
 function pathInside(candidate: string, parent: string): boolean {
@@ -156,8 +143,7 @@ function sameIdentity(
   observation: SecDurableExecutionJournalObservation,
   identity: SecDurableExecutionJournalIdentity
 ): boolean {
-  return observation.intent.operationKeyDigest === identity.operationKeyDigest
-    && observation.intent.runIdDigest === identity.runIdDigest;
+  return observation.intent.operationKeyDigest === identity.operationKeyDigest;
 }
 
 function commonRecord<Kind extends Exclude<SecDurableExecutionRecord['kind'], 'intent'>>(
@@ -170,7 +156,6 @@ function commonRecord<Kind extends Exclude<SecDurableExecutionRecord['kind'], 'i
     kind,
     sequence: observation.records.length,
     operationKeyDigest: observation.intent.operationKeyDigest,
-    runIdDigest: observation.intent.runIdDigest,
     previousRecordDigest: previous.recordDigest
   } as const;
 }
@@ -180,6 +165,7 @@ function sameAttemptStart(
   input: AppendAttemptStartInput
 ): boolean {
   return record.attemptNonceDigest === input.attemptNonceDigest
+    && record.runIdDigest === input.runIdDigest
     && record.resumeEpochDigest === input.resumeEpochDigest
     && record.workerIdentityDigest === input.workerIdentityDigest
     && record.authorityGrantReferenceDigest === input.authorityGrantReferenceDigest
@@ -207,7 +193,7 @@ export function createDurableExecutionStore(input: Readonly<{
     if (!sameIdentity(observation, identity)) {
       throw new SecDurableExecutionStoreError(
         'identity-mismatch',
-        'journal bytes do not match their OperationKey and runId address.'
+        'journal bytes do not match their OperationKey address.'
       );
     }
     return observation;
@@ -251,7 +237,6 @@ export function createDurableExecutionStore(input: Readonly<{
         kind: 'intent',
         sequence: 0,
         operationKeyDigest: canonicalDigest(intentInput.operationKeyDigest, 'operationKeyDigest'),
-        runIdDigest: canonicalDigest(intentInput.runIdDigest, 'runIdDigest'),
         intentReferenceDigest: canonicalDigest(intentInput.intentReferenceDigest, 'intentReferenceDigest'),
         previousRecordDigest: null
       });
@@ -261,12 +246,17 @@ export function createDurableExecutionStore(input: Readonly<{
       }
       const current = required(intentInput);
       if (current.intent.recordDigest === intent.recordDigest) return current;
-      throw new SecDurableExecutionStoreError('conflict', 'OperationKey and runId already bind another intent.');
+      throw new SecDurableExecutionStoreError('conflict', 'OperationKey already binds another intent.');
     },
     appendAttemptStart(attemptInput: AppendAttemptStartInput): SecDurableExecutionJournalObservation {
       return append(attemptInput, (current) => sealDurableExecutionRecord({
         ...commonRecord(current, 'attempt-start'),
-        resumeEpochDigest: canonicalDigest(attemptInput.resumeEpochDigest, 'resumeEpochDigest'),
+        runIdDigest: attemptInput.runIdDigest === null
+          ? null
+          : canonicalDigest(attemptInput.runIdDigest, 'runIdDigest'),
+        resumeEpochDigest: attemptInput.resumeEpochDigest === null
+          ? null
+          : canonicalDigest(attemptInput.resumeEpochDigest, 'resumeEpochDigest'),
         attemptNonceDigest: canonicalDigest(attemptInput.attemptNonceDigest, 'attemptNonceDigest'),
         workerIdentityDigest: canonicalDigest(attemptInput.workerIdentityDigest, 'workerIdentityDigest'),
         authorityGrantReferenceDigest: canonicalDigest(attemptInput.authorityGrantReferenceDigest,
@@ -294,12 +284,15 @@ export function createDurableExecutionStore(input: Readonly<{
       return append(settlementInput, (current) => sealDurableExecutionRecord({
         ...commonRecord(current, 'provider-settlement-reference'),
         attemptNonceDigest: canonicalDigest(settlementInput.attemptNonceDigest, 'attemptNonceDigest'),
-        settlementClass: settlementInput.settlementClass,
+        requirementId: settlementInput.requirementId,
+        providerBindingDigest: canonicalDigest(
+          settlementInput.providerBindingDigest, 'providerBindingDigest'),
         providerSettlementReferenceDigest: canonicalDigest(
           settlementInput.providerSettlementReferenceDigest, 'providerSettlementReferenceDigest')
       }), (record) => record.kind === 'provider-settlement-reference'
         && record.attemptNonceDigest === settlementInput.attemptNonceDigest
-        && record.settlementClass === settlementInput.settlementClass
+        && record.requirementId === settlementInput.requirementId
+        && record.providerBindingDigest === settlementInput.providerBindingDigest
         && record.providerSettlementReferenceDigest === settlementInput.providerSettlementReferenceDigest);
     },
     appendDomainReadbackReference(
@@ -308,33 +301,41 @@ export function createDurableExecutionStore(input: Readonly<{
       return append(readbackInput, (current) => sealDurableExecutionRecord({
         ...commonRecord(current, 'domain-readback-reference'),
         attemptNonceDigest: canonicalDigest(readbackInput.attemptNonceDigest, 'attemptNonceDigest'),
-        readbackClass: readbackInput.readbackClass,
+        readbackContractDigest: canonicalDigest(
+          readbackInput.readbackContractDigest, 'readbackContractDigest'),
         domainReadbackReferenceDigest: canonicalDigest(readbackInput.domainReadbackReferenceDigest,
           'domainReadbackReferenceDigest')
       }), (record) => record.kind === 'domain-readback-reference'
         && record.attemptNonceDigest === readbackInput.attemptNonceDigest
-        && record.readbackClass === readbackInput.readbackClass
+        && record.readbackContractDigest === readbackInput.readbackContractDigest
         && record.domainReadbackReferenceDigest === readbackInput.domainReadbackReferenceDigest);
     },
-    appendTerminal(terminalInput: AppendTerminalInput): SecDurableExecutionJournalObservation {
-      return append(terminalInput, (current) => {
+    appendAttemptResolution(
+      resolutionInput: AppendAttemptResolutionInput
+    ): SecDurableExecutionJournalObservation {
+      return append(resolutionInput, (current) => {
         const attempt = current.activeAttempt;
-        if (attempt === null || attempt.start.attemptNonceDigest !== terminalInput.attemptNonceDigest) {
-          throw new SecDurableExecutionStoreError('conflict', 'terminal does not target the active attempt.');
+        if (attempt === null
+            || attempt.start.attemptNonceDigest !== resolutionInput.attemptNonceDigest) {
+          throw new SecDurableExecutionStoreError(
+            'conflict', 'attempt resolution does not target the active attempt.');
         }
         return sealDurableExecutionRecord({
-          ...commonRecord(current, 'terminal'),
-          attemptNonceDigest: canonicalDigest(terminalInput.attemptNonceDigest, 'attemptNonceDigest'),
-          terminalClass: terminalInput.terminalClass,
-          terminalReferenceDigest: canonicalDigest(terminalInput.terminalReferenceDigest,
-            'terminalReferenceDigest'),
-          providerSettlementRecordDigest: attempt.providerSettlement?.recordDigest ?? null,
+          ...commonRecord(current, 'attempt-resolution'),
+          attemptNonceDigest: canonicalDigest(
+            resolutionInput.attemptNonceDigest, 'attemptNonceDigest'),
+          resolutionKind: resolutionInput.resolutionKind,
+          resolutionReferenceDigest: canonicalDigest(
+            resolutionInput.resolutionReferenceDigest, 'resolutionReferenceDigest'),
+          providerSettlementRecordDigests: attempt.providerSettlements
+            .map(({ recordDigest }) => recordDigest)
+            .sort(),
           domainReadbackRecordDigest: attempt.domainReadback?.recordDigest ?? null
         });
-      }, (record) => record.kind === 'terminal'
-        && record.attemptNonceDigest === terminalInput.attemptNonceDigest
-        && record.terminalClass === terminalInput.terminalClass
-        && record.terminalReferenceDigest === terminalInput.terminalReferenceDigest);
+      }, (record) => record.kind === 'attempt-resolution'
+        && record.attemptNonceDigest === resolutionInput.attemptNonceDigest
+        && record.resolutionKind === resolutionInput.resolutionKind
+        && record.resolutionReferenceDigest === resolutionInput.resolutionReferenceDigest);
     }
   });
 }

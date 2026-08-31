@@ -4,7 +4,7 @@ import { canonicalJson, sha256 } from '../../../system-architecture/foundation/r
 import { parseExactJson } from '../../../system-architecture/foundation/runtime/exact-json.ts';
 
 export const SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA =
-  'sec-durable-local-execution-record-v1' as const;
+  'sec-durable-local-execution-record' as const;
 
 export type SecDurableExecutionDigest = `sha256:${string}`;
 export type SecDurableExecutionRecordKind =
@@ -13,31 +13,17 @@ export type SecDurableExecutionRecordKind =
   | 'cancel-request'
   | 'provider-settlement-reference'
   | 'domain-readback-reference'
-  | 'terminal';
-export type SecDurableProviderSettlementClass =
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled'
-  | 'timed-out';
-export type SecDurableDomainReadbackClass =
-  | 'succeeded'
-  | 'failed'
-  | 'not-applied'
-  | 'unknown';
-export type SecDurableExecutionTerminalClass =
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled'
-  | 'timed-out'
-  | 'not-applied'
-  | 'recovery-required';
+  | 'attempt-resolution';
+export type SecDurableAttemptResolutionKind =
+  | 'owner-terminal-reference'
+  | 'retry-admission-reference'
+  | 'reconciliation-required';
 
 interface SecDurableExecutionRecordBase {
   readonly schema: typeof SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA;
   readonly kind: SecDurableExecutionRecordKind;
   readonly sequence: number;
   readonly operationKeyDigest: SecDurableExecutionDigest;
-  readonly runIdDigest: SecDurableExecutionDigest;
   readonly previousRecordDigest: SecDurableExecutionDigest | null;
   readonly recordDigest: SecDurableExecutionDigest;
 }
@@ -49,7 +35,8 @@ export interface SecDurableExecutionIntentRecord extends SecDurableExecutionReco
 
 export interface SecDurableExecutionAttemptStartRecord extends SecDurableExecutionRecordBase {
   readonly kind: 'attempt-start';
-  readonly resumeEpochDigest: SecDurableExecutionDigest;
+  readonly runIdDigest: SecDurableExecutionDigest | null;
+  readonly resumeEpochDigest: SecDurableExecutionDigest | null;
   readonly attemptNonceDigest: SecDurableExecutionDigest;
   readonly workerIdentityDigest: SecDurableExecutionDigest;
   readonly authorityGrantReferenceDigest: SecDurableExecutionDigest;
@@ -67,7 +54,8 @@ export interface SecDurableExecutionProviderSettlementReferenceRecord
   extends SecDurableExecutionRecordBase {
   readonly kind: 'provider-settlement-reference';
   readonly attemptNonceDigest: SecDurableExecutionDigest;
-  readonly settlementClass: SecDurableProviderSettlementClass;
+  readonly requirementId: string;
+  readonly providerBindingDigest: SecDurableExecutionDigest;
   readonly providerSettlementReferenceDigest: SecDurableExecutionDigest;
 }
 
@@ -75,16 +63,16 @@ export interface SecDurableExecutionDomainReadbackReferenceRecord
   extends SecDurableExecutionRecordBase {
   readonly kind: 'domain-readback-reference';
   readonly attemptNonceDigest: SecDurableExecutionDigest;
-  readonly readbackClass: SecDurableDomainReadbackClass;
+  readonly readbackContractDigest: SecDurableExecutionDigest;
   readonly domainReadbackReferenceDigest: SecDurableExecutionDigest;
 }
 
-export interface SecDurableExecutionTerminalRecord extends SecDurableExecutionRecordBase {
-  readonly kind: 'terminal';
+export interface SecDurableExecutionAttemptResolutionRecord extends SecDurableExecutionRecordBase {
+  readonly kind: 'attempt-resolution';
   readonly attemptNonceDigest: SecDurableExecutionDigest;
-  readonly terminalClass: SecDurableExecutionTerminalClass;
-  readonly terminalReferenceDigest: SecDurableExecutionDigest;
-  readonly providerSettlementRecordDigest: SecDurableExecutionDigest | null;
+  readonly resolutionKind: SecDurableAttemptResolutionKind;
+  readonly resolutionReferenceDigest: SecDurableExecutionDigest;
+  readonly providerSettlementRecordDigests: readonly SecDurableExecutionDigest[];
   readonly domainReadbackRecordDigest: SecDurableExecutionDigest | null;
 }
 
@@ -94,12 +82,12 @@ export type SecDurableExecutionRecord =
   | SecDurableExecutionCancelRequestRecord
   | SecDurableExecutionProviderSettlementReferenceRecord
   | SecDurableExecutionDomainReadbackReferenceRecord
-  | SecDurableExecutionTerminalRecord;
+  | SecDurableExecutionAttemptResolutionRecord;
 
 export interface SecDurableExecutionAttemptObservation {
   readonly start: SecDurableExecutionAttemptStartRecord;
   readonly cancelRequest: SecDurableExecutionCancelRequestRecord | null;
-  readonly providerSettlement: SecDurableExecutionProviderSettlementReferenceRecord | null;
+  readonly providerSettlements: readonly SecDurableExecutionProviderSettlementReferenceRecord[];
   readonly domainReadback: SecDurableExecutionDomainReadbackReferenceRecord | null;
 }
 
@@ -108,7 +96,7 @@ export interface SecDurableExecutionJournalObservation {
   readonly intent: SecDurableExecutionIntentRecord;
   readonly records: readonly SecDurableExecutionRecord[];
   readonly activeAttempt: SecDurableExecutionAttemptObservation | null;
-  readonly latestTerminal: SecDurableExecutionTerminalRecord | null;
+  readonly latestResolution: SecDurableExecutionAttemptResolutionRecord | null;
   readonly journalDigest: SecDurableExecutionDigest;
 }
 
@@ -135,13 +123,13 @@ type UnsignedRecord = SecDurableExecutionRecord extends infer RecordValue
   : never;
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u;
 const digestSchema = z.string().regex(DIGEST_PATTERN);
 const nullableDigestSchema = digestSchema.nullable();
 const baseRecordShape = {
   schema: z.literal(SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA),
   sequence: z.number().int().nonnegative().safe(),
   operationKeyDigest: digestSchema,
-  runIdDigest: digestSchema,
   previousRecordDigest: nullableDigestSchema,
   recordDigest: digestSchema
 } as const;
@@ -154,7 +142,8 @@ const durableExecutionRecordSchema = z.discriminatedUnion('kind', [
   z.object({
     ...baseRecordShape,
     kind: z.literal('attempt-start'),
-    resumeEpochDigest: digestSchema,
+    runIdDigest: nullableDigestSchema,
+    resumeEpochDigest: nullableDigestSchema,
     attemptNonceDigest: digestSchema,
     workerIdentityDigest: digestSchema,
     authorityGrantReferenceDigest: digestSchema,
@@ -171,25 +160,26 @@ const durableExecutionRecordSchema = z.discriminatedUnion('kind', [
     ...baseRecordShape,
     kind: z.literal('provider-settlement-reference'),
     attemptNonceDigest: digestSchema,
-    settlementClass: z.enum(['succeeded', 'failed', 'cancelled', 'timed-out']),
+    requirementId: z.string().regex(ID_PATTERN),
+    providerBindingDigest: digestSchema,
     providerSettlementReferenceDigest: digestSchema
   }).strict(),
   z.object({
     ...baseRecordShape,
     kind: z.literal('domain-readback-reference'),
     attemptNonceDigest: digestSchema,
-    readbackClass: z.enum(['succeeded', 'failed', 'not-applied', 'unknown']),
+    readbackContractDigest: digestSchema,
     domainReadbackReferenceDigest: digestSchema
   }).strict(),
   z.object({
     ...baseRecordShape,
-    kind: z.literal('terminal'),
+    kind: z.literal('attempt-resolution'),
     attemptNonceDigest: digestSchema,
-    terminalClass: z.enum([
-      'succeeded', 'failed', 'cancelled', 'timed-out', 'not-applied', 'recovery-required'
+    resolutionKind: z.enum([
+      'owner-terminal-reference', 'retry-admission-reference', 'reconciliation-required'
     ]),
-    terminalReferenceDigest: digestSchema,
-    providerSettlementRecordDigest: nullableDigestSchema,
+    resolutionReferenceDigest: digestSchema,
+    providerSettlementRecordDigests: z.array(digestSchema),
     domainReadbackRecordDigest: nullableDigestSchema
   }).strict()
 ]);
@@ -231,48 +221,21 @@ export function parseDurableExecutionRecord(source: string): SecDurableExecution
   return Object.freeze(record);
 }
 
-function assertTerminalEvidence(
-  terminal: SecDurableExecutionTerminalRecord,
+function assertAttemptResolution(
+  resolution: SecDurableExecutionAttemptResolutionRecord,
   attempt: SecDurableExecutionAttemptObservation
 ): void {
-  const provider = attempt.providerSettlement;
-  const readback = attempt.domainReadback;
-  if (terminal.providerSettlementRecordDigest !== (provider?.recordDigest ?? null)
-      || terminal.domainReadbackRecordDigest !== (readback?.recordDigest ?? null)) {
-    fail('invalid-transition', 'terminal references do not match the current attempt observations.');
+  const providerRecordDigests = attempt.providerSettlements
+    .map(({ recordDigest }) => recordDigest)
+    .sort();
+  if (JSON.stringify(resolution.providerSettlementRecordDigests) !== JSON.stringify(providerRecordDigests)
+      || resolution.domainReadbackRecordDigest !== (attempt.domainReadback?.recordDigest ?? null)) {
+    fail('invalid-transition', 'attempt resolution references do not match the current observations.');
   }
-  switch (terminal.terminalClass) {
-    case 'succeeded':
-      if (readback?.readbackClass !== 'succeeded') {
-        fail('invalid-transition', 'succeeded terminal requires conclusive succeeded domain readback.');
-      }
-      return;
-    case 'failed':
-      if (readback?.readbackClass !== 'failed'
-          && !(readback?.readbackClass === 'not-applied' && provider?.settlementClass === 'failed')) {
-        fail('invalid-transition', 'failed terminal requires failed domain readback or failed provider with not-applied readback.');
-      }
-      return;
-    case 'cancelled':
-      if (attempt.cancelRequest === null || provider?.settlementClass !== 'cancelled'
-          || readback?.readbackClass !== 'not-applied') {
-        fail('invalid-transition', 'cancelled terminal requires cancel, provider cancellation and not-applied readback.');
-      }
-      return;
-    case 'timed-out':
-      if (provider?.settlementClass !== 'timed-out' || readback?.readbackClass !== 'not-applied') {
-        fail('invalid-transition', 'timed-out terminal requires provider timeout and not-applied readback.');
-      }
-      return;
-    case 'not-applied':
-      if (provider !== null || readback?.readbackClass !== 'not-applied') {
-        fail('invalid-transition', 'not-applied terminal requires conclusive domain readback and no provider settlement.');
-      }
-      return;
-    case 'recovery-required':
-      if (readback !== null && readback.readbackClass !== 'unknown') {
-        fail('invalid-transition', 'recovery-required terminal cannot discard conclusive domain readback.');
-      }
+  if ((resolution.resolutionKind === 'owner-terminal-reference'
+      || resolution.resolutionKind === 'retry-admission-reference')
+      && attempt.domainReadback === null) {
+    fail('invalid-transition', `${resolution.resolutionKind} requires an owner-issued domain readback reference.`);
   }
 }
 
@@ -285,16 +248,15 @@ export function observeDurableExecutionJournal(
   const intent = records[0] as SecDurableExecutionIntentRecord;
   let previous: SecDurableExecutionRecord | null = null;
   let active: SecDurableExecutionAttemptObservation | null = null;
-  let latestTerminal: SecDurableExecutionTerminalRecord | null = null;
+  let latestResolution: SecDurableExecutionAttemptResolutionRecord | null = null;
   const attemptNonces = new Set<SecDurableExecutionDigest>();
   for (const [index, record] of records.entries()) {
     if (record.sequence !== index
         || record.previousRecordDigest !== (previous?.recordDigest ?? null)) {
       fail('invalid-transition', 'record sequence or predecessor chain is noncanonical.');
     }
-    if (record.operationKeyDigest !== intent.operationKeyDigest
-        || record.runIdDigest !== intent.runIdDigest) {
-      fail('invalid-transition', 'record identity differs from the journal intent.');
+    if (record.operationKeyDigest !== intent.operationKeyDigest) {
+      fail('invalid-transition', 'record OperationKey differs from the journal intent.');
     }
     if (index === 0) {
       previous = record;
@@ -303,16 +265,16 @@ export function observeDurableExecutionJournal(
     if (record.kind === 'intent') fail('invalid-transition', 'journal contains a second intent.');
     switch (record.kind) {
       case 'attempt-start':
-        if (active !== null || latestTerminal?.terminalClass === 'succeeded'
-            || latestTerminal?.terminalClass === 'recovery-required') {
-          fail('invalid-transition', 'attempt start conflicts with active, succeeded or unresolved execution.');
+        if (active !== null || latestResolution?.resolutionKind === 'owner-terminal-reference'
+            || latestResolution?.resolutionKind === 'reconciliation-required') {
+          fail('invalid-transition', 'attempt start conflicts with active, owner-terminal or unresolved execution.');
         }
         if (attemptNonces.has(record.attemptNonceDigest)) {
           fail('invalid-transition', 'attempt nonce was already consumed by this run.');
         }
         attemptNonces.add(record.attemptNonceDigest);
         active = Object.freeze({ start: record, cancelRequest: null,
-          providerSettlement: null, domainReadback: null });
+          providerSettlements: Object.freeze([]), domainReadback: null });
         break;
       case 'cancel-request':
         if (active === null || record.attemptNonceDigest !== active.start.attemptNonceDigest
@@ -322,19 +284,19 @@ export function observeDurableExecutionJournal(
         active = Object.freeze({
           start: active.start,
           cancelRequest: record,
-          providerSettlement: active.providerSettlement,
+          providerSettlements: active.providerSettlements,
           domainReadback: active.domainReadback
         });
         break;
       case 'provider-settlement-reference':
         if (active === null || record.attemptNonceDigest !== active.start.attemptNonceDigest
-            || active.providerSettlement !== null) {
-          fail('invalid-transition', 'provider settlement does not target the one unsettled active attempt.');
+            || active.providerSettlements.some(({ requirementId }) => requirementId === record.requirementId)) {
+          fail('invalid-transition', 'provider settlement does not target one unique active requirement.');
         }
         active = Object.freeze({
           start: active.start,
           cancelRequest: active.cancelRequest,
-          providerSettlement: record,
+          providerSettlements: Object.freeze([...active.providerSettlements, record]),
           domainReadback: active.domainReadback
         });
         break;
@@ -346,16 +308,16 @@ export function observeDurableExecutionJournal(
         active = Object.freeze({
           start: active.start,
           cancelRequest: active.cancelRequest,
-          providerSettlement: active.providerSettlement,
+          providerSettlements: active.providerSettlements,
           domainReadback: record
         });
         break;
-      case 'terminal':
+      case 'attempt-resolution':
         if (active === null || record.attemptNonceDigest !== active.start.attemptNonceDigest) {
-          fail('invalid-transition', 'terminal does not target the one active attempt.');
+          fail('invalid-transition', 'attempt resolution does not target the one active attempt.');
         }
-        assertTerminalEvidence(record, active);
-        latestTerminal = record;
+        assertAttemptResolution(record, active);
+        latestResolution = record;
         active = null;
         break;
     }
@@ -365,7 +327,7 @@ export function observeDurableExecutionJournal(
     intent,
     records: Object.freeze([...records]),
     activeAttempt: active,
-    latestTerminal,
+    latestResolution,
     journalDigest: sha256(records.map((record) => record.recordDigest)) as SecDurableExecutionDigest
   });
 }

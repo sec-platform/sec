@@ -424,7 +424,7 @@ OperationKey + AuthorityGrant + ProviderBindingSet
                          │
               ┌──────────┴──────────┐
               ▼                     ▼
-      ProviderSettlement    IndependentDomainReadback
+ ProviderSettlementSet     IndependentDomainReadback
               └──────────┬──────────┘
                          ▼
                   TerminalOutcome
@@ -446,17 +446,30 @@ current truth；只有真实跨进程或公共machine consumer存在时才拥有
 
 `OperationKey`是domain owner签发的稳定Effect/idempotency identity；deadline变化、预算收窄、provider route切换、进程重启和resume都不得制造新业务
 Effect。AuthorityGrant拥有principal/scope/capability/budget/validity；ProviderBindingSet拥有exact external binding；Attempt拥有nonce、lease与absolute
-deadline。ProviderSettlement只能由provider owner签发，IndependentDomainReadback只能由domain/retained readback owner签发，operation coordinator只
-join两张opaque receipt并计算TerminalOutcome；不同hash或WeakSet brand不能代替独立issuer/origin。
+deadline。每张ProviderSettlement只能由对应requirement的provider owner签发，并绑定exact requirement、binding与attempt；
+IndependentDomainReadback只能由domain/retained readback owner签发。operation coordinator只join exact provider receipt set与domain receipt并计算
+TerminalOutcome；lost-handle recovery使用owner-issued recovered-readback路径，不能伪造缺失provider receipt。不同hash或WeakSet brand不能代替独立issuer/origin。
 
 长时或可变更外部状态的本地Effect必须同时闭合两个互不替代的层：domain operation拥有业务intent、OperationKey、资源lease、成功语义、独立
-readback与recovery policy；Durable Local Effect Worker只拥有attempt claim、worker/process identity、cancel、stream cursor、provider settlement引用和
-lost-handle terminal observation。worker不得接受任意argv、shell或callback，不得复制domain phase，也不得把持久JSON提升为authority。客户端失去
-进程句柄后只能按稳定OperationKey执行`join-live | consume-terminal | reconcile | recovery-required`；已有start而没有可证明terminal时禁止blind replay。
-worker或客户端重启后，durable record只证明曾观察到哪些bytes、进程和provider结果，domain owner仍必须在当前physical epoch重新readback，并用新的
-live capability签发终态。`started-without-terminal`是非终态观察，不得伪装成terminal class；无法唯一认领物理结果时终态只能是
-`recovery-required`。一个Effect可组合多个domain resource lease，一个resource lease也会被不同OperationKey竞争，因此attempt claim、workspace/write
-lease、provider/process session必须分层，固定顺序为`attempt claim → domain resource lease → provider → independent readback → terminal`。
+readback、retry/compensation policy与唯一business terminal；Durable Local Effect Worker只拥有OperationKey级attempt claim、run/resume/worker/process
+lineage、cancel、stream cursor和opaque receipt reference。worker不得接受任意argv、shell、domain callback或domain phase，不得解释stdout、目标状态或
+业务成功，也不得把持久JSON提升为authority。Durable journal没有第二套`succeeded | failed | cancelled | timed-out`状态机；它只记录`owner terminal
+reference | retry-admission reference | reconciliation-required observation`等attempt生命周期。真正terminal必须引用owner-issued operation settlement，
+retry必须引用domain owner对当前physical epoch签发的conclusive not-applied/recovery authorization；provider handle、PID或journal bytes丢失都不能自行授权。
+
+同一OperationKey的所有run、resume epoch与attempt共用一个线性claim journal；`runId`只拥有逻辑任务lineage，不能参与journal地址或把同一Effect分裂为
+多个并发claim。客户端失去进程句柄后只能执行`join-live | consume-owner-terminal | domain-readback | reconcile`；已有start而没有owner terminal或retry
+admission时禁止blind replay。worker或客户端重启后，durable record只证明曾观察到哪些references，domain owner仍必须在当前physical epoch重新readback。
+一个operation含多个effectful requirement时，terminal compiler必须消费与execution plan精确相等的provider settlement set：missing、duplicate、foreign
+binding或错误attempt一律拒绝；lost-handle允许settlement reference缺失，但只能由handle-independent domain readback与recovery policy裁决。聚合DAG还必须
+绑定exact child terminal set和一个共享不可逆resource ledger，禁止每个child重开完整budget。固定依赖方向与锁序为`attempt claim → domain resource lease
+→ provider(s) → independent domain readback → owner terminal/retry admission`；Runtime State不得反向依赖domain、Verification或Control。
+
+WeakSet只拒绝structural clone，不证明issuer独立。Effect grant、capability binding、provider settlement、domain readback和owner terminal必须由各自owner持有的
+live capability签发；operation foundation只验证并join receipt，不能公开一个让任意caller依次自签全部层级的facade。Source Program从真实symbol/import/call
+graph拒绝非owner issuer、同一模块兼任provider与readback issuer、缺recovery contract、缺provider settlement set、通用worker中的argv/callback/domain import，
+以及module obligation与operation contract的effect/failure/budget双写。已有完整claim/journal/readback的domain只注册其canonical contract digest，不迁移或双写
+business journal。Durable byte grammar只有首个真实production writer存在后才形成兼容代际；在consumer为零时直接原子纠正当前grammar，不制造V2壳。
 
 每个identity domain可以有多个历史immutable results并存，但只有owner-issued pointer/receipt可以声明哪个结果对某个当前subject可用。Runtime Cache
 只在有界entry/byte/age budget与active-reader lease内保存可删除的加速数据；predecessor只凭producer签发的compatibility/invalidation receipt选择。

@@ -5,7 +5,6 @@ import {
   SecDurableExecutionContractError,
   encodeDurableExecutionRecord,
   observeDurableExecutionJournal,
-  parseDurableExecutionJournal,
   parseDurableExecutionRecord,
   sealDurableExecutionRecord,
   type SecDurableExecutionDigest,
@@ -15,15 +14,12 @@ import {
 const digest = (value: string): SecDurableExecutionDigest =>
   `sha256:${value.padStart(64, '0')}` as SecDurableExecutionDigest;
 
-function fixtureRecords(): readonly SecDurableExecutionRecord[] {
-  const operationKeyDigest = digest('1');
-  const runIdDigest = digest('2');
+function attemptPrefix(run = '2', nonce = '5'): readonly SecDurableExecutionRecord[] {
   const intent = sealDurableExecutionRecord({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'intent',
     sequence: 0,
-    operationKeyDigest,
-    runIdDigest,
+    operationKeyDigest: digest('1'),
     intentReferenceDigest: digest('3'),
     previousRecordDigest: null
   });
@@ -31,151 +27,157 @@ function fixtureRecords(): readonly SecDurableExecutionRecord[] {
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-start',
     sequence: 1,
-    operationKeyDigest,
-    runIdDigest,
+    operationKeyDigest: intent.operationKeyDigest,
+    runIdDigest: digest(run),
     previousRecordDigest: intent.recordDigest,
     resumeEpochDigest: digest('4'),
-    attemptNonceDigest: digest('5'),
+    attemptNonceDigest: digest(nonce),
     workerIdentityDigest: digest('6'),
     authorityGrantReferenceDigest: digest('7'),
     providerBindingSetReferenceDigest: digest('8'),
     executionPlanReferenceDigest: digest('9')
   });
-  const readback = sealDurableExecutionRecord({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'domain-readback-reference',
-    sequence: 2,
-    operationKeyDigest,
-    runIdDigest,
-    previousRecordDigest: start.recordDigest,
-    attemptNonceDigest: start.attemptNonceDigest,
-    readbackClass: 'succeeded',
-    domainReadbackReferenceDigest: digest('a')
-  });
-  const terminal = sealDurableExecutionRecord({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'terminal',
-    sequence: 3,
-    operationKeyDigest,
-    runIdDigest,
-    previousRecordDigest: readback.recordDigest,
-    attemptNonceDigest: start.attemptNonceDigest,
-    terminalClass: 'succeeded',
-    terminalReferenceDigest: digest('b'),
-    providerSettlementRecordDigest: null,
-    domainReadbackRecordDigest: readback.recordDigest
-  });
-  return Object.freeze([intent, start, readback, terminal]);
+  return Object.freeze([intent, start]);
 }
 
-test('lost provider handle can settle only through conclusive domain readback observation', () => {
-  const records = fixtureRecords();
-  const source = records.map((record) => `${encodeDurableExecutionRecord(record)}\n`).join('');
-  const observation = parseDurableExecutionJournal(source);
-
-  expect(observation.intent.operationKeyDigest).toBe(digest('1'));
-  expect(observation.records[1]).toMatchObject({
-    kind: 'attempt-start',
-    runIdDigest: digest('2'),
-    resumeEpochDigest: digest('4'),
-    attemptNonceDigest: digest('5'),
-    workerIdentityDigest: digest('6')
-  });
-  expect(observation.latestTerminal).toMatchObject({
-    terminalClass: 'succeeded',
-    providerSettlementRecordDigest: null,
-    domainReadbackRecordDigest: records[2]!.recordDigest
-  });
-  expect(observation.activeAttempt).toBeNull();
-});
-
-test('recovery-required preserves an unresolved active attempt without claiming an outcome', () => {
-  const [intent, start] = fixtureRecords();
-  const terminal = sealDurableExecutionRecord({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'terminal',
-    sequence: 2,
-    operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: intent.runIdDigest,
-    previousRecordDigest: start!.recordDigest,
-    attemptNonceDigest: start!.kind === 'attempt-start' ? start.attemptNonceDigest : digest('0'),
-    terminalClass: 'recovery-required',
-    terminalReferenceDigest: digest('c'),
-    providerSettlementRecordDigest: null,
-    domainReadbackRecordDigest: null
-  });
-  const observation = observeDurableExecutionJournal([intent, start!, terminal]);
-
-  expect(observation.latestTerminal?.terminalClass).toBe('recovery-required');
-  expect(observation.latestTerminal?.domainReadbackRecordDigest).toBeNull();
-
-  const retry = sealDurableExecutionRecord({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'attempt-start',
-    sequence: 3,
-    operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: intent.runIdDigest,
-    previousRecordDigest: terminal.recordDigest,
-    resumeEpochDigest: digest('11'),
-    attemptNonceDigest: digest('12'),
-    workerIdentityDigest: digest('13'),
-    authorityGrantReferenceDigest: digest('14'),
-    providerBindingSetReferenceDigest: digest('15'),
-    executionPlanReferenceDigest: digest('16')
-  });
-  expect(() => observeDurableExecutionJournal([intent, start!, terminal, retry]))
-    .toThrow('unresolved execution');
-});
-
-test('conclusive not-applied readback retires a lost-handle attempt and permits a new attempt', () => {
-  const [intent, start] = fixtureRecords();
-  const readback = sealDurableExecutionRecord({
+function readback(
+  prefix: readonly SecDurableExecutionRecord[],
+  reference = 'a'
+): SecDurableExecutionRecord {
+  const start = prefix[1]!;
+  return sealDurableExecutionRecord({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'domain-readback-reference',
-    sequence: 2,
-    operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: intent.runIdDigest,
-    previousRecordDigest: start!.recordDigest,
-    attemptNonceDigest: start!.kind === 'attempt-start' ? start.attemptNonceDigest : digest('0'),
-    readbackClass: 'not-applied',
-    domainReadbackReferenceDigest: digest('17')
+    sequence: prefix.length,
+    operationKeyDigest: prefix[0]!.operationKeyDigest,
+    previousRecordDigest: prefix.at(-1)!.recordDigest,
+    attemptNonceDigest: start.kind === 'attempt-start' ? start.attemptNonceDigest : digest('0'),
+    readbackContractDigest: digest('10'),
+    domainReadbackReferenceDigest: digest(reference)
   });
-  const terminal = sealDurableExecutionRecord({
+}
+
+test('one OperationKey serializes every run and only an owner terminal closes the operation', () => {
+  const prefix = attemptPrefix();
+  const observedReadback = readback(prefix);
+  const resolution = sealDurableExecutionRecord({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'terminal',
+    kind: 'attempt-resolution',
     sequence: 3,
-    operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: intent.runIdDigest,
-    previousRecordDigest: readback.recordDigest,
-    attemptNonceDigest: readback.attemptNonceDigest,
-    terminalClass: 'not-applied',
-    terminalReferenceDigest: digest('18'),
-    providerSettlementRecordDigest: null,
-    domainReadbackRecordDigest: readback.recordDigest
+    operationKeyDigest: prefix[0]!.operationKeyDigest,
+    previousRecordDigest: observedReadback.recordDigest,
+    attemptNonceDigest: prefix[1]!.kind === 'attempt-start'
+      ? prefix[1].attemptNonceDigest : digest('0'),
+    resolutionKind: 'owner-terminal-reference',
+    resolutionReferenceDigest: digest('11'),
+    providerSettlementRecordDigests: [],
+    domainReadbackRecordDigest: observedReadback.recordDigest
   });
+  const nextRun = attemptPrefix('12', '13')[1]!;
   const retry = sealDurableExecutionRecord({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'attempt-start',
+    ...nextRun,
     sequence: 4,
-    operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: intent.runIdDigest,
-    previousRecordDigest: terminal.recordDigest,
-    resumeEpochDigest: digest('19'),
-    attemptNonceDigest: digest('20'),
-    workerIdentityDigest: digest('21'),
-    authorityGrantReferenceDigest: digest('22'),
-    providerBindingSetReferenceDigest: digest('23'),
-    executionPlanReferenceDigest: digest('24')
+    previousRecordDigest: resolution.recordDigest
   });
 
-  const observation = observeDurableExecutionJournal([intent, start!, readback, terminal, retry]);
-  expect(observation.latestTerminal?.terminalClass).toBe('not-applied');
-  expect(observation.activeAttempt?.start.attemptNonceDigest).toBe(retry.attemptNonceDigest);
+  const observation = observeDurableExecutionJournal([...prefix, observedReadback, resolution]);
+  expect(observation.latestResolution?.resolutionKind).toBe('owner-terminal-reference');
+  expect(observation.activeAttempt).toBeNull();
+  expect(() => observeDurableExecutionJournal([
+    ...prefix, observedReadback, resolution, retry
+  ])).toThrow('owner-terminal');
 });
 
-test('exact parser rejects structural aliases, unknown keys, digest drift and noncanonical bytes', () => {
-  const encoded = encodeDurableExecutionRecord(fixtureRecords()[0]!);
+test('reconciliation blocks replay while owner retry admission permits a new run', () => {
+  const prefix = attemptPrefix();
+  const unresolved = sealDurableExecutionRecord({
+    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    kind: 'attempt-resolution',
+    sequence: 2,
+    operationKeyDigest: prefix[0]!.operationKeyDigest,
+    previousRecordDigest: prefix[1]!.recordDigest,
+    attemptNonceDigest: prefix[1]!.kind === 'attempt-start'
+      ? prefix[1].attemptNonceDigest : digest('0'),
+    resolutionKind: 'reconciliation-required',
+    resolutionReferenceDigest: digest('14'),
+    providerSettlementRecordDigests: [],
+    domainReadbackRecordDigest: null
+  });
+  const retryStart = sealDurableExecutionRecord({
+    ...attemptPrefix('15', '16')[1]!,
+    sequence: 3,
+    previousRecordDigest: unresolved.recordDigest
+  });
+  expect(() => observeDurableExecutionJournal([...prefix, unresolved, retryStart]))
+    .toThrow('unresolved execution');
 
+  const observedReadback = readback(prefix, '17');
+  const sealedAdmission = sealDurableExecutionRecord({
+    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    kind: 'attempt-resolution',
+    sequence: 3,
+    operationKeyDigest: prefix[0]!.operationKeyDigest,
+    previousRecordDigest: observedReadback.recordDigest,
+    attemptNonceDigest: prefix[1]!.kind === 'attempt-start'
+      ? prefix[1].attemptNonceDigest : digest('0'),
+    resolutionKind: 'retry-admission-reference',
+    resolutionReferenceDigest: digest('18'),
+    providerSettlementRecordDigests: [],
+    domainReadbackRecordDigest: observedReadback.recordDigest
+  });
+  const nextAttempt = sealDurableExecutionRecord({
+    ...attemptPrefix('19', '20')[1]!,
+    sequence: 4,
+    previousRecordDigest: sealedAdmission.recordDigest
+  });
+  expect(observeDurableExecutionJournal([
+    ...prefix, observedReadback, sealedAdmission, nextAttempt
+  ]).activeAttempt?.start.runIdDigest).toBe(digest('19'));
+});
+
+test('provider references are unique per requirement and resolution binds their exact record set', () => {
+  const prefix = attemptPrefix();
+  const provider = sealDurableExecutionRecord({
+    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    kind: 'provider-settlement-reference',
+    sequence: 2,
+    operationKeyDigest: prefix[0]!.operationKeyDigest,
+    previousRecordDigest: prefix[1]!.recordDigest,
+    attemptNonceDigest: prefix[1]!.kind === 'attempt-start'
+      ? prefix[1].attemptNonceDigest : digest('0'),
+    requirementId: 'process.compiler',
+    providerBindingDigest: digest('21'),
+    providerSettlementReferenceDigest: digest('22')
+  });
+  const duplicate = sealDurableExecutionRecord({
+    ...((({ recordDigest: _ignored, ...value }) => value)(provider)),
+    sequence: 3,
+    previousRecordDigest: provider.recordDigest,
+    providerSettlementReferenceDigest: digest('23')
+  });
+  expect(() => observeDurableExecutionJournal([...prefix, provider, duplicate]))
+    .toThrow('unique active requirement');
+
+  const observedReadback = readback([...prefix, provider], '24');
+  const resolution = sealDurableExecutionRecord({
+    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    kind: 'attempt-resolution',
+    sequence: 4,
+    operationKeyDigest: prefix[0]!.operationKeyDigest,
+    previousRecordDigest: observedReadback.recordDigest,
+    attemptNonceDigest: provider.attemptNonceDigest,
+    resolutionKind: 'owner-terminal-reference',
+    resolutionReferenceDigest: digest('25'),
+    providerSettlementRecordDigests: [provider.recordDigest],
+    domainReadbackRecordDigest: observedReadback.recordDigest
+  });
+  expect(observeDurableExecutionJournal([
+    ...prefix, provider, observedReadback, resolution
+  ]).latestResolution?.providerSettlementRecordDigests).toEqual([provider.recordDigest]);
+});
+
+test('exact parser rejects duplicate keys, unknown fields, digest drift and noncanonical bytes', () => {
+  const encoded = encodeDurableExecutionRecord(attemptPrefix()[0]!);
   expect(() => parseDurableExecutionRecord(
     encoded.replace('"kind":"intent"', '"kind":"intent","\\u006bind":"intent"')
   )).toThrow('duplicate key');
@@ -187,61 +189,8 @@ test('exact parser rejects structural aliases, unknown keys, digest drift and no
     expect((error as SecDurableExecutionContractError).kind).toBe('invalid-record');
   }
   expect(() => parseDurableExecutionRecord(
-    encoded.replace(digest('3'), digest('d'))
+    encoded.replace(digest('3'), digest('26'))
   )).toThrow('digest does not match');
-  expect(() => parseDurableExecutionRecord(JSON.stringify({
-    ...fixtureRecords()[0]
-  }))).toThrow('bytes are not canonical');
-});
-
-test('provider settlement alone cannot claim success and conclusive readback cannot be discarded', () => {
-  const [intent, start] = fixtureRecords();
-  const settlement = sealDurableExecutionRecord({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'provider-settlement-reference',
-    sequence: 2,
-    operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: intent.runIdDigest,
-    previousRecordDigest: start!.recordDigest,
-    attemptNonceDigest: start!.kind === 'attempt-start' ? start.attemptNonceDigest : digest('0'),
-    settlementClass: 'succeeded',
-    providerSettlementReferenceDigest: digest('e')
-  });
-  const succeeded = sealDurableExecutionRecord({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'terminal',
-    sequence: 3,
-    operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: intent.runIdDigest,
-    previousRecordDigest: settlement.recordDigest,
-    attemptNonceDigest: settlement.attemptNonceDigest,
-    terminalClass: 'succeeded',
-    terminalReferenceDigest: digest('f'),
-    providerSettlementRecordDigest: settlement.recordDigest,
-    domainReadbackRecordDigest: null
-  });
-  const retroactiveCancel = sealDurableExecutionRecord({
-    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
-    kind: 'cancel-request',
-    sequence: 3,
-    operationKeyDigest: intent.operationKeyDigest,
-    runIdDigest: intent.runIdDigest,
-    previousRecordDigest: settlement.recordDigest,
-    attemptNonceDigest: settlement.attemptNonceDigest,
-    cancelRequestReferenceDigest: digest('54')
-  });
-
-  expect(() => observeDurableExecutionJournal([intent, start!, settlement, succeeded]))
-    .toThrow('requires conclusive succeeded domain readback');
-  expect(() => observeDurableExecutionJournal([intent, start!, settlement, retroactiveCancel]))
-    .toThrow('active uncancelled attempt');
-  const conclusive = fixtureRecords();
-  const { recordDigest: _recordDigest, ...terminalWithoutDigest } = conclusive[3]!;
-  const recovery = sealDurableExecutionRecord({
-    ...terminalWithoutDigest,
-    terminalClass: 'recovery-required',
-    terminalReferenceDigest: digest('10')
-  });
-  expect(() => observeDurableExecutionJournal([...conclusive.slice(0, 3), recovery]))
-    .toThrow('cannot discard conclusive domain readback');
+  expect(() => parseDurableExecutionRecord(JSON.stringify({ ...attemptPrefix()[0] })))
+    .toThrow('bytes are not canonical');
 });
