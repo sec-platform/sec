@@ -449,6 +449,15 @@ Effect。AuthorityGrant拥有principal/scope/capability/budget/validity；Provid
 deadline。ProviderSettlement只能由provider owner签发，IndependentDomainReadback只能由domain/retained readback owner签发，operation coordinator只
 join两张opaque receipt并计算TerminalOutcome；不同hash或WeakSet brand不能代替独立issuer/origin。
 
+长时或可变更外部状态的本地Effect必须同时闭合两个互不替代的层：domain operation拥有业务intent、OperationKey、资源lease、成功语义、独立
+readback与recovery policy；Durable Local Effect Worker只拥有attempt claim、worker/process identity、cancel、stream cursor、provider settlement引用和
+lost-handle terminal observation。worker不得接受任意argv、shell或callback，不得复制domain phase，也不得把持久JSON提升为authority。客户端失去
+进程句柄后只能按稳定OperationKey执行`join-live | consume-terminal | reconcile | recovery-required`；已有start而没有可证明terminal时禁止blind replay。
+worker或客户端重启后，durable record只证明曾观察到哪些bytes、进程和provider结果，domain owner仍必须在当前physical epoch重新readback，并用新的
+live capability签发终态。`started-without-terminal`是非终态观察，不得伪装成terminal class；无法唯一认领物理结果时终态只能是
+`recovery-required`。一个Effect可组合多个domain resource lease，一个resource lease也会被不同OperationKey竞争，因此attempt claim、workspace/write
+lease、provider/process session必须分层，固定顺序为`attempt claim → domain resource lease → provider → independent readback → terminal`。
+
 每个identity domain可以有多个历史immutable results并存，但只有owner-issued pointer/receipt可以声明哪个结果对某个当前subject可用。Runtime Cache
 只在有界entry/byte/age budget与active-reader lease内保存可删除的加速数据；predecessor只凭producer签发的compatibility/invalidation receipt选择。
 cache index、pointer、mtime、目录顺序和“最新”名称都不是authority；损坏、缺失、foreign、stale或被GC的cache回到clean computation，且结果必须

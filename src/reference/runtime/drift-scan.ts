@@ -8,6 +8,7 @@ import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
@@ -46,6 +47,9 @@ function compileReferenceDriftOperation(root: string): SecBoundSemanticOperation
     }) as SecOperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + REFERENCE_GIT_DURATION_MS,
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: REFERENCE_GIT_DURATION_MS },
       {

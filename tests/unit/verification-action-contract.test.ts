@@ -6,7 +6,8 @@ import {
   compileSecSemanticOperationPlan,
   issueSecDomainOutcomeReceipt,
   issueSecOperationSettlementEnvelope,
-  issueSecProviderSettlementReceipt
+  issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext
 } from '../../src/system-architecture/operation/semantic.ts';
 import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
 import { CodexDevelopmentAssertVerificationGateResult } from '../../src/verification/result/contract/result.ts';
@@ -17,7 +18,7 @@ const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
 const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;
 
 function settlement(
-  terminalClass: 'completed' | 'failed' | 'started-without-terminal',
+  terminalClass: 'completed' | 'failed' | 'recovery-required',
   deadlineAtUnixMs = 1_900_000_000_000
 ) {
   const plan = compileSecSemanticOperationPlan({
@@ -31,7 +32,10 @@ function settlement(
       contractDigest: DIGEST_C,
       effectKinds: ['process'],
       failureKinds: ['process.failed']
-    }]
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: DIGEST_C
+    })
   });
   const bound = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
     requirementId: 'verification.test-effect',
@@ -166,8 +170,8 @@ test('Action terminal projection accepts only an owner-issued settlement envelop
   })).toThrow('not owner-issued');
   expect(() => projectVerificationActionTerminal({ ...completed })).toThrow('not owner-issued');
   expect(() => projectVerificationActionTerminal(
-    settlement('started-without-terminal')
-  )).toThrow('started without');
+    settlement('recovery-required')
+  )).toThrow('requires owner recovery');
 });
 
 test('Action process resource policy is one immutable single-process bounded execution contract', () => {

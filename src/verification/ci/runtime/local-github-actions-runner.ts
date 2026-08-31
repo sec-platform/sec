@@ -33,6 +33,7 @@ import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
   type SecOperationDigest
 } from '../../../system-architecture/operation/semantic.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../contract/revision.ts';
@@ -168,7 +169,10 @@ async function openLocalContainerEngineSession(input: Readonly<{
         'container-engine.endpoint-unavailable',
         'container-engine.process-settlement-failed'
       ]
-    }]
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    })
   });
   const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
     requirementId: 'external.container-engine-process',

@@ -13,6 +13,7 @@ import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../system-architecture/operation/semantic.ts';
@@ -108,6 +109,9 @@ function compileReleaseGitTreeOperation(
     }) as SecOperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },
       { resource: 'input-bytes', maximum: budget.maxStdinBytes },

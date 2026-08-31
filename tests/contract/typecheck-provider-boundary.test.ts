@@ -18,9 +18,8 @@ import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateE
 import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
-  type SecOperationDigest
+  issueSecSemanticOperationAttemptContext
 } from '../../src/system-architecture/operation/semantic.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
 import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/toolchain/typescript/checker.ts';
@@ -300,33 +299,33 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
     expect(() => changed({
       projectInput: { ...projectInput } as typeof projectInput
     })).toThrow('was not issued');
-    const budgetContractDigest = sha256({ operation: 'verification.typecheck' }) as SecOperationDigest;
+    const baseSemanticOperation = semanticAt(1_900_000_000_000);
     const changedBudgetPlan = compileSecSemanticOperationPlan({
-      operation: 'verification.typecheck',
-      intentDigest: sha256({ projectInput }) as SecOperationDigest,
-      decisionDigest: budgetContractDigest,
+      operation: baseSemanticOperation.plan.identity.operation,
+      intentDigest: baseSemanticOperation.plan.identity.intentDigest,
+      decisionDigest: baseSemanticOperation.plan.identity.decisionDigest,
       deadlineAtUnixMs: 1_900_000_000_000,
-      aggregateBudgets: [
-        { resource: 'duration-ms', maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs + 1 },
-        { resource: 'output-bytes', maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
-          + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes },
-        { resource: 'processes', maximum: 1 }
-      ],
-      requirements: [{
-        id: 'typescript.project-check',
-        contractDigest: budgetContractDigest,
-        effectKinds: ['process'],
-        failureKinds: ['provider.unavailable']
-      }]
+      attempt: issueSecSemanticOperationAttemptContext({
+        authorityGrantDigest: baseSemanticOperation.plan.attempt.authorityGrantDigest
+      }),
+      aggregateBudgets: baseSemanticOperation.plan.execution.aggregateBudgets.map((budget) => (
+        budget.resource === 'duration-ms'
+          ? { ...budget, maximum: budget.maximum + 1 }
+          : budget
+      )),
+      requirements: baseSemanticOperation.plan.execution.requirements
     });
-    const changedBudgetOperation = bindSecSemanticOperation(changedBudgetPlan, [
-      compileSecCapabilityBinding({
-        requirementId: 'typescript.project-check',
-        contractDigest: budgetContractDigest,
-        providerIdentityDigest: installed.provider.toolchainBindingDigest as SecOperationDigest
-      })
-    ]);
-    expect(changed({ semanticOperation: changedBudgetOperation })).not.toBe(first.actionKey);
+    const changedBudgetOperation = bindSecSemanticOperation(
+      changedBudgetPlan,
+      baseSemanticOperation.bindings
+    );
+    expect(changedBudgetOperation.plan.identity.identityDigest)
+      .toBe(baseSemanticOperation.plan.identity.identityDigest);
+    expect(changedBudgetOperation.plan.execution.executionPlanDigest)
+      .not.toBe(baseSemanticOperation.plan.execution.executionPlanDigest);
+    expect(changedBudgetOperation.boundAttemptDigest)
+      .not.toBe(baseSemanticOperation.boundAttemptDigest);
+    expect(changed({ semanticOperation: changedBudgetOperation })).toBe(first.actionKey);
     await fs.writeFile(path.join(root, 'node_modules', '@typescript', 'native', 'bin', 'tsc'), 'changed-wrapper');
     const changedProvider = (await selectNativeChecker(path.join(root, 'node_modules'))).provider;
     expect(changed({

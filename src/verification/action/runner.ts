@@ -26,6 +26,7 @@ import {
   issueSecDomainOutcomeReceipt,
   issueSecOperationSettlementEnvelope,
   issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
@@ -305,7 +306,10 @@ function bindLocalDagOperation(input: Readonly<{
       contractDigest,
       effectKinds: ['process'],
       failureKinds: ['process.failed', 'process.settlement-failed']
-    }]
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    })
   });
   const bound = bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
     requirementId: 'verification.local-provider',

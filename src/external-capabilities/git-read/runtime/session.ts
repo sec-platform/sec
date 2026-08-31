@@ -884,7 +884,7 @@ function semanticOperationBudget(
   operation: SecBoundSemanticOperation | undefined,
   resource: 'input-bytes' | 'output-bytes' | 'processes'
 ): number | null {
-  return operation?.plan.identity.aggregateBudgets
+  return operation?.plan.execution.aggregateBudgets
     .find((candidate) => candidate.resource === resource)?.maximum ?? null;
 }
 

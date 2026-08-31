@@ -7,6 +7,7 @@ import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
@@ -34,6 +35,9 @@ function compileTrackedProjectPathOperation(workspaceRoot: string): SecBoundSema
     }) as SecOperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + TRACKED_PROJECT_PATH_DURATION_MS,
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: TRACKED_PROJECT_PATH_DURATION_MS },
       {

@@ -39,6 +39,7 @@ import {
   issueSecDomainOutcomeReceipt,
   issueSecOperationSettlementEnvelope,
   issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
@@ -564,7 +565,10 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
         'container-engine.endpoint-unavailable',
         'container-engine.process-settlement-failed'
       ]
-    }]
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    })
   });
   return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
     requirementId: 'external.container-engine-process',
@@ -602,7 +606,10 @@ function bindTrustedRuntimeMainHealthEffect(input: Readonly<{
       contractDigest,
       effectKinds: ['process'],
       failureKinds: ['process.failed', 'process.settlement-failed']
-    }]
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    })
   });
   return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
     requirementId: 'verification.trusted-container-process',

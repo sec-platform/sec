@@ -9,20 +9,27 @@ import {
   issueSecDomainOutcomeReceipt,
   issueSecOperationSettlementEnvelope,
   issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext,
   projectSecCapabilityDiagnostic,
   type SecOperationDigest
 } from './semantic.ts';
 
 const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
 
-function plan(deadlineAtUnixMs = 1_900_000_000_000) {
+function plan(
+  deadlineAtUnixMs = 1_900_000_000_000,
+  durationMs = 120_000,
+  attempt = issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: digest('verification-typecheck-authority-grant')
+  })
+) {
   return compileSecSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: digest({ target: 'candidate' }),
     decisionDigest: digest({ noEmit: true }),
     deadlineAtUnixMs,
     aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 120_000 },
+      { resource: 'duration-ms', maximum: durationMs },
       { resource: 'output-bytes', maximum: 16 * 1024 * 1024 },
       { resource: 'processes', maximum: 1 }
     ],
@@ -31,7 +38,8 @@ function plan(deadlineAtUnixMs = 1_900_000_000_000) {
       contractDigest: digest({ semantics: 'no-emit-project-check' }),
       effectKinds: ['process'],
       failureKinds: ['provider.unavailable', 'provider.unverified']
-    }]
+    }],
+    attempt
   });
 }
 
@@ -39,7 +47,7 @@ function bound(deadlineAtUnixMs = 1_900_000_000_000) {
   const operationPlan = plan(deadlineAtUnixMs);
   return bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
     requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.identity.requirements[0]!.contractDigest,
+    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   })]);
 }
@@ -48,12 +56,12 @@ test('semantic plan remains provider-neutral while exact bindings are replaceabl
   const operationPlan = plan();
   const native = compileSecCapabilityBinding({
     requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.identity.requirements[0]!.contractDigest,
+    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   });
   const remote = compileSecCapabilityBinding({
     requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.identity.requirements[0]!.contractDigest,
+    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('remote-checker')
   });
 
@@ -72,6 +80,45 @@ test('operation identity excludes the attempt deadline while the attempt remains
   expect(second.attempt.deadlineAtUnixMs).toBe(1_900_000_000_001);
 });
 
+test('budget narrowing and attempt lineage never manufacture a new OperationKey', () => {
+  const lineage = issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: digest('verification-typecheck-authority-grant'),
+    runIdDigest: digest('run-1'),
+    resumeEpochDigest: digest('resume-1')
+  });
+  const first = plan(1_900_000_000_000, 120_000, lineage);
+  const narrowed = plan(1_900_000_000_000, 60_000, lineage);
+  const retried = plan(1_900_000_000_000, 120_000);
+
+  expect(first.identity.identityDigest).toBe(narrowed.identity.identityDigest);
+  expect(first.identity.identityDigest).toBe(retried.identity.identityDigest);
+  expect(first.execution.executionPlanDigest).not.toBe(narrowed.execution.executionPlanDigest);
+  expect(first.attempt.attemptDigest).not.toBe(narrowed.attempt.attemptDigest);
+  expect(first.attempt.attemptNonceDigest).not.toBe(retried.attempt.attemptNonceDigest);
+  expect(first.attempt.attemptDigest).not.toBe(retried.attempt.attemptDigest);
+});
+
+test('attempt context is an owner-issued capability rather than serializable authority', () => {
+  const issued = issueSecSemanticOperationAttemptContext({
+    authorityGrantDigest: digest('verification-typecheck-authority-grant')
+  });
+  const structural = structuredClone(issued);
+  expect(() => compileSecSemanticOperationPlan({
+    operation: 'verification.typecheck',
+    intentDigest: digest({ target: 'candidate' }),
+    decisionDigest: digest({ noEmit: true }),
+    deadlineAtUnixMs: 1_900_000_000_000,
+    aggregateBudgets: [{ resource: 'processes', maximum: 1 }],
+    requirements: [{
+      id: 'typescript.project-check',
+      contractDigest: digest({ semantics: 'no-emit-project-check' }),
+      effectKinds: ['process'],
+      failureKinds: ['provider.unavailable']
+    }],
+    attempt: structural
+  })).toThrow('not owner-issued');
+});
+
 test('binding rejects missing, duplicate and semantic-contract mismatches', () => {
   const operationPlan = plan();
   const wrong = compileSecCapabilityBinding({
@@ -88,7 +135,7 @@ test('provider diagnostics expose typed identity and digest without raw evidence
   const operationPlan = plan();
   const binding = compileSecCapabilityBinding({
     requirementId: 'typescript.project-check',
-    contractDigest: operationPlan.identity.requirements[0]!.contractDigest,
+    contractDigest: operationPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('native-checker')
   });
   const raw = 'C:\\secret\\workspace --token visible-only-to-provider';

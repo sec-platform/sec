@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   compareCodeUnits,
   deepFreeze,
@@ -44,19 +44,37 @@ export type SecSemanticOperationIdentity = Readonly<{
   readonly operation: string;
   readonly intentDigest: SecOperationDigest;
   readonly decisionDigest: SecOperationDigest;
+  readonly identityDigest: SecOperationDigest;
+}>;
+
+export type SecSemanticOperationExecutionPlan = Readonly<{
+  readonly operationIdentityDigest: SecOperationDigest;
   readonly aggregateBudgets: readonly SecOperationBudget[];
   readonly requirements: readonly SecOperationRequirement[];
-  readonly identityDigest: SecOperationDigest;
+  readonly executionPlanDigest: SecOperationDigest;
+}>;
+
+export type SecSemanticOperationAttemptContext = Readonly<{
+  readonly authorityGrantDigest: SecOperationDigest;
+  readonly runIdDigest: SecOperationDigest | null;
+  readonly resumeEpochDigest: SecOperationDigest | null;
+  readonly attemptNonceDigest: SecOperationDigest;
 }>;
 
 export type SecSemanticOperationAttempt = Readonly<{
   readonly operationIdentityDigest: SecOperationDigest;
+  readonly executionPlanDigest: SecOperationDigest;
+  readonly authorityGrantDigest: SecOperationDigest;
+  readonly runIdDigest: SecOperationDigest | null;
+  readonly resumeEpochDigest: SecOperationDigest | null;
+  readonly attemptNonceDigest: SecOperationDigest;
   readonly deadlineAtUnixMs: number;
   readonly attemptDigest: SecOperationDigest;
 }>;
 
 export type SecSemanticOperationPlan = Readonly<{
   readonly identity: SecSemanticOperationIdentity;
+  readonly execution: SecSemanticOperationExecutionPlan;
   readonly attempt: SecSemanticOperationAttempt;
 }>;
 
@@ -84,7 +102,7 @@ export const SEC_OPERATION_TERMINAL_CLASSES = [
   'timed-out',
   'cleanup-failed',
   'process-settlement-failed',
-  'started-without-terminal'
+  'recovery-required'
 ] as const;
 
 export type SecOperationTerminalClass =
@@ -152,6 +170,7 @@ export type SecCapabilityDiagnostic = Readonly<{
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u;
 const ISSUED_BOUND_OPERATIONS = new WeakSet<object>();
+const ISSUED_ATTEMPT_CONTEXTS = new WeakSet<object>();
 const ISSUED_PROVIDER_SETTLEMENTS = new WeakSet<object>();
 const ISSUED_DOMAIN_OUTCOMES = new WeakSet<object>();
 const ISSUED_SETTLEMENT_ENVELOPES = new WeakSet<object>();
@@ -213,6 +232,7 @@ export function compileSecSemanticOperationPlan(input: Readonly<{
   readonly deadlineAtUnixMs: number;
   readonly aggregateBudgets: readonly SecOperationBudget[];
   readonly requirements: readonly SecOperationRequirement[];
+  readonly attempt: SecSemanticOperationAttemptContext;
 }>): SecSemanticOperationPlan {
   const operation = requireId(input.operation, 'Semantic operation');
   if (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs < 1) {
@@ -239,28 +259,72 @@ export function compileSecSemanticOperationPlan(input: Readonly<{
       || new Set(requirements.map(({ id }) => id)).size !== requirements.length) {
     throw new Error('Semantic operation must have unique capability requirements.');
   }
+  if (!ISSUED_ATTEMPT_CONTEXTS.has(input.attempt)) {
+    throw new Error('Semantic operation attempt context is not owner-issued.');
+  }
   const identityWithoutDigest = deepFreeze({
     operation,
     intentDigest: requireDigest(input.intentDigest, 'Semantic operation intent digest'),
-    decisionDigest: requireDigest(input.decisionDigest, 'Semantic operation decision digest'),
-    aggregateBudgets: Object.freeze(aggregateBudgets),
-    requirements: Object.freeze(requirements)
+    decisionDigest: requireDigest(input.decisionDigest, 'Semantic operation decision digest')
   });
   const identity = deepFreeze({
     ...identityWithoutDigest,
     identityDigest: sha256(identityWithoutDigest) as SecOperationDigest
   });
+  const executionWithoutDigest = deepFreeze({
+    operationIdentityDigest: identity.identityDigest,
+    aggregateBudgets: Object.freeze(aggregateBudgets),
+    requirements: Object.freeze(requirements)
+  });
+  const execution = deepFreeze({
+    ...executionWithoutDigest,
+    executionPlanDigest: sha256(executionWithoutDigest) as SecOperationDigest
+  });
   const attemptWithoutDigest = deepFreeze({
     operationIdentityDigest: identity.identityDigest,
+    executionPlanDigest: execution.executionPlanDigest,
+    authorityGrantDigest: input.attempt.authorityGrantDigest,
+    runIdDigest: input.attempt.runIdDigest,
+    resumeEpochDigest: input.attempt.resumeEpochDigest,
+    attemptNonceDigest: input.attempt.attemptNonceDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs
   });
   return deepFreeze({
     identity,
+    execution,
     attempt: deepFreeze({
       ...attemptWithoutDigest,
       attemptDigest: sha256(attemptWithoutDigest) as SecOperationDigest
     })
   });
+}
+
+/**
+ * Issues one physical-attempt lineage capability. The nonce is generated by
+ * the canonical operation owner and cannot be supplied or reconstructed by a
+ * caller. Durable execution later binds this attempt to its claim generation
+ * and worker identity; it never changes the stable OperationKey.
+ */
+export function issueSecSemanticOperationAttemptContext(input: Readonly<{
+  readonly authorityGrantDigest: SecOperationDigest;
+  readonly runIdDigest?: SecOperationDigest | null;
+  readonly resumeEpochDigest?: SecOperationDigest | null;
+}>): SecSemanticOperationAttemptContext {
+  const context = deepFreeze({
+    authorityGrantDigest: requireDigest(
+      input.authorityGrantDigest,
+      'Semantic operation authority grant digest'
+    ),
+    runIdDigest: input.runIdDigest === undefined || input.runIdDigest === null
+      ? null
+      : requireDigest(input.runIdDigest, 'Semantic operation run identity digest'),
+    resumeEpochDigest: input.resumeEpochDigest === undefined || input.resumeEpochDigest === null
+      ? null
+      : requireDigest(input.resumeEpochDigest, 'Semantic operation resume epoch digest'),
+    attemptNonceDigest: `sha256:${randomBytes(32).toString('hex')}` as SecOperationDigest
+  });
+  ISSUED_ATTEMPT_CONTEXTS.add(context);
+  return context;
 }
 
 export function compileSecCapabilityBinding(input: Readonly<{
@@ -288,11 +352,11 @@ export function bindSecSemanticOperation(
 ): SecBoundSemanticOperation {
   const bindings = [...suppliedBindings]
     .sort((left, right) => compareCodeUnits(left.requirementId, right.requirementId));
-  if (bindings.length !== plan.identity.requirements.length
+  if (bindings.length !== plan.execution.requirements.length
       || new Set(bindings.map(({ requirementId }) => requirementId)).size !== bindings.length) {
     throw new Error('Semantic operation requires exactly one binding per requirement.');
   }
-  for (const requirement of plan.identity.requirements) {
+  for (const requirement of plan.execution.requirements) {
     const binding = bindings.find(({ requirementId }) => requirementId === requirement.id);
     if (binding === undefined || binding.contractDigest !== requirement.contractDigest) {
       throw new Error(`Semantic operation requirement ${requirement.id} is not exactly bound.`);
@@ -305,6 +369,7 @@ export function bindSecSemanticOperation(
   const frozenBindings = Object.freeze(bindings);
   const bindingSetIdentityDigest = sha256({
     operationIdentityDigest: plan.identity.identityDigest,
+    executionPlanDigest: plan.execution.executionPlanDigest,
     bindings: frozenBindings.map(({ bindingDigest }) => bindingDigest)
   }) as SecOperationDigest;
   const bound = deepFreeze({

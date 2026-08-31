@@ -64,7 +64,7 @@ function budget(
   operation: SecBoundSemanticOperation,
   resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'processes'
 ): number | null {
-  return operation.plan.identity.aggregateBudgets
+  return operation.plan.execution.aggregateBudgets
     .find((candidate) => candidate.resource === resource)?.maximum ?? null;
 }
 
@@ -84,7 +84,7 @@ export function openProcessResourceSession(input: Readonly<{
   signal?: AbortSignal;
 }>): ProcessResourceSession {
   assertSecBoundSemanticOperation(input.operation);
-  if (!input.operation.plan.identity.requirements.some(({ effectKinds }) => (
+  if (!input.operation.plan.execution.requirements.some(({ effectKinds }) => (
     effectKinds.includes('process')
   ))) {
     throw new Error('Process resource session requires a bound process Effect requirement.');
