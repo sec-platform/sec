@@ -31,8 +31,9 @@ const IO_BUDGET_MS = 5_000;
 const STORE_SCHEMA = Object.freeze({
   identity: 'repository-source-program-compilation-generation-store',
   keyDimensions: Object.freeze([
-    'exact-source-snapshot', 'module-membership', 'module-graph',
-    'compiler-provider-environment', 'compiler-implementation-closure'
+    'typescript-project-input', 'project-config', 'workspace-snapshot-identity',
+    'ordered-source-facts', 'exact-source-snapshot', 'module-membership', 'module-graph',
+    'compiler-provider-dependency-environment'
   ]),
   publication: 'immutable-canonical-fact-pack-and-manifest-last',
   semanticAuthority: 'none-cache-is-disposable-acceleration',
@@ -40,10 +41,11 @@ const STORE_SCHEMA = Object.freeze({
 });
 const STORE_SCHEMA_DIGEST = sha256(STORE_SCHEMA) as `sha256:${string}`;
 const MANIFEST_KEYS = Object.freeze([
-  'compilerConfigDigest', 'compilerImplementationDigest', 'compilerRevision',
+  'compilerConfigDigest', 'compilerRevision',
   'dependencyGenerationDigest', 'environmentDigest', 'keyDigest', 'manifestDigest',
   'moduleGraphDigest', 'moduleMembershipDigest', 'packByteLength', 'packDigest',
-  'packFileName', 'providerRevision', 'schemaDigest', 'shards', 'snapshotDigest'
+  'orderedSourceFactsDigest', 'packFileName', 'projectConfigDigest', 'projectInputDigest',
+  'providerRevision', 'schemaDigest', 'shards', 'snapshotDigest', 'workspaceSnapshotIdentityDigest'
 ]);
 const SHARD_KEYS = Object.freeze(['length', 'moduleDigest', 'offset', 'path', 'rawFileDigest', 'shardDigest']);
 const PREDECESSOR_POINTER_NAME = 'predecessor.json';
@@ -54,9 +56,10 @@ const PREDECESSOR_POINTER_SCHEMA_DIGEST = sha256(Object.freeze({
   target: 'one-immutable-generation'
 })) as `sha256:${string}`;
 const PREDECESSOR_POINTER_KEYS = Object.freeze([
-  'compilerGenerationDigest', 'compilerImplementationDigest', 'keyDigest',
-  'moduleGraphDigest', 'moduleMembershipDigest', 'pointerDigest',
-  'schemaDigest', 'snapshotDigest'
+  'compilerGenerationDigest', 'keyDigest',
+  'moduleGraphDigest', 'moduleMembershipDigest', 'orderedSourceFactsDigest',
+  'pointerDigest', 'projectConfigDigest', 'projectInputDigest', 'schemaDigest',
+  'snapshotDigest', 'workspaceSnapshotIdentityDigest'
 ]);
 
 export type RepositoryCompilationFactStoreFailureKind =
@@ -77,10 +80,13 @@ export class RepositoryCompilationFactStoreError extends SecError {
 
 /** Caller provenance is deliberately absent from reusable semantic facts. */
 export interface RepositoryCompilationFactStoreIdentity {
+  readonly projectInputDigest: `sha256:${string}`;
+  readonly projectConfigDigest: `sha256:${string}`;
+  readonly workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  readonly orderedSourceFactsDigest: `sha256:${string}`;
   readonly snapshotDigest: `sha256:${string}`;
   readonly moduleMembershipDigest: `sha256:${string}`;
   readonly moduleGraphDigest: `sha256:${string}`;
-  readonly compilerImplementationDigest: `sha256:${string}`;
   readonly compiler: SourceProgramTypeScriptCompilerIdentity;
 }
 
@@ -96,13 +102,16 @@ type ManifestShard = Readonly<{
 type Manifest = Readonly<{
   schemaDigest: `sha256:${string}`;
   keyDigest: `sha256:${string}`;
+  projectInputDigest: `sha256:${string}`;
+  projectConfigDigest: `sha256:${string}`;
+  workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  orderedSourceFactsDigest: `sha256:${string}`;
   snapshotDigest: `sha256:${string}`;
   moduleMembershipDigest: `sha256:${string}`;
   moduleGraphDigest: `sha256:${string}`;
   compilerRevision: `sha256:${string}`;
   providerRevision: `sha256:${string}`;
   compilerConfigDigest: `sha256:${string}`;
-  compilerImplementationDigest: `sha256:${string}`;
   dependencyGenerationDigest: `sha256:${string}`;
   environmentDigest: `sha256:${string}`;
   packFileName: string;
@@ -122,10 +131,13 @@ type FactPack = Readonly<{
 type PredecessorPointer = Readonly<{
   schemaDigest: `sha256:${string}`;
   keyDigest: `sha256:${string}`;
+  projectInputDigest: `sha256:${string}`;
+  projectConfigDigest: `sha256:${string}`;
+  workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  orderedSourceFactsDigest: `sha256:${string}`;
   snapshotDigest: `sha256:${string}`;
   moduleMembershipDigest: `sha256:${string}`;
   moduleGraphDigest: `sha256:${string}`;
-  compilerImplementationDigest: `sha256:${string}`;
   compilerGenerationDigest: `sha256:${string}`;
   pointerDigest: `sha256:${string}`;
 }>;
@@ -139,14 +151,64 @@ export interface RepositoryCompilationFactStoreDiagnostics {
   readonly shardParseMs: number;
 }
 
+export interface RepositoryCompilationGenerationReceipt {
+  readonly generationDigest: `sha256:${string}`;
+  readonly projectInputDigest: `sha256:${string}`;
+  readonly projectConfigDigest: `sha256:${string}`;
+  readonly workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  readonly orderedSourceFactsDigest: `sha256:${string}`;
+  readonly snapshotDigest: `sha256:${string}`;
+  readonly moduleMembershipDigest: `sha256:${string}`;
+  readonly moduleGraphDigest: `sha256:${string}`;
+  readonly compilerRevision: `sha256:${string}`;
+  readonly providerRevision: `sha256:${string}`;
+  readonly compilerConfigDigest: `sha256:${string}`;
+  readonly dependencyGenerationDigest: `sha256:${string}`;
+  readonly environmentDigest: `sha256:${string}`;
+  readonly packDigest: `sha256:${string}`;
+  readonly manifestDigest: `sha256:${string}`;
+  readonly receiptDigest: `sha256:${string}`;
+}
+const GENERATION_RECEIPT_KEYS = Object.freeze([
+  'compilerConfigDigest', 'compilerRevision',
+  'dependencyGenerationDigest', 'environmentDigest', 'generationDigest',
+  'manifestDigest', 'moduleGraphDigest', 'moduleMembershipDigest',
+  'orderedSourceFactsDigest', 'packDigest', 'projectConfigDigest',
+  'projectInputDigest', 'providerRevision', 'receiptDigest', 'snapshotDigest',
+  'workspaceSnapshotIdentityDigest'
+]);
+
+export function assertRepositoryCompilationGenerationReceipt(
+  receipt: RepositoryCompilationGenerationReceipt
+): void {
+  exactObject(receipt, GENERATION_RECEIPT_KEYS, 'Repository compilation generation receipt');
+  for (const [key, value] of Object.entries(receipt)) exactDigest(value, `Generation receipt ${key}`);
+  const { receiptDigest, ...unsigned } = receipt;
+  const expectedGenerationDigest = sha256({
+    schemaDigest: STORE_SCHEMA_DIGEST,
+    projectInputDigest: receipt.projectInputDigest,
+    projectConfigDigest: receipt.projectConfigDigest,
+    workspaceSnapshotIdentityDigest: receipt.workspaceSnapshotIdentityDigest,
+    orderedSourceFactsDigest: receipt.orderedSourceFactsDigest,
+    snapshotDigest: receipt.snapshotDigest,
+    moduleMembershipDigest: receipt.moduleMembershipDigest,
+    moduleGraphDigest: receipt.moduleGraphDigest,
+    compilerRevision: receipt.compilerRevision,
+    providerRevision: receipt.providerRevision,
+    compilerConfigDigest: receipt.compilerConfigDigest,
+    dependencyGenerationDigest: receipt.dependencyGenerationDigest,
+    environmentDigest: receipt.environmentDigest
+  });
+  if (receipt.generationDigest !== expectedGenerationDigest
+      || receiptDigest !== sha256(unsigned)) {
+    throw new Error('Repository compilation generation receipt is not digest-bound');
+  }
+}
+
 export type RepositoryCompilationFactStoreLoad = Readonly<{
   status: 'hit';
   keyDigest: `sha256:${string}`;
-  generation: Readonly<{
-    snapshotDigest: `sha256:${string}`;
-    moduleMembershipDigest: `sha256:${string}`;
-    moduleGraphDigest: `sha256:${string}`;
-  }>;
+  generation: RepositoryCompilationGenerationReceipt;
   shards: readonly TypeScriptSourceProgramFactShard[];
   diagnostics: RepositoryCompilationFactStoreDiagnostics;
 }> | Readonly<{
@@ -182,13 +244,16 @@ function exactNonNegativeInteger(value: unknown, label: string): asserts value i
 function generationKey(identity: RepositoryCompilationFactStoreIdentity): `sha256:${string}` {
   return sha256({
     schemaDigest: STORE_SCHEMA_DIGEST,
+    projectInputDigest: identity.projectInputDigest,
+    projectConfigDigest: identity.projectConfigDigest,
+    workspaceSnapshotIdentityDigest: identity.workspaceSnapshotIdentityDigest,
+    orderedSourceFactsDigest: identity.orderedSourceFactsDigest,
     snapshotDigest: identity.snapshotDigest,
     moduleMembershipDigest: identity.moduleMembershipDigest,
     moduleGraphDigest: identity.moduleGraphDigest,
     compilerRevision: identity.compiler.compilerRevision,
     providerRevision: identity.compiler.providerRevision,
     compilerConfigDigest: identity.compiler.compilerConfigDigest,
-    compilerImplementationDigest: identity.compilerImplementationDigest,
     dependencyGenerationDigest: identity.compiler.dependencyGenerationDigest,
     environmentDigest: identity.compiler.environmentDigest
   }) as `sha256:${string}`;
@@ -201,7 +266,6 @@ function compilerGenerationDigest(
     compilerRevision: identity.compiler.compilerRevision,
     providerRevision: identity.compiler.providerRevision,
     compilerConfigDigest: identity.compiler.compilerConfigDigest,
-    compilerImplementationDigest: identity.compilerImplementationDigest,
     dependencyGenerationDigest: identity.compiler.dependencyGenerationDigest,
     environmentDigest: identity.compiler.environmentDigest
   }) as `sha256:${string}`;
@@ -214,10 +278,13 @@ function buildPredecessorPointer(
   const canonical = Object.freeze({
     schemaDigest: PREDECESSOR_POINTER_SCHEMA_DIGEST,
     keyDigest,
+    projectInputDigest: identity.projectInputDigest,
+    projectConfigDigest: identity.projectConfigDigest,
+    workspaceSnapshotIdentityDigest: identity.workspaceSnapshotIdentityDigest,
+    orderedSourceFactsDigest: identity.orderedSourceFactsDigest,
     snapshotDigest: identity.snapshotDigest,
     moduleMembershipDigest: identity.moduleMembershipDigest,
     moduleGraphDigest: identity.moduleGraphDigest,
-    compilerImplementationDigest: identity.compilerImplementationDigest,
     compilerGenerationDigest: compilerGenerationDigest(identity)
   });
   return Object.freeze({
@@ -246,10 +313,13 @@ function parsePredecessorPointer(
   const parsed = Object.freeze({
     schemaDigest: value.schemaDigest as `sha256:${string}`,
     keyDigest: value.keyDigest as `sha256:${string}`,
+    projectInputDigest: value.projectInputDigest as `sha256:${string}`,
+    projectConfigDigest: value.projectConfigDigest as `sha256:${string}`,
+    workspaceSnapshotIdentityDigest: value.workspaceSnapshotIdentityDigest as `sha256:${string}`,
+    orderedSourceFactsDigest: value.orderedSourceFactsDigest as `sha256:${string}`,
     snapshotDigest: value.snapshotDigest as `sha256:${string}`,
     moduleMembershipDigest: value.moduleMembershipDigest as `sha256:${string}`,
     moduleGraphDigest: value.moduleGraphDigest as `sha256:${string}`,
-    compilerImplementationDigest: value.compilerImplementationDigest as `sha256:${string}`,
     compilerGenerationDigest: value.compilerGenerationDigest as `sha256:${string}`,
     pointerDigest: value.pointerDigest as `sha256:${string}`
   }) satisfies PredecessorPointer;
@@ -257,10 +327,13 @@ function parsePredecessorPointer(
   if (parsed.schemaDigest !== PREDECESSOR_POINTER_SCHEMA_DIGEST
       || parsed.compilerGenerationDigest !== compilerGenerationDigest(currentIdentity)
       || parsed.keyDigest !== generationKey({
+        projectInputDigest: parsed.projectInputDigest,
+        projectConfigDigest: parsed.projectConfigDigest,
+        workspaceSnapshotIdentityDigest: parsed.workspaceSnapshotIdentityDigest,
+        orderedSourceFactsDigest: parsed.orderedSourceFactsDigest,
         snapshotDigest: parsed.snapshotDigest,
         moduleMembershipDigest: parsed.moduleMembershipDigest,
         moduleGraphDigest: parsed.moduleGraphDigest,
-        compilerImplementationDigest: parsed.compilerImplementationDigest,
         compiler: currentIdentity.compiler
       })
       || parsed.pointerDigest !== sha256(unsigned)
@@ -314,13 +387,16 @@ function unsignedManifest(
   return Object.freeze({
     schemaDigest: STORE_SCHEMA_DIGEST,
     keyDigest,
+    projectInputDigest: identity.projectInputDigest,
+    projectConfigDigest: identity.projectConfigDigest,
+    workspaceSnapshotIdentityDigest: identity.workspaceSnapshotIdentityDigest,
+    orderedSourceFactsDigest: identity.orderedSourceFactsDigest,
     snapshotDigest: identity.snapshotDigest,
     moduleMembershipDigest: identity.moduleMembershipDigest,
     moduleGraphDigest: identity.moduleGraphDigest,
     compilerRevision: identity.compiler.compilerRevision,
     providerRevision: identity.compiler.providerRevision,
     compilerConfigDigest: identity.compiler.compilerConfigDigest,
-    compilerImplementationDigest: identity.compilerImplementationDigest,
     dependencyGenerationDigest: identity.compiler.dependencyGenerationDigest,
     environmentDigest: identity.compiler.environmentDigest,
     packFileName: pack.fileName,
@@ -344,8 +420,10 @@ function parseManifest(bytes: Uint8Array, identity: RepositoryCompilationFactSto
   const value = parseExactJson(source, 'Repository compilation fact-store manifest', { rootObjectKeys: MANIFEST_KEYS });
   exactObject(value, MANIFEST_KEYS, 'Repository compilation fact-store manifest');
   for (const key of [
-    'schemaDigest', 'keyDigest', 'snapshotDigest', 'moduleMembershipDigest', 'moduleGraphDigest',
-    'compilerRevision', 'providerRevision', 'compilerConfigDigest', 'compilerImplementationDigest',
+    'schemaDigest', 'keyDigest', 'projectInputDigest', 'projectConfigDigest',
+    'workspaceSnapshotIdentityDigest', 'orderedSourceFactsDigest',
+    'snapshotDigest', 'moduleMembershipDigest', 'moduleGraphDigest',
+    'compilerRevision', 'providerRevision', 'compilerConfigDigest',
     'dependencyGenerationDigest', 'environmentDigest', 'packDigest', 'manifestDigest'
   ]) exactDigest(value[key], `Repository compilation manifest ${key}`);
   if (typeof value.packFileName !== 'string' || !Array.isArray(value.shards)) {
@@ -378,13 +456,16 @@ function parseManifest(bytes: Uint8Array, identity: RepositoryCompilationFactSto
   const parsed = Object.freeze({
     schemaDigest: value.schemaDigest as `sha256:${string}`,
     keyDigest: value.keyDigest as `sha256:${string}`,
+    projectInputDigest: value.projectInputDigest as `sha256:${string}`,
+    projectConfigDigest: value.projectConfigDigest as `sha256:${string}`,
+    workspaceSnapshotIdentityDigest: value.workspaceSnapshotIdentityDigest as `sha256:${string}`,
+    orderedSourceFactsDigest: value.orderedSourceFactsDigest as `sha256:${string}`,
     snapshotDigest: value.snapshotDigest as `sha256:${string}`,
     moduleMembershipDigest: value.moduleMembershipDigest as `sha256:${string}`,
     moduleGraphDigest: value.moduleGraphDigest as `sha256:${string}`,
     compilerRevision: value.compilerRevision as `sha256:${string}`,
     providerRevision: value.providerRevision as `sha256:${string}`,
     compilerConfigDigest: value.compilerConfigDigest as `sha256:${string}`,
-    compilerImplementationDigest: value.compilerImplementationDigest as `sha256:${string}`,
     dependencyGenerationDigest: value.dependencyGenerationDigest as `sha256:${string}`,
     environmentDigest: value.environmentDigest as `sha256:${string}`,
     packFileName: value.packFileName,
@@ -395,13 +476,16 @@ function parseManifest(bytes: Uint8Array, identity: RepositoryCompilationFactSto
   }) satisfies Manifest;
   if (parsed.schemaDigest !== STORE_SCHEMA_DIGEST
       || parsed.keyDigest !== generationKey(identity)
+      || parsed.projectInputDigest !== identity.projectInputDigest
+      || parsed.projectConfigDigest !== identity.projectConfigDigest
+      || parsed.workspaceSnapshotIdentityDigest !== identity.workspaceSnapshotIdentityDigest
+      || parsed.orderedSourceFactsDigest !== identity.orderedSourceFactsDigest
       || parsed.snapshotDigest !== identity.snapshotDigest
       || parsed.moduleMembershipDigest !== identity.moduleMembershipDigest
       || parsed.moduleGraphDigest !== identity.moduleGraphDigest
       || parsed.compilerRevision !== identity.compiler.compilerRevision
       || parsed.providerRevision !== identity.compiler.providerRevision
       || parsed.compilerConfigDigest !== identity.compiler.compilerConfigDigest
-      || parsed.compilerImplementationDigest !== identity.compilerImplementationDigest
       || parsed.dependencyGenerationDigest !== identity.compiler.dependencyGenerationDigest
       || parsed.environmentDigest !== identity.compiler.environmentDigest) {
     throw new RepositoryCompilationFactStoreError('identity-mismatch', 'Fact-store manifest identity is stale or foreign');
@@ -492,13 +576,29 @@ function loadGeneration(input: Readonly<{
   });
   const shardParseMs = performance.now() - shardParseStarted;
   input.authority.assertCurrent();
+  const generationUnsigned = Object.freeze({
+    generationDigest: input.keyDigest,
+    projectInputDigest: manifest.projectInputDigest,
+    projectConfigDigest: manifest.projectConfigDigest,
+    workspaceSnapshotIdentityDigest: manifest.workspaceSnapshotIdentityDigest,
+    orderedSourceFactsDigest: manifest.orderedSourceFactsDigest,
+    snapshotDigest: manifest.snapshotDigest,
+    moduleMembershipDigest: manifest.moduleMembershipDigest,
+    moduleGraphDigest: manifest.moduleGraphDigest,
+    compilerRevision: manifest.compilerRevision,
+    providerRevision: manifest.providerRevision,
+    compilerConfigDigest: manifest.compilerConfigDigest,
+    dependencyGenerationDigest: manifest.dependencyGenerationDigest,
+    environmentDigest: manifest.environmentDigest,
+    packDigest: manifest.packDigest,
+    manifestDigest: manifest.manifestDigest
+  });
   return Object.freeze({
     status: 'hit',
     keyDigest: input.keyDigest,
     generation: Object.freeze({
-      snapshotDigest: input.identity.snapshotDigest,
-      moduleMembershipDigest: input.identity.moduleMembershipDigest,
-      moduleGraphDigest: input.identity.moduleGraphDigest
+      ...generationUnsigned,
+      receiptDigest: sha256(generationUnsigned) as `sha256:${string}`
     }),
     shards: Object.freeze(shards),
     diagnostics: Object.freeze({
@@ -555,10 +655,13 @@ export function createRepositoryCompilationFactStore(input: Readonly<{
       const pointer = parsePredecessorPointer(pointerBytes, input.identity);
       if (pointer.keyDigest === keyDigest) return Object.freeze({ status: 'miss', keyDigest });
       const predecessorIdentity = Object.freeze({
+        projectInputDigest: pointer.projectInputDigest,
+        projectConfigDigest: pointer.projectConfigDigest,
+        workspaceSnapshotIdentityDigest: pointer.workspaceSnapshotIdentityDigest,
+        orderedSourceFactsDigest: pointer.orderedSourceFactsDigest,
         snapshotDigest: pointer.snapshotDigest,
         moduleMembershipDigest: pointer.moduleMembershipDigest,
         moduleGraphDigest: pointer.moduleGraphDigest,
-        compilerImplementationDigest: pointer.compilerImplementationDigest,
         compiler: input.identity.compiler
       }) satisfies RepositoryCompilationFactStoreIdentity;
       const predecessorRoot = path.join(namespaceRoot, pointer.keyDigest.slice(7));

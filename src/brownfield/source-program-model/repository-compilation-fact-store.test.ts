@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,18 +10,59 @@ import type { SourceProgramFileInput } from './contract.ts';
 import {
   createRepositoryCompilationFactStore,
   RepositoryCompilationFactStoreError,
+  type RepositoryCompilationFactStore,
   type RepositoryCompilationFactStoreIdentity
 } from './repository-compilation-fact-store.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
+import { compileVirtualTestImpactProjection } from './test-impact-projection.ts';
 import { parseTypeScriptSourceProgramFactShard } from './typescript-fact-shards.ts';
+import { sourceProgramTypeScriptCompilerIdentity } from './typescript.ts';
 import {
-  sourceProgramTypeScriptCompilerIdentity,
-  typeScriptSourceProgramCompilerImplementationDigest
-} from './typescript.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
+  compileVirtualWorkspaceSourceSnapshot,
+  compileWorkspaceTypeScriptProjectInput
+} from './workspace-source-snapshot.ts';
 
 const temporaryRoots: string[] = [];
 const originalCacheHome = process.env.SEC_CACHE_HOME;
+const childMarker = 'SEC_GENERATION_RESULT=';
+const childSource = `
+import { readFileSync } from 'node:fs';
+import { createRepositoryCompilationFactStore } from './src/brownfield/source-program-model/repository-compilation-fact-store.ts';
+import { sourceProgramTypeScriptCompilerIdentity } from './src/brownfield/source-program-model/typescript.ts';
+const payload = JSON.parse(readFileSync(process.env.SEC_GENERATION_PAYLOAD, 'utf8'));
+const store = createRepositoryCompilationFactStore({
+  repositoryRoot: payload.repositoryRoot,
+  identity: Object.freeze({ ...payload.identity, compiler: sourceProgramTypeScriptCompilerIdentity() })
+});
+const result = process.env.SEC_GENERATION_MODE === 'publish'
+  ? store.publish(payload.shards)
+  : store.load();
+console.log('${childMarker}' + JSON.stringify({ pid: process.pid, result }));
+`;
+
+function runGenerationChild(
+  payloadPath: string,
+  mode: 'load' | 'publish'
+): Readonly<{ pid: number; result: ReturnType<RepositoryCompilationFactStore['load']> }> {
+  const child = spawnSync(process.execPath, ['-e', childSource], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      SEC_GENERATION_MODE: mode,
+      SEC_GENERATION_PAYLOAD: payloadPath
+    },
+    encoding: 'utf8'
+  });
+  if (child.status !== 0) {
+    throw new Error(`Generation child failed: ${child.stderr || child.stdout}`);
+  }
+  const line = child.stdout.split(/\r?\n/u).find((value) => value.startsWith(childMarker));
+  if (line === undefined) throw new Error('Generation child did not emit a result');
+  return JSON.parse(line.slice(childMarker.length)) as Readonly<{
+    pid: number;
+    result: ReturnType<RepositoryCompilationFactStore['load']>;
+  }>;
+}
 
 afterEach(() => {
   if (originalCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
@@ -44,14 +86,14 @@ function fixture(value = 1) {
   const descriptorPath = 'src/example/sec.module.json';
   const source = `export const value = ${value};\n`;
   const secondSource = 'export const SECOND = true;\n';
-  const compilerFixtureSource = 'export const SOURCE_PROGRAM_COMPILER_FIXTURE = true;\n';
+  const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
   const files = Object.freeze([
     Object.freeze({ path: 'src/example/operation.ts', source, contentDigest: rawSha256(source) }),
     Object.freeze({ path: 'src/example/second.ts', source: secondSource, contentDigest: rawSha256(secondSource) }),
     Object.freeze({
-      path: 'src/brownfield/source-program-model/typescript.ts',
-      source: compilerFixtureSource,
-      contentDigest: rawSha256(compilerFixtureSource)
+      path: 'tsconfig.json',
+      source: projectConfigSource,
+      contentDigest: rawSha256(projectConfigSource)
     })
   ]);
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
@@ -76,8 +118,10 @@ function fixture(value = 1) {
     })
   });
   const snapshotInput = Object.freeze({ subject, sourceRevision, files, moduleMembership });
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot(snapshotInput);
   const input = Object.freeze({
-    workspaceSnapshot: compileVirtualWorkspaceSourceSnapshot(snapshotInput),
+    workspaceSnapshot,
+    projectInput: compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json'),
     repositoryRoot
   });
   return { cacheRoot, files, input, moduleMembership, repositoryRoot, snapshotInput };
@@ -89,9 +133,14 @@ function compilationInput(
   sourceRevision: string,
   withRepositoryRoot = true
 ) {
+  const projectConfig = value.files.find(({ path: repositoryPath }) => repositoryPath === 'tsconfig.json');
+  if (projectConfig === undefined) throw new Error('Fixture project config is unavailable');
+  const exactFiles = files.some(({ path: repositoryPath }) => repositoryPath === projectConfig.path)
+    ? files
+    : Object.freeze([...files, projectConfig]);
   const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
     ...value.snapshotInput,
-    files,
+    files: exactFiles,
     subject: Object.freeze({
       kind: 'virtual-mutation' as const,
       provenance: Object.freeze({
@@ -103,6 +152,7 @@ function compilationInput(
   });
   return Object.freeze({
     workspaceSnapshot,
+    projectInput: compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json'),
     ...(withRepositoryRoot ? { repositoryRoot: value.repositoryRoot } : {})
   });
 }
@@ -120,22 +170,24 @@ function generationRoot(cacheRoot: string): string {
 }
 
 function generationCount(cacheRoot: string): number {
-  return readdirSync(path.dirname(generationRoot(cacheRoot)), { withFileTypes: true })
+  const schemaRoot = path.join(cacheRoot, 'source-program', 'repository-compilations');
+  const schemas = readdirSync(schemaRoot);
+  expect(schemas).toHaveLength(1);
+  return readdirSync(path.join(schemaRoot, schemas[0]!), { withFileTypes: true })
     .filter((entry) => entry.isDirectory()).length;
 }
 
 function storeIdentity(value: ReturnType<typeof fixture>): RepositoryCompilationFactStoreIdentity {
   const context = value.input.workspaceSnapshot;
-  const compilerImplementationDigest = typeScriptSourceProgramCompilerImplementationDigest(
-    value.snapshotInput,
-    context
-  );
-  if (compilerImplementationDigest === null) throw new Error('Fixture compiler implementation is unavailable');
+  const projectInput = compileWorkspaceTypeScriptProjectInput(context, 'tsconfig.json');
   return Object.freeze({
+    projectInputDigest: projectInput.projectInputDigest,
+    projectConfigDigest: projectInput.projectConfigDigest,
+    workspaceSnapshotIdentityDigest: projectInput.workspaceSnapshotIdentityDigest,
+    orderedSourceFactsDigest: projectInput.orderedSourceFactsDigest,
     snapshotDigest: context.snapshotDigest,
     moduleMembershipDigest: context.moduleMembershipDigest,
     moduleGraphDigest: context.moduleGraphDigest,
-    compilerImplementationDigest,
     compiler: sourceProgramTypeScriptCompilerIdentity()
   });
 }
@@ -150,13 +202,83 @@ test.serial('one immutable generation stores TypeScript facts while current cont
   expect(warm.typeScriptCompilation.mode).toBe('exact');
   expect(warm.workspaceSnapshot).toBe(cold.workspaceSnapshot);
   expect(warm.model).toEqual(cold.model);
+  expect(cold.projectGeneration?.projectInputDigest).toBe(value.input.projectInput.projectInputDigest);
+  expect(warm.projectGeneration).toEqual(cold.projectGeneration);
   expect(files).toHaveLength(2);
   expect(files).toContain('manifest.json');
   expect(files.some((file) => file.endsWith('.pack'))).toBe(true);
   expect(files.some((file) => file.endsWith('.projection'))).toBe(false);
 });
 
-test.serial('caller provenance does not create a second semantic fact generation', () => {
+test.serial('a published project generation is strictly revalidated by a fresh process', () => {
+  const value = fixture();
+  const cleanInput = Object.freeze({
+    workspaceSnapshot: value.input.workspaceSnapshot,
+    projectInput: value.input.projectInput
+  });
+  const compiled = compileVirtualRepositorySourceProgramCompilation(cleanInput);
+  const { compiler: _compiler, ...serializableIdentity } = storeIdentity(value);
+  const payloadPath = path.join(path.dirname(value.repositoryRoot), 'generation-payload.json');
+  const writePayload = (identity: typeof serializableIdentity): void => {
+    writeFileSync(payloadPath, JSON.stringify({
+      repositoryRoot: value.repositoryRoot,
+      identity,
+      shards: compiled.typeScriptCompilation.state.factShards
+    }));
+  };
+
+  writePayload(serializableIdentity);
+  const publisher = runGenerationChild(payloadPath, 'publish');
+  const reader = runGenerationChild(payloadPath, 'load');
+  expect(publisher.pid).not.toBe(reader.pid);
+  expect(publisher.result.status).toBe('hit');
+  if (reader.result.status !== 'hit') throw new Error('Fresh process did not read the published generation');
+  if (publisher.result.status !== 'hit') throw new Error('Fresh process did not publish the generation');
+  expect(reader.result.generation).toEqual(publisher.result.generation);
+  expect(reader.result.shards).toEqual(publisher.result.shards);
+  expect(reader.result.generation.projectInputDigest).toBe(serializableIdentity.projectInputDigest);
+  expect(reader.result.generation.workspaceSnapshotIdentityDigest)
+    .toBe(serializableIdentity.workspaceSnapshotIdentityDigest);
+  const projection = compileVirtualTestImpactProjection({
+    workspaceSnapshot: compiled.workspaceSnapshot,
+    typeScriptModel: compiled.typeScriptCompilation.model,
+    testObservations: compiled.testObservations,
+    projectGeneration: reader.result.generation
+  });
+  expect(projection.projectGenerationDigest).toBe(reader.result.generation.generationDigest);
+  expect(projection.projectGenerationReceiptDigest).toBe(reader.result.generation.receiptDigest);
+  expect(() => compileVirtualTestImpactProjection({
+    workspaceSnapshot: compiled.workspaceSnapshot,
+    typeScriptModel: compiled.typeScriptCompilation.model,
+    testObservations: compiled.testObservations,
+    projectGeneration: Object.freeze({
+      ...reader.result.generation,
+      projectInputDigest: sha256('foreign-project-input') as `sha256:${string}`
+    })
+  })).toThrow('not digest-bound');
+
+  const changedIdentity = Object.freeze({
+    ...serializableIdentity,
+    projectConfigDigest: sha256('changed project config') as `sha256:${string}`,
+    projectInputDigest: sha256({
+      previous: serializableIdentity.projectInputDigest,
+      projectConfigDigest: sha256('changed project config')
+    }) as `sha256:${string}`
+  });
+  writePayload(changedIdentity);
+  expect(runGenerationChild(payloadPath, 'load').result.status).toBe('miss');
+  const changedPublisher = runGenerationChild(payloadPath, 'publish');
+  const changedReader = runGenerationChild(payloadPath, 'load');
+  if (changedReader.result.status !== 'hit') throw new Error('Changed project generation was not published');
+  if (changedPublisher.result.status !== 'hit') throw new Error('Changed project generation publication failed');
+  expect(changedReader.result.generation).toEqual(changedPublisher.result.generation);
+  expect(changedReader.result.shards).toEqual(changedPublisher.result.shards);
+  expect(changedReader.result.generation.generationDigest)
+    .not.toBe(reader.result.generation.generationDigest);
+  expect(generationCount(value.cacheRoot)).toBe(2);
+});
+
+test.serial('a different workspace snapshot identity creates a different project generation', () => {
   const value = fixture();
   const first = compileVirtualRepositorySourceProgramCompilation(value.input);
   const otherRevision = sha256('another caller provenance');
@@ -169,7 +291,8 @@ test.serial('caller provenance does not create a second semantic fact generation
   expect(first.typeScriptCompilation.mode).toBe('full');
   expect(second.typeScriptCompilation.mode).toBe('exact');
   expect(second.sourceRevision).toBe(first.sourceRevision);
-  expect(generationCount(value.cacheRoot)).toBe(1);
+  expect(first.projectGeneration?.generationDigest).not.toBe(second.projectGeneration?.generationDigest);
+  expect(generationCount(value.cacheRoot)).toBe(2);
 });
 
 test.serial('one validated predecessor enables bounded incremental reuse and remains clean-compile equivalent', () => {
@@ -178,24 +301,21 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
   const changedSource = 'export const value = 2;\n';
   const changedFiles = Object.freeze([
     Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
-    value.files[1]!,
-    value.files[2]!
+    value.files[1]!
   ]);
   const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
   const changedInput = compilationInput(value, changedFiles, sourceRevision);
   const changedContext = changedInput.workspaceSnapshot;
-  const changedCompilerImplementationDigest = typeScriptSourceProgramCompilerImplementationDigest(
-    { sourceRevision, files: changedFiles, moduleMembership: value.moduleMembership },
-    changedContext
-  );
-  if (changedCompilerImplementationDigest === null) throw new Error('Fixture compiler implementation is unavailable');
   const predecessor = createRepositoryCompilationFactStore({
     repositoryRoot: value.repositoryRoot,
     identity: Object.freeze({
+      projectInputDigest: changedInput.projectInput.projectInputDigest,
+      projectConfigDigest: changedInput.projectInput.projectConfigDigest,
+      workspaceSnapshotIdentityDigest: changedInput.projectInput.workspaceSnapshotIdentityDigest,
+      orderedSourceFactsDigest: changedInput.projectInput.orderedSourceFactsDigest,
       snapshotDigest: changedContext.snapshotDigest,
       moduleMembershipDigest: changedContext.moduleMembershipDigest,
       moduleGraphDigest: changedContext.moduleGraphDigest,
-      compilerImplementationDigest: changedCompilerImplementationDigest,
       compiler: sourceProgramTypeScriptCompilerIdentity()
     })
   }).loadPredecessor();
@@ -213,7 +333,7 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
 test.serial('a validated predecessor accepts source membership drift and remains clean-compile equivalent', () => {
   const value = fixture();
   compileVirtualRepositorySourceProgramCompilation(value.input);
-  const changedFiles = Object.freeze([value.files[0]!, value.files[2]!]);
+  const changedFiles = Object.freeze([value.files[0]!]);
   const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({
     repositoryPath,
     contentDigest
@@ -239,8 +359,7 @@ test.serial('an invalid predecessor hint is a disposable miss and cannot block c
   const changedSource = 'export const value = 3;\n';
   const changedFiles = Object.freeze([
     Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
-    value.files[1]!,
-    value.files[2]!
+    value.files[1]!
   ]);
   const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
   const changedInput = compilationInput(value, changedFiles, sourceRevision);
@@ -258,8 +377,7 @@ test.serial('a validated predecessor never narrows ambient TypeScript invalidati
   const initialSource = 'export {};\ndeclare global { interface Window { value: 1 } }\n';
   const initialFiles = Object.freeze([
     Object.freeze({ path: value.files[0]!.path, source: initialSource, contentDigest: rawSha256(initialSource) }),
-    value.files[1]!,
-    value.files[2]!
+    value.files[1]!
   ]);
   const initialRevision = sha256(initialFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
   const initialInput = compilationInput(value, initialFiles, initialRevision);
@@ -267,8 +385,7 @@ test.serial('a validated predecessor never narrows ambient TypeScript invalidati
   const changedSource = 'export {};\ndeclare global { interface Window { value: 2 } }\n';
   const changedFiles = Object.freeze([
     Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
-    value.files[1]!,
-    value.files[2]!
+    value.files[1]!
   ]);
   const changedRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
   const changedInput = compilationInput(value, changedFiles, changedRevision);

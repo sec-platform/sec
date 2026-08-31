@@ -12,6 +12,10 @@ import { parseExactJson } from '../../system-architecture/foundation/runtime/exa
 import { normalizeSecRepositoryPath } from '../../system-architecture/repository-modules/contract.ts';
 import type { SourceProgramModel, SourceProgramReference } from './contract.ts';
 import {
+  assertRepositoryCompilationGenerationReceipt,
+  type RepositoryCompilationGenerationReceipt
+} from './repository-compilation-fact-store.ts';
+import {
   workspaceSourceSnapshotIdentityForTestObservations,
   type SourceProgramTestObservations
 } from './test-observations.ts';
@@ -88,6 +92,8 @@ const projectionUnsignedSchema = z.object({
   moduleMembershipDigest: digestSchema,
   moduleGraphDigest: digestSchema,
   workspaceSnapshotIdentityDigest: digestSchema,
+  projectGenerationDigest: digestSchema.nullable(),
+  projectGenerationReceiptDigest: digestSchema.nullable(),
   productionModelDigest: digestSchema,
   testObservationDigest: digestSchema,
   files: z.array(fileSchema),
@@ -169,15 +175,22 @@ function assertProjectionInputsIssued(input: Readonly<{
   workspaceSnapshot: WorkspaceSourceSnapshot;
   typeScriptModel: SourceProgramModel;
   testObservations: SourceProgramTestObservations;
+  projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): void {
-  const { workspaceSnapshot, typeScriptModel, testObservations } = input;
+  const { workspaceSnapshot, typeScriptModel, testObservations, projectGeneration } = input;
   assertWorkspaceSourceSnapshot(workspaceSnapshot);
+  if (projectGeneration !== undefined) assertRepositoryCompilationGenerationReceipt(projectGeneration);
   if (workspaceSnapshot.moduleGraphCompilationCount !== 1
       || typeScriptModel.sourceRevision !== workspaceSnapshot.sourceRevision
       || testObservations.sourceRevision !== workspaceSnapshot.sourceRevision
       || testObservations.productionModelDigest !== typeScriptModel.modelDigest
       || workspaceSourceSnapshotIdentityForTypeScriptModel(typeScriptModel) !== workspaceSnapshot.identityDigest
-      || workspaceSourceSnapshotIdentityForTestObservations(testObservations) !== workspaceSnapshot.identityDigest) {
+      || workspaceSourceSnapshotIdentityForTestObservations(testObservations) !== workspaceSnapshot.identityDigest
+      || (projectGeneration !== undefined
+        && (projectGeneration.workspaceSnapshotIdentityDigest !== workspaceSnapshot.identityDigest
+          || projectGeneration.snapshotDigest !== workspaceSnapshot.snapshotDigest
+          || projectGeneration.moduleMembershipDigest !== workspaceSnapshot.moduleMembershipDigest
+          || projectGeneration.moduleGraphDigest !== workspaceSnapshot.moduleGraphDigest))) {
     throw new SecError(
       'SOURCE-PROGRAM-TEST-IMPACT-001',
       'Test impact projection requires snapshot-issued TypeScript and test observations',
@@ -190,6 +203,7 @@ function compileTestImpactProjection(input: Readonly<{
   workspaceSnapshot: WorkspaceSourceSnapshot;
   typeScriptModel: SourceProgramModel;
   testObservations: SourceProgramTestObservations;
+  projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): TestImpactProjectionReceipt {
   assertProjectionInputsIssued(input);
   const { workspaceSnapshot, typeScriptModel, testObservations } = input;
@@ -212,6 +226,8 @@ function compileTestImpactProjection(input: Readonly<{
     moduleMembershipDigest: workspaceSnapshot.moduleMembershipDigest,
     moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
     workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
+    projectGenerationDigest: input.projectGeneration?.generationDigest ?? null,
+    projectGenerationReceiptDigest: input.projectGeneration?.receiptDigest ?? null,
     productionModelDigest: typeScriptModel.modelDigest as `sha256:${string}`,
     testObservationDigest: testObservations.observationDigest as `sha256:${string}`,
     files: typeScriptModel.files
@@ -248,6 +264,7 @@ export function issueTestImpactProjection(input: Readonly<{
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
   typeScriptModel: SourceProgramModel;
   testObservations: SourceProgramTestObservations;
+  projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): IssuedTestImpactProjection {
   assertPhysicalWorkspaceSourceSnapshot(input.workspaceSnapshot);
   const projection = compileTestImpactProjection(input) as IssuedTestImpactProjection;
@@ -260,6 +277,7 @@ export function compileVirtualTestImpactProjection(input: Readonly<{
   workspaceSnapshot: VirtualWorkspaceSourceSnapshot;
   typeScriptModel: SourceProgramModel;
   testObservations: SourceProgramTestObservations;
+  projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): TestImpactProjectionReceipt {
   if (input.workspaceSnapshot.subject.kind !== 'virtual-mutation') {
     throw new Error('Virtual TestImpact projection requires a virtual workspace snapshot');

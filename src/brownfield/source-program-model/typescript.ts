@@ -203,41 +203,6 @@ export interface SourceProgramTypeScriptCompilerIdentity {
   readonly provider: Readonly<{ readonly id: string; readonly revision: string }>;
 }
 
-export function typeScriptSourceProgramCompilerImplementationDigest(
-  input: CompileTypeScriptSourceProgramModelInput,
-  repositoryCompilation?: WorkspaceSourceSnapshot
-): `sha256:${string}` | null {
-  const canonicalFiles = input.files.map(canonicalTypeScriptFile);
-  const fileByPath = new Map(canonicalFiles.map((file) => [file.path, file] as const));
-  const compilerClosure = new Set<string>();
-  if (fileByPath.has(SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH)) {
-    compilerClosure.add(SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH);
-    const graph = repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
-      files: canonicalFiles.map(({ path: repositoryPathValue }) => repositoryPathValue),
-      readSource: (repositoryPathValue) => fileByPath.get(repositoryPathValue)?.source ?? null
-    });
-    const queue: string[] = [SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH];
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      for (const reference of graph.references) {
-        if (reference.from !== current) continue;
-        for (const candidate of reference.candidateTargets) {
-          if (!fileByPath.has(candidate) || compilerClosure.has(candidate)) continue;
-          compilerClosure.add(candidate);
-          queue.push(candidate);
-        }
-      }
-    }
-  }
-  if (compilerClosure.size === 0) return null;
-  return sha256([...compilerClosure]
-    .sort(compareCodeUnits)
-    .map((repositoryPathValue) => ({
-      path: repositoryPathValue,
-      snapshotDigest: sourceProgramFileSnapshotDigest(fileByPath.get(repositoryPathValue)!)
-    }))) as `sha256:${string}`;
-}
-
 /**
  * Canonical projection of the semantic inputs owned by this compiler. Cache
  * consumers bind to this receipt; they never reproduce compiler identity.

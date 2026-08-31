@@ -52,6 +52,10 @@ async function createRepository(): Promise<Readonly<{ commitSha: string; reposit
     path.join(repositoryRoot, 'src', 'example', 'removed.ts'),
     'export const removed = true;\n'
   );
+  await writeFile(
+    path.join(repositoryRoot, 'tsconfig.json'),
+    `${JSON.stringify({ compilerOptions: { strict: true }, include: ['src/**/*.ts'] }, null, 2)}\n`
+  );
   git(repositoryRoot, ['add', '--all']);
   git(repositoryRoot, ['update-index', '--chmod=+x', 'src/example/value.ts']);
   git(repositoryRoot, ['commit', '--quiet', '-m', 'source generation fixture']);
