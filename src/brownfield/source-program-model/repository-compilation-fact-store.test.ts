@@ -82,18 +82,27 @@ function generationRoot(cacheRoot: string): string {
   const schemas = readdirSync(schemaRoot);
   expect(schemas).toHaveLength(1);
   const namespace = path.join(schemaRoot, schemas[0]!);
-  const generations = readdirSync(namespace);
+  const generations = readdirSync(namespace, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
   expect(generations).toHaveLength(1);
   return path.join(namespace, generations[0]!);
 }
 
+function generationCount(cacheRoot: string): number {
+  return readdirSync(path.dirname(generationRoot(cacheRoot)), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory()).length;
+}
+
 function storeIdentity(value: ReturnType<typeof fixture>): RepositoryCompilationFactStoreIdentity {
   const context = issueRepositoryCompilationContext(value.input);
+  const compilerImplementationDigest = typeScriptSourceProgramCompilerImplementationDigest(value.input, context);
+  if (compilerImplementationDigest === null) throw new Error('Fixture compiler implementation is unavailable');
   return Object.freeze({
     snapshotDigest: context.snapshotDigest,
     moduleMembershipDigest: context.moduleMembershipDigest,
     moduleGraphDigest: context.moduleGraphDigest,
-    compilerImplementationDigest: typeScriptSourceProgramCompilerImplementationDigest(value.input, context),
+    compilerImplementationDigest,
     compiler: sourceProgramTypeScriptCompilerIdentity()
   });
 }
@@ -133,10 +142,10 @@ test.serial('caller provenance does not create a second semantic fact generation
   expect(first.typeScriptCompilation.mode).toBe('full');
   expect(second.typeScriptCompilation.mode).toBe('exact');
   expect(second.sourceRevision).toBe(otherRevision);
-  expect(readdirSync(path.dirname(generationRoot(value.cacheRoot)))).toHaveLength(1);
+  expect(generationCount(value.cacheRoot)).toBe(1);
 });
 
-test.serial('unproven cross-generation reuse falls back to full and remains clean-compile equivalent', () => {
+test.serial('one validated predecessor enables bounded incremental reuse and remains clean-compile equivalent', () => {
   const value = fixture();
   compileRepositorySourceProgramCompilation(value.input);
   const changedSource = 'export const value = 2;\n';
@@ -158,12 +167,108 @@ test.serial('unproven cross-generation reuse falls back to full and remains clea
       })
     })
   });
+  const changedContext = issueRepositoryCompilationContext(changedInput);
+  const changedCompilerImplementationDigest = typeScriptSourceProgramCompilerImplementationDigest(
+    changedInput,
+    changedContext
+  );
+  if (changedCompilerImplementationDigest === null) throw new Error('Fixture compiler implementation is unavailable');
+  const predecessor = createRepositoryCompilationFactStore({
+    repositoryRoot: value.repositoryRoot,
+    identity: Object.freeze({
+      snapshotDigest: changedContext.snapshotDigest,
+      moduleMembershipDigest: changedContext.moduleMembershipDigest,
+      moduleGraphDigest: changedContext.moduleGraphDigest,
+      compilerImplementationDigest: changedCompilerImplementationDigest,
+      compiler: sourceProgramTypeScriptCompilerIdentity()
+    })
+  }).loadPredecessor();
+  expect(predecessor.status).toBe('hit');
   const cached = compileRepositorySourceProgramCompilation(changedInput);
   const clean = compileRepositorySourceProgramCompilation(Object.freeze({ ...changedInput, repositoryRoot: undefined }));
 
-  expect(cached.typeScriptCompilation.mode).toBe('full');
+  expect(cached.typeScriptCompilation.mode).toBe('incremental');
   expect(cached.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
   expect(cached.model).toEqual(clean.model);
+});
+
+test.serial('an invalid predecessor hint is a disposable miss and cannot block clean compilation', () => {
+  const value = fixture();
+  compileRepositorySourceProgramCompilation(value.input);
+  const namespace = path.dirname(generationRoot(value.cacheRoot));
+  writeFileSync(path.join(namespace, 'predecessor.json'), '{}');
+  const changedSource = 'export const value = 3;\n';
+  const changedFiles = Object.freeze([
+    Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
+    value.files[1]!,
+    value.files[2]!
+  ]);
+  const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
+  const changedInput = Object.freeze({
+    ...value.input,
+    files: changedFiles,
+    sourceRevision,
+    subject: Object.freeze({
+      kind: 'physical-repository' as const,
+      provenance: Object.freeze({
+        kind: 'working-tree-observation' as const,
+        identityDigest: sha256({ sourceRevision }) as `sha256:${string}`
+      })
+    })
+  });
+  const recovered = compileRepositorySourceProgramCompilation(changedInput);
+  const clean = compileRepositorySourceProgramCompilation(Object.freeze({ ...changedInput, repositoryRoot: undefined }));
+
+  expect(recovered.typeScriptCompilation.mode).toBe('full');
+  expect(recovered.model).toEqual(clean.model);
+});
+
+test.serial('a validated predecessor never narrows ambient TypeScript invalidation', () => {
+  const value = fixture();
+  const initialSource = 'export {};\ndeclare global { interface Window { value: 1 } }\n';
+  const initialFiles = Object.freeze([
+    Object.freeze({ path: value.files[0]!.path, source: initialSource, contentDigest: rawSha256(initialSource) }),
+    value.files[1]!,
+    value.files[2]!
+  ]);
+  const initialRevision = sha256(initialFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
+  const initialInput = Object.freeze({
+    ...value.input,
+    files: initialFiles,
+    sourceRevision: initialRevision,
+    subject: Object.freeze({
+      kind: 'physical-repository' as const,
+      provenance: Object.freeze({
+        kind: 'working-tree-observation' as const,
+        identityDigest: sha256({ initialRevision }) as `sha256:${string}`
+      })
+    })
+  });
+  compileRepositorySourceProgramCompilation(initialInput);
+  const changedSource = 'export {};\ndeclare global { interface Window { value: 2 } }\n';
+  const changedFiles = Object.freeze([
+    Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
+    value.files[1]!,
+    value.files[2]!
+  ]);
+  const changedRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
+  const changedInput = Object.freeze({
+    ...initialInput,
+    files: changedFiles,
+    sourceRevision: changedRevision,
+    subject: Object.freeze({
+      kind: 'physical-repository' as const,
+      provenance: Object.freeze({
+        kind: 'working-tree-observation' as const,
+        identityDigest: sha256({ changedRevision }) as `sha256:${string}`
+      })
+    })
+  });
+  const changed = compileRepositorySourceProgramCompilation(changedInput);
+  const clean = compileRepositorySourceProgramCompilation(Object.freeze({ ...changedInput, repositoryRoot: undefined }));
+
+  expect(changed.typeScriptCompilation.mode).toBe('full');
+  expect(changed.model).toEqual(clean.model);
 });
 
 test.serial('cache corruption is a disposable miss and cannot block or authorize canonical compilation', () => {

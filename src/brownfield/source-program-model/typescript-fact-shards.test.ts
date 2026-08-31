@@ -64,6 +64,51 @@ test('TypeScript fact shards reuse unchanged semantic facts and remain clean-com
   releaseTypeScriptSourceProgramWorkspace();
 });
 
+test('ambient declarations, global augmentations, file-set changes, and resolver graph changes force a clean compilation', () => {
+  const assertFullEquivalent = (
+    initialSources: Readonly<Record<string, string>>,
+    changedSources: Readonly<Record<string, string>>
+  ): void => {
+    const initial = compileTypeScriptSourceProgramModelIncremental(sourceInput(initialSources), null);
+    const changedInput = sourceInput(changedSources);
+    const changed = compileTypeScriptSourceProgramModelIncremental(changedInput, initial.state);
+
+    expect(changed.mode).toBe('full');
+    expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
+  };
+
+  assertFullEquivalent({
+    'src/example/globals.d.ts': 'declare const GLOBAL_VALUE: 1;\n',
+    'src/example/use.ts': 'export const VALUE = GLOBAL_VALUE;\n'
+  }, {
+    'src/example/globals.d.ts': 'declare const GLOBAL_VALUE: 2;\n',
+    'src/example/use.ts': 'export const VALUE = GLOBAL_VALUE;\n'
+  });
+  assertFullEquivalent({
+    'src/example/augment.ts': "export {};\ndeclare global { interface Window { value: 1 } }\n",
+    'src/example/use.ts': 'export const VALUE = window.value;\n'
+  }, {
+    'src/example/augment.ts': "export {};\ndeclare global { interface Window { value: 2 } }\n",
+    'src/example/use.ts': 'export const VALUE = window.value;\n'
+  });
+  assertFullEquivalent({
+    'src/example/value.ts': 'export const VALUE = 1;\n'
+  }, {
+    'src/example/value.ts': 'export const VALUE = 1;\n',
+    'src/example/added.ts': 'export const ADDED = 1;\n'
+  });
+  assertFullEquivalent({
+    'src/example/consumer.ts': "import { VALUE } from './first.ts';\nexport const RESULT = VALUE;\n",
+    'src/example/first.ts': 'export const VALUE = 1;\n',
+    'src/example/second.ts': 'export const VALUE = 2;\n'
+  }, {
+    'src/example/consumer.ts': "import { VALUE } from './second.ts';\nexport const RESULT = VALUE;\n",
+    'src/example/first.ts': 'export const VALUE = 1;\n',
+    'src/example/second.ts': 'export const VALUE = 2;\n'
+  });
+  releaseTypeScriptSourceProgramWorkspace();
+});
+
 test('TypeScript root digest binds raw bytes even when a caller reuses a declared content digest', () => {
   const initialInput = sourceInput({
     'src/example/value.ts': 'export const VALUE = 1;\n'

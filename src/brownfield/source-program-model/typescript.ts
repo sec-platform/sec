@@ -48,6 +48,11 @@ export interface TypeScriptSourceProgramIncrementalState {
   readonly sourceRevision: string;
   readonly fileDigests: Readonly<Record<string, string>>;
   readonly moduleDigests: Readonly<Record<string, string>>;
+  readonly semanticDependencyScopes: Readonly<Record<
+    string,
+    TypeScriptSourceProgramFactShard['semanticDependencyScope']
+  >>;
+  readonly moduleGraphDigest: `sha256:${string}`;
   /** Candidate-path reverse edges preserve additions, removals and resolver fallback changes. */
   readonly reverseConsumers: Readonly<Record<string, readonly string[]>>;
   readonly factShards: readonly TypeScriptSourceProgramFactShard[];
@@ -128,6 +133,16 @@ function moduleExtensionFor(fileName: string): ts.Extension {
   if (lower.endsWith('.cjs')) return ts.Extension.Cjs;
   if (lower.endsWith('.js')) return ts.Extension.Js;
   return ts.Extension.Ts;
+}
+
+function sourceProgramScriptKind(fileName: string): ts.ScriptKind {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  if (lower.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs')) {
+    return ts.ScriptKind.JS;
+  }
+  return ts.ScriptKind.TS;
 }
 
 const TYPESCRIPT_WORKSPACE_COMPILER_OPTIONS: ts.CompilerOptions = Object.freeze({
@@ -719,7 +734,7 @@ function typeScriptSemanticDependencyScope(
     file.source,
     ts.ScriptTarget.Latest,
     true,
-    moduleExtensionFor(file.path)
+    sourceProgramScriptKind(file.path)
   );
   const parseDiagnostics = (sourceFile as ts.SourceFile & {
     readonly parseDiagnostics?: readonly ts.Diagnostic[];
@@ -751,7 +766,8 @@ function assertReusableTypeScriptState(
   if (!issuedTypeScriptIncrementalStates.has(state)
       || state.providerRevision !== compilerRevision
       || state.model.sourceRevision !== state.sourceRevision
-      || !Array.isArray(state.factShards)) return false;
+      || !Array.isArray(state.factShards)
+      || !/^sha256:[0-9a-f]{64}$/u.test(state.moduleGraphDigest)) return false;
   return /^sha256:[0-9a-f]{64}$/u.test(state.model.modelDigest);
 }
 
@@ -759,13 +775,18 @@ function buildIncrementalState(
   input: CompileTypeScriptSourceProgramModelInput,
   model: SourceProgramModel,
   reverseConsumers: Readonly<Record<string, readonly string[]>>,
-  compilerRevision: string
+  compilerRevision: string,
+  moduleGraphDigest: `sha256:${string}` = sha256(reverseConsumers) as `sha256:${string}`,
+  previousGeneration?: Readonly<{
+    fileDigests: Readonly<Record<string, string>>;
+    moduleDigests: Readonly<Record<string, string>>;
+  }>
 ): TypeScriptSourceProgramIncrementalState {
   const factShards = factShardsByModel.get(model);
   if (factShards === undefined) {
     throw new Error('TypeScript Source Program incremental state requires canonical fact shards');
   }
-  const fileDigests = Object.freeze(Object.fromEntries(
+  const fileDigests = previousGeneration?.fileDigests ?? Object.freeze(Object.fromEntries(
     input.files
       .filter(({ path: repositoryPathValue }) => (
         SOURCE_EXTENSION.test(repositoryPathValue)
@@ -774,11 +795,14 @@ function buildIncrementalState(
       .sort((left, right) => compareCodeUnits(left.path, right.path))
       .map((file) => [file.path, sourceProgramFileSnapshotDigest(file)])
   ));
-  const moduleDigests = Object.freeze(Object.fromEntries(
+  const moduleDigests = previousGeneration?.moduleDigests ?? Object.freeze(Object.fromEntries(
     Object.keys(fileDigests).map((repositoryPathValue) => [
       repositoryPathValue,
       sha256(input.moduleMembership.moduleForPath(repositoryPathValue))
     ])
+  ));
+  const semanticDependencyScopes = Object.freeze(Object.fromEntries(
+    factShards.map((shard) => [shard.path, shard.semanticDependencyScope])
   ));
   const state = Object.freeze({
     [typeScriptIncrementalStateBrand]: true as const,
@@ -786,6 +810,8 @@ function buildIncrementalState(
     sourceRevision: input.sourceRevision,
     fileDigests,
     moduleDigests,
+    semanticDependencyScopes,
+    moduleGraphDigest,
     reverseConsumers,
     factShards,
     model
@@ -802,7 +828,8 @@ function buildIncrementalState(
 export function adoptTypeScriptSourceProgramFactShardsFromRepositoryCompilation(
   input: CompileTypeScriptSourceProgramModelInput,
   shards: readonly TypeScriptSourceProgramFactShard[],
-  repositoryCompilation: IssuedRepositoryCompilationContext
+  repositoryCompilation: IssuedRepositoryCompilationContext,
+  generation?: Readonly<{ moduleGraphDigest: `sha256:${string}` }>
 ): TypeScriptSourceProgramIncrementalState {
   repositoryCompilation.assertMatches(input);
   const graph = repositoryCompilation.moduleGraphFor('typescript');
@@ -823,8 +850,10 @@ export function adoptTypeScriptSourceProgramFactShardsFromRepositoryCompilation(
     consumers.add(consumer);
     consumersByPath.set(target, consumers);
   };
-  for (const reference of graph.references) {
-    for (const candidate of reference.candidateTargets) addConsumer(candidate, reference.from);
+  if (generation === undefined) {
+    for (const reference of graph.references) {
+      for (const candidate of reference.candidateTargets) addConsumer(candidate, reference.from);
+    }
   }
   for (const shard of shards) {
     for (const reference of shard.references) {
@@ -847,7 +876,18 @@ export function adoptTypeScriptSourceProgramFactShardsFromRepositoryCompilation(
     input,
     model,
     reverseConsumers,
-    TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION
+    TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION,
+    generation?.moduleGraphDigest ?? sha256(reverseConsumers) as `sha256:${string}`,
+    generation === undefined
+      ? undefined
+      : Object.freeze({
+          fileDigests: Object.freeze(Object.fromEntries(
+            shards.map((shard) => [shard.path, shard.rawFileDigest])
+          )),
+          moduleDigests: Object.freeze(Object.fromEntries(
+            shards.map((shard) => [shard.path, shard.moduleDigest])
+          ))
+        })
   );
 }
 
@@ -913,7 +953,9 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
           input,
           model,
           reusableState.reverseConsumers,
-          compilerRevision
+          compilerRevision,
+          input.repositoryCompilation?.moduleGraphDigest
+            ?? sha256(reusableState.reverseConsumers) as `sha256:${string}`
         )
       });
     }
@@ -946,10 +988,31 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
       mode: 'full',
       invalidatedPaths: currentPaths,
       model,
-      state: buildIncrementalState(input, model, reverseConsumers, compilerRevision)
+      state: buildIncrementalState(
+        input,
+        model,
+        reverseConsumers,
+        compilerRevision,
+        input.repositoryCompilation?.moduleGraphDigest
+          ?? sha256(reverseConsumers) as `sha256:${string}`
+      )
     });
   };
   if (reusableState === null || changed === null) return compileFull();
+  const currentSemanticDependencyScopes = new Map(currentFiles.map((file) => [
+    file.path,
+    typeScriptSemanticDependencyScope(file)
+  ] as const));
+  const fileSetChanged = Object.keys(reusableState.fileDigests).length !== currentPaths.length
+    || currentPaths.some((repositoryPathValue) => reusableState.fileDigests[repositoryPathValue] === undefined);
+  const currentModuleGraphDigest = input.repositoryCompilation?.moduleGraphDigest
+    ?? sha256(reverseConsumers) as `sha256:${string}`;
+  const graphChanged = reusableState.moduleGraphDigest !== currentModuleGraphDigest;
+  const globallyCoupledChange = changed.some((repositoryPathValue) => (
+    reusableState.semanticDependencyScopes[repositoryPathValue] !== 'module-scoped'
+    || currentSemanticDependencyScopes.get(repositoryPathValue) !== 'module-scoped'
+  ));
+  if (fileSetChanged || graphChanged || globallyCoupledChange) return compileFull();
 
   const invalidated = new Set(changed);
   const queue = [...changed];
@@ -1005,7 +1068,14 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
     mode: 'incremental',
     invalidatedPaths: Object.freeze([...invalidatedCurrent].sort(compareCodeUnits)),
     model,
-    state: buildIncrementalState(input, model, reverseConsumers, compilerRevision)
+    state: buildIncrementalState(
+      input,
+      model,
+      reverseConsumers,
+      compilerRevision,
+      input.repositoryCompilation?.moduleGraphDigest
+        ?? sha256(reverseConsumers) as `sha256:${string}`
+    )
   });
 }
 
