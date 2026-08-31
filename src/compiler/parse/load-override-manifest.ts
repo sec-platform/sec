@@ -7,12 +7,26 @@ import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime
 import type { OverrideApplyPhase, OverrideEntry, OverrideManifest } from '../../semantic/provenance/contract/types.ts';
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { pathEntryExists } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import {
+  getWorkspacePaths,
+  modelRelativePath,
+  packageJsonRelativePath,
+  secRelativePath,
+  tsconfigRelativePath,
+  workspaceConfigRelativePath
+} from '../../workspace/paths.ts';
 import { CompilerError } from '../errors.ts';
 
 const ALLOWED_OVERRIDE_PHASES = new Set<OverrideApplyPhase>(['compose', 'adapt']);
-const BLOCKED_OVERRIDE_TARGET_PREFIXES = ['generated/', 'overrides/', 'policies/', 'control/', 'source/', '.sec/'];
-const BLOCKED_OVERRIDE_TARGETS = new Set(['app.plan.yaml', 'graph.lock.json', 'provenance.json', 'package.json', 'tsconfig.json']);
+const BLOCKED_OVERRIDE_TARGET_PREFIXES = [
+  `${modelRelativePath}/`,
+  `${secRelativePath}/`
+];
+const BLOCKED_OVERRIDE_TARGETS = new Set([
+  workspaceConfigRelativePath,
+  packageJsonRelativePath,
+  tsconfigRelativePath
+]);
 const OVERRIDE_ID = /^[a-z0-9](?:[a-z0-9_-]{0,126}[a-z0-9])?$/u;
 
 const overrideEntrySchema = z.object({
@@ -126,7 +140,7 @@ export function validateOverrideManifest(manifest: OverrideManifest): OverrideMa
 }
 
 export async function resolveOverrideManifestPath(workspaceRoot: string): Promise<string> {
-  return getWorkspacePaths(workspaceRoot).overrideManifestPath;
+  return path.join(getWorkspacePaths(workspaceRoot).overridesRoot, 'override-manifest.yaml');
 }
 
 function parseOverrideManifest(source: string, filePath: string): OverrideManifest {

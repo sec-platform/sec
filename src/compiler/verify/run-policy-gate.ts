@@ -1,6 +1,6 @@
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { getWorkspacePaths, resolvePathInside } from '../../workspace/paths.ts';
+import { resolvePathInside, srcRelativePath } from '../../workspace/paths.ts';
 import type { InstallPlanStep, LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { readLockFile } from '../lock.ts';
@@ -37,7 +37,7 @@ function buildMergedPolicyEntries(
 }
 
 function isPolicyCheckableInstall(step: InstallPlanStep): boolean {
-  return step.action === 'copy' && step.to.startsWith('src/') && step.to.endsWith('.ts');
+  return step.action === 'copy' && step.to.startsWith(`${srcRelativePath}/`) && step.to.endsWith('.ts');
 }
 
 function evaluateTenantScopeStructure(
@@ -107,10 +107,10 @@ function buildPolicyReport(
   });
 }
 
-function readPolicyTarget(projectRoot: string, targetFile: string): string {
-  const absolutePath = resolvePathInside(projectRoot, targetFile);
+function readPolicyTarget(workspaceRoot: string, targetFile: string): string {
+  const absolutePath = resolvePathInside(workspaceRoot, targetFile);
   if (absolutePath === null) {
-    throw new CompilerError('VERIFY-POLICY-002', `Policy target path escapes the project root: ${targetFile}`);
+    throw new CompilerError('VERIFY-POLICY-002', `Policy target path escapes the workspace root: ${targetFile}`);
   }
   const bytes = readOptionalRetainedOrdinaryFile(absolutePath, `Policy target ${targetFile}`);
   if (bytes === null) {
@@ -128,7 +128,6 @@ function readPolicyTarget(projectRoot: string, targetFile: string): string {
 }
 
 export function runPolicyGate(workspaceRoot: string): PolicyReport {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const { official, project, definitions: mergedPolicies } = loadPolicyDeclarations(workspaceRoot);
 
   if (mergedPolicies.size === 0) {
@@ -157,7 +156,7 @@ export function runPolicyGate(workspaceRoot: string): PolicyReport {
   for (const definition of mergedPolicies.values()) {
     for (const targetFile of targetFilesForPolicy(lock, definition.policy)) {
       const diagnostic = evaluateTenantScopeStructure(
-        readPolicyTarget(projectRoot, targetFile),
+        readPolicyTarget(workspaceRoot, targetFile),
         targetFile,
         definition
       );

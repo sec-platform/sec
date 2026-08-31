@@ -8,8 +8,9 @@ import {
   startPipelineTransaction
 } from '../../src/compiler/pipeline/journal.ts';
 import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { checkProjectWriteBoundary, writeProjectBaseline } from '../../src/workspace/project.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -43,8 +44,8 @@ function lockFor(path: string): LockFile {
 }
 
 async function prepareBaseline(workspaceRoot: string): Promise<void> {
-  const artifactPath = 'app/page.tsx';
-  const absolutePath = path.join(getWorkspacePaths(workspaceRoot).projectRoot, artifactPath);
+  const artifactPath = 'src/ui/page.ts';
+  const absolutePath = path.join(getWorkspacePaths(workspaceRoot).workspaceRoot, artifactPath);
   await writeText(absolutePath, 'export const value = 1;\n');
   await writeProjectBaseline(workspaceRoot, lockFor(artifactPath));
 }
@@ -75,7 +76,7 @@ async function withActiveUpgrade(
 test('active UpgradePlan cannot authorize traversal or duplicate impact paths', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await prepareBaseline(workspaceRoot);
-    const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+    const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
     await fs.mkdir(path.dirname(upgradePlanPath), { recursive: true });
 
     await withActiveUpgrade(workspaceRoot, async () => {
@@ -98,7 +99,7 @@ test('active UpgradePlan cannot authorize traversal or duplicate impact paths', 
 test('active UpgradePlan authorization rejects a linked workflow ancestor', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await prepareBaseline(workspaceRoot);
-    const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+    const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
     const workflowRoot = path.dirname(upgradePlanPath);
     const externalWorkflow = path.join(workspaceRoot, 'external-workflow');
     await fs.rm(workflowRoot, { recursive: true, force: true });
@@ -106,7 +107,7 @@ test('active UpgradePlan authorization rejects a linked workflow ancestor', asyn
     await fs.mkdir(externalWorkflow, { recursive: true });
     await fs.writeFile(
       path.join(externalWorkflow, path.basename(upgradePlanPath)),
-      `${JSON.stringify({ formatVersion: '1', status: 'planned', impacts: ['app/page.tsx'] })}\n`,
+      `${JSON.stringify({ formatVersion: '1', status: 'planned', impacts: ['src/ui/page.ts'] })}\n`,
       'utf8'
     );
     await fs.symlink(

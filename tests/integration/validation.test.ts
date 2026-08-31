@@ -1,12 +1,11 @@
 import { test } from 'bun:test';
 import path from 'node:path';
 
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
-import {
-  expectUpgradeDryRunFailure,
-  expectUpgradeDryRunFailureWithDiagnostics
-} from './upgrade-diagnostics-fixtures.ts';
+import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 
 test('upgrade records missing migration entry diagnostics before planning', async () => {
   const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
@@ -19,23 +18,28 @@ test('upgrade records missing migration entry diagnostics before planning', asyn
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-002',
-    details: {
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-002',
+      details: {
+        failedCheck: 'migration-entries',
+        migrationId: 'mig-missing-entry-file',
+        migrationKind: 'text-append',
+        entry: 'migrations/missing-entry-file.json'
+      }
+    },
+    {
       failedCheck: 'migration-entries',
-      migrationId: 'mig-missing-entry-file',
-      migrationKind: 'text-append',
-      entry: 'migrations/missing-entry-file.json'
+      errorCode: 'UPGRADE-MIGRATION-002',
+      details: {
+        migrationId: 'mig-missing-entry-file',
+        migrationKind: 'text-append',
+        entry: 'migrations/missing-entry-file.json'
+      }
     }
-  }, {
-    failedCheck: 'migration-entries',
-    errorCode: 'UPGRADE-MIGRATION-002',
-    details: {
-      migrationId: 'mig-missing-entry-file',
-      migrationKind: 'text-append',
-      entry: 'migrations/missing-entry-file.json'
-    }
-  });
+  );
 });
 
 test('upgrade rejects migration entry paths that escape the manifest root', async () => {
@@ -78,27 +82,32 @@ test('upgrade records mismatched migration entry metadata diagnostics before pla
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-003',
-    details: {
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-003',
+      details: {
+        failedCheck: 'migration-entries',
+        migrationId: 'mig-expected-entry',
+        migrationKind: 'text-append',
+        entry: 'migrations/mismatched-entry.json',
+        entryId: 'mig-actual-entry',
+        entryKind: 'text-replace'
+      }
+    },
+    {
       failedCheck: 'migration-entries',
-      migrationId: 'mig-expected-entry',
-      migrationKind: 'text-append',
-      entry: 'migrations/mismatched-entry.json',
-      entryId: 'mig-actual-entry',
-      entryKind: 'text-replace'
+      errorCode: 'UPGRADE-MIGRATION-003',
+      details: {
+        migrationId: 'mig-expected-entry',
+        migrationKind: 'text-append',
+        entry: 'migrations/mismatched-entry.json',
+        entryId: 'mig-actual-entry',
+        entryKind: 'text-replace'
+      }
     }
-  }, {
-    failedCheck: 'migration-entries',
-    errorCode: 'UPGRADE-MIGRATION-003',
-    details: {
-      migrationId: 'mig-expected-entry',
-      migrationKind: 'text-append',
-      entry: 'migrations/mismatched-entry.json',
-      entryId: 'mig-actual-entry',
-      entryKind: 'text-replace'
-    }
-  });
+  );
 });
 
 test('upgrade rejects duplicate migration ids before planning', async () => {
@@ -134,21 +143,26 @@ test('upgrade rejects duplicate migration ids before planning', async () => {
     ]
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-029',
-    details: {
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-029',
+      details: {
+        failedCheck: 'migration-entries',
+        migrationId: 'mig-duplicate-report',
+        entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
+      }
+    },
+    {
       failedCheck: 'migration-entries',
-      migrationId: 'mig-duplicate-report',
-      entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
+      errorCode: 'UPGRADE-MIGRATION-029',
+      details: {
+        migrationId: 'mig-duplicate-report',
+        entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
+      }
     }
-  }, {
-    failedCheck: 'migration-entries',
-    errorCode: 'UPGRADE-MIGRATION-029',
-    details: {
-      migrationId: 'mig-duplicate-report',
-      entries: ['migrations/append-report-a.json', 'migrations/append-report-b.json']
-    }
-  });
+  );
 });
 
 test('upgrade records migration target path escape diagnostics before planning', async () => {
@@ -169,26 +183,31 @@ test('upgrade records migration target path escape diagnostics before planning',
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-004',
-    details: {
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-004',
+      details: {
+        failedCheck: 'migration-targets',
+        migrationId: 'mig-target-escape',
+        path: '../outside-project.md',
+        role: 'target',
+        root: 'project'
+      }
+    },
+    {
       failedCheck: 'migration-targets',
-      migrationId: 'mig-target-escape',
-      path: '../outside-project.md',
-      role: 'target',
-      root: 'project'
+      errorCode: 'UPGRADE-MIGRATION-004',
+      details: {
+        failedCheck: 'migration-targets',
+        migrationId: 'mig-target-escape',
+        path: '../outside-project.md',
+        role: 'target',
+        root: 'project'
+      }
     }
-  }, {
-    failedCheck: 'migration-targets',
-    errorCode: 'UPGRADE-MIGRATION-004',
-    details: {
-      failedCheck: 'migration-targets',
-      migrationId: 'mig-target-escape',
-      path: '../outside-project.md',
-      role: 'target',
-      root: 'project'
-    }
-  });
+  );
 });
 
 test('upgrade records migration manifest source escape diagnostics before planning', async () => {
@@ -209,26 +228,31 @@ test('upgrade records migration manifest source escape diagnostics before planni
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-005',
-    details: {
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-005',
+      details: {
+        failedCheck: 'migration-file-operations',
+        migrationId: 'mig-source-escape',
+        path: '../outside-source.ts',
+        role: 'manifest-source',
+        root: 'manifest'
+      }
+    },
+    {
       failedCheck: 'migration-file-operations',
-      migrationId: 'mig-source-escape',
-      path: '../outside-source.ts',
-      role: 'manifest-source',
-      root: 'manifest'
+      errorCode: 'UPGRADE-MIGRATION-005',
+      details: {
+        failedCheck: 'migration-file-operations',
+        migrationId: 'mig-source-escape',
+        path: '../outside-source.ts',
+        role: 'manifest-source',
+        root: 'manifest'
+      }
     }
-  }, {
-    failedCheck: 'migration-file-operations',
-    errorCode: 'UPGRADE-MIGRATION-005',
-    details: {
-      failedCheck: 'migration-file-operations',
-      migrationId: 'mig-source-escape',
-      path: '../outside-source.ts',
-      role: 'manifest-source',
-      root: 'manifest'
-    }
-  });
+  );
 });
 
 test('upgrade rejects empty config rewrite paths before planning', async () => {
@@ -254,23 +278,28 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-010',
-    details: {
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-010',
+      details: {
+        failedCheck: 'migration-entries',
+        migrationId: 'mig-empty-config-path',
+        migrationKind: 'config-rewrite',
+        entry: 'migrations/empty-config-path.json'
+      }
+    },
+    {
       failedCheck: 'migration-entries',
-      migrationId: 'mig-empty-config-path',
-      migrationKind: 'config-rewrite',
-      entry: 'migrations/empty-config-path.json'
+      errorCode: 'UPGRADE-MIGRATION-010',
+      details: {
+        migrationId: 'mig-empty-config-path',
+        migrationKind: 'config-rewrite',
+        entry: 'migrations/empty-config-path.json'
+      }
     }
-  }, {
-    failedCheck: 'migration-entries',
-    errorCode: 'UPGRADE-MIGRATION-010',
-    details: {
-      migrationId: 'mig-empty-config-path',
-      migrationKind: 'config-rewrite',
-      entry: 'migrations/empty-config-path.json'
-    }
-  });
+  );
 });
 
 test('upgrade rejects JSON array structure mismatches before planning', async () => {
@@ -291,17 +320,22 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
       }
     },
     setup: async ({ paths: workspacePaths }) => {
-      await writeJson(path.join(workspacePaths.projectRoot, 'upgrade.metadata.json'), {
+      await writeJson(path.join(workspacePaths.workspaceRoot, 'upgrade.metadata.json'), {
         upgradedBlocks: 'auth/basic-session@0.1.0'
       });
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-012'
-  }, {
-    failedCheck: 'migration-json-structure'
-  });
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-012'
+    },
+    {
+      failedCheck: 'migration-json-structure'
+    }
+  );
 });
 
 test('upgrade rejects JSON array parent structure mismatches before planning', async () => {
@@ -322,17 +356,22 @@ test('upgrade rejects JSON array parent structure mismatches before planning', a
       }
     },
     setup: async ({ paths: workspacePaths }) => {
-      await writeJson(path.join(workspacePaths.projectRoot, 'upgrade.metadata.json'), {
+      await writeJson(path.join(workspacePaths.workspaceRoot, 'upgrade.metadata.json'), {
         upgrade: 'legacy-scalar'
       });
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-012'
-  }, {
-    failedCheck: 'migration-json-structure'
-  });
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-012'
+    },
+    {
+      failedCheck: 'migration-json-structure'
+    }
+  );
 });
 
 test('upgrade rejects slot contract mismatches before planning', async () => {
@@ -356,11 +395,16 @@ test('upgrade rejects slot contract mismatches before planning', async () => {
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-021'
-  }, {
-    failedCheck: 'migration-slot-contracts'
-  });
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-021'
+    },
+    {
+      failedCheck: 'migration-slot-contracts'
+    }
+  );
 });
 
 test('upgrade rejects malformed migration entries before planning', async () => {
@@ -380,9 +424,14 @@ test('upgrade rejects malformed migration entries before planning', async () => 
     }
   });
 
-  await expectUpgradeDryRunFailureWithDiagnostics(workspaceRoot, paths.upgradeDiagnosticsPath, {
-    code: 'UPGRADE-MIGRATION-011'
-  }, {
-    failedCheck: 'migration-entries'
-  });
+  await expectUpgradeDryRunFailureWithDiagnostics(
+    workspaceRoot,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+    {
+      code: 'UPGRADE-MIGRATION-011'
+    },
+    {
+      failedCheck: 'migration-entries'
+    }
+  );
 });

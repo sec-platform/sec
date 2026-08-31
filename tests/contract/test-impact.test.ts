@@ -1,44 +1,66 @@
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-import { compileTypeScriptSourceProgramModel } from '../../src/brownfield/source-program-model/typescript.ts';
+import { compileRepositorySourceProgramCompilation } from '../../src/brownfield/source-program-model/repository-compilation.ts';
+import { issueTestImpactProjection } from '../../src/brownfield/source-program-model/test-impact-projection.ts';
+import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
-import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { compileSecRepositoryModuleMembership } from '../../src/system-architecture/repository-modules/contract.ts';
 import { classifyTestImpactSource } from '../../src/verification/test-impact/contract/ownership.ts';
 import { createTestImpactSourceProvider, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
 
-const repositoryRoot = path.resolve(import.meta.dir, '../..');
-const moduleMembership = compileSecRepositoryModuleMembership(repositoryRoot);
+function git(root: string, args: readonly string[]): string {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(`Git fixture command failed: git ${args.join(' ')}\n${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
 
 function sourceProvider(sources: Readonly<Record<string, string>>) {
-  const repositoryFiles = Object.keys(sources);
-  return createTestImpactSourceProvider({
-    repositoryFiles,
-    moduleMembership,
-    activeDocumentationPaths: currentActiveDocumentationPaths(),
-    readModuleSource: (moduleFile) => sources[moduleFile] ?? null
-  });
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
+  try {
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.email', 'test-impact@sec.invalid']);
+    git(root, ['config', 'user.name', 'SEC Test Impact']);
+    const fixtureSources = {
+      ...sources,
+      ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/compiler/'))
+        ? { 'src/compiler/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        : {}),
+      ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/change-management/upgrade/'))
+        ? { 'src/change-management/upgrade/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        : {})
+    };
+    for (const [repositoryPath, source] of Object.entries(fixtureSources)) {
+      const filePath = path.join(root, ...repositoryPath.split('/'));
+      mkdirSync(path.dirname(filePath), { recursive: true });
+      writeFileSync(filePath, source, 'utf8');
+    }
+    git(root, ['add', '--all']);
+    git(root, ['commit', '--quiet', '-m', 'test-impact-fixture']);
+    const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+      repositoryRoot: root,
+      commitSha: git(root, ['rev-parse', 'HEAD'])
+    });
+    const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
+    return createTestImpactSourceProvider({
+      projection: issueTestImpactProjection({
+        workspaceSnapshot,
+        typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
+        testObservations: repositoryCompilation.testObservations
+      }),
+      activeDocumentationPaths: currentActiveDocumentationPaths()
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 function semanticSourceProvider(sources: Readonly<Record<string, string>>) {
-  const repositoryFiles = Object.keys(sources).sort();
-  const sourceProgramModel = compileTypeScriptSourceProgramModel({
-    sourceRevision: rawSha256(JSON.stringify(sources)),
-    files: repositoryFiles.map((repositoryPath) => ({
-      path: repositoryPath,
-      source: sources[repositoryPath]!,
-      contentDigest: rawSha256(sources[repositoryPath]!)
-    })),
-    moduleMembership
-  });
-  return createTestImpactSourceProvider({
-    repositoryFiles,
-    moduleMembership,
-    activeDocumentationPaths: currentActiveDocumentationPaths(),
-    sourceProgramModel,
-    readModuleSource: (moduleFile) => sources[moduleFile] ?? null
-  });
+  return sourceProvider(sources);
 }
 
 function expectUnique(values: readonly string[]): void {
@@ -54,7 +76,11 @@ test('repository sources route by semantic kind and module identity', () => {
   expect(classifyTestImpactSource('docs/unregistered.manifest.yaml')).toBeNull();
 
   const compilerFixturePath = 'src/compiler/fixture.ts';
-  expect(resolveTestOwnership([compilerFixturePath])).toEqual([{
+  const provider = sourceProvider({
+    [compilerFixturePath]: 'export const fixture = true;',
+    'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;"
+  });
+  expect(resolveTestOwnership([compilerFixturePath], provider)).toEqual([{
     source: compilerFixturePath,
     owner: 'compiler',
     identity: { kind: 'module', id: 'compiler' }
@@ -62,8 +88,12 @@ test('repository sources route by semantic kind and module identity', () => {
 });
 
 test('repository module graph is the single resolved dependency observation', () => {
-  const graph = readRepositoryModuleGraphV1();
-  const resolution = resolveTestImpactSelectionTrustBoundary();
+  const provider = sourceProvider({
+    'src/compiler/fixture.ts': 'export const fixture = true;',
+    'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;"
+  });
+  const graph = readRepositoryModuleGraphV1(provider);
+  const resolution = resolveTestImpactSelectionTrustBoundary(provider);
 
   expect(resolution).toEqual({ selectionResolved: true, unresolvedModuleFiles: [] });
   expect(graph.files.length).toBeGreaterThan(0);
@@ -80,14 +110,14 @@ test('repository module graph is the single resolved dependency observation', ()
 test('impact follows executable imports instead of import-like text', () => {
   const source = 'src/compiler/virtual-source.ts';
   const facade = 'src/compiler/virtual-entrypoint.ts';
-  const helper = 'tests/helpers/virtual-facade.ts';
+  const helper = 'src/compiler/virtual-test-helper.ts';
   const selected = 'tests/unit/virtual-facade.test.ts';
   const ignored = 'tests/unit/virtual-import-text.test.ts';
   const provider = sourceProvider({
       [source]: 'export const value = 1;',
       [facade]: "export { value } from './virtual-source.ts';",
-      [helper]: "export { value } from '../../src/compiler/virtual-entrypoint.ts';",
-      [selected]: "import { value } from '../helpers/virtual-facade.ts'; void value;",
+      [helper]: "export { value } from './virtual-entrypoint.ts';",
+      [selected]: "import { value } from '../../src/compiler/virtual-test-helper.ts'; void value;",
       [ignored]: "const text = \"import '../../src/compiler/virtual-source.ts'\"; void text;"
   });
 
@@ -116,7 +146,7 @@ test('compiler-resolved named barrel references do not select unrelated consumer
   expect(selectTestsForSources([facade], provider).fast).toEqual([alphaTest, betaTest]);
 });
 
-test('parser reuse is keyed by exact source bytes rather than size or timestamp hints', () => {
+test('repository receipts isolate exact source bytes across equal-length mutations', () => {
   const sourceA = 'src/compiler/virtual-source-a.ts';
   const sourceB = 'src/compiler/virtual-source-b.ts';
   const selected = 'tests/unit/virtual-source-switch.test.ts';
@@ -125,14 +155,16 @@ test('parser reuse is keyed by exact source bytes rather than size or timestamp 
     [sourceB]: 'export const b = 1;',
     [selected]: "import '../../src/compiler/virtual-source-a.ts';"
   };
-  const provider = sourceProvider(sources);
+  const initialProvider = sourceProvider(sources);
 
-  expect(selectTestsForSources([sourceA], provider).fast).toEqual([selected]);
+  expect(selectTestsForSources([sourceA], initialProvider).fast).toEqual([selected]);
   const previousLength = Buffer.byteLength(sources[selected]!);
   sources[selected] = "import '../../src/compiler/virtual-source-b.ts';";
   expect(Buffer.byteLength(sources[selected]!)).toBe(previousLength);
-  expect(selectTestsForSources([sourceA], provider).fast).toEqual([]);
-  expect(selectTestsForSources([sourceB], provider).fast).toEqual([selected]);
+  const mutatedProvider = sourceProvider(sources);
+  expect(selectTestsForSources([sourceA], initialProvider).fast).toEqual([selected]);
+  expect(selectTestsForSources([sourceA], mutatedProvider).fast).toEqual([]);
+  expect(selectTestsForSources([sourceB], mutatedProvider).fast).toEqual([selected]);
 });
 
 test('deleted local dependency makes selection unresolved', () => {
@@ -169,9 +201,14 @@ test('non-code product inputs reach tests through semantic module owners', () =>
   expect(documentation.fast).toEqual([]);
   expect(documentation.slow).toEqual([]);
 
+  const provider = sourceProvider({
+    'catalog/registry/official/ticket.basic/block.manifest.yaml': 'id: ticket.basic\n',
+    'src/compiler/virtual-manifest-consumer.ts': 'export const manifestConsumer = true;',
+    'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;"
+  });
   const manifest = selectTestsForSources([
     'catalog/registry/official/ticket.basic/block.manifest.yaml'
-  ]);
+  ], provider);
   expect(manifest.owners).toEqual(expect.arrayContaining(['compiler', 'compiler.registry']));
   expect(manifest.fast.length + manifest.slow.length).toBeGreaterThan(0);
 });

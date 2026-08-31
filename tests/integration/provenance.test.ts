@@ -8,7 +8,7 @@ import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
 import {
   buildPassingReviewCoverage,
@@ -160,7 +160,12 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);
 
-    const paths = getWorkspacePaths(workspaceRoot);
+    const paths = {
+      runtimeReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
+      policyReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),
+      acceptanceCoveragePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
+      verificationReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport)
+    };
     await Promise.all([
       fs.rm(paths.runtimeReportPath),
       fs.rm(paths.policyReportPath),

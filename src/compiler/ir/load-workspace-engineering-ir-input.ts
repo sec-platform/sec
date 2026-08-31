@@ -31,8 +31,8 @@ export interface WorkspaceEngineeringIRBuildInput {
 export async function loadWorkspaceEngineeringIRBuildInput(
   workspaceRoot: string
 ): Promise<WorkspaceEngineeringIRBuildInput> {
-  const { planPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
+  const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+  const plan = await loadPlan(workspaceConfigPath);
   const lock = readLockFile(workspaceRoot);
   const manifestEntries = await Promise.all(
     lock.resolvedBlocks.map((block) => loadManifestForResolvedBlock(workspaceRoot, block))

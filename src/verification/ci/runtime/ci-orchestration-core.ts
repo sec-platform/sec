@@ -1,23 +1,34 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import { compileRepositorySourceProgramCompilation } from '../../../brownfield/source-program-model/repository-compilation.ts';
+import { issueTestImpactProjection } from '../../../brownfield/source-program-model/test-impact-projection.ts';
+import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
   activeDocumentationPaths,
   parseDocumentationAuthorityRegistry
 } from '../../../control/documentation/authority.ts';
 import {
-  CodexDevelopmentListExactGitTreeEntries,
-  CodexDevelopmentReadExactGitBlobEntry,
-  CodexDevelopmentReadExactGitTextBlobsBatch
+  CodexDevelopmentReadExactGitBlobEntry
 } from '../../../external-capabilities/git-read/exact-blob.ts';
 import { isolatedGitReadEnvironment } from '../../../external-capabilities/git-read/runtime/session.ts';
-import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../../system-architecture/repository-modules/contract.ts';
-import { createTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
+import { rawSha256, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { createRepositoryTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, parseGitChangedRecordsOutput, type CodexDevelopmentGitChangedRecord, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
-import type { CodexDevelopmentVerificationGateEvidenceV2 } from '../index.ts';
-
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
+
+export type CodexDevelopmentGateExecutionObservation = {
+  id: string;
+  argv: string[];
+  status: 'passed' | 'failed' | 'not-run';
+  exitCode: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number | null;
+  failureTail: string | null;
+  rawOutputDigest: string | null;
+  notRunReason: string | null;
+};
 
 export type CodexDevelopmentGateProcessResult = {
   code: number;
@@ -128,78 +139,29 @@ export function CodexDevelopmentExactGitTestImpactSourceProvider(
   repositoryRoot: string,
   candidateSha: string
 ): CodexDevelopmentTestImpactSourceProvider {
-  const treeEntries = CodexDevelopmentListExactGitTreeEntries({
+  const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
     repositoryRoot,
     commitSha: candidateSha
   });
-  const entriesByPath = new Map(treeEntries.map((entry) => [entry.repositoryPath, entry]));
-  const ordinaryEntries = treeEntries.filter((entry) => (
-    (entry.mode === '100644' || entry.mode === '100755') && entry.type === 'blob'
-  ));
-  const descriptorLikeEntries = treeEntries.filter(({ repositoryPath }) => (
-    repositoryPath.endsWith('/sec.module.json')
-  ));
-  if (descriptorLikeEntries.length === 0) {
-    throw new Error('Exact candidate module descriptor census is missing.');
-  }
-  const unsafeDescriptor = descriptorLikeEntries.find((entry) => (
-    (entry.mode !== '100644' && entry.mode !== '100755') || entry.type !== 'blob'
-  ));
-  if (unsafeDescriptor !== undefined) {
-    throw new Error(
-      `Exact candidate module descriptor is not an ordinary blob: ${unsafeDescriptor.repositoryPath}.`
-    );
-  }
-  const descriptorEntries = descriptorLikeEntries;
-  const authorityEntry = ordinaryEntries.find(({ repositoryPath }) => (
-    repositoryPath === 'docs/authority.json'
-  ));
-  if (authorityEntry === undefined) {
-    throw new Error('Exact candidate is missing the documentation authority registry.');
-  }
-  const controlSources = new Map(CodexDevelopmentReadExactGitTextBlobsBatch({
-    repositoryRoot,
-    entries: [...descriptorEntries, authorityEntry]
-  }).map(({ repositoryPath, source }) => [repositoryPath, source]));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
-    repositoryFiles: ordinaryEntries.map(({ repositoryPath }) => repositoryPath),
-    descriptorSources: descriptorEntries.map(({ repositoryPath }) => ({
-      descriptorPath: repositoryPath,
-      source: controlSources.get(repositoryPath)!
-    }))
-  });
-  const documentationRegistrySource = controlSources.get('docs/authority.json');
+  const documentationRegistrySource = workspaceSnapshot.file('docs/authority.json')?.source;
   if (documentationRegistrySource === undefined) {
     throw new Error('Exact candidate documentation authority registry was not observed.');
   }
   const candidateActiveDocumentationPaths = activeDocumentationPaths(
     parseDocumentationAuthorityRegistry(documentationRegistrySource)
   );
-  let provider!: CodexDevelopmentTestImpactSourceProvider;
-  let sourceByPath: ReadonlyMap<string, string> | null = null;
-  provider = createTestImpactSourceProvider({
-    repositoryFiles: treeEntries.map(({ repositoryPath }) => repositoryPath),
-    moduleMembership,
-    activeDocumentationPaths: candidateActiveDocumentationPaths,
-    readModuleSource: (moduleFile) => {
-      if (sourceByPath === null) {
-        const ordinaryModuleEntries = provider.moduleFiles.flatMap((repositoryPath) => {
-          const entry = entriesByPath.get(repositoryPath);
-          return entry !== undefined
-              && (entry.mode === '100644' || entry.mode === '100755')
-              && entry.type === 'blob'
-            ? [entry]
-            : [];
-        });
-        sourceByPath = new Map(CodexDevelopmentReadExactGitTextBlobsBatch({
-          repositoryRoot,
-          entries: ordinaryModuleEntries
-        }).map(({ repositoryPath, source }) => [repositoryPath, source]));
-      }
-      return sourceByPath.get(moduleFile) ?? null;
-    }
+  const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
+    workspaceSnapshot,
+    repositoryRoot
   });
-  return provider;
+  return createRepositoryTestImpactSourceProvider({
+    projection: issueTestImpactProjection({
+      workspaceSnapshot,
+      typeScriptModel: sourceProgramCompilation.typeScriptCompilation.model,
+      testObservations: sourceProgramCompilation.testObservations
+    }),
+    activeDocumentationPaths: candidateActiveDocumentationPaths
+  });
 }
 
 export function CodexDevelopmentRunGateProcess(
@@ -258,7 +220,7 @@ export function CodexDevelopmentFailureTail(output: string, fallback: string): s
 
 export function CodexDevelopmentCreateNotRunGate(
   step: Readonly<{ id: string; argv: readonly string[] }>
-): CodexDevelopmentVerificationGateEvidenceV2 {
+): CodexDevelopmentGateExecutionObservation {
   return {
     id: step.id,
     argv: [...step.argv],

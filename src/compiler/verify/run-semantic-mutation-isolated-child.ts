@@ -12,11 +12,21 @@ import {
   compilerRuntimeResources, loadCanonicalBunRuntimeVersion
 } from '../../toolchain/runtime.ts';
 import type { CurrentCanonicalVerificationReport } from '../../verification/artifact/contract/artifact.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { RuntimeVerificationLaneReport, SemanticMutationVerificationCapabilityPlan } from '../../verification/contract/types.ts';
 import { listFilesRecursive } from '../../workspace/discovery.ts';
 import { pathExists, type CommitFence } from '../../workspace/files.ts';
 import { createWorkspaceWriteCommitFence, isCanonicalWorkspaceWriteCommitFence, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import { compilerRoot, getWorkspacePaths, officialRegistryRelativePath, posixPath, resolveWorkspaceLockPath, resolveWorkspacePlanPath } from '../../workspace/paths.ts';
+import {
+  compilerRoot,
+  modelRelativePath,
+  officialRegistryRelativePath,
+  posixPath,
+  resolveWorkspaceArtifactPath,
+  resolveWorkspaceLockPath,
+  resolveWorkspacePlanPath,
+  srcRelativePath
+} from '../../workspace/paths.ts';
 import { getErrorCode } from '../errors.ts';
 import { readLockFile } from '../lock.ts';
 import { loadWorkspacePlan } from '../parse/load-plan.ts';
@@ -1184,10 +1194,10 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
     }
     await assertIsolatedStagingTree(stagingWorkspaceRoot);
     await resetSemanticMutationIsolatedPhaseTelemetry(stagingWorkspaceRoot);
-    if (await pathExists(path.join(stagingWorkspaceRoot, 'source', 'schema', 'db.prisma.template'))) {
+    if (await pathExists(path.join(stagingWorkspaceRoot, modelRelativePath, 'schema', 'db.prisma.template'))) {
       throw new Error('Isolated Prisma execution is unavailable');
     }
-    const opaqueModulesRoot = path.join(stagingWorkspaceRoot, 'source', 'code', 'opaque');
+    const opaqueModulesRoot = path.join(stagingWorkspaceRoot, srcRelativePath, 'opaque');
     if ((await pathExists(opaqueModulesRoot)) &&
       (await listFilesRecursive(opaqueModulesRoot)).some((file) => path.basename(file) === 'module.yaml')) {
       throw new Error('Isolated opaque module linking is unavailable');
@@ -1406,14 +1416,13 @@ export async function runSemanticMutationIsolatedVerificationChild(
     await commitFence();
     await assertIsolatedStagingTree(stagingWorkspaceRoot);
     await resetSemanticMutationIsolatedExecutionPhaseTelemetry(stagingWorkspaceRoot);
-    const paths = getWorkspacePaths(stagingWorkspaceRoot);
     const childOutcomePath = semanticMutationIsolatedChildOutcomePath(stagingWorkspaceRoot);
     const childOutcomePendingPath = semanticMutationIsolatedChildOutcomePendingPath(stagingWorkspaceRoot);
     for (const reportPath of [
-      paths.verificationReportPath,
-      paths.runtimeReportPath,
-      paths.policyReportPath,
-      paths.acceptanceCoveragePath,
+      resolveWorkspaceArtifactPath(stagingWorkspaceRoot, CI_ARTIFACT_FILES.verificationReport),
+      resolveWorkspaceArtifactPath(stagingWorkspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
+      resolveWorkspaceArtifactPath(stagingWorkspaceRoot, CI_ARTIFACT_FILES.policyReport),
+      resolveWorkspaceArtifactPath(stagingWorkspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
       childOutcomePath,
       childOutcomePendingPath,
       ...semanticMutationIsolatedProgressOwnedPaths(stagingWorkspaceRoot)
@@ -1508,10 +1517,22 @@ export async function runSemanticMutationIsolatedVerificationChild(
         termination
       });
     }
-    const verification = await readJsonArtifactResult(paths.verificationReportPath, commitFence);
-    const runtime = await readJsonArtifactResult(paths.runtimeReportPath, commitFence);
-    const policy = await readJsonArtifactResult(paths.policyReportPath, commitFence);
-    const coverage = await readJsonArtifactResult(paths.acceptanceCoveragePath, commitFence);
+    const verification = await readJsonArtifactResult(
+      resolveWorkspaceArtifactPath(stagingWorkspaceRoot, CI_ARTIFACT_FILES.verificationReport),
+      commitFence
+    );
+    const runtime = await readJsonArtifactResult(
+      resolveWorkspaceArtifactPath(stagingWorkspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
+      commitFence
+    );
+    const policy = await readJsonArtifactResult(
+      resolveWorkspaceArtifactPath(stagingWorkspaceRoot, CI_ARTIFACT_FILES.policyReport),
+      commitFence
+    );
+    const coverage = await readJsonArtifactResult(
+      resolveWorkspaceArtifactPath(stagingWorkspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
+      commitFence
+    );
     const artifactReads: readonly NamedArtifactReadResult[] = [
       { artifact: 'verification-report', result: verification },
       { artifact: 'runtime-report', result: runtime },
@@ -1634,7 +1655,7 @@ export async function runSemanticMutationIsolatedVerificationChild(
         artifacts
       });
       const stagedVerificationProofSource = await issueStagedVerificationProofSource({
-        stagingProjectRoot: paths.projectRoot,
+        stagingProjectRoot: stagingWorkspaceRoot,
         inputRevision: artifacts.semanticBundle.snapshot.ir.inputRevision,
         semanticRevision: artifacts.semanticBundle.snapshot.ir.semanticRevision,
         evidenceDigest,

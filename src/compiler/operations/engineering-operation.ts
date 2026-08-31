@@ -126,7 +126,7 @@ function applyOperation(plan: PlanFile, operation: EngineeringOperation): Engine
   if (!slot) {
     throw new CompilerError(
       'ENGINEERING-OPERATION-001',
-      `Engineering operation slot "${operation.slotId}" does not exist in source/app.yaml`,
+      `Engineering operation slot "${operation.slotId}" does not exist in sec.yaml`,
       { operationId: operation.id, operationKind: operation.kind, slotId: operation.slotId }
     );
   }
@@ -143,21 +143,21 @@ function applyOperation(plan: PlanFile, operation: EngineeringOperation): Engine
 /**
  * Canonical Plan operation writer. Ingresses normalize transport-specific DTOs
  * into EngineeringOperation values, then this owner alone mutates/validates and
- * publishes source/app.yaml.
+ * publishes sec.yaml.
  */
 export async function applyEngineeringOperations(
   workspaceRoot: string,
   operations: readonly EngineeringOperation[],
   commitFence: EngineeringOperationCommitFence
 ): Promise<readonly EngineeringOperationResult[]> {
-  const { planPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
+  const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+  const plan = await loadPlan(workspaceConfigPath);
   const results = operations.map((operation) => applyOperation(plan, operation));
   if (results.some((entry) => entry.status === 'applied')) {
     validatePlan(plan);
     await publishCanonicalWorkspaceFile({
       workspaceRoot,
-      targetPath: planPath,
+      targetPath: workspaceConfigPath,
       bytes: Buffer.from(YAML.stringify(plan, { indent: 2 }), 'utf8'),
       label: 'Engineering Operation Plan publication',
       commitFence

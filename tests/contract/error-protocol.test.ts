@@ -6,6 +6,7 @@ import {
   formatErrorProtocolContract
 } from '../../src/interface/cli/error-protocol-contract.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { overridesRelativePath, posixPath, srcRelativePath, workspaceConfigRelativePath } from '../../src/workspace/paths.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { expectErrorProtocolSelfConsistent } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -31,8 +32,9 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
       CI_ARTIFACT_FILES.repairPlan,
       CI_ARTIFACT_FILES.upgradeDiagnostics,
       CI_ARTIFACT_FILES.upgradePlan,
-      'source/app.yaml',
-      'source/code/slots'
+      workspaceConfigRelativePath,
+      `${posixPath(overridesRelativePath)}/override-manifest.yaml`,
+      srcRelativePath
     ].sort(),
     examples: expect.arrayContaining([
       expect.objectContaining({
@@ -80,7 +82,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           details: {
             migrationId: 'mig-customer-normalizer-contract',
             migrationKind: 'slot-contract-update',
-            target: 'custom/customer_normalizer.ts',
+            target: 'src/slots/customer_normalizer.ts',
             rollbackStatus: 'restored'
           }
         })
@@ -92,7 +94,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'slot',
           suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'],
-          artifactPaths: ['source/code/slots']
+          artifactPaths: [srcRelativePath]
         })
       }),
       expect.objectContaining({
@@ -102,7 +104,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           recoverable: true,
           issueType: 'spec',
           suggestedActions: ['inspect-engineering-operation', 'fix-operation-target', 'retry-operation'],
-          artifactPaths: ['source/app.yaml']
+          artifactPaths: [workspaceConfigRelativePath]
         })
       }),
       expect.objectContaining({

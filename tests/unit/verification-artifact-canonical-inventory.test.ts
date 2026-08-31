@@ -1,9 +1,14 @@
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 import { publishVerificationArtifactSet } from '../../src/compiler/verify/verification-artifact-publication.ts';
 import { isCanonicalVerificationArtifactSet } from '../../src/verification/artifact/contract/artifact.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from '../../src/verification/artifact/runtime/authority.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
+import { ensureProjectBase } from '../../src/workspace/application/project-base.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { buildReviewLock } from '../helpers/review-fixtures.ts';
 import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -91,12 +96,36 @@ test('Verification artifact accepts the canonical blocked inventory projection',
 
 test('Verification artifact publisher bytes round-trip through the canonical reader', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
+    await ensureProjectBase(workspaceRoot);
     const artifacts = blockedArtifactSet();
     await publishVerificationArtifactSet({
       workspaceRoot,
       lock: buildReviewLock({ passStatus: { verify: 'failed' } }),
       artifacts
     });
+
+    await expect(fs.access(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport)
+    ).then(() => true)).resolves.toBe(true);
+    expect(readOptionalCanonicalVerificationArtifactSet(workspaceRoot)).toEqual(artifacts);
+  });
+});
+
+test('Verification artifact reader resolves the native canonical inventory without path aliases', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const artifacts = blockedArtifactSet();
+    const publications = [
+      [CI_ARTIFACT_FILES.verificationReport, artifacts.verificationReport],
+      [CI_ARTIFACT_FILES.runtimeReport, artifacts.runtimeReport],
+      [CI_ARTIFACT_FILES.policyReport, artifacts.policyReport],
+      [CI_ARTIFACT_FILES.acceptanceCoverage, artifacts.acceptanceCoverage]
+    ] as const;
+
+    for (const [artifactPath, artifact] of publications) {
+      const filePath = resolveWorkspaceArtifactPath(workspaceRoot, artifactPath);
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+    }
 
     expect(readOptionalCanonicalVerificationArtifactSet(workspaceRoot)).toEqual(artifacts);
   });

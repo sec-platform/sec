@@ -7,8 +7,8 @@ import type { RepairPlan } from '../../semantic/repair/contract/types.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { readOptionalAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../verification/ci-artifacts/contract/manifest.ts';
-import { formatJsonFile, publishCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { slotEntityId } from '../ir/ir-identity.ts';
@@ -387,7 +387,7 @@ async function publishGraphArtifact(
   label: string,
   commitFence?: CommitFence
 ): Promise<void> {
-  await publishCanonicalWorkspaceFile({
+  await publishExistingParentCanonicalWorkspaceFile({
     workspaceRoot,
     targetPath,
     bytes,
@@ -402,13 +402,26 @@ export async function writeExplainGraph(
   provenance: ProvenanceFile,
   commitFence?: CommitFence
 ): Promise<ExplainGraph> {
-  const {
-    acceptanceCoveragePath,
-    explainGraphDotPath,
-    explainGraphMermaidPath,
-    explainGraphPath,
-    lockPath
-  } = getWorkspacePaths(workspaceRoot);
+  const acceptanceCoveragePath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.acceptanceCoverage
+  );
+  const explainGraphDotPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.explainGraphDot
+  );
+  const explainGraphMermaidPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.explainGraphMermaid
+  );
+  const explainGraphPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.explainGraph
+  );
+  const lockPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.graphLock
+  );
   const graph = await writeGeneratedArtifactWithLock(
     lockPath,
     lock,

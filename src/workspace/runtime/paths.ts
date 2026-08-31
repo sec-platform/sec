@@ -1,38 +1,49 @@
 import path from 'node:path';
+
 import type { RegistryLocation } from '../../compiler/registry/contract/types.ts';
 import { encodeCanonicalBlockPhysicalKey } from '../../semantic/identity/contract/block.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
-  compilerRuntimeLayout,
-  compilerRuntimeResources
+  compilerRuntimeLayout
 } from '../../toolchain/layout.ts';
-import type { WorkspacePaths } from '../contract/types.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_ROOT_RELATIVE_PATH,
+  isCiArtifactPath
+} from '../../verification/ci-artifacts/contract/manifest.ts';
 import {
   localStateRelativePath,
   resolveWorkspaceLocalStateRoot
-} from '../index.ts';
+} from '../contract/local-state.ts';
+import type { WorkspacePaths } from '../contract/types.ts';
 
 export { localStateRelativePath };
 
 export const compilerRoot = compilerRuntimeLayout.packageRoot;
-export const projectRelativePath = 'project';
-export const developerSourceRelativePath = 'source';
-export const controlRelativePath = 'control';
+
+/** Native target-workspace roots. */
+export const workspaceConfigRelativePath = 'sec.yaml' as const;
+export const modelRelativePath = 'model' as const;
+export const srcRelativePath = 'src' as const;
+export const testsRelativePath = 'tests' as const;
+export const packageJsonRelativePath = 'package.json' as const;
+export const tsconfigRelativePath = 'tsconfig.json' as const;
+export const prismaRelativePath = 'prisma' as const;
+export const secRelativePath = localStateRelativePath;
+export const artifactsRelativePath = CI_ARTIFACT_ROOT_RELATIVE_PATH;
+export const cacheRelativePath = path.join(secRelativePath, 'cache');
+export const workspaceWriteLeaseRelativePath = path.join(secRelativePath, 'workspace-write-lease');
+export const modelBlocksRelativePath = path.join(modelRelativePath, 'blocks');
+export const privateRegistryRelativePath = path.join(modelBlocksRelativePath, 'private');
+export const policiesRelativePath = path.join(modelRelativePath, 'policies');
+export const overridesRelativePath = path.join(modelRelativePath, 'patches');
+export const slotsRelativePath = path.join(srcRelativePath, 'slots');
+
+/** Compiler-owned resources are outside the target workspace layout. */
 export const officialPoliciesRelativePath =
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialPolicies;
 export const officialRegistryRelativePath =
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialRegistry;
-export const privateRegistryRelativePath = path.join(developerSourceRelativePath, 'blocks', 'private');
-export const sourceCodeRelativePath = path.join(developerSourceRelativePath, 'code');
-export const sourceModelRelativePath = path.join(developerSourceRelativePath, 'model');
-export const sourceSlotsRelativePath = path.join(sourceCodeRelativePath, 'slots');
-export const controlStateRelativePath = path.join(controlRelativePath, 'state');
-export const controlEvidenceRelativePath = path.join(controlRelativePath, 'evidence');
-export const controlProvenanceRelativePath = path.join(controlRelativePath, 'provenance');
-export const controlGraphRelativePath = path.join(controlRelativePath, 'graph');
-export const controlWorkflowRelativePath = path.join(controlRelativePath, 'workflow');
-export const controlAuditRelativePath = path.join(controlRelativePath, 'audit');
-export const controlCiRelativePath = path.join(controlRelativePath, 'ci');
 
 export function posixPath(value: string): string {
   return value.replaceAll('\\', '/');
@@ -68,128 +79,90 @@ export function resolvePathInside(root: string, relativePath: string, options: {
   return isPathInside(root, resolvedPath) ? resolvedPath : null;
 }
 
-export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
-  const root = path.resolve(workspaceRoot);
-  const projectRoot = path.join(root, projectRelativePath);
-  const developerSourceRoot = path.join(root, developerSourceRelativePath);
-  const sourceCodeRoot = path.join(root, sourceCodeRelativePath);
-  const sourceModelRoot = path.join(root, sourceModelRelativePath);
-  const sourceBlocksRoot = path.join(developerSourceRoot, 'blocks');
-  const sourcePatchesRoot = path.join(developerSourceRoot, 'patches');
-  const controlRoot = path.join(root, controlRelativePath);
-  const controlStateRoot = path.join(root, controlStateRelativePath);
-  const controlEvidenceRoot = path.join(root, controlEvidenceRelativePath);
-  const controlProvenanceRoot = path.join(root, controlProvenanceRelativePath);
-  const controlGraphRoot = path.join(root, controlGraphRelativePath);
-  const controlWorkflowRoot = path.join(root, controlWorkflowRelativePath);
-  const controlAuditRoot = path.join(root, controlAuditRelativePath);
-  const controlCiRoot = path.join(root, controlCiRelativePath);
-  const officialPoliciesRoot = compilerRuntimeResources.officialPolicies;
-  const projectPoliciesRoot = path.join(projectRoot, 'policies');
-  const sourcePoliciesRoot = path.join(sourceModelRoot, 'policies');
-
-  return {
-    workspaceRoot: root,
-    projectRoot,
-    developerSourceRoot,
-    sourceCodeRoot,
-    sourceModelRoot,
-    sourceBlocksRoot,
-    sourcePatchesRoot,
-    sourceSlotsRoot: path.join(root, sourceSlotsRelativePath),
-    sourceOverridesRoot: sourcePatchesRoot,
-    sourcePoliciesRoot,
-    sourceAcceptanceRoot: path.join(sourceModelRoot, 'acceptance'),
-    sourceAssetsRoot: path.join(developerSourceRoot, 'assets'),
-    sourceEnvRoot: path.join(developerSourceRoot, 'env'),
-    privateRegistryRoot: path.join(root, privateRegistryRelativePath),
-    controlRoot,
-    controlStateRoot,
-    controlEvidenceRoot,
-    controlProvenanceRoot,
-    controlGraphRoot,
-    controlWorkflowRoot,
-    controlAuditRoot,
-    controlCiRoot,
-    localStateRoot: resolveWorkspaceLocalStateRoot(root),
-    planPath: path.join(developerSourceRoot, 'app.yaml'),
-    lockPath: path.join(controlStateRoot, 'graph.lock.json'),
-    generatedDir: path.join(projectRoot, 'generated'),
-    blockUsageMapPath: path.join(controlEvidenceRoot, 'block-usage-map.json'),
-    postgresContractPath: path.join(projectRoot, 'generated', 'postgres-contract.json'),
-    overrideManifestPath: path.join(sourcePatchesRoot, 'override-manifest.yaml'),
-    policySpecPath: path.join(sourcePoliciesRoot, 'policy.spec.yaml'),
-    officialPoliciesRoot,
-    projectPoliciesRoot,
-    installManifestPath: path.join(controlEvidenceRoot, 'install-manifest.json'),
-    verificationReportPath: path.join(controlEvidenceRoot, 'verification-report.json'),
-    acceptanceCoveragePath: path.join(controlEvidenceRoot, 'acceptance-coverage.json'),
-    policyReportPath: path.join(controlEvidenceRoot, 'policy-report.json'),
-    runtimeReportPath: path.join(controlEvidenceRoot, 'runtime-report.json'),
-    explainGraphPath: path.join(controlGraphRoot, 'explain-graph.json'),
-    explainGraphMermaidPath: path.join(controlGraphRoot, 'explain-graph.mmd'),
-    explainGraphDotPath: path.join(controlGraphRoot, 'explain-graph.dot'),
-    reviewSummaryPath: path.join(controlEvidenceRoot, 'review-summary.json'),
-    ciArtifactsPath: path.join(controlCiRoot, 'artifacts.json'),
-    repairPlanPath: path.join(controlWorkflowRoot, 'repair-plan.json'),
-    upgradePlanPath: path.join(controlWorkflowRoot, 'upgrade-plan.json'),
-    upgradeDiagnosticsPath: path.join(controlWorkflowRoot, 'upgrade-diagnostics.json'),
-    projectPackagePath: path.join(projectRoot, 'package.json'),
-    provenancePath: path.join(controlProvenanceRoot, 'provenance.json')
-  };
+/**
+ * Artifact paths are already workspace-relative identities emitted by the
+ * artifact owner. No implicit root, legacy alias, or path normalization is
+ * applied here.
+ */
+export function isCanonicalWorkspaceArtifactPath(value: string): boolean {
+  if (!isCiArtifactPath(value) || posixPath(value) !== value || !isSafeRelativePath(value)) {
+    return false;
+  }
+  const segments = value.split('/');
+  return segments.every((segment, index) =>
+    segment.length > 0
+    && segment !== '.'
+    && segment !== '..'
+    && (segment !== '**' || index === segments.length - 1)
+  );
 }
 
+export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
+  const root = path.resolve(workspaceRoot);
+  const secRoot = resolveWorkspaceLocalStateRoot(root);
+  const artifactsRoot = path.join(root, ...CI_ARTIFACT_ROOT_RELATIVE_PATH.split('/'));
+  const modelRoot = path.join(root, modelRelativePath);
+  const srcRoot = path.join(root, srcRelativePath);
+
+  return Object.freeze({
+    workspaceRoot: root,
+    workspaceConfigPath: path.join(root, workspaceConfigRelativePath),
+    modelRoot,
+    modelBlocksRoot: path.join(root, modelBlocksRelativePath),
+    privateRegistryRoot: path.join(root, privateRegistryRelativePath),
+    policiesRoot: path.join(root, policiesRelativePath),
+    overridesRoot: path.join(root, overridesRelativePath),
+    srcRoot,
+    slotsRoot: path.join(root, slotsRelativePath),
+    testsRoot: path.join(root, testsRelativePath),
+    packageJsonPath: path.join(root, packageJsonRelativePath),
+    tsconfigPath: path.join(root, tsconfigRelativePath),
+    prismaRoot: path.join(root, prismaRelativePath),
+    secRoot,
+    artifactsRoot,
+    cacheRoot: path.join(root, cacheRelativePath),
+    workspaceWriteLeaseRoot: path.join(root, workspaceWriteLeaseRelativePath)
+  });
+}
 
 export async function resolveWorkspacePlanPath(workspaceRoot = process.cwd()): Promise<string> {
-  return getWorkspacePaths(workspaceRoot).planPath;
+  return getWorkspacePaths(workspaceRoot).workspaceConfigPath;
 }
 
 export async function resolveWorkspaceLockPath(workspaceRoot = process.cwd()): Promise<string> {
-  return getWorkspacePaths(workspaceRoot).lockPath;
+  return resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
 }
 
 export async function resolveWorkspaceProvenancePath(workspaceRoot = process.cwd()): Promise<string> {
-  return getWorkspacePaths(workspaceRoot).provenancePath;
+  return resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
 }
 
 export function resolveWorkspaceArtifactPath(workspaceRoot: string, artifactPath: string): string {
-  const { projectRoot, workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-  const baseRoot =
-    artifactPath.startsWith(`${projectRelativePath}/`) ||
-    artifactPath.startsWith(`${developerSourceRelativePath}/`) ||
-    artifactPath.startsWith(`${controlRelativePath}/`) ||
-    artifactPath.startsWith(`${localStateRelativePath}/`)
-      ? root
-      : projectRoot;
-  const resolvedPath = resolvePathInside(baseRoot, artifactPath);
+  const { artifactsRoot } = getWorkspacePaths(workspaceRoot);
+  if (!isCanonicalWorkspaceArtifactPath(artifactPath)) {
+    throw new Error(`Workspace artifact path "${artifactPath}" is not a canonical .sec/artifacts path`);
+  }
+  if (artifactPath === CI_ARTIFACT_ROOT_RELATIVE_PATH) {
+    return artifactsRoot;
+  }
+  const relativeArtifactPath = artifactPath.slice(`${CI_ARTIFACT_ROOT_RELATIVE_PATH}/`.length);
+  const resolvedPath = resolvePathInside(artifactsRoot, relativeArtifactPath);
   if (!resolvedPath) {
     throw new Error(`Workspace artifact path "${artifactPath}" escapes its allowed root`);
   }
   return resolvedPath;
 }
 
-export function toWorkspaceArtifactPath(projectRelativeArtifactPath: string): string {
-  if (
-    projectRelativeArtifactPath.startsWith(`${projectRelativePath}/`) ||
-    projectRelativeArtifactPath.startsWith(`${developerSourceRelativePath}/`) ||
-    projectRelativeArtifactPath.startsWith(`${controlRelativePath}/`) ||
-    projectRelativeArtifactPath.startsWith(`${localStateRelativePath}/`)
-  ) {
-    return posixPath(projectRelativeArtifactPath);
+export function toWorkspaceArtifactPath(artifactPath: string): string {
+  if (!isCanonicalWorkspaceArtifactPath(artifactPath)) {
+    throw new Error(`Workspace artifact path "${artifactPath}" is not a canonical .sec/artifacts path`);
   }
-  return posixPath(path.join(projectRelativePath, projectRelativeArtifactPath));
-}
-
-export function toProjectRuntimePath(runtimeTarget: string): string {
-  return runtimeTarget.startsWith(`${projectRelativePath}/`)
-    ? posixPath(runtimeTarget)
-    : posixPath(path.join(projectRelativePath, runtimeTarget));
+  return artifactPath;
 }
 
 export function blockDirName(blockId: string): string {
   return encodeCanonicalBlockPhysicalKey(blockId);
 }
-
 
 export function resolveRegistryRoot(
   workspaceRoot: string,

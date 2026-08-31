@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { applyPatch, parsePatch } from 'diff';
 
+import type { BuildEngineeringIRInput } from '../../compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../compiler/ir/validate-engineering-ir.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
@@ -240,7 +241,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
       events: [], policies: [], permissions: [], effects: [], scenarios: []
     }
   };
-  const engineeringInput = (contractInput: typeof semanticContract) => ({
+  const engineeringInput = (contractInput: typeof semanticContract): BuildEngineeringIRInput => ({
     app: { id: 'responsibility-binding', name: 'Responsibility Binding' },
     resolvedBlocks: [{
       id: 'example/basic', version: '0.1.0', kind: 'capability', installOrder: 1,

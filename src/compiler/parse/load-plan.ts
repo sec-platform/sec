@@ -5,7 +5,7 @@ import { isCanonicalAcceptanceId } from '../../semantic/acceptance/contract/iden
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
 import { isCanonicalSlotId } from '../../semantic/identity/contract/slot.ts';
 import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { getWorkspacePaths, officialRegistryRelativePath, posixPath, privateRegistryRelativePath } from '../../workspace/paths.ts';
+import { getWorkspacePaths, officialRegistryRelativePath, posixPath, privateRegistryRelativePath, srcRelativePath } from '../../workspace/paths.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../contract.ts';
 import { SUPPORTED_STACK } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
@@ -218,15 +218,15 @@ export function validatePlan(plan: PlanFile): void {
     if (!blockIds.has(slot.block)) {
       throw new CompilerError('PLAN-REFERENCE-002', `Slot "${slot.id}" references unknown block "${slot.block}"`);
     }
-    if (!isCanonicalPortableLogicalPath(slot.target) || !slot.target.startsWith('custom/')) {
-      throw new CompilerError('PLAN-VALIDATION-008', `Slot "${slot.id}" must target canonical custom/ path in v0.1`);
+    if (!isCanonicalPortableLogicalPath(slot.target) || !slot.target.startsWith(`${srcRelativePath}/`)) {
+      throw new CompilerError('PLAN-VALIDATION-008', `Slot "${slot.id}" must target canonical ${srcRelativePath}/ path`);
     }
     if (
       slot.sourcePath &&
       (!isCanonicalPortableLogicalPath(slot.sourcePath) ||
-        (!slot.sourcePath.startsWith('source/code/slots/') && !slot.sourcePath.startsWith('source/slots/')))
+        !slot.sourcePath.startsWith(`${srcRelativePath}/`))
     ) {
-      throw new CompilerError('PLAN-VALIDATION-013', `Slot "${slot.id}" sourcePath must target canonical source/code/slots/ path`);
+      throw new CompilerError('PLAN-VALIDATION-013', `Slot "${slot.id}" sourcePath must target canonical ${srcRelativePath}/ path`);
     }
     slotIds.add(slot.id);
   }
@@ -296,8 +296,8 @@ export function loadPlan(planPath: string): PlanFile {
 }
 
 export function loadWorkspacePlan(workspaceRoot: string): PlanFile {
-  const { planPath } = getWorkspacePaths(workspaceRoot);
-  const canonicalRaw = readPlanSourceNoFollow(planPath);
+  const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+  const canonicalRaw = readPlanSourceNoFollow(workspaceConfigPath);
   if (canonicalRaw !== null) return parsePlanSource(canonicalRaw);
-  throw missingPlanError(planPath);
+  throw missingPlanError(workspaceConfigPath);
 }

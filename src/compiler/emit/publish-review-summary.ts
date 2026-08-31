@@ -5,8 +5,8 @@ import { validateAcceptanceCoverageReport } from '../../verification/acceptance/
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
-import { formatJsonFile, publishCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { writeGeneratedArtifactWithLock } from '../lock.ts';
 import { buildReviewSummary } from './write-review-summary.ts';
@@ -28,7 +28,14 @@ export async function publishReviewSummary(
 ): Promise<ReviewSummary> {
   const provenance = validateProvenanceFile(provenanceInput);
   const coverage = validateAcceptanceCoverageReport(coverageInput);
-  const { reviewSummaryPath, lockPath } = getWorkspacePaths(workspaceRoot);
+  const reviewSummaryPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.reviewSummary
+  );
+  const lockPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.graphLock
+  );
 
   return writeGeneratedArtifactWithLock(
     lockPath,
@@ -42,7 +49,7 @@ export async function publishReviewSummary(
         report,
         coverage
       );
-      await publishCanonicalWorkspaceFile({
+      await publishExistingParentCanonicalWorkspaceFile({
         workspaceRoot,
         targetPath: reviewSummaryPath,
         bytes: Buffer.from(formatJsonFile(summary), 'utf8'),

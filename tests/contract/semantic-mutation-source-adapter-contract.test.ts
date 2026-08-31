@@ -14,7 +14,7 @@ function vectors(): {
 } {
   const pathEvidenceWithoutRevision = {
     formatRevision: SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION,
-    relativePath: 'source/model/item.yaml',
+    relativePath: 'model/item.yaml',
     workspaceIdentityDigest: sha256('workspace'),
     transactionDirectoryIdentityDigest: sha256('transaction'),
     parentIdentityDigest: sha256('parent'),
@@ -32,7 +32,7 @@ function vectors(): {
     ownerId: 'semantic-contract-owner:item:item-core',
     adapterId: SEMANTIC_CONTRACT_YAML_ADAPTER_ID,
     adapterRevision: SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
-    relativePath: 'source/model/item.yaml',
+    relativePath: 'model/item.yaml',
     beforeByteDigest: sha256('before-bytes'),
     stagedByteDigest: sha256('staged-bytes'),
     beforeByteLength: 100,

@@ -5,8 +5,9 @@ import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import {
   checkProjectBeforeCompile,
   checkProjectBeforeVerify, writeProjectBaseline
@@ -63,9 +64,10 @@ function provenanceFor(artifactPath: string, content: string): ProvenanceFile {
 
 test('current baseline accepts compiler output changes and detects later project drift', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
-    const artifactPath = 'app/page.tsx';
-    const absolutePath = path.join(projectRoot, artifactPath);
+    const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+    const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
+    const artifactPath = 'src/ui/page.ts';
+    const absolutePath = path.join(root, artifactPath);
     const previousContent = 'export const value = 1;';
     const currentContent = 'export const value = 2;';
 
@@ -88,9 +90,10 @@ test('current baseline accepts compiler output changes and detects later project
 
 test('verify falls back to artifact provenance when no current project baseline exists', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
-    const artifactPath = 'app/page.tsx';
-    const absolutePath = path.join(projectRoot, artifactPath);
+    const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+    const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
+    const artifactPath = 'src/ui/page.ts';
+    const absolutePath = path.join(root, artifactPath);
     const expectedContent = 'export const value = 1;';
 
     await ensureDir(path.dirname(absolutePath));

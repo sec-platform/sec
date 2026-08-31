@@ -5,9 +5,12 @@ if (!repositoryRoot || !repository || !defaultBranch) {
   throw new Error('trusted runtime MainHealth child requires repositoryRoot, repository, and defaultBranch');
 }
 
-globalThis.fetch = async () => {
-  throw new Error('REST must not run before credential admission');
-};
+globalThis.fetch = Object.assign(
+  async (): Promise<Response> => {
+    throw new Error('REST must not run before credential admission');
+  },
+  { preconnect: globalThis.fetch.preconnect.bind(globalThis.fetch) }
+);
 
 await ensureCurrentTrustedRuntimeMainHealth({
   repositoryRoot,

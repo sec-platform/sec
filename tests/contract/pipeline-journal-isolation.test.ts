@@ -4,12 +4,12 @@ import path from 'node:path';
 
 import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
 import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function journalPath(workspaceRoot: string): string {
-  return path.join(getWorkspacePaths(workspaceRoot).localStateRoot, 'pipeline-journal.json');
+  return path.join(getWorkspacePaths(workspaceRoot).secRoot, 'pipeline-journal.json');
 }
 
 async function writeJournal(workspaceRoot: string, value: unknown): Promise<void> {
@@ -67,7 +67,7 @@ test('existing stale or inconsistent Pipeline journal is not projected as an emp
 test('Pipeline journal reader rejects a linked local-state ancestor', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const target = journalPath(workspaceRoot);
-    const localStateRoot = getWorkspacePaths(workspaceRoot).localStateRoot;
+    const localStateRoot = getWorkspacePaths(workspaceRoot).secRoot;
     const externalState = path.join(workspaceRoot, 'external-state');
     await fs.rm(localStateRoot, { recursive: true, force: true });
     await fs.mkdir(path.dirname(localStateRoot), { recursive: true });

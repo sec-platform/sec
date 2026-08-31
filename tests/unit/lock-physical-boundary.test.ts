@@ -8,7 +8,8 @@ import {
   saveLock,
   writeLockWithGeneratedPaths
 } from '../../src/compiler/lock.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -16,12 +17,13 @@ function lockFixture() {
   return semanticArtifactLock('generated/lock-physical-boundary.ts');
 }
 
-test('canonical Lock publication creates retained control/state and round-trips exact authority', async () => {
+test('canonical Lock publication creates retained artifact state and round-trips exact authority', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const lock = lockFixture();
+    await fs.mkdir(path.join(workspaceRoot, '.sec'), { recursive: true });
     await saveLock(workspaceRoot, lock);
 
-    const { lockPath } = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
     expect(JSON.parse(await fs.readFile(lockPath, 'utf8'))).toEqual(lock);
     expect(await readLockFile(workspaceRoot)).toEqual(lock);
   });
@@ -34,9 +36,9 @@ test('Lock schema rejects unsupported producers before effects and unknown persi
       formatVersion: 'future'
     } as unknown as LockFile;
     await expect(saveLock(workspaceRoot, invalidProducer)).rejects.toThrow('does not match 1');
-    await expect(fs.stat(path.join(workspaceRoot, 'control'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.stat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
 
-    const { lockPath } = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
     await fs.writeFile(
       lockPath,
@@ -49,7 +51,7 @@ test('Lock schema rejects unsupported producers before effects and unknown persi
 
 test('unsafe canonical Lock blocks before reading external bytes', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { lockPath } = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
     const lock = lockFixture();
     await fs.mkdir(path.dirname(lockPath), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'external-lock.json'), `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
@@ -60,19 +62,19 @@ test('unsafe canonical Lock blocks before reading external bytes', async () => {
   });
 });
 
-test('canonical Lock publication refuses a linked control ancestor', async () => {
+test('canonical Lock publication refuses a linked .sec ancestor', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalControl = path.join(workspaceRoot, 'external-control');
-    await fs.mkdir(externalControl, { recursive: true });
+    const externalSec = path.join(workspaceRoot, 'external-sec');
+    await fs.mkdir(externalSec, { recursive: true });
     await fs.symlink(
-      externalControl,
-      path.join(workspaceRoot, 'control'),
+      externalSec,
+      path.join(workspaceRoot, '.sec'),
       process.platform === 'win32' ? 'junction' : 'dir'
     );
 
     await expect(saveLock(workspaceRoot, lockFixture()))
       .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
-    expect(await fs.readdir(externalControl)).toEqual([]);
+    expect(await fs.readdir(externalSec)).toEqual([]);
   });
 });
 

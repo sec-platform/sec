@@ -2,6 +2,7 @@ import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../extern
 import { isolatedGitReadEnvironment } from '../../external-capabilities/git-read/runtime/session.ts';
 import { type ByteCommandResult, type RunCommandOptions } from '../../runtime-state/physical/runtime/process.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { referenceWorkspaceRelativePath } from '../workspace.ts';
 
 export type ReferenceDriftScan = {
   exitCode: number;
@@ -16,7 +17,7 @@ export type ReferenceGitCommandRunner = (
   options: RunCommandOptions
 ) => Promise<ByteCommandResult>;
 
-const REFERENCE_PATHS = ['source', 'project', 'control'] as const;
+const REFERENCE_PATHS = [referenceWorkspaceRelativePath] as const;
 const REFERENCE_GIT_STDOUT_MAX_BYTES = 64 * 1024 * 1024;
 const REFERENCE_GIT_STDERR_MAX_BYTES = 1024 * 1024;
 export const REFERENCE_TRACKED_DIFF_ARGS = ['diff', '--name-only', '--exit-code', '-z', '--', ...REFERENCE_PATHS];

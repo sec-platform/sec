@@ -1,3 +1,5 @@
+import { testsRelativePath } from '../../workspace/paths.ts';
+
 export type RuntimeVerificationStep = 'unit';
 
 export interface RuntimeVerificationInvocationDescriptor {
@@ -9,7 +11,7 @@ export interface RuntimeVerificationInvocationDescriptor {
 /** Exact generated runtime unit-verification invocation. */
 export const RUNTIME_VERIFICATION_INVOCATION_CONTRACT = Object.freeze({
   unit: Object.freeze({
-    argvTail: Object.freeze(['test', 'tests/runtime/unit']),
+    argvTail: Object.freeze(['test', `${testsRelativePath}/runtime/unit`]),
     logicalCommandLabel: 'bun run test:unit',
     packageScript: 'test:unit'
   })

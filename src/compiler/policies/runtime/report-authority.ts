@@ -2,7 +2,7 @@ import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtim
 import { isCanonicalBlockId } from '../../../semantic/identity/contract/block.ts';
 import { isCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
 import { canonicalEquals, compareCodeUnits, deepFreeze, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { officialPoliciesRelativePath, posixPath } from '../../../workspace/paths.ts';
+import { officialPoliciesRelativePath, policiesRelativePath, posixPath } from '../../../workspace/paths.ts';
 import { isCanonicalPolicyId } from '../contract/identity.ts';
 import type {
   MergedPolicyReportEntry,
@@ -196,8 +196,7 @@ type PolicyDeclaration = Readonly<{
 }>;
 
 function projectSourcePrecedence(sourcePath: string): number {
-  if (sourcePath.startsWith('project/policies/')) return 1;
-  if (sourcePath.startsWith('source/model/policies/')) return 2;
+  if (sourcePath.startsWith(`${posixPath(policiesRelativePath)}/`)) return 1;
   throw new Error(`Project Policy source is outside canonical precedence roots: ${sourcePath}`);
 }
 

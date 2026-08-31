@@ -81,27 +81,26 @@ test('Policy Report authority rejects forged status and missing evaluator assura
 
 test('Policy Report authority rejects merged policy that is not bound to its declared winning source', () => {
   const candidate = structuredClone(structuralPolicyReport()) as any;
-  candidate.merged.policies[0].sourcePath = 'source/model/policies/other.yaml';
+  candidate.merged.policies[0].sourcePath = 'model/policies/other.yaml';
   expect(() => validatePolicyReport(candidate)).toThrow('winner');
 });
 
-test('Policy Report authority makes canonical source/model declaration win over project copies', () => {
+test('Policy Report authority binds the merged policy to the native model declaration', () => {
   const candidate = structuredClone(structuralPolicyReport()) as any;
   candidate.official = { policies: [], sources: [], violations: [] };
   candidate.project = {
     policies: ['tenant_scope'],
     sources: [
-      { path: 'project/policies/tenant.yaml', policyIds: ['tenant_scope'] },
-      { path: 'source/model/policies/tenant.yaml', policyIds: ['tenant_scope'] }
+      { path: 'model/policies/tenant.yaml', policyIds: ['tenant_scope'] }
     ],
     violations: []
   };
   candidate.merged.policies[0].sourceScope = 'project';
-  candidate.merged.policies[0].sourcePath = 'source/model/policies/tenant.yaml';
+  candidate.merged.policies[0].sourcePath = 'model/policies/tenant.yaml';
   candidate.diagnostics[0].sourceScope = 'project';
-  candidate.diagnostics[0].sourcePath = 'source/model/policies/tenant.yaml';
+  candidate.diagnostics[0].sourcePath = 'model/policies/tenant.yaml';
   expect(validatePolicyReport(candidate).merged.policies[0].sourcePath)
-    .toBe('source/model/policies/tenant.yaml');
+    .toBe('model/policies/tenant.yaml');
 
   candidate.merged.policies[0].sourcePath = 'project/policies/tenant.yaml';
   expect(() => validatePolicyReport(candidate)).toThrow('winner');

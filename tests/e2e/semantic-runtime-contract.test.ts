@@ -38,9 +38,10 @@ import {
   semanticMutationTransactionRoot
 } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
 import { SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord } from '../../src/semantic/mutation/contract/transaction.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import {
   acceptedResult,
   digest,
@@ -1086,7 +1087,7 @@ test('ticket semantic contract lowers into the runtime transition contract', asy
     expect(fixture.runtimeContractProvenance?.hash).toBeDefined();
 
     const ticketSuite = await import(
-      `${pathToFileURL(path.join(fixture.projectRoot, 'tests', 'shared', 'ticket-service-suite.ts')).href}?transaction=${fixture.compilation.transactionId}`
+      `${pathToFileURL(path.join(fixture.workspaceRoot, 'tests', 'shared', 'ticket-service-suite.ts')).href}?transaction=${fixture.compilation.transactionId}`
     );
     await ticketSuite.runTicketServiceSuite();
     await ticketSuite.runTicketFlowSuite();
@@ -1098,7 +1099,7 @@ test('ticket semantic core closes the verified pipeline and three canonical proj
     blockIds: ['ticket/basic'],
     prefix: 'engineering-compiler-semantic-core-vertical-'
   });
-  const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
 
   const verificationReport = await readJson<VerificationReport>(verificationReportPath);
   const ticketSnapshot = buildValidatedEngineeringIR(

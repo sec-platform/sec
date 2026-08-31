@@ -4,13 +4,13 @@ import { applyMigrationEntries as applyMigrationEntriesWithFence } from '../../s
 const testCommitFence = async (): Promise<void> => undefined;
 
 export function applyMigrationEntries(
-  projectRoot: string,
+  workspaceRoot: string,
   targetManifestRoot: string,
   impacts: string[],
   entries: UpgradeMigrationEntry[]
 ): Promise<void> {
   return applyMigrationEntriesWithFence(
-    projectRoot,
+    workspaceRoot,
     targetManifestRoot,
     impacts,
     entries,

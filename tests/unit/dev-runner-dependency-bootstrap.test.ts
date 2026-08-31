@@ -13,7 +13,7 @@ import {
   reuseOperationDependencies
 } from '../../src/development/runner/dependency-bootstrap.ts';
 import { affectedTestPlanExitCode } from '../../src/development/runner/test-runner.ts';
-import { compilerRoot } from '../../src/workspace/paths.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 function compilerReady(source: 'existing' | 'installed') {
   return {

@@ -47,9 +47,10 @@ export function buildWorkspaceCreatePlan(template: WorkspaceCreateTemplate): Pla
 /**
  * Create only the template-owned initial filesystem surface.
  *
- * The minimal template owns the generic SEC authoring/control skeleton but no
- * runnable machine-oriented scaffold. This keeps Registry/Control operations
- * available without silently manufacturing Customer/Ticket application code.
+ * The minimal template owns the native model/source/test and SEC artifact
+ * roots but no runnable machine-oriented scaffold. This keeps registry and
+ * control operations available without silently manufacturing Customer/Ticket
+ * application code.
  * The historical Customer demo scaffold remains available only through the
  * explicit reference template.
  */
@@ -64,29 +65,22 @@ export async function materializeWorkspaceCreateTemplate(
   }
 
   const paths = getWorkspacePaths(workspaceRoot);
-  const genericWorkspaceDirectories = [
-    paths.developerSourceRoot,
-    paths.sourceCodeRoot,
-    paths.sourceModelRoot,
-    paths.sourceBlocksRoot,
-    paths.sourcePatchesRoot,
-    paths.sourceSlotsRoot,
-    paths.sourcePoliciesRoot,
-    paths.sourceAcceptanceRoot,
-    paths.sourceAssetsRoot,
-    paths.sourceEnvRoot,
+  const nativeWorkspaceDirectories = [
+    paths.modelRoot,
+    paths.modelBlocksRoot,
+    paths.policiesRoot,
+    paths.overridesRoot,
     paths.privateRegistryRoot,
-    paths.controlRoot,
-    paths.controlStateRoot,
-    paths.controlEvidenceRoot,
-    paths.controlProvenanceRoot,
-    paths.controlGraphRoot,
-    paths.controlWorkflowRoot,
-    paths.controlAuditRoot,
-    paths.controlCiRoot,
-    paths.localStateRoot
+    paths.srcRoot,
+    paths.slotsRoot,
+    paths.testsRoot,
+    paths.prismaRoot,
+    paths.secRoot,
+    paths.artifactsRoot,
+    paths.cacheRoot,
+    paths.workspaceWriteLeaseRoot
   ];
-  for (const directory of genericWorkspaceDirectories) {
+  for (const directory of nativeWorkspaceDirectories) {
     await ensureDir(directory, commitFence);
   }
 }

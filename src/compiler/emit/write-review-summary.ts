@@ -12,6 +12,13 @@ import type { ReviewConflictHint, ReviewFailurePoint, ReviewInstallImpact, Revie
 import { REVIEW_SUMMARY_FORMAT_VERSION } from '../../verification/review/contract/types.ts';
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../verification/review/contract/upgrade.ts';
 import { buildReviewChainSummary } from '../../verification/review/runtime/matrix.ts';
+import {
+  isCanonicalWorkspaceArtifactPath,
+  modelRelativePath,
+  policiesRelativePath,
+  posixPath,
+  srcRelativePath
+} from '../../workspace/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
@@ -305,8 +312,10 @@ function repairTargetType(
   point: ReturnType<typeof repairFailurePoints>[number],
   targetId: string
 ): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'][number]['targetType'] {
-  if (targetId.startsWith('generated/')) return 'generated-file';
-  if (targetId.startsWith('custom/') || targetId.startsWith('src/')) return point.kind === 'policy' ? 'policy-target' : 'slot-target';
+  if (isCanonicalWorkspaceArtifactPath(targetId)) return 'generated-file';
+  if (targetId.startsWith(`${posixPath(policiesRelativePath)}/`)) return 'policy-target';
+  if (targetId.startsWith(`${srcRelativePath}/`)) return 'slot-target';
+  if (targetId.startsWith(`${modelRelativePath}/`)) return point.kind === 'policy' ? 'policy-target' : 'unknown';
   if (point.kind === 'acceptance' || targetId.endsWith('.spec.ts')) return 'acceptance-case';
   if (point.kind === 'runtime-unit' || point.kind === 'runtime-acceptance') return 'runtime-target';
   if (point.kind === 'policy') return 'policy-target';

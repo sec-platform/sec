@@ -4,15 +4,13 @@ import { expect, test } from 'bun:test';
 
 import { buildProvenance } from '../../src/compiler/emit/write-provenance.ts';
 import { writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('semantic provenance preserves generator identity for a runtime artifact', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const target = 'src/installed/ticket/ticket-semantic-contract.ts';
-    const { projectRoot } = getWorkspacePaths(workspaceRoot);
-    await writeText(path.join(projectRoot, target), 'export const generated = true;\n');
+    await writeText(path.join(workspaceRoot, target), 'export const generated = true;\n');
 
     const provenance = await buildProvenance(workspaceRoot, semanticArtifactLock(target));
     const artifact = provenance.artifacts.find((entry) => entry.path === target);

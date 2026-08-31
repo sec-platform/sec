@@ -10,8 +10,9 @@ import {
   resolveWorkspace,
   verifyWorkspace
 } from '../../src/compiler/orchestration/cli.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
@@ -37,7 +38,8 @@ test('workspace private registry blocks resolve, compose, and verify through an 
   expect(locked.passStatus.lock).toBe('succeeded');
   await explainWorkspace(workspaceRoot);
 
-  const { provenancePath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
+  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
+  const reviewSummaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
   const provenance = await readJson<{
     artifacts: Array<{ path: string; registrySourceId?: string; registryKind?: string; registryLocation?: string }>;
   }>(provenancePath);

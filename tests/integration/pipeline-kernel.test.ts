@@ -2,10 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
 import { readLockFile } from '../../src/compiler/lock.ts';
-import {
-  composeWorkspace,
-  initWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
+import { composeWorkspace, initWorkspace } from '../../src/compiler/orchestration/cli.ts';
 import {
   assertIsolatedVerificationCapability,
   mintIsolatedVerificationCapability
@@ -23,7 +20,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 const staleRevision = `sha256:${'0'.repeat(64)}`;
 
 async function preparePipelineJournalParent(workspaceRoot: string): Promise<void> {
-  await fs.mkdir(getWorkspacePaths(workspaceRoot).localStateRoot, { recursive: true });
+  await fs.mkdir(getWorkspacePaths(workspaceRoot).secRoot, { recursive: true });
 }
 
 test('isolated Verification capability is opaque and bound to one exact workspace root', () => {
@@ -31,15 +28,9 @@ test('isolated Verification capability is opaque and bound to one exact workspac
   const capability = mintIsolatedVerificationCapability(workspaceRoot);
 
   expect(() => assertIsolatedVerificationCapability(workspaceRoot, capability)).not.toThrow();
-  expect(() => assertIsolatedVerificationCapability('D:\\contract-workspaces\\isolated-b', capability))
-    .toThrow('exact workspace root');
-  for (const forged of [
-    {},
-    { ...capability },
-    { workspaceRoot }
-  ]) {
-    expect(() => assertIsolatedVerificationCapability(workspaceRoot, forged))
-      .toThrow('exact workspace root');
+  expect(() => assertIsolatedVerificationCapability('D:\\contract-workspaces\\isolated-b', capability)).toThrow('exact workspace root');
+  for (const forged of [{}, { ...capability }, { workspaceRoot }]) {
+    expect(() => assertIsolatedVerificationCapability(workspaceRoot, forged)).toThrow('exact workspace root');
   }
 });
 

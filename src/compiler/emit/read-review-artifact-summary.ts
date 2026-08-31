@@ -1,11 +1,11 @@
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { readOptionalCiArtifactManifest } from '../../verification/ci-artifacts/runtime/authority.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
 
 export function readReviewArtifactSummary(workspaceRoot: string): ReviewSummary['artifactSummary'] {
-  const { ciArtifactsPath } = getWorkspacePaths(workspaceRoot);
   const manifest = readOptionalCiArtifactManifest(
-    ciArtifactsPath,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.artifactManifest),
     'Review CI artifact manifest'
   );
   if (!manifest) return undefined;

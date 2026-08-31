@@ -5,10 +5,18 @@ import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
 import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import { buildExpectedProductVerificationClaimSummary, buildProductVerificationObservationBindings, inferProductVerificationRuntimeMode, type ProductVerificationGateObservation, type ProductVerificationObservations, type ProductVerificationRuntimeMode } from '../../src/verification/profile/contract/product.ts';
+import {
+  buildExpectedProductVerificationClaimSummary,
+  buildProductVerificationObservationBindings,
+  inferProductVerificationRuntimeMode,
+  type ProductVerificationGateObservation,
+  type ProductVerificationObservations,
+  type ProductVerificationRuntimeMode
+} from '../../src/verification/profile/contract/product.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 
 export function emptyVerificationLogs(): VerificationReport['logs'] {
   return { stdout: '', stderr: '' };
@@ -30,9 +38,7 @@ function emptyPolicyReport(): PolicyReport {
   };
 }
 
-function emptyAcceptanceCoverage(
-  status: VerificationReport['runtime']['status']
-): AcceptanceCoverageReport {
+function emptyAcceptanceCoverage(status: VerificationReport['runtime']['status']): AcceptanceCoverageReport {
   return {
     formatVersion: '1',
     status,
@@ -48,15 +54,8 @@ export function productVerificationObservationsFixture(
   lane: VerificationReport['summary']['requestedLane'] = 'all',
   runtimeMode: ProductVerificationRuntimeMode = 'full'
 ): ProductVerificationObservations {
-  const bindings = buildProductVerificationObservationBindings(
-    sha256({ fixture: 'product-verification-subject' }),
-    lane,
-    runtimeMode
-  );
-  const executed = (
-    binding: ProductVerificationGateObservation,
-    label: string
-  ): ProductVerificationGateObservation => ({
+  const bindings = buildProductVerificationObservationBindings(sha256({ fixture: 'product-verification-subject' }), lane, runtimeMode);
+  const executed = (binding: ProductVerificationGateObservation, label: string): ProductVerificationGateObservation => ({
     ...binding,
     environment: {
       runtime: 'bun@test',
@@ -91,9 +90,7 @@ export async function writeCanonicalVerificationArtifactSetFixture(
 ): Promise<VerificationReport> {
   const policyReport = structuredClone(options.policyReport ?? emptyPolicyReport());
   const runtime = structuredClone(input.runtime);
-  const acceptanceCoverage = structuredClone(
-    options.acceptanceCoverage ?? emptyAcceptanceCoverage(runtime.status)
-  );
+  const acceptanceCoverage = structuredClone(options.acceptanceCoverage ?? emptyAcceptanceCoverage(runtime.status));
   const fast = {
     ...structuredClone(input.fast),
     policy: {
@@ -133,7 +130,12 @@ export async function writeCanonicalVerificationArtifactSetFixture(
       stderr: [fast.logs.stderr, runtime.logs.stderr].filter(Boolean).join('\n')
     }
   };
-  const paths = getWorkspacePaths(workspaceRoot);
+  const paths = {
+    runtimeReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
+    policyReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),
+    acceptanceCoveragePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
+    verificationReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport)
+  };
   await fs.mkdir(path.dirname(paths.verificationReportPath), { recursive: true });
   await Promise.all([
     writeJson(paths.runtimeReportPath, runtime),
@@ -149,7 +151,8 @@ export async function writeFailedFastUnitVerification(
   message: string,
   options: { slotTasks?: LockFile['slotTasks'] } = {}
 ): Promise<void> {
-  const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
   const lock = await readJson<LockFile>(lockPath);
   lock.passStatus.verify = 'failed';
   if (options.slotTasks !== undefined) {
@@ -169,7 +172,8 @@ export async function writeFailedFastUnitVerification(
 }
 
 export async function writePassingVerificationState(workspaceRoot: string): Promise<void> {
-  const { lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
   const lock = await readJson<LockFile>(lockPath);
   lock.passStatus.verify = 'succeeded';
   await writeJson(lockPath, lock);

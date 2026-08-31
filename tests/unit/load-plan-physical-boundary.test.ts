@@ -4,7 +4,7 @@ import * as path from 'node:path';
 
 import { loadWorkspacePlan } from '../../src/compiler/parse/load-plan.ts';
 import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveWorkspacePlanPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspacePlanPath } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function planYaml(name: string): string {
@@ -26,13 +26,12 @@ function planYaml(name: string): string {
 
 test('unsafe canonical Plan ancestry blocks before reading external bytes', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const externalCanonicalRoot = path.join(workspaceRoot, 'external-canonical');
-    await fs.mkdir(externalCanonicalRoot, { recursive: true });
-
+    const externalPlanPath = path.join(workspaceRoot, 'external-plan.yaml');
+    await fs.writeFile(externalPlanPath, planYaml('external-plan'), 'utf8');
     await fs.symlink(
-      externalCanonicalRoot,
-      path.join(workspaceRoot, 'source'),
-      process.platform === 'win32' ? 'junction' : 'dir'
+      externalPlanPath,
+      path.join(workspaceRoot, 'sec.yaml'),
+      'file'
     );
 
     try {
@@ -48,10 +47,7 @@ test('unsafe canonical Plan ancestry blocks before reading external bytes', asyn
 
 test('a dangling canonical Plan entry is rejected as unsafe authority', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const sourceRoot = path.join(workspaceRoot, 'source');
-    await fs.mkdir(sourceRoot, { recursive: true });
-
-    const canonicalPath = path.join(sourceRoot, 'app.yaml');
+    const canonicalPath = path.join(workspaceRoot, 'sec.yaml');
     await fs.symlink(path.join(workspaceRoot, 'missing-plan.yaml'), canonicalPath, 'file');
 
     expect(await resolveWorkspacePlanPath(workspaceRoot)).toBe(canonicalPath);

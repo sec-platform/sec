@@ -31,32 +31,33 @@ function activeSlotTasks(lock: LockFile) {
 }
 
 function inspectActiveSlotSource(workspaceRoot: string, task: LockFile['slotTasks'][number]): ActiveSlotSource {
-  if (!task.sourcePath) {
+  if (!task.sourcePath && task.provenanceHints.generator !== null) {
     throw lintFailure(
       'SLOT-LINT-001',
-      `Active Custom Slot "${task.id}" has no sourcePath.`,
+      `Workspace-authored Slot "${task.id}" has no sourcePath.`,
       { slotId: task.id, reason: 'missing-source-path' }
     );
   }
-  const fullPath = resolvePathInside(workspaceRoot, task.sourcePath);
+  const sourcePath = task.sourcePath ?? task.target;
+  const fullPath = resolvePathInside(workspaceRoot, sourcePath);
   if (!fullPath) {
     throw lintFailure(
       'SLOT-LINT-001',
-      `Active Custom Slot "${task.id}" sourcePath escapes the workspace.`,
-      { slotId: task.id, sourcePath: task.sourcePath, reason: 'source-path-escape' }
+      `Active Slot "${task.id}" sourcePath escapes the workspace.`,
+      { slotId: task.id, sourcePath, reason: 'source-path-escape' }
     );
   }
   try {
     const parent = inspectNoFollowDirectoryChain(
       path.dirname(fullPath),
-      `Custom Slot ${task.id} source parent`
+      `Slot ${task.id} source parent`
     ).target;
     const bytes = readNoFollowOrdinaryFile(parent, path.basename(fullPath));
     if (bytes === null) {
       throw lintFailure(
         'SLOT-LINT-001',
-        `Active Custom Slot "${task.id}" source is missing or is not one ordinary file.`,
-        { slotId: task.id, sourcePath: task.sourcePath, reason: 'non-ordinary-source-file' }
+        `Active Slot "${task.id}" source is missing or is not one ordinary file.`,
+        { slotId: task.id, sourcePath, reason: 'non-ordinary-source-file' }
       );
     }
     return Object.freeze({ bytes, path: fullPath });
@@ -65,8 +66,8 @@ function inspectActiveSlotSource(workspaceRoot: string, task: LockFile['slotTask
     if (error instanceof PhysicalNoFollowError) {
       throw lintFailure(
         'SLOT-LINT-001',
-        `Active Custom Slot "${task.id}" source cannot be retained without following links.`,
-        { slotId: task.id, sourcePath: task.sourcePath, reason: error.code }
+        `Active Slot "${task.id}" source cannot be retained without following links.`,
+        { slotId: task.id, sourcePath, reason: error.code }
       );
     }
     throw error;

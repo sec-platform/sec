@@ -3,10 +3,14 @@ import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts
 import { readOptionalProvenanceFile } from '../../semantic/provenance/authority.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/artifact/runtime/authority.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import { getWorkspacePaths, resolveWorkspaceProvenancePath } from '../../workspace/paths.ts';
+import {
+  resolveWorkspaceArtifactPath,
+  resolveWorkspaceProvenancePath
+} from '../../workspace/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { buildCiArtifactManifest, writeCiArtifactManifest } from '../emit/ci-artifacts.ts';
 import { lockProject } from '../emit/lock-project.ts';
@@ -144,7 +148,14 @@ async function refreshReviewArtifacts(
   lock: LockFile,
   commitFence?: () => Promise<void>
 ): Promise<ReviewSummary | null> {
-  const { explainGraphPath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
+  const explainGraphPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.explainGraph
+  );
+  const reviewSummaryPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.reviewSummary
+  );
   const readableProvenancePath = await resolveWorkspaceProvenancePath(workspaceRoot);
   if (lock.passStatus.lock !== 'succeeded' || lock.passStatus.emit !== 'succeeded') return null;
 

@@ -41,7 +41,7 @@ const TRANSACTION_KEYS = new Set([
 const PASS_RECORD_KEYS = new Set(['passId', 'status', 'startedAt', 'completedAt', 'errorCode', 'message']);
 
 function pipelineJournalPath(workspaceRoot: string): string {
-  return path.join(getWorkspacePaths(workspaceRoot).localStateRoot, PIPELINE_JOURNAL_FILE);
+  return path.join(getWorkspacePaths(workspaceRoot).secRoot, PIPELINE_JOURNAL_FILE);
 }
 
 function emptyJournal(): PipelineJournal {

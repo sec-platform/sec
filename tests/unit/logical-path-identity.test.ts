@@ -2,6 +2,11 @@ import { expect, test } from 'bun:test';
 
 import { validateOverrideManifest } from '../../src/compiler/parse/load-override-manifest.ts';
 import { assertCanonicalPortableLogicalPath, isCanonicalPortableLogicalPath, isCanonicalPortableLogicalPathPrefix, portableLogicalPathCollisionKey } from '../../src/system-architecture/foundation/contract/logical-path.ts';
+import {
+  modelRelativePath,
+  secRelativePath,
+  workspaceConfigRelativePath
+} from '../../src/workspace/runtime/paths.ts';
 
 test('portable logical paths accept canonical project-relative POSIX spellings', () => {
   expect(isCanonicalPortableLogicalPath('src/installed/entity/customer-service.ts')).toBe(true);
@@ -92,4 +97,24 @@ test('override ownership uses the canonical portable target identity', () => {
       }
     ]
   })).toThrow('multiple adapt owners');
+});
+
+test('override ownership rejects canonical workspace authority roots', () => {
+  for (const target of [
+    workspaceConfigRelativePath,
+    `${modelRelativePath}/contracts/customer.yaml`,
+    `${secRelativePath}/artifacts/state/graph.lock.json`
+  ]) {
+    expect(() => validateOverrideManifest({
+      overrides: [{
+        id: 'authority-replacement',
+        entry: 'patches/replacement.patch',
+        target,
+        reason: 'must remain owner-controlled',
+        source: 'manual',
+        appliesAfter: ['adapt'],
+        conflictsWith: []
+      }]
+    })).toThrow('targets a reserved path');
+  }
 });

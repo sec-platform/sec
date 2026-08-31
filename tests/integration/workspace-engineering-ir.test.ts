@@ -9,8 +9,9 @@ import {
   resolveWorkspace
 } from '../../src/compiler/orchestration/cli.ts';
 import { runPolicyGate } from '../../src/compiler/verify/run-policy-gate.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { pathExists, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -19,14 +20,12 @@ test('workspace builds one deterministic canonical Engineering IR independent of
     await initWorkspace(workspaceRoot);
     await addBlock(workspaceRoot, 'ticket/basic');
     await resolveWorkspace(workspaceRoot);
-    const {
-      explainGraphPath,
-      policyReportPath,
-      provenancePath,
-      sourcePoliciesRoot
-    } = getWorkspacePaths(workspaceRoot);
-    await fs.mkdir(sourcePoliciesRoot, { recursive: true });
-    await writeYaml(path.join(sourcePoliciesRoot, 'canonical-policy.yaml'), {
+    const paths = getWorkspacePaths(workspaceRoot);
+    const explainGraphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
+    const policyReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
+    const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
+    await fs.mkdir(paths.policiesRoot, { recursive: true });
+    await writeYaml(path.join(paths.policiesRoot, 'canonical-policy.yaml'), {
       policies: [{
         id: 'canonical-source-policy',
         severity: 'warn',

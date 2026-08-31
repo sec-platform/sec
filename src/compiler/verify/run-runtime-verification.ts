@@ -12,7 +12,7 @@ import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationSte
 import { listFilesRecursive } from '../../workspace/discovery.ts';
 import type { CommitFence } from '../../workspace/files.ts';
 import { writeText } from '../../workspace/files.ts';
-import { compilerRoot, relativePosixPath } from '../../workspace/paths.ts';
+import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../workspace/paths.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry,
   type SemanticMutationIsolatedPhase
@@ -158,7 +158,7 @@ async function timed<T>(label: string, emitTiming: boolean, execute: () => Promi
 }
 
 export async function runRuntimeVerification(
-  projectRoot: string,
+  workspaceRoot: string,
   _mode: RuntimeVerificationMode = 'full',
   options: RuntimeVerificationOptions = {}
 ): Promise<RuntimeVerificationLaneReport> {
@@ -175,13 +175,13 @@ export async function runRuntimeVerification(
 
   const runtimeUnitFiles = await withPhase('runtime-test-discovery', async () =>
     relativeRuntimeUnitFiles(
-      projectRoot,
-      (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'unit')))
+      workspaceRoot,
+      (await listFilesRecursive(path.join(getWorkspacePaths(workspaceRoot).testsRoot, 'runtime', 'unit')))
         .filter((file) => file.endsWith('.test.ts'))
     )
   );
 
-  await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(projectRoot, {
+  await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
     beforeCommit: options.beforeCommit,
     signal: options.signal,
     skipSharedDepsWarmup: true,
@@ -230,11 +230,11 @@ export async function runRuntimeVerification(
 
   try {
     if (runtimeUnitFiles.length === 0) return lane;
-    const invocation = runtimeVerificationInvocation(projectRoot, isolated, isolatedConfigPath);
+    const invocation = runtimeVerificationInvocation(workspaceRoot, isolated, isolatedConfigPath);
     const result = await timed('runtime unit', options.emitTiming ?? true, () =>
       (options.commandRunnerForTests ?? runCommand)(invocation.command, invocation.args, {
         beforeSpawn: isolated ? options.beforeCommit : undefined,
-        cwd: projectRoot,
+        cwd: workspaceRoot,
         env: environment,
         signal: options.signal,
         ...(isolated ? { envMode: 'replace' as const } : {})

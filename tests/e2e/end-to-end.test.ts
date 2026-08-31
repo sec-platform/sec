@@ -13,19 +13,18 @@ import {
 } from '../../src/compiler/orchestration/cli.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/graph-assertions.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 test('v0.1 reference pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
-  const {
-    acceptanceCoveragePath,
-    lockPath,
-    policyReportPath,
-    provenancePath,
-    runtimeReportPath
-  } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: resolvedWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
+  const acceptanceCoveragePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const policyReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
+  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
+  const runtimeReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport);
 
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
@@ -34,14 +33,14 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
 
   await composeWorkspace(workspaceRoot);
   const skeleton = await fs.readFile(
-    path.join(workspaceRoot, 'project', 'custom', 'customer_normalizer.ts'),
+    path.join(resolvedWorkspaceRoot, 'custom', 'customer_normalizer.ts'),
     'utf8'
   );
   expect(skeleton).toMatch(/Not implemented/);
 
   await adaptWorkspace(workspaceRoot);
   const synthesized = await fs.readFile(
-    path.join(workspaceRoot, 'project', 'custom', 'customer_normalizer.ts'),
+    path.join(resolvedWorkspaceRoot, 'custom', 'customer_normalizer.ts'),
     'utf8'
   );
   expect(synthesized).toMatch(/normalizeCustomerInput/);

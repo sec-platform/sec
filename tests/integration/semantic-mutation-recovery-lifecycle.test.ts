@@ -399,6 +399,7 @@ test('workspace fixture copies case-fold local state and preserve only snapshot-
     const clonedLocalState = path.join(workspace, '.sec');
     await mkdir(path.join(localState, 'workspace-write-lease'), { recursive: true });
     await mkdir(path.join(localState, 'CACHE'), { recursive: true });
+    await mkdir(path.join(localState, 'artifacts', 'state'), { recursive: true });
     await mkdir(path.join(localState, 'semantic-mutation', 'v1'), { recursive: true });
     await mkdir(path.join(localState, 'future-state'), { recursive: true });
     await mkdir(path.join(template, 'source'), { recursive: true });
@@ -406,6 +407,7 @@ test('workspace fixture copies case-fold local state and preserve only snapshot-
     await writeFile(path.join(localState, 'CACHE', 'composition-baseline.json'), '{"kind":"composition"}\n', 'utf8');
     await writeFile(path.join(localState, 'CACHE', 'project-baseline.json'), '{"kind":"project"}\n', 'utf8');
     await writeFile(path.join(localState, 'pipeline-journal.json'), '{"kind":"pipeline"}\n', 'utf8');
+    await writeFile(path.join(localState, 'artifacts', 'state', 'graph.lock.json'), '{"kind":"lock"}\n', 'utf8');
     await writeFile(path.join(localState, 'semantic-mutation', 'v1', 'state.json'), '{}\n', 'utf8');
     await writeFile(path.join(localState, 'future-state', 'state.json'), '{}\n', 'utf8');
     await writeFile(path.join(template, 'source', 'model.yaml'), 'formatVersion: "1"\n', 'utf8');
@@ -434,6 +436,8 @@ test('workspace fixture copies case-fold local state and preserve only snapshot-
       .resolves.toBe('{"kind":"project"}\n');
     await expect(readFile(path.join(clonedLocalState, 'pipeline-journal.json'), 'utf8'))
       .resolves.toBe('{"kind":"pipeline"}\n');
+    await expect(readFile(path.join(clonedLocalState, 'artifacts', 'state', 'graph.lock.json'), 'utf8'))
+      .resolves.toBe('{"kind":"lock"}\n');
     await expect(access(path.join(clonedLocalState, 'workspace-write-lease')))
       .rejects.toMatchObject({ code: 'ENOENT' });
     await expect(access(path.join(clonedLocalState, 'semantic-mutation')))

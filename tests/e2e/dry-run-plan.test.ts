@@ -5,7 +5,7 @@ import path from 'node:path';
 import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { readYaml, writeYaml } from '../../src/workspace/yaml.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
@@ -75,8 +75,8 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
 
   await writeSlotUpgradeFixture(workspaceRoot);
 
-  const { planPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-  const beforePlan = await fs.readFile(planPath, 'utf8');
+  const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+  const beforePlan = await fs.readFile(workspaceConfigPath, 'utf8');
 
   const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
 
@@ -104,6 +104,6 @@ test('upgrade dry-run records slot contract migration impacts', async () => {
   );
   expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expectMigrationArtifactsToMatchPlan(upgradePlan);
-  await expectFileUnchanged(planPath, beforePlan);
-  await expect(fs.readFile(upgradePlanPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  await expectFileUnchanged(workspaceConfigPath, beforePlan);
+  await expect(fs.readFile(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
 }, 180000);

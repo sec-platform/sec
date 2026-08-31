@@ -15,7 +15,7 @@ import { semanticViewFactIds, type SemanticView } from '../../src/semantic/proje
 import { CI_ARTIFACT_FILES, CI_EMIT_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { CI_ARTIFACT_MISSING_REASON } from '../../src/verification/ci-artifacts/contract/types.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { buildReviewLock } from '../helpers/review-fixtures.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -145,15 +145,16 @@ test('canonical projection rejects missing and lowering-task-stale Lock revision
 
 test('A to B semantic refresh blocks stale machine projection publication', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const paths = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const explainGraphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
     const lock = buildReviewLock({
       semanticViews: buildSemanticViewFixture('sha256:input-b', 'sha256:semantic-b'),
       passStatus: { lock: 'succeeded', emit: 'succeeded' }
     });
     const staleGraph = graphWithRevision('sha256:input-a', 'sha256:semantic-a');
 
-    await writeJson(paths.lockPath, lock);
-    await writeJson(paths.explainGraphPath, staleGraph);
+    await writeJson(lockPath, lock);
+    await writeJson(explainGraphPath, staleGraph);
 
     expect(semanticViewArtifactsAreCurrent(lock, staleGraph)).toBe(false);
     const manifest = await buildCiArtifactManifest(workspaceRoot);
@@ -171,20 +172,26 @@ test('A to B semantic refresh blocks stale machine projection publication', asyn
 
 test('artifact refresh does not rewrite review while emit is not succeeded', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const paths = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const explainGraphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
+    const reviewSummaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
+    const artifactManifestPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.artifactManifest);
+    const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
     const lock = buildReviewLock({
       semanticViews: buildSemanticViewFixture(),
       passStatus: { lock: 'succeeded', emit: 'pending' }
     });
     const reviewMarker = '{"semantic":"before-refresh"}\n';
 
-    await writeJson(paths.lockPath, lock);
-    await writeJson(paths.explainGraphPath, graphWithRevision(
+    await writeJson(lockPath, lock);
+    await writeJson(explainGraphPath, graphWithRevision(
       lock.semanticViews!.inputRevision,
       lock.semanticViews!.semanticRevision
     ));
-    await fs.mkdir(path.dirname(paths.reviewSummaryPath), { recursive: true });
-    await fs.writeFile(paths.reviewSummaryPath, reviewMarker, 'utf8');
+    await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
+    await fs.mkdir(path.dirname(artifactManifestPath), { recursive: true });
+    await fs.mkdir(path.dirname(provenancePath), { recursive: true });
+    await fs.writeFile(reviewSummaryPath, reviewMarker, 'utf8');
 
     const result = await writeWorkspaceArtifacts(workspaceRoot);
 
@@ -196,19 +203,20 @@ test('artifact refresh does not rewrite review while emit is not succeeded', asy
         [CI_ARTIFACT_MISSING_REASON.staleSemanticProjection]: CI_EMIT_ARTIFACT_PATHS.length
       }
     });
-    expect(await fs.readFile(paths.reviewSummaryPath, 'utf8')).toBe(reviewMarker);
+    expect(await fs.readFile(reviewSummaryPath, 'utf8')).toBe(reviewMarker);
   }, 'engineering-compiler-semantic-artifact-status-');
 });
 
 test('artifact selection fails closed when a corrupt Lock leaves stale emit files on disk', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const paths = getWorkspacePaths(workspaceRoot);
-    await fs.mkdir(path.dirname(paths.lockPath), { recursive: true });
-    await fs.mkdir(path.dirname(paths.explainGraphPath), { recursive: true });
-    await fs.writeFile(paths.lockPath, '{broken-json', 'utf8');
-    await fs.writeFile(paths.explainGraphPath, '{"semantic":"stale"}\n', 'utf8');
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const explainGraphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
+    await fs.mkdir(path.dirname(lockPath), { recursive: true });
+    await fs.mkdir(path.dirname(explainGraphPath), { recursive: true });
+    await fs.writeFile(lockPath, '{broken-json', 'utf8');
+    await fs.writeFile(explainGraphPath, '{"semantic":"stale"}\n', 'utf8');
 
-    expect(() => buildCiArtifactManifest(workspaceRoot)).toThrow(SyntaxError);
-    expect(await fs.readFile(paths.explainGraphPath, 'utf8')).toBe('{"semantic":"stale"}\n');
+    expect(() => buildCiArtifactManifest(workspaceRoot)).toThrow(/not valid JSON/iu);
+    expect(await fs.readFile(explainGraphPath, 'utf8')).toBe('{"semantic":"stale"}\n');
   }, 'engineering-compiler-semantic-artifact-corrupt-lock-');
 });

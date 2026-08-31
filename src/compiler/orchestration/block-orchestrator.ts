@@ -26,8 +26,8 @@ export async function addBlock(
   };
 }> {
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
-    const { planPath } = getWorkspacePaths(workspaceRoot);
-    const plan = await loadPlan(planPath);
+    const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+    const plan = await loadPlan(workspaceConfigPath);
     const existingBlock = plan.blocks.find((entry) => entry.id === blockId);
     const manifestEntry = await loadManifestById(blockId, {
       workspaceRoot,
@@ -52,7 +52,7 @@ export async function addBlock(
       }
     }
     const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, token);
-    await writeYaml(planPath, plan, commitFence);
+    await writeYaml(workspaceConfigPath, plan, commitFence);
     return { plan, changed: true, selectedBlock };
   });
 }
@@ -62,9 +62,9 @@ async function resolveWorkspaceCore(
   context: PipelineExecutionContext
 ): Promise<{ plan: PlanFile; lock: LockFile }> {
   const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
-  const { planPath } = getWorkspacePaths(workspaceRoot);
+  const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
   const { plan, manifestMap } = await runPipelinePass('parse', async () => {
-    const parsedPlan = await loadPlan(planPath);
+    const parsedPlan = await loadPlan(workspaceConfigPath);
     const parsedManifests = new Map<string, ManifestEntry>();
     for (const block of parsedPlan.blocks) {
       parsedManifests.set(

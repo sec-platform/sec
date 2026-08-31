@@ -1,8 +1,9 @@
 import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import type { RepairPlan } from '../../semantic/repair/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
 import type {
   LockFile,
   PlanFile
@@ -24,7 +25,10 @@ type RepairInputs = Readonly<{
 }>;
 
 function loadRepairInputs(workspaceRoot: string): RepairInputs {
-  const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const verificationReportPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.verificationReport
+  );
   const plan = loadWorkspacePlan(workspaceRoot);
   const lock = readLockFile(workspaceRoot);
 

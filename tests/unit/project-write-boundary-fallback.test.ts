@@ -4,8 +4,9 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { checkProjectWriteBoundary } from '../../src/workspace/project.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -15,9 +16,10 @@ function digest(content: string): string {
 
 test('project write boundary falls back to provenance when no local baseline exists', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
-    const artifactPath = 'app/page.tsx';
-    const absolutePath = path.join(projectRoot, artifactPath);
+    const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+    const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
+    const artifactPath = 'src/ui/page.ts';
+    const absolutePath = path.join(root, artifactPath);
     const expectedContent = 'export const revision = 1;';
 
     await ensureDir(path.dirname(absolutePath));

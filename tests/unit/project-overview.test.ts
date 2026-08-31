@@ -40,7 +40,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         version: '1.0.0',
         kind: 'capability',
         installOrder: 1,
-        manifestPath: 'source/blocks/auth/basic-session/block.yaml',
+        manifestPath: 'model/blocks/auth/basic-session/block.yaml',
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
@@ -51,7 +51,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         version: '1.0.0',
         kind: 'capability',
         installOrder: 2,
-        manifestPath: 'source/blocks/entity/customer-basic/block.yaml',
+        manifestPath: 'model/blocks/entity/customer-basic/block.yaml',
         registrySourceId: 'official',
         registryKind: 'official',
         registryLocation: 'compiler',
@@ -64,7 +64,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       {
         id: 'customer_normalizer',
         block: 'entity/customer-basic',
-        target: 'custom/customer_normalizer.ts',
+        target: 'src/slots/customer_normalizer.ts',
         symbol: 'normalizeCustomerInput',
         kind: 'adapter',
         status: 'verified',
@@ -77,7 +77,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     ],
     generatedPaths: [
       'src/installed/auth/session.ts',
-      'custom/customer_normalizer.ts'
+      'src/slots/customer_normalizer.ts'
     ],
     acceptancePlan: [
       'user_can_login',
@@ -138,7 +138,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         overrideStatus: 'none'
       },
       {
-        path: 'custom/customer_normalizer.ts',
+        path: 'src/slots/customer_normalizer.ts',
         originType: 'slot',
         originId: 'customer_normalizer',
         generatedByPass: 'adapt',
@@ -302,14 +302,14 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       originSummaryCount: 2,
       originSummaries: [
         { originType: 'block', count: 1, paths: ['src/installed/auth/session.ts'] },
-        { originType: 'slot', count: 1, paths: ['custom/customer_normalizer.ts'] }
+        { originType: 'slot', count: 1, paths: ['src/slots/customer_normalizer.ts'] }
       ],
       overrideSummaryCount: 1,
       overrideSummaries: [
         {
           overrideStatus: 'none',
           count: 2,
-          paths: ['custom/customer_normalizer.ts', 'src/installed/auth/session.ts']
+          paths: ['src/installed/auth/session.ts', 'src/slots/customer_normalizer.ts']
         }
       ],
       registrySummaryCount: 1,
@@ -323,10 +323,10 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         }
       ],
       generatedPassSummaries: [
-        { pass: 'adapt', count: 1, paths: ['custom/customer_normalizer.ts'] },
+        { pass: 'adapt', count: 1, paths: ['src/slots/customer_normalizer.ts'] },
         { pass: 'compose', count: 1, paths: ['src/installed/auth/session.ts'] }
       ],
-      unverifiedArtifacts: ['custom/customer_normalizer.ts']
+      unverifiedArtifacts: ['src/slots/customer_normalizer.ts']
     },
     policySummary: {
       status: 'passed',
@@ -453,10 +453,12 @@ test('buildProjectOverview summarizes shared project status and review prioritie
   expect(overview).toMatchObject({
     workspace: {
       root: '.',
-      sourceRoot: 'source',
-      projectRoot: 'project',
-      controlRoot: 'control',
-      localStateRoot: '.sec'
+      modelRoot: 'model',
+      srcRoot: 'src',
+      testsRoot: 'tests',
+      prismaRoot: 'prisma',
+      secRoot: '.sec',
+      artifactsRoot: '.sec/artifacts'
     },
     status: {
       overall: 'attention',
@@ -499,7 +501,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       reasons: ['missing artifact: fixed-governance-missing']
     },
     {
-      path: 'custom/customer_normalizer.ts',
+      path: 'src/slots/customer_normalizer.ts',
       reasons: ['unverified provenance']
     },
     {

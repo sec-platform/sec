@@ -27,7 +27,8 @@ import type { ReviewSummary } from '../../src/verification/review/contract/types
 import { formatJsonFile, readJson } from '../../src/workspace/files.ts';
 import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
 import {
-  getWorkspacePaths
+  getWorkspacePaths,
+  resolveWorkspaceArtifactPath
 } from '../../src/workspace/paths.ts';
 import {
   expectGraphEdge,
@@ -49,14 +50,14 @@ async function readCompletionProofEvidence(
   if (!result.semanticContext || !result.verificationReport || !result.explainGraph || !result.reviewSummary) {
     throw new Error('Expected a full Pipeline compilation result');
   }
-  const paths = getWorkspacePaths(workspaceRoot);
+  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
   return {
     transactionId: result.transactionId,
     completedStages: result.completedStages,
     semanticContext: result.semanticContext,
     lock: result.lock,
     verificationReport: result.verificationReport,
-    provenance: await readJson<ProvenanceFile>(paths.provenancePath),
+    provenance: await readJson<ProvenanceFile>(provenancePath),
     explainGraph: result.explainGraph,
     reviewSummary: result.reviewSummary
   };
@@ -165,7 +166,18 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
     expect(proof.completedPasses).toEqual(
       PIPELINE_STAGE_IDS.flatMap((stage) => getPipelineStageDefinition(stage).ownedPasses)
     );
-    const paths = getWorkspacePaths(workspaceRoot);
+    const paths = {
+      lockPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock),
+      verificationReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport),
+      runtimeReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
+      policyReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),
+      acceptanceCoveragePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
+      provenancePath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance),
+      explainGraphPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph),
+      explainGraphMermaidPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphMermaid),
+      explainGraphDotPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphDot),
+      reviewSummaryPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary)
+    };
     const proofArtifacts = [
       { label: 'Lock', path: paths.lockPath, kind: 'json' },
       { label: 'Verification report', path: paths.verificationReportPath, kind: 'json' },

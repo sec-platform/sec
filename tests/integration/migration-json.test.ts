@@ -12,8 +12,8 @@ import {
 } from './migration-fixtures.ts';
 
 test('config-rewrite migration updates nested JSON configuration', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await writeJson(path.join(projectRoot, 'app.config.json'), {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {
       feature: { enabled: false },
       untouched: true
     });
@@ -26,7 +26,7 @@ test('config-rewrite migration updates nested JSON configuration', async () => {
       ])
     ]);
 
-    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
       formatJsonFile({
         feature: {
           enabled: true,
@@ -42,8 +42,8 @@ test('config-rewrite migration updates nested JSON configuration', async () => {
 });
 
 test('config-rewrite migration rejects missing JSON targets', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await fs.mkdir(workspaceRoot, { recursive: true });
 
     await expect(
       apply(['app.config.json'], [
@@ -56,8 +56,8 @@ test('config-rewrite migration rejects missing JSON targets', async () => {
 });
 
 test('json-array-append migration appends unique items to nested arrays', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await writeJson(path.join(projectRoot, 'app.config.json'), {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {
       plugins: ['auth'],
       feature: { flags: [{ id: 'existing' }] }
     });
@@ -68,7 +68,7 @@ test('json-array-append migration appends unique items to nested arrays', async 
       jsonArrayAppend('app.config.json', ['feature', 'owners'], ['platform'])
     ]);
 
-    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
       formatJsonFile({
         plugins: ['auth', 'tenant'],
         feature: {
@@ -81,8 +81,8 @@ test('json-array-append migration appends unique items to nested arrays', async 
 });
 
 test('json-array-append migration rejects non-array targets', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await writeJson(path.join(projectRoot, 'app.config.json'), { plugins: 'auth' });
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), { plugins: 'auth' });
 
     await expect(
       apply(['app.config.json'], [jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])])
@@ -93,8 +93,8 @@ test('json-array-append migration rejects non-array targets', async () => {
 });
 
 test('json-array-remove migration removes matching items from nested arrays', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await writeJson(path.join(projectRoot, 'app.config.json'), {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {
       plugins: ['auth', 'tenant', 'legacy'],
       feature: { flags: [{ id: 'old' }, { id: 'keep' }] }
     });
@@ -105,7 +105,7 @@ test('json-array-remove migration removes matching items from nested arrays', as
       jsonArrayRemove('app.config.json', ['feature', 'owners'], ['nobody'])
     ]);
 
-    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
       formatJsonFile({
         plugins: ['auth', 'legacy'],
         feature: {
@@ -117,8 +117,8 @@ test('json-array-remove migration removes matching items from nested arrays', as
 });
 
 test('json-array-remove migration rejects non-array targets', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await writeJson(path.join(projectRoot, 'app.config.json'), { plugins: 'auth' });
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), { plugins: 'auth' });
 
     await expect(
       apply(['app.config.json'], [jsonArrayRemove('app.config.json', ['plugins'], ['auth'])])
@@ -129,18 +129,18 @@ test('json-array-remove migration rejects non-array targets', async () => {
 });
 
 test('json-array-remove migration skips missing JSON targets', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await fs.mkdir(workspaceRoot, { recursive: true });
 
     await apply(['missing.config.json'], [jsonArrayRemove('missing.config.json', ['plugins'], ['auth'])]);
 
-    await expect(fs.access(path.join(projectRoot, 'missing.config.json'))).rejects.toThrow();
+    await expect(fs.access(path.join(workspaceRoot, 'missing.config.json'))).rejects.toThrow();
   });
 });
 
 test('json-object-merge migration recursively merges nested objects', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await writeJson(path.join(projectRoot, 'app.config.json'), {
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {
       feature: { auth: { enabled: false, mode: 'basic' }, keep: true }
     });
 
@@ -151,7 +151,7 @@ test('json-object-merge migration recursively merges nested objects', async () =
       })
     ]);
 
-    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
       formatJsonFile({
         feature: {
           auth: {
@@ -170,8 +170,8 @@ test('json-object-merge migration recursively merges nested objects', async () =
 });
 
 test('json-object-merge migration rejects non-object targets', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await writeJson(path.join(projectRoot, 'app.config.json'), { feature: { flags: [] } });
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), { feature: { flags: [] } });
 
     await expect(
       apply(['app.config.json'], [
@@ -184,8 +184,8 @@ test('json-object-merge migration rejects non-object targets', async () => {
 });
 
 test('config-rewrite migration rejects empty update paths', async () => {
-  await withMigrationWorkspace(async ({ apply, projectRoot }) => {
-    await writeJson(path.join(projectRoot, 'app.config.json'), {});
+  await withMigrationWorkspace(async ({ apply, workspaceRoot }) => {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {});
 
     await expect(
       apply(['app.config.json'], [configRewrite('app.config.json', [{ path: [], value: true }])])

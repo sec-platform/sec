@@ -179,10 +179,10 @@ function combineDoctorStatus(checks: DoctorCheck[]): DoctorCheckStatus {
 
 async function workspaceRootsDoctorCheck(paths: ReturnType<typeof getWorkspacePaths>): Promise<DoctorCheck> {
   const roots = [
-    { id: 'source', path: paths.developerSourceRoot },
-    { id: 'project', path: paths.projectRoot },
-    { id: 'control', path: paths.controlRoot },
-    { id: '.sec', path: paths.localStateRoot }
+    { id: 'workspace', path: paths.workspaceRoot },
+    { id: 'model', path: paths.modelRoot },
+    { id: 'src', path: paths.srcRoot },
+    { id: '.sec', path: paths.secRoot }
   ];
   const missingRoots = (await Promise.all(
     roots.map(async (root) => ({
@@ -197,7 +197,7 @@ async function workspaceRootsDoctorCheck(paths: ReturnType<typeof getWorkspacePa
     id: 'workspace-roots',
     status: missingRoots.length === 0 ? 'ok' : 'warn',
     message: missingRoots.length === 0
-      ? 'Workspace roots exist: source, project, control, .sec.'
+      ? 'Workspace roots exist: workspace, model, src, .sec.'
       : `Workspace roots missing: ${missingRoots.join(', ')}; run platform init.`
   };
 }
@@ -245,16 +245,16 @@ export async function getDependencyEnvironmentStatus(
   workspaceRoot = process.cwd(),
   options: DependencyEnvironmentOptions = {}
 ): Promise<DependencyEnvironmentStatus> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
   const sharedRoot = options.sharedDepsRoot ?? defaultSharedDepsRoot();
   const [runtimeSpec, rootNodeModules, sharedNodeModules, projectNodeModules, bunCache, sharedStamp, projectStamp] = await Promise.all([
     loadRuntimeDependencySpec(),
     readEntryStatus(path.join(compilerRoot, 'node_modules')),
     readEntryStatus(path.join(sharedRoot, 'node_modules')),
-    readEntryStatus(path.join(projectRoot, 'node_modules')),
+    readEntryStatus(path.join(targetWorkspaceRoot, 'node_modules')),
     readEntryStatus(bunCacheRoot(sharedRoot)),
     readRuntimeDepsStamp(sharedStampPath(sharedRoot)),
-    readRuntimeDepsStamp(projectStampPath(projectRoot))
+    readRuntimeDepsStamp(projectStampPath(targetWorkspaceRoot))
   ]);
 
   const statusWithoutMode = {
@@ -298,7 +298,7 @@ export async function getDoctorReport(
     workspacePlanExists,
     executableCheck('bun', 'bun', true),
     workspaceRootsDoctorCheck(paths),
-    pathExists(paths.projectPackagePath)
+    pathExists(paths.packageJsonPath)
   ]);
   const checks: DoctorCheck[] = [
     bunCheck,
@@ -343,8 +343,8 @@ export async function relinkProjectDependencies(
   workspaceRoot = process.cwd(),
   options: DependencyEnvironmentOptions = {}
 ): Promise<DependencyEnvironmentStatus> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  await ensureProjectDependencies(projectRoot, {
+  const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
+  await ensureProjectDependencies(targetWorkspaceRoot, {
     generatedStateLifecycle: options.generatedStateLifecycle,
     rematerialize: true,
     sharedDepsRoot: options.sharedDepsRoot
@@ -357,13 +357,13 @@ export async function cleanDependencyEnvironment(
   options: DependencyCleanOptions,
   environmentOptions: DependencyEnvironmentOptions = {}
 ): Promise<string[]> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
   const sharedRoot = environmentOptions.sharedDepsRoot ?? defaultSharedDepsRoot();
   const targets = new Set<string>();
 
   if (options.all || options.project) {
-    targets.add(path.join(projectRoot, 'node_modules'));
-    targets.add(projectStampPath(projectRoot));
+    targets.add(path.join(targetWorkspaceRoot, 'node_modules'));
+    targets.add(projectStampPath(targetWorkspaceRoot));
   }
   if (options.all || options.shared) {
     targets.add(sharedRoot);

@@ -9,7 +9,7 @@ import {
   loadManifestForResolvedBlock
 } from '../../src/compiler/parse/load-manifest.ts';
 import { manifestCache } from '../../src/compiler/parse/manifest-cache.ts';
-import { blockDirName, resolveRegistryRoot } from '../../src/workspace/paths.ts';
+import { blockDirName, resolveRegistryRoot } from '../../src/workspace/runtime/paths.ts';
 
 const BLOCK_ID = 'ticket/basic';
 const temporaryRoots: string[] = [];

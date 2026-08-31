@@ -50,11 +50,11 @@ export function productVerificationSubjectRevision(lock: LockFile): string {
       id: task.id,
       block: task.block,
       target: task.target,
-      sourcePath: task.sourcePath,
+      ...(task.sourcePath ? { sourcePath: task.sourcePath } : {}),
       symbol: task.symbol,
       kind: task.kind,
-      inputType: task.inputType,
-      outputType: task.outputType,
+      ...(task.inputType ? { inputType: task.inputType } : {}),
+      ...(task.outputType ? { outputType: task.outputType } : {}),
       writableZones: task.writableZones
     })),
     semanticLoweringTasks: lock.semanticLoweringTasks,
@@ -188,17 +188,17 @@ async function runSuiteFiles(rootDir: string, suffix: string): Promise<string[]>
 
 async function runFastVerification(
   workspaceRoot: string,
-  projectRoot: string,
   isolated: boolean
 ): Promise<{ lane: FastVerificationLaneReport; failure: unknown | null }> {
-  const unitRoot = path.join(projectRoot, 'tests', 'unit');
-  const acceptanceRoot = path.join(projectRoot, 'tests', 'acceptance');
+  const testsRoot = getWorkspacePaths(workspaceRoot).testsRoot;
+  const unitRoot = path.join(testsRoot, 'unit');
+  const acceptanceRoot = path.join(testsRoot, 'acceptance');
   const acceptanceFiles = await listSuiteFiles(acceptanceRoot, '.test.ts');
   const lane = createSkippedFastLane();
   let failure: unknown | null = null;
 
   try {
-    await typecheckProject(projectRoot, { isolated });
+    await typecheckProject(workspaceRoot, { isolated });
     lane.build.status = 'passed';
   } catch (error) {
     lane.build.status = 'failed';
@@ -355,8 +355,6 @@ export async function verifyProject(
   options: VerifyProjectOptions = {}
 ): Promise<VerificationReport> {
   const logger = options.logger ?? defaultLogger;
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
-
   assertPassStatus(
     lock,
     'adapt',
@@ -368,7 +366,7 @@ export async function verifyProject(
   await checkProjectBeforeVerify(workspaceRoot);
   await checkSlotDirectCapabilities(workspaceRoot, lock);
   if (options.isolated) {
-    await ensureProjectDependencies(projectRoot, {
+    await ensureProjectDependencies(workspaceRoot, {
       beforeCommit: options.beforeCommit,
       installMode: 'prebound-only',
       signal: options.signal,
@@ -383,7 +381,7 @@ export async function verifyProject(
     }
     await options.beforeCommit?.();
     const artifacts = await consumeStagedVerificationProof(
-      projectRoot,
+      workspaceRoot,
       lock,
       options.stagedVerificationProof
     );
@@ -400,7 +398,7 @@ export async function verifyProject(
       artifacts,
       commitFence: options.beforeCommit
     });
-    await revalidateStagedVerificationProof(projectRoot, lock, options.stagedVerificationProof);
+    await revalidateStagedVerificationProof(workspaceRoot, lock, options.stagedVerificationProof);
     await assertStagedVerificationLiveContext(workspaceRoot, lock, artifacts);
     await options.beforeCommit?.();
     return published.verificationReport;
@@ -411,7 +409,7 @@ export async function verifyProject(
     ? { lane: createSkippedFastLane(), failure: null }
     : await (async () => {
         await emitVerifyBoundary(options, 'verify-fast');
-        return runFastVerification(workspaceRoot, projectRoot, options.isolated === true);
+        return runFastVerification(workspaceRoot, options.isolated === true);
       })();
   const fastFinishedAtMs = Date.now();
   const shouldRunRuntime = fastResult.lane.status === 'passed' || lane === 'runtime';
@@ -420,7 +418,7 @@ export async function verifyProject(
   const runtimeStartedAtMs = Date.now();
   if (shouldRunRuntime) {
     await emitVerifyBoundary(options, 'verify-runtime');
-    runtimeLane = await runRuntimeVerification(projectRoot, runtimeMode, {
+    runtimeLane = await runRuntimeVerification(workspaceRoot, runtimeMode, {
       beforeCommit: options.beforeCommit,
       emitTiming: options.emitTiming,
       isolated: options.isolated,

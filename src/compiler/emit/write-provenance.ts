@@ -1,13 +1,31 @@
-import path from 'node:path';
-
 import { validateProvenanceFile } from '../../semantic/provenance/authority.ts';
 import { PROVENANCE_FORMAT_VERSION, type ProvenanceArtifact, type ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
 import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { readOptionalCanonicalVerificationArtifactSet } from '../../verification/artifact/runtime/authority.ts';
-import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS, CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS } from '../../verification/ci-artifacts/contract/manifest.ts';
+import {
+  CI_ARTIFACT_FILES,
+  CI_ARTIFACT_MANIFEST_PATH,
+  CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
+  CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS
+} from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
-import { formatJsonFile, publishCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
+import {
+  isCanonicalWorkspaceArtifactPath,
+  isPathInside,
+  isSafeRelativePath,
+  modelRelativePath,
+  packageJsonRelativePath,
+  posixPath,
+  prismaRelativePath,
+  resolvePathInside,
+  resolveWorkspaceArtifactPath,
+  secRelativePath,
+  srcRelativePath,
+  testsRelativePath,
+  tsconfigRelativePath,
+  workspaceConfigRelativePath
+} from '../../workspace/paths.ts';
 import { calculateCanonicalProjectFileHash } from '../../workspace/project.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
@@ -15,6 +33,22 @@ import { writeGeneratedArtifactWithLock } from '../lock.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 
 const provenanceProjectionArtifacts = new Set(CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS);
+const verificationArtifactPaths: ReadonlySet<string> = new Set([
+  CI_ARTIFACT_FILES.verificationReport,
+  CI_ARTIFACT_FILES.runtimeReport,
+  CI_ARTIFACT_FILES.policyReport,
+  CI_ARTIFACT_FILES.acceptanceCoverage
+]);
+const nativeWorkspaceRoots = [
+  modelRelativePath,
+  srcRelativePath,
+  testsRelativePath,
+  prismaRelativePath,
+  packageJsonRelativePath,
+  tsconfigRelativePath,
+  workspaceConfigRelativePath,
+  secRelativePath
+] as const;
 
 function buildTaskGeneratorId(taskId: string): string {
   return `fill_slot_${taskId}`;
@@ -75,17 +109,13 @@ function buildSemanticArtifact(
 type PassRule = { test: (path: string) => boolean; pass: string };
 
 const PASS_RULES: PassRule[] = [
-  { test: (p) => p === CI_ARTIFACT_FILES.provenance || p === 'provenance.json', pass: 'lock' },
+  { test: (p) => p === CI_ARTIFACT_FILES.provenance, pass: 'lock' },
   { test: (p) => p === CI_ARTIFACT_FILES.blockUsageMap || p === CI_ARTIFACT_FILES.installManifest, pass: 'compose' },
-  { test: (p) => p.startsWith('control/evidence/'), pass: 'verify' },
+  { test: (p) => verificationArtifactPaths.has(p), pass: 'verify' },
   { test: (p) => CI_EXPLAIN_GRAPH_ARTIFACT_PATHS.includes(p), pass: 'explain' },
   { test: (p) => p === CI_ARTIFACT_MANIFEST_PATH, pass: 'artifacts' },
   { test: (p) => p === CI_ARTIFACT_FILES.repairPlan, pass: 'repair' },
   { test: (p) => p === CI_ARTIFACT_FILES.upgradePlan || p === CI_ARTIFACT_FILES.upgradeDiagnostics, pass: 'upgrade' },
-  { test: (p) => p.startsWith('generated/') && (p.includes('verification-report') || p.includes('runtime-report') || p.includes('policy-report') || p.includes('acceptance-coverage')), pass: 'verify' },
-  { test: (p) => p.startsWith('generated/') && (p.includes('explain-graph') || p.includes('review-summary')), pass: 'explain' },
-  { test: (p) => p.startsWith('generated/') && p.includes('repair-plan'), pass: 'repair' },
-  { test: (p) => p.startsWith('generated/') && (p.includes('upgrade-plan') || p.includes('upgrade-diagnostics')), pass: 'upgrade' }
 ];
 
 function inferGeneratedByPass(targetPath: string): string {
@@ -95,7 +125,7 @@ function inferGeneratedByPass(targetPath: string): string {
 function passedVerificationPaths(report: VerificationReport | null): string[] {
   if (!report || report.summary.status !== 'passed') return [];
   const canonicalTestPath = (file: string, lane: 'unit' | 'acceptance'): string =>
-    file.startsWith('tests/') ? file : `tests/${lane}/${file}`;
+    file.startsWith(`${testsRelativePath}/`) ? file : `${testsRelativePath}/${lane}/${file}`;
   return uniqueSorted([
     ...report.unit.passed.map((file) => canonicalTestPath(file, 'unit')),
     ...report.acceptance.passed.map((file) => canonicalTestPath(file, 'acceptance')),
@@ -107,7 +137,7 @@ function passedVerificationPaths(report: VerificationReport | null): string[] {
 function buildBlockVerificationMap(lock: LockFile, report: VerificationReport | null): Map<string, string[]> {
   const installedTestBlocks = new Map<string, string>();
   for (const step of lock.installPlan) {
-    if (step.to.startsWith('tests/')) installedTestBlocks.set(step.to, step.blockId);
+    if (step.to.startsWith(`${testsRelativePath}/`)) installedTestBlocks.set(step.to, step.blockId);
   }
 
   const pendingByBlock = new Map<string, Set<string>>();
@@ -199,12 +229,26 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
     });
   }
 
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
   for (const [artifactPath, artifact] of artifacts.entries()) {
     if (provenanceProjectionArtifacts.has(artifactPath)) continue;
-    const absolutePath = artifactPath.startsWith('source/') || artifactPath.startsWith('control/')
-      ? path.join(workspaceRoot, artifactPath)
-      : path.join(projectRoot, artifactPath);
+    const normalizedPath = posixPath(artifactPath);
+    if (normalizedPath !== artifactPath || !isSafeRelativePath(artifactPath)) {
+      throw new CompilerError(
+        'PROVENANCE-PATH-001',
+        `Provenance artifact path "${artifactPath}" is not canonical`
+      );
+    }
+    const absolutePath = isCanonicalWorkspaceArtifactPath(artifactPath)
+      ? resolveWorkspaceArtifactPath(workspaceRoot, artifactPath)
+      : nativeWorkspaceRoots.some((root) => artifactPath === root || artifactPath.startsWith(`${root}/`))
+        ? resolvePathInside(workspaceRoot, artifactPath)
+        : null;
+    if (!absolutePath || !isPathInside(workspaceRoot, absolutePath)) {
+      throw new CompilerError(
+        'PROVENANCE-PATH-001',
+        `Provenance artifact path "${artifactPath}" is outside the native workspace layout`
+      );
+    }
     const hash = calculateCanonicalProjectFileHash(absolutePath);
     if (hash) artifact.hash = hash;
   }
@@ -220,14 +264,21 @@ export async function writeProvenance(
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<ProvenanceFile> {
-  const { provenancePath, lockPath } = getWorkspacePaths(workspaceRoot);
+  const provenancePath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.provenance
+  );
+  const lockPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.graphLock
+  );
   return writeGeneratedArtifactWithLock(
     lockPath,
     lock,
     [CI_ARTIFACT_FILES.provenance],
     async () => {
       const provenance = await buildProvenance(workspaceRoot, lock);
-      await publishCanonicalWorkspaceFile({
+      await publishExistingParentCanonicalWorkspaceFile({
         workspaceRoot,
         targetPath: provenancePath,
         bytes: Buffer.from(formatJsonFile(provenance), 'utf8'),

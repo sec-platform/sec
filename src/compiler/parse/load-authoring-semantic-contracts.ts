@@ -4,13 +4,13 @@ import path from 'node:path';
 import type { LoadedSemanticContract, SemanticContract } from '../../semantic/contracts/contract/types.ts';
 import type { SemanticMutationLoadedSourceCandidate, SemanticMutationSourceKind } from '../../semantic/mutation/contract/types.ts';
 import { compareCodeUnits, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { isSafeRelativePath, posixPath, resolvePathInside } from '../../workspace/paths.ts';
+import { isSafeRelativePath, modelRelativePath, posixPath, resolvePathInside } from '../../workspace/paths.ts';
 import { readYaml } from '../../workspace/yaml.ts';
 import { CompilerError } from '../errors.ts';
 import { normalizeSemanticContract } from './load-semantic-contract.ts';
 
 export const AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH =
-  'source/model/semantic-contracts.yaml' as const;
+  `${modelRelativePath}/semantic-contracts.yaml` as const;
 export const AUTHORING_SEMANTIC_CONTRACT_INDEX_REVISION =
   'authoring-semantic-contract-index-v1' as const;
 
@@ -87,11 +87,11 @@ function validateIndex(
       );
     }
     if (contractPath !== entry.path || !isSafeRelativePath(contractPath) ||
-      !contractPath.startsWith('source/model/') ||
+      !contractPath.startsWith(`${modelRelativePath}/`) ||
       !contractPath.endsWith('.yaml') || contractPath === AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH) {
       throw new CompilerError(
         'CONTRACT-SEMANTIC-021',
-        `Authoring semantic contract path "${contractPath}" must be a YAML file under source/model/`
+        `Authoring semantic contract path "${contractPath}" must be a YAML file under ${modelRelativePath}/`
       );
     }
     if (seenPaths.has(contractPath)) {

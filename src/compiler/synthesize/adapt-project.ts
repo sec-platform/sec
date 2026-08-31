@@ -1,7 +1,11 @@
 import fs from 'node:fs/promises';
 
 import { isFileNotFoundError, writeText, type CommitFence } from '../../workspace/files.ts';
-import { resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../workspace/paths.ts';
+import {
+  isCanonicalWorkspaceArtifactPath,
+  resolvePathInside,
+  resolveWorkspaceArtifactPath
+} from '../../workspace/paths.ts';
 import { writeProjectBaseline } from '../../workspace/project.ts';
 import { applyOverrides } from '../compose/apply-overrides.ts';
 import type { LockFile, PlanFile } from '../contract.ts';
@@ -11,6 +15,20 @@ import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { rebaseRelativeImports } from '../source/import-paths.ts';
 import { buildTaskEnvelope } from './build-task-envelope.ts';
 import { synthesizeSlotSource } from './mock-slot-synthesizer.ts';
+
+function resolveWorkspaceTargetPath(workspaceRoot: string, relativePath: string): string {
+  if (isCanonicalWorkspaceArtifactPath(relativePath)) {
+    return resolveWorkspaceArtifactPath(workspaceRoot, relativePath);
+  }
+  const resolved = resolvePathInside(workspaceRoot, relativePath);
+  if (!resolved) {
+    throw new CompilerError(
+      'SLOT-WRITE-004',
+      `Slot path "${relativePath}" escapes the native workspace root`
+    );
+  }
+  return resolved;
+}
 
 export async function adaptProject(
   workspaceRoot: string,
@@ -25,8 +43,10 @@ export async function adaptProject(
       continue;
     }
     const envelope = buildTaskEnvelope(plan, lock, task);
-    const targetPath = resolveWorkspaceArtifactPath(workspaceRoot, task.target);
-    const sourcePath = task.sourcePath ? resolveWorkspaceArtifactPath(workspaceRoot, task.sourcePath) : targetPath;
+    const targetPath = resolveWorkspaceTargetPath(workspaceRoot, task.target);
+    const sourcePath = task.sourcePath
+      ? resolveWorkspaceTargetPath(workspaceRoot, task.sourcePath)
+      : targetPath;
     const authoredSource = await fs.readFile(sourcePath, 'utf8').catch(async (error: unknown) => {
       if (isFileNotFoundError(error)) {
         const synthesizedSource = synthesizeSlotSource(envelope);
@@ -35,7 +55,9 @@ export async function adaptProject(
       }
       throw error;
     });
-    const runtimeSource = task.sourcePath ? rebaseRelativeImports(authoredSource, task.sourcePath, toProjectRuntimePath(task.target)) : authoredSource;
+    const runtimeSource = task.sourcePath
+      ? rebaseRelativeImports(authoredSource, task.sourcePath, task.target)
+      : authoredSource;
     await writeText(targetPath, runtimeSource, commitFence);
     task.status = 'filled';
   }

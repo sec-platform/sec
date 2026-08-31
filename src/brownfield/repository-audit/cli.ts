@@ -33,11 +33,9 @@ import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/f
 import {
   assertSecRepositoryModuleArchitectureBoundaries,
   compileSecRepositoryModuleArchitectureProjection,
-  compileSecRepositoryModuleGraph,
   compileSecRepositoryModuleMembershipSnapshot,
   compileSecRepositoryModuleTopologyProjection,
   type SecRepositoryModuleArchitectureProjection,
-  type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership,
   type SecRepositoryModuleTopologyProjection
 } from '../../system-architecture/repository-modules/contract.ts';
@@ -48,9 +46,14 @@ import {
 } from '../../verification/trust/contract/root.ts';
 import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence } from '../source-program-model/contract.ts';
 import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramSupersessionReceipt, type SourceProgramUnusedSymbolEvidence } from '../source-program-model/reduction.ts';
-import { compileRepositorySourceProgramModel, compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
+import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
+import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, isSourceProgramTestModulePath, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding } from '../source-program-model/test-value.ts';
-import { compileTypeScriptSourceProgramModelIncremental, querySourceProgramModel, releaseTypeScriptSourceProgramWorkspace } from '../source-program-model/typescript.ts';
+import { querySourceProgramModel, releaseTypeScriptSourceProgramWorkspace } from '../source-program-model/typescript.ts';
+import {
+  acquireExactGitTreeWorkspaceSourceSnapshot,
+  acquireWorkingTreeWorkspaceSourceSnapshot
+} from '../source-program-model/workspace-source-snapshot.ts';
 
 const DEFAULT_REPOSITORY_ROOT = compilerRuntimeLayout.packageRoot;
 const MAX_TEXT_FILE_BYTES = 2_000_000;
@@ -176,42 +179,53 @@ async function writeReviewedProcessDispatcherProjection(
   }
 }
 
-function transitiveModulePaths(
-  graph: SecRepositoryModuleGraph,
-  roots: readonly string[]
-): readonly string[] {
-  const closure = new Set<string>();
-  const queue = [...roots];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    if (closure.has(current)) continue;
-    closure.add(current);
-    for (const dependency of graph.directDependencies(current)) queue.push(dependency);
+function reviewedProcessDispatchersFromExactProjection(
+  files: readonly SourceProgramFileInput[],
+  cached: ReviewedProcessDispatcherProjection | null
+): readonly string[] | null {
+  if (cached === null) return null;
+  const digestByPath = new Map(files.map(({ path: repositoryPath, contentDigest }) =>
+    [repositoryPath, contentDigest] as const));
+  return Object.keys(cached.inputDigests).length > 0
+    && cached.inputDigests[SEC_TCB_CLOSURE_RUNTIME_PATH] !== undefined
+    && cached.inputDigests[SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH] !== undefined
+    && Object.entries(cached.inputDigests).every(([repositoryPath, digest]) =>
+      digestByPath.get(repositoryPath) === digest)
+    ? cached.reviewedProcessDispatchers
+    : null;
+}
+
+async function resolveImmutableRevisionProcessDispatchers(
+  repositoryRoot: string,
+  files: readonly SourceProgramFileInput[]
+): Promise<readonly string[]> {
+  const cached = reviewedProcessDispatchersFromExactProjection(
+    files,
+    await readReviewedProcessDispatcherProjection(repositoryRoot)
+  );
+  if (cached === null) {
+    throw new Error(
+      'Immutable Git-tree process dispatcher facts require an exact cached trusted-runtime projection'
+    );
   }
-  return Object.freeze([...closure].sort(compareCodeUnits));
+  return cached;
 }
 
 async function resolveReviewedProcessDispatchers(
   repositoryRoot: string,
-  files: readonly SourceProgramFileInput[],
-  moduleGraph: SecRepositoryModuleGraph
+  files: readonly SourceProgramFileInput[]
 ): Promise<readonly string[]> {
   const digestByPath = new Map(files.map(({ path: repositoryPath, contentDigest }) =>
     [repositoryPath, contentDigest] as const));
-  const cached = await readReviewedProcessDispatcherProjection(repositoryRoot);
-  if (cached !== null
-      && Object.keys(cached.inputDigests).length > 0
-      && cached.inputDigests[SEC_TCB_CLOSURE_RUNTIME_PATH] !== undefined
-      && cached.inputDigests[SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH] !== undefined
-      && Object.entries(cached.inputDigests).every(([repositoryPath, digest]) =>
-        digestByPath.get(repositoryPath) === digest)) {
-    return cached.reviewedProcessDispatchers;
-  }
+  const cached = reviewedProcessDispatchersFromExactProjection(
+    files,
+    await readReviewedProcessDispatcherProjection(repositoryRoot)
+  );
+  if (cached !== null) return cached;
   const { trustedRuntimeClosure } = await import('../../verification/trust/compiler.ts');
   const closure = trustedRuntimeClosure();
   const inputPaths = new Set([
     ...closure.closure,
-    ...transitiveModulePaths(moduleGraph, [SEC_TCB_CLOSURE_RUNTIME_PATH]),
     SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
   ]);
   const inputDigests = Object.freeze(Object.fromEntries(
@@ -300,7 +314,7 @@ function repositoryAuditGitBudget(): Readonly<{
 function repositoryModuleTopologyGitBudget(): ReturnType<typeof repositoryAuditGitBudget> {
   return Object.freeze({
     deadlineMs: 15_000,
-    maxProcesses: 3,
+    maxProcesses: 8,
     maxStdinBytes: 1,
     maxStdoutBytes: 24 * 1024 * 1024,
     maxCommandStdoutBytes: 16 * 1024 * 1024
@@ -326,6 +340,12 @@ export interface RepositoryAuditReport {
   findings: readonly RepositoryAuditFinding[];
   optimizations: readonly string[];
   sourceProgram: SourceProgramModel;
+  sourceProgramCompilation: Readonly<{
+    subjectDigest: `sha256:${string}`;
+    snapshotDigest: `sha256:${string}`;
+    moduleGraphDigest: `sha256:${string}`;
+    receiptDigest: `sha256:${string}`;
+  }>;
   revision: Readonly<{
     defaultHead: string | null;
     defaultRef: string;
@@ -952,6 +972,7 @@ async function revisionSourceProgramFiles(
 
 async function compileRevisionSupersessionEvidence(
   repositoryRoot: string,
+  commitSha: string,
   files: readonly SourceProgramFileInput[],
   unknowns: readonly import('../source-program-model/contract.ts').SourceProgramUnknown[],
   identity: SourceProgramSupersessionEvidenceIdentity
@@ -963,25 +984,12 @@ async function compileRevisionSupersessionEvidence(
     repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
     descriptorSources
   });
-  const sourceRevision = rawSha256(JSON.stringify(files.map(({ path: repositoryPath, contentDigest }) => ({
-    path: repositoryPath,
-    contentDigest
-  }))));
-  const sourceFiles = files.filter(({ path: repositoryPath }) =>
-    JAVASCRIPT_OR_TYPESCRIPT_PATH.test(repositoryPath));
-  const sourceByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) =>
-    [repositoryPath, source] as const));
-  const moduleGraph = compileSecRepositoryModuleGraph({
-    files: sourceFiles.map(({ path: repositoryPath }) => repositoryPath),
-    readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
-  });
   const revisionUnknowns = [...unknowns];
   let reviewedProcessDispatchers: readonly string[] = Object.freeze([]);
   try {
-    reviewedProcessDispatchers = await resolveReviewedProcessDispatchers(
+    reviewedProcessDispatchers = await resolveImmutableRevisionProcessDispatchers(
       repositoryRoot,
-      files,
-      moduleGraph
+      files
     );
   } catch (error) {
     revisionUnknowns.push(Object.freeze({
@@ -991,13 +999,16 @@ async function compileRevisionSupersessionEvidence(
       span: null
     }));
   }
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision,
-    files,
-    moduleMembership: membership,
+  const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+    repositoryRoot,
+    commitSha
+  });
+  const compilation = compileRepositorySourceProgramCompilation({
+    workspaceSnapshot,
     reviewedProcessDispatchers,
     unknowns: revisionUnknowns
   });
+  const model = compilation.model;
   return compileSourceProgramSupersessionEvidence({
     model,
     tests: compileSourceProgramTestValue({
@@ -1023,51 +1034,14 @@ async function repositoryWorktreeState(
 
 type WorkingTreeModuleTopology = Readonly<{
   sourceRevision: `sha256:${string}`;
+  snapshotDigest: `sha256:${string}`;
+  moduleGraphDigest: `sha256:${string}`;
+  workspaceSnapshotIdentityDigest: `sha256:${string}`;
   files: number;
   references: number;
   unresolvedFiles: readonly string[];
   topology: SecRepositoryModuleTopologyProjection;
 }>;
-
-async function readTopologySources(
-  repositoryRoot: string,
-  repositoryPaths: readonly string[]
-): Promise<readonly SourceProgramFileInput[]> {
-  const candidatePaths = repositoryPaths.filter((repositoryPath) => (
-    (repositoryPath.startsWith('src/') && JAVASCRIPT_OR_TYPESCRIPT_PATH.test(repositoryPath))
-    || path.posix.basename(repositoryPath) === 'sec.module.json'
-  ));
-  const results = new Array<SourceProgramFileInput>(candidatePaths.length);
-  let nextIndex = 0;
-  const workerCount = Math.min(16, candidatePaths.length);
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    for (;;) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= candidatePaths.length) return;
-      const repositoryPath = candidatePaths[index]!;
-      const absolutePath = path.resolve(repositoryRoot, ...repositoryPath.split('/'));
-      const metadata = await lstat(absolutePath);
-      if (!metadata.isFile() || metadata.isSymbolicLink()) {
-        throw new Error(`Module topology input is not one ordinary file: ${repositoryPath}`);
-      }
-      if (metadata.size > MAX_TEXT_FILE_BYTES) {
-        throw new Error(`Module topology input exceeds ${MAX_TEXT_FILE_BYTES} bytes: ${repositoryPath}`);
-      }
-      const bytes = await readFile(absolutePath);
-      const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-      if (!Buffer.from(source, 'utf8').equals(bytes)) {
-        throw new Error(`Module topology input is not canonical UTF-8: ${repositoryPath}`);
-      }
-      results[index] = Object.freeze({
-        path: repositoryPath,
-        source,
-        contentDigest: rawSha256(bytes)
-      });
-    }
-  }));
-  return Object.freeze(results);
-}
 
 async function compileWorkingTreeModuleTopology(
   repositoryRoot: string
@@ -1075,65 +1049,23 @@ async function compileWorkingTreeModuleTopology(
   return withAuthorityGitReadSession(
     { cwd: repositoryRoot, budget: repositoryModuleTopologyGitBudget() },
     async (session) => {
-      const before = await runGitBytes(session, [
-        '-c', 'core.quotepath=false',
-        'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
-      ]);
-      const listed = await runGitBytes(session, [
-        '-c', 'core.quotepath=false',
-        'ls-files', '-z', '--cached', '--others', '--exclude-standard'
-      ]);
-      if (before === null || listed === null) {
-        throw new Error('Working-tree module topology requires Git status and path census');
-      }
-      const deletedPaths = new Set(parseWorktreeStatusPorcelainZ(before)
-        .filter(({ worktree }) => worktree === 'D')
-        .map(({ path: repositoryPath }) => repositoryPath));
-      const repositoryPaths = [...new Set(
-        exactGitUtf8(listed, 'git ls-files module topology census').split('\0').filter(Boolean)
-      )].filter((repositoryPath) => !deletedPaths.has(repositoryPath)).sort(compareCodeUnits);
-      const files = await readTopologySources(repositoryRoot, repositoryPaths);
-      const descriptorSources = files
-        .filter(({ path: repositoryPath }) => path.posix.basename(repositoryPath) === 'sec.module.json')
-        .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
-      if (descriptorSources.length === 0) {
+      const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+      if (workspaceSnapshot.moduleMembership.descriptors.length === 0) {
         throw new Error('Working-tree module topology requires at least one sec.module.json descriptor');
       }
-      const membership = compileSecRepositoryModuleMembershipSnapshot({
-        repositoryFiles: repositoryPaths,
-        descriptorSources
-      });
-      const sourceFiles = files.filter(({ path: repositoryPath }) => (
-        repositoryPath.startsWith('src/') && JAVASCRIPT_OR_TYPESCRIPT_PATH.test(repositoryPath)
-      ));
-      const sourceByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) => (
-        [repositoryPath, source] as const
-      )));
-      const graph = compileSecRepositoryModuleGraph({
-        files: sourceFiles.map(({ path: repositoryPath }) => repositoryPath),
-        readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
-      });
-      const after = await runGitBytes(session, [
-        '-c', 'core.quotepath=false',
-        'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
-      ]);
-      if (after === null || !before.equals(after)) {
-        throw new Error('Working tree changed during module topology census');
-      }
-      const sourceRevision = rawSha256(JSON.stringify({
-        statusDigest: rawSha256(before),
-        repositoryPaths,
-        files: files.map(({ path: repositoryPath, contentDigest }) => ({
-          path: repositoryPath,
-          contentDigest
-        }))
-      }));
+      const graph = workspaceSnapshot.moduleGraph;
       return Object.freeze({
-        sourceRevision,
+        sourceRevision: workspaceSnapshot.sourceRevision,
+        snapshotDigest: workspaceSnapshot.snapshotDigest,
+        moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
+        workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
         files: graph.files.length,
         references: graph.references.length,
         unresolvedFiles: graph.unresolvedFiles,
-        topology: compileSecRepositoryModuleTopologyProjection(graph, membership)
+        topology: compileSecRepositoryModuleTopologyProjection(
+          graph,
+          workspaceSnapshot.moduleMembership
+        )
       });
     }
   );
@@ -1175,6 +1107,12 @@ async function compileWorkingTreeSourceProgram(
   supersessionBaseline: string
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
+  sourceProgramCompilation: Readonly<{
+    subjectDigest: `sha256:${string}`;
+    snapshotDigest: `sha256:${string}`;
+    moduleGraphDigest: `sha256:${string}`;
+    receiptDigest: `sha256:${string}`;
+  }>;
   invalidatedTypeScriptPaths: readonly string[];
   model: SourceProgramModel;
   moduleArchitecture: SecRepositoryModuleArchitectureProjection;
@@ -1205,6 +1143,12 @@ async function compileWorkingTreeSourceProgramWithSession(
   supersessionBaseline: string
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
+  sourceProgramCompilation: Readonly<{
+    subjectDigest: `sha256:${string}`;
+    snapshotDigest: `sha256:${string}`;
+    moduleGraphDigest: `sha256:${string}`;
+    receiptDigest: `sha256:${string}`;
+  }>;
   invalidatedTypeScriptPaths: readonly string[];
   model: SourceProgramModel;
   moduleArchitecture: SecRepositoryModuleArchitectureProjection;
@@ -1223,16 +1167,11 @@ async function compileWorkingTreeSourceProgramWithSession(
     '-c', 'core.quotepath=false',
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
   ]);
-  const listed = await runGitBytes(session, [
-    '-c', 'core.quotepath=false',
-    'ls-files', '-z', '--cached', '--others', '--exclude-standard'
-  ]);
-  if (before === null || listed === null) {
-    throw new Error('Working-tree Source Program Model requires Git status and path census');
+  if (before === null) {
+    throw new Error('Working-tree Source Program Model requires Git status');
   }
-  const repositoryPaths = [...new Set(
-    exactGitUtf8(listed, 'git ls-files working-tree census').split('\0').filter(Boolean)
-  )].sort((left, right) => compareCodeUnits(left, right));
+  const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+  const repositoryPaths = workspaceSnapshot.files.map(({ path: repositoryPath }) => repositoryPath);
   if (supersessionBaseline.startsWith('-')) {
     throw new Error('--supersession-baseline cannot begin with -');
   }
@@ -1269,6 +1208,7 @@ async function compileWorkingTreeSourceProgramWithSession(
     baselineSource = await revisionSourceProgramFiles(session, baselineEntries);
     baselineSupersessionEvidence = await compileRevisionSupersessionEvidence(
       repositoryRoot,
+      exactSupersessionBaseline,
       baselineSource.files,
       baselineSource.unknowns,
       baselineIdentity
@@ -1294,62 +1234,9 @@ async function compileWorkingTreeSourceProgramWithSession(
         type
       }))
   ));
-  const files: SourceProgramFileInput[] = [];
-  const presentRepositoryPaths: string[] = [];
+  const files = workspaceSnapshot.files;
+  const presentRepositoryPaths = repositoryPaths;
   const unknowns: import('../source-program-model/contract.ts').SourceProgramUnknown[] = [];
-  for (const repositoryPath of repositoryPaths) {
-    const absolutePath = path.resolve(repositoryRoot, ...repositoryPath.split('/'));
-    let metadata;
-    try {
-      metadata = await lstat(absolutePath);
-    } catch (error) {
-      unknowns.push(Object.freeze({
-        code: 'working-tree-path-unreadable',
-        path: repositoryPath,
-        detail: error instanceof Error ? error.message : String(error),
-        span: null
-      }));
-      continue;
-    }
-    if (!metadata.isFile()) {
-      unknowns.push(Object.freeze({
-        code: 'working-tree-path-not-ordinary-file',
-        path: repositoryPath,
-        detail: metadata.isSymbolicLink() ? 'symbolic-link' : 'non-file',
-        span: null
-      }));
-      continue;
-    }
-    presentRepositoryPaths.push(repositoryPath);
-    if (metadata.size > MAX_TEXT_FILE_BYTES) {
-      unknowns.push(Object.freeze({
-        code: 'working-tree-path-oversized',
-        path: repositoryPath,
-        detail: `${metadata.size}>${MAX_TEXT_FILE_BYTES}`,
-        span: null
-      }));
-      continue;
-    }
-    const bytes = await readFile(absolutePath);
-    if (knownBinaryReason(bytes) !== null || bytes.includes(0)) continue;
-    let source: string;
-    try {
-      source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    } catch {
-      unknowns.push(Object.freeze({
-        code: 'working-tree-path-invalid-utf8',
-        path: repositoryPath,
-        detail: 'strict UTF-8 decode failed',
-        span: null
-      }));
-      continue;
-    }
-    files.push(Object.freeze({
-      path: repositoryPath,
-      source,
-      contentDigest: rawSha256(bytes)
-    }));
-  }
   const candidateTestPaths = new Set(
     presentRepositoryPaths.filter((repositoryPath) => isSourceProgramTestModulePath(repositoryPath))
   );
@@ -1365,21 +1252,8 @@ async function compileWorkingTreeSourceProgramWithSession(
     baselineTestRevision,
     files
   );
-  const descriptorSources = files
-    .filter(({ path: repositoryPath }) => path.posix.basename(repositoryPath) === 'sec.module.json')
-    .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
-  const moduleMembership = descriptorSources.length === 0
-    ? Object.freeze({
-        descriptors: Object.freeze([]),
-        graphRoots: Object.freeze([]),
-        moduleRoots: Object.freeze([]),
-        moduleForPath: () => null
-      })
-    : compileSecRepositoryModuleMembershipSnapshot({
-        repositoryFiles: presentRepositoryPaths,
-        descriptorSources
-      });
-  if (descriptorSources.length === 0) {
+  const moduleMembership = workspaceSnapshot.moduleMembership;
+  if (moduleMembership.descriptors.length === 0) {
     unknowns.push(Object.freeze({
       code: 'working-tree-module-ownership-unavailable',
       path: '.',
@@ -1388,14 +1262,17 @@ async function compileWorkingTreeSourceProgramWithSession(
     }));
   }
   const moduleBoundaryFailures: string[] = [];
-  const sourceFiles = files.filter(({ path: repositoryPath }) =>
-    JAVASCRIPT_OR_TYPESCRIPT_PATH.test(repositoryPath));
-  const sourceByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) =>
-    [repositoryPath, source] as const));
-  const moduleGraph = compileSecRepositoryModuleGraph({
-    files: sourceFiles.map(({ path: repositoryPath }) => repositoryPath),
-    readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
+  const currentSupersessionIdentity = supersessionEvidenceIdentity({
+    revisionDigest: rawSha256(Buffer.concat([
+      Buffer.from(`${exactCurrentHead}\n`, 'utf8'),
+      before
+    ])),
+    treeDigest: workspaceSnapshot.sourceRevision
   });
+  const reviewedProcessDispatchers = await resolveReviewedProcessDispatchers(
+    repositoryRoot,
+    files
+  );
   const after = await runGitBytes(session, [
     '-c', 'core.quotepath=false',
     'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
@@ -1408,40 +1285,15 @@ async function compileWorkingTreeSourceProgramWithSession(
       span: null
     }));
   }
-  const sourceRevision = rawSha256(JSON.stringify(
-    files.map(({ path: filePath, contentDigest }) => ({
-      path: filePath,
-      contentDigest
-    }))
-  ));
-  const currentSupersessionIdentity = supersessionEvidenceIdentity({
-    revisionDigest: rawSha256(Buffer.concat([
-      Buffer.from(`${exactCurrentHead}\n`, 'utf8'),
-      before
-    ])),
-    treeDigest: sourceRevision
-  });
-  const reviewedProcessDispatchers = await resolveReviewedProcessDispatchers(
+  const compilation = compileRepositorySourceProgramCompilation({
+    workspaceSnapshot,
     repositoryRoot,
-    files,
-    moduleGraph
-  );
-  // Full SourceProgramModel JSON expands by orders of magnitude when parsed
-  // and duplicated the same model inside the old incremental envelope. Keep
-  // the hot LanguageService process-local and persist only compact consumers
-  // such as supersession evidence.
-  const incrementalCompilation = compileTypeScriptSourceProgramModelIncremental(
-    { sourceRevision, files, moduleMembership },
-    null
-  );
-  const model = compileRepositorySourceProgramModel({
-    sourceRevision,
-    files,
-    moduleMembership,
     reviewedProcessDispatchers,
-    unknowns,
-    typescriptModel: incrementalCompilation.model
+    unknowns
   });
+  const moduleGraph = compilation.workspaceSnapshot.moduleGraph;
+  const incrementalCompilation = compilation.typeScriptCompilation;
+  const model = compilation.model;
   const moduleArchitecture = compileSecRepositoryModuleArchitectureProjection(
     moduleGraph,
     moduleMembership,
@@ -1456,7 +1308,17 @@ async function compileWorkingTreeSourceProgramWithSession(
     [...new Set(moduleBoundaryFailures)].sort(compareCodeUnits)
   );
   return Object.freeze({
-    cache: 'miss',
+    cache: incrementalCompilation.mode === 'exact'
+      ? 'hit'
+      : incrementalCompilation.mode === 'incremental'
+        ? 'incremental'
+        : 'miss',
+    sourceProgramCompilation: Object.freeze({
+      subjectDigest: compilation.subjectDigest,
+      snapshotDigest: compilation.snapshotDigest,
+      moduleGraphDigest: compilation.moduleGraphDigest,
+      receiptDigest: compilation.receiptDigest
+    }),
     invalidatedTypeScriptPaths: incrementalCompilation.invalidatedPaths,
     model,
     moduleArchitecture,
@@ -2011,33 +1873,27 @@ async function auditRepositoryWithSession(
   if (descriptorSources.length === 0) {
     unknowns.push('source program module ownership is unavailable: exact snapshot has no sec.module.json descriptors');
   }
-  const programFiles = tracked
-    .flatMap((repositoryPath) => {
-      const source = textByPath.get(repositoryPath);
-      const bytes = bytesByPath.get(repositoryPath);
-      return source === null || source === undefined || bytes === undefined
-        ? []
-        : [{ path: repositoryPath, source, contentDigest: rawSha256(bytes) }];
-    });
-  const sourceFiles = programFiles.filter(({ path: repositoryPath }) =>
-    JAVASCRIPT_OR_TYPESCRIPT_PATH.test(repositoryPath)
-  );
-  const moduleGraph = compileSecRepositoryModuleGraph({
-    files: sourceFiles.map(({ path: repositoryPath }) => repositoryPath),
-    readSource: (repositoryPath) => textByPath.get(repositoryPath) ?? null
+  const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+    repositoryRoot,
+    commitSha: head
   });
-  const sourceProgram = compileRepositorySourceProgramModel({
-    sourceRevision: tree,
-    files: programFiles,
-    moduleMembership
+  const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
+    workspaceSnapshot,
+    repositoryRoot
   });
+  const moduleGraph = sourceProgramCompilation.workspaceSnapshot.moduleGraph;
+  const sourceProgram = sourceProgramCompilation.model;
   const architecture = compileSecRepositoryModuleArchitectureProjection(
     moduleGraph,
-    moduleMembership,
+    workspaceSnapshot.moduleMembership,
     sourceProgram
   );
   try {
-    assertSecRepositoryModuleArchitectureBoundaries(moduleGraph, moduleMembership, sourceProgram);
+    assertSecRepositoryModuleArchitectureBoundaries(
+      moduleGraph,
+      workspaceSnapshot.moduleMembership,
+      sourceProgram
+    );
   } catch (error) {
     pushFinding(findings, {
       code: 'repository-module-architecture-boundary-invalid',
@@ -2204,6 +2060,12 @@ async function auditRepositoryWithSession(
       '删除无消费者配置、已退役路径 owner 和重复权威；保留机器可验证 registry，而不是新增叙述文档。'
     ]),
     sourceProgram,
+    sourceProgramCompilation: Object.freeze({
+      subjectDigest: sourceProgramCompilation.subjectDigest,
+      snapshotDigest: sourceProgramCompilation.snapshotDigest,
+      moduleGraphDigest: sourceProgramCompilation.moduleGraphDigest,
+      receiptDigest: sourceProgramCompilation.receiptDigest
+    }),
     revision: Object.freeze({
       defaultHead,
       defaultRef: defaultRefInput,
@@ -2303,6 +2165,11 @@ async function main(): Promise<void> {
     const result = await compileWorkingTreeModuleTopology(DEFAULT_REPOSITORY_ROOT);
     const projection = Object.freeze({
       sourceRevision: result.sourceRevision,
+      workspaceSourceSnapshot: Object.freeze({
+        snapshotDigest: result.snapshotDigest,
+        moduleGraphDigest: result.moduleGraphDigest,
+        identityDigest: result.workspaceSnapshotIdentityDigest
+      }),
       files: result.files,
       references: result.references,
       unresolvedFiles: full
@@ -2473,6 +2340,7 @@ async function main(): Promise<void> {
         : projectRepositoryModuleArchitectureCli(worktreeAudit.moduleArchitecture),
       modelDigest: model.modelDigest,
       sourceRevision: model.sourceRevision,
+      sourceProgramCompilation: worktreeAudit.sourceProgramCompilation,
       cache: worktreeAudit.cache,
       invalidatedTypeScriptPaths: full
         ? worktreeAudit.invalidatedTypeScriptPaths

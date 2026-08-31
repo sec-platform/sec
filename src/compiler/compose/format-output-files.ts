@@ -6,6 +6,11 @@ import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime
 import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { createConcurrencyLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { writeText, type CommitFence } from '../../workspace/files.ts';
+import {
+  isCanonicalWorkspaceArtifactPath,
+  resolvePathInside,
+  resolveWorkspaceArtifactPath
+} from '../../workspace/paths.ts';
 import { CompilerError } from '../errors.ts';
 
 const FORMATTABLE_EXTENSIONS = new Set([
@@ -19,7 +24,7 @@ function isFormattableGeneratedPath(relativePath: string): boolean {
 }
 
 export async function formatOutputFiles(
-  projectRoot: string,
+  workspaceRoot: string,
   filePaths: string[],
   commitFence?: CommitFence
 ): Promise<void> {
@@ -44,12 +49,20 @@ export async function formatOutputFiles(
   if (candidates.length === 0) return;
 
   const limit = createConcurrencyLimit(FORMAT_CONCURRENCY);
-  const config = (await prettier.resolveConfig(projectRoot)) ?? {};
+  const config = (await prettier.resolveConfig(workspaceRoot)) ?? {};
 
   await Promise.all(
     candidates.map((relativePath) =>
       limit(async () => {
-        const fullPath = path.join(projectRoot, ...relativePath.split('/'));
+        const fullPath = isCanonicalWorkspaceArtifactPath(relativePath)
+          ? resolveWorkspaceArtifactPath(workspaceRoot, relativePath)
+          : resolvePathInside(workspaceRoot, relativePath);
+        if (!fullPath) {
+          throw new CompilerError(
+            'COMPOSE-PATH-004',
+            `Generated formatter path "${relativePath}" is outside the native workspace layout`
+          );
+        }
         const bytes = readOptionalRetainedOrdinaryFile(
           fullPath,
           `Generated formatter input ${relativePath}`

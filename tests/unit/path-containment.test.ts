@@ -3,15 +3,21 @@ import { defaultInstallRegistry } from '../../src/compiler/compose/install-strat
 import type { BlockManifest, InstallPlanStep } from '../../src/compiler/contract.ts';
 import { validateManifest } from '../../src/compiler/parse/load-manifest.ts';
 import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import {
+  getWorkspacePaths,
+  posixPath,
+  privateRegistryRelativePath,
+  slotsRelativePath,
+  srcRelativePath
+} from '../../src/workspace/runtime/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('plan validation rejects registry paths that traverse outside their base root', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { planPath } = getWorkspacePaths(workspaceRoot);
+    const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
 
-    await writeYaml(planPath, {
+    await writeYaml(workspaceConfigPath, {
       app: {
         id: 'customer-admin',
         name: 'customer-admin',
@@ -25,7 +31,7 @@ test('plan validation rejects registry paths that traverse outside their base ro
             id: 'private',
             kind: 'private',
             location: 'workspace',
-            path: 'source/blocks/private/../outside'
+            path: `${posixPath(privateRegistryRelativePath)}/../outside`
           }
         ]
       },
@@ -34,16 +40,16 @@ test('plan validation rejects registry paths that traverse outside their base ro
       acceptance: []
     });
 
-    expect(() => loadPlan(planPath))
+    expect(() => loadPlan(workspaceConfigPath))
       .toThrow(expect.objectContaining({ code: 'PLAN-VALIDATION-012' }));
   }, 'engineering-compiler-path-plan-registry-');
 });
 
-test('plan validation rejects slot targets that traverse outside custom', async () => {
+test('plan validation rejects slot targets that traverse outside the canonical source root', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { planPath } = getWorkspacePaths(workspaceRoot);
+    const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
 
-    await writeYaml(planPath, {
+    await writeYaml(workspaceConfigPath, {
       app: {
         id: 'customer-admin',
         name: 'customer-admin',
@@ -57,8 +63,8 @@ test('plan validation rejects slot targets that traverse outside custom', async 
           id: 'customer_normalizer',
           block: 'entity/customer-basic',
           kind: 'adapter',
-          target: 'custom/../../control/evil.ts',
-          sourcePath: 'source/code/slots/customer_normalizer.ts',
+          target: `${srcRelativePath}/${posixPath(slotsRelativePath).slice(`${srcRelativePath}/`.length)}/../../control/evil.ts`,
+          sourcePath: `${posixPath(slotsRelativePath)}/customer_normalizer.ts`,
           symbol: 'normalizeCustomerInput',
           description: 'Normalize customer input.'
         }
@@ -66,7 +72,7 @@ test('plan validation rejects slot targets that traverse outside custom', async 
       acceptance: []
     });
 
-    expect(() => loadPlan(planPath))
+    expect(() => loadPlan(workspaceConfigPath))
       .toThrow(expect.objectContaining({ code: 'PLAN-VALIDATION-008' }));
   }, 'engineering-compiler-path-plan-slot-');
 });
@@ -108,14 +114,13 @@ test('manifest validation rejects install paths that traverse outside allowed ro
 
 test('install strategy rejects persisted lock targets that escape project root', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { projectRoot } = getWorkspacePaths(workspaceRoot);
     const step: InstallPlanStep = {
       stepId: 'private/path-test:1',
       blockId: 'private/path-test',
       registrySourceId: 'private',
       registryKind: 'private',
       registryLocation: 'workspace',
-      registryPath: 'src/compiler/registry/private',
+      registryPath: posixPath(privateRegistryRelativePath),
       sourceRoot: '',
       action: 'copy',
       from: 'files/source.ts',
@@ -124,7 +129,6 @@ test('install strategy rejects persisted lock targets that escape project root',
 
     await expect(defaultInstallRegistry.executeAll([step], {
       workspaceRoot,
-      projectRoot,
       lock: {
         formatVersion: '1',
         app: { id: 'customer-admin', name: 'customer-admin', stack: 'typescript-library', mode: 'single-tenant' },

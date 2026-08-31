@@ -17,17 +17,23 @@ import { readOptionalCiArtifactManifest } from '../../verification/ci-artifacts/
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import { validateReviewSummary } from '../../verification/review/contract/summary.ts';
 import type { ReviewRegressionRisk, ReviewSummary } from '../../verification/review/contract/types.ts';
-import { getWorkspacePaths, relativePosixPath } from '../runtime/paths.ts';
+import {
+  getWorkspacePaths,
+  relativePosixPath,
+  resolveWorkspaceArtifactPath
+} from '../runtime/paths.ts';
 
 export type ProjectOverviewStatusValue = 'passed' | 'attention' | 'failed' | 'not-run' | 'unknown';
 export type ProjectOverviewArtifactId = 'graph' | 'graph-mermaid' | 'review' | 'verification';
 
 export interface ProjectOverviewWorkspace {
   root: string;
-  sourceRoot: string;
-  projectRoot: string;
-  controlRoot: string;
-  localStateRoot: string;
+  modelRoot: string;
+  srcRoot: string;
+  testsRoot: string;
+  prismaRoot: string;
+  secRoot: string;
+  artifactsRoot: string;
 }
 
 export interface ProjectOverviewStatus {
@@ -130,10 +136,12 @@ function buildWorkspaceSummary(workspaceRoot: string): ProjectOverviewWorkspace 
   const paths = getWorkspacePaths(workspaceRoot);
   return {
     root: '.',
-    sourceRoot: relativePosixPath(paths.workspaceRoot, paths.developerSourceRoot),
-    projectRoot: relativePosixPath(paths.workspaceRoot, paths.projectRoot),
-    controlRoot: relativePosixPath(paths.workspaceRoot, paths.controlRoot),
-    localStateRoot: relativePosixPath(paths.workspaceRoot, paths.localStateRoot)
+    modelRoot: relativePosixPath(paths.workspaceRoot, paths.modelRoot),
+    srcRoot: relativePosixPath(paths.workspaceRoot, paths.srcRoot),
+    testsRoot: relativePosixPath(paths.workspaceRoot, paths.testsRoot),
+    prismaRoot: relativePosixPath(paths.workspaceRoot, paths.prismaRoot),
+    secRoot: relativePosixPath(paths.workspaceRoot, paths.secRoot),
+    artifactsRoot: relativePosixPath(paths.workspaceRoot, paths.artifactsRoot)
   };
 }
 
@@ -286,13 +294,26 @@ function readRequiredVerificationArtifacts(workspaceRoot: string) {
 
 export function buildProjectOverviewFromWorkspace(workspaceRoot = process.cwd()): ProjectOverview {
   const paths = getWorkspacePaths(workspaceRoot);
-  const lock = readRequiredArtifact<LockFile>(paths.lockPath, 'Lock file');
-  const explainGraph = readRequiredArtifact<ExplainGraph>(paths.explainGraphPath, 'Explain graph');
-  const provenance = readRequiredProvenance(paths.provenancePath, 'Provenance report');
+  const lock = readRequiredArtifact<LockFile>(
+    resolveWorkspaceArtifactPath(paths.workspaceRoot, CI_ARTIFACT_FILES.graphLock),
+    'Lock file'
+  );
+  const explainGraph = readRequiredArtifact<ExplainGraph>(
+    resolveWorkspaceArtifactPath(paths.workspaceRoot, CI_ARTIFACT_FILES.explainGraph),
+    'Explain graph'
+  );
+  const provenance = readRequiredProvenance(
+    resolveWorkspaceArtifactPath(paths.workspaceRoot, CI_ARTIFACT_FILES.provenance),
+    'Provenance report'
+  );
   const verificationArtifacts = readRequiredVerificationArtifacts(paths.workspaceRoot);
-  const reviewSummary = readRequiredArtifact(paths.reviewSummaryPath, 'Review summary', validateReviewSummary);
+  const reviewSummary = readRequiredArtifact(
+    resolveWorkspaceArtifactPath(paths.workspaceRoot, CI_ARTIFACT_FILES.reviewSummary),
+    'Review summary',
+    validateReviewSummary
+  );
   const artifactManifest = readOptionalCiArtifactManifest(
-    paths.ciArtifactsPath,
+    resolveWorkspaceArtifactPath(paths.workspaceRoot, CI_ARTIFACT_FILES.artifactManifest),
     'CI Artifact manifest'
   );
   return buildProjectOverview({
@@ -311,7 +332,7 @@ export function buildProjectOverviewFromWorkspace(workspaceRoot = process.cwd())
 export function formatProjectOverview(overview: ProjectOverview): string {
   return [
     `Project overview ${overview.status.overall}`,
-    `Workspace: ${overview.workspace.sourceRoot}/${overview.workspace.projectRoot}/${overview.workspace.controlRoot}/${overview.workspace.localStateRoot} ready`,
+    `Workspace: ${overview.workspace.modelRoot}/${overview.workspace.srcRoot}/${overview.workspace.testsRoot}/${overview.workspace.secRoot} ready`,
     `Verification: ${overview.status.verification}; policy: ${overview.status.policy}; coverage: ${overview.status.coverage}; artifacts: ${overview.status.artifacts}`,
     `Graph: ${overview.aiContext.graphNodeCount} nodes / ${overview.aiContext.graphEdgeCount} edges; blocks=${overview.aiContext.blockCount}; slots=${overview.aiContext.slotCount}`,
     `Risks: failures=${overview.risks.failureCount}; regressions=${overview.risks.regressionRiskCount}; conflicts=${overview.risks.conflictHintCount}; missingArtifacts=${overview.risks.missingArtifactCount}`,

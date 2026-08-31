@@ -2,10 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type {
-  LockFile,
-  PlanFile
-} from '../../src/compiler/contract.ts';
+import type { LockFile, PlanFile } from '../../src/compiler/contract.ts';
 import { lockWorkspace, repairWorkspace } from '../../src/compiler/orchestration/cli.ts';
 import { applyRepairPlan } from '../../src/compiler/repair/build-repair-plan.ts';
 import { buildTaskEnvelope } from '../../src/compiler/synthesize/build-task-envelope.ts';
@@ -15,7 +12,7 @@ import { countLineDiff } from '../../src/system-architecture/foundation/runtime/
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import {
   buildCustomerNormalizerLock,
@@ -67,12 +64,15 @@ async function writeRepairFixture(
   fixtureLock: LockFile = lock(),
   source = 'export function normalizeCustomerInput(input: unknown): unknown { return input; }\n'
 ): Promise<void> {
-  const { planPath, lockPath, projectRoot } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(path.join(projectRoot, 'custom'), { recursive: true });
+  const paths = getWorkspacePaths(workspaceRoot);
+  const planPath = paths.workspaceConfigPath;
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
+  await fs.mkdir(path.join(workspaceRoot, 'custom'), { recursive: true });
   await writeYaml(planPath, plan());
   await writeJson(lockPath, fixtureLock);
   await writeCanonicalVerificationArtifactSetFixture(workspaceRoot, failedUnitReport());
-  await fs.writeFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), source, 'utf8');
+  await fs.writeFile(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), source, 'utf8');
 }
 
 test('repair writes only slot-scoped source and requires verification rerun', async () => {
@@ -80,8 +80,9 @@ test('repair writes only slot-scoped source and requires verification rerun', as
     await writeRepairFixture(workspaceRoot);
 
     const { lock: repairedLock, repairPlan } = await repairWorkspace(workspaceRoot);
-    const { lockPath, repairPlanPath, projectRoot } = getWorkspacePaths(workspaceRoot);
-    const writtenSource = await fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
+    const writtenSource = await fs.readFile(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
     const persistedLock = await readJson<LockFile>(lockPath);
     const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
 
@@ -115,9 +116,10 @@ test('repair dry-run returns a pending preview without mutating source, Lock, or
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRepairFixture(workspaceRoot);
 
-    const { lockPath, repairPlanPath, projectRoot } = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
     const lockBefore = await fs.readFile(lockPath);
-    const sourcePath = path.join(projectRoot, 'custom', 'customer_normalizer.ts');
+    const sourcePath = path.join(workspaceRoot, 'custom', 'customer_normalizer.ts');
     const sourceBefore = await fs.readFile(sourcePath);
 
     const { lock: plannedLock, repairPlan } = await repairWorkspace(workspaceRoot, { dryRun: true });
@@ -179,7 +181,8 @@ test('repair writes blocked plans before reporting non-repairable failures', asy
     });
 
     const result = await runCli(workspaceRoot, ['repair']);
-    const { lockPath, repairPlanPath } = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
     const persistedLock = await readJson<LockFile>(lockPath);
     const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
 
@@ -212,12 +215,16 @@ test('repair CLI reports applied plans as verify pending', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRepairFixture(workspaceRoot);
 
-    await expectCliText(workspaceRoot, ['repair'], [
-      'Repair applied (1 tasks, 0 blockers); verify pending',
-      'Source verification: failed; requires verification: true',
-      'Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts',
-      'Failure fast/unit; issue=slot; repairable=true; unit assertion failed'
-    ]);
+    await expectCliText(
+      workspaceRoot,
+      ['repair'],
+      [
+        'Repair applied (1 tasks, 0 blockers); verify pending',
+        'Source verification: failed; requires verification: true',
+        'Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts',
+        'Failure fast/unit; issue=slot; repairable=true; unit assertion failed'
+      ]
+    );
   });
 });
 
@@ -225,13 +232,17 @@ test('repair CLI reports dry-run plans without applying them', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRepairFixture(workspaceRoot);
 
-    await expectCliText(workspaceRoot, ['repair', '--dry-run'], [
-      'Repair pending (1 tasks, 0 blockers) (dry-run)',
-      'Source verification: failed; requires verification: false',
-      'Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts',
-      'Preview repair_slot_customer_normalizer: changed=true;',
-      'Failure fast/unit; issue=slot; repairable=true; unit assertion failed'
-    ]);
+    await expectCliText(
+      workspaceRoot,
+      ['repair', '--dry-run'],
+      [
+        'Repair pending (1 tasks, 0 blockers) (dry-run)',
+        'Source verification: failed; requires verification: false',
+        'Task repair_slot_customer_normalizer: entity/customer-basic -> custom/customer_normalizer.ts',
+        'Preview repair_slot_customer_normalizer: changed=true;',
+        'Failure fast/unit; issue=slot; repairable=true; unit assertion failed'
+      ]
+    );
   });
 });
 

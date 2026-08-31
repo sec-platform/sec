@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 
 import type { ObservedCommandOptions, ObservedCommandOutcome } from '../../src/runtime-state/physical/runtime/observed-process.ts';
-import { compilerRoot } from '../../src/workspace/paths.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 type ObservedCommandCall = Readonly<{
   command: string;

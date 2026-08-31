@@ -1,6 +1,6 @@
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { posixPath, projectRelativePath } from './paths.ts';
+import { posixPath } from './paths.ts';
 
 const TRACKED_PROJECT_PATH_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
 const TRACKED_PROJECT_PATH_STDERR_MAX_BYTES = 1024 * 1024;
@@ -36,7 +36,7 @@ export async function listTrackedProjectPaths(workspaceRoot: string): Promise<Se
         maxRecords: 250_000
       }
     }, async (session) => {
-      const command = await session.run(['ls-files', '-z', '--', projectRelativePath]);
+      const command = await session.run(['ls-files', '-z', '--']);
       if (command.kind !== 'completed') {
         throw new GitReadAuthorityError('Unable to observe tracked project paths.', command);
       }
@@ -52,12 +52,6 @@ export async function listTrackedProjectPaths(workspaceRoot: string): Promise<Se
       if (recordFailure !== null) {
         throw new GitReadAuthorityError('Tracked project path inventory exceeded its authority budget.', recordFailure);
       }
-      const prefix = `${posixPath(projectRelativePath)}/`;
-      return new Set(
-        uniqueSorted(paths
-          .map(posixPath)
-          .filter((file) => file.startsWith(prefix))
-          .map((file) => file.slice(prefix.length)))
-      );
+      return new Set(uniqueSorted(paths.map(posixPath)));
     });
 }

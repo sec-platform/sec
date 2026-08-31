@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
 import path from 'node:path';
 
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 import { runPlannedSlotUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
@@ -46,7 +48,7 @@ test('upgrade dry-run rejects create directory migrations when target is a file'
       }
     },
     setup: async ({ paths: workspacePaths }) => {
-      await writeJson(path.join(workspacePaths.projectRoot, 'generated', 'reports', 'snapshots'), {
+      await writeJson(path.join(workspacePaths.workspaceRoot, 'generated', 'reports', 'snapshots'), {
         occupied: true
       });
     }
@@ -54,7 +56,7 @@ test('upgrade dry-run rejects create directory migrations when target is a file'
 
   await expectUpgradeDryRunFailureWithDiagnostics(
     workspaceRoot,
-    paths.upgradeDiagnosticsPath,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     { code: 'UPGRADE-MIGRATION-028' },
     { failedCheck: 'migration-file-operations' }
   );
@@ -76,7 +78,7 @@ test('upgrade dry-run records delete directory migration impacts', async () => {
       }
     },
     setup: async ({ paths: workspacePaths }) => {
-      await writeJson(path.join(workspacePaths.projectRoot, 'generated', 'reports', 'obsolete', 'daily.json'), {
+      await writeJson(path.join(workspacePaths.workspaceRoot, 'generated', 'reports', 'obsolete', 'daily.json'), {
         status: 'obsolete'
       });
     }
@@ -157,7 +159,7 @@ test('upgrade dry-run rejects copy directory migrations when target is a file', 
       await writeJson(path.join(versionRoot, 'files', 'generated', 'reports', 'templates', 'daily.json'), {
         report: 'daily'
       });
-      await writeJson(path.join(workspacePaths.projectRoot, 'generated', 'reports', 'templates'), {
+      await writeJson(path.join(workspacePaths.workspaceRoot, 'generated', 'reports', 'templates'), {
         occupied: true
       });
     }
@@ -165,7 +167,7 @@ test('upgrade dry-run rejects copy directory migrations when target is a file', 
 
   await expectUpgradeDryRunFailureWithDiagnostics(
     workspaceRoot,
-    paths.upgradeDiagnosticsPath,
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
     { code: 'UPGRADE-MIGRATION-027' },
     { failedCheck: 'migration-file-operations' }
   );

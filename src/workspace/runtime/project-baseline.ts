@@ -12,7 +12,14 @@ import {
   type ProjectBaselineFile
 } from '../index.ts';
 import { writeJson, type CommitFence } from './files.ts';
-import { getWorkspacePaths, resolvePathInside } from './paths.ts';
+import {
+  getWorkspacePaths,
+  modelRelativePath,
+  resolvePathInside,
+  secRelativePath,
+  tsconfigRelativePath,
+  workspaceConfigRelativePath
+} from './paths.ts';
 import { calculateProjectFileHash } from './project-file-hash.ts';
 
 export interface ProjectBaselineAssertionOptions {
@@ -24,8 +31,8 @@ const PROJECT_BASELINE_KEYS = new Set(['formatVersion', 'artifacts']);
 const PROJECT_BASELINE_ARTIFACT_KEYS = new Set(['path', 'hash']);
 
 export function getProjectBaselinePath(workspaceRoot: string): string {
-  const { localStateRoot } = getWorkspacePaths(workspaceRoot);
-  return path.join(localStateRoot, 'cache', 'project-baseline.json');
+  const { cacheRoot } = getWorkspacePaths(workspaceRoot);
+  return path.join(cacheRoot, 'project-baseline.json');
 }
 
 function requireCanonicalBaselineArtifactPath(artifactPath: string): string {
@@ -40,12 +47,11 @@ function requireCanonicalBaselineArtifactPath(artifactPath: string): string {
 
 function isReadOnlyProjectPath(artifactPath: string, slotTargets: ReadonlySet<string>): boolean {
   return (
-    !artifactPath.startsWith('source/') &&
-    !artifactPath.startsWith('control/') &&
-    !artifactPath.startsWith('.sec/') &&
-    !artifactPath.startsWith('project/') &&
+    !artifactPath.startsWith(`${modelRelativePath}/`) &&
+    !artifactPath.startsWith(`${secRelativePath}/`) &&
     !slotTargets.has(artifactPath) &&
-    artifactPath !== 'tsconfig.json'
+    artifactPath !== workspaceConfigRelativePath &&
+    artifactPath !== tsconfigRelativePath
   );
 }
 
@@ -71,12 +77,12 @@ export function currentReadOnlyProjectPaths(
  * around these calls does not create filesystem concurrency.
  */
 function calculateArtifactHashes(
-  projectRoot: string,
+  workspaceRoot: string,
   artifactPaths: readonly string[]
 ): Array<{ path: string; hash: string | undefined }> {
   return artifactPaths.map((rawArtifactPath) => {
     const artifactPath = requireCanonicalBaselineArtifactPath(rawArtifactPath);
-    const absolutePath = resolvePathInside(projectRoot, artifactPath);
+    const absolutePath = resolvePathInside(workspaceRoot, artifactPath);
     const hash = absolutePath ? calculateProjectFileHash(absolutePath) : undefined;
     return { path: artifactPath, hash };
   });
@@ -177,9 +183,9 @@ export function assertProjectBaseline(
     invalidBaseline('artifact path set does not match the current generated ownership set');
   }
 
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
   const allowedChangedPaths = allowedChangedPathSet(options);
-  const currentArtifacts = calculateArtifactHashes(projectRoot, baselineArtifactPaths);
+  const currentArtifacts = calculateArtifactHashes(root, baselineArtifactPaths);
 
   for (let index = 0; index < baseline.artifacts.length; index += 1) {
     const expected = baseline.artifacts[index];
@@ -218,9 +224,9 @@ export async function writeProjectBaseline(
   additionalPaths: readonly string[] = [],
   commitFence?: CommitFence
 ): Promise<ProjectBaselineFile> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
   const artifactPaths = currentReadOnlyProjectPaths(lock, additionalPaths);
-  const calculated = calculateArtifactHashes(projectRoot, artifactPaths);
+  const calculated = calculateArtifactHashes(root, artifactPaths);
   const artifacts: ProjectBaselineArtifact[] = [];
 
   for (const artifact of calculated) {

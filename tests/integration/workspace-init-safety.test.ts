@@ -4,11 +4,12 @@ import * as path from 'node:path';
 
 import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
 import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import {
   acquireWorkspaceWriteLease,
   WorkspaceWriteLeaseError
 } from '../../src/workspace/lease.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 test('init creates the minimal workspace on an empty root', async () => {
@@ -17,13 +18,13 @@ test('init creates the minimal workspace on an empty root', async () => {
   const paths = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(result.planPath);
 
-  expect(result.planPath).toBe(paths.planPath);
+  expect(result.planPath).toBe(paths.workspaceConfigPath);
   expect(plan.app.id).toBe('app');
   expect(plan.blocks).toEqual([]);
   expect(plan.slots).toEqual([]);
   expect(plan.acceptance).toEqual([]);
   expect(await fs.readFile(result.lockPath, 'utf8')).not.toContain('customer-admin');
-  await expect(fs.lstat(paths.projectRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(fs.lstat(paths.srcRoot)).resolves.toMatchObject({});
 });
 
 test('reference Customer scaffold requires an explicit create template', async () => {
@@ -38,8 +39,8 @@ test('reference Customer scaffold requires an explicit create template', async (
     'tenant/basic-workspace',
     'entity/customer-basic'
   ]);
-  await expect(fs.lstat(paths.projectRoot)).resolves.toMatchObject({});
-  expect(await fs.readFile(paths.projectPackagePath, 'utf8')).toContain('generated-customer-admin');
+  await expect(fs.lstat(paths.srcRoot)).resolves.toMatchObject({});
+  expect(await fs.readFile(paths.packageJsonPath, 'utf8')).toContain('generated-customer-admin');
 });
 
 test('unsupported create template fails before lifecycle publication', async () => {
@@ -68,7 +69,10 @@ test('init refuses a non-empty foreign root before acquiring deletion authority'
 test('repeated init cannot overwrite an existing SEC workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-init-repeat-');
   await initWorkspace(workspaceRoot);
-  const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const paths = getWorkspacePaths(workspaceRoot);
+  const planPath = paths.workspaceConfigPath;
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
   const before = await Promise.all([
     fs.readFile(planPath),
     fs.readFile(lockPath),

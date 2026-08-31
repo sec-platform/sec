@@ -5,8 +5,9 @@ import path from 'node:path';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../src/change-management/upgrade/contract/types.ts';
 import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
 import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { writePassingVerificationState } from '../helpers/verification-fixtures.ts';
@@ -21,7 +22,8 @@ import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.t
 
 test('CLI emits text migration operation details in upgrade summaries', async () => {
   await withWorkspaceScenario('empty-default', async (workspaceRoot) => {
-    const { privateRegistryRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
+    const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
+    const projectRoot = workspaceRoot;
     const blockRoot = path.join(privateRegistryRoot, 'private.text-upgrade');
     const versionRoot = path.join(blockRoot, 'versions', '0.2.0');
     await fs.mkdir(path.join(blockRoot, 'files', 'src', 'installed', 'private'), { recursive: true });
@@ -126,7 +128,7 @@ test('upgrade apply publishes one coherent version transition and preserves the 
   await withTempWorkspace(async (workspaceRoot) => {
     await writeSlotUpgradeFixture(workspaceRoot);
     const paths = getWorkspacePaths(workspaceRoot);
-    const slotTarget = path.join(paths.projectRoot, 'custom', 'customer_normalizer.ts');
+    const slotTarget = path.join(paths.workspaceRoot, 'custom', 'customer_normalizer.ts');
     const inheritedInstallSource = path.join(
       paths.privateRegistryRoot,
       'private.slot-contract',
@@ -162,7 +164,10 @@ test('upgrade apply publishes one coherent version transition and preserves the 
     }));
     await expect(fs.readFile(slotTarget, 'utf8')).resolves.toBe(originalTarget);
 
-    const persistedPlan = JSON.parse(await fs.readFile(paths.upgradePlanPath, 'utf8')) as UpgradePlan;
+    const persistedPlan = JSON.parse(await fs.readFile(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
+      'utf8'
+    )) as UpgradePlan;
     expect(persistedPlan).toEqual(result.upgradePlan);
   });
 }, 180000);
