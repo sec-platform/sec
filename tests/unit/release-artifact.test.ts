@@ -4,18 +4,37 @@ import fs, { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import {
+  RELEASE_BUN_ENTRYPOINT_SHEBANG,
+  releaseBunEntrypointBytes
+} from '../../src/release/release-artifact.ts';
 import { materializeExactReleaseGitTree } from '../../src/release/release-git-tree-source.ts';
 import {
+  assertReleaseBunRuntimeRequirement,
+  buildFrozenReleaseBundle,
   disposeFrozenReleaseSource,
-  prepareFrozenReleaseSource
+  prepareFrozenReleaseSource,
+  type ReleaseBuilderIdentity
 } from '../../src/release/release-source-materialization.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
   artifact: 'dist/index.js',
   command: 'fixture',
-  source: 'platform/fixture-cli.ts'
+  source: 'src/interface/cli/index.ts'
 });
+
+function currentBuilder(overrides: Partial<ReleaseBuilderIdentity> = {}): ReleaseBuilderIdentity {
+  return Object.freeze({
+    schema: 'sec-release-builder-identity-v1',
+    runtime: 'bun',
+    version: Bun.version,
+    executableSha256: `sha256:${'a'.repeat(64)}`,
+    platform: process.platform,
+    architecture: process.arch,
+    ...overrides
+  });
+}
 
 function command(repositoryRoot: string, executable: string, args: readonly string[]): string {
   const result = spawnSync(executable, [...args], {
@@ -42,6 +61,7 @@ async function initRepository(repositoryRoot: string): Promise<void> {
 async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
   await initRepository(repositoryRoot);
   await fs.writeFile(path.join(repositoryRoot, '.gitignore'), 'node_modules/\n');
+  await fs.writeFile(path.join(repositoryRoot, '.bun-version'), `${Bun.version}\n`);
   const sourcePath = path.join(
     repositoryRoot,
     ...FIXTURE_ENTRYPOINT.source.split('/')
@@ -110,6 +130,73 @@ test('frozen release source ignores untracked noise and binds one exact commit/t
     await rm(repositoryRoot, { recursive: true, force: true });
   }
 });
+
+test('release runtime requirement rejects absent and mismatched Bun without a Node fallback', () => {
+  const requirement = currentBuilder();
+  for (const observedVersion of [null, '0.0.0']) {
+    try {
+      assertReleaseBunRuntimeRequirement(requirement, observedVersion);
+      throw new Error('expected an unsupported Bun runtime failure');
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: 'SecError',
+        code: 'RUNTIME-LAYOUT-001',
+        details: {
+          disposition: 'unsupported',
+          runtime: 'bun',
+          requiredVersion: Bun.version,
+          observedVersion
+        }
+      });
+    }
+  }
+  expect(() => assertReleaseBunRuntimeRequirement(requirement, Bun.version)).not.toThrow();
+});
+
+test('release entrypoint normalization permits only the Bun interpreter directive', () => {
+  const source = Buffer.from('console.log("fixture");\n', 'utf8');
+  const normalized = releaseBunEntrypointBytes(source);
+  expect(normalized.toString('utf8')).toBe(`${RELEASE_BUN_ENTRYPOINT_SHEBANG}${source}`);
+  expect(releaseBunEntrypointBytes(normalized)).toEqual(normalized);
+  expect(() => releaseBunEntrypointBytes(
+    Buffer.from('#!/usr/bin/env node\nconsole.log("fixture");\n', 'utf8')
+  )).toThrow('non-Bun interpreter directive');
+});
+
+test('Bun-target release bundle launches under the retained Bun generation', async () => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bun-bin-'));
+  const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bun-artifact-'));
+  try {
+    await initMinimalBunRepository(repositoryRoot);
+    const frozen = await prepareFrozenReleaseSource(repositoryRoot);
+    try {
+      await buildFrozenReleaseBundle(frozen, artifactRoot);
+      const entrypoint = path.join(artifactRoot, 'index.js');
+      const entrypointBytes = releaseBunEntrypointBytes(await fs.readFile(entrypoint));
+      await fs.writeFile(entrypoint, entrypointBytes);
+      await fs.chmod(entrypoint, 0o755);
+
+      expect(entrypointBytes.toString('utf8').startsWith(RELEASE_BUN_ENTRYPOINT_SHEBANG))
+        .toBe(true);
+      const launched = Bun.spawnSync({
+        cmd: [process.execPath, entrypoint],
+        cwd: artifactRoot,
+        stderr: 'pipe',
+        stdout: 'pipe'
+      });
+      expect(launched.exitCode).toBe(0);
+      expect(launched.stdout.toString('utf8')).toBe('fixture\n');
+      expect(launched.stderr.toString('utf8')).toBe('');
+    } finally {
+      await disposeFrozenReleaseSource(frozen);
+    }
+  } finally {
+    await Promise.all([
+      rm(repositoryRoot, { recursive: true, force: true }),
+      rm(artifactRoot, { recursive: true, force: true })
+    ]);
+  }
+}, 20_000);
 
 test('tracked worktree or index drift is rejected against the captured source commit', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-tracked-drift-'));

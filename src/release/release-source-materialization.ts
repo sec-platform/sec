@@ -3,8 +3,10 @@ import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, runCommandBytes, runRetainedCommandBytes } from '../runtime-state/physical/runtime/process.ts';
+import { SecError } from '../system-architecture/foundation/contract/failure.ts';
 import { digest } from '../system-architecture/foundation/runtime/canonical.ts';
 import {
+  loadCanonicalBunRuntimeVersion,
   parseCompilerPackageEntrypointBinding,
   type CompilerPackageEntrypointBinding
 } from '../toolchain/runtime.ts';
@@ -19,6 +21,26 @@ export interface ReleaseBuilderIdentity {
   readonly executableSha256: `sha256:${string}`;
   readonly platform: NodeJS.Platform;
   readonly architecture: string;
+}
+
+export function assertReleaseBunRuntimeRequirement(
+  requirement: ReleaseBuilderIdentity,
+  observedVersion: string | null = process.versions.bun ?? null
+): void {
+  if (observedVersion !== requirement.version) {
+    throw new SecError(
+      'RUNTIME-LAYOUT-001',
+      observedVersion === null
+        ? 'SEC release artifact requires the canonical Bun host runtime'
+        : 'SEC release artifact does not support this Bun host runtime generation',
+      Object.freeze({
+        disposition: 'unsupported',
+        runtime: 'bun',
+        requiredVersion: requirement.version,
+        observedVersion
+      })
+    );
+  }
 }
 
 export interface FrozenReleaseSource {
@@ -151,8 +173,11 @@ async function readFrozenPackageConfig(
   dependencies: readonly string[];
   dependencyLockDigest: `sha256:${string}`;
 }> {
-  const packageBytes = await fs.readFile(path.join(sourceRoot, 'package.json'));
-  const lockBytes = await fs.readFile(path.join(sourceRoot, 'bun.lock'));
+  const [packageBytes, lockBytes, canonicalBunVersion] = await Promise.all([
+    fs.readFile(path.join(sourceRoot, 'package.json')),
+    fs.readFile(path.join(sourceRoot, 'bun.lock')),
+    loadCanonicalBunRuntimeVersion(sourceRoot)
+  ]);
   const raw = JSON.parse(packageBytes.toString('utf8')) as {
     version?: unknown;
     packageManager?: unknown;
@@ -164,6 +189,7 @@ async function readFrozenPackageConfig(
   if (typeof raw.version !== 'string' || raw.version.length === 0) {
     throw new Error('Frozen package.json does not contain a valid version');
   }
+  assertReleaseBunRuntimeRequirement(builder, canonicalBunVersion);
   if (raw.packageManager !== `bun@${builder.version}`) {
     throw new Error(
       `Release builder bun@${builder.version} does not match frozen packageManager ${String(raw.packageManager)}`
@@ -309,16 +335,14 @@ export async function buildFrozenReleaseBundle(
   source: FrozenReleaseSource,
   stagedArtifactRoot: string
 ): Promise<void> {
+  assertReleaseBunRuntimeRequirement(source.builder);
   const metafilePath = path.join(source.root, RELEASE_BUILD_META_FILE_NAME);
   const args = [
     'build',
     `./${source.entrypoint.source}`,
-    '--outdir',
-    stagedArtifactRoot,
-    '--target',
-    'node',
-    '--metafile',
-    metafilePath
+    `--outdir=${stagedArtifactRoot}`,
+    '--target=bun',
+    `--metafile=${metafilePath}`
   ];
   for (const external of frozenExternalImports(source.dependencies)) {
     args.push('--external', external);
