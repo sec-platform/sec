@@ -472,6 +472,11 @@ import投影为精确目标与机械patch。保留下来的窄facade必须拥有
 disposable cache分别进入不同layout category，不能伪装成第二源码根。具体root名称、descriptor名称、文件路径与package形状只由
 strict layout/module machine contract签发，不写入stable prose，也不由测试、cleanup、Brownfield或Agent复制。
 
+可执行程序必须作为该canonical source graph中的显式source unit存在。任何production模块把将在当前或后续operation中被parser、compiler、
+interpreter或runtime执行的程序正文藏进string、template、data payload或临时生成输入，都会形成未进入module/import/consumer/Effect分析的
+第二源码图，并由Source Program admission阻断。真实test/fixture program进入其声明的test/fixture source category；纯外部协议或数据字面量只有在
+不存在执行consumer且由唯一协议owner签发时才不属于源码。不得用“只在测试中调用”、临时文件、动态加载或presentation用途规避这条边界。
+
 每个package只物化真实职责：direct declaration owner、必要的semantic/effect boundary、内部subcapability与同owner behavior proof。
 没有职责就没有目录或barrel。contract/computation/capability/operation/workflow/interface等责任必须由symbol、consumer与Effect facts推导，不由目录名声明；跨package
 consumer默认依赖真实declaration owner，只有执行authority intersection、stable projection、lifecycle或Effect admission的窄入口

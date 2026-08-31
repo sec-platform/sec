@@ -439,6 +439,12 @@ generation移入内容寻址recovery位置，再以no-replace publication发布�
 argv、cwd和transition digest完成至多一次fresh-process handoff；子进程用同一digest拒绝递归。旧进程的module cache
 不能被解释为已经消费新generation，未发生transition时则保持零handoff。
 
+完成publish与readback后，只有dependency publisher可以签发可复用的opaque execution-generation capability；它绑定exact dependency
+root的retained physical identity、内容/manifest generation、publisher lifecycle与retirement条件，而不是只携带路径或caller可重算的digest。
+consumer只能验证并消费该capability，不得为每个进程再次递归扫描、重新哈希、安装、链接、改变ACL/mode或重新签发generation；物理权限的
+建立、证明、恢复与退役始终属于publisher/Runtime Physical owner。跨进程重开只能由该owner从持久proof与当前physical identity重新签发，
+replacement则必须在同一generation transition内使旧capability失效并完成旧物理proof的identity-bound处置。
+
 managed Git hook是按physical worktree绑定的authoring generation。generation identity至少包含tracked hook bytes、
 部署的exact Bun runtime bytes与该worktree Git dir物理身份；common `core.hooksPath`只保存primary checkout的bootstrap
 generation，新建linked worktree第一次checkout后必须把自己的exact generation写入worktree-local config并readback，
