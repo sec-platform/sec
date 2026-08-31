@@ -651,7 +651,9 @@ export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Reado
     })) as SecOperationDigest,
     disposition: input.providerSettlement.physicalDisposition === 'settled'
       ? 'applied'
-      : 'unknown'
+      : input.providerSettlement.physicalDisposition === 'not-started'
+        ? 'not-applied'
+        : 'unknown'
   });
   return issueSecNormalOwnerTerminalJoinReceipt(
     input.operation,

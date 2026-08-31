@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { dockerDesktopLauncherLockDirectory } from './daemon.ts';
 import {
   dockerDesktopLauncherLeaseName,
   withDockerDesktopLauncherLockAtOwnerIssuedDirectory
@@ -13,14 +14,19 @@ test('Docker launcher lock exists only beneath the owner-issued directory', asyn
   const root = mkdtempSync(path.join(tmpdir(), 'sec-docker-launcher-lock-'));
   const endpointHost = 'npipe:////./pipe/dockerDesktopLinuxEngine';
   try {
-    const parent = inspectNoFollowDirectoryChain(root, 'test-owned Docker launcher lock root').target;
+    const dockerDirectory = dockerDesktopLauncherLockDirectory(root);
+    mkdirSync(dockerDirectory);
+    const parent = inspectNoFollowDirectoryChain(
+      dockerDirectory,
+      'test-owned Docker launcher lock root'
+    ).target;
     let observedNames: string[] = [];
     const result = await withDockerDesktopLauncherLockAtOwnerIssuedDirectory({
       deadlineAtUnixMs: Date.now() + 10_000,
       endpointHost,
       parent,
       operation: async () => {
-        observedNames = readdirSync(root);
+        observedNames = readdirSync(dockerDirectory);
         const contender = await withDockerDesktopLauncherLockAtOwnerIssuedDirectory({
           deadlineAtUnixMs: Date.now() + 10_000,
           endpointHost,
@@ -33,7 +39,7 @@ test('Docker launcher lock exists only beneath the owner-issued directory', asyn
     });
     expect(result).toBe('settled');
     expect(observedNames).toEqual([dockerDesktopLauncherLeaseName(endpointHost)]);
-    expect(readdirSync(root)).toEqual([]);
+    expect(readdirSync(dockerDirectory)).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

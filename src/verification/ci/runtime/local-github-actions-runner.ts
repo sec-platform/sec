@@ -6,6 +6,7 @@ import path from 'node:path';
 import type {
   ContainerEngineOperation,
   ContainerEngineOperationOptions,
+  ContainerEngineOperationScope,
   ContainerEngineSession
 } from '../../../external-capabilities/docker/contract/container-engine-session.ts';
 import {
@@ -32,9 +33,14 @@ import { sha256 } from '../../../system-architecture/foundation/runtime/canonica
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
+  compileSecProviderSettlementSet,
   compileSecSemanticOperationPlan,
+  issueSecNormalDomainReadbackReceipt,
+  issueSecNormalOwnerTerminalJoinReceipt,
   issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  type SecBoundSemanticOperation,
+  type SecOperationDigest,
+  type SecOwnerTerminalJoinReceipt
 } from '../../../system-architecture/operation/semantic.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../contract/revision.ts';
 
@@ -122,20 +128,24 @@ const LOCAL_CONTAINER_ENGINE_OPERATION_BUDGET = Object.freeze({
 });
 
 type LocalContainerEngineIntent =
-  | 'materialize-toolchain'
   | 'start-provider'
   | 'stop-provider'
   | 'recover-provider'
   | 'observe-provider'
   | 'retire-image';
 
-async function openLocalContainerEngineSession(input: Readonly<{
+type LocalContainerEngineOperationInput = Readonly<{
   cwd: string;
   intent: LocalContainerEngineIntent;
   availability: 'observe' | 'ensure-started';
   subject: Readonly<Record<string, unknown>>;
   expectedEndpoint?: DockerEndpointIdentity;
-}>): Promise<ContainerEngineSession> {
+}>;
+
+function bindLocalContainerEngineOperation(input: LocalContainerEngineOperationInput & Readonly<{
+  providerIdentityDigest: SecOperationDigest;
+  deadlineAtUnixMs?: number;
+}>): SecBoundSemanticOperation {
   const cwd = path.resolve(input.cwd);
   const contractDigest = sha256(Object.freeze({
     schema: 'sec-local-github-actions-container-engine-contract-v1',
@@ -153,7 +163,8 @@ async function openLocalContainerEngineSession(input: Readonly<{
       contractDigest,
       budget: LOCAL_CONTAINER_ENGINE_OPERATION_BUDGET
     })) as SecOperationDigest,
-    deadlineAtUnixMs: Date.now() + LOCAL_CONTAINER_ENGINE_OPERATION_BUDGET.durationMs,
+    deadlineAtUnixMs: input.deadlineAtUnixMs
+      ?? Date.now() + LOCAL_CONTAINER_ENGINE_OPERATION_BUDGET.durationMs,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: LOCAL_CONTAINER_ENGINE_OPERATION_BUDGET.durationMs },
       { resource: 'input-bytes', maximum: LOCAL_CONTAINER_ENGINE_OPERATION_BUDGET.inputBytes },
@@ -177,19 +188,120 @@ async function openLocalContainerEngineSession(input: Readonly<{
   const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
-    providerIdentityDigest: sha256(Object.freeze({
-      schema: 'sec-local-github-actions-container-engine-provider-binding-v1',
-      environmentId: ENVIRONMENT.environmentId,
-      cwd
-    })) as SecOperationDigest
+    providerIdentityDigest: input.providerIdentityDigest
   })]);
-  return await openContainerEngineSession({
-    operation,
+  return operation;
+}
+
+interface LocalContainerEngineOperationSession {
+  readonly session: ContainerEngineSession;
+  readonly operation: SecBoundSemanticOperation;
+  readonly scope: ContainerEngineOperationScope;
+  settle(): Promise<SecOwnerTerminalJoinReceipt>;
+  close(): Promise<void>;
+}
+
+async function openLocalContainerEngineSession(
+  input: LocalContainerEngineOperationInput
+): Promise<LocalContainerEngineOperationSession> {
+  const cwd = path.resolve(input.cwd);
+  const resourceEnvelope = bindLocalContainerEngineOperation({
+    ...input,
+    cwd,
+    providerIdentityDigest: sha256(Object.freeze({
+      schema: 'sec-local-github-actions-container-engine-resource-envelope-v1',
+      environmentId: ENVIRONMENT.environmentId,
+      cwd,
+      intent: input.intent
+    })) as SecOperationDigest
+  });
+  const session = await openContainerEngineSession({
+    operation: resourceEnvelope,
     cwd,
     availability: input.availability,
     ...(input.expectedEndpoint === undefined ? {} : {
       expectedEndpoint: dockerEndpointIdentity(input.expectedEndpoint)
     })
+  });
+  const operation = bindLocalContainerEngineOperation({
+    ...input,
+    cwd,
+    providerIdentityDigest: session.providerIdentityDigest,
+    deadlineAtUnixMs: session.deadlineAtUnixMs
+  });
+  const scope = session.openOperationScope({
+    operation,
+    requirementId: 'external.container-engine-process'
+  });
+  let joinReceipt: SecOwnerTerminalJoinReceipt | null = null;
+  let closeFailure: unknown;
+  return Object.freeze({
+    session,
+    operation,
+    scope,
+    async settle(): Promise<SecOwnerTerminalJoinReceipt> {
+      if (joinReceipt !== null) return joinReceipt;
+      const providerSettlement = scope.settle();
+      const endpointReadback = await session.observeEndpoint();
+      const providerSettlementSet = compileSecProviderSettlementSet(
+        operation,
+        [providerSettlement]
+      );
+      const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
+        readbackContractDigest: sha256(Object.freeze({
+          schema: 'sec-local-github-actions-container-engine-readback-contract-v1',
+          intent: input.intent,
+          endpointHost: endpointReadback.endpointHost
+        })) as SecOperationDigest,
+        readbackReferenceDigest: sha256(Object.freeze({
+          schema: 'sec-local-github-actions-container-engine-readback-v1',
+          endpoint: endpointReadback
+        })) as SecOperationDigest,
+        currentPhysicalEpochDigest: sha256(Object.freeze({
+          schema: 'sec-local-github-actions-container-engine-physical-epoch-v1',
+          endpointHost: endpointReadback.endpointHost,
+          daemonId: endpointReadback.daemonId
+        })) as SecOperationDigest,
+        disposition: providerSettlement.physicalDisposition === 'settled'
+          ? 'applied'
+          : providerSettlement.physicalDisposition === 'not-started'
+            ? 'not-applied'
+            : 'unknown'
+      });
+      joinReceipt = issueSecNormalOwnerTerminalJoinReceipt(
+        operation,
+        providerSettlementSet,
+        readback,
+        {
+          ownerTerminalContractDigest: sha256(Object.freeze({
+            schema: 'sec-local-github-actions-container-engine-owner-terminal-contract-v1',
+            intent: input.intent
+          })) as SecOperationDigest,
+          ownerTerminalReferenceDigest: sha256(Object.freeze({
+            schema: 'sec-local-github-actions-container-engine-owner-terminal-reference-v1',
+            intent: input.intent,
+            subject: input.subject,
+            endpoint: endpointReadback,
+            physicalDisposition: providerSettlement.physicalDisposition
+          })) as SecOperationDigest
+        }
+      );
+      return joinReceipt;
+    },
+    async close(): Promise<void> {
+      if (closeFailure !== undefined) throw closeFailure;
+      try {
+        await this.settle();
+      } catch (error) {
+        closeFailure = error;
+      }
+      try {
+        session.close();
+      } catch (error) {
+        closeFailure ??= error;
+      }
+      if (closeFailure !== undefined) throw closeFailure;
+    }
   });
 }
 const DEFAULT_CPUS = ENVIRONMENT.runtime.resources.control.cpus;
@@ -3187,12 +3299,13 @@ export async function startLocalGitHubActionsProvider(input: Readonly<{
   if (readStateProjection(context.commonDirectory) !== null) {
     fail(`active state already exists at ${statePath(context.commonDirectory)}`);
   }
-  const containerEngineSession = await openLocalContainerEngineSession({
+  const containerEngineOperation = await openLocalContainerEngineSession({
     cwd: context.repositoryRoot,
     intent: 'start-provider',
     availability: 'ensure-started',
     subject: Object.freeze({ repository, providerName, cpus, memory })
   });
+  const containerEngineSession = containerEngineOperation.session;
   try {
   const dockerEndpoint = containerEngineSession.endpoint;
   const githubEndpoint = await observeGitHubEndpointIdentity(context.repositoryRoot, repository);
@@ -3313,7 +3426,7 @@ export async function startLocalGitHubActionsProvider(input: Readonly<{
     throw error;
   }
   } finally {
-    containerEngineSession.close();
+    await containerEngineOperation.close();
   }
 }
 
@@ -3498,7 +3611,7 @@ export async function stopLocalGitHubActionsProvider(input: Readonly<{
   await assertOriginRepositoryIdentity(context.repositoryRoot, state.repository);
   const cursor = await loadCurrentProviderLedgerCursor(context.repositoryRoot, state.repository);
   if (cursor === null) fail('remote provider ledger is absent while local projection remains');
-  const containerEngineSession = await openLocalContainerEngineSession({
+  const containerEngineOperation = await openLocalContainerEngineSession({
     cwd: context.repositoryRoot,
     intent: 'stop-provider',
     availability: 'observe',
@@ -3509,6 +3622,7 @@ export async function stopLocalGitHubActionsProvider(input: Readonly<{
     }),
     expectedEndpoint: cursor.ledger.dockerEndpoint,
   });
+  const containerEngineSession = containerEngineOperation.session;
   try {
   await assertGitHubEndpointIdentity(cursor.ledger.githubEndpoint, context.repositoryRoot);
   assertStateProjectionBoundToLedger(state, cursor.ledger);
@@ -3537,7 +3651,7 @@ export async function stopLocalGitHubActionsProvider(input: Readonly<{
     imageRetained: true as const
   });
   } finally {
-    containerEngineSession.close();
+    await containerEngineOperation.close();
   }
 }
 
@@ -3559,7 +3673,7 @@ export async function recoverLocalGitHubActionsProvider(input: Readonly<{
   await assertOriginRepositoryIdentity(context.repositoryRoot, repository);
   const projection = readStateProjection(context.commonDirectory);
   const cursor = await loadCurrentProviderLedgerCursor(context.repositoryRoot, repository);
-  const containerEngineSession = await openLocalContainerEngineSession({
+  const containerEngineOperation = await openLocalContainerEngineSession({
     cwd: context.repositoryRoot,
     intent: 'recover-provider',
     availability: 'observe',
@@ -3570,6 +3684,7 @@ export async function recoverLocalGitHubActionsProvider(input: Readonly<{
     }),
     ...(cursor === null ? {} : { expectedEndpoint: cursor.ledger.dockerEndpoint })
   });
+  const containerEngineSession = containerEngineOperation.session;
   try {
   if (cursor === null) {
     if (projection !== null) {
@@ -3620,7 +3735,7 @@ export async function recoverLocalGitHubActionsProvider(input: Readonly<{
     providerLedgerAbsent: true as const
   });
   } finally {
-    containerEngineSession.close();
+    await containerEngineOperation.close();
   }
 }
 
@@ -3629,7 +3744,7 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{ cwd: s
   const repository = await assertOriginRepositoryIdentity(context.repositoryRoot);
   const projection = readStateProjection(context.commonDirectory);
   const cursor = await loadCurrentProviderLedgerCursor(context.repositoryRoot, repository);
-  const containerEngineSession = await openLocalContainerEngineSession({
+  const containerEngineOperation = await openLocalContainerEngineSession({
     cwd: context.repositoryRoot,
     intent: 'observe-provider',
     availability: 'observe',
@@ -3639,6 +3754,7 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{ cwd: s
     }),
     ...(cursor === null ? {} : { expectedEndpoint: cursor.ledger.dockerEndpoint })
   });
+  const containerEngineSession = containerEngineOperation.session;
   try {
   if (cursor === null) {
     if (projection !== null) {
@@ -3729,7 +3845,7 @@ export async function observeLocalGitHubActionsProvider(input: Readonly<{ cwd: s
     instances: Object.freeze(observations)
   });
   } finally {
-    containerEngineSession.close();
+    await containerEngineOperation.close();
   }
 }
 
@@ -3756,7 +3872,7 @@ export async function retireSupersededLocalGitHubActionsRunnerImage(input: Reado
   ) !== null) {
     fail('image retirement is blocked while the provider ledger is active');
   }
-  const containerEngineSession = await openLocalContainerEngineSession({
+  const containerEngineOperation = await openLocalContainerEngineSession({
     cwd: context.repositoryRoot,
     intent: 'retire-image',
     availability: 'observe',
@@ -3766,6 +3882,7 @@ export async function retireSupersededLocalGitHubActionsRunnerImage(input: Reado
       decision: decision.decision
     })
   });
+  const containerEngineSession = containerEngineOperation.session;
   try {
   const replacement = await inspectImageById(
     decision.replacementImageId,
@@ -3799,7 +3916,7 @@ export async function retireSupersededLocalGitHubActionsRunnerImage(input: Reado
     imageAbsent: true as const
   });
   } finally {
-    containerEngineSession.close();
+    await containerEngineOperation.close();
   }
 }
 
