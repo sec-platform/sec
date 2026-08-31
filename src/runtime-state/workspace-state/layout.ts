@@ -40,6 +40,7 @@ export interface SecRuntimeStateLayout {
   readonly workspaceStateRoot: string;
   readonly continuationObjectRoot: string;
   readonly continuationPointerPath: string;
+  readonly durableLocalExecutionJournalRoot: string;
   readonly verificationSessionJournalRoot: string;
   readonly verificationActionJournalRoot: string;
 }
@@ -243,6 +244,9 @@ export function resolveSecRuntimeStateLayout(input: Readonly<{
     workspaceStateRoot: roots.workspaceStateRoot,
     continuationObjectRoot: api.join(repositoryStateRoot, 'objects', 'continuation-v1'),
     continuationPointerPath: api.join(roots.workspaceStateRoot, 'active-continuation-v1.json'),
+    durableLocalExecutionJournalRoot: api.join(
+      roots.workspaceStateRoot, 'durable-local-executions', 'v1'
+    ),
     verificationSessionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-sessions', 'v2'),
     verificationActionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-actions', 'v2')
   });
