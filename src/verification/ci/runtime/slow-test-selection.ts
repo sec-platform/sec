@@ -5,7 +5,7 @@ import { getSlowTestSuitesSync, isFastTestFile, isSlowTestFile, slowTestPrRiskBa
 import { resolveTestImpactForFiles, resolveTestImpactRiskPolicies, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 
-export type CiPrRiskSlowSuiteSelection = {
+export type CiSlowTestClosureSelection = {
   suites: string[];
   slowTests: string[];
   affectedSlowTests: string[];
@@ -55,11 +55,11 @@ function suitesForSlowTests(
   );
 }
 
-export function selectCiPrRiskSlowSuites(
+export function selectCiSlowTestClosure(
   files: string[] | null,
   provider?: CodexDevelopmentTestImpactSourceProvider,
   transition?: CodexDevelopmentTestImpactTransitionObservation
-): CiPrRiskSlowSuiteSelection {
+): CiSlowTestClosureSelection {
   if (!files) {
     return {
       suites: baselineSlowSuiteIds(),

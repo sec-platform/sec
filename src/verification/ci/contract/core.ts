@@ -1,4 +1,4 @@
-import { platformCommand } from '../../../interface/cli/contract.ts';
+import { platformCommand } from '../../../interface/cli/contract/command.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind } from '../../ci-artifacts/contract/types.ts';
@@ -102,8 +102,6 @@ export type CiContract = {
   mainHealthCommands: string[];
   prQuickLaneCommandCount: number;
   prQuickLaneCommands: string[];
-  prRiskLaneCommandCount: number;
-  prRiskLaneCommands: string[];
   fullLaneCommandCount: number;
   fullLaneCommands: string[];
   verifyCommandCount: number;
@@ -145,10 +143,6 @@ const prQuickLaneCommands = [
   'bun run test:affected'
 ];
 
-const prRiskLaneCommands = [
-  'bun src/verification/ci/pr-risk.ts'
-];
-
 const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
 
 const fullLaneCommands = [
@@ -164,7 +158,6 @@ const fullLaneCommands = [
   platformCommand('deps', 'warmup'),
   platformCommand('resolve'),
   platformCommand('compose'),
-  platformCommand('adapt'),
   platformCommand('verify', '--lane', 'all', '--json', '--compact'),
   platformCommand('lock'),
   platformCommand('explain'),
@@ -351,8 +344,6 @@ export function buildCiContract(): CiContract {
     mainHealthCommands: [...CI_MAIN_HEALTH_COMMANDS],
     prQuickLaneCommandCount: prQuickLaneCommands.length,
     prQuickLaneCommands: [...prQuickLaneCommands],
-    prRiskLaneCommandCount: prRiskLaneCommands.length,
-    prRiskLaneCommands: [...prRiskLaneCommands],
     fullLaneCommandCount: fullLaneCommands.length,
     fullLaneCommands: [...fullLaneCommands],
     verifyCommandCount: verifyCommands.length,
@@ -394,8 +385,6 @@ export function formatCiContract(contract: CiContract): string {
     `Release workflow commands: ${contract.releaseWorkflowCommands.join(', ')}`,
     `PR quick lane command count: ${contract.prQuickLaneCommandCount}`,
     `PR quick lane commands: ${contract.prQuickLaneCommands.join(', ')}`,
-    `PR risk lane command count: ${contract.prRiskLaneCommandCount}`,
-    `PR risk lane commands: ${contract.prRiskLaneCommands.join(', ')}`,
     `Full lane command count: ${contract.fullLaneCommandCount}`,
     `Full lane commands: ${contract.fullLaneCommands.join(', ')}`,
     `Verify command count: ${contract.verifyCommandCount}`,

@@ -13,7 +13,7 @@
         "buildCiContract",
         "buildCiFullGatePlan",
         "buildCiQuickGatePlan",
-        "selectCiPrRiskSlowSuites"
+        "selectCiSlowTestClosure"
       ]
     }
   ],
