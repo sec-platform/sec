@@ -681,7 +681,7 @@ function gitReadCommandIsObservation(args: readonly string[]): boolean {
   return false;
 }
 
-function createGitReadBudget(
+export function resolveGitReadSessionBudget(
   input: Partial<GitReadSessionBudget> | undefined
 ): GitReadSessionBudget {
   const requested = input ?? {};
@@ -889,7 +889,7 @@ function semanticOperationBudget(
 }
 
 function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSession {
-  const budget = createGitReadBudget(input.budget);
+  const budget = resolveGitReadSessionBudget(input.budget);
   let processResourceSession: ProcessResourceSession | null = null;
   let operationAdmissionFailure: string | null = null;
   if (input.origin === 'production') {
