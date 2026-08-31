@@ -29,6 +29,7 @@ export type SecDurableExecutionTerminalClass =
   | 'failed'
   | 'cancelled'
   | 'timed-out'
+  | 'not-applied'
   | 'recovery-required';
 
 interface SecDurableExecutionRecordBase {
@@ -185,7 +186,7 @@ const durableExecutionRecordSchema = z.discriminatedUnion('kind', [
     kind: z.literal('terminal'),
     attemptNonceDigest: digestSchema,
     terminalClass: z.enum([
-      'succeeded', 'failed', 'cancelled', 'timed-out', 'recovery-required'
+      'succeeded', 'failed', 'cancelled', 'timed-out', 'not-applied', 'recovery-required'
     ]),
     terminalReferenceDigest: digestSchema,
     providerSettlementRecordDigest: nullableDigestSchema,
@@ -263,6 +264,11 @@ function assertTerminalEvidence(
         fail('invalid-transition', 'timed-out terminal requires provider timeout and not-applied readback.');
       }
       return;
+    case 'not-applied':
+      if (provider !== null || readback?.readbackClass !== 'not-applied') {
+        fail('invalid-transition', 'not-applied terminal requires conclusive domain readback and no provider settlement.');
+      }
+      return;
     case 'recovery-required':
       if (readback !== null && readback.readbackClass !== 'unknown') {
         fail('invalid-transition', 'recovery-required terminal cannot discard conclusive domain readback.');
@@ -297,8 +303,9 @@ export function observeDurableExecutionJournal(
     if (record.kind === 'intent') fail('invalid-transition', 'journal contains a second intent.');
     switch (record.kind) {
       case 'attempt-start':
-        if (active !== null || latestTerminal?.terminalClass === 'succeeded') {
-          fail('invalid-transition', 'attempt start conflicts with active or succeeded execution.');
+        if (active !== null || latestTerminal?.terminalClass === 'succeeded'
+            || latestTerminal?.terminalClass === 'recovery-required') {
+          fail('invalid-transition', 'attempt start conflicts with active, succeeded or unresolved execution.');
         }
         if (attemptNonces.has(record.attemptNonceDigest)) {
           fail('invalid-transition', 'attempt nonce was already consumed by this run.');
