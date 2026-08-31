@@ -90,6 +90,22 @@ export type LocalVerificationActionDagResult = Readonly<{
   terminalDigest: VerificationActionKeyDigest;
 }>;
 
+export type VerificationActionTestProcessIssuer = Readonly<{
+  kind: 'verification-action-test-process-issuer';
+}>;
+
+const ISSUED_VERIFICATION_ACTION_TEST_PROCESS_ISSUERS = new WeakSet<object>();
+
+/** Test-only issuer; production imports are rejected by the repository model. */
+export function issueVerificationActionTestProcessIssuerForTests():
+VerificationActionTestProcessIssuer {
+  const issuer = Object.freeze({
+    kind: 'verification-action-test-process-issuer' as const
+  });
+  ISSUED_VERIFICATION_ACTION_TEST_PROCESS_ISSUERS.add(issuer);
+  return issuer;
+}
+
 export type ExecuteLocalVerificationActionDagInput = Readonly<{
   /** Trusted checkout that owns the durable local Action journal. */
   authorityRoot: string;
@@ -104,7 +120,8 @@ export type ExecuteLocalVerificationActionDagInput = Readonly<{
   deadlineAtUnixMs?: number;
   runner?: VerificationActionRunner;
   recordedAt?: () => string;
-  executeNormalizedOperation?: (
+  testProcessIssuer?: VerificationActionTestProcessIssuer;
+  testProcessProvider?: (
     operation: CiVerificationNormalizedOperation,
     context: VerificationActionProcessExecutionContext
   ) => Promise<ProcessResourceRunResult> | ProcessResourceRunResult;
@@ -813,6 +830,15 @@ export function createVerificationActionRunner(): VerificationActionRunner {
 export async function executeLocalVerificationActionDag(
   input: ExecuteLocalVerificationActionDagInput
 ): Promise<LocalVerificationActionDagResult> {
+  if (input.testProcessProvider !== undefined && (
+    input.testProcessIssuer === undefined
+    || !ISSUED_VERIFICATION_ACTION_TEST_PROCESS_ISSUERS.has(input.testProcessIssuer)
+  )) {
+    throw new Error('local VerificationAction test process provider requires an owner-issued test issuer.');
+  }
+  if (input.testProcessProvider === undefined && input.testProcessIssuer !== undefined) {
+    throw new Error('local VerificationAction test process issuer is unused.');
+  }
   const authorityRoot = realpathSync.native(path.resolve(input.authorityRoot));
   const candidateRoot = path.resolve(input.candidateRoot);
   const closure = parseCiVerificationActionPlanClosure(
@@ -891,8 +917,8 @@ export async function executeLocalVerificationActionDag(
                 environment: input.environment,
                 process
               })
-              : input.executeNormalizedOperation !== undefined
-                ? await input.executeNormalizedOperation(normalizedOperation, process)
+              : input.testProcessProvider !== undefined
+                ? await input.testProcessProvider(normalizedOperation, process)
                 : (() => {
                   throw new Error('local VerificationAction DAG physical provider is unavailable');
                 })()

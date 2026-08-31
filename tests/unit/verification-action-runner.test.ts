@@ -38,11 +38,13 @@ import {
 } from '../../src/verification/action/journal.ts';
 import {
   executeLocalVerificationActionDag,
+  issueVerificationActionTestProcessIssuerForTests,
   VerificationActionRunner
 } from '../../src/verification/action/runner.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
+const TEST_PROCESS_ISSUER = issueVerificationActionTestProcessIssuerForTests();
 const BASE_SHA = '1'.repeat(40);
 const BASE_TREE_SHA = '2'.repeat(40);
 const HEAD_SHA = '3'.repeat(40);
@@ -911,7 +913,8 @@ test.skipIf(process.platform !== 'win32')(
       actionPlanClosure: fixture.closure,
       executionEnvironment: fixture.environment,
       inspectRepository,
-      executeNormalizedOperation: (_operation, process) => {
+      testProcessIssuer: TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) => {
         physicalExecutions += 1;
         return runRetainedBunTestProcess(process, candidateRoot);
       },
@@ -922,7 +925,8 @@ test.skipIf(process.platform !== 'win32')(
       actionPlanClosure: fixture.closure,
       executionEnvironment: fixture.environment,
       inspectRepository,
-      executeNormalizedOperation: (_operation, process) => {
+      testProcessIssuer: TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) => {
         physicalExecutions += 1;
         return runRetainedBunTestProcess(process, candidateRoot);
       },
@@ -963,7 +967,8 @@ test.skipIf(process.platform !== 'win32')(
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
         inspectRepository,
-        executeNormalizedOperation: async (_operation, process) => {
+        testProcessIssuer: TEST_PROCESS_ISSUER,
+        testProcessProvider: async (_operation, process) => {
           const first = await runRetainedBunTestProcess(process, candidateRoot);
           try {
             await runRetainedBunTestProcess(process, candidateRoot);
@@ -1005,7 +1010,8 @@ test.skipIf(process.platform !== 'win32')(
             trackedClean: true,
             gitCommonDirectory: authorityRoot
           }),
-          executeNormalizedOperation: async (_operation, process) => {
+          testProcessIssuer: TEST_PROCESS_ISSUER,
+          testProcessProvider: async (_operation, process) => {
             const cancellation = mode === 'cancel'
               ? setTimeout(() => controller.abort(), 50)
               : undefined;
@@ -1053,7 +1059,8 @@ test.skipIf(process.platform !== 'win32')(
             trackedClean: true,
             gitCommonDirectory: authorityRoot
           }),
-          executeNormalizedOperation: (_operation, process) => runRetainedBunTestProcess(
+          testProcessIssuer: TEST_PROCESS_ISSUER,
+          testProcessProvider: (_operation, process) => runRetainedBunTestProcess(
             process,
             candidateRoot,
             mode === 'output-budget'
@@ -1111,7 +1118,8 @@ test.skipIf(process.platform !== 'win32')(
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
         inspectRepository,
-        executeNormalizedOperation: mode === 'raw-provider-output'
+        testProcessIssuer: TEST_PROCESS_ISSUER,
+        testProcessProvider: mode === 'raw-provider-output'
           ? (() => 0 as never)
           : (_operation, process) => runRetainedBunTestProcess(process, candidateRoot)
       });
@@ -1232,7 +1240,8 @@ test.skipIf(process.platform !== 'win32')(
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
         inspectRepository,
-        executeNormalizedOperation: (_operation, process) =>
+        testProcessIssuer: TEST_PROCESS_ISSUER,
+        testProcessProvider: (_operation, process) =>
           runRetainedBunTestProcess(process, candidateRoot)
       });
       expect(result.status).toBe('passed');
@@ -1243,7 +1252,8 @@ test.skipIf(process.platform !== 'win32')(
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
         inspectRepository,
-        executeNormalizedOperation: (_operation, process) =>
+        testProcessIssuer: TEST_PROCESS_ISSUER,
+        testProcessProvider: (_operation, process) =>
           runRetainedBunTestProcess(process, candidateRoot)
       })).rejects.toThrow('exact clean candidate head and tree');
       for (const [indexPath, before] of [
@@ -1293,7 +1303,8 @@ test('local quick DAG rejects hosted/environment drift and distinct environments
         trackedClean: true,
         gitCommonDirectory: authorityRoot
       }),
-      executeNormalizedOperation: (_operation, process) =>
+      testProcessIssuer: TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) =>
         runRetainedBunTestProcess(process, candidateRoot)
     })).rejects.toThrow('canonical local execution environment');
   } finally {

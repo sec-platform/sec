@@ -210,6 +210,27 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
   expect(cached.model).toEqual(clean.model);
 });
 
+test.serial('a validated predecessor accepts source membership drift and remains clean-compile equivalent', () => {
+  const value = fixture();
+  compileVirtualRepositorySourceProgramCompilation(value.input);
+  const changedFiles = Object.freeze([value.files[0]!, value.files[2]!]);
+  const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({
+    repositoryPath,
+    contentDigest
+  })));
+  const changedInput = compilationInput(value, changedFiles, sourceRevision);
+  const cached = compileVirtualRepositorySourceProgramCompilation(changedInput);
+  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
+    value, changedFiles, sourceRevision, false
+  ));
+
+  expect(cached.typeScriptCompilation.mode).toBe('full');
+  expect(cached.typeScriptCompilation.model.files.map(({ path: repositoryPath }) => repositoryPath))
+    .not.toContain(value.files[1]!.path);
+  expect(cached.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
+  expect(cached.model).toEqual(clean.model);
+});
+
 test.serial('an invalid predecessor hint is a disposable miss and cannot block clean compilation', () => {
   const value = fixture();
   compileVirtualRepositorySourceProgramCompilation(value.input);

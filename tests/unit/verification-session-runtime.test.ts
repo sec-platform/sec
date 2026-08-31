@@ -18,6 +18,8 @@ import path from 'node:path';
 const CLOSEOUT_CLI_E2E_ENABLED = process.env.SEC_VERIFICATION_SESSION_CLOSEOUT_CLI_E2E === '1';
 const closeoutCliE2eTest = CLOSEOUT_CLI_E2E_ENABLED ? test : test.skip;
 const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
+const VERIFICATION_ACTION_TEST_PROCESS_ISSUER =
+  issueVerificationActionTestProcessIssuerForTests();
 
 import { createIntegrationAuthorization } from '../../src/control/integration/authorization.ts';
 import {
@@ -74,7 +76,10 @@ import {
 import { createObservedMainHealthInput } from '../../src/control/main-health/main-health-observation.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/verification/action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
-import { executeLocalVerificationActionDag } from '../../src/verification/action/runner.ts';
+import {
+  executeLocalVerificationActionDag,
+  issueVerificationActionTestProcessIssuerForTests
+} from '../../src/verification/action/runner.ts';
 import type {
   GitHubCheckObservation,
   GitHubWorkflowJobObservation,
@@ -2309,7 +2314,8 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
     const result = await executeLocalVerificationActionDag({ authorityRoot, candidateRoot,
       actionPlanClosure: closure, executionEnvironment,
       inspectRepository,
-      executeNormalizedOperation: (_operation, process) =>
+      testProcessIssuer: VERIFICATION_ACTION_TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) =>
         runRetainedBunTestProcess(process, candidateRoot) });
     expect(result.status).toBe('passed');
     expect(result.actionPlanDigest).toBe(closure.actionPlanDigest);

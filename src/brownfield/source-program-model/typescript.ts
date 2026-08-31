@@ -21,13 +21,13 @@ import type {
   SourceProgramUnknown
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
-import type { IssuedRepositoryCompilationContext } from './repository-compilation-context.ts';
 import {
   assembleTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramFactShard,
   SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
   type TypeScriptSourceProgramFactShard
 } from './typescript-fact-shards.ts';
+import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 export interface CompileTypeScriptSourceProgramModelInput {
   readonly sourceRevision: string;
@@ -36,7 +36,7 @@ export interface CompileTypeScriptSourceProgramModelInput {
 }
 
 type CompileTypeScriptSourceProgramModelInternalInput = CompileTypeScriptSourceProgramModelInput & Readonly<{
-  repositoryCompilation?: IssuedRepositoryCompilationContext;
+  repositoryCompilation?: WorkspaceSourceSnapshot;
 }>;
 
 export const SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH =
@@ -90,7 +90,7 @@ const issuedTypeScriptIncrementalStates = new WeakSet<object>();
 const typeScriptCompilerIdentityBrand: unique symbol = Symbol('typescript-source-program-compiler-identity');
 const issuedTypeScriptCompilerIdentities = new WeakSet<object>();
 
-export function repositoryCompilationDigestForTypeScriptModel(
+export function workspaceSourceSnapshotIdentityForTypeScriptModel(
   model: SourceProgramModel
 ): `sha256:${string}` | null {
   return repositoryCompilationDigestByModel.get(model) ?? null;
@@ -98,10 +98,10 @@ export function repositoryCompilationDigestForTypeScriptModel(
 
 function bindTypeScriptModelToRepositoryCompilation(
   model: SourceProgramModel,
-  context: IssuedRepositoryCompilationContext | undefined
+  context: WorkspaceSourceSnapshot | undefined
 ): SourceProgramModel {
   if (context !== undefined) {
-    repositoryCompilationDigestByModel.set(model, context.contextDigest);
+    repositoryCompilationDigestByModel.set(model, context.identityDigest);
   }
   return model;
 }
@@ -205,14 +205,14 @@ export interface SourceProgramTypeScriptCompilerIdentity {
 
 export function typeScriptSourceProgramCompilerImplementationDigest(
   input: CompileTypeScriptSourceProgramModelInput,
-  repositoryCompilation?: IssuedRepositoryCompilationContext
+  repositoryCompilation?: WorkspaceSourceSnapshot
 ): `sha256:${string}` | null {
   const canonicalFiles = input.files.map(canonicalTypeScriptFile);
   const fileByPath = new Map(canonicalFiles.map((file) => [file.path, file] as const));
   const compilerClosure = new Set<string>();
   if (fileByPath.has(SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH)) {
     compilerClosure.add(SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH);
-    const graph = repositoryCompilation?.moduleGraphFor('typescript') ?? compileSecRepositoryModuleGraph({
+    const graph = repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
       files: canonicalFiles.map(({ path: repositoryPathValue }) => repositoryPathValue),
       readSource: (repositoryPathValue) => fileByPath.get(repositoryPathValue)?.source ?? null
     });
@@ -825,25 +825,19 @@ function buildIncrementalState(
  * physical store supplies bytes only; this TypeScript owner rebinds the facts
  * to the current compilation and signs the process-local incremental state.
  */
-export function adoptTypeScriptSourceProgramFactShardsFromRepositoryCompilation(
+export function adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
   input: CompileTypeScriptSourceProgramModelInput,
   shards: readonly TypeScriptSourceProgramFactShard[],
-  repositoryCompilation: IssuedRepositoryCompilationContext,
+  repositoryCompilation: WorkspaceSourceSnapshot,
   generation?: Readonly<{ moduleGraphDigest: `sha256:${string}` }>
 ): TypeScriptSourceProgramIncrementalState {
   repositoryCompilation.assertMatches(input);
-  const graph = repositoryCompilation.moduleGraphFor('typescript');
-  const currentPaths = input.files
-    .filter(({ path: repositoryPathValue }) => (
-      SOURCE_EXTENSION.test(repositoryPathValue)
-      && sourceProgramSurfaceForPath(repositoryPathValue) === 'production'
-    ))
-    .map(({ path: repositoryPathValue }) => repositoryPathValue)
-    .sort(compareCodeUnits);
-  const shardPaths = shards.map(({ path: repositoryPathValue }) => repositoryPathValue).sort(compareCodeUnits);
-  if (JSON.stringify(currentPaths) !== JSON.stringify(shardPaths)) {
-    throw new Error('TypeScript fact pack does not match the current source path census');
-  }
+  const graph = repositoryCompilation.moduleGraph;
+  // A predecessor generation intentionally has a different file census. Its
+  // immutable shards seed the incremental compiler, which compares their
+  // content/module digests with the current snapshot and recompiles the exact
+  // added, removed, or changed reverse-consumer closure. Requiring equal path
+  // sets here would turn the valid predecessor fast path into a hard failure.
   const consumersByPath = new Map<string, Set<string>>();
   const addConsumer = (target: string, consumer: string): void => {
     const consumers = consumersByPath.get(target) ?? new Set<string>();
@@ -932,8 +926,8 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
     if (changed.length === 0) {
       if (input.sourceRevision === reusableState.sourceRevision
           && (input.repositoryCompilation === undefined
-            || repositoryCompilationDigestForTypeScriptModel(reusableState.model)
-              === input.repositoryCompilation.contextDigest)) {
+            || workspaceSourceSnapshotIdentityForTypeScriptModel(reusableState.model)
+              === input.repositoryCompilation.identityDigest)) {
         return Object.freeze({
           mode: 'exact',
           invalidatedPaths: Object.freeze([]),
@@ -962,7 +956,7 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
   }
   const currentSources = new Map(currentFiles.map(({ path: repositoryPathValue, source }) =>
     [repositoryPathValue, source] as const));
-  const graph = input.repositoryCompilation?.moduleGraphFor('typescript') ?? compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
     files: currentPaths,
     readSource: (repositoryPathValue) => currentSources.get(repositoryPathValue) ?? null
   });
@@ -1086,10 +1080,10 @@ export function compileTypeScriptSourceProgramModelIncremental(
   return compileTypeScriptSourceProgramModelIncrementalInternal(input, previous);
 }
 
-export function compileTypeScriptSourceProgramModelIncrementalFromRepositoryCompilation(
+export function compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
   input: CompileTypeScriptSourceProgramModelInput,
   previous: TypeScriptSourceProgramIncrementalState | null,
-  repositoryCompilation: IssuedRepositoryCompilationContext
+  repositoryCompilation: WorkspaceSourceSnapshot
 ): TypeScriptSourceProgramIncrementalResult {
   repositoryCompilation.assertMatches(input);
   return compileTypeScriptSourceProgramModelIncrementalInternal({
@@ -1649,9 +1643,9 @@ export function compileTypeScriptSourceProgramModel(
   return compileTypeScriptSourceProgramModelInternal(input);
 }
 
-export function compileTypeScriptSourceProgramModelFromRepositoryCompilation(
+export function compileTypeScriptSourceProgramModelFromWorkspaceSnapshot(
   input: CompileTypeScriptSourceProgramModelInput,
-  repositoryCompilation: IssuedRepositoryCompilationContext
+  repositoryCompilation: WorkspaceSourceSnapshot
 ): SourceProgramModel {
   repositoryCompilation.assertMatches(input);
   return compileTypeScriptSourceProgramModelInternal({ ...input, repositoryCompilation });
