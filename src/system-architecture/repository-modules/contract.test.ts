@@ -11,7 +11,8 @@ import {
   compileSecRepositoryModuleGraph,
   compileSecRepositoryModuleMembership,
   compileSecRepositoryModuleTopologyProjection,
-  parseSecModuleDescriptor
+  parseSecModuleDescriptor,
+  type SecModuleOperationRoleBinding
 } from './contract.ts';
 
 function repositoryModuleTestDescriptor(
@@ -329,9 +330,7 @@ test('repository module conflicts only exact provider settlement and readback re
         role('readback', 'readback-issuer', 'runtime.operation-a', 'runtime.provider-a')
       ]
     }]
-  }, 'src/runtime-provider/sec.module.json')).toThrow(
-    'provider settlement and readback issuers for runtime.operation-a:runtime.provider-a require distinct module owners'
-  );
+  }, 'src/runtime-provider/sec.module.json')).not.toThrow();
   expect(() => parseSecModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
@@ -350,6 +349,119 @@ test('repository module conflicts only exact provider settlement and readback re
   }, 'src/runtime-provider/sec.module.json')).toThrow(
     'semantic operation requirement issuer relations must be unique across the module'
   );
+});
+
+test('repository architecture rejects omitted authority roles and same-owner issuer composition', () => {
+  const attemptRole = {
+    operation: 'issueAttempt',
+    role: 'attempt-issuer',
+    semanticOperation: 'example.operation',
+    requirementId: null,
+    recovery: null
+  } as const;
+  const grantRole = {
+    operation: 'issueGrant',
+    role: 'grant-issuer',
+    semanticOperation: 'example.operation',
+    requirementId: null,
+    recovery: null
+  } as const;
+  const bindingRole = {
+    operation: 'issueBinding',
+    role: 'binding-issuer',
+    semanticOperation: 'example.operation',
+    requirementId: 'example.provider',
+    recovery: null
+  } as const;
+  const compile = (
+    operationRoles: readonly SecModuleOperationRoleBinding[],
+    operations: readonly string[] = ['issueAttempt', 'issueBinding', 'issueGrant']
+  ) => {
+    const descriptor = parseSecModuleDescriptor({
+      importGraph: 'runtime',
+      externalEntrypoints: [],
+      capabilityProviders: [{
+        capability: 'example.authority',
+        operations,
+        operationRoles
+      }]
+    }, 'src/authority/sec.module.json');
+    const files = ['src/authority/issuer.ts'];
+    const graph = compileSecRepositoryModuleGraph({
+      files,
+      readSource: () => operations.map((name) => `export function ${name}(): void {}`).join('\n')
+    });
+    return compileSecRepositoryModuleArchitectureProjection(graph, {
+      descriptors: [descriptor],
+      graphRoots: ['src/authority'],
+      moduleRoots: ['src/authority'],
+      moduleForPath: () => descriptor
+    }, {
+      files: [{
+        path: files[0]!,
+        moduleId: descriptor.moduleId,
+        surface: 'production',
+        semanticKind: 'executable',
+        semanticObservationClass: 'observed'
+      }],
+      declarations: operations.map((name) => ({
+        path: files[0]!,
+        moduleId: descriptor.moduleId,
+        name,
+        exported: true
+      })),
+      entrypoints: [],
+      entrypointClosures: []
+    });
+  };
+
+  const omitted = compile([attemptRole, grantRole]);
+  expect(omitted.violations).toContainEqual(expect.objectContaining({
+    code: 'authority-mint-export-unclassified',
+    from: 'src/authority/issuer.ts',
+    to: 'example.authority:issueBinding'
+  }));
+
+  const exact = compile([attemptRole, bindingRole, grantRole]);
+  expect(exact.violations.some(({ code }) => code === 'authority-mint-export-unclassified'))
+    .toBe(false);
+  expect(exact.violations).toContainEqual(expect.objectContaining({
+    code: 'repository-module-role-unresolved',
+    detail: 'authority co-owns independent semantic operation roles for example.operation: attempt-issuer, binding-issuer, grant-issuer'
+  }));
+
+  const role = (name: string, issuerRole: SecModuleOperationRoleBinding['role'], requirementId: string | null) => ({
+    operation: name, role: issuerRole, semanticOperation: 'example.operation', requirementId, recovery: null
+  });
+  const requirementIdForRole = (
+    issuerRole: SecModuleOperationRoleBinding['role']
+  ): string | null => issuerRole === 'binding-issuer'
+    || issuerRole === 'provider-settlement-issuer'
+    || issuerRole === 'readback-issuer'
+    ? 'example.provider'
+    : null;
+  const incompatible = [
+    ['domain-owner', 'grant-issuer'],
+    ['grant-issuer', 'attempt-issuer'],
+    ['grant-issuer', 'binding-issuer'],
+    ['grant-issuer', 'provider-settlement-issuer'],
+    ['provider-settlement-issuer', 'readback-issuer'],
+    ['readback-issuer', 'recovery-issuer']
+  ] as const;
+  for (const [left, right] of incompatible) {
+    const roles = [
+      role('left', left, requirementIdForRole(left)),
+      role('right', right, requirementIdForRole(right))
+    ];
+    expect(compile(roles, ['left', 'right']).violations).toContainEqual(expect.objectContaining({ code: 'repository-module-role-unresolved' }));
+  }
+  for (const roles of [
+    [role('attempt', 'attempt-issuer', null), role('recover', 'recovery-issuer', null)],
+    [role('bind', 'binding-issuer', 'example.provider'), role('settle', 'provider-settlement-issuer', 'example.provider')],
+    [role('domain', 'domain-owner', null), role('readback', 'readback-issuer', 'example.provider')]
+  ]) {
+    expect(compile(roles, roles.map(({ operation }) => operation)).violations.some(({ code }) => code === 'repository-module-role-unresolved')).toBe(false);
+  }
 });
 
 test('repository module causal relations bind semantic subjects to exact module symbols', () => {
@@ -466,6 +578,65 @@ test('edit-loop topology and full semantic architecture share one exact owner gr
   expect(topology.feedbackCuts).toEqual(architecture.feedbackCuts);
   expect(topology.strongComponents).toHaveLength(1);
   expect(topology.feedbackCuts).toHaveLength(1);
+});
+
+test('repository topology projects same-owner file cycles from the canonical graph', () => {
+  const descriptor = repositoryModuleTestDescriptor('src/owner');
+  const files = [
+    'src/owner/a.ts',
+    'src/owner/b.ts',
+    'src/owner/consumer.ts',
+    'src/owner/observation.spec.ts',
+    'src/owner/self.ts'
+  ];
+  const sources = new Map([
+    ['src/owner/a.ts', "import { b } from './b.ts'; export const a = b;"],
+    ['src/owner/b.ts', "import { a } from './a.ts'; export const b = a;"],
+    ['src/owner/consumer.ts', "import { a } from './a.ts'; export const consumer = a;"],
+    ['src/owner/observation.spec.ts', "import { consumer } from './consumer.ts'; void consumer;"],
+    ['src/owner/self.ts', "import './self.ts'; export const self = true;"]
+  ]);
+  const membership = {
+    descriptors: [descriptor],
+    graphRoots: [descriptor.root],
+    moduleRoots: [descriptor.root],
+    moduleForPath: () => descriptor
+  };
+  const compile = (orderedFiles: readonly string[]) => compileSecRepositoryModuleTopologyProjection(
+    compileSecRepositoryModuleGraph({
+      files: orderedFiles,
+      readSource: (file) => sources.get(file) ?? null
+    }),
+    membership
+  );
+  const topology = compile(files);
+
+  expect(topology.ownerEdges).toEqual([]);
+  expect(topology.strongComponents).toEqual([]);
+  expect(topology.fileStrongComponents).toEqual([
+    {
+      ownerId: descriptor.moduleId,
+      paths: ['src/owner/a.ts', 'src/owner/b.ts'],
+      edges: [
+        expect.objectContaining({ fromPath: 'src/owner/a.ts', toPath: 'src/owner/b.ts' }),
+        expect.objectContaining({ fromPath: 'src/owner/b.ts', toPath: 'src/owner/a.ts' })
+      ]
+    },
+    {
+      ownerId: descriptor.moduleId,
+      paths: ['src/owner/self.ts'],
+      edges: [expect.objectContaining({
+        fromPath: 'src/owner/self.ts',
+        toPath: 'src/owner/self.ts'
+      })]
+    }
+  ]);
+  expect(topology.violations).toContainEqual(expect.objectContaining({
+    code: 'repository-module-internal-cycle',
+    from: 'src/owner/a.ts',
+    to: 'src/owner/b.ts'
+  }));
+  expect(compile([...files].reverse())).toEqual(topology);
 });
 
 test('cross-owner aggregate facades are TypeScript facts rather than index filename policy', () => {
