@@ -75,7 +75,7 @@ test('TypeScript semantic compilation excludes test and resource declarations fr
   expect(model.declarations.map(({ name }) => name)).toEqual(['productionValue']);
 });
 
-test('Source Program signs semantic file and module roles without path-name inference', () => {
+test('Source Program facts let the architecture owner sign node responsibilities without path-name inference', () => {
   const sources = new Map([
     [
       'src/public-contract/types.ts',
@@ -99,13 +99,12 @@ test('Source Program signs semantic file and module roles without path-name infe
   const descriptors = [
     {
       root: 'src/public-contract',
-      descriptor: { importGraph: 'runtime', architectureRole: 'contract', externalEntrypoints: [] }
+      descriptor: { importGraph: 'runtime', externalEntrypoints: [] }
     },
     {
       root: 'src/runtime-owner',
       descriptor: {
         importGraph: 'runtime',
-        architectureRole: 'runtime',
         externalEntrypoints: [],
         capabilityProviders: [{ capability: 'runtime.service', operations: ['run'] }]
       }
@@ -114,13 +113,12 @@ test('Source Program signs semantic file and module roles without path-name infe
       root: 'src/command-owner',
       descriptor: {
         importGraph: 'runtime',
-        architectureRole: 'command',
         externalEntrypoints: ['src/command-owner/cli.ts']
       }
     },
     {
       root: 'src/declared-query',
-      descriptor: { importGraph: 'runtime', architectureRole: 'query', externalEntrypoints: [] }
+      descriptor: { importGraph: 'runtime', externalEntrypoints: [] }
     },
     {
       root: 'src/looks-like-query',
@@ -167,22 +165,19 @@ test('Source Program signs semantic file and module roles without path-name infe
     semanticKind: 'executable',
     semanticObservationClass: 'derived'
   }));
-  expect(model.moduleRoles).toEqual([
-    { moduleId: 'command-owner', role: 'command', observationClass: 'derived' },
-    { moduleId: 'declared-query', role: 'query', observationClass: 'derived' },
-    { moduleId: 'looks-like-query', role: 'unknown', observationClass: 'unknown' },
-    { moduleId: 'public-contract', role: 'contract', observationClass: 'derived' },
-    { moduleId: 'runtime-owner', role: 'runtime', observationClass: 'derived' }
-  ]);
+  expect(projection.nodeResponsibilities.map(({ path, responsibility }) => [path, responsibility]))
+    .toContainEqual(['src/runtime-owner/service.ts', 'capability']);
+  expect(projection.nodeResponsibilities.map(({ path, responsibility }) => [path, responsibility]))
+    .toContainEqual(['src/command-owner/cli.ts', 'interface']);
   expect(projection.aggregateFacadePaths).toContain('src/public-contract/facade.ts');
   expect(projection.violations).toContainEqual(expect.objectContaining({
-    code: 'repository-module-role-reverse-dependency',
+    code: 'repository-node-responsibility-reverse-dependency',
     from: 'src/public-contract/types.ts',
     to: 'src/runtime-owner/service.ts'
   }));
-  expect(projection.violations).not.toContainEqual(expect.objectContaining({
-    code: 'repository-module-role-unresolved',
-    from: 'looks-like-query'
+  expect(projection.nodeResponsibilities).toContainEqual(expect.objectContaining({
+    path: 'src/looks-like-query/value.ts',
+    responsibility: 'computation'
   }));
 });
 
@@ -811,7 +806,6 @@ function compileGraphCutFixture(sources: Readonly<Record<string, string>>) {
   const descriptorPath = 'src/example/sec.module.json';
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
-    architectureRole: 'runtime',
     externalEntrypoints: [],
     capabilityProviders: [],
     operationObligations: [],

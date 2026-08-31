@@ -19,7 +19,7 @@ describe('bounded control-plane CLI projections', () => {
   test('repository architecture projection preserves deterministic feedback projections and blocks violations', () => {
     const empty = {
       ownerEdges: [], strongComponents: [], reciprocalPairs: [], feedbackCuts: [],
-      aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], moduleRoles: [], violations: []
+      aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], nodeResponsibilities: [], violations: []
     } satisfies SecRepositoryModuleArchitectureProjection;
     expect(repositoryModuleArchitectureShouldBlock(empty)).toBe(false);
     expect(projectRepositoryModuleArchitectureAudit(empty)).toEqual({
@@ -37,7 +37,7 @@ describe('bounded control-plane CLI projections', () => {
       }]
     };
     const violation = {
-      code: 'repository-module-role-reverse-dependency' as const,
+      code: 'repository-node-responsibility-reverse-dependency' as const,
       from: witness.witnesses[0].fromPath,
       to: witness.witnesses[0].toPath,
       detail: 'contract-owner (contract) depends on runtime-owner (runtime)'
@@ -64,7 +64,7 @@ describe('bounded control-plane CLI projections', () => {
     const report = {
       architecture: {
         ownerEdges: [], strongComponents: [], reciprocalPairs: [], feedbackCuts: [],
-        aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], moduleRoles: [], violations: []
+        aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], nodeResponsibilities: [], violations: []
       },
       revision: {
         defaultHead: 'a'.repeat(40), defaultRef: 'main', defaultRefInput: 'main',
