@@ -118,6 +118,16 @@ function declarationOwnsSpan(
     && span.end <= declaration.span.end;
 }
 
+function declarationDefersExecution(declaration: SourceProgramDeclaration): boolean {
+  return declaration.kind === 'FunctionDeclaration'
+    || declaration.kind === 'FunctionExpression'
+    || declaration.kind === 'ArrowFunction'
+    || declaration.kind === 'MethodDeclaration'
+    || declaration.kind === 'Constructor'
+    || declaration.kind === 'GetAccessor'
+    || declaration.kind === 'SetAccessor';
+}
+
 function declarationIdsForPaths(
   model: SourceProgramModel,
   paths: readonly string[]
@@ -161,6 +171,20 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
     throw new Error('Implementation candidate discovery requires a compiler-issued Repository Source Program Model');
   }
   const candidates: SourceProgramImplementationCandidateObservation[] = [];
+  const ownerBoundDeclarationIds = new Set<string>();
+  for (const intent of input.ownerIntents) {
+    for (const { operations } of intent.capabilityEnvelope) {
+      for (const operation of operations) {
+        for (const declaration of input.model.declarations) {
+          if (declaration.exported
+              && declaration.moduleId === intent.owner
+              && declaration.name === operation) {
+            ownerBoundDeclarationIds.add(declaration.observationId);
+          }
+        }
+      }
+    }
+  }
   const declarationsByDigest = new Map<string, SourceProgramDeclaration[]>();
   for (const declaration of input.model.declarations) {
     if (!declaration.exported) continue;
@@ -168,14 +192,18 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
     group.push(declaration);
     declarationsByDigest.set(declaration.declarationDigest, group);
   }
-  for (const [declarationDigest, declarations] of declarationsByDigest) {
+  for (const declarations of declarationsByDigest.values()) {
     if (declarations.length < 2) continue;
+    const declarationObservationIds = declarations
+      .filter(({ observationId }) => !ownerBoundDeclarationIds.has(observationId))
+      .map(({ observationId }) => observationId);
+    if (declarationObservationIds.length === 0) continue;
     const observed = candidate(
       'identity',
-      `exact-declaration:${declarationDigest}`,
-      declarations.map(({ observationId }) => observationId),
-      'compiler-exact',
-      'observed'
+      `unbound-responsibility:${sha256(declarationObservationIds.slice().sort(compareCodeUnits))}`,
+      declarationObservationIds,
+      'heuristic',
+      'unknown'
     );
     if (observed !== null) candidates.push(observed);
   }
@@ -189,6 +217,14 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
           && declaration.name === operation
         ));
         if (declarations.length === 0) continue;
+        const identity = candidate(
+          'identity',
+          `provider-operation:${capability}:${operation}`,
+          declarations.map(({ observationId }) => observationId),
+          'owner-contract',
+          'observed'
+        );
+        if (identity !== null) candidates.push(identity);
         const codecLike = /(?:codec|decode|encode|parse|schema|serial|validat)/iu.test(`${capability}:${operation}`);
         if (codecLike) {
           const observed = candidate(
@@ -300,6 +336,75 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
   )));
 }
 
+function declarationForObservation(
+  model: SourceProgramModel,
+  observationId: string
+): SourceProgramDeclaration | null {
+  return model.declarations.find((declaration) => declaration.observationId === observationId) ?? null;
+}
+
+function compileDeclarationCapabilityClosure(
+  model: SourceProgramModel,
+  root: SourceProgramDeclaration
+): Readonly<{
+  readonly capabilities: readonly SourceProgramModel['capabilities'][number][];
+  readonly unknown: boolean;
+}> {
+  const declarations = new Map(model.declarations.map((declaration) => (
+    [declaration.observationId, declaration] as const
+  )));
+  const visited = new Set<string>();
+  const pending = [root.observationId];
+  const capabilities = new Map<string, SourceProgramModel['capabilities'][number]>();
+  let unknown = false;
+
+  while (pending.length > 0) {
+    const observationId = pending.pop()!;
+    if (visited.has(observationId)) continue;
+    visited.add(observationId);
+    const declaration = declarations.get(observationId);
+    if (declaration === undefined) {
+      unknown = true;
+      continue;
+    }
+    for (const invocation of model.capabilities) {
+      if (!declarationOwnsSpan(declaration, invocation.path, invocation.span)) continue;
+      capabilities.set(sha256(invocation), invocation);
+      if (invocation.observationClass === 'unknown' || invocation.transport === 'unknown') unknown = true;
+    }
+    for (const reference of model.references) {
+      if ((reference.kind !== 'call' && reference.kind !== 'construct')
+          || !declarationOwnsSpan(declaration, reference.path, reference.span)) continue;
+      if (reference.observationClass === 'unknown' || reference.targetObservationId === null) {
+        unknown = true;
+        continue;
+      }
+      pending.push(reference.targetObservationId);
+    }
+  }
+
+  const closurePaths = new Set([...visited]
+    .map((observationId) => declarationForObservation(model, observationId)?.path)
+    .filter((path): path is string => path !== undefined));
+  for (const invocation of model.capabilities) {
+    if (!closurePaths.has(invocation.path)) continue;
+    const deferred = model.declarations.some((declaration) => (
+      declarationDefersExecution(declaration)
+      && declarationOwnsSpan(declaration, invocation.path, invocation.span)
+    ));
+    if (!deferred) unknown = true;
+  }
+
+  return Object.freeze({
+    capabilities: Object.freeze([...capabilities.values()].sort((left, right) => (
+      compareCodeUnits(left.path, right.path)
+      || left.span.start - right.span.start
+      || left.span.end - right.span.end
+    ))),
+    unknown
+  });
+}
+
 function compileUnit(
   model: SourceProgramModel,
   ownerIntents: readonly SourceProgramOwnerIntentEvidence[],
@@ -315,7 +420,8 @@ function compileUnit(
     && reference.name === declaration.name
     && (reference.targetPath === null || reference.targetPath === declaration.path)
   ));
-  const capabilities = model.capabilities.filter(({ path }) => path === declaration.path);
+  const capabilityClosure = compileDeclarationCapabilityClosure(model, declaration);
+  const capabilities = capabilityClosure.capabilities;
   const obligations = operationObligations(declaration, ownerIntents);
   const ownerIntentMissing = declaration.moduleId !== null && ownerIntent === undefined;
   const obligationUnknown = obligations.some(({ observation }) => observation.status === 'unknown');
@@ -340,6 +446,7 @@ function compileUnit(
     || declaration.moduleId === null
     || ownerIntentMissing
     || unresolvedReferences.length > 0
+    || capabilityClosure.unknown
     || pathUnknown
     || obligationUnknown
     || capabilities.some(({ observationClass, transport }) => (
@@ -353,7 +460,7 @@ function compileUnit(
   const frontiers = Object.freeze({
     producer: 'present' as const,
     consumer: frontierFromPresence(consumerPaths.length > 0, unresolvedReferences.length > 0),
-    effect: frontierFromPresence(effectPaths.length > 0, obligationUnknown),
+    effect: frontierFromPresence(effectPaths.length > 0, obligationUnknown || capabilityClosure.unknown),
     durable: frontierFromPresence(durable, obligationUnknown),
     external: frontierFromPresence(external, obligationUnknown),
     recovery: frontierFromPresence(recovery, obligationUnknown),
@@ -439,7 +546,12 @@ function classifyGroup(
     return finding('duplicate-owner', units, [], 'one semantic identity has implementations in multiple owners');
   }
 
-  const equivalent = new Set(units.map(({ declarationDigest }) => declarationDigest)).size === 1;
+  const responsibilityBound = units.every((unit) => (
+    unit.candidateEvidenceClass === 'owner-contract'
+    || (unit.kind === 'provider-adapter' && unit.canonicalOwner !== null)
+  ));
+  const equivalent = responsibilityBound
+    && new Set(units.map(({ declarationDigest }) => declarationDigest)).size === 1;
   const removable = units.filter(allRemovalFrontiersClosed);
   if (units.length > 1 && equivalent && removable.length > 0 && removable.length < units.length) {
     return finding(

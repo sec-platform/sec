@@ -63,7 +63,7 @@ function compileFacts(
   });
 }
 
-test('an exact-equivalent unconsumed comparator is dominated only after every protected frontier closes', () => {
+test('equal declaration bytes without an owner responsibility remain heuristic unknown', () => {
   const compilation = compile({
     'src/identity/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
     'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
@@ -73,12 +73,56 @@ test('an exact-equivalent unconsumed comparator is dominated only after every pr
     'src/consumer': 'consumer-owner'
   });
 
-  // The TypeScript graph resolves one same-name import target, so the other
-  // exact implementation remains an orphan candidate rather than being
-  // deleted from a filename or naming heuristic.
   expect(compilation.findings).toHaveLength(1);
-  expect(compilation.findings[0]!.disposition).toBe('dominated');
-  expect(compilation.findings[0]!.removableUnitIds.length).toBeGreaterThan(0);
+  expect(compilation.units.every(({ candidateEvidenceClass }) => candidateEvidenceClass === 'heuristic')).toBe(true);
+  expect(compilation.findings[0]!.disposition).toBe('unknown');
+  expect(compilation.findings[0]!.removableUnitIds).toEqual([]);
+});
+
+test('equal declaration bytes become equivalence evidence only inside one owner-issued operation identity', () => {
+  const baseMembership = membership({
+    'src/identity': 'identity-owner',
+    'src/consumer': 'consumer-owner'
+  });
+  const descriptors = baseMembership.descriptors.map((descriptor) => descriptor.moduleId !== 'identity-owner'
+    ? descriptor
+    : Object.freeze({
+      ...descriptor,
+      capabilityProviders: Object.freeze([Object.freeze({
+        capability: 'identity.compare',
+        operations: Object.freeze(['compareIdentity']),
+        effectKinds: Object.freeze([]),
+        ownerInternalOperations: Object.freeze([]),
+        operationRoles: Object.freeze([])
+      })])
+    }));
+  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
+  const sources = {
+    'src/identity/primary.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
+    'src/identity/duplicate.ts': 'export function compareIdentity(left: string, right: string): boolean { return left === right; }\n',
+    'src/consumer/use.ts': "import { compareIdentity } from '../identity/primary.ts';\nexport const accepted = compareIdentity('a', 'a');\n"
+  };
+  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
+    path,
+    source,
+    contentDigest: rawSha256(source)
+  }));
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+  const compilation = compileSourceProgramImplementationDominance({
+    model,
+    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
+  });
+
+  expect(compilation.findings).toContainEqual(expect.objectContaining({
+    kind: 'identity',
+    semanticIdentity: 'provider-operation:identity.compare:compareIdentity',
+    disposition: 'dominated'
+  }));
+  expect(compilation.findings.some(({ disposition }) => disposition === 'unknown')).toBe(false);
 });
 
 test('contract codecs crossing durable recovery boundaries require migration instead of deletion', () => {
@@ -101,7 +145,8 @@ test('contract codecs crossing durable recovery boundaries require migration ins
       capability: 'contract-codec',
       operations: Object.freeze(['decodeContract']),
       effectKinds: Object.freeze(['persistent-state' as const]),
-      ownerInternalOperations: Object.freeze([])
+      ownerInternalOperations: Object.freeze([]),
+      operationRoles: Object.freeze([])
     })]),
     operationObligations: Object.freeze([Object.freeze({
       operation: Object.freeze({
@@ -147,7 +192,7 @@ test('contract codecs crossing durable recovery boundaries require migration ins
   ))).toBe(true);
 });
 
-test('the candidate compiler derives exact duplicate identity without names or repository paths', () => {
+test('the candidate compiler does not promote an exact declaration digest to semantic identity', () => {
   const { model, ownerIntents } = compileFacts({
     'src/one/equal.ts': 'export function same(left: string, right: string): boolean { return left === right; }\n',
     'src/two/equal.ts': 'export function same(left: string, right: string): boolean { return left === right; }\n',
@@ -162,13 +207,105 @@ test('the candidate compiler derives exact duplicate identity without names or r
 
   expect(candidates).toContainEqual(expect.objectContaining({
     kind: 'identity',
-    evidenceClass: 'compiler-exact',
-    observationClass: 'observed'
+    evidenceClass: 'heuristic',
+    observationClass: 'unknown'
   }));
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'identity',
-    disposition: 'dominated'
+    disposition: 'unknown',
+    removableUnitIds: []
   }));
+});
+
+test('capability effects belong to declaration spans rather than every export in the file', () => {
+  const baseMembership = membership({ 'src/process': 'process-owner' });
+  const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
+    ...descriptor,
+    capabilityProviders: Object.freeze([Object.freeze({
+      capability: 'process.operations',
+      operations: Object.freeze(['pureValue', 'runProcess']),
+      effectKinds: Object.freeze([]),
+      ownerInternalOperations: Object.freeze([]),
+      operationRoles: Object.freeze([])
+    })])
+  }));
+  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
+  const source = "import { spawnSync } from 'node:child_process';\nexport function pureValue(): number { return 1; }\nexport function runProcess(command: string) { return spawnSync(command); }\n";
+  const files = [Object.freeze({
+    path: 'src/process/operations.ts',
+    source,
+    contentDigest: rawSha256(source)
+  })];
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+  const compilation = compileSourceProgramImplementationDominance({
+    model,
+    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
+  });
+  const pureUnit = compilation.units.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:process.operations:pureValue'
+  ));
+  const processUnit = compilation.units.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:process.operations:runProcess'
+  ));
+
+  expect(pureUnit?.frontiers).toEqual(expect.objectContaining({
+    effect: 'closed',
+    external: 'closed'
+  }));
+  expect(processUnit?.frontiers).toEqual(expect.objectContaining({
+    effect: 'present',
+    external: 'present'
+  }));
+});
+
+test('exact call closure propagates capabilities while module initialization remains unknown', () => {
+  const compileOperation = (source: string, operation: string) => {
+    const baseMembership = membership({ 'src/process': 'process-owner' });
+    const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
+      ...descriptor,
+      capabilityProviders: Object.freeze([Object.freeze({
+        capability: 'process.operations',
+        operations: Object.freeze([operation]),
+        effectKinds: Object.freeze([]),
+        ownerInternalOperations: Object.freeze([]),
+        operationRoles: Object.freeze([])
+      })])
+    }));
+    const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
+    const files = [Object.freeze({
+      path: 'src/process/operations.ts',
+      source,
+      contentDigest: rawSha256(source)
+    })];
+    const model = compileRepositorySourceProgramModel({
+      sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+      files,
+      moduleMembership
+    });
+    return compileSourceProgramImplementationDominance({
+      model,
+      ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
+    });
+  };
+  const delegated = compileOperation(
+    "import { spawnSync } from 'node:child_process';\nfunction invoke(command: string) { return spawnSync(command); }\nexport function runProcess(command: string) { return invoke(command); }\n",
+    'runProcess'
+  );
+  const moduleInitialization = compileOperation(
+    "import { spawnSync } from 'node:child_process';\nconst startup = spawnSync('status');\nexport function pureValue(): number { return startup.status ?? 0; }\n",
+    'pureValue'
+  );
+
+  expect(delegated.units.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:process.operations:runProcess'
+  ))?.frontiers).toEqual(expect.objectContaining({ effect: 'present', external: 'present' }));
+  expect(moduleInitialization.units.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:process.operations:pureValue'
+  ))?.frontiers).toEqual(expect.objectContaining({ effect: 'unknown', unknown: 'present' }));
 });
 
 test('codec-shaped names remain unknown when the compiler cannot prove one grammar', () => {
@@ -182,7 +319,8 @@ test('codec-shaped names remain unknown when the compiler cannot prove one gramm
       capability: 'payload.codec',
       operations: Object.freeze(['decodePayload']),
       effectKinds: Object.freeze([]),
-      ownerInternalOperations: Object.freeze([])
+      ownerInternalOperations: Object.freeze([]),
+      operationRoles: Object.freeze([])
     })])
   }));
   const membershipWithCodec = Object.freeze({ ...moduleMembership, descriptors });
@@ -239,7 +377,8 @@ test('duplicate completion candidates without an owner readback fact cannot sign
       capability: 'effect.publish',
       operations: Object.freeze(['publish']),
       effectKinds: Object.freeze(['persistent-state' as const]),
-      ownerInternalOperations: Object.freeze([])
+      ownerInternalOperations: Object.freeze([]),
+      operationRoles: Object.freeze([])
     })]),
     operationObligations: Object.freeze([Object.freeze({
       operation: Object.freeze({ kind: 'capability' as const, capability: 'effect.publish', operation: 'publish' }),
@@ -297,7 +436,8 @@ test('similar transition operations with different recovery remain an owner migr
       capability: 'state.transition',
       operations: Object.freeze(['advance']),
       effectKinds: Object.freeze(['persistent-state' as const]),
-      ownerInternalOperations: Object.freeze([])
+      ownerInternalOperations: Object.freeze([]),
+      operationRoles: Object.freeze([])
     })]),
     operationObligations: Object.freeze([Object.freeze({
       operation: Object.freeze({ kind: 'capability' as const, capability: 'state.transition', operation: 'advance' }),
