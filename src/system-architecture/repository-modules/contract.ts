@@ -112,6 +112,8 @@ export type SecRepositoryModuleBoundaryViolation = Readonly<{
  * observed surface and entrypoint closure from its exact snapshot.
  */
 export type SecRepositoryModuleSourceProgramFacts = Readonly<{
+  readonly sourceRevision?: string;
+  readonly semanticRevision?: string;
   readonly files: readonly Readonly<{
     readonly path: string;
     readonly moduleId: string | null;
@@ -147,10 +149,34 @@ export type SecRepositoryModuleSourceProgramFacts = Readonly<{
     readonly observationClass: 'observed' | 'derived' | 'unknown';
   }>[];
   readonly declarations?: readonly Readonly<{
+    readonly observationId?: string;
+    readonly declarationDigest?: string;
     readonly path: string;
     readonly moduleId: string | null;
     readonly name: string;
     readonly exported: boolean;
+  }>[];
+  readonly responsibilityEvidence?: readonly Readonly<{
+    readonly bindingId: string;
+    readonly responsibilityId: string;
+    readonly target: Readonly<{
+      readonly kind: 'entity' | 'effect' | 'operation' | 'scenario';
+      readonly id: string;
+    }>;
+    readonly declaration: Readonly<{
+      readonly path: string;
+      readonly exportName: string;
+      readonly observationId: string | null;
+      readonly declarationDigest: string | null;
+      readonly moduleId: string | null;
+    }>;
+    readonly sourceRevision: string;
+    readonly semanticRevision: string;
+    readonly observationClass: 'observed' | 'unknown';
+    readonly reason: 'validated' | 'semantic-binding-invalid'
+      | 'exported-declaration-missing' | 'exported-declaration-ambiguous'
+      | 'declaration-binding-conflict';
+    readonly evidenceDigest: string;
   }>[];
 }>;
 
@@ -163,14 +189,9 @@ export type SecRepositoryNodeResponsibility =
   | 'interface';
 
 export type SecRepositoryNodeResponsibilityReason =
-  | 'capability-provider-export'
-  | 'declaration-surface'
-  | 'external-entrypoint-target'
-  | 'operation-consumes-capability'
-  | 'pure-computation'
+  | 'semantic-responsibility-binding'
   | 'responsibility-evidence-conflict'
-  | 'responsibility-evidence-unresolved'
-  | 'workflow-consumes-operation';
+  | 'responsibility-evidence-unresolved';
 
 export type SecRepositoryNodeResponsibilityProjection = Readonly<{
   readonly path: string;
@@ -1374,6 +1395,17 @@ export function collectSecRepositoryModuleBoundaryViolations(
 
 type RepositoryModuleAggregateSurface = 'aggregate' | 'implementation' | 'unknown';
 
+function repositoryResponsibilityForSemanticTargetKind(
+  kind: NonNullable<SecRepositoryModuleSourceProgramFacts['responsibilityEvidence']>[number]['target']['kind']
+): Extract<SecRepositoryNodeResponsibility, 'contract' | 'capability' | 'operation' | 'workflow'> {
+  switch (kind) {
+    case 'entity': return 'contract';
+    case 'effect': return 'capability';
+    case 'operation': return 'operation';
+    case 'scenario': return 'workflow';
+  }
+}
+
 function classifyRepositoryModuleAggregateSurface(
   repositoryPath: string,
   facts: SecRepositoryModuleSourceProgramFacts
@@ -1390,7 +1422,7 @@ function classifyRepositoryModuleAggregateSurface(
 }
 
 function compileRepositoryNodeResponsibilities(
-  graph: SecRepositoryModuleGraph,
+  _graph: SecRepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
   facts: SecRepositoryModuleSourceProgramFacts
 ): readonly SecRepositoryNodeResponsibilityProjection[] {
@@ -1425,63 +1457,22 @@ function compileRepositoryNodeResponsibilities(
   const productionFiles = [...factsByPath.values()]
     .map((values) => values[0]!)
     .sort((left, right) => repositoryModuleTextOrder(left.path, right.path));
-  const fileByPath = new Map(productionFiles.map((file) => [file.path, file] as const));
-  const declarations = (facts.declarations ?? [])
-    .filter(({ exported, moduleId }) => exported && moduleId !== null)
-    .map((declaration) => {
-      const path = normalizeSecRepositoryPath(declaration.path);
-      return {
-        ...declaration,
-        path,
-        canonicalModuleId: membership.moduleForPath(path)?.moduleId ?? null
-      };
-    });
-  const capabilityPaths = new Map<string, string[]>();
-  const unresolvedCapabilityModules = new Set<string>();
-  for (const descriptor of membership.descriptors) {
-    for (const provider of descriptor.capabilityProviders) {
-      for (const operation of provider.operations) {
-        const matches = declarations.filter((declaration) => (
-          declaration.moduleId === descriptor.moduleId
-          && declaration.canonicalModuleId === descriptor.moduleId
-          && declaration.name === operation
-        ));
-        if (matches.length !== 1) {
-          unresolvedCapabilityModules.add(descriptor.moduleId);
-          continue;
-        }
-        const values = capabilityPaths.get(matches[0]!.path) ?? [];
-        values.push(`${provider.capability}:${operation}`);
-        capabilityPaths.set(matches[0]!.path, values);
-      }
-    }
+  const declarations = (facts.declarations ?? []).map((declaration) => ({
+    ...declaration,
+    path: normalizeSecRepositoryPath(declaration.path)
+  }));
+  type ResponsibilityEvidence = NonNullable<
+    SecRepositoryModuleSourceProgramFacts['responsibilityEvidence']
+  >[number];
+  const evidenceByPath = new Map<string, ResponsibilityEvidence[]>();
+  for (const evidence of facts.responsibilityEvidence ?? []) {
+    const evidencePath = normalizeSecRepositoryPath(evidence.declaration.path);
+    const values = evidenceByPath.get(evidencePath) ?? [];
+    values.push(evidence);
+    evidenceByPath.set(evidencePath, values);
   }
-
-  const closureByObservation = new Map(facts.entrypointClosures.map((closure) => (
-    [closure.entrypointObservationId, closure] as const
-  )));
-  const interfacePaths = new Set<string>();
-  const unresolvedInterfacePaths = new Set<string>();
-  for (const descriptor of membership.descriptors) {
-    for (const targetPathRaw of descriptor.externalEntrypoints) {
-      const targetPath = normalizeSecRepositoryPath(targetPathRaw);
-      const matches = facts.entrypoints.filter((entrypoint) => (
-        entrypoint.kind === 'module-entrypoint'
-        && (entrypoint.targetPaths ?? []).map(normalizeSecRepositoryPath).includes(targetPath)
-      ));
-      const valid = membership.moduleForPath(targetPath)?.moduleId === descriptor.moduleId
-        && matches.length === 1 && matches.every((entrypoint) => {
-        const closure = closureByObservation.get(entrypoint.observationId);
-        return entrypoint.observationClass !== 'unknown'
-          && closure?.observationClass !== 'unknown'
-          && closure?.handlerModuleIds.length === 1
-          && closure.handlerModuleIds[0] === descriptor.moduleId
-          && closure.unknownPaths !== undefined
-          && closure.unknownPaths.length === 0;
-      });
-      (valid ? interfacePaths : unresolvedInterfacePaths).add(targetPath);
-    }
-  }
+  const semanticRevisions = new Set((facts.responsibilityEvidence ?? [])
+    .map(({ semanticRevision }) => semanticRevision));
 
   type MutableDecision = {
     responsibility: SecRepositoryNodeResponsibility | 'unknown';
@@ -1489,94 +1480,44 @@ function compileRepositoryNodeResponsibilities(
   };
   const decisions = new Map<string, MutableDecision>();
   for (const file of productionFiles) {
-    const claims = capabilityPaths.get(file.path) ?? [];
-    const isInterface = interfacePaths.has(file.path);
-    const unresolved = file.semanticKind === undefined
-      || file.semanticKind === 'unknown'
-      || file.semanticObservationClass === undefined
-      || file.semanticObservationClass === 'unknown'
-      || duplicateFactPaths.has(file.path)
-      || file.observedModuleId !== file.moduleId
-      || unresolvedInterfacePaths.has(file.path)
-      || (unresolvedCapabilityModules.has(file.moduleId!) && file.semanticKind === 'executable');
-    if (unresolved) {
+    const candidates = evidenceByPath.get(file.path) ?? [];
+    const valid = candidates.filter((evidence) => {
+      if (evidence.observationClass !== 'observed'
+          || evidence.reason !== 'validated'
+          || evidence.sourceRevision !== facts.sourceRevision
+          || evidence.semanticRevision !== facts.semanticRevision
+          || semanticRevisions.size !== 1
+          || !evidence.responsibilityId.startsWith('responsibility:')
+          || !evidence.target.id.startsWith(`${evidence.target.kind}:`)
+          || evidence.declaration.moduleId !== file.moduleId
+          || evidence.declaration.observationId === null
+          || evidence.declaration.declarationDigest === null) return false;
+      const exactDeclarations = declarations.filter((declaration) => (
+        declaration.exported
+        && declaration.path === file.path
+        && declaration.name === evidence.declaration.exportName
+        && declaration.moduleId === evidence.declaration.moduleId
+        && declaration.observationId === evidence.declaration.observationId
+        && declaration.declarationDigest === evidence.declaration.declarationDigest
+      ));
+      return exactDeclarations.length === 1;
+    });
+    if (duplicateFactPaths.has(file.path) || file.observedModuleId !== file.moduleId
+        || valid.length === 0) {
       decisions.set(file.path, {
         responsibility: 'unknown',
         reason: 'responsibility-evidence-unresolved'
       });
-    } else if (claims.length > 0 && isInterface) {
+    } else if (valid.length > 1 || candidates.length !== valid.length) {
       decisions.set(file.path, {
         responsibility: 'unknown',
         reason: 'responsibility-evidence-conflict'
       });
-    } else if (isInterface) {
-      decisions.set(file.path, {
-        responsibility: 'interface',
-        reason: 'external-entrypoint-target'
-      });
-    } else if (claims.length > 0) {
-      decisions.set(file.path, {
-        responsibility: 'capability',
-        reason: 'capability-provider-export'
-      });
-    } else if (file.semanticKind === 'declaration-owner' || file.semanticKind === 'pure-reexport') {
-      decisions.set(file.path, {
-        responsibility: 'contract',
-        reason: 'declaration-surface'
-      });
     } else {
       decisions.set(file.path, {
-        responsibility: 'computation',
-        reason: 'pure-computation'
+        responsibility: repositoryResponsibilityForSemanticTargetKind(valid[0]!.target.kind),
+        reason: 'semantic-responsibility-binding'
       });
-    }
-  }
-
-  const dependencies = new Map<string, string[]>();
-  for (const reference of graph.references) {
-    if (reference.resolvedTarget === null) continue;
-    const from = normalizeSecRepositoryPath(reference.from);
-    const to = normalizeSecRepositoryPath(reference.resolvedTarget);
-    if (!fileByPath.has(from) || !fileByPath.has(to)) continue;
-    const values = dependencies.get(from) ?? [];
-    values.push(to);
-    dependencies.set(from, values);
-  }
-  for (const values of dependencies.values()) values.sort(repositoryModuleTextOrder);
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const file of productionFiles) {
-      const current = decisions.get(file.path)!;
-      if (current.responsibility !== 'computation') continue;
-      const targets = dependencies.get(file.path) ?? [];
-      const targetResponsibilities = targets.map((target) => (
-        decisions.get(target)?.responsibility ?? 'unknown'
-      ));
-      let next: MutableDecision | null = null;
-      if (targetResponsibilities.includes('unknown')) {
-        next = {
-          responsibility: 'unknown',
-          reason: 'responsibility-evidence-unresolved'
-        };
-      } else if (targetResponsibilities.includes('capability')) {
-        next = {
-          responsibility: 'operation',
-          reason: 'operation-consumes-capability'
-        };
-      } else if (targetResponsibilities.some((responsibility) => (
-        responsibility === 'operation' || responsibility === 'workflow'
-      ))) {
-        next = {
-          responsibility: 'workflow',
-          reason: 'workflow-consumes-operation'
-        };
-      }
-      if (next !== null) {
-        decisions.set(file.path, next);
-        changed = true;
-      }
     }
   }
 
@@ -1585,12 +1526,9 @@ function compileRepositoryNodeResponsibilities(
     const evidence = {
       path: file.path,
       moduleId: file.moduleId,
-      semanticKind: file.semanticKind ?? null,
-      semanticObservationClass: file.semanticObservationClass ?? null,
-      capabilityClaims: [...(capabilityPaths.get(file.path) ?? [])].sort(repositoryModuleTextOrder),
-      interface: interfacePaths.has(file.path),
-      unresolvedInterface: unresolvedInterfacePaths.has(file.path),
-      dependencies: dependencies.get(file.path) ?? [],
+      sourceRevision: facts.sourceRevision ?? null,
+      semanticRevision: facts.semanticRevision ?? null,
+      bindings: (evidenceByPath.get(file.path) ?? []).map(({ evidenceDigest }) => evidenceDigest),
       decision
     };
     return Object.freeze({

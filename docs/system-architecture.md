@@ -2,7 +2,6 @@
 title: 系统架构与权威流
 status: stable
 domain: system-architecture
-last-reviewed: 2026-08-28
 ---
 
 # 系统架构与权威流
@@ -30,7 +29,7 @@ Existing Workspace
 ### 确定性工程生成链
 
 ```text
-Product Intent / Contract / Block
+Product Intent / Contract / reusable capability
 → Engineering Semantic Model
 → Application IR
 → Behavior IR
@@ -118,7 +117,13 @@ unknown          coverage或authority不足，禁止假KEEP也禁止破坏性删
 `orphan`删除；只有`required`保留，`unknown`形成bounded frontier。新增对象如果不对应新的真实Responsibility，必须证明
 它让总代码、状态、测试、验证成本或故障空间净减少；“更安全”“便于测试”“未来可能使用”或局部green不能授权净膨胀。
 
-`dominated | superseded` 的证明必须同时覆盖 `current semantics` 与 `owner-issued design intent`。后者只能来自 canonical 产品/Contract/capability owner 中已有真实 consumer、演进 transition、支持窗口或重新激活条件的机器事实，并投影为可比较的 capability、Effect/failure、migration/retirement 与 lifecycle-cost envelope；不得从名称、注释、历史实现形状或 Agent 推测反推。当前等价但 intent envelope 未闭合时，分类必须保持 `design-intent-unresolved`，既不能删除旧 owner，也不能把旧表示原样并入新系统。闭合后只保留满足该 envelope 的最小新原语，旧 API、path、schema、test 和 compatibility surface 同批退役。
+`dominated | superseded` 的证明必须同时覆盖 `current semantics` 与 `owner-issued design intent`。对于将被删除或替换的
+public operation，后者只能由该module的严格描述符签发，并绑定已经声明的capability operation或external entrypoint identity；
+一个operation obligation同时拥有consumer support、Effect/failure、recovery、migration、retirement、aggregate resource budget
+和future-support condition。普通未参与演进的内部module不需要填写占位义务。Source Program只能用同一exact graph验证这些意图，
+不能根据名称、注释、历史实现、测试或新观察扩大它们；任一维度缺失、观察unknown或资源上限变宽都必须保持
+`operation-obligation-unresolved | owner-decision-required`。闭合后只保留满足该envelope的最小新原语，旧API、path、schema、
+test和compatibility surface同批退役。
 一个版本/revision/digest/path/status字段没有独立consumer时，字段和围绕它的测试一起删除；一个测试只重演类型、strict
 parser、module compiler、常量或更强Effect/readback proof时删除；一个wrapper没有新增protocol、credential、Effect、
 security、compatibility或performance boundary时删除；一个Skill/WP复制machine rule或canonical principle时降为locator或删除。
@@ -141,49 +146,6 @@ identity/owner、producer/consumer、状态与Effect、failure/recovery、安全
 路径、版本、命令、字段、测试集合、owner清单或状态映射只要能从module/import/consumer graph、schema、registry或上游
 Decision派生，就不得在调用者再硬编码；把硬编码搬进一个新registry而未删除旧事实owner仍是`duplicate-owner`。
 
-### Repository package 与文件布局
-
-物理目录必须表达语义责任和依赖方向，不能用`shared`、`utils`、`common`或文件名惯例代替owner。
-`src/system-architecture/repository-modules/contract.ts`编译每个`sec.module.json`、物理module membership和import
-graph；`src/brownfield/source-program-model`再从TypeScript symbol、reference、capability与Effect graph编译typed
-surface。低层module contract不得反向导入Compiler或Source Program Model。package identity由描述符所在的最具体`src/<domain>/<capability>`根直接派生；descriptor
-不得重复填写owner/id或任意公开路径。descriptor只声明无法从源码推导的content/runtime类别、仓库外入口、
-pre-dependency bootstrap约束和经export/consumer闭包复核的语义capability claim，不复制文件清单、consumer或测试选择。
-
-```text
-src/
-  <domain>/
-    <capability>/         capability-owned product, governance and infrastructure code
-    sec.module.json       non-derivable import/bootstrap/capability facts only
-    *.ts                  capability implementation grouped by semantic responsibility
-    *.ts                  keep a small capability flat
-    <subcapability>/       only when a real internal capability exists
-    *.test.ts             capability-owned behavior/failure/effect proofs
-catalog/                  non-code registry/source inputs
-docs/                     human architecture and governance explanations
-config/                   repository-wide host configuration only
-```
-
-所有一方可执行或可导入代码只能位于`src/`。`src/<domain>/<capability>`按canonical authority domain和可独立理解、变更、
-测试的capability组织，不再增加`modules`、`apps`或其他技术分类层。argv/stdin/stdout/exit、host wiring和operation composition
-进入其真实领域（例如`src/interface/cli`、`src/verification/ci`），不能因此拥有schema、parser、policy、Provider、credential、
-journal、cache、lifecycle、业务Decision或完成裁决。小capability保持平铺；只有真实子能力才建立子目录，禁止机械创建
-`contract/application/runtime/state/test-support`空层或barrel。contract/query/command是Source Program Model从符号、
-consumer和Effect闭包编译出的语义类别，不由文件名、目录名或descriptor清单冒充。
-
-公共面也不由`index.ts`、纯re-export barrel或全域facade冒充。跨capability consumer直接依赖目标owner签发的最窄行为入口；
-只有入口本身执行稳定投影、authority intersection、lifecycle或Effect admission时才形成facade。facade必须保持向外单向依赖，
-不能反向导入consumer、CLI或上层编排，也不能只为了缩短路径复制底层exports。零消费者facade与barrel直接图切；未来真实
-consumer出现时从canonical owner建立最窄入口，不预留“也许会用”的空公共面。
-
-测试与被保护capability同置；真正跨capability/system boundary的测试进入拥有该边界Decision的capability。测试文件不得
-成为production事实源，production也不得导入test/fault provider。fixture只表达外部输入或故障，不复制canonical
-常量、版本、字段表和源码布局。
-
-当前`platform/`、`tooling/`、`scripts/`、`source/`、`control/`和root `tests/`都是迁移输入，不是合法终态zone。
-每个纵切迁移必须同时搬迁owner、public API、consumer和测试；旧路径consumer-zero后删除，不新增re-export、alias、
-V2目录或兼容facade。迁移完成条件是唯一capability owner、唯一公共出口、import graph闭合和旧图删除，而不是路径变更。
-
 ## 四种不同身份
 
 - **Authority**：谁有权声明、修改或裁决输入和策略。
@@ -195,255 +157,95 @@ V2目录或兼容facade。迁移完成条件是唯一capability owner、唯一�
 
 ## 核心对象层
 
-### 1. Authoring 与显式决策
+总体DAG只定义层的责任、输入输出方向和禁止的authority；领域内部shape、revision、validator、producer、current maturity与migration由各domain owner和machine contract拥有。层名不是目录、package或class命名要求。
 
-拥有产品意图、Semantic Contract、Block 引用、Policy、受治理源码、Implementation constraints、Rule-backed Override、Migration decision 和显式 Adopt decision。
+1. **Authoring / Decision**：保存人或外部Product owner明确签发的意图、政策与约束；不直接成为代码、Binding、Effect或PASS。
+2. **Physical Workspace Observation**：证明exact workspace/repository identity、bytes、layout与unknown；不解释业务语义，不写入。
+3. **Source Program Model**：从同一Compiler/Language Program观察module、symbol、reference、entrypoint、capability/effect candidate和unknown；不创造semantic owner、permission或test value。
+4. **Engineering Semantic Model**：拥有Entity、Fact、Assertion、Responsibility与validated snapshot；不读取physical path来推断authority，也不拥有实现选择。
+5. **Delta / Impact**：比较independently validated endpoints并传播受影响Responsibility/consumer；不重跑Resolver，不签发Compatibility、Verification或Effect。
+6. **Operation / Authorization / Plan**：把用户意图与owner-issued facts收敛为typed operation和authorization intersection；Plan必须pure，不能用caller projection创造path、Delta、risk或authority。
+7. **Transactional Mutation**：在有效grant、CAS、journal和readback下修改Authoring/Governed Source；不发布Derived IR、Artifact、Evidence或Compatibility。
+8. **Verification / Evidence**：把Requirement编译为Claim/Action/Result/Evidence并聚合；不拥有Product state、Runtime environment或merge provider。
+9. **Implementation Resolution**：消费validated requirement与candidate facts，产生唯一decision与immutable Binding；不拥有package installation、Compatibility或runtime materialization。
+10. **Target Compilation**：从validated Semantic/IR与frozen Binding lowering到Target Program与canonical outputs；不回读raw intent、live registry或provider状态重新选择实现。
+11. **Product Surface**：CLI、Agent、API、View、Report和documentation只做bounded projection/proposal；不成为canonical writer或第二状态机。
 
-Authoring Source 是可修改的权威输入，不等于所有源码。Registry source、generated artifact、cache、Evidence、IR JSON、ResolutionDecision、journal、UI state 和外部 Provider 输出默认都不是 Authoring Source。
+跨层对象只能以owner-issued typed reference、revision/digest与明确unknown传递。一个层需要另一层内部字段时，先由producer发布最小projection；consumer不得反向import command/runtime、复制parser、枚举路径或根据名称/版本猜语义。任何当前实现偏离上述DAG都由exact Source Program/generated admission projection报告为maturity blocker，不能写入稳定总架构当作长期事实。
 
-### 2. Physical Workspace
+## Documentation architecture
 
-表达 exact revision 下物理存在的对象：repository、workspace、package、file、directory、config、test、workflow、resource、generated output、runtime materialization 和 release artifact。
+Documentation surface只有四类互斥对象：
 
-Physical Workspace 只回答“看见了什么、如何定位、由谁物理拥有、哪些区域不可读或受保护”，不自动解释业务 Responsibility。它必须显式保留 tracked/untracked/ignored、content/object identity、mode、encoding、symlink/reparse、case/Unicode、generated/vendor/secret/opaque 与 unknown。
+1. **Stable authority spec**：每个domain只保留不可从代码派生的用户结果、长期不变量、禁止authority、activation/retirement条件和跨owner引用；不得保存current implementation、文件/命令/测试清单、schema/path/version字面、provider参数、运行状态或逐故障补丁。
+2. **Machine contract / registry**：类型、strict parser、module descriptor、authority registry和capability ledger拥有exact identity、ownership、path、schema、version、consumer与拒绝点；机器可观察事实只在这里一次定义。
+3. **Generated admission projection**：从exact Source Program、module/authority registries、machine contracts与capability/effect census生成当前capability requirement、maturity admission、Evidence obligation、dependency/consumer closure、unknown和retirement frontier；它绑定exact tree且可重建，不读取运行结果，不进入stable prose，也不能签发Effect、PASS或完成authority。
+4. **Runtime state / Evidence**：operation、Work Package、provider session、Action、journal、receipt、failure、PR/Issue和历史证据位于各自control/runtime/external owner；它消费第三层签发的obligation并拥有已观察结果。stable spec只引用其合同，不保存实例，runtime observation也不能反向改写admission projection。
 
-Repository、Documentation、Workflow/Gate、Agent Operations、Release、Product Decision 和 Evidence Ledger 等 Workspace Domain 在出现真实 consumer 时逐域建立独立 raw/validated boundary；不能先创建一个巨型 optional Workspace object。
+依赖方向只能是 `stable decision → machine contract → generated admission projection → runtime observation / Evidence`。runtime反例可以触发stable decision revision，但不能把一次状态直接写成永久架构事实。普通实现、path、version、consumer或maturity变化只更新machine source并重生成projection；只有长期不变量或外部产品承诺改变时才改stable spec。projection/source不一致fail closed，手工修projection无效。
 
-### 3. Source Program Model
+Documentation authority registry只保存有真实consumer的document identity、lifecycle、canonical ownership与projection dependency；audience、consumer edge、update trigger、path/module graph或maturity若可从Read Plan、Source Program或changed facts派生，就不得手工存入registry。人工review日期不证明freshness；stable历史由Git/decision Evidence保存，generated projection用exact source/tree、registry digest和renderer identity证明来源。README/navigation只作byte-exact生成投影。
 
-Language、Compiler、Static、Runtime 和 Build Provider 把 Physical Workspace 提升为 observed/derived 源码模型，表达：
+Agent/Reviewer默认只消费极短router、registry定位的owner clause、machine symbols与delta，不读取整份stable doc。Operation Read Plan按decision question与unresolved frontier选择最小Markdown AST clause并绑定source digest；只有该clause不足以改变裁决时才扩展同owner相邻内容。通用admission由machine operation contract签发compact receipt，不能因“所有任务都需要治理”强制加载整份Development Governance；修改该owner自身时才读全文。缺失或歧义typed block，禁止fallback到全仓/全文预读或新建人工summary。
 
-- workspace、package、build target、file、module；
-- symbol、declaration、type、reference、source span；
-- import/export、resolution、call candidate；
-- control/data-flow、state/effect/error/permission candidate；
-- framework/config/resource binding；
-- generated、vendor、protected、opaque、ambiguous 与 unresolved region。
+stable prose中的重复解释、current状态、具体执行参数和可派生清单一经识别即删除，而不是再生成一份人写摘要。section/clause索引由Markdown AST生成，不建立手工章节registry；compact/full projection必须共享同一semantic graph、unknown与blocking集合，不能各自重算事实。
 
-Source Program Model 有独立 identity、revision、validator、canonical ordering、coverage 和 provider provenance。它不是 Engineering IR，Provider 私有 ID、绝对路径或模型 confidence 不能自动成为跨重建 semantic identity。
+### Documentation compiler 与实时同步目标
 
-### 4. Engineering Semantic Model
+在machine owner、strict contract、producer、consumer和readback闭合前，该能力必须保持unresolved；以下内容只是activation contract，
+任何navigation renderer、file-level Read Plan或人工summary都不能冒充clause/admission projection。
 
-Engineering IR 是 SEC 接受的 canonical engineering semantics，拥有 stable Entity、Fact、Assertion、Semantic Contract、Responsibility、State、Operation、Policy、Permission、Effect、Scenario、Acceptance 和 semantic revision。
-
-它回答：
-
-- 哪些工程对象存在；
-- 哪些陈述成立；
-- 谁以什么 authority 和 provenance 作出陈述；
-- 哪个对象承担什么责任和边界；
-- 哪些未知、冲突和 opaque 必须保留。
-
-Source observation、AI interpretation 和 Provider analysis只能产生 observed/inferred Assertion 或 candidate binding。Reconcile/Adopt 的显式 policy 决定哪些输入可以进入 canonical authority；不能通过 strongest-wins、last-write-wins 或多数票压缩来源。
-
-### 5. Responsibility、Delta 与 Impact
-
-Responsibility 是 Engineering Semantic Model 中的稳定工程责任对象；它绑定 owned state、operations、effects、permissions、contracts、resources、source/artifact bindings 和 lifecycle。Responsibility reconstruction 可以从 Source Program Model 生成候选，但候选保持 `authoritative: false`，直到显式 Adopt 或 canonical rule 取得 authority。
-
-Delta/Impact authority分离并比较 independently validated endpoints：
-
-- Fact/Assertion Delta只比较canonical semantics；
-- `ImplementationBindingDelta`只比较old/new exact Binding集合；
-- Semantic / Implementation Impact传播到Responsibility、consumer、Artifact、dependency、runtime、Verification、release和support surfaces；
-- Change Management消费Delta/Impact与Evidence，产生Compatibility Decision和Migration，不重做Comparator；
-- Actual Delta不能由Resolver、UI、Migration或测试结果提交。
-
-实现切换不能伪装成源码文本变化，也不能自动改写Semantic Contract。Changed files、测试列表、AI 风险评分、semver和 UI 边方向都不能替代 canonical Delta/Impact 或 Compatibility。
-
-### 6. Operation、Authorization 与 Plan
-
-任何用户、AI 或 CLI 写请求都必须进入版本化 Engineering Operation：
+文档同步不是人工维护流程，而是同一exact tracked snapshot上的确定性编译：
 
 ```text
-intent
-+ semantic target
-+ expected revision
-+ implementation constraints / preferences where applicable
-+ requested effects
-+ required permissions
-+ must-preserve / forbidden effects
-+ verification obligations
+stable clauses + authority registry + machine contracts + Source Program facts + capability/effect facts
+→ clause/owner/consumer/invalidation graph
+→ compact Agent projection + full human projection + current admission/obligation projection
 ```
 
-平台从 caller capability、Operation Registry、semantic target、source owner、physical path/region、Policy、Provider capability、minimum Verification 和 current revision 的交集重新派生 authorization。
+三种projection必须引用同一clause identity、compiler input digest与canonical semantic graph digest；compact输出只能裁剪表示，
+不能改写结论、unknown、blocker、owner或activation状态。每个view另外绑定自己的view kind、selection digest与view bytes digest，
+不能把不同bytes说成同一个output digest。projection自身不可手改、不可被stable文档反向引用为authority，并且在任何input digest变化时整体stale。
+renderer必须同时检查orphan clause、duplicate owner、未消费registry字段、stable prose中的current/path/schema/provider镜像、
+以及machine contract缺少stable decision来源；任一失败都拒绝发布README、Agent Read Plan和admission/obligation projection。
 
-Planner 只读地解析 owner/path、运行 isolated transform、重建 canonical state、计算preview Resolution、Delta/Impact和Verification union，产生 immutable plan 或 blocked diagnostics。Caller 不能提交 derived path、Eligibility、Decision、Binding、Delta、Impact、risk、rollback 或 terminal status。实现选择输入只能表达受治理的constraint、preference、require、forbid、pin或custom request；所有derived结果由平台重新计算。
+operation级documentation applicability只从trusted issuer已经绑定的Work Package authority refs、exact changed paths和同一trusted-tree
+authority registry编译；projection由documentation admission owner在进程内签发并绑定tree与registry digest，普通结构对象不能冒充。
+该投影只说明哪些stable decisions适用于本次operation，不产生Scope、Effect、Verification、merge或完成authority。docs doctor等只读
+工作树诊断没有operation issuer时必须保持typed unavailable，但仍可编译clauses和检查文档图；不得为了显示“实时”而自造positive
+admission。Source Program/module graph只派生consumer、dependency、invalidation和unknown closure，不能从目录名、路径或import反向
+签发documentation owner；聚合package必须拆operation/declaration boundary，不能把多个domain owner并集写进module descriptor。
 
-### 7. Transactional Mutation
+编辑期只重编译changed clause及其reverse consumer closure，保持增量结果与clean full compile byte-equivalent；frozen exact tree只生成
+一次完整projection并按ActionKey复用。Agent上下文默认收到decision question相关的compact projection与symbol spans，全文仅在人类
+主动阅读或修改该owner本身时加载。这样代码、合同或capability admission变化会自动更新admission/obligation projection，而不会触发stable prose同步或扩大AI上下文。已观察运行结果只由Runtime/Evidence owner另行投影，不进入documentation semantic graph，也不与其共享semantic identity。
 
-Mutation 把合法 Operation 计划应用到 Authoring/Governed Source：
+stable spec修改必须同时给出不可派生decision的变化与受影响owner；只改变实现、路径、版本、provider、test或maturity的提交若修改
+stable prose，documentation compiler应报告`derived-fact-in-stable-spec`。反过来，stable clause改变而machine contract或consumer
+projection没有相应delta时报告`unmaterialized-stable-decision`。这两个方向共同阻止“文档落后代码”和“文档先替代码宣布完成”。
 
-```text
-validate expected plan
-→ acquire unique writer authority
-→ reread live inputs and re-plan / re-resolve
-→ source + semantic CAS
-→ durable journal
-→ stage exact write set
-→ pre-publication Verification
-→ publish
-→ live canonical rebuild / re-resolution
-→ actual Semantic / Binding Delta and Impact
-→ Compatibility / Migration checks where applicable
-→ post-publication Verification / readback
-→ accepted | rejected | rolled-back | recovery-required
-→ cleanup receipt
-```
-
-不存在 partial-success。无法证明 accepted 或 exact prior-state rollback 时必须进入 recovery-required。Semantic Mutation 唯一拥有单次 source/canonical transaction 的 journal、publish、rollback 和 recovery；Change Management只拥有跨版本Compatibility、migration、compensation、forward recovery 与 irreversible boundary；Delta/Impact只拥有结构变化和传播事实。
-
-### 8. Verification 与 Evidence
-
-Verification 分离：
-
-```text
-Requirement / Claim
-→ Gate definition
-→ physical observation / execution record
-→ owning-environment-aware aggregate
-→ Decision / merge or product consumer
-```
-
-Result 至少区分 `passed | failed | not-run | unsupported | invalidated`，并独立记录 executed/reused/not-executed、applicability、environment、input closure、artifacts、cleanup、expiry 和 invalidation lineage。
-
-Verification PASS 只证明 exact requirement 和 input closure；不能自动证明Eligibility、Compatibility、packaged/deployed 或 product-supported。Evidence Ledger 拥有 record、freshness、coverage、bias、expiry 和 references；Engineering IR 只保存 Assertion 对 Evidence identity 的引用。Provider或Implementation candidate的conformance、benchmark、安全、许可证和运行结果都是Resolution/Compatibility的输入Evidence，不是最终实现选择或迁移authority。
-
-### 9. Implementation Resolution
-
-Implementation Resolution 只消费validated Engineering/Application/Behavior requirements、Target capability、repository existing-stack facts、用户/组织约束、Provider/Adapter catalog Evidence与版本化Resolution Policy，产生：
-
-```text
-Implementation Requirement
-→ canonical candidate closures
-→ Eligibility Results
-→ Resolution Decision
-→ exact frozen Implementation Binding
-```
-
-它不拥有：
-
-- 产品或业务Semantic Contract；
-- Source Program观察和Provider分析事实；
-- Registry trust和Block内容绑定；
-- package/lock写入和安装；
-- Host/Target物理支持；
-- Fact/Binding Delta与Impact；
-- Compatibility、Migration或retirement decision；
-- Verification结果；
-- Target Program打印和Artifact发布。
-
-正确性、安全、权限、Target、许可证和dependency闭包等硬条件先过滤；unknown/conflict保持显式；优化policy只作用于合格候选；仍并列时使用稳定tie-break。相同完整输入必须产生相同Decision与Binding。Generator、Backend、Adapter、UI、Block Resolver和package materializer不得重新选择实现。
-
-Block Capability Resolution与Implementation Resolution为上下层不同协议：Implementation Resolver可以请求一个受约束的`block-delivered`候选；Block Resolver只在其Registry/Block领域内返回冻结BlockProviderBinding，不能替产品决定原生、参考、既有、自定义或Block实现谁更优。
-
-### 10. Target Compilation
-
-Target compilation 只消费 validated Engineering Semantics、显式 Target Profile和冻结的ImplementationBinding：
-
-```text
-Engineering Semantic Model
-→ Application IR
-→ Behavior IR
-→ Implementation Resolution
-→ exact Implementation Binding
-→ Target Program IR
-→ Backend
-```
-
-- **Application IR**：目标无关的 module/service/data/state/operation/policy/effect/verification 结构；
-- **Behavior IR**：SEC 能完整验证和 lowering 的受限控制流、数据流、state/effect/error/authorization/transaction；
-- **Implementation Binding**：每个需要具体实现的能力所选Provider/Reference/Existing/Custom闭包及其exact revisions；
-- **Target Program IR**：目标语言 package/module/declaration/statement/expression/import/export/config/resource binding；
-- **Backend**：AST、printer、formatter、typecheck、package/config lowering 和最终 bytes。
-
-每层只有一个 producer、raw/validated boundary、identity/revision、validator、canonical ordering、diagnostic 和 source map。Target Program IR和Backend不得重新读取raw Contract、live Registry或依赖catalog来选库。新层只有在真实 consumer 暴露现有层无法安全表达的 gap 时才物理落地；完整设计已冻结不等于提前实现无消费者的 IR 空壳。
-
-历史 `Custom Slot` 不是一个可执行 capability authority。真正的 Typed Extension 必须由 canonical ExtensionContract 与 ExtensionImplementationBinding 给出 exact source/provider identity、typed capability ports、Target、transitive Effect closure 和 Verification。当前 Lock/Slot contract 没有这套 binding；现有静态检查因此只能拒绝被直接观察到的 ambient host module、dynamic load 和高风险 runtime root，不能证明“零 runtime capability”，也不能约束通过 `Database`、`Session` 等参数传入的 authority。Compiler API、Semgrep、Tree-sitter或其他 Source Provider 只观察 facts；SEC-owned evaluator 把 facts 与 binding 求交，unknown 或未授权统一 typed reject。retained physical source、observation provider、capability intent、immutable binding 和 decision/error projection必须是独立边界，任何 Provider 规则、测试 seam 或 caller option都不得扩大 grant。canonical 对象与历史 Slot 的原子退役规则由 `capability-and-block-model.md` 拥有。
-
-### 11. Product Surface
-
-CLI、Agent machine interface、ExplainGraph、SemanticView、Implementation View、ReviewSummary、Context Packet、Agent Task、文档、Gate、Release 和 dashboard 都是 canonical state 的消费者。
-
-Agent/CLI interface只拥有transport、stable machine projection和bounded proposal；Operation Envelope、Role、Permission、Implementation Decision、Binding Delta、Compatibility、Verification 和 terminal result由各自 machine owner拥有。SEC Core不拥有浏览器Workbench、HTTP/SSE UI server或HTML view。
-
-Projection 可以过滤、布局和聚合，但必须保留 stable references、revision、authority、unknown 和 Evidence freshness，不能复制或重算上游裁决。实现视图可以解释选了什么、为什么、精确版本、淘汰原因、Binding变化和升级影响，但不能把用户点击或AI建议直接变成Binding、Delta或Compatibility Decision。
-
-### 12. Design Closure
-
-产品意图、根因、架构和实现不是四份平行计划，而是 revision-bound 引用闭包：
-
-```text
-Product/domain authority refs
-→ terminal business intent and lifecycle horizon
-→ violated invariant / causal root-cause class / affected consumers
-→ delta on the existing authority and architecture graph
-→ implementation/capability resolution and old-path retirement
-→ WorkDecision / Task Capsule / Operation
-```
-
-每层内容仍由原 owner 拥有；Design Closure只组合identity、revision、关系与unresolved状态。它不得复制业务正文、建立第二IR或提前物化无人消费的状态机。读取面由decision questions、unresolved frontier与required Evidence kinds编译；只有可能改变具体裁决的节点和反例进入执行上下文。
-
-### 13. Operation Demand Graph
-
-内容寻址不是一套平行架构，而是统一 Engineering Semantic Graph 中确定性节点的 identity/reuse 机制。所有开发环节遵守同一条闭环：
-
-```text
-validated Fact / Intent / Policy / Capability
-→ selected Operation
-→ Operation Demand Graph
-→ required semantic transitions / capabilities / verification obligations
-→ authorized owner Effects
-→ Observation / Evidence
-→ next graph revision
-```
-
-`src/control/operation/demand.ts` 是开发控制面中该图的唯一机器 owner。一个 selected
-Operation 与其 validated facts 必须由该 owner 一次编译出完整 transition demand、capability demand、
-verification obligation 与 graph digest；下游在 Effect 前重算并逐字比较，不能自行补 demand。多个物理改动面若
-来自同一上游 operation，只是同一图节点的派生闭包，不得拆成多个 bootstrap 因果包、多个授权或多个互相漂移的
-手工清单。各领域 effect owner仍只执行自己的 transition，公共图不吞并权限。
-
-能力是图上的显式需求，不是入口默认副作用。`not-demanded` 必须产生零 package preparation、零缓存探测、
-零下载、零进程和零网络。共享 preload、通用 command 名称、ambient executable/cache、调用者字段或“以后也许
-会用”不能索取 Container、Network 等能力。WorkSelection 的 terminal topology transition 与测试
-运行器的 compiler materialization由同一 Demand Graph compiler裁决；它们不再各自拥有一套入口启发式。
-
-一个 canonical semantic transition 可以派生多个物理对象；这些对象必须由同一 compiler 一次产生完整
-write/delete set、依赖边变化、验证需求和 Evidence identity，并由一个事务 owner 发布。若外部authority或下一
-decision尚不可得，compiler必须把生命周期拆成有明确顺序的多个semantic transition，并保证每个中间revision
-自身可解析；不能把跨revision的最终对象集合误当成一个立即Effect。任何单独手改派生对象、保留已消费依赖边、
-只执行半个transition或让Projection反向补事实都属于非法partial transition。Git commit的原子性不能替代
-transition compiler的语义完整性；候选边界必须比较prior/current graph并拒绝半事务。
-
-流程与实现沿此边界解耦：pure process compiler只消费validated facts并输出transition、precondition、Effect
-intent与readback obligation；Git index、文件系统、GitHub、container或其他replaceable Provider只执行已授权
-intent并返回typed receipt，不能重算业务顺序、扩大scope或签发completion。Provider替换只改变capability与
-Evidence binding，不改变状态机语义。terminal work是首个完整canary：terminal compaction退休catalog/依赖边但
-保留仍被pointer绑定的manifest；successor freeze随后在一个candidate tree中发布新manifest/pointer/rolling并
-退休旧manifest。open PR identity也直接由exact base/head/tree与该transition digest重算，不要求每类operation
-伪装成Work Package或依赖PR prose locator。两个边界都由compiler定义，Git/文件/PR Provider只物化并观察它们。
+compiler切换前若删除current negative fact会把未授权能力误读为supported，只允许保留标记明确的temporary safety denial：它必须只
+收窄能力、列出machine projection缺失这一blocker、不得签发positive maturity，并在同一projection cutover中原子迁出。positive
+current claim、能力矩阵、provider参数和实现清单没有该例外。该临时规则只保护迁移安全，不能成为永久手工current-state层。
 
 ## Workspace 状态与路径类别
 
-路径只是物理 binding，不是跨域 identity。一个 workspace 至少区分：
+Workspace是IDE/Agent/Compiler共同工作的exact physical revision、toolchain和state boundary，不是业务对象名称或包装目录。Project只在Semantic Model存在独立consumer时表示workspace内工程实体；它不拥有workspace root、source root、provider、cache或write authority。
 
-- `sec.yaml`：workspace入口与显式产品约束，不复制派生路径、owner或dependency graph；
-- `model/**`：Semantic Model、Policy、Block/Extension声明及其他非可执行authoring input；它不能保存TypeScript/JavaScript
-  实现、生成物或运行时状态；
-- `src/**`：目标程序全部可执行authoring source的唯一物理owner；generated/adopted source也只能在同一编译事务中以
-  exact provenance绑定进入该树，禁止同时保留`source/code`、`project/custom`或第二份template source；
-- `tests/**`：目标程序对公共行为、持久状态、Effect与failure boundary的proof，不镜像`src`物理布局；
-- ecosystem-native根文件与目录（例如`package.json`、`tsconfig.json`、`prisma/**`）：目标工具链的真实输入，不包在
-  `project/`、`app/`或SEC专用技术容器中；
-- `.sec/artifacts/**`：Lock、Verification、Provenance、Review与其他可发布持久投影；只有对应owner可写；
-- `.sec/cache/**`、派生 build info 与可重建索引：可删除、可重算、不能成为 Evidence 或 authority；
-- `.sec/workspace-write-lease/**`、transaction journal、recovery state 与其他 identity-bound control state：不可按“本地缓存”整体删除；
-- runtime/toolchain materialization：可重建但绑定 package、lock、provider、platform、Implementation Binding和generation identity；ambient cache 不能冒充当前实例。
+每个workspace必须由layout/physical owner机器区分：
 
-因此 `.sec/**` 不是一种统一生命周期。任何清理器、fixture、worktree hygiene 或发布逻辑都必须先通过机器分类，unknown 默认拒绝删除、复制或并行共享。
-SEC编译器仓库自己的`src/`只保存SEC实现；用于dogfood或演示的目标workspace必须位于独立的`examples/<name>/`根，
-并在该根内使用上述native layout，不能把目标程序的`project/`、`source/`、`control/`平铺到编译器仓库根。
+- product/semantic authoring inputs；
+- canonical executable authoring source；
+- ecosystem-native toolchain inputs；
+- behavior/effect/failure proofs；
+- durable published artifacts与Evidence；
+- disposable derived cache/index；
+- identity-bound lease/journal/recovery state；
+- runtime/toolchain/dependency materialization。
 
+这些类别具有不同owner、mutability、retention、Effect与cleanup authority，不能因共享父目录或命名约定合并。具体root/path只由validated layout contract签发，stable docs、Brownfield、test、caller和cleanup tool都不得复制字符串。unknown category默认拒绝write/delete/share。
+
+SEC repository与Target workspace是不同physical identity；各自canonical executable-source root由其layout contract唯一签发。生成或adopted source只有在同一transaction中绑定provenance后才能进入Target source tree；第二源码根、template mirror、symlink/junction alias或从命名猜出的project root均由physical/Source Program admission拒绝。
 ## 跨域引用
 
 Domain 只通过 stable identity 与 revision 关联：
@@ -500,49 +302,150 @@ retain current owner
 
 ### 唯一模块事实与投影
 
-每个已接入领域 package 在自身根目录拥有一个严格、无未知字段的最小模块描述符。机器合同只保存无法从其他事实派生、且已有真实 consumer 的内容：`runtime | content` import-graph participation、仍位于 package root 之外的临时`externalEntrypoints`、pre-dependency bootstrap和需要唯一性/实现闭包验证的capability claim。package root与package identity都由描述符物理位置派生，不重复写owner、id或公开路径。
+每个已接入领域package在自身根目录拥有一个严格、无未知字段的最小模块描述符。机器合同只保存无法从其他事实派生、
+且已有真实consumer的内容：`runtime | content` import-graph participation、仍位于package root之外的临时
+`externalEntrypoints`、pre-dependency bootstrap、需要唯一性/实现闭包验证的capability claim，以及public operation被删除或替换
+时不可从当前实现反推的evolution obligation。package root与package identity都由描述符物理位置派生，不重复写owner、id或
+派生路径。
 
-该描述符**不**重新拥有 canonical document authority、authority reference、layer、Effect、test ownership、AI read plan、迁移状态、公开文件清单或允许依赖清单。物理code owner是最具体package root；语义capability owner是经Source Program Model验证export/operation闭包后唯一成立的provider claim；文档与产品事实owner仍由`docs/authority.json`定位。三者不得用同一个`owner`字段混为一谈。新增描述符字段必须同时给出真实拒绝/投影consumer、旧事实owner的退役和净复杂度下降，否则strict parser把它视为未知字段。
+描述符不重新拥有canonical document authority、authority reference、layer、test ownership、AI Read Plan、实际Effect observation、
+migration执行状态、公开文件清单或允许依赖清单。它拥有的operation obligation只是canonical capability owner的设计意图：必须绑定
+同一描述符已经声明的capability operation或external entrypoint，并完整表达consumer support、Effect/failure、recovery、migration、
+retirement、aggregate resource budget和future-support condition。物理code owner是最具体package root；语义capability owner是经
+Source Program验证export/operation闭包后唯一成立的provider claim；文档与产品事实owner仍由`docs/authority.json`定位。三者不得
+用同一个`owner`字段混为一谈。新增描述符字段必须同时给出真实拒绝/投影consumer、旧事实owner的退役和净复杂度下降，否则
+strict parser把它视为未知字段。
 
-当前模块 membership 与 import graph只替代 test-impact 的手写运行时根和内容排除表，不宣称自己证明完整 tracked universe。完整仓库文件宇宙只能由 canonical Git provider签发的NUL-safe tracked records提供；物理递归、ignored-directory清单、描述符数量或测试自报 coverage 都不能替代。未来的依赖检查、TCB、公共投影和AI Read Plan只能消费同一 tracked snapshot 与纯import graph，不得让描述符重新发现文件或手工维护第二份package/path/owner真值。重叠身份、未知tracked对象、失踪外部入口和同一路径多owner必须 deterministic fail；provider不可用时保持typed unknown。
+`docs/authority.json`中的`consumers`只记录文档影响与阅读投影，不是TypeScript import、phase dependency或Effect调用authority；
+其中的互相引用不能授权production module SCC。真实依赖方向只由同一exact Source Program production graph、
+contract/computation/capability/operation/workflow/interface责任和Effect closure编译；需要跨阶段反馈时由orchestrator通过typed receipt连接，不让两个domain runtime互相import。
 
-### 物理 package 形状
+模块membership、TypeScript facts和import graph必须来自同一个canonical Git provider签发的NUL-safe tracked snapshot；物理递归、
+ignored-directory清单、描述符数量或测试自报coverage都不能替代。依赖检查、TCB、公共投影和AI Read Plan只能消费这一张图，
+不得让描述符、测试或CLI重新发现文件、解析import或手工维护第二份package/path/owner真值。重叠身份、未知tracked对象、失踪
+外部入口和同一路径多owner必须deterministic fail；provider不可用时保持typed unknown。
 
-能力module使用下列最小形状；没有对应职责时目录不存在，不建立空层或barrel：
+Module Architecture从production-origin edges产生deterministic owner-pair edge、reciprocal pair、strongly connected component、exact
+witness和feedback-cut projection。feedback cut只是稳定、可复算的破环候选，不得冒充全局最小cut；真实重构仍由唯一owner消费
+witness并裁决。contract/computation/capability/operation/workflow/interface responsibility只在描述符intent与Source Program
+symbol/consumer/Effect facts共同证明时成立；
+多角色冲突、opaque Effect或事实不足一律为unknown并阻断生产DAG准入。测试edge只验证测试边界，不得进入生产SCC。
+
+Aggregate facade也只由TypeScript事实识别：文件必须是pure re-export/declaration projection且没有module-evaluation Effect，文件名是否
+为`index.ts`没有语义。跨owner consumer默认直接依赖真实declaration owner；Reduction Compiler用同一symbol graph把可消减aggregate
+import投影为精确目标与机械patch。保留下来的窄facade必须拥有独立authority intersection、稳定projection、lifecycle或Effect admission，
+并保持单向依赖；仅缩短路径、聚合exports或预留未来入口不能证明其存在价值。
+
+### 物理布局合同
+
+仓库只拥有一个canonical executable-source root；业务输入、稳定规范、host配置、行为证明、generated artifacts、Runtime State与
+disposable cache分别进入不同layout category，不能伪装成第二源码根。具体root名称、descriptor名称、文件路径与package形状只由
+strict layout/module machine contract签发，不写入stable prose，也不由测试、cleanup、Brownfield或Agent复制。
+
+每个package只物化真实职责：direct declaration owner、必要的semantic/effect boundary、内部subcapability与同owner behavior proof。
+没有职责就没有目录或barrel。contract/computation/capability/operation/workflow/interface等责任必须由symbol、consumer与Effect facts推导，不由目录名声明；跨package
+consumer默认依赖真实declaration owner，只有执行authority intersection、stable projection、lifecycle或Effect admission的窄入口
+可以成为facade。pure aggregate re-export、路径缩写和未来占位都不能证明facade存在价值。
+
+外部能力仍保持单向责任：pure contract、physical adoption、bounded live transport、semantic owner、decision/effect/readback。
+物理transport不拥有credential或业务语义，semantic owner不重新实现PATH、spawn、retained handle或provider adoption。
+
+### 纯逻辑、能力原子、领域操作与流程
+
+系统按语义与Effect边界组合，不按函数数量、目录层级或“都做成公共微服务”拆分：
+
+- **Pure decision**只把已观察输入编译为decision、plan、digest或projection；它不读取live世界、不持久化、不执行进程，也不签发Effect authority。
+- **Capability primitive**只实现一个不可再分的物理机制与其最窄identity/fence，例如retained read、bounded process或CAS publication；它不知道业务目标，并且默认是owner-private，不是供任意caller拼装的公共出口。
+- **Domain operation**是最小可复用业务状态转换。它组合pure decision与必要capability，唯一拥有admission、absolute deadline、aggregate budget、idempotency、commit fence、typed failure、recovery、settlement和最终readback；只有这一层可以对外发布Effect-capable入口。
+- **Workflow**只根据typed decision编排domain operation并消费receipt；不得直接调用filesystem、Git、network、container、process或其他capability primitive，也不得重算operation identity与完成语义。
+- **Interface/query**只投影workflow或owner query的结果，不反向拥有领域状态、provider、默认实现或兼容策略。
+
+SEC 位于框架、平台和工具之上：public surface表达领域意图、约束、authorization与可观察终态，不表达`argv`、PATH、容器镜像、缓存文件、SDK对象或provider选择。pure operation compiler把intent与owner facts编译为provider-neutral plan和capability requirements；capability owner随后签发exact binding。只要新binding证明相同semantic contract、Effect/failure/resource/readback obligations，领域operation无需改变即可替换框架或平台；任何provider字段进入intent或decision都构成第二业务owner。
+
+provider原始输出不得直接进入领域状态、failure reason、Evidence或完成判断。能力边界只可投影canonical typed code、bounded counters与不可逆evidence digest；原始bytes由其diagnostic/evidence retention owner按权限和期限保存，需要调查时通过受控reference读取。TypeScript、Git、GitHub、Docker/BuildKit、filesystem与process都遵循这一规则：它们可以是领域operation的能力binding或更低层primitive，但不能成为用户业务意图、Skill适用性或workflow正确性的owner。
+
+这里的“原子”指一个业务不变量要么完整成立、要么进入可恢复的typed状态，不表示每个函数、每次I/O或每个文件都单独公开。
+同一owner内没有独立state、Effect、failure/recovery或consumer的逻辑保持内聚；只有真实边界才拆分。对外surface必须保持最少：公开query与domain operation，隐藏capability primitive和provider细节。替换外部工具时只替换capability binding；改变业务状态机时只改变domain operation；改变步骤顺序时只改变workflow，三者不得互相复制。
+
+机器依赖方向以“左侧可导入右侧”为准：
 
 ```text
-src/<domain>/<capability>/
-  sec.module.json        # 只保存不可派生的import/bootstrap/capability事实
-  <responsibility>.ts    # direct declaration owner; cross-package imports resolve here
-  index.ts               # optional local-only convenience, never a public surface
-  <operation>.ts         # small capability files remain directly visible
-  <subcapability>/       # only a real internal capability may introduce depth
-  <operation>.test.ts    # behavior/effect/failure proof beside its owner
+interface / workflow
+  → domain operation
+    → pure decision + capability boundary
+      → contract / physical primitive
 ```
 
-跨package依赖默认必须直接指向Source Program Model证明的exported declaration owner；只有入口自身执行authority intersection、稳定投影、lifecycle或Effect admission时，consumer才依赖这个窄行为入口。`contract`只能表达数据、schema、parser和纯投影，`query`只能提供bounded read，`command`才可提供显式Effect。类别属于symbol/consumer/effect closure，不属于路径。`runtime`、`internal`、`application`、`state`等目录名同样不声明私有性；需要私有的符号不得export。`index.ts`无法保存每个re-export的真实owner与依赖类别，因此只允许package内部使用，不能成为跨package facade；Reduction Compiler用TypeScript symbol resolution把旧barrel import机械改写到真实declaration。导入任何surface都不能在module evaluation阶段读取文件、环境、PATH、credential、provider、时钟、进程、网络或构造live session。默认配置实例、物理adoption和live provider必须由显式async operation创建。测试也只消费exported declaration或owner签发的test capability，不能因为方便读取真实默认实例或source-layout。生产DAG只由production-origin edge编译；测试观察edge单独校验而不反向制造生产SCC。
+pure decision导入capability、workflow绕过operation直达primitive、primitive导入domain语义、operation把deadline或预算重新发给子步骤、
+以及为每个primitive建立外部facade，均属于target-admission violation。Module Architecture必须从Source Program的symbol、Effect与entrypoint closure编译等价角色；目录名、`index`、后缀和owner自报不能证明分层。
 
-外部能力 package 必须至少分离：
+### Typed provenance DAG、独立代际与复用
+
+系统不存在一个包办全部身份的全局代际、全局epoch或可签发authority的mutable `latest`。代际也不是固定的线性流水线；Physical、
+Source Program、authoritative Contract、Compiler、Operation和Evidence会汇合、分支、并发共存与独立失效。唯一性只表示：同一result
+kind、subject和exact input key只有一个canonical producer，且其immutable result只能引用owner签发的精确上游identity。
 
 ```text
-pure contract/schema
-→ versioned profile/spec content
-→ physical adoption/provider capability
-→ bounded live transport session
-→ Git/GitHub/compiler 等 semantic owner
-→ decision/effect/readback
+PhysicalObservationReceipt ──┐
+ContentManifestRevision ──────┼─→ per-language SourceProgramGeneration* ─┐
+AuthoritativeContracts ───────┘                                          ├─→ SemanticAdmission
+AdoptedAssertions / UnknownFrontier ──────────────────────────────────────┘        │
+                                                                                   ▼
+                                                                       ValidatedSemanticSnapshot
+                                                                                   │
+                                      ImplementationRequirement → Decision → Binding
+                                                                                   │
+                                                                                   ▼
+                                                                        CompilerStageResult*
+                                                                                   │
+                                                                                   ▼
+                                                                  TargetProgram / ArtifactContent
+
+Any immutable result ─→ BoundedProjection(query, bounds, projection contract)
+
+OperationKey + AuthorityGrant + ProviderBindingSet
+                         │
+                         ▼
+              AttemptNonce / Lease / Deadline
+                         │
+              ┌──────────┴──────────┐
+              ▼                     ▼
+      ProviderSettlement    IndependentDomainReadback
+              └──────────┬──────────┘
+                         ▼
+                  TerminalOutcome
+
+Claim + exact result/environment/outcome refs ─→ EvidenceRecord / VerificationResult
 ```
 
-物理 transport 不拥有 credential、repository、GitHub、MainHealth、WorkSelection 或完成语义；semantic owner 也不得重新实现 PATH、spawn、retained handle 或 provider adoption。
+`ContentManifestRevision`只绑定transport-neutral的canonical path、mode、bytes/object digest与必要semantic metadata；相同内容从working tree、
+Git tree或remote object store观察时必须相同。`PhysicalObservationReceipt`单独绑定provider session、Git locator、retained root/physical epoch、
+时间与读取预算，只证明内容从哪里、怎样被观察，不能进入内容identity。Source Program按language/provider contract从content manifest签发facts和
+explicit unknown frontier；新增语言只新增provider-owned selector/fact shard，不修改一个全局扩展名表或万能generation算法。Semantic Admission
+将Source Program facts、authoritative Contracts和adopted assertions汇合为新immutable semantic snapshot；Evidence若需要进入语义世界，也必须经
+显式admission产生新snapshot，不能修改旧snapshot。
 
-### Repository roots
+不存在统一的`CompilerGeneration`。Requirement、Candidate、Decision、Binding、每个pure stage result、Target Program与Artifact Content分别拥有
+identity；stage key只绑定精确上游refs、stage/compiler/backend contract和实际影响它的policy/provider semantic revision。attempt nonce、deadline、
+execution lane、cache path、Git transport epoch与Evidence ID不得进入pure result identity。绝大多数Projection只是可丢弃的bounded函数结果，不拥有
+current truth；只有真实跨进程或公共machine consumer存在时才拥有独立schema/content digest，仍不得反向成为上游authority。
 
-仓库根只保留四种职责：`src/`一方代码、`catalog/`非代码业务输入、`docs/`人类规范、`config/`host配置。
-package manager、Git、GitHub和编辑器强制要求的root文件/目录可以保留，但必须是薄host projection，语义owner仍位于
-`src/<domain>/<capability>`。runtime state、cache、Evidence和generated output不进入authoring tree。
+`OperationKey`是domain owner签发的稳定Effect/idempotency identity；deadline变化、预算收窄、provider route切换、进程重启和resume都不得制造新业务
+Effect。AuthorityGrant拥有principal/scope/capability/budget/validity；ProviderBindingSet拥有exact external binding；Attempt拥有nonce、lease与absolute
+deadline。ProviderSettlement只能由provider owner签发，IndependentDomainReadback只能由domain/retained readback owner签发，operation coordinator只
+join两张opaque receipt并计算TerminalOutcome；不同hash或WeakSet brand不能代替独立issuer/origin。
 
-`modules`、`apps`、`platform`、`tooling`、`scripts`、`source`、`control`、`shared`、`utils`和`common`都不是capability，因此不能成为新的
-代码owner。现存路径由迁移census绑定到目标module；债务ceiling只能下降，不能成为继续向旧zone写文件的预算。
+每个identity domain可以有多个历史immutable results并存，但只有owner-issued pointer/receipt可以声明哪个结果对某个当前subject可用。Runtime Cache
+只在有界entry/byte/age budget与active-reader lease内保存可删除的加速数据；predecessor只凭producer签发的compatibility/invalidation receipt选择。
+cache index、pointer、mtime、目录顺序和“最新”名称都不是authority；损坏、缺失、foreign、stale或被GC的cache回到clean computation，且结果必须
+byte-equivalent。跨进程复用必须绑定完整producer implementation closure；无法观察该closure的partial或synthetic input不得发布可复用result。
+
+任何聚合视图都只能是上述typed identities的projection，不能再创造全局generation counter。任一identity变化只失效精确引用它的下游；下游cache、
+projection、operation receipt或Evidence不得重新扫描、重新哈希或重新签发上游identity。
+
+物理迁移按完整package/consumer/test/effect闭包一次完成：发布target layout与owner binding，机械更新所有exact consumers和Impact edge，
+证明target graph无unknown/duplicate/cycle后在同一migration中退役旧route。迁移状态只保存不可变identity、digest和终止条件；
+不得用compatibility facade、双owner或长期alias跨越提交。
 
 ### 依赖方向与机器拒绝
 
@@ -556,14 +459,21 @@ exported declaration owner
 
 同层跨域引用同样直接依赖目标 declaration owner；禁止为了路径缩短或“统一出口”先穿过re-export facade。以下状态必须由 module compiler、TypeScript import rule 或 contract test 拒绝：
 
-- `src/`外出现一方production TypeScript/JavaScript代码；
+- canonical executable-source root之外出现一方production代码；
 - production 导入 test/fixture/private surface；
 - pure contract/model 导入runtime、default provider或进程能力；
-- package 通过 root-relative 路径绕过 public facade；
+- package 通过root-level aggregate、alias或路径跳转绕过真实declaration/operation owner；
 - app、test、docs、catalog或host config反向成为产品语义owner；
 - 两个 package 发布同一 semantic identity、writer、resolver、parser 或 Effect；
 - import cycle、barrel cycle、动态字符串 import 绕过 registry；
-- package/file/dependency/read/test budget 超限且没有由 canonical architecture owner签发的迁移状态。
+- contract依赖任何runtime responsibility、computation依赖capability/operation/workflow/interface、capability依赖domain operation、
+  workflow绕过operation依赖capability、interface绕过workflow/operation依赖primitive，或responsibility事实unknown仍进入production DAG；
+- 删除或替换public operation时缺少owner-issued obligation、observation未verified、consumer/Effect/failure义务缩小、
+  recovery/migration/retirement/future-support改变，或aggregate resource budget扩大；
+- bounded operation的owner-issued aggregate budget超限、子步骤重开窗口，或没有对应migration state仍继续执行。
+
+这些是target admission invariants。任何surface classifier若把canonical source root之外的可执行源码降格为resource、无法绑定workspace
+identity或没有对应machine finding，maturity必须保持unresolved；修复只能进入同一Source Program/module graph，不得增加第二路径scanner。
 
 预算是迁移触发器，不是用更高常量永久容纳巨型 owner。超过预算的 package 必须拆成同一 semantic owner 下的 bounded physical modules；不得通过复制 owner、增加 facade 层或放宽 ceiling 规避。
 
@@ -579,7 +489,10 @@ exported declaration owner
 
 ### AI 最小读取闭包
 
-AI 首次进入一个 task 时只读取：repository 启动路由、目标 package 最小描述符、由现有authority owner定位的public facade、被改symbol的精确import/consumer closure、canonical owner文档和受影响测试。只有同一tracked snapshot上的机器图给出跨package dependency、Effect、Provider、state或projection边时才扩展读取；不得从描述符臆造尚未接线的owner/read字段，也不得为“熟悉仓库”预读整个domain、全部tests或全部Skills。
+AI 首次进入一个task时只读取：repository启动路由、目标package最小描述符、由现有authority owner定位的public
+declaration或operation boundary、被改symbol的精确import/consumer closure、canonical owner文档和受影响测试。只有同一tracked
+snapshot上的机器图给出跨package dependency、Effect、Provider、state或projection边时才扩展读取；不得从描述符臆造尚未接线的
+owner/read字段，也不得为“熟悉仓库”预读整个domain、全部tests或全部Skills。
 
 Read Plan 必须记录 package identity、descriptor digest、public/internal surface、required/conditional refs、unknown frontier 和 byte/file budget。路径相邻、同名文件、旧聊天或历史报告都不能扩张 closure。
 
@@ -589,7 +502,7 @@ Read Plan 必须记录 package identity、descriptor digest、public/internal su
 
 ```text
 freeze exact files + consumers + tests + owner
-→ publish target package descriptor and import-pure facade
+→ publish target package descriptor and required narrow operation boundary
 → move implementation/tests/fixtures as one content-addressed batch
 → update every exact consumer, test-impact edge and generated projection
 → verify no unknown, no cycle, no old import and no duplicate owner
@@ -597,7 +510,10 @@ freeze exact files + consumers + tests + owner
 → publish one frozen affected Evidence
 ```
 
-迁移期间只有一个 active import route。需要跨提交时，`migrating` descriptor 只能记录 immutable source/target digest 和终止条件，不能保留可执行 compatibility facade；下一批开始前必须先关闭上一批的旧路径和 unknown ledger。
+迁移期间只有一个active import route。需要跨提交时，migration state只能记录immutable source/target digest、operation obligation
+digest和终止条件，不能保留可执行compatibility facade或让新旧owner并行签发准入。完成退出条件是target module role与DAG已由
+同一exact graph证明、所有operation obligations verified、旧consumer/import/facade/alias/descriptor为零、unknown为零，并且迁移
+状态本身已退役。任何unknown必须形成typed blocker并保留迁移状态，不能被写成完成；路径移动或单次测试通过也不是完成。
 
 ## 能力成熟度
 
@@ -718,22 +634,12 @@ Compaction/resume沿用同一分层，不能建立“摘要状态机”。immuta
 
 pure resume candidate不是effect owner：在authenticated live adapters、durable CAS claim、cursor consume和domain-specific authorization接线前，它只能输出无权威建议，并以`effectAuthority=none`阻止任何consumer把`claim-required | join-existing | consume-terminal`直接解释为物理动作。
 
-Canonical path、root disjointness、repository/workspace key 与物理 identity 由
-`src/state/workspace/layout.ts` 唯一拥有；journal、continuation 和 consumer 不复制路径算法。
-Windows、Linux、macOS 的 state/cache root 可由 `SEC_STATE_HOME`、`SEC_CACHE_HOME` 显式覆盖，但必须位于
-repository tree 外且彼此物理 disjoint。lexical path 不是 workspace identity：workspace key必须绑定 canonical
-physical identity，所有写入、替换、删除与 GC 都在 retained/no-follow identity 上重验，防止
-symlink、junction、reparse point、mount、case/Unicode alias 或 TOCTOU 改写 authority。
-
-```text
-stateRoot/
-  workspace-locators/v1/
-  workspaces/v1/<physical-workspace-key>/
-    active-continuation-v1.json
-    verification-sessions/v2/
-    verification-actions/v2/
-  repositories/<repository-key>/objects/continuation-v1/
-```
+Canonical path、root disjointness、repository/workspace key与物理identity只由Runtime State layout capability拥有；journal、
+continuation、文档和consumer不复制路径算法、环境变量名、目录树或版本token。machine projection至少区分workspace locator、
+workspace state、content-addressed continuation object、Verification session/action journals与repository-scoped object store；某一类别只有
+真实durable/cross-process consumer需要区分旧新grammar时才建立version域。state/cache root必须位于repository tree外且彼此物理
+disjoint。lexical path不是workspace identity：workspace key绑定canonical physical identity，所有写入、替换、删除与GC都在
+retained/no-follow identity上重验，防止symlink、junction、reparse point、mount、case/Unicode alias或TOCTOU改写authority。
 
 Continuation object按 canonical bytes digest内容寻址；active pointer只表示某个 physical workspace 当前引用的
 snapshot。pointer/locator/object的发布、替换、退役和journal/claim mutation使用同一 retained physical

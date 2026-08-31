@@ -1,4 +1,4 @@
-import type { LoadedSemanticContract } from '../../semantic/contracts/contract/types.ts';
+import type { LoadedSemanticContract, SemanticContractResponsibilityBinding } from '../../semantic/contracts/contract/types.ts';
 import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
 import type { FactProvenance } from '../../semantic/engineering-ir/contract/fact-types.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -12,6 +12,7 @@ import {
   contractOperationId,
   contractPermissionId,
   contractPolicyId,
+  contractResponsibilityBindingId,
   contractResponsibilityId,
   contractScenarioId,
   contractStateId,
@@ -62,6 +63,19 @@ function linkedTargetId(reference: string): string {
     : contractEntityId(namespace, entityId!);
 }
 
+function linkedResponsibilityBindingTargetId(
+  binding: SemanticContractResponsibilityBinding
+): string {
+  const identity = binding.target.kind === 'entity'
+    ? contractEntityId
+    : binding.target.kind === 'effect'
+      ? contractEffectId
+      : binding.target.kind === 'operation'
+        ? contractOperationId
+        : contractScenarioId;
+  return linkedEntityId(binding.target.id, identity);
+}
+
 export function appendSemanticContract(input: LoadedSemanticContract, sink: BuildSink): void {
   sink.claimSemanticNamespace(input);
   const { contract } = input;
@@ -92,9 +106,42 @@ export function appendSemanticContract(input: LoadedSemanticContract, sink: Buil
     addDeclaredEntity(sink, blockId, provenance, semanticEntity(
       contractResponsibilityId(contract.namespace, responsibility.id),
       'responsibility',
-      responsibility.label ?? responsibility.id,
-      [valueAttribute('role', responsibility.role)]
+      responsibility.label ?? responsibility.id
     ));
+  }
+
+
+  for (const responsibility of contract.responsibilities) {
+    const responsibilityId = contractResponsibilityId(contract.namespace, responsibility.id);
+    for (const binding of responsibility.bindings ?? []) {
+      const targetId = linkedResponsibilityBindingTargetId(binding);
+      const bindingId = contractResponsibilityBindingId(
+        contract.namespace,
+        responsibility.id,
+        binding.target.kind,
+        targetId,
+        binding.declaration.path,
+        binding.declaration.exportName
+      );
+      addDeclaredEntity(sink, blockId, provenance, semanticEntity(
+        bindingId,
+        'responsibility-binding',
+        `${responsibility.id}:${binding.declaration.exportName}`,
+        [
+          valueAttribute('targetKind', binding.target.kind),
+          valueAttribute('targetId', targetId),
+          valueAttribute('declarationPath', binding.declaration.path),
+          valueAttribute('declarationExportName', binding.declaration.exportName)
+        ]
+      ));
+      sink.addFact({
+        subject: responsibilityId,
+        predicate: 'CONTAINS',
+        object: { kind: 'entity', entityId: bindingId },
+        authority: 'authoritative',
+        provenance
+      });
+    }
   }
 
   for (const operation of contract.operations) {

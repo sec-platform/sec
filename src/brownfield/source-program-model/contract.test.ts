@@ -1,13 +1,14 @@
 import { expect, test } from 'bun:test';
 import { applyPatch, parsePatch } from 'diff';
 
+import { buildValidatedEngineeringIR } from '../../compiler/ir/validate-engineering-ir.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   compileSecRepositoryModuleArchitectureProjection,
   compileSecRepositoryModuleGraph,
   compileSecRepositoryModuleMembershipSnapshot
 } from '../../system-architecture/repository-modules/contract.ts';
-import { sourceProgramSurfaceForPath } from './contract.ts';
+import { isSourceProgramInputPath, sourceProgramSurfaceForPath } from './contract.ts';
 import {
   buildSourceProgramAggregateImportReductionPatch,
   compileSourceProgramAggregateImportReductionPlan,
@@ -26,6 +27,7 @@ import {
 import {
   compileRepositorySourceProgramModel,
   compileSourceProgramOwnerIntentEvidence,
+  compileSourceProgramResponsibilityEvidence,
   summarizeSourceProgramTopology
 } from './repository.ts';
 import {
@@ -47,6 +49,21 @@ test('source program classifies catalog-installed code as a resource surface', (
   expect(sourceProgramSurfaceForPath('tests/unit/example.test.ts')).toBe('test');
   expect(sourceProgramSurfaceForPath('examples/reference-workspace/src/example.ts')).toBe('resource');
   expect(sourceProgramSurfaceForPath('source/code/example.ts')).toBe('resource');
+});
+
+test('source program input closure excludes target workspaces and generated artifacts', () => {
+  expect(isSourceProgramInputPath('src/example.ts')).toBe(true);
+  expect(isSourceProgramInputPath('tests/unit/example.test.ts')).toBe(true);
+  expect(isSourceProgramInputPath('src/example/sec.module.json')).toBe(true);
+  expect(isSourceProgramInputPath('.github/workflows/ci.yml')).toBe(true);
+  expect(isSourceProgramInputPath('docs/authority.json')).toBe(true);
+  expect(isSourceProgramInputPath(
+    'examples/reference-workspace/.sec/artifacts/evidence/review-summary.json'
+  )).toBe(false);
+  expect(isSourceProgramInputPath('examples/reference-workspace/src/example.ts')).toBe(false);
+  expect(isSourceProgramInputPath(
+    'catalog/registry/official/example/files/src/installed/example.ts'
+  )).toBe(false);
 });
 
 test('TypeScript semantic compilation excludes test and resource declarations from the production authority graph', () => {
@@ -75,7 +92,7 @@ test('TypeScript semantic compilation excludes test and resource declarations fr
   expect(model.declarations.map(({ name }) => name)).toEqual(['productionValue']);
 });
 
-test('Source Program facts let the architecture owner sign node responsibilities without path-name inference', () => {
+test('unbound Source Program facts remain unknown responsibility evidence', () => {
   const sources = new Map([
     [
       'src/public-contract/types.ts',
@@ -166,19 +183,142 @@ test('Source Program facts let the architecture owner sign node responsibilities
     semanticObservationClass: 'derived'
   }));
   expect(projection.nodeResponsibilities.map(({ path, responsibility }) => [path, responsibility]))
-    .toContainEqual(['src/runtime-owner/service.ts', 'capability']);
+    .toContainEqual(['src/runtime-owner/service.ts', 'unknown']);
   expect(projection.nodeResponsibilities.map(({ path, responsibility }) => [path, responsibility]))
-    .toContainEqual(['src/command-owner/cli.ts', 'interface']);
+    .toContainEqual(['src/command-owner/cli.ts', 'unknown']);
   expect(projection.aggregateFacadePaths).toContain('src/public-contract/facade.ts');
-  expect(projection.violations).toContainEqual(expect.objectContaining({
-    code: 'repository-node-responsibility-reverse-dependency',
-    from: 'src/public-contract/types.ts',
-    to: 'src/runtime-owner/service.ts'
-  }));
   expect(projection.nodeResponsibilities).toContainEqual(expect.objectContaining({
     path: 'src/looks-like-query/value.ts',
-    responsibility: 'computation'
+    responsibility: 'unknown',
+    reason: 'responsibility-evidence-unresolved'
   }));
+  expect(projection.violations).not.toContainEqual(expect.objectContaining({
+    code: 'repository-node-responsibility-reverse-dependency'
+  }));
+});
+
+test('Source Program binds validated semantic intent to one exact exported declaration', () => {
+  const sourcePath = 'src/example/run.ts';
+  const source = 'export function run(): string { return \'ok\'; }\n';
+  const descriptorPath = 'src/example/sec.module.json';
+  const membership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [sourcePath, descriptorPath],
+    descriptorSources: [{
+      descriptorPath,
+      source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
+    }]
+  });
+  const files = [{ path: sourcePath, source, contentDigest: rawSha256(source) }];
+  const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
+  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership: membership });
+  const semanticContract = {
+    blockId: 'example/basic',
+    contractPath: 'catalog/registry/official/example.basic/contracts/example.yaml',
+    contract: {
+      formatVersion: '1' as const,
+      id: 'example-core',
+      namespace: 'example',
+      entities: [],
+      states: [],
+      responsibilities: [{
+        id: 'ExampleOperation',
+        role: 'legacy prose cannot classify a node',
+        bindings: [{
+          target: { kind: 'operation' as const, id: 'run' },
+          declaration: { path: sourcePath, exportName: 'run' }
+        }],
+        owns: [],
+        implements: ['run'],
+        dependsOn: []
+      }],
+      operations: [{
+        id: 'run',
+        responsibility: 'ExampleOperation',
+        inputs: [], reads: [], writes: [], mutates: [], requiresPolicies: [],
+        requiresPermissions: [], performsEffects: [], emits: [], invokes: [], awaits: []
+      }],
+      events: [], policies: [], permissions: [], effects: [], scenarios: []
+    }
+  };
+  const engineeringInput = (contractInput: typeof semanticContract) => ({
+    app: { id: 'responsibility-binding', name: 'Responsibility Binding' },
+    resolvedBlocks: [{
+      id: 'example/basic', version: '0.1.0', kind: 'capability', installOrder: 1,
+      manifestPath: 'catalog/registry/official/example.basic/block.manifest.yaml',
+      registrySourceId: 'official', registryKind: 'official', registryLocation: 'compiler',
+      registryPath: 'catalog/registry/official'
+    }],
+    manifests: [{
+      blockId: 'example/basic',
+      manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] } }
+    }],
+    acceptanceIds: [],
+    policyDeclarations: [],
+    semanticContracts: [contractInput]
+  });
+  const snapshot = buildValidatedEngineeringIR(engineeringInput(semanticContract));
+  const responsibilityEvidence = compileSourceProgramResponsibilityEvidence(model, snapshot);
+  expect(responsibilityEvidence).toEqual([
+    expect.objectContaining({
+      responsibilityId: 'responsibility:example:ExampleOperation',
+      target: { kind: 'operation', id: 'operation:example:run' },
+      declaration: expect.objectContaining({
+        path: sourcePath,
+        exportName: 'run',
+        moduleId: 'example'
+      }),
+      sourceRevision,
+      semanticRevision: snapshot.ir.semanticRevision,
+      observationClass: 'observed',
+      reason: 'validated'
+    })
+  ]);
+  const graph = compileSecRepositoryModuleGraph({
+    files: [sourcePath],
+    readSource: () => source
+  });
+  const projection = compileSecRepositoryModuleArchitectureProjection(graph, membership, {
+    ...model,
+    semanticRevision: snapshot.ir.semanticRevision,
+    responsibilityEvidence
+  });
+  expect(projection.nodeResponsibilities).toEqual([
+    expect.objectContaining({ path: sourcePath, responsibility: 'operation' })
+  ]);
+
+  const missingContract = structuredClone(semanticContract);
+  missingContract.contract.responsibilities[0]!.bindings![0]!.declaration.exportName = 'missing';
+  const missingSnapshot = buildValidatedEngineeringIR(engineeringInput(missingContract));
+  expect(compileSourceProgramResponsibilityEvidence(model, missingSnapshot)).toEqual([
+    expect.objectContaining({
+      observationClass: 'unknown',
+      reason: 'exported-declaration-missing'
+    })
+  ]);
+
+  const conflictingContract = structuredClone(semanticContract);
+  conflictingContract.contract.responsibilities.push({
+    id: 'DuplicateDeclarationClaim',
+    role: 'another prose claim is still not authority',
+    bindings: [{
+      target: { kind: 'operation', id: 'run' },
+      declaration: { path: sourcePath, exportName: 'run' }
+    }],
+    owns: [],
+    implements: [],
+    dependsOn: []
+  });
+  const conflictingSnapshot = buildValidatedEngineeringIR(engineeringInput(conflictingContract));
+  expect(compileSourceProgramResponsibilityEvidence(model, conflictingSnapshot)).toEqual([
+    expect.objectContaining({
+      observationClass: 'unknown',
+      reason: 'declaration-binding-conflict'
+    }),
+    expect.objectContaining({
+      observationClass: 'unknown',
+      reason: 'declaration-binding-conflict'
+    })
+  ]);
 });
 
 test('source program model finds capability producers, consumers, literals, and opaque paths deterministically', () => {

@@ -20,11 +20,6 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
         object: { kind: "entity", entityKinds: ["block"] },
       },
       {
-        id: "block-contains-slot",
-        subjectKinds: ["block"],
-        object: { kind: "entity", entityKinds: ["slot"] },
-      },
-      {
         id: "entity-contains-field",
         subjectKinds: ["entity"],
         object: { kind: "entity", entityKinds: ["field"] },
@@ -33,6 +28,11 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
         id: "scenario-contains-step",
         subjectKinds: ["scenario"],
         object: { kind: "entity", entityKinds: ["scenario-step"] },
+      },
+      {
+        id: "responsibility-contains-binding",
+        subjectKinds: ["responsibility"],
+        object: { kind: "entity", entityKinds: ["responsibility-binding"] },
       },
     ],
   },
@@ -48,6 +48,7 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
             "entity",
             "field",
             "responsibility",
+            "responsibility-binding",
             "operation",
             "event",
             "policy",
@@ -230,7 +231,16 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
       },
     ],
   },
-  FLOWS_TO: RESERVED,
+  FLOWS_TO: {
+    status: "active",
+    variants: [
+      {
+        id: "capability-flows-to-source-artifact",
+        subjectKinds: ["capability"],
+        object: { kind: "entity", entityKinds: ["artifact"] },
+      },
+    ],
+  },
   DERIVES_FROM: RESERVED,
   TRANSFORMS_TO: RESERVED,
   VALIDATES: RESERVED,
