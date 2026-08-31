@@ -11,7 +11,8 @@ export async function withDockerDesktopLauncherLock<T>(
   if (!Number.isSafeInteger(input.deadlineAtUnixMs) || remaining < 1) {
     throw new DockerDaemonAvailabilityFailure({
       endpointHost: input.endpointHost,
-      reason: 'deadline-exhausted'
+      reason: 'deadline-exhausted',
+      phase: 'admission'
     });
   }
   try {
@@ -33,7 +34,9 @@ export async function withDockerDesktopLauncherLock<T>(
     if (error instanceof DockerDaemonAvailabilityFailure) throw error;
     throw new DockerDaemonAvailabilityFailure({
       endpointHost: input.endpointHost,
-      reason: 'desktop-environment-unavailable'
+      reason: 'desktop-environment-unavailable',
+      phase: 'admission',
+      providerEvidence: error instanceof Error ? error.message : String(error)
     });
   }
 }

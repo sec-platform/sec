@@ -1,3 +1,7 @@
+import type {
+  SecBoundSemanticOperation,
+  SecProviderSettlementReceipt
+} from '../../../system-architecture/operation/semantic.ts';
 import type { DockerEndpointIdentity } from './daemon.ts';
 
 export type ContainerEngineOperation =
@@ -45,20 +49,17 @@ export interface ContainerEngineSession {
   readonly cwd: string;
   readonly executable: string;
   readonly deadlineAtUnixMs: number;
-  readonly maxStdoutBytes: number;
-  readonly maxStderrBytes: number;
   execute(
     operation: ContainerEngineOperation,
     options?: ContainerEngineOperationOptions
   ): Promise<ContainerEngineCommandResult>;
-  close(): Promise<void>;
+  close(): SecProviderSettlementReceipt;
 }
 
 export interface OpenContainerEngineSessionInput {
+  readonly operation: SecBoundSemanticOperation;
+  readonly signal?: AbortSignal;
   readonly cwd: string;
-  readonly deadlineAtUnixMs: number;
   readonly availability: 'observe' | 'ensure-started';
   readonly expectedEndpoint?: DockerEndpointIdentity;
-  readonly maxStdoutBytes: number;
-  readonly maxStderrBytes: number;
 }
