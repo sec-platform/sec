@@ -34,6 +34,39 @@ function source(order: 'sorted' | 'unsorted'): string {
   ].join('\n');
 }
 
+async function prepareSnapshotCandidate(prefix: string): Promise<Readonly<{
+  repoRoot: string;
+  candidateBase: string;
+}>> {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), prefix));
+  git(repoRoot, ['init', '--quiet']);
+  git(repoRoot, ['config', 'user.email', 'tests@example.com']);
+  git(repoRoot, ['config', 'user.name', 'SEC Tests']);
+  git(repoRoot, ['config', 'core.autocrlf', 'false']);
+  await Promise.all([
+    writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
+      compilerOptions: {
+        allowImportingTsExtensions: true,
+        module: 'ESNext',
+        moduleResolution: 'Bundler',
+        noEmit: true,
+        target: 'ES2022'
+      },
+      include: ['**/*.ts']
+    }, null, 2)}\n`, 'utf8'),
+    writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
+    writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8')
+  ]);
+  git(repoRoot, ['add', '--all']);
+  git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+  const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+  const fixturePath = path.join(repoRoot, 'fixture.ts');
+  await writeFile(fixturePath, source('unsorted'));
+  git(repoRoot, ['add', 'fixture.ts']);
+  await writeFile(fixturePath, `${source('unsorted')}// unstaged owner bytes\n`);
+  return Object.freeze({ repoRoot, candidateBase });
+}
+
 test('staged organizer fast sentinel preserves working bytes while normalizing the index', async () => {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-imports-fast-'));
   try {
@@ -148,6 +181,68 @@ test('candidate snapshot retained capability rejects ancestor substitution witho
     await rm(snapshotRoot!, { recursive: true, force: true });
     await rename(movedRoot!, snapshotRoot!);
     await lifecycle.disposed(relativePath!, 'negative-test-restored-owner');
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('candidate snapshot birth failure preserves the primary error without inventing retirement authority', async () => {
+  const { candidateBase, repoRoot } = await prepareSnapshotCandidate('sec-import-birth-failure-');
+  const primaryError = new Error('candidate birth primary failure');
+  let disposedCalls = 0;
+  let snapshotRelativePath: string | null = null;
+  try {
+    let observedError: unknown;
+    try {
+      await runStagedImportOrganizer(repoRoot, {
+        generatedStateLifecycle: {
+          born: async (relativePath) => {
+            snapshotRelativePath = relativePath;
+            throw primaryError;
+          },
+          disposed: async () => {
+            disposedCalls += 1;
+          }
+        }
+      }, { candidateBase });
+    } catch (error) {
+      observedError = error;
+    }
+
+    expect(observedError).toBe(primaryError);
+    expect(disposedCalls).toBe(0);
+    expect(snapshotRelativePath).not.toBeNull();
+    await access(path.join(repoRoot, ...snapshotRelativePath!.split('/')));
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('candidate snapshot cleanup records its failure after a successful birth without replacing the primary error', async () => {
+  const { candidateBase, repoRoot } = await prepareSnapshotCandidate('sec-import-cleanup-failure-');
+  const primaryError = new Error('candidate materialization primary failure');
+  const cleanupError = new Error('candidate lifecycle cleanup failure');
+  try {
+    let observedError: unknown;
+    try {
+      await runStagedImportOrganizer(repoRoot, {
+        generatedStateLifecycle: {
+          born: async () => undefined,
+          disposed: async () => {
+            throw cleanupError;
+          }
+        },
+        beforeCandidateSnapshotWrite: async () => {
+          throw primaryError;
+        }
+      }, { candidateBase });
+    } catch (error) {
+      observedError = error;
+    }
+
+    expect(observedError).toBeInstanceOf(AggregateError);
+    const failures = [...(observedError as AggregateError).errors];
+    expect(failures).toEqual([primaryError, cleanupError]);
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
