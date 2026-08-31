@@ -9,6 +9,55 @@
         "resolveSecRuntimeStateForRepository",
         "resolveSecWorkspaceRuntimeRoots"
       ]
+    },
+    {
+      "capability": "runtime-state.workspace-cache",
+      "operations": [
+        "openContentAddressedWorkspaceCacheSession"
+      ],
+      "effectKinds": [
+        "filesystem"
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.workspace-cache",
+        "operation": "openContentAddressedWorkspaceCacheSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "brownfield.repository-audit"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "cache.cancelled",
+          "cache.deadline-exhausted",
+          "cache.physical-replacement",
+          "cache.resource-budget-exhausted",
+          "cache.settlement-unproven"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          { "resource": "duration-ms", "maximum": 300000 },
+          { "resource": "input-bytes", "maximum": 1073741824 },
+          { "resource": "output-bytes", "maximum": 1073741824 },
+          { "resource": "records", "maximum": 500000 }
+        ]
+      },
+      "futureSupport": { "condition": "semantic-superset-required" }
     }
   ],
   "preDependencyBootstrap": false

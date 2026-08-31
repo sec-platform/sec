@@ -3,6 +3,10 @@ import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
 import {
+  type RepositoryCompilationCacheProvider,
+  type RepositoryCompilationGenerationReceipt
+} from './repository-compilation-cache.ts';
+import {
   compileVirtualRepositorySourceProgramCompilation
 } from './repository-compilation.ts';
 import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
@@ -17,6 +21,7 @@ import {
 import {
   assertWorkspaceSourceSnapshot,
   compileVirtualWorkspaceSourceSnapshot,
+  compileWorkspaceTypeScriptProjectInput,
   type WorkspaceSourceSnapshot,
   type WorkspaceSourceSnapshotSubject
 } from './workspace-source-snapshot.ts';
@@ -177,4 +182,60 @@ test('workspace source snapshot owns immutable repository-relative source bytes'
   mutableFile.source = 'export const replacement = true;\n';
   expect(issued.file(admitted!.path)?.source).toBe(admitted!.source);
   expect(issued.files.some((file) => 'bytesBase64' in file || 'physicalPath' in file)).toBeFalse();
+});
+
+test('cache absence and open, read, or publish failure preserve the cold semantic generation', () => {
+  const input = fixture(1);
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    ...input,
+    subject: virtualSnapshotSubject('cache-failure-fallback') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
+  });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(
+    workspaceSnapshot,
+    'src/example/operation.ts'
+  );
+  const cold = compileVirtualRepositorySourceProgramCompilation({
+    workspaceSnapshot,
+    projectInput
+  });
+  const openFailure: RepositoryCompilationCacheProvider = Object.freeze({
+    openContentAddressedHint: () => {
+      throw new Error('cache-open-failed');
+    }
+  });
+  const readFailure: RepositoryCompilationCacheProvider = Object.freeze({
+    openContentAddressedHint: (generation: RepositoryCompilationGenerationReceipt) => Object.freeze({
+      keyDigest: generation.generationDigest,
+      loadExact: () => { throw new Error('cache-read-failed'); },
+      loadPredecessor: () => { throw new Error('cache-predecessor-read-failed'); },
+      publish: () => { throw new Error('cache-publish-failed'); }
+    })
+  });
+  const publishFailure: RepositoryCompilationCacheProvider = Object.freeze({
+    openContentAddressedHint: (generation: RepositoryCompilationGenerationReceipt) => {
+      const keyDigest = generation.generationDigest;
+      const miss = Object.freeze({ status: 'miss' as const, keyDigest });
+      return Object.freeze({
+        keyDigest,
+        loadExact: () => miss,
+        loadPredecessor: () => miss,
+        publish: () => { throw new Error('cache-publish-failed'); }
+      });
+    }
+  });
+
+  for (const cacheProvider of [openFailure, readFailure, publishFailure]) {
+    const recovered = compileVirtualRepositorySourceProgramCompilation({
+      cacheProvider,
+      workspaceSnapshot,
+      projectInput
+    });
+    expect(recovered.typeScriptCompilation.mode).toBe('full');
+    expect(recovered.typeScriptCompilation.model).toEqual(cold.typeScriptCompilation.model);
+    expect(recovered.testObservations).toEqual(cold.testObservations);
+    expect(recovered.model).toEqual(cold.model);
+    expect(recovered.projectGeneration).toEqual(cold.projectGeneration);
+    expect(recovered.cacheReceipt).toBeNull();
+    expect(recovered.receiptDigest).toBe(cold.receiptDigest);
+  }
 });

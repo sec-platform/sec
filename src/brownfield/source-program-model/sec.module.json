@@ -8,6 +8,7 @@
         "acquireExactGitTreeWorkspaceSourceSnapshot",
         "acquireWorkingTreeWorkspaceSourceSnapshot",
         "compileRepositorySourceProgramModel",
+        "createRepositoryCompilationCacheProvider",
         "compileVirtualWorkspaceSourceSnapshot",
         "compileWorkspaceTypeScriptProjectInput",
         "compileSourceProgramGraphCutReductionPlan",
