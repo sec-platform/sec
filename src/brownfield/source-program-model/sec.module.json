@@ -5,7 +5,11 @@
     {
       "capability": "source-program-model",
       "operations": [
+        "acquireExactGitTreeWorkspaceSourceSnapshot",
+        "acquireWorkingTreeWorkspaceSourceSnapshot",
         "compileRepositorySourceProgramModel",
+        "compileVirtualWorkspaceSourceSnapshot",
+        "compileWorkspaceTypeScriptProjectInput",
         "compileSourceProgramGraphCutReductionPlan",
         "compileSourceProgramImplementationDominance",
         "compileSourceProgramTestValue",
