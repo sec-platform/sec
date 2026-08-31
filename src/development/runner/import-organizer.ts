@@ -9,7 +9,7 @@ import { inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, 
 import { CompilerError } from '../../compiler/errors.ts';
 import { canonicalEquals, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { ensureDir } from '../../workspace/files.ts';
-import { compilerRoot, relativePosixPath } from '../../workspace/paths.ts';
+import { compilerRoot, relativePosixPath } from '../../workspace/runtime/paths.ts';
 import {
   publishImportTransformTransaction,
   type ImportTransformTransactionTestHooks
@@ -541,14 +541,27 @@ function absoluteRepositoryPath(projectRoot: string, gitPath: string): string {
   return absolute;
 }
 
-type ImportSnapshotLifecycle = Readonly<{
+type ImportSnapshotLifecycleOwner = Readonly<{
+  born(relativePath: string, operationId: string): Promise<void>;
   disposed(relativePath: string, outcome: string): Promise<void>;
 }>;
 
+type ImportSnapshotLifecycleReceipt = Readonly<{
+  dispose(outcome: string): Promise<void>;
+}>;
+
+function issueImportSnapshotLifecycleReceipt(
+  owner: ImportSnapshotLifecycleOwner,
+  relativePath: string
+): ImportSnapshotLifecycleReceipt {
+  return Object.freeze({
+    dispose: (outcome) => owner.disposed(relativePath, outcome)
+  });
+}
+
 type MaterializedCandidateIndex = Readonly<{
   snapshotRoot: string;
-  relativePath: string;
-  lifecycle: ImportSnapshotLifecycle | null;
+  lifecycle: ImportSnapshotLifecycleReceipt | null;
 }>;
 
 async function materializeCandidateIndex(
@@ -561,9 +574,8 @@ async function materializeCandidateIndex(
   const snapshotName = `snapshot-${operationId}`;
   const relativePath = `.tmp/import-candidate-snapshots/${snapshotName}`;
   const snapshotRoot = path.join(snapshotsRoot, snapshotName);
-  let lifecycle: (ImportSnapshotLifecycle & Readonly<{
-    born(relativePath: string, operationId: string): Promise<void>;
-  }>) | null = null;
+  let lifecycleOwner: ImportSnapshotLifecycleOwner | null = null;
+  let lifecycleReceipt: ImportSnapshotLifecycleReceipt | null = null;
   await ensureDir(snapshotRoot);
   const retainedSnapshot = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(snapshotRoot, 'Import candidate snapshot'),
@@ -580,14 +592,16 @@ async function materializeCandidateIndex(
       throw new Error('Canonical import snapshots cannot replace the generated-state lifecycle owner.');
     }
     if (lifecycleOverride !== undefined) {
-      lifecycle = lifecycleOverride;
-      await lifecycle.born(relativePath, `import-candidate-snapshot:${operationId}`);
+      lifecycleOwner = lifecycleOverride;
+      await lifecycleOwner.born(relativePath, `import-candidate-snapshot:${operationId}`);
+      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath);
     } else if (sameCompilerRoot) {
       const { generatedStateProducerHooks: generatedStateProducerHooksV1 } = await import(
         '../../runtime-state/generated-state/lifecycle.ts'
       );
-      lifecycle = generatedStateProducerHooksV1({ repositoryRoot: projectRoot });
-      await lifecycle.born(relativePath, `import-candidate-snapshot:${operationId}`);
+      lifecycleOwner = generatedStateProducerHooksV1({ repositoryRoot: projectRoot });
+      await lifecycleOwner.born(relativePath, `import-candidate-snapshot:${operationId}`);
+      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath);
     }
     await beforeWrite?.(snapshotRoot);
     const prefix = `${retainedSnapshot.childPath.replace(/\\/gu, '/')}/`;
@@ -603,13 +617,13 @@ async function materializeCandidateIndex(
       pureGitReadEnvironment(process.env),
       retainedSnapshot
     );
-    return Object.freeze({ snapshotRoot, relativePath, lifecycle });
+    return Object.freeze({ snapshotRoot, lifecycle: lifecycleReceipt });
   } catch (error) {
     try {
-      if (lifecycle === null) {
+      if (lifecycleOwner === null) {
         await fs.rm(snapshotRoot, { recursive: true, force: true });
-      } else {
-        await lifecycle.disposed(relativePath, 'materialization-failed');
+      } else if (lifecycleReceipt !== null) {
+        await lifecycleReceipt.dispose('materialization-failed');
       }
     } catch (cleanupError) {
       throw new AggregateError(
@@ -664,8 +678,7 @@ async function candidateContext(
 ): Promise<{
   readonly root: string;
   readonly snapshotRoot: string | null;
-  readonly snapshotRelativePath: string | null;
-  readonly snapshotLifecycle: ImportSnapshotLifecycle | null;
+  readonly snapshotLifecycle: ImportSnapshotLifecycleReceipt | null;
   readonly mode: 'working-tree' | 'snapshot';
 }> {
   if (await workingTreeMatchesIndex(projectRoot)) {
@@ -673,7 +686,6 @@ async function candidateContext(
     return Object.freeze({
       root: projectRoot,
       snapshotRoot: null,
-      snapshotRelativePath: null,
       snapshotLifecycle: null,
       mode: 'working-tree'
     });
@@ -687,7 +699,6 @@ async function candidateContext(
   return Object.freeze({
     root: snapshot.snapshotRoot,
     snapshotRoot: snapshot.snapshotRoot,
-    snapshotRelativePath: snapshot.relativePath,
     snapshotLifecycle: snapshot.lifecycle,
     mode: 'snapshot'
   });
@@ -695,12 +706,11 @@ async function candidateContext(
 
 async function disposeCandidateContext(context: Readonly<{
   snapshotRoot: string | null;
-  snapshotRelativePath: string | null;
-  snapshotLifecycle: ImportSnapshotLifecycle | null;
+  snapshotLifecycle: ImportSnapshotLifecycleReceipt | null;
 }>): Promise<void> {
   if (context.snapshotRoot === null) return;
-  if (context.snapshotLifecycle !== null && context.snapshotRelativePath !== null) {
-    await context.snapshotLifecycle.disposed(context.snapshotRelativePath, 'candidate-snapshot-consumed');
+  if (context.snapshotLifecycle !== null) {
+    await context.snapshotLifecycle.dispose('candidate-snapshot-consumed');
     return;
   }
   await fs.rm(context.snapshotRoot, { recursive: true, force: true });
@@ -948,7 +958,6 @@ async function computeStagedImportUpdates(
     ? Object.freeze({
       root: projectRoot,
       snapshotRoot: null,
-      snapshotRelativePath: null,
       snapshotLifecycle: null,
       mode: 'working-tree' as const
     })
