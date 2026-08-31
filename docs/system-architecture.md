@@ -165,6 +165,12 @@ semantic identity / responsibility
 
 该闭包同时覆盖代码、数据、测试、文档、Skill、Work Package、命令、Provider、进程、缓存与生成物；不得为某一对象类型建立专用“完整性”世界。后续出现一个新类别时，修复的对象是Source Program/Reduction/owner contract的关系模型和未知边界，并重算全部受影响节点；不是新增一条Zod、lint、Skill提示、路径allowlist或手写例外。
 
+机器因果图只使用一套最小关系语义：`declares | produces | parses | reads | writes | executes | settles | reads-back | recovers | caches | projects | verifies | migrates | retires`。这不是新的全局registry或领域状态库：代码关系由TypeScript Program/TypeChecker投影，持久格式、文档、Skill、Work Package、Provider ledger与Runtime State分别由其既有owner签发typed projection；Reduction只join这些投影，不重新解析领域正文，也不能据此签发领域authority。
+
+每条关系必须绑定owner-issued semantic subject、exact producer/consumer symbol或物理对象、operation/requirement（如适用）、snapshot/epoch和可验证evidence class。没有这种绑定时，名字、路径、同字节、Zod对象、`WeakSet`、函数可导入、调用成功或测试绿色最多产生candidate/unknown。Repository Audit只报告三类通用闭包失败：`causal-identity-unresolved`、`causal-relation-owner-bypass`、`operation-envelope-unbound`；具体缺口放在结构化frontier（owner、producer、consumer、parser、writer、grant、provider-binding、credential、executable、cwd、environment、resource、settlement、readback、recovery、migration、retirement、evidence），不为每个领域复制专用规则。
+
+模块环、aggregate facade、反向责任依赖继续由repository module compiler拥有；因果关系编译器只给它提供owner-issued relation facts，禁止新建`index.ts`规则、目录黑名单或第二import graph。持久artifact的normal consumer必须经过canonical parser/readback；caller callback、command runner、ambient credential或裸transport进入production Effect时必须带同一opaque operation envelope；缓存必须绑定完整ActionKey、producer实现闭包、失效条件、资源上限、reader lease与clean recomputation byte-equivalence。否则保持typed unknown并禁止写入、执行、复用或删除。
+
 ## 四种不同身份
 
 - **Authority**：谁有权声明、修改或裁决输入和策略。

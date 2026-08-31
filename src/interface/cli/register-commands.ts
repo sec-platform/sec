@@ -11,7 +11,10 @@ import type { TextByteCensusReport, TextByteClassification } from '../../runtime
 import type { WorktreeSettlementReceipt } from '../../runtime-state/worktree-settlement.ts';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import type { RepairPlan } from '../../semantic/repair/contract/types.ts';
+import {
+  parseRepairPlanJson,
+  type RepairPlan
+} from '../../semantic/repair/contract/types.ts';
 import { countMatching } from '../../system-architecture/foundation/runtime/collections.ts';
 import type { DependencyCleanOptions } from '../../toolchain/dependencies/environment.ts';
 import { buildBenchmarkTaskSuiteContract, formatBenchmarkTaskSuiteContract } from '../../verification/benchmark/contract.ts';
@@ -152,6 +155,12 @@ function readRequiredReviewSummary(filePath: string, missingMessage: string): Re
   const bytes = readOptionalRetainedOrdinaryFile(filePath, 'Review summary');
   if (bytes === null) throw new Error(missingMessage);
   return parseReviewSummaryJson(decodeExactUtf8(bytes, 'Review summary'));
+}
+
+function readRequiredRepairPlan(filePath: string, missingMessage: string): RepairPlan {
+  const bytes = readOptionalRetainedOrdinaryFile(filePath, 'Repair plan');
+  if (bytes === null) throw new Error(missingMessage);
+  return parseRepairPlanJson(decodeExactUtf8(bytes, 'Repair plan'));
 }
 
 async function printRequiredJson<T>(
@@ -407,7 +416,11 @@ export function registerCommands(
       const output = jsonOpts(opts);
       if (mode === 'plan') {
         const repairPlanPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.repairPlan);
-        await printRequiredJson<RepairPlan>(repairPlanPath, `Repair plan not found; run ${commandPath(cmd)} --dry-run first`, output, (p) => formatRepairSummary(p, true));
+        const repairPlan = readRequiredRepairPlan(
+          repairPlanPath,
+          `Repair plan not found; run ${commandPath(cmd)} --dry-run first`
+        );
+        printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, true));
         return;
       }
       try {
@@ -420,7 +433,10 @@ export function registerCommands(
       } catch (error) {
         const repairPlanPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.repairPlan);
         if (await pathExists(repairPlanPath)) {
-          const repairPlan = await readJson<RepairPlan>(repairPlanPath);
+          const repairPlan = readRequiredRepairPlan(
+            repairPlanPath,
+            'Repair plan disappeared before it could be read back.'
+          );
           printJsonOrText(repairPlan, output, (p) => formatRepairSummary(p, !!opts.dryRun));
         }
         throw error;
