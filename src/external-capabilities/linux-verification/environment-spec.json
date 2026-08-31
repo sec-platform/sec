@@ -110,12 +110,29 @@
     }
   },
   "trustedRuntime": {
-    "imageName": "sec-trusted-runtime:bun-1.3.14-v2",
-    "imageDigest": "sha256:3b7d40b2efadd6570a2536224cc05b1b2342785d855805620b5b428abb428109",
+    "imageName": "sec-trusted-runtime:bun-1.4.0-v1",
+    "imageDigest": "sha256:728a8113119bd7b12cccd47781f0fafe40ddceb1293b22343216937711eb856a",
     "imageSchema": "sec-trusted-runtime-container-v1",
-    "bunVersion": "1.3.14",
-    "bunArchiveUrl": "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip",
-    "bunArchiveDigest": "sha256:951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+    "bunVersion": "1.4.0",
+    "bunArchiveUrl": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip",
+    "bunArchiveDigest": "sha256:2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452",
+    "bunExecutablePath": "/usr/local/bin/bun",
+    "bunExecutableDigest": "sha256:33d56b070be6a9e3da0ab013038b43d1645d0534ca811ecdba4472599117eb4b",
+    "dockerfilePath": "config/verification/trusted-runtime.Dockerfile",
+    "retirements": [
+      {
+        "imageId": "sha256:3b7d40b2efadd6570a2536224cc05b1b2342785d855805620b5b428abb428109",
+        "imageTag": "sec-trusted-runtime:bun-1.3.14-v2",
+        "replacementImageId": "sha256:89ebc280c3be4548ac51a8c497e77093186da59655f843c974fa1ed0f9a60bc0",
+        "decision": "superseded-by-bun-1.4.0-v1"
+      },
+      {
+        "imageId": "sha256:89ebc280c3be4548ac51a8c497e77093186da59655f843c974fa1ed0f9a60bc0",
+        "imageTag": "sec-trusted-runtime:bun-1.4.0-v1",
+        "replacementImageId": "sha256:728a8113119bd7b12cccd47781f0fafe40ddceb1293b22343216937711eb856a",
+        "decision": "superseded-by-executable-identity-bound-image"
+      }
+    ]
   },
   "runtime": {
     "pythonVersion": "3.12.3",
