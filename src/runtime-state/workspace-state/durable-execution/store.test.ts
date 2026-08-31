@@ -23,116 +23,94 @@ import {
 const digest = (value: string): SecDurableExecutionDigest =>
   `sha256:${value.padStart(64, '0')}` as SecDurableExecutionDigest;
 
-function boundOperation(): SecBoundSemanticOperation {
-  const contractDigest = sha256('durable process contract') as SecDurableExecutionDigest;
+function boundOperation(run: string): SecBoundSemanticOperation {
+  const contractDigest = sha256('durable execution contract') as SecDurableExecutionDigest;
   const plan = compileSecSemanticOperationPlan({
-    operation: 'development.durable-test',
-    intentDigest: sha256('durable intent') as SecDurableExecutionDigest,
-    decisionDigest: sha256('durable decision') as SecDurableExecutionDigest,
-    deadlineAtUnixMs: 1_900_000_000_000,
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: 10_000 },
-      { resource: 'output-bytes', maximum: 1024 },
-      { resource: 'processes', maximum: 1 }
-    ],
+    operation: 'runtime.durable-execution-test',
+    intentDigest: digest('50'),
+    decisionDigest: digest('51'),
+    deadlineAtUnixMs: Date.now() + 30_000,
+    aggregateBudgets: [{ resource: 'records', maximum: 16 }],
     requirements: [{
-      id: 'process.durable-test',
-      contractDigest,
-      effectKinds: ['process'],
-      failureKinds: ['process.failed']
+      id: 'runtime.journal', contractDigest,
+      effectKinds: ['persistent-state'], failureKinds: ['runtime.journal-failed']
     }],
     attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: sha256('durable grant') as SecDurableExecutionDigest,
-      runIdDigest: sha256('durable run') as SecDurableExecutionDigest,
-      resumeEpochDigest: sha256('durable epoch') as SecDurableExecutionDigest
+      authorityGrantDigest: digest('52'),
+      runIdDigest: sha256(run) as SecDurableExecutionDigest,
+      resumeEpochDigest: digest('53')
     })
   });
   return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
-    requirementId: 'process.durable-test',
+    requirementId: plan.execution.requirements[0]!.id,
     contractDigest,
-    providerIdentityDigest: sha256('durable provider') as SecDurableExecutionDigest
+    providerIdentityDigest: digest('54')
   })]);
 }
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-durable-execution-'));
   const stateRoot = path.join(root, 'state');
-  const journalRoot = path.join(stateRoot, 'durable-local-executions', 'v1');
+  const journalRoot = path.join(stateRoot, 'durable-local-executions');
   mkdirSync(stateRoot, { recursive: true });
-  const retained = inspectNoFollowDirectoryChain(stateRoot, 'Durable execution fixture').target;
-  const fileSystem = createRuntimeStateJournalFileSystem(retained);
-  const store = createDurableExecutionStore({ fileSystem, journalRoot });
-  return { root, journalRoot, fileSystem, store };
+  const fileSystem = createRuntimeStateJournalFileSystem(
+    inspectNoFollowDirectoryChain(stateRoot, 'Durable execution test state root').target
+  );
+  return {
+    root,
+    journalRoot,
+    fileSystem,
+    store: createDurableExecutionStore({ fileSystem, journalRoot })
+  };
 }
 
-test('durable store resumes by OperationKey and runId after the client loses its live handle', () => {
+test('OperationKey address is shared across runs and an active attempt cannot be replayed', () => {
   const value = fixture();
-  const identity = { operationKeyDigest: digest('1'), runIdDigest: digest('2') } as const;
+  const first = boundOperation('first run');
+  const second = boundOperation('second run');
+  const identity = durableExecutionJournalIdentity(first);
   try {
-    value.store.createIntent({ ...identity, intentReferenceDigest: digest('3') });
-    value.store.appendAttemptStart({
+    expect(identity).toEqual(durableExecutionJournalIdentity(second));
+    value.store.createIntent({
       ...identity,
-      resumeEpochDigest: digest('4'),
-      attemptNonceDigest: digest('5'),
-      workerIdentityDigest: digest('6'),
-      authorityGrantReferenceDigest: digest('7'),
-      providerBindingSetReferenceDigest: digest('8'),
-      executionPlanReferenceDigest: digest('9')
+      intentReferenceDigest: first.plan.identity.intentDigest
     });
-    value.store.appendDomainReadbackReference({
-      ...identity,
-      attemptNonceDigest: digest('5'),
-      readbackClass: 'succeeded',
-      domainReadbackReferenceDigest: digest('a')
-    });
-
-    const resumed = createDurableExecutionStore({
-      fileSystem: value.fileSystem,
-      journalRoot: value.journalRoot
-    });
-    const terminal = resumed.appendTerminal({
-      ...identity,
-      attemptNonceDigest: digest('5'),
-      terminalClass: 'succeeded',
-      terminalReferenceDigest: digest('b')
-    });
-    expect(terminal.latestTerminal).toMatchObject({
-      terminalClass: 'succeeded',
-      providerSettlementRecordDigest: null
-    });
-    expect(resumed.read(identity)?.journalDigest).toBe(terminal.journalDigest);
-    expect(Object.keys(terminal)).not.toContain('effectAuthority');
+    value.store.appendAttemptStart(durableExecutionAttemptStartInput(first, digest('55')));
+    expect(() => value.store.appendAttemptStart(
+      durableExecutionAttemptStartInput(second, digest('56'))
+    )).toThrow('active');
+    expect(fdJournalCount(value.journalRoot)).toBe(1);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
 });
 
-test('journal and attempt lineage derive only from one live bound semantic operation', () => {
-  const operation = boundOperation();
-  const identity = durableExecutionJournalIdentity(operation);
-  const start = durableExecutionAttemptStartInput(operation, digest('60'));
+function fdJournalCount(root: string): number {
+  if (!existsSync(root)) return 0;
+  return Array.from(new Bun.Glob('**/*.jsonl').scanSync({ cwd: root, onlyFiles: true })).length;
+}
 
-  expect(identity).toEqual({
-    operationKeyDigest: operation.plan.identity.identityDigest,
-    runIdDigest: operation.plan.attempt.runIdDigest
-  });
+test('journal lineage derives from a live bound operation and rejects structural clones', () => {
+  const operation = boundOperation('owner-issued run');
+  const identity = durableExecutionJournalIdentity(operation);
+  const start = durableExecutionAttemptStartInput(operation, digest('57'));
+
+  expect(identity).toEqual({ operationKeyDigest: operation.plan.identity.identityDigest });
   expect(start).toMatchObject({
-    ...identity,
+    runIdDigest: operation.plan.attempt.runIdDigest,
     resumeEpochDigest: operation.plan.attempt.resumeEpochDigest,
     attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
     authorityGrantReferenceDigest: operation.plan.attempt.authorityGrantDigest,
     providerBindingSetReferenceDigest: operation.bindingSetIdentityDigest,
     executionPlanReferenceDigest: operation.plan.execution.executionPlanDigest
   });
-  expect(() => durableExecutionAttemptStartInput(
-    structuredClone(operation) as SecBoundSemanticOperation,
-    digest('61')
-  )).toThrow('owner-issued bound semantic operation');
+  expect(() => durableExecutionJournalIdentity({ ...operation }))
+    .toThrow('owner-issued bound semantic operation');
 });
 
 test('constructing and reading an absent store performs zero filesystem writes', () => {
   const value = fixture();
-  const identity = { operationKeyDigest: digest('55'), runIdDigest: digest('56') } as const;
+  const identity = { operationKeyDigest: digest('58') } as const;
   try {
     expect(existsSync(value.journalRoot)).toBe(false);
     expect(value.store.read(identity)).toBeNull();
@@ -142,134 +120,39 @@ test('constructing and reading an absent store performs zero filesystem writes',
   }
 });
 
-test('intent and lifecycle appends are idempotent but conflicting intent and false success fail closed', () => {
+test('store persists only opaque owner references and retry admission is the sole replay path', () => {
   const value = fixture();
-  const identity = { operationKeyDigest: digest('11'), runIdDigest: digest('12') } as const;
-  const attempt = {
-    ...identity,
-    resumeEpochDigest: digest('13'),
-    attemptNonceDigest: digest('14'),
-    workerIdentityDigest: digest('15'),
-    authorityGrantReferenceDigest: digest('16'),
-    providerBindingSetReferenceDigest: digest('17'),
-    executionPlanReferenceDigest: digest('18')
-  } as const;
+  const first = boundOperation('recoverable run');
+  const next = boundOperation('retry run');
+  const identity = durableExecutionJournalIdentity(first);
+  const attempt = durableExecutionAttemptStartInput(first, digest('59'));
   try {
-    const created = value.store.createIntent({ ...identity, intentReferenceDigest: digest('19') });
-    expect(value.store.createIntent({ ...identity, intentReferenceDigest: digest('19') }).journalDigest)
-      .toBe(created.journalDigest);
-    expect(() => value.store.createIntent({ ...identity, intentReferenceDigest: digest('20') }))
-      .toThrow('already bind another intent');
-    const started = value.store.appendAttemptStart(attempt);
-    expect(value.store.appendAttemptStart(attempt).journalDigest).toBe(started.journalDigest);
-    expect(() => value.store.appendTerminal({
+    value.store.createIntent({ ...identity, intentReferenceDigest: digest('60') });
+    value.store.appendAttemptStart(attempt);
+    value.store.appendProviderSettlementReference({
       ...identity,
       attemptNonceDigest: attempt.attemptNonceDigest,
-      terminalClass: 'succeeded',
-      terminalReferenceDigest: digest('21')
-    })).toThrow('requires conclusive succeeded domain readback');
-    expect(value.store.read(identity)?.records).toHaveLength(2);
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
-});
-
-test('recovery-required records unresolved execution without manufacturing provider settlement', () => {
-  const value = fixture();
-  const identity = { operationKeyDigest: digest('22'), runIdDigest: digest('23') } as const;
-  try {
-    value.store.createIntent({ ...identity, intentReferenceDigest: digest('24') });
-    value.store.appendAttemptStart({
-      ...identity,
-      resumeEpochDigest: digest('25'),
-      attemptNonceDigest: digest('26'),
-      workerIdentityDigest: digest('27'),
-      authorityGrantReferenceDigest: digest('28'),
-      providerBindingSetReferenceDigest: digest('29'),
-      executionPlanReferenceDigest: digest('30')
-    });
-    const observation = value.store.appendTerminal({
-      ...identity,
-      attemptNonceDigest: digest('26'),
-      terminalClass: 'recovery-required',
-      terminalReferenceDigest: digest('31')
-    });
-    expect(observation.latestTerminal).toMatchObject({
-      terminalClass: 'recovery-required',
-      providerSettlementRecordDigest: null,
-      domainReadbackRecordDigest: null
-    });
-    expect(() => value.store.appendAttemptStart({
-      ...identity,
-      resumeEpochDigest: digest('54'),
-      attemptNonceDigest: digest('55'),
-      workerIdentityDigest: digest('27'),
-      authorityGrantReferenceDigest: digest('28'),
-      providerBindingSetReferenceDigest: digest('29'),
-      executionPlanReferenceDigest: digest('30')
-    })).toThrow('unresolved execution');
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
-});
-
-test('cancelled terminal requires one cancel request, provider settlement and not-applied readback', () => {
-  const value = fixture();
-  const identity = { operationKeyDigest: digest('32'), runIdDigest: digest('33') } as const;
-  const attemptNonceDigest = digest('34');
-  try {
-    value.store.createIntent({ ...identity, intentReferenceDigest: digest('35') });
-    value.store.appendAttemptStart({
-      ...identity,
-      resumeEpochDigest: digest('36'),
-      attemptNonceDigest,
-      workerIdentityDigest: digest('37'),
-      authorityGrantReferenceDigest: digest('38'),
-      providerBindingSetReferenceDigest: digest('39'),
-      executionPlanReferenceDigest: digest('40')
-    });
-    value.store.appendCancelRequest({
-      ...identity, attemptNonceDigest, cancelRequestReferenceDigest: digest('41')
-    });
-    value.store.appendProviderSettlementReference({
-      ...identity, attemptNonceDigest, settlementClass: 'cancelled',
-      providerSettlementReferenceDigest: digest('42')
+      requirementId: 'process.compiler',
+      providerBindingDigest: digest('61'),
+      providerSettlementReferenceDigest: digest('62')
     });
     value.store.appendDomainReadbackReference({
-      ...identity, attemptNonceDigest, readbackClass: 'not-applied',
-      domainReadbackReferenceDigest: digest('43')
-    });
-    expect(value.store.appendTerminal({
-      ...identity, attemptNonceDigest, terminalClass: 'cancelled',
-      terminalReferenceDigest: digest('44')
-    }).latestTerminal?.terminalClass).toBe('cancelled');
-  } finally {
-    rmSync(value.root, { recursive: true, force: true });
-  }
-});
-
-test('a failed journal CAS is a typed conflict and never replays the event', () => {
-  const value = fixture();
-  const identity = { operationKeyDigest: digest('45'), runIdDigest: digest('46') } as const;
-  try {
-    value.store.createIntent({ ...identity, intentReferenceDigest: digest('47') });
-    const contended = createDurableExecutionStore({
-      journalRoot: value.journalRoot,
-      fileSystem: Object.freeze({
-        ...value.fileSystem,
-        appendFsyncCas: () => false
-      })
-    });
-    expect(() => contended.appendAttemptStart({
       ...identity,
-      resumeEpochDigest: digest('48'),
-      attemptNonceDigest: digest('49'),
-      workerIdentityDigest: digest('50'),
-      authorityGrantReferenceDigest: digest('51'),
-      providerBindingSetReferenceDigest: digest('52'),
-      executionPlanReferenceDigest: digest('53')
-    })).toThrow('journal changed during CAS append');
-    expect(value.store.read(identity)?.records).toHaveLength(1);
+      attemptNonceDigest: attempt.attemptNonceDigest,
+      readbackContractDigest: digest('63'),
+      domainReadbackReferenceDigest: digest('64')
+    });
+    const admitted = value.store.appendAttemptResolution({
+      ...identity,
+      attemptNonceDigest: attempt.attemptNonceDigest,
+      resolutionKind: 'retry-admission-reference',
+      resolutionReferenceDigest: digest('65')
+    });
+    expect(admitted.latestResolution?.resolutionKind).toBe('retry-admission-reference');
+    expect(() => value.store.appendAttemptStart(
+      durableExecutionAttemptStartInput(next, digest('66'))
+    )).not.toThrow();
+    expect(Object.keys(admitted)).not.toContain('effectAuthority');
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }

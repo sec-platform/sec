@@ -245,7 +245,7 @@ export function resolveSecRuntimeStateLayout(input: Readonly<{
     continuationObjectRoot: api.join(repositoryStateRoot, 'objects', 'continuation-v1'),
     continuationPointerPath: api.join(roots.workspaceStateRoot, 'active-continuation-v1.json'),
     durableLocalExecutionJournalRoot: api.join(
-      roots.workspaceStateRoot, 'durable-local-executions', 'v1'
+      roots.workspaceStateRoot, 'durable-local-executions'
     ),
     verificationSessionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-sessions', 'v2'),
     verificationActionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-actions', 'v2')
