@@ -251,7 +251,12 @@ export type SourceProgramCandidateCode =
   | 'duplicate-production-endpoint-literal'
   | 'versioned-declaration-conflicts-with-canonical-name'
   | 'versioned-declaration-without-coexisting-version'
-  | 'direct-process-transport-outside-owner';
+  | 'direct-process-transport-outside-owner'
+  | 'durable-worker-domain-import'
+  | 'durable-worker-generic-input-exposed'
+  | 'operation-issuer-role-conflict'
+  | 'operation-issuer-role-outside-owner'
+  | 'operation-recovery-binding-unresolved';
 
 /**
  * Derived contradictions that are never valid migration residue.
@@ -263,11 +268,16 @@ export type SourceProgramCandidateCode =
  */
 export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
   'direct-process-transport-outside-owner',
+  'durable-worker-domain-import',
+  'durable-worker-generic-input-exposed',
   'duplicate-production-endpoint-literal',
   'duplicate-entrypoint-command',
   'duplicate-production-identity-token',
   'duplicate-production-source-path-owner',
   'production-embeds-executable-source-text',
+  'operation-issuer-role-conflict',
+  'operation-issuer-role-outside-owner',
+  'operation-recovery-binding-unresolved',
   'versioned-declaration-conflicts-with-canonical-name',
   'versioned-declaration-without-coexisting-version',
   'test-mirrors-production-identity-literal',

@@ -1654,3 +1654,144 @@ test('supersession resolves duplicate bytes by semantic target and never by rela
     currentPaths: ['src/example/a/provider.ts']
   }));
 });
+
+function compileIssuerRoleFixture(input: Readonly<{
+  sources: Readonly<Record<string, string>>;
+  descriptors: Readonly<Record<string, readonly Readonly<{
+    capability: string;
+    operations: readonly string[];
+    operationRoles: readonly Readonly<{
+      operation: string;
+      role: string;
+      recovery: Readonly<{ capability: string; operation: string }> | null;
+    }>[];
+  }>[]>>;
+}>) {
+  const files = Object.entries(input.sources).map(([path, source]) => Object.freeze({
+    path,
+    source,
+    contentDigest: rawSha256(source)
+  }));
+  const descriptorSources = Object.entries(input.descriptors).map(([root, capabilityProviders]) => ({
+    descriptorPath: `${root}/sec.module.json`,
+    source: JSON.stringify({
+      importGraph: 'runtime',
+      externalEntrypoints: [],
+      capabilityProviders,
+      operationObligations: [],
+      preDependencyBootstrap: false
+    })
+  }));
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [
+      ...files.map(({ path }) => path),
+      ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
+    ],
+    descriptorSources
+  });
+  const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
+  return compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership });
+}
+
+test('source program closes issuer roles over exact owners and recovery modules', () => {
+  const model = compileIssuerRoleFixture({
+    sources: {
+      'src/grant/issuer.ts': 'export function issueGrant(): void {}\n',
+      'src/binding/issuer.ts': 'export function issueBinding(): void {}\n',
+      'src/provider/issuer.ts': 'export function settleProvider(): void {}\n',
+      'src/readback/issuer.ts': 'export function readback(): void {}\n',
+      'src/terminal/issuer.ts': 'export function joinTerminal(): void {}\n',
+      'src/recovery/issuer.ts': 'export function recover(): void {}\n',
+      'src/store/worker.ts': 'export function appendAttempt(): void {}\n'
+    },
+    descriptors: {
+      'src/grant': [{ capability: 'semantic.grant', operations: ['issueGrant'], operationRoles: [
+        { operation: 'issueGrant', role: 'grant-issuer', recovery: null }
+      ] }],
+      'src/binding': [{ capability: 'semantic.binding', operations: ['issueBinding'], operationRoles: [
+        { operation: 'issueBinding', role: 'binding-issuer', recovery: null }
+      ] }],
+      'src/provider': [{ capability: 'semantic.provider', operations: ['settleProvider'], operationRoles: [
+        { operation: 'settleProvider', role: 'provider-settlement-issuer', recovery: null }
+      ] }],
+      'src/readback': [{ capability: 'semantic.readback', operations: ['readback'], operationRoles: [
+        { operation: 'readback', role: 'readback-issuer', recovery: null }
+      ] }],
+      'src/terminal': [{ capability: 'semantic.terminal', operations: ['joinTerminal'], operationRoles: [
+        { operation: 'joinTerminal', role: 'terminal-issuer', recovery: null }
+      ] }],
+      'src/recovery': [{ capability: 'runtime.recovery', operations: ['recover'], operationRoles: [
+        { operation: 'recover', role: 'recovery-issuer', recovery: null }
+      ] }],
+      'src/store': [{ capability: 'runtime.store', operations: ['appendAttempt'], operationRoles: [
+        {
+          operation: 'appendAttempt',
+          role: 'durable-worker',
+          recovery: { capability: 'runtime.recovery', operation: 'recover' }
+        }
+      ] }]
+    }
+  });
+  expect(model.candidates.filter(({ code }) => code.startsWith('operation-issuer')
+    || code.startsWith('operation-recovery')
+    || code.startsWith('durable-worker'))).toEqual([]);
+});
+
+test('source program rejects cross-owner issuers, conflicting roles, generic worker inputs, domain imports, and missing recovery', () => {
+  const model = compileIssuerRoleFixture({
+    sources: {
+      'src/grant-owner/empty.ts': 'export const marker = true;\n',
+      'src/foreign/issuer.ts': 'export function issueGrant(): void {}\n',
+      'src/conflict/issuer.ts': 'export function settle(): void {}\nexport function readback(): void {}\n',
+      'src/domain/operation.ts': 'export const domainOperation = 1;\n',
+      'src/store/worker.ts': "import { domainOperation } from '../domain/operation.ts';\nexport function append(argv: string[], callback: () => void): number { callback(); return argv.length + domainOperation; }\n"
+    },
+    descriptors: {
+      'src/grant-owner': [{ capability: 'semantic.grant', operations: ['issueGrant'], operationRoles: [
+        { operation: 'issueGrant', role: 'grant-issuer', recovery: null }
+      ] }],
+      'src/foreign': [],
+      'src/conflict': [{ capability: 'semantic.conflict', operations: ['settle', 'readback'], operationRoles: [
+        { operation: 'settle', role: 'provider-settlement-issuer', recovery: null },
+        { operation: 'readback', role: 'readback-issuer', recovery: null }
+      ] }],
+      'src/domain': [{ capability: 'domain.operation', operations: ['domainOperation'], operationRoles: [
+        { operation: 'domainOperation', role: 'domain-owner', recovery: null }
+      ] }],
+      'src/store': [{ capability: 'runtime.store', operations: ['append'], operationRoles: [
+        { operation: 'append', role: 'durable-worker', recovery: null }
+      ] }]
+    }
+  });
+  const codes = model.candidates.map(({ code }) => code);
+  expect(codes).toContain('operation-issuer-role-outside-owner');
+  expect(codes).toContain('operation-issuer-role-conflict');
+  expect(codes).toContain('durable-worker-generic-input-exposed');
+  expect(codes).toContain('durable-worker-domain-import');
+  expect(codes).toContain('operation-recovery-binding-unresolved');
+});
+
+test('source program keeps an unresolved durable input contract blocking', () => {
+  const model = compileIssuerRoleFixture({
+    sources: {
+      'src/recovery/issuer.ts': 'export function recover(): void {}\n',
+      'src/store/worker.ts': 'export interface DurableInput { readonly claim: string; }\nexport function append(input: DurableInput): string { return input.claim; }\n'
+    },
+    descriptors: {
+      'src/recovery': [{ capability: 'runtime.recovery', operations: ['recover'], operationRoles: [
+        { operation: 'recover', role: 'recovery-issuer', recovery: null }
+      ] }],
+      'src/store': [{ capability: 'runtime.store', operations: ['append'], operationRoles: [
+        {
+          operation: 'append',
+          role: 'durable-worker',
+          recovery: { capability: 'runtime.recovery', operation: 'recover' }
+        }
+      ] }]
+    }
+  });
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'durable-worker-generic-input-exposed',
+    observationClass: 'unknown'
+  }));
+});

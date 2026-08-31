@@ -162,7 +162,7 @@ test('effectful provider exposure separates owner internals from operation-bound
   } as const;
 
   expect(parseSecModuleDescriptor(descriptor, 'src/provider/sec.module.json')
-    .capabilityProviders).toEqual([provider]);
+    .capabilityProviders).toEqual([{ ...provider, operationRoles: [] }]);
   expect(() => parseSecModuleDescriptor({
     ...descriptor,
     operationObligations: []
@@ -188,6 +188,45 @@ test('effectful provider exposure separates owner internals from operation-bound
       ownerInternalOperations: ['undeclaredPrimitive']
     }]
   }, 'src/provider/sec.module.json')).toThrow('must be declared provider operations');
+});
+
+test('repository module capability roles bind exact operations and recovery addresses', () => {
+  const descriptor = {
+    importGraph: 'runtime',
+    externalEntrypoints: [],
+    capabilityProviders: [{
+      capability: 'runtime.store',
+      operations: ['append', 'recover'],
+      operationRoles: [{
+        operation: 'append',
+        role: 'durable-worker',
+        recovery: { capability: 'runtime.recovery', operation: 'recover' }
+      }]
+    }],
+    operationObligations: []
+  } as const;
+  expect(parseSecModuleDescriptor(descriptor, 'src/runtime-store/sec.module.json')
+    .capabilityProviders[0]?.operationRoles).toEqual([{
+      operation: 'append',
+      role: 'durable-worker',
+      recovery: { capability: 'runtime.recovery', operation: 'recover' }
+    }]);
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    capabilityProviders: [{
+      ...descriptor.capabilityProviders[0],
+      operationRoles: [{ operation: 'undeclared', role: 'durable-worker', recovery: null }]
+    }]
+  }, 'src/runtime-store/sec.module.json')).toThrow('must be one declared provider operation');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    capabilityProviders: [{
+      ...descriptor.capabilityProviders[0],
+      operationRoles: [{ operation: 'append', role: 'readback-issuer', recovery: {
+        capability: 'runtime.recovery', operation: 'recover'
+      } }]
+    }]
+  }, 'src/runtime-store/sec.module.json')).toThrow('only valid for a durable-worker');
 });
 
 test('repository module compiler prevents production from importing test authority', () => {
