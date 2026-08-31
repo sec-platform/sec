@@ -149,6 +149,43 @@ test('TCB closure explicitly models direct OS parent-process identity without op
   )).toThrow('computed process member');
 });
 
+test('TCB closure distinguishes runtime-local process bindings from the host process namespace', () => {
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-local-process-binding.ts',
+    [
+      'function consume(value: unknown): unknown { return value; }',
+      "const process = { custom: 'local' };",
+      "export const direct = process.custom;",
+      "export const computed = process['custom'];",
+      'export const passed = consume(process);'
+    ].join('\n')
+  )).not.toThrow();
+
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-host-process-escape.ts',
+    'export const escaped = process;'
+  )).toThrow('escaped process namespace');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-ambient-process-alias.ts',
+    'declare const process: any; export const hidden = process.mainModule.require("./hidden.ts");'
+  )).toThrow('escaped process namespace');
+});
+
+test('TCB closure includes statically named relative ESM loads and rejects hidden dynamic source', () => {
+  expect(runtimeRelativeImportsFromSource(
+    'synthetic-static-dynamic-import.ts',
+    'export const loaded = import("./leaf.ts");'
+  )).toEqual(['./leaf.ts']);
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-computed-dynamic-import.ts',
+    'const target = "./leaf.ts"; export const loaded = import(target);'
+  )).toThrow('dynamic import is not statically resolvable');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-eval-loader.ts',
+    'export const loaded = eval("import(\\"./hidden.ts\\")");'
+  )).toThrow('(eval)');
+});
+
 test('TCB closure admits only direct Bun data parser calls', () => {
   for (const member of ['TOML', 'YAML']) {
     expect(() => runtimeRelativeImportsFromSource(
