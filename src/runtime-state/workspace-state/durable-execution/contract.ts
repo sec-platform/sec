@@ -278,7 +278,7 @@ export function observeDurableExecutionJournal(
         break;
       case 'cancel-request':
         if (active === null || record.attemptNonceDigest !== active.start.attemptNonceDigest
-            || active.cancelRequest !== null || active.providerSettlement !== null) {
+            || active.cancelRequest !== null) {
           fail('invalid-transition', 'cancel request does not target the one active uncancelled attempt.');
         }
         active = Object.freeze({
