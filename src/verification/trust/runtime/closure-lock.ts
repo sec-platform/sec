@@ -211,7 +211,7 @@ export function runtimeRelativeImportsFromSource(
 ): string[] {
   const sourceFile = ts.createSourceFile(repositoryPath, source, ts.ScriptTarget.Latest, true);
   let lexicalChecker: ts.TypeChecker | undefined;
-  const isLocallyBoundIdentifier = (identifier: ts.Identifier): boolean => {
+  const localSymbol = (identifier: ts.Identifier): ts.Symbol | undefined => {
     if (lexicalChecker === undefined) {
       const options: ts.CompilerOptions = {
         noLib: true,
@@ -231,7 +231,14 @@ export function runtimeRelativeImportsFromSource(
       };
       lexicalChecker = ts.createProgram([repositoryPath], options, host).getTypeChecker();
     }
-    return lexicalChecker.getSymbolAtLocation(identifier) !== undefined;
+    return lexicalChecker.getSymbolAtLocation(identifier);
+  };
+  const isLocallyBoundIdentifier = (identifier: ts.Identifier): boolean => (
+    localSymbol(identifier) !== undefined
+  );
+  const isRuntimeLocallyBoundIdentifier = (identifier: ts.Identifier): boolean => {
+    const declaration = localSymbol(identifier)?.valueDeclaration;
+    return declaration !== undefined && (declaration.flags & ts.NodeFlags.Ambient) === 0;
   };
   const specifiers: string[] = [];
   const bunProcessBindings = new Map<string, string>();
@@ -688,7 +695,12 @@ export function runtimeRelativeImportsFromSource(
         rejectUnmodeledLoader(`escaped reviewed worker global binding ${node.text}`);
       }
     }
-    if (ts.isIdentifier(node) && node.text === 'process' && !isPropertyName(node)) {
+    if (
+      ts.isIdentifier(node)
+      && node.text === 'process'
+      && !isPropertyName(node)
+      && !isRuntimeLocallyBoundIdentifier(node)
+    ) {
       const isDirectMemberOwner = (
         (ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent))
         && node.parent.expression === node
@@ -787,6 +799,7 @@ export function runtimeRelativeImportsFromSource(
       if (
         ts.isIdentifier(node.expression)
         && node.expression.text === 'process'
+        && !isRuntimeLocallyBoundIdentifier(node.expression)
         && !TCB_PROCESS_SAFE_MEMBERS.has(node.name.text)
       ) rejectUnmodeledLoader(`unclassified process member ${node.name.text}`);
     }
@@ -849,6 +862,7 @@ export function runtimeRelativeImportsFromSource(
       ts.isElementAccessExpression(node)
       && ts.isIdentifier(node.expression)
       && node.expression.text === 'process'
+      && !isRuntimeLocallyBoundIdentifier(node.expression)
     ) rejectUnmodeledLoader('computed process member');
     if (
       ts.isElementAccessExpression(node)
