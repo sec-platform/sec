@@ -197,7 +197,7 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
   const result = compileTcbClosureActionResult({ plan });
   expect(result.actionKey).toBe(plan.action.actionKey);
   expect(result.identity.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
-  expect(result.resultDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
+  expect(result.resultDigest).toBe(result.identity.closureDigest);
 
   const commonDemand = {
     exactTreeSha: '3'.repeat(40),

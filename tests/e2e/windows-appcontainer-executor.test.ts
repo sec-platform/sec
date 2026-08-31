@@ -1,17 +1,57 @@
 import { expect, test } from 'bun:test';
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { relocateSemanticMutationIsolatedRunnerBundleForTests } from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
+import { assertWindowsAppContainerExecutionCapability } from '../../src/runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
+import {
+  loadWindowsAppContainerProbeAssetSet,
+  stageWindowsAppContainerProbeAssetSet,
+  WINDOWS_APPCONTAINER_EXECUTION_CONFORMANCE_RESULT_RELATIVE_PATH,
+  windowsAppContainerProbeAssetRelativePath
+} from '../../src/runtime-state/physical/runtime/windows-appcontainer/probe-assets.ts';
+import {
+  redactWindowsAppContainerProbeCapabilityForTests
+} from '../../src/runtime-state/physical/runtime/windows-appcontainer/probe-conformance.ts';
 import {
   probeWindowsAppContainerCapabilityForTests,
-  redactWindowsAppContainerProbeCapabilityForTests,
   runWindowsAppContainerChild,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT,
   windowsAppContainerCapability,
-  WindowsAppContainerExecutionError
+  WindowsAppContainerExecutionError,
+  type WindowsAppContainerProbeCapabilityProvider
 } from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
-import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
+import {
+  acquireWorkspaceWriteLease,
+  issueWindowsAppContainerExecutionCapability
+} from '../../src/workspace/lease.ts';
+
+interface AppContainerOperationDeadline {
+  readonly deadlineAtUnixMs: number;
+  readonly deadlineAtMonotonicMs: number;
+}
+
+function appContainerOperationDeadline(timeoutMs: number): AppContainerOperationDeadline {
+  const observedAtMonotonicMs = performance.now();
+  const observedAtUnixMs = Date.now();
+  return Object.freeze({
+    deadlineAtUnixMs: observedAtUnixMs + timeoutMs,
+    deadlineAtMonotonicMs: observedAtMonotonicMs + timeoutMs
+  });
+}
+
+async function appContainerExecutionCapability(
+  workspaceRoot: string,
+  stagingRoot: string,
+  workspaceWriteLease: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>>['token'],
+  deadline: AppContainerOperationDeadline
+) {
+  return issueWindowsAppContainerExecutionCapability({
+    workspaceRoot,
+    stagingRoot,
+    workspaceWriteLease,
+    ...deadline
+  });
+}
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -118,6 +158,13 @@ test.serial('Windows AppContainer sentinel proves no outside read/write, no netw
   const stagingRoot = path.join(probeRoot, 'staging');
   await mkdir(stagingRoot);
   const lease = await acquireWorkspaceWriteLease(probeRoot);
+  const operationDeadline = appContainerOperationDeadline(120_000);
+  const executionCapability = await appContainerExecutionCapability(
+    probeRoot,
+    stagingRoot,
+    lease.token,
+    operationDeadline
+  );
   const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
   if (!systemRoot) throw new Error('Windows system root is unavailable for the probe');
   const icaclsPath = path.join(systemRoot, 'System32', 'icacls.exe');
@@ -137,8 +184,25 @@ test.serial('Windows AppContainer sentinel proves no outside read/write, no netw
     const detailedCapability = await probeWindowsAppContainerCapabilityForTests({
       stagingRoot,
       timeoutMs: 12_000,
-      workspaceRoot: probeRoot,
-      workspaceWriteLease: lease.token,
+      executionCapability,
+      probeCapabilityProvider: Object.freeze<WindowsAppContainerProbeCapabilityProvider>({
+        async acquire(input) {
+          if (input.deadlineAtUnixMs !== operationDeadline.deadlineAtUnixMs) {
+            throw new Error('Probe capability deadline is outside its parent operation');
+          }
+          const nestedLease = await acquireWorkspaceWriteLease(input.authorizationRoot);
+          const capability = await appContainerExecutionCapability(
+            input.authorizationRoot,
+            input.stagingRoot,
+            nestedLease.token,
+            operationDeadline
+          );
+          return Object.freeze({
+            capability,
+            release: () => nestedLease.release()
+          });
+        }
+      }),
       environment: {
         PATH: '',
         SYSTEMROOT: systemRoot,
@@ -156,7 +220,6 @@ test.serial('Windows AppContainer sentinel proves no outside read/write, no netw
       }
     });
     const capability = redactWindowsAppContainerProbeCapabilityForTests(detailedCapability);
-
     expect(detailedCapability).toEqual({ status: 'available' });
     expect(capability).toEqual({ status: 'available' });
     expect(Object.keys(capability)).toEqual(['status']);
@@ -174,7 +237,7 @@ test.serial('Windows AppContainer sentinel proves no outside read/write, no netw
   }
 }, 45_000);
 
-test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and evaluates the relocated bundled compiler', async () => {
+test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and executes its provider-issued conformance asset', async () => {
   if (process.platform !== 'win32') return;
 
   const workspaceRoot = await mkdtemp(path.join(process.cwd(), '.tmp-appcontainer-bundled-compiler-'));
@@ -188,102 +251,14 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
     transactionDigest,
     'workspace'
   );
-  const runnerRelativePath =
-    '.isolated-compiler/src/compiler/orchestration/bundled-compiler-sentinel.mjs';
-  const runnerPath = path.join(stagingRoot, runnerRelativePath);
-  const bundleEntryPath = path.join(workspaceRoot, 'bundled-compiler-sentinel.ts');
-  const stagedTypeScriptRoot = path.join(
+  const resultPath = path.join(
     stagingRoot,
-    '.isolated-compiler',
-    'node_modules',
-    'typescript'
+    WINDOWS_APPCONTAINER_EXECUTION_CONFORMANCE_RESULT_RELATIVE_PATH
   );
-  const stagedTsMorphCommonRoot = path.join(
-    stagingRoot,
-    '.isolated-compiler',
-    'node_modules',
-    '@ts-morph',
-    'common'
-  );
-  const resultPath = path.join(stagingRoot, 'bundled-compiler-sentinel.json');
   let lease: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>> | undefined;
 
   try {
-    await mkdir(path.dirname(runnerPath), { recursive: true });
-    await Promise.all([
-      cp(path.join(process.cwd(), 'package.json'), path.join(stagingRoot, '.isolated-compiler', 'package.json')),
-      writeFile(path.join(stagingRoot, '.isolated-compiler', 'bunfig.toml'), '# isolated runtime\n', 'utf8')
-    ]);
-    await cp(
-      path.join(process.cwd(), '.shared-deps', 'node_modules', 'typescript'),
-      stagedTypeScriptRoot,
-      { recursive: true }
-    );
-    await cp(
-      path.join(process.cwd(), '.shared-deps', 'node_modules', '@ts-morph', 'common'),
-      stagedTsMorphCommonRoot,
-      { recursive: true }
-    );
-    await writeFile(bundleEntryPath, [
-      `import { assertIsolatedStagingTree } from ${JSON.stringify(path.relative(
-        path.dirname(bundleEntryPath),
-        path.join(process.cwd(), 'platform', 'compiler', 'verify', 'assert-isolated-staging-tree.ts')
-      ).split(path.sep).join('/'))};`,
-      "import { parse as parseYaml } from 'yaml';",
-      "import { Project } from 'ts-morph';",
-      "import typescript from 'typescript';",
-      'const stdinText = await Bun.stdin.text();',
-      "process.stdout.write('bundled-compiler-stdout-marker');",
-      "process.stderr.write('bundled-compiler-stderr-marker');",
-      "const sourceFile = typescript.createSourceFile('sentinel.ts', 'const value: number = 1;', typescript.ScriptTarget.Latest);",
-      'const project = new Project({ useInMemoryFileSystem: true });',
-      "const projectFile = project.createSourceFile('project-sentinel.ts', 'export const value = 1;');",
-      "const parsedYaml = parseYaml('value: yaml-ok');",
-      "let stagingTreeBoundary = 'passed';",
-      "let stagingTreeErrorCode = 'none';",
-      "let stagingTreeOperation = 'none';",
-      "try { await assertIsolatedStagingTree(process.cwd(), { executionBoundary: 'windows-appcontainer' }); } catch (error) {",
-      "  stagingTreeBoundary = error instanceof Error ? error.message : 'unknown';",
-      "  stagingTreeErrorCode = error && typeof error === 'object' && 'details' in error &&",
-      "    error.details && typeof error.details === 'object' && 'errorCode' in error.details",
-      "    ? String(error.details.errorCode) : 'classified';",
-      "  stagingTreeOperation = error && typeof error === 'object' && 'details' in error &&",
-      "    error.details && typeof error.details === 'object' && 'operation' in error.details",
-      "    ? String(error.details.operation) : 'classified';",
-      "}",
-      "await Bun.write('bundled-compiler-sentinel.json', JSON.stringify({",
-      "  ciExact: process.env.CI === 'true',",
-      "  yaml: parsedYaml?.value === 'yaml-ok',",
-      "  isolatedVerificationExact: process.env.SEC_ISOLATED_VERIFICATION === '1',",
-      "  pathExact: process.env.PATH === '',",
-      '  stagingTreeBoundary,',
-      '  stagingTreeErrorCode,',
-      '  stagingTreeOperation,',
-      "  stdinEof: stdinText === '',",
-      "  systemRootPresent: typeof process.env.SYSTEMROOT === 'string' && process.env.SYSTEMROOT.length > 0,",
-      '  typescript: sourceFile.statements.length === 1,',
-      "  tsMorph: projectFile.getVariableDeclarationOrThrow('value').getName() === 'value',",
-      "  windirPresent: typeof process.env.WINDIR === 'string' && process.env.WINDIR.length > 0",
-      '}));',
-      ''
-    ].join('\n'), 'utf8');
-    const build = await Bun.build({
-      entrypoints: [bundleEntryPath],
-      format: 'esm',
-      minify: false,
-      sourcemap: 'none',
-      splitting: false,
-      target: 'bun'
-    });
-    expect(build.success).toBe(true);
-    expect(build.outputs).toHaveLength(1);
-    const relocatedBundle = relocateSemanticMutationIsolatedRunnerBundleForTests(
-      new Uint8Array(await build.outputs[0]!.arrayBuffer())
-    );
-    const relocatedSource = new TextDecoder().decode(relocatedBundle);
-    expect(relocatedSource).not.toContain(path.resolve(process.cwd()));
-    expect(relocatedSource).toContain('__secSemanticMutationRuntimePathV1');
-    await writeFile(runnerPath, relocatedBundle);
+    await mkdir(stagingRoot, { recursive: true });
 
     const processRoot = path.join(stagingRoot, '.process');
     const directories = {
@@ -297,9 +272,20 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
     const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
     if (!systemRoot) throw new Error('Windows system root is unavailable for the sentinel');
 
+    const executionCapability = await appContainerExecutionCapability(
+      workspaceRoot,
+      stagingRoot,
+      lease.token,
+      appContainerOperationDeadline(120_000)
+    );
+    const commitFence = async (): Promise<void> => {
+      await assertWindowsAppContainerExecutionCapability(executionCapability, stagingRoot);
+    };
+    const assets = await loadWindowsAppContainerProbeAssetSet();
+    await stageWindowsAppContainerProbeAssetSet(stagingRoot, assets, commitFence);
     const execution = await runWindowsAppContainerChild({
       stagingRoot,
-      runnerRelativePath,
+      runnerRelativePath: windowsAppContainerProbeAssetRelativePath('execution-conformance'),
       environment: {
         PATH: '',
         SYSTEMROOT: systemRoot,
@@ -317,23 +303,16 @@ test.serial('Windows AppContainer pins attribute payloads, isolates stdio, and e
         CI: 'true',
         SEC_ISOLATED_VERIFICATION: '1'
       },
-      workspaceRoot,
-      workspaceWriteLease: lease.token,
+      executionCapability,
       timeoutMs: 20_000
     });
     expect(execution).toEqual({ exitCode: 0 });
     expect(JSON.parse(await readFile(resultPath, 'utf8'))).toEqual({
       ciExact: true,
-      yaml: true,
       isolatedVerificationExact: true,
       pathExact: true,
-      stagingTreeBoundary: 'passed',
-      stagingTreeErrorCode: 'none',
-      stagingTreeOperation: 'none',
       stdinEof: true,
       systemRootPresent: true,
-      typescript: true,
-      tsMorph: true,
       windirPresent: true
     });
   } finally {
@@ -437,8 +416,12 @@ test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launc
         stagingRoot,
         runnerRelativePath: path.basename(runnerPath),
         environment,
-        workspaceRoot,
-        workspaceWriteLease: lease.token,
+        executionCapability: await appContainerExecutionCapability(
+          workspaceRoot,
+          stagingRoot,
+          lease.token,
+          appContainerOperationDeadline(120_000)
+        ),
         timeoutMs: 12_000
       });
     } catch (error) {

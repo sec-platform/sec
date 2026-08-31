@@ -6888,12 +6888,14 @@ async function reclaimOrphanInstallLock(
   options: RuntimeDependencyOperationOptions
 ): Promise<boolean> {
   const reclaimPath = `${lockPath}.reclaim`;
-  let reclaimObservation: NoFollowOwnedFileObservation | null = null;
-  let reclaimBytes: Buffer | null = null;
+  let reclaimMarker: Readonly<{
+    bytes: Buffer;
+    observation: NoFollowOwnedFileObservation;
+  }> | null = null;
   try {
     const reclaimParent = inspectNoFollowDirectoryChain(path.dirname(reclaimPath), 'Install lock reclaim marker parent').target;
     const reclaimToken = crypto.randomUUID();
-    reclaimBytes = Buffer.from(`${reclaimToken}\n`, 'utf8');
+    const reclaimBytes = Buffer.from(`${reclaimToken}\n`, 'utf8');
     try {
       publishExclusiveDurableCanonicalFile({
         parent: reclaimParent,
@@ -6911,10 +6913,11 @@ async function reclaimOrphanInstallLock(
       }
       throw error;
     }
-    reclaimObservation = observeNoFollowOwnedFile(reclaimPath, 'Install lock reclaim marker');
+    const reclaimObservation = observeNoFollowOwnedFile(reclaimPath, 'Install lock reclaim marker');
     if (reclaimObservation === null) {
       throw new SecError('RUNTIME-DEPS-003', 'Install lock reclaim marker disappeared after exclusive publication');
     }
+    reclaimMarker = Object.freeze({ bytes: reclaimBytes, observation: reclaimObservation });
 
     const lockObservation = observeNoFollowOwnedFile(lockPath, 'Install lock orphan candidate');
     if (lockObservation === null) return true;
@@ -6950,11 +6953,12 @@ async function reclaimOrphanInstallLock(
     });
     return true;
   } finally {
-    if (reclaimObservation !== null) {
+    if (reclaimMarker !== null) {
+      const { bytes: reclaimBytes, observation: reclaimObservation } = reclaimMarker;
       await settleInstallLockOwnedFileDeletion({
         assertExpected: (current) => {
           const bytes = readNoFollowOrdinaryFile(current.parent, current.name);
-          if (reclaimBytes === null || bytes === null || !Buffer.from(bytes).equals(reclaimBytes)) {
+          if (bytes === null || !Buffer.from(bytes).equals(reclaimBytes)) {
             throw new SecError(
               'RUNTIME-DEPS-003',
               'Install lock reclaim marker bytes changed during deletion settlement; residue is preserved'

@@ -565,12 +565,13 @@ export function runtimeRelativeImportsFromSource(
   const reviewedWorkerGlobalArgument = (identifier: ts.Identifier): boolean => {
     const call = identifier.parent;
     if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression)) return false;
+    const callExpressionName = call.expression.text;
     const parameterIndex = call.arguments.findIndex((argument) => argument === identifier);
     if (parameterIndex < 0) return false;
     const candidates = sourceFile.statements.filter(
       (statement): statement is ts.FunctionDeclaration => (
         ts.isFunctionDeclaration(statement)
-        && statement.name?.text === call.expression.text
+        && statement.name?.text === callExpressionName
         && statement.body !== undefined
       )
     );
@@ -578,12 +579,13 @@ export function runtimeRelativeImportsFromSource(
     const candidate = candidates[0]!;
     const parameter = candidate.parameters[parameterIndex];
     if (parameter === undefined || !ts.isIdentifier(parameter.name)) return false;
+    const parameterName = parameter.name.text;
     let valid = true;
     const inspectUse = (node: ts.Node): void => {
       if (!valid) return;
       if (
         ts.isIdentifier(node)
-        && node.text === parameter.name.text
+        && node.text === parameterName
         && node !== parameter.name
         && !isPropertyName(node)
         && !isTypeOnlyIdentifier(node)
@@ -1364,7 +1366,7 @@ export interface TcbClosureLock {
   readonly reviewedNetworkDispatchers?: readonly string[];
   readonly moduleBlobs: Readonly<Record<string, string>>;
   readonly moduleContentDigests: Readonly<Record<string, string>>;
-  readonly closureDigest: string;
+  readonly closureDigest: `sha256:${string}`;
 }
 
 export interface TcbClosureLockVerification {
@@ -1412,7 +1414,9 @@ export function deriveTcbClosureTrustRevision(
   return `sha256:${createHash('sha256').update(JSON.stringify(material)).digest('hex')}`;
 }
 
-function computeClosureDigest(lock: Omit<TcbClosureLock, 'closureDigest'>): string {
+function computeClosureDigest(
+  lock: Omit<TcbClosureLock, 'closureDigest'>
+): `sha256:${string}` {
   const canonical = JSON.stringify({
     schema: lock.schema,
     trustRevision: lock.trustRevision,
@@ -1716,11 +1720,14 @@ export function createTcbClosureActionPlan(input: Readonly<{
   const upstreamActionKeys = [...new Set(input.upstreamActionKeys ?? [])]
     .map((value) => assertTcbActionDigest(value, 'TCB closure upstream ActionKey'))
     .sort();
-  const semanticDigest = computeContentDigest(Buffer.from(JSON.stringify({
-    schema: TCB_CLOSURE_ACTION_PRODUCER_REVISION,
-    exactTreeSha,
-    registryDigest
-  }), 'utf8')) as `sha256:${string}`;
+  const semanticDigest = assertTcbActionDigest(
+    computeContentDigest(Buffer.from(JSON.stringify({
+      schema: TCB_CLOSURE_ACTION_PRODUCER_REVISION,
+      exactTreeSha,
+      registryDigest
+    }), 'utf8')),
+    'TCB closure Action semantic digest'
+  );
   const action = createVerificationActionKey({
     actionKind: 'tcb-closure-identity',
     producer: {
