@@ -53,10 +53,33 @@ export interface SemanticContractState {
   transitions: SemanticContractTransition[];
 }
 
+export const SEMANTIC_RESPONSIBILITY_TARGET_KINDS = [
+  'entity',
+  'effect',
+  'operation',
+  'scenario'
+] as const;
+
+export type SemanticResponsibilityTargetKind =
+  (typeof SEMANTIC_RESPONSIBILITY_TARGET_KINDS)[number];
+
+export interface SemanticContractResponsibilityBinding {
+  target: {
+    kind: SemanticResponsibilityTargetKind;
+    id: string;
+  };
+  declaration: {
+    path: string;
+    exportName: string;
+  };
+}
+
 export interface SemanticContractResponsibility {
   id: string;
   label?: string;
-  role: string;
+  /** @deprecated Descriptive text only; it is not responsibility authority. */
+  role?: string;
+  bindings?: SemanticContractResponsibilityBinding[];
   owns: string[];
   implements: string[];
   dependsOn: string[];

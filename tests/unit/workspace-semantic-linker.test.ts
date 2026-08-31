@@ -28,6 +28,10 @@ function providerContract(): LoadedSemanticContract {
     responsibilities: [{
       id: 'TenantScopeGuard',
       role: 'Own tenant scope enforcement',
+      bindings: [{
+        target: { kind: 'operation', id: 'enforceTenantScope' },
+        declaration: { path: 'src/tenant/enforce.ts', exportName: 'enforceTenantScope' }
+      }],
       owns: ['TenantContext.tenantId'],
       implements: ['enforceTenantScope'],
       dependsOn: []
@@ -72,6 +76,10 @@ function consumerContract(): LoadedSemanticContract {
     responsibilities: [{
       id: 'TicketQuery',
       role: 'List tenant tickets',
+      bindings: [{
+        target: { kind: 'operation', id: 'listTickets' },
+        declaration: { path: 'src/ticket/list.ts', exportName: 'listTickets' }
+      }],
       owns: ['Ticket'],
       implements: ['listTickets'],
       dependsOn: ['tenant::TenantScopeGuard']
@@ -113,7 +121,6 @@ function input(semanticContracts = [providerContract(), consumerContract()]): Bu
       registryPath: 'registry'
     })),
     manifests: [],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: [{
       id: 'tenant-scope-required',
@@ -166,6 +173,12 @@ test('explicit imports link cross-Block responsibility, data, operation, and pol
       object: { kind: 'entity', entityId: 'policy:tenant-scope-required' }
     })
   ]));
+  expect(ir.entities).toContainEqual(expect.objectContaining({
+    kind: 'responsibility-binding',
+    attributes: expect.arrayContaining([
+      { key: 'targetId', value: 'operation:ticket:listTickets' }
+    ])
+  }));
 });
 
 test('workspace linking is deterministic across contract enumeration order', () => {

@@ -31,6 +31,10 @@ export function engineeringGraphId(id: string | undefined): string {
   return `engineering-ir:${id}`;
 }
 
+export function capabilityEntityId(id: string): string {
+  return `capability:${id}`;
+}
+
 function objectKey(object: SemanticFactObject): string {
   const normalized = normalizeFactObject(object);
   return normalized.kind === 'entity'
@@ -67,6 +71,22 @@ export function contractResponsibilityId(namespace: string, id: string): string 
   return `responsibility:${namespace}:${id}`;
 }
 
+export function contractResponsibilityBindingId(
+  namespace: string,
+  responsibilityId: string,
+  targetKind: string,
+  targetId: string,
+  declarationPath: string,
+  declarationExportName: string
+): string {
+  return `responsibility-binding:${namespace}:${responsibilityId}:${digest(JSON.stringify({
+    targetKind,
+    targetId,
+    declarationPath: normalizedArtifactTarget(declarationPath),
+    declarationExportName
+  }))}`;
+}
+
 export function contractOperationId(namespace: string, id: string): string {
   return `operation:${namespace}:${id}`;
 }
@@ -97,10 +117,6 @@ export function contractScenarioId(namespace: string, id: string): string {
 
 export function generatorEntityId(blockId: string, generatorId: string): string {
   return `generator:${blockId}:${generatorId}`;
-}
-
-export function slotEntityId(blockId: string, slotId: string): string {
-  return `slot:${blockId}:${slotId}`;
 }
 
 export function artifactEntityId(target: string): string {

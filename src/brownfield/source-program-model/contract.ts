@@ -1,3 +1,4 @@
+import type { SemanticResponsibilityTargetKind } from '../../semantic/contracts/contract/types.ts';
 import type { SecModuleOperationObligation } from '../../system-architecture/repository-modules/contract.ts';
 
 export const REPOSITORY_AUDIT_ENTRYPOINT_PATH = 'src/brownfield/repository-audit/cli.ts' as const;
@@ -19,6 +20,25 @@ const SOURCE_PROGRAM_RESOURCE_EXTENSION =
   /\.(?:json|ya?ml|toml|md|markdown|txt|sql|prisma|ejs|template)$/iu;
 const SOURCE_PROGRAM_CATALOG_RESOURCE_PATH =
   /^catalog\/registry\/[^/]+\/.+\/files\//iu;
+const SOURCE_PROGRAM_GRAPH_EXTENSION = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/iu;
+const SOURCE_PROGRAM_ROOT_INPUT = new Set([
+  'bunfig.toml',
+  'docs/authority.json',
+  'package.json',
+  'tsconfig.json'
+]);
+
+/**
+ * Exact repository inputs owned by the SEC Source Program. Target workspaces,
+ * generated artifacts, catalog payloads and documentation bodies are separate
+ * domains; their tracked bytes cannot silently expand compiler identity.
+ */
+export function isSourceProgramInputPath(repositoryPath: string): boolean {
+  if (SOURCE_PROGRAM_ROOT_INPUT.has(repositoryPath)) return true;
+  if (/^\.github\/workflows\/[^/]+\.ya?ml$/iu.test(repositoryPath)) return true;
+  if (!SOURCE_PROGRAM_GRAPH_EXTENSION.test(repositoryPath)) return false;
+  return repositoryPath.startsWith('src/') || repositoryPath.startsWith('tests/');
+}
 
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
   if (SOURCE_PROGRAM_FIXTURE_PATH.test(repositoryPath)) return 'fixture';
@@ -282,6 +302,38 @@ export interface SourceProgramModel {
   readonly candidates: readonly SourceProgramCandidate[];
   readonly unknowns: readonly SourceProgramUnknown[];
   readonly modelDigest: string;
+}
+
+export type SourceProgramResponsibilityEvidenceReason =
+  | 'validated'
+  | 'semantic-binding-invalid'
+  | 'exported-declaration-missing'
+  | 'exported-declaration-ambiguous'
+  | 'declaration-binding-conflict';
+
+/**
+ * Exact Source Program readback of one validated semantic responsibility
+ * binding. Unknown evidence is retained as data; it never becomes a role.
+ */
+export interface SourceProgramResponsibilityEvidence {
+  readonly bindingId: string;
+  readonly responsibilityId: string;
+  readonly target: Readonly<{
+    readonly kind: SemanticResponsibilityTargetKind;
+    readonly id: string;
+  }>;
+  readonly declaration: Readonly<{
+    readonly path: string;
+    readonly exportName: string;
+    readonly observationId: string | null;
+    readonly declarationDigest: string | null;
+    readonly moduleId: string | null;
+  }>;
+  readonly sourceRevision: string;
+  readonly semanticRevision: string;
+  readonly observationClass: 'observed' | 'unknown';
+  readonly reason: SourceProgramResponsibilityEvidenceReason;
+  readonly evidenceDigest: string;
 }
 
 /**

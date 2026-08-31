@@ -281,7 +281,12 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
     sourceProgramFacts
   );
   expect(implementationProjection.aggregateFacadePaths).toEqual([]);
-  expect(implementationProjection.violations).toEqual([]);
+  expect(implementationProjection.violations.filter(({ code }) => (
+    code !== 'repository-node-responsibility-unresolved'
+  ))).toEqual([]);
+  expect(implementationProjection.violations.filter(({ code }) => (
+    code === 'repository-node-responsibility-unresolved'
+  ))).toHaveLength(4);
 });
 
 test('pre-dependency entrypoints cannot import an unavailable package', () => {
@@ -486,7 +491,25 @@ test('repository architecture derives one node responsibility and rejects revers
     ['src/workflow/run.ts', "import { execute } from '../operation/execute.ts'; export const run = () => execute();"],
     ['src/interface/cli.ts', "import { run } from '../workflow/run.ts'; run();"]
   ]);
+  const sourceRevision = 'source-revision';
+  const semanticRevision = 'semantic-revision';
+  const bound = [
+    ['src/contracts/types.ts', 'Value', 'entity', 'entity:test:Value'],
+    ['src/capability/clock.ts', 'readClock', 'effect', 'effect:test:clock-read'],
+    ['src/operation/execute.ts', 'execute', 'operation', 'operation:test:execute'],
+    ['src/workflow/run.ts', 'run', 'scenario', 'scenario:test:run']
+  ] as const;
+  const declarations = bound.map(([path, name]) => ({
+    observationId: `declaration:${path}:${name}`,
+    declarationDigest: `digest:${path}:${name}`,
+    path,
+    moduleId: membership.moduleForPath(path)?.moduleId ?? null,
+    name,
+    exported: true
+  }));
   const facts = {
+    sourceRevision,
+    semanticRevision,
     files: files.map((path) => ({
       path,
       moduleId: membership.moduleForPath(path)?.moduleId ?? null,
@@ -495,12 +518,24 @@ test('repository architecture derives one node responsibility and rejects revers
         ? 'declaration-owner' as const : 'executable' as const,
       semanticObservationClass: 'derived' as const
     })),
-    declarations: [{
-      path: 'src/capability/clock.ts',
-      moduleId: 'capability',
-      name: 'readClock',
-      exported: true
-    }],
+    declarations,
+    responsibilityEvidence: bound.map(([path, exportName, kind, targetId], index) => ({
+      bindingId: `responsibility-binding:test:${index}`,
+      responsibilityId: `responsibility:test:${index}`,
+      target: { kind, id: targetId },
+      declaration: {
+        path,
+        exportName,
+        observationId: declarations[index]!.observationId,
+        declarationDigest: declarations[index]!.declarationDigest,
+        moduleId: declarations[index]!.moduleId
+      },
+      sourceRevision,
+      semanticRevision,
+      observationClass: 'observed' as const,
+      reason: 'validated' as const,
+      evidenceDigest: `evidence:${index}`
+    })),
     entrypoints: [{
       observationId: 'interface-cli',
       kind: 'module-entrypoint' as const,
@@ -534,13 +569,14 @@ test('repository architecture derives one node responsibility and rejects revers
   expect(valid.nodeResponsibilities.map(({ path, responsibility }) => [path, responsibility]))
     .toEqual([
       ['src/capability/clock.ts', 'capability'],
-      ['src/computation/value.ts', 'computation'],
+      ['src/computation/value.ts', 'unknown'],
       ['src/contracts/types.ts', 'contract'],
-      ['src/interface/cli.ts', 'interface'],
+      ['src/interface/cli.ts', 'unknown'],
       ['src/operation/execute.ts', 'operation'],
       ['src/workflow/run.ts', 'workflow']
     ]);
-  expect(valid.violations).toEqual([]);
+  expect(valid.violations.filter(({ code }) => code === 'repository-node-responsibility-unresolved'))
+    .toHaveLength(2);
 
   const reversed = compile("export { readClock } from '../capability/clock.ts';");
   expect(reversed.violations).toContainEqual(expect.objectContaining({

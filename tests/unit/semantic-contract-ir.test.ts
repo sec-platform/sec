@@ -27,7 +27,6 @@ function baseInput(): BuildEngineeringIRInput {
         pins: { inputs: [], outputs: [] }
       }
     }],
-    slotTasks: [],
     acceptanceIds: ['item_can_transition'],
     policyDeclarations: []
   };
@@ -59,6 +58,10 @@ function contract(): LoadedSemanticContract {
       responsibilities: [{
         id: 'ItemStateMachine',
         role: 'Own item status',
+        bindings: [{
+          target: { kind: 'operation', id: 'closeItem' },
+          declaration: { path: 'src/item/close-item.ts', exportName: 'closeItem' }
+        }],
         owns: ['Item.status'],
         implements: ['closeItem'],
         dependsOn: []
@@ -107,6 +110,21 @@ test('semantic contract becomes authoritative entities, facts, transitions, and 
   const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
 
   expect(ir.entities.find((entity) => entity.id === 'responsibility:item:ItemStateMachine')?.kind).toBe('responsibility');
+  expect(ir.entities.find((entity) => entity.id === 'responsibility:item:ItemStateMachine')?.attributes)
+    .not.toContainEqual(expect.objectContaining({ key: 'role' }));
+  const binding = ir.entities.find((entity) => entity.kind === 'responsibility-binding');
+  expect(binding?.attributes).toEqual(expect.arrayContaining([
+    { key: 'targetKind', value: 'operation' },
+    { key: 'targetId', value: 'operation:item:closeItem' },
+    { key: 'declarationPath', value: 'src/item/close-item.ts' },
+    { key: 'declarationExportName', value: 'closeItem' }
+  ]));
+  expect(ir.facts).toContainEqual(expect.objectContaining({
+    subject: 'responsibility:item:ItemStateMachine',
+    predicate: 'CONTAINS',
+    object: { kind: 'entity', entityId: binding?.id },
+    assertions: [expect.objectContaining({ authority: 'authoritative' })]
+  }));
   expect(ir.entities.find((entity) => entity.id === 'state:item:item-status')?.attributes).toContainEqual({
     key: 'values',
     value: ['closed', 'open']

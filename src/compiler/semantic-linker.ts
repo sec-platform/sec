@@ -1,4 +1,4 @@
-import type { LoadedSemanticContract, SemanticContract, SemanticContractEntity, SemanticContractImport } from '../semantic/contracts/contract/types.ts';
+import type { LoadedSemanticContract, SemanticContract, SemanticContractEntity, SemanticContractImport, SemanticContractResponsibilityBinding } from '../semantic/contracts/contract/types.ts';
 import { compareCodeUnits } from '../system-architecture/foundation/runtime/canonical.ts';
 import { CompilerError, fail } from './errors.ts';
 
@@ -9,7 +9,8 @@ type SymbolKind =
   | 'event'
   | 'policy'
   | 'permission'
-  | 'effect';
+  | 'effect'
+  | 'scenario';
 
 interface ContractRegistryEntry {
   loaded: LoadedSemanticContract;
@@ -46,7 +47,8 @@ function registryEntry(loaded: LoadedSemanticContract): ContractRegistryEntry {
       event: new Set(contract.events.map((entry) => entry.id)),
       policy: new Set(contract.policies.map((entry) => entry.id)),
       permission: new Set(contract.permissions.map((entry) => entry.id)),
-      effect: new Set(contract.effects.map((entry) => entry.id))
+      effect: new Set(contract.effects.map((entry) => entry.id)),
+      scenario: new Set(contract.scenarios.map((entry) => entry.id))
     }
   };
 }
@@ -181,6 +183,32 @@ function canonicalImports(imports: readonly SemanticContractImport[] = []): Sema
     .sort((left, right) => compareCodeUnits(left.alias, right.alias));
 }
 
+function linkResponsibilityBinding(
+  owner: ContractRegistryEntry,
+  imports: ReadonlyMap<string, ContractRegistryEntry>,
+  responsibilityId: string,
+  binding: SemanticContractResponsibilityBinding
+): SemanticContractResponsibilityBinding {
+  requireLocalOwnershipReference(
+    owner,
+    binding.target.id,
+    `Responsibility "${responsibilityId}" binding target`
+  );
+  return {
+    target: {
+      kind: binding.target.kind,
+      id: resolveSymbol(
+        owner,
+        imports,
+        binding.target.id,
+        binding.target.kind,
+        `Responsibility "${responsibilityId}" binding target`
+      )
+    },
+    declaration: { ...binding.declaration }
+  };
+}
+
 function linkState(
   owner: ContractRegistryEntry,
   imports: ReadonlyMap<string, ContractRegistryEntry>,
@@ -222,6 +250,8 @@ function linkContract(
       }
       return {
         ...responsibility,
+        bindings: (responsibility.bindings ?? []).map((binding) =>
+          linkResponsibilityBinding(owner, imports, responsibility.id, binding)),
         owns: responsibility.owns.map((reference) => resolveEntityTarget(owner, imports, reference, `Responsibility "${responsibility.id}" owns`)),
         implements: responsibility.implements.map((reference) => resolveSymbol(owner, imports, reference, 'operation', `Responsibility "${responsibility.id}" implements`)),
         dependsOn: responsibility.dependsOn.map((reference) => resolveSymbol(owner, imports, reference, 'responsibility', `Responsibility "${responsibility.id}" dependsOn`))

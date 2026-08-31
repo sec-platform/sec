@@ -1,6 +1,9 @@
 import path from 'node:path';
 import ts from 'typescript';
 
+import { SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticResponsibilityTargetKind } from '../../semantic/contracts/contract/types.ts';
+import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleGraph, type SecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
 import type {
@@ -17,23 +20,24 @@ import type {
   SourceProgramModel,
   SourceProgramOwnerIntentEvidence,
   SourceProgramPackage,
+  SourceProgramResponsibilityEvidence,
   SourceProgramTopologySummary,
   SourceProgramUnknown
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
-import type { IssuedRepositoryCompilationContext } from './repository-compilation-context.ts';
 import {
   compileSourceProgramTestObservations,
-  compileSourceProgramTestObservationsFromRepositoryCompilation,
-  repositoryCompilationDigestForTestObservations,
+  compileSourceProgramTestObservationsFromWorkspaceSnapshot,
+  workspaceSourceSnapshotIdentityForTestObservations,
   type SourceProgramTestObservations
 } from './test-observations.ts';
 import {
   compileTypeScriptSourceProgramModel,
-  compileTypeScriptSourceProgramModelFromRepositoryCompilation,
+  compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
   isCompiledTypeScriptSourceProgramModel,
-  repositoryCompilationDigestForTypeScriptModel
+  workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
+import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 export interface CompileRepositorySourceProgramModelInput {
   readonly sourceRevision: string;
@@ -52,7 +56,7 @@ export interface CompileRepositorySourceProgramModelInput {
 }
 
 type CompileRepositorySourceProgramModelInternalInput = CompileRepositorySourceProgramModelInput & Readonly<{
-  repositoryCompilation?: IssuedRepositoryCompilationContext;
+  repositoryCompilation?: WorkspaceSourceSnapshot;
 }>;
 
 const compiledRepositorySourceProgramModels = new WeakSet<object>();
@@ -66,6 +70,112 @@ export function isCompiledRepositorySourceProgramModel(
   value: SourceProgramModel
 ): boolean {
   return compiledRepositorySourceProgramModels.has(value);
+}
+
+function exactStringAttribute(entity: SemanticEntity, key: string): string | null {
+  const matches = entity.attributes.filter((attribute) => attribute.key === key);
+  return matches.length === 1 && typeof matches[0]!.value === 'string'
+    ? matches[0]!.value as string
+    : null;
+}
+
+function responsibilityTargetKind(value: string | null): SemanticResponsibilityTargetKind | null {
+  return value !== null && (SEMANTIC_RESPONSIBILITY_TARGET_KINDS as readonly string[]).includes(value)
+    ? value as SemanticResponsibilityTargetKind
+    : null;
+}
+
+/**
+ * Read back authoritative semantic bindings against this exact Source Program.
+ * The declaration name is never inferred from imports, descriptors or paths.
+ */
+export function compileSourceProgramResponsibilityEvidence(
+  model: SourceProgramModel,
+  snapshot: ValidatedEngineeringIRSnapshot
+): readonly SourceProgramResponsibilityEvidence[] {
+  if (!isCompiledRepositorySourceProgramModel(model)) {
+    throw new Error('Responsibility evidence requires a compiler-issued Repository Source Program Model');
+  }
+  const bindingEntities = snapshot.ir.entities
+    .filter((entity) => entity.kind === 'responsibility-binding')
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
+  const bindingClaims = new Map(bindingEntities.map((binding) => {
+    const facts = snapshot.ir.facts.filter((fact) => (
+      fact.predicate === 'CONTAINS'
+      && fact.object.kind === 'entity'
+      && fact.object.entityId === binding.id
+      && fact.assertions.some((assertion) => (
+        assertion.authority === 'authoritative'
+        && assertion.validFromRevision === snapshot.ir.semanticRevision
+        && assertion.provenance.some(({ kind }) => kind === 'contract')
+      ))
+    ));
+    return [binding.id, facts] as const;
+  }));
+  const declarationClaimCounts = new Map<string, number>();
+  for (const binding of bindingEntities) {
+    const declarationPath = exactStringAttribute(binding, 'declarationPath');
+    const exportName = exactStringAttribute(binding, 'declarationExportName');
+    if (declarationPath === null || exportName === null) continue;
+    const key = `${declarationPath}\u0000${exportName}`;
+    declarationClaimCounts.set(key, (declarationClaimCounts.get(key) ?? 0) + 1);
+  }
+
+  return Object.freeze(bindingEntities.map((binding): SourceProgramResponsibilityEvidence => {
+    const claims = bindingClaims.get(binding.id) ?? [];
+    const targetKind = responsibilityTargetKind(exactStringAttribute(binding, 'targetKind'));
+    const targetId = exactStringAttribute(binding, 'targetId');
+    const declarationPath = exactStringAttribute(binding, 'declarationPath');
+    const exportName = exactStringAttribute(binding, 'declarationExportName');
+    const responsibilityId = claims.length === 1 ? claims[0]!.subject : `unresolved:${binding.id}`;
+    const targetPrefix = targetKind === null ? null : `${targetKind}:`;
+    const structurallyValid = claims.length === 1
+      && targetKind !== null
+      && targetId !== null
+      && targetId.startsWith(targetPrefix!)
+      && declarationPath !== null
+      && exportName !== null;
+    const declarationKey = declarationPath === null || exportName === null
+      ? null
+      : `${declarationPath}\u0000${exportName}`;
+    const matches = structurallyValid
+      ? model.declarations.filter((declaration) => (
+        declaration.exported
+        && declaration.path === declarationPath
+        && declaration.name === exportName
+      ))
+      : [];
+    const reason = !structurallyValid
+      ? 'semantic-binding-invalid' as const
+      : declarationClaimCounts.get(declarationKey!)! > 1
+        ? 'declaration-binding-conflict' as const
+        : matches.length === 0
+          ? 'exported-declaration-missing' as const
+          : matches.length > 1
+            ? 'exported-declaration-ambiguous' as const
+            : 'validated' as const;
+    const match = reason === 'validated' ? matches[0]! : null;
+    const canonical = {
+      bindingId: binding.id,
+      responsibilityId,
+      target: {
+        kind: targetKind ?? 'entity' as const,
+        id: targetId ?? 'unresolved'
+      },
+      declaration: {
+        path: declarationPath ?? 'unresolved',
+        exportName: exportName ?? 'unresolved',
+        observationId: match?.observationId ?? null,
+        declarationDigest: match?.declarationDigest ?? null,
+        moduleId: match?.moduleId ?? null
+      },
+      sourceRevision: model.sourceRevision,
+      semanticRevision: snapshot.ir.semanticRevision,
+      observationClass: reason === 'validated' ? 'observed' as const : 'unknown' as const,
+      reason
+    };
+    return Object.freeze({ ...canonical, evidenceDigest: sha256(canonical) });
+  }));
 }
 
 /**
@@ -344,7 +454,7 @@ function compileRepositorySourceProgramModelInternal(
   const typescriptModel = input.typescriptModel ?? (
     input.repositoryCompilation === undefined
       ? compileTypeScriptSourceProgramModel(typescriptInput)
-      : compileTypeScriptSourceProgramModelFromRepositoryCompilation(
+      : compileTypeScriptSourceProgramModelFromWorkspaceSnapshot(
           typescriptInput,
           input.repositoryCompilation
         )
@@ -354,8 +464,8 @@ function compileRepositorySourceProgramModelInternal(
     throw new Error('Repository Source Program Model received an invalid TypeScript fact snapshot');
   }
   if (input.repositoryCompilation !== undefined
-      && repositoryCompilationDigestForTypeScriptModel(typescriptModel)
-        !== input.repositoryCompilation.contextDigest) {
+      && workspaceSourceSnapshotIdentityForTypeScriptModel(typescriptModel)
+        !== input.repositoryCompilation.identityDigest) {
     throw new Error('Repository Source Program Model cannot mix TypeScript facts from another compilation');
   }
   const expectedTypeScriptFiles = input.files
@@ -380,7 +490,7 @@ function compileRepositorySourceProgramModelInternal(
   const testObservations = input.testObservations ?? (
     input.repositoryCompilation === undefined
       ? compileSourceProgramTestObservations(testObservationInput)
-      : compileSourceProgramTestObservationsFromRepositoryCompilation(
+      : compileSourceProgramTestObservationsFromWorkspaceSnapshot(
           testObservationInput,
           input.repositoryCompilation
         )
@@ -390,8 +500,8 @@ function compileRepositorySourceProgramModelInternal(
     throw new Error('Repository Source Program Model test observations do not bind the production facts');
   }
   if (input.repositoryCompilation !== undefined
-      && repositoryCompilationDigestForTestObservations(testObservations)
-        !== input.repositoryCompilation.contextDigest) {
+      && workspaceSourceSnapshotIdentityForTestObservations(testObservations)
+        !== input.repositoryCompilation.identityDigest) {
     throw new Error('Repository Source Program Model cannot mix test facts from another compilation');
   }
   const semanticModel = Object.freeze({
@@ -824,7 +934,7 @@ function compileRepositorySourceProgramModelInternal(
   const sourceByPath = new Map(input.files
     .filter(({ path: repositoryPath }) => /\.[cm]?[jt]sx?$/iu.test(repositoryPath))
     .map((file) => [file.path, file.source] as const));
-  const importGraph = input.repositoryCompilation?.moduleGraphFor('repository-model') ?? compileSecRepositoryModuleGraph({
+  const importGraph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
     files: Object.freeze([...sourceByPath.keys()].sort(compareCodeUnits)),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
   });
@@ -1454,9 +1564,9 @@ export function compileRepositorySourceProgramModel(
   return compileRepositorySourceProgramModelInternal(input);
 }
 
-export function compileRepositorySourceProgramModelFromRepositoryCompilation(
+export function compileRepositorySourceProgramModelFromWorkspaceSnapshot(
   input: CompileRepositorySourceProgramModelInput,
-  repositoryCompilation: IssuedRepositoryCompilationContext
+  repositoryCompilation: WorkspaceSourceSnapshot
 ): SourceProgramModel {
   repositoryCompilation.assertMatches(input);
   return compileRepositorySourceProgramModelInternal({ ...input, repositoryCompilation });

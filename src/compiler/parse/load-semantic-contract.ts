@@ -1,9 +1,9 @@
 import path from 'node:path';
 import YAML from 'yaml';
 
-import { SEMANTIC_CONTRACT_FORMAT_VERSION, SEMANTIC_EFFECT_KINDS, type LoadedSemanticContract, type SemanticContract, type SemanticContractEffect, type SemanticContractEntity, type SemanticContractImport, type SemanticContractOperation, type SemanticContractResponsibility, type SemanticContractScenario, type SemanticContractScenarioStep, type SemanticContractState, type SemanticContractTransition } from '../../semantic/contracts/contract/types.ts';
+import { SEMANTIC_CONTRACT_FORMAT_VERSION, SEMANTIC_EFFECT_KINDS, SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type LoadedSemanticContract, type SemanticContract, type SemanticContractEffect, type SemanticContractEntity, type SemanticContractImport, type SemanticContractOperation, type SemanticContractResponsibility, type SemanticContractResponsibilityBinding, type SemanticContractScenario, type SemanticContractScenarioStep, type SemanticContractState, type SemanticContractTransition } from '../../semantic/contracts/contract/types.ts';
 import { compareCodeUnits, stableById, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { isSafeRelativePath, posixPath } from '../../workspace/paths.ts';
+import { isSafeRelativePath, posixPath } from '../../workspace/runtime/paths.ts';
 import type { ManifestEntry } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { readManifestResourceFileUtf8 } from './read-manifest-resource.ts';
@@ -50,9 +50,28 @@ function normalizeState(state: SemanticContractState): SemanticContractState {
   };
 }
 
-function normalizeResponsibility(responsibility: SemanticContractResponsibility): SemanticContractResponsibility {
+function normalizeResponsibilityBinding(
+  binding: SemanticContractResponsibilityBinding
+): SemanticContractResponsibilityBinding {
   return {
-    ...responsibility,
+    target: { ...binding.target },
+    declaration: {
+      path: posixPath(binding.declaration.path),
+      exportName: binding.declaration.exportName
+    }
+  };
+}
+
+function normalizeResponsibility(responsibility: SemanticContractResponsibility): SemanticContractResponsibility {
+  const { role: _legacyRole, ...authoritative } = responsibility;
+  return {
+    ...authoritative,
+    bindings: [...(responsibility.bindings ?? [])]
+      .map(normalizeResponsibilityBinding)
+      .sort((left, right) => compareCodeUnits(
+        `${left.target.kind}:${left.target.id}:${left.declaration.path}:${left.declaration.exportName}`,
+        `${right.target.kind}:${right.target.id}:${right.declaration.path}:${right.declaration.exportName}`
+      )),
     owns: uniqueSorted(responsibility.owns ?? []),
     implements: uniqueSorted(responsibility.implements ?? []),
     dependsOn: uniqueSorted(responsibility.dependsOn ?? [])
@@ -222,6 +241,8 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
   const policyIds = new Set(contract.policies.map((entry) => entry.id));
   const permissionIds = new Set(contract.permissions.map((entry) => entry.id));
   const effectIds = new Set(contract.effects.map((entry) => entry.id));
+  const entityIds = new Set(contract.entities.map((entry) => entry.id));
+  const scenarioIds = new Set(contract.scenarios.map((entry) => entry.id));
 
   for (const state of contract.states) {
     if (!isQualifiedReference(state.entity)) {
@@ -249,8 +270,35 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
   }
 
   for (const responsibility of contract.responsibilities) {
-    if (!responsibility.role?.trim()) {
-      throw new CompilerError('CONTRACT-SEMANTIC-012', `Responsibility "${responsibility.id}" requires role`);
+    const bindingTargets = new Set<string>();
+    const bindingDeclarations = new Set<string>();
+    for (const binding of responsibility.bindings ?? []) {
+      if (!SEMANTIC_RESPONSIBILITY_TARGET_KINDS.includes(binding.target.kind)) {
+        throw new CompilerError('CONTRACT-SEMANTIC-019', `Responsibility "${responsibility.id}" binding uses unsupported target kind "${String(binding.target.kind)}"`);
+      }
+      assertId(binding.target.id, `Responsibility "${responsibility.id}" binding target`);
+      const targetSet = binding.target.kind === 'entity'
+        ? entityIds
+        : binding.target.kind === 'effect'
+          ? effectIds
+          : binding.target.kind === 'operation'
+            ? operationIds
+            : scenarioIds;
+      assertReference(targetSet, binding.target.id, `Responsibility "${responsibility.id}" binding target`);
+      if (!binding.declaration.path || !isSafeRelativePath(binding.declaration.path)) {
+        throw new CompilerError('CONTRACT-SEMANTIC-020', `Responsibility "${responsibility.id}" binding declaration path must be repository-relative`);
+      }
+      assertId(binding.declaration.exportName, `Responsibility "${responsibility.id}" binding declaration exportName`);
+      const targetKey = `${binding.target.kind}:${binding.target.id}`;
+      const declarationKey = `${binding.declaration.path}:${binding.declaration.exportName}`;
+      if (bindingTargets.has(targetKey)) {
+        throw new CompilerError('CONTRACT-SEMANTIC-021', `Responsibility "${responsibility.id}" repeats binding target "${targetKey}"`);
+      }
+      if (bindingDeclarations.has(declarationKey)) {
+        throw new CompilerError('CONTRACT-SEMANTIC-021', `Responsibility "${responsibility.id}" repeats binding declaration "${declarationKey}"`);
+      }
+      bindingTargets.add(targetKey);
+      bindingDeclarations.add(declarationKey);
     }
     for (const target of responsibility.owns) assertTargetReference(entities, target, `Responsibility "${responsibility.id}" owns`);
     for (const operation of responsibility.implements) assertReference(operationIds, operation, `Responsibility "${responsibility.id}" implements`);

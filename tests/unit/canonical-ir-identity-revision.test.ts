@@ -7,6 +7,7 @@ import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/comp
 import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/ir/ir-identity.ts';
 import { digest } from '../../src/compiler/ir/ir-revision.ts';
 import { normalizePlan, validatePlan } from '../../src/compiler/parse/load-plan.ts';
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/compiler/policies/contract/rules.ts';
 import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
 
 function semanticContract(): LoadedSemanticContract {
@@ -118,32 +119,19 @@ function fixture(): BuildEngineeringIRInput {
         }
       }
     ],
-    slotTasks: [{
-      id: 'item_adapter',
-      block: 'item/basic',
-      target: 'custom/item_adapter.ts',
-      sourcePath: 'source/code/slots/item_adapter.ts',
-      symbol: 'adaptItem',
-      kind: 'adapter',
-      inputType: 'ItemInput',
-      outputType: 'Item',
-      status: 'filled',
-      writableZones: ['custom/'],
-      provenanceHints: { generator: null, verifiedBy: [] }
-    }],
     acceptanceIds: ['item_can_update', 'item_can_create'],
     policyDeclarations: [
       {
         id: 'tenant-scope-required',
         severity: 'error',
         appliesTo: ['item/basic'],
-        rule: 'tenant_context_must_flow_to_query'
+        rule: TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE
       },
       {
         id: 'item-write-required',
         severity: 'warn',
         appliesTo: ['item/basic'],
-        rule: 'item_write_must_be_authorized'
+        rule: TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE
       }
     ],
     semanticContracts: [semanticContract()]
@@ -187,13 +175,13 @@ test('canonical primitive known-answer vectors remain byte-identical', () => {
     'artifact:src/installed/item/item-semantic-contract.ts'
   );
   expect(ir.inputRevision).toBe(
-    'sha256:cbede18ab8fe30ed4415079bec66eea1817895bc345ad12ed218cee2b55b5f8a'
+    'sha256:673d12da3ef98d98b184f041f461d81f0d3d719b6c9943c01e390eec181c04dc'
   );
   expect(ir.semanticRevision).toBe(
-    'sha256:ca1159129589153aac34b5681c198d6eb278ce7714e724056991a1d005a9d1d0'
+    'sha256:7bad43b2cc410603d6cf0d862af356f1967b573ab5cd10b6572b42273ea19ada'
   );
   expect(createHash('sha256').update(JSON.stringify(ir)).digest('hex')).toBe(
-    '0ae600bf54566728e7ae0d791d1598f2a12bf8c4e499d17500448cd98b088a41'
+    '9eb9118eb2a3891c0130b23a9dc2e72a5ed8dcd6de649824bb45e6d795bc7c18'
   );
 });
 
@@ -265,7 +253,6 @@ test('unordered semantic input collections do not change either revision', () =>
         }
       }
     })),
-    slotTasks: [...input.slotTasks].reverse(),
     acceptanceIds: [...input.acceptanceIds].reverse(),
     policyDeclarations: [...input.policyDeclarations].reverse(),
     semanticContracts: [reversedContract]
@@ -307,7 +294,6 @@ test('exact duplicate unordered semantic declarations do not change revisions', 
     ...input,
     resolvedBlocks: [...input.resolvedBlocks, input.resolvedBlocks[0]!],
     manifests: [...input.manifests, duplicatedManifest],
-    slotTasks: [...input.slotTasks, input.slotTasks[0]!],
     acceptanceIds: [...input.acceptanceIds, input.acceptanceIds[0]!],
     policyDeclarations: [...input.policyDeclarations, input.policyDeclarations[0]!],
     semanticContracts: [duplicatedContract, duplicatedContract]
@@ -336,8 +322,7 @@ test('policy declaration content changes input revision without changing semanti
   const changedPolicy = {
     ...input.policyDeclarations[0]!,
     severity: 'blocker' as const,
-    appliesTo: ['auth/basic-session', 'item/basic'],
-    rule: 'tenant_context_must_be_explicit'
+    appliesTo: ['auth/basic-session', 'item/basic']
   };
 
   const before = buildEngineeringIR(input);
@@ -363,7 +348,6 @@ test('plan validation hard fails when app.id is absent', () => {
     },
     registry: { sources: [] },
     blocks: [],
-    slots: [],
     acceptance: []
   } as unknown as PlanFile);
 

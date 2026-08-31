@@ -5,7 +5,7 @@ import { ENGINEERING_IR_FORMAT_VERSION } from '../../semantic/engineering-ir/con
 import { type ScenarioDefinition } from '../../semantic/engineering-ir/contract/scenario-types.ts';
 import type { ManifestGenerator } from '../../semantic/generation/contract/types.ts';
 import { compareCodeUnits, digest, normalizedArtifactTarget, stableById, uniqueSorted, uniqueSortedByKey } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type { BlockManifest, ManifestPin, ResolvedBlock, SlotTask } from '../contract.ts';
+import type { BlockManifest, ManifestPin, ResolvedBlock } from '../contract.ts';
 import type { PolicyRule } from '../policies/contract/types.ts';
 
 export { digest };
@@ -20,10 +20,18 @@ export interface InputRevisionDomain {
   app: { id: string; name: string };
   resolvedBlocks: readonly ResolvedBlock[];
   manifests: readonly InputRevisionManifest[];
-  slotTasks: readonly SlotTask[];
   acceptanceIds: readonly string[];
   policyDeclarations: readonly PolicyRule[];
   semanticContracts?: readonly LoadedSemanticContract[];
+  observedFlows?: readonly InputRevisionObservedFlow[];
+}
+
+export interface InputRevisionObservedFlow {
+  readonly providerId: string;
+  readonly sourceCapability: string;
+  readonly sourcePath: string;
+  readonly sourceRevision: string;
+  readonly target: string;
 }
 
 function canonicalSemanticContract(contract: SemanticContract): object {
@@ -63,7 +71,19 @@ function canonicalSemanticContract(contract: SemanticContract): object {
     responsibilities: stableById(contract.responsibilities).map((responsibility) => ({
       id: responsibility.id,
       label: responsibility.label ?? responsibility.id,
-      role: responsibility.role,
+      bindings: uniqueSortedByKey(
+        (responsibility.bindings ?? []).map((binding) => ({
+          target: {
+            kind: binding.target.kind,
+            id: binding.target.id
+          },
+          declaration: {
+            path: normalizedArtifactTarget(binding.declaration.path),
+            exportName: binding.declaration.exportName
+          }
+        })),
+        (binding) => JSON.stringify(binding)
+      ),
       owns: uniqueSorted(responsibility.owns),
       implements: uniqueSorted(responsibility.implements),
       dependsOn: uniqueSorted(responsibility.dependsOn)
@@ -185,19 +205,6 @@ function canonicalSemanticContractDeclarations(contracts: readonly LoadedSemanti
   return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
 }
 
-function canonicalSlotTasks(slotTasks: readonly SlotTask[]): object[] {
-  const declarations = slotTasks.map((task) => ({
-    id: task.id,
-    block: task.block,
-    kind: task.kind,
-    target: task.target,
-    symbol: task.symbol,
-    inputType: task.inputType ?? null,
-    outputType: task.outputType ?? null
-  }));
-  return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
-}
-
 function canonicalPolicyDeclarations(policies: readonly PolicyRule[]): object[] {
   const declarations = policies.map((policy) => ({
     id: policy.id,
@@ -208,7 +215,18 @@ function canonicalPolicyDeclarations(policies: readonly PolicyRule[]): object[] 
   return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
 }
 
+function canonicalObservedFlows(flows: readonly InputRevisionObservedFlow[]): object[] {
+  return uniqueSortedByKey(flows.map((flow) => ({
+    providerId: flow.providerId,
+    sourceCapability: flow.sourceCapability,
+    sourcePath: normalizedArtifactTarget(flow.sourcePath),
+    sourceRevision: flow.sourceRevision,
+    target: normalizedArtifactTarget(flow.target)
+  })), (flow) => JSON.stringify(flow));
+}
+
 export function inputRevisionPayload(input: InputRevisionDomain): string {
+  const observedFlows = canonicalObservedFlows(input.observedFlows ?? []);
   return JSON.stringify({
     domain: 'engineering-ir-input-v1',
     app: {
@@ -218,9 +236,9 @@ export function inputRevisionPayload(input: InputRevisionDomain): string {
     resolvedBlocks: canonicalResolvedBlocks(input.resolvedBlocks),
     manifests: canonicalManifestDeclarations(input.manifests),
     semanticContracts: canonicalSemanticContractDeclarations(input.semanticContracts ?? []),
-    slotTasks: canonicalSlotTasks(input.slotTasks),
     acceptanceIds: uniqueSorted(input.acceptanceIds),
-    policyDeclarations: canonicalPolicyDeclarations(input.policyDeclarations)
+    policyDeclarations: canonicalPolicyDeclarations(input.policyDeclarations),
+    ...(observedFlows.length > 0 ? { observedFlows } : {})
   });
 }
 
