@@ -45,6 +45,7 @@ import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../verification/trust/contract/root.ts';
 import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence } from '../source-program-model/contract.ts';
+import { compileSourceProgramImplementationDominance } from '../source-program-model/implementation-dominance.ts';
 import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramSupersessionReceipt, type SourceProgramUnusedSymbolEvidence } from '../source-program-model/reduction.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
@@ -2227,6 +2228,10 @@ async function main(): Promise<void> {
       }
     })();
     const { model } = worktreeAudit;
+    const implementationDominance = compileSourceProgramImplementationDominance({
+      model,
+      ownerIntents: worktreeAudit.currentIntentEvidence
+    });
     const blockingCandidates = sourceProgramBlockingCandidates(model);
     const observedTestValue = compileSourceProgramTestValue({
       repositoryRoot: DEFAULT_REPOSITORY_ROOT,
@@ -2345,6 +2350,21 @@ async function main(): Promise<void> {
       invalidatedTypeScriptPaths: full
         ? worktreeAudit.invalidatedTypeScriptPaths
         : compactRecordSet(worktreeAudit.invalidatedTypeScriptPaths),
+      implementationDominance: full ? implementationDominance : {
+        compilationDigest: implementationDominance.compilationDigest,
+        units: compactRecordSet(implementationDominance.units),
+        findings: compactRecordSet(implementationDominance.findings),
+        dispositions: Object.fromEntries(
+          [...new Set(implementationDominance.findings.map(({ disposition }) => disposition))]
+            .sort(compareCodeUnits)
+            .map((disposition) => [
+              disposition,
+              implementationDominance.findings.filter((finding) => (
+                finding.disposition === disposition
+              )).length
+            ])
+        )
+      },
       blockingCandidates: full ? blockingCandidates : compactRecordSet(blockingCandidates),
       blockingTestFindings: full
         ? blockingTestFindings
@@ -2374,6 +2394,8 @@ async function main(): Promise<void> {
       },
       summary: {
         blockingCandidates: blockingCandidates.length,
+        implementationDominanceFindings: implementationDominance.findings.length,
+        implementationDominanceUnits: implementationDominance.units.length,
         blockingTestFindings: blockingTestFindings.length,
         reportedBlockingTestFindings: (full ? blockingTestFindings : compactBlockingTestFindings).length,
         unknownDispositionClusters: unknownDispositionClusters.length,
@@ -2514,6 +2536,7 @@ async function main(): Promise<void> {
     }, null, 2)}\n`);
     if (args.includes('--enforce')
       && (blockingCandidates.length > 0
+        || implementationDominance.findings.length > 0
         || blockingTestFindings.length > 0
         || repositoryAuditSupersessionShouldBlock(supersession)
         || repositoryModuleArchitectureShouldBlock(worktreeAudit.moduleArchitecture)
