@@ -20,7 +20,7 @@ test('upgrade dry-run records delete file migration impacts', async () => {
       }
     },
     setup: async ({ paths: workspacePaths }) => {
-      await writeJson(path.join(workspacePaths.projectRoot, 'generated', 'reports', 'obsolete.json'), {
+      await writeJson(path.join(workspacePaths.workspaceRoot, 'generated', 'reports', 'obsolete.json'), {
         status: 'obsolete'
       });
     }
@@ -98,7 +98,7 @@ test('upgrade dry-run records rename file migration impacts', async () => {
       }
     },
     setup: async ({ paths: workspacePaths }) => {
-      await writeJson(path.join(workspacePaths.projectRoot, 'generated', 'reports', 'current.json'), {
+      await writeJson(path.join(workspacePaths.workspaceRoot, 'generated', 'reports', 'current.json'), {
         status: 'current'
       });
     }

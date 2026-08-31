@@ -11,8 +11,8 @@ test('Compose materializes Prisma schema without applying it to a database', asy
     const initRes = await runCliInProcess(workspaceRoot, ['init']);
     expect(initRes.code).toBe(0);
 
-    const { developerSourceRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
-    const schemaDir = path.join(developerSourceRoot, 'schema');
+    const { prismaRoot } = getWorkspacePaths(workspaceRoot);
+    const schemaDir = prismaRoot;
     await fs.mkdir(schemaDir, { recursive: true });
     await fs.writeFile(path.join(schemaDir, 'db.prisma.template'), `
 model CustomExtension {
@@ -26,7 +26,7 @@ model CustomExtension {
     const composeRes = await runCliInProcess(workspaceRoot, ['compose']);
     expect(composeRes.code, composeRes.stderr || composeRes.stdout).toBe(0);
 
-    const targetPrismaSchemaPath = path.join(projectRoot, 'prisma', 'schema.prisma');
+    const targetPrismaSchemaPath = path.join(prismaRoot, 'schema.prisma');
     const resultSchema = await fs.readFile(targetPrismaSchemaPath, 'utf8');
     expect(resultSchema).toContain('model CustomExtension {');
     expect(resultSchema).toContain('id    String @id');
@@ -34,6 +34,6 @@ model CustomExtension {
 
     // Database mutation is not a compilation side effect. A future explicit
     // database Operation/provider may apply this schema under its own authority.
-    await expect(fs.stat(path.join(projectRoot, 'prisma', 'dev.db'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.stat(path.join(prismaRoot, 'dev.db'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 }, 180000);

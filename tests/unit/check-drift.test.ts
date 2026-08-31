@@ -4,8 +4,9 @@ import path from 'node:path';
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { checkReferenceDrift } from '../../src/compiler/verify/check-drift.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function computeHash(content: string): string {
@@ -22,15 +23,16 @@ describe('checkReferenceDrift', () => {
 
   test('passes if read-only files match their hashes', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
+      const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+      const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
 
-      // Create a dummy project file
-      const relativeFilePath = 'app/page.tsx';
+      // Create a dummy generated workspace file
+      const relativeFilePath = 'src/ui/page.ts';
       const fileContent = 'export default function Page() {}';
       const fileHash = computeHash(fileContent);
 
-      await ensureDir(path.join(projectRoot, 'app'));
-      await writeText(path.join(projectRoot, relativeFilePath), fileContent);
+      await ensureDir(path.dirname(path.join(root, relativeFilePath)));
+      await writeText(path.join(root, relativeFilePath), fileContent);
 
       // Create provenance
       const provenance: ProvenanceFile = {
@@ -39,7 +41,7 @@ describe('checkReferenceDrift', () => {
           {
             path: relativeFilePath,
             originType: 'generated',
-            originId: 'app/page.tsx',
+            originId: relativeFilePath,
             generatedByPass: 'compose',
             verifiedBy: [],
             overrideStatus: 'none',
@@ -56,14 +58,15 @@ describe('checkReferenceDrift', () => {
 
   test('throws ERROR-DRIFT-001 if a read-only file is modified', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
+      const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+      const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
 
-      const relativeFilePath = 'app/page.tsx';
+      const relativeFilePath = 'src/ui/page.ts';
       const originalContent = 'export default function Page() {}';
       const originalHash = computeHash(originalContent);
 
-      await ensureDir(path.join(projectRoot, 'app'));
-      await writeText(path.join(projectRoot, relativeFilePath), 'modified content');
+      await ensureDir(path.dirname(path.join(root, relativeFilePath)));
+      await writeText(path.join(root, relativeFilePath), 'modified content');
 
       // Create provenance
       const provenance: ProvenanceFile = {
@@ -72,7 +75,7 @@ describe('checkReferenceDrift', () => {
           {
             path: relativeFilePath,
             originType: 'generated',
-            originId: 'app/page.tsx',
+            originId: relativeFilePath,
             generatedByPass: 'compose',
             verifiedBy: [],
             overrideStatus: 'none',
@@ -97,19 +100,19 @@ describe('checkReferenceDrift', () => {
 
   test('throws ERROR-DRIFT-001 if a read-only file is missing', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const { provenancePath } = getWorkspacePaths(workspaceRoot);
+      const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
 
-      const relativeFilePath = 'app/page.tsx';
+      const relativeFilePath = 'src/ui/page.ts';
       const originalHash = computeHash('some content');
 
-      // Create provenance but do not create the file in projectRoot
+      // Create provenance but do not create the workspace file.
       const provenance: ProvenanceFile = {
         formatVersion: '1',
         artifacts: [
           {
             path: relativeFilePath,
             originType: 'generated',
-            originId: 'app/page.tsx',
+            originId: relativeFilePath,
             generatedByPass: 'compose',
             verifiedBy: [],
             overrideStatus: 'none',
@@ -134,15 +137,16 @@ describe('checkReferenceDrift', () => {
 
   test('does not throw if a slot file (writable zone) is modified or missing', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
+      const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+      const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
 
-      const relativeFilePath = 'custom/normalizer.ts';
+      const relativeFilePath = 'src/slots/normalizer.ts';
       const originalContent = 'export default function normalize() {}';
       const originalHash = computeHash(originalContent);
 
-      await ensureDir(path.join(projectRoot, 'custom'));
+      await ensureDir(path.dirname(path.join(root, relativeFilePath)));
       // File is modified
-      await writeText(path.join(projectRoot, relativeFilePath), 'modified normalization logic');
+      await writeText(path.join(root, relativeFilePath), 'modified normalization logic');
 
       // Create provenance with originType: 'slot'
       const provenance: ProvenanceFile = {

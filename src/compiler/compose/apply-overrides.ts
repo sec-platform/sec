@@ -7,7 +7,7 @@ import {
   publishExclusiveCanonicalWorkspaceFile,
   publishExpectedCanonicalWorkspaceFile
 } from '../../workspace/files.ts';
-import { getWorkspacePaths, resolvePathInside } from '../../workspace/paths.ts';
+import { resolvePathInside } from '../../workspace/paths.ts';
 import { CompilerError } from '../errors.ts';
 import {
   loadOverrideManifest,
@@ -24,11 +24,11 @@ type PreparedOverride = Readonly<{
 
 function readOverrideSource(
   overrideRoot: string,
-  projectRoot: string,
+  workspaceRoot: string,
   entry: OverrideEntry
 ): PreparedOverride {
   const sourcePath = resolvePathInside(overrideRoot, entry.entry);
-  const targetPath = resolvePathInside(projectRoot, entry.target);
+  const targetPath = resolvePathInside(workspaceRoot, entry.target);
   if (!sourcePath || !targetPath) {
     throw new CompilerError(
       'OVERRIDE-APPLY-001',
@@ -100,7 +100,6 @@ export async function applyOverrides(
   phase: OverrideApplyPhase,
   commitFence?: CommitFence
 ): Promise<void> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const manifest = await loadOverrideManifest(workspaceRoot);
   const overrideManifestPath = await resolveOverrideManifestPath(workspaceRoot);
   const overrideRoot = path.dirname(overrideManifestPath);
@@ -110,7 +109,7 @@ export async function applyOverrides(
   // from the unified Workspace Observation without changing this publisher.
   const prepared = manifest.overrides
     .filter((entry) => entry.appliesAfter.includes(phase))
-    .map((entry) => readOverrideSource(overrideRoot, projectRoot, entry));
+    .map((entry) => readOverrideSource(overrideRoot, workspaceRoot, entry));
 
   await commitFence?.();
   assertPreparedOverrideInputsCurrent(prepared);

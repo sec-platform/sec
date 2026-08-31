@@ -12,10 +12,10 @@ import { listEmailNotifications, recordCustomerCreatedEmail } from '../../../src
 /*#ENDIF*/
 /*#IF postgresEnabled*/
 import { POSTGRES_CONTRACT } from '../../../src/installed/infra/postgres-contract.ts';
-import { getDatabase, getRuntimeStore, resetDatabase } from '../../../lib/store.ts';
+import { getDatabase, getRuntimeStore, resetDatabase } from '../../../src/runtime/store.ts';
 /*#ENDIF*/
 /*#IF !postgresEnabled*/
-import { getDatabase, resetDatabase } from '../../../lib/store.ts';
+import { getDatabase, resetDatabase } from '../../../src/runtime/store.ts';
 /*#ENDIF*/
 /*#IF rbacEnabled*/
 import { canAccessWorkspace } from '../../../src/installed/auth/authorize.ts';

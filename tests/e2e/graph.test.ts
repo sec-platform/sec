@@ -13,7 +13,7 @@ import type { ProvenanceFile } from '../../src/semantic/provenance/contract/type
 import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { expectGraphEdge, expectGraphNode } from '../helpers/graph-assertions.ts';
 import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
 import { prepareResolvedWorkspace } from '../testkit/workspace.ts';
@@ -33,13 +33,13 @@ function emptyCoverage(): AcceptanceCoverageReport {
 async function attachSemanticViews(workspaceRoot: string, lock: LockFile): Promise<LockFile> {
   const { engineeringIRInput } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
   lock.semanticViews = structuredClone(buildSemanticViewSet(buildValidatedEngineeringIR(engineeringIRInput)));
-  await writeJson(getWorkspacePaths(workspaceRoot).lockPath, lock);
+  await writeJson(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock), lock);
   return lock;
 }
 
 test('explain graph consumes canonical ports, policies, and policy violation governance edges', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-graph-' });
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const provenance: ProvenanceFile = {
     formatVersion: '1',
@@ -125,7 +125,7 @@ test('explain graph consumes canonical ports, policies, and policy violation gov
 }, 180000);
 test('explain graph connects slot contract upgrade impacts to slots and files', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-upgrade-slot-' });
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const upgradePlan: UpgradePlan = {
     formatVersion: '1',
@@ -355,7 +355,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
 }, 180000);
 test('explain graph connects repair tasks to slots and files', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-repair-' });
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const repairPlan: RepairPlan = {
     formatVersion: '1',
@@ -417,15 +417,13 @@ test('explain graph connects repair tasks to slots and files', async () => {
 }, 180000);
 test('writeExplainGraph does not require a policy report', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-no-policy-' });
-  const {
-    acceptanceCoveragePath,
-    explainGraphDotPath,
-    explainGraphMermaidPath,
-    explainGraphPath,
-    lockPath,
-    policyReportPath,
-    provenancePath
-  } = getWorkspacePaths(workspaceRoot);
+  const acceptanceCoveragePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage);
+  const explainGraphDotPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphDot);
+  const explainGraphMermaidPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphMermaid);
+  const explainGraphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const policyReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
+  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
   const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
   const provenance: ProvenanceFile = {
     formatVersion: '1',

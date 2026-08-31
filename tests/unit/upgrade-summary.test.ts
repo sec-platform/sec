@@ -2,7 +2,11 @@ import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import {
+  posixPath,
+  resolveWorkspaceArtifactPath,
+  slotsRelativePath
+} from '../../src/workspace/runtime/paths.ts';
 import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
@@ -18,11 +22,18 @@ type UpgradeFailureAttributionCase = {
   failureMessage: string;
 };
 
+const SLOT_TARGET_ZETA = `${posixPath(slotsRelativePath)}/zeta.ts`;
+const SLOT_TARGET_ALPHA = `${posixPath(slotsRelativePath)}/alpha.ts`;
+const SLOT_TARGET_CUSTOMER_NORMALIZER = `${posixPath(slotsRelativePath)}/customer_normalizer.ts`;
+
 async function buildReviewSummaryWithUpgradeDiagnostics(
   diagnosticsOptions: UpgradeDiagnosticsOptions
 ): Promise<ReviewSummary> {
   return withTempWorkspace(async (workspaceRoot) => {
-    const { upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
+    const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(
+      workspaceRoot,
+      CI_ARTIFACT_FILES.upgradeDiagnostics
+    );
     await writeJson(upgradeDiagnosticsPath, buildUpgradeDiagnostics(diagnosticsOptions));
 
     return buildReviewSummaryFromInputs(workspaceRoot, {
@@ -47,7 +58,12 @@ function expectUpgradeFailurePoint(summary: ReviewSummary, message: string): voi
 
 test('review summary surfaces pending upgrade plans without running upgrade e2e', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { repairPlanPath, upgradeDiagnosticsPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+    const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
+    const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(
+      workspaceRoot,
+      CI_ARTIFACT_FILES.upgradeDiagnostics
+    );
+    const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
     const reviewOptions: ReviewInputsOptions = {
       lock: {
         resolvedBlocks: [
@@ -81,7 +97,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         buildRepairTask({
           taskId: 'repair_zeta',
           sourceSlotId: 'zeta',
-          targetFile: 'custom/zeta.ts',
+          targetFile: SLOT_TARGET_ZETA,
           requiredSymbols: [],
           failureSummary: 'unit=failed',
           failurePoints: []
@@ -89,7 +105,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
         buildRepairTask({
           taskId: 'repair_alpha',
           sourceSlotId: 'alpha',
-          targetFile: 'custom/alpha.ts',
+          targetFile: SLOT_TARGET_ALPHA,
           requiredSymbols: [],
           failureSummary: 'unit=failed',
           failurePoints: []
@@ -251,17 +267,17 @@ test.each<UpgradeFailureAttributionCase>([
       phase: 'apply',
       failedCheck: 'migration-file-operations',
       errorCode: 'UPGRADE-MIGRATION-016',
-      message: 'slot-contract-update target "custom/customer_normalizer.ts" is missing',
+      message: `slot-contract-update target "${SLOT_TARGET_CUSTOMER_NORMALIZER}" is missing`,
       details: {
         migrationId: 'mig-customer-normalizer-contract',
         migrationKind: 'slot-contract-update',
         slotId: 'customer_normalizer',
-        target: 'custom/customer_normalizer.ts',
+        target: SLOT_TARGET_CUSTOMER_NORMALIZER,
         rollbackStatus: 'restored'
       }
     },
     failureMessage:
-      'Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "custom/customer_normalizer.ts" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=custom/customer_normalizer.ts; slot=customer_normalizer; rollback=restored'
+      `Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "${SLOT_TARGET_CUSTOMER_NORMALIZER}" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=${SLOT_TARGET_CUSTOMER_NORMALIZER}; slot=customer_normalizer; rollback=restored`
   }
 ])('review summary includes $name migration attribution in upgrade failure points', async ({ diagnostics, failureMessage }) => {
   const summary = await buildReviewSummaryWithUpgradeDiagnostics(diagnostics);

@@ -1,7 +1,8 @@
 import { compileWorkspace } from '../compiler/orchestration/pipeline-orchestrator.ts';
+import { referenceWorkspaceRoot } from './workspace.ts';
 
 try {
-  await compileWorkspace(process.cwd(), {
+  await compileWorkspace(referenceWorkspaceRoot, {
     source: 'reference'
   });
 } catch (error) {

@@ -2,7 +2,7 @@ import path from 'node:path';
 import ts from 'typescript';
 import { withProjectDependencyBridge } from '../../toolchain/dependencies/runtime.ts';
 import { pathExists } from '../../workspace/files.ts';
-import { compilerRoot, isPathInside, relativePosixPath } from '../../workspace/paths.ts';
+import { compilerRoot, isPathInside, relativePosixPath, tsconfigRelativePath } from '../../workspace/paths.ts';
 import { CompilerError } from '../errors.ts';
 
 function formatDiagnostic(diagnostic: ts.Diagnostic): string {
@@ -208,7 +208,7 @@ export async function typecheckProject(
     );
   }
   const execute = async (): Promise<void> => {
-    const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
+    const tsconfigPath = path.join(projectRoot, tsconfigRelativePath);
     if (!(await pathExists(tsconfigPath))) {
       throw new CompilerError('VERIFY-BUILD-001', 'Generated project is missing tsconfig.json');
     }

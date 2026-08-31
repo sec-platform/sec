@@ -155,14 +155,14 @@ test('runtime materialization scheduler stops before the next batch when its bou
 test('runtime launch proof rejects byte, shape, link, reparse, and post-hash identity tamper', async () => {
   const root = await mkdtemp(path.join(process.cwd(), '.tmp-runtime-launch-proof-'));
   const compilerRoot = path.join(root, '.isolated-compiler');
-  const projectDepsRoot = path.join(root, 'project', 'node_modules');
+  const projectDepsRoot = path.join(root, 'node_modules');
   const target = path.join(compilerRoot, 'runner.bin');
   const expectedBytes = Buffer.from('AAAA');
   const manifest = {
     stagingRoot: root,
     directories: [
       '.isolated-compiler',
-      'project/node_modules'
+      'node_modules'
     ],
     files: [{
       relativePath: '.isolated-compiler/runner.bin',
@@ -172,7 +172,7 @@ test('runtime launch proof rejects byte, shape, link, reparse, and post-hash ide
   } as const;
   const reset = async (): Promise<void> => {
     await rm(compilerRoot, { recursive: true, force: true });
-    await rm(path.join(root, 'project'), { recursive: true, force: true });
+    await rm(projectDepsRoot, { recursive: true, force: true });
     await mkdir(compilerRoot, { recursive: true });
     await mkdir(projectDepsRoot, { recursive: true });
     await writeFile(target, expectedBytes);

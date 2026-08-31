@@ -6,23 +6,12 @@ import fs from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import path from 'node:path';
 
-import {
-  addBlock,
-  compileWorkspace,
-  initWorkspace,
-  verifyWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
+import { addBlock, compileWorkspace, initWorkspace, verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
 import type { PipelineStageId } from '../../src/compiler/pipeline/types.ts';
-import {
-  getTestWorkspaceTemplateRoot,
-  getTestWorkspaceTempRoot
-} from '../../src/development/runner/env-manager.ts';
+import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/development/runner/env-manager.ts';
 import { createConcurrencyLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
-import {
-  createWorkspaceWithDeferredCleanup,
-  removeWorkspaceDirectoryWithRetry,
-  settleWorkspaceCallback
-} from './workspace-cleanup.ts';
+import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback } from './workspace-cleanup.ts';
 
 const workspaceParent = getTestWorkspaceTempRoot();
 const templateParent = path.join(getTestWorkspaceTemplateRoot(), `run-${process.pid}-${randomUUID()}`);
@@ -49,11 +38,7 @@ afterAll(async () => {
   // exhausting the 120s afterAll budget on Windows where directory removal
   // is slow. Each directory is distinct, so concurrent removal is safe;
   // EBUSY/EPERM retries are handled by removeWorkspaceDirectoryWithRetry.
-  await Promise.all(
-    [...deferredCleanupDirs].map((directory) =>
-      deferredCleanupConcurrency(() => removeWorkspaceDirectory(directory))
-    )
-  );
+  await Promise.all([...deferredCleanupDirs].map((directory) => deferredCleanupConcurrency(() => removeWorkspaceDirectory(directory))));
   await fs.rm(templateParent, { recursive: true, force: true });
 }, 120000);
 
@@ -95,11 +80,7 @@ async function runWorkspaceCallback<T>(
 
 export async function createWorkspace(prefix = 'engineering-compiler-test-'): Promise<string> {
   await fs.mkdir(workspaceParent, { recursive: true });
-  return createWorkspaceWithDeferredCleanup(
-    path.join(workspaceParent, prefix),
-    deferredCleanupDirs,
-    fs.mkdtemp
-  );
+  return createWorkspaceWithDeferredCleanup(path.join(workspaceParent, prefix), deferredCleanupDirs, fs.mkdtemp);
 }
 
 export async function withTempWorkspace<T>(
@@ -194,19 +175,25 @@ async function assertTemplateComplete(templateRoot: string, kind: WorkspaceTempl
   if (!(await templateIsReady(kind, markerPath))) {
     throw new Error(`Template ${kind} incomplete: readiness marker missing or mismatched`);
   }
-  // Validate that the project directory physically exists — a partially copied
-  // template (e.g. interrupted fs.cp) may have the marker but lack project content.
-  const projectDir = path.join(templateRoot, 'project');
-  try {
-    const stat = await fs.lstat(projectDir);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) {
-      throw new Error(`Template ${kind} incomplete: project is not a physical directory`);
+  // Validate canonical workspace content, not a legacy nested project layout.
+  // A partially copied template may retain its marker while losing one of the
+  // native model/source roots, so both roots are part of the readiness proof.
+  const paths = getWorkspacePaths(templateRoot);
+  for (const [label, directory] of [
+    ['model', paths.modelRoot],
+    ['source', paths.srcRoot]
+  ] as const) {
+    try {
+      const stat = await fs.lstat(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new Error(`Template ${kind} incomplete: ${label} is not a physical directory`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Template ${kind} incomplete: ${label} directory missing`);
+      }
+      throw error;
     }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`Template ${kind} incomplete: project directory missing`);
-    }
-    throw error;
   }
 }
 
@@ -224,12 +211,12 @@ async function templateIsReady(kind: WorkspaceTemplateKind, markerPath: string):
 }
 
 async function pruneTransientWorkspaceState(workspaceRoot: string): Promise<void> {
+  const paths = getWorkspacePaths(workspaceRoot);
   await Promise.all([
     fs.rm(path.join(workspaceRoot, 'node_modules'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', 'node_modules'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', 'tsconfig.tsbuildinfo'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', 'test-results'), { recursive: true, force: true }),
-    fs.rm(path.join(workspaceRoot, 'project', 'coverage'), { recursive: true, force: true })
+    fs.rm(path.join(workspaceRoot, 'tsconfig.tsbuildinfo'), { recursive: true, force: true }),
+    fs.rm(path.join(paths.artifactsRoot, 'test-results'), { recursive: true, force: true }),
+    fs.rm(path.join(paths.artifactsRoot, 'coverage'), { recursive: true, force: true })
   ]);
 }
 
@@ -309,10 +296,7 @@ async function ensureTemplate(kind: WorkspaceTemplateKind): Promise<string> {
   });
 }
 
-const clonableCacheSnapshotNames = [
-  'composition-baseline.json',
-  'project-baseline.json'
-] as const;
+const clonableCacheSnapshotNames = ['composition-baseline.json', 'project-baseline.json'] as const;
 
 type LocalStateSnapshotPlanEntry = {
   readonly destinationSegments: readonly string[];
@@ -331,8 +315,7 @@ function assertNoCaseCollisions(entries: readonly Dirent[], relativeRoot: string
     const existingName = namesByFoldedName.get(foldedName);
     if (existingName !== undefined && existingName !== entry.name) {
       throw new Error(
-        `Workspace fixture contains case-colliding local-state paths under ${relativeRoot}: `
-        + `${existingName}, ${entry.name}`
+        `Workspace fixture contains case-colliding local-state paths under ${relativeRoot}: ` + `${existingName}, ${entry.name}`
       );
     }
     namesByFoldedName.set(foldedName, entry.name);
@@ -340,9 +323,7 @@ function assertNoCaseCollisions(entries: readonly Dirent[], relativeRoot: string
 }
 
 function findCaseFoldedEntry(entries: readonly Dirent[], expectedName: string): Dirent | undefined {
-  return entries.find(
-    (entry) => caseFoldFixtureSegment(entry.name) === caseFoldFixtureSegment(expectedName)
-  );
+  return entries.find((entry) => caseFoldFixtureSegment(entry.name) === caseFoldFixtureSegment(expectedName));
 }
 
 function assertPhysicalDirectory(entry: Dirent, relativePath: string): void {
@@ -369,13 +350,9 @@ function snapshotPlanEntry(
   };
 }
 
-async function resolveLocalStateSnapshotPlan(
-  sourceRoot: string
-): Promise<readonly LocalStateSnapshotPlanEntry[]> {
+async function resolveLocalStateSnapshotPlan(sourceRoot: string): Promise<readonly LocalStateSnapshotPlanEntry[]> {
   const sourceEntries = await fs.readdir(sourceRoot, { withFileTypes: true });
-  const localStateEntries = sourceEntries.filter(
-    (entry) => caseFoldFixtureSegment(entry.name) === '.sec'
-  );
+  const localStateEntries = sourceEntries.filter((entry) => caseFoldFixtureSegment(entry.name) === '.sec');
   assertNoCaseCollisions(localStateEntries, '.');
   if (localStateEntries.length === 0) return [];
 
@@ -389,11 +366,18 @@ async function resolveLocalStateSnapshotPlan(
   const pipelineJournalEntry = findCaseFoldedEntry(localStateChildren, 'pipeline-journal.json');
   if (pipelineJournalEntry !== undefined) {
     assertPhysicalRegularFile(pipelineJournalEntry, '.sec/pipeline-journal.json');
-    plan.push(snapshotPlanEntry(
+    plan.push(snapshotPlanEntry(sourceRoot, [localStateEntry.name, pipelineJournalEntry.name], ['.sec', 'pipeline-journal.json']));
+  }
+
+  const artifactsEntry = findCaseFoldedEntry(localStateChildren, 'artifacts');
+  if (artifactsEntry !== undefined) {
+    assertPhysicalDirectory(artifactsEntry, '.sec/artifacts');
+    await collectPhysicalSnapshotFiles(
       sourceRoot,
-      [localStateEntry.name, pipelineJournalEntry.name],
-      ['.sec', 'pipeline-journal.json']
-    ));
+      [localStateEntry.name, artifactsEntry.name],
+      ['.sec', 'artifacts'],
+      plan
+    );
   }
 
   const cacheEntry = findCaseFoldedEntry(localStateChildren, 'cache');
@@ -407,22 +391,37 @@ async function resolveLocalStateSnapshotPlan(
     if (snapshotEntry === undefined) continue;
     const relativePath = `.sec/cache/${snapshotName}`;
     assertPhysicalRegularFile(snapshotEntry, relativePath);
-    plan.push(snapshotPlanEntry(
-      sourceRoot,
-      [localStateEntry.name, cacheEntry.name, snapshotEntry.name],
-      ['.sec', 'cache', snapshotName]
-    ));
+    plan.push(snapshotPlanEntry(sourceRoot, [localStateEntry.name, cacheEntry.name, snapshotEntry.name], ['.sec', 'cache', snapshotName]));
   }
   return plan;
+}
+
+async function collectPhysicalSnapshotFiles(
+  sourceRoot: string,
+  sourceSegments: readonly string[],
+  destinationSegments: readonly string[],
+  plan: LocalStateSnapshotPlanEntry[]
+): Promise<void> {
+  const sourceDirectory = path.join(sourceRoot, ...sourceSegments);
+  const entries = await fs.readdir(sourceDirectory, { withFileTypes: true });
+  assertNoCaseCollisions(entries, destinationSegments.join('/'));
+  for (const entry of entries) {
+    const entrySourceSegments = [...sourceSegments, entry.name];
+    const entryDestinationSegments = [...destinationSegments, entry.name];
+    const relativePath = entryDestinationSegments.join('/');
+    if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      await collectPhysicalSnapshotFiles(sourceRoot, entrySourceSegments, entryDestinationSegments, plan);
+      continue;
+    }
+    assertPhysicalRegularFile(entry, relativePath);
+    plan.push(snapshotPlanEntry(sourceRoot, entrySourceSegments, entryDestinationSegments));
+  }
 }
 
 function shouldCloneOrdinaryWorkspaceFixturePath(sourceRoot: string, source: string): boolean {
   const relativeSegments = path.relative(sourceRoot, source).split(path.sep);
   const foldedSegments = relativeSegments.map(caseFoldFixtureSegment);
-  if (
-    caseFoldFixtureSegment(path.basename(source)) === '.template-ready'
-    || foldedSegments.includes('node_modules')
-  ) {
+  if (caseFoldFixtureSegment(path.basename(source)) === '.template-ready' || foldedSegments.includes('node_modules')) {
     return false;
   }
   return foldedSegments[0] !== '.sec';
@@ -433,10 +432,7 @@ function samePhysicalFile(left: BigIntStats, right: BigIntStats): boolean {
 }
 
 function sameSnapshotState(left: BigIntStats, right: BigIntStats): boolean {
-  return samePhysicalFile(left, right)
-    && left.size === right.size
-    && left.mtimeNs === right.mtimeNs
-    && left.ctimeNs === right.ctimeNs;
+  return samePhysicalFile(left, right) && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
 }
 
 async function readPhysicalSnapshotFile(entry: LocalStateSnapshotPlanEntry): Promise<Buffer> {
@@ -454,13 +450,9 @@ async function assertLocalStateDestinationAbsent(workspaceRoot: string): Promise
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw error;
   }
-  const localStateEntries = entries.filter(
-    (entry) => caseFoldFixtureSegment(entry.name) === '.sec'
-  );
+  const localStateEntries = entries.filter((entry) => caseFoldFixtureSegment(entry.name) === '.sec');
   if (localStateEntries.length > 0) {
-    throw new Error(
-      'Workspace fixture destination must not contain a case-equivalent local-state path'
-    );
+    throw new Error('Workspace fixture destination must not contain a case-equivalent local-state path');
   }
 }
 
@@ -472,26 +464,24 @@ async function assertLocalStateDestinationAbsent(workspaceRoot: string): Promise
  * workspace and product authorities continue to observe nlink === 1.
  * Symlinks are recreated; directories are mkdir'd.
  */
-async function copyTreeWithIndependentFiles(
-  sourceRoot: string,
-  source: string,
-  target: string
-): Promise<void> {
+async function copyTreeWithIndependentFiles(sourceRoot: string, source: string, target: string): Promise<void> {
   const entries = await fs.readdir(source, { withFileTypes: true });
   await fs.mkdir(target, { recursive: true });
-  await Promise.all(entries.map(async (entry) => {
-    const sourcePath = path.join(source, entry.name);
-    if (!shouldCloneOrdinaryWorkspaceFixturePath(sourceRoot, sourcePath)) return;
-    const targetPath = path.join(target, entry.name);
-    if (entry.isDirectory()) {
-      await copyTreeWithIndependentFiles(sourceRoot, sourcePath, targetPath);
-    } else if (entry.isSymbolicLink()) {
-      const linkTarget = await fs.readlink(sourcePath);
-      await fs.symlink(linkTarget, targetPath);
-    } else {
-      await fs.copyFile(sourcePath, targetPath, constants.COPYFILE_FICLONE);
-    }
-  }));
+  await Promise.all(
+    entries.map(async (entry) => {
+      const sourcePath = path.join(source, entry.name);
+      if (!shouldCloneOrdinaryWorkspaceFixturePath(sourceRoot, sourcePath)) return;
+      const targetPath = path.join(target, entry.name);
+      if (entry.isDirectory()) {
+        await copyTreeWithIndependentFiles(sourceRoot, sourcePath, targetPath);
+      } else if (entry.isSymbolicLink()) {
+        const linkTarget = await fs.readlink(sourcePath);
+        await fs.symlink(linkTarget, targetPath);
+      } else {
+        await fs.copyFile(sourcePath, targetPath, constants.COPYFILE_FICLONE);
+      }
+    })
+  );
 }
 
 export async function copyWorkspaceFixture(sourceRoot: string, workspaceRoot: string): Promise<void> {
@@ -507,10 +497,7 @@ export async function copyWorkspaceFixture(sourceRoot: string, workspaceRoot: st
   }
 }
 
-export async function cloneWorkspaceTemplate(
-  kind: WorkspaceTemplateKind,
-  prefix = `engineering-compiler-${kind}-`
-): Promise<string> {
+export async function cloneWorkspaceTemplate(kind: WorkspaceTemplateKind, prefix = `engineering-compiler-${kind}-`): Promise<string> {
   const templateRoot = await ensureTemplate(kind);
   const workspaceRoot = await createWorkspace(prefix);
   // The template is run-owned and immutable after ensureTemplate returns;
@@ -581,10 +568,7 @@ export async function withWorkspaceScenario<T>(
   return runWorkspaceCallback(workspaceRoot, callback, options);
 }
 
-export async function expectWorkspaceVerifies(
-  workspaceRoot: string,
-  options: { lane?: 'fast' | 'all' } = {}
-): Promise<void> {
+export async function expectWorkspaceVerifies(workspaceRoot: string, options: { lane?: 'fast' | 'all' } = {}): Promise<void> {
   const { report } = await verifyWorkspace(workspaceRoot, { lane: options.lane ?? 'fast' });
   expect(report.summary.status).toBe('passed');
 }

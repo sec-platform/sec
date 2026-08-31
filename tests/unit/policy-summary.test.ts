@@ -1,13 +1,22 @@
 import { expect, test } from 'bun:test';
 
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { buildReviewPolicySummary } from '../../src/verification/review/contract/policy.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import {
+  policiesRelativePath,
+  posixPath,
+  resolveWorkspaceArtifactPath,
+  srcRelativePath
+} from '../../src/workspace/runtime/paths.ts';
 import {
   buildPassingReviewReport,
   buildReviewSummaryInTempWorkspace
 } from '../helpers/review-fixtures.ts';
+
+const PROJECT_POLICY_SOURCE = `${posixPath(policiesRelativePath)}/custom.spec.yaml`;
+const CUSTOMER_NORMALIZER_TARGET = `${srcRelativePath}/slots/customer_normalizer.ts`;
 
 test('review summary surfaces semantically assured policy governance failure', async () => {
   const violation: PolicyReport['violations'][number] = {
@@ -47,7 +56,7 @@ test('review summary surfaces semantically assured policy governance failure', a
       policies: ['project-only'],
       sources: [
         {
-          path: 'project/policies/custom.spec.yaml',
+          path: PROJECT_POLICY_SOURCE,
           policyIds: ['project-only']
         }
       ],
@@ -58,8 +67,8 @@ test('review summary surfaces semantically assured policy governance failure', a
         {
           id: 'project-only',
           sourceScope: 'project',
-          sourcePath: 'project/policies/custom.spec.yaml',
-          targets: ['custom/customer_normalizer.ts']
+          sourcePath: PROJECT_POLICY_SOURCE,
+          targets: [CUSTOMER_NORMALIZER_TARGET]
         },
         {
           id: 'tenant-scope-required',
@@ -90,8 +99,10 @@ test('review summary surfaces semantically assured policy governance failure', a
       report
     },
     async (workspaceRoot) => {
-      const { policyReportPath } = getWorkspacePaths(workspaceRoot);
-      await writeJson(policyReportPath, policyReport);
+      await writeJson(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),
+        policyReport
+      );
     }
   );
 

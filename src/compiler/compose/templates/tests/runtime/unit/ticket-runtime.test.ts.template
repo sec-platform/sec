@@ -17,7 +17,7 @@ import { listTicketsWithFilters } from '../../../src/installed/ticket/ticket-ser
 /*#IF worklogEnabled*/
 import { listWorklogs, recordWorklog, summarizeWorklogMinutes } from '../../../src/installed/worklog/worklog-service.ts';
 /*#ENDIF*/
-import { getDatabase, resetDatabase } from '../../../lib/store.ts';
+import { getDatabase, resetDatabase } from '../../../src/runtime/store.ts';
 
 describe('runtime ticket service', () => {
   beforeEach(() => {

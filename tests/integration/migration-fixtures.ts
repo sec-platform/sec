@@ -10,20 +10,17 @@ type MigrationApply = (impactedPaths: string[], entries: UpgradeMigrationEntry[]
 
 export type MigrationTestWorkspace = {
   workspaceRoot: string;
-  projectRoot: string;
   manifestRoot: string;
   apply: MigrationApply;
 };
 
 export async function withMigrationWorkspace<T>(callback: (workspace: MigrationTestWorkspace) => Promise<T>): Promise<T> {
   return withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
     const manifestRoot = path.join(workspaceRoot, 'manifest');
     return callback({
       workspaceRoot,
-      projectRoot,
       manifestRoot,
-      apply: (impactedPaths, entries) => applyMigrationEntries(projectRoot, manifestRoot, impactedPaths, entries)
+      apply: (impactedPaths, entries) => applyMigrationEntries(workspaceRoot, manifestRoot, impactedPaths, entries)
     });
   });
 }

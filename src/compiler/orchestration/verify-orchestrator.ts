@@ -3,7 +3,6 @@ import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/mani
 import type { VerificationLane, VerificationReport } from '../../verification/contract/types.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../verification/profile/contract/product.ts';
 import { assertWorkspaceWriteLease } from '../../workspace/lease.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { formatCompilerFailure } from '../errors.ts';
 import { addGeneratedPaths, readLockFile } from '../lock.ts';
@@ -43,7 +42,7 @@ export async function assertStagedVerificationProofAfterPipeline(
   proof: StagedVerificationProof
 ): Promise<void> {
   await revalidateStagedVerificationProof(
-    getWorkspacePaths(workspaceRoot).projectRoot,
+    workspaceRoot,
     lock,
     proof
   );

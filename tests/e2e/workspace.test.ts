@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { expectCliSuccess, expectCliText } from '../testkit/cli.ts';
 import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.ts';
@@ -13,16 +14,21 @@ type WorkspaceLockSnapshot = {
 
 type WorkspacePathsSnapshot = ReturnType<typeof getWorkspacePaths>;
 
-function developerSourceLayerDirectories(paths: WorkspacePathsSnapshot): string[] {
+function nativeWorkspaceDirectories(paths: WorkspacePathsSnapshot): string[] {
   return [
-    paths.developerSourceRoot,
-    paths.sourceSlotsRoot,
-    paths.sourceOverridesRoot,
-    paths.sourcePoliciesRoot,
-    paths.sourceAcceptanceRoot,
-    paths.sourceAssetsRoot,
+    paths.modelRoot,
+    paths.modelBlocksRoot,
     paths.privateRegistryRoot,
-    paths.sourceEnvRoot
+    paths.policiesRoot,
+    paths.overridesRoot,
+    paths.srcRoot,
+    paths.slotsRoot,
+    paths.testsRoot,
+    paths.prismaRoot,
+    paths.secRoot,
+    paths.artifactsRoot,
+    paths.cacheRoot,
+    paths.workspaceWriteLeaseRoot
   ];
 }
 
@@ -38,12 +44,12 @@ test('CLI accepts init commands', async () => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
   });
 }, 180000);
-test('CLI init creates the developer source layer', async () => {
+test('CLI init creates the native workspace roots', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
 
     const paths = getWorkspacePaths(workspaceRoot);
-    await expectDirectoriesExist(developerSourceLayerDirectories(paths));
+    await expectDirectoriesExist(nativeWorkspaceDirectories(paths));
   });
 }, 180000);
 test('CLI defaults verification to the fast lane', async () => {
@@ -55,14 +61,15 @@ test('CLI adds private registry blocks and preserves registry metadata on resolv
   await withTempWorkspace(async (workspaceRoot) => {
     await expectCliSuccess(workspaceRoot, ['init', '--reset'], 'Initialized project workspace\n');
     await installPrivateBannerBlock(workspaceRoot);
-    const { lockPath, planPath } = getWorkspacePaths(workspaceRoot);
+    const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
 
     await expectCliSuccess(
       workspaceRoot,
       ['add', 'private/banner-basic'],
       'Added block private/banner-basic@0.1.0 from private (private)\n'
     );
-    await expect(fs.readFile(planPath, 'utf8')).resolves.toContain('private/banner-basic');
+    await expect(fs.readFile(workspaceConfigPath, 'utf8')).resolves.toContain('private/banner-basic');
 
     await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 4 blocks\n');
     const lock = await readJson<WorkspaceLockSnapshot>(lockPath);

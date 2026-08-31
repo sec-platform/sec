@@ -7,12 +7,13 @@ import { parseUpgradeDiagnosticsJson, parseUpgradePlanJson, UpgradeContractError
 import type { LockFile } from '../../src/compiler/contract.ts';
 import { readReviewGovernanceReports } from '../../src/compiler/emit/read-review-governance-reports.ts';
 import { failPipelineTransaction, startPipelineTransaction } from '../../src/compiler/pipeline/journal.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson, writeText } from '../../src/workspace/files.ts';
 import {
   createWorkspaceWriteCommitFence,
   withWorkspaceWriteLease
 } from '../../src/workspace/lease.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { checkProjectWriteBoundary, writeProjectBaseline } from '../../src/workspace/project.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -58,11 +59,12 @@ function plannedUpgrade(impacts: string[]): UpgradePlan {
 
 test('active upgrade transaction authorizes only declared project impacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { projectRoot, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
-    const allowedPath = 'app/page.tsx';
-    const deniedPath = 'app/other.tsx';
-    const allowedAbsolute = path.join(projectRoot, allowedPath);
-    const deniedAbsolute = path.join(projectRoot, deniedPath);
+    const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+    const upgradePlanPath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.upgradePlan);
+    const allowedPath = 'src/ui/page.ts';
+    const deniedPath = 'src/ui/other.ts';
+    const allowedAbsolute = path.join(root, allowedPath);
+    const deniedAbsolute = path.join(root, deniedPath);
 
     await writeText(allowedAbsolute, 'export const allowed = 1;\n');
     await writeText(deniedAbsolute, 'export const denied = 1;\n');
@@ -100,12 +102,12 @@ test('active upgrade transaction authorizes only declared project impacts', asyn
 });
 
 test('upgrade durable contracts reject ambiguous JSON and unbound authority', () => {
-  const plan = plannedUpgrade(['app/page.tsx']);
+  const plan = plannedUpgrade(['src/ui/page.ts']);
   expect(parseUpgradePlanJson(JSON.stringify(plan))).toMatchObject({
     formatVersion: '1',
     blockId: 'auth/basic-session',
     status: 'planned',
-    impacts: ['app/page.tsx']
+    impacts: ['src/ui/page.ts']
   });
 
   const expectFailure = (
@@ -169,7 +171,7 @@ test('upgrade durable contracts reject ambiguous JSON and unbound authority', ()
 
 test('review governance rejects ambiguous persisted upgrade artifacts before object parsing', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+    const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
     await fs.mkdir(path.dirname(upgradePlanPath), { recursive: true });
     await fs.writeFile(
       upgradePlanPath,

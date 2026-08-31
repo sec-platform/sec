@@ -4,7 +4,10 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../workspace/files.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import {
+  getWorkspacePaths,
+  resolveWorkspaceArtifactPath
+} from '../../workspace/paths.ts';
 import { writeYaml } from '../../workspace/yaml.ts';
 import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
@@ -158,7 +161,13 @@ export async function initWorkspace(
     // Reentrant tokens are proven by withWorkspaceWriteLease before this
     // callback. Only now may a supplied-lease path inspect the create surface.
     const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
-    const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+    const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+    const planPath = workspaceConfigPath;
+    const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+    const verificationReportPath = resolveWorkspaceArtifactPath(
+      workspaceRoot,
+      CI_ARTIFACT_FILES.verificationReport
+    );
     await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, token);
 
     const plan = buildWorkspaceCreatePlan(template);

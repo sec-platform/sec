@@ -1,4 +1,5 @@
 import type { TaskEnvelope } from '../../control/task/contract/envelope.ts';
+import { testsRelativePath } from '../../workspace/paths.ts';
 import type { LockFile, PlanFile, SlotTask } from '../contract.ts';
 
 export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask): TaskEnvelope {
@@ -35,8 +36,8 @@ export function buildTaskEnvelope(plan: PlanFile, lock: LockFile, task: SlotTask
       outputType: task.outputType
     },
     testsToPass: [
-      'tests/unit/customer-normalizer.test.ts',
-      'tests/acceptance/customer-flow.test.ts'
+      `${testsRelativePath}/unit/customer-normalizer.test.ts`,
+      `${testsRelativePath}/acceptance/customer-flow.test.ts`
     ],
     budget: {
       maxAttempts: 2,

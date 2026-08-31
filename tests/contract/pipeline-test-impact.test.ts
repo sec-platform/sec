@@ -1,14 +1,75 @@
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import { resolveTestOwnership, selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
+import { compileRepositorySourceProgramCompilation } from '../../src/brownfield/source-program-model/repository-compilation.ts';
+import { issueTestImpactProjection } from '../../src/brownfield/source-program-model/test-impact-projection.ts';
+import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
+import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
+import { createTestImpactSourceProvider, resolveTestOwnership, selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
+
+function git(root: string, args: readonly string[]): string {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(`Git fixture command failed: git ${args.join(' ')}\n${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+function pipelineProvider(sources: Readonly<Record<string, string>>) {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sec-pipeline-test-impact-'));
+  try {
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.email', 'test-impact@sec.invalid']);
+    git(root, ['config', 'user.name', 'SEC Test Impact']);
+    const fixtureSources = {
+      ...sources,
+      ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/compiler/'))
+        ? { 'src/compiler/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        : {}),
+      ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/change-management/upgrade/'))
+        ? { 'src/change-management/upgrade/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        : {})
+    };
+    for (const [repositoryPath, source] of Object.entries(fixtureSources)) {
+      const filePath = path.join(root, ...repositoryPath.split('/'));
+      mkdirSync(path.dirname(filePath), { recursive: true });
+      writeFileSync(filePath, source, 'utf8');
+    }
+    git(root, ['add', '--all']);
+    git(root, ['commit', '--quiet', '-m', 'test-impact-fixture']);
+    const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+      repositoryRoot: root,
+      commitSha: git(root, ['rev-parse', 'HEAD'])
+    });
+    const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
+    return createTestImpactSourceProvider({
+      projection: issueTestImpactProjection({
+        workspaceSnapshot,
+        typeScriptModel: repositoryCompilation.typeScriptCompilation.model,
+        testObservations: repositoryCompilation.testObservations
+      }),
+      activeDocumentationPaths: currentActiveDocumentationPaths()
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 test('compiler pipeline changes select their real transitive consumers', () => {
   const source = 'src/compiler/pipeline/kernel.ts';
-  const selection = selectTestsForSources([source]);
+  const consumer = 'tests/integration/pipeline-kernel.test.ts';
+  const provider = pipelineProvider({
+    [source]: 'export const kernel = true;',
+    [consumer]: "import { kernel } from '../../src/compiler/pipeline/kernel.ts'; void kernel;"
+  });
+  const selection = selectTestsForSources([source], provider);
 
   expect(selection.owners).toEqual(['compiler']);
-  expect(selection.fast).toContain('tests/integration/pipeline-kernel.test.ts');
-  expect(resolveTestOwnership([source])).toEqual([{
+  expect(selection.fast).toEqual([consumer]);
+  expect(resolveTestOwnership([source], provider)).toEqual([{
     source,
     owner: 'compiler',
     identity: { kind: 'module', id: 'compiler' }
@@ -16,11 +77,17 @@ test('compiler pipeline changes select their real transitive consumers', () => {
 });
 
 test('upgrade changes select upgrade behavior without a central path table', () => {
-  const selection = selectTestsForSources(['src/change-management/upgrade/upgrade-workspace.ts']);
+  const source = 'src/change-management/upgrade/upgrade-workspace.ts';
+  const fastConsumer = 'tests/unit/upgrade-summary.test.ts';
+  const slowConsumer = 'tests/e2e/upgrade.test.ts';
+  const provider = pipelineProvider({
+    [source]: 'export const upgradeWorkspace = true;',
+    [fastConsumer]: "import { upgradeWorkspace } from '../../src/change-management/upgrade/upgrade-workspace.ts'; void upgradeWorkspace;",
+    [slowConsumer]: "import { upgradeWorkspace } from '../../src/change-management/upgrade/upgrade-workspace.ts'; void upgradeWorkspace;"
+  });
+  const selection = selectTestsForSources([source], provider);
 
   expect(selection.owners).toEqual(['change-management.upgrade']);
-  expect(selection.fast).toEqual(expect.arrayContaining([
-    'tests/unit/upgrade-summary.test.ts'
-  ]));
-  expect(selection.slow).toContain('tests/e2e/upgrade.test.ts');
+  expect(selection.fast).toEqual([fastConsumer]);
+  expect(selection.slow).toEqual([slowConsumer]);
 });

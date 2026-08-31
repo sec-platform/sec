@@ -5,12 +5,13 @@ import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
 import { compareCodeUnits, rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { assertCanonicalVerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationLane, VerificationReport } from '../../verification/contract/types.ts';
 import { validateReviewSummary } from '../../verification/review/contract/summary.ts';
 import { type ReviewSummary } from '../../verification/review/contract/types.ts';
 import { formatJsonFile } from '../../workspace/files.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
 import type { LockFile, PlanFile } from '../contract.ts';
 import { readReviewGovernanceReports } from '../emit/read-review-governance-reports.ts';
 import {
@@ -468,21 +469,30 @@ export async function buildPipelineCompletionProof(
     throw new Error('Full Pipeline completion is missing derivative binding evidence');
   }
 
-  const paths = getWorkspacePaths(workspaceRoot);
   const [jsonArtifacts, graphProjectionBytes] = await Promise.all([
     Promise.all([
-      readCanonicalJsonArtifact<LockFile>(paths.lockPath, 'Lock'),
-      readCanonicalJsonArtifact<unknown>(paths.verificationReportPath, 'Verification report'),
-      readCanonicalJsonArtifact<unknown>(paths.runtimeReportPath, 'runtime report'),
-      readCanonicalJsonArtifact<unknown>(paths.policyReportPath, 'policy report'),
-      readCanonicalJsonArtifact<unknown>(paths.acceptanceCoveragePath, 'acceptance coverage'),
-      readCanonicalJsonArtifact<ProvenanceFile>(paths.provenancePath, 'Provenance'),
-      readCanonicalJsonArtifact<ExplainGraph>(paths.explainGraphPath, 'ExplainGraph'),
-      readCanonicalJsonArtifact(paths.reviewSummaryPath, 'ReviewSummary', validateReviewSummary)
+      readCanonicalJsonArtifact<LockFile>(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock), 'Lock'),
+      readCanonicalJsonArtifact<unknown>(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport), 'Verification report'),
+      readCanonicalJsonArtifact<unknown>(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport), 'runtime report'),
+      readCanonicalJsonArtifact<unknown>(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport), 'policy report'),
+      readCanonicalJsonArtifact<unknown>(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage), 'acceptance coverage'),
+      readCanonicalJsonArtifact<ProvenanceFile>(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance), 'Provenance'),
+      readCanonicalJsonArtifact<ExplainGraph>(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph), 'ExplainGraph'),
+      readCanonicalJsonArtifact(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary),
+        'ReviewSummary',
+        validateReviewSummary
+      )
     ]),
     Promise.all([
-      readRequiredArtifactBytes(paths.explainGraphMermaidPath, 'ExplainGraph Mermaid'),
-      readRequiredArtifactBytes(paths.explainGraphDotPath, 'ExplainGraph DOT')
+      readRequiredArtifactBytes(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphMermaid),
+        'ExplainGraph Mermaid'
+      ),
+      readRequiredArtifactBytes(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphDot),
+        'ExplainGraph DOT'
+      )
     ])
   ]);
   const [
@@ -676,22 +686,21 @@ export async function compileWorkspace(
         );
         if (options.stagedVerificationProof) {
           await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
-          const paths = getWorkspacePaths(workspaceRoot);
           const verificationArtifacts = {
             verificationReport: await readCanonicalJsonArtifact<unknown>(
-              paths.verificationReportPath,
+              resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport),
               'Verification report'
             ),
             runtimeReport: await readCanonicalJsonArtifact<unknown>(
-              paths.runtimeReportPath,
+              resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
               'runtime report'
             ),
             policyReport: await readCanonicalJsonArtifact<unknown>(
-              paths.policyReportPath,
+              resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),
               'policy report'
             ),
             acceptanceCoverage: await readCanonicalJsonArtifact<unknown>(
-              paths.acceptanceCoveragePath,
+              resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
               'acceptance coverage'
             )
           };

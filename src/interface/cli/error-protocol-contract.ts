@@ -1,6 +1,7 @@
 import { buildErrorProtocol, type ErrorProtocol } from '../../compiler/error-protocol.ts';
 import type { CompilerErrorDetails } from '../../compiler/errors.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { srcRelativePath, workspaceConfigRelativePath } from '../../workspace/paths.ts';
 import { platformCommand } from './contract.ts';
 
 export const ERROR_PROTOCOL_CONTRACT_STATUS_ACTIVE = 'active' as const;
@@ -75,11 +76,11 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
   {
     id: 'upgrade-rollback-error',
     code: 'UPGRADE-MIGRATION-016',
-    message: 'slot-contract-update target "custom/customer_normalizer.ts" is missing',
+    message: `slot-contract-update target "${srcRelativePath}/slots/customer_normalizer.ts" is missing`,
     details: {
       migrationId: 'mig-customer-normalizer-contract',
       migrationKind: 'slot-contract-update',
-      target: 'custom/customer_normalizer.ts',
+      target: `${srcRelativePath}/slots/customer_normalizer.ts`,
       rollbackStatus: 'restored'
     }
   },
@@ -96,12 +97,12 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
   {
     id: 'engineering-operation-error',
     code: 'ENGINEERING-OPERATION-001',
-    message: 'Engineering operation slot "missing-slot" does not exist in source/app.yaml'
+    message: `Engineering operation slot "missing-slot" does not exist in ${workspaceConfigRelativePath}`
   },
   {
     id: 'drift-error',
     code: 'ERROR-DRIFT-001',
-    message: 'Reference drift detected: Read-only project file modified: src/runtime/database.ts'
+    message: `Reference drift detected: Read-only project file modified: ${srcRelativePath}/runtime/database.ts`
   },
   {
     id: 'kernel-error',

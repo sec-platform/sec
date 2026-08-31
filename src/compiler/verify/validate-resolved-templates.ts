@@ -3,10 +3,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
 import { ensureProjectDependencies } from '../../toolchain/dependencies/runtime.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { copyRecursive } from '../../workspace/discovery.ts';
 import { pathExists, removeDir, writeJson, type CommitFence } from '../../workspace/files.ts';
 import { WorkspaceWriteLeaseError } from '../../workspace/lease.ts';
-import { getWorkspacePaths, isPathInside } from '../../workspace/paths.ts';
+import {
+  getWorkspacePaths,
+  isPathInside,
+  resolveWorkspaceArtifactPath
+} from '../../workspace/paths.ts';
 import { ensureProjectBase } from '../../workspace/project.ts';
 import { composeProject } from '../compose/compose-project.ts';
 import type { LockFile } from '../contract.ts';
@@ -23,14 +28,14 @@ export async function validateResolvedTemplates(
   const sourcePaths = getWorkspacePaths(workspaceRoot);
   const isolated = process.env[ISOLATED_VERIFICATION_ENV_KEY] === '1';
   if (isolated) {
-    await ensureProjectDependencies(sourcePaths.projectRoot, {
+    await ensureProjectDependencies(sourcePaths.workspaceRoot, {
       beforeCommit: commitFence,
       installMode: 'prebound-only'
     });
   }
   await commitFence?.();
   const validationRoot = await fs.mkdtemp(path.join(
-    isolated ? sourcePaths.projectRoot : os.tmpdir(),
+    isolated ? sourcePaths.workspaceRoot : os.tmpdir(),
     '.engineering-compiler-template-'
   ));
   const clonedLock = structuredClone(lock);
@@ -60,11 +65,11 @@ export async function validateResolvedTemplates(
       await copyRecursive(sourceRoot, path.join(validationRoot, registryPath), commitFence);
     }
     const validationPaths = getWorkspacePaths(validationRoot);
-    await copyRecursive(sourcePaths.planPath, validationPaths.planPath, commitFence);
-    if (await pathExists(sourcePaths.sourcePoliciesRoot)) {
-      await copyRecursive(sourcePaths.sourcePoliciesRoot, validationPaths.sourcePoliciesRoot, commitFence);
+    await copyRecursive(sourcePaths.workspaceConfigPath, validationPaths.workspaceConfigPath, commitFence);
+    if (await pathExists(sourcePaths.policiesRoot)) {
+      await copyRecursive(sourcePaths.policiesRoot, validationPaths.policiesRoot, commitFence);
     }
-    const { lockPath, projectRoot } = validationPaths;
+    const lockPath = resolveWorkspaceArtifactPath(validationRoot, CI_ARTIFACT_FILES.graphLock);
     await writeJson(lockPath, clonedLock, commitFence);
     const { snapshot, generatorPlan, semanticViews } = await buildWorkspaceSemanticBundle(validationRoot);
     const semanticContext = createPipelineSemanticContext(
@@ -75,12 +80,12 @@ export async function validateResolvedTemplates(
     );
     await composeProject(validationRoot, clonedLock, semanticContext, { commitFence });
     if (isolated) {
-      await typecheckProject(projectRoot, {
-        dependencyProjectRoot: sourcePaths.projectRoot,
+      await typecheckProject(validationRoot, {
+        dependencyProjectRoot: sourcePaths.workspaceRoot,
         isolated: true
       });
     } else {
-      await typecheckProject(projectRoot);
+      await typecheckProject(validationRoot);
     }
   } catch (error) {
     if (error instanceof WorkspaceWriteLeaseError || (

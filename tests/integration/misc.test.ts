@@ -2,8 +2,9 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 
 import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
 import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -12,13 +13,17 @@ test('upgrade apply writes diagnostics when migration execution fails after plan
   await withTempWorkspace(async (workspaceRoot) => {
     await writeSlotUpgradeFixture(workspaceRoot);
 
-    const { planPath, upgradeDiagnosticsPath } = getWorkspacePaths(workspaceRoot);
-    const beforePlan = await fs.readFile(planPath, 'utf8');
+    const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+    const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(
+      workspaceRoot,
+      CI_ARTIFACT_FILES.upgradeDiagnostics
+    );
+    const beforePlan = await fs.readFile(workspaceConfigPath, 'utf8');
 
     await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0')).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-016'
     });
-    await expectFileUnchanged(planPath, beforePlan);
+    await expectFileUnchanged(workspaceConfigPath, beforePlan);
 
     const diagnostics = await readJson<{
       phase: string;

@@ -4,13 +4,17 @@ import { normalizeNewlines } from '../../system-architecture/foundation/runtime/
 import { defaultLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { copyRecursive } from '../../workspace/discovery.ts';
 import { writeText, type CommitFence } from '../../workspace/files.ts';
-import { resolvePathInside, resolveRegistryRoot } from '../../workspace/paths.ts';
+import {
+  isCanonicalWorkspaceArtifactPath,
+  resolvePathInside,
+  resolveRegistryRoot,
+  resolveWorkspaceArtifactPath
+} from '../../workspace/paths.ts';
 import type { InstallPlanStep, LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 
 export interface InstallContext {
   workspaceRoot: string;
-  projectRoot: string;
   lock: LockFile;
   commitFence?: CommitFence;
 }
@@ -45,9 +49,11 @@ function canonicalInstallTarget(step: InstallPlanStep): string {
 
 function resolveTargetPath(step: InstallPlanStep, context: InstallContext): string {
   const target = canonicalInstallTarget(step);
-  const targetPath = resolvePathInside(context.projectRoot, target);
+  const targetPath = isCanonicalWorkspaceArtifactPath(target)
+    ? resolveWorkspaceArtifactPath(context.workspaceRoot, target)
+    : resolvePathInside(context.workspaceRoot, target);
   if (!targetPath) {
-    throw new CompilerError('COMPOSE-PATH-004', `Install target path "${step.to}" escapes project root`);
+    throw new CompilerError('COMPOSE-PATH-004', `Install target path "${step.to}" escapes workspace root`);
   }
   return targetPath;
 }

@@ -18,12 +18,8 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function activeOwnerPath(leaseRoot: string): Promise<string> {
   const entries = await fs.readdir(leaseRoot);
-  const generations = entries
-    .filter((entry) => /^[0-9]{16}\.owner\.json$/u.test(entry))
-    .sort();
-  const active = [...generations].reverse().find(
-    (entry) => !entries.includes(entry.replace('.owner.json', '.terminal.json'))
-  );
+  const generations = entries.filter((entry) => /^[0-9]{16}\.owner\.json$/u.test(entry)).sort();
+  const active = [...generations].reverse().find((entry) => !entries.includes(entry.replace('.owner.json', '.terminal.json')));
   if (!active) throw new Error('Expected one active workspace writer generation');
   return path.join(leaseRoot, active);
 }
@@ -59,8 +55,8 @@ test('a child cannot reuse or release a live holder token copied from owner.json
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot);
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
-    const { localStateRoot } = getWorkspacePaths(workspaceRoot);
-    const ownerPath = await activeOwnerPath(path.join(localStateRoot, 'workspace-write-lease'));
+    const { secRoot } = getWorkspacePaths(workspaceRoot);
+    const ownerPath = await activeOwnerPath(path.join(secRoot, 'workspace-write-lease'));
     const resultPath = path.join(workspaceRoot, 'copied-token-attempt.json');
     const orchestratorUrl = new URL('../../src/compiler/orchestration/cli.ts', import.meta.url).href;
     const leaseModuleUrl = new URL('../../src/workspace/state/write-lease.ts', import.meta.url).href;
@@ -87,12 +83,7 @@ test('a child cannot reuse or release a live holder token copied from owner.json
       }
       await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ compileCode, releaseCode }));
     `;
-    const child = Bun.spawn([
-      process.execPath,
-      '--no-env-file',
-      '--eval',
-      childScript
-    ], { stdout: 'pipe', stderr: 'pipe' });
+    const child = Bun.spawn([process.execPath, '--no-env-file', '--eval', childScript], { stdout: 'pipe', stderr: 'pipe' });
 
     try {
       const exitCode = await child.exited;
@@ -114,28 +105,18 @@ test('a child cannot reuse or release a live holder token copied from owner.json
 test('a stage producer stops the current and subsequent writes when its exact lease token is invalidated', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot);
-    const { localStateRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
-    const leaseRoot = path.join(localStateRoot, 'workspace-write-lease');
+    const { secRoot } = getWorkspacePaths(workspaceRoot);
+    const leaseRoot = path.join(secRoot, 'workspace-write-lease');
     const parkedLeasePath = path.join(leaseRoot, 'active-owner.parked-test');
-    const committedPath = path.join(projectRoot, 'producer-committed.txt');
-    const blockedPath = path.join(projectRoot, 'producer-blocked.txt');
-    const subsequentPath = path.join(projectRoot, 'producer-subsequent.txt');
+    const committedPath = path.join(workspaceRoot, 'producer-committed.txt');
+    const blockedPath = path.join(workspaceRoot, 'producer-blocked.txt');
+    const subsequentPath = path.join(workspaceRoot, 'producer-subsequent.txt');
     let reachedSubsequentWrite = false;
 
-    await expect(withPipelineTransaction(
-      workspaceRoot,
-      'api',
-      ['resolve'],
-      undefined,
-      async (context) => executePipelineStage(
-        workspaceRoot,
-        'resolve',
-        context,
-        async (stageContext) => {
-          const commitFence = () => assertWorkspaceWriteLease(
-            workspaceRoot,
-            stageContext.workspaceWriteLease
-          );
+    await expect(
+      withPipelineTransaction(workspaceRoot, 'api', ['resolve'], undefined, async (context) =>
+        executePipelineStage(workspaceRoot, 'resolve', context, async (stageContext) => {
+          const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, stageContext.workspaceWriteLease);
           await writeText(committedPath, 'committed-before-token-loss\n', commitFence);
 
           const payloadAfterProducerWork = await Promise.resolve('must-not-commit-after-token-loss\n');
@@ -153,9 +134,9 @@ test('a stage producer stops the current and subsequent writes when its exact le
           }
           if (!writeFailure) throw new Error('Invalidated writer lease unexpectedly allowed a producer write');
           throw writeFailure;
-        }
+        })
       )
-    )).rejects.toBeInstanceOf(WorkspaceWriteLeaseError);
+    ).rejects.toBeInstanceOf(WorkspaceWriteLeaseError);
 
     expect(await pathExists(committedPath)).toBe(true);
     expect(await pathExists(blockedPath)).toBe(false);
@@ -166,8 +147,8 @@ test('a stage producer stops the current and subsequent writes when its exact le
 
 test('the pipeline lease monitor aborts a long-running isolated child when the staging token is lost', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { localStateRoot } = getWorkspacePaths(workspaceRoot);
-    const leaseRoot = path.join(localStateRoot, 'workspace-write-lease');
+    const { secRoot } = getWorkspacePaths(workspaceRoot);
+    const leaseRoot = path.join(secRoot, 'workspace-write-lease');
     const parkedLeasePath = path.join(leaseRoot, 'active-owner.parked-monitor-test');
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
     const ownerPath = await activeOwnerPath(leaseRoot);
@@ -177,15 +158,16 @@ test('the pipeline lease monitor aborts a long-running isolated child when the s
     const monitored = withMonitoredWorkspaceWriteLease(
       workspaceRoot,
       lease.token,
-      (signal) => new Promise<void>((resolve) => {
-        childStarted = true;
-        const onAbort = (): void => {
-          childAborted = true;
-          resolve();
-        };
-        if (signal.aborted) onAbort();
-        else signal.addEventListener('abort', onAbort, { once: true });
-      })
+      (signal) =>
+        new Promise<void>((resolve) => {
+          childStarted = true;
+          const onAbort = (): void => {
+            childAborted = true;
+            resolve();
+          };
+          if (signal.aborted) onAbort();
+          else signal.addEventListener('abort', onAbort, { once: true });
+        })
     );
     while (!childStarted) await Bun.sleep(1);
     await fs.rename(ownerPath, parkedLeasePath);
@@ -225,8 +207,12 @@ test('an aborted live command terminates both the direct Windows child and its d
     try {
       let ready = false;
       for (let attempt = 0; attempt < 500; attempt += 1) {
-        if (await pathExists(parentReady) && await pathExists(descendantReady) &&
-          await pathExists(parentPulse) && await pathExists(descendantPulse)) {
+        if (
+          (await pathExists(parentReady)) &&
+          (await pathExists(descendantReady)) &&
+          (await pathExists(parentPulse)) &&
+          (await pathExists(descendantPulse))
+        ) {
           ready = true;
           break;
         }
@@ -266,14 +252,11 @@ test('workspace writer lease contends with and reclaims an orphaned child proces
     try {
       let ready = false;
       for (let attempt = 0; attempt < 500; attempt += 1) {
-        if (await fs.readFile(signalPath, 'utf8').catch(() => '') === 'ready') {
+        if ((await fs.readFile(signalPath, 'utf8').catch(() => '')) === 'ready') {
           ready = true;
           break;
         }
-        if (await Promise.race([
-          child.exited.then(() => true),
-          Bun.sleep(10).then(() => false)
-        ])) break;
+        if (await Promise.race([child.exited.then(() => true), Bun.sleep(10).then(() => false)])) break;
       }
       if (!ready) {
         const stderr = await new Response(child.stderr).text();

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes, type RetainedCommandBoundary } from '../../src/runtime-state/physical/runtime/process.ts';
+import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes, type RetainedCommandBoundary } from '../../src/runtime-state/physical/runtime/process.ts';
 import { compilerRoot } from '../../src/workspace/paths.ts';
 
 const splitUtf8Script = [
@@ -160,7 +160,7 @@ test.skipIf(process.platform !== 'win32')(
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'test command cwd'
   );
-  const boundary = Object.freeze({
+  const boundary = issueRetainedCommandBoundary({
     executable: retained,
     workingDirectory: retainedWorkingDirectory
   });

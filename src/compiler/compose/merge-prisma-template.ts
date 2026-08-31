@@ -261,12 +261,11 @@ function readOptionalPrismaText(filePath: string, label: string): string | null 
  */
 export async function mergePrismaTemplate(
   workspaceRoot: string,
-  projectRoot: string,
   commitFence?: CommitFence
 ): Promise<void> {
-  const { developerSourceRoot } = getWorkspacePaths(workspaceRoot);
-  const templatePath = path.join(developerSourceRoot, 'schema', 'db.prisma.template');
-  const targetPath = path.join(projectRoot, 'prisma', 'schema.prisma');
+  const paths = getWorkspacePaths(workspaceRoot);
+  const templatePath = path.join(paths.modelRoot, 'schema', 'db.prisma.template');
+  const targetPath = path.join(paths.prismaRoot, 'schema.prisma');
   const templateContent = readOptionalPrismaText(templatePath, 'Prisma schema template');
   if (templateContent === null) return;
 

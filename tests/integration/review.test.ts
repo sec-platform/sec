@@ -5,13 +5,13 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('CLI exposes review summary as text and JSON contracts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
+    const reviewSummaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
     await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
     const reviewSummary: ReviewSummary = {
       formatVersion: '2',

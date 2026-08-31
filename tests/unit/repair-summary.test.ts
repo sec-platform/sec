@@ -2,15 +2,18 @@ import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { posixPath, resolveWorkspaceArtifactPath, slotsRelativePath } from '../../src/workspace/runtime/paths.ts';
 import { buildRepairBlocker, buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
 import { buildPassingReviewReport, buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
+const SLOT_TARGET_ZETA = `${posixPath(slotsRelativePath)}/zeta.ts`;
+const SLOT_TARGET_ALPHA = `${posixPath(slotsRelativePath)}/alpha.ts`;
+
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
+    const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
     const report = buildPassingReviewReport({
       unit: { status: 'failed', passed: [] },
       fast: {
@@ -38,7 +41,7 @@ test('review summary surfaces pending repair tasks', async () => {
           taskId: 'repair_slot_zeta',
           category: 'slot-rewrite',
           sourceSlotId: 'zeta',
-          targetFile: 'custom/zeta.ts',
+          targetFile: SLOT_TARGET_ZETA,
           requiredSymbols: ['zeta'],
           preview: {
             beforeLines: 1,
@@ -51,7 +54,7 @@ test('review summary surfaces pending repair tasks', async () => {
         buildRepairTask({
           taskId: 'repair_slot_alpha',
           sourceSlotId: 'alpha',
-          targetFile: 'custom/alpha.ts',
+          targetFile: SLOT_TARGET_ALPHA,
           requiredSymbols: ['alpha']
         })
       ],
@@ -95,7 +98,7 @@ test('review summary surfaces pending repair tasks', async () => {
       ],
       taskCategorySummaries: [{ id: 'slot-rewrite', count: 2 }],
       targetFileCount: 2,
-      targetFiles: ['custom/alpha.ts', 'custom/zeta.ts']
+      targetFiles: [SLOT_TARGET_ALPHA, SLOT_TARGET_ZETA]
     });
     expect(summary.repairSummary?.taskSummaries).toHaveLength(2);
     expect(summary.repairSummary?.blockerSummaries).toHaveLength(1);

@@ -20,7 +20,7 @@ import { Project, Scope, VariableDeclarationKind, type SourceFile } from 'ts-mor
  *       isAsync: true,
  *       isExported: true,
  *       parameters: [{ name: 'request', type: 'Request' }],
- *       body: `return NextResponse.json({ ok: true });`
+ *       body: `return { ok: true };`
  *     });
  *   const code = builder.getText();
  */

@@ -2,13 +2,18 @@ import { CompilerError } from '../../compiler/errors.ts';
 import { PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { readOptionalProvenanceFile } from '../../semantic/provenance/authority.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import { getWorkspacePaths } from '../runtime/paths.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
+import {
+  getWorkspacePaths,
+  modelRelativePath,
+  resolveWorkspaceArtifactPath,
+  secRelativePath,
+  tsconfigRelativePath,
+  workspaceConfigRelativePath
+} from '../runtime/paths.ts';
 import { assertProjectBaseline, readProjectBaseline } from '../runtime/project-baseline.ts';
 import { listTrackedProjectPaths } from '../runtime/project-tracked-files.ts';
-import {
-  inspectProvenanceArtifacts,
-  protectedProvenanceArtifact
-} from './project-provenance-inspection.ts';
+import { inspectProvenanceArtifacts } from './project-provenance-inspection.ts';
 
 function readOptionalProvenanceNoFollow(provenancePath: string): ProvenanceFile | null {
   try {
@@ -26,14 +31,21 @@ async function verifyPreviousProvenance(
   workspaceRoot: string,
   options: { strictMissing: boolean }
 ): Promise<boolean> {
-  const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
+  const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+  const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
   const provenance = readOptionalProvenanceNoFollow(provenancePath);
   if (provenance === null) return false;
 
   const trackedProjectPaths = options.strictMissing ? null : await listTrackedProjectPaths(workspaceRoot);
   const inspected = inspectProvenanceArtifacts(
-    projectRoot,
-    provenance.artifacts.filter(protectedProvenanceArtifact)
+    root,
+    provenance.artifacts.filter((artifact) => (
+      !artifact.path.startsWith(`${modelRelativePath}/`)
+      && !artifact.path.startsWith(`${secRelativePath}/`)
+      && artifact.path !== workspaceConfigRelativePath
+      && artifact.path !== tsconfigRelativePath
+      && artifact.originType !== 'slot'
+    ))
   );
 
   for (const { artifact, artifactPath, exists, currentHash } of inspected) {

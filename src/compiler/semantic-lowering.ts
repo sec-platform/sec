@@ -3,7 +3,11 @@ import path from 'node:path';
 import type { SemanticGeneratorPlanTask, SemanticGeneratorTask, StateTransitionMapGeneratorPlanTask } from '../semantic/generation/contract/types.ts';
 import { compareCodeUnits, uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
 import { writeText, type CommitFence } from '../workspace/files.ts';
-import { getWorkspacePaths, resolvePathInside } from '../workspace/paths.ts';
+import {
+  isCanonicalWorkspaceArtifactPath,
+  resolvePathInside,
+  resolveWorkspaceArtifactPath
+} from '../workspace/paths.ts';
 import { CodeBuilder } from './codegen/code-builder.ts';
 import { CompilerError } from './errors.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';
@@ -94,18 +98,19 @@ export async function lowerSemanticTasks(
   commitFence?: CommitFence
 ): Promise<SemanticLoweringResult> {
   assertPlanOwnership(context);
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const generatedPaths: string[] = [];
   const tasks: SemanticGeneratorTask[] = [];
 
   for (const task of context.generatorPlan.tasks) {
-    const targetPath = resolvePathInside(projectRoot, task.target);
+    const targetPath = isCanonicalWorkspaceArtifactPath(task.target)
+      ? resolveWorkspaceArtifactPath(workspaceRoot, task.target)
+      : resolvePathInside(workspaceRoot, task.target);
     if (!targetPath) {
-      throw new CompilerError('GENERATOR-LOWER-004', `Task "${task.id}" target escapes project root`);
+      throw new CompilerError('GENERATOR-LOWER-004', `Task "${task.id}" target escapes native workspace root`);
     }
 
     await writeText(targetPath, renderTask(task), commitFence);
-    generatedPaths.push(path.relative(projectRoot, targetPath).replaceAll(path.sep, '/'));
+    generatedPaths.push(path.relative(workspaceRoot, targetPath).replaceAll(path.sep, '/'));
     tasks.push({
       ...structuredClone(task),
       status: 'generated',

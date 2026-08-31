@@ -189,16 +189,17 @@ function assertNoUnownedStaleOpaqueDependencies(
 
 function projectOpaqueDependencies(
   moduleEntries: readonly OpaqueModuleEntry[],
-  projectRoot: string,
+  workspaceRoot: string,
+  srcRoot: string,
   isBuildMode: boolean,
   dependencies: Record<string, string>
 ): void {
   for (const entry of moduleEntries) {
     const depKey = `opaque-${entry.id}`;
     const targetPath = isBuildMode
-      ? path.join(projectRoot, 'src', 'installed', depKey)
+      ? path.join(srcRoot, 'installed', depKey)
       : entry.dirPath;
-    const relativePath = path.relative(projectRoot, targetPath).split(path.sep).join('/');
+    const relativePath = path.relative(workspaceRoot, targetPath).split(path.sep).join('/');
     dependencies[depKey] = `link:${relativePath}`;
   }
 }
@@ -235,26 +236,25 @@ function assertExactOpaqueModuleTree(
 }
 
 function generatedOpaqueModulePaths(
-  projectRoot: string,
+  workspaceRoot: string,
   targetDir: string,
   tree: readonly OpaqueModuleTreeEntry[]
 ): string[] {
   return tree
     .filter((entry) => entry.kind === 'file' && !entry.relativePath.split('/').some((segment) => segment.startsWith('.')))
-    .map((entry) => path.relative(projectRoot, path.join(targetDir, ...entry.relativePath.split('/'))).split(path.sep).join('/'));
+    .map((entry) => path.relative(workspaceRoot, path.join(targetDir, ...entry.relativePath.split('/'))).split(path.sep).join('/'));
 }
 
 export async function installOpaqueModules(
   workspaceRoot: string,
-  projectRoot: string,
   options?: InstallOpaqueModulesOptions,
 ): Promise<string[]> {
-  const { sourceCodeRoot, projectPackagePath } = getWorkspacePaths(workspaceRoot);
+  const paths = getWorkspacePaths(workspaceRoot);
   const commitFence = options?.commitFence;
-  const opaqueRoot = path.join(sourceCodeRoot, 'opaque');
+  const opaqueRoot = path.join(paths.srcRoot, 'opaque');
 
   const moduleEntries = loadOpaqueModuleEntries(opaqueRoot);
-  const packageJson = readProjectPackage(projectPackagePath);
+  const packageJson = readProjectPackage(paths.packageJsonPath);
   packageJson.dependencies ??= {};
 
   const activeOpaqueKeys = new Set(moduleEntries.map((entry) => `opaque-${entry.id}`));
@@ -265,23 +265,24 @@ export async function installOpaqueModules(
   const isBuildMode = resolveBuildMode(options);
   // Dependency projection is one deterministic semantic write. Physical module
   // installation remains parallel but workers never share this mutable owner.
-  projectOpaqueDependencies(moduleEntries, projectRoot, isBuildMode, packageJson.dependencies);
+  projectOpaqueDependencies(moduleEntries, workspaceRoot, paths.srcRoot, isBuildMode, packageJson.dependencies);
 
   const limit = createConcurrencyLimit(8);
   const moduleGeneratedPaths = await Promise.all(
     moduleEntries.map((entry) =>
-      limit(() => installOpaqueModule(entry, projectRoot, isBuildMode, commitFence))
+      limit(() => installOpaqueModule(entry, workspaceRoot, paths.srcRoot, isBuildMode, commitFence))
     )
   );
   const generatedPaths = moduleGeneratedPaths.flat();
 
-  await writeJson(projectPackagePath, packageJson, commitFence);
+  await writeJson(paths.packageJsonPath, packageJson, commitFence);
   return generatedPaths;
 }
 
 async function installOpaqueModule(
   entry: OpaqueModuleEntry,
-  projectRoot: string,
+  workspaceRoot: string,
+  srcRoot: string,
   isBuildMode: boolean,
   commitFence?: CommitFence
 ): Promise<string[]> {
@@ -289,7 +290,7 @@ async function installOpaqueModule(
   const generatedPaths: string[] = [];
 
   if (isBuildMode) {
-    const targetDir = path.join(projectRoot, 'src', 'installed', depKey);
+    const targetDir = path.join(srcRoot, 'installed', depKey);
     const sourceTree = opaqueModuleTree(entry.dirPath, `Opaque module source ${entry.id}`);
     const existing = inspectExactNoFollowDirectoryPresence(targetDir, `Opaque build target ${entry.id}`);
     if (existing.state === 'present') {
@@ -298,8 +299,8 @@ async function installOpaqueModule(
         targetDir,
         `Existing opaque build target ${entry.id}`
       );
-      generatedPaths.push(...generatedOpaqueModulePaths(projectRoot, targetDir, targetTree));
-      await removeOpaqueNodeModulesLink(path.join(projectRoot, 'node_modules', depKey), commitFence);
+      generatedPaths.push(...generatedOpaqueModulePaths(workspaceRoot, targetDir, targetTree));
+      await removeOpaqueNodeModulesLink(path.join(workspaceRoot, 'node_modules', depKey), commitFence);
       return generatedPaths;
     }
 
@@ -352,7 +353,7 @@ async function installOpaqueModule(
         targetDir,
         `Published opaque build target ${entry.id}`
       );
-      generatedPaths.push(...generatedOpaqueModulePaths(projectRoot, targetDir, targetTree));
+      generatedPaths.push(...generatedOpaqueModulePaths(workspaceRoot, targetDir, targetTree));
     } finally {
       if (!published && await pathEntryExists(stageRoot)) {
         await fs.rm(stageRoot, { recursive: true, force: false });
@@ -360,11 +361,11 @@ async function installOpaqueModule(
     }
 
     await removeOpaqueNodeModulesLink(
-      path.join(projectRoot, 'node_modules', depKey),
+      path.join(workspaceRoot, 'node_modules', depKey),
       commitFence
     );
   } else {
-    const nodeModulesPath = path.join(projectRoot, 'node_modules');
+    const nodeModulesPath = path.join(workspaceRoot, 'node_modules');
     if (await pathExists(nodeModulesPath)) {
       const targetNodeModulesDepPath = path.join(nodeModulesPath, depKey);
       if (!(await pathEntryExists(targetNodeModulesDepPath))) {

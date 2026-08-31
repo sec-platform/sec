@@ -1,4 +1,5 @@
 import type { TaskEnvelope } from '../../control/task/contract/envelope.ts';
+import { srcRelativePath } from '../../workspace/paths.ts';
 import { projectRelativeImport } from '../source/import-paths.ts';
 
 function parseRules(description: string): {
@@ -54,9 +55,6 @@ export function synthesizeSlotSource(envelope: TaskEnvelope): string {
   steps.push('    company');
   steps.push('  };');
 
-  const runtimeDatabasePath = envelope.targetFile.startsWith('source/')
-    ? 'project/src/runtime/database.ts'
-    : 'src/runtime/database.ts';
-  const databaseImport = projectRelativeImport(envelope.targetFile, runtimeDatabasePath);
+  const databaseImport = projectRelativeImport(envelope.targetFile, `${srcRelativePath}/runtime/database.ts`);
   return `// @generated task:${envelope.taskId}\nimport type { CustomerInput, NormalizedCustomerInput } from '${databaseImport}';\n\nexport function normalizeCustomerInput(input: CustomerInput): NormalizedCustomerInput {\n${steps.join('\n')}\n}\n`;
 }

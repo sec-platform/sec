@@ -35,10 +35,10 @@ test('tracked project observation returns exact NUL-delimited Git-indexed projec
       ? ['tracked.txt', 'space name.txt']
       : ['tracked.txt', 'line\nbreak.txt'];
     for (const relativePath of trackedPaths) {
-      const projectFile = path.join(workspaceRoot, 'project', relativePath);
-      await fs.mkdir(path.dirname(projectFile), { recursive: true });
-      await fs.writeFile(projectFile, 'tracked\n', 'utf8');
-      const add = await runCommand('git', ['add', '--', `project/${relativePath}`], { cwd: workspaceRoot });
+      const workspaceFile = path.join(workspaceRoot, relativePath);
+      await fs.mkdir(path.dirname(workspaceFile), { recursive: true });
+      await fs.writeFile(workspaceFile, 'tracked\n', 'utf8');
+      const add = await runCommand('git', ['add', '--', relativePath], { cwd: workspaceRoot });
       expect(add.code).toBe(0);
     }
 

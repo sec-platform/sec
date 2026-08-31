@@ -10,7 +10,7 @@ import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease
 } from '../../src/workspace/lease.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { readYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -37,7 +37,7 @@ test('canonical Engineering Operation writer applies Plan operations through the
     const plan = await readYaml<{
       app: { name: string };
       acceptance: Array<{ id: string }>;
-    }>(getWorkspacePaths(workspaceRoot).planPath);
+    }>(getWorkspacePaths(workspaceRoot).workspaceConfigPath);
     expect(plan.app.name).toBe('renamed-app');
     expect(plan.acceptance.some((entry) => entry.id === 'acceptance_extra_proof')).toBe(true);
   }, 'engineering-operation-direct-');
@@ -46,14 +46,14 @@ test('canonical Engineering Operation writer applies Plan operations through the
 test('failed operation batch publishes no partial Plan mutation', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot);
-    const { planPath } = getWorkspacePaths(workspaceRoot);
-    const before = await fs.readFile(planPath);
+    const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
+    const before = await fs.readFile(workspaceConfigPath);
 
     await expect(applyWithLease(workspaceRoot, [
       { id: 'must-rollback-in-memory', kind: 'set-app-name', value: 'must-not-publish' },
       { id: 'missing-slot', kind: 'set-slot-description', slotId: 'missing_slot', description: 'blocked' }
     ])).rejects.toMatchObject({ code: 'ENGINEERING-OPERATION-001' });
 
-    expect(await fs.readFile(planPath)).toEqual(before);
+    expect(await fs.readFile(workspaceConfigPath)).toEqual(before);
   }, 'engineering-operation-failure-');
 });

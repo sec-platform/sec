@@ -1,8 +1,9 @@
 import { parseUpgradePlanJson } from '../../change-management/upgrade/contract/types.ts';
 import { readPipelineJournal } from '../../compiler/pipeline/journal.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { checkProvenanceFallback } from '../application/project-integrity.ts';
-import { getWorkspacePaths } from './paths.ts';
+import { resolveWorkspaceArtifactPath } from './paths.ts';
 import { assertProjectBaseline, readProjectBaseline } from './project-baseline.ts';
 
 function activeUpgradeImpactPaths(workspaceRoot: string): string[] {
@@ -14,7 +15,10 @@ function activeUpgradeImpactPaths(workspaceRoot: string): string[] {
     return [];
   }
 
-  const { upgradePlanPath } = getWorkspacePaths(workspaceRoot);
+  const upgradePlanPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.upgradePlan
+  );
   const label = 'Active UpgradePlan write-boundary authorization';
   const bytes = readOptionalRetainedOrdinaryFile(upgradePlanPath, label);
   if (bytes === null) return [];

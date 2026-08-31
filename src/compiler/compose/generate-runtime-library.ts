@@ -1,19 +1,23 @@
-import path from 'node:path';
-
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { defaultLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { writeText, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import {
+  packageJsonRelativePath,
+  resolvePathInside,
+  srcRelativePath,
+  testsRelativePath,
+  tsconfigRelativePath
+} from '../../workspace/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { TemplateEngine } from './template-engine.ts';
 
 const BASE_RUNTIME_SCAFFOLD_PATHS = [
-  'package.json',
-  'tsconfig.json',
-  'src/runtime/database.ts',
-  'lib/store.ts'
+  packageJsonRelativePath,
+  tsconfigRelativePath,
+  `${srcRelativePath}/runtime/database.ts`,
+  `${srcRelativePath}/runtime/store.ts`
 ] as const;
 
 type RuntimeLibraryFeatures = {
@@ -73,14 +77,14 @@ function defineRuntimeLibraryScaffold(
 }
 
 const runtimeLibraryScaffoldDefinitions: RuntimeLibraryScaffoldDefinition[] = [
-  defineRuntimeLibraryScaffold('lib/store.ts', renderStoreLibrary),
+  defineRuntimeLibraryScaffold(`${srcRelativePath}/runtime/store.ts`, renderStoreLibrary),
   defineRuntimeLibraryScaffold(
-    'tests/runtime/unit/customer-runtime.test.ts',
+    `${testsRelativePath}/runtime/unit/customer-runtime.test.ts`,
     renderCustomerRuntimeUnitTest,
     (features) => features.customerEnabled
   ),
   defineRuntimeLibraryScaffold(
-    'tests/runtime/unit/ticket-runtime.test.ts',
+    `${testsRelativePath}/runtime/unit/ticket-runtime.test.ts`,
     renderTicketRuntimeUnitTest,
     (features) => features.ticketEnabled
   )
@@ -127,7 +131,6 @@ export async function generateRuntimeLibraryScaffold(
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<string[]> {
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const features = buildRuntimeLibraryFeatures(lock);
   const entries = runtimeLibraryScaffoldDefinitions
     .filter((definition) => definition.enabled?.(features) ?? true)
@@ -137,7 +140,10 @@ export async function generateRuntimeLibraryScaffold(
     }));
 
   await Promise.all(entries.map((entry) => defaultLimit(async () => {
-    const targetPath = path.join(projectRoot, ...entry.relativePath.split('/'));
+    const targetPath = resolvePathInside(workspaceRoot, entry.relativePath);
+    if (!targetPath) {
+      throw new Error(`Runtime library scaffold path escapes native workspace root: ${entry.relativePath}`);
+    }
     const current = readOptionalScaffoldText(targetPath, entry.relativePath);
     if (current !== entry.source) await writeText(targetPath, entry.source, commitFence);
   })));

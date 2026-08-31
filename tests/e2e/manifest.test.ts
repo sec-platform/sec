@@ -2,26 +2,19 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import {
-  adaptWorkspace,
-  explainWorkspace,
-  lockWorkspace,
-  verifyWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
+import { adaptWorkspace, explainWorkspace, lockWorkspace, verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
-import {
-  expectGraphEdge,
-  expectGraphNode,
-  expectReviewConflictHint,
-  expectReviewRegressionRisk
-} from '../helpers/graph-assertions.ts';
+import { expectGraphEdge, expectGraphNode, expectReviewConflictHint, expectReviewRegressionRisk } from '../helpers/graph-assertions.ts';
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('override-manifest can replace a generated file and surface override provenance', async () => {
   const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-override-' });
-  const { overrideManifestPath, projectRoot, provenancePath, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
+  const paths = getWorkspacePaths(workspaceRoot);
+  const overrideManifestPath = path.join(paths.overridesRoot, 'override-manifest.yaml');
+  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
 
   await writeYaml(overrideManifestPath, {
     overrides: [
@@ -55,14 +48,10 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
 }
 `;
 
-  await fs.writeFile(
-    path.join(sourceOverridesRoot, 'patches', 'customer-normalizer.override.ts'),
-    customerNormalizerOverride,
-    'utf8'
-  );
+  await fs.writeFile(path.join(paths.overridesRoot, 'patches', 'customer-normalizer.override.ts'), customerNormalizerOverride, 'utf8');
 
   await adaptWorkspace(workspaceRoot);
-  const overriddenSource = await fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
+  const overriddenSource = await fs.readFile(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
   expect(overriddenSource).toMatch(/manual override path/);
 
   const { report } = await verifyWorkspace(workspaceRoot);
@@ -90,9 +79,7 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
   expect(
     provenance.artifacts.some(
       (artifact) =>
-        artifact.path === 'custom/customer_normalizer.ts' &&
-        artifact.originType === 'override' &&
-        artifact.overrideStatus === 'manual'
+        artifact.path === 'custom/customer_normalizer.ts' && artifact.originType === 'override' && artifact.overrideStatus === 'manual'
     )
   ).toBe(true);
   expectReviewRegressionRisk(reviewSummary, {
@@ -113,9 +100,10 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
     prefix: 'engineering-compiler-ticket-override-',
     blockIds: ['ticket/basic', 'reporting/ticket-summary', 'worklog/basic']
   });
-  const { overrideManifestPath, projectRoot, sourceOverridesRoot } = getWorkspacePaths(workspaceRoot);
+  const paths = getWorkspacePaths(workspaceRoot);
+  const overrideManifestPath = path.join(paths.overridesRoot, 'override-manifest.yaml');
 
-  const ticketServicePath = path.join(projectRoot, 'src', 'installed', 'ticket', 'ticket-service.ts');
+  const ticketServicePath = path.join(workspaceRoot, 'src', 'installed', 'ticket', 'ticket-service.ts');
   const ticketServiceOverride = `${await fs.readFile(ticketServicePath, 'utf8')}\n// Manual ticket runtime override active.\n`;
 
   await writeYaml(overrideManifestPath, {
@@ -131,7 +119,7 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
       }
     ]
   });
-  const ticketServiceOverridePath = path.join(sourceOverridesRoot, 'patches', 'ticket-service.override.ts');
+  const ticketServiceOverridePath = path.join(paths.overridesRoot, 'patches', 'ticket-service.override.ts');
   await fs.writeFile(ticketServiceOverridePath, ticketServiceOverride, 'utf8');
 
   await adaptWorkspace(workspaceRoot);
@@ -149,9 +137,7 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
 
   await lockWorkspace(workspaceRoot);
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  const ticketChangeSource = reviewSummary.changeSources.find(
-    (source) => source.path === 'src/installed/ticket/ticket-service.ts'
-  );
+  const ticketChangeSource = reviewSummary.changeSources.find((source) => source.path === 'src/installed/ticket/ticket-service.ts');
 
   expect(ticketChangeSource).toMatchObject({
     path: 'src/installed/ticket/ticket-service.ts',

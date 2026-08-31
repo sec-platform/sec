@@ -1,4 +1,4 @@
-import { createRuntimeStore, getRuntimeDatabase, type Database, type RuntimeStore } from '../src/runtime/database.ts';
+import { createRuntimeStore, getRuntimeDatabase, type Database, type RuntimeStore } from './database.ts';
 
 declare global {
   var __engineeringCompilerRuntimeStore: RuntimeStore | undefined;

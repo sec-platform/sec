@@ -6,7 +6,7 @@ import type { LockFile } from '../../src/compiler/contract.ts';
 import { checkSlotDirectCapabilities } from '../../src/compiler/verify/slot-capability-lint.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-function createMockLock(sourcePath: string): LockFile {
+function createMockLock(sourcePath?: string, generator: string | null = 'test'): LockFile {
   return {
     formatVersion: '1',
     app: {
@@ -21,13 +21,13 @@ function createMockLock(sourcePath: string): LockFile {
     slotTasks: [{
       id: 'mock_slot',
       block: 'entity/customer-basic',
-      target: 'custom/mock_slot.ts',
-      sourcePath,
+      target: 'src/slots/mock_slot.ts',
+      ...(sourcePath ? { sourcePath } : {}),
       symbol: 'normalizeCustomerInput',
       kind: 'adapter',
       status: 'filled',
-      writableZones: ['source/code/slots/'],
-      provenanceHints: { generator: 'test', verifiedBy: [] }
+      writableZones: ['src/slots/'],
+      provenanceHints: { generator, verifiedBy: [] }
     }],
     generatedPaths: [],
     acceptancePlan: [],
@@ -50,10 +50,10 @@ async function withSlotSource(
   callback: (workspaceRoot: string, lock: LockFile) => Promise<void>
 ): Promise<void> {
   await withTempWorkspace(async (workspaceRoot) => {
-    const slotsDir = path.join(workspaceRoot, 'source', 'code', 'slots');
+    const slotsDir = path.join(workspaceRoot, 'src', 'slots');
     await fs.mkdir(slotsDir, { recursive: true });
     await fs.writeFile(path.join(slotsDir, 'mock_slot.ts'), source, 'utf8');
-    await callback(workspaceRoot, createMockLock('source/code/slots/mock_slot.ts'));
+    await callback(workspaceRoot, createMockLock('src/slots/mock_slot.ts'));
   }, 'slot-capability-lint-');
 }
 
@@ -70,6 +70,22 @@ async function expectLintPass(source: string): Promise<void> {
 }
 
 describe('Custom Slot direct capability acquisition boundary', () => {
+  test('observes a block-owned default implementation at its manifest target', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const slotsDir = path.join(workspaceRoot, 'src', 'slots');
+      await fs.mkdir(slotsDir, { recursive: true });
+      await fs.writeFile(
+        path.join(slotsDir, 'mock_slot.ts'),
+        'export function normalizeCustomerInput(input: unknown) { return input; }\n',
+        'utf8'
+      );
+      await expect(checkSlotDirectCapabilities(
+        workspaceRoot,
+        createMockLock(undefined, null)
+      )).resolves.toBeUndefined();
+    }, 'slot-capability-lint-block-default-');
+  });
+
   test('admits source whose imports and re-exports are erased from runtime', async () => {
     await expectLintPass(
       `import type { CustomerInput } from '../../../project/src/runtime/database.ts';\n` +
@@ -115,10 +131,10 @@ describe('Custom Slot direct capability acquisition boundary', () => {
 
   test('missing retained source fails closed before capability observation', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      await fs.mkdir(path.join(workspaceRoot, 'source', 'code', 'slots'), { recursive: true });
+      await fs.mkdir(path.join(workspaceRoot, 'src', 'slots'), { recursive: true });
       await expect(checkSlotDirectCapabilities(
         workspaceRoot,
-        createMockLock('source/code/slots/missing.ts')
+        createMockLock('src/slots/missing.ts')
       )).rejects.toMatchObject({ code: 'SLOT-LINT-001' });
     }, 'slot-capability-lint-missing-');
   });
@@ -128,13 +144,13 @@ describe('Custom Slot direct capability acquisition boundary', () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const externalRoot = await fs.mkdtemp('/tmp/sec-slot-capability-external-');
       try {
-        await fs.mkdir(path.join(workspaceRoot, 'source'), { recursive: true });
+        await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
         await fs.mkdir(path.join(externalRoot, 'slots'), { recursive: true });
         await fs.writeFile(path.join(externalRoot, 'slots', 'mock_slot.ts'), 'export const value = 1;\n', 'utf8');
-        await fs.symlink(path.join(externalRoot, 'slots'), path.join(workspaceRoot, 'source', 'code'));
+        await fs.symlink(path.join(externalRoot, 'slots'), path.join(workspaceRoot, 'src', 'slots'));
         await expect(checkSlotDirectCapabilities(
           workspaceRoot,
-          createMockLock('source/code/mock_slot.ts')
+          createMockLock('src/slots/mock_slot.ts')
         )).rejects.toMatchObject({ code: 'SLOT-LINT-001' });
       } finally {
         await fs.rm(externalRoot, { recursive: true, force: true });

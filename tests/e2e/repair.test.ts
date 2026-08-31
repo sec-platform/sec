@@ -2,8 +2,9 @@ import { expect, test } from 'bun:test';
 
 import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
 import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import {
   writeFailedFastUnitVerification,
   writePassingVerificationState
@@ -18,7 +19,7 @@ import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.t
 
 test('CLI emits repair dry-run JSON for CI consumers', async () => {
   await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
-    const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
+    const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
     await writeFailedFastUnitVerification(workspaceRoot, 'Unit verification failed for customer_normalizer');
 
     await expectCliText(workspaceRoot, ['repair', '--dry-run'], [
@@ -233,7 +234,7 @@ test('CLI emits repair dry-run JSON for CI consumers', async () => {
 
 test('CLI emits blocked repair JSON for CI consumers', async () => {
   await withWorkspaceScenario('verified-fast-default', async (workspaceRoot) => {
-    const { repairPlanPath } = getWorkspacePaths(workspaceRoot);
+    const repairPlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.repairPlan);
     await writeFailedFastUnitVerification(workspaceRoot, 'Unit verification failed without slot ownership', {
       slotTasks: []
     });

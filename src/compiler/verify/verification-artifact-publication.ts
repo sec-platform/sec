@@ -1,10 +1,11 @@
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import { validateAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
 import { assertCanonicalVerificationArtifactSet, type VerificationArtifactSet } from '../../verification/artifact/contract/artifact.ts';
+import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
 import { CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual } from '../../verification/result/contract/result.ts';
-import { formatJsonFile, publishCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { saveLock } from '../lock.ts';
 import type { PolicyReport } from '../policies/contract/types.ts';
@@ -67,7 +68,7 @@ async function publishJson(
   label: string,
   commitFence?: CommitFence
 ): Promise<void> {
-  await publishCanonicalWorkspaceFile({
+  await publishExistingParentCanonicalWorkspaceFile({
     workspaceRoot,
     targetPath,
     bytes: Buffer.from(formatJsonFile(value), 'utf8'),
@@ -93,33 +94,32 @@ export async function publishVerificationArtifactSet(
 ): Promise<VerificationArtifactPublicationArtifacts> {
   const artifacts = snapshotPublicationArtifacts(input.artifacts);
   const lock = structuredClone(input.lock);
-  const paths = getWorkspacePaths(input.workspaceRoot);
 
   await input.commitFence?.();
   await publishJson(
     input.workspaceRoot,
-    paths.runtimeReportPath,
+    resolveWorkspaceArtifactPath(input.workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
     artifacts.runtimeReport,
     'Verification Runtime report',
     input.commitFence
   );
   await publishJson(
     input.workspaceRoot,
-    paths.policyReportPath,
+    resolveWorkspaceArtifactPath(input.workspaceRoot, CI_ARTIFACT_FILES.policyReport),
     artifacts.policyReport,
     'Verification Policy report',
     input.commitFence
   );
   await publishJson(
     input.workspaceRoot,
-    paths.acceptanceCoveragePath,
+    resolveWorkspaceArtifactPath(input.workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage),
     artifacts.acceptanceCoverage,
     'Verification Acceptance Coverage report',
     input.commitFence
   );
   await publishJson(
     input.workspaceRoot,
-    paths.verificationReportPath,
+    resolveWorkspaceArtifactPath(input.workspaceRoot, CI_ARTIFACT_FILES.verificationReport),
     artifacts.verificationReport,
     'Verification report',
     input.commitFence

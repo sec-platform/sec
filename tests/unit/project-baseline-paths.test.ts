@@ -24,25 +24,26 @@ function lockFixture(): LockFile {
       sourceRoot: 'test.block',
       action: 'copy',
       from: 'files/src/service.ts',
-      to: 'src/service.ts'
+      to: 'src/installed/service.ts'
     }],
     slotTasks: [{
       id: 'custom_slot',
       block: 'test/block',
-      target: 'custom/slot.ts',
+      target: 'src/slots/custom-slot.ts',
       symbol: 'customSlot',
       kind: 'adapter',
       status: 'filled',
-      writableZones: ['custom/slot.ts'],
+      writableZones: ['src/slots/custom-slot.ts'],
       provenanceHints: {
         generator: null,
         verifiedBy: []
       }
     }],
     generatedPaths: [
-      'app/page.tsx',
-      'custom/slot.ts',
-      'control/evidence/report.json',
+      'src/ui/page.tsx',
+      'src/slots/custom-slot.ts',
+      'model/policies/policy.spec.yaml',
+      '.sec/artifacts/evidence/report.json',
       'tsconfig.json'
     ],
     acceptancePlan: [],
@@ -63,10 +64,10 @@ function lockFixture(): LockFile {
 test('project baseline includes block, generated, and override outputs but excludes writable and control paths', () => {
   expect(currentReadOnlyProjectPaths(
     lockFixture(),
-    ['components/brand.tsx', 'custom/slot.ts', '.sec/cache/local.json']
+    ['src/ui/brand.tsx', 'src/slots/custom-slot.ts', 'model/patches/manual.ts', '.sec/cache/local.json']
   )).toEqual([
-    'app/page.tsx',
-    'components/brand.tsx',
-    'src/service.ts'
+    'src/installed/service.ts',
+    'src/ui/brand.tsx',
+    'src/ui/page.tsx'
   ]);
 });

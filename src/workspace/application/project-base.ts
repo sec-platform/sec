@@ -1,12 +1,24 @@
 import path from 'node:path';
 import { emptyOverrideManifest, PROVENANCE_FORMAT_VERSION } from '../../semantic/provenance/contract/types.ts';
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../../toolchain/dependencies/spec.ts';
+import {
+  CI_ARTIFACT_FILES,
+  fixedCiArtifactPaths,
+  uniqueSortedCiArtifactPaths
+} from '../../verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, pathExists, writeJson, writeText, type CommitFence } from '../runtime/files.ts';
-import { getWorkspacePaths } from '../runtime/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../runtime/paths.ts';
 import { writeYaml } from '../yaml.ts';
 
 function childDirectories(root: string, relativePaths: readonly string[]): string[] {
   return relativePaths.map((relativePath) => path.join(root, relativePath));
+}
+
+function artifactParentDirectories(root: string): string[] {
+  const relativeParents = uniqueSortedCiArtifactPaths(
+    fixedCiArtifactPaths().map((artifactPath) => path.posix.dirname(artifactPath))
+  );
+  return childDirectories(root, relativeParents);
 }
 
 export async function ensureProjectBase(
@@ -14,124 +26,72 @@ export async function ensureProjectBase(
   commitFence?: CommitFence
 ): Promise<void> {
   const {
-    projectRoot,
-    developerSourceRoot,
-    sourceCodeRoot,
-    sourceModelRoot,
-    sourceBlocksRoot,
-    sourcePatchesRoot,
-    sourceSlotsRoot,
-    sourceOverridesRoot,
-    sourcePoliciesRoot,
-    sourceAcceptanceRoot,
-    sourceAssetsRoot,
-    sourceEnvRoot,
+    workspaceRoot: root,
+    modelRoot,
+    modelBlocksRoot,
     privateRegistryRoot,
-    controlRoot,
-    controlStateRoot,
-    controlEvidenceRoot,
-    controlProvenanceRoot,
-    controlGraphRoot,
-    controlWorkflowRoot,
-    controlAuditRoot,
-    controlCiRoot,
-    localStateRoot,
-    generatedDir,
-    projectPackagePath,
-    provenancePath,
-    overrideManifestPath,
-    policySpecPath
+    policiesRoot,
+    overridesRoot,
+    srcRoot,
+    slotsRoot,
+    testsRoot,
+    packageJsonPath,
+    tsconfigPath,
+    prismaRoot,
+    secRoot,
+    artifactsRoot,
+    cacheRoot,
+    workspaceWriteLeaseRoot
   } = getWorkspacePaths(workspaceRoot);
-  const projectOverrideDirs = childDirectories(path.join(projectRoot, 'overrides'), ['rules', 'patches', 'manifests']);
-  const sourceOverrideDirs = childDirectories(sourceOverridesRoot, ['rules', 'patches', 'manifests']);
-  const sourceCodeDirs = childDirectories(sourceCodeRoot, ['server', 'shared', 'integrations', 'opaque', 'lab']);
-  const sourceModelDirs = childDirectories(sourceModelRoot, ['capabilities', 'entities', 'flows', 'permissions']);
-  const sourceAssetDirs = childDirectories(sourceAssetsRoot, ['copy', 'design', 'fixtures', 'seeds']);
-  const sourceEnvDirs = childDirectories(sourceEnvRoot, ['templates', 'bindings']);
-  const localStateDirs = childDirectories(localStateRoot, ['cache', 'tmp', 'indexes', 'test-workspaces', 'generated-preview', 'ai-sessions']);
-
-  const projectDirs = [
-    projectRoot,
-    ...childDirectories(projectRoot, [
-      'lib',
-      path.join('src', 'runtime'),
-      path.join('src', 'installed'),
-      path.join('tests', 'unit'),
-      path.join('tests', 'runtime', 'unit'),
-      'custom',
-      'overrides',
-      'policies',
-      'prisma'
-    ]),
-    ...projectOverrideDirs
-  ];
-  const sourceLayerDirs = [
-    developerSourceRoot,
-    sourceCodeRoot,
-    sourceModelRoot,
-    sourceBlocksRoot,
-    sourcePatchesRoot,
-    sourceSlotsRoot,
-    ...sourceCodeDirs,
-    sourceOverridesRoot,
-    ...sourceOverrideDirs,
-    sourcePoliciesRoot,
-    sourceAcceptanceRoot,
-    ...sourceModelDirs,
-    sourceAssetsRoot,
-    ...sourceAssetDirs,
-    privateRegistryRoot,
-    sourceEnvRoot,
-    ...sourceEnvDirs
-  ];
-  const controlDirs = [
-    controlRoot,
-    controlStateRoot,
-    controlEvidenceRoot,
-    controlProvenanceRoot,
-    controlGraphRoot,
-    controlWorkflowRoot,
-    controlAuditRoot,
-    controlCiRoot
-  ];
+  const runtimeRoot = path.join(srcRoot, 'runtime');
+  const installedRoot = path.join(srcRoot, 'installed');
+  const testUnitRoot = path.join(testsRoot, 'unit');
+  const runtimeTestUnitRoot = path.join(testsRoot, 'runtime', 'unit');
+  const overrideDirs = childDirectories(overridesRoot, ['rules', 'patches', 'manifests']);
+  const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
+  const artifactParents = artifactParentDirectories(root);
+  const policySpecPath = path.join(policiesRoot, 'policy.spec.yaml');
+  const overrideManifestPath = path.join(overridesRoot, 'override-manifest.yaml');
 
   for (const directory of [
-    ...projectDirs,
-    ...sourceLayerDirs,
-    ...controlDirs,
-    localStateRoot,
-    ...localStateDirs,
-    generatedDir
+    root,
+    modelRoot,
+    modelBlocksRoot,
+    privateRegistryRoot,
+    policiesRoot,
+    overridesRoot,
+    ...overrideDirs,
+    srcRoot,
+    runtimeRoot,
+    installedRoot,
+    slotsRoot,
+    testsRoot,
+    testUnitRoot,
+    runtimeTestUnitRoot,
+    prismaRoot,
+    secRoot,
+    artifactsRoot,
+    ...artifactParents,
+    cacheRoot,
+    workspaceWriteLeaseRoot
   ]) {
     await ensureDir(directory, commitFence);
   }
 
   for (const directory of [
-    sourceSlotsRoot,
-    ...sourceCodeDirs,
-    ...sourceOverrideDirs,
-    sourcePoliciesRoot,
-    sourceAcceptanceRoot,
-    ...sourceModelDirs,
-    sourceAssetsRoot,
-    ...sourceAssetDirs,
+    modelBlocksRoot,
     privateRegistryRoot,
-    sourceEnvRoot,
-    ...sourceEnvDirs,
-    controlStateRoot,
-    controlEvidenceRoot,
-    controlProvenanceRoot,
-    controlGraphRoot,
-    controlWorkflowRoot,
-    controlAuditRoot,
-    controlCiRoot,
-    ...projectOverrideDirs
+    ...overrideDirs,
+    installedRoot,
+    slotsRoot,
+    testUnitRoot,
+    runtimeTestUnitRoot
   ]) {
     await writeText(path.join(directory, '.gitkeep'), '\n', commitFence);
   }
 
   const runtimeDependencySpec = await loadRuntimeDependencySpec();
-  await writeJson(projectPackagePath, {
+  await writeJson(packageJsonPath, {
     ...buildRuntimePackageManifest('generated-customer-admin', runtimeDependencySpec),
     scripts: {
       'test:fast': 'node --test --experimental-test-isolation=none',
@@ -143,7 +103,7 @@ export async function ensureProjectBase(
     }
   }, commitFence);
 
-  await writeJson(path.join(projectRoot, 'tsconfig.json'), {
+  await writeJson(tsconfigPath, {
     compilerOptions: {
       target: 'ES2022',
       module: 'ESNext',
@@ -161,22 +121,20 @@ export async function ensureProjectBase(
       plugins: []
     },
     include: [
-      'lib/**/*.ts',
       'src/**/*.ts',
       'tests/**/*.ts',
-      'custom/**/*.ts',
       'bunfig.toml'
     ],
     exclude: ['node_modules']
   }, commitFence);
 
   await writeText(
-    path.join(projectRoot, 'bunfig.toml'),
+    path.join(root, 'bunfig.toml'),
     `[test]\n`,
     commitFence
   );
   await writeText(
-    path.join(projectRoot, 'src', 'runtime', 'database.ts'),
+    path.join(runtimeRoot, 'database.ts'),
     `export interface CustomerInput {
   name?: string;
   email?: string;
@@ -352,7 +310,7 @@ export function getRuntimeDatabase(store: RuntimeStore): Database {
     commitFence
   );
 
-  const prismaSchemaPath = path.join(projectRoot, 'prisma', 'schema.prisma');
+  const prismaSchemaPath = path.join(prismaRoot, 'schema.prisma');
   if (!(await pathExists(prismaSchemaPath))) {
     await writeText(
       prismaSchemaPath,

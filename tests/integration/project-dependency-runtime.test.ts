@@ -16,7 +16,6 @@ import {
   withProjectDependencyBridge
 } from '../../src/toolchain/dependencies/test/runtime.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
 import { ensureProjectBase } from '../../src/workspace/project.ts';
 import { readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -32,14 +31,20 @@ async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Pr
     ...runtimeSpec.dependencies,
     ...runtimeSpec.devDependencies
   };
-  await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
-    const packageRoot = path.join(nodeModulesRoot, ...packageName.split('/'));
-    await fs.mkdir(packageRoot, { recursive: true });
-    await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
-      name: packageName,
-      version: exactVersions[packageName]
-    })}\n`, 'utf8');
-  }));
+  await Promise.all(
+    RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
+      const packageRoot = path.join(nodeModulesRoot, ...packageName.split('/'));
+      await fs.mkdir(packageRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(packageRoot, 'package.json'),
+        `${JSON.stringify({
+          name: packageName,
+          version: exactVersions[packageName]
+        })}\n`,
+        'utf8'
+      );
+    })
+  );
 }
 
 describe('shared runtime dependency projection', () => {
@@ -79,29 +84,29 @@ describe('shared runtime dependency projection', () => {
       const directTargets = new Set(ready.binding.rootPackages.map((entry) => entry.target));
       const transitive = ready.binding.packages.find((entry) => !directTargets.has(entry.relativePath));
       expect(transitive).toBeDefined();
-      const manifestPath = path.join(
-        ready.nodeModulesPath,
-        ...transitive!.relativePath.split('/'),
-        'package.json'
-      );
+      const manifestPath = path.join(ready.nodeModulesPath, ...transitive!.relativePath.split('/'), 'package.json');
       const originalManifest = await fs.readFile(manifestPath);
       const manifest = JSON.parse(originalManifest.toString('utf8')) as Record<string, unknown>;
       await fs.writeFile(manifestPath, `${JSON.stringify({ ...manifest, version: '0.0.0' })}\n`, 'utf8');
 
-      await expect(ensureSharedDepsReady({
-        beforeCommit: async () => {
-          throw new Error('injected stop before projection repair');
-        },
-        sharedDepsRoot
-      })).rejects.toThrow('injected stop before projection repair');
+      await expect(
+        ensureSharedDepsReady({
+          beforeCommit: async () => {
+            throw new Error('injected stop before projection repair');
+          },
+          sharedDepsRoot
+        })
+      ).rejects.toThrow('injected stop before projection repair');
       await fs.writeFile(manifestPath, originalManifest);
       await fs.rm(manifestPath);
-      await expect(ensureSharedDepsReady({
-        beforeCommit: async () => {
-          throw new Error('injected stop before projection repair');
-        },
-        sharedDepsRoot
-      })).rejects.toThrow('injected stop before projection repair');
+      await expect(
+        ensureSharedDepsReady({
+          beforeCommit: async () => {
+            throw new Error('injected stop before projection repair');
+          },
+          sharedDepsRoot
+        })
+      ).rejects.toThrow('injected stop before projection repair');
     }, 'engineering-compiler-shared-deps-incomplete-');
   });
 
@@ -112,20 +117,21 @@ describe('shared runtime dependency projection', () => {
       await fs.writeFile(path.join(sharedDepsRoot, 'bun.lock'), 'stale generated residue\n', 'utf8');
       let unexpectedInstallCalls = 0;
 
-      await expect(ensureSharedDepsReady({
-        commandRunner: async () => {
-          unexpectedInstallCalls += 1;
-          return { code: 1, stdout: '', stderr: 'unexpected reinstall' };
-        },
-        sharedDepsRoot
-      })).rejects.toMatchObject({
+      await expect(
+        ensureSharedDepsReady({
+          commandRunner: async () => {
+            unexpectedInstallCalls += 1;
+            return { code: 1, stdout: '', stderr: 'unexpected reinstall' };
+          },
+          sharedDepsRoot
+        })
+      ).rejects.toMatchObject({
         code: 'RUNTIME-DEPS-002',
         message: 'Shared dependency root contains competing authority files: bun.lock'
       });
 
       expect(unexpectedInstallCalls).toBe(0);
-      await expect(fs.readFile(path.join(sharedDepsRoot, 'bun.lock'), 'utf8'))
-        .resolves.toBe('stale generated residue\n');
+      await expect(fs.readFile(path.join(sharedDepsRoot, 'bun.lock'), 'utf8')).resolves.toBe('stale generated residue\n');
     }, 'engineering-compiler-shared-deps-residue-preserve-');
   });
 
@@ -139,13 +145,15 @@ describe('shared runtime dependency projection', () => {
       await fs.symlink(outsideRoot, sharedDepsRoot, process.platform === 'win32' ? 'junction' : 'dir');
       let installCalls = 0;
 
-      await expect(ensureSharedDepsReady({
-        commandRunner: async () => {
-          installCalls += 1;
-          return { code: 0, stdout: 'unexpected', stderr: '' };
-        },
-        sharedDepsRoot
-      })).rejects.toMatchObject({
+      await expect(
+        ensureSharedDepsReady({
+          commandRunner: async () => {
+            installCalls += 1;
+            return { code: 0, stdout: 'unexpected', stderr: '' };
+          },
+          sharedDepsRoot
+        })
+      ).rejects.toMatchObject({
         code: 'RUNTIME-DEPS-002',
         message: expect.stringContaining('must be a physical directory')
       });
@@ -164,20 +172,18 @@ describe('shared runtime dependency projection', () => {
       await fs.mkdir(sharedDepsRoot);
       await fs.mkdir(outsideTarget);
       await fs.writeFile(outsideSentinel, 'outside target\n', 'utf8');
-      await fs.symlink(
-        outsideTarget,
-        path.join(sharedDepsRoot, 'bun.lock'),
-        process.platform === 'win32' ? 'junction' : 'dir'
-      );
+      await fs.symlink(outsideTarget, path.join(sharedDepsRoot, 'bun.lock'), process.platform === 'win32' ? 'junction' : 'dir');
       let installCalls = 0;
 
-      await expect(ensureSharedDepsReady({
-        commandRunner: async () => {
-          installCalls += 1;
-          return { code: 0, stdout: 'unexpected', stderr: '' };
-        },
-        sharedDepsRoot
-      })).rejects.toMatchObject({
+      await expect(
+        ensureSharedDepsReady({
+          commandRunner: async () => {
+            installCalls += 1;
+            return { code: 0, stdout: 'unexpected', stderr: '' };
+          },
+          sharedDepsRoot
+        })
+      ).rejects.toMatchObject({
         code: 'RUNTIME-DEPS-002',
         message: 'Shared dependency root contains competing authority files: bun.lock'
       });
@@ -198,11 +204,7 @@ describe('shared runtime dependency projection', () => {
       await fs.mkdir(hardlinkSharedDepsRoot);
       await fs.mkdir(outsideTarget);
       await fs.writeFile(outsideSentinel, 'outside target\n', 'utf8');
-      await fs.symlink(
-        outsideTarget,
-        path.join(sharedDepsRoot, 'package.json'),
-        process.platform === 'win32' ? 'junction' : 'dir'
-      );
+      await fs.symlink(outsideTarget, path.join(sharedDepsRoot, 'package.json'), process.platform === 'win32' ? 'junction' : 'dir');
 
       await expect(ensureSharedDepsReady({ sharedDepsRoot })).rejects.toMatchObject({
         code: 'RUNTIME-DEPS-002',
@@ -214,11 +216,10 @@ describe('shared runtime dependency projection', () => {
 
       const hardlinkPath = path.join(hardlinkSharedDepsRoot, 'package.json');
       await fs.link(outsideSentinel, hardlinkPath);
-      await expect(ensureSharedDepsReady({ sharedDepsRoot: hardlinkSharedDepsRoot }))
-        .rejects.toMatchObject({
-          code: 'RUNTIME-DEPS-002',
-          message: expect.stringContaining('control file is not physical')
-        });
+      await expect(ensureSharedDepsReady({ sharedDepsRoot: hardlinkSharedDepsRoot })).rejects.toMatchObject({
+        code: 'RUNTIME-DEPS-002',
+        message: expect.stringContaining('control file is not physical')
+      });
       expect((await fs.lstat(hardlinkPath)).nlink).toBe(2);
       await expect(fs.readFile(outsideSentinel, 'utf8')).resolves.toBe('outside target\n');
     }, 'engineering-compiler-shared-deps-control-link-');
@@ -228,10 +229,11 @@ describe('shared runtime dependency projection', () => {
     await withTempWorkspace(async (tempRoot) => {
       const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
       await ensureSharedDepsReady({ sharedDepsRoot });
-      await Promise.all(SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES.map(async (name) => {
-        await expect(fs.lstat(path.join(sharedDepsRoot, name)))
-          .rejects.toMatchObject({ code: 'ENOENT' });
-      }));
+      await Promise.all(
+        SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES.map(async (name) => {
+          await expect(fs.lstat(path.join(sharedDepsRoot, name))).rejects.toMatchObject({ code: 'ENOENT' });
+        })
+      );
     }, 'engineering-compiler-shared-deps-control-authority-');
   });
 });
@@ -244,8 +246,7 @@ describe('project and shared runtime manifests', () => {
       await ensureSharedDepsReady({ sharedDepsRoot });
 
       const rootPackage = await readCompilerPackageJson();
-      const { projectPackagePath } = getWorkspacePaths(workspaceRoot);
-      const projectPackage = await readJson<RuntimePackageJson>(projectPackagePath);
+      const projectPackage = await readJson<RuntimePackageJson>(path.join(workspaceRoot, 'package.json'));
       const sharedPackage = await readJson<RuntimePackageJson>(path.join(sharedDepsRoot, 'package.json'));
 
       expect(projectPackage.dependencies.yaml).toBe(rootPackage.dependencies?.yaml as string);
@@ -260,11 +261,10 @@ describe('project and shared runtime manifests', () => {
 describe('dependency bridge', () => {
   test('reuses the shared runtime cache when the project has no node_modules', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const { projectRoot } = getWorkspacePaths(workspaceRoot);
-      const bridgePath = path.join(projectRoot, 'node_modules');
+      const bridgePath = path.join(workspaceRoot, 'node_modules');
 
       await ensureProjectBase(workspaceRoot);
-      await withProjectDependencyBridge(projectRoot, async () => {
+      await withProjectDependencyBridge(workspaceRoot, async () => {
         const bridgeStats = await fs.lstat(bridgePath);
         expect(bridgeStats.isSymbolicLink()).toBe(true);
         await expect(fs.stat(path.join(bridgePath, 'yaml', 'package.json'))).resolves.toBeDefined();
@@ -279,8 +279,7 @@ describe('ensureProjectDependencies', () => {
   test.concurrent('prebound dependency readiness is constant-work and preserves the plan-owned tree', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await ensureProjectBase(workspaceRoot);
-      const { projectRoot } = getWorkspacePaths(workspaceRoot);
-      const nodeModulesRoot = path.join(projectRoot, 'node_modules');
+      const nodeModulesRoot = path.join(workspaceRoot, 'node_modules');
       const fillerRoot = path.join(nodeModulesRoot, 'synthetic-package');
       const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
       const runtimeSpec = await loadRuntimeDependencySpec();
@@ -289,14 +288,15 @@ describe('ensureProjectDependencies', () => {
       await Promise.all([
         fs.writeFile(bindingPath, `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`, 'utf8'),
         ...Array.from({ length: 1024 }, (_, index) =>
-          fs.writeFile(path.join(fillerRoot, `${String(index).padStart(4, '0')}.bin`), 'x', 'utf8'))
+          fs.writeFile(path.join(fillerRoot, `${String(index).padStart(4, '0')}.bin`), 'x', 'utf8')
+        )
       ]);
       const beforeRoot = await fs.stat(nodeModulesRoot);
       const beforeSample = await fs.stat(path.join(fillerRoot, '0512.bin'));
       let fenceCalls = 0;
       let installCalls = 0;
 
-      await ensureProjectDependencies(projectRoot, {
+      await ensureProjectDependencies(workspaceRoot, {
         beforeCommit: async () => {
           fenceCalls += 1;
         },
@@ -313,76 +313,80 @@ describe('ensureProjectDependencies', () => {
       expect(fenceCalls).toBe(2);
       expect(installCalls).toBe(0);
       expect({ dev: afterRoot.dev, ino: afterRoot.ino }).toEqual({ dev: beforeRoot.dev, ino: beforeRoot.ino });
-      expect({ dev: afterSample.dev, ino: afterSample.ino })
-        .toEqual({ dev: beforeSample.dev, ino: beforeSample.ino });
+      expect({ dev: afterSample.dev, ino: afterSample.ino }).toEqual({ dev: beforeSample.dev, ino: beforeSample.ino });
     }, 'engineering-compiler-runtime-prebound-constant-work-');
   });
 
   test.concurrent('prebound dependency readiness rejects incomplete or forged package closure', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await ensureProjectBase(workspaceRoot);
-      const { projectRoot } = getWorkspacePaths(workspaceRoot);
-      const nodeModulesRoot = path.join(projectRoot, 'node_modules');
+      const nodeModulesRoot = path.join(workspaceRoot, 'node_modules');
       const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
       const yamlManifest = path.join(nodeModulesRoot, 'yaml', 'package.json');
       const runtimeSpec = await loadRuntimeDependencySpec();
       await installRuntimePackageManifestClosure(nodeModulesRoot);
-      await fs.writeFile(
-        bindingPath,
-        `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`,
-        'utf8'
-      );
+      await fs.writeFile(bindingPath, `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`, 'utf8');
 
       await fs.rm(yamlManifest);
-      await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
-        .rejects.toThrow('Plan-bound dependency tree is unavailable');
+      await expect(ensureProjectDependencies(workspaceRoot, { installMode: 'prebound-only' })).rejects.toThrow(
+        'Plan-bound dependency tree is unavailable'
+      );
 
       await fs.writeFile(yamlManifest, '{"name":"forged-yaml","version":"0.0.0"}\n', 'utf8');
-      await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
-        .rejects.toThrow('Plan-bound dependency tree is unavailable');
+      await expect(ensureProjectDependencies(workspaceRoot, { installMode: 'prebound-only' })).rejects.toThrow(
+        'Plan-bound dependency tree is unavailable'
+      );
 
       await fs.writeFile(yamlManifest, '{"name":"yaml","version":"0.0.0"}\n', 'utf8');
-      await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
-        .rejects.toThrow('Plan-bound dependency tree is unavailable');
+      await expect(ensureProjectDependencies(workspaceRoot, { installMode: 'prebound-only' })).rejects.toThrow(
+        'Plan-bound dependency tree is unavailable'
+      );
     }, 'engineering-compiler-runtime-prebound-package-closure-');
   });
 
   test.concurrent('prebound dependency readiness rejects stale markers without mutation or spawn', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await ensureProjectBase(workspaceRoot);
-      const { projectRoot } = getWorkspacePaths(workspaceRoot);
-      const nodeModulesRoot = path.join(projectRoot, 'node_modules');
+      const nodeModulesRoot = path.join(workspaceRoot, 'node_modules');
       const yamlPackageFile = path.join(nodeModulesRoot, 'yaml', 'package.json');
       const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
       await fs.mkdir(path.dirname(yamlPackageFile), { recursive: true });
       await fs.writeFile(yamlPackageFile, '{"name":"yaml","version":"0.0.0"}\n', 'utf8');
-      await fs.writeFile(bindingPath, JSON.stringify({
-        formatVersion: 'runtime-deps-prebound-binding-v1',
-        manifestHash: 'stale',
-        unexpected: true
-      }), 'utf8');
+      await fs.writeFile(
+        bindingPath,
+        JSON.stringify({
+          formatVersion: 'runtime-deps-prebound-binding-v1',
+          manifestHash: 'stale',
+          unexpected: true
+        }),
+        'utf8'
+      );
       const before = await fs.stat(yamlPackageFile);
       const beforeBytes = await fs.readFile(yamlPackageFile);
       let installCalls = 0;
 
-      await expect(ensureProjectDependencies(projectRoot, {
-        commandRunner: async () => {
-          installCalls += 1;
-          return { code: 0, stdout: 'unexpected', stderr: '' };
-        },
-        installMode: 'prebound-only',
-        sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
-      })).rejects.toThrow('Plan-bound dependency tree is unavailable');
+      await expect(
+        ensureProjectDependencies(workspaceRoot, {
+          commandRunner: async () => {
+            installCalls += 1;
+            return { code: 0, stdout: 'unexpected', stderr: '' };
+          },
+          installMode: 'prebound-only',
+          sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
+        })
+      ).rejects.toThrow('Plan-bound dependency tree is unavailable');
 
       await fs.rm(bindingPath, { force: true });
-      await expect(ensureProjectDependencies(projectRoot, {
-        commandRunner: async () => {
-          installCalls += 1;
-          return { code: 0, stdout: 'unexpected', stderr: '' };
-        },
-        installMode: 'prebound-only',
-        sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
-      })).rejects.toThrow('Plan-bound dependency tree is unavailable');
+      await expect(
+        ensureProjectDependencies(workspaceRoot, {
+          commandRunner: async () => {
+            installCalls += 1;
+            return { code: 0, stdout: 'unexpected', stderr: '' };
+          },
+          installMode: 'prebound-only',
+          sharedDepsRoot: path.join(workspaceRoot, 'poison-shared-deps')
+        })
+      ).rejects.toThrow('Plan-bound dependency tree is unavailable');
 
       const after = await fs.stat(yamlPackageFile);
       expect(installCalls).toBe(0);
@@ -395,10 +399,9 @@ describe('ensureProjectDependencies', () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
       await ensureProjectBase(workspaceRoot);
-      const { projectRoot } = getWorkspacePaths(workspaceRoot);
       const shared = await ensureSharedDepsReady({ sharedDepsRoot });
       const sequence: string[] = [];
-      await ensureProjectDependencies(projectRoot, {
+      await ensureProjectDependencies(workspaceRoot, {
         commandRunner: async () => {
           sequence.push('unexpected-spawn');
           return { code: 1, stdout: '', stderr: 'unexpected' };
@@ -407,14 +410,12 @@ describe('ensureProjectDependencies', () => {
       });
 
       expect(sequence).not.toContain('unexpected-spawn');
-      expect(await fs.realpath(path.join(projectRoot, 'node_modules'))).toBe(
-        path.join(sharedDepsRoot, 'node_modules')
-      );
+      expect(await fs.realpath(path.join(workspaceRoot, 'node_modules'))).toBe(path.join(sharedDepsRoot, 'node_modules'));
       const beforeCommit = async (): Promise<void> => {
         sequence.push('fence');
       };
 
-      await ensureProjectDependencies(projectRoot, {
+      await ensureProjectDependencies(workspaceRoot, {
         beforeCommit,
         commandRunner: async () => {
           sequence.push('unexpected-spawn');
@@ -428,11 +429,12 @@ describe('ensureProjectDependencies', () => {
 
       expect(sequence).not.toContain('unexpected-spawn');
       expect(sequence.filter((entry) => entry === 'fence').length).toBeGreaterThanOrEqual(6);
-      expect((await fs.lstat(path.join(projectRoot, 'node_modules'))).isSymbolicLink()).toBe(false);
-      await expect(fs.stat(path.join(projectRoot, 'node_modules', 'yaml', 'package.json')))
-        .resolves.toBeDefined();
-      expect(await readRuntimeDepsStamp(path.join(projectRoot, '.runtime-deps.stamp.json')))
-        .toMatchObject({ binding: { revision: shared.binding.revision }, packageManager: 'bun' });
+      expect((await fs.lstat(path.join(workspaceRoot, 'node_modules'))).isSymbolicLink()).toBe(false);
+      await expect(fs.stat(path.join(workspaceRoot, 'node_modules', 'yaml', 'package.json'))).resolves.toBeDefined();
+      expect(await readRuntimeDepsStamp(path.join(workspaceRoot, '.runtime-deps.stamp.json'))).toMatchObject({
+        binding: { revision: shared.binding.revision },
+        packageManager: 'bun'
+      });
     }, 'engineering-compiler-runtime-projection-');
   });
 });

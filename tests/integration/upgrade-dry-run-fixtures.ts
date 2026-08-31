@@ -12,6 +12,6 @@ export async function runPlannedSlotUpgradeDryRun(options: SlotUpgradeDryRunOpti
   const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
 
   expect(upgradePlan.status).toBe('planned');
-  await expectFileUnchanged(paths.planPath, beforePlan);
+  await expectFileUnchanged(paths.workspaceConfigPath, beforePlan);
   return upgradePlan;
 }

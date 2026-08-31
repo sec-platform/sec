@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { emptyCiArtifactManifest } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import {
+  CI_ARTIFACT_FILES,
+  ciArtifactUploadName,
+  emptyCiArtifactManifest
+} from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { validateCiArtifactManifest } from '../../src/verification/ci-artifacts/runtime/authority.ts';
 
 test('CI artifact authority accepts canonical derived empty manifest', () => {
@@ -35,9 +39,9 @@ test('CI artifact authority rejects non-portable and normalized-on-read path spe
   const candidate = {
     ...base,
     artifacts: [{
-      path: 'control\\evidence\\verification-report.json',
+      path: CI_ARTIFACT_FILES.verificationReport.replaceAll('/', '\\'),
       kind: 'governance',
-      uploadName: 'control__evidence__verification-report.json',
+      uploadName: 'noncanonical-upload-name',
       exists: true
     }],
     summary: {
@@ -59,13 +63,13 @@ test('CI artifact authority rejects non-portable and normalized-on-read path spe
 
 test('CI artifact authority rejects one path being both present and missing', () => {
   const base = emptyCiArtifactManifest();
-  const path = 'control/evidence/verification-report.json';
+  const path = CI_ARTIFACT_FILES.verificationReport;
   const candidate = {
     ...base,
     artifacts: [{
       path,
       kind: 'governance',
-      uploadName: 'control__evidence__verification-report.json',
+      uploadName: ciArtifactUploadName(path),
       exists: true
     }],
     uploadGroups: [{ kind: 'governance', count: 1, paths: [path] }],

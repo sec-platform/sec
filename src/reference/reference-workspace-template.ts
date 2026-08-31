@@ -1,6 +1,6 @@
 import type { PlanFile } from '../compiler/contract.ts';
 import { SUPPORTED_STACK } from '../compiler/contract.ts';
-import { officialRegistryRelativePath, posixPath, privateRegistryRelativePath } from '../workspace/paths.ts';
+import { officialRegistryRelativePath, posixPath, privateRegistryRelativePath } from '../workspace/runtime/paths.ts';
 
 const REFERENCE_ACCEPTANCE: readonly PlanFile['acceptance'][number][] = Object.freeze([
   { id: 'user_can_login' },
@@ -43,17 +43,7 @@ export function buildReferenceWorkspacePlan(): PlanFile {
       { id: 'tenant/basic-workspace', version: '0.1.0' },
       { id: 'entity/customer-basic', version: '0.1.0' }
     ],
-    slots: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        kind: 'adapter',
-        target: 'custom/customer_normalizer.ts',
-        sourcePath: 'source/code/slots/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        description: 'Name required; email lowercased; phone digits only; company defaults to Unknown.'
-      }
-    ],
+    slots: [],
     acceptance: [...REFERENCE_ACCEPTANCE]
   };
 }

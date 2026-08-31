@@ -25,7 +25,7 @@ import {
   testWorkspaceSupervisorLeasePathV1
 } from '../../src/development/runner/env-manager.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { compilerRoot } from '../../src/workspace/paths.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 const isolatedTestWorkspaceEnvironment = {
   [TEST_WORKSPACE_NAMESPACE_ENV]: undefined,

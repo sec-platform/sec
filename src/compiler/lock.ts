@@ -7,9 +7,15 @@ import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES } from
 import { SEMANTIC_GENERATOR_ARTIFACT_KINDS, SEMANTIC_GENERATOR_CONSUME_KINDS, SEMANTIC_GENERATOR_KINDS, SEMANTIC_GENERATOR_TASK_STATUSES } from '../semantic/generation/contract/types.ts';
 import { AUTHORITY_OVERLAY_STATUSES, INSPECTOR_SECTION_IDS, SEMANTIC_VIEW_FORMAT_VERSION, SEMANTIC_VIEW_KINDS, SEMANTIC_VIEW_SET_FORMAT_VERSION, VIEW_BADGES, VIEW_REFERENCE_KINDS } from '../semantic/projection/contract/types.ts';
 import { uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
-import { expandCiGeneratedArtifactPaths } from '../verification/ci-artifacts/contract/manifest.ts';
+import {
+  CI_ARTIFACT_FILES,
+  expandCiGeneratedArtifactPaths
+} from '../verification/ci-artifacts/contract/manifest.ts';
 import { formatJsonFile, type CommitFence } from '../workspace/files.ts';
-import { getWorkspacePaths } from '../workspace/paths.ts';
+import {
+  getWorkspacePaths,
+  resolveWorkspaceArtifactPath
+} from '../workspace/paths.ts';
 import {
   LOCK_APP_TARGETS,
   LOCK_FILE_FORMAT_VERSION,
@@ -264,7 +270,7 @@ function missingLockError(lockPath: string): NodeJS.ErrnoException {
 
 /** Retained Lock observation is synchronous; publication remains asynchronous. */
 export function readLockFile(workspaceRoot: string): LockFile {
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const canonical = readOptionalLockAtPath(lockPath);
   if (canonical !== null) return canonical;
   throw missingLockError(lockPath);
@@ -272,10 +278,14 @@ export function readLockFile(workspaceRoot: string): LockFile {
 
 function canonicalWorkspaceRootForLockPath(lockPath: string): string {
   const absolutePath = path.resolve(lockPath);
-  const stateRoot = path.dirname(absolutePath);
-  const controlRoot = path.dirname(stateRoot);
-  const workspaceRoot = path.dirname(controlRoot);
-  const expectedLockPath = path.resolve(getWorkspacePaths(workspaceRoot).lockPath);
+  const artifactSegments = CI_ARTIFACT_FILES.graphLock.split('/');
+  let workspaceRoot = absolutePath;
+  for (let index = 0; index < artifactSegments.length; index += 1) {
+    workspaceRoot = path.dirname(workspaceRoot);
+  }
+  const expectedLockPath = path.resolve(
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock)
+  );
   if (absolutePath !== expectedLockPath) {
     throw new Error(`Refusing non-canonical Lock publication path: ${absolutePath}`);
   }
@@ -297,9 +307,15 @@ async function retainedLockParent(
     }
   }
 
-  const workspace = inspectNoFollowDirectoryChain(workspaceRoot, 'Lock workspace root').target;
+  const secRoot = inspectNoFollowDirectoryChain(
+    getWorkspacePaths(workspaceRoot).secRoot,
+    'Lock SEC root'
+  ).target;
   await commitFence?.();
-  return createNoFollowDirectoryChain(workspace, ['control', 'state']);
+  return createNoFollowDirectoryChain(
+    secRoot,
+    CI_ARTIFACT_FILES.graphLock.split('/').slice(1, -1)
+  );
 }
 
 async function publishLockAtPath(
@@ -328,7 +344,7 @@ export async function saveLock(
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<void> {
-  const { lockPath } = getWorkspacePaths(workspaceRoot);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   await publishLockAtPath(lockPath, lock, commitFence);
 }
 

@@ -4,30 +4,32 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 import { parse } from 'yaml';
 
+import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
 import { readLockFile } from '../../src/compiler/lock.ts';
+import { referenceWorkspaceRoot } from '../../src/reference/workspace.ts';
 import { assertCanonicalVerificationArtifactSet, type VerificationArtifactSet } from '../../src/verification/artifact/contract/artifact.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 
-const root = path.resolve(import.meta.dir, '../..');
-
-function readJson(relativePath: string): unknown {
-  return JSON.parse(readFileSync(path.join(root, relativePath), 'utf8')) as unknown;
+function readJson(filePath: string): unknown {
+  return JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
 }
 
 test('current reference projection preserves library applicability and typed Policy frontier', () => {
-  const source = parse(readFileSync(path.join(root, 'source/app.yaml'), 'utf8')) as {
+  const source = parse(readFileSync(path.join(referenceWorkspaceRoot, 'sec.yaml'), 'utf8')) as {
     app: { stack: string };
     acceptance: Array<{ id: string }>;
   };
-  const lock = readLockFile(root);
+  const lock = readLockFile(referenceWorkspaceRoot);
   const artifacts: VerificationArtifactSet = {
-    verificationReport: readJson('control/evidence/verification-report.json'),
-    runtimeReport: readJson('control/evidence/runtime-report.json'),
-    policyReport: readJson('control/evidence/policy-report.json'),
-    acceptanceCoverage: readJson('control/evidence/acceptance-coverage.json')
+    verificationReport: readJson(resolveWorkspaceArtifactPath(referenceWorkspaceRoot, CI_ARTIFACT_FILES.verificationReport)),
+    runtimeReport: readJson(resolveWorkspaceArtifactPath(referenceWorkspaceRoot, CI_ARTIFACT_FILES.runtimeReport)),
+    policyReport: readJson(resolveWorkspaceArtifactPath(referenceWorkspaceRoot, CI_ARTIFACT_FILES.policyReport)),
+    acceptanceCoverage: readJson(resolveWorkspaceArtifactPath(referenceWorkspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage))
   };
   assertCanonicalVerificationArtifactSet(artifacts);
 
-  expect(source.app.stack).toBe('typescript-library');
+  expect(source.app.stack).toBe(SUPPORTED_STACK);
   expect(lock.app.stack).toBe(source.app.stack);
   expect(source.acceptance.map(({ id }) => id)).toContain('customer_can_upload_attachment');
   expect(source.acceptance.map(({ id }) => id)).toContain('ticket_attachment_can_be_uploaded');
@@ -55,8 +57,6 @@ test('current reference projection preserves library applicability and typed Pol
   });
   expect(lock.passStatus.verify).toBe('failed');
 
-  const retiredDefaultWebPath = /^(?:app|components|control\/workbench|generated)(?:\/|$)|^next(?:-env\.d\.ts|\.config\.mjs)$/u;
-  expect(lock.generatedPaths.filter((entry) => retiredDefaultWebPath.test(entry))).toEqual([]);
   expect(lock.installPlan.map(({ to }) => to)).toContain(
     'tests/acceptance/customer-attachments-flow.test.ts'
   );

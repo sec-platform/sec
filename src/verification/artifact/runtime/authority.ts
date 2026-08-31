@@ -2,7 +2,8 @@ import path from 'node:path';
 
 import { readOptionalRetainedJsonLeaf, retainOptionalDirectory } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { cloneAndDeepFreeze } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { getWorkspacePaths } from '../../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../../workspace/paths.ts';
+import { CI_ARTIFACT_FILES } from '../../ci-artifacts/contract/manifest.ts';
 import {
   assertCanonicalVerificationArtifactSet,
   type CanonicalVerificationArtifactSet,
@@ -22,14 +23,14 @@ export function readOptionalCanonicalVerificationArtifactSet(
   workspaceRoot: string,
   label = 'Verification artifact set'
 ): CanonicalVerificationArtifactSet | null {
-  const paths = getWorkspacePaths(workspaceRoot);
   const artifactPaths = [
-    paths.verificationReportPath,
-    paths.runtimeReportPath,
-    paths.policyReportPath,
-    paths.acceptanceCoveragePath
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport),
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage)
   ] as const;
-  const parentPath = path.dirname(paths.verificationReportPath);
+  const [verificationReportPath, runtimeReportPath, policyReportPath, acceptanceCoveragePath] = artifactPaths;
+  const parentPath = path.dirname(verificationReportPath);
   if (artifactPaths.some((filePath) => path.dirname(filePath) !== parentPath)) {
     throw new Error(`${label} artifacts must share one canonical parent`);
   }
@@ -40,22 +41,22 @@ export function readOptionalCanonicalVerificationArtifactSet(
   const candidate: VerificationArtifactSet = {
     verificationReport: readOptionalRetainedJsonLeaf<unknown>(
       parent,
-      path.basename(paths.verificationReportPath),
+      path.basename(verificationReportPath),
       `${label} Verification report`
     ),
     runtimeReport: readOptionalRetainedJsonLeaf<unknown>(
       parent,
-      path.basename(paths.runtimeReportPath),
+      path.basename(runtimeReportPath),
       `${label} Runtime report`
     ),
     policyReport: readOptionalRetainedJsonLeaf<unknown>(
       parent,
-      path.basename(paths.policyReportPath),
+      path.basename(policyReportPath),
       `${label} Policy report`
     ),
     acceptanceCoverage: readOptionalRetainedJsonLeaf<unknown>(
       parent,
-      path.basename(paths.acceptanceCoveragePath),
+      path.basename(acceptanceCoveragePath),
       `${label} Acceptance Coverage report`
     )
   };

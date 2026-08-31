@@ -12,11 +12,8 @@ import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { validateReviewSummary } from '../../src/verification/review/contract/summary.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
-import {
-  buildOfficialCopyInstallStep,
-  buildOfficialResolvedBlock
-} from '../helpers/lock-fixtures.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { buildOfficialCopyInstallStep, buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import {
   buildPassingReviewCoverage,
   buildPassingReviewReport,
@@ -25,18 +22,8 @@ import {
   buildReviewProvenance,
   buildRuntimeVerificationReport
 } from '../helpers/review-fixtures.ts';
-import {
-  expectCliJson,
-  expectCliSuccess,
-  expectCliText,
-  runCliInProcess
-} from '../testkit/cli.ts';
-import {
-  createWorkspace,
-  prepareAdaptedWorkspace,
-  prepareLockedWorkspace,
-  withTempWorkspace
-} from '../testkit/workspace.ts';
+import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess } from '../testkit/cli.ts';
+import { createWorkspace, prepareAdaptedWorkspace, prepareLockedWorkspace, withTempWorkspace } from '../testkit/workspace.ts';
 
 async function readReviewInputs(workspaceRoot: string): Promise<{
   lock: LockFile;
@@ -44,7 +31,10 @@ async function readReviewInputs(workspaceRoot: string): Promise<{
   report: VerificationReport;
   coverage: AcceptanceCoverageReport;
 }> {
-  const { acceptanceCoveragePath, lockPath, provenancePath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const acceptanceCoveragePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
+  const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
   const [lock, provenance, report, coverage] = await Promise.all([
     readJson<LockFile>(lockPath),
     readJson<ProvenanceFile>(provenancePath),
@@ -57,7 +47,8 @@ async function readReviewInputs(workspaceRoot: string): Promise<{
 
 test('canonical Review Summary publication persists the artifact and generated path', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-write-');
-  const { lockPath, reviewSummaryPath } = getWorkspacePaths(workspaceRoot);
+  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const reviewSummaryPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary);
   const { lock, provenance, report, coverage } = buildReviewInputs({
     lock: {
       app: { stack: 'typescript-library' },
@@ -92,7 +83,7 @@ test('canonical Review Summary publication persists the artifact and generated p
 }, 180000);
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
   const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-review-fast-' });
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const projectRoot = workspaceRoot;
 
   await fs.writeFile(
     path.join(projectRoot, 'src', 'installed', 'entity', 'customer-service.ts'),
@@ -178,9 +169,7 @@ test('buildReviewSummary adds failed verification targets as structured failure 
     )
   ).toHaveLength(1);
   expect(
-    summary.failurePoints.filter(
-      (point) => point.message === 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts'
-    )
+    summary.failurePoints.filter((point) => point.message === 'Runtime unit test failed: tests/runtime/unit/customer-runtime.test.ts')
   ).toHaveLength(1);
   expect(summary.failurePoints).toEqual(
     expect.arrayContaining([
@@ -324,10 +313,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
   expect(summary.verticalSlices).toEqual([
     {
       id: 'ticket',
-      runtimeEntries: [
-        'src/installed/reporting/ticket-summary.ts',
-        'src/installed/ticket/ticket-service.ts'
-      ],
+      runtimeEntries: ['src/installed/reporting/ticket-summary.ts', 'src/installed/ticket/ticket-service.ts'],
       relatedBlocks: ['reporting/ticket-summary', 'ticket/basic']
     }
   ]);
@@ -344,10 +330,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
       blockId: 'reporting/ticket-summary',
       actionKinds: ['copy'],
       sourceRoots: ['reporting.ticket-summary'],
-      targetPaths: [
-        'src/installed/reporting/ticket-summary.ts',
-        'src/installed/reporting/ticket-summary.ts'
-      ],
+      targetPaths: ['src/installed/reporting/ticket-summary.ts', 'src/installed/reporting/ticket-summary.ts'],
       verticals: [],
       runtimeEntries: ['src/installed/reporting/ticket-summary.ts']
     },
@@ -439,19 +422,12 @@ afterAll(async () => {
 
 test('CLI exposes project overview as text summary and reports missing governance artifacts', async () => {
   const workspaceRoot = await getSharedOverviewWorkspace();
-  await expectCliText(workspaceRoot, ['overview'], [
-    'Project overview',
-    'Workspace:',
-    'Verification:',
-    'Graph:',
-    'Views:',
-    'Next:'
-  ]);
+  await expectCliText(workspaceRoot, ['overview'], ['Project overview', 'Workspace:', 'Verification:', 'Graph:', 'Views:', 'Next:']);
 
   // 复制共享 workspace 的一份副本来测试"缺失产物"路径（避免污染共享状态）
   await withTempWorkspace(async (tempRoot) => {
     await fs.cp(workspaceRoot, tempRoot, { recursive: true });
-    const { provenancePath } = getWorkspacePaths(tempRoot);
+    const provenancePath = resolveWorkspaceArtifactPath(tempRoot, CI_ARTIFACT_FILES.provenance);
     await fs.rm(provenancePath);
     const missingArtifactResult = await runCliInProcess(tempRoot, ['overview']);
     expect(missingArtifactResult.code).toBe(1);
@@ -466,17 +442,8 @@ test('CLI exposes project overview as compact JSON contract', async () => {
   const payload = await expectCliJson<{
     formatVersion: string;
     navigation: { machineArtifacts: Array<{ id: string; path?: string }> };
-  }>(
-    workspaceRoot,
-    ['overview', '--json', '--compact'],
-    { formatVersion: '1' },
-    { compact: true }
-  );
+  }>(workspaceRoot, ['overview', '--json', '--compact'], { formatVersion: '1' }, { compact: true });
 
   expect(payload.navigation.machineArtifacts[0]?.id).toBe('graph');
-  expect(payload.navigation.machineArtifacts).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ id: 'verification' })
-    ])
-  );
+  expect(payload.navigation.machineArtifacts).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'verification' })]));
 }, 120000);

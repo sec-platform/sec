@@ -5,8 +5,9 @@ import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { checkProjectWriteBoundary, writeProjectBaseline } from '../../src/workspace/project.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -45,9 +46,10 @@ function lockFor(artifactPath: string): LockFile {
 
 test('project write boundary prefers current local baseline over stale provenance', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
-    const artifactPath = 'app/page.tsx';
-    const absolutePath = path.join(projectRoot, artifactPath);
+    const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
+    const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
+    const artifactPath = 'src/ui/page.ts';
+    const absolutePath = path.join(root, artifactPath);
     const previousContent = 'export const revision = 1;';
     const currentContent = 'export const revision = 2;';
 

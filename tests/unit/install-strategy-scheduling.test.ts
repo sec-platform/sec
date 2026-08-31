@@ -37,17 +37,16 @@ test('install strategy registry serializes read-modify-write steps sharing one t
 `)
     ]);
 
-    const { projectRoot } = getWorkspacePaths(workspaceRoot);
+    const { prismaRoot } = getWorkspacePaths(workspaceRoot);
     await defaultInstallRegistry.executeAll([
       mergePrismaStep('alpha', 'alpha.prisma'),
       mergePrismaStep('beta', 'beta.prisma')
     ], {
       workspaceRoot,
-      projectRoot,
       lock: {} as LockFile
     });
 
-    const schema = await readText(path.join(projectRoot, 'prisma', 'schema.prisma'));
+    const schema = await readText(path.join(prismaRoot, 'schema.prisma'));
     expect(parsePrismaSchema(schema).blocks
       .filter((block) => block.type === 'model')
       .map((block) => block.name)).toEqual(['Alpha', 'Beta']);

@@ -22,115 +22,130 @@ import {
 } from './migration-fixtures.ts';
 
 test('file-replace migration copies manifest source to impacted project target', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
-    await fs.mkdir(path.join(projectRoot, 'src'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const version = "0.1.1";\n', 'utf8');
-    await fs.writeFile(path.join(projectRoot, 'src', 'target.ts'), 'export const version = "0.1.0";\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'src', 'target.ts'), 'export const version = "0.1.0";\n', 'utf8');
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts')]);
+    await applyMigrationEntries(workspaceRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts')]);
 
-    await expect(fs.readFile(path.join(projectRoot, 'src', 'target.ts'), 'utf8')).resolves.toBe('export const version = "0.1.1";\n');
+    await expect(fs.readFile(path.join(workspaceRoot, 'src', 'target.ts'), 'utf8')).resolves.toBe('export const version = "0.1.1";\n');
   });
 });
 
 test('file-replace migration rejects directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
-    await fs.mkdir(path.join(projectRoot, 'src', 'target.ts'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'src', 'target.ts'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const version = "0.1.1";\n', 'utf8');
 
-    await expect(applyMigrationEntries(projectRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts')])).rejects.toMatchObject({
+    await expect(
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts')])
+    ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });
   });
 });
 
 test('copy-file migration copies manifest source to impacted project target', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const copied = true;\n', 'utf8');
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')]);
+    await applyMigrationEntries(workspaceRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')]);
 
-    await expect(fs.readFile(path.join(projectRoot, 'src', 'copied.ts'), 'utf8')).resolves.toBe('export const copied = true;\n');
+    await expect(fs.readFile(path.join(workspaceRoot, 'src', 'copied.ts'), 'utf8')).resolves.toBe('export const copied = true;\n');
   });
 });
 
 test('copy-file migration rejects directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
-    await fs.mkdir(path.join(projectRoot, 'src', 'copied.ts'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'src', 'copied.ts'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'export const copied = true;\n', 'utf8');
 
-    await expect(applyMigrationEntries(projectRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')])).rejects.toMatchObject({
+    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, ['src/copied.ts'], [copyFile('src/copied.ts')])).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });
   });
 });
 
 test('copy-directory migration copies manifest directory to impacted project target', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files', 'runtime', 'nested'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'runtime', 'route.ts'), 'export const runtime = true;\n', 'utf8');
-    await fs.writeFile(path.join(manifestRoot, 'files', 'runtime', 'nested', 'worker.ts'), 'export function run() { return true; }\n', 'utf8');
+    await fs.writeFile(
+      path.join(manifestRoot, 'files', 'runtime', 'nested', 'worker.ts'),
+      'export function run() { return true; }\n',
+      'utf8'
+    );
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['modules/runtime'], [copyDirectory('modules/runtime')]);
+    await applyMigrationEntries(workspaceRoot, manifestRoot, ['modules/runtime'], [copyDirectory('modules/runtime')]);
 
-    await expect(fs.readFile(path.join(projectRoot, 'modules', 'runtime', 'route.ts'), 'utf8')).resolves.toBe('export const runtime = true;\n');
-    await expect(fs.readFile(path.join(projectRoot, 'modules', 'runtime', 'nested', 'worker.ts'), 'utf8')).resolves.toBe('export function run() { return true; }\n');
+    await expect(fs.readFile(path.join(workspaceRoot, 'modules', 'runtime', 'route.ts'), 'utf8')).resolves.toBe(
+      'export const runtime = true;\n'
+    );
+    await expect(fs.readFile(path.join(workspaceRoot, 'modules', 'runtime', 'nested', 'worker.ts'), 'utf8')).resolves.toBe(
+      'export function run() { return true; }\n'
+    );
   });
 });
 
 test('copy-directory migration rejects file targets before copying', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files', 'runtime'), { recursive: true });
-    await fs.mkdir(path.join(projectRoot, 'modules'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'modules'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'runtime', 'route.ts'), 'export const runtime = true;\n', 'utf8');
-    await fs.writeFile(path.join(projectRoot, 'modules', 'runtime'), 'occupied\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'modules', 'runtime'), 'occupied\n', 'utf8');
 
     await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, ['modules/runtime'], [copyDirectory('modules/runtime')])
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['modules/runtime'], [copyDirectory('modules/runtime')])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-027'
     });
-    await expect(fs.readFile(path.join(projectRoot, 'modules', 'runtime'), 'utf8')).resolves.toBe('occupied\n');
+    await expect(fs.readFile(path.join(workspaceRoot, 'modules', 'runtime'), 'utf8')).resolves.toBe('occupied\n');
   });
 });
 
 test('config-rewrite migration deletes nested JSON configuration keys', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await writeJson(path.join(projectRoot, 'app.config.json'), {
+    await writeJson(path.join(workspaceRoot, 'app.config.json'), {
       feature: { enabled: true, deprecated: true },
       staleRoot: 'remove',
       keep: true
     });
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
-      configRewrite('app.config.json', [
-        { path: ['feature', 'deprecated'], operation: 'delete' },
-        { path: ['feature', 'mode'], value: 'strict' },
-        { path: ['staleRoot'], operation: 'delete' }
-      ])
-    ]);
+    await applyMigrationEntries(
+      workspaceRoot,
+      manifestRoot,
+      ['app.config.json'],
+      [
+        configRewrite('app.config.json', [
+          { path: ['feature', 'deprecated'], operation: 'delete' },
+          { path: ['feature', 'mode'], value: 'strict' },
+          { path: ['staleRoot'], operation: 'delete' }
+        ])
+      ]
+    );
 
-    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
       `${JSON.stringify(
         {
           feature: {
@@ -147,16 +162,19 @@ test('config-rewrite migration deletes nested JSON configuration keys', async ()
 });
 
 test('config-rewrite migration rejects directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'app.config.json'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
-        configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }])
-      ])
+      applyMigrationEntries(
+        workspaceRoot,
+        manifestRoot,
+        ['app.config.json'],
+        [configRewrite('app.config.json', [{ path: ['feature', 'enabled'], value: true }])]
+      )
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });
@@ -164,14 +182,14 @@ test('config-rewrite migration rejects directory targets', async () => {
 });
 
 test('json-array-append migration rejects directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'app.config.json'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])])
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['app.config.json'], [jsonArrayAppend('app.config.json', ['plugins'], ['tenant'])])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });
@@ -179,14 +197,14 @@ test('json-array-append migration rejects directory targets', async () => {
 });
 
 test('json-array-remove migration rejects directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'app.config.json'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [jsonArrayRemove('app.config.json', ['plugins'], ['auth'])])
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['app.config.json'], [jsonArrayRemove('app.config.json', ['plugins'], ['auth'])])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });
@@ -194,33 +212,39 @@ test('json-array-remove migration rejects directory targets', async () => {
 });
 
 test('json-object-merge migration creates missing JSON targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
-      jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })
-    ]);
+    await applyMigrationEntries(
+      workspaceRoot,
+      manifestRoot,
+      ['app.config.json'],
+      [jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })]
+    );
 
-    await expect(fs.readFile(path.join(projectRoot, 'app.config.json'), 'utf8')).resolves.toBe(
+    await expect(fs.readFile(path.join(workspaceRoot, 'app.config.json'), 'utf8')).resolves.toBe(
       formatJsonFile({ compiler: { upgrade: { enabled: true } } })
     );
   });
 });
 
 test('json-object-merge migration rejects directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'app.config.json'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'app.config.json'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, ['app.config.json'], [
-        jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })
-      ])
+      applyMigrationEntries(
+        workspaceRoot,
+        manifestRoot,
+        ['app.config.json'],
+        [jsonObjectMerge('app.config.json', ['compiler'], { upgrade: { enabled: true } })]
+      )
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });
@@ -228,122 +252,111 @@ test('json-object-merge migration rejects directory targets', async () => {
 });
 
 test('create-directory migration creates nested target directories', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const target = 'generated/reports/snapshots';
-    await applyMigrationEntries(projectRoot, manifestRoot, [target], [createDirectory(target)]);
+    await applyMigrationEntries(workspaceRoot, manifestRoot, [target], [createDirectory(target)]);
 
-    const snapshotsDir = path.join(projectRoot, 'generated', 'reports', 'snapshots');
+    const snapshotsDir = path.join(workspaceRoot, 'generated', 'reports', 'snapshots');
     const stats = await fs.stat(snapshotsDir);
     expect(stats.isDirectory()).toBe(true);
   });
 });
 
 test('create-directory migration keeps existing directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     const target = 'generated/reports/snapshots';
-    await fs.mkdir(path.join(projectRoot, target), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, target), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
-    await applyMigrationEntries(projectRoot, manifestRoot, [target], [createDirectory(target)]);
+    await applyMigrationEntries(workspaceRoot, manifestRoot, [target], [createDirectory(target)]);
 
-    const stats = await fs.stat(path.join(projectRoot, target));
+    const stats = await fs.stat(path.join(workspaceRoot, target));
     expect(stats.isDirectory()).toBe(true);
   });
 });
 
 test('create-directory migration rejects file targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     const target = 'generated/reports/snapshots';
-    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(path.join(projectRoot, target), 'occupied\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, target), 'occupied\n', 'utf8');
 
-    await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, [target], [createDirectory(target)])
-    ).rejects.toMatchObject({
+    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [createDirectory(target)])).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-028'
     });
-    await expect(fs.readFile(path.join(projectRoot, target), 'utf8')).resolves.toBe('occupied\n');
+    await expect(fs.readFile(path.join(workspaceRoot, target), 'utf8')).resolves.toBe('occupied\n');
   });
 });
 
 test('delete-file migration removes existing file targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const target = 'generated/reports/old.json';
-    const targetPath = path.join(projectRoot, 'generated', 'reports', 'old.json');
+    const targetPath = path.join(workspaceRoot, 'generated', 'reports', 'old.json');
     await fs.writeFile(targetPath, '{}\n', 'utf8');
 
-    await applyMigrationEntries(projectRoot, manifestRoot, [target], [deleteFile(target)]);
+    await applyMigrationEntries(workspaceRoot, manifestRoot, [target], [deleteFile(target)]);
 
     await expect(fs.access(targetPath)).rejects.toThrow();
   });
 });
 
 test('delete-file migration rejects missing targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const target = 'generated/reports/missing.json';
-    await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, [target], [deleteFile(target)])
-    ).rejects.toMatchObject({
+    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [deleteFile(target)])).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-016'
     });
   });
 });
 
 test('delete-file migration rejects directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const target = 'generated/reports';
-    await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, [target], [deleteFile(target)])
-    ).rejects.toMatchObject({
+    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [target], [deleteFile(target)])).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });
   });
 });
 
 test('rename-file migration moves file targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports/old.json';
     const target = 'generated/reports/archive/old.json';
-    const sourcePath = path.join(projectRoot, 'generated', 'reports', 'old.json');
-    const targetPath = path.join(projectRoot, 'generated', 'reports', 'archive', 'old.json');
+    const sourcePath = path.join(workspaceRoot, 'generated', 'reports', 'old.json');
+    const targetPath = path.join(workspaceRoot, 'generated', 'reports', 'archive', 'old.json');
     await fs.writeFile(sourcePath, '{"status":"old"}\n', 'utf8');
 
-    await applyMigrationEntries(
-      projectRoot,
-      manifestRoot,
-      [source, target],
-      [renameFile(source, target)]
-    );
+    await applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)]);
 
     await expect(fs.access(sourcePath)).rejects.toThrow();
     await expect(fs.readFile(targetPath, 'utf8')).resolves.toBe('{"status":"old"}\n');
@@ -351,93 +364,67 @@ test('rename-file migration moves file targets', async () => {
 });
 
 test('rename-file migration rejects missing sources', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports/missing.json';
     const target = 'generated/reports/archive/missing.json';
-    await expect(
-      applyMigrationEntries(
-        projectRoot,
-        manifestRoot,
-        [source, target],
-        [renameFile(source, target)]
-      )
-    ).rejects.toMatchObject({
+    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)])).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-018'
     });
   });
 });
 
 test('rename-file migration rejects directory sources', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports';
     const target = 'generated/archive';
-    await expect(
-      applyMigrationEntries(
-        projectRoot,
-        manifestRoot,
-        [source, target],
-        [renameFile(source, target)]
-      )
-    ).rejects.toMatchObject({
+    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)])).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-019'
     });
   });
 });
 
 test('rename-file migration rejects occupied targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
-    await fs.mkdir(path.join(projectRoot, 'generated', 'archive'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'generated', 'archive'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports/old.json';
     const target = 'generated/archive/old.json';
-    await fs.writeFile(path.join(projectRoot, 'generated', 'reports', 'old.json'), 'old\n', 'utf8');
-    await fs.writeFile(path.join(projectRoot, 'generated', 'archive', 'old.json'), 'existing\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'generated', 'reports', 'old.json'), 'old\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'generated', 'archive', 'old.json'), 'existing\n', 'utf8');
 
-    await expect(
-      applyMigrationEntries(
-        projectRoot,
-        manifestRoot,
-        [source, target],
-        [renameFile(source, target)]
-      )
-    ).rejects.toMatchObject({
+    await expect(applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameFile(source, target)])).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-020'
     });
   });
 });
 
 test('rename-directory migration moves directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     const source = 'generated/reports/current';
     const target = 'generated/reports/archive/current';
-    const sourcePath = path.join(projectRoot, 'generated', 'reports', 'current');
-    const targetPath = path.join(projectRoot, 'generated', 'reports', 'archive', 'current');
+    const sourcePath = path.join(workspaceRoot, 'generated', 'reports', 'current');
+    const targetPath = path.join(workspaceRoot, 'generated', 'reports', 'archive', 'current');
     await fs.mkdir(sourcePath, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
     await fs.writeFile(path.join(sourcePath, 'summary.json'), '{"status":"old"}\n', 'utf8');
 
-    await applyMigrationEntries(
-      projectRoot,
-      manifestRoot,
-      [source, target],
-      [renameDirectory(source, target)]
-    );
+    await applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameDirectory(source, target)]);
 
     await expect(fs.access(sourcePath)).rejects.toThrow();
     await expect(fs.readFile(path.join(targetPath, 'summary.json'), 'utf8')).resolves.toBe('{"status":"old"}\n');
@@ -445,23 +432,18 @@ test('rename-directory migration moves directory targets', async () => {
 });
 
 test('rename-directory migration rejects file sources', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'generated', 'reports'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'generated', 'reports'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     const source = 'generated/reports/current.json';
     const target = 'generated/reports/archive/current';
-    await fs.writeFile(path.join(projectRoot, source), '{}\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, source), '{}\n', 'utf8');
 
     await expect(
-      applyMigrationEntries(
-        projectRoot,
-        manifestRoot,
-        [source, target],
-        [renameDirectory(source, target)]
-      )
+      applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameDirectory(source, target)])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-019'
     });
@@ -469,22 +451,17 @@ test('rename-directory migration rejects file sources', async () => {
 });
 
 test('rename-directory migration rejects occupied targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     const source = 'generated/reports/current';
     const target = 'generated/reports/archive/current';
-    await fs.mkdir(path.join(projectRoot, source), { recursive: true });
-    await fs.mkdir(path.join(projectRoot, target), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, source), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, target), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     await expect(
-      applyMigrationEntries(
-        projectRoot,
-        manifestRoot,
-        [source, target],
-        [renameDirectory(source, target)]
-      )
+      applyMigrationEntries(workspaceRoot, manifestRoot, [source, target], [renameDirectory(source, target)])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-020'
     });
@@ -492,49 +469,53 @@ test('rename-directory migration rejects occupied targets', async () => {
 });
 
 test('text-append migration appends content to existing text files', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), '- existing note\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), '- existing note\n', 'utf8');
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['docs/upgrade-notes.md'], [
-      textAppend('docs/upgrade-notes.md', '- appended note\n')
-    ]);
+    await applyMigrationEntries(
+      workspaceRoot,
+      manifestRoot,
+      ['docs/upgrade-notes.md'],
+      [textAppend('docs/upgrade-notes.md', '- appended note\n')]
+    );
 
-    await expect(fs.readFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe(
+    await expect(fs.readFile(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe(
       '- existing note\n- appended note\n'
     );
   });
 });
 
 test('text-append migration creates missing text targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['docs/upgrade-notes.md'], [
-      textAppend('docs/upgrade-notes.md', '- first note\n')
-    ]);
+    await applyMigrationEntries(
+      workspaceRoot,
+      manifestRoot,
+      ['docs/upgrade-notes.md'],
+      [textAppend('docs/upgrade-notes.md', '- first note\n')]
+    );
 
-    await expect(fs.readFile(path.join(projectRoot, 'docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe('- first note\n');
+    await expect(fs.readFile(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), 'utf8')).resolves.toBe('- first note\n');
   });
 });
 
 test('text-append migration rejects directory targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'docs', 'upgrade-notes.md'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'docs', 'upgrade-notes.md'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     await expect(
-      applyMigrationEntries(projectRoot, manifestRoot, ['docs/upgrade-notes.md'], [
-        textAppend('docs/upgrade-notes.md', '- first note\n')
-      ])
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['docs/upgrade-notes.md'], [textAppend('docs/upgrade-notes.md', '- first note\n')])
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });
@@ -542,29 +523,36 @@ test('text-append migration rejects directory targets', async () => {
 });
 
 test('slot-contract-update migration verifies custom slot target without changing files', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'custom'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'custom'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'export const marker = true;\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), 'export const marker = true;\n', 'utf8');
 
-    await applyMigrationEntries(projectRoot, manifestRoot, ['custom/customer_normalizer.ts'], [slotContractUpdate('custom/customer_normalizer.ts')]);
+    await applyMigrationEntries(
+      workspaceRoot,
+      manifestRoot,
+      ['custom/customer_normalizer.ts'],
+      [slotContractUpdate('custom/customer_normalizer.ts')]
+    );
 
-    await expect(fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8')).resolves.toBe('export const marker = true;\n');
+    await expect(fs.readFile(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), 'utf8')).resolves.toBe(
+      'export const marker = true;\n'
+    );
   });
 });
 
 test('slot-contract-update migration rejects directory custom slot targets', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
     await expect(
       applyMigrationEntries(
-        projectRoot,
+        workspaceRoot,
         manifestRoot,
         ['custom/customer_normalizer.ts'],
         [slotContractUpdate('custom/customer_normalizer.ts')]
@@ -576,32 +564,38 @@ test('slot-contract-update migration rejects directory custom slot targets', asy
 });
 
 test('file-replace migration rejects targets outside upgrade impacts', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
     await fs.mkdir(path.join(manifestRoot, 'files'), { recursive: true });
-    await fs.mkdir(path.join(projectRoot, 'src'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'src'), { recursive: true });
     await fs.writeFile(path.join(manifestRoot, 'files', 'source.ts'), 'new source\n', 'utf8');
-    await fs.writeFile(path.join(projectRoot, 'src', 'target.ts'), 'old source\n', 'utf8');
+    await fs.writeFile(path.join(workspaceRoot, 'src', 'target.ts'), 'old source\n', 'utf8');
 
-    await expect(applyMigrationEntries(projectRoot, manifestRoot, ['src/other.ts'], [fileReplace('src/target.ts')])).rejects.toMatchObject({
+    await expect(
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['src/other.ts'], [fileReplace('src/target.ts')])
+    ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-007'
     });
-    await expect(fs.readFile(path.join(projectRoot, 'src', 'target.ts'), 'utf8')).resolves.toBe('old source\n');
+    await expect(fs.readFile(path.join(workspaceRoot, 'src', 'target.ts'), 'utf8')).resolves.toBe('old source\n');
   });
 });
 
 test('file-replace migration rejects paths escaping project or manifest roots', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const projectRoot = path.join(workspaceRoot, 'project');
-    const manifestRoot = path.join(workspaceRoot, 'manifest');
-    await fs.mkdir(projectRoot, { recursive: true });
+  await withTempWorkspace(async (tempRoot) => {
+    const workspaceRoot = tempRoot;
+    const manifestRoot = path.join(tempRoot, 'manifest');
+    await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(manifestRoot, { recursive: true });
 
-    await expect(applyMigrationEntries(projectRoot, manifestRoot, ['../outside.ts'], [fileReplace('../outside.ts')])).rejects.toMatchObject({
+    await expect(
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['../outside.ts'], [fileReplace('../outside.ts')])
+    ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-004'
     });
-    await expect(applyMigrationEntries(projectRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts', '../source.ts')])).rejects.toMatchObject({
+    await expect(
+      applyMigrationEntries(workspaceRoot, manifestRoot, ['src/target.ts'], [fileReplace('src/target.ts', '../source.ts')])
+    ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-005'
     });
   });

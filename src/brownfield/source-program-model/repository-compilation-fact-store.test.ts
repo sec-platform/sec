@@ -5,18 +5,19 @@ import path from 'node:path';
 
 import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
-import { issueRepositoryCompilationContext } from './repository-compilation-context.ts';
+import type { SourceProgramFileInput } from './contract.ts';
 import {
   createRepositoryCompilationFactStore,
   RepositoryCompilationFactStoreError,
   type RepositoryCompilationFactStoreIdentity
 } from './repository-compilation-fact-store.ts';
-import { compileRepositorySourceProgramCompilation } from './repository-compilation.ts';
+import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
 import { parseTypeScriptSourceProgramFactShard } from './typescript-fact-shards.ts';
 import {
   sourceProgramTypeScriptCompilerIdentity,
   typeScriptSourceProgramCompilerImplementationDigest
 } from './typescript.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 const temporaryRoots: string[] = [];
 const originalCacheHome = process.env.SEC_CACHE_HOME;
@@ -67,14 +68,43 @@ function fixture(value = 1) {
   });
   const sourceRevision = sha256(files.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
   const subject = Object.freeze({
-    kind: 'physical-repository' as const,
+    kind: 'virtual-mutation' as const,
     provenance: Object.freeze({
-      kind: 'working-tree-observation' as const,
-      identityDigest: sha256({ repositoryRoot, sourceRevision }) as `sha256:${string}`
+      kind: 'source-program-virtual-mutation' as const,
+      baseSnapshotDigest: sha256({ repositoryRoot }) as `sha256:${string}`,
+      mutationDigest: sourceRevision as `sha256:${string}`
     })
   });
-  const input = Object.freeze({ subject, sourceRevision, files, moduleMembership, repositoryRoot });
-  return { cacheRoot, files, input, moduleMembership, repositoryRoot };
+  const snapshotInput = Object.freeze({ subject, sourceRevision, files, moduleMembership });
+  const input = Object.freeze({
+    workspaceSnapshot: compileVirtualWorkspaceSourceSnapshot(snapshotInput),
+    repositoryRoot
+  });
+  return { cacheRoot, files, input, moduleMembership, repositoryRoot, snapshotInput };
+}
+
+function compilationInput(
+  value: ReturnType<typeof fixture>,
+  files: readonly SourceProgramFileInput[],
+  sourceRevision: string,
+  withRepositoryRoot = true
+) {
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    ...value.snapshotInput,
+    files,
+    subject: Object.freeze({
+      kind: 'virtual-mutation' as const,
+      provenance: Object.freeze({
+        kind: 'source-program-virtual-mutation' as const,
+        baseSnapshotDigest: value.input.workspaceSnapshot.snapshotDigest,
+        mutationDigest: sha256({ sourceRevision }) as `sha256:${string}`
+      })
+    })
+  });
+  return Object.freeze({
+    workspaceSnapshot,
+    ...(withRepositoryRoot ? { repositoryRoot: value.repositoryRoot } : {})
+  });
 }
 
 function generationRoot(cacheRoot: string): string {
@@ -95,8 +125,11 @@ function generationCount(cacheRoot: string): number {
 }
 
 function storeIdentity(value: ReturnType<typeof fixture>): RepositoryCompilationFactStoreIdentity {
-  const context = issueRepositoryCompilationContext(value.input);
-  const compilerImplementationDigest = typeScriptSourceProgramCompilerImplementationDigest(value.input, context);
+  const context = value.input.workspaceSnapshot;
+  const compilerImplementationDigest = typeScriptSourceProgramCompilerImplementationDigest(
+    value.snapshotInput,
+    context
+  );
   if (compilerImplementationDigest === null) throw new Error('Fixture compiler implementation is unavailable');
   return Object.freeze({
     snapshotDigest: context.snapshotDigest,
@@ -109,13 +142,13 @@ function storeIdentity(value: ReturnType<typeof fixture>): RepositoryCompilation
 
 test.serial('one immutable generation stores TypeScript facts while current contexts rebuild semantic projections', () => {
   const value = fixture();
-  const cold = compileRepositorySourceProgramCompilation(value.input);
-  const warm = compileRepositorySourceProgramCompilation(value.input);
+  const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
+  const warm = compileVirtualRepositorySourceProgramCompilation(value.input);
   const files = readdirSync(generationRoot(value.cacheRoot)).sort();
 
   expect(cold.typeScriptCompilation.mode).toBe('full');
   expect(warm.typeScriptCompilation.mode).toBe('exact');
-  expect(warm.context).not.toBe(cold.context);
+  expect(warm.workspaceSnapshot).toBe(cold.workspaceSnapshot);
   expect(warm.model).toEqual(cold.model);
   expect(files).toHaveLength(2);
   expect(files).toContain('manifest.json');
@@ -125,29 +158,23 @@ test.serial('one immutable generation stores TypeScript facts while current cont
 
 test.serial('caller provenance does not create a second semantic fact generation', () => {
   const value = fixture();
-  const first = compileRepositorySourceProgramCompilation(value.input);
+  const first = compileVirtualRepositorySourceProgramCompilation(value.input);
   const otherRevision = sha256('another caller provenance');
-  const second = compileRepositorySourceProgramCompilation(Object.freeze({
-    ...value.input,
-    sourceRevision: otherRevision,
-    subject: Object.freeze({
-      kind: 'physical-repository' as const,
-      provenance: Object.freeze({
-        kind: 'working-tree-observation' as const,
-        identityDigest: sha256({ otherRevision }) as `sha256:${string}`
-      })
-    })
-  }));
+  const second = compileVirtualRepositorySourceProgramCompilation(compilationInput(
+    value,
+    value.files,
+    otherRevision
+  ));
 
   expect(first.typeScriptCompilation.mode).toBe('full');
   expect(second.typeScriptCompilation.mode).toBe('exact');
-  expect(second.sourceRevision).toBe(otherRevision);
+  expect(second.sourceRevision).toBe(first.sourceRevision);
   expect(generationCount(value.cacheRoot)).toBe(1);
 });
 
 test.serial('one validated predecessor enables bounded incremental reuse and remains clean-compile equivalent', () => {
   const value = fixture();
-  compileRepositorySourceProgramCompilation(value.input);
+  compileVirtualRepositorySourceProgramCompilation(value.input);
   const changedSource = 'export const value = 2;\n';
   const changedFiles = Object.freeze([
     Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
@@ -155,21 +182,10 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
     value.files[2]!
   ]);
   const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
-  const changedInput = Object.freeze({
-    ...value.input,
-    files: changedFiles,
-    sourceRevision,
-    subject: Object.freeze({
-      kind: 'physical-repository' as const,
-      provenance: Object.freeze({
-        kind: 'working-tree-observation' as const,
-        identityDigest: sha256({ sourceRevision }) as `sha256:${string}`
-      })
-    })
-  });
-  const changedContext = issueRepositoryCompilationContext(changedInput);
+  const changedInput = compilationInput(value, changedFiles, sourceRevision);
+  const changedContext = changedInput.workspaceSnapshot;
   const changedCompilerImplementationDigest = typeScriptSourceProgramCompilerImplementationDigest(
-    changedInput,
+    { sourceRevision, files: changedFiles, moduleMembership: value.moduleMembership },
     changedContext
   );
   if (changedCompilerImplementationDigest === null) throw new Error('Fixture compiler implementation is unavailable');
@@ -184,8 +200,10 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
     })
   }).loadPredecessor();
   expect(predecessor.status).toBe('hit');
-  const cached = compileRepositorySourceProgramCompilation(changedInput);
-  const clean = compileRepositorySourceProgramCompilation(Object.freeze({ ...changedInput, repositoryRoot: undefined }));
+  const cached = compileVirtualRepositorySourceProgramCompilation(changedInput);
+  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
+    value, changedFiles, sourceRevision, false
+  ));
 
   expect(cached.typeScriptCompilation.mode).toBe('incremental');
   expect(cached.typeScriptCompilation.model).toEqual(clean.typeScriptCompilation.model);
@@ -194,7 +212,7 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
 
 test.serial('an invalid predecessor hint is a disposable miss and cannot block clean compilation', () => {
   const value = fixture();
-  compileRepositorySourceProgramCompilation(value.input);
+  compileVirtualRepositorySourceProgramCompilation(value.input);
   const namespace = path.dirname(generationRoot(value.cacheRoot));
   writeFileSync(path.join(namespace, 'predecessor.json'), '{}');
   const changedSource = 'export const value = 3;\n';
@@ -204,20 +222,11 @@ test.serial('an invalid predecessor hint is a disposable miss and cannot block c
     value.files[2]!
   ]);
   const sourceRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
-  const changedInput = Object.freeze({
-    ...value.input,
-    files: changedFiles,
-    sourceRevision,
-    subject: Object.freeze({
-      kind: 'physical-repository' as const,
-      provenance: Object.freeze({
-        kind: 'working-tree-observation' as const,
-        identityDigest: sha256({ sourceRevision }) as `sha256:${string}`
-      })
-    })
-  });
-  const recovered = compileRepositorySourceProgramCompilation(changedInput);
-  const clean = compileRepositorySourceProgramCompilation(Object.freeze({ ...changedInput, repositoryRoot: undefined }));
+  const changedInput = compilationInput(value, changedFiles, sourceRevision);
+  const recovered = compileVirtualRepositorySourceProgramCompilation(changedInput);
+  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
+    value, changedFiles, sourceRevision, false
+  ));
 
   expect(recovered.typeScriptCompilation.mode).toBe('full');
   expect(recovered.model).toEqual(clean.model);
@@ -232,19 +241,8 @@ test.serial('a validated predecessor never narrows ambient TypeScript invalidati
     value.files[2]!
   ]);
   const initialRevision = sha256(initialFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
-  const initialInput = Object.freeze({
-    ...value.input,
-    files: initialFiles,
-    sourceRevision: initialRevision,
-    subject: Object.freeze({
-      kind: 'physical-repository' as const,
-      provenance: Object.freeze({
-        kind: 'working-tree-observation' as const,
-        identityDigest: sha256({ initialRevision }) as `sha256:${string}`
-      })
-    })
-  });
-  compileRepositorySourceProgramCompilation(initialInput);
+  const initialInput = compilationInput(value, initialFiles, initialRevision);
+  compileVirtualRepositorySourceProgramCompilation(initialInput);
   const changedSource = 'export {};\ndeclare global { interface Window { value: 2 } }\n';
   const changedFiles = Object.freeze([
     Object.freeze({ path: value.files[0]!.path, source: changedSource, contentDigest: rawSha256(changedSource) }),
@@ -252,20 +250,11 @@ test.serial('a validated predecessor never narrows ambient TypeScript invalidati
     value.files[2]!
   ]);
   const changedRevision = sha256(changedFiles.map(({ path: repositoryPath, contentDigest }) => ({ repositoryPath, contentDigest })));
-  const changedInput = Object.freeze({
-    ...initialInput,
-    files: changedFiles,
-    sourceRevision: changedRevision,
-    subject: Object.freeze({
-      kind: 'physical-repository' as const,
-      provenance: Object.freeze({
-        kind: 'working-tree-observation' as const,
-        identityDigest: sha256({ changedRevision }) as `sha256:${string}`
-      })
-    })
-  });
-  const changed = compileRepositorySourceProgramCompilation(changedInput);
-  const clean = compileRepositorySourceProgramCompilation(Object.freeze({ ...changedInput, repositoryRoot: undefined }));
+  const changedInput = compilationInput(value, changedFiles, changedRevision);
+  const changed = compileVirtualRepositorySourceProgramCompilation(changedInput);
+  const clean = compileVirtualRepositorySourceProgramCompilation(compilationInput(
+    value, changedFiles, changedRevision, false
+  ));
 
   expect(changed.typeScriptCompilation.mode).toBe('full');
   expect(changed.model).toEqual(clean.model);
@@ -273,7 +262,7 @@ test.serial('a validated predecessor never narrows ambient TypeScript invalidati
 
 test.serial('cache corruption is a disposable miss and cannot block or authorize canonical compilation', () => {
   const value = fixture();
-  const cold = compileRepositorySourceProgramCompilation(value.input);
+  const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
   const root = generationRoot(value.cacheRoot);
   const manifestPath = path.join(root, 'manifest.json');
   const manifest = readFileSync(manifestPath, 'utf8');
@@ -285,14 +274,14 @@ test.serial('cache corruption is a disposable miss and cannot block or authorize
   });
   expect(() => directStore.load()).toThrow(RepositoryCompilationFactStoreError);
 
-  const recovered = compileRepositorySourceProgramCompilation(value.input);
+  const recovered = compileVirtualRepositorySourceProgramCompilation(value.input);
   expect(recovered.typeScriptCompilation.mode).toBe('full');
   expect(recovered.model).toEqual(cold.model);
 });
 
 test.serial('fact-pack grammar rejects duplicate, trailing, unknown and self-inconsistent bytes', () => {
   const value = fixture();
-  const cold = compileRepositorySourceProgramCompilation(value.input);
+  const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
   const shard = cold.typeScriptCompilation.state.factShards[0]!;
   const canonical = JSON.stringify(canonicalJson(shard));
 
@@ -312,7 +301,7 @@ test.serial('fact-pack grammar rejects duplicate, trailing, unknown and self-inc
 
 test.serial('retained generation authority rejects directory replacement and publishers converge on identical bytes', () => {
   const value = fixture();
-  const cold = compileRepositorySourceProgramCompilation(value.input);
+  const cold = compileVirtualRepositorySourceProgramCompilation(value.input);
   const identity = storeIdentity(value);
   const left = createRepositoryCompilationFactStore({ repositoryRoot: value.repositoryRoot, identity });
   const right = createRepositoryCompilationFactStore({ repositoryRoot: value.repositoryRoot, identity });

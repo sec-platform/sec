@@ -1,4 +1,10 @@
 import { CI_ARTIFACT_FILES } from '../verification/ci-artifacts/contract/manifest.ts';
+import {
+  overridesRelativePath,
+  posixPath,
+  srcRelativePath,
+  workspaceConfigRelativePath
+} from '../workspace/paths.ts';
 import type { CompilerErrorDetails } from './errors.ts';
 
 export type ErrorProtocol = {
@@ -38,12 +44,12 @@ const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
   { prefix: 'COMPOSE-PRISMA-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-prisma-schema', 'fix-prisma-template'], artifactPaths: [] },
   { prefix: 'COMPOSE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-compose', 'inspect-install-manifest'], artifactPaths: [CI_ARTIFACT_FILES.installManifest] },
   { prefix: 'SLOT-WRITE-', recoverable: true, issueType: 'slot', suggestedActions: ['run-platform-compose', 'retry-platform-adapt'], artifactPaths: [] },
-  { prefix: 'SLOT-LINT-', recoverable: true, issueType: 'slot', suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'], artifactPaths: ['source/code/slots'] },
+  { prefix: 'SLOT-LINT-', recoverable: true, issueType: 'slot', suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'], artifactPaths: [posixPath(srcRelativePath)] },
   { prefix: 'SLOT-', recoverable: true, issueType: 'slot', suggestedActions: ['inspect-slot-tasks', 'run-platform-adapt'], artifactPaths: [] },
-  { prefix: 'OVERRIDE-SCHEMA-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-manifest', 'inspect-override-rules'], artifactPaths: ['source/patches/override-manifest.yaml'] },
-  { prefix: 'OVERRIDE-APPLY-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-source', 'inspect-override-manifest'], artifactPaths: ['source/patches/override-manifest.yaml'] },
-  { prefix: 'OVERRIDE-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-override-manifest'], artifactPaths: ['source/patches/override-manifest.yaml'] },
-  { prefix: 'PARSE-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-plan-file', 'inspect-app-yaml'], artifactPaths: ['source/app.yaml'] },
+  { prefix: 'OVERRIDE-SCHEMA-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-manifest', 'inspect-override-rules'], artifactPaths: [posixPath(overridesRelativePath) + '/override-manifest.yaml'] },
+  { prefix: 'OVERRIDE-APPLY-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-source', 'inspect-override-manifest'], artifactPaths: [posixPath(overridesRelativePath) + '/override-manifest.yaml'] },
+  { prefix: 'OVERRIDE-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-override-manifest'], artifactPaths: [posixPath(overridesRelativePath) + '/override-manifest.yaml'] },
+  { prefix: 'PARSE-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-plan-file', 'inspect-app-yaml'], artifactPaths: [workspaceConfigRelativePath] },
   { prefix: 'VERIFY-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-resolve', 'run-platform-compose', 'run-platform-adapt', 'retry-platform-verify'], artifactPaths: [] },
   { prefix: 'VERIFY-', recoverable: false, issueType: 'spec', suggestedActions: ['inspect-verification-report', 'run-platform-explain'], artifactPaths: [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.reviewSummary] },
   { prefix: 'REPAIR-BLOCKED-002', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-verify', 'retry-platform-repair-dry-run'], artifactPaths: [CI_ARTIFACT_FILES.verificationReport] },
@@ -52,7 +58,7 @@ const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
   { prefix: 'UPGRADE-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['choose-compatible-upgrade-target', 'run-platform-upgrade-dry-run'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics] },
   { prefix: 'UPGRADE-MIGRATION-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan] },
   { prefix: 'UPGRADE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan] },
-  { prefix: 'ENGINEERING-OPERATION-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-engineering-operation', 'fix-operation-target', 'retry-operation'], artifactPaths: ['source/app.yaml'] },
+  { prefix: 'ENGINEERING-OPERATION-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-engineering-operation', 'fix-operation-target', 'retry-operation'], artifactPaths: [workspaceConfigRelativePath] },
   { prefix: 'ERROR-DRIFT-', recoverable: false, issueType: 'spec', suggestedActions: ['run-platform-compose', 'run-platform-adapt', 'revert-local-project-changes'], artifactPaths: [CI_ARTIFACT_FILES.provenance] },
   { prefix: 'IMPORT-AUTHORITY-', recoverable: true, issueType: 'usage', suggestedActions: ['install-canonical-bun-version', 'align-packageManager-field', 'verify-bunfig-toolchain-profile'], artifactPaths: [] }
 ];

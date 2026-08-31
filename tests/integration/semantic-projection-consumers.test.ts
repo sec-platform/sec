@@ -6,9 +6,10 @@ import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engi
 import { explainWorkspace } from '../../src/compiler/orchestration/cli.ts';
 import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
 import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import { prepareLockedWorkspace } from '../testkit/workspace.ts';
 
 test('ExplainGraph and ReviewSummary consume one canonical SemanticViewSet identity', async () => {
@@ -16,7 +17,11 @@ test('ExplainGraph and ReviewSummary consume one canonical SemanticViewSet ident
     blockIds: ['ticket/basic'],
     prefix: 'engineering-compiler-semantic-projection-consumers-'
   });
-  const paths = getWorkspacePaths(workspaceRoot);
+  const paths = {
+    lockPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock),
+    explainGraphPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph),
+    reviewSummaryPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.reviewSummary)
+  };
   const { engineeringIRInput } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
   const snapshot = buildValidatedEngineeringIR(engineeringIRInput);
   const semanticViews = buildSemanticViewSet(snapshot);

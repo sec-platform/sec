@@ -21,7 +21,7 @@ import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir
 import { SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, type SemanticMutationAuthorizationContext, type SemanticMutationLoadedSourceCandidate, type SemanticMutationRequest } from '../../src/semantic/mutation/contract/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-function loadedContract(contractPath = 'source/model/item.yaml'): LoadedSemanticContract {
+function loadedContract(contractPath = 'model/item.yaml'): LoadedSemanticContract {
   return {
     blockId: 'item/basic',
     contractPath,
@@ -142,7 +142,7 @@ function buildInput(contract: LoadedSemanticContract): BuildEngineeringIRInput {
       version: '0.1.0',
       kind: 'capability',
       installOrder: 1,
-      manifestPath: 'source/model/block.manifest.yaml',
+      manifestPath: 'model/block.manifest.yaml',
       registrySourceId: 'workspace',
       registryKind: 'private',
       registryLocation: 'workspace',
@@ -163,7 +163,7 @@ function authorization(ownerId = 'semantic-contract-owner:item:item-core'): Sema
     allowedOperationKinds: ['add-state-transition'],
     allowedTargetEntityIds: ['state:item:item-status'],
     allowedSourceOwnerIds: [ownerId],
-    allowedPathPrefixes: ['source/model/'],
+    allowedPathPrefixes: ['model/'],
     requiredPreconditions: [],
     requiredPostconditions: [],
     minimumVerification: []
@@ -255,7 +255,7 @@ test('trusted local authorization ingress derives owner/path authority from the 
     allowedOperationKinds: ['add-state-transition'],
     allowedTargetEntityIds: ['state:item:item-status'],
     allowedSourceOwnerIds: ['semantic-contract-owner:item:item-core'],
-    allowedPathPrefixes: ['source/model/'],
+    allowedPathPrefixes: ['model/'],
     requiredPreconditions: [],
     requiredPostconditions: [],
     minimumVerification: []
@@ -294,7 +294,7 @@ test('trusted local authorization ingress rejects caller authority fields and un
     ['taskId', 'task:caller'],
     ['envelopeRevision', 'envelope:caller'],
     ['allowedSourceOwnerIds', ['semantic-contract-owner:item:item-core']],
-    ['allowedPathPrefixes', ['source/model/']]
+    ['allowedPathPrefixes', ['model/']]
   ] as const) {
     expect(() => buildTrustedLocalSemanticMutationAuthorization({
       ...input,
@@ -358,7 +358,7 @@ test('SM-2 plans one deterministic YAML edit and preserves comments, BOM, CRLF, 
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first.plan)).toBe(true);
     expect(first.plan.ownerId).toBe('semantic-contract-owner:item:item-core');
-    expect(first.plan.relativePath).toBe('source/model/item.yaml');
+    expect(first.plan.relativePath).toBe('model/item.yaml');
     expect(first.rollbackManifest).toMatchObject({
       encoding: 'utf-8',
       utf8Bom: true,
@@ -451,7 +451,7 @@ test('owner resolution fails closed for none, read-only, ambiguous, forged, mism
     normalized,
     base,
     auth,
-    [candidate(loadedContract('source/model/other.yaml'))]
+    [candidate(loadedContract('model/other.yaml'))]
   ).status).toBe('rejected');
 
   const unauthorized = authorization('semantic-contract-owner:item:other');
@@ -501,10 +501,10 @@ test('path boundary rejects lexical escape, aliases, device names, case mismatch
     await writeFile(path.join(root, 'source', 'model', 'Item.yaml'), sourceYaml());
 
     for (const relativePath of [
-      'source/model/../outside.yaml',
-      'source/model/item.yaml:stream',
-      'source/model/CON.yaml',
-      'source/model/item.yaml'
+      'model/../outside.yaml',
+      'model/item.yaml:stream',
+      'model/CON.yaml',
+      'model/item.yaml'
     ]) {
       await expect(readSemanticMutationSource(root, transaction, relativePath)).rejects.toMatchObject({
         diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' }
@@ -518,7 +518,7 @@ test('path boundary rejects lexical escape, aliases, device names, case mismatch
     await expect(readSemanticMutationSource(
       root,
       transaction,
-      'source/model/hardlink.yaml'
+      'model/hardlink.yaml'
     )).rejects.toMatchObject({ diagnostic: { code: 'SEMANTIC-MUTATION-005', stage: 'path' } });
 
     const realDirectory = path.join(root, 'real-model');
@@ -528,7 +528,7 @@ test('path boundary rejects lexical escape, aliases, device names, case mismatch
     await expect(readSemanticMutationSource(
       root,
       transaction,
-      'source/model/linked/item.yaml'
+      'model/linked/item.yaml'
     )).rejects.toMatchObject({ diagnostic: { code: 'SEMANTIC-MUTATION-005' } });
   });
 });
@@ -590,7 +590,7 @@ test('fixed authoring index is a real loader provenance seam and does not infer 
       'formatRevision: authoring-semantic-contract-index-v1',
       'contracts:',
       '  - blockId: item/basic',
-      '    path: source/model/item.yaml',
+      '    path: model/item.yaml',
       ''
     ].join('\n'));
     const sources = await loadAuthoringSemanticContractSources(root, new Set(['item/basic']));
@@ -599,7 +599,7 @@ test('fixed authoring index is a real loader provenance seam and does not infer 
       sourceKind: 'workspace-authoring',
       loadedContract: {
         blockId: 'item/basic',
-        contractPath: 'source/model/item.yaml',
+        contractPath: 'model/item.yaml',
         contract: { id: 'item-core', namespace: 'item' }
       }
     });

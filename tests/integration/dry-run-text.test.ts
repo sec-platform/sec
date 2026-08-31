@@ -47,8 +47,8 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
       }
     },
     setup: async ({ paths: workspacePaths }) => {
-      await fs.mkdir(path.join(workspacePaths.projectRoot, 'docs'), { recursive: true });
-      await fs.writeFile(path.join(workspacePaths.projectRoot, 'docs', 'upgrade-notes.md'), 'status: pending\n', 'utf8');
+      await fs.mkdir(path.join(workspacePaths.workspaceRoot, 'docs'), { recursive: true });
+      await fs.writeFile(path.join(workspacePaths.workspaceRoot, 'docs', 'upgrade-notes.md'), 'status: pending\n', 'utf8');
     }
   });
 
@@ -86,8 +86,8 @@ test('upgrade dry-run records text replace regex migration impacts', async () =>
       }
     },
     setup: async ({ paths: workspacePaths }) => {
-      await fs.mkdir(path.join(workspacePaths.projectRoot, 'docs'), { recursive: true });
-      await fs.writeFile(path.join(workspacePaths.projectRoot, 'docs', 'upgrade-notes.md'), 'status: pending\n', 'utf8');
+      await fs.mkdir(path.join(workspacePaths.workspaceRoot, 'docs'), { recursive: true });
+      await fs.writeFile(path.join(workspacePaths.workspaceRoot, 'docs', 'upgrade-notes.md'), 'status: pending\n', 'utf8');
     }
   });
 

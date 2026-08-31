@@ -4,7 +4,7 @@ import { readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/r
 import { defaultLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, publishExclusiveCanonicalWorkspaceFile, writeJson, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths, resolvePathInside } from '../../workspace/paths.ts';
+import { resolvePathInside, resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
 import { checkProjectWriteBoundary, ensureProjectBase } from '../../workspace/project.ts';
 import { CodeBuilder } from '../codegen/code-builder.ts';
 import type { InstallPlanStep, LockFile, SlotTask } from '../contract.ts';
@@ -25,7 +25,7 @@ function renderSlotSkeleton(task: SlotTask): string {
 
   if (task.inputType && task.outputType) {
     builder.addImport({
-      moduleSpecifier: '../src/runtime/database.ts',
+      moduleSpecifier: '../runtime/database.ts',
       namedImports: [task.inputType, task.outputType],
       isTypeOnly: true
     });
@@ -42,13 +42,12 @@ function renderSlotSkeleton(task: SlotTask): string {
 
 async function ensureSlotSkeleton(
   workspaceRoot: string,
-  projectRoot: string,
   task: SlotTask,
   commitFence?: CommitFence
 ): Promise<void> {
-  const targetPath = resolvePathInside(projectRoot, task.target);
+  const targetPath = resolvePathInside(workspaceRoot, task.target);
   if (!targetPath) {
-    throw new CompilerError('COMPOSE-PATH-003', `Slot target "${task.target}" escapes project root`);
+    throw new CompilerError('COMPOSE-PATH-003', `Slot target "${task.target}" escapes workspace root`);
   }
   const existing = readOptionalRetainedOrdinaryFile(
     targetPath,
@@ -73,7 +72,14 @@ export async function composeProject(
   options?: { commitFence?: CommitFence; signal?: AbortSignal }
 ): Promise<LockFile> {
   const commitFence = options?.commitFence;
-  const { projectRoot, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
+  const blockUsageMapPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.blockUsageMap
+  );
+  const installManifestPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.installManifest
+  );
 
   // ProjectBaseline/Provenance own write admission. Flipping OS writable bits is
   // neither authorization nor a race-proof protection mechanism and therefore
@@ -81,10 +87,10 @@ export async function composeProject(
   await checkProjectWriteBoundary(workspaceRoot);
   await ensureProjectBase(workspaceRoot, commitFence);
 
-  const installContext = { workspaceRoot, projectRoot, lock, commitFence };
+  const installContext = { workspaceRoot, lock, commitFence };
   await defaultInstallRegistry.executeAll(lock.installPlan, installContext);
-  await mergePrismaTemplate(workspaceRoot, projectRoot, commitFence);
-  const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, projectRoot, { commitFence });
+  await mergePrismaTemplate(workspaceRoot, commitFence);
+  const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, { commitFence });
 
   const installManifest: Array<InstallPlanStep & { status: 'installed' }> = lock.installPlan.map((step) => ({
     ...step,
@@ -102,7 +108,7 @@ export async function composeProject(
 
   await Promise.all(
     lock.slotTasks.map((task) => defaultLimit(() =>
-      ensureSlotSkeleton(workspaceRoot, projectRoot, task, commitFence)
+      ensureSlotSkeleton(workspaceRoot, task, commitFence)
     ))
   );
 
@@ -120,7 +126,7 @@ export async function composeProject(
   ];
   addGeneratedPaths(lock, initialGeneratedPaths);
   await applyOverrides(workspaceRoot, 'compose', commitFence);
-  await formatOutputFiles(projectRoot, lock.generatedPaths, commitFence);
+  await formatOutputFiles(workspaceRoot, lock.generatedPaths, commitFence);
   await writeJson(installManifestPath, installManifest, commitFence);
   lock.passStatus.compose = 'succeeded';
   await saveLock(workspaceRoot, lock, commitFence);

@@ -7,7 +7,8 @@ import { inspectExactNoFollowDirectoryPresence, scanNoFollowDirectoryTreeMetadat
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { isCanonicalBlockId } from '../../semantic/identity/contract/block.ts';
 import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { getWorkspacePaths, officialPoliciesRelativePath, posixPath, relativePosixPath } from '../../workspace/paths.ts';
+import { compilerRuntimeResources } from '../../toolchain/layout.ts';
+import { getWorkspacePaths, officialPoliciesRelativePath, policiesRelativePath, posixPath, relativePosixPath } from '../../workspace/paths.ts';
 import { isCanonicalPolicyId } from '../policies/contract/identity.ts';
 import type { PolicyRule, PolicySourceFileReport, PolicySourceScope, PolicySpec } from '../policies/contract/types.ts';
 
@@ -99,7 +100,7 @@ function withinScopePath(
   const relativePath = relativePosixPath(rootPath, filePath);
   return scope === 'official'
     ? `${posixPath(officialPoliciesRelativePath)}/${relativePath}`
-    : `${sourcePrefix ?? 'project/policies'}/${relativePath}`;
+    : `${sourcePrefix ?? posixPath(policiesRelativePath)}/${relativePath}`;
 }
 
 function isPolicySpecPath(filePath: string): boolean {
@@ -215,17 +216,9 @@ function mergePolicies(
 
 /** Retained Policy source observation is synchronous; callers must not fake I/O fanout with Promise wrappers. */
 export function loadPolicyDeclarations(workspaceRoot: string): LoadedPolicyDeclarations {
-  const {
-    officialPoliciesRoot,
-    projectPoliciesRoot,
-    sourcePoliciesRoot
-  } = getWorkspacePaths(workspaceRoot);
-  const official = loadPolicyScope('official', officialPoliciesRoot);
-
-  const project = mergePolicyScopes([
-    loadPolicyScope('project', projectPoliciesRoot, 'project/policies'),
-    loadPolicyScope('project', sourcePoliciesRoot, 'source/model/policies')
-  ]);
+  const paths = getWorkspacePaths(workspaceRoot);
+  const official = loadPolicyScope('official', compilerRuntimeResources.officialPolicies);
+  const project = loadPolicyScope('project', paths.policiesRoot, posixPath(policiesRelativePath));
   const definitions = mergePolicies(official, project);
   const policies = [...definitions.values()]
     .map((definition) => definition.policy)

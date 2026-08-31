@@ -41,8 +41,8 @@ const SEMANTIC_MUTATION_ISOLATED_COMPILER_RUNTIME_ASSET_RELATIVE_ROOT =
   }`;
 export const SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH =
   '.isolated-compiler/bunfig.toml' as const;
-const SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT =
-  'project/node_modules' as const;
+const SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_RELATIVE_ROOT =
+  'node_modules' as const;
 
 const ISOLATED_BUNFIG_BYTES = new TextEncoder().encode('# isolated runtime\n');
 const FILE_ATTRIBUTE_REPARSE_POINT = 0x0000_0400;
@@ -50,11 +50,11 @@ const INVALID_FILE_ATTRIBUTES = 0xffff_ffff;
 const HASH_BUFFER_SIZE = 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const RUNTIME_FILE_CONCURRENCY = 8;
-const SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_BINDING_RELATIVE_PATH =
-  `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/${RUNTIME_DEPS_PREBOUND_BINDING_FILE}` as const;
+const SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_BINDING_RELATIVE_PATH =
+  `${SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_RELATIVE_ROOT}/${RUNTIME_DEPS_PREBOUND_BINDING_FILE}` as const;
 const OWNED_RUNTIME_ROOTS = Object.freeze([
   SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT,
-  SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT
+  SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_RELATIVE_ROOT
 ] as const);
 
 export interface SemanticMutationIsolatedRuntimeSourcePaths {
@@ -584,7 +584,7 @@ async function assertRuntimeDependencyPackageClosure(
 ): Promise<void> {
   for (const packageName of RUNTIME_DEPENDENCY_PACKAGE_NAMES) {
     const relativeManifest = canonicalRelativePath(
-      `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/${packageName}/package.json`
+      `${SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_RELATIVE_ROOT}/${packageName}/package.json`
     );
     const captured = dependencyFiles.find((file) =>
       file.destinationRelativePath === relativeManifest);
@@ -706,7 +706,7 @@ async function captureRuntimeSourceSnapshot(
     const runnerBundle = input.runnerBundle.slice();
     const dependencyFiles = await captureInputTree(
       input.sources.dependencyModules,
-      SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
+      SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_RELATIVE_ROOT,
       inspector,
       proofs,
       false,
@@ -720,7 +720,7 @@ async function captureRuntimeSourceSnapshot(
       generatedInputFile(SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH, runnerBundle),
       generatedInputFile(SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH, ISOLATED_BUNFIG_BYTES),
       generatedInputFile(
-        SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_BINDING_RELATIVE_PATH,
+        SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_BINDING_RELATIVE_PATH,
         dependencyBinding
       ),
       compilerPackage,
@@ -798,7 +798,7 @@ async function captureRuntimeSourceSnapshot(
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.officialPolicies}/`,
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.composeTemplates}/`,
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT}/`,
-      `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/`
+      `${SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_RELATIVE_ROOT}/`
     ];
     for (const registry of registryInputs) {
       requiredRoots.push(`${canonicalRelativePath(registry.destinationRelativePath)}/`);
@@ -934,7 +934,7 @@ function requireRuntimePlan(binding: unknown): SemanticMutationIsolatedRuntimePl
         SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH)?.rawDigest ||
     rawSha256(plan.dependencyBinding) !==
       plan.files.find((file) => file.destinationRelativePath ===
-        SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_BINDING_RELATIVE_PATH)?.rawDigest ||
+        SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_BINDING_RELATIVE_PATH)?.rawDigest ||
     rawSha256(plan.loaderBundle) !==
       plan.files.find((file) => file.destinationRelativePath ===
         SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH)?.rawDigest ||
@@ -953,7 +953,7 @@ function generatedBytes(plan: SemanticMutationIsolatedRuntimePlan, relativePath:
   if (relativePath === SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH) {
     return plan.loaderBundle;
   }
-  if (relativePath === SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_BINDING_RELATIVE_PATH) {
+  if (relativePath === SEMANTIC_MUTATION_ISOLATED_DEPENDENCY_BINDING_RELATIVE_PATH) {
     return plan.dependencyBinding;
   }
   if (relativePath === SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH) {

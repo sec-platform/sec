@@ -12,7 +12,6 @@ import { createWorkspace, prepareAdaptedWorkspace } from '../testkit/workspace.t
 async function writeCustomerService(workspaceRoot: string, matchesStructuralHeuristic: boolean): Promise<void> {
   const customerServicePath = path.join(
     workspaceRoot,
-    'project',
     'src',
     'installed',
     'entity',
@@ -68,7 +67,7 @@ test('an applicable policy target must be a retained readable ordinary file', as
 
 test('project policy declarations override the official definition without changing assurance', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-project-precedence-');
-  const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
+  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
   await writeCustomerService(workspaceRoot, true);
   await fs.mkdir(projectPoliciesRoot, { recursive: true });
   await writeYaml(path.join(projectPoliciesRoot, 'tenant.yaml'), {
@@ -85,14 +84,14 @@ test('project policy declarations override the official definition without chang
 
   expect(merged).toMatchObject({
     sourceScope: 'project',
-    sourcePath: 'project/policies/tenant.yaml'
+    sourcePath: 'model/policies/tenant.yaml'
   });
   expect(report.evaluation?.assurance).toBe('source-structure');
 }, 180000);
 
 test('unknown policy rules fail at the declaration schema boundary', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-unknown-rule-');
-  const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
+  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
   await writeCustomerService(workspaceRoot, true);
   await fs.mkdir(projectPoliciesRoot, { recursive: true });
   await writeYaml(path.join(projectPoliciesRoot, 'unknown.yaml'), {
@@ -109,7 +108,7 @@ test('unknown policy rules fail at the declaration schema boundary', async () =>
 
 test('same policy id with different declarations is a conflict, not last-wins input', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-conflicting-duplicate-');
-  const { projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
+  const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
   await writeCustomerService(workspaceRoot, true);
   await fs.mkdir(projectPoliciesRoot, { recursive: true });
   await writeYaml(path.join(projectPoliciesRoot, 'duplicate.yaml'), {

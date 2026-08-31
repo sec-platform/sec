@@ -39,7 +39,7 @@ import { semanticMutationVerificationReportFixture } from '../helpers/semantic-m
 function contract(withTransition: boolean): LoadedSemanticContract {
   return {
     blockId: 'item/basic',
-    contractPath: 'source/model/item.yaml',
+    contractPath: 'model/item.yaml',
     contract: {
       formatVersion: '1',
       id: 'item-core',
@@ -92,7 +92,7 @@ function buildInput(withTransition: boolean, appName = 'Mutation App'): BuildEng
       version: '0.1.0',
       kind: 'capability',
       installOrder: 1,
-      manifestPath: 'source/model/block.manifest.yaml',
+      manifestPath: 'model/block.manifest.yaml',
       registrySourceId: 'workspace',
       registryKind: 'private',
       registryLocation: 'workspace',
@@ -163,7 +163,7 @@ function authorization(): SemanticMutationAuthorizationContext {
     allowedOperationKinds: ['add-state-transition'],
     allowedTargetEntityIds: ['state:item:item-status'],
     allowedSourceOwnerIds: ['owner:item-core'],
-    allowedPathPrefixes: ['source/model/'],
+    allowedPathPrefixes: ['model/'],
     requiredPreconditions: [],
     requiredPostconditions: [],
     minimumVerification: []
@@ -232,7 +232,7 @@ function fixture() {
       ownerId: 'owner:item-core',
       adapterId: 'semantic-contract-yaml',
       adapterRevision: 'semantic-contract-yaml-v1',
-      relativePath: 'source/model/item.yaml',
+      relativePath: 'model/item.yaml',
       beforeByteDigest: sha256('before'),
       stagedByteDigest: sha256('after'),
       invalidationFromStage: 'resolve' as const
