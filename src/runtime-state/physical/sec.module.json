@@ -9,6 +9,7 @@
         "runCommandBytes",
         "runCommandWithRetry",
         "runObservedCommand",
+        "openProcessResourceSession",
         "runRetainedCommand",
         "runRetainedCommandBytes",
         "resolveExecutableLocator"

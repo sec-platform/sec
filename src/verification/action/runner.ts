@@ -10,22 +10,35 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
+import {
+  openProcessResourceSession,
+  type ProcessResourceRunResult,
+  type ProcessResourceSession,
+  type ProcessResourceSessionReceipt
+} from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { createRuntimeStateJournalFileSystem, type RuntimeStateJournalFileSystem } from '../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeJournalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecDomainOutcomeReceipt,
+  issueSecOperationSettlementEnvelope,
+  issueSecProviderSettlementReceipt,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../../system-architecture/operation/semantic.ts';
+import {
   createVerificationActionKey,
   createVerificationActionPlan,
-  createVerificationActionTerminal,
   encodeVerificationActionData,
   isVerificationActionRunnable,
-  parseCiVerificationActionPlanClosure,
   parseVerificationActionKey,
   parseVerificationActionPlan,
+  projectVerificationActionTerminal,
+  VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY,
   verificationActionDependsOnChangedInputs,
-  type CiVerificationActionPlanClosure,
-  type CiVerificationExecutionEnvironment,
-  type CiVerificationNormalizedOperation,
   type VerificationActionDependency,
   type VerificationActionDependencyResolution,
   type VerificationActionDependencyState,
@@ -35,7 +48,13 @@ import {
   type VerificationActionKeyInput,
   type VerificationActionPlan,
   type VerificationActionTerminal
-} from './index.ts';
+} from './contract/action.ts';
+import {
+  parseCiVerificationActionPlanClosure,
+  type CiVerificationActionPlanClosure,
+  type CiVerificationExecutionEnvironment,
+  type CiVerificationNormalizedOperation
+} from './contract/ci.ts';
 import {
   acquireVerificationActionClaim,
   appendVerificationActionJournalEvent,
@@ -79,19 +98,31 @@ export type ExecuteLocalVerificationActionDagInput = Readonly<{
   actionPlanClosure: CiVerificationActionPlanClosure;
   executionEnvironment: CiVerificationExecutionEnvironment;
   environment?: NodeJS.ProcessEnv;
+  /** Optional caller cancellation; it can only narrow the operation lifetime. */
+  signal?: AbortSignal;
+  /** Optional absolute caller deadline; it can only narrow the fixed Action budget. */
+  deadlineAtUnixMs?: number;
   runner?: VerificationActionRunner;
   recordedAt?: () => string;
   executeNormalizedOperation?: (
-    operation: CiVerificationNormalizedOperation
-  ) => Promise<number> | number;
+    operation: CiVerificationNormalizedOperation,
+    context: VerificationActionProcessExecutionContext
+  ) => Promise<ProcessResourceRunResult> | ProcessResourceRunResult;
   /** Explicit physical provider supplied by the outer runtime adapter. */
   executeActionPlan?: (input: Readonly<{
     plan: VerificationActionPlan;
     authorizedClosure: CiVerificationActionPlanClosure;
     repositoryRoot: string;
     environment?: NodeJS.ProcessEnv;
-  }>) => Promise<number>;
+    process: VerificationActionProcessExecutionContext;
+  }>) => Promise<ProcessResourceRunResult>;
   inspectRepository: VerificationActionRepositoryInspector;
+}>;
+
+export type VerificationActionProcessExecutionContext = Readonly<{
+  session: ProcessResourceSession;
+  maxStderrBytes: typeof VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStderrBytes;
+  maxStdoutBytes: typeof VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStdoutBytes;
 }>;
 
 export type VerificationActionRepositoryObservation = Readonly<{
@@ -115,7 +146,7 @@ export type VerificationActionExecutor = (
     action: VerificationActionKey;
     executionDomain: string;
   }>
-) => Promise<VerificationActionTerminal> | VerificationActionTerminal;
+) => Promise<unknown> | unknown;
 
 export interface VerificationActionExecuteInput {
   readonly repositoryRoot: string;
@@ -138,16 +169,44 @@ export type VerificationActionIdentityExecuteInput = Readonly<
 >;
 
 type InFlight = Promise<VerificationActionRunOutcome>;
+type CoordinatedAction = {
+  activeCallers: number;
+  flight: InFlight | null;
+};
 type ExecutionContext = Readonly<{
   ownerToken: string;
   ownerKeys: ReadonlySet<string>;
 }>;
 
-// A live flight is process-wide by semantic ActionKey. Execution domain is
-// executor metadata, not a second physical identity.
-const IN_FLIGHT_ACTIONS = new Map<VerificationActionKeyDigest, InFlight>();
+// One coordination generation covers every call that overlaps from admission
+// entry through terminal settlement.  A caller can take longer to acquire its
+// own journal authority and validate its plan than the physical executor takes
+// to finish; retaining the settled flight until the last overlapping caller
+// exits prevents that late-authorized caller from starting a second physical
+// attempt for the same semantic ActionKey.
+const COORDINATED_ACTIONS = new Map<VerificationActionKeyDigest, CoordinatedAction>();
 const EXECUTION_CONTEXT = new AsyncLocalStorage<ExecutionContext>();
 let ownerSequence = 0;
+
+function enterCoordinatedAction(actionKey: VerificationActionKeyDigest): CoordinatedAction {
+  let coordination = COORDINATED_ACTIONS.get(actionKey);
+  if (coordination === undefined) {
+    coordination = { activeCallers: 0, flight: null };
+    COORDINATED_ACTIONS.set(actionKey, coordination);
+  }
+  coordination.activeCallers += 1;
+  return coordination;
+}
+
+function leaveCoordinatedAction(
+  actionKey: VerificationActionKeyDigest,
+  coordination: CoordinatedAction
+): void {
+  coordination.activeCallers -= 1;
+  if (coordination.activeCallers === 0 && COORDINATED_ACTIONS.get(actionKey) === coordination) {
+    COORDINATED_ACTIONS.delete(actionKey);
+  }
+}
 
 function canonicalAction(action: unknown): VerificationActionKey {
   return parseVerificationActionKey(encodeVerificationActionData(action));
@@ -174,6 +233,77 @@ function nextOwnerToken(): string {
 
 function localDagDigest(value: unknown): VerificationActionKeyDigest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+}
+
+function rawDigest(value: string | Uint8Array): VerificationActionKeyDigest {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function canonicalProcessRunResult(value: unknown): ProcessResourceRunResult {
+  if (value === null || typeof value !== 'object') {
+    throw new Error('local VerificationAction provider did not return one physical process result.');
+  }
+  const candidate = value as Partial<ProcessResourceRunResult>;
+  const result = candidate.result;
+  if (candidate.ordinal !== 1 || result === null || typeof result !== 'object'
+      || !Number.isSafeInteger(result.code) || result.code < 0
+      || !(result.stdout instanceof Uint8Array) || typeof result.stderr !== 'string') {
+    throw new Error('local VerificationAction physical process result is not canonical.');
+  }
+  return value as ProcessResourceRunResult;
+}
+
+function bindLocalDagOperation(input: Readonly<{
+  action: VerificationActionKey;
+  normalizedOperation: CiVerificationNormalizedOperation;
+  executionEnvironment: CiVerificationExecutionEnvironment;
+  deadlineAtUnixMs: number;
+}>): SecBoundSemanticOperation {
+  const contractDigest = localDagDigest({
+    contract: 'verification.local-action-execution',
+    normalizedOperationDigest: input.normalizedOperation.semanticDigest
+  }) as SecOperationDigest;
+  const operationPlan = compileSecSemanticOperationPlan({
+    operation: 'verification.local-action',
+    intentDigest: input.action.actionKey as SecOperationDigest,
+    decisionDigest: input.normalizedOperation.semanticDigest as SecOperationDigest,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    aggregateBudgets: [
+      {
+        resource: 'duration-ms',
+        maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.durationMs
+      },
+      {
+        resource: 'output-bytes',
+        maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStdoutBytes
+          + VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStderrBytes
+      },
+      {
+        resource: 'processes',
+        maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.processes
+      }
+    ],
+    requirements: [{
+      id: 'verification.local-provider',
+      contractDigest,
+      effectKinds: ['process'],
+      failureKinds: ['process.failed', 'process.settlement-failed']
+    }]
+  });
+  const bound = bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
+    requirementId: 'verification.local-provider',
+    contractDigest,
+    providerIdentityDigest: localDagDigest({
+      executionEnvironmentRevision: input.executionEnvironment.executionEnvironmentRevision,
+      toolchainRevision: input.executionEnvironment.toolchainRevision
+    }) as SecOperationDigest
+  })]);
+  return bound;
+}
+
+function canonicalCommonDirectory(value: string): string {
+  const physical = realpathSync.native(value);
+  return process.platform === 'win32' ? physical.toLowerCase() : physical;
 }
 
 function resolveDependency(
@@ -262,14 +392,6 @@ function dependencyClosureUnchanged(
   });
 }
 
-function failedTerminal(): VerificationActionTerminal {
-  return createVerificationActionTerminal({
-    status: 'failed',
-    reasonCode: 'executed-failure',
-    resultDigest: null
-  });
-}
-
 function outcome(
   actionKey: VerificationActionKeyDigest,
   disposition: VerificationActionRunDisposition,
@@ -330,6 +452,19 @@ export class VerificationActionRunner {
 
   async execute(input: VerificationActionExecuteInput): Promise<VerificationActionRunOutcome> {
     const action = canonicalAction(input.action);
+    const coordination = enterCoordinatedAction(action.actionKey);
+    try {
+      return await this.#executeCoordinated(input, action, coordination);
+    } finally {
+      leaveCoordinatedAction(action.actionKey, coordination);
+    }
+  }
+
+  async #executeCoordinated(
+    input: VerificationActionExecuteInput,
+    action: VerificationActionKey,
+    coordination: CoordinatedAction
+  ): Promise<VerificationActionRunOutcome> {
     const executionDomain = boundedToken(input.executionDomain, 'executionDomain', () => 'process');
     const inheritedContext = EXECUTION_CONTEXT.getStore();
     if (inheritedContext !== undefined && input.ownerToken !== undefined &&
@@ -343,7 +478,7 @@ export class VerificationActionRunner {
     );
     const ownerKey = `${ownerToken}\0${action.actionKey}`;
     const ownerKeys = inheritedContext?.ownerKeys;
-    if (ownerKeys?.has(ownerKey) && IN_FLIGHT_ACTIONS.has(action.actionKey)) {
+    if (ownerKeys?.has(ownerKey) && coordination.flight !== null) {
       return outcome(
         action.actionKey,
         'blocked',
@@ -376,8 +511,8 @@ export class VerificationActionRunner {
 
     // Plan authorization is caller-local. A non-runnable caller must not join
     // an already-running action and inherit a terminal projection it lacks.
-    const existingFlight = IN_FLIGHT_ACTIONS.get(action.actionKey);
-    if (existingFlight !== undefined) {
+    const existingFlight = coordination.flight;
+    if (existingFlight !== null) {
       const joined = await existingFlight;
       return outcome(
         joined.actionKey,
@@ -447,8 +582,36 @@ export class VerificationActionRunner {
       return outcome(action.actionKey, 'blocked', journal.latestState, null, false,
         `persisted ${journal.latestState} action has no provable terminal; blind re-execution is forbidden`);
     } else {
-      appendVerificationActionJournalEvent({ fs: journalFs, action,
-        state: 'queued', recordedAt: input.recordedAt?.(), note: null });
+      try {
+        appendVerificationActionJournalEvent({ fs: journalFs, action,
+          state: 'queued', recordedAt: input.recordedAt?.(), note: null });
+      } catch (error) {
+        // The durable queued transition is the cross-process physical-start
+        // linearization point.  A contender can observe an empty journal and
+        // then lose the queued CAS after another process has published it;
+        // that contender must join the durable generation, not turn the
+        // expected race into a second start or a provider failure.
+        const concurrent = readVerificationActionJournal(journalFs, action.actionKey);
+        if (concurrent.latestState === 'queued' || concurrent.latestState === 'running'
+            || concurrent.latestState === 'terminal' || concurrent.latestState === 'reused') {
+          stopHeartbeat();
+          return outcome(
+            action.actionKey,
+            concurrent.latestState === 'terminal' || concurrent.latestState === 'reused'
+              ? 'reused'
+              : 'joined',
+            concurrent.latestState,
+            concurrent.terminal,
+            false,
+            concurrent.terminal === null
+              ? 'another process published the durable physical-start transition'
+              : null
+          );
+        }
+        stopHeartbeat();
+        releaseClaim();
+        throw error;
+      }
       appendVerificationActionJournalEvent({ fs: journalFs, action,
         state: 'running', recordedAt: input.recordedAt?.(), note: null });
     }
@@ -462,7 +625,7 @@ export class VerificationActionRunner {
       resolveFlight = resolve;
       rejectFlight = reject;
     });
-    IN_FLIGHT_ACTIONS.set(action.actionKey, flight);
+    coordination.flight = flight;
     void (async () => {
       await Promise.resolve();
       let terminal: VerificationActionTerminal;
@@ -474,10 +637,20 @@ export class VerificationActionRunner {
           Object.freeze({ ownerToken, ownerKeys: currentOwnerKeys }),
           () => input.executor({ action, executionDomain })
         );
-        terminal = createVerificationActionTerminal(executorResult);
+        terminal = projectVerificationActionTerminal(executorResult);
       } catch (error) {
-        terminal = failedTerminal();
         note = boundedError(error);
+        stopHeartbeat();
+        releaseClaim();
+        resolveFlight(outcome(
+          action.actionKey,
+          'blocked',
+          'running',
+          null,
+          true,
+          `${note}; no owner-issued terminal was committed`
+        ));
+        return;
       }
       const afterExecution = readVerificationActionJournal(
         journalFs,
@@ -550,13 +723,7 @@ export class VerificationActionRunner {
       releaseClaim();
       rejectFlight(error);
     });
-    try {
-      return await flight;
-    } finally {
-      if (IN_FLIGHT_ACTIONS.get(action.actionKey) === flight) {
-        IN_FLIGHT_ACTIONS.delete(action.actionKey);
-      }
-    }
+    return await flight;
   }
 
   /**
@@ -671,9 +838,6 @@ export async function executeLocalVerificationActionDag(
   }
   const authority = input.inspectRepository(authorityRoot);
   const candidate = input.inspectRepository(candidateRoot);
-  const canonicalCommonDirectory = (value: string): string => (
-    process.platform === 'win32' ? realpathSync.native(value).toLowerCase() : realpathSync.native(value)
-  );
   if (!authority.trackedClean || !candidate.trackedClean ||
       canonicalCommonDirectory(authority.gitCommonDirectory) !==
         canonicalCommonDirectory(candidate.gitCommonDirectory) ||
@@ -691,6 +855,15 @@ export async function executeLocalVerificationActionDag(
   for (let index = 0; index < closure.actions.length; index += 1) {
     const plan = closure.actions[index]!;
     const normalizedOperation = closure.normalizedOperations[index]!;
+    const boundOperation = bindLocalDagOperation({
+      action: plan.action,
+      normalizedOperation,
+      executionEnvironment,
+      deadlineAtUnixMs: Math.min(
+        input.deadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER,
+        Date.now() + VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.durationMs
+      )
+    });
     const result = await runner.execute({
       repositoryRoot: authorityRoot,
       action: plan.action,
@@ -698,27 +871,81 @@ export async function executeLocalVerificationActionDag(
       executionDomain: `local-dev-runner:${executionEnvironment.executionEnvironmentRevision}`,
       recordedAt: input.recordedAt,
       executor: async () => {
-        const exitCode = input.executeActionPlan !== undefined
-          ? await input.executeActionPlan({
-            plan,
-            authorizedClosure: closure,
-            repositoryRoot: candidateRoot,
-            environment: input.environment
-          })
-          : input.executeNormalizedOperation !== undefined
-            ? await input.executeNormalizedOperation(normalizedOperation)
-            : (() => { throw new Error('local VerificationAction DAG physical provider is unavailable'); })();
-        const status = exitCode === 0 ? 'passed' as const : 'failed' as const;
-        return createVerificationActionTerminal({
-          status,
-          reasonCode: status === 'passed' ? 'executed-success' : 'executed-failure',
-          resultDigest: localDagDigest({
-            actionKey: plan.action.actionKey,
-            normalizedOperationDigest: normalizedOperation.semanticDigest,
-            exitCode,
-            executionEnvironmentRevision: executionEnvironment.executionEnvironmentRevision
-          })
+        const session = openProcessResourceSession({
+          operation: boundOperation,
+          signal: input.signal
         });
+        const process: VerificationActionProcessExecutionContext = Object.freeze({
+          session,
+          maxStderrBytes: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStderrBytes,
+          maxStdoutBytes: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStdoutBytes
+        });
+        let physicalResult: ProcessResourceRunResult;
+        try {
+          physicalResult = canonicalProcessRunResult(
+            input.executeActionPlan !== undefined
+              ? await input.executeActionPlan({
+                plan,
+                authorizedClosure: closure,
+                repositoryRoot: candidateRoot,
+                environment: input.environment,
+                process
+              })
+              : input.executeNormalizedOperation !== undefined
+                ? await input.executeNormalizedOperation(normalizedOperation, process)
+                : (() => {
+                  throw new Error('local VerificationAction DAG physical provider is unavailable');
+                })()
+          );
+        } catch (error) {
+          try {
+            session.close();
+          } catch (closeError) {
+            throw new AggregateError(
+              [error, closeError],
+              'local VerificationAction provider and process settlement both failed'
+            );
+          }
+          throw error;
+        }
+        const processReceipt = session.close();
+        if (processReceipt.processCount !== VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.processes
+            || processReceipt.failedProcessCount !== 0
+            || processReceipt.boundAttemptDigest !== boundOperation.boundAttemptDigest
+            || processReceipt.operationIdentityDigest !== boundOperation.plan.identity.identityDigest) {
+          throw new Error('local VerificationAction process receipt does not settle the exact attempt.');
+        }
+        const providerSettlement = issueSecProviderSettlementReceipt(boundOperation, {
+          terminalClass: physicalResult.result.code === 0 ? 'completed' : 'failed',
+          providerSettlement: {
+            processReceipt,
+            ordinal: physicalResult.ordinal,
+            exitCode: physicalResult.result.code,
+            stdoutDigest: rawDigest(physicalResult.result.stdout),
+            stderrDigest: rawDigest(physicalResult.result.stderr)
+          }
+        });
+        const candidateAfter = input.inspectRepository(candidateRoot);
+        if (!candidateAfter.trackedClean
+            || candidateAfter.headSha !== normalizedOperation.candidate.headSha
+            || candidateAfter.headTreeSha !== normalizedOperation.candidate.headTreeSha
+            || canonicalCommonDirectory(candidateAfter.gitCommonDirectory)
+              !== canonicalCommonDirectory(candidate.gitCommonDirectory)) {
+          throw new Error('local VerificationAction candidate readback drifted after process settlement.');
+        }
+        const domainOutcome = issueSecDomainOutcomeReceipt(providerSettlement, {
+          terminalClass: providerSettlement.providerTerminalClass,
+          effectReadback: candidateAfter,
+          domainOutcome: {
+            operationDigest: normalizedOperation.semanticDigest,
+            status: physicalResult.result.code === 0 ? 'passed' : 'failed'
+          }
+        });
+        return issueSecOperationSettlementEnvelope(
+          boundOperation,
+          providerSettlement,
+          domainOutcome
+        );
       }
     });
     actionResults.push(result);

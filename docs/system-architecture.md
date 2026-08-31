@@ -349,6 +349,20 @@ consumer默认依赖真实declaration owner，只有执行authority intersection
 
 外部能力仍保持单向责任：pure contract、physical adoption、bounded live transport、semantic owner、decision/effect/readback。
 物理transport不拥有credential或业务语义，semantic owner不重新实现PATH、spawn、retained handle或provider adoption。
+TCB/closure inventory只证明某个dispatcher存在于exact source closure并受审计，不能给它签发transport authority；生产源码只有
+canonical physical capability owner可以直接调用native process primitive。所有其他owner必须消费其opaque retained session，
+因此reviewed dispatcher、测试allowlist、固定路径或历史兼容记录都不能压制`direct-process-transport-outside-owner`。
+
+进程资源不是命令调用点上的一组静态数字，而是绑定到一个owner-issued semantic operation的物理会话。会话在任何PATH、cwd、
+executable或child discovery前验证不可伪造的operation binding，并一次性收窄wall/monotonic absolute deadline、AbortSignal、
+process/input/output aggregate budget；每次child admission不可逆消费同一ledger，single-flight或显式有界并发由该ledger决定，
+close只在全部child完成termination settlement后签发digest-bound receipt。业务runner不得重开deadline、退回失败attempt的资源、
+接受caller duration扩大窗口、结构克隆session、注入第二command runner或用static plan/budget声明代替真实计量。
+
+physical session只证明进程、输入输出与retained executable/cwd已经物理结算；它不证明领域成功。semantic operation必须先消费
+provider settlement，再执行自身最终readback并签发domain outcome，最后才能形成terminal envelope。Hosted sandbox、Container Engine、
+Git、TypeScript与本地Verification可以使用不同物理provider，但必须满足同一operation requirements；它们不得通过一个接受任意
+callback/argv的通用facade互相冒充，也不得让一个provider的session成为另一个provider的credential或完成authority。
 
 ### 纯逻辑、能力原子、领域操作与流程
 

@@ -160,6 +160,7 @@ import { createVerificationSession, type VerificationSession } from '../../src/v
 import { compileTcbClosureIdentity } from '../../src/verification/trust/compiler.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
 import { exactHeadTestImpactProvider } from '../helpers/test-impact-provider.ts';
+import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
 const HEAD = '2222222222222222222222222222222222222222';
 const BASE = '1111111111111111111111111111111111111111';
@@ -2308,7 +2309,8 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
     const result = await executeLocalVerificationActionDag({ authorityRoot, candidateRoot,
       actionPlanClosure: closure, executionEnvironment,
       inspectRepository,
-      executeNormalizedOperation: () => 0 });
+      executeNormalizedOperation: (_operation, process) =>
+        runRetainedBunTestProcess(process, candidateRoot) });
     expect(result.status).toBe('passed');
     expect(result.actionPlanDigest).toBe(closure.actionPlanDigest);
     expect(result.actionResults.every((entry) => entry.terminal?.status === 'passed')).toBe(true);
