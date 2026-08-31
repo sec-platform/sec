@@ -26,8 +26,6 @@ export type WindowsHostDirectoryAuthority = Readonly<{
 
 const WINDOWS_ACL_PROOF_TIMEOUT_MS = 10_000;
 const WINDOWS_POINTER_BYTES = 8;
-const ERROR_INSUFFICIENT_BUFFER = 122;
-const ERROR_MORE_DATA = 234;
 const NAME_SAM_COMPATIBLE = 2;
 const OWNER_SECURITY_INFORMATION = 0x0000_0001;
 const DACL_SECURITY_INFORMATION = 0x0000_0004;
@@ -257,11 +255,12 @@ class NativeWindowsAclSession {
         null,
         accountLength
       );
-      if (firstAccountRead !== 0 || kernel32.symbols.GetLastError() !== ERROR_MORE_DATA) {
-        throw nativeFailure(kernel32, 'principal-name sizing');
-      }
       const accountCharacters = accountLength.readUInt32LE();
-      if (accountCharacters < 2 || accountCharacters > 1024) {
+      // Bun FFI does not promise to preserve the calling thread's Win32 last
+      // error across the JavaScript return boundary. The Windows sizing
+      // contract already gives us the authoritative result in the caller-owned
+      // length buffer, so never make GetLastError part of successful admission.
+      if (firstAccountRead !== 0 || accountCharacters < 2 || accountCharacters > 1024) {
         throw authorityError(
           'native-provider-unavailable',
           'Windows host directory principal name is invalid'
@@ -287,12 +286,10 @@ class NativeWindowsAclSession {
         domainLength,
         sidUse
       );
-      if (firstSidRead !== 0 || kernel32.symbols.GetLastError() !== ERROR_INSUFFICIENT_BUFFER) {
-        throw nativeFailure(kernel32, 'principal-SID sizing');
-      }
       const sidByteLength = sidLength.readUInt32LE();
       const domainCharacters = domainLength.readUInt32LE();
-      if (sidByteLength < 8 || sidByteLength > 68 || domainCharacters > 1024) {
+      if (firstSidRead !== 0 || sidByteLength < 8 || sidByteLength > 68 ||
+        domainCharacters > 1024) {
         throw authorityError(
           'native-provider-unavailable',
           'Windows host directory principal SID is invalid'
@@ -383,11 +380,8 @@ class NativeWindowsAclSession {
       0,
       requiredLength
     );
-    if (first !== 0 || this.#kernel32.symbols.GetLastError() !== ERROR_INSUFFICIENT_BUFFER) {
-      throw nativeFailure(this.#kernel32, 'ACL sizing');
-    }
     const descriptorLength = requiredLength.readUInt32LE();
-    if (descriptorLength < 20 || descriptorLength > 65_535) {
+    if (first !== 0 || descriptorLength < 20 || descriptorLength > 65_535) {
       throw authorityError(
         'native-provider-unavailable',
         'Windows host directory security descriptor is invalid'
