@@ -3,12 +3,16 @@ import path from 'node:path';
 import {
   PhysicalNoFollowError,
   publishExclusiveDurableCanonicalFile,
+  replaceDurableCanonicalFile,
   scanNoFollowDirectoryTreeMetadata,
   type PhysicalDirectoryIdentity
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryLeaf } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
-import { acquireSecRuntimeCachePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
+import {
+  acquireSecRuntimeCachePhysicalAuthority,
+  type SecRuntimeCachePhysicalAuthority
+} from '../../runtime-state/workspace-state/physical-authority.ts';
 import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
 import { canonicalJson, compareCodeUnits, isPlainObject, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
@@ -42,6 +46,18 @@ const MANIFEST_KEYS = Object.freeze([
   'packFileName', 'providerRevision', 'schemaDigest', 'shards', 'snapshotDigest'
 ]);
 const SHARD_KEYS = Object.freeze(['length', 'moduleDigest', 'offset', 'path', 'rawFileDigest', 'shardDigest']);
+const PREDECESSOR_POINTER_NAME = 'predecessor.json';
+const PREDECESSOR_POINTER_SCHEMA_DIGEST = sha256(Object.freeze({
+  identity: 'repository-source-program-compilation-predecessor-hint',
+  authority: 'none-advisory-validated-before-use',
+  cardinality: 'at-most-one',
+  target: 'one-immutable-generation'
+})) as `sha256:${string}`;
+const PREDECESSOR_POINTER_KEYS = Object.freeze([
+  'compilerGenerationDigest', 'compilerImplementationDigest', 'keyDigest',
+  'moduleGraphDigest', 'moduleMembershipDigest', 'pointerDigest',
+  'schemaDigest', 'snapshotDigest'
+]);
 
 export type RepositoryCompilationFactStoreFailureKind =
   | 'corrupt-cache'
@@ -103,6 +119,17 @@ type FactPack = Readonly<{
   shards: readonly ManifestShard[];
 }>;
 
+type PredecessorPointer = Readonly<{
+  schemaDigest: `sha256:${string}`;
+  keyDigest: `sha256:${string}`;
+  snapshotDigest: `sha256:${string}`;
+  moduleMembershipDigest: `sha256:${string}`;
+  moduleGraphDigest: `sha256:${string}`;
+  compilerImplementationDigest: `sha256:${string}`;
+  compilerGenerationDigest: `sha256:${string}`;
+  pointerDigest: `sha256:${string}`;
+}>;
+
 export interface RepositoryCompilationFactStoreDiagnostics {
   readonly physicalAdmissionMs: number;
   readonly manifestReadMs: number;
@@ -115,6 +142,11 @@ export interface RepositoryCompilationFactStoreDiagnostics {
 export type RepositoryCompilationFactStoreLoad = Readonly<{
   status: 'hit';
   keyDigest: `sha256:${string}`;
+  generation: Readonly<{
+    snapshotDigest: `sha256:${string}`;
+    moduleMembershipDigest: `sha256:${string}`;
+    moduleGraphDigest: `sha256:${string}`;
+  }>;
   shards: readonly TypeScriptSourceProgramFactShard[];
   diagnostics: RepositoryCompilationFactStoreDiagnostics;
 }> | Readonly<{
@@ -126,6 +158,7 @@ export interface RepositoryCompilationFactStore {
   readonly cacheRoot: string;
   readonly keyDigest: `sha256:${string}`;
   load(): RepositoryCompilationFactStoreLoad;
+  loadPredecessor(): RepositoryCompilationFactStoreLoad;
   publish(shards: readonly TypeScriptSourceProgramFactShard[]): RepositoryCompilationFactStoreLoad;
 }
 
@@ -159,6 +192,82 @@ function generationKey(identity: RepositoryCompilationFactStoreIdentity): `sha25
     dependencyGenerationDigest: identity.compiler.dependencyGenerationDigest,
     environmentDigest: identity.compiler.environmentDigest
   }) as `sha256:${string}`;
+}
+
+function compilerGenerationDigest(
+  identity: RepositoryCompilationFactStoreIdentity
+): `sha256:${string}` {
+  return sha256({
+    compilerRevision: identity.compiler.compilerRevision,
+    providerRevision: identity.compiler.providerRevision,
+    compilerConfigDigest: identity.compiler.compilerConfigDigest,
+    compilerImplementationDigest: identity.compilerImplementationDigest,
+    dependencyGenerationDigest: identity.compiler.dependencyGenerationDigest,
+    environmentDigest: identity.compiler.environmentDigest
+  }) as `sha256:${string}`;
+}
+
+function buildPredecessorPointer(
+  identity: RepositoryCompilationFactStoreIdentity,
+  keyDigest: `sha256:${string}`
+): PredecessorPointer {
+  const canonical = Object.freeze({
+    schemaDigest: PREDECESSOR_POINTER_SCHEMA_DIGEST,
+    keyDigest,
+    snapshotDigest: identity.snapshotDigest,
+    moduleMembershipDigest: identity.moduleMembershipDigest,
+    moduleGraphDigest: identity.moduleGraphDigest,
+    compilerImplementationDigest: identity.compilerImplementationDigest,
+    compilerGenerationDigest: compilerGenerationDigest(identity)
+  });
+  return Object.freeze({
+    ...canonical,
+    pointerDigest: sha256(canonical) as `sha256:${string}`
+  });
+}
+
+function encodePredecessorPointer(pointer: PredecessorPointer): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(canonicalJson(pointer)));
+}
+
+function parsePredecessorPointer(
+  bytes: Uint8Array,
+  currentIdentity: RepositoryCompilationFactStoreIdentity
+): PredecessorPointer {
+  const source = decodeExactUtf8(bytes, 'Repository compilation predecessor hint');
+  const value = parseExactJson(source, 'Repository compilation predecessor hint', {
+    rootObjectKeys: PREDECESSOR_POINTER_KEYS
+  });
+  exactObject(value, PREDECESSOR_POINTER_KEYS, 'Repository compilation predecessor hint');
+  for (const key of PREDECESSOR_POINTER_KEYS) exactDigest(
+    value[key],
+    `Repository compilation predecessor ${key}`
+  );
+  const parsed = Object.freeze({
+    schemaDigest: value.schemaDigest as `sha256:${string}`,
+    keyDigest: value.keyDigest as `sha256:${string}`,
+    snapshotDigest: value.snapshotDigest as `sha256:${string}`,
+    moduleMembershipDigest: value.moduleMembershipDigest as `sha256:${string}`,
+    moduleGraphDigest: value.moduleGraphDigest as `sha256:${string}`,
+    compilerImplementationDigest: value.compilerImplementationDigest as `sha256:${string}`,
+    compilerGenerationDigest: value.compilerGenerationDigest as `sha256:${string}`,
+    pointerDigest: value.pointerDigest as `sha256:${string}`
+  }) satisfies PredecessorPointer;
+  const unsigned = Object.fromEntries(Object.entries(parsed).filter(([key]) => key !== 'pointerDigest'));
+  if (parsed.schemaDigest !== PREDECESSOR_POINTER_SCHEMA_DIGEST
+      || parsed.compilerGenerationDigest !== compilerGenerationDigest(currentIdentity)
+      || parsed.keyDigest !== generationKey({
+        snapshotDigest: parsed.snapshotDigest,
+        moduleMembershipDigest: parsed.moduleMembershipDigest,
+        moduleGraphDigest: parsed.moduleGraphDigest,
+        compilerImplementationDigest: parsed.compilerImplementationDigest,
+        compiler: currentIdentity.compiler
+      })
+      || parsed.pointerDigest !== sha256(unsigned)
+      || source !== JSON.stringify(canonicalJson(parsed))) {
+    throw new Error('Repository compilation predecessor hint is stale, foreign, or noncanonical');
+  }
+  return parsed;
 }
 
 function packName(digest: string): string {
@@ -334,6 +443,75 @@ function atStoreBoundary<Value>(label: string, operation: () => Value): Value {
   }
 }
 
+function loadGeneration(input: Readonly<{
+  authority: SecRuntimeCachePhysicalAuthority;
+  directory: PhysicalDirectoryIdentity;
+  identity: RepositoryCompilationFactStoreIdentity;
+  keyDigest: `sha256:${string}`;
+  physicalAdmissionMs: number;
+}>): RepositoryCompilationFactStoreLoad {
+  const manifestReadStarted = performance.now();
+  input.authority.assertCurrent();
+  const manifestBytes = readOptionalRetainedOrdinaryLeaf(input.directory, 'manifest.json');
+  if (manifestBytes === null) return Object.freeze({ status: 'miss', keyDigest: input.keyDigest });
+  const manifestReadMs = performance.now() - manifestReadStarted;
+  const manifestParseStarted = performance.now();
+  let manifest: Manifest;
+  try {
+    manifest = parseManifest(manifestBytes, input.identity);
+  } catch (error) {
+    if (error instanceof RepositoryCompilationFactStoreError) throw error;
+    throw new RepositoryCompilationFactStoreError('corrupt-cache', 'Fact-store manifest is invalid', error);
+  }
+  const manifestParseMs = performance.now() - manifestParseStarted;
+  assertContents(input.directory, new Set(['manifest.json', manifest.packFileName]));
+  const packReadStarted = performance.now();
+  const packBytes = readOptionalRetainedOrdinaryLeaf(input.directory, manifest.packFileName);
+  if (packBytes === null) throw new RepositoryCompilationFactStoreError('corrupt-cache', 'Fact pack is absent');
+  const packReadMs = performance.now() - packReadStarted;
+  if (packBytes.byteLength !== manifest.packByteLength || rawSha256(packBytes) !== manifest.packDigest) {
+    throw new RepositoryCompilationFactStoreError('corrupt-cache', 'Fact pack bytes do not match the manifest');
+  }
+  const shardParseStarted = performance.now();
+  const shards = manifest.shards.map((entry) => {
+    let shard: TypeScriptSourceProgramFactShard;
+    try {
+      shard = parseTypeScriptSourceProgramFactShard(packBytes.subarray(entry.offset, entry.offset + entry.length));
+    } catch (error) {
+      throw new RepositoryCompilationFactStoreError('corrupt-cache', `Fact-pack shard ${entry.path} is invalid`, error);
+    }
+    if (shard.path !== entry.path
+        || shard.shardDigest !== entry.shardDigest
+        || shard.rawFileDigest !== entry.rawFileDigest
+        || shard.moduleDigest !== entry.moduleDigest
+        || shard.compilerRevision !== input.identity.compiler.compilerRevision
+        || shard.providerRevision !== input.identity.compiler.providerRevision) {
+      throw new RepositoryCompilationFactStoreError('identity-mismatch', `Fact-pack shard ${entry.path} is stale or foreign`);
+    }
+    return shard;
+  });
+  const shardParseMs = performance.now() - shardParseStarted;
+  input.authority.assertCurrent();
+  return Object.freeze({
+    status: 'hit',
+    keyDigest: input.keyDigest,
+    generation: Object.freeze({
+      snapshotDigest: input.identity.snapshotDigest,
+      moduleMembershipDigest: input.identity.moduleMembershipDigest,
+      moduleGraphDigest: input.identity.moduleGraphDigest
+    }),
+    shards: Object.freeze(shards),
+    diagnostics: Object.freeze({
+      physicalAdmissionMs: input.physicalAdmissionMs,
+      manifestReadMs,
+      manifestParseMs,
+      packReadMs,
+      packBytes: packBytes.byteLength,
+      shardParseMs
+    })
+  });
+}
+
 export function createRepositoryCompilationFactStore(input: Readonly<{
   repositoryRoot: string;
   identity: RepositoryCompilationFactStoreIdentity;
@@ -355,57 +533,63 @@ export function createRepositoryCompilationFactStore(input: Readonly<{
     requiredDirectories: [namespaceRoot, generationRoot]
   });
   const directory = authority.directory(generationRoot);
+  const namespaceDirectory = authority.directory(namespaceRoot);
   const physicalAdmissionMs = performance.now() - admissionStarted;
 
-  const loadInternal = (): RepositoryCompilationFactStoreLoad => {
-    const manifestReadStarted = performance.now();
-    authority.assertCurrent();
-    const manifestBytes = readOptionalRetainedOrdinaryLeaf(directory, 'manifest.json');
-    if (manifestBytes === null) return Object.freeze({ status: 'miss', keyDigest });
-    const manifestReadMs = performance.now() - manifestReadStarted;
-    const manifestParseStarted = performance.now();
-    let manifest: Manifest;
+  const loadInternal = (): RepositoryCompilationFactStoreLoad => loadGeneration({
+    authority,
+    directory,
+    identity: input.identity,
+    keyDigest,
+    physicalAdmissionMs
+  });
+
+  const loadPredecessorInternal = (): RepositoryCompilationFactStoreLoad => {
     try {
-      manifest = parseManifest(manifestBytes, input.identity);
-    } catch (error) {
-      if (error instanceof RepositoryCompilationFactStoreError) throw error;
-      throw new RepositoryCompilationFactStoreError('corrupt-cache', 'Fact-store manifest is invalid', error);
-    }
-    const manifestParseMs = performance.now() - manifestParseStarted;
-    assertContents(directory, new Set(['manifest.json', manifest.packFileName]));
-    const packReadStarted = performance.now();
-    const packBytes = readOptionalRetainedOrdinaryLeaf(directory, manifest.packFileName);
-    if (packBytes === null) throw new RepositoryCompilationFactStoreError('corrupt-cache', 'Fact pack is absent');
-    const packReadMs = performance.now() - packReadStarted;
-    if (packBytes.byteLength !== manifest.packByteLength || rawSha256(packBytes) !== manifest.packDigest) {
-      throw new RepositoryCompilationFactStoreError('corrupt-cache', 'Fact pack bytes do not match the manifest');
-    }
-    const shardParseStarted = performance.now();
-    const shards = manifest.shards.map((entry) => {
-      let shard: TypeScriptSourceProgramFactShard;
-      try {
-        shard = parseTypeScriptSourceProgramFactShard(packBytes.subarray(entry.offset, entry.offset + entry.length));
-      } catch (error) {
-        throw new RepositoryCompilationFactStoreError('corrupt-cache', `Fact-pack shard ${entry.path} is invalid`, error);
+      authority.assertCurrent();
+      const pointerBytes = readOptionalRetainedOrdinaryLeaf(
+        namespaceDirectory,
+        PREDECESSOR_POINTER_NAME
+      );
+      if (pointerBytes === null) return Object.freeze({ status: 'miss', keyDigest });
+      const pointer = parsePredecessorPointer(pointerBytes, input.identity);
+      if (pointer.keyDigest === keyDigest) return Object.freeze({ status: 'miss', keyDigest });
+      const predecessorIdentity = Object.freeze({
+        snapshotDigest: pointer.snapshotDigest,
+        moduleMembershipDigest: pointer.moduleMembershipDigest,
+        moduleGraphDigest: pointer.moduleGraphDigest,
+        compilerImplementationDigest: pointer.compilerImplementationDigest,
+        compiler: input.identity.compiler
+      }) satisfies RepositoryCompilationFactStoreIdentity;
+      const predecessorRoot = path.join(namespaceRoot, pointer.keyDigest.slice(7));
+      const predecessorAdmissionStarted = performance.now();
+      const predecessorAuthority = acquireSecRuntimeCachePhysicalAuthority({
+        repositoryRoot,
+        cacheRoot,
+        requiredDirectories: [namespaceRoot, predecessorRoot]
+      });
+      const predecessorDirectory = predecessorAuthority.directory(predecessorRoot);
+      const predecessorAdmissionMs = performance.now() - predecessorAdmissionStarted;
+      authority.assertCurrent();
+      const pointerReadback = readOptionalRetainedOrdinaryLeaf(
+        namespaceDirectory,
+        PREDECESSOR_POINTER_NAME
+      );
+      if (pointerReadback === null || !Buffer.from(pointerReadback).equals(Buffer.from(pointerBytes))) {
+        return Object.freeze({ status: 'miss', keyDigest });
       }
-      if (shard.path !== entry.path
-          || shard.shardDigest !== entry.shardDigest
-          || shard.rawFileDigest !== entry.rawFileDigest
-          || shard.moduleDigest !== entry.moduleDigest
-          || shard.compilerRevision !== input.identity.compiler.compilerRevision
-          || shard.providerRevision !== input.identity.compiler.providerRevision) {
-        throw new RepositoryCompilationFactStoreError('identity-mismatch', `Fact-pack shard ${entry.path} is stale or foreign`);
-      }
-      return shard;
-    });
-    const shardParseMs = performance.now() - shardParseStarted;
-    authority.assertCurrent();
-    return Object.freeze({
-      status: 'hit',
-      keyDigest,
-      shards: Object.freeze(shards),
-      diagnostics: Object.freeze({ physicalAdmissionMs, manifestReadMs, manifestParseMs, packReadMs, packBytes: packBytes.byteLength, shardParseMs })
-    });
+      return loadGeneration({
+        authority: predecessorAuthority,
+        directory: predecessorDirectory,
+        identity: predecessorIdentity,
+        keyDigest: pointer.keyDigest,
+        physicalAdmissionMs: predecessorAdmissionMs
+      });
+    } catch {
+      // The pointer is a disposable acceleration hint. Any malformed, stale,
+      // missing, foreign, or physically replaced predecessor is a cache miss.
+      return Object.freeze({ status: 'miss', keyDigest });
+    }
   };
 
   const publishInternal = (shards: readonly TypeScriptSourceProgramFactShard[]): RepositoryCompilationFactStoreLoad => {
@@ -439,13 +623,27 @@ export function createRepositoryCompilationFactStore(input: Readonly<{
       bytes: manifestBytes,
       validate: (candidate) => { parseManifest(candidate, input.identity); }
     });
-    return loadInternal();
+    const loaded = loadInternal();
+    try {
+      const pointer = buildPredecessorPointer(input.identity, keyDigest);
+      replaceDurableCanonicalFile({
+        parent: namespaceDirectory,
+        name: PREDECESSOR_POINTER_NAME,
+        bytes: encodePredecessorPointer(pointer),
+        validate: (candidate) => { parsePredecessorPointer(candidate, input.identity); }
+      });
+    } catch {
+      // Pointer publication cannot change the immutable generation or its
+      // semantic result; it only removes the next operation's acceleration.
+    }
+    return loaded;
   };
 
   return Object.freeze({
     cacheRoot,
     keyDigest,
     load: () => atStoreBoundary('Repository compilation generation read', loadInternal),
+    loadPredecessor: loadPredecessorInternal,
     publish: (shards: readonly TypeScriptSourceProgramFactShard[]) => atStoreBoundary(
       'Repository compilation generation publication',
       () => publishInternal(shards)

@@ -78,7 +78,7 @@ export interface TypeScriptSourceProgramFactShard {
 
 type ShardFacts = Omit<TypeScriptSourceProgramFactShard,
   'compilerRevision' | 'moduleDigest' | 'providerRevision' | 'rawFileDigest'
-  | 'schemaDigest' | 'shardDigest'>;
+  | 'schemaDigest' | 'semanticDependencyScope' | 'shardDigest'>;
 
 function exactObject(
   value: unknown,

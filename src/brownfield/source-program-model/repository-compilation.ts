@@ -75,9 +75,17 @@ export function repositoryCompilationDiagnosticsForTests(
 function loadedTypeScriptState(
   context: IssuedRepositoryCompilationContext,
   input: CompileTypeScriptSourceProgramModelInput,
-  shards: Parameters<typeof adoptTypeScriptSourceProgramFactShardsFromRepositoryCompilation>[1]
+  loaded: Extract<
+    ReturnType<ReturnType<typeof createRepositoryCompilationFactStore>['load']>,
+    { status: 'hit' }
+  >
 ): TypeScriptSourceProgramIncrementalState {
-  return adoptTypeScriptSourceProgramFactShardsFromRepositoryCompilation(input, shards, context);
+  return adoptTypeScriptSourceProgramFactShardsFromRepositoryCompilation(
+    input,
+    loaded.shards,
+    context,
+    Object.freeze({ moduleGraphDigest: loaded.generation.moduleGraphDigest })
+  );
 }
 
 export function compileRepositorySourceProgramCompilation(
@@ -101,6 +109,7 @@ export function compileRepositorySourceProgramCompilation(
           compiler
         });
   let factStore: ReturnType<typeof createRepositoryCompilationFactStore> | null = null;
+  let exactLoaded: ReturnType<ReturnType<typeof createRepositoryCompilationFactStore>['load']> | null = null;
   let loaded: ReturnType<ReturnType<typeof createRepositoryCompilationFactStore>['load']> | null = null;
   if (input.repositoryRoot !== undefined && factStoreIdentity !== null) {
     try {
@@ -108,12 +117,14 @@ export function compileRepositorySourceProgramCompilation(
         repositoryRoot: input.repositoryRoot,
         identity: factStoreIdentity
       });
-      loaded = factStore.load();
+      exactLoaded = factStore.load();
+      loaded = exactLoaded.status === 'hit' ? exactLoaded : factStore.loadPredecessor();
     } catch {
       // Runtime Cache is disposable acceleration. Invalid, foreign or
       // physically unavailable cache state must never become compilation
       // availability authority while the current exact inputs are present.
       factStore = null;
+      exactLoaded = null;
       loaded = null;
     }
   }
@@ -124,7 +135,7 @@ export function compileRepositorySourceProgramCompilation(
     moduleMembership: input.moduleMembership
   });
   const cachedState = loaded?.status === 'hit'
-    ? loadedTypeScriptState(context, typeScriptInput, loaded.shards)
+    ? loadedTypeScriptState(context, typeScriptInput, loaded)
     : null;
   const modelAssemblyMs = performance.now() - modelAssemblyStarted;
   const incrementalExactStarted = performance.now();
@@ -160,7 +171,7 @@ export function compileRepositorySourceProgramCompilation(
   const repositoryProjectionStarted = performance.now();
   const model = compileRepositorySourceProgramModelFromRepositoryCompilation(repositoryInput, context);
   const repositoryProjectionMs = performance.now() - repositoryProjectionStarted;
-  if (factStore !== null && loaded?.status !== 'hit') {
+  if (factStore !== null && exactLoaded?.status !== 'hit') {
     try {
       factStore.publish(typeScriptCompilation.state.factShards);
     } catch {
