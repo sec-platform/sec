@@ -13,6 +13,12 @@ export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS = Object.freeze([
   'package.json'
 ] as const);
 
+export function createCiVerificationHostedToolchainRevision(
+  authority: SecLinuxVerificationEnvironmentAuthority
+): string {
+  return `bun@${authority.trustedRuntime.bunVersion}`;
+}
+
 export function createCiVerificationHostedProviderRevision(
   authority: SecLinuxVerificationEnvironmentAuthority
 ): string {
@@ -28,5 +34,9 @@ export function createCiVerificationHostedProviderRevision(
 
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION =
   createCiVerificationHostedProviderRevision(
+    SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
+  );
+export const CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION =
+  createCiVerificationHostedToolchainRevision(
     SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
   );

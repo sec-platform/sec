@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { CompilerError } from '../../compiler/errors.ts';
+import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
 
 export const SOURCE_RUNTIME_MODULE_RELATIVE_PATH = path.join(
   'src',
@@ -10,6 +10,14 @@ export const SOURCE_RUNTIME_MODULE_RELATIVE_PATH = path.join(
   'runtime',
   'layout.ts'
 );
+export const PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH = path.join(
+  'src',
+  'toolchain',
+  'runtime',
+  'package-source-launcher.ts'
+);
+export const PACKAGE_SOURCE_LAUNCHER_SCRIPT =
+  `\"$npm_execpath\" ./${PACKAGE_SOURCE_LAUNCHER_RELATIVE_PATH.replaceAll('\\', '/')}`;
 export const COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS = Object.freeze({
   composeTemplates: path.join('src', 'compiler', 'compose', 'templates'),
   officialPolicies: path.join('catalog', 'policies', 'official'),
@@ -61,7 +69,7 @@ export const COMPILER_RUNTIME_RESOURCE_POSIX_PATHS = mapCompilerRuntimeResourceP
 );
 
 function runtimeLayoutError(message: string, details: Record<string, unknown> = {}): never {
-  throw new CompilerError('RUNTIME-LAYOUT-001', message, details);
+  throw new SecError('RUNTIME-LAYOUT-001', message, details);
 }
 
 function entrypointRelativePath(value: unknown, field: string): string {
@@ -104,8 +112,10 @@ export function parseCompilerPackageEntrypointBinding(
   if (typeof manifest.scripts !== 'object'
     || manifest.scripts === null
     || Array.isArray(manifest.scripts)
-    || (manifest.scripts as Record<string, unknown>)[command] !== `bun ./${source}`) {
-    return runtimeLayoutError(`SEC package script ${command} must execute its declared source entrypoint`);
+    || (manifest.scripts as Record<string, unknown>)[command] !== PACKAGE_SOURCE_LAUNCHER_SCRIPT) {
+    return runtimeLayoutError(
+      `SEC package script ${command} must use the exact Bun package-source launcher`
+    );
   }
   return Object.freeze({ artifact, command, source });
 }

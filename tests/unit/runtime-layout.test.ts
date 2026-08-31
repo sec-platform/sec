@@ -8,6 +8,7 @@ import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
   compilerCliEntrypoint,
   compilerRuntimeLayout,
+  PACKAGE_SOURCE_LAUNCHER_SCRIPT,
   parseCompilerPackageEntrypointBinding,
   resolveCompilerCliEntrypoint,
   resolveCompilerRuntimeLayout,
@@ -27,7 +28,7 @@ async function createPackageFixture(): Promise<string> {
     source: `./${FIXTURE_ENTRYPOINT.source}`,
     bin: { [FIXTURE_ENTRYPOINT.command]: `./${FIXTURE_ENTRYPOINT.artifact}` },
     scripts: {
-      [FIXTURE_ENTRYPOINT.command]: `bun ./${FIXTURE_ENTRYPOINT.source}`
+      [FIXTURE_ENTRYPOINT.command]: PACKAGE_SOURCE_LAUNCHER_SCRIPT
     }
   })}\n`, 'utf8');
   return packageRoot;
@@ -107,7 +108,17 @@ describe('compiler runtime layout', () => {
       source: './source/cli.ts',
       bin: { fixture: './output/cli.js' },
       scripts: { fixture: 'bun ./other.ts' }
-    })).toThrow('must execute its declared source entrypoint');
+    })).toThrow('must use the exact Bun package-source launcher');
+    expect(() => parseCompilerPackageEntrypointBinding({
+      source: './source/cli.ts',
+      bin: { fixture: './output/cli.js' },
+      scripts: { fixture: '"$npm_execpath" ./source/cli.ts' }
+    })).toThrow('must use the exact Bun package-source launcher');
+    expect(() => parseCompilerPackageEntrypointBinding({
+      source: '../other/cli.ts',
+      bin: { fixture: './output/cli.js' },
+      scripts: { fixture: PACKAGE_SOURCE_LAUNCHER_SCRIPT }
+    })).toThrow('source must be one explicit package-relative path');
 
     const packageRoot = await createPackageFixture();
     try {
