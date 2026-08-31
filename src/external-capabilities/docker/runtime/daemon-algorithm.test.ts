@@ -126,6 +126,52 @@ describe('Docker daemon lifecycle algorithm', () => {
     expect(lifecycles).toEqual(['observe', 'observe', 'start']);
   });
 
+  test('preserves the Docker Desktop launcher-path blocker even when the CLI exits zero', async () => {
+    const lifecycles: string[] = [];
+    try {
+      await ensureDockerDaemonStartedWithCommand({
+        cwd: process.cwd(),
+        deadlineAtUnixMs: Date.now() + 10_000,
+        endpointHost,
+        platform: 'win32',
+        withLauncherLock: async (operation) => await operation(),
+        run: async ({ lifecycle }) => {
+          lifecycles.push(lifecycle);
+          return lifecycle === 'start'
+            ? {
+              code: 0,
+              stdout: '',
+              stderr: 'Error: acquiring launcher lock: open : The system cannot find the file specified.'
+            }
+            : unavailable;
+        }
+      });
+      throw new Error('expected launcher-path blocker');
+    } catch (error) {
+      expectReason(error, 'desktop-launcher-path-unavailable');
+      expect((error as DockerDaemonAvailabilityFailure).phase).toBe('desktop-start');
+      expect((error as DockerDaemonAvailabilityFailure).providerEvidenceByteLength).toBeGreaterThan(0);
+    }
+    expect(lifecycles).toEqual(['observe', 'observe', 'start']);
+  });
+
+  test('classifies retained child settlement failure separately from endpoint state', async () => {
+    try {
+      await observeDockerDaemonWithCommand({
+        cwd: process.cwd(),
+        deadlineAtUnixMs: Date.now() + 10_000,
+        endpointHost,
+        run: async () => {
+          throw new Error('Retained command did not settle: treeClosed=false; streamsDrained=false');
+        }
+      });
+      throw new Error('expected process settlement blocker');
+    } catch (error) {
+      expectReason(error, 'process-settlement-failed');
+      expect((error as DockerDaemonAvailabilityFailure).phase).toBe('process-settlement');
+    }
+  });
+
   test('ensure-started rejects an exhausted operation before observation or lock acquisition', async () => {
     let commands = 0;
     let locks = 0;

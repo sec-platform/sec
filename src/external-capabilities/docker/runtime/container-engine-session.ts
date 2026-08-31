@@ -7,14 +7,20 @@ import {
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
+  openProcessResourceSession
+} from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
   issueRetainedCommandBoundary,
   resolveExecutableLocator,
-  runRetainedCommandBytes,
   type RetainedCommandBoundary
 } from '../../../runtime-state/physical/runtime/process.ts';
 import { resolveWindowsKnownFolderPath } from '../../../runtime-state/physical/runtime/windows-known-folders.ts';
+import {
+  issueSecProviderSettlementReceipt,
+  type SecProviderSettlementReceipt
+} from '../../../system-architecture/operation/semantic.ts';
 import type {
   ContainerEngineCommandResult,
   ContainerEngineOperation,
@@ -112,9 +118,39 @@ function boundedArguments(arguments_: readonly string[]): readonly string[] {
   return Object.freeze(retained);
 }
 
+/** Validates the complete argv after the owner has injected its retained endpoint. */
+function boundedOwnerArguments(arguments_: readonly string[]): readonly string[] {
+  if (!Array.isArray(arguments_) || arguments_.length > 4_096) {
+    fail('owner operation argument count is invalid');
+  }
+  let bytes = 0;
+  return Object.freeze(arguments_.map((argument) => {
+    if (typeof argument !== 'string' || argument.includes('\0')) {
+      fail('owner operation arguments must be NUL-free strings');
+    }
+    bytes += Buffer.byteLength(argument, 'utf8') + 1;
+    if (!Number.isSafeInteger(bytes) || bytes > 16 * 1024 * 1024) {
+      fail('owner operation arguments exceed the byte bound');
+    }
+    return argument;
+  }));
+}
+
 function operationArguments(operation: ContainerEngineOperation): readonly string[] {
   const prefix = OPERATION_PREFIX[operation.kind];
   return Object.freeze([...prefix, ...boundedArguments(operation.arguments)]);
+}
+
+export function compileContainerEngineOperationArguments(
+  endpoint: DockerEndpointIdentity,
+  operation: ContainerEngineOperation
+): readonly string[] {
+  const retainedEndpoint = parseDockerEndpointIdentity(endpoint);
+  return boundedOwnerArguments([
+    '--host',
+    retainedEndpoint.endpointHost,
+    ...operationArguments(operation)
+  ]);
 }
 
 function parseJsonObject(source: Uint8Array, label: string): Record<string, unknown> {
@@ -226,17 +262,22 @@ export async function openContainerEngineSession(
 ): Promise<ContainerEngineSession> {
   const cwd = path.resolve(input.cwd);
   if (!path.isAbsolute(input.cwd) || cwd !== input.cwd) fail('cwd must be canonical and absolute');
-  if (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now()) {
-    fail('deadline is exhausted');
+  const processSession = openProcessResourceSession({
+    operation: input.operation,
+    ...(input.signal === undefined ? {} : { signal: input.signal })
+  });
+  let retained: Awaited<ReturnType<typeof retainDockerCommandBoundary>>;
+  try {
+    retained = await retainDockerCommandBoundary(cwd);
+  } catch (error) {
+    processSession.close();
+    throw error;
   }
-  const maxStdoutBytes = assertPositiveBound(input.maxStdoutBytes, 'stdout bound');
-  const maxStderrBytes = assertPositiveBound(input.maxStderrBytes, 'stderr bound');
-  const retained = await retainDockerCommandBoundary(cwd);
   let active = 0;
   let closing = false;
   let closed = false;
-  let closePromise: Promise<void> | null = null;
-  const settlements = new Set<Promise<void>>();
+  let terminalCloseFailure: unknown;
+  let terminalCloseReceipt: SecProviderSettlementReceipt | undefined;
   const environment = projectedEnvironment(DOCKER_COMMAND_ENVIRONMENT_KEYS, process.env);
 
   const rawRun = async (
@@ -245,15 +286,15 @@ export async function openContainerEngineSession(
     lifecycle: 'observe' | 'start' = 'observe'
   ): Promise<ContainerEngineCommandResult> => {
     if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
-    const remaining = input.deadlineAtUnixMs - Date.now();
+    const remaining = processSession.deadlineAtUnixMs - Date.now();
     if (remaining < 1) fail('deadline is exhausted');
-    const stdoutBound = Math.min(
-      maxStdoutBytes,
-      options.maxStdoutBytes ?? maxStdoutBytes
+    const stdoutBound = assertPositiveBound(
+      options.maxStdoutBytes ?? 1024 * 1024,
+      'operation stdout bound'
     );
-    const stderrBound = Math.min(
-      maxStderrBytes,
-      options.maxStderrBytes ?? maxStderrBytes
+    const stderrBound = assertPositiveBound(
+      options.maxStderrBytes ?? 1024 * 1024,
+      'operation stderr bound'
     );
     if (stdoutBound < 1 || stderrBound < 1) fail('operation output bound is invalid');
     const stallTimeoutMs = options.stallTimeoutMs;
@@ -261,13 +302,10 @@ export async function openContainerEngineSession(
         || stallTimeoutMs < 1 || stallTimeoutMs >= remaining || options.admitProgress === undefined)) {
       fail('operation stall deadline is invalid');
     }
-    let settle!: () => void;
-    const settlement = new Promise<void>((resolve) => { settle = resolve; });
-    settlements.add(settlement);
     active += 1;
     try {
-      const result = await runRetainedCommandBytes(retained.boundary, [
-        ...boundedArguments(args)
+      const { result } = await processSession.run(retained.boundary, [
+        ...boundedOwnerArguments(args)
       ], {
         env: lifecycle === 'observe' ? environment : await dockerDesktopLifecycleEnvironment(),
         envMode: 'replace',
@@ -280,8 +318,7 @@ export async function openContainerEngineSession(
           admitProgress: options.admitProgress
         }),
         maxStdoutBytes: stdoutBound,
-        maxStderrBytes: stderrBound,
-        timeoutMs: remaining
+        maxStderrBytes: stderrBound
       });
       const commandResult = Object.freeze({
         code: result.code,
@@ -296,8 +333,6 @@ export async function openContainerEngineSession(
       return commandResult;
     } finally {
       active -= 1;
-      settlements.delete(settlement);
-      settle();
     }
   };
 
@@ -339,7 +374,7 @@ export async function openContainerEngineSession(
       };
       const daemonInput = Object.freeze({
         cwd,
-        deadlineAtUnixMs: input.deadlineAtUnixMs,
+        deadlineAtUnixMs: processSession.deadlineAtUnixMs,
         endpointHost,
         run: daemonRun
       });
@@ -347,7 +382,7 @@ export async function openContainerEngineSession(
         ? await ensureDockerDaemonStartedWithCommand({
           ...daemonInput,
           withLauncherLock: async (operation) => await withDockerDesktopLauncherLock(
-            { deadlineAtUnixMs: input.deadlineAtUnixMs, endpointHost },
+            { deadlineAtUnixMs: processSession.deadlineAtUnixMs, endpointHost },
             operation
           )
         })
@@ -376,117 +411,54 @@ export async function openContainerEngineSession(
       endpoint,
       cwd,
       executable: retained.executable,
-      deadlineAtUnixMs: input.deadlineAtUnixMs,
-      maxStdoutBytes,
-      maxStderrBytes,
+      deadlineAtUnixMs: processSession.deadlineAtUnixMs,
       execute: async (
         operation: ContainerEngineOperation,
         options: ContainerEngineOperationOptions = {}
-      ): Promise<ContainerEngineCommandResult> => await rawRun([
-        '--host', endpoint.endpointHost, ...operationArguments(operation)
-      ], options),
-      close: async (): Promise<void> => {
-        if (closed) return;
-        if (closePromise !== null) return closePromise;
+      ): Promise<ContainerEngineCommandResult> => await rawRun(
+        compileContainerEngineOperationArguments(endpoint, operation),
+        options
+      ),
+      close: () => {
+        if (closed) {
+          if (terminalCloseFailure !== undefined) throw terminalCloseFailure;
+          return terminalCloseReceipt!;
+        }
+        if (active > 0) fail('session cannot close with an active operation');
         closing = true;
-        closePromise = (async () => {
-          while (active > 0) await Promise.all([...settlements]);
-          let closeFailure: unknown;
+        let closeFailure: unknown;
+        try {
+          retained.boundary.executable.assertCurrent();
+          retained.boundary.workingDirectory.assertCurrent();
+        } catch (error) {
+          closeFailure = error;
+        } finally {
           try {
-            retained.boundary.executable.assertCurrent();
-            retained.boundary.workingDirectory.assertCurrent();
-          } catch (error) {
-            closeFailure = error;
-          } finally {
-            try { retained.boundary.workingDirectory.dispose(); } catch (error) { closeFailure ??= error; }
-            try { retained.boundary.executable.dispose(); } catch (error) { closeFailure ??= error; }
-            closed = true;
-          }
-          if (closeFailure !== undefined) throw closeFailure;
-        })();
-        return closePromise;
+            const processReceipt = processSession.close();
+            terminalCloseReceipt = issueSecProviderSettlementReceipt(input.operation, {
+              terminalClass: processReceipt.failedProcessCount === 0
+                ? 'completed'
+                : 'process-settlement-failed',
+              providerSettlement: {
+                endpoint,
+                processReceipt
+              }
+            });
+          } catch (error) { closeFailure ??= error; }
+          try { retained.boundary.workingDirectory.dispose(); } catch (error) { closeFailure ??= error; }
+          try { retained.boundary.executable.dispose(); } catch (error) { closeFailure ??= error; }
+          terminalCloseFailure = closeFailure;
+          closed = true;
+        }
+        if (closeFailure !== undefined) throw closeFailure;
+        return terminalCloseReceipt!;
       }
     });
     return session;
   } catch (error) {
+    try { processSession.close(); } catch { /* preserve admission failure */ }
     try { retained.boundary.workingDirectory.dispose(); } catch { /* preserve admission failure */ }
     try { retained.boundary.executable.dispose(); } catch { /* preserve admission failure */ }
     throw error;
-  }
-}
-
-export async function executeContainerEngineOperation(input: Readonly<{
-  cwd: string;
-  deadlineAtUnixMs: number;
-  endpoint: DockerEndpointIdentity;
-  operation: ContainerEngineOperation;
-  options?: ContainerEngineOperationOptions;
-  maxStdoutBytes: number;
-  maxStderrBytes: number;
-}>): Promise<ContainerEngineCommandResult> {
-  const session = await openContainerEngineSession({
-    cwd: input.cwd,
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
-    availability: 'observe',
-    expectedEndpoint: input.endpoint,
-    maxStdoutBytes: input.maxStdoutBytes,
-    maxStderrBytes: input.maxStderrBytes
-  });
-  try {
-    return await session.execute(input.operation, input.options);
-  } finally {
-    await session.close();
-  }
-}
-
-export async function observeContainerEngineEndpointIdentity(input: Readonly<{
-  cwd: string;
-  deadlineAtUnixMs: number;
-}>): Promise<DockerEndpointIdentity> {
-  const session = await openContainerEngineSession({
-    ...input,
-    availability: 'observe',
-    maxStdoutBytes: 1024 * 1024,
-    maxStderrBytes: 1024 * 1024
-  });
-  try {
-    return session.endpoint;
-  } finally {
-    await session.close();
-  }
-}
-
-export async function ensureContainerEngineEndpointIdentity(input: Readonly<{
-  cwd: string;
-  deadlineAtUnixMs: number;
-}>): Promise<DockerEndpointIdentity> {
-  const session = await openContainerEngineSession({
-    ...input,
-    availability: 'ensure-started',
-    maxStdoutBytes: 1024 * 1024,
-    maxStderrBytes: 1024 * 1024
-  });
-  try {
-    return session.endpoint;
-  } finally {
-    await session.close();
-  }
-}
-
-export async function assertContainerEngineEndpointIdentity(input: Readonly<{
-  cwd: string;
-  deadlineAtUnixMs: number;
-  expectedEndpoint: DockerEndpointIdentity;
-}>): Promise<DockerEndpointIdentity> {
-  const session = await openContainerEngineSession({
-    ...input,
-    availability: 'observe',
-    maxStdoutBytes: 1024 * 1024,
-    maxStderrBytes: 1024 * 1024
-  });
-  try {
-    return session.endpoint;
-  } finally {
-    await session.close();
   }
 }

@@ -26,7 +26,8 @@ export async function withDockerDesktopLauncherLockAtOwnerIssuedDirectory<T>(inp
   if (!Number.isSafeInteger(input.deadlineAtUnixMs) || remaining < 1) {
     throw new DockerDaemonAvailabilityFailure({
       endpointHost: input.endpointHost,
-      reason: 'deadline-exhausted'
+      reason: 'deadline-exhausted',
+      phase: 'admission'
     });
   }
   const lease = acquirePhysicalMutationLease(
@@ -43,7 +44,8 @@ export async function withDockerDesktopLauncherLockAtOwnerIssuedDirectory<T>(inp
     } catch {
       throw new DockerDaemonAvailabilityFailure({
         endpointHost: input.endpointHost,
-        reason: 'desktop-launcher-settlement-unknown'
+        reason: 'desktop-launcher-settlement-unknown',
+        phase: 'process-settlement'
       });
     }
   }

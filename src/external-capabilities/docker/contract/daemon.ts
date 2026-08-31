@@ -68,29 +68,53 @@ export type DockerDaemonAvailabilityFailureReason =
   | 'deadline-exhausted'
   | 'desktop-environment-unavailable'
   | 'desktop-launcher-busy'
+  | 'desktop-launcher-path-unavailable'
   | 'desktop-launcher-settlement-unknown'
   | 'desktop-start-failed'
   | 'endpoint-unavailable'
+  | 'process-settlement-failed'
   | 'service-permission-required';
+
+export type DockerDaemonAvailabilityFailurePhase =
+  | 'admission'
+  | 'desktop-start'
+  | 'endpoint-observe'
+  | 'final-readback'
+  | 'process-settlement';
 
 export class DockerDaemonAvailabilityFailure extends Error {
   readonly code = 'SEC-DOCKER-DAEMON-UNAVAILABLE' as const;
   readonly endpointHost: string;
   readonly reason: DockerDaemonAvailabilityFailureReason;
+  readonly phase: DockerDaemonAvailabilityFailurePhase;
+  readonly providerEvidenceByteLength: number;
+  readonly providerEvidenceDigest: `sha256:${string}`;
   readonly detailDigest: `sha256:${string}`;
 
   constructor(input: Readonly<{
     endpointHost: string;
     reason: DockerDaemonAvailabilityFailureReason;
+    phase?: DockerDaemonAvailabilityFailurePhase;
+    providerEvidence?: string;
   }>) {
     super(`Docker daemon is unavailable: ${input.reason}`);
     this.name = 'DockerDaemonAvailabilityFailure';
     this.endpointHost = boundedIdentityText(input.endpointHost, 'endpoint host');
     this.reason = input.reason;
+    this.phase = input.phase ?? 'admission';
+    const providerEvidence = Buffer.from((input.providerEvidence ?? '').slice(-8_192), 'utf8');
+    this.providerEvidenceByteLength = providerEvidence.byteLength;
+    this.providerEvidenceDigest = sha256({
+      domain: 'sec.docker.daemon.provider-evidence',
+      evidence: providerEvidence.toString('base64')
+    }) as `sha256:${string}`;
     this.detailDigest = sha256({
       code: this.code,
       endpointHost: this.endpointHost,
-      reason: this.reason
+      reason: this.reason,
+      phase: this.phase,
+      providerEvidenceByteLength: this.providerEvidenceByteLength,
+      providerEvidenceDigest: this.providerEvidenceDigest
     }) as `sha256:${string}`;
   }
 }

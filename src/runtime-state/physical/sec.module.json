@@ -37,6 +37,7 @@
       },
       "consumerSupport": {
         "consumers": [
+          "external-capabilities.docker",
           "external-capabilities.git-read",
           "verification.action"
         ]
@@ -61,19 +62,19 @@
         "aggregateBudgets": [
           {
             "resource": "duration-ms",
-            "maximum": 300000
+            "maximum": 14400000
           },
           {
             "resource": "input-bytes",
-            "maximum": 16777216
+            "maximum": 134217728
           },
           {
             "resource": "output-bytes",
-            "maximum": 33554432
+            "maximum": 536870912
           },
           {
             "resource": "processes",
-            "maximum": 128
+            "maximum": 512
           }
         ]
       },
