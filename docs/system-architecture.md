@@ -105,17 +105,23 @@ migration admission直接使用同一份已观察事实裁决对象，不得再�
 tracked universe；裁决只约束当前事务并随事务终结，不形成新的账本或业务authority。每个对象只能得到一个裁决：
 
 ```text
-required         独立责任或真实consumer要求存在
+required         独立责任、真实consumer或已接受但尚未物化的业务义务要求存在
 derivable        能从更上游canonical fact确定性生成，不得手写持久化
 duplicate-owner  与另一producer竞争同一semantic identity
 dominated        其proof/行为/failure space被更强且成本不高于它的对象完整包含
-orphan           没有真实consumer、Effect、迁移或retirement义务
+orphan           没有真实consumer、Effect、迁移、retirement或已接受的future obligation
 unknown          coverage或authority不足，禁止假KEEP也禁止破坏性删除
 ```
 
 `derivable`改为projection，`duplicate-owner`保留唯一owner并删除其余writer/parser/registry，`dominated`合并或删除，
 `orphan`删除；只有`required`保留，`unknown`形成bounded frontier。新增对象如果不对应新的真实Responsibility，必须证明
 它让总代码、状态、测试、验证成本或故障空间净减少；“更安全”“便于测试”“未来可能使用”或局部green不能授权净膨胀。
+
+`consumer-zero`不能把“尚未写出caller”误当成“业务不需要”。已接受但尚未物化的义务是否成立、需要哪些decision provenance、
+activation/acceptance、expiry/review和retirement条件只由Change Management定义；本图只消费其owner-issued
+`required-unmaterialized` projection并阻止旧责任被单独删除，不在System Architecture复制obligation字段或生命周期。只有live closure、
+accepted obligation、historical/external state和unknown同时为零，Source Program才可签发`orphan`/DELETE；替代纵切片完成后由真实
+producer→consumer→Effect→readback闭包满足上游义务并退役，不保留第二计划、兼容壳或无人调用的通用原语。
 
 `dominated | superseded` 的证明必须同时覆盖 `current semantics` 与 `owner-issued design intent`。对于将被删除或替换的
 public operation，后者只能由该module的严格描述符签发，并绑定已经声明的capability operation或external entrypoint identity；
@@ -145,6 +151,101 @@ identity/owner、producer/consumer、状态与Effect、failure/recovery、安全
 源码字面量只有在它本身就是不可再派生的外部协议token、物理边界或canonical事实，并由唯一owner消费时才是必要常量。
 路径、版本、命令、字段、测试集合、owner清单或状态映射只要能从module/import/consumer graph、schema、registry或上游
 Decision派生，就不得在调用者再硬编码；把硬编码搬进一个新registry而未删除旧事实owner仍是`duplicate-owner`。
+
+### 实现前设计知识闭包
+
+架构知识不能先存在于聊天、Agent summary、Review finding、未提交代码或实现者记忆中，再由代码反向补写。任何会改变
+canonical owner、公共合同、Effect、持久状态、Provider、资源边界、恢复、布局或迁移的工作，在首个实现写入前都必须由其
+既有domain stable owner表达不可从代码派生的Goal、边界、选择理由、反转条件与future obligation；可计算的owner、consumer、Effect、
+资源、迁移和Evidence facts仍只存在于strict descriptor与各自machine owner。Documentation/Source Program compiler把这些引用编译为
+当前exact input上的纯**DesignAdmission projection**。它不是新计划、identity、状态机、authority、数据库或手写对象清单，不能签发
+scope、Effect、Work Package、Verification或完成结论。
+
+DesignAdmission必须从用户可观察终态反向闭合下列信息；任一项未知都显式进入`unknown frontier`，不能由实现者补默认值：
+
+```text
+Desired + preserved + explicitly rejected observable outcomes, bound subject/actor/environment
+→ current exact producer-consumer-state-Effect graph
+→ minimal target responsibility graph and deletion counterfactual
+→ canonical owner, declaration owner, issuer and readback owner
+→ semantic identities, physical identities and invalidation boundaries
+→ pure decisions, domain operations, capability requirements and provider bindings
+→ authority requirements, allowed issuer relations and non-amplification rules
+→ absolute deadline and aggregate process/input/output/entry/byte/concurrency budgets
+→ lifecycle, concurrency, idempotency, CAS, crash windows and settlement
+→ typed failure, independent readback, recovery, retry, compensation and retirement
+→ external capability adoption, credential/environment closure and replacement conditions
+→ durable schema/version need, migration start, cutover and consumer-zero deletion
+→ behavior/Effect/failure/property Evidence and the exact completion claim they may support
+→ implementation DAG, placement projection, net deletion and bounded unknown frontier
+```
+
+上述事实以一个provider-neutral的**Operation Blueprint**关系投影连接，而不是按Git、Docker、TypeScript、测试或某个故障分别造模型。
+图中节点表示owner合同角色、capability requirement与可接受binding/settlement条件，不是当前credential、provider availability、attempt、
+journal或Evidence实例：
+
+```text
+Intent
+→ Decision
+→ Plan
+→ AuthorityGrant + RequirementSet + ResourceLedger
+→ ProviderBindingSet
+→ Attempt / Lease
+→ Effect
+→ ProviderSettlementSet + IndependentDomainReadback
+→ DomainTerminal
+→ Recovery | Retirement
+```
+
+Blueprint不是一个新的runtime object或持久schema；它是现有owner-issued事实之间可重算的关系。它以四个正交视角检查这些关系：Semantic owner签发Goal、Decision、OperationKey与业务结果；Authority owner签发principal、scope、grant、issuer、credential与binding；Resource owner签发共享绝对deadline、不可逆aggregate ledger、并发与settlement；Lifecycle/Evidence owner签发attempt、journal reference、readback、recovery、terminal、retirement和可支持的claim。DesignAdmission只校验这些owner-issued fact的引用与关系，不拥有或复制任何一项事实。
+
+DesignAdmission只引用上述投影的contract identity、要求、issuer关系、预算上限、conformance与claim obligation；当前principal/credential、
+ProviderBinding、availability、attempt、lease、journal、settlement、readback、terminal和Evidence result继续由External Provider、Runtime State、
+domain operation、Change Management与Verification各自owner在live epoch签发。runtime实例变化只失效引用它的operation/Evidence，不反向修改
+stable design；只有requirement、可接受binding条件、守恒律或owner intent变化才修订domain design。
+
+所有具体设计关系必须满足同一组守恒律：
+
+- **Authority conservation**：下游可用权限只能是上游有效grant、scope与binding的交集；projection、receipt、测试、缓存、日志、
+  caller字段或持久JSON不能放大权限，operation coordinator也不能自签provider与readback两侧。
+- **Resource conservation**：所有child、retry、cleanup、readback与recovery只消费同一parent ledger的remaining value；Effect admission
+  必须先按operation contract保留不可被主尝试消费的terminal/termination/cleanup/readback tranche，以及适用的bounded recovery tranche。
+  主尝试只能消费扣除保留量后的预算；并发join不得复制预算，嵌套operation不得重开deadline，static budget声明不能替代真实消费计量。
+- **Identity separation**：业务OperationKey不含attempt、deadline、provider route、cache path或transport epoch；content identity不含
+  observation source；physical identity、binding identity、attempt identity、terminal identity和Evidence identity分别由其owner签发。
+- **Lifecycle totality**：每个已准入Effect都必须达到owner terminal、明确可恢复residue或typed unknown；primary failure、cleanup、close、
+  termination和readback分别结算后组合，后发生的cleanup异常不得覆盖先发生的业务失败，也不得因handle丢失盲重放。
+- **Evidence non-self-certification**：plan、grant、provider settlement、domain readback、terminal与Verification由不兼任冲突角色的owner签发；
+  green test、schema shape、WeakSet brand、digest相等或同一模块自报不能证明现实Effect和业务终态。
+- **Replacement dominance**：替换或删除必须同时覆盖现有可观察价值、owner-issued future obligation、failure/recovery和全生命周期成本；
+  旧能力在新闭包readback前保持受保护但不能继续签发新authority，切换后同一transaction达到consumer-zero并退役。
+
+所谓“设计冻结”只表示本次Architecture Evolution transaction引用的stable clauses、descriptor、source/consumer graph、capability ledger和
+unknown frontier已绑定exact input digest；它不形成长期状态。任一输入或反例变化，旧projection自然stale并重算。是否允许写入仍只由
+active Work Package scope与对应Operation Envelope/Effect grant裁决；DesignAdmission只能作为独立必要条件，不能扩大其交集。实现闭包是否
+完成仍由代码、consumer、Effect/readback、Verification、migration/retirement和new-main readback各自owner证明，不能由projection自报。
+
+DesignAdmission存在unknown不等于整个世界只能执行只读操作。消除unknown确实需要install、probe、A/B、conformance或其他Effect时，必须由
+相应External Provider/Diagnostic/Provisioning domain获得独立Operation Envelope，在自己的scope、budget、credential、settlement、cleanup与
+readback内执行；它只产Evidence或新的capability observation，不能顺便签发产品materialization、实现scope或目标operation authority。新Evidence
+进入各自owner后重新编译DesignAdmission，禁止用“为了完成设计”建立通用probe、裸process或无边界安装旁路。
+
+机器准入的目标合同不检查“是否写过设计文档”，而是由Architecture/Source Program的generated admission compiler验证：每个changed public/effectful operation能否
+解析到canonical Goal/owner intent；module descriptor中的owner/role/obligation是否与Blueprint关系一致；所有child resource上限是否可证明为
+parent ledger的收窄；每张grant/binding/settlement/readback/terminal是否来自允许的独立issuer；migration是否同时具有target publication与
+old consumer-zero terminal；Evidence是否只支持声明过的claim。缺口复用既有`causal-identity-unresolved`、
+`causal-relation-owner-bypass`、`operation-envelope-unbound`或`operation-obligation-unresolved`，并在结构化frontier指出缺失的
+authority、resource、lifecycle、Evidence或retirement relation；不得为这项投影新建第二套拒绝码。禁止用路径allowlist、Skill提醒、
+测试名、兼容alias或人工审批绕过。在该compiler、generated projection与真实consumer尚未consumer-closed时，这一能力必须作为Change Management签发的`required-unmaterialized`义务；稳定文档不得将其投影为current positive capability。
+
+DesignAdmission的stable-relation输入只引用domain stable-clause digest、strict descriptor/operation-obligation digest与Source Program/module projection digest；编译器对changed symbol的reverse owner/consumer closure计算一次，并在既有documentation compiler中用`compilerInputDigest`与`semanticGraphDigest`复用projection。它不定义或借用Verification ActionKey。Work Package authority ref只进入既有operation-specific documentation applicability projection，与stable design relation分层且不改变后者的semantic identity。
+它不得逐operation重新读取全文、扫描全仓、维护第二consumer graph或建立Baseline registry/cache；增量结果必须与同input clean full compile
+byte-equivalent，unknown或缓存损坏回到同一编译而不是放宽准入。
+
+为了避免“完整设计”自身膨胀，DesignAdmission不得复制可机器派生的路径、imports、consumer清单、测试集合、数字计数或Provider inventory；这些由
+exact Source Program、module descriptor、capability ledger和Runtime observation引用其digest。Stable prose只保存不可从代码反推的Goal、
+边界、守恒律、选择理由、反转条件和owner intent；代码合同保存可执行shape与reject规则；Runtime State只保存attempt/observation，不保存
+设计真值。这样上下文压缩、Agent切换或实现失败不会丢失设计，也不会为了“不忘”建立第二套手工镜像。
 
 ### Owner closure 不是 codec 或库选型
 
@@ -242,7 +343,7 @@ admission。Source Program/module graph只派生consumer、dependency、invalida
 签发documentation owner；聚合package必须拆operation/declaration boundary，不能把多个domain owner并集写进module descriptor。
 
 编辑期只重编译changed clause及其reverse consumer closure，保持增量结果与clean full compile byte-equivalent；frozen exact tree只生成
-一次完整projection并按ActionKey复用。Agent上下文默认收到decision question相关的compact projection与symbol spans，全文仅在人类
+一次完整projection并按documentation owner签发的`compilerInputDigest`、`semanticGraphDigest`与`selectionDigest`复用。Verification若需要消费该projection，只将其digest作为自己ActionKey的输入。Agent上下文默认收到decision question相关的compact projection与symbol spans，全文仅在人类
 主动阅读或修改该owner本身时加载。这样代码、合同或capability admission变化会自动更新admission/obligation projection，而不会触发stable prose同步或扩大AI上下文。已观察运行结果只由Runtime/Evidence owner另行投影，不进入documentation semantic graph，也不与其共享semantic identity。
 
 stable spec修改必须同时给出不可派生decision的变化与受影响owner；只改变实现、路径、版本、provider、test或maturity的提交若修改
@@ -355,6 +456,10 @@ witness和feedback-cut projection。feedback cut只是稳定、可复算的破�
 witness并裁决。contract/computation/capability/operation/workflow/interface responsibility只在描述符intent与Source Program
 symbol/consumer/Effect facts共同证明时成立；
 多角色冲突、opaque Effect或事实不足一律为unknown并阻断生产DAG准入。测试edge只验证测试边界，不得进入生产SCC。
+
+实现写入前必须先由同一Source Program编译**placement projection**：从目标业务operation、不可合并的semantic/authority角色、角色间实际会形成自授权或自证的incompatible edges、现有package owner、首个真实consumer、Effect/readback/recovery closure和retirement target，推导每个declaration应进入的最具体既有owner。角色不同不等于物理package不同；同一provider或runtime lifecycle中只有在合并后能签发自己的前置authorization、自己的完成truth或自己的replay admission时才必须拆owner。相反，只因角色名不同而一角色一目录、一descriptor或一facade，会把逻辑分层误写成物理碎片。
+
+新package只有在placement projection证明全部现有owner都不拥有该职责、加入现有owner会产生incompatible edge或SCC、且新package同时拥有真实consumer和retirement replacement时才可创建。投影必须同时给出变更前后`owner/module/descriptor/facade/SCC`数量、净source LOC、被删除的旧edge与旧owner；能力图未增加而这些计数上升，或只是把同一operation identity复制到多个路径时，Implementation Dominance将其判为`dominated`并阻止写入。Task Envelope、现有目录、测试路径和worker文件清单只能收窄写权限，不能决定代码归属；发现它们与placement projection冲突时先修canonical architecture/ownership，再实现，禁止在错误位置完成后靠搬迁或alias补救。
 
 Aggregate facade也只由TypeScript事实识别：文件必须是pure re-export/declaration projection且没有module-evaluation Effect，文件名是否
 为`index.ts`没有语义。跨owner consumer默认直接依赖真实declaration owner；Reduction Compiler用同一symbol graph把可消减aggregate
@@ -480,9 +585,9 @@ TerminalOutcome；lost-handle recovery使用owner-issued recovered-readback路�
 
 长时或可变更外部状态的本地Effect必须同时闭合两个互不替代的层：domain operation拥有业务intent、OperationKey、资源lease、成功语义、独立
 readback、retry/compensation policy与唯一business terminal；Durable Local Effect Worker只拥有OperationKey级attempt claim、run/resume/worker/process
-lineage、cancel、stream cursor和opaque receipt reference。worker不得接受任意argv、shell、domain callback或domain phase，不得解释stdout、目标状态或
+lineage和opaque receipt reference。没有真实issuer、consumer与处置语义的cancel、stream cursor或未来phase不进入durable grammar。worker不得接受任意argv、shell、domain callback或domain phase，不得解释stdout、目标状态或
 业务成功，也不得把持久JSON提升为authority。Durable journal没有第二套`succeeded | failed | cancelled | timed-out`状态机；它只记录`owner terminal
-reference | retry-admission reference | reconciliation-required observation`等attempt生命周期。真正terminal必须引用owner-issued operation settlement，
+reference | retry-admission reference | lost-handle reference`等attempt观察。真正terminal必须引用owner-issued operation settlement，
 retry必须引用domain owner对当前physical epoch签发的conclusive not-applied/recovery authorization；provider handle、PID或journal bytes丢失都不能自行授权。
 
 同一OperationKey的所有run、resume epoch与attempt共用一个线性claim journal；`runId`只拥有逻辑任务lineage，不能参与journal地址或把同一Effect分裂为
