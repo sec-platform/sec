@@ -159,6 +159,7 @@ import {
 import { createVerificationSession, type VerificationSession } from '../../src/verification/session/contract/session.ts';
 import { compileTcbClosureIdentity } from '../../src/verification/trust/compiler.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
+import { exactHeadTestImpactProvider } from '../helpers/test-impact-provider.ts';
 
 const HEAD = '2222222222222222222222222222222222222222';
 const BASE = '1111111111111111111111111111111111111111';
@@ -166,6 +167,7 @@ const BOT = 'BOT_kgDOC98s_g';
 const PAGE = `sha256:${'a'.repeat(64)}` as const;
 const JOIN_SESSION = `sha256:${'6'.repeat(64)}` as const;
 const JOIN_ACTION = `sha256:${'7'.repeat(64)}` as const;
+const TEST_IMPACT_SOURCE_PROVIDER = exactHeadTestImpactProvider();
 
 function changedTransition(
   changedPaths: readonly string[],
@@ -934,13 +936,15 @@ function reducerFixture(options: {
   const testImpactTransition = changedTransition(changedPaths);
   const local = prepareTrustedMainVerificationSession({ repository: 'sec-platform/sec',
     candidate: transport.candidate(), manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
-    changedPaths, testImpactTransition, profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
+    changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '100',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: VERIFIED_AT,
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs() });
   const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: 'sec-platform/sec', candidate: transport.candidate(), changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
     sourceRunId: '100', sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
@@ -2053,12 +2057,14 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
   const testImpactTransition = changedTransition(changedPaths);
   const manifestDigest = `sha256:${'b'.repeat(64)}` as const;
   const local = prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition, profile: 'quick',
+    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
     mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs() });
   const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: candidate.repository, candidate, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '2',
     sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
@@ -2076,13 +2082,15 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
       dependencyPaths.has(inputPath))).toHaveLength(4);
   }
   expect(() => prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition, profile: 'quick',
+    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
     mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs('bun.lock') }))
     .toThrow(/bun\.lock drifted from the trusted base/i);
   expect(() => reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: candidate.repository, candidate, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '2',
     sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
@@ -2143,7 +2151,8 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   const prepared = prepareTrustedMainVerificationSession({
     repository: candidate.repository, candidate,
     manifestPath: 'docs/work-packages/example.md', manifestDigest,
-    changedPaths, testImpactTransition, profile: 'quick',
+    changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
     sourceRunId: 'deletion-prepare', sourceRef: `refs/heads/main@${baseSha}`,
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
@@ -2151,7 +2160,8 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   });
   const facts = reconstructVerificationSessionHostedFacts({
     request: prepared.request, repository: candidate.repository, candidate, changedPaths,
-    testImpactTransition: reordered, integrationPrincipalNodeId: 'INTEGRATOR',
+    testImpactTransition: reordered, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: 'deletion-hosted',
     sourceRef: `.github/workflows/compiler-pr-validation.yml@${baseSha}`,
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
@@ -2166,6 +2176,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
     manifestDigest,
     changedPaths,
     testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     expectedTestImpactTransitionDigest: prepared.testImpactTransitionDigest,
     scopeAuthorizationRevision: prepared.scopeAuthorizationRevision,
     executionEnvironment: createCiVerificationLocalExecutionEnvironment({
@@ -2177,6 +2188,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   expect(() => reconstructVerificationSessionHostedFacts({
     request: prepared.request, repository: candidate.repository, candidate, changedPaths,
     testImpactTransition: { ...testImpactTransition, headSha: 'f'.repeat(40) },
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
     sourceRunId: 'deletion-hosted',
     sourceRef: `.github/workflows/compiler-pr-validation.yml@${baseSha}`,
@@ -2200,6 +2212,7 @@ test('same paths with a different Git transition change the complete Verificatio
       baseSha: candidate.baseSha, headSha: candidate.headSha,
       records: [{ status, path: changedPaths[0]! }], readPathBlob: () => null
     }),
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: `transition-${status}`,
     sourceRef: `refs/heads/main@${candidate.baseSha}`, observedAt: VERIFIED_AT,
@@ -2279,6 +2292,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
       manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
       manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/verification/ci/runtime/verification-session.ts'],
       testImpactTransition,
+      testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
       expectedTestImpactTransitionDigest: testImpactTransitionDigest,
       scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
       dependencyBlobs: actionDependencyBlobs() });
@@ -2286,6 +2300,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
       manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
       manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/verification/ci/runtime/verification-session.ts'],
       testImpactTransition,
+      testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
       expectedTestImpactTransitionDigest: testImpactTransitionDigest,
       scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
       dependencyBlobs: actionDependencyBlobs('.bun-version') }))

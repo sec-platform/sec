@@ -58,7 +58,7 @@ const issuedCompilerDependencyGeneratedStatePlans = new WeakSet<object>();
 export const compilerDependencyGeneratedStateSettlementOwner:
 GeneratedStateDomainOwnerOperation = Object.freeze({
   owner: 'compiler-dependency-runtime',
-  plan(input) {
+  plan(input: Parameters<GeneratedStateDomainOwnerOperation['plan']>[0]) {
     const plan = runtime.planCompilerDependencyGeneratedStateSettlement(input);
     issuedCompilerDependencyGeneratedStatePlans.add(plan);
     return plan;

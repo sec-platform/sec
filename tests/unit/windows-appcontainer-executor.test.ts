@@ -4,17 +4,28 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
+  acquireWindowsAppContainerNativeHelperCapability,
   buildWindowsAppContainerNativeHelperBundleSourceForTests,
   createWindowsAppContainerNativeHelperBundleLoaderForTests,
+  proveWindowsAppContainerNativeHelperEntryForTests,
+  readWindowsAppContainerNativeHelperCapability,
+  WindowsAppContainerNativeHelperMaterializationError
+} from '../../src/runtime-state/physical/runtime/windows-appcontainer/native-helper-materialization.ts';
+import {
+  acquireWindowsAppContainerProbeConformanceServersForTests,
+  buildWindowsAppContainerProbeEnvironmentForTests,
+  observeWindowsAppContainerProbeReportForTests,
+  redactWindowsAppContainerProbeCapabilityForTests,
+  windowsAppContainerProbeReportIsIsolatedForTests
+} from '../../src/runtime-state/physical/runtime/windows-appcontainer/probe-conformance.ts';
+import {
   encodeWindowsAppContainerNativeDerivedSid,
   encodeWindowsAppContainerNativeFailure,
   encodeWindowsAppContainerNativeOk,
   encodeWindowsAppContainerSidBytesForTests,
   normalizeWindowsAppContainerPreparationErrorForTests,
-  proveWindowsAppContainerNativeHelperEntryForTests,
   publishWindowsAppContainerProvisionalOwnerForTests,
   recoverWindowsAppContainerProvisionalOwnerForTests,
-  redactWindowsAppContainerProbeCapabilityForTests,
   runWindowsAppContainerChild,
   settleWindowsAppContainerNativeHelperInvocationForTests,
   windowsAppContainerCapability,
@@ -297,8 +308,7 @@ test('non-Windows hosts report capability unavailable without a spawn fallback',
     stagingRoot: '.',
     runnerRelativePath: 'runner.mjs',
     environment: {},
-    workspaceRoot: '.',
-    workspaceWriteLease: {} as never
+    executionCapability: {} as never
   })).rejects.toBeInstanceOf(WindowsAppContainerCapabilityUnavailableError);
 });
 
@@ -323,6 +333,63 @@ test('Windows AppContainer detailed probe evidence redacts to exact status-only 
   expect(Object.keys(capability)).toEqual(['status']);
 });
 
+test('Windows AppContainer probe conformance owner settles servers and validates exact reports', async () => {
+  const servers = await acquireWindowsAppContainerProbeConformanceServersForTests();
+  expect(servers.httpPort).toBeGreaterThan(0);
+  expect(servers.rawPort).toBeGreaterThan(0);
+  expect(servers.connectionAttempts()).toEqual({ http: 0, raw: 0 });
+  const environment = buildWindowsAppContainerProbeEnvironmentForTests(
+    { BUN_INSTALL_CACHE_DIR: 'ambient-cache', EXTRA: 'preserved' },
+    'C:\\probe',
+    servers.httpPort,
+    servers.rawPort
+  );
+  expect(environment).toMatchObject({
+    PATH: '',
+    EXTRA: 'preserved',
+    SEC_APPCONTAINER_PROBE_HTTP_PORT: String(servers.httpPort),
+    SEC_APPCONTAINER_PROBE_RAW_PORT: String(servers.rawPort)
+  });
+  const isolatedVector = Object.freeze({
+    fetchConnect: false,
+    insideWrite: true,
+    outerRead: false,
+    outsideWrite: false,
+    parentRead: false,
+    rawConnect: false
+  });
+  const emptyDiagnosticDigest = `sha256:${'0'.repeat(64)}` as const;
+  const isolatedReport = {
+    direct: isolatedVector,
+    spawned: isolatedVector,
+    spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
+    spawnedExitCode: 0
+  };
+  expect(windowsAppContainerProbeReportIsIsolatedForTests(isolatedReport)).toBe(true);
+  expect(observeWindowsAppContainerProbeReportForTests(isolatedReport)).toEqual({
+    isolated: true,
+    spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
+    spawnedExitCode: 0,
+    spawnedResultPresent: true
+  });
+  expect(windowsAppContainerProbeReportIsIsolatedForTests({
+    direct: isolatedVector,
+    spawned: { ...isolatedVector, rawConnect: true },
+    spawnedDiagnostic: { classification: 'none', digest: emptyDiagnosticDigest },
+    spawnedExitCode: 0
+  })).toBe(false);
+  expect(observeWindowsAppContainerProbeReportForTests({
+    ...isolatedReport,
+    extra: true
+  })).toBeUndefined();
+  expect(observeWindowsAppContainerProbeReportForTests({
+    ...isolatedReport,
+    spawnedDiagnostic: { classification: 'runtime', digest: emptyDiagnosticDigest }
+  })).toBeUndefined();
+  await servers.close();
+  await servers.close();
+});
+
 test('Windows AppContainer native-helper bundle retries one transient rejected build', async () => {
   let attempts = 0;
   const expected = new TextEncoder().encode('export default 1;\n');
@@ -340,8 +407,8 @@ test('Windows AppContainer native-helper bundle retries one transient rejected b
     async () => new Uint8Array()
   );
   const invalid = await invalidLoader.build().then(() => undefined, (error: unknown) => error);
-  expect(invalid).toBeInstanceOf(WindowsAppContainerExecutionError);
-  expect((invalid as WindowsAppContainerExecutionError).preparationSubstage)
+  expect(invalid).toBeInstanceOf(WindowsAppContainerNativeHelperMaterializationError);
+  expect((invalid as WindowsAppContainerNativeHelperMaterializationError).failure)
     .toBe('native-helper-bundle-contract');
 });
 
@@ -388,8 +455,8 @@ test('Windows AppContainer native-helper entry proof rejects missing, aliases, a
   >[1]) => {
     const failure = await proveWindowsAppContainerNativeHelperEntryForTests(entryPath, probe)
       .then(() => undefined, (error: unknown) => error);
-    expect(failure).toBeInstanceOf(WindowsAppContainerExecutionError);
-    expect((failure as WindowsAppContainerExecutionError).preparationSubstage)
+    expect(failure).toBeInstanceOf(WindowsAppContainerNativeHelperMaterializationError);
+    expect((failure as WindowsAppContainerNativeHelperMaterializationError).failure)
       .toBe('native-helper-entry');
   };
 
@@ -425,8 +492,8 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
     probe,
     async () => { throw new Error('build rejected'); }
   ).then(() => undefined, (error: unknown) => error);
-  expect(buildFailure).toBeInstanceOf(WindowsAppContainerExecutionError);
-  expect((buildFailure as WindowsAppContainerExecutionError).preparationSubstage)
+  expect(buildFailure).toBeInstanceOf(WindowsAppContainerNativeHelperMaterializationError);
+  expect((buildFailure as WindowsAppContainerNativeHelperMaterializationError).failure)
     .toBe('native-helper-build');
 
   const unsuccessfulBuild = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
@@ -434,7 +501,7 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
     probe,
     async () => ({ success: false, outputs: [] })
   ).then(() => undefined, (error: unknown) => error);
-  expect((unsuccessfulBuild as WindowsAppContainerExecutionError).preparationSubstage)
+  expect((unsuccessfulBuild as WindowsAppContainerNativeHelperMaterializationError).failure)
     .toBe('native-helper-build');
 
   const invalidOutputCount = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
@@ -448,16 +515,72 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
       ]
     })
   ).then(() => undefined, (error: unknown) => error);
-  expect((invalidOutputCount as WindowsAppContainerExecutionError).preparationSubstage)
+  expect((invalidOutputCount as WindowsAppContainerNativeHelperMaterializationError).failure)
+    .toBe('native-helper-build');
+
+  const outputReadFailure = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+    entryPath,
+    probe,
+    async () => ({
+      success: true,
+      outputs: [{ async arrayBuffer() { throw new Error('output read failed'); } }]
+    })
+  ).then(() => undefined, (error: unknown) => error);
+  expect((outputReadFailure as WindowsAppContainerNativeHelperMaterializationError).failure)
     .toBe('native-helper-build');
 
   for (const source of ['', 'import value from "./helper.ts";\n']) {
     const loader = createWindowsAppContainerNativeHelperBundleLoaderForTests(async () =>
       new TextEncoder().encode(source));
     const failure = await loader.build().then(() => undefined, (error: unknown) => error);
-    expect((failure as WindowsAppContainerExecutionError).preparationSubstage)
+    expect((failure as WindowsAppContainerNativeHelperMaterializationError).failure)
       .toBe('native-helper-bundle-contract');
   }
+});
+
+test('Windows AppContainer native-helper capability is immutable, unforgeable, and source-epoch bound', async () => {
+  const capability = await acquireWindowsAppContainerNativeHelperCapability();
+  const firstRead = readWindowsAppContainerNativeHelperCapability(capability);
+  const firstByte = firstRead[0];
+  firstRead[0] = firstByte === 0 ? 1 : 0;
+  expect(readWindowsAppContainerNativeHelperCapability(capability)[0]).toBe(firstByte);
+  expect(() => readWindowsAppContainerNativeHelperCapability({
+    byteLength: capability.byteLength,
+    contentDigest: capability.contentDigest
+  })).toThrow(WindowsAppContainerNativeHelperMaterializationError);
+
+  const entryPath = path.resolve('native-helper-entry.ts');
+  let metadataReads = 0;
+  const drifted = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+    entryPath,
+    {
+      async lstat() {
+        metadataReads += 1;
+        return Object.freeze({
+          identity: metadataReads <= 2 ? 'source-epoch-1' : 'source-epoch-2',
+          isFile: true,
+          isSymbolicLink: false,
+          linkCount: 1
+        });
+      },
+      async realpath() { return entryPath; }
+    },
+    async () => ({
+      success: true,
+      outputs: [{
+        async arrayBuffer() {
+          const bytes = new TextEncoder().encode('export default 1;\n');
+          return bytes.buffer.slice(
+            bytes.byteOffset,
+            bytes.byteOffset + bytes.byteLength
+          ) as ArrayBuffer;
+        }
+      }]
+    })
+  ).then(() => undefined, (error: unknown) => error);
+  expect(drifted).toBeInstanceOf(WindowsAppContainerNativeHelperMaterializationError);
+  expect((drifted as WindowsAppContainerNativeHelperMaterializationError).failure)
+    .toBe('native-helper-entry');
 });
 
 test('Windows AppContainer exact native-helper production entry builds without AppContainer', async () => {

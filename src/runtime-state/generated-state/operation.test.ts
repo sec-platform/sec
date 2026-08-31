@@ -22,7 +22,7 @@ async function withWorkspace(
 }
 
 function fixtureOwner(terminal: 'completed' | 'partial-residue'): GeneratedStateDomainOwnerOperation {
-  return Object.freeze({
+  const owner: GeneratedStateDomainOwnerOperation = {
     owner: 'fixture-domain-owner',
     plan(input) {
       const material = Object.freeze({
@@ -42,7 +42,8 @@ function fixtureOwner(terminal: 'completed' | 'partial-residue'): GeneratedState
       });
       return Object.freeze({ ...material, receiptDigest: generatedStateDigest(material) });
     }
-  });
+  };
+  return Object.freeze(owner);
 }
 
 test('generated-state keeps generic cleanup retired-only and consumes an owner receipt separately', async () => {
