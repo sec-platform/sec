@@ -7,6 +7,11 @@ import { createVerificationProviderAvailabilityEpoch, type VerificationProviderA
 export const VERIFICATION_PROVIDER_LEDGER_PATH =
   'docs/governance/external-capability-ledger.yaml' as const;
 
+export interface VerificationProviderCapabilityLedgerProjection {
+  readonly document: Readonly<Record<string, unknown>>;
+  readonly availabilityEpoch: VerificationProviderAvailabilityEpoch;
+}
+
 function record(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
@@ -15,19 +20,19 @@ function record(value: unknown, label: string): Record<string, unknown> {
 }
 
 function exact(value: Record<string, unknown>, keys: readonly string[], label: string): void {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
-    throw new Error(`${label} must contain exactly: ${expected.join(', ')}.`);
-  }
+  const expected = new Set(keys);
+  const unknownKey = Object.keys(value).find((key) => !expected.has(key));
+  if (unknownKey !== undefined) throw new Error(`${label}.${unknownKey} is not allowed.`);
+  const missingKey = keys.find((key) => !Object.prototype.hasOwnProperty.call(value, key));
+  if (missingKey !== undefined) throw new Error(`${label}.${missingKey} is required.`);
 }
 
 export function parseVerificationProviderCapabilityLedger(
   source: string
-): VerificationProviderAvailabilityEpoch {
+): VerificationProviderCapabilityLedgerProjection {
   const root = record(parseYaml(source), 'External capability ledger');
   if (root.schema !== 'sec-external-capability-ledger-v4') {
-    throw new Error('Verification provider availability requires sec-external-capability-ledger-v4.');
+    throw new Error('External capability ledger schema must be sec-external-capability-ledger-v4.');
   }
   const verification = record(root.verification, 'External capability ledger.verification');
   exact(verification, [
@@ -54,11 +59,15 @@ export function parseVerificationProviderCapabilityLedger(
     ], `verification capability ${index}`);
     return capability as unknown as VerificationProviderCapabilityInput;
   });
-  return createVerificationProviderAvailabilityEpoch({
+  const availabilityEpoch = createVerificationProviderAvailabilityEpoch({
     epochId: String(verification.epochId),
     observedAt: String(verification.observedAt),
     expiresAt: String(verification.expiresAt),
     capabilities
+  });
+  return Object.freeze({
+    document: Object.freeze(root),
+    availabilityEpoch
   });
 }
 
@@ -67,5 +76,5 @@ export function loadVerificationProviderCapabilityLedger(
 ): VerificationProviderAvailabilityEpoch {
   return parseVerificationProviderCapabilityLedger(
     readFileSync(path.join(repositoryRoot, VERIFICATION_PROVIDER_LEDGER_PATH), 'utf8')
-  );
+  ).availabilityEpoch;
 }
