@@ -9,6 +9,7 @@ import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS
 } from '../toolchain/runtime.ts';
 import {
+  assertReleaseBunRuntimeRequirement,
   buildFrozenReleaseBundle,
   disposeFrozenReleaseSource,
   prepareFrozenReleaseSource,
@@ -16,6 +17,7 @@ import {
 } from './release-source-materialization.ts';
 
 export const RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH = 'release-artifact-manifest.json' as const;
+export const RELEASE_BUN_ENTRYPOINT_SHEBANG = '#!/usr/bin/env bun\n' as const;
 
 export interface ReleaseArtifactFile {
   readonly path: string;
@@ -172,6 +174,7 @@ async function assertReleaseArtifactReadback(
     throw new Error(`${label} release artifact dependency lock digest is invalid`);
   }
   assertReleaseBuilderIdentity(readback.builder, `${label} release artifact builder`);
+  assertReleaseBunRuntimeRequirement(readback.builder);
   if (sha256(manifestMaterialFromReadback(readback)) !== readback.contentDigest) {
     throw new Error(`${label} release artifact manifest readback digest is invalid`);
   }
@@ -199,6 +202,20 @@ async function writeAndVerifyManifest(
     { flag: 'wx' }
   );
   return assertReleaseArtifactReadback(artifactRoot, 'staged');
+}
+
+export function releaseBunEntrypointBytes(bytes: Uint8Array): Buffer {
+  const source = Buffer.from(bytes);
+  const firstLineEnd = source.indexOf(0x0a);
+  const firstLine = source.subarray(0, firstLineEnd < 0 ? source.byteLength : firstLineEnd)
+    .toString('utf8')
+    .replace(/\r$/u, '');
+  if (firstLine.startsWith('#!') && firstLine !== RELEASE_BUN_ENTRYPOINT_SHEBANG.trimEnd()) {
+    throw new Error(`Release bundle contains a non-Bun interpreter directive: ${firstLine}`);
+  }
+  return firstLine.startsWith('#!')
+    ? source
+    : Buffer.concat([Buffer.from(RELEASE_BUN_ENTRYPOINT_SHEBANG, 'utf8'), source]);
 }
 
 function failureText(error: unknown): string {
@@ -516,6 +533,7 @@ export async function buildReleaseArtifact(
     await fs.mkdir(stagedArtifactRoot, { recursive: true });
 
     await buildFrozenReleaseBundle(source, stagedArtifactRoot);
+    assertReleaseBunRuntimeRequirement(source.builder);
 
     for (const relativePath of Object.values(COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS)) {
       const sourcePath = path.join(source.root, relativePath);
@@ -528,14 +546,8 @@ export async function buildReleaseArtifact(
       artifactStageRoot,
       ...source.entrypoint.artifact.split('/')
     );
-    let entrypointBytes = await fs.readFile(entrypoint);
-    if (!entrypointBytes.toString('utf8').startsWith('#!/usr/bin/env node')) {
-      entrypointBytes = Buffer.concat([
-        Buffer.from('#!/usr/bin/env node\n', 'utf8'),
-        entrypointBytes
-      ]);
-      await fs.writeFile(entrypoint, entrypointBytes);
-    }
+    const entrypointBytes = releaseBunEntrypointBytes(await fs.readFile(entrypoint));
+    await fs.writeFile(entrypoint, entrypointBytes);
     await fs.chmod(entrypoint, 0o755);
 
     manifest = await writeAndVerifyManifest(stagedArtifactRoot, {
