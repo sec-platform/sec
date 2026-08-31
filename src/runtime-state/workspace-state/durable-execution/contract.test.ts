@@ -176,6 +176,36 @@ test('provider references are unique per requirement and resolution binds their 
   ]).latestResolution?.providerSettlementRecordDigests).toEqual([provider.recordDigest]);
 });
 
+test('cancel preserves already settled requirements while stopping the active attempt', () => {
+  const prefix = attemptPrefix();
+  const provider = sealDurableExecutionRecord({
+    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    kind: 'provider-settlement-reference',
+    sequence: 2,
+    operationKeyDigest: prefix[0]!.operationKeyDigest,
+    previousRecordDigest: prefix[1]!.recordDigest,
+    attemptNonceDigest: prefix[1]!.kind === 'attempt-start'
+      ? prefix[1].attemptNonceDigest : digest('0'),
+    requirementId: 'process.compiler',
+    providerBindingDigest: digest('27'),
+    providerSettlementReferenceDigest: digest('28')
+  });
+  const cancel = sealDurableExecutionRecord({
+    schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
+    kind: 'cancel-request',
+    sequence: 3,
+    operationKeyDigest: prefix[0]!.operationKeyDigest,
+    previousRecordDigest: provider.recordDigest,
+    attemptNonceDigest: provider.attemptNonceDigest,
+    cancelRequestReferenceDigest: digest('29')
+  });
+
+  const observation = observeDurableExecutionJournal([...prefix, provider, cancel]);
+  expect(observation.activeAttempt?.cancelRequest?.recordDigest).toBe(cancel.recordDigest);
+  expect(observation.activeAttempt?.providerSettlements.map(({ requirementId }) => requirementId))
+    .toEqual(['process.compiler']);
+});
+
 test('exact parser rejects duplicate keys, unknown fields, digest drift and noncanonical bytes', () => {
   const encoded = encodeDurableExecutionRecord(attemptPrefix()[0]!);
   expect(() => parseDurableExecutionRecord(

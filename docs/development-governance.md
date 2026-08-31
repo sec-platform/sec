@@ -1655,7 +1655,7 @@ invalidation fact。未外化的“已经做过”仍视为 unknown，identity�
 
 上下文摘要、聊天、旧status输出、child名称、PID、cwd字符串、branch/tag/cache路径、presentation log与“应该已经执行”的叙述都只是hint。它们只能选择最小live probe，不能授权`spawn | exec | download | build | external-write | cleanup | merge`。checkpoint保存最后已知引用和digest；live provider证明当前世界；pure resume compiler只从两者的reconciliation产生`join-existing | consume-terminal | execute-new | wait | reconcile | seal-epoch | blocked`，不能输出无前置证明的泛化`continue`。
 
-同一逻辑任务跨压缩保持稳定`runId`；WorkDecision、scope、authority、trust、EnvironmentSpec、provider capability或用户授权变化形成新的`resumeEpoch`；一次恢复竞争只使用`resumeAttemptNonce`；物理重试使用独立attempt nonce。所有副作用以`runId + logical owner/role + operation kind + semantic input digest + target identity + provider boundary`形成稳定operation key，attempt nonce不得替代幂等identity。已有claim/start marker但无terminal receipt时必须readback或阻断，不能blind replay；只有provider签发authenticated `not-started` receipt且出现明确causal capability epoch变化时，才可对同一operation key重新尝试。
+同一逻辑任务跨压缩保持稳定`runId`；WorkDecision、scope、authority、trust、EnvironmentSpec、provider capability或用户授权变化形成新的`resumeEpoch`；一次恢复竞争只使用`resumeAttemptNonce`；物理重试使用独立attempt nonce。OperationKey的完整定义只由System Architecture与domain semantic intent拥有；Development Governance仅规定`runId`、resume epoch、attempt nonce、deadline、budget、provider route/binding、PID和path不得改变它或把同一业务Effect伪装成新工作。OperationKey级claim跨所有run线性化；已有claim/start marker但无owner terminal或retry-admission receipt时必须readback或阻断，不能blind replay。Provider `not-started` observation本身也不授权重试；只有domain owner在当前physical epoch确证not-applied并按canonical recovery policy签发retry admission，才可开启下一attempt。
 
 恢复admission必须重新读取当前事实，而不是把checkpoint observation当live proof：
 
