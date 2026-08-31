@@ -4,6 +4,7 @@ import {
   deepFreeze,
   sha256
 } from '../foundation/runtime/canonical.ts';
+import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
 export type SecOperationDigest = `sha256:${string}`;
 
@@ -194,7 +195,6 @@ export type SecCapabilityDiagnostic = Readonly<{
 }>;
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
-const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u;
 const ISSUED_BOUND_OPERATIONS = new WeakSet<object>();
 const ISSUED_ATTEMPT_CONTEXTS = new WeakSet<object>();
 const ISSUED_PROVIDER_SETTLEMENTS = new WeakSet<object>();
@@ -216,7 +216,7 @@ function requireDigest(value: string, label: string): SecOperationDigest {
 }
 
 function requireId(value: string, label: string): string {
-  if (!ID_PATTERN.test(value)) {
+  if (!SEC_SEMANTIC_OPERATION_ID_PATTERN.test(value)) {
     throw new Error(`${label} must be a canonical semantic identity.`);
   }
   return value;

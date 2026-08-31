@@ -9,6 +9,15 @@
       ],
       "effectKinds": [
         "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "openContainerEngineSession",
+          "role": "domain-owner",
+          "semanticOperation": "external.container-engine-session-open",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
     }
   ],

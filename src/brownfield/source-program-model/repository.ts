@@ -1163,11 +1163,7 @@ function compileRepositorySourceProgramModelInternal(
       }))
     ))
   ));
-  const rolesByModule = new Map<string, Set<string>>();
   for (const { descriptor, provider, binding } of roleBindings) {
-    const roles = rolesByModule.get(descriptor.moduleId) ?? new Set<string>();
-    roles.add(binding.role);
-    rolesByModule.set(descriptor.moduleId, roles);
     const ownerDeclarations = typescriptModel.declarations.filter((declaration) => (
       declaration.exported
       && declaration.moduleId === descriptor.moduleId
@@ -1192,18 +1188,43 @@ function compileRepositorySourceProgramModelInternal(
       observationClass: foreignDeclarations.length === 1 ? 'derived' : 'unknown'
     }));
   }
-  for (const [moduleId, roles] of rolesByModule) {
-    if (!roles.has('provider-settlement-issuer') || !roles.has('readback-issuer')) continue;
-    const descriptor = input.moduleMembership.descriptors.find((candidate) => (
-      candidate.moduleId === moduleId
-    ))!;
+  for (const settlement of roleBindings.filter(({ binding }) => (
+    binding.role === 'provider-settlement-issuer'
+  ))) {
+    const conflictingReadback = roleBindings.find(({ descriptor, binding }) => (
+      descriptor.moduleId === settlement.descriptor.moduleId
+      && binding.role === 'readback-issuer'
+      && binding.semanticOperation === settlement.binding.semanticOperation
+      && binding.requirementId === settlement.binding.requirementId
+    ));
+    if (conflictingReadback === undefined) continue;
     candidates.push(Object.freeze({
       code: 'operation-issuer-role-conflict',
-      subject: moduleId,
-      paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
-      reason: 'one module cannot issue both provider settlement and independent domain readback',
+      subject: `${settlement.binding.semanticOperation}:${settlement.binding.requirementId}`,
+      paths: Object.freeze([`${settlement.descriptor.root}/sec.module.json`]),
+      reason: 'one module cannot issue provider settlement and independent domain readback for the same semantic operation requirement',
       observationClass: 'derived'
     }));
+  }
+  for (const descriptor of input.moduleMembership.descriptors) {
+    for (const obligation of descriptor.operationObligations) {
+      if (obligation.operation.kind !== 'capability' || obligation.effect.kinds.length === 0) continue;
+      const exactDomainOwner = roleBindings.find(({ descriptor: owner, provider, binding }) => (
+        owner.moduleId === descriptor.moduleId
+        && provider.capability === obligation.operation.capability
+        && binding.operation === obligation.operation.operation
+        && binding.role === 'domain-owner'
+        && binding.requirementId === null
+      ));
+      if (exactDomainOwner !== undefined) continue;
+      candidates.push(Object.freeze({
+        code: 'operation-critical-role-unresolved',
+        subject: `${obligation.operation.capability}:${obligation.operation.operation}`,
+        paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
+        reason: 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
+        observationClass: 'unknown'
+      }));
+    }
   }
   const recoveryRoleBindings = roleBindings.filter(({ binding }) => (
     binding.role === 'recovery-issuer'
@@ -1215,6 +1236,8 @@ function compileRepositorySourceProgramModelInternal(
     const recoveryMatches = recovery === null ? [] : recoveryRoleBindings.filter((candidate) => (
       candidate.provider.capability === recovery.capability
       && candidate.binding.operation === recovery.operation
+      && candidate.binding.semanticOperation === recovery.semanticOperation
+      && candidate.binding.semanticOperation === binding.semanticOperation
     ));
     if (recovery === null
         || recoveryMatches.length !== 1

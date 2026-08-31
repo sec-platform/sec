@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import nodePath from 'node:path';
 
+import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from '../operation/identity.ts';
+
 /**
  * The repository graph frontier is owned here. Consumers must derive their
  * source/test closure from this projection instead of keeping another list of
@@ -58,10 +60,15 @@ export type SecModuleOperationRole =
 export type SecModuleOperationRoleBinding = Readonly<{
   readonly operation: string;
   readonly role: SecModuleOperationRole;
+  /** Canonical semantic operation whose authority relation this issuer participates in. */
+  readonly semanticOperation: string;
+  /** Exact bound requirement for roles that act on one capability provider. */
+  readonly requirementId: string | null;
   /** Durable workers must delegate recovery to a distinct owner operation. */
   readonly recovery: Readonly<{
     readonly capability: string;
     readonly operation: string;
+    readonly semanticOperation: string;
   }> | null;
 }>;
 
@@ -497,7 +504,7 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
       const roleRecord = descriptorExactRecord(
         item,
         roleField,
-        ['operation', 'recovery', 'role']
+        ['operation', 'recovery', 'requirementId', 'role', 'semanticOperation']
       );
       const operation = descriptorString(
         roleRecord.operation,
@@ -512,12 +519,35 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
         `${roleField}.role`,
         SEC_MODULE_OPERATION_ROLES
       );
+      const semanticOperation = descriptorString(
+        roleRecord.semanticOperation,
+        `${roleField}.semanticOperation`,
+        SEC_SEMANTIC_OPERATION_ID_PATTERN
+      );
+      const requirementId = roleRecord.requirementId === null
+        ? null
+        : descriptorString(
+            roleRecord.requirementId,
+            `${roleField}.requirementId`,
+            SEC_SEMANTIC_OPERATION_ID_PATTERN
+          );
+      const requirementBoundRole = role === 'binding-issuer'
+        || role === 'provider-settlement-issuer'
+        || role === 'readback-issuer';
+      if (requirementBoundRole !== (requirementId !== null)) {
+        descriptorError(
+          `${roleField}.requirementId`,
+          requirementBoundRole
+            ? `is required for ${role}`
+            : `must be null for ${role}`
+        );
+      }
       const recoveryRecord = roleRecord.recovery === null
         ? null
         : descriptorExactRecord(
             roleRecord.recovery,
             `${roleField}.recovery`,
-            ['capability', 'operation']
+            ['capability', 'operation', 'semanticOperation']
           );
       const recovery = recoveryRecord === null ? null : Object.freeze({
         capability: descriptorString(
@@ -529,17 +559,37 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
           recoveryRecord.operation,
           `${roleField}.recovery.operation`,
           /^[A-Za-z_$][A-Za-z0-9_$]*$/u
+        ),
+        semanticOperation: descriptorString(
+          recoveryRecord.semanticOperation,
+          `${roleField}.recovery.semanticOperation`,
+          SEC_SEMANTIC_OPERATION_ID_PATTERN
         )
       });
       if (role !== 'durable-worker' && recovery !== null) {
         descriptorError(`${roleField}.recovery`, 'is only valid for a durable-worker');
       }
-      return Object.freeze({ operation, role, recovery });
+      if (recovery !== null && recovery.semanticOperation !== semanticOperation) {
+        descriptorError(
+          `${roleField}.recovery.semanticOperation`,
+          'must bind the durable worker semantic operation'
+        );
+      }
+      return Object.freeze({ operation, role, semanticOperation, requirementId, recovery });
     });
     if (new Set(operationRoles.map(({ operation }) => operation)).size !== operationRoles.length) {
       descriptorError(
         `capabilityProviders[${index}].operationRoles`,
         'operation entries must be unique'
+      );
+    }
+    const roleRelations = operationRoles.map(({ role, semanticOperation, requirementId }) => (
+      `${semanticOperation}\u0000${requirementId ?? ''}\u0000${role}`
+    ));
+    if (new Set(roleRelations).size !== roleRelations.length) {
+      descriptorError(
+        `capabilityProviders[${index}].operationRoles`,
+        'semantic operation requirement role relations must be unique'
       );
     }
     return Object.freeze({
@@ -552,6 +602,34 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
   });
   if (new Set(providers.map(({ capability }) => capability)).size !== providers.length) {
     descriptorError('capabilityProviders', 'capability entries must be unique');
+  }
+  const issuerRelations = providers.flatMap((provider) => provider.operationRoles.map((binding) => ({
+    provider,
+    binding
+  })));
+  const issuerRelationIdentities = issuerRelations.map(({ binding }) => (
+    `${binding.semanticOperation}\u0000${binding.requirementId ?? ''}\u0000${binding.role}`
+  ));
+  if (new Set(issuerRelationIdentities).size !== issuerRelationIdentities.length) {
+    descriptorError(
+      'capabilityProviders',
+      'semantic operation requirement issuer relations must be unique across the module'
+    );
+  }
+  for (const settlement of issuerRelations.filter(({ binding }) => (
+    binding.role === 'provider-settlement-issuer'
+  ))) {
+    const conflictingReadback = issuerRelations.find(({ binding }) => (
+      binding.role === 'readback-issuer'
+      && binding.semanticOperation === settlement.binding.semanticOperation
+      && binding.requirementId === settlement.binding.requirementId
+    ));
+    if (conflictingReadback !== undefined) {
+      descriptorError(
+        'capabilityProviders',
+        `provider settlement and readback issuers for ${settlement.binding.semanticOperation}:${settlement.binding.requirementId} require distinct module owners`
+      );
+    }
   }
   return Object.freeze(providers);
 }

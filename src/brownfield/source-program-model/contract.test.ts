@@ -1657,13 +1657,21 @@ test('supersession resolves duplicate bytes by semantic target and never by rela
 
 function compileIssuerRoleFixture(input: Readonly<{
   sources: Readonly<Record<string, string>>;
+  operationObligations?: Readonly<Record<string, readonly unknown[]>>;
   descriptors: Readonly<Record<string, readonly Readonly<{
     capability: string;
     operations: readonly string[];
+    effectKinds?: readonly string[];
     operationRoles: readonly Readonly<{
       operation: string;
       role: string;
-      recovery: Readonly<{ capability: string; operation: string }> | null;
+      semanticOperation: string;
+      requirementId: string | null;
+      recovery: Readonly<{
+        capability: string;
+        operation: string;
+        semanticOperation: string;
+      }> | null;
     }>[];
   }>[]>>;
 }>) {
@@ -1678,7 +1686,7 @@ function compileIssuerRoleFixture(input: Readonly<{
       importGraph: 'runtime',
       externalEntrypoints: [],
       capabilityProviders,
-      operationObligations: [],
+      operationObligations: input.operationObligations?.[root] ?? [],
       preDependencyBootstrap: false
     })
   }));
@@ -1706,28 +1714,34 @@ test('source program closes issuer roles over exact owners and recovery modules'
     },
     descriptors: {
       'src/grant': [{ capability: 'semantic.grant', operations: ['issueGrant'], operationRoles: [
-        { operation: 'issueGrant', role: 'grant-issuer', recovery: null }
+        { operation: 'issueGrant', role: 'grant-issuer', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }],
       'src/binding': [{ capability: 'semantic.binding', operations: ['issueBinding'], operationRoles: [
-        { operation: 'issueBinding', role: 'binding-issuer', recovery: null }
+        { operation: 'issueBinding', role: 'binding-issuer', semanticOperation: 'example.operation', requirementId: 'example.provider', recovery: null }
       ] }],
       'src/provider': [{ capability: 'semantic.provider', operations: ['settleProvider'], operationRoles: [
-        { operation: 'settleProvider', role: 'provider-settlement-issuer', recovery: null }
+        { operation: 'settleProvider', role: 'provider-settlement-issuer', semanticOperation: 'example.operation', requirementId: 'example.provider', recovery: null }
       ] }],
       'src/readback': [{ capability: 'semantic.readback', operations: ['readback'], operationRoles: [
-        { operation: 'readback', role: 'readback-issuer', recovery: null }
+        { operation: 'readback', role: 'readback-issuer', semanticOperation: 'example.operation', requirementId: 'example.provider', recovery: null }
       ] }],
       'src/terminal': [{ capability: 'semantic.terminal', operations: ['joinTerminal'], operationRoles: [
-        { operation: 'joinTerminal', role: 'terminal-issuer', recovery: null }
+        { operation: 'joinTerminal', role: 'terminal-issuer', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }],
       'src/recovery': [{ capability: 'runtime.recovery', operations: ['recover'], operationRoles: [
-        { operation: 'recover', role: 'recovery-issuer', recovery: null }
+        { operation: 'recover', role: 'recovery-issuer', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }],
       'src/store': [{ capability: 'runtime.store', operations: ['appendAttempt'], operationRoles: [
         {
           operation: 'appendAttempt',
           role: 'durable-worker',
-          recovery: { capability: 'runtime.recovery', operation: 'recover' }
+          semanticOperation: 'example.operation',
+          requirementId: null,
+          recovery: {
+            capability: 'runtime.recovery',
+            operation: 'recover',
+            semanticOperation: 'example.operation'
+          }
         }
       ] }]
     }
@@ -1737,7 +1751,7 @@ test('source program closes issuer roles over exact owners and recovery modules'
     || code.startsWith('durable-worker'))).toEqual([]);
 });
 
-test('source program rejects cross-owner issuers, conflicting roles, generic worker inputs, domain imports, and missing recovery', () => {
+test('source program rejects cross-owner issuers, generic worker inputs, domain imports, and missing recovery without conflating unrelated issuer roles', () => {
   const model = compileIssuerRoleFixture({
     sources: {
       'src/grant-owner/empty.ts': 'export const marker = true;\n',
@@ -1748,27 +1762,71 @@ test('source program rejects cross-owner issuers, conflicting roles, generic wor
     },
     descriptors: {
       'src/grant-owner': [{ capability: 'semantic.grant', operations: ['issueGrant'], operationRoles: [
-        { operation: 'issueGrant', role: 'grant-issuer', recovery: null }
+        { operation: 'issueGrant', role: 'grant-issuer', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }],
       'src/foreign': [],
       'src/conflict': [{ capability: 'semantic.conflict', operations: ['settle', 'readback'], operationRoles: [
-        { operation: 'settle', role: 'provider-settlement-issuer', recovery: null },
-        { operation: 'readback', role: 'readback-issuer', recovery: null }
+        { operation: 'settle', role: 'provider-settlement-issuer', semanticOperation: 'example.settle-operation', requirementId: 'example.settle-provider', recovery: null },
+        { operation: 'readback', role: 'readback-issuer', semanticOperation: 'example.readback-operation', requirementId: 'example.readback-provider', recovery: null }
       ] }],
       'src/domain': [{ capability: 'domain.operation', operations: ['domainOperation'], operationRoles: [
-        { operation: 'domainOperation', role: 'domain-owner', recovery: null }
+        { operation: 'domainOperation', role: 'domain-owner', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }],
       'src/store': [{ capability: 'runtime.store', operations: ['append'], operationRoles: [
-        { operation: 'append', role: 'durable-worker', recovery: null }
+        { operation: 'append', role: 'durable-worker', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }]
     }
   });
   const codes = model.candidates.map(({ code }) => code);
   expect(codes).toContain('operation-issuer-role-outside-owner');
-  expect(codes).toContain('operation-issuer-role-conflict');
+  expect(codes).not.toContain('operation-issuer-role-conflict');
   expect(codes).toContain('durable-worker-generic-input-exposed');
   expect(codes).toContain('durable-worker-domain-import');
   expect(codes).toContain('operation-recovery-binding-unresolved');
+});
+
+test('source program keeps an effectful public operation without an exact domain owner typed unknown', () => {
+  const model = compileIssuerRoleFixture({
+    sources: {
+      'src/effect/operation.ts': 'export function execute(): void {}\n'
+    },
+    operationObligations: {
+      'src/effect': [{
+        operation: {
+          kind: 'capability',
+          capability: 'example.effect',
+          operation: 'execute'
+        },
+        consumerSupport: { consumers: [] },
+        effect: {
+          kinds: ['process'],
+          failureKinds: ['example.failed'],
+          recovery: 'owner-intervention'
+        },
+        evolution: {
+          migration: 'not-required',
+          retirement: 'replacement-obligations-satisfied'
+        },
+        resources: {
+          aggregateBudgets: [{ resource: 'processes', maximum: 1 }]
+        },
+        futureSupport: { condition: 'semantic-superset-required' }
+      }]
+    },
+    descriptors: {
+      'src/effect': [{
+        capability: 'example.effect',
+        operations: ['execute'],
+        effectKinds: ['process'],
+        operationRoles: []
+      }]
+    }
+  });
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'example.effect:execute',
+    observationClass: 'unknown'
+  }));
 });
 
 test('source program keeps an unresolved durable input contract blocking', () => {
@@ -1779,13 +1837,19 @@ test('source program keeps an unresolved durable input contract blocking', () =>
     },
     descriptors: {
       'src/recovery': [{ capability: 'runtime.recovery', operations: ['recover'], operationRoles: [
-        { operation: 'recover', role: 'recovery-issuer', recovery: null }
+        { operation: 'recover', role: 'recovery-issuer', semanticOperation: 'example.operation', requirementId: null, recovery: null }
       ] }],
       'src/store': [{ capability: 'runtime.store', operations: ['append'], operationRoles: [
         {
           operation: 'append',
           role: 'durable-worker',
-          recovery: { capability: 'runtime.recovery', operation: 'recover' }
+          semanticOperation: 'example.operation',
+          requirementId: null,
+          recovery: {
+            capability: 'runtime.recovery',
+            operation: 'recover',
+            semanticOperation: 'example.operation'
+          }
         }
       ] }]
     }

@@ -200,7 +200,13 @@ test('repository module capability roles bind exact operations and recovery addr
       operationRoles: [{
         operation: 'append',
         role: 'durable-worker',
-        recovery: { capability: 'runtime.recovery', operation: 'recover' }
+        semanticOperation: 'runtime.store-append',
+        requirementId: null,
+        recovery: {
+          capability: 'runtime.recovery',
+          operation: 'recover',
+          semanticOperation: 'runtime.store-append'
+        }
       }]
     }],
     operationObligations: []
@@ -209,24 +215,141 @@ test('repository module capability roles bind exact operations and recovery addr
     .capabilityProviders[0]?.operationRoles).toEqual([{
       operation: 'append',
       role: 'durable-worker',
-      recovery: { capability: 'runtime.recovery', operation: 'recover' }
+      semanticOperation: 'runtime.store-append',
+      requirementId: null,
+      recovery: {
+        capability: 'runtime.recovery',
+        operation: 'recover',
+        semanticOperation: 'runtime.store-append'
+      }
     }]);
   expect(() => parseSecModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...descriptor.capabilityProviders[0],
-      operationRoles: [{ operation: 'undeclared', role: 'durable-worker', recovery: null }]
+      operationRoles: [{
+        operation: 'undeclared',
+        role: 'durable-worker',
+        semanticOperation: 'runtime.store-append',
+        requirementId: null,
+        recovery: null
+      }]
     }]
   }, 'src/runtime-store/sec.module.json')).toThrow('must be one declared provider operation');
   expect(() => parseSecModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...descriptor.capabilityProviders[0],
-      operationRoles: [{ operation: 'append', role: 'readback-issuer', recovery: {
-        capability: 'runtime.recovery', operation: 'recover'
-      } }]
+      operationRoles: [{
+        operation: 'append',
+        role: 'readback-issuer',
+        semanticOperation: 'runtime.store-append',
+        requirementId: 'runtime.store-provider',
+        recovery: {
+          capability: 'runtime.recovery',
+          operation: 'recover',
+          semanticOperation: 'runtime.store-append'
+        }
+      }]
     }]
   }, 'src/runtime-store/sec.module.json')).toThrow('only valid for a durable-worker');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    capabilityProviders: [{
+      ...descriptor.capabilityProviders[0],
+      operationRoles: [{
+        operation: 'append',
+        role: 'provider-settlement-issuer',
+        semanticOperation: 'runtime.store-append',
+        requirementId: null,
+        recovery: null
+      }]
+    }]
+  }, 'src/runtime-store/sec.module.json')).toThrow('is required for provider-settlement-issuer');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    capabilityProviders: [{
+      ...descriptor.capabilityProviders[0],
+      operationRoles: [{
+        operation: 'append',
+        role: 'durable-worker',
+        semanticOperation: 'runtime.store-append',
+        requirementId: null,
+        recovery: {
+          capability: 'runtime.recovery',
+          operation: 'recover',
+          semanticOperation: 'runtime.other-operation'
+        }
+      }]
+    }]
+  }, 'src/runtime-store/sec.module.json')).toThrow('must bind the durable worker semantic operation');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    capabilityProviders: [{
+      ...descriptor.capabilityProviders[0],
+      operationRoles: [{
+        operation: 'append',
+        role: 'durable-worker',
+        semanticOperation: 'invalid',
+        requirementId: null,
+        recovery: null
+      }]
+    }]
+  }, 'src/runtime-store/sec.module.json')).toThrow('has an invalid format');
+});
+
+test('repository module conflicts only exact provider settlement and readback relations', () => {
+  const role = (
+    operation: string,
+    issuerRole: 'provider-settlement-issuer' | 'readback-issuer',
+    semanticOperation: string,
+    requirementId: string
+  ) => ({ operation, role: issuerRole, semanticOperation, requirementId, recovery: null });
+  const descriptor = {
+    importGraph: 'runtime',
+    externalEntrypoints: [],
+    capabilityProviders: [{
+      capability: 'runtime.provider',
+      operations: ['settle', 'readback'],
+      operationRoles: [
+        role('settle', 'provider-settlement-issuer', 'runtime.operation-a', 'runtime.provider-a'),
+        role('readback', 'readback-issuer', 'runtime.operation-b', 'runtime.provider-b')
+      ]
+    }],
+    operationObligations: []
+  } as const;
+  expect(parseSecModuleDescriptor(descriptor, 'src/runtime-provider/sec.module.json')
+    .capabilityProviders[0]?.operationRoles).toHaveLength(2);
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    capabilityProviders: [{
+      ...descriptor.capabilityProviders[0],
+      operationRoles: [
+        role('settle', 'provider-settlement-issuer', 'runtime.operation-a', 'runtime.provider-a'),
+        role('readback', 'readback-issuer', 'runtime.operation-a', 'runtime.provider-a')
+      ]
+    }]
+  }, 'src/runtime-provider/sec.module.json')).toThrow(
+    'provider settlement and readback issuers for runtime.operation-a:runtime.provider-a require distinct module owners'
+  );
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    capabilityProviders: [{
+      capability: 'runtime.provider-a',
+      operations: ['settle'],
+      operationRoles: [
+        role('settle', 'provider-settlement-issuer', 'runtime.operation-a', 'runtime.provider-a')
+      ]
+    }, {
+      capability: 'runtime.provider-b',
+      operations: ['settle'],
+      operationRoles: [
+        role('settle', 'provider-settlement-issuer', 'runtime.operation-a', 'runtime.provider-a')
+      ]
+    }]
+  }, 'src/runtime-provider/sec.module.json')).toThrow(
+    'semantic operation requirement issuer relations must be unique across the module'
+  );
 });
 
 test('repository module compiler prevents production from importing test authority', () => {
