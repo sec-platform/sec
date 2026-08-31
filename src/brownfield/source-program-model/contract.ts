@@ -256,6 +256,7 @@ export type SourceProgramCandidateCode =
   | 'durable-worker-generic-input-exposed'
   | 'operation-issuer-role-conflict'
   | 'operation-issuer-role-outside-owner'
+  | 'operation-critical-role-unresolved'
   | 'operation-recovery-binding-unresolved';
 
 /**
@@ -277,6 +278,7 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
   'production-embeds-executable-source-text',
   'operation-issuer-role-conflict',
   'operation-issuer-role-outside-owner',
+  'operation-critical-role-unresolved',
   'operation-recovery-binding-unresolved',
   'versioned-declaration-conflicts-with-canonical-name',
   'versioned-declaration-without-coexisting-version',
