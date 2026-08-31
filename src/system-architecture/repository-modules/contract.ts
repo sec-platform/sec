@@ -24,8 +24,43 @@ export type SecModuleDescriptor = Readonly<{
   readonly capabilityProviders: readonly SecModuleCapabilityProvider[];
   /** Required only for operations that may be removed or replaced. */
   readonly operationObligations: readonly SecModuleOperationObligation[];
+  /** Owner-issued semantic relations; Source Program binds every entry to an exact declaration. */
+  readonly causalRelations: readonly SecModuleCausalRelation[];
   /** Every external entrypoint must load before repository dependencies exist. */
   readonly preDependencyBootstrap: boolean;
+}>;
+
+export const SEC_MODULE_CAUSAL_RELATIONS = Object.freeze([
+  'declares',
+  'produces',
+  'parses',
+  'reads',
+  'writes',
+  'executes',
+  'settles',
+  'reads-back',
+  'recovers',
+  'caches',
+  'projects',
+  'verifies',
+  'migrates',
+  'retires'
+] as const);
+
+export type SecModuleCausalRelationKind =
+  (typeof SEC_MODULE_CAUSAL_RELATIONS)[number];
+
+export type SecModuleCausalRelation = Readonly<{
+  readonly subject: string;
+  readonly relation: SecModuleCausalRelationKind;
+  readonly symbol: Readonly<{
+    readonly path: string;
+    readonly name: string;
+  }>;
+  readonly operation: Readonly<{
+    readonly semanticOperation: string;
+    readonly requirementId: string | null;
+  }> | null;
 }>;
 
 export type SecModuleCapabilityProvider = Readonly<{
@@ -360,6 +395,7 @@ const SEC_MODULE_DESCRIPTOR_KEYS = Object.freeze([
   'externalEntrypoints',
   'capabilityProviders',
   'operationObligations',
+  'causalRelations',
   'preDependencyBootstrap'
 ] as const);
 
@@ -393,12 +429,86 @@ function descriptorRecord(input: unknown): Record<string, unknown> {
     (key) => key !== 'preDependencyBootstrap'
       && key !== 'capabilityProviders'
       && key !== 'operationObligations'
+      && key !== 'causalRelations'
   )) {
     if (!Object.prototype.hasOwnProperty.call(record, key)) {
       descriptorError(key, 'required field is missing');
     }
   }
   return record;
+}
+
+function descriptorCausalRelations(
+  value: unknown,
+  root: string
+): readonly SecModuleCausalRelation[] {
+  if (!Array.isArray(value) || value.length > 128) {
+    return descriptorError('causalRelations', 'expected at most 128 entries');
+  }
+  const relations = value.map((item, index) => {
+    const field = `causalRelations[${index}]`;
+    const record = descriptorExactRecord(item, field, [
+      'operation', 'relation', 'subject', 'symbol'
+    ]);
+    const subject = descriptorString(
+      record.subject,
+      `${field}.subject`,
+      SEC_SEMANTIC_OPERATION_ID_PATTERN
+    );
+    const relation = descriptorEnum(
+      record.relation,
+      `${field}.relation`,
+      SEC_MODULE_CAUSAL_RELATIONS
+    );
+    const symbolRecord = descriptorExactRecord(
+      record.symbol,
+      `${field}.symbol`,
+      ['name', 'path']
+    );
+    const symbolPath = descriptorString(
+      symbolRecord.path,
+      `${field}.symbol.path`,
+      SEC_MODULE_PATH_PATTERN
+    );
+    if (!pathWithinRoot(symbolPath, root)) {
+      descriptorError(`${field}.symbol.path`, 'must remain inside the declaring module root');
+    }
+    const symbol = Object.freeze({
+      path: symbolPath,
+      name: descriptorString(
+        symbolRecord.name,
+        `${field}.symbol.name`,
+        /^[A-Za-z_$][A-Za-z0-9_$]*$/u
+      )
+    });
+    const operationRecord = record.operation === null
+      ? null
+      : descriptorExactRecord(
+          record.operation,
+          `${field}.operation`,
+          ['requirementId', 'semanticOperation']
+        );
+    const operation = operationRecord === null ? null : Object.freeze({
+      semanticOperation: descriptorString(
+        operationRecord.semanticOperation,
+        `${field}.operation.semanticOperation`,
+        SEC_SEMANTIC_OPERATION_ID_PATTERN
+      ),
+      requirementId: operationRecord.requirementId === null
+        ? null
+        : descriptorString(
+            operationRecord.requirementId,
+            `${field}.operation.requirementId`,
+            SEC_SEMANTIC_OPERATION_ID_PATTERN
+          )
+    });
+    return Object.freeze({ subject, relation, symbol, operation });
+  });
+  const identities = relations.map((relation) => JSON.stringify(relation));
+  if (new Set(identities).size !== identities.length) {
+    descriptorError('causalRelations', 'relations must be unique');
+  }
+  return Object.freeze(relations);
 }
 
 function descriptorString(
@@ -891,6 +1001,7 @@ export function parseSecModuleDescriptor(
     capabilityProviders,
     externalEntrypoints
   );
+  const causalRelations = descriptorCausalRelations(record.causalRelations ?? [], root);
   const preDependencyBootstrap = record.preDependencyBootstrap ?? false;
   if (typeof preDependencyBootstrap !== 'boolean') {
     descriptorError('preDependencyBootstrap', 'expected a boolean');
@@ -905,6 +1016,7 @@ export function parseSecModuleDescriptor(
     externalEntrypoints,
     capabilityProviders,
     operationObligations,
+    causalRelations,
     preDependencyBootstrap
   });
 }

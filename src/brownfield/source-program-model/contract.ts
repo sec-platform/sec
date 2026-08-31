@@ -1,5 +1,8 @@
 import type { SemanticResponsibilityTargetKind } from '../../semantic/contracts/contract/types.ts';
-import type { SecModuleOperationObligation } from '../../system-architecture/repository-modules/contract.ts';
+import type {
+  SecModuleCausalRelation,
+  SecModuleOperationObligation
+} from '../../system-architecture/repository-modules/contract.ts';
 
 export const REPOSITORY_AUDIT_ENTRYPOINT_PATH = 'src/brownfield/repository-audit/cli.ts' as const;
 
@@ -233,6 +236,8 @@ export interface SourceProgramCapabilityInvocation {
 }
 
 export type SourceProgramCandidateCode =
+  | 'causal-identity-unresolved'
+  | 'causal-relation-owner-bypass'
   | 'capability-provider-operation-unresolved'
   | 'declared-dependency-without-source-consumer'
   | 'duplicate-entrypoint-command'
@@ -268,6 +273,8 @@ export type SourceProgramCandidateCode =
  * must reject them instead of merely reporting them.
  */
 export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
+  'causal-identity-unresolved',
+  'causal-relation-owner-bypass',
   'direct-process-transport-outside-owner',
   'durable-worker-domain-import',
   'durable-worker-generic-input-exposed',
@@ -286,6 +293,19 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
   'test-mirrors-production-literal-collection',
   'test-mirrors-production-source-path'
 ] as const satisfies readonly SourceProgramCandidateCode[]);
+
+export interface SourceProgramCausalRelationEvidence {
+  readonly owner: string;
+  readonly intent: SecModuleCausalRelation;
+  readonly declaration: Readonly<{
+    readonly observationId: string | null;
+    readonly declarationDigest: string | null;
+  }>;
+  readonly sourceRevision: string;
+  readonly observationClass: 'derived' | 'unknown';
+  readonly reason: 'exact-symbol' | 'symbol-ambiguous' | 'symbol-missing';
+  readonly evidenceDigest: string;
+}
 
 
 export interface SourceProgramCandidate {

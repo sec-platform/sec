@@ -1859,3 +1859,85 @@ test('source program keeps an unresolved durable input contract blocking', () =>
     observationClass: 'unknown'
   }));
 });
+
+function compileCausalReaderFixture(readerBody: string) {
+  const sources = {
+    'src/semantic/repair/contract/types.ts': [
+      'export interface RepairPlan { readonly status: string; }',
+      'export function parseRepairPlanJson(source: string): RepairPlan { return JSON.parse(source) as RepairPlan; }'
+    ].join('\n'),
+    'src/workspace/runtime/files.ts': 'export async function readJson<T>(_path: string): Promise<T> { throw new Error(); }\n',
+    'src/interface/cli/register-commands.ts': readerBody
+  };
+  const descriptorSources = [{
+    descriptorPath: 'src/semantic/repair/sec.module.json',
+    source: JSON.stringify({
+      importGraph: 'runtime',
+      externalEntrypoints: [],
+      causalRelations: [{
+        subject: 'semantic.repair-plan',
+        relation: 'declares',
+        symbol: { path: 'src/semantic/repair/contract/types.ts', name: 'RepairPlan' },
+        operation: null
+      }, {
+        subject: 'semantic.repair-plan',
+        relation: 'parses',
+        symbol: { path: 'src/semantic/repair/contract/types.ts', name: 'parseRepairPlanJson' },
+        operation: null
+      }]
+    })
+  }, {
+    descriptorPath: 'src/workspace/sec.module.json',
+    source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
+  }, {
+    descriptorPath: 'src/interface/cli/sec.module.json',
+    source: JSON.stringify({
+      importGraph: 'runtime',
+      externalEntrypoints: [],
+      causalRelations: [{
+        subject: 'semantic.repair-plan',
+        relation: 'reads-back',
+        symbol: { path: 'src/interface/cli/register-commands.ts', name: 'readRequiredRepairPlan' },
+        operation: null
+      }]
+    })
+  }];
+  const files = Object.entries(sources).map(([path, source]) => Object.freeze({
+    path,
+    source,
+    contentDigest: rawSha256(source)
+  }));
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [
+      ...Object.keys(sources),
+      ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
+    ],
+    descriptorSources
+  });
+  return compileRepositorySourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+}
+
+test('causal relation projection rejects generic persisted reads and accepts the canonical owner parser', () => {
+  const canonical = compileCausalReaderFixture([
+    "import { parseRepairPlanJson, type RepairPlan } from '../../semantic/repair/contract/types.ts';",
+    'function readRequiredRepairPlan(source: string): RepairPlan { return parseRepairPlanJson(source); }'
+  ].join('\n'));
+  expect(canonical.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'causal-relation-owner-bypass'
+  }));
+
+  const generic = compileCausalReaderFixture([
+    "import type { RepairPlan } from '../../semantic/repair/contract/types.ts';",
+    "import { readJson } from '../../workspace/runtime/files.ts';",
+    'async function readRequiredRepairPlan(path: string): Promise<RepairPlan> { return readJson<RepairPlan>(path); }'
+  ].join('\n'));
+  expect(generic.candidates).toContainEqual(expect.objectContaining({
+    code: 'causal-relation-owner-bypass',
+    subject: 'semantic.repair-plan:parser/readback',
+    observationClass: 'derived'
+  }));
+});

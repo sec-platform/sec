@@ -9,6 +9,7 @@ import { compileSecRepositoryModuleGraph, type SecRepositoryModuleMembership } f
 import type {
   SourceProgramCandidate,
   SourceProgramCapabilityAuthorityClass,
+  SourceProgramCausalRelationEvidence,
   SourceProgramDeclaration,
   SourceProgramDependency,
   SourceProgramDependencyScope,
@@ -509,6 +510,94 @@ function durableWorkerInputRisk(
     unresolved = true;
   }
   return unresolved ? 'unresolved' : null;
+}
+
+export function compileSourceProgramCausalRelationEvidence(
+  model: SourceProgramModel,
+  membership: SecRepositoryModuleMembership
+): readonly SourceProgramCausalRelationEvidence[] {
+  const evidence = membership.descriptors.flatMap((descriptor) => (
+    descriptor.causalRelations.map((intent) => {
+      const declarations = model.declarations.filter((declaration) => (
+        declaration.moduleId === descriptor.moduleId
+        && declaration.path === intent.symbol.path
+        && declaration.name === intent.symbol.name
+      ));
+      const exact = declarations.length === 1 ? declarations[0]! : null;
+      const reason = exact !== null
+        ? 'exact-symbol' as const
+        : declarations.length === 0
+          ? 'symbol-missing' as const
+          : 'symbol-ambiguous' as const;
+      const canonical = Object.freeze({
+        owner: descriptor.moduleId,
+        intent,
+        declaration: Object.freeze({
+          observationId: exact?.observationId ?? null,
+          declarationDigest: exact?.declarationDigest ?? null
+        }),
+        sourceRevision: model.sourceRevision,
+        observationClass: exact === null ? 'unknown' as const : 'derived' as const,
+        reason
+      });
+      return Object.freeze({
+        ...canonical,
+        evidenceDigest: sha256(canonical)
+      });
+    })
+  ));
+  return Object.freeze(evidence.sort((left, right) => compareCodeUnits(left.intent.subject, right.intent.subject)
+    || compareCodeUnits(left.intent.relation, right.intent.relation)
+    || compareCodeUnits(left.intent.symbol.path, right.intent.symbol.path)
+    || compareCodeUnits(left.intent.symbol.name, right.intent.symbol.name)));
+}
+
+function declarationCallTargets(
+  declaration: SourceProgramDeclaration,
+  model: SourceProgramModel
+): readonly string[] {
+  const containingDeclarations = model.declarations.filter((candidate) => (
+    candidate.path === declaration.path
+    && candidate.span.start >= declaration.span.start
+    && candidate.span.end <= declaration.span.end
+  ));
+  return Object.freeze(model.references.flatMap((reference) => {
+    if (reference.path !== declaration.path
+        || reference.kind !== 'call'
+        || reference.targetObservationId === null
+        || reference.span.start < declaration.span.start
+        || reference.span.end > declaration.span.end) return [];
+    const exactContainer = containingDeclarations
+      .filter(({ span }) => span.start <= reference.span.start && span.end >= reference.span.end)
+      .sort((left, right) => (left.span.end - left.span.start) - (right.span.end - right.span.start))[0];
+    return exactContainer?.observationId === declaration.observationId
+      ? [reference.targetObservationId]
+      : [];
+  }));
+}
+
+function declarationReaches(
+  startObservationId: string,
+  targetObservationId: string,
+  model: SourceProgramModel
+): boolean {
+  const declarations = new Map(model.declarations.map((declaration) => (
+    [declaration.observationId, declaration] as const
+  )));
+  const pending = [startObservationId];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const current = pending.shift()!;
+    if (current === targetObservationId) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const declaration = declarations.get(current);
+    if (declaration === undefined) continue;
+    for (const target of declarationCallTargets(declaration, model)) {
+      if (!visited.has(target)) pending.push(target);
+    }
+  }
+  return false;
 }
 
 function compileRepositorySourceProgramModelInternal(
@@ -1099,6 +1188,74 @@ function compileRepositorySourceProgramModelInternal(
     compareCodeUnits(left.path, right.path) || compareCodeUnits(left.name, right.name)
   );
   const candidates: SourceProgramCandidate[] = [];
+  const causalRelations = compileSourceProgramCausalRelationEvidence(
+    typescriptModel,
+    input.moduleMembership
+  );
+  for (const evidence of causalRelations.filter(({ observationClass }) => (
+    observationClass === 'unknown'
+  ))) {
+    candidates.push(Object.freeze({
+      code: 'causal-identity-unresolved',
+      subject: `${evidence.intent.subject}:${evidence.intent.relation}`,
+      paths: Object.freeze([
+        evidence.intent.symbol.path,
+        `${input.moduleMembership.descriptors.find(({ moduleId }) => (
+          moduleId === evidence.owner
+        ))!.root}/sec.module.json`
+      ].sort(compareCodeUnits)),
+      reason: `owner-issued ${evidence.intent.relation} relation does not resolve to one exact Source Program symbol`,
+      observationClass: 'unknown'
+    }));
+  }
+  const causalSubjects = new Set(causalRelations.map(({ intent }) => intent.subject));
+  for (const subject of causalSubjects) {
+    const subjectRelations = causalRelations.filter(({ intent }) => intent.subject === subject);
+    const declarations = subjectRelations.filter(({ intent, observationClass }) => (
+      intent.relation === 'declares' && observationClass === 'derived'
+    ));
+    const parsers = subjectRelations.filter(({ intent, observationClass }) => (
+      intent.relation === 'parses' && observationClass === 'derived'
+    ));
+    const readbacks = subjectRelations.filter(({ intent, observationClass }) => (
+      intent.relation === 'reads-back' && observationClass === 'derived'
+    ));
+    if (subjectRelations.length > 0 && declarations.length !== 1) {
+      candidates.push(Object.freeze({
+        code: 'causal-identity-unresolved',
+        subject,
+        paths: Object.freeze(subjectRelations.map(({ intent }) => intent.symbol.path)
+          .sort(compareCodeUnits)),
+        reason: 'causal subject requires exactly one owner-issued declares relation',
+        observationClass: 'unknown'
+      }));
+    }
+    for (const readback of readbacks) {
+      const matchingParsers = parsers.filter((parser) => (
+        declarations.length === 1
+        && parser.owner === declarations[0]!.owner
+        && JSON.stringify(parser.intent.operation) === JSON.stringify(readback.intent.operation)
+      ));
+      const readerObservationId = readback.declaration.observationId;
+      const parserObservationId = matchingParsers[0]?.declaration.observationId ?? null;
+      if (matchingParsers.length === 1
+          && readerObservationId !== null
+          && parserObservationId !== null
+          && declarationReaches(readerObservationId, parserObservationId, typescriptModel)) continue;
+      candidates.push(Object.freeze({
+        code: 'causal-relation-owner-bypass',
+        subject: `${subject}:parser/readback`,
+        paths: Object.freeze([
+          readback.intent.symbol.path,
+          ...matchingParsers.map(({ intent }) => intent.symbol.path)
+        ].sort(compareCodeUnits)),
+        reason: matchingParsers.length !== 1
+          ? 'readback relation lacks one canonical parser owned by the semantic subject declaration owner for the same operation requirement'
+          : 'readback implementation does not reach the canonical owner parser through the exact TypeScript call graph',
+        observationClass: matchingParsers.length === 1 ? 'derived' : 'unknown'
+      }));
+    }
+  }
   for (const embedded of executableSourceLiteralPaths(input.files)) {
     candidates.push(Object.freeze({
       code: 'production-embeds-executable-source-text',
