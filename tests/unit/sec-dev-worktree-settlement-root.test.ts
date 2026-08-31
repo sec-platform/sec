@@ -51,3 +51,20 @@ test('worktree settlement preserves a typed authority block before any Git child
     await fs.rm(parent, { recursive: true, force: true });
   }
 });
+
+test('worktree settlement carries parent cancellation into its one GitRead operation', async () => {
+  const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-settlement-cancelled-'));
+  try {
+    git(repositoryRoot, ['init', '--quiet']);
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled by focused test'));
+
+    const receipt = await runSettlement(repositoryRoot, { signal: controller.signal });
+
+    expect(receipt.status).toBe('unsafe');
+    expect(receipt.gitVersion).toBe('<unavailable>');
+    expect(receipt.summary).toContain('reason=git-session-cancelled');
+  } finally {
+    await fs.rm(repositoryRoot, { recursive: true, force: true });
+  }
+});

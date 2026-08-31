@@ -1,9 +1,68 @@
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  sha256,
+  uniqueSorted
+} from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../../system-architecture/operation/semantic.ts';
 import { posixPath } from './paths.ts';
 
+const TRACKED_PROJECT_PATH_DURATION_MS = 30_000;
+const TRACKED_PROJECT_PATH_PROCESS_MAXIMUM = 1;
 const TRACKED_PROJECT_PATH_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
 const TRACKED_PROJECT_PATH_STDERR_MAX_BYTES = 1024 * 1024;
+const TRACKED_PROJECT_PATH_COMMAND_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
+const TRACKED_PROJECT_PATH_COMMAND_STDERR_MAX_BYTES = 512 * 1024;
+const TRACKED_PROJECT_PATH_RECORD_MAXIMUM = 250_000;
+
+function compileTrackedProjectPathOperation(workspaceRoot: string): SecBoundSemanticOperation {
+  const contractDigest = sha256({
+    operation: 'workspace.list-tracked-project-paths',
+    provider: 'external-capabilities.git-read',
+    records: 'nul-terminated-canonical-workspace-paths'
+  }) as SecOperationDigest;
+  const plan = compileSecSemanticOperationPlan({
+    operation: 'workspace.list-tracked-project-paths',
+    intentDigest: sha256({
+      workspaceRoot,
+      command: ['ls-files', '-z', '--']
+    }) as SecOperationDigest,
+    decisionDigest: contractDigest,
+    deadlineAtUnixMs: Date.now() + TRACKED_PROJECT_PATH_DURATION_MS,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: TRACKED_PROJECT_PATH_DURATION_MS },
+      {
+        resource: 'output-bytes',
+        maximum: TRACKED_PROJECT_PATH_COMMAND_OUTPUT_MAX_BYTES
+          + TRACKED_PROJECT_PATH_COMMAND_STDERR_MAX_BYTES
+      },
+      { resource: 'processes', maximum: TRACKED_PROJECT_PATH_PROCESS_MAXIMUM },
+      { resource: 'records', maximum: TRACKED_PROJECT_PATH_RECORD_MAXIMUM }
+    ],
+    requirements: [{
+      id: 'workspace.tracked-project-paths',
+      contractDigest,
+      effectKinds: ['process'],
+      failureKinds: [
+        'provider.cancelled',
+        'provider.deadline-exhausted',
+        'provider.drift',
+        'provider.unavailable',
+        'provider.unverified'
+      ]
+    }]
+  });
+  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: 'workspace.tracked-project-paths',
+    contractDigest,
+    providerIdentityDigest: contractDigest
+  })]);
+}
 
 function exactNulPaths(bytes: Uint8Array): string[] {
   const buffer = Buffer.from(bytes);
@@ -26,14 +85,20 @@ function exactNulPaths(bytes: Uint8Array): string[] {
  * equivalent to "untracked" and must propagate to the integrity caller.
  */
 export async function listTrackedProjectPaths(workspaceRoot: string): Promise<Set<string> | null> {
+  const operation = compileTrackedProjectPathOperation(workspaceRoot);
   return withAuthorityGitReadSession({
       cwd: workspaceRoot,
       environment: { LANG: 'C', LC_ALL: 'C' },
+      operation,
+      deadlineAtUnixMs: operation.plan.attempt.deadlineAtUnixMs,
       budget: {
-        maxProcesses: 1,
+        deadlineMs: TRACKED_PROJECT_PATH_DURATION_MS,
+        maxProcesses: TRACKED_PROJECT_PATH_PROCESS_MAXIMUM,
         maxStdoutBytes: TRACKED_PROJECT_PATH_OUTPUT_MAX_BYTES,
         maxStderrBytes: TRACKED_PROJECT_PATH_STDERR_MAX_BYTES,
-        maxRecords: 250_000
+        maxRecords: TRACKED_PROJECT_PATH_RECORD_MAXIMUM,
+        maxCommandStdoutBytes: TRACKED_PROJECT_PATH_COMMAND_OUTPUT_MAX_BYTES,
+        maxCommandStderrBytes: TRACKED_PROJECT_PATH_COMMAND_STDERR_MAX_BYTES
       }
     }, async (session) => {
       const command = await session.run(['ls-files', '-z', '--']);
