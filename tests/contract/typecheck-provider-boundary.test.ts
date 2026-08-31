@@ -18,12 +18,20 @@ import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateE
 import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   bindSecSemanticOperation,
+  compileSecProviderSettlementSet,
   compileSecSemanticOperationPlan,
+  issueSecNormalDomainReadbackReceipt,
+  issueSecNormalOwnerTerminalJoinReceipt,
+  issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext
 } from '../../src/system-architecture/operation/semantic.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
 import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/toolchain/typescript/checker.ts';
-import { createVerificationActionKey } from '../../src/verification/action/contract/action.ts';
+import {
+  createVerificationActionKey,
+  issueVerificationActionTerminalSettlement,
+  projectVerificationActionTerminal
+} from '../../src/verification/action/contract/action.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
 const PROJECT_CONFIG_DIGEST = `sha256:${'b'.repeat(64)}` as const;
@@ -337,6 +345,72 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
         deadlineAtUnixMs: 1_900_000_000_000
       })
     })).not.toBe(first.actionKey);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('typecheck settles source observation and project check as one exact provider set', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-settlement-'));
+  try {
+    const installed = await selectNativeChecker(await writeNativeCheckerFixture(root));
+    const operation = compileTypecheckSemanticOperation({
+      projectConfigPath: installed.provider.projectConfig,
+      diagnosticArguments: [],
+      provider: installed.provider,
+      deadlineAtUnixMs: 1_900_000_000_000
+    });
+    expect(operation.plan.execution.requirements.map(({ id }) => id)).toEqual([
+      'repository.source-observation',
+      'typescript.project-check'
+    ]);
+    const sourceObservation = issueSecProviderSettlementReceipt(operation, {
+      requirementId: 'repository.source-observation',
+      physicalDisposition: 'settled',
+      providerSettlementReferenceDigest: sha256('source-observation-settled')
+    });
+    const checker = issueSecProviderSettlementReceipt(operation, {
+      requirementId: 'typescript.project-check',
+      physicalDisposition: 'unknown',
+      providerSettlementReferenceDigest: sha256('checker-handle-lost')
+    });
+    expect(() => compileSecProviderSettlementSet(operation, [checker])).toThrow(
+      'exactly one receipt per requirement'
+    );
+    const settlementSet = compileSecProviderSettlementSet(operation, [checker, sourceObservation]);
+    expect(settlementSet.settlements.map(({ requirementId, physicalDisposition }) => ({
+      requirementId,
+      physicalDisposition
+    }))).toEqual([
+      { requirementId: 'repository.source-observation', physicalDisposition: 'settled' },
+      { requirementId: 'typescript.project-check', physicalDisposition: 'unknown' }
+    ]);
+    const readback = issueSecNormalDomainReadbackReceipt(operation, settlementSet, {
+      readbackContractDigest: sha256('typecheck-readback-contract'),
+      readbackReferenceDigest: sha256('typecheck-input-invalidated'),
+      currentPhysicalEpochDigest: sha256('typecheck-current-physical-epoch'),
+      disposition: 'unknown'
+    });
+    const terminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+      operation,
+      settlementSet,
+      readback,
+      {
+        ownerTerminalContractDigest: sha256('typecheck-action-terminal-contract'),
+        ownerTerminalReferenceDigest: sha256('typecheck-action-terminal-reference')
+      }
+    );
+    const terminal = projectVerificationActionTerminal(
+      issueVerificationActionTerminalSettlement(terminalJoin, {
+        status: 'invalidated',
+        reasonCode: 'input-invalidated'
+      })
+    );
+    expect(terminal).toEqual({
+      status: 'invalidated',
+      reasonCode: 'input-invalidated',
+      resultDigest: terminalJoin.joinReceiptDigest
+    });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

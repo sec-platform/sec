@@ -13,8 +13,7 @@ import path from 'node:path';
 import {
   openProcessResourceSession,
   type ProcessResourceRunResult,
-  type ProcessResourceSession,
-  type ProcessResourceSessionReceipt
+  type ProcessResourceSession
 } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import { createRuntimeStateJournalFileSystem, type RuntimeStateJournalFileSystem } from '../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../runtime-state/workspace-state/paths.ts';
@@ -22,9 +21,10 @@ import { acquireSecRuntimeJournalAuthority } from '../../runtime-state/workspace
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
+  compileSecProviderSettlementSet,
   compileSecSemanticOperationPlan,
-  issueSecDomainOutcomeReceipt,
-  issueSecOperationSettlementEnvelope,
+  issueSecNormalDomainReadbackReceipt,
+  issueSecNormalOwnerTerminalJoinReceipt,
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
@@ -34,6 +34,7 @@ import {
   createVerificationActionKey,
   createVerificationActionPlan,
   encodeVerificationActionData,
+  issueVerificationActionTerminalSettlement,
   isVerificationActionRunnable,
   parseVerificationActionKey,
   parseVerificationActionPlan,
@@ -946,15 +947,20 @@ export async function executeLocalVerificationActionDag(
           throw new Error('local VerificationAction process receipt does not settle the exact attempt.');
         }
         const providerSettlement = issueSecProviderSettlementReceipt(boundOperation, {
-          terminalClass: physicalResult.result.code === 0 ? 'completed' : 'failed',
-          providerSettlement: {
+          requirementId: 'verification.local-provider',
+          physicalDisposition: 'settled',
+          providerSettlementReferenceDigest: localDagDigest({
             processReceipt,
             ordinal: physicalResult.ordinal,
             exitCode: physicalResult.result.code,
             stdoutDigest: rawDigest(physicalResult.result.stdout),
             stderrDigest: rawDigest(physicalResult.result.stderr)
-          }
+          })
         });
+        const providerSettlementSet = compileSecProviderSettlementSet(
+          boundOperation,
+          [providerSettlement]
+        );
         const candidateAfter = input.inspectRepository(candidateRoot);
         if (!candidateAfter.trackedClean
             || candidateAfter.headSha !== normalizedOperation.candidate.headSha
@@ -963,19 +969,48 @@ export async function executeLocalVerificationActionDag(
               !== canonicalCommonDirectory(candidate.gitCommonDirectory)) {
           throw new Error('local VerificationAction candidate readback drifted after process settlement.');
         }
-        const domainOutcome = issueSecDomainOutcomeReceipt(providerSettlement, {
-          terminalClass: providerSettlement.providerTerminalClass,
-          effectReadback: candidateAfter,
-          domainOutcome: {
-            operationDigest: normalizedOperation.semanticDigest,
-            status: physicalResult.result.code === 0 ? 'passed' : 'failed'
-          }
-        });
-        return issueSecOperationSettlementEnvelope(
+        const readback = issueSecNormalDomainReadbackReceipt(
           boundOperation,
-          providerSettlement,
-          domainOutcome
+          providerSettlementSet,
+          {
+            readbackContractDigest: localDagDigest({
+              contract: 'verification.local-candidate-readback',
+              operationDigest: normalizedOperation.semanticDigest
+            }),
+            readbackReferenceDigest: localDagDigest(candidateAfter),
+            currentPhysicalEpochDigest: localDagDigest({
+              headSha: candidateAfter.headSha,
+              headTreeSha: candidateAfter.headTreeSha,
+              gitCommonDirectory: candidateAfter.gitCommonDirectory
+            }),
+            disposition: 'applied'
+          }
         );
+        const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+          boundOperation,
+          providerSettlementSet,
+          readback,
+          {
+            ownerTerminalContractDigest: localDagDigest({
+              contract: 'verification.action-terminal',
+              resultSchemaRevision: plan.action.resultSchemaRevision
+            }),
+            ownerTerminalReferenceDigest: localDagDigest({
+              actionKey: plan.action.actionKey,
+              operationDigest: normalizedOperation.semanticDigest,
+              exitCode: physicalResult.result.code,
+              stdoutDigest: rawDigest(physicalResult.result.stdout),
+              stderrDigest: rawDigest(physicalResult.result.stderr),
+              candidate: candidateAfter
+            })
+          }
+        );
+        return issueVerificationActionTerminalSettlement(ownerTerminalJoin, {
+          status: physicalResult.result.code === 0 ? 'passed' : 'failed',
+          reasonCode: physicalResult.result.code === 0
+            ? 'executed-success'
+            : 'executed-failure'
+        });
       }
     });
     actionResults.push(result);

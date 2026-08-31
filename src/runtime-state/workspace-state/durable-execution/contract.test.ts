@@ -6,7 +6,7 @@ import {
   encodeDurableExecutionRecord,
   observeDurableExecutionJournal,
   parseDurableExecutionRecord,
-  sealDurableExecutionRecord,
+  sealDurableExecutionRecordForInternalWriter,
   type SecDurableExecutionDigest,
   type SecDurableExecutionRecord
 } from './contract.ts';
@@ -15,15 +15,19 @@ const digest = (value: string): SecDurableExecutionDigest =>
   `sha256:${value.padStart(64, '0')}` as SecDurableExecutionDigest;
 
 function attemptPrefix(run = '2', nonce = '5'): readonly SecDurableExecutionRecord[] {
-  const intent = sealDurableExecutionRecord({
+  const intent = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'intent',
     sequence: 0,
     operationKeyDigest: digest('1'),
     intentReferenceDigest: digest('3'),
+    maximumRecords: 64,
+    maximumStateBytes: 512 * 1024,
+    maximumAttempts: 4,
+    maximumProviderSettlementsPerAttempt: 4,
     previousRecordDigest: null
   });
-  const start = sealDurableExecutionRecord({
+  const start = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-start',
     sequence: 1,
@@ -45,7 +49,7 @@ function readback(
   reference = 'a'
 ): SecDurableExecutionRecord {
   const start = prefix[1]!;
-  return sealDurableExecutionRecord({
+  return sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'domain-readback-reference',
     sequence: prefix.length,
@@ -60,7 +64,7 @@ function readback(
 test('one OperationKey serializes every run and only an owner terminal closes the operation', () => {
   const prefix = attemptPrefix();
   const observedReadback = readback(prefix);
-  const resolution = sealDurableExecutionRecord({
+  const resolution = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-resolution',
     sequence: 3,
@@ -74,8 +78,9 @@ test('one OperationKey serializes every run and only an owner terminal closes th
     domainReadbackRecordDigest: observedReadback.recordDigest
   });
   const nextRun = attemptPrefix('12', '13')[1]!;
-  const retry = sealDurableExecutionRecord({
-    ...nextRun,
+  const { recordDigest: _nextRunRecordDigest, ...nextRunUnsigned } = nextRun;
+  const retry = sealDurableExecutionRecordForInternalWriter({
+    ...nextRunUnsigned,
     sequence: 4,
     previousRecordDigest: resolution.recordDigest
   });
@@ -90,7 +95,7 @@ test('one OperationKey serializes every run and only an owner terminal closes th
 
 test('reconciliation blocks replay while owner retry admission permits a new run', () => {
   const prefix = attemptPrefix();
-  const unresolved = sealDurableExecutionRecord({
+  const unresolved = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-resolution',
     sequence: 2,
@@ -103,8 +108,9 @@ test('reconciliation blocks replay while owner retry admission permits a new run
     providerSettlementRecordDigests: [],
     domainReadbackRecordDigest: null
   });
-  const retryStart = sealDurableExecutionRecord({
-    ...attemptPrefix('15', '16')[1]!,
+  const { recordDigest: _retryRecordDigest, ...retryUnsigned } = attemptPrefix('15', '16')[1]!;
+  const retryStart = sealDurableExecutionRecordForInternalWriter({
+    ...retryUnsigned,
     sequence: 3,
     previousRecordDigest: unresolved.recordDigest
   });
@@ -112,7 +118,7 @@ test('reconciliation blocks replay while owner retry admission permits a new run
     .toThrow('unresolved execution');
 
   const observedReadback = readback(prefix, '17');
-  const sealedAdmission = sealDurableExecutionRecord({
+  const sealedAdmission = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-resolution',
     sequence: 3,
@@ -125,8 +131,8 @@ test('reconciliation blocks replay while owner retry admission permits a new run
     providerSettlementRecordDigests: [],
     domainReadbackRecordDigest: observedReadback.recordDigest
   });
-  const nextAttempt = sealDurableExecutionRecord({
-    ...attemptPrefix('19', '20')[1]!,
+  const nextAttempt = sealDurableExecutionRecordForInternalWriter({
+    ...((({ recordDigest: _recordDigest, ...value }) => value)(attemptPrefix('19', '20')[1]!)),
     sequence: 4,
     previousRecordDigest: sealedAdmission.recordDigest
   });
@@ -137,7 +143,7 @@ test('reconciliation blocks replay while owner retry admission permits a new run
 
 test('provider references are unique per requirement and resolution binds their exact record set', () => {
   const prefix = attemptPrefix();
-  const provider = sealDurableExecutionRecord({
+  const provider = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'provider-settlement-reference',
     sequence: 2,
@@ -149,7 +155,7 @@ test('provider references are unique per requirement and resolution binds their 
     providerBindingDigest: digest('21'),
     providerSettlementReferenceDigest: digest('22')
   });
-  const duplicate = sealDurableExecutionRecord({
+  const duplicate = sealDurableExecutionRecordForInternalWriter({
     ...((({ recordDigest: _ignored, ...value }) => value)(provider)),
     sequence: 3,
     previousRecordDigest: provider.recordDigest,
@@ -159,7 +165,7 @@ test('provider references are unique per requirement and resolution binds their 
     .toThrow('unique active requirement');
 
   const observedReadback = readback([...prefix, provider], '24');
-  const resolution = sealDurableExecutionRecord({
+  const resolution = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'attempt-resolution',
     sequence: 4,
@@ -178,7 +184,7 @@ test('provider references are unique per requirement and resolution binds their 
 
 test('cancel preserves already settled requirements while stopping the active attempt', () => {
   const prefix = attemptPrefix();
-  const provider = sealDurableExecutionRecord({
+  const provider = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'provider-settlement-reference',
     sequence: 2,
@@ -190,7 +196,7 @@ test('cancel preserves already settled requirements while stopping the active at
     providerBindingDigest: digest('27'),
     providerSettlementReferenceDigest: digest('28')
   });
-  const cancel = sealDurableExecutionRecord({
+  const cancel = sealDurableExecutionRecordForInternalWriter({
     schema: SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA,
     kind: 'cancel-request',
     sequence: 3,
@@ -204,10 +210,25 @@ test('cancel preserves already settled requirements while stopping the active at
   expect(observation.activeAttempt?.cancelRequest?.recordDigest).toBe(cancel.recordDigest);
   expect(observation.activeAttempt?.providerSettlements.map(({ requirementId }) => requirementId))
     .toEqual(['process.compiler']);
+  const providerAfterCancel = sealDurableExecutionRecordForInternalWriter({
+    ...((({ recordDigest: _recordDigest, ...value }) => value)(provider)),
+    sequence: 4,
+    previousRecordDigest: cancel.recordDigest,
+    requirementId: 'process.linker',
+    providerSettlementReferenceDigest: digest('30')
+  });
+  expect(() => observeDurableExecutionJournal([...prefix, provider, cancel, providerAfterCancel]))
+    .toThrow('unique active requirement');
 });
 
 test('exact parser rejects duplicate keys, unknown fields, digest drift and noncanonical bytes', () => {
-  const encoded = encodeDurableExecutionRecord(attemptPrefix()[0]!);
+  const intent = attemptPrefix()[0]!;
+  const encoded = encodeDurableExecutionRecord(intent);
+  const { recordDigest: _recordDigest, ...unsignedIntent } = intent;
+  expect(() => sealDurableExecutionRecordForInternalWriter({
+    ...unsignedIntent,
+    unknown: true
+  } as never)).toThrow('unsigned record violates its strict schema');
   expect(() => parseDurableExecutionRecord(
     encoded.replace('"kind":"intent"', '"kind":"intent","\\u006bind":"intent"')
   )).toThrow('duplicate key');

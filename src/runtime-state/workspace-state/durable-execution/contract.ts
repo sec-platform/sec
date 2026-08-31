@@ -5,84 +5,121 @@ import { parseExactJson } from '../../../system-architecture/foundation/runtime/
 
 export const SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA =
   'sec-durable-local-execution-record' as const;
+export const SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES = 4_096 as const;
 
-export type SecDurableExecutionDigest = `sha256:${string}`;
-export type SecDurableExecutionRecordKind =
-  | 'intent'
-  | 'attempt-start'
-  | 'cancel-request'
-  | 'provider-settlement-reference'
-  | 'domain-readback-reference'
-  | 'attempt-resolution';
-export type SecDurableAttemptResolutionKind =
-  | 'owner-terminal-reference'
-  | 'retry-admission-reference'
-  | 'reconciliation-required';
+const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u;
+const digestSchema = z.custom<`sha256:${string}`>(
+  (value) => typeof value === 'string' && DIGEST_PATTERN.test(value)
+);
+const nullableDigestSchema = digestSchema.nullable();
+const unsignedBaseRecordShape = {
+  schema: z.literal(SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA),
+  sequence: z.number().int().nonnegative().safe(),
+  operationKeyDigest: digestSchema,
+  previousRecordDigest: nullableDigestSchema
+} as const;
+const intentUnsignedRecordSchema = z.object({
+  ...unsignedBaseRecordShape,
+  kind: z.literal('intent'),
+  intentReferenceDigest: digestSchema,
+  maximumRecords: z.number().int().positive().safe(),
+  maximumStateBytes: z.number().int().positive().safe(),
+  maximumAttempts: z.number().int().positive().safe(),
+  maximumProviderSettlementsPerAttempt: z.number().int().nonnegative().safe()
+}).strict();
+const attemptStartUnsignedRecordSchema = z.object({
+  ...unsignedBaseRecordShape,
+  kind: z.literal('attempt-start'),
+  runIdDigest: nullableDigestSchema,
+  resumeEpochDigest: nullableDigestSchema,
+  attemptNonceDigest: digestSchema,
+  workerIdentityDigest: digestSchema,
+  authorityGrantReferenceDigest: digestSchema,
+  providerBindingSetReferenceDigest: digestSchema,
+  executionPlanReferenceDigest: digestSchema
+}).strict();
+const cancelRequestUnsignedRecordSchema = z.object({
+  ...unsignedBaseRecordShape,
+  kind: z.literal('cancel-request'),
+  attemptNonceDigest: digestSchema,
+  cancelRequestReferenceDigest: digestSchema
+}).strict();
+const providerSettlementUnsignedRecordSchema = z.object({
+  ...unsignedBaseRecordShape,
+  kind: z.literal('provider-settlement-reference'),
+  attemptNonceDigest: digestSchema,
+  requirementId: z.string().regex(ID_PATTERN).max(128),
+  providerBindingDigest: digestSchema,
+  providerSettlementReferenceDigest: digestSchema
+}).strict();
+const domainReadbackUnsignedRecordSchema = z.object({
+  ...unsignedBaseRecordShape,
+  kind: z.literal('domain-readback-reference'),
+  attemptNonceDigest: digestSchema,
+  readbackContractDigest: digestSchema,
+  domainReadbackReferenceDigest: digestSchema
+}).strict();
+const attemptResolutionUnsignedRecordSchema = z.object({
+  ...unsignedBaseRecordShape,
+  kind: z.literal('attempt-resolution'),
+  attemptNonceDigest: digestSchema,
+  resolutionKind: z.enum([
+    'owner-terminal-reference', 'retry-admission-reference', 'reconciliation-required'
+  ]),
+  resolutionReferenceDigest: digestSchema,
+  providerSettlementRecordDigests: z.array(digestSchema).readonly(),
+  domainReadbackRecordDigest: nullableDigestSchema
+}).strict();
+const durableExecutionUnsignedRecordSchema = z.discriminatedUnion('kind', [
+  intentUnsignedRecordSchema,
+  attemptStartUnsignedRecordSchema,
+  cancelRequestUnsignedRecordSchema,
+  providerSettlementUnsignedRecordSchema,
+  domainReadbackUnsignedRecordSchema,
+  attemptResolutionUnsignedRecordSchema
+]);
+const durableExecutionRecordSchema = z.discriminatedUnion('kind', [
+  intentUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
+  attemptStartUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
+  cancelRequestUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
+  providerSettlementUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
+  domainReadbackUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
+  attemptResolutionUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict()
+]);
 
-interface SecDurableExecutionRecordBase {
-  readonly schema: typeof SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA;
-  readonly kind: SecDurableExecutionRecordKind;
-  readonly sequence: number;
-  readonly operationKeyDigest: SecDurableExecutionDigest;
-  readonly previousRecordDigest: SecDurableExecutionDigest | null;
-  readonly recordDigest: SecDurableExecutionDigest;
-}
-
-export interface SecDurableExecutionIntentRecord extends SecDurableExecutionRecordBase {
-  readonly kind: 'intent';
-  readonly intentReferenceDigest: SecDurableExecutionDigest;
-}
-
-export interface SecDurableExecutionAttemptStartRecord extends SecDurableExecutionRecordBase {
-  readonly kind: 'attempt-start';
-  readonly runIdDigest: SecDurableExecutionDigest | null;
-  readonly resumeEpochDigest: SecDurableExecutionDigest | null;
-  readonly attemptNonceDigest: SecDurableExecutionDigest;
-  readonly workerIdentityDigest: SecDurableExecutionDigest;
-  readonly authorityGrantReferenceDigest: SecDurableExecutionDigest;
-  readonly providerBindingSetReferenceDigest: SecDurableExecutionDigest;
-  readonly executionPlanReferenceDigest: SecDurableExecutionDigest;
-}
-
-export interface SecDurableExecutionCancelRequestRecord extends SecDurableExecutionRecordBase {
-  readonly kind: 'cancel-request';
-  readonly attemptNonceDigest: SecDurableExecutionDigest;
-  readonly cancelRequestReferenceDigest: SecDurableExecutionDigest;
-}
-
-export interface SecDurableExecutionProviderSettlementReferenceRecord
-  extends SecDurableExecutionRecordBase {
-  readonly kind: 'provider-settlement-reference';
-  readonly attemptNonceDigest: SecDurableExecutionDigest;
-  readonly requirementId: string;
-  readonly providerBindingDigest: SecDurableExecutionDigest;
-  readonly providerSettlementReferenceDigest: SecDurableExecutionDigest;
-}
-
-export interface SecDurableExecutionDomainReadbackReferenceRecord
-  extends SecDurableExecutionRecordBase {
-  readonly kind: 'domain-readback-reference';
-  readonly attemptNonceDigest: SecDurableExecutionDigest;
-  readonly readbackContractDigest: SecDurableExecutionDigest;
-  readonly domainReadbackReferenceDigest: SecDurableExecutionDigest;
-}
-
-export interface SecDurableExecutionAttemptResolutionRecord extends SecDurableExecutionRecordBase {
-  readonly kind: 'attempt-resolution';
-  readonly attemptNonceDigest: SecDurableExecutionDigest;
-  readonly resolutionKind: SecDurableAttemptResolutionKind;
-  readonly resolutionReferenceDigest: SecDurableExecutionDigest;
-  readonly providerSettlementRecordDigests: readonly SecDurableExecutionDigest[];
-  readonly domainReadbackRecordDigest: SecDurableExecutionDigest | null;
-}
-
-export type SecDurableExecutionRecord =
-  | SecDurableExecutionIntentRecord
-  | SecDurableExecutionAttemptStartRecord
-  | SecDurableExecutionCancelRequestRecord
-  | SecDurableExecutionProviderSettlementReferenceRecord
-  | SecDurableExecutionDomainReadbackReferenceRecord
-  | SecDurableExecutionAttemptResolutionRecord;
+export type SecDurableExecutionDigest = z.infer<typeof digestSchema>;
+export type SecDurableExecutionRecord = z.infer<typeof durableExecutionRecordSchema>;
+export type SecDurableExecutionUnsignedRecord = z.infer<typeof durableExecutionUnsignedRecordSchema>;
+export type SecDurableExecutionRecordKind = SecDurableExecutionRecord['kind'];
+export type SecDurableAttemptResolutionKind = Extract<
+  SecDurableExecutionRecord,
+  { readonly kind: 'attempt-resolution' }
+>['resolutionKind'];
+export type SecDurableExecutionIntentRecord = Extract<
+  SecDurableExecutionRecord,
+  { readonly kind: 'intent' }
+>;
+export type SecDurableExecutionAttemptStartRecord = Extract<
+  SecDurableExecutionRecord,
+  { readonly kind: 'attempt-start' }
+>;
+export type SecDurableExecutionCancelRequestRecord = Extract<
+  SecDurableExecutionRecord,
+  { readonly kind: 'cancel-request' }
+>;
+export type SecDurableExecutionProviderSettlementReferenceRecord = Extract<
+  SecDurableExecutionRecord,
+  { readonly kind: 'provider-settlement-reference' }
+>;
+export type SecDurableExecutionDomainReadbackReferenceRecord = Extract<
+  SecDurableExecutionRecord,
+  { readonly kind: 'domain-readback-reference' }
+>;
+export type SecDurableExecutionAttemptResolutionRecord = Extract<
+  SecDurableExecutionRecord,
+  { readonly kind: 'attempt-resolution' }
+>;
 
 export interface SecDurableExecutionAttemptObservation {
   readonly start: SecDurableExecutionAttemptStartRecord;
@@ -116,91 +153,35 @@ export class SecDurableExecutionContractError extends Error {
   }
 }
 
-type UnsignedRecord = SecDurableExecutionRecord extends infer RecordValue
-  ? RecordValue extends SecDurableExecutionRecord
-    ? Omit<RecordValue, 'recordDigest'>
-    : never
-  : never;
-
-const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
-const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$/u;
-const digestSchema = z.string().regex(DIGEST_PATTERN);
-const nullableDigestSchema = digestSchema.nullable();
-const baseRecordShape = {
-  schema: z.literal(SEC_DURABLE_LOCAL_EXECUTION_RECORD_SCHEMA),
-  sequence: z.number().int().nonnegative().safe(),
-  operationKeyDigest: digestSchema,
-  previousRecordDigest: nullableDigestSchema,
-  recordDigest: digestSchema
-} as const;
-const durableExecutionRecordSchema = z.discriminatedUnion('kind', [
-  z.object({
-    ...baseRecordShape,
-    kind: z.literal('intent'),
-    intentReferenceDigest: digestSchema
-  }).strict(),
-  z.object({
-    ...baseRecordShape,
-    kind: z.literal('attempt-start'),
-    runIdDigest: nullableDigestSchema,
-    resumeEpochDigest: nullableDigestSchema,
-    attemptNonceDigest: digestSchema,
-    workerIdentityDigest: digestSchema,
-    authorityGrantReferenceDigest: digestSchema,
-    providerBindingSetReferenceDigest: digestSchema,
-    executionPlanReferenceDigest: digestSchema
-  }).strict(),
-  z.object({
-    ...baseRecordShape,
-    kind: z.literal('cancel-request'),
-    attemptNonceDigest: digestSchema,
-    cancelRequestReferenceDigest: digestSchema
-  }).strict(),
-  z.object({
-    ...baseRecordShape,
-    kind: z.literal('provider-settlement-reference'),
-    attemptNonceDigest: digestSchema,
-    requirementId: z.string().regex(ID_PATTERN),
-    providerBindingDigest: digestSchema,
-    providerSettlementReferenceDigest: digestSchema
-  }).strict(),
-  z.object({
-    ...baseRecordShape,
-    kind: z.literal('domain-readback-reference'),
-    attemptNonceDigest: digestSchema,
-    readbackContractDigest: digestSchema,
-    domainReadbackReferenceDigest: digestSchema
-  }).strict(),
-  z.object({
-    ...baseRecordShape,
-    kind: z.literal('attempt-resolution'),
-    attemptNonceDigest: digestSchema,
-    resolutionKind: z.enum([
-      'owner-terminal-reference', 'retry-admission-reference', 'reconciliation-required'
-    ]),
-    resolutionReferenceDigest: digestSchema,
-    providerSettlementRecordDigests: z.array(digestSchema),
-    domainReadbackRecordDigest: nullableDigestSchema
-  }).strict()
-]);
-
 function fail(kind: SecDurableExecutionContractFailureKind, message: string): never {
   throw new SecDurableExecutionContractError(kind, message);
 }
 
-function unsigned(record: SecDurableExecutionRecord): UnsignedRecord {
+function unsigned(record: SecDurableExecutionRecord): SecDurableExecutionUnsignedRecord {
   const { recordDigest: _recordDigest, ...value } = record;
-  return value as UnsignedRecord;
+  return durableExecutionUnsignedRecordSchema.parse(value);
 }
 
-export function sealDurableExecutionRecord<Value extends UnsignedRecord>(
+/** @internal Raw record construction is private to the Runtime State journal writer. */
+export function sealDurableExecutionRecordForInternalWriter<
+  Value extends SecDurableExecutionUnsignedRecord
+>(
   value: Value
 ): Readonly<Value & { readonly recordDigest: SecDurableExecutionDigest }> {
-  const record: Value & { readonly recordDigest: SecDurableExecutionDigest } = Object.assign(
-    {}, value, { recordDigest: sha256(value) as SecDurableExecutionDigest }
+  const parsed = durableExecutionUnsignedRecordSchema.safeParse(value);
+  if (!parsed.success) {
+    fail('invalid-record', `unsigned record violates its strict schema: ${z.prettifyError(parsed.error)}`);
+  }
+  const canonical = parsed.data;
+  const record = Object.assign(
+    {}, canonical, { recordDigest: sha256(canonical) as SecDurableExecutionDigest }
   );
+  if (Buffer.byteLength(JSON.stringify(canonicalJson(record)), 'utf8')
+      > SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES) {
+    fail('invalid-record', 'record exceeds its canonical byte ceiling.');
+  }
   Object.freeze(record);
-  return record;
+  return record as Readonly<Value & { readonly recordDigest: SecDurableExecutionDigest }>;
 }
 
 export function encodeDurableExecutionRecord(record: SecDurableExecutionRecord): string {
@@ -213,7 +194,10 @@ export function parseDurableExecutionRecord(source: string): SecDurableExecution
   if (!result.success) {
     fail('invalid-record', `record violates its strict schema: ${z.prettifyError(result.error)}`);
   }
-  const record = result.data as SecDurableExecutionRecord;
+  const record = result.data;
+  if (Buffer.byteLength(source, 'utf8') > SEC_DURABLE_EXECUTION_MAXIMUM_RECORD_BYTES) {
+    fail('invalid-record', 'record exceeds its canonical byte ceiling.');
+  }
   const expectedDigest = sha256(unsigned(record));
   if (record.recordDigest !== expectedDigest) fail('digest-mismatch', 'record digest does not match its exact content.');
   const canonical = encodeDurableExecutionRecord(record);
@@ -290,6 +274,7 @@ export function observeDurableExecutionJournal(
         break;
       case 'provider-settlement-reference':
         if (active === null || record.attemptNonceDigest !== active.start.attemptNonceDigest
+            || active.cancelRequest !== null
             || active.providerSettlements.some(({ requirementId }) => requirementId === record.requirementId)) {
           fail('invalid-transition', 'provider settlement does not target one unique active requirement.');
         }

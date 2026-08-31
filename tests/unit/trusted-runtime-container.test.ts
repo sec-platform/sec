@@ -8,8 +8,17 @@ import {
 } from '../../src/control/main-health/contract.ts';
 import { parseDockerEndpointIdentity } from '../../src/external-capabilities/docker/contract/daemon.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext,
+  type SecOperationDigest
+} from '../../src/system-architecture/operation/semantic.ts';
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
-import { TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID, TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC, TRUSTED_RUNTIME_STATE_ENVIRONMENT, TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST, TRUSTED_RUNTIME_TEST_TMPFS_SPEC, TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT, assertTrustedRuntimeContainerImageV1, assertTrustedRuntimeDependencyCacheVolume, assertTrustedRuntimeMainHealthCarryForwardBaselineV2, authorizeTrustedRuntimeContainerRecovery, composeTrustedRuntimeContainerLabels, createTrustedRuntimeCommandEnvironmentArgs, createTrustedRuntimeDependencyCacheMarker, createTrustedRuntimeDependencyCacheVolumeSpec, createTrustedRuntimeHostCommandEnvironment, createTrustedRuntimeImageBuildPlan, createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthGatePlans, createTrustedRuntimeMainHealthReceipt, createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, parseTrustedRuntimeContainerIdentity, parseTrustedRuntimeMainHealthAffectedPlan, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, renderTrustedRuntimeCommandFailureDetail, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionStatusRequest } from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
+import { TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID, TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC, TRUSTED_RUNTIME_STATE_ENVIRONMENT, TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST, TRUSTED_RUNTIME_TEST_TMPFS_SPEC, TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT, assertTrustedRuntimeContainerImageV1, assertTrustedRuntimeDependencyCacheVolume, assertTrustedRuntimeMainHealthCarryForwardBaselineV2, authorizeTrustedRuntimeContainerRecovery, composeTrustedRuntimeContainerLabels, createTrustedRuntimeCommandEnvironmentArgs, createTrustedRuntimeDependencyCacheMarker, createTrustedRuntimeDependencyCacheVolumeSpec, createTrustedRuntimeHostCommandEnvironment, createTrustedRuntimeImageBuildPlan, createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthGatePlans, createTrustedRuntimeMainHealthReceipt, createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, issueTrustedRuntimeContainerEngineOwnerTerminalJoin, parseTrustedRuntimeContainerIdentity, parseTrustedRuntimeMainHealthAffectedPlan, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, renderTrustedRuntimeCommandFailureDetail, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionStatusRequest } from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
 
 const dockerEndpoint = Object.freeze({
   schema: 'sec-docker-endpoint-identity-v1' as const,
@@ -100,6 +109,57 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('joins only one provider-issued exact requirement settlement with independent endpoint readback', () => {
+    const contractDigest = sha256({ contract: 'container-engine-test' }) as SecOperationDigest;
+    const providerIdentityDigest = sha256({ provider: 'container-engine-test' }) as SecOperationDigest;
+    const plan = compileSecSemanticOperationPlan({
+      operation: 'verification.trusted-runtime-container-test',
+      intentDigest: sha256({ intent: 'container-engine-test' }) as SecOperationDigest,
+      decisionDigest: sha256({ decision: 'container-engine-test' }) as SecOperationDigest,
+      deadlineAtUnixMs: Date.now() + 60_000,
+      aggregateBudgets: [
+        { resource: 'duration-ms', maximum: 60_000 },
+        { resource: 'output-bytes', maximum: 1024 },
+        { resource: 'processes', maximum: 1 }
+      ],
+      requirements: [{
+        id: 'external.container-engine-process',
+        contractDigest,
+        effectKinds: ['process'],
+        failureKinds: ['process.failed']
+      }],
+      attempt: issueSecSemanticOperationAttemptContext({
+        authorityGrantDigest: contractDigest
+      })
+    });
+    const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+      requirementId: 'external.container-engine-process',
+      contractDigest,
+      providerIdentityDigest
+    })]);
+    const providerSettlement = issueSecProviderSettlementReceipt(operation, {
+      requirementId: 'external.container-engine-process',
+      physicalDisposition: 'settled',
+      providerSettlementReferenceDigest: sha256({ command: 'settled' }) as SecOperationDigest
+    });
+    const join = issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
+      operation,
+      providerSettlement,
+      endpointReadback: parseDockerEndpointIdentity(dockerEndpoint),
+      ownerTerminalContractDigest: sha256({ owner: 'contract' }) as SecOperationDigest,
+      ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as SecOperationDigest
+    });
+    expect(join.providerSettlementSetDigest).not.toBeNull();
+    expect(join.readbackReceiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(() => issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
+      operation,
+      providerSettlement: { ...providerSettlement },
+      endpointReadback: parseDockerEndpointIdentity(dockerEndpoint),
+      ownerTerminalContractDigest: sha256({ owner: 'contract' }) as SecOperationDigest,
+      ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as SecOperationDigest
+    })).toThrow('Provider settlement receipt is not provider-issued');
+  });
+
   test('projects the exact base as the offline default-branch ref in both trees', () => {
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
       'git -C /sec-runtime/trusted update-ref refs/remotes/origin/main "$base"'

@@ -17,14 +17,19 @@ import {
   type RetainedCommandBoundary
 } from '../../../runtime-state/physical/runtime/process.ts';
 import { resolveWindowsKnownFolderPath } from '../../../runtime-state/physical/runtime/windows-known-folders.ts';
+import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
+  assertSecBoundSemanticOperation,
   issueSecProviderSettlementReceipt,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest,
   type SecProviderSettlementReceipt
 } from '../../../system-architecture/operation/semantic.ts';
 import type {
   ContainerEngineCommandResult,
   ContainerEngineOperation,
   ContainerEngineOperationOptions,
+  ContainerEngineOperationScope,
   ContainerEngineSession,
   OpenContainerEngineSessionInput
 } from '../contract/container-engine-session.ts';
@@ -277,13 +282,37 @@ export async function openContainerEngineSession(
   let closing = false;
   let closed = false;
   let terminalCloseFailure: unknown;
-  let terminalCloseReceipt: SecProviderSettlementReceipt | undefined;
+  type ScopeCommandSettlement = Readonly<{
+    ordinal: number;
+    operationKind: ContainerEngineOperation['kind'];
+    argumentsDigest: SecOperationDigest;
+    exitCode: number;
+    stdoutDigest: SecOperationDigest;
+    stderrDigest: SecOperationDigest;
+  }>;
+  type ActiveScope = {
+    operation: SecBoundSemanticOperation;
+    requirementId: string;
+    processCount: number;
+    inputBytes: number;
+    outputBytes: number;
+    transportUnknown: boolean;
+    settlements: ScopeCommandSettlement[];
+  };
+  let currentScope: ActiveScope | null = null;
   const environment = projectedEnvironment(DOCKER_COMMAND_ENVIRONMENT_KEYS, process.env);
+
+  const operationBudget = (
+    operation: SecBoundSemanticOperation,
+    resource: 'input-bytes' | 'output-bytes' | 'processes'
+  ): number => operation.plan.execution.aggregateBudgets
+    .find((candidate) => candidate.resource === resource)?.maximum ?? 0;
 
   const rawRun = async (
     args: readonly string[],
     options: ContainerEngineOperationOptions = {},
-    lifecycle: 'observe' | 'start' = 'observe'
+    lifecycle: 'observe' | 'start' = 'observe',
+    scopedOperation?: ContainerEngineOperation
   ): Promise<ContainerEngineCommandResult> => {
     if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
     const remaining = processSession.deadlineAtUnixMs - Date.now();
@@ -302,9 +331,31 @@ export async function openContainerEngineSession(
         || stallTimeoutMs < 1 || stallTimeoutMs >= remaining || options.admitProgress === undefined)) {
       fail('operation stall deadline is invalid');
     }
+    const scope = scopedOperation === undefined ? null : currentScope;
+    if (scopedOperation !== undefined && scope === null) {
+      fail('operation execution requires one open provider settlement scope');
+    }
+    const commandInputBytes = options.input?.byteLength ?? 0;
+    if (scope !== null) {
+      if (scope.transportUnknown) fail('provider settlement scope is already physically unknown');
+      if (Date.now() >= scope.operation.plan.attempt.deadlineAtUnixMs) {
+        fail('provider settlement scope deadline is exhausted');
+      }
+      if (scope.processCount + 1 > operationBudget(scope.operation, 'processes')) {
+        fail('provider settlement scope process budget is exhausted');
+      }
+      if (scope.inputBytes + commandInputBytes > operationBudget(scope.operation, 'input-bytes')) {
+        fail('provider settlement scope input budget is exhausted');
+      }
+      if (scope.outputBytes + stdoutBound + stderrBound
+          > operationBudget(scope.operation, 'output-bytes')) {
+        fail('provider settlement scope output budget is exhausted');
+      }
+    }
     active += 1;
+    let transportSettled = false;
     try {
-      const { result } = await processSession.run(retained.boundary, [
+      const { ordinal, result } = await processSession.run(retained.boundary, [
         ...boundedOwnerArguments(args)
       ], {
         env: lifecycle === 'observe' ? environment : await dockerDesktopLifecycleEnvironment(),
@@ -325,12 +376,40 @@ export async function openContainerEngineSession(
         stdout: Buffer.from(result.stdout),
         stderr: Buffer.from(result.stderr, 'utf8')
       });
+      transportSettled = true;
+      if (scope !== null) {
+        scope.processCount += 1;
+        scope.inputBytes += commandInputBytes;
+        scope.outputBytes += commandResult.stdout.byteLength + commandResult.stderr.byteLength;
+        scope.settlements.push(Object.freeze({
+          ordinal,
+          operationKind: scopedOperation!.kind,
+          argumentsDigest: sha256({
+            arguments: boundedArguments(scopedOperation!.arguments)
+          }) as SecOperationDigest,
+          exitCode: commandResult.code,
+          stdoutDigest: sha256({
+            stdout: commandResult.stdout.toString('base64')
+          }) as SecOperationDigest,
+          stderrDigest: sha256({
+            stderr: commandResult.stderr.toString('base64')
+          }) as SecOperationDigest
+        }));
+      }
       if (options.acceptAnyExitCode !== true
           && !(options.acceptedCodes ?? [0]).includes(commandResult.code)) {
         fail(`operation failed with ${commandResult.code}: ${commandResult.stderr
           .toString('utf8').slice(-8_192)}`);
       }
       return commandResult;
+    } catch (error) {
+      if (scope !== null && !transportSettled) {
+        scope.processCount += 1;
+        scope.inputBytes += commandInputBytes;
+        scope.outputBytes += stdoutBound + stderrBound;
+        scope.transportUnknown = true;
+      }
+      throw error;
     } finally {
       active -= 1;
     }
@@ -407,24 +486,131 @@ export async function openContainerEngineSession(
       }
     }
 
+    const executableDigest = retained.boundary.executable.digest();
+    const providerIdentityDigest = sha256({
+      schema: 'sec-container-engine-retained-provider-identity-v1',
+      cwd,
+      endpoint,
+      executable: {
+        path: retained.executable,
+        size: executableDigest.size,
+        byteDigest: executableDigest.byteDigest,
+        contentDigest: executableDigest.contentDigest
+      }
+    }) as SecOperationDigest;
     const session: ContainerEngineSession = Object.freeze({
       endpoint,
       cwd,
       executable: retained.executable,
       deadlineAtUnixMs: processSession.deadlineAtUnixMs,
+      providerIdentityDigest,
+      openOperationScope(scopeInput): ContainerEngineOperationScope {
+        if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
+        if (active > 0) fail('provider settlement scope cannot open during an active operation');
+        if (currentScope !== null) fail('provider settlement scopes cannot nest or overlap');
+        assertSecBoundSemanticOperation(scopeInput.operation);
+        const requirement = scopeInput.operation.plan.execution.requirements.find(
+          ({ id }) => id === scopeInput.requirementId
+        );
+        const binding = scopeInput.operation.bindings.find(
+          ({ requirementId }) => requirementId === scopeInput.requirementId
+        );
+        if (requirement === undefined || binding === undefined
+            || !requirement.effectKinds.includes('process')
+            || binding.contractDigest !== requirement.contractDigest
+            || binding.providerIdentityDigest !== providerIdentityDigest) {
+          fail('provider settlement scope does not bind this retained Container Engine provider');
+        }
+        for (const resource of ['processes', 'output-bytes'] as const) {
+          if (operationBudget(scopeInput.operation, resource) < 1) {
+            fail(`provider settlement scope requires a positive ${resource} budget`);
+          }
+        }
+        if (scopeInput.operation.plan.attempt.deadlineAtUnixMs > processSession.deadlineAtUnixMs) {
+          fail('provider settlement scope deadline exceeds the retained session deadline');
+        }
+        const scope: ActiveScope = {
+          operation: scopeInput.operation,
+          requirementId: scopeInput.requirementId,
+          processCount: 0,
+          inputBytes: 0,
+          outputBytes: 0,
+          transportUnknown: false,
+          settlements: []
+        };
+        currentScope = scope;
+        let receipt: SecProviderSettlementReceipt | null = null;
+        const handle: ContainerEngineOperationScope = Object.freeze({
+          operationIdentityDigest: scopeInput.operation.plan.identity.identityDigest,
+          boundAttemptDigest: scopeInput.operation.boundAttemptDigest,
+          requirementId: scopeInput.requirementId,
+          settle(): SecProviderSettlementReceipt {
+            if (receipt !== null) return receipt;
+            if (currentScope !== scope) fail('provider settlement scope is no longer current');
+            if (active > 0) fail('provider settlement scope cannot settle during an active operation');
+            const physicalDisposition = scope.transportUnknown
+              ? 'unknown' as const
+              : scope.settlements.length === 0
+                ? 'not-started' as const
+                : 'settled' as const;
+            const providerSettlementReferenceDigest = sha256({
+              schema: 'sec-container-engine-operation-scope-settlement-v1',
+              providerIdentityDigest,
+              endpoint,
+              operationIdentityDigest: scope.operation.plan.identity.identityDigest,
+              executionPlanDigest: scope.operation.plan.execution.executionPlanDigest,
+              boundAttemptDigest: scope.operation.boundAttemptDigest,
+              requirementId: scope.requirementId,
+              physicalDisposition,
+              processCount: scope.processCount,
+              inputBytes: scope.inputBytes,
+              outputBytes: scope.outputBytes,
+              settlements: scope.settlements
+            }) as SecOperationDigest;
+            receipt = issueSecProviderSettlementReceipt(scope.operation, {
+              requirementId: scope.requirementId,
+              physicalDisposition,
+              providerSettlementReferenceDigest
+            });
+            currentScope = null;
+            return receipt;
+          }
+        });
+        return handle;
+      },
+      async observeEndpoint(): Promise<DockerEndpointIdentity> {
+        if (currentScope !== null) {
+          fail('independent endpoint readback requires the operation scope to be settled');
+        }
+        const info = await rawRun([
+          '--host', endpoint.endpointHost, 'info', '--format', '{{json .}}'
+        ], { maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
+        const observed = endpointFromInfo({
+          contextName: endpoint.contextName,
+          endpointHost: endpoint.endpointHost,
+          info: info.stdout
+        });
+        if (JSON.stringify(observed) !== JSON.stringify(endpoint)) {
+          fail('independent endpoint readback differs from the retained session endpoint');
+        }
+        return observed;
+      },
       execute: async (
         operation: ContainerEngineOperation,
         options: ContainerEngineOperationOptions = {}
       ): Promise<ContainerEngineCommandResult> => await rawRun(
         compileContainerEngineOperationArguments(endpoint, operation),
-        options
+        options,
+        'observe',
+        operation
       ),
       close: () => {
         if (closed) {
           if (terminalCloseFailure !== undefined) throw terminalCloseFailure;
-          return terminalCloseReceipt!;
+          return;
         }
         if (active > 0) fail('session cannot close with an active operation');
+        if (currentScope !== null) fail('session cannot close with an unsettled operation scope');
         closing = true;
         let closeFailure: unknown;
         try {
@@ -433,25 +619,13 @@ export async function openContainerEngineSession(
         } catch (error) {
           closeFailure = error;
         } finally {
-          try {
-            const processReceipt = processSession.close();
-            terminalCloseReceipt = issueSecProviderSettlementReceipt(input.operation, {
-              terminalClass: processReceipt.failedProcessCount === 0
-                ? 'completed'
-                : 'process-settlement-failed',
-              providerSettlement: {
-                endpoint,
-                processReceipt
-              }
-            });
-          } catch (error) { closeFailure ??= error; }
+          try { processSession.close(); } catch (error) { closeFailure ??= error; }
           try { retained.boundary.workingDirectory.dispose(); } catch (error) { closeFailure ??= error; }
           try { retained.boundary.executable.dispose(); } catch (error) { closeFailure ??= error; }
           terminalCloseFailure = closeFailure;
           closed = true;
         }
         if (closeFailure !== undefined) throw closeFailure;
-        return terminalCloseReceipt!;
       }
     });
     return session;
