@@ -1,6 +1,19 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": [],
+  "externalEntrypoints": [
+    "src/interface/cli/cli.ts"
+  ],
   "capabilityProviders": [],
+  "causalRelations": [
+    {
+      "subject": "semantic.repair-plan",
+      "relation": "reads-back",
+      "symbol": {
+        "path": "src/interface/cli/register-commands.ts",
+        "name": "readRequiredRepairPlan"
+      },
+      "operation": null
+    }
+  ],
   "preDependencyBootstrap": false
 }

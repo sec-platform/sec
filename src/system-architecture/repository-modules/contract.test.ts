@@ -352,6 +352,43 @@ test('repository module conflicts only exact provider settlement and readback re
   );
 });
 
+test('repository module causal relations bind semantic subjects to exact module symbols', () => {
+  const relation = {
+    subject: 'semantic.repair-plan',
+    relation: 'parses',
+    symbol: {
+      path: 'src/semantic/repair/contract/types.ts',
+      name: 'parseRepairPlanJson'
+    },
+    operation: null
+  } as const;
+  const descriptor = {
+    importGraph: 'runtime',
+    externalEntrypoints: [],
+    causalRelations: [relation]
+  } as const;
+  expect(parseSecModuleDescriptor(descriptor, 'src/semantic/repair/sec.module.json')
+    .causalRelations).toEqual([relation]);
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    causalRelations: [{
+      ...relation,
+      symbol: { ...relation.symbol, path: 'src/interface/cli/register-commands.ts' }
+    }]
+  }, 'src/semantic/repair/sec.module.json')).toThrow('must remain inside the declaring module root');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    causalRelations: [relation, relation]
+  }, 'src/semantic/repair/sec.module.json')).toThrow('relations must be unique');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    causalRelations: [{
+      ...relation,
+      operation: { semanticOperation: 'invalid', requirementId: null }
+    }]
+  }, 'src/semantic/repair/sec.module.json')).toThrow('has an invalid format');
+});
+
 test('repository module compiler prevents production from importing test authority', () => {
   const files = [
     'platform/example/index.ts',
