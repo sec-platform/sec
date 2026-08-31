@@ -7,6 +7,7 @@ import { canonicalJson } from '../../system-architecture/foundation/runtime/cano
 import { runCommandBytes } from '../physical/runtime/process.ts';
 import { generatedStateDomainProviderMaterialDigest } from './contract.ts';
 import {
+  assertGeneratedStateRetirementObservation,
   assertGeneratedStateWorktreeRetirementEffectStart,
   GeneratedStateProducerBindingBlockedError,
   generatedStateProducerHooks,
@@ -311,6 +312,45 @@ test('birth and retirement are owner-generated and make only the exact retired r
   });
 });
 
+test('fresh registration storage is retained before first birth and rejects state-root replacement', async () => {
+  const { options, repositoryRoot, stateRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  await mkdir(generatedRoot, { recursive: true });
+  await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
+
+  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'fresh-registration-store');
+  expect((await inspectGeneratedState({
+    repositoryRoot,
+    relativePaths: [LIFECYCLE_FIXTURE_PATH]
+  }, options)).entries[0]).toMatchObject({ registrationState: 'active' });
+
+  await rename(stateRoot, `${stateRoot}-replaced`);
+  await mkdir(stateRoot);
+  await expect(lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'state-root-replaced'))
+    .rejects.toBeDefined();
+});
+
+test('Runtime State admission rejects an in-repository root before creating it', async () => {
+  const { cacheRoot, options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  const inRepositoryStateRoot = path.join(repositoryRoot, '.runtime-state-must-not-exist');
+  await mkdir(generatedRoot, { recursive: true });
+  await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, {
+    ...options,
+    environment: {
+      ...options.environment,
+      SEC_CACHE_HOME: cacheRoot,
+      SEC_STATE_HOME: inRepositoryStateRoot
+    }
+  });
+
+  await expect(lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'invalid-in-repository-runtime-state'))
+    .rejects.toThrow('must remain outside the repository worktree');
+  expect(await absent(inRepositoryStateRoot)).toBe(true);
+});
+
 test('a forged-valid physical preimage cannot self-sign without an existing registration', async () => {
   const { cacheRoot, options, repositoryRoot, stateRoot } = await fixture();
   const generatedRoot = fixtureRoot(repositoryRoot);
@@ -384,6 +424,46 @@ test('a fresh producer process can bind an active registration and restore only 
   expect(restored.phase).toBe('active');
   expect(restored.root).toEqual(active.physicalIdentity);
   expect(restored.registrationDigest).not.toBe(retired.registrationDigest);
+});
+
+test('retirement observation distinguishes exact active, retired-present, settled, absent and mismatch states', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  await mkdir(generatedRoot, { recursive: true });
+  await writeFile(path.join(generatedRoot, 'cache.bin'), 'cache');
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
+  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'retirement-observation-fixture');
+  const inspected = (await inspectGeneratedState({
+    repositoryRoot,
+    relativePaths: [LIFECYCLE_FIXTURE_PATH]
+  }, options)).entries[0]!;
+  if (inspected.physicalIdentity === null) throw new Error('Fixture physical identity is unavailable.');
+  const expected = {
+    owner: 'compiler-dependency-runtime',
+    producer: 'stage-compiler-dependency-generation',
+    ruleId: 'compiler-dependency-staging',
+    physical: inspected.physicalIdentity
+  } as const;
+  const active = await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, expected);
+  expect(active.status).toBe('active');
+  expect(() => assertGeneratedStateRetirementObservation(
+    structuredClone(active)
+  )).toThrow('was not issued by its owner');
+  const mismatch = await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, {
+    ...expected,
+    physical: { ...expected.physical, inode: `${expected.physical.inode}-foreign` }
+  });
+  expect(mismatch.status).toBe('mismatch');
+  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'retirement-observation-retired');
+  expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, expected)).status)
+    .toBe('retired-present');
+  expect(await lifecycle.settleRetired(LIFECYCLE_FIXTURE_PATH, expected)).toBe(true);
+  expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, expected)).status)
+    .toBe('retired-domain-settled');
+  expect((await lifecycle.observeRetirement(
+    '.tmp/dependency-installs/c.staging-lifecycle-absent',
+    undefined
+  )).status).toBe('absent');
 });
 
 test('a new caller cannot retire a registration it did not birth or adopt in its producer session', async () => {

@@ -4,3 +4,15 @@
  * control before entering the dependency owner.
  */
 export * from '../runtime/project-runtime.ts';
+export {
+  issueCompilerDependencyFixtureOperation,
+  rematerializeCompilerDependencyFixtureOperation,
+  retireCompilerDependencyFixtureOperation,
+  settleCompilerDependencyFixtureOperation
+} from './compiler-dependency-fixture.ts';
+export type {
+  CompilerDependencyFixtureDescriptor,
+  CompilerDependencyFixtureOperation,
+  CompilerDependencyFixturePackage,
+  CompilerDependencyFixtureReadyState
+} from './compiler-dependency-fixture.ts';
