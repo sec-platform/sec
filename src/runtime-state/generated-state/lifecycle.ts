@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { acquireWorkspaceWriteLease } from '../../workspace/lease.ts';
 import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
-import { PhysicalNoFollowError, createExclusiveNoFollowDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError, assertPhysicallyDisjointDirectoryChains, createExclusiveNoFollowDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, physicallyContainsDirectoryChain, publishExclusiveDurableCanonicalFile, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../physical/runtime/physical-no-follow.ts';
 import { runCommandBytes, type ByteCommandResult } from '../physical/runtime/process.ts';
 import { createRuntimeStateJournalFileSystem } from '../workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
@@ -101,6 +101,65 @@ interface GeneratedStateRuntimePaths {
   readonly transactionsRoot: string;
 }
 
+interface GeneratedStateRuntimeDirectoryPlan {
+  readonly ancestor: PhysicalDirectoryIdentity;
+  readonly missingSegments: readonly string[];
+  readonly targetPath: string;
+}
+
+function generatedStatePathInside(candidate: string, root: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+function planGeneratedStateRuntimeDirectory(
+  directoryPath: string,
+  repository: PhysicalDirectoryChain
+): GeneratedStateRuntimeDirectoryPlan {
+  const missing: string[] = [];
+  const targetPath = path.resolve(directoryPath);
+  if (generatedStatePathInside(targetPath, repository.target.path)) {
+    throw new Error('Generated-state Runtime State root must remain outside the repository worktree.');
+  }
+  let ancestorPath = targetPath;
+  while (true) {
+    const presence = inspectExactNoFollowDirectoryPresence(
+      ancestorPath,
+      'Generated-state Runtime State layout ancestor'
+    );
+    if (presence.state === 'present') {
+      if (ancestorPath === targetPath) {
+        assertPhysicallyDisjointDirectoryChains(
+          repository,
+          presence.directory,
+          'Generated-state Runtime State root and repository'
+        );
+      } else if (physicallyContainsDirectoryChain(repository, presence.directory)) {
+        throw new Error('Generated-state Runtime State root is physically inside the repository worktree.');
+      }
+      return Object.freeze({
+        ancestor: presence.directory.target,
+        missingSegments: Object.freeze(missing.reverse()),
+        targetPath
+      });
+    }
+    const parentPath = path.dirname(ancestorPath);
+    if (parentPath === ancestorPath) {
+      throw new Error('Generated-state Runtime State layout has no retained existing ancestor.');
+    }
+    missing.push(path.basename(ancestorPath));
+    ancestorPath = parentPath;
+  }
+}
+
+function materializeGeneratedStateRuntimeDirectory(
+  plan: GeneratedStateRuntimeDirectoryPlan
+): PhysicalDirectoryIdentity {
+  return plan.missingSegments.length === 0
+    ? plan.ancestor
+    : createNoFollowOrdinaryDirectoryChain(plan.ancestor, plan.missingSegments);
+}
+
 type ObservedGeneratedStateRoot = Readonly<{
   kind: 'directory' | 'file' | 'link' | 'missing';
   identity: GeneratedStatePhysicalIdentity | null;
@@ -172,16 +231,54 @@ async function openRuntimeStore(
     environment: options.environment
   });
   const locations = runtimePaths(workspaceRoot, options);
+  const requiredDirectories = [
+    roots.stateRoot,
+    roots.cacheRoot,
+    roots.workspaceStateRoot,
+    path.dirname(locations.registrationsRoot),
+    locations.registrationsRoot,
+    locations.settlementsRoot,
+    locations.transactionsRoot
+  ];
+  const repository = inspectNoFollowDirectoryChain(
+    workspaceRoot,
+    'Generated-state Runtime State repository admission'
+  );
+  const statePlan = planGeneratedStateRuntimeDirectory(roots.stateRoot, repository);
+  const cachePlan = planGeneratedStateRuntimeDirectory(roots.cacheRoot, repository);
+  if (generatedStatePathInside(statePlan.targetPath, cachePlan.targetPath) ||
+      generatedStatePathInside(cachePlan.targetPath, statePlan.targetPath)) {
+    throw new Error('Generated-state Runtime State state/cache roots must remain disjoint.');
+  }
+  const stateRoot = materializeGeneratedStateRuntimeDirectory(statePlan);
+  const cacheRoot = materializeGeneratedStateRuntimeDirectory(cachePlan);
+  const stateChain = inspectNoFollowDirectoryChain(stateRoot.path, 'Generated-state Runtime State state root');
+  const cacheChain = inspectNoFollowDirectoryChain(cacheRoot.path, 'Generated-state Runtime State cache root');
+  assertPhysicallyDisjointDirectoryChains(repository, stateChain, 'Generated-state state root and repository');
+  assertPhysicallyDisjointDirectoryChains(repository, cacheChain, 'Generated-state cache root and repository');
+  assertPhysicallyDisjointDirectoryChains(stateChain, cacheChain, 'Generated-state state and cache roots');
+  // Runtime State layout owns namespace materialization.  On Windows every
+  // descendant must exist before the state-root ACL/physical generation is
+  // retained; creating a child after issuance legitimately changes the root
+  // directory ChangeTime and invalidates that generation.
+  for (const directoryPath of [...new Set(requiredDirectories)]
+    .sort((left, right) => left.split(path.sep).length - right.split(path.sep).length || left.localeCompare(right))) {
+    const root = generatedStatePathInside(directoryPath, roots.stateRoot) ? stateRoot
+      : generatedStatePathInside(directoryPath, roots.cacheRoot) ? cacheRoot
+        : null;
+    if (root === null) {
+      throw new Error('Generated-state Runtime State required directory escapes state/cache authority.');
+    }
+    const relative = path.relative(root.path, path.resolve(directoryPath));
+    if (relative !== '') {
+      createNoFollowOrdinaryDirectoryChain(root, relative.split(path.sep));
+    }
+  }
   const authority = await acquireSecRuntimeStatePhysicalAuthority({
     repositoryRoot: workspaceRoot,
     stateRoot: roots.stateRoot,
     cacheRoot: roots.cacheRoot,
-    requiredDirectories: [
-      roots.workspaceStateRoot,
-      path.dirname(locations.registrationsRoot),
-      locations.settlementsRoot,
-      locations.transactionsRoot
-    ]
+    requiredDirectories
   });
   return Object.freeze({
     legacyRegistrationsRoot: locations.legacyRegistrationsRoot,
@@ -1641,6 +1738,97 @@ async function restoreGeneratedStateRegistration(input: Readonly<{
   });
 }
 
+export type GeneratedStateRetirementObservationStatus =
+  | 'active'
+  | 'retired-present'
+  | 'retired-domain-settled'
+  | 'absent'
+  | 'mismatch';
+
+export interface GeneratedStateRetirementObservation {
+  readonly schema: 'sec-generated-state-retirement-observation-v1';
+  readonly status: GeneratedStateRetirementObservationStatus;
+  readonly relativePath: string;
+  readonly registrationDigest: `sha256:${string}` | null;
+  readonly physical: GeneratedStatePhysicalIdentity | null;
+  readonly observationDigest: `sha256:${string}`;
+}
+
+const issuedGeneratedStateRetirementObservations = new WeakSet<object>();
+
+export function assertGeneratedStateRetirementObservation(
+  observation: GeneratedStateRetirementObservation
+): void {
+  if (!issuedGeneratedStateRetirementObservations.has(observation)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state retirement observation was not issued by its owner.'
+    );
+  }
+}
+
+async function observeGeneratedStateRetirement(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expected?: GeneratedStateProducerBindingExpectation;
+}>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateRetirementObservation> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  const rule = requireRule(relativePath);
+  const store = openRuntimeStoreReadOnly(workspaceRoot, options);
+  const observed = observeRoot(workspaceRoot, relativePath);
+  let status: GeneratedStateRetirementObservationStatus = 'absent';
+  let registrationDigest: `sha256:${string}` | null = null;
+  let registrationPhysical: GeneratedStatePhysicalIdentity | null = null;
+  if (store !== null) {
+    const ledger = readRegistrationLedgerObservation(store, relativePath);
+    const registration = ledger.registration;
+    const expected = input.expected;
+    if (registration !== null) {
+      registrationDigest = registration.registrationDigest;
+      registrationPhysical = registration.root;
+      const exact = path.resolve(registration.repositoryRoot) === repositoryRoot &&
+        registration.relativePath === relativePath && registration.ruleId === rule.id &&
+        (expected?.owner === undefined || expected.owner === registration.owner) &&
+        (expected?.producer === undefined || expected.producer === registration.producer) &&
+        (expected?.ruleId === undefined || expected.ruleId === registration.ruleId) &&
+        (expected?.physical === undefined || samePhysicalIdentity(expected.physical, registration.root)) &&
+        observed.identity !== null && samePhysicalIdentity(observed.identity, registration.root);
+      status = !exact ? 'mismatch' : registration.phase === 'active' ? 'active' : 'retired-present';
+    } else if (ledger.retiredPredecessor !== null) {
+      registrationDigest = ledger.retiredPredecessor.registrationDigest;
+      registrationPhysical = ledger.retiredPredecessor.root;
+      const exact = path.resolve(ledger.retiredPredecessor.repositoryRoot) === repositoryRoot &&
+        ledger.retiredPredecessor.relativePath === relativePath &&
+        ledger.retiredPredecessor.ruleId === rule.id &&
+        (expected?.owner === undefined || expected.owner === ledger.retiredPredecessor.owner) &&
+        (expected?.producer === undefined || expected.producer === ledger.retiredPredecessor.producer) &&
+        (expected?.ruleId === undefined || expected.ruleId === ledger.retiredPredecessor.ruleId) &&
+        (expected?.physical === undefined || samePhysicalIdentity(expected.physical, ledger.retiredPredecessor.root));
+      status = exact && observed.kind === 'missing' ? 'retired-domain-settled' : 'mismatch';
+    } else {
+      status = observed.kind === 'missing' ? 'absent' : 'mismatch';
+    }
+  } else {
+    status = observed.kind === 'missing' ? 'absent' : 'mismatch';
+  }
+  const physical = observed.identity ?? registrationPhysical;
+  const unsigned = Object.freeze({
+    schema: 'sec-generated-state-retirement-observation-v1' as const,
+    status,
+    relativePath,
+    registrationDigest,
+    physical
+  });
+  const observation = Object.freeze({
+    ...unsigned,
+    observationDigest: generatedStateDigest(unsigned)
+  });
+  issuedGeneratedStateRetirementObservations.add(observation);
+  return observation;
+}
+
 async function disposeRetiredGeneratedStateDomain(input: Readonly<{
   repositoryRoot: string;
   workspaceRoot?: string;
@@ -3094,6 +3282,10 @@ export function generatedStateProducerHooks(input: Readonly<{
     relativePath: string,
     expected?: GeneratedStateProducerBindingExpectation
   ): Promise<boolean>;
+  observeRetirement(
+    relativePath: string,
+    expected?: GeneratedStateProducerBindingExpectation
+  ): Promise<GeneratedStateRetirementObservation>;
   settleAbsent(
     relativePath: string,
     expected: GeneratedStateAbsentRegistrationExpectation,
@@ -3148,6 +3340,11 @@ export function generatedStateProducerHooks(input: Readonly<{
       return registration;
     },
     settleRetired: (relativePath, expected) => disposeRetiredGeneratedStateDomain({
+      ...input,
+      relativePath,
+      expected
+    }, options),
+    observeRetirement: (relativePath, expected) => observeGeneratedStateRetirement({
       ...input,
       relativePath,
       expected

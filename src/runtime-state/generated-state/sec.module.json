@@ -8,6 +8,7 @@
         "generatedStateProducerHooks",
         "inspectGeneratedState",
         "planGeneratedStateCleanup",
+        "runGeneratedStateOperation",
         "settleGeneratedState"
       ]
     }

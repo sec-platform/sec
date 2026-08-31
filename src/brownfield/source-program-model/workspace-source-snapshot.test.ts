@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -7,10 +7,19 @@ import { afterEach, expect, test } from 'bun:test';
 
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
-import { auditRepository } from '../repository-audit/cli.ts';
+import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  issueCompilerDependencyFixtureOperation,
+  retireCompilerDependencyFixtureOperation,
+  settleCompilerDependencyFixtureOperation
+} from '../../toolchain/dependencies/test/runtime.ts';
+import { materializeTypeScriptExecutionGeneration } from '../../toolchain/typescript/execution-generation.ts';
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
-  acquireWorkingTreeWorkspaceSourceSnapshot
+  acquireWorkingTreeWorkspaceSourceSnapshot,
+  assertWorkspaceTypeScriptProjectGenerationEvidence,
+  compileWorkspaceTypeScriptProjectInput,
+  issueWorkspaceTypeScriptProjectGenerationEvidence
 } from './workspace-source-snapshot.ts';
 
 const temporaryRepositories: string[] = [];
@@ -51,6 +60,10 @@ async function createRepository(): Promise<Readonly<{ commitSha: string; reposit
   await writeFile(
     path.join(repositoryRoot, 'src', 'example', 'removed.ts'),
     'export const removed = true;\n'
+  );
+  await writeFile(
+    path.join(repositoryRoot, 'src', 'example', 'non-checker.yaml'),
+    'kind: source-program-resource\n'
   );
   await writeFile(
     path.join(repositoryRoot, 'tsconfig.json'),
@@ -120,7 +133,112 @@ test('working generation includes dirty and untracked source while excluding del
   expect(working.file('src/example/removed.ts')).toBeNull();
 });
 
+test('working-tree project generation evidence is owner-issued and opaque', async () => {
+  const { repositoryRoot } = await createRepository();
+  await withAuthorityGitReadSession({
+    cwd: repositoryRoot,
+    budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
+  }, async (session) => {
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const evidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
+      snapshot,
+      compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json')
+    );
+    const valuePath = path.join(repositoryRoot, 'src', 'example', 'value.ts');
+    await writeFile(valuePath, 'export const value = 9;\n');
+    await writeFile(valuePath, 'export const value = 1;\n');
+    expect(() => assertWorkspaceTypeScriptProjectGenerationEvidence({ ...evidence }))
+      .toThrow('was not issued by the Source Program owner');
+    expect(evidence.projectInput.projectInputDigest).toMatch(/^sha256:/u);
+  });
+});
+
+test('immutable execution generation isolates workspace mutation and retires its physical tree', async () => {
+  const { repositoryRoot } = await createRepository();
+  const ownerRoot = await mkdtemp(path.join(tmpdir(), 'sec-source-execution-owner-'));
+  temporaryRepositories.push(ownerRoot);
+  const generationParentPath = path.join(ownerRoot, 'generations');
+  const dependencyRootPath = path.join(ownerRoot, 'dependencies');
+  await Promise.all([
+    mkdir(generationParentPath),
+    mkdir(dependencyRootPath)
+  ]);
+  const dependencyFixture = await issueCompilerDependencyFixtureOperation({
+    dependencies: { commander: '1.0.0' },
+    dependencyRootPath,
+    devDependencies: { 'ts-morph': '1.0.0', typescript: '1.0.0' },
+    lockfileBytes: 'fixture-lock\n',
+    packages: [{ name: 'commander', version: '1.0.0' }, {
+      main: 'dist/ts-morph-common.js',
+      name: '@ts-morph/common',
+      version: '1.0.0'
+    }, {
+      main: './script/mod.js',
+      name: 'code-block-writer',
+      version: '1.0.0'
+    }, {
+      main: 'dist/ts-morph.js',
+      name: 'ts-morph',
+      version: '1.0.0'
+    }, {
+      main: './lib/typescript.js',
+      name: 'typescript',
+      version: '1.0.0'
+    }]
+  });
+  const dependencyGeneration = await settleCompilerDependencyFixtureOperation(dependencyFixture);
+  try {
+    await withAuthorityGitReadSession({
+      cwd: repositoryRoot,
+      budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
+    }, async (session) => {
+      const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+      const evidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
+        snapshot,
+        compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json')
+      );
+      const generation = await materializeTypeScriptExecutionGeneration(evidence, {
+        deadlineAtUnixMs: Date.now() + 30_000,
+        dependencyGenerationAuthority: dependencyGeneration.executionGenerationAuthority,
+        dependencyRootPath: dependencyGeneration.nodeModulesPath,
+        generationParent: inspectNoFollowDirectoryChain(generationParentPath).target
+      });
+      const generationRoot = generation.workingDirectory.childPath;
+      try {
+        await writeFile(path.join(repositoryRoot, 'src', 'example', 'value.ts'), 'export const value = 9;\n');
+        expect(await readFile(path.join(generationRoot, 'src', 'example', 'value.ts'), 'utf8'))
+          .toBe('export const value = 1;\n');
+        expect(await lstat(path.join(generationRoot, 'src', 'example', 'non-checker.yaml'))
+          .then(() => true, () => false)).toBe(false);
+        await expect(writeFile(
+          path.join(generationRoot, 'src', 'example', 'value.ts'),
+          'export const value = 7;\n'
+        )).rejects.toBeDefined();
+        await expect(writeFile(
+          path.join(dependencyGeneration.nodeModulesPath, 'typescript', 'lib', 'typescript.js'),
+          'module.exports = 2;\n'
+        )).rejects.toBeDefined();
+        await expect(unlink(path.join(
+          dependencyGeneration.nodeModulesPath,
+          'typescript',
+          'lib',
+          'typescript.js'
+        )))
+          .rejects.toBeDefined();
+        await generation.assertCurrent();
+      } finally {
+        await generation.retire();
+      }
+      expect(await lstat(generationRoot).then(() => true, () => false)).toBe(false);
+      await expect(generation.assertCurrent()).rejects.toThrow('retired');
+    });
+  } finally {
+    await retireCompilerDependencyFixtureOperation(dependencyFixture);
+  }
+}, 30_000);
+
 test('repository audit projects the owner-issued exact source generation', async () => {
+  const { auditRepository } = await import('../repository-audit/cli.ts');
   const { commitSha, repositoryRoot } = await createRepository();
   const exact = acquireExactGitTreeWorkspaceSourceSnapshot({ repositoryRoot, commitSha });
   const report = await auditRepository(repositoryRoot, { defaultRef: commitSha });
