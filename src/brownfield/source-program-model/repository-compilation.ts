@@ -1,10 +1,18 @@
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import type { SourceProgramModel, SourceProgramUnknown } from './contract.ts';
+import type {
+  RepositoryCompilationCacheDiagnostics,
+  RepositoryCompilationCacheHint,
+  RepositoryCompilationCacheLoad,
+  RepositoryCompilationCacheProvider,
+  RepositoryCompilationCacheReceipt,
+  RepositoryCompilationGenerationReceipt
+} from './repository-compilation-cache.ts';
 import {
-  createRepositoryCompilationFactStore,
-  type RepositoryCompilationFactStoreIdentity,
-  type RepositoryCompilationGenerationReceipt
-} from './repository-compilation-fact-store.ts';
+  assertExactRepositoryCompilationCacheLoad,
+  assertRepositoryCompilationGenerationReceipt,
+  issueRepositoryCompilationGenerationReceipt
+} from './repository-compilation-cache.ts';
 import {
   compileRepositorySourceProgramModelFromWorkspaceSnapshot
 } from './repository.ts';
@@ -32,6 +40,7 @@ import {
 
 export type CompileRepositorySourceProgramCompilationInput = Readonly<{
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
+  cacheProvider?: RepositoryCompilationCacheProvider;
   projectInput?: WorkspaceTypeScriptProjectInput;
   repositoryRoot?: string;
   reviewedProcessDispatchers?: readonly string[];
@@ -51,7 +60,8 @@ export interface RepositorySourceProgramCompilationReceipt {
   readonly moduleMembershipDigest: `sha256:${string}`;
   readonly moduleGraphDigest: `sha256:${string}`;
   readonly workspaceSnapshotIdentityDigest: `sha256:${string}`;
-  readonly projectGeneration: RepositoryCompilationGenerationReceipt | null;
+  readonly projectGeneration: RepositoryCompilationGenerationReceipt;
+  readonly cacheReceipt: RepositoryCompilationCacheReceipt | null;
   readonly moduleGraphCompilationCount: 1;
   readonly typeScriptCompilation: TypeScriptSourceProgramIncrementalResult;
   readonly testObservations: SourceProgramTestObservations;
@@ -61,7 +71,7 @@ export interface RepositorySourceProgramCompilationReceipt {
 }
 
 export interface RepositoryCompilationDiagnostics {
-  readonly cache: import('./repository-compilation-fact-store.ts').RepositoryCompilationFactStoreDiagnostics;
+  readonly cache: RepositoryCompilationCacheDiagnostics;
   readonly modelAssemblyMs: number;
   readonly incrementalExactMs: number;
   readonly testObservationsMs: number;
@@ -81,7 +91,7 @@ function loadedTypeScriptState(
   workspaceSnapshot: WorkspaceSourceSnapshot,
   input: CompileTypeScriptSourceProgramModelInput,
   loaded: Extract<
-    ReturnType<ReturnType<typeof createRepositoryCompilationFactStore>['load']>,
+    RepositoryCompilationCacheLoad,
     { status: 'hit' }
   >
 ): TypeScriptSourceProgramIncrementalState {
@@ -102,40 +112,40 @@ function compileRepositorySourceProgramCompilationCore(
     assertWorkspaceTypeScriptProjectInputMatchesSnapshot(input.projectInput, workspaceSnapshot);
   }
   const compiler = sourceProgramTypeScriptCompilerIdentity();
-  const factStoreIdentity: RepositoryCompilationFactStoreIdentity | null =
-    input.projectInput === undefined
-      ? null
-      : Object.freeze({
-          projectInputDigest: input.projectInput.projectInputDigest,
-          projectConfigDigest: input.projectInput.projectConfigDigest,
-          workspaceSnapshotIdentityDigest: input.projectInput.workspaceSnapshotIdentityDigest,
-          orderedSourceFactsDigest: input.projectInput.orderedSourceFactsDigest,
-          snapshotDigest: workspaceSnapshot.snapshotDigest,
-          moduleMembershipDigest: workspaceSnapshot.moduleMembershipDigest,
-          moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
-          compiler
-        });
-  let factStore: ReturnType<typeof createRepositoryCompilationFactStore> | null = null;
-  let exactLoaded: ReturnType<ReturnType<typeof createRepositoryCompilationFactStore>['load']> | null = null;
-  let loaded: ReturnType<ReturnType<typeof createRepositoryCompilationFactStore>['load']> | null = null;
-  let projectGeneration: RepositoryCompilationGenerationReceipt | null = null;
-  if (input.repositoryRoot !== undefined && factStoreIdentity !== null) {
+  const projectGeneration = issueRepositoryCompilationGenerationReceipt({
+    projectInputDigest: input.projectInput?.projectInputDigest ?? null,
+    projectConfigDigest: input.projectInput?.projectConfigDigest ?? null,
+    workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
+    orderedSourceFactsDigest: input.projectInput?.orderedSourceFactsDigest
+      ?? (sha256(workspaceSnapshot.files.map(({ path, contentDigest }) => ({ path, contentDigest }))) as `sha256:${string}`),
+    snapshotDigest: workspaceSnapshot.snapshotDigest,
+    moduleMembershipDigest: workspaceSnapshot.moduleMembershipDigest,
+    moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
+    compiler
+  });
+  let cacheHint: RepositoryCompilationCacheHint | null = null;
+  let exactLoaded: RepositoryCompilationCacheLoad | null = null;
+  let loaded: RepositoryCompilationCacheLoad | null = null;
+  let cacheReceipt: RepositoryCompilationCacheReceipt | null = null;
+  if (input.cacheProvider !== undefined && input.projectInput !== undefined) {
     try {
-      factStore = createRepositoryCompilationFactStore({
-        repositoryRoot: input.repositoryRoot,
-        identity: factStoreIdentity
-      });
-      exactLoaded = factStore.load();
-      loaded = exactLoaded.status === 'hit' ? exactLoaded : factStore.loadPredecessor();
-      projectGeneration = exactLoaded.status === 'hit' ? exactLoaded.generation : null;
+      cacheHint = input.cacheProvider.openContentAddressedHint(projectGeneration);
+      if (cacheHint.keyDigest !== projectGeneration.generationDigest) {
+        throw new Error('Runtime Cache returned a foreign content-addressed hint');
+      }
+      exactLoaded = cacheHint.loadExact();
+      assertExactRepositoryCompilationCacheLoad(exactLoaded, projectGeneration);
+      loaded = exactLoaded.status === 'hit' ? exactLoaded : cacheHint.loadPredecessor();
+      if (loaded.status === 'hit') assertRepositoryCompilationGenerationReceipt(loaded.generation);
+      cacheReceipt = exactLoaded.status === 'hit' ? exactLoaded.cacheReceipt : null;
     } catch {
       // Runtime Cache is disposable acceleration. Invalid, foreign or
       // physically unavailable cache state must never become compilation
       // availability authority while the current exact inputs are present.
-      factStore = null;
+      cacheHint = null;
       exactLoaded = null;
       loaded = null;
-      projectGeneration = null;
+      cacheReceipt = null;
     }
   }
   const modelAssemblyStarted = performance.now();
@@ -144,9 +154,20 @@ function compileRepositorySourceProgramCompilationCore(
     files: workspaceSnapshot.files,
     moduleMembership: workspaceSnapshot.moduleMembership
   });
-  const cachedState = loaded?.status === 'hit'
-    ? loadedTypeScriptState(workspaceSnapshot, typeScriptInput, loaded)
-    : null;
+  let cachedState: TypeScriptSourceProgramIncrementalState | null = null;
+  if (loaded?.status === 'hit') {
+    try {
+      cachedState = loadedTypeScriptState(workspaceSnapshot, typeScriptInput, loaded);
+    } catch {
+      // Runtime Cache may return bytes that passed its physical grammar but do
+      // not belong to this semantic input. Source Program rejects the hint and
+      // compiles the exact current snapshot cold.
+      cacheHint = null;
+      exactLoaded = null;
+      loaded = null;
+      cacheReceipt = null;
+    }
+  }
   const modelAssemblyMs = performance.now() - modelAssemblyStarted;
   const incrementalExactStarted = performance.now();
   const typeScriptCompilation = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
@@ -181,10 +202,13 @@ function compileRepositorySourceProgramCompilationCore(
   const repositoryProjectionStarted = performance.now();
   const model = compileRepositorySourceProgramModelFromWorkspaceSnapshot(repositoryInput, workspaceSnapshot);
   const repositoryProjectionMs = performance.now() - repositoryProjectionStarted;
-  if (factStore !== null && exactLoaded?.status !== 'hit') {
+  if (cacheHint !== null && exactLoaded?.status !== 'hit') {
     try {
-      const published = factStore.publish(typeScriptCompilation.state.factShards);
-      projectGeneration = published.status === 'hit' ? published.generation : null;
+      const published = cacheHint.publish(typeScriptCompilation.state.factShards);
+      if (published.status === 'hit') {
+        assertExactRepositoryCompilationCacheLoad(published, projectGeneration);
+        cacheReceipt = published.cacheReceipt;
+      }
     } catch {
       // A failed cache publication cannot change the canonical compilation
       // result. The next operation may rebuild or retire the disposable bytes.
@@ -207,7 +231,7 @@ function compileRepositorySourceProgramCompilationCore(
     moduleMembershipDigest: workspaceSnapshot.moduleMembershipDigest,
     moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
     workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
-    projectGenerationReceiptDigest: projectGeneration?.receiptDigest ?? null,
+    projectGenerationReceiptDigest: projectGeneration.receiptDigest,
     typeScriptModelDigest: typeScriptCompilation.model.modelDigest,
     testObservationDigest: testObservations.observationDigest,
     repositoryModelDigest: model.modelDigest
@@ -221,6 +245,7 @@ function compileRepositorySourceProgramCompilationCore(
     moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
     workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
     projectGeneration,
+    cacheReceipt,
     moduleGraphCompilationCount: workspaceSnapshot.moduleGraphCompilationCount,
     typeScriptCompilation,
     testObservations,
