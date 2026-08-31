@@ -75,6 +75,8 @@ test('one admitted handoff becomes a reusable CAS object plus workspace locator 
     expect(value.layout.continuationObjectRoot.startsWith(value.stateRoot)).toBe(true);
     expect(value.layout.continuationPointerPath.startsWith(value.repositoryRoot)).toBe(false);
     expect(value.layout.continuationObjectRoot.startsWith(value.repositoryRoot)).toBe(false);
+    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.stateRoot)).toBe(true);
+    expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.repositoryRoot)).toBe(false);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
