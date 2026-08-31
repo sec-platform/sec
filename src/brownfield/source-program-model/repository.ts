@@ -442,6 +442,75 @@ function executableSourceLiteralPaths(
   return Object.freeze(observations);
 }
 
+type DurableWorkerInputRisk = 'argv' | 'callback' | 'unresolved';
+
+function scriptKindForPath(repositoryPath: string): ts.ScriptKind {
+  if (/\.tsx$/iu.test(repositoryPath)) return ts.ScriptKind.TSX;
+  if (/\.jsx$/iu.test(repositoryPath)) return ts.ScriptKind.JSX;
+  if (/\.[cm]?js$/iu.test(repositoryPath)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
+function durableWorkerInputRisk(
+  file: SourceProgramFileInput,
+  declaration: SourceProgramDeclaration
+): DurableWorkerInputRisk | null {
+  const sourceFile = ts.createSourceFile(
+    file.path,
+    file.source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindForPath(file.path)
+  );
+  let functionLike: ts.FunctionLikeDeclaration | null = null;
+  const visit = (node: ts.Node): void => {
+    if (functionLike !== null) return;
+    const named = node as ts.NamedDeclaration;
+    const name = named.name;
+    if (name !== undefined
+        && ts.isIdentifier(name)
+        && name.text === declaration.name
+        && node.getStart(sourceFile) === declaration.span.start
+        && node.getEnd() === declaration.span.end) {
+      if (ts.isFunctionLike(node)) functionLike = node;
+      else if (ts.isVariableDeclaration(node)
+          && node.initializer !== undefined
+          && ts.isFunctionLike(node.initializer)) functionLike = node.initializer;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (functionLike === null) return 'unresolved';
+  const parameters = (functionLike as ts.FunctionLikeDeclaration).parameters;
+  if (parameters.length === 0) return null;
+  let unresolved = false;
+  for (const parameter of parameters) {
+    const type = parameter.type;
+    if (type === undefined) {
+      unresolved = true;
+      continue;
+    }
+    let callback = false;
+    let argv = false;
+    const inspect = (node: ts.Node): void => {
+      if (ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node)) callback = true;
+      if (ts.isArrayTypeNode(node)
+          && node.elementType.kind === ts.SyntaxKind.StringKeyword) argv = true;
+      if (ts.isTypeReferenceNode(node)
+          && ts.isIdentifier(node.typeName)
+          && (node.typeName.text === 'Array' || node.typeName.text === 'ReadonlyArray')
+          && node.typeArguments?.length === 1
+          && node.typeArguments[0]!.kind === ts.SyntaxKind.StringKeyword) argv = true;
+      ts.forEachChild(node, inspect);
+    };
+    inspect(type);
+    if (callback) return 'callback';
+    if (argv) return 'argv';
+    unresolved = true;
+  }
+  return unresolved ? 'unresolved' : null;
+}
+
 function compileRepositorySourceProgramModelInternal(
   input: CompileRepositorySourceProgramModelInternalInput
 ): SourceProgramModel {
@@ -1084,6 +1153,135 @@ function compileRepositorySourceProgramModelInternal(
       }
     }
     declaredCapabilityOperationsByModule.set(descriptor.moduleId, declaredCapabilityOperations);
+  }
+  const roleBindings = input.moduleMembership.descriptors.flatMap((descriptor) => (
+    descriptor.capabilityProviders.flatMap((provider) => (
+      provider.operationRoles.map((binding) => Object.freeze({
+        descriptor,
+        provider,
+        binding
+      }))
+    ))
+  ));
+  const rolesByModule = new Map<string, Set<string>>();
+  for (const { descriptor, provider, binding } of roleBindings) {
+    const roles = rolesByModule.get(descriptor.moduleId) ?? new Set<string>();
+    roles.add(binding.role);
+    rolesByModule.set(descriptor.moduleId, roles);
+    const ownerDeclarations = typescriptModel.declarations.filter((declaration) => (
+      declaration.exported
+      && declaration.moduleId === descriptor.moduleId
+      && declaration.name === binding.operation
+    ));
+    if (ownerDeclarations.length === 1) continue;
+    const foreignDeclarations = typescriptModel.declarations.filter((declaration) => (
+      declaration.exported
+      && declaration.moduleId !== descriptor.moduleId
+      && declaration.name === binding.operation
+    ));
+    candidates.push(Object.freeze({
+      code: 'operation-issuer-role-outside-owner',
+      subject: `${binding.role}:${provider.capability}:${binding.operation}`,
+      paths: Object.freeze([
+        `${descriptor.root}/sec.module.json`,
+        ...new Set(foreignDeclarations.map(({ path: declarationPath }) => declarationPath))
+      ].sort(compareCodeUnits)),
+      reason: ownerDeclarations.length === 0
+        ? `issuer role ${binding.role} has no exact exported declaration in owner ${descriptor.moduleId}`
+        : `issuer role ${binding.role} resolves to multiple exported declarations in owner ${descriptor.moduleId}`,
+      observationClass: foreignDeclarations.length === 1 ? 'derived' : 'unknown'
+    }));
+  }
+  for (const [moduleId, roles] of rolesByModule) {
+    if (!roles.has('provider-settlement-issuer') || !roles.has('readback-issuer')) continue;
+    const descriptor = input.moduleMembership.descriptors.find((candidate) => (
+      candidate.moduleId === moduleId
+    ))!;
+    candidates.push(Object.freeze({
+      code: 'operation-issuer-role-conflict',
+      subject: moduleId,
+      paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
+      reason: 'one module cannot issue both provider settlement and independent domain readback',
+      observationClass: 'derived'
+    }));
+  }
+  const recoveryRoleBindings = roleBindings.filter(({ binding }) => (
+    binding.role === 'recovery-issuer'
+  ));
+  for (const { descriptor, provider, binding } of roleBindings.filter(({ binding }) => (
+    binding.role === 'durable-worker'
+  ))) {
+    const recovery = binding.recovery;
+    const recoveryMatches = recovery === null ? [] : recoveryRoleBindings.filter((candidate) => (
+      candidate.provider.capability === recovery.capability
+      && candidate.binding.operation === recovery.operation
+    ));
+    if (recovery === null
+        || recoveryMatches.length !== 1
+        || recoveryMatches[0]!.descriptor.moduleId === descriptor.moduleId) {
+      candidates.push(Object.freeze({
+        code: 'operation-recovery-binding-unresolved',
+        subject: `${provider.capability}:${binding.operation}`,
+        paths: Object.freeze([
+          `${descriptor.root}/sec.module.json`,
+          ...recoveryMatches.map(({ descriptor: owner }) => `${owner.root}/sec.module.json`)
+        ].sort(compareCodeUnits)),
+        reason: recovery === null
+          ? 'durable worker has no recovery issuer binding'
+          : recoveryMatches.length !== 1
+            ? 'durable worker recovery binding does not resolve to one recovery issuer'
+            : 'durable worker and recovery issuer must be owned by distinct modules',
+        observationClass: recoveryMatches.length > 1 ? 'derived' : 'unknown'
+      }));
+    }
+    const declarations = typescriptModel.declarations.filter((declaration) => (
+      declaration.exported
+      && declaration.moduleId === descriptor.moduleId
+      && declaration.name === binding.operation
+    ));
+    if (declarations.length !== 1) continue;
+    const declaration = declarations[0]!;
+    const file = input.files.find(({ path: filePath }) => filePath === declaration.path);
+    const inputRisk = file === undefined
+      ? 'unresolved' as const
+      : durableWorkerInputRisk(file, declaration);
+    if (inputRisk !== null) {
+      candidates.push(Object.freeze({
+        code: 'durable-worker-generic-input-exposed',
+        subject: `${provider.capability}:${binding.operation}`,
+        paths: Object.freeze([declaration.path]),
+        reason: inputRisk === 'argv'
+          ? 'durable worker exposes raw string-array command selectors'
+          : inputRisk === 'callback'
+            ? 'durable worker exposes a caller-supplied callback'
+            : 'durable worker input contract is not proven capability-only by the exact declaration',
+        observationClass: inputRisk === 'unresolved' ? 'unknown' : 'derived'
+      }));
+    }
+    const domainOwnerModules = new Set(roleBindings
+      .filter(({ binding: candidate }) => candidate.role === 'domain-owner')
+      .map(({ descriptor: owner }) => owner.moduleId));
+    const domainImports = semanticModel.references.filter((reference) => {
+      if (reference.path !== declaration.path
+          || (reference.kind !== 'import' && reference.kind !== 'reexport')
+          || reference.targetPath === null) return false;
+      const targetOwner = input.moduleMembership.moduleForPath(reference.targetPath);
+      return targetOwner !== null && domainOwnerModules.has(targetOwner.moduleId);
+    });
+    if (domainImports.length > 0) {
+      candidates.push(Object.freeze({
+        code: 'durable-worker-domain-import',
+        subject: `${provider.capability}:${binding.operation}`,
+        paths: Object.freeze([
+          declaration.path,
+          ...new Set(domainImports.flatMap(({ targetPath }) => targetPath === null ? [] : [targetPath]))
+        ].sort(compareCodeUnits)),
+        reason: 'generic durable worker imports a module that owns domain semantics',
+        observationClass: domainImports.some(({ observationClass }) => observationClass === 'unknown')
+          ? 'unknown'
+          : 'derived'
+      }));
+    }
   }
   const nativeProcessOwners = new Set(input.moduleMembership.descriptors
     .filter(({ capabilityProviders }) => capabilityProviders.some(({ capability }) => capability === 'process.native'))

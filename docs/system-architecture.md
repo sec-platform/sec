@@ -146,6 +146,25 @@ identity/owner、producer/consumer、状态与Effect、failure/recovery、安全
 路径、版本、命令、字段、测试集合、owner清单或状态映射只要能从module/import/consumer graph、schema、registry或上游
 Decision派生，就不得在调用者再硬编码；把硬编码搬进一个新registry而未删除旧事实owner仍是`duplicate-owner`。
 
+### Owner closure 不是 codec 或库选型
+
+“有 Zod schema”、“通过 typecheck”、“只有一个同名常量”或“使用了成熟类库”都不能证明唯一owner。Codec 只能证明某个字节边界的shape与parse规则；完整owner closure必须由同一exact Source Program与物理/Evidence owner同时证明：
+
+```text
+semantic identity / responsibility
+→ one declaration and decision owner
+→ one producer / writer / issuer per state or capability epoch
+→ all real consumers and no hidden parser / resolver / transport
+→ exact Effect, credential, resource and failure boundary
+→ independent settlement / readback / recovery / CAS owner
+→ invalidation, migration, retirement and consumer-zero
+→ behavior / durable / Effect / failure-property Evidence
+```
+
+任一边缺失都只能得到`unknown`；任一语义identity出现第二declaration、writer、parser、issuer、readback、cache truth、test oracle、wrapper或transport都是候选`duplicate-owner`。Implementation Dominance 只能在完整producer/consumer/Effect/durable/external/recovery/readback frontier上裁决，不得用名字、文本相似度、单一codec、测试绿色或历史使用量签发删除/保留结论。
+
+该闭包同时覆盖代码、数据、测试、文档、Skill、Work Package、命令、Provider、进程、缓存与生成物；不得为某一对象类型建立专用“完整性”世界。后续出现一个新类别时，修复的对象是Source Program/Reduction/owner contract的关系模型和未知边界，并重算全部受影响节点；不是新增一条Zod、lint、Skill提示、路径allowlist或手写例外。
+
 ## 四种不同身份
 
 - **Authority**：谁有权声明、修改或裁决输入和策略。

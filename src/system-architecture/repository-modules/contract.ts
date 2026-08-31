@@ -37,6 +37,32 @@ export type SecModuleCapabilityProvider = Readonly<{
    * consume them as a public capability surface.
    */
   readonly ownerInternalOperations: readonly string[];
+  /** Semantic authority roles bound to exact exported provider operations. */
+  readonly operationRoles: readonly SecModuleOperationRoleBinding[];
+}>;
+
+export const SEC_MODULE_OPERATION_ROLES = Object.freeze([
+  'binding-issuer',
+  'domain-owner',
+  'durable-worker',
+  'grant-issuer',
+  'provider-settlement-issuer',
+  'readback-issuer',
+  'recovery-issuer',
+  'terminal-issuer'
+] as const);
+
+export type SecModuleOperationRole =
+  (typeof SEC_MODULE_OPERATION_ROLES)[number];
+
+export type SecModuleOperationRoleBinding = Readonly<{
+  readonly operation: string;
+  readonly role: SecModuleOperationRole;
+  /** Durable workers must delegate recovery to a distinct owner operation. */
+  readonly recovery: Readonly<{
+    readonly capability: string;
+    readonly operation: string;
+  }> | null;
 }>;
 
 export type SecModuleEffectKind =
@@ -421,6 +447,7 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
       && key !== 'operations'
       && key !== 'effectKinds'
       && key !== 'ownerInternalOperations'
+      && key !== 'operationRoles'
     ))) {
       return descriptorError(`capabilityProviders[${index}]`, 'contains an unknown field');
     }
@@ -458,11 +485,69 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
         'entries must be declared provider operations'
       );
     }
+    const operationRoleInput = record.operationRoles ?? [];
+    if (!Array.isArray(operationRoleInput) || operationRoleInput.length > operations.length) {
+      return descriptorError(
+        `capabilityProviders[${index}].operationRoles`,
+        'expected at most one role binding per declared operation'
+      );
+    }
+    const operationRoles = operationRoleInput.map((item, roleIndex) => {
+      const roleField = `capabilityProviders[${index}].operationRoles[${roleIndex}]`;
+      const roleRecord = descriptorExactRecord(
+        item,
+        roleField,
+        ['operation', 'recovery', 'role']
+      );
+      const operation = descriptorString(
+        roleRecord.operation,
+        `${roleField}.operation`,
+        /^[A-Za-z_$][A-Za-z0-9_$]*$/u
+      );
+      if (!operations.includes(operation)) {
+        descriptorError(`${roleField}.operation`, 'must be one declared provider operation');
+      }
+      const role = descriptorEnum(
+        roleRecord.role,
+        `${roleField}.role`,
+        SEC_MODULE_OPERATION_ROLES
+      );
+      const recoveryRecord = roleRecord.recovery === null
+        ? null
+        : descriptorExactRecord(
+            roleRecord.recovery,
+            `${roleField}.recovery`,
+            ['capability', 'operation']
+          );
+      const recovery = recoveryRecord === null ? null : Object.freeze({
+        capability: descriptorString(
+          recoveryRecord.capability,
+          `${roleField}.recovery.capability`,
+          SEC_MODULE_ID_PATTERN
+        ),
+        operation: descriptorString(
+          recoveryRecord.operation,
+          `${roleField}.recovery.operation`,
+          /^[A-Za-z_$][A-Za-z0-9_$]*$/u
+        )
+      });
+      if (role !== 'durable-worker' && recovery !== null) {
+        descriptorError(`${roleField}.recovery`, 'is only valid for a durable-worker');
+      }
+      return Object.freeze({ operation, role, recovery });
+    });
+    if (new Set(operationRoles.map(({ operation }) => operation)).size !== operationRoles.length) {
+      descriptorError(
+        `capabilityProviders[${index}].operationRoles`,
+        'operation entries must be unique'
+      );
+    }
     return Object.freeze({
       capability,
       operations,
       effectKinds: Object.freeze(effectKinds),
-      ownerInternalOperations
+      ownerInternalOperations,
+      operationRoles: Object.freeze(operationRoles)
     });
   });
   if (new Set(providers.map(({ capability }) => capability)).size !== providers.length) {
