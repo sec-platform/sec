@@ -8,6 +8,7 @@ import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationBudget,
   type SecOperationDigest,
@@ -50,11 +51,14 @@ function boundOperation(input: Readonly<{
       contractDigest: digest('process-native-test-contract'),
       effectKinds: input.effectKinds ?? ['process'],
       failureKinds: ['process.failed']
-    }]
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: digest('process-native-test-authority-grant')
+    })
   });
   return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
-    requirementId: plan.identity.requirements[0]!.id,
-    contractDigest: plan.identity.requirements[0]!.contractDigest,
+    requirementId: plan.execution.requirements[0]!.id,
+    contractDigest: plan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('process-native-test-provider')
   })]);
 }

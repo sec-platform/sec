@@ -624,8 +624,8 @@ export function projectVerificationActionTerminal(
         return { status: 'failed', reasonCode: 'cleanup-failed' } as const;
       case 'process-settlement-failed':
         return { status: 'failed', reasonCode: 'process-settlement-failed' } as const;
-      case 'started-without-terminal':
-        throw new Error('Operation started without an owner-issued terminal settlement.');
+      case 'recovery-required':
+        throw new Error('Operation requires owner recovery before terminal projection.');
     }
   })();
   return createVerificationActionTerminal({

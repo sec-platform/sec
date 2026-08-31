@@ -22,6 +22,7 @@ import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../src/system-architecture/operation/semantic.ts';
@@ -41,6 +42,9 @@ function issueTestGitReadOperation(input: Readonly<{
     decisionDigest: TEST_GIT_READ_CONTRACT_DIGEST,
     deadlineAtUnixMs: input.deadlineAtUnixMs
       ?? Date.now() + GIT_READ_OPERATION_BUDGET.deadlineMs,
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: TEST_GIT_READ_CONTRACT_DIGEST
+    }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: GIT_READ_OPERATION_BUDGET.deadlineMs },
       {

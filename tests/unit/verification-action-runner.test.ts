@@ -28,6 +28,7 @@ import {
   issueSecDomainOutcomeReceipt,
   issueSecOperationSettlementEnvelope,
   issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext,
   type SecOperationTerminalClass
 } from '../../src/system-architecture/operation/semantic.ts';
 import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
@@ -68,7 +69,10 @@ function issuedSettlement(
       contractDigest: DIGEST_A,
       effectKinds: ['process'],
       failureKinds: ['process.failed']
-    }]
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: DIGEST_A
+    })
   });
   const bound = bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
     requirementId: 'verification.test-effect',
@@ -672,7 +676,7 @@ test('identity execution derives one plan and reuses its terminal without physic
   }
 });
 
-test('executor failure remains started-without-terminal and its diagnostic is bounded', async () => {
+test('executor failure remains a nonterminal recovery observation and its diagnostic is bounded', async () => {
   const repositoryRoot = root();
   try {
     const key = action('diagnostic-action');
@@ -697,14 +701,14 @@ test('executor failure remains started-without-terminal and its diagnostic is bo
   }
 });
 
-test('plain structural terminal and explicit started-without-terminal never commit PASS', async () => {
+test('plain structural terminal and explicit recovery-required settlement never commit PASS', async () => {
   for (const [kind, executor] of [
     ['plain-terminal', () => ({
       status: 'passed' as const,
       reasonCode: 'executed-success' as const,
       resultDigest: null
     })],
-    ['started-without-terminal', () => issuedSettlement('started-without-terminal')]
+    ['recovery-required', () => issuedSettlement('recovery-required')]
   ] as const) {
     const repositoryRoot = root();
     try {

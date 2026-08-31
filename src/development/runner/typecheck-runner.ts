@@ -18,6 +18,7 @@ import {
   issueSecDomainOutcomeReceipt,
   issueSecOperationSettlementEnvelope,
   issueSecProviderSettlementReceipt,
+  issueSecSemanticOperationAttemptContext,
   projectSecCapabilityDiagnostic,
   type SecBoundSemanticOperation,
   type SecOperationDigest,
@@ -151,7 +152,6 @@ export function compileTypecheckActionInput(input: Readonly<{
         { name: 'node-modules-root', digest: nodeModulesRootDigest },
         { name: 'project-input', digest: projectInputDigest },
         { name: 'project-config', digest: projectConfigDigest },
-        { name: 'semantic-capability-binding', digest: input.semanticOperation.bindingSetIdentityDigest },
         { name: 'semantic-operation-identity', digest: input.semanticOperation.plan.identity.identityDigest },
         { name: 'provider-binding', digest: provider.toolchainBindingDigest },
         { name: 'provider-native-executable', digest: provider.platformNativeExecutableDigest },
@@ -171,7 +171,6 @@ export function compileTypecheckActionInput(input: Readonly<{
       { path: 'provider/toolchain-binding', digest: provider.toolchainBindingDigest },
       { path: 'provider/wrapper', digest: provider.wrapperDigest },
       { path: 'provider/process-policy', digest: executionPolicyDigest },
-      { path: 'semantic/capability-binding', digest: input.semanticOperation.bindingSetIdentityDigest },
       { path: 'semantic/operation-identity', digest: input.semanticOperation.plan.identity.identityDigest },
       { path: 'tsconfig.json', digest: projectConfigDigest }
     ]),
@@ -205,17 +204,21 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
     operation: 'verification.typecheck.source-observation',
     subject: 'working-tree-source-program'
   }) as SecOperationDigest;
+  const decisionDigest = actionDigest({
+    checkerContractDigest,
+    sourceObservationContractDigest
+  }) as SecOperationDigest;
   const plan = compileSecSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: actionDigest({
       projectConfigPath: input.projectConfigPath,
       diagnosticProjection: input.diagnosticArguments
     }) as SecOperationDigest,
-    decisionDigest: actionDigest({
-      checkerContractDigest,
-      sourceObservationContractDigest
-    }) as SecOperationDigest,
+    decisionDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: decisionDigest
+    }),
     aggregateBudgets: [
       {
         resource: 'duration-ms',
