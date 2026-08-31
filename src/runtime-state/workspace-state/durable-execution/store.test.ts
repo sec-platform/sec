@@ -8,6 +8,7 @@ import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
+  issueSecProviderSettlementReceipt,
   issueSecRecoveredDomainReadbackReceipt,
   issueSecRecoveredOwnerTerminalJoinReceipt,
   issueSecRecoveredRetryAdmission,
@@ -19,11 +20,8 @@ import { createRuntimeStateJournalFileSystem } from '../journal-filesystem.ts';
 import { type SecDurableExecutionDigest } from './contract.ts';
 import {
   createDurableExecutionStore,
-  createInternalDurableExecutionWriter,
-  durableExecutionAttemptStartInput,
+  createDurableExecutionWriter,
   durableExecutionJournalIdentity,
-  durableExecutionOwnerTerminalResolutionInput,
-  durableExecutionRetryAdmissionResolutionInput,
   type SecDurableExecutionStoreLimits
 } from './store.ts';
 
@@ -85,7 +83,7 @@ function fixture(
     fileSystem,
     storeLimits,
     reader: createDurableExecutionStore({ fileSystem, journalRoot, limits: storeLimits }),
-    store: createInternalDurableExecutionWriter({ fileSystem, journalRoot, limits: storeLimits })
+    store: createDurableExecutionWriter({ fileSystem, journalRoot, limits: storeLimits })
   };
 }
 
@@ -96,14 +94,9 @@ test('OperationKey address is shared across runs and an active attempt cannot be
   const identity = durableExecutionJournalIdentity(first);
   try {
     expect(identity).toEqual(durableExecutionJournalIdentity(second));
-    value.store.createIntent({
-      ...identity,
-      intentReferenceDigest: first.plan.identity.intentDigest
-    });
-    value.store.appendAttemptStart(durableExecutionAttemptStartInput(first, digest('55')));
-    expect(() => value.store.appendAttemptStart(
-      durableExecutionAttemptStartInput(second, digest('56'))
-    )).toThrow('active');
+    value.store.createIntent(first);
+    value.store.appendInitialAttemptStart(first, digest('55'));
+    expect(() => value.store.appendInitialAttemptStart(second, digest('56'))).toThrow('active');
     expect(fdJournalCount(value.journalRoot)).toBe(1);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
@@ -120,24 +113,66 @@ function journalPath(root: string, operationKeyDigest: SecDurableExecutionDigest
 }
 
 test('journal lineage derives from a live bound operation and rejects structural clones', () => {
+  const value = fixture();
   const operation = boundOperation('owner-issued run');
   const identity = durableExecutionJournalIdentity(operation);
-  const start = durableExecutionAttemptStartInput(operation, digest('57'));
+  try {
+    value.store.createIntent(operation);
+    const observation = value.store.appendInitialAttemptStart(operation, digest('57'));
+    expect(identity).toEqual({ operationKeyDigest: operation.plan.identity.identityDigest });
+    expect(observation.activeAttempt?.start).toMatchObject({
+      runIdDigest: operation.plan.attempt.runIdDigest,
+      resumeEpochDigest: operation.plan.attempt.resumeEpochDigest,
+      attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
+      authorityGrantReferenceDigest: operation.plan.attempt.authorityGrantDigest,
+      providerBindingSetReferenceDigest: operation.bindingSetIdentityDigest,
+      executionPlanReferenceDigest: operation.plan.execution.executionPlanDigest,
+      retryAdmissionReferenceDigest: null
+    });
+    expect(() => value.store.appendInitialAttemptStart({ ...operation }, digest('58')))
+      .toThrow('owner-issued bound semantic operation');
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+});
 
-  expect(identity).toEqual({ operationKeyDigest: operation.plan.identity.identityDigest });
-  expect(start).toMatchObject({
-    runIdDigest: operation.plan.attempt.runIdDigest,
-    resumeEpochDigest: operation.plan.attempt.resumeEpochDigest,
-    attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
-    authorityGrantReferenceDigest: operation.plan.attempt.authorityGrantDigest,
-    providerBindingSetReferenceDigest: operation.bindingSetIdentityDigest,
-    executionPlanReferenceDigest: operation.plan.execution.executionPlanDigest
+test('provider and domain observations require their exact issuer receipts', () => {
+  const value = fixture();
+  const operation = boundOperation('issuer-bound observations');
+  const providerReceipt = issueSecProviderSettlementReceipt(operation, {
+    requirementId: 'runtime.journal',
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: digest('87')
   });
-  expect(() => durableExecutionJournalIdentity({ ...operation }))
-    .toThrow('owner-issued bound semantic operation');
+  try {
+    value.store.createIntent(operation);
+    value.store.appendInitialAttemptStart(operation, digest('92'));
+    expect(value.store.appendProviderSettlement(operation, providerReceipt)
+      .activeAttempt?.providerSettlements[0]).toMatchObject({
+        requirementId: 'runtime.journal',
+        providerReceiptDigest: providerReceipt.providerReceiptDigest
+      });
+    expect(() => value.store.appendProviderSettlement(operation, { ...providerReceipt }))
+      .toThrow('not provider-issued');
+
+    const readback = issueSecRecoveredDomainReadbackReceipt(operation, {
+      durableObservationDigest: digest('88'),
+      readbackContractDigest: digest('89'),
+      readbackReferenceDigest: digest('90'),
+      currentPhysicalEpochDigest: digest('91'),
+      disposition: 'unknown'
+    });
+    expect(value.store.appendDomainReadback(operation, readback).activeAttempt?.domainReadback)
+      .toMatchObject({ domainReadbackReceiptDigest: readback.readbackReceiptDigest });
+    expect(() => value.store.appendDomainReadback(operation, { ...readback }))
+      .toThrow('not domain-issued');
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
 });
 
 test('owner terminal resolution references only an exact owner-issued join receipt', () => {
+  const value = fixture();
   const operation = boundOperation('owner terminal join');
   const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(operation, {
     durableObservationDigest: digest('81'),
@@ -150,14 +185,20 @@ test('owner terminal resolution references only an exact owner-issued join recei
     ownerTerminalContractDigest: digest('85'),
     ownerTerminalReferenceDigest: digest('86')
   });
-  expect(durableExecutionOwnerTerminalResolutionInput(operation, join)).toEqual({
-    ...durableExecutionJournalIdentity(operation),
-    attemptNonceDigest: operation.plan.attempt.attemptNonceDigest,
-    resolutionKind: 'owner-terminal-reference',
-    resolutionReferenceDigest: join.joinReceiptDigest
-  });
-  expect(() => durableExecutionOwnerTerminalResolutionInput(operation, { ...join }))
-    .toThrow('not owner-issued');
+  try {
+    value.store.createIntent(operation);
+    value.store.appendInitialAttemptStart(operation, digest('92'));
+    value.store.appendDomainReadback(operation, recoveredReadback);
+    expect(value.store.appendOwnerTerminalResolution(operation, join).latestResolution)
+      .toMatchObject({
+        resolutionKind: 'owner-terminal-reference',
+        resolutionReferenceDigest: join.joinReceiptDigest
+      });
+    expect(() => value.store.appendOwnerTerminalResolution(operation, { ...join }))
+      .toThrow('not owner-issued');
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
 });
 
 test('constructing and reading an absent store performs zero filesystem writes', () => {
@@ -186,22 +227,19 @@ test('expired monotonic admission is rejected before any journal path observatio
   }
 });
 
-test('store persists only opaque owner references and retry admission is the sole replay path', () => {
+test('lost handle requires recovered readback and consumed owner admission before retry', () => {
   const value = fixture();
   const first = boundOperation('recoverable run');
   const next = boundOperation('retry run');
-  const identity = durableExecutionJournalIdentity(first);
-  const attempt = durableExecutionAttemptStartInput(first, digest('59'));
   try {
-    value.store.createIntent({ ...identity, intentReferenceDigest: digest('60') });
-    value.store.appendAttemptStart(attempt);
-    value.store.appendProviderSettlementReference({
-      ...identity,
-      attemptNonceDigest: attempt.attemptNonceDigest,
-      requirementId: 'process.compiler',
-      providerBindingDigest: digest('61'),
+    value.store.createIntent(first);
+    value.store.appendInitialAttemptStart(first, digest('59'));
+    const providerReceipt = issueSecProviderSettlementReceipt(first, {
+      requirementId: 'runtime.journal',
+      physicalDisposition: 'unknown',
       providerSettlementReferenceDigest: digest('62')
     });
+    value.store.appendLostHandle(first, providerReceipt);
     const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(first, {
       durableObservationDigest: digest('63'),
       readbackContractDigest: digest('64'),
@@ -209,20 +247,12 @@ test('store persists only opaque owner references and retry admission is the sol
       currentPhysicalEpochDigest: digest('66'),
       disposition: 'not-applied'
     });
-    value.store.appendDomainReadbackReference({
-      ...identity,
-      attemptNonceDigest: attempt.attemptNonceDigest,
-      readbackContractDigest: recoveredReadback.readbackContractDigest,
-      domainReadbackReferenceDigest: recoveredReadback.readbackReceiptDigest
-    });
+    value.store.appendDomainReadback(first, recoveredReadback);
     const retryAdmission = issueSecRecoveredRetryAdmission(recoveredReadback);
-    const admitted = value.store.appendAttemptResolution(
-      durableExecutionRetryAdmissionResolutionInput(first, retryAdmission)
-    );
+    const admitted = value.store.appendRetryAdmissionResolution(first, retryAdmission);
     expect(admitted.latestResolution?.resolutionKind).toBe('retry-admission-reference');
-    expect(() => value.store.appendAttemptStart(
-      durableExecutionAttemptStartInput(next, digest('66'))
-    )).not.toThrow();
+    expect(() => value.store.appendRetryAttemptStart(next, digest('66'), retryAdmission))
+      .not.toThrow();
     expect(Object.keys(admitted)).not.toContain('effectAuthority');
   } finally {
     rmSync(value.root, { recursive: true, force: true });
@@ -238,27 +268,23 @@ test('attempt boundary plus one is rejected before CAS and preserves exact journ
   const first = boundOperation('bounded first run');
   const next = boundOperation('bounded retry run');
   const identity = durableExecutionJournalIdentity(first);
-  const attempt = durableExecutionAttemptStartInput(first, digest('70'));
   const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
   try {
-    value.store.createIntent({ ...identity, intentReferenceDigest: digest('71') });
-    value.store.appendAttemptStart(attempt);
-    value.store.appendDomainReadbackReference({
-      ...identity,
-      attemptNonceDigest: attempt.attemptNonceDigest,
-      readbackContractDigest: digest('72'),
-      domainReadbackReferenceDigest: digest('73')
+    value.store.createIntent(first);
+    value.store.appendInitialAttemptStart(first, digest('70'));
+    const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(first, {
+      durableObservationDigest: digest('72'),
+      readbackContractDigest: digest('73'),
+      readbackReferenceDigest: digest('74'),
+      currentPhysicalEpochDigest: digest('75'),
+      disposition: 'not-applied'
     });
-    value.store.appendAttemptResolution({
-      ...identity,
-      attemptNonceDigest: attempt.attemptNonceDigest,
-      resolutionKind: 'retry-admission-reference',
-      resolutionReferenceDigest: digest('74')
-    });
+    value.store.appendDomainReadback(first, recoveredReadback);
+    const retryAdmission = issueSecRecoveredRetryAdmission(recoveredReadback);
+    value.store.appendRetryAdmissionResolution(first, retryAdmission);
     const before = readFileSync(filePath);
-    expect(() => value.store.appendAttemptStart(
-      durableExecutionAttemptStartInput(next, digest('75'))
-    )).toThrow('complete bounded attempt-settlement closure');
+    expect(() => value.store.appendRetryAttemptStart(next, digest('76'), retryAdmission))
+      .toThrow('complete bounded attempt-settlement closure');
     expect(readFileSync(filePath)).toEqual(before);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
@@ -276,11 +302,10 @@ test('attempt start reserves its worst settlement closure before changing bytes'
   const identity = durableExecutionJournalIdentity(operation);
   const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
   try {
-    value.store.createIntent({ ...identity, intentReferenceDigest: digest('76') });
+    value.store.createIntent(operation);
     const before = readFileSync(filePath);
-    expect(() => value.store.appendAttemptStart(
-      durableExecutionAttemptStartInput(operation, digest('77'))
-    )).toThrow('complete bounded attempt-settlement closure');
+    expect(() => value.store.appendInitialAttemptStart(operation, digest('77')))
+      .toThrow('complete bounded attempt-settlement closure');
     expect(readFileSync(filePath)).toEqual(before);
   } finally {
     rmSync(value.root, { recursive: true, force: true });
@@ -307,9 +332,9 @@ test('failed CAS append is conflict-only and leaves the preimage byte-exact', ()
   const identity = durableExecutionJournalIdentity(operation);
   const filePath = journalPath(value.journalRoot, identity.operationKeyDigest);
   try {
-    value.store.createIntent({ ...identity, intentReferenceDigest: digest('79') });
+    value.store.createIntent(operation);
     const before = readFileSync(filePath);
-    const conflicting = createInternalDurableExecutionWriter({
+    const conflicting = createDurableExecutionWriter({
       fileSystem: Object.freeze({
         ...value.fileSystem,
         appendFsyncCas: () => false
@@ -317,9 +342,8 @@ test('failed CAS append is conflict-only and leaves the preimage byte-exact', ()
       journalRoot: value.journalRoot,
       limits: value.storeLimits
     });
-    expect(() => conflicting.appendAttemptStart(
-      durableExecutionAttemptStartInput(operation, digest('80'))
-    )).toThrow('changed during CAS append');
+    expect(() => conflicting.appendInitialAttemptStart(operation, digest('80')))
+      .toThrow('changed during CAS append');
     expect(readFileSync(filePath)).toEqual(before);
   } finally {
     rmSync(value.root, { recursive: true, force: true });

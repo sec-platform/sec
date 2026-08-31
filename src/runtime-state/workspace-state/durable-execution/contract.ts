@@ -37,13 +37,8 @@ const attemptStartUnsignedRecordSchema = z.object({
   workerIdentityDigest: digestSchema,
   authorityGrantReferenceDigest: digestSchema,
   providerBindingSetReferenceDigest: digestSchema,
-  executionPlanReferenceDigest: digestSchema
-}).strict();
-const cancelRequestUnsignedRecordSchema = z.object({
-  ...unsignedBaseRecordShape,
-  kind: z.literal('cancel-request'),
-  attemptNonceDigest: digestSchema,
-  cancelRequestReferenceDigest: digestSchema
+  executionPlanReferenceDigest: digestSchema,
+  retryAdmissionReferenceDigest: nullableDigestSchema
 }).strict();
 const providerSettlementUnsignedRecordSchema = z.object({
   ...unsignedBaseRecordShape,
@@ -51,22 +46,26 @@ const providerSettlementUnsignedRecordSchema = z.object({
   attemptNonceDigest: digestSchema,
   requirementId: z.string().regex(ID_PATTERN).max(128),
   providerBindingDigest: digestSchema,
-  providerSettlementReferenceDigest: digestSchema
+  providerReceiptDigest: digestSchema
 }).strict();
 const domainReadbackUnsignedRecordSchema = z.object({
   ...unsignedBaseRecordShape,
   kind: z.literal('domain-readback-reference'),
   attemptNonceDigest: digestSchema,
   readbackContractDigest: digestSchema,
-  domainReadbackReferenceDigest: digestSchema
+  domainReadbackReceiptDigest: digestSchema
+}).strict();
+const lostHandleUnsignedRecordSchema = z.object({
+  ...unsignedBaseRecordShape,
+  kind: z.literal('lost-handle-reference'),
+  attemptNonceDigest: digestSchema,
+  lostHandleReferenceDigest: digestSchema
 }).strict();
 const attemptResolutionUnsignedRecordSchema = z.object({
   ...unsignedBaseRecordShape,
   kind: z.literal('attempt-resolution'),
   attemptNonceDigest: digestSchema,
-  resolutionKind: z.enum([
-    'owner-terminal-reference', 'retry-admission-reference', 'reconciliation-required'
-  ]),
+  resolutionKind: z.enum(['owner-terminal-reference', 'retry-admission-reference']),
   resolutionReferenceDigest: digestSchema,
   providerSettlementRecordDigests: z.array(digestSchema).readonly(),
   domainReadbackRecordDigest: nullableDigestSchema
@@ -74,17 +73,17 @@ const attemptResolutionUnsignedRecordSchema = z.object({
 const durableExecutionUnsignedRecordSchema = z.discriminatedUnion('kind', [
   intentUnsignedRecordSchema,
   attemptStartUnsignedRecordSchema,
-  cancelRequestUnsignedRecordSchema,
   providerSettlementUnsignedRecordSchema,
   domainReadbackUnsignedRecordSchema,
+  lostHandleUnsignedRecordSchema,
   attemptResolutionUnsignedRecordSchema
 ]);
 const durableExecutionRecordSchema = z.discriminatedUnion('kind', [
   intentUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
   attemptStartUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
-  cancelRequestUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
   providerSettlementUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
   domainReadbackUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
+  lostHandleUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict(),
   attemptResolutionUnsignedRecordSchema.extend({ recordDigest: digestSchema }).strict()
 ]);
 
@@ -104,10 +103,6 @@ export type SecDurableExecutionAttemptStartRecord = Extract<
   SecDurableExecutionRecord,
   { readonly kind: 'attempt-start' }
 >;
-export type SecDurableExecutionCancelRequestRecord = Extract<
-  SecDurableExecutionRecord,
-  { readonly kind: 'cancel-request' }
->;
 export type SecDurableExecutionProviderSettlementReferenceRecord = Extract<
   SecDurableExecutionRecord,
   { readonly kind: 'provider-settlement-reference' }
@@ -116,6 +111,10 @@ export type SecDurableExecutionDomainReadbackReferenceRecord = Extract<
   SecDurableExecutionRecord,
   { readonly kind: 'domain-readback-reference' }
 >;
+export type SecDurableExecutionLostHandleReferenceRecord = Extract<
+  SecDurableExecutionRecord,
+  { readonly kind: 'lost-handle-reference' }
+>;
 export type SecDurableExecutionAttemptResolutionRecord = Extract<
   SecDurableExecutionRecord,
   { readonly kind: 'attempt-resolution' }
@@ -123,9 +122,9 @@ export type SecDurableExecutionAttemptResolutionRecord = Extract<
 
 export interface SecDurableExecutionAttemptObservation {
   readonly start: SecDurableExecutionAttemptStartRecord;
-  readonly cancelRequest: SecDurableExecutionCancelRequestRecord | null;
   readonly providerSettlements: readonly SecDurableExecutionProviderSettlementReferenceRecord[];
   readonly domainReadback: SecDurableExecutionDomainReadbackReferenceRecord | null;
+  readonly lostHandle: SecDurableExecutionLostHandleReferenceRecord | null;
 }
 
 /** Durable bytes are observations only. They never authorize execution or replay. */
@@ -216,9 +215,7 @@ function assertAttemptResolution(
       || resolution.domainReadbackRecordDigest !== (attempt.domainReadback?.recordDigest ?? null)) {
     fail('invalid-transition', 'attempt resolution references do not match the current observations.');
   }
-  if ((resolution.resolutionKind === 'owner-terminal-reference'
-      || resolution.resolutionKind === 'retry-admission-reference')
-      && attempt.domainReadback === null) {
+  if (attempt.domainReadback === null) {
     fail('invalid-transition', `${resolution.resolutionKind} requires an owner-issued domain readback reference.`);
   }
 }
@@ -249,40 +246,34 @@ export function observeDurableExecutionJournal(
     if (record.kind === 'intent') fail('invalid-transition', 'journal contains a second intent.');
     switch (record.kind) {
       case 'attempt-start':
-        if (active !== null || latestResolution?.resolutionKind === 'owner-terminal-reference'
-            || latestResolution?.resolutionKind === 'reconciliation-required') {
-          fail('invalid-transition', 'attempt start conflicts with active, owner-terminal or unresolved execution.');
+        if (active !== null || latestResolution?.resolutionKind === 'owner-terminal-reference') {
+          fail('invalid-transition', 'attempt start conflicts with active or owner-terminal execution.');
+        }
+        if (latestResolution === null && record.retryAdmissionReferenceDigest !== null) {
+          fail('invalid-transition', 'initial attempt cannot claim retry admission.');
+        }
+        if (latestResolution?.resolutionKind === 'retry-admission-reference'
+            && record.retryAdmissionReferenceDigest !== latestResolution.resolutionReferenceDigest) {
+          fail('invalid-transition', 'successor attempt does not bind the exact retry admission reference.');
         }
         if (attemptNonces.has(record.attemptNonceDigest)) {
           fail('invalid-transition', 'attempt nonce was already consumed by this run.');
         }
         attemptNonces.add(record.attemptNonceDigest);
-        active = Object.freeze({ start: record, cancelRequest: null,
-          providerSettlements: Object.freeze([]), domainReadback: null });
-        break;
-      case 'cancel-request':
-        if (active === null || record.attemptNonceDigest !== active.start.attemptNonceDigest
-            || active.cancelRequest !== null) {
-          fail('invalid-transition', 'cancel request does not target the one active uncancelled attempt.');
-        }
-        active = Object.freeze({
-          start: active.start,
-          cancelRequest: record,
-          providerSettlements: active.providerSettlements,
-          domainReadback: active.domainReadback
-        });
+        active = Object.freeze({ start: record,
+          providerSettlements: Object.freeze([]), domainReadback: null, lostHandle: null });
         break;
       case 'provider-settlement-reference':
         if (active === null || record.attemptNonceDigest !== active.start.attemptNonceDigest
-            || active.cancelRequest !== null
+            || active.lostHandle !== null || active.domainReadback !== null
             || active.providerSettlements.some(({ requirementId }) => requirementId === record.requirementId)) {
           fail('invalid-transition', 'provider settlement does not target one unique active requirement.');
         }
         active = Object.freeze({
           start: active.start,
-          cancelRequest: active.cancelRequest,
           providerSettlements: Object.freeze([...active.providerSettlements, record]),
-          domainReadback: active.domainReadback
+          domainReadback: active.domainReadback,
+          lostHandle: active.lostHandle
         });
         break;
       case 'domain-readback-reference':
@@ -292,9 +283,21 @@ export function observeDurableExecutionJournal(
         }
         active = Object.freeze({
           start: active.start,
-          cancelRequest: active.cancelRequest,
           providerSettlements: active.providerSettlements,
-          domainReadback: record
+          domainReadback: record,
+          lostHandle: active.lostHandle
+        });
+        break;
+      case 'lost-handle-reference':
+        if (active === null || record.attemptNonceDigest !== active.start.attemptNonceDigest
+            || active.lostHandle !== null || active.domainReadback !== null) {
+          fail('invalid-transition', 'lost handle does not target one unresolved active attempt.');
+        }
+        active = Object.freeze({
+          start: active.start,
+          providerSettlements: active.providerSettlements,
+          domainReadback: active.domainReadback,
+          lostHandle: record
         });
         break;
       case 'attempt-resolution':
