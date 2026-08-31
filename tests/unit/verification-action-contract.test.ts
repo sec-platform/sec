@@ -1,12 +1,54 @@
 import { expect, test } from 'bun:test';
 
-import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, isVerificationActionRunnable, parseVerificationActionKey, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecDomainOutcomeReceipt,
+  issueSecOperationSettlementEnvelope,
+  issueSecProviderSettlementReceipt
+} from '../../src/system-architecture/operation/semantic.ts';
+import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
 import { CodexDevelopmentAssertVerificationGateResult } from '../../src/verification/result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/verification/result/contract/schema.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
 const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;
+
+function settlement(
+  terminalClass: 'completed' | 'failed' | 'started-without-terminal',
+  deadlineAtUnixMs = 1_900_000_000_000
+) {
+  const plan = compileSecSemanticOperationPlan({
+    operation: 'verification.action-test',
+    intentDigest: DIGEST_A,
+    decisionDigest: DIGEST_B,
+    deadlineAtUnixMs,
+    aggregateBudgets: [{ resource: 'processes', maximum: 1 }],
+    requirements: [{
+      id: 'verification.test-effect',
+      contractDigest: DIGEST_C,
+      effectKinds: ['process'],
+      failureKinds: ['process.failed']
+    }]
+  });
+  const bound = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: 'verification.test-effect',
+    contractDigest: DIGEST_C,
+    providerIdentityDigest: DIGEST_B
+  })]);
+  const provider = issueSecProviderSettlementReceipt(bound, {
+    terminalClass,
+    providerSettlement: { status: 'exited', exitCode: terminalClass === 'completed' ? 0 : 1 }
+  });
+  const domain = issueSecDomainOutcomeReceipt(provider, {
+    terminalClass,
+    effectReadback: { candidateTree: DIGEST_B },
+    domainOutcome: { status: terminalClass }
+  });
+  return issueSecOperationSettlementEnvelope(bound, provider, domain);
+}
 
 function actionInput(overrides: Partial<VerificationActionKeyInput> = {}): VerificationActionKeyInput {
   return {
@@ -107,6 +149,43 @@ test('semantic closure, producer, provider and contract changes change ActionKey
     producer: { identity: '\uFFFD', revision: 'r1' }
   }));
   expect(loneSurrogate.actionKey).not.toBe(replacementCharacter.actionKey);
+});
+
+test('Action terminal projection accepts only an owner-issued settlement envelope', () => {
+  const completed = settlement('completed');
+  expect(projectVerificationActionTerminal(completed)).toEqual({
+    status: 'passed',
+    reasonCode: 'executed-success',
+    resultDigest: completed.settlementDigest
+  });
+  expect(projectVerificationActionTerminal(settlement('failed')).status).toBe('failed');
+  expect(() => projectVerificationActionTerminal({
+    status: 'passed',
+    reasonCode: 'executed-success',
+    resultDigest: null
+  })).toThrow('not owner-issued');
+  expect(() => projectVerificationActionTerminal({ ...completed })).toThrow('not owner-issued');
+  expect(() => projectVerificationActionTerminal(
+    settlement('started-without-terminal')
+  )).toThrow('started without');
+});
+
+test('Action process resource policy is one immutable single-process bounded execution contract', () => {
+  expect(Object.isFrozen(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY)).toBe(true);
+  expect(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.processes).toBe(1);
+  expect(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.durationMs).toBeGreaterThan(0);
+  expect(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStdoutBytes).toBeGreaterThan(0);
+  expect(VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStderrBytes).toBeGreaterThan(0);
+});
+
+test('one stable ActionKey accepts attempt-distinct owner settlements without changing identity', () => {
+  const action = createVerificationActionKey(actionInput());
+  const first = settlement('completed', 1_900_000_000_000);
+  const second = settlement('completed', 1_900_000_000_001);
+  expect(createVerificationActionKey(actionInput()).actionKey).toBe(action.actionKey);
+  expect(first.operationIdentityDigest).toBe(second.operationIdentityDigest);
+  expect(first.boundAttemptDigest).not.toBe(second.boundAttemptDigest);
+  expect(first.settlementDigest).not.toBe(second.settlementDigest);
 });
 
 test('strict ordinary-data boundary rejects getters, proxies, symbols, custom prototypes, toJSON and cycles', () => {

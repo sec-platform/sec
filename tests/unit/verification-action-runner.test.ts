@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,6 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   createBranchLifecycleGitChildEnvironment
@@ -19,6 +21,15 @@ import {
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { createRuntimeStateJournalFileSystem } from '../../src/runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/runtime-state/workspace-state/paths.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecDomainOutcomeReceipt,
+  issueSecOperationSettlementEnvelope,
+  issueSecProviderSettlementReceipt,
+  type SecOperationTerminalClass
+} from '../../src/system-architecture/operation/semantic.ts';
 import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
 import {
@@ -29,6 +40,7 @@ import {
   executeLocalVerificationActionDag,
   VerificationActionRunner
 } from '../../src/verification/action/runner.ts';
+import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const BASE_SHA = '1'.repeat(40);
@@ -36,6 +48,63 @@ const BASE_TREE_SHA = '2'.repeat(40);
 const HEAD_SHA = '3'.repeat(40);
 const HEAD_TREE_SHA = '4'.repeat(40);
 const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
+const CROSS_PROCESS_CHILD_ROOT = process.env.SEC_VERIFICATION_ACTION_CHILD_ROOT;
+const CROSS_PROCESS_CHILD_MARKER = process.env.SEC_VERIFICATION_ACTION_CHILD_MARKER;
+
+function issuedSettlement(
+  terminalClass: SecOperationTerminalClass = 'completed',
+  deadlineAtUnixMs = 1_900_000_000_000
+) {
+  const operationPlan = compileSecSemanticOperationPlan({
+    operation: 'verification.action-runner-test',
+    intentDigest: DIGEST_A,
+    decisionDigest: DIGEST_A,
+    deadlineAtUnixMs,
+    aggregateBudgets: [{ resource: 'processes', maximum: 1 }],
+    requirements: [{
+      id: 'verification.test-effect',
+      contractDigest: DIGEST_A,
+      effectKinds: ['process'],
+      failureKinds: ['process.failed']
+    }]
+  });
+  const bound = bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
+    requirementId: 'verification.test-effect',
+    contractDigest: DIGEST_A,
+    providerIdentityDigest: DIGEST_A
+  })]);
+  const provider = issueSecProviderSettlementReceipt(bound, {
+    terminalClass,
+    providerSettlement: { status: 'exited', exitCode: terminalClass === 'completed' ? 0 : 1 }
+  });
+  const domain = issueSecDomainOutcomeReceipt(provider, {
+    terminalClass,
+    effectReadback: { candidateTree: `sha256:${'b'.repeat(64)}` },
+    domainOutcome: { status: terminalClass }
+  });
+  return issueSecOperationSettlementEnvelope(bound, provider, domain);
+}
+
+test.skipIf(CROSS_PROCESS_CHILD_ROOT === undefined || CROSS_PROCESS_CHILD_MARKER === undefined)(
+  'independent process child competes for one durable missing ActionKey claim',
+  async () => {
+    const key = preflightAction('tests/unit/cross-process-action.ts');
+    const result = await new VerificationActionRunner().execute({
+      repositoryRoot: CROSS_PROCESS_CHILD_ROOT!,
+      action: key,
+      plan: cheapPlan(key),
+      executor: async () => {
+        writeFileSync(CROSS_PROCESS_CHILD_MARKER!, String(process.pid), {
+          encoding: 'utf8',
+          flag: 'wx'
+        });
+        await Bun.sleep(400);
+        return issuedSettlement();
+      }
+    });
+    expect(['executed', 'joined']).toContain(result.disposition);
+  }
+);
 
 function journalFs(repositoryRoot: string) {
   const root = resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).workspaceStateRoot;
@@ -202,7 +271,7 @@ test('concurrent callers in different execution domains join one physical execut
     const executor = async () => {
       invocations += 1;
       await held;
-      return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+      return issuedSettlement();
     };
     const first = runner.execute({
       repositoryRoot,
@@ -232,6 +301,50 @@ test('concurrent callers in different execution domains join one physical execut
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
+test('independent processes with one missing ActionKey produce at most one physical start', async () => {
+  const repositoryRoot = root();
+  const markerPath = path.join(repositoryRoot, 'physical-start.marker');
+  try {
+    const command = [
+      process.execPath,
+      'test',
+      fileURLToPath(import.meta.url),
+      '--test-name-pattern',
+      '^independent process child competes for one durable missing ActionKey claim$'
+    ];
+    const environment = {
+      ...process.env,
+      SEC_VERIFICATION_ACTION_CHILD_ROOT: repositoryRoot,
+      SEC_VERIFICATION_ACTION_CHILD_MARKER: markerPath
+    };
+    const first = Bun.spawn(command, {
+      cwd: process.cwd(),
+      env: environment,
+      stdout: 'pipe',
+      stderr: 'pipe'
+    });
+    const second = Bun.spawn(command, {
+      cwd: process.cwd(),
+      env: environment,
+      stdout: 'pipe',
+      stderr: 'pipe'
+    });
+    const firstExit = await first.exited;
+    const secondExit = await second.exited;
+    const firstOutput = `${await new Response(first.stdout).text()}${await new Response(first.stderr).text()}`;
+    const secondOutput = `${await new Response(second.stdout).text()}${await new Response(second.stderr).text()}`;
+    expect(firstExit, firstOutput).toBe(0);
+    expect(secondExit, secondOutput).toBe(0);
+    expect(existsSync(markerPath)).toBe(true);
+    expect(readVerificationActionJournalV2(
+      repositoryRoot,
+      preflightAction('tests/unit/cross-process-action.ts').actionKey
+    ).latestState).toBe('terminal');
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
 test('missing execution plan fails closed before any physical execution', async () => {
   const repositoryRoot = root();
   try {
@@ -242,7 +355,7 @@ test('missing execution plan fails closed before any physical execution', async 
       action: key,
       executor: () => {
         invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     expect(result.disposition).toBe('blocked');
@@ -268,7 +381,7 @@ test('forged scheduler lane fails closed before any physical execution', async (
       plan: forgedPlan,
       executor: () => {
         invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     })).rejects.toThrow('must match required cheap-preflight topology');
     expect(invocations).toBe(0);
@@ -295,7 +408,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
       executor: async () => {
         invocations += 1;
         await held;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     await Promise.resolve();
@@ -306,7 +419,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
       plan: runnablePlan(key),
       executor: () => {
         invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     const missing = await runner.execute({
@@ -315,7 +428,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
       executionDomain: 'caller-local-plan-domain',
       executor: () => {
         invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     expect(blocked.disposition).toBe('blocked');
@@ -347,7 +460,7 @@ test('same-owner cycle cannot bypass guard by changing executionDomain', async (
         plan: runnablePlan(key, repositoryRoot),
         executor
       });
-      return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+      return issuedSettlement();
     };
     const result = await runner.execute({
       repositoryRoot,
@@ -383,7 +496,7 @@ test('awaited nested same-key execution is rejected without self-join deadlock',
       });
       expect(nested.disposition).toBe('blocked');
       expect(nested.reason).toContain('reentrant-cycle');
-      return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+      return issuedSettlement();
     };
     const result = await runner.execute({
       repositoryRoot,
@@ -415,7 +528,7 @@ test('nested execution cannot override its inherited ownerToken', async () => {
         plan: runnablePlan(key, repositoryRoot),
         executor
       })).rejects.toThrow('ownerToken cannot override the inherited execution owner');
-      return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+      return issuedSettlement();
     };
     const result = await runner.execute({
       repositoryRoot,
@@ -443,7 +556,7 @@ test('caller-forged terminal-passed state without a journal fact cannot start an
       plan: runnablePlan(key),
       executor: () => {
         invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     expect(result.disposition).toBe('blocked');
@@ -466,7 +579,7 @@ test('fresh terminal success reuses without execution and terminal failure never
       plan: runnablePlan(passed, repositoryRoot),
       executor: () => {
         passedInvocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     const reused = await runner.execute({
@@ -475,7 +588,7 @@ test('fresh terminal success reuses without execution and terminal failure never
       plan: runnablePlan(passed, repositoryRoot),
       executor: () => {
         passedInvocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     expect(first.disposition).toBe('executed');
@@ -490,7 +603,7 @@ test('fresh terminal success reuses without execution and terminal failure never
       plan: runnablePlan(failed, repositoryRoot),
       executor: () => {
         failedInvocations += 1;
-        return { status: 'failed' as const, reasonCode: 'executed-failure' as const, resultDigest: null };
+        return issuedSettlement('failed');
       }
     });
     const failedReuse = await runner.execute({
@@ -499,7 +612,7 @@ test('fresh terminal success reuses without execution and terminal failure never
       plan: runnablePlan(failed, repositoryRoot),
       executor: () => {
         failedInvocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     expect(failedReuse.disposition).toBe('reused');
@@ -542,7 +655,7 @@ test('identity execution derives one plan and reuses its terminal without physic
       executionClass: 'cheap-preflight',
       executor: () => {
         invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: DIGEST_A };
+        return issuedSettlement();
       }
     });
     const first = await execute();
@@ -557,7 +670,7 @@ test('identity execution derives one plan and reuses its terminal without physic
   }
 });
 
-test('executor diagnostics are journal-safe and bounded when failures contain controls or long text', async () => {
+test('executor failure remains started-without-terminal and its diagnostic is bounded', async () => {
   const repositoryRoot = root();
   try {
     const key = action('diagnostic-action');
@@ -569,16 +682,45 @@ test('executor diagnostics are journal-safe and bounded when failures contain co
         throw new Error(`line one\nline two\t${'x'.repeat(2000)}`);
       }
     });
-    expect(result.disposition).toBe('executed');
-    expect(result.terminal?.status).toBe('failed');
+    expect(result.disposition).toBe('blocked');
+    expect(result.state).toBe('running');
+    expect(result.terminal).toBeNull();
     expect(result.reason).toContain('executor threw: line one line two');
-    expect(result.reason?.length).toBeLessThanOrEqual(1024);
+    expect(result.reason?.length).toBeLessThanOrEqual(1080);
     const journal = readVerificationActionJournalV2(repositoryRoot, key.actionKey);
-    expect(journal.latestState).toBe('terminal');
-    expect(journal.events.at(-1)?.note).toBe(result.reason);
-    expect(journal.events.at(-1)?.note).not.toMatch(/[\u0000-\u001f]/u);
+    expect(journal.latestState).toBe('running');
+    expect(result.reason).not.toMatch(/[\u0000-\u001f]/u);
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('plain structural terminal and explicit started-without-terminal never commit PASS', async () => {
+  for (const [kind, executor] of [
+    ['plain-terminal', () => ({
+      status: 'passed' as const,
+      reasonCode: 'executed-success' as const,
+      resultDigest: null
+    })],
+    ['started-without-terminal', () => issuedSettlement('started-without-terminal')]
+  ] as const) {
+    const repositoryRoot = root();
+    try {
+      const key = action(kind);
+      const result = await new VerificationActionRunner().execute({
+        repositoryRoot,
+        action: key,
+        plan: runnablePlan(key, repositoryRoot),
+        executor
+      });
+      expect(result.disposition).toBe('blocked');
+      expect(result.terminal).toBeNull();
+      expect(result.reason).toContain('no owner-issued terminal');
+      expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
+        .toBe('running');
+    } finally {
+      rmSync(repositoryRoot, { recursive: true, force: true });
+    }
   }
 });
 
@@ -601,7 +743,7 @@ test('cheap preflight failure prevents physical execution', async () => {
       plan,
       executor: () => {
         invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     expect(result.disposition).toBe('blocked');
@@ -630,7 +772,7 @@ test('dependency closure is re-read after execution and unstable closure discard
           changedInputPaths: null,
           note: 'preflight changed during action'
         });
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     expect(invocations).toBe(1);
@@ -659,7 +801,7 @@ test('input invalidation discards an in-flight physical result', async () => {
       executor: async () => {
         markStarted();
         await held;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        return issuedSettlement();
       }
     });
     await started;
@@ -695,7 +837,7 @@ test('persisted running and queued actions without a terminal permanently block 
         plan: runnablePlan(key, repositoryRoot),
         executor: () => {
           invocations += 1;
-          return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+          return issuedSettlement();
         }
       });
       expect(result.disposition).toBe('blocked');
@@ -749,7 +891,9 @@ function localDagFixture(environment = createCiVerificationLocalExecutionEnviron
   };
 }
 
-test('local quick DAG keeps journal authority separate from the detached candidate executor and reuses terminals', async () => {
+test.skipIf(process.platform !== 'win32')(
+  'local quick DAG keeps journal authority separate from the detached candidate executor and reuses terminals',
+  async () => {
   const authorityRoot = root();
   const candidateRoot = root();
   try {
@@ -767,10 +911,10 @@ test('local quick DAG keeps journal authority separate from the detached candida
       actionPlanClosure: fixture.closure,
       executionEnvironment: fixture.environment,
       inspectRepository,
-      executeNormalizedOperation: () => {
+      executeNormalizedOperation: (_operation, process) => {
         physicalExecutions += 1;
-        return 0;
-      }
+        return runRetainedBunTestProcess(process, candidateRoot);
+      },
     });
     const reused = await executeLocalVerificationActionDag({
       authorityRoot,
@@ -778,10 +922,10 @@ test('local quick DAG keeps journal authority separate from the detached candida
       actionPlanClosure: fixture.closure,
       executionEnvironment: fixture.environment,
       inspectRepository,
-      executeNormalizedOperation: () => {
+      executeNormalizedOperation: (_operation, process) => {
         physicalExecutions += 1;
-        return 0;
-      }
+        return runRetainedBunTestProcess(process, candidateRoot);
+      },
     });
     expect(first.status).toBe('passed');
     expect(first.actionResults[0]?.disposition).toBe('executed');
@@ -796,9 +940,203 @@ test('local quick DAG keeps journal authority separate from the detached candida
     rmSync(authorityRoot, { recursive: true, force: true });
     rmSync(candidateRoot, { recursive: true, force: true });
   }
-});
+  }
+);
 
-test('local quick DAG binds the intended detached worktree under hostile ambient Git steering without index refresh', async () => {
+test.skipIf(process.platform !== 'win32')(
+  'local quick DAG meters one real process and commits a terminal only after process settlement and domain readback',
+  async () => {
+    const authorityRoot = root();
+    const candidateRoot = root();
+    try {
+      const fixture = localDagFixture();
+      let secondStartFailure = '';
+      const inspectRepository = (repositoryRoot: string) => ({
+        headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
+        headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
+        trackedClean: true,
+        gitCommonDirectory: authorityRoot
+      });
+      const result = await executeLocalVerificationActionDag({
+        authorityRoot,
+        candidateRoot,
+        actionPlanClosure: fixture.closure,
+        executionEnvironment: fixture.environment,
+        inspectRepository,
+        executeNormalizedOperation: async (_operation, process) => {
+          const first = await runRetainedBunTestProcess(process, candidateRoot);
+          try {
+            await runRetainedBunTestProcess(process, candidateRoot);
+          } catch (error) {
+            secondStartFailure = error instanceof Error ? error.message : String(error);
+          }
+          return first;
+        }
+      });
+      expect(secondStartFailure).toContain('process budget is exhausted');
+      expect(result.status).toBe('passed');
+      expect(result.actionResults[0]?.terminal?.status).toBe('passed');
+    } finally {
+      rmSync(authorityRoot, { recursive: true, force: true });
+      rmSync(candidateRoot, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'local quick DAG enforces the operation deadline and cancellation without minting a terminal',
+  async () => {
+    for (const mode of ['deadline', 'cancel'] as const) {
+      const authorityRoot = root();
+      const candidateRoot = root();
+      try {
+        const fixture = localDagFixture();
+        const controller = new AbortController();
+        const result = await executeLocalVerificationActionDag({
+          authorityRoot,
+          candidateRoot,
+          actionPlanClosure: fixture.closure,
+          executionEnvironment: fixture.environment,
+          deadlineAtUnixMs: mode === 'deadline' ? Date.now() + 1_000 : undefined,
+          signal: controller.signal,
+          inspectRepository: (repositoryRoot) => ({
+            headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
+            headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
+            trackedClean: true,
+            gitCommonDirectory: authorityRoot
+          }),
+          executeNormalizedOperation: async (_operation, process) => {
+            const cancellation = mode === 'cancel'
+              ? setTimeout(() => controller.abort(), 50)
+              : undefined;
+            try {
+              return await runRetainedBunTestProcess(
+                process,
+                candidateRoot,
+                { script: 'setInterval(() => {}, 1_000)' }
+              );
+            } finally {
+              if (cancellation !== undefined) clearTimeout(cancellation);
+            }
+          }
+        });
+        expect(result.status).toBe('blocked');
+        expect(result.actionResults[0]?.terminal).toBeNull();
+        expect(result.actionResults[0]?.reason).toMatch(
+          mode === 'deadline' ? /timed out|deadline|aborted/u : /aborted|cancelled/u
+        );
+      } finally {
+        rmSync(authorityRoot, { recursive: true, force: true });
+        rmSync(candidateRoot, { recursive: true, force: true });
+      }
+    }
+  },
+  30_000
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'local quick DAG rejects output-budget over-admission and records a failed process terminal',
+  async () => {
+    for (const mode of ['output-budget', 'provider-failure'] as const) {
+      const authorityRoot = root();
+      const candidateRoot = root();
+      try {
+        const fixture = localDagFixture();
+        const result = await executeLocalVerificationActionDag({
+          authorityRoot,
+          candidateRoot,
+          actionPlanClosure: fixture.closure,
+          executionEnvironment: fixture.environment,
+          inspectRepository: (repositoryRoot) => ({
+            headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
+            headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
+            trackedClean: true,
+            gitCommonDirectory: authorityRoot
+          }),
+          executeNormalizedOperation: (_operation, process) => runRetainedBunTestProcess(
+            process,
+            candidateRoot,
+            mode === 'output-budget'
+              ? { maxStdoutBytes: process.maxStdoutBytes + 1 }
+              : { script: 'process.exit(7)' }
+          )
+        });
+        if (mode === 'output-budget') {
+          expect(result.status).toBe('blocked');
+          expect(result.actionResults[0]?.terminal).toBeNull();
+          expect(result.actionResults[0]?.reason).toContain('output-byte admission exceeds');
+        } else {
+          expect(result.status).toBe('failed');
+          expect(result.actionResults[0]?.terminal?.status).toBe('failed');
+        }
+      } finally {
+        rmSync(authorityRoot, { recursive: true, force: true });
+        rmSync(candidateRoot, { recursive: true, force: true });
+      }
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'local quick DAG refuses raw provider output and candidate readback drift',
+  async () => {
+  for (const mode of ['raw-provider-output', 'candidate-readback-drift'] as const) {
+    const authorityRoot = root();
+    const candidateRoot = root();
+    try {
+      const fixture = localDagFixture();
+      let candidateObservations = 0;
+      const inspectRepository = (repositoryRoot: string) => {
+        if (repositoryRoot === authorityRoot) {
+          return {
+            headSha: BASE_SHA,
+            headTreeSha: BASE_TREE_SHA,
+            trackedClean: true,
+            gitCommonDirectory: authorityRoot
+          };
+        }
+        candidateObservations += 1;
+        return {
+          headSha: HEAD_SHA,
+          headTreeSha: mode === 'candidate-readback-drift' && candidateObservations > 1
+            ? `5${HEAD_TREE_SHA.slice(1)}`
+            : HEAD_TREE_SHA,
+          trackedClean: true,
+          gitCommonDirectory: authorityRoot
+        };
+      };
+      const result = await executeLocalVerificationActionDag({
+        authorityRoot,
+        candidateRoot,
+        actionPlanClosure: fixture.closure,
+        executionEnvironment: fixture.environment,
+        inspectRepository,
+        executeNormalizedOperation: mode === 'raw-provider-output'
+          ? (() => 0 as never)
+          : (_operation, process) => runRetainedBunTestProcess(process, candidateRoot)
+      });
+      expect(result.status).toBe('blocked');
+      expect(result.actionResults[0]?.terminal).toBeNull();
+      expect(result.actionResults[0]?.reason).toContain(
+        mode === 'raw-provider-output'
+          ? 'did not return one physical process result'
+          : 'candidate readback drifted'
+      );
+      expect(readVerificationActionJournalV2(
+        authorityRoot,
+        fixture.closure.actions[0]!.action.actionKey
+      ).latestState).toBe('running');
+    } finally {
+      rmSync(authorityRoot, { recursive: true, force: true });
+      rmSync(candidateRoot, { recursive: true, force: true });
+    }
+  }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'local quick DAG binds the intended detached worktree under hostile ambient Git steering without index refresh',
+  async () => {
   const workspaceRoot = root();
   const authorityRoot = path.join(workspaceRoot, 'authority');
   const candidateRoot = path.join(workspaceRoot, 'candidate');
@@ -894,7 +1232,8 @@ test('local quick DAG binds the intended detached worktree under hostile ambient
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
         inspectRepository,
-        executeNormalizedOperation: () => 0
+        executeNormalizedOperation: (_operation, process) =>
+          runRetainedBunTestProcess(process, candidateRoot)
       });
       expect(result.status).toBe('passed');
       writeFileSync(path.join(candidateRoot, 'tracked.txt'), 'dirty\n', 'utf8');
@@ -904,7 +1243,8 @@ test('local quick DAG binds the intended detached worktree under hostile ambient
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
         inspectRepository,
-        executeNormalizedOperation: () => 0
+        executeNormalizedOperation: (_operation, process) =>
+          runRetainedBunTestProcess(process, candidateRoot)
       })).rejects.toThrow('exact clean candidate head and tree');
       for (const [indexPath, before] of [
         [authorityIndex, authorityBefore],
@@ -929,7 +1269,9 @@ test('local quick DAG binds the intended detached worktree under hostile ambient
   } finally {
     rmSync(workspaceRoot, { recursive: true, force: true });
   }
-}, 180_000);
+  },
+  180_000
+);
 
 test('local quick DAG rejects hosted/environment drift and distinct environments produce disjoint ActionKeys', async () => {
   const authorityRoot = root();
@@ -951,7 +1293,8 @@ test('local quick DAG rejects hosted/environment drift and distinct environments
         trackedClean: true,
         gitCommonDirectory: authorityRoot
       }),
-      executeNormalizedOperation: () => 0
+      executeNormalizedOperation: (_operation, process) =>
+        runRetainedBunTestProcess(process, candidateRoot)
     })).rejects.toThrow('canonical local execution environment');
   } finally {
     rmSync(authorityRoot, { recursive: true, force: true });
@@ -968,7 +1311,7 @@ test('cheap actions can be scheduled without an ActionKey cost field', async () 
       repositoryRoot,
       action: key,
       plan: cheapPlan(key),
-      executor: () => ({ status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null })
+      executor: () => issuedSettlement()
     });
     expect(result.disposition).toBe('executed');
     expect(result.terminal?.status).toBe('passed');

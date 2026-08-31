@@ -11,11 +11,29 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { types as nodeTypes } from 'node:util';
 
+import {
+  assertSecOperationSettlementEnvelope,
+  type SecOperationSettlementEnvelope
+} from '../../../system-architecture/operation/semantic.ts';
 import type { VerificationReasonCode, VerificationResultStatus } from '../../result/contract/result.ts';
 import { CodexDevelopmentAssertVerificationStatusReason } from '../../result/contract/result.ts';
 
 export const VERIFICATION_ACTION_KEY_SCHEMA =
   'sec-verification-action-key-v2' as const;
+
+/**
+ * One Verification Action owns one bounded process attempt.  The values retain
+ * the existing five-minute Action lease and the Verification local-runner's
+ * existing 16 MiB per-stream command ceilings.  Stdin is intentionally absent:
+ * ProcessResourceSession interprets a missing input-bytes budget as an exact
+ * zero-byte allowance.
+ */
+export const VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY = Object.freeze({
+  durationMs: 300_000,
+  maxStderrBytes: 16 * 1024 * 1024,
+  maxStdoutBytes: 16 * 1024 * 1024,
+  processes: 1
+});
 export const VERIFICATION_ACTION_PLAN_SCHEMA =
   'sec-verification-action-plan-v2' as const;
 
@@ -573,6 +591,46 @@ export function createVerificationActionTerminal(
     status: value.status as VerificationResultStatus,
     reasonCode: value.reasonCode as VerificationReasonCode,
     resultDigest
+  });
+}
+
+/**
+ * Project one owner-issued Effect settlement into the durable Action terminal.
+ * The terminal persists only the envelope digest; that digest commits the
+ * attempt, binding set, exact readback and opaque domain receipt without
+ * copying domain-private receipt fields into the Action contract.
+ */
+export function projectVerificationActionTerminal(
+  settlement: unknown
+): VerificationActionTerminal {
+  assertSecOperationSettlementEnvelope(settlement);
+  const projection = (() => {
+    switch (settlement.terminalClass) {
+      case 'completed':
+        return { status: 'passed', reasonCode: 'executed-success' } as const;
+      case 'failed':
+        return { status: 'failed', reasonCode: 'executed-failure' } as const;
+      case 'not-run':
+        return { status: 'not-run', reasonCode: 'not-dispatched' } as const;
+      case 'unsupported':
+        return { status: 'unsupported', reasonCode: 'capability-unsupported' } as const;
+      case 'invalidated':
+        return { status: 'invalidated', reasonCode: 'input-invalidated' } as const;
+      case 'cancelled':
+        return { status: 'invalidated', reasonCode: 'cancelled' } as const;
+      case 'timed-out':
+        return { status: 'failed', reasonCode: 'timeout' } as const;
+      case 'cleanup-failed':
+        return { status: 'failed', reasonCode: 'cleanup-failed' } as const;
+      case 'process-settlement-failed':
+        return { status: 'failed', reasonCode: 'process-settlement-failed' } as const;
+      case 'started-without-terminal':
+        throw new Error('Operation started without an owner-issued terminal settlement.');
+    }
+  })();
+  return createVerificationActionTerminal({
+    ...projection,
+    resultDigest: settlement.settlementDigest
   });
 }
 
