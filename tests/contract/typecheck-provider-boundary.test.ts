@@ -8,12 +8,6 @@ import {
   compileWorkspaceTypeScriptProjectInput
 } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  type SecOperationDigest
-} from '../../src/control/operation/semantic.ts';
-import {
   compileTypecheckActionInput,
   compileTypecheckSemanticOperation,
   resolveTypecheckBuildInfoPath,
@@ -22,6 +16,12 @@ import {
 } from '../../src/development/runner/typecheck-runner.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../src/runtime-state/workspace-state/layout.ts';
 import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  type SecOperationDigest
+} from '../../src/system-architecture/operation/semantic.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
 import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/toolchain/typescript/checker.ts';
 import { createVerificationActionKey } from '../../src/verification/action/contract/action.ts';
@@ -262,7 +262,7 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
     };
     const projectInput = projectInputFixture();
     const semanticAt = (deadlineAtUnixMs: number) => compileTypecheckSemanticOperation({
-      projectInput,
+      projectConfigPath: installed.provider.projectConfig,
       diagnosticArguments: [],
       provider: installed.provider,
       deadlineAtUnixMs
@@ -332,7 +332,7 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
     expect(changed({
       provider: changedProvider,
       semanticOperation: compileTypecheckSemanticOperation({
-        projectInput,
+        projectConfigPath: changedProvider.projectConfig,
         diagnosticArguments: [],
         provider: changedProvider,
         deadlineAtUnixMs: 1_900_000_000_000

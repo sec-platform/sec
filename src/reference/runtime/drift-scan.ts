@@ -1,7 +1,16 @@
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
-import { isolatedGitReadEnvironment } from '../../external-capabilities/git-read/runtime/session.ts';
-import { type ByteCommandResult, type RunCommandOptions } from '../../runtime-state/physical/runtime/process.ts';
-import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { type ByteCommandResult } from '../../runtime-state/physical/runtime/process.ts';
+import {
+  sha256,
+  uniqueSorted
+} from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../../system-architecture/operation/semantic.ts';
 import { referenceWorkspaceRelativePath } from '../workspace.ts';
 
 export type ReferenceDriftScan = {
@@ -11,19 +20,64 @@ export type ReferenceDriftScan = {
   changedPaths: string[];
 };
 
-export type ReferenceGitCommandRunner = (
-  command: string,
-  args: string[],
-  options: RunCommandOptions
-) => Promise<ByteCommandResult>;
-
 const REFERENCE_PATHS = [referenceWorkspaceRelativePath] as const;
+const REFERENCE_GIT_DURATION_MS = 30_000;
+const REFERENCE_GIT_PROCESS_MAXIMUM = 2;
 const REFERENCE_GIT_STDOUT_MAX_BYTES = 64 * 1024 * 1024;
 const REFERENCE_GIT_STDERR_MAX_BYTES = 1024 * 1024;
+const REFERENCE_GIT_COMMAND_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
+const REFERENCE_GIT_COMMAND_STDERR_MAX_BYTES = 512 * 1024;
+const REFERENCE_GIT_RECORD_MAXIMUM = 250_000;
 export const REFERENCE_TRACKED_DIFF_ARGS = ['diff', '--name-only', '--exit-code', '-z', '--', ...REFERENCE_PATHS];
 export const REFERENCE_UNTRACKED_SCAN_ARGS = ['ls-files', '-z', '--others', '--exclude-standard', '--', ...REFERENCE_PATHS];
 
-function parseGitPathRecords(stdout: Uint8Array, label: string): string[] {
+function compileReferenceDriftOperation(root: string): SecBoundSemanticOperation {
+  const contractDigest = sha256({
+    operation: 'reference.scan-drift',
+    provider: 'external-capabilities.git-read',
+    records: 'tracked-and-untracked-reference-workspace-paths'
+  }) as SecOperationDigest;
+  const plan = compileSecSemanticOperationPlan({
+    operation: 'reference.scan-drift',
+    intentDigest: sha256({
+      root,
+      trackedCommand: REFERENCE_TRACKED_DIFF_ARGS,
+      untrackedCommand: REFERENCE_UNTRACKED_SCAN_ARGS
+    }) as SecOperationDigest,
+    decisionDigest: contractDigest,
+    deadlineAtUnixMs: Date.now() + REFERENCE_GIT_DURATION_MS,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: REFERENCE_GIT_DURATION_MS },
+      {
+        resource: 'output-bytes',
+        maximum: REFERENCE_GIT_PROCESS_MAXIMUM * (
+          REFERENCE_GIT_COMMAND_OUTPUT_MAX_BYTES + REFERENCE_GIT_COMMAND_STDERR_MAX_BYTES
+        )
+      },
+      { resource: 'processes', maximum: REFERENCE_GIT_PROCESS_MAXIMUM },
+      { resource: 'records', maximum: REFERENCE_GIT_RECORD_MAXIMUM }
+    ],
+    requirements: [{
+      id: 'reference.drift-observation',
+      contractDigest,
+      effectKinds: ['process'],
+      failureKinds: [
+        'provider.cancelled',
+        'provider.deadline-exhausted',
+        'provider.drift',
+        'provider.unavailable',
+        'provider.unverified'
+      ]
+    }]
+  });
+  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: 'reference.drift-observation',
+    contractDigest,
+    providerIdentityDigest: contractDigest
+  })]);
+}
+
+export function parseReferenceGitPathRecords(stdout: Uint8Array, label: string): string[] {
   const bytes = Buffer.from(stdout);
   if (bytes.byteLength === 0) return [];
   if (bytes[bytes.byteLength - 1] !== 0) {
@@ -47,29 +101,21 @@ function aggregateExitCode(
   return tracked.code === 1 || untrackedPaths.length > 0 ? 1 : 0;
 }
 
-function gitObservationOptions(root: string): RunCommandOptions {
-  return {
-    cwd: root,
-    envMode: 'replace',
-    env: isolatedGitReadEnvironment({ LANG: 'C', LC_ALL: 'C' }),
-    maxStdoutBytes: REFERENCE_GIT_STDOUT_MAX_BYTES,
-    maxStderrBytes: REFERENCE_GIT_STDERR_MAX_BYTES
-  };
-}
-
-export async function scanReferenceDrift(
-  root: string,
-  commandRunner?: ReferenceGitCommandRunner
-): Promise<ReferenceDriftScan> {
-  if (commandRunner === undefined) {
-    return withAuthorityGitReadSession({
+export async function scanReferenceDrift(root: string): Promise<ReferenceDriftScan> {
+  const operation = compileReferenceDriftOperation(root);
+  return withAuthorityGitReadSession({
       cwd: root,
       environment: { LANG: 'C', LC_ALL: 'C' },
+      operation,
+      deadlineAtUnixMs: operation.plan.attempt.deadlineAtUnixMs,
       budget: {
-        maxProcesses: 2,
+        deadlineMs: REFERENCE_GIT_DURATION_MS,
+        maxProcesses: REFERENCE_GIT_PROCESS_MAXIMUM,
         maxStdoutBytes: REFERENCE_GIT_STDOUT_MAX_BYTES,
         maxStderrBytes: REFERENCE_GIT_STDERR_MAX_BYTES,
-        maxRecords: 250_000
+        maxRecords: REFERENCE_GIT_RECORD_MAXIMUM,
+        maxCommandStdoutBytes: REFERENCE_GIT_COMMAND_OUTPUT_MAX_BYTES,
+        maxCommandStderrBytes: REFERENCE_GIT_COMMAND_STDERR_MAX_BYTES
       }
     }, async (session) => {
       const run = async (args: readonly string[]): Promise<ByteCommandResult> => {
@@ -88,10 +134,10 @@ export async function scanReferenceDrift(
           changedPaths: []
         };
       }
-      const trackedPaths = parseGitPathRecords(tracked.stdout, 'git diff');
+      const trackedPaths = parseReferenceGitPathRecords(tracked.stdout, 'git diff');
       const untracked = await run(REFERENCE_UNTRACKED_SCAN_ARGS);
       const untrackedPaths = untracked.code === 0
-        ? parseGitPathRecords(untracked.stdout, 'git ls-files')
+        ? parseReferenceGitPathRecords(untracked.stdout, 'git ls-files')
         : [];
       const recordFailure = session.consumeRecords(trackedPaths.length + untrackedPaths.length);
       if (recordFailure !== null) {
@@ -104,26 +150,4 @@ export async function scanReferenceDrift(
         changedPaths: uniqueSorted([...trackedPaths, ...untrackedPaths])
       };
     });
-  }
-  const tracked = await commandRunner('git', REFERENCE_TRACKED_DIFF_ARGS, gitObservationOptions(root));
-  if (tracked.code !== 0 && tracked.code !== 1) {
-    return {
-      exitCode: tracked.code,
-      trackedExitCode: tracked.code,
-      untrackedExitCode: -1,
-      changedPaths: []
-    };
-  }
-
-  const trackedPaths = parseGitPathRecords(tracked.stdout, 'git diff');
-  const untracked = await commandRunner('git', REFERENCE_UNTRACKED_SCAN_ARGS, gitObservationOptions(root));
-  const untrackedPaths = untracked.code === 0
-    ? parseGitPathRecords(untracked.stdout, 'git ls-files')
-    : [];
-  return {
-    exitCode: aggregateExitCode(tracked, untracked, untrackedPaths),
-    trackedExitCode: tracked.code,
-    untrackedExitCode: untracked.code,
-    changedPaths: uniqueSorted([...trackedPaths, ...untrackedPaths])
-  };
 }

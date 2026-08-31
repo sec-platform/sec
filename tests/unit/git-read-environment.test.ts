@@ -1,10 +1,13 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { runGitRead } from '../../src/development/tooling/git/git-read.ts';
+import {
+  GIT_READ_OPERATION_BUDGET,
+  runGitRead
+} from '../../src/development/tooling/git/git-read.ts';
 import {
   assertProductionGitReadSession,
   createAuthorityGitReadSession,
@@ -15,6 +18,60 @@ import {
   isolatedGitChildEnvironment,
   isolatedGitReadEnvironment
 } from '../../src/external-capabilities/git-read/test/session.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../../src/system-architecture/operation/semantic.ts';
+
+const TEST_GIT_READ_CONTRACT_DIGEST = `sha256:${'1'.repeat(64)}` as SecOperationDigest;
+const TEST_GIT_READ_PROVIDER_DIGEST = `sha256:${'2'.repeat(64)}` as SecOperationDigest;
+
+function issueTestGitReadOperation(input: Readonly<{
+  deadlineAtUnixMs?: number;
+  maxInputBytes?: number;
+  maxOutputBytes?: number;
+  maxProcesses?: number;
+}> = {}): SecBoundSemanticOperation {
+  const plan = compileSecSemanticOperationPlan({
+    operation: 'git-read.host-observation',
+    intentDigest: `sha256:${'3'.repeat(64)}` as SecOperationDigest,
+    decisionDigest: TEST_GIT_READ_CONTRACT_DIGEST,
+    deadlineAtUnixMs: input.deadlineAtUnixMs
+      ?? Date.now() + GIT_READ_OPERATION_BUDGET.deadlineMs,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: GIT_READ_OPERATION_BUDGET.deadlineMs },
+      {
+        resource: 'input-bytes',
+        maximum: input.maxInputBytes ?? GIT_READ_OPERATION_BUDGET.maxStdinBytes
+      },
+      {
+        resource: 'output-bytes',
+        maximum: input.maxOutputBytes ?? (
+          GIT_READ_OPERATION_BUDGET.maxStdoutBytes
+            + GIT_READ_OPERATION_BUDGET.maxStderrBytes
+        )
+      },
+      {
+        resource: 'processes',
+        maximum: input.maxProcesses ?? GIT_READ_OPERATION_BUDGET.maxProcesses
+      }
+    ],
+    requirements: [{
+      id: 'git-read.host-process',
+      contractDigest: TEST_GIT_READ_CONTRACT_DIGEST,
+      effectKinds: ['process'],
+      failureKinds: ['provider.cancelled', 'provider.execution-failed', 'provider.unavailable']
+    }]
+  });
+  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: 'git-read.host-process',
+    contractDigest: TEST_GIT_READ_CONTRACT_DIGEST,
+    providerIdentityDigest: TEST_GIT_READ_PROVIDER_DIGEST
+  })]);
+}
 
 /**
  * Mirror of the implementation's empty config sink: Windows cannot open
@@ -216,15 +273,110 @@ test('test sessions cannot cross the production GitRead issuer boundary', async 
   expect(() => assertProductionGitReadSession(structuralClone)).toThrow(/production issuer/u);
   await testSession.close?.();
 
-  const resolution = createAuthorityGitReadSession({ cwd: process.cwd() });
+  const resolution = createAuthorityGitReadSession({
+    cwd: process.cwd(),
+    operation: issueTestGitReadOperation(),
+    budget: GIT_READ_OPERATION_BUDGET
+  });
   expect(resolution.status).toBe('ready');
   if (resolution.status === 'ready') {
     expect(isProductionGitReadSession(resolution.session)).toBe(true);
     expect(isTestGitReadSession(resolution.session)).toBe(false);
     expect(() => assertProductionGitReadSession(resolution.session)).not.toThrow();
+    const version = await resolution.session.run(['--version']);
+    expect(version.kind).toBe('completed');
+    expect(resolution.session.processCount).toBe(1);
     await resolution.session.close?.();
   }
 });
+
+test('production GitRead rejects a structural operation clone before provider discovery', () => {
+  const operation = issueTestGitReadOperation();
+  const resolution = createAuthorityGitReadSession({
+    cwd: process.cwd(),
+    operation: { ...operation },
+    budget: GIT_READ_OPERATION_BUDGET
+  });
+  expect(resolution).toMatchObject({
+    kind: 'unresolved-git-read-provider',
+    status: 'unavailable',
+    reason: 'git-operation-admission-unavailable'
+  });
+});
+
+test.skipIf(process.platform !== 'win32')(
+  'production GitRead shares one AbortSignal with operation admission and child execution',
+  async () => {
+    const controller = new AbortController();
+    const resolution = createAuthorityGitReadSession({
+      cwd: process.cwd(),
+      operation: issueTestGitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET,
+      signal: controller.signal
+    });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') return;
+    controller.abort();
+    const result = await resolution.session.run(['--version']);
+    expect(result).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'cancelled'
+    });
+    expect(resolution.session.processCount).toBe(0);
+    expect(resolution.session.consumeRecords(1)).toBe(result);
+    await resolution.session.close?.();
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'production GitRead consumes aggregate process and output budgets from one bound operation',
+  async () => {
+    const processResolution = createAuthorityGitReadSession({
+      cwd: process.cwd(),
+      operation: issueTestGitReadOperation({ maxProcesses: 1 }),
+      budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 2 }
+    });
+    expect(processResolution.status).toBe('ready');
+    if (processResolution.status !== 'ready') return;
+    expect((await processResolution.session.run(['--version'])).kind).toBe('completed');
+    expect(await processResolution.session.run(['--version'])).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'process-budget-exhausted'
+    });
+    expect(processResolution.session.processCount).toBe(1);
+    await processResolution.session.close?.();
+
+    const outputResolution = createAuthorityGitReadSession({
+      cwd: process.cwd(),
+      operation: issueTestGitReadOperation({ maxOutputBytes: 1 }),
+      budget: GIT_READ_OPERATION_BUDGET
+    });
+    expect(outputResolution.status).toBe('ready');
+    if (outputResolution.status !== 'ready') return;
+    expect(await outputResolution.session.run(['--version'])).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'stdout-budget-exhausted'
+    });
+    expect(outputResolution.session.processCount).toBe(1);
+    await outputResolution.session.close?.();
+  }
+);
+
+test.skipIf(process.platform !== 'linux')(
+  'production GitRead returns a typed retained-provider blocker on an unsupported POSIX host',
+  () => {
+    const resolution = createAuthorityGitReadSession({
+      cwd: process.cwd(),
+      operation: issueTestGitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET
+    });
+    expect(resolution).toMatchObject({
+      kind: 'unresolved-git-read-provider',
+      status: 'unavailable',
+      reason: 'git-retained-provider-unavailable'
+    });
+  }
+);
 
 test.skipIf(process.platform !== 'win32')(
   'production Git scratch computes and reads one repository-external index tree without widening GitRead',
@@ -232,6 +384,7 @@ test.skipIf(process.platform !== 'win32')(
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-index-tree-'));
     const resolution = createAuthorityGitReadSession({
       cwd: process.cwd(),
+      operation: issueTestGitReadOperation(),
       budget: { maxProcesses: 12 }
     });
     expect(resolution.status).toBe('ready');
@@ -244,6 +397,10 @@ test.skipIf(process.platform !== 'win32')(
         throw new Error('Test could not observe the canonical Git index.');
       }
       const indexPath = Buffer.from(indexObservation.result.stdout).toString('utf8').trim();
+      const expectedIndexBlob = await resolution.session.run(['show', ':package.json']);
+      if (expectedIndexBlob.kind !== 'completed' || expectedIndexBlob.result.code !== 0) {
+        throw new Error('Test could not read package.json from the canonical Git index.');
+      }
       copyFileSync(indexPath, path.join(scratchRoot, 'index'));
       mkdirSync(path.join(scratchRoot, 'objects'));
 
@@ -253,15 +410,26 @@ test.skipIf(process.platform !== 'win32')(
       });
       expect(scratchResolution.status).toBe('ready');
       if (scratchResolution.status !== 'ready') return;
-      const tree = await scratchResolution.session.writeTree();
-      expect(tree.status).toBe('ready');
-      if (tree.status !== 'ready') return;
-      const blob = await scratchResolution.session.observe(['show', `${tree.value}:package.json`]);
-      expect(blob.status).toBe('ready');
-      if (blob.status === 'ready') {
-        expect(Buffer.from(blob.value.stdout)).toEqual(readFileSync(path.join(process.cwd(), 'package.json')));
+      let scratchPrimaryFailure: unknown;
+      try {
+        const tree = await scratchResolution.session.writeTree();
+        expect(tree).toMatchObject({ status: 'ready' });
+        if (tree.status !== 'ready') return;
+        const blob = await scratchResolution.session.observe(['show', `${tree.value}:package.json`]);
+        expect(blob.status).toBe('ready');
+        if (blob.status === 'ready') {
+          expect(Buffer.compare(
+            Buffer.from(blob.value.stdout),
+            Buffer.from(expectedIndexBlob.result.stdout)
+          )).toBe(0);
+        }
+      } catch (error) {
+        scratchPrimaryFailure = error;
+        throw error;
+      } finally {
+        const closeFailure = await scratchResolution.session.close();
+        if (scratchPrimaryFailure === undefined) expect(closeFailure).toBeNull();
       }
-      expect(await scratchResolution.session.close()).toBeNull();
 
       const directMutation = await resolution.session.run(['write-tree']);
       expect(directMutation).toMatchObject({
@@ -320,6 +488,8 @@ test('semantic GitRead helpers reject a test transport before any child starts',
 test('provider admission preserves an expired parent deadline as a typed reason', () => {
   const resolution = createAuthorityGitReadSession({
     cwd: process.cwd(),
+    operation: issueTestGitReadOperation(),
+    budget: GIT_READ_OPERATION_BUDGET,
     deadlineAtUnixMs: Date.now() - 1
   });
   expect(resolution).toMatchObject({

@@ -1,7 +1,10 @@
 import path from 'node:path';
 
 import { withAuthorityGitReadSession } from '../../../external-capabilities/git-read/authority.ts';
-import { type GitReadSession } from '../../../external-capabilities/git-read/runtime/session.ts';
+import {
+  type GitReadSession,
+  type GitReadSessionBudget
+} from '../../../external-capabilities/git-read/runtime/session.ts';
 import {
   TEXT_BYTE_CENSUS_SCHEMA,
   classifyBlobBytes,
@@ -11,6 +14,14 @@ import {
   type TextByteCensusReport,
   type TextByteClassification
 } from '../../../runtime-state/text-byte-census.ts';
+import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../../../system-architecture/operation/semantic.ts';
 import {
   GIT_READ_OPERATION_BUDGET,
   chunkBlobEntries,
@@ -26,6 +37,90 @@ const CENSUS_BLOB_BATCH_MAX_ITEMS = 1024;
 
 interface CensusOptions {
   readonly deadlineAtUnixMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+type TextByteCensusOperationEnvelope = Readonly<{
+  operation: SecBoundSemanticOperation;
+  budget: GitReadSessionBudget;
+  deadlineAtUnixMs: number;
+}>;
+
+const TEXT_BYTE_CENSUS_OPERATION = 'development.text-byte-census';
+const TEXT_BYTE_CENSUS_REQUIREMENT = 'repository.text-byte-census';
+
+function compileTextByteCensusOperation(
+  repositoryRoot: string,
+  requestedDeadlineAtUnixMs: number | undefined
+): TextByteCensusOperationEnvelope {
+  const startedAtUnixMs = Date.now();
+  const localDeadlineAtUnixMs = startedAtUnixMs + GIT_READ_OPERATION_BUDGET.deadlineMs;
+  const deadlineAtUnixMs = Math.min(
+    requestedDeadlineAtUnixMs ?? localDeadlineAtUnixMs,
+    localDeadlineAtUnixMs
+  );
+  const durationMs = deadlineAtUnixMs - startedAtUnixMs;
+  if (!Number.isSafeInteger(deadlineAtUnixMs)
+      || !Number.isSafeInteger(durationMs)
+      || durationMs < 1) {
+    throw new Error('Text byte census requires one future absolute deadline.');
+  }
+  const budget = Object.freeze({
+    ...GIT_READ_OPERATION_BUDGET,
+    deadlineMs: durationMs
+  });
+  const admittedProcessOutputBytes = budget.maxProcesses
+    * (budget.maxCommandStdoutBytes + budget.maxCommandStderrBytes);
+  if (!Number.isSafeInteger(admittedProcessOutputBytes)) {
+    throw new Error('Text byte census process output envelope is not representable.');
+  }
+  const contractDigest = sha256({
+    operation: TEXT_BYTE_CENSUS_OPERATION,
+    resultSchema: TEXT_BYTE_CENSUS_SCHEMA,
+    observation: 'exact-commit-blob-bytes-and-text-attributes'
+  }) as SecOperationDigest;
+  const providerIdentityDigest = sha256({
+    provider: 'external-capabilities.git-read',
+    capability: 'exact-repository-observation'
+  }) as SecOperationDigest;
+  const plan = compileSecSemanticOperationPlan({
+    operation: TEXT_BYTE_CENSUS_OPERATION,
+    intentDigest: sha256({ repositoryRoot }) as SecOperationDigest,
+    decisionDigest: contractDigest,
+    deadlineAtUnixMs,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: durationMs },
+      { resource: 'input-bytes', maximum: budget.maxStdinBytes },
+      // The process owner reserves each child's complete output ceiling before
+      // spawn. GitRead independently accounts actual cumulative stdout/stderr,
+      // so this aggregate is the exact worst-case admission for one session,
+      // not a second runtime ledger.
+      { resource: 'output-bytes', maximum: admittedProcessOutputBytes },
+      { resource: 'processes', maximum: budget.maxProcesses },
+      { resource: 'records', maximum: budget.maxRecords }
+    ],
+    requirements: [{
+      id: TEXT_BYTE_CENSUS_REQUIREMENT,
+      contractDigest,
+      effectKinds: ['process', 'provider'],
+      failureKinds: [
+        'provider.cancelled',
+        'provider.deadline-exhausted',
+        'provider.drift',
+        'provider.unavailable',
+        'provider.unverified'
+      ]
+    }]
+  });
+  return Object.freeze({
+    operation: bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+      requirementId: TEXT_BYTE_CENSUS_REQUIREMENT,
+      contractDigest,
+      providerIdentityDigest
+    })]),
+    budget,
+    deadlineAtUnixMs
+  });
 }
 
 function compareCodeUnits(left: string, right: string): number {
@@ -157,13 +252,14 @@ export async function runCensus(
   options: CensusOptions = {}
 ): Promise<TextByteCensusReport> {
   const root = path.resolve(repositoryRoot);
+  const envelope = compileTextByteCensusOperation(root, options.deadlineAtUnixMs);
   return withAuthorityGitReadSession(
     {
       cwd: root,
-      budget: GIT_READ_OPERATION_BUDGET,
-      ...(options.deadlineAtUnixMs === undefined
-        ? {}
-        : { deadlineAtUnixMs: options.deadlineAtUnixMs })
+      operation: envelope.operation,
+      budget: envelope.budget,
+      deadlineAtUnixMs: envelope.deadlineAtUnixMs,
+      ...(options.signal === undefined ? {} : { signal: options.signal })
     },
     (session) => runCensusWithSession(session, root)
   );

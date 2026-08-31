@@ -1,7 +1,10 @@
 import path from 'node:path';
 
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../../external-capabilities/git-read/authority.ts';
-import { type GitReadSession } from '../../../external-capabilities/git-read/runtime/session.ts';
+import {
+  type GitReadSession,
+  type GitReadSessionBudget
+} from '../../../external-capabilities/git-read/runtime/session.ts';
 import { inspectNoFollowDirectoryChain, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   WORKTREE_SETTLEMENT_SCHEMA,
@@ -10,6 +13,14 @@ import {
   type WorktreeMaterializationEntry,
   type WorktreeSettlementReceipt
 } from '../../../runtime-state/worktree-settlement.ts';
+import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../../../system-architecture/operation/semantic.ts';
 import {
   GIT_READ_OPERATION_BUDGET,
   chunkBlobEntries,
@@ -33,6 +44,91 @@ const SETTLEMENT_BLOB_BATCH_MAX_ITEMS = 1024;
 interface SettlementOptions {
   readonly fix?: boolean;
   readonly deadlineAtUnixMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+type WorktreeSettlementOperationEnvelope = Readonly<{
+  operation: SecBoundSemanticOperation;
+  budget: GitReadSessionBudget;
+  deadlineAtUnixMs: number;
+}>;
+
+const WORKTREE_SETTLEMENT_OPERATION = 'development.worktree-settlement';
+const WORKTREE_SETTLEMENT_REQUIREMENT = 'repository.worktree-settlement';
+
+function compileWorktreeSettlementOperation(
+  repositoryRoot: string,
+  options: SettlementOptions
+): WorktreeSettlementOperationEnvelope {
+  const startedAtUnixMs = Date.now();
+  const localDeadlineAtUnixMs = startedAtUnixMs + GIT_READ_OPERATION_BUDGET.deadlineMs;
+  const deadlineAtUnixMs = Math.min(
+    options.deadlineAtUnixMs ?? localDeadlineAtUnixMs,
+    localDeadlineAtUnixMs
+  );
+  const durationMs = deadlineAtUnixMs - startedAtUnixMs;
+  if (!Number.isSafeInteger(deadlineAtUnixMs)
+      || !Number.isSafeInteger(durationMs)
+      || durationMs < 1) {
+    throw new Error('Worktree settlement requires one future absolute deadline.');
+  }
+  const budget = Object.freeze({
+    ...GIT_READ_OPERATION_BUDGET,
+    deadlineMs: durationMs
+  });
+  const admittedProcessOutputBytes = budget.maxProcesses
+    * (budget.maxCommandStdoutBytes + budget.maxCommandStderrBytes);
+  if (!Number.isSafeInteger(admittedProcessOutputBytes)) {
+    throw new Error('Worktree settlement process output envelope is not representable.');
+  }
+  const contractDigest = sha256({
+    operation: WORKTREE_SETTLEMENT_OPERATION,
+    resultSchema: WORKTREE_SETTLEMENT_SCHEMA,
+    observation: 'exact-head-index-worktree-materialization'
+  }) as SecOperationDigest;
+  const providerIdentityDigest = sha256({
+    provider: 'external-capabilities.git-read',
+    capability: 'exact-repository-observation'
+  }) as SecOperationDigest;
+  const plan = compileSecSemanticOperationPlan({
+    operation: WORKTREE_SETTLEMENT_OPERATION,
+    intentDigest: sha256({
+      repositoryRoot,
+      repairRequested: options.fix === true
+    }) as SecOperationDigest,
+    decisionDigest: contractDigest,
+    deadlineAtUnixMs,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: durationMs },
+      { resource: 'input-bytes', maximum: budget.maxStdinBytes },
+      // The physical process session reserves full per-child stream ceilings;
+      // GitRead remains the sole owner of actual cumulative stream accounting.
+      { resource: 'output-bytes', maximum: admittedProcessOutputBytes },
+      { resource: 'processes', maximum: budget.maxProcesses },
+      { resource: 'records', maximum: budget.maxRecords }
+    ],
+    requirements: [{
+      id: WORKTREE_SETTLEMENT_REQUIREMENT,
+      contractDigest,
+      effectKinds: ['process', 'provider'],
+      failureKinds: [
+        'provider.cancelled',
+        'provider.deadline-exhausted',
+        'provider.drift',
+        'provider.unavailable',
+        'provider.unverified'
+      ]
+    }]
+  });
+  return Object.freeze({
+    operation: bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+      requirementId: WORKTREE_SETTLEMENT_REQUIREMENT,
+      contractDigest,
+      providerIdentityDigest
+    })]),
+    budget,
+    deadlineAtUnixMs
+  });
 }
 
 interface PorcelainStatus {
@@ -410,13 +506,14 @@ export async function runSettlement(
 ): Promise<WorktreeSettlementReceipt> {
   const root = path.resolve(repositoryRoot);
   try {
+    const envelope = compileWorktreeSettlementOperation(root, options);
     return await withAuthorityGitReadSession(
       {
         cwd: root,
-        budget: GIT_READ_OPERATION_BUDGET,
-        ...(options.deadlineAtUnixMs === undefined
-          ? {}
-          : { deadlineAtUnixMs: options.deadlineAtUnixMs })
+        operation: envelope.operation,
+        budget: envelope.budget,
+        deadlineAtUnixMs: envelope.deadlineAtUnixMs,
+        ...(options.signal === undefined ? {} : { signal: options.signal })
       },
       (session) => runSettlementWithSession(session, root, options)
     );

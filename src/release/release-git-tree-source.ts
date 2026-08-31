@@ -3,12 +3,56 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { withAuthorityGitReadSession } from '../external-capabilities/git-read/authority.ts';
-import { type GitReadSession, type GitReadSessionCommand } from '../external-capabilities/git-read/runtime/session.ts';
+import {
+  type GitReadSession,
+  type GitReadSessionBudget,
+  type GitReadSessionCommand
+} from '../external-capabilities/git-read/runtime/session.ts';
+import { sha256 } from '../system-architecture/foundation/runtime/canonical.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../system-architecture/operation/semantic.ts';
 
 const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 const GIT_LFS_POINTER_PREFIX = Buffer.from('version https://git-lfs.github.com/spec/v1\n', 'utf8');
 const RELEASE_GIT_BLOB_BATCH_MAX_BYTES = 24 * 1024 * 1024;
 const RELEASE_GIT_BLOB_BATCH_MAX_ITEMS = 1024;
+const EXACT_RELEASE_GIT_TREE_SCHEMA = 'sec-exact-release-git-tree-v1' as const;
+const RELEASE_GIT_TREE_OPERATION = 'release.materialize-exact-git-tree';
+const RELEASE_GIT_TREE_REQUIREMENT = 'release.exact-git-tree-source';
+const RELEASE_GIT_TREE_OPERATION_BUDGET: GitReadSessionBudget = Object.freeze({
+  deadlineMs: 120_000,
+  maxProcesses: 128,
+  maxTotalArgumentBytes: 1024 * 1024,
+  maxStdinBytes: 1024 * 1024,
+  maxStdoutBytes: 64 * 1024 * 1024,
+  maxStderrBytes: 2 * 1024 * 1024,
+  maxRecords: 250_000,
+  maxRootObservedBytes: 256 * 1024 * 1024,
+  maxReopenRefreshes: 10_000,
+  maxSettlementAttempts: 128,
+  maxCommandStdoutBytes: 32 * 1024 * 1024,
+  maxCommandStderrBytes: 512 * 1024,
+  maxExecutableBytes: 64 * 1024 * 1024
+});
+
+export interface ReleaseGitTreeMaterializationOptions {
+  readonly deadlineAtUnixMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+type ReleaseGitTreeOperationEnvelope = Readonly<{
+  operation: SecBoundSemanticOperation;
+  budget: GitReadSessionBudget;
+  deadlineAtUnixMs: number;
+  deadlineAtMonotonicMs: number;
+  stageParent: string;
+  signal?: AbortSignal;
+}>;
 
 interface ReleaseGitBlobEntry {
   readonly mode: '100644' | '100755';
@@ -18,12 +62,104 @@ interface ReleaseGitBlobEntry {
 }
 
 export interface ExactReleaseGitTree {
-  readonly schema: 'sec-exact-release-git-tree-v1';
+  readonly schema: typeof EXACT_RELEASE_GIT_TREE_SCHEMA;
   readonly root: string;
   readonly stageRoot: string;
   readonly sourceCommit: string;
   readonly sourceTree: string;
   readonly fileCount: number;
+}
+
+function compileReleaseGitTreeOperation(
+  repositoryRoot: string,
+  options: ReleaseGitTreeMaterializationOptions
+): ReleaseGitTreeOperationEnvelope {
+  const startedAtUnixMs = Date.now();
+  const startedAtMonotonicMs = performance.now();
+  const localDeadlineAtUnixMs = startedAtUnixMs
+    + RELEASE_GIT_TREE_OPERATION_BUDGET.deadlineMs;
+  const deadlineAtUnixMs = Math.min(
+    options.deadlineAtUnixMs ?? localDeadlineAtUnixMs,
+    localDeadlineAtUnixMs
+  );
+  const durationMs = deadlineAtUnixMs - startedAtUnixMs;
+  if (!Number.isSafeInteger(deadlineAtUnixMs)
+      || !Number.isSafeInteger(durationMs)
+      || durationMs < 1) {
+    throw new Error('Exact release Git tree materialization requires one future absolute deadline.');
+  }
+  const budget = Object.freeze({
+    ...RELEASE_GIT_TREE_OPERATION_BUDGET,
+    deadlineMs: durationMs
+  });
+  const stageParent = path.resolve(tmpdir());
+  const contractDigest = sha256({
+    operation: RELEASE_GIT_TREE_OPERATION,
+    resultSchema: EXACT_RELEASE_GIT_TREE_SCHEMA,
+    source: 'exact-commit-tree-and-blob-bytes',
+    lifecycle: 'exclusive-stage-materialization-readback-and-failure-cleanup'
+  }) as SecOperationDigest;
+  const plan = compileSecSemanticOperationPlan({
+    operation: RELEASE_GIT_TREE_OPERATION,
+    intentDigest: sha256({
+      repositoryRoot,
+      sourceSelector: 'HEAD',
+      stageParent
+    }) as SecOperationDigest,
+    decisionDigest: contractDigest,
+    deadlineAtUnixMs,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: durationMs },
+      { resource: 'input-bytes', maximum: budget.maxStdinBytes },
+      {
+        resource: 'output-bytes',
+        maximum: budget.maxProcesses
+          * (budget.maxCommandStdoutBytes + budget.maxCommandStderrBytes)
+      },
+      { resource: 'processes', maximum: budget.maxProcesses },
+      { resource: 'records', maximum: budget.maxRecords }
+    ],
+    requirements: [{
+      id: RELEASE_GIT_TREE_REQUIREMENT,
+      contractDigest,
+      effectKinds: ['filesystem', 'process', 'provider'],
+      failureKinds: [
+        'filesystem.cleanup-failed',
+        'filesystem.identity-drift',
+        'filesystem.materialization-failed',
+        'provider.cancelled',
+        'provider.deadline-exhausted',
+        'provider.drift',
+        'provider.unavailable',
+        'provider.unverified'
+      ]
+    }]
+  });
+  return Object.freeze({
+    operation: bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+      requirementId: RELEASE_GIT_TREE_REQUIREMENT,
+      contractDigest,
+      providerIdentityDigest: contractDigest
+    })]),
+    budget,
+    deadlineAtUnixMs,
+    deadlineAtMonotonicMs: startedAtMonotonicMs + durationMs,
+    stageParent,
+    ...(options.signal === undefined ? {} : { signal: options.signal })
+  });
+}
+
+function assertReleaseGitTreeOperationLive(
+  operation: ReleaseGitTreeOperationEnvelope,
+  action: string
+): void {
+  if (operation.signal?.aborted === true) {
+    throw new Error(`Exact release Git tree materialization was cancelled before ${action}.`);
+  }
+  if (Date.now() >= operation.deadlineAtUnixMs
+      || performance.now() >= operation.deadlineAtMonotonicMs) {
+    throw new Error(`Exact release Git tree materialization deadline elapsed before ${action}.`);
+  }
 }
 
 function completedGitCommand(
@@ -74,8 +210,21 @@ async function assertTrackedWorktreeMatchesCommit(
   sourceCommit: string
 ): Promise<void> {
   const result = completedGitCommand(await session.run([
-    'diff', '--quiet', '--no-ext-diff', '--no-textconv', sourceCommit, '--'
+    'diff', '--exit-code', '--name-only', '-z', '--no-ext-diff', '--no-textconv', sourceCommit, '--'
   ]), 'Release tracked worktree comparison');
+  if (result.stdout.byteLength > 0) {
+    if (result.stdout[result.stdout.byteLength - 1] !== 0) {
+      throw new Error('Release tracked worktree comparison returned noncanonical path records');
+    }
+    const paths = exactUtf8(
+      result.stdout.subarray(0, -1),
+      'Release tracked worktree comparison'
+    ).split('\0');
+    const recordFailure = session.consumeRecords(paths.length);
+    if (recordFailure !== null) {
+      throw new Error(`Release tracked worktree comparison record budget failed: ${recordFailure.reason}`);
+    }
+  }
   if (result.code === 1) throw new Error('Release tracked worktree/index differs from captured source commit');
   if (result.code !== 0) {
     const detail = result.stderr.trim();
@@ -230,12 +379,14 @@ function assertNotLfsPointer(bytes: Buffer, filePath: string): void {
 async function ensureOrdinaryParent(
   lexicalRoot: string,
   physicalRoot: string,
-  filePath: string
+  filePath: string,
+  operation: ReleaseGitTreeOperationEnvelope
 ): Promise<string> {
   const segments = filePath.split('/');
   let current = lexicalRoot;
   const physicalSegments: string[] = [];
   for (const segment of segments.slice(0, -1)) {
+    assertReleaseGitTreeOperationLive(operation, `creating parent for ${filePath}`);
     current = path.join(current, segment);
     physicalSegments.push(segment);
     try {
@@ -252,6 +403,7 @@ async function ensureOrdinaryParent(
     if (real !== expectedPhysical) {
       throw new Error(`Release source parent aliases another physical path: ${filePath}`);
     }
+    assertReleaseGitTreeOperationLive(operation, `reading back parent for ${filePath}`);
   }
   return current;
 }
@@ -260,10 +412,17 @@ async function materializeEntry(
   lexicalRoot: string,
   physicalRoot: string,
   entry: ReleaseGitBlobEntry,
-  bytes: Buffer
+  bytes: Buffer,
+  operation: ReleaseGitTreeOperationEnvelope
 ): Promise<void> {
+  assertReleaseGitTreeOperationLive(operation, `materializing ${entry.path}`);
   assertNotLfsPointer(bytes, entry.path);
-  const parent = await ensureOrdinaryParent(lexicalRoot, physicalRoot, entry.path);
+  const parent = await ensureOrdinaryParent(
+    lexicalRoot,
+    physicalRoot,
+    entry.path,
+    operation
+  );
   const target = path.join(parent, path.basename(entry.path));
   try {
     await fs.lstat(target);
@@ -293,27 +452,21 @@ async function materializeEntry(
   if (process.platform !== 'win32' && ((metadata.mode & 0o111) !== 0) !== (entry.mode === '100755')) {
     throw new Error(`Release source executable mode differs from Git tree: ${entry.path}`);
   }
+  assertReleaseGitTreeOperationLive(operation, `settling ${entry.path}`);
 }
 
-export async function materializeExactReleaseGitTree(repositoryRoot: string): Promise<ExactReleaseGitTree> {
+export async function materializeExactReleaseGitTree(
+  repositoryRoot: string,
+  options: ReleaseGitTreeMaterializationOptions = {}
+): Promise<ExactReleaseGitTree> {
   const absoluteRepositoryRoot = path.resolve(repositoryRoot);
+  const operation = compileReleaseGitTreeOperation(absoluteRepositoryRoot, options);
   return withAuthorityGitReadSession({
     cwd: absoluteRepositoryRoot,
-    budget: {
-      deadlineMs: 120_000,
-      maxProcesses: 128,
-      maxTotalArgumentBytes: 1024 * 1024,
-      maxStdinBytes: 1024 * 1024,
-      maxStdoutBytes: 64 * 1024 * 1024,
-      maxStderrBytes: 2 * 1024 * 1024,
-      maxRecords: 250_000,
-      maxRootObservedBytes: 256 * 1024 * 1024,
-      maxReopenRefreshes: 10_000,
-      maxSettlementAttempts: 128,
-      maxCommandStdoutBytes: 32 * 1024 * 1024,
-      maxCommandStderrBytes: 512 * 1024,
-      maxExecutableBytes: 64 * 1024 * 1024
-    }
+    operation: operation.operation,
+    budget: operation.budget,
+    deadlineAtUnixMs: operation.deadlineAtUnixMs,
+    ...(operation.signal === undefined ? {} : { signal: operation.signal })
   }, async (session) => {
     const sourceCommit = assertGitObjectId(
       await gitText(session, ['rev-parse', '--verify', 'HEAD^{commit}'], 'git rev-parse release commit'),
@@ -326,9 +479,11 @@ export async function materializeExactReleaseGitTree(repositoryRoot: string): Pr
     );
     const entries = await parseGitTree(session, sourceCommit);
 
-    const stageRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-release-source-'));
+    assertReleaseGitTreeOperationLive(operation, 'allocating the stage root');
+    const stageRoot = await fs.mkdtemp(path.join(operation.stageParent, 'sec-release-source-'));
     const sourceRoot = path.join(stageRoot, 'source');
     try {
+      assertReleaseGitTreeOperationLive(operation, 'creating the source root');
       await fs.mkdir(sourceRoot);
       const sourceMetadata = await fs.lstat(sourceRoot);
       if (sourceMetadata.isSymbolicLink() || !sourceMetadata.isDirectory()) {
@@ -336,15 +491,18 @@ export async function materializeExactReleaseGitTree(repositoryRoot: string): Pr
       }
       const physicalSourceRoot = path.resolve(await fs.realpath(sourceRoot));
       for (const batch of chunkEntries(entries)) {
+        assertReleaseGitTreeOperationLive(operation, 'reading the next blob batch');
         const blobs = await readBlobBatch(session, batch);
         for (const entry of batch) {
           const bytes = blobs.get(entry.objectId);
           if (bytes === undefined) throw new Error(`Release source blob bytes are absent for ${entry.path}`);
-          await materializeEntry(sourceRoot, physicalSourceRoot, entry, bytes);
+          await materializeEntry(sourceRoot, physicalSourceRoot, entry, bytes, operation);
         }
       }
+      assertReleaseGitTreeOperationLive(operation, 'provider settlement');
+      await session.close?.();
       return Object.freeze({
-        schema: 'sec-exact-release-git-tree-v1' as const,
+        schema: EXACT_RELEASE_GIT_TREE_SCHEMA,
         root: sourceRoot,
         stageRoot,
         sourceCommit,
@@ -353,6 +511,9 @@ export async function materializeExactReleaseGitTree(repositoryRoot: string): Pr
       });
     } catch (error) {
       try {
+        // Failure cleanup is terminal settlement, not a new operation. It must
+        // run even after cancellation/deadline and finish before this callback
+        // lets the authority wrapper close the provider session.
         await fs.rm(stageRoot, { recursive: true, force: true });
       } catch (cleanupError) {
         throw new AggregateError(
