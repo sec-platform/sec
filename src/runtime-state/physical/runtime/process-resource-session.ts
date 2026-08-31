@@ -114,9 +114,10 @@ export function openProcessResourceSession(input: Readonly<{
     durationUntilAttemptDeadlineMs,
     MAX_TIMER_DELAY_MS
   );
-  if (!Number.isSafeInteger(admittedDurationMs)
-      || admittedDurationMs < 1
-      || input.signal?.aborted === true) {
+  if (input.signal?.aborted === true) {
+    throw new Error('Process resource session is cancelled.');
+  }
+  if (!Number.isSafeInteger(admittedDurationMs) || admittedDurationMs < 1) {
     throw new Error('Process resource session admission deadline is exhausted.');
   }
   const deadlineAtUnixMs = startedAtUnixMs + admittedDurationMs;

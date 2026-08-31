@@ -2,6 +2,7 @@ import { dlopen, FFIType, ptr, read } from 'bun:ffi';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
+  fchmodSync,
   constants as fsConstants,
   fstatSync,
   fsyncSync,
@@ -365,11 +366,24 @@ const LINUX_AT_FDCWD = -100;
 // this remains true even when a host has closed stdin/stdout/stderr before the
 // capability is created.
 const LINUX_F_DUPFD_CLOEXEC = 1_030;
+const LINUX_F_ADD_SEALS = 1_033;
+const LINUX_F_GET_SEALS = 1_034;
+const LINUX_F_SEAL_SEAL = 0x0001;
+const LINUX_F_SEAL_SHRINK = 0x0002;
+const LINUX_F_SEAL_GROW = 0x0004;
+const LINUX_F_SEAL_WRITE = 0x0008;
+const LINUX_EXECUTABLE_SEALS = LINUX_F_SEAL_SEAL | LINUX_F_SEAL_SHRINK |
+  LINUX_F_SEAL_GROW | LINUX_F_SEAL_WRITE;
+const LINUX_MFD_CLOEXEC = 0x0001;
+const LINUX_MFD_ALLOW_SEALING = 0x0002;
 const LINUX_RETAINED_DESCRIPTOR_MIN = 5;
 const LINUX_AT_REMOVEDIR = 0x0200;
 const LINUX_RENAME_NOREPLACE = 1;
 const LINUX_RENAME_EXCHANGE = 2;
 const LINUX_IN_CREATE = 0x0000_0100;
+const LINUX_IN_MODIFY = 0x0000_0002;
+const LINUX_IN_ATTRIB = 0x0000_0004;
+const LINUX_IN_CLOSE_WRITE = 0x0000_0008;
 const LINUX_IN_DELETE = 0x0000_0200;
 const LINUX_IN_MOVED_FROM = 0x0000_0040;
 const LINUX_IN_MOVED_TO = 0x0000_0080;
@@ -382,6 +396,9 @@ const LINUX_IN_ISDIR = 0x4000_0000;
 const LINUX_DIRECTORY_CREATE_WATCH_MASK = LINUX_IN_CREATE | LINUX_IN_DELETE |
   LINUX_IN_MOVED_FROM | LINUX_IN_MOVED_TO | LINUX_IN_DELETE_SELF |
   LINUX_IN_MOVE_SELF | LINUX_IN_ONLYDIR;
+const LINUX_RETAINED_EXECUTABLE_WATCH_MASK = LINUX_IN_MODIFY | LINUX_IN_ATTRIB |
+  LINUX_IN_CLOSE_WRITE | LINUX_IN_CREATE | LINUX_IN_DELETE | LINUX_IN_MOVED_FROM |
+  LINUX_IN_MOVED_TO | LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF | LINUX_IN_ONLYDIR;
 const LINUX_INOTIFY_EVENT_HEADER_BYTES = 16;
 const LINUX_INOTIFY_READ_BYTES = 64 * 1024;
 const LINUX_INOTIFY_MAX_EVENTS = 1024;
@@ -421,6 +438,34 @@ function loadLinuxLibc() {
 function requireLinuxLibc(): LinuxLibc {
   linuxLibc ??= loadLinuxLibc();
   return linuxLibc;
+}
+
+type LinuxExecutableLibc = ReturnType<typeof loadLinuxExecutableLibc>;
+let linuxExecutableLibc: LinuxExecutableLibc | undefined;
+
+function loadLinuxExecutableLibc() {
+  if (process.platform !== 'linux') {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `No immutable retained executable backend is available on ${process.platform}.`
+    );
+  }
+  try {
+    return dlopen('libc.so.6', {
+      memfd_create: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.i32 }
+    } as const);
+  } catch (error) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Linux sealed executable-image backend is unavailable.',
+      error
+    );
+  }
+}
+
+function requireLinuxExecutableLibc(): LinuxExecutableLibc {
+  linuxExecutableLibc ??= loadLinuxExecutableLibc();
+  return linuxExecutableLibc;
 }
 
 /**
@@ -464,6 +509,152 @@ function linuxErrno(): number {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Linux errno location is unavailable.');
   }
   return read.i32(location as never);
+}
+
+interface LinuxSealedExecutableImage {
+  readonly fd: number;
+  readonly physical: Readonly<{ device: string; inode: string }>;
+  readonly mode: bigint;
+  readonly size: bigint;
+  readonly digest: Readonly<{
+    size: number;
+    contentDigest: `sha256:${string}`;
+    byteDigest: `sha256:${string}`;
+  }>;
+}
+
+/**
+ * Copies one already-retained executable into an anonymous Linux image and
+ * seals every content-changing operation before the descriptor can be
+ * inherited. The lexical source remains retained and independently fenced;
+ * the child executes only this immutable image through its fixed descriptor.
+ */
+function linuxCreateSealedExecutableImage(
+  sourceFd: number,
+  sourceSize: bigint,
+  sourceMode: bigint,
+  label: string
+): LinuxSealedExecutableImage {
+  if ((sourceMode & 0o111n) === 0n) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} is not an executable ordinary file.`
+    );
+  }
+  let imageFd: number | null = null;
+  try {
+    const created = requireLinuxExecutableLibc().symbols.memfd_create(
+      Buffer.from('sec-retained-executable\0', 'utf8'),
+      LINUX_MFD_CLOEXEC | LINUX_MFD_ALLOW_SEALING
+    );
+    if (created < 0) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} cannot create an immutable retained executable image (errno ${linuxErrno()}).`
+      );
+    }
+    imageFd = linuxRaiseDescriptorFloor(created, `${label} immutable image`);
+    const maximumBytes = Number(sourceSize);
+    let offset = 0;
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    while (offset < maximumBytes) {
+      const requested = Math.min(buffer.byteLength, maximumBytes - offset);
+      const observed = readSync(sourceFd, buffer, 0, requested, offset);
+      if (observed < 1) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+          `${label} source changed while materializing its immutable executable image.`
+        );
+      }
+      let written = 0;
+      while (written < observed) {
+        const count = writeSync(
+          imageFd,
+          buffer,
+          written,
+          observed - written,
+          offset + written
+        );
+        if (count < 1) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+            `${label} immutable executable image write did not make progress.`
+          );
+        }
+        written += count;
+      }
+      offset += observed;
+    }
+    try {
+      fchmodSync(imageFd, Number(sourceMode & 0o777n));
+    } catch (error) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} host policy does not admit an executable anonymous image.`,
+        error
+      );
+    }
+    if (requireLinuxLibc().symbols.fcntl(
+      imageFd,
+      LINUX_F_ADD_SEALS,
+      LINUX_EXECUTABLE_SEALS
+    ) !== 0) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} cannot seal its retained executable image (errno ${linuxErrno()}).`
+      );
+    }
+    const seals = requireLinuxLibc().symbols.fcntl(imageFd, LINUX_F_GET_SEALS, 0);
+    if (seals < 0 || (seals & LINUX_EXECUTABLE_SEALS) !== LINUX_EXECUTABLE_SEALS) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} immutable executable seals cannot be proven.`
+      );
+    }
+    const snapshot = fstatSync(imageFd, { bigint: true });
+    if (!snapshot.isFile() || snapshot.size !== sourceSize) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} immutable executable image does not match its retained source size.`
+      );
+    }
+    const physical = Object.freeze({
+      device: String(snapshot.dev),
+      inode: String(snapshot.ino)
+    });
+    return Object.freeze({
+      fd: imageFd,
+      physical,
+      mode: snapshot.mode,
+      size: snapshot.size,
+      digest: Object.freeze(digestRetainedOrdinaryFileFd(imageFd, physical, `${label} immutable image`))
+    });
+  } catch (error) {
+    if (imageFd !== null) closeLinuxDescriptorsBestEffort([imageFd], label);
+    throw error;
+  }
+}
+
+function linuxAssertSealedExecutableImage(
+  image: LinuxSealedExecutableImage,
+  label: string
+): void {
+  const seals = requireLinuxLibc().symbols.fcntl(image.fd, LINUX_F_GET_SEALS, 0);
+  if (seals < 0 || (seals & LINUX_EXECUTABLE_SEALS) !== LINUX_EXECUTABLE_SEALS) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+      `${label} immutable executable seals are no longer current.`
+    );
+  }
+  const current = fstatSync(image.fd, { bigint: true });
+  if (!current.isFile() || String(current.dev) !== image.physical.device
+      || String(current.ino) !== image.physical.inode || current.mode !== image.mode
+      || current.size !== image.size) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+      `${label} immutable executable image identity changed.`
+    );
+  }
 }
 
 function linuxOpenAt(parentFd: number, component: string, label: string): number {
@@ -679,6 +870,61 @@ function linuxReadDirectoryMutationEvents(
     }
   }
   return Object.freeze(events);
+}
+
+interface LinuxRetainedExecutableWitness {
+  readonly fd: number;
+  readonly watchDescriptor: number;
+  readonly name: string;
+  invalidated: boolean;
+}
+
+function linuxOpenRetainedExecutableWitness(
+  parentFd: number,
+  name: string,
+  label: string
+): LinuxRetainedExecutableWitness {
+  const fd = linuxOpenDirectoryMutationWitness(label);
+  const watchDescriptor = requireLinuxLibc().symbols.inotify_add_watch(
+    fd,
+    Buffer.from(`/proc/self/fd/${parentFd}\0`, 'utf8'),
+    LINUX_RETAINED_EXECUTABLE_WATCH_MASK
+  );
+  if (watchDescriptor < 0) {
+    const errno = linuxErrno();
+    closeLinuxDescriptorsBestEffort([fd], label);
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot bind its retained executable mutation witness (errno ${errno}).`
+    );
+  }
+  return { fd, watchDescriptor, name, invalidated: false };
+}
+
+function linuxAssertRetainedExecutableWitness(
+  witness: LinuxRetainedExecutableWitness,
+  label: string
+): void {
+  if (!witness.invalidated) {
+    const events = linuxReadDirectoryMutationEvents(Object.freeze({
+      fd: witness.fd,
+      watchDescriptor: witness.watchDescriptor,
+      ancestorEdges: new Map<number, string>()
+    }), label);
+    witness.invalidated = events.some((event) => (
+      event.mask & (LINUX_IN_Q_OVERFLOW | LINUX_IN_IGNORED |
+        LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF)
+    ) !== 0 || (
+      event.watchDescriptor === witness.watchDescriptor
+      && event.name === witness.name
+    ));
+  }
+  if (witness.invalidated) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+      `${label} lexical executable edge changed during the retained lifecycle.`
+    );
+  }
 }
 
 function linuxAssertDirectoryCreateWitness(
@@ -2368,12 +2614,6 @@ export function retainNoFollowOrdinaryFile(
   if (role !== 'ordinary-file' && role !== 'executable') {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} capability role is invalid.`);
   }
-  if (role === 'executable' && process.platform !== 'win32') {
-    throw physicalError(
-      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
-      `${label} executable admission requires a sealed image or mandatory writer-exclusion primitive.`
-    );
-  }
   if (!Number.isSafeInteger(childDescriptor) || childDescriptor < 3 || childDescriptor > 64) {
     throw physicalError(
       'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
@@ -2386,8 +2626,17 @@ export function retainNoFollowOrdinaryFile(
   if (process.platform === 'linux') {
     const retainedParent = linuxRetainBulkDirectoryChain(expectedParent, `${label} parent`);
     let descriptor: number | null = null;
+    let executableImage: LinuxSealedExecutableImage | null = null;
+    let executableWitness: LinuxRetainedExecutableWitness | null = null;
     let disposed = false;
     try {
+      if (role === 'executable') {
+        executableWitness = linuxOpenRetainedExecutableWitness(
+          retainedParent.target.fd,
+          name,
+          label
+        );
+      }
       const openedDescriptor = linuxOpenReadableLeafAt(retainedParent.target.fd, name, label);
       try {
         descriptor = linuxRaiseDescriptorFloor(openedDescriptor, label);
@@ -2411,9 +2660,29 @@ export function retainNoFollowOrdinaryFile(
       const initialSize = initial.size;
       const initialMtimeNs = initial.mtimeNs;
       const initialCtimeNs = initial.ctimeNs;
+      if (role === 'executable') {
+        executableImage = linuxCreateSealedExecutableImage(
+          descriptor,
+          initialSize,
+          initialMode,
+          label
+        );
+        const afterImage = fstatSync(descriptor, { bigint: true });
+        if (!afterImage.isFile() || afterImage.dev !== initial.dev || afterImage.ino !== initial.ino
+            || afterImage.mode !== initialMode || afterImage.size !== initialSize
+            || afterImage.mtimeNs !== initialMtimeNs || afterImage.ctimeNs !== initialCtimeNs) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            `${label} source changed while sealing its executable image.`
+          );
+        }
+      }
       const assertCurrent = (): void => {
         if (disposed || descriptor === null) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} capability is disposed.`);
+        }
+        if (executableWitness !== null) {
+          linuxAssertRetainedExecutableWitness(executableWitness, label);
         }
         const current = fstatSync(descriptor, { bigint: true });
         if (!current.isFile() || current.dev !== initial.dev || current.ino !== initial.ino ||
@@ -2437,8 +2706,14 @@ export function retainNoFollowOrdinaryFile(
           closeSync(lexicalLeaf);
         }
         retainedParent.assertCurrent();
+        if (executableImage !== null) {
+          linuxAssertSealedExecutableImage(executableImage, label);
+        }
       };
       assertCurrent();
+      const contentDescriptor = executableImage?.fd ?? descriptor;
+      const contentPhysical = executableImage?.physical ?? physical;
+      const contentSize = executableImage?.size ?? initialSize;
       const capability = Object.freeze({
         [RETAINED_NO_FOLLOW_CAPABILITY_BRAND]: role,
         path: absolutePath,
@@ -2447,13 +2722,13 @@ export function retainNoFollowOrdinaryFile(
         physical,
         size: Number(initialSize),
         childPath: `/proc/self/fd/${childDescriptor}`,
-        stdioSourceDescriptor: descriptor,
+        stdioSourceDescriptor: contentDescriptor,
         assertCurrent,
         readBytes: () => {
           assertCurrent();
-          const before = fstatSync(descriptor!, { bigint: true });
-          if (!before.isFile() || String(before.dev) !== physical.device ||
-              String(before.ino) !== physical.inode ||
+          const before = fstatSync(contentDescriptor, { bigint: true });
+          if (!before.isFile() || String(before.dev) !== contentPhysical.device ||
+              String(before.ino) !== contentPhysical.inode || before.size !== contentSize ||
               before.size > BigInt(NO_FOLLOW_FILE_READ_LIMIT_BYTES)) {
             throw physicalError(
               'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
@@ -2465,7 +2740,7 @@ export function retainNoFollowOrdinaryFile(
           let offset = 0;
           for (;;) {
             const chunk = Buffer.alloc(64 * 1024);
-            const count = readSync(descriptor!, chunk, 0, chunk.byteLength, offset);
+            const count = readSync(contentDescriptor, chunk, 0, chunk.byteLength, offset);
             if (count === 0) break;
             offset += count;
             total += count;
@@ -2488,7 +2763,8 @@ export function retainNoFollowOrdinaryFile(
         },
         digest: () => {
           assertCurrent();
-          const result = digestRetainedOrdinaryFileFd(descriptor!, physical, label);
+          const result = executableImage?.digest
+            ?? digestRetainedOrdinaryFileFd(descriptor!, physical, label);
           assertCurrent();
           return result;
         },
@@ -2496,18 +2772,28 @@ export function retainNoFollowOrdinaryFile(
           if (disposed) return;
           disposed = true;
           const closeError = closeLinuxDescriptorsBestEffort(
-            [descriptor!, ...[...retainedParent.directories].reverse().map((entry) => entry.fd)],
+            [
+              ...(executableWitness === null ? [] : [executableWitness.fd]),
+              ...(executableImage === null ? [] : [executableImage.fd]),
+              descriptor!,
+              ...[...retainedParent.directories].reverse().map((entry) => entry.fd)
+            ],
             label
           );
           descriptor = null;
+          executableImage = null;
+          executableWitness = null;
           if (closeError !== null) throw closeError;
         }
       });
       return issueRetainedNoFollowCapability(capability, role);
     } catch (error) {
-      const descriptors = descriptor === null
-        ? [...retainedParent.directories].reverse().map((entry) => entry.fd)
-        : [descriptor, ...[...retainedParent.directories].reverse().map((entry) => entry.fd)];
+      const descriptors = [
+        ...(executableWitness === null ? [] : [executableWitness.fd]),
+        ...(executableImage === null ? [] : [executableImage.fd]),
+        ...(descriptor === null ? [] : [descriptor]),
+        ...[...retainedParent.directories].reverse().map((entry) => entry.fd)
+      ];
       closeLinuxDescriptorsBestEffort(descriptors, label);
       throw error;
     }

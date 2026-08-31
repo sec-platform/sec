@@ -8,7 +8,7 @@ import {
   copyBoundedCommandInput,
   runObservedCommand,
   type ObservedCommandOutcome
-} from './observed-process.ts';
+} from './observed-process-stdin.ts';
 import {
   assertRetainedNoFollowCapability,
   type RetainedNoFollowChildProcessDirectory,
@@ -360,7 +360,10 @@ function retainedCommandSpawnBoundary(boundary: RetainedCommandBoundary): Readon
     stdio[childDescriptor] = source;
   }
   return Object.freeze({
-    cwd: boundary.workingDirectory.childPath,
+    // libuv may chdir before it remaps inherited stdio descriptors. Address
+    // the already-retained parent descriptor during spawn admission; fd 4 is
+    // still installed for the child-facing boundary before exec.
+    cwd: `/proc/self/fd/${workingDirectorySource}`,
     stdio
   });
 }
