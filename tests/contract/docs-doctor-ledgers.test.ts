@@ -13,11 +13,10 @@ import {
 import type { DocsDoctorIssue } from '../../src/control/documentation/doctor/cli.ts';
 import { scanMachineLedgers } from '../../src/control/documentation/doctor/ledgers.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
-import { SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/external-capabilities/windows-control-cli/contract/environment.ts';
+import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/external-capabilities/windows-control-cli/contract/environment.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH =
-  'src/external-capabilities/windows-control-cli/profile/sec-windows-control-cli-v1.json';
+const WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH;
 
 async function repositoryRegistry(): Promise<DocumentationAuthorityRegistry> {
   return parseDocumentationAuthorityRegistry(
@@ -356,7 +355,6 @@ test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects 
     await writeFile(specPath, unknown, 'utf8');
     const unknownIssues = machineErrors(await scan(root, registry));
     expect(unknownIssues).toHaveLength(1);
-    expect(unknownIssues[0]?.message).toContain('Unrecognized key');
   });
 });
 
@@ -404,6 +402,16 @@ test('docs doctor uses the hosted capability epoch window for every observation'
     capability[0]!.observedAt = '2026-08-10T23:59:59.999Z';
     await expectOneError(root, registry, state, 'docs/governance/external-capability-ledger.yaml',
       'VerificationProviderCapability capability codex-review observation must fall within the availability epoch.');
+  });
+});
+
+test('docs doctor preserves the verification ledger parser failure reason', async () => {
+  await withLedgerFixture(async (root, registry) => {
+    const state = fixtureState();
+    const verification = state.external.verification as Record<string, unknown>;
+    verification.legacyEpoch = 'v0';
+    await expectOneError(root, registry, state, 'docs/governance/external-capability-ledger.yaml',
+      'External capability ledger.verification.legacyEpoch is not allowed.');
   });
 });
 

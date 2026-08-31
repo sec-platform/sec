@@ -45,7 +45,7 @@ describe('verification provider capability contract', () => {
   });
 
   test('ledger parser delegates static positive projection normalization to the canonical contract', () => {
-    const epoch = parseVerificationProviderCapabilityLedger(JSON.stringify({
+    const projection = parseVerificationProviderCapabilityLedger(JSON.stringify({
       schema: 'sec-external-capability-ledger-v4',
       verification: {
         schema: 'sec-verification-provider-availability-ledger-v1',
@@ -67,6 +67,8 @@ describe('verification provider capability contract', () => {
         }]
       }
     }));
+    const epoch = projection.availabilityEpoch;
+    expect(projection.document.schema).toBe('sec-external-capability-ledger-v4');
     expect(resolveProviderAvailability(epoch, 'github-writer')).toMatchObject({
       availability: 'unknown',
       reasonCode: 'provider-receipt-unverified',
