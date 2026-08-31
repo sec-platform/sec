@@ -202,12 +202,12 @@ test('recovery-required records unresolved execution without manufacturing provi
     expect(() => value.store.appendAttemptStart({
       ...identity,
       resumeEpochDigest: digest('54'),
-      attemptNonceDigest: digest('26'),
+      attemptNonceDigest: digest('55'),
       workerIdentityDigest: digest('27'),
       authorityGrantReferenceDigest: digest('28'),
       providerBindingSetReferenceDigest: digest('29'),
       executionPlanReferenceDigest: digest('30')
-    })).toThrow('attempt nonce was already consumed');
+    })).toThrow('unresolved execution');
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
