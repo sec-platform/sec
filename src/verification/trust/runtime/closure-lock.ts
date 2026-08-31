@@ -33,8 +33,8 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
-import { compilerRoot } from '../../../workspace/paths.ts';
-import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, type VerificationActionPlan, type VerificationActionTerminal } from '../../action/contract/action.ts';
+import { compilerRoot } from '../../../workspace/runtime/paths.ts';
+import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionPlan } from '../../action/contract/action.ts';
 import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH,
@@ -57,18 +57,6 @@ export const TCB_REVIEWED_SUT_EDGES = new Set(
 export const TCB_REVIEWED_BOUNDARY_EDGES = new Set(
   SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges
 );
-
-export const TCB_REVIEWED_EXTERNAL_IMPORTS = new Set([
-  'src/development/runner/env-manager.ts -> node:net',
-  'src/verification/gate/state/heavy-lease.ts -> bun:ffi',
-  'src/runtime-state/physical/runtime/observed-process.ts -> bun:ffi',
-  'src/runtime-state/physical/runtime/physical-no-follow.ts -> bun:ffi',
-  'src/runtime-state/physical/runtime/process.ts -> node:string_decoder',
-  'src/external-capabilities/linux-verification/contract.ts -> zod',
-  'src/external-capabilities/windows-control-cli/contract/environment.ts -> zod',
-  'src/verification/review/contract/summary.ts -> zod',
-  'src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts -> bun:ffi',
-]);
 
 export const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
   'node:async_hooks',
@@ -100,15 +88,25 @@ const TCB_BUN_SAFE_IMPORTS = new Set([
   'Glob'
 ]);
 
+const TCB_WORKER_THREAD_SAFE_IMPORTS = new Set([
+  'parentPort'
+]);
+
+const TCB_WORKER_GLOBAL_SAFE_MEMBERS = new Set([
+  'onmessage',
+  'postMessage'
+]);
+
 export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'src/development/runner/import-organizer.ts::function-declaration:changedTypeScriptFiles::spawnSync#1',
   'src/development/runner/import-organizer.ts::function-declaration:gitBytes::spawnSync#1',
   'src/development/runner/import-organizer.ts::function-declaration:gitText::spawnSync#1',
   'src/development/runner/import-organizer.ts::function-declaration:tryResolveGitCommit::spawnSync#1',
   'src/runtime-state/physical/runtime/observed-process.ts::function-declaration:defaultSpawnChild::spawn#1',
-  'src/runtime-state/physical/runtime/observed-process.ts::function-declaration:startWindowsObservedStdinWriter::node:worker_threads.Worker#1',
+  'src/runtime-state/physical/runtime/observed-process-stdin.ts::function-declaration:startWindowsObservedStdinWriter::node:worker_threads.Worker#1',
   'src/runtime-state/physical/runtime/process.ts::function-declaration:runCommandCapture::spawn#1',
   'src/runtime-state/physical/runtime/process.ts::function-declaration:terminateCommandProcessTree::spawn#1',
+  'src/runtime-state/physical/runtime/windows-repository-change-observer.ts::function-declaration:startWatcher::Worker#1',
   'src/verification/ci/verification.ts::function-declaration:inspectHostedActionArchiveMetadata::spawnSync#1',
   'src/verification/ci/verification.ts::function-declaration:gitCandidateBytes::spawnSync#1',
   'src/verification/ci/verification.ts::function-declaration:defaultHostedSutSandboxProcess::spawn#1',
@@ -158,6 +156,7 @@ const TCB_BUN_PROCESS_LOADERS = new Set([
 ]);
 
 const TCB_BUN_SAFE_GLOBAL_MEMBERS = new Set([
+  'isMainThread',
   'version'
 ]);
 
@@ -239,6 +238,7 @@ export function runtimeRelativeImportsFromSource(
   const childProcessBindings = new Map<string, string>();
   const childProcessNamespaces = new Set<string>();
   const threadWorkerBindings = new Set<string>();
+  const workerGlobalBindings = new Set<string>();
   const rejectUnmodeledLoader = (loader: string): never => {
     throw new Error(
       `TCB runtime loader is outside the relative ESM closure model: ${repositoryPath} (${loader}).`
@@ -298,15 +298,17 @@ export function runtimeRelativeImportsFromSource(
           continue;
         }
         if (moduleSpecifier === 'node:worker_threads') {
-          if (namespaceBindings.length > 0 || runtimeNamedImports.length !== 1) {
-            rejectUnmodeledLoader('node:worker_threads import without one classified Worker binding');
+          if (namespaceBindings.length > 0 || runtimeNamedImports.length === 0) {
+            rejectUnmodeledLoader('node:worker_threads import without classified runtime bindings');
           }
-          const element = runtimeNamedImports[0]!;
-          const importedName = element.propertyName?.text ?? element.name.text;
-          if (importedName !== 'Worker') {
-            rejectUnmodeledLoader(`unclassified node:worker_threads binding ${importedName}`);
+          for (const element of runtimeNamedImports) {
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (TCB_WORKER_THREAD_SAFE_IMPORTS.has(importedName)) continue;
+            if (importedName !== 'Worker') {
+              rejectUnmodeledLoader(`unclassified node:worker_threads binding ${importedName}`);
+            }
+            threadWorkerBindings.add(element.name.text);
           }
-          threadWorkerBindings.add(element.name.text);
           continue;
         }
         rejectUnmodeledLoader(`runtime ${moduleSpecifier} import`);
@@ -535,6 +537,69 @@ export function runtimeRelativeImportsFromSource(
     return false;
   };
 
+  const reviewedWorkerGlobalBinding = (identifier: ts.Identifier): string | null => {
+    const firstAssertion = identifier.parent;
+    if (
+      !ts.isAsExpression(firstAssertion)
+      || firstAssertion.expression !== identifier
+      || firstAssertion.type.kind !== ts.SyntaxKind.UnknownKeyword
+    ) return null;
+    const secondAssertion = firstAssertion.parent;
+    if (!ts.isAsExpression(secondAssertion) || secondAssertion.expression !== firstAssertion) return null;
+    const declaration = secondAssertion.parent;
+    if (
+      !ts.isVariableDeclaration(declaration)
+      || declaration.initializer !== secondAssertion
+      || !ts.isIdentifier(declaration.name)
+      || variableDeclarationKind(declaration) !== 'const'
+      || !ts.isVariableStatement(declaration.parent.parent)
+      || declaration.parent.parent.parent !== sourceFile
+    ) return null;
+    const reviewedWorkerPrefix = `${repositoryPath}::`;
+    if (![...TCB_REVIEWED_PROCESS_DISPATCHERS].some(
+      (identity) => identity.startsWith(reviewedWorkerPrefix) && identity.includes('::Worker#')
+    )) return null;
+    return declaration.name.text;
+  };
+
+  const reviewedWorkerGlobalArgument = (identifier: ts.Identifier): boolean => {
+    const call = identifier.parent;
+    if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression)) return false;
+    const parameterIndex = call.arguments.findIndex((argument) => argument === identifier);
+    if (parameterIndex < 0) return false;
+    const candidates = sourceFile.statements.filter(
+      (statement): statement is ts.FunctionDeclaration => (
+        ts.isFunctionDeclaration(statement)
+        && statement.name?.text === call.expression.text
+        && statement.body !== undefined
+      )
+    );
+    if (candidates.length !== 1) return false;
+    const candidate = candidates[0]!;
+    const parameter = candidate.parameters[parameterIndex];
+    if (parameter === undefined || !ts.isIdentifier(parameter.name)) return false;
+    let valid = true;
+    const inspectUse = (node: ts.Node): void => {
+      if (!valid) return;
+      if (
+        ts.isIdentifier(node)
+        && node.text === parameter.name.text
+        && node !== parameter.name
+        && !isPropertyName(node)
+        && !isTypeOnlyIdentifier(node)
+      ) {
+        if (
+          !ts.isPropertyAccessExpression(node.parent)
+          || node.parent.expression !== node
+          || !TCB_WORKER_GLOBAL_SAFE_MEMBERS.has(node.parent.name.text)
+        ) valid = false;
+      }
+      ts.forEachChild(node, inspectUse);
+    };
+    inspectUse(candidate.body!);
+    return valid;
+  };
+
   function visitRuntimeLoaders(node: ts.Node): void {
     if (
       ts.isIdentifier(node)
@@ -599,8 +664,26 @@ export function runtimeRelativeImportsFromSource(
         (ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent))
         && node.parent.expression === node
       );
-      if (!isDirectMemberOwner && !ts.isTypeOfExpression(node.parent)) {
+      const workerGlobalBinding = reviewedWorkerGlobalBinding(node);
+      if (workerGlobalBinding !== null) workerGlobalBindings.add(workerGlobalBinding);
+      if (!isDirectMemberOwner && !ts.isTypeOfExpression(node.parent) && workerGlobalBinding === null) {
         rejectUnmodeledLoader('escaped globalThis namespace');
+      }
+    }
+    if (
+      ts.isIdentifier(node)
+      && workerGlobalBindings.has(node.text)
+      && !isPropertyName(node)
+      && !isTypeOnlyIdentifier(node)
+    ) {
+      const isDeclarationName = ts.isVariableDeclaration(node.parent) && node.parent.name === node;
+      const isReviewedMember = (
+        ts.isPropertyAccessExpression(node.parent)
+        && node.parent.expression === node
+        && TCB_WORKER_GLOBAL_SAFE_MEMBERS.has(node.parent.name.text)
+      );
+      if (!isDeclarationName && !isReviewedMember && !reviewedWorkerGlobalArgument(node)) {
+        rejectUnmodeledLoader(`escaped reviewed worker global binding ${node.text}`);
       }
     }
     if (ts.isIdentifier(node) && node.text === 'process' && !isPropertyName(node)) {
@@ -807,8 +890,11 @@ export function runtimeRelativeImportsFromSource(
     }
     if (ts.isNewExpression(node)) {
       const name = loaderName(node.expression);
-      if (name !== null && TCB_GLOBAL_THIS_RUNTIME_LOADERS.has(name)) rejectUnmodeledLoader(name);
-      if (name === 'node:worker_threads.Worker') reviewProcessDispatch(node, name);
+      if (name === 'Worker' || name === 'node:worker_threads.Worker') {
+        reviewProcessDispatch(node, name);
+      } else if (name !== null && TCB_GLOBAL_THIS_RUNTIME_LOADERS.has(name)) {
+        rejectUnmodeledLoader(name);
+      }
     }
     ts.forEachChild(node, visitRuntimeLoaders);
   }
@@ -821,7 +907,7 @@ export function runtimeRelativeImportsFromSource(
       return false;
     }
     const reviewedExternalImport = `${repositoryPath} -> ${specifier}`;
-    if (TCB_REVIEWED_EXTERNAL_IMPORTS.has(reviewedExternalImport)) {
+    if (SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports.includes(reviewedExternalImport)) {
       reviewedExternalImports.add(reviewedExternalImport);
       observedExternalImports.add(specifier);
       return false;
@@ -1585,7 +1671,8 @@ export interface TcbClosureActionResult {
   readonly schema: typeof TCB_CLOSURE_ACTION_RESULT_SCHEMA;
   readonly actionKey: `sha256:${string}`;
   readonly identity: TcbClosureLock;
-  readonly terminal: VerificationActionTerminal;
+  /** Pure compiler output. Effect executors must project it through their own settlement owner. */
+  readonly resultDigest: `sha256:${string}`;
 }
 
 export interface TcbClosureCandidateActionDemand {
@@ -1681,8 +1768,7 @@ export function selectTcbClosureCandidateAction(input: Readonly<{
   trustedRegistry: SecTrustedBootstrapRegistry;
   checkerResult: TcbClosureActionResult;
 }>): TcbClosureCandidateActionDemand {
-  if (input.checkerResult.terminal.status !== 'passed' ||
-      input.checkerResult.terminal.resultDigest !== input.checkerResult.identity.closureDigest) {
+  if (input.checkerResult.resultDigest !== input.checkerResult.identity.closureDigest) {
     throw new Error('TCB candidate Action selection requires one valid trusted-base checker result.');
   }
   const changedPaths = [...new Set(input.changedPaths)].sort();
@@ -1723,8 +1809,8 @@ export function compileTcbClosureActionResult(input: Readonly<{
   const requiredUpstream = input.plan.dependencies.map((dependency) => dependency.actionKey).sort();
   const suppliedUpstream = [...(input.upstreamResults ?? [])]
     .map((result) => {
-      if (result.terminal.status !== 'passed' || result.terminal.resultDigest === null) {
-        throw new Error('TCB closure Action upstream result is not terminal-passed.');
+      if (result.resultDigest !== result.identity.closureDigest) {
+        throw new Error('TCB closure Action upstream compiler result is not canonical.');
       }
       return result.actionKey;
     })
@@ -1738,11 +1824,7 @@ export function compileTcbClosureActionResult(input: Readonly<{
     schema: TCB_CLOSURE_ACTION_RESULT_SCHEMA,
     actionKey: input.plan.action.actionKey,
     identity,
-    terminal: createVerificationActionTerminal({
-      status: 'passed',
-      reasonCode: 'executed-success',
-      resultDigest
-    })
+    resultDigest
   });
 }
 

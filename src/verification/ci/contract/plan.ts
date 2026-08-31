@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
+
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import type { CiVerificationGatePhase, CiVerificationGateStep } from '../../action/contract/ci.ts';
+import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
-import { selectCiPrRiskSlowSuites } from '../runtime/pr-risk-selection.ts';
+import { selectCiSlowTestClosure } from '../runtime/slow-test-selection.ts';
 
 export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v19' as const;
 export const CI_VERIFICATION_EXECUTION_MODEL = 'verification-session-v2-action-closure' as const;
@@ -31,17 +34,67 @@ function gate(id: string, phase: CiVerificationGatePhase, ...args: string[]): Ci
   return { id, phase, args };
 }
 
+function selectedSlowTestGateId(file: string): string {
+  return `slow-test-${createHash('sha256').update(file, 'utf8').digest('hex')}`;
+}
+
+function selectedRiskGates(
+  rawSuites: readonly string[],
+  rawSlowTests: readonly string[]
+): CiVerificationGateStep[] {
+  const suites = uniqueSorted(rawSuites);
+  const slowTests = uniqueSorted(rawSlowTests);
+  for (const suite of suites) {
+    if (!isKnownSlowTestSuiteId(suite)) {
+      throw new Error(`Verification selected an unknown slow-test suite: ${suite}`);
+    }
+  }
+  for (const file of slowTests) {
+    if (!CodexDevelopmentIsCanonicalRepositoryPath(file) || !isSlowTestFile(file)) {
+      throw new Error(`Verification selected a noncanonical slow-test path: ${file}`);
+    }
+    if (slowTestSuiteIdsForFile(file).length > 0) {
+      throw new Error(`Verification selected a suite-owned slow test as a direct member: ${file}`);
+    }
+  }
+  return [
+    ...suites.map((suite) => gate(
+      `slow-suite-${suite}`,
+      'risk',
+      'run',
+      'test:slow',
+      '--',
+      '--suite',
+      suite
+    )),
+    ...slowTests.map((file) => gate(
+      selectedSlowTestGateId(file),
+      'risk',
+      'run',
+      'test:slow',
+      '--',
+      file
+    ))
+  ];
+}
+
 export function buildCiQuickGatePlan(options: {
   includeImports: boolean;
   includeDocs: boolean;
-  includeRisk: boolean;
+  selectedSlowSuites?: readonly string[];
+  selectedSlowTests?: readonly string[];
 }): CiVerificationGateStep[] {
+  const riskGates = selectedRiskGates(
+    options.selectedSlowSuites ?? [],
+    options.selectedSlowTests ?? []
+  );
   return [
     ...(options.includeImports ? [gate('imports', 'quick', 'run', 'imports:check')] : []),
     ...(options.includeDocs ? [gate('docs-doctor', 'quick', 'run', 'docs:doctor')] : []),
     gate('typecheck', 'quick', 'run', 'typecheck'),
     gate('affected-tests', 'quick', 'run', 'test:affected'),
-    ...(options.includeRisk ? [gate('impact-risk', 'risk', 'src/verification/ci/pr-risk.ts')] : [])
+    ...(riskGates.length > 0 ? [gate('contract-freeze', 'risk', 'run', 'test:contract-freeze')] : []),
+    ...riskGates
   ];
 }
 
@@ -57,12 +110,11 @@ export function buildCiFullGatePlan(options: {
     gate('full-fast', 'full', 'run', 'test:fast'),
     gate('test-budget', 'full', 'run', 'sec', '--', 'test', 'budget', '--json', '--compact'),
     gate('contract-freeze', 'risk', 'run', 'test:contract-freeze'),
-    gate('all-slow-risk', 'risk', 'src/verification/ci/pr-risk.ts', '--all-slow'),
+    ...selectedRiskGates(slowTestSuiteIds(), []),
     gate('benchmark-task-suite', 'full', 'run', 'sec', '--', 'benchmark', 'suite', '--json', '--compact'),
     gate('deps-warmup', 'full', 'run', 'sec', '--', 'deps', 'warmup'),
     gate('resolve', 'workspace', 'run', 'sec', '--', 'resolve'),
     gate('compose', 'workspace', 'run', 'sec', '--', 'compose'),
-    gate('adapt', 'workspace', 'run', 'sec', '--', 'adapt'),
     gate('verify-all', 'workspace', 'run', 'sec', '--', 'verify', '--lane', 'all', '--json', '--compact'),
     gate('lock', 'workspace', 'run', 'sec', '--', 'lock'),
     gate('explain', 'workspace', 'run', 'sec', '--', 'explain'),
@@ -94,15 +146,15 @@ export function CodexDevelopmentBuildVerificationPlan(
   transition?: CodexDevelopmentTestImpactTransitionObservation
 ): CodexDevelopmentVerificationPlan {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFiles(rawChangedFiles);
-  const selection = selectCiPrRiskSlowSuites(changedFiles, testImpactSourceProvider, transition);
-  const includeRisk = !selection.resolved || selection.suites.length > 0 || selection.slowTests.length > 0;
+  const selection = selectCiSlowTestClosure(changedFiles, testImpactSourceProvider, transition);
   const hasDocsLifecycleChange = changedFiles === null || hasDocumentationLifecycleChange(selection.owners);
   const gates = profile === 'full'
     ? buildCiFullGatePlan({ hasDocumentationLifecycleChange: hasDocsLifecycleChange })
     : buildCiQuickGatePlan({
       includeImports: changedFiles === null || hasTypeScriptChange(changedFiles),
       includeDocs: hasDocsLifecycleChange,
-      includeRisk
+      selectedSlowSuites: selection.suites,
+      selectedSlowTests: selection.slowTests
     });
   return {
     profile,

@@ -8,7 +8,7 @@ import {
   TCB_TRUST_ROOT
 } from '../../src/verification/trust/compiler.ts';
 import { createSecTrustedBootstrapTrustRoot, matchSecTrustedBootstrapPath, parseSecTrustedBootstrapRegistry, SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH, type SecTrustedBootstrapRegistry } from '../../src/verification/trust/contract/root.ts';
-import { compilerRoot } from '../../src/workspace/paths.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 const TCB_CLOSURE_LOCK = compileTcbClosureIdentity();
 
@@ -30,7 +30,11 @@ test('canonical trust-root registry is structurally strict and separates static 
   expect(registrySource()).not.toContain('causalRuntimePaths');
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_TRUST_ROOT.causalRuntimePaths.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
+  expect(parsed.reviewedSutEdges).toEqual([]);
   expect(parsed.reviewedBoundaryEdges).toEqual([]);
+  expect(parsed.reviewedExternalImports).toContain(
+    'src/brownfield/source-program-model/test-impact-projection.ts -> zod'
+  );
 
   const causalRuntimePath = TCB_TRUST_ROOT.causalRuntimePaths[0]!;
   expect(matchSecTrustedBootstrapPath('scripts/codex/untrusted.ts', TCB_TRUST_ROOT)).toBeNull();
@@ -99,6 +103,28 @@ test('trust-root registry rejects structural ambiguity, path aliases and self-de
     }),
     mutate({
       reviewedBoundaryEdges: ['src/verification/ci/runtime/verification-session.ts -> src/control/main-health/contract.ts']
+    }),
+    mutate({
+      reviewedExternalImports: [
+        ...base.reviewedExternalImports,
+        'src/brownfield/source-program-model/test-impact-projection.ts -> zod'
+      ].sort()
+    }),
+    mutate({ reviewedExternalImports: ['* -> zod'] }),
+    mutate({
+      reviewedExternalImports: [
+        'src/brownfield/source-program-model/test-impact-projection.ts -> zod/*'
+      ]
+    }),
+    mutate({
+      reviewedExternalImports: [
+        'src/brownfield/source-program-model/test-impact-projection.ts -> ../zod'
+      ]
+    }),
+    mutate({
+      reviewedExternalImports: [
+        'src/brownfield/source-program-model/test-impact-projection.ts -> zod as parser'
+      ]
     })
   ];
 
@@ -110,12 +136,11 @@ test('trust-root registry rejects structural ambiguity, path aliases and self-de
 test('policy and derived causal closure are both validated when composing the trust root', () => {
   const base = SEC_TRUSTED_BOOTSTRAP_REGISTRY;
   const modules = TCB_CLOSURE_LOCK.modules;
-  const removableModule = modules.find((entry) => entry !== SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER)!;
   const syntheticModule = 'scripts/codex/untrusted.ts';
   const causalFailures = [
     modules.filter((entry) => entry !== SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER),
-    modules.filter((entry) => entry !== removableModule),
-    [...modules, syntheticModule].sort(),
+    [...modules].reverse(),
+    [...modules, modules[0]!].sort(),
     [...modules.slice(0, -1), 'virtual/e\u0301.ts'].sort()
   ];
   for (const causalRuntimePaths of causalFailures) {

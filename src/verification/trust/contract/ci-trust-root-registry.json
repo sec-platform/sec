@@ -44,12 +44,9 @@
     "src/verification/ci/contract/core.ts",
     "src/verification/ci/contract/evidence.ts",
     "src/verification/ci/contract/plan.ts",
-    "src/verification/ci/pr-risk.ts",
     "src/verification/ci/runtime/local-github-actions-runner.ts",
-    "src/verification/ci/runtime/pr-risk-selection.ts",
     "src/verification/ci/runtime/verification-session.ts",
     "src/verification/ci/verification.ts",
-    "src/verification/ci/workspace-fast.ts",
     "src/verification/result/contract/result.ts",
     "src/verification/review/contract/stability.ts",
     "src/verification/session/contract/session.ts",
@@ -60,11 +57,21 @@
     "src/verification/trust/contract/root.ts",
     "tests/setup/test-runtime.setup.ts"
   ],
-  "reviewedSutEdges": [
-    "src/verification/ci/workspace-fast.ts -> src/compiler/orchestration/block-orchestrator.ts",
-    "src/verification/ci/workspace-fast.ts -> src/compiler/orchestration/compose-orchestrator.ts",
-    "src/verification/ci/workspace-fast.ts -> src/compiler/orchestration/verify-orchestrator.ts",
-    "src/verification/ci/workspace-fast.ts -> src/compiler/orchestration/workspace-orchestrator.ts"
-  ],
-  "reviewedBoundaryEdges": []
+  "reviewedSutEdges": [],
+  "reviewedBoundaryEdges": [],
+  "reviewedExternalImports": [
+    "src/brownfield/source-program-model/test-impact-projection.ts -> zod",
+    "src/development/runner/env-manager.ts -> node:net",
+    "src/external-capabilities/linux-verification/contract.ts -> zod",
+    "src/external-capabilities/windows-control-cli/contract/environment.ts -> zod",
+    "src/runtime-state/physical/runtime/observed-process.ts -> bun:ffi",
+    "src/runtime-state/physical/runtime/physical-no-follow.ts -> bun:ffi",
+    "src/runtime-state/physical/runtime/process.ts -> node:string_decoder",
+    "src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts -> bun:ffi",
+    "src/runtime-state/physical/runtime/windows-known-folders.ts -> bun:ffi",
+    "src/runtime-state/physical/runtime/windows-repository-change-observer.ts -> bun:ffi",
+    "src/runtime-state/physical/runtime/windows-stdin-writer-worker.mjs -> bun:ffi",
+    "src/verification/gate/state/heavy-lease.ts -> bun:ffi",
+    "src/verification/review/contract/summary.ts -> zod"
+  ]
 }

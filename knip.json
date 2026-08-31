@@ -3,7 +3,6 @@
   "entry": [
     "src/compiler/orchestration/cli.ts!",
     "src/compiler/orchestration/semantic-mutation-isolated-verification-runner.ts!",
-    "src/verification/ci/workspace-fast.ts!",
     "src/control/agent/operation-read-plan.ts!",
     "src/control/agent/skill-applicability.ts!",
     "src/control/agent/task-capsule-host.ts!",

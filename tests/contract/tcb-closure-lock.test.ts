@@ -10,9 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { readRepositoryModuleGraphV1 } from '../../src/verification/test-impact/runtime/impact.ts';
 import {
-  TCB_REVIEWED_EXTERNAL_IMPORTS,
   TCB_REVIEWED_NETWORK_DISPATCHERS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
   TCB_TRUST_ROOT,
@@ -183,7 +181,7 @@ test('TCB closure classifies only a direct Bun executable lookup', () => {
   )).toThrow('computed Bun namespace member Bun[...]');
 });
 
-test('TCB closure is one exact-tree Action with a typed reusable terminal', () => {
+test('TCB closure is one exact-tree Action with a pure compiler result', () => {
   const input = {
     exactTreeSha: '1'.repeat(40),
     registryDigest: `sha256:${'2'.repeat(64)}` as const,
@@ -199,11 +197,7 @@ test('TCB closure is one exact-tree Action with a typed reusable terminal', () =
   const result = compileTcbClosureActionResult({ plan });
   expect(result.actionKey).toBe(plan.action.actionKey);
   expect(result.identity.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
-  expect(result.terminal).toEqual({
-    status: 'passed',
-    reasonCode: 'executed-success',
-    resultDigest: TCB_CLOSURE_LOCK.closureDigest as `sha256:${string}`
-  });
+  expect(result.resultDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
 
   const commonDemand = {
     exactTreeSha: '3'.repeat(40),
@@ -233,10 +227,15 @@ test('TCB closure is one exact-tree Action with a typed reusable terminal', () =
 test('TCB closure lock binds the reviewed causal module set', () => {
   expect(TCB_CLOSURE_LOCK.moduleCount).toBe(TCB_CLOSURE_LOCK.modules.length);
   expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
-  expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain('src/development/runner/env-manager.ts -> node:net');
-  expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain(
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports)
+    .toContain('src/development/runner/env-manager.ts -> node:net');
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
     'src/external-capabilities/linux-verification/contract.ts -> zod'
   );
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
+    'src/brownfield/source-program-model/test-impact-projection.ts -> zod'
+  );
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).not.toContain('zod');
   expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
     .toContain('src/development/runner/env-manager.ts -> node:net');
 });
@@ -294,10 +293,18 @@ test('verification-action runner receives a narrow repository capability and can
   const repositoryPath = 'src/verification/action/runner.ts';
   expect(TRUSTED_DISPATCHER_PROJECTION.process.some((entry) => entry.repositoryPath === repositoryPath)).toBe(false);
 
-  const moduleReferences = readRepositoryModuleGraphV1().references
-    .filter((reference) => reference.from === repositoryPath)
-    .map((reference) => reference.specifier);
-  expect(moduleReferences).not.toContain('node:child_process');
+  const repositoryRoot = path.resolve(import.meta.dir, '../..');
+  const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: repositoryRoot });
+  const observedExternalImports = new Set<string>();
+  const moduleReferences = runtimeRelativeImportsFromSource(
+    repositoryPath,
+    Buffer.from(readTcbClosureCandidateFile(repositoryPath, { candidateSnapshot: snapshot })).toString('utf8'),
+    new Set(),
+    new Set(),
+    observedExternalImports
+  );
+  finalizeTcbClosureCandidateSnapshot(snapshot);
+  expect(observedExternalImports).not.toContain('node:child_process');
   expect(moduleReferences).not.toContain('./branch-lifecycle-command.ts');
 });
 
@@ -477,7 +484,7 @@ test('introducing an unauthorized edge causes the lock to break', () => {
   const tampered = {
     closure: closure.closure,
     reviewedEdges: new Set(closure.reviewedEdges).add(
-      'src/verification/ci/workspace-fast.ts -> platform/unauthorized-target.ts'
+      'src/verification/ci/verification.ts -> src/compiler/orchestration/unauthorized-target.ts'
     ),
     reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
     reviewedExternalImports: closure.reviewedExternalImports,
@@ -490,20 +497,10 @@ test('introducing an unauthorized edge causes the lock to break', () => {
   ]));
 });
 
-test('removing a reviewed edge causes the lock to break', () => {
+test('TCB closure traverses the retired SUT seam without a reviewed stop edge', () => {
   const closure = trustedRuntimeClosure();
-  const tampered = {
-    closure: closure.closure,
-    reviewedEdges: new Set<string>(),
-    reviewedBoundaryEdges: closure.reviewedBoundaryEdges,
-    reviewedExternalImports: closure.reviewedExternalImports,
-    reviewedProcessDispatchers: closure.reviewedProcessDispatchers
-  };
-  const verification = verifyTcbClosureLock(tampered);
-  expect(verification.status).toBe('failed');
-  expect(verification.failures).toEqual(expect.arrayContaining([
-    expect.stringContaining('edge removal: missing edge')
-  ]));
+  expect([...closure.reviewedEdges]).toEqual([]);
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges).toEqual([]);
 });
 
 test('adding an unauthorized boundary causes the lock to break', () => {

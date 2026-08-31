@@ -10,6 +10,13 @@ export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH =
 export const SEC_TCB_CLOSURE_RUNTIME_PATH =
   'src/verification/trust/runtime/closure-lock.ts' as const;
 
+const REQUIRED_TRUSTED_BOOTSTRAP_STATIC_EXACT_PATHS = Object.freeze([
+  '.bun-version',
+  'src/control/branch-lifecycle/branch-lifecycle.ts',
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH,
+  SEC_TCB_CLOSURE_RUNTIME_PATH
+]);
+
 export type SecTrustedBootstrapRegistry = Readonly<{
   schema: typeof SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA;
   staticExactPaths: readonly string[];
@@ -18,6 +25,7 @@ export type SecTrustedBootstrapRegistry = Readonly<{
   runtimeEntrypoints: readonly string[];
   reviewedSutEdges: readonly string[];
   reviewedBoundaryEdges: readonly string[];
+  reviewedExternalImports: readonly string[];
 }>;
 
 export type SecTrustedBootstrapTrustRoot = Readonly<{
@@ -65,6 +73,7 @@ export type SecTrustedBootstrapDispatcherLoader =
   | 'spawnSync'
   | 'Bun.spawn'
   | 'Bun.spawnSync'
+  | 'Worker'
   | 'node:worker_threads.Worker'
   | 'globalThis.fetch';
 
@@ -74,6 +83,7 @@ export type SecTrustedBootstrapDispatcherBoundary =
   | 'hosted-archive-inventory'
   | 'github-api'
   | 'local-actions-runner'
+  | 'windows-repository-change-observer'
   | 'windows-stdin-writer'
   | 'docs-doctor-index';
 
@@ -180,6 +190,7 @@ const TRUSTED_BOOTSTRAP_DISPATCHER_LOADERS = new Set<SecTrustedBootstrapDispatch
   'spawnSync',
   'Bun.spawn',
   'Bun.spawnSync',
+  'Worker',
   'node:worker_threads.Worker',
   'globalThis.fetch'
 ]);
@@ -194,6 +205,7 @@ const TRUSTED_BOOTSTRAP_PROCESS_LOADERS = new Set<SecTrustedBootstrapDispatcherL
   'spawnSync',
   'Bun.spawn',
   'Bun.spawnSync',
+  'Worker',
   'node:worker_threads.Worker'
 ]);
 
@@ -211,7 +223,8 @@ const REGISTRY_KEYS = [
   'staticPrefixes',
   'runtimeEntrypoints',
   'reviewedSutEdges',
-  'reviewedBoundaryEdges'
+  'reviewedBoundaryEdges',
+  'reviewedExternalImports'
 ] as const;
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -244,7 +257,15 @@ function assertSortedUnique(values: readonly string[], label: string): void {
 
 function assertRepositoryPath(value: string, label: string, directory: boolean): void {
   assertBoundedNfc(value, label);
-  if (value.includes('\\') || value.startsWith('/') || /^[A-Za-z]:/u.test(value) || value.includes('//'))
+  if (
+    value.includes('\\')
+    || value.startsWith('/')
+    || /^[A-Za-z]:/u.test(value)
+    || value.includes('//')
+    || value.includes('*')
+    || value.includes('?')
+    || value.includes('#')
+  )
     throw new Error(`${label} must be a canonical repository-relative POSIX path.`);
   if (directory !== value.endsWith('/')) {
     throw new Error(`${label} ${directory ? 'must' : 'must not'} end with '/'.`);
@@ -273,8 +294,29 @@ function assertPrefix(value: string, label: string): void {
     throw new Error(`${label} is not a canonical repository prefix.`);
 }
 
+function assertExternalModuleSpecifier(value: string, label: string): void {
+  assertBoundedNfc(value, label);
+  if (
+    value.startsWith('.') ||
+    value.startsWith('/') ||
+    value.includes('\\') ||
+    value.includes('//') ||
+    value.includes('*') ||
+    value.includes('?') ||
+    value.includes('#') ||
+    /\s/u.test(value)
+  ) {
+    throw new Error(`${label} must be one exact external module specifier.`);
+  }
+  const protocolSpecifier = /^(?:bun|node):[a-z0-9][a-z0-9._/-]*$/u;
+  const packageSpecifier = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/u;
+  if (!protocolSpecifier.test(value) && !packageSpecifier.test(value)) {
+    throw new Error(`${label} must be one canonical external module specifier.`);
+  }
+}
+
 const TRUSTED_BOOTSTRAP_DISPATCHER_IDENTITY_PATTERN =
-  /^(.+?)::(.+?)::(exec|execFile|execFileSync|execSync|fork|spawn|spawnSync|Bun\.spawn|Bun\.spawnSync|node:worker_threads\.Worker|globalThis\.fetch)#([1-9][0-9]*)$/u;
+  /^(.+?)::(.+?)::(exec|execFile|execFileSync|execSync|fork|spawn|spawnSync|Bun\.spawn|Bun\.spawnSync|Worker|node:worker_threads\.Worker|globalThis\.fetch)#([1-9][0-9]*)$/u;
 
 function dispatcherBoundary(
   repositoryPath: string,
@@ -285,9 +327,13 @@ function dispatcherBoundary(
     return 'github-api';
   }
   if (
-    repositoryPath === 'src/runtime-state/physical/runtime/observed-process.ts'
+    repositoryPath === 'src/runtime-state/physical/runtime/observed-process-stdin.ts'
     && owner === 'startWindowsObservedStdinWriter'
   ) return 'windows-stdin-writer';
+  if (
+    repositoryPath === 'src/runtime-state/physical/runtime/windows-repository-change-observer.ts'
+    && owner === 'startWatcher'
+  ) return 'windows-repository-change-observer';
   if (
     repositoryPath === 'src/development/runner/verification-action-executor.ts' ||
     repositoryPath === 'src/verification/ci/runtime/verification-action-github-provider.ts' ||
@@ -382,6 +428,18 @@ function dispatcherDataflow(
       shell: 'forbidden',
       output: 'not-captured',
       deadline: 'provider-bound'
+    });
+  }
+  if (boundary === 'windows-repository-change-observer') {
+    return Object.freeze({
+      executable: 'embedded-source',
+      argv: 'fixed-script-input',
+      cwd: 'none',
+      environment: 'provider-bound',
+      stdio: 'not-applicable',
+      shell: 'forbidden',
+      output: 'provider-bound',
+      deadline: 'bounded'
     });
   }
   return Object.freeze({
@@ -658,13 +716,14 @@ function validateSecTrustedBootstrapRegistryValue(value: unknown): SecTrustedBoo
   const staticDirectoryPaths = stringArray(value.staticDirectoryPaths, 'staticDirectoryPaths');
   const staticPrefixes = stringArray(value.staticPrefixes, 'staticPrefixes', 128);
   const runtimeEntrypoints = stringArray(value.runtimeEntrypoints, 'runtimeEntrypoints');
-  const reviewedSutEdges = stringArray(value.reviewedSutEdges, 'reviewedSutEdges');
+  const reviewedSutEdges = stringArray(value.reviewedSutEdges, 'reviewedSutEdges', 4_096, true);
   const reviewedBoundaryEdges = stringArray(
     value.reviewedBoundaryEdges,
     'reviewedBoundaryEdges',
     4_096,
     true
   );
+  const reviewedExternalImports = stringArray(value.reviewedExternalImports, 'reviewedExternalImports');
 
   staticExactPaths.forEach((entry, index) => assertRepositoryPath(entry, `staticExactPaths[${index}]`, false));
   staticDirectoryPaths.forEach((entry, index) => assertRepositoryPath(entry, `staticDirectoryPaths[${index}]`, true));
@@ -678,10 +737,16 @@ function validateSecTrustedBootstrapRegistryValue(value: unknown): SecTrustedBoo
     staticPrefixes: Object.freeze(staticPrefixes),
     runtimeEntrypoints: Object.freeze(runtimeEntrypoints),
     reviewedSutEdges: Object.freeze(reviewedSutEdges),
-    reviewedBoundaryEdges: Object.freeze(reviewedBoundaryEdges)
+    reviewedBoundaryEdges: Object.freeze(reviewedBoundaryEdges),
+    reviewedExternalImports: Object.freeze(reviewedExternalImports)
   });
 
   assertNoStaticOverlap(registry);
+  for (const requiredPath of REQUIRED_TRUSTED_BOOTSTRAP_STATIC_EXACT_PATHS) {
+    if (!registry.staticExactPaths.includes(requiredPath)) {
+      throw new Error(`Trusted bootstrap registry cannot demote required static path: ${requiredPath}.`);
+    }
+  }
   if (registry.staticDirectoryPaths.includes('scripts/codex/')) {
     throw new Error('scripts/codex/ cannot be a directory-level verifier trust root.');
   }
@@ -699,6 +764,12 @@ function validateSecTrustedBootstrapRegistryValue(value: unknown): SecTrustedBoo
     if (!registry.staticExactPaths.includes(match[2]!)) {
       throw new Error(`Reviewed boundary target is not a staticExactPath: ${match[2]}.`);
     }
+  }
+  for (const [index, edge] of registry.reviewedExternalImports.entries()) {
+    const match = /^([^ ]+) -> ([^ ]+)$/u.exec(edge);
+    if (!match) throw new Error(`reviewedExternalImports[${index}] must use canonical 'from -> to' syntax.`);
+    assertRepositoryPath(match[1]!, `reviewedExternalImports[${index}].from`, false);
+    assertExternalModuleSpecifier(match[2]!, `reviewedExternalImports[${index}].specifier`);
   }
   return registry;
 }
