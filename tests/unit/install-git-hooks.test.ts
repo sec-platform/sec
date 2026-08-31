@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -6,7 +8,7 @@ import { expect, test } from 'bun:test';
 import { installGitHooksForTest } from '../../src/development/hooks/install.ts';
 import type { GitReadProviderResolutionFailure } from '../../src/external-capabilities/git-read/runtime/session.ts';
 
-test('tracked hooks bind dependency preparation and candidate freeze without ambient EOL drift', async () => {
+test('tracked hooks bind a pure staged check and candidate freeze without ambient EOL drift', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../..');
   const preCommit = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
   const prePush = await readFile(path.join(repoRoot, '.githooks', 'pre-push'), 'utf8');
@@ -18,7 +20,29 @@ test('tracked hooks bind dependency preparation and candidate freeze without amb
   for (const hook of [preCommit, prePush, postCheckout, postMerge, postRewrite]) {
     expect(hook).toContain('export SEC_GIT_HOOK_ACTIVE=1');
   }
-  expect(preCommit).toContain('bun run imports:freeze');
+  const observationRoot = await mkdtemp(path.join(tmpdir(), 'sec-hook-command-'));
+  try {
+    const argumentsPath = path.join(observationRoot, 'arguments');
+    const executed = spawnSync('sh', [
+      '-c',
+      'bun() { printf "%s\\n" "$@" > "$SEC_HOOK_ARGUMENTS"; }\n. "$1"',
+      'hook-contract',
+      path.join(repoRoot, '.githooks', 'pre-commit')
+    ], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: { ...process.env, SEC_HOOK_ARGUMENTS: argumentsPath },
+      windowsHide: true
+    });
+    expect(executed.status).toBe(0);
+    expect((await readFile(argumentsPath, 'utf8')).trim().split(/\r?\n/u)).toEqual([
+      'run',
+      'imports:check',
+      '--staged'
+    ]);
+  } finally {
+    await rm(observationRoot, { force: true, recursive: true });
+  }
   expect(preCommit).not.toContain('SEC_CHANGED_BASE');
   expect(preCommit).not.toContain('\r');
   expect(prePush).toContain('bun run imports:freeze');
