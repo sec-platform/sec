@@ -1,7 +1,17 @@
+import path from 'node:path';
+
 import { inspectNoFollowDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveWindowsKnownFolderPath } from '../../../runtime-state/physical/runtime/windows-known-folders.ts';
 import { DockerDaemonAvailabilityFailure } from '../contract/daemon.ts';
 import { withDockerDesktopLauncherLockAtOwnerIssuedDirectory } from './launcher-lock.ts';
+
+export function dockerDesktopLauncherLockDirectory(localAppData: string): string {
+  const canonical = path.resolve(localAppData);
+  if (!path.isAbsolute(localAppData) || canonical !== localAppData) {
+    throw new Error('Docker Desktop launcher lock Known Folder path is not canonical.');
+  }
+  return path.join(canonical, 'Docker');
+}
 
 export async function withDockerDesktopLauncherLock<T>(
   input: Readonly<{ deadlineAtUnixMs: number; endpointHost: string }>,
@@ -21,8 +31,8 @@ export async function withDockerDesktopLauncherLock<T>(
     // participates in launcher serialization.
     const localAppData = await resolveWindowsKnownFolderPath('local-app-data');
     const parent = inspectNoFollowDirectoryChain(
-      localAppData,
-      'Docker Desktop launcher lock Known Folder'
+      dockerDesktopLauncherLockDirectory(localAppData),
+      'Docker Desktop launcher lock directory'
     ).target;
     return await withDockerDesktopLauncherLockAtOwnerIssuedDirectory({
       deadlineAtUnixMs: input.deadlineAtUnixMs,

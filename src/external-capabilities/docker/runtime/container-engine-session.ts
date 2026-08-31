@@ -73,6 +73,47 @@ function fail(message: string): never {
   throw new Error(`Container Engine session: ${message}`);
 }
 
+function semanticOperationBudget(
+  operation: SecBoundSemanticOperation,
+  resource: 'input-bytes' | 'output-bytes' | 'processes'
+): number {
+  return operation.plan.execution.aggregateBudgets
+    .find((candidate) => candidate.resource === resource)?.maximum ?? 0;
+}
+
+/**
+ * Canonical admission guard separating a non-settling outer resource envelope
+ * from a real provider-owned semantic operation scope.
+ */
+export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
+  operation: SecBoundSemanticOperation;
+  requirementId: string;
+  providerIdentityDigest: SecOperationDigest;
+  sessionDeadlineAtUnixMs: number;
+}>): void {
+  assertSecBoundSemanticOperation(input.operation);
+  const requirement = input.operation.plan.execution.requirements.find(
+    ({ id }) => id === input.requirementId
+  );
+  const binding = input.operation.bindings.find(
+    ({ requirementId }) => requirementId === input.requirementId
+  );
+  if (requirement === undefined || binding === undefined
+      || !requirement.effectKinds.includes('process')
+      || binding.contractDigest !== requirement.contractDigest
+      || binding.providerIdentityDigest !== input.providerIdentityDigest) {
+    fail('provider settlement scope does not bind this retained Container Engine provider');
+  }
+  for (const resource of ['processes', 'output-bytes'] as const) {
+    if (semanticOperationBudget(input.operation, resource) < 1) {
+      fail(`provider settlement scope requires a positive ${resource} budget`);
+    }
+  }
+  if (input.operation.plan.attempt.deadlineAtUnixMs > input.sessionDeadlineAtUnixMs) {
+    fail('provider settlement scope deadline exceeds the retained session deadline');
+  }
+}
+
 function projectedEnvironment(
   keys: readonly string[],
   source: NodeJS.ProcessEnv
@@ -302,12 +343,6 @@ export async function openContainerEngineSession(
   let currentScope: ActiveScope | null = null;
   const environment = projectedEnvironment(DOCKER_COMMAND_ENVIRONMENT_KEYS, process.env);
 
-  const operationBudget = (
-    operation: SecBoundSemanticOperation,
-    resource: 'input-bytes' | 'output-bytes' | 'processes'
-  ): number => operation.plan.execution.aggregateBudgets
-    .find((candidate) => candidate.resource === resource)?.maximum ?? 0;
-
   const rawRun = async (
     args: readonly string[],
     options: ContainerEngineOperationOptions = {},
@@ -341,14 +376,14 @@ export async function openContainerEngineSession(
       if (Date.now() >= scope.operation.plan.attempt.deadlineAtUnixMs) {
         fail('provider settlement scope deadline is exhausted');
       }
-      if (scope.processCount + 1 > operationBudget(scope.operation, 'processes')) {
+      if (scope.processCount + 1 > semanticOperationBudget(scope.operation, 'processes')) {
         fail('provider settlement scope process budget is exhausted');
       }
-      if (scope.inputBytes + commandInputBytes > operationBudget(scope.operation, 'input-bytes')) {
+      if (scope.inputBytes + commandInputBytes > semanticOperationBudget(scope.operation, 'input-bytes')) {
         fail('provider settlement scope input budget is exhausted');
       }
       if (scope.outputBytes + stdoutBound + stderrBound
-          > operationBudget(scope.operation, 'output-bytes')) {
+          > semanticOperationBudget(scope.operation, 'output-bytes')) {
         fail('provider settlement scope output budget is exhausted');
       }
     }
@@ -504,31 +539,18 @@ export async function openContainerEngineSession(
       executable: retained.executable,
       deadlineAtUnixMs: processSession.deadlineAtUnixMs,
       providerIdentityDigest,
-      openOperationScope(scopeInput): ContainerEngineOperationScope {
+      openOperationScope(
+        scopeInput: Parameters<ContainerEngineSession['openOperationScope']>[0]
+      ): ContainerEngineOperationScope {
         if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
         if (active > 0) fail('provider settlement scope cannot open during an active operation');
         if (currentScope !== null) fail('provider settlement scopes cannot nest or overlap');
-        assertSecBoundSemanticOperation(scopeInput.operation);
-        const requirement = scopeInput.operation.plan.execution.requirements.find(
-          ({ id }) => id === scopeInput.requirementId
-        );
-        const binding = scopeInput.operation.bindings.find(
-          ({ requirementId }) => requirementId === scopeInput.requirementId
-        );
-        if (requirement === undefined || binding === undefined
-            || !requirement.effectKinds.includes('process')
-            || binding.contractDigest !== requirement.contractDigest
-            || binding.providerIdentityDigest !== providerIdentityDigest) {
-          fail('provider settlement scope does not bind this retained Container Engine provider');
-        }
-        for (const resource of ['processes', 'output-bytes'] as const) {
-          if (operationBudget(scopeInput.operation, resource) < 1) {
-            fail(`provider settlement scope requires a positive ${resource} budget`);
-          }
-        }
-        if (scopeInput.operation.plan.attempt.deadlineAtUnixMs > processSession.deadlineAtUnixMs) {
-          fail('provider settlement scope deadline exceeds the retained session deadline');
-        }
+        assertContainerEngineOperationScopeAdmission({
+          operation: scopeInput.operation,
+          requirementId: scopeInput.requirementId,
+          providerIdentityDigest,
+          sessionDeadlineAtUnixMs: processSession.deadlineAtUnixMs
+        });
         const scope: ActiveScope = {
           operation: scopeInput.operation,
           requirementId: scopeInput.requirementId,
