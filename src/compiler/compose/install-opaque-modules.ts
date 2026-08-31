@@ -2,20 +2,22 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import YAML from 'yaml';
 import { z } from 'zod';
 
 import { copyNoFollowDirectoryTreesBulk, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, relocateRetainedNoFollowDirectory, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { decodeExactUtf8, readOptionalRetainedJson, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { canonicalEquals, compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { createConcurrencyLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
+import { isYamlParseFailure, parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
 import { ensureDir, isFileNotFoundError, pathEntryExists, pathExists, writeJson, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
+import { CompilerError } from '../errors.ts';
 
 const OPAQUE_MODULE_ID = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u;
 const OPAQUE_SOURCE_INVENTORY_MAX_ENTRIES = 8192;
 const OPAQUE_SOURCE_INVENTORY_MAX_BYTES = 268_435_456;
 const OPAQUE_SOURCE_INVENTORY_TIMEOUT_MS = 5000;
+const OPAQUE_MODULE_DESCRIPTOR_MAX_INPUT_BYTES = 64 * 1024;
 
 // `entry` used to be required by this schema but had no production consumer.
 // Keeping a ghost field would falsely advertise entry-point semantics, so the
@@ -80,9 +82,19 @@ function readOpaqueModuleDescriptor(yamlFile: string): OpaqueModuleEntry {
   const source = decodeExactUtf8(bytes, `Opaque module descriptor ${yamlFile}`);
   let parsed: unknown;
   try {
-    parsed = YAML.parse(source) as unknown;
+    parsed = parseYamlValue(source, {
+      label: `Opaque module descriptor ${yamlFile}`,
+      maximumInputBytes: OPAQUE_MODULE_DESCRIPTOR_MAX_INPUT_BYTES,
+      maximumAliasCount: 0
+    });
   } catch (error) {
-    throw new Error(`Opaque module descriptor is not valid YAML: ${yamlFile}`, { cause: error });
+    if (!isYamlParseFailure(error)) throw error;
+    throw new CompilerError(
+      'OPAQUE-MODULE-001',
+      `Opaque module descriptor is not valid bounded YAML: ${yamlFile}`,
+      { yamlFailureCode: error.code, yamlFailureKind: error.kind },
+      { cause: error }
+    );
   }
   const result = opaqueModuleSchema.safeParse(parsed);
   if (!result.success) {

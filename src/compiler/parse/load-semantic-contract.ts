@@ -1,12 +1,15 @@
 import path from 'node:path';
-import YAML from 'yaml';
 
 import { SEMANTIC_CONTRACT_FORMAT_VERSION, SEMANTIC_EFFECT_KINDS, SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type LoadedSemanticContract, type SemanticContract, type SemanticContractEffect, type SemanticContractEntity, type SemanticContractImport, type SemanticContractOperation, type SemanticContractResponsibility, type SemanticContractResponsibilityBinding, type SemanticContractScenario, type SemanticContractScenarioStep, type SemanticContractState, type SemanticContractTransition } from '../../semantic/contracts/contract/types.ts';
 import { compareCodeUnits, stableById, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { isYamlParseFailure, parseYamlValue } from '../../system-architecture/foundation/runtime/yaml.ts';
 import { isSafeRelativePath, posixPath } from '../../workspace/runtime/paths.ts';
 import type { ManifestEntry } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { readManifestResourceFileUtf8 } from './read-manifest-resource.ts';
+
+export const SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES = 1024 * 1024;
+export const SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT = 100;
 
 function assertId(value: string | undefined, context: string): asserts value is string {
   if (!value?.trim()) {
@@ -366,7 +369,23 @@ export async function loadSemanticContractsForManifestEntry(entry: ManifestEntry
         `Manifest "${entry.manifest.id}" contract resource "${reference.path}" is absent`
       );
     }
-    const contract = normalizeSemanticContract(YAML.parse(source.raw) as SemanticContract);
+    let parsed: unknown;
+    try {
+      parsed = parseYamlValue(source.raw, {
+        label: `Manifest ${entry.manifest.id} semantic contract ${reference.path}`,
+        maximumInputBytes: SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES,
+        maximumAliasCount: SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT
+      });
+    } catch (error) {
+      if (!isYamlParseFailure(error)) throw error;
+      throw new CompilerError(
+        'CONTRACT-SEMANTIC-023',
+        `Manifest "${entry.manifest.id}" contract resource "${reference.path}" is not valid bounded YAML`,
+        { yamlFailureCode: error.code, yamlFailureKind: error.kind },
+        { cause: error }
+      );
+    }
+    const contract = normalizeSemanticContract(parsed as SemanticContract);
     loaded.push({
       blockId: entry.manifest.id,
       contractPath: stableContractPath(entry, source.path),
