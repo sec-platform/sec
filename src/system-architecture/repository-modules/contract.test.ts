@@ -123,6 +123,73 @@ test('repository module operation obligations are strict and bind declared publi
   }, 'src/provider/sec.module.json')).toThrow('must bind one declared capability provider operation');
 });
 
+test('effectful provider exposure separates owner internals from operation-bound public capabilities', () => {
+  const obligation = {
+    operation: {
+      kind: 'capability',
+      capability: 'example-process',
+      operation: 'openSession'
+    },
+    consumerSupport: { consumers: ['consumer'] },
+    effect: {
+      kinds: ['process'],
+      failureKinds: ['process-unavailable'],
+      recovery: 'owner-intervention'
+    },
+    evolution: {
+      migration: 'not-required',
+      retirement: 'replacement-obligations-satisfied'
+    },
+    resources: {
+      aggregateBudgets: [
+        { resource: 'duration-ms', maximum: 1_000 },
+        { resource: 'processes', maximum: 1 }
+      ]
+    },
+    futureSupport: { condition: 'semantic-superset-required' }
+  } as const;
+  const provider = {
+    capability: 'example-process',
+    operations: ['nativePrimitive', 'openSession'],
+    effectKinds: ['process'],
+    ownerInternalOperations: ['nativePrimitive']
+  } as const;
+  const descriptor = {
+    importGraph: 'runtime',
+    externalEntrypoints: [],
+    capabilityProviders: [provider],
+    operationObligations: [obligation]
+  } as const;
+
+  expect(parseSecModuleDescriptor(descriptor, 'src/provider/sec.module.json')
+    .capabilityProviders).toEqual([provider]);
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    operationObligations: []
+  }, 'src/provider/sec.module.json')).toThrow('requires an operation obligation');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    operationObligations: [{
+      ...obligation,
+      effect: { kinds: ['filesystem'], failureKinds: ['io-failed'], recovery: 'owner-intervention' }
+    }]
+  }, 'src/provider/sec.module.json')).toThrow('omits an intrinsic provider effect');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    operationObligations: [{
+      ...obligation,
+      operation: { ...obligation.operation, operation: 'nativePrimitive' }
+    }]
+  }, 'src/provider/sec.module.json')).toThrow('owner-internal operation');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    capabilityProviders: [{
+      ...provider,
+      ownerInternalOperations: ['undeclaredPrimitive']
+    }]
+  }, 'src/provider/sec.module.json')).toThrow('must be declared provider operations');
+});
+
 test('repository module compiler prevents production from importing test authority', () => {
   const files = [
     'platform/example/index.ts',

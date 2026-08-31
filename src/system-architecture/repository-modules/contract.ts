@@ -29,7 +29,23 @@ export type SecModuleDescriptor = Readonly<{
 export type SecModuleCapabilityProvider = Readonly<{
   readonly capability: string;
   readonly operations: readonly string[];
+  /** Capability effects intrinsic to every operation exposed by this provider. */
+  readonly effectKinds: readonly SecModuleEffectKind[];
+  /**
+   * Operations that are implementation primitives of the owning module. They
+   * remain observable for source-graph accounting, but another module cannot
+   * consume them as a public capability surface.
+   */
+  readonly ownerInternalOperations: readonly string[];
 }>;
+
+export type SecModuleEffectKind =
+  | 'dynamic-code'
+  | 'filesystem'
+  | 'network'
+  | 'persistent-state'
+  | 'process'
+  | 'provider';
 
 export type SecModuleOperationIdentity =
   | Readonly<{ readonly kind: 'capability'; readonly capability: string; readonly operation: string }>
@@ -39,7 +55,7 @@ export type SecModuleOperationObligation = Readonly<{
   readonly operation: SecModuleOperationIdentity;
   readonly consumerSupport: Readonly<{ readonly consumers: readonly string[] }>;
   readonly effect: Readonly<{
-    readonly kinds: readonly ('dynamic-code' | 'filesystem' | 'network' | 'persistent-state' | 'process' | 'provider')[];
+    readonly kinds: readonly SecModuleEffectKind[];
     readonly failureKinds: readonly string[];
     readonly recovery: 'idempotent-retry' | 'not-applicable' | 'owner-intervention' | 'resume' | 'rollback';
   }>;
@@ -400,7 +416,12 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
       return descriptorError(`capabilityProviders[${index}]`, 'expected an object');
     }
     const record = item as Record<string, unknown>;
-    if (Object.keys(record).some((key) => key !== 'capability' && key !== 'operations')) {
+    if (Object.keys(record).some((key) => (
+      key !== 'capability'
+      && key !== 'operations'
+      && key !== 'effectKinds'
+      && key !== 'ownerInternalOperations'
+    ))) {
       return descriptorError(`capabilityProviders[${index}]`, 'contains an unknown field');
     }
     const capability = descriptorString(
@@ -414,7 +435,35 @@ function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabi
       /^[A-Za-z_$][A-Za-z0-9_$]*$/u,
       1
     );
-    return Object.freeze({ capability, operations });
+    const effectKindInput = record.effectKinds ?? [];
+    if (!Array.isArray(effectKindInput) || effectKindInput.length > 6) {
+      return descriptorError(`capabilityProviders[${index}].effectKinds`, 'expected at most 6 entries');
+    }
+    const effectKinds = effectKindInput.map((kind, effectIndex) => descriptorEnum(
+          kind,
+          `capabilityProviders[${index}].effectKinds[${effectIndex}]`,
+          ['dynamic-code', 'filesystem', 'network', 'persistent-state', 'process', 'provider'] as const
+        ));
+    if (new Set(effectKinds).size !== effectKinds.length) {
+      descriptorError(`capabilityProviders[${index}].effectKinds`, 'entries must be unique');
+    }
+    const ownerInternalOperations = descriptorStringArray(
+      record.ownerInternalOperations ?? [],
+      `capabilityProviders[${index}].ownerInternalOperations`,
+      /^[A-Za-z_$][A-Za-z0-9_$]*$/u
+    );
+    if (ownerInternalOperations.some((operation) => !operations.includes(operation))) {
+      descriptorError(
+        `capabilityProviders[${index}].ownerInternalOperations`,
+        'entries must be declared provider operations'
+      );
+    }
+    return Object.freeze({
+      capability,
+      operations,
+      effectKinds: Object.freeze(effectKinds),
+      ownerInternalOperations
+    });
   });
   if (new Set(providers.map(({ capability }) => capability)).size !== providers.length) {
     descriptorError('capabilityProviders', 'capability entries must be unique');
@@ -492,6 +541,9 @@ function descriptorOperationObligations(
       ));
       if (provider === undefined || !provider.operations.includes(operation.operation)) {
         descriptorError(`${field}.operation`, 'must bind one declared capability provider operation');
+      }
+      if (provider.ownerInternalOperations.includes(operation.operation)) {
+        descriptorError(`${field}.operation`, 'cannot publish obligations for an owner-internal operation');
       }
     } else if (!externalEntrypoints.includes(operation.path)) {
       descriptorError(`${field}.operation`, 'must bind one declared external entrypoint');
@@ -618,6 +670,30 @@ function descriptorOperationObligations(
   const identities = obligations.map(({ operation }) => JSON.stringify(operation));
   if (new Set(identities).size !== identities.length) {
     descriptorError('operationObligations', 'operation identities must be unique');
+  }
+  const obligationsByIdentity = new Map(obligations.flatMap((obligation) => (
+    obligation.operation.kind === 'capability'
+      ? [[`${obligation.operation.capability}\u0000${obligation.operation.operation}`, obligation] as const]
+      : []
+  )));
+  for (const provider of capabilityProviders) {
+    if (provider.effectKinds.length === 0) continue;
+    for (const operation of provider.operations) {
+      if (provider.ownerInternalOperations.includes(operation)) continue;
+      const obligation = obligationsByIdentity.get(`${provider.capability}\u0000${operation}`);
+      if (obligation === undefined) {
+        descriptorError(
+          'operationObligations',
+          `effectful public capability ${provider.capability}:${operation} requires an operation obligation`
+        );
+      }
+      if (provider.effectKinds.some((kind) => !obligation.effect.kinds.includes(kind))) {
+        descriptorError(
+          'operationObligations',
+          `public capability ${provider.capability}:${operation} obligation omits an intrinsic provider effect`
+        );
+      }
+    }
   }
   return Object.freeze(obligations);
 }

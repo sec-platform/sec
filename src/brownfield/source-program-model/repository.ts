@@ -1089,35 +1089,37 @@ function compileRepositorySourceProgramModelInternal(
     .filter(({ capabilityProviders }) => capabilityProviders.some(({ capability }) => capability === 'process.native'))
     .map(({ moduleId }) => moduleId));
   const directNativeProcessByPath = new Map<string, typeof semanticModel.capabilities[number][]>();
-  const reviewedProcessDispatchersByPath = new Map<string, number>();
-  for (const identity of input.reviewedProcessDispatchers ?? []) {
-    const separator = identity.indexOf('::');
-    if (separator < 1) throw new Error(`Reviewed process dispatcher identity is malformed: ${identity}`);
-    const dispatcherPath = identity.slice(0, separator);
-    reviewedProcessDispatchersByPath.set(
-      dispatcherPath,
-      (reviewedProcessDispatchersByPath.get(dispatcherPath) ?? 0) + 1
-    );
-  }
   for (const invocation of semanticModel.capabilities) {
-    if (invocation.capability !== 'process'
-        || invocation.transport !== 'native-runtime'
-        || invocation.surface !== 'production'
-        || (invocation.moduleId !== null && nativeProcessOwners.has(invocation.moduleId))) continue;
+    if (invocation.capability !== 'process' || invocation.surface !== 'production') continue;
+    const providerDescriptor = invocation.providerModuleId === null
+      ? null
+      : input.moduleMembership.descriptors.find(({ moduleId }) => (
+          moduleId === invocation.providerModuleId
+        )) ?? null;
+    const provider = invocation.providerCapability === null
+      ? null
+      : providerDescriptor?.capabilityProviders.find(({ capability }) => (
+          capability === invocation.providerCapability
+        )) ?? null;
+    const crossesOwnerInternalProviderBoundary = invocation.transport === 'repository-provider'
+      && provider !== null
+      && provider.ownerInternalOperations.includes(invocation.operation)
+      && invocation.moduleId !== invocation.providerModuleId;
+    const isNativeTransportOutsideOwner = invocation.transport === 'native-runtime'
+      && (invocation.moduleId === null || !nativeProcessOwners.has(invocation.moduleId));
+    if (!crossesOwnerInternalProviderBoundary && !isNativeTransportOutsideOwner) continue;
     const group = directNativeProcessByPath.get(invocation.path) ?? [];
     group.push(invocation);
     directNativeProcessByPath.set(invocation.path, group);
   }
   for (const [invocationPath, invocations] of directNativeProcessByPath) {
-    const reviewedCount = reviewedProcessDispatchersByPath.get(invocationPath) ?? 0;
-    if (reviewedCount === invocations.length) continue;
     const subjects = [...new Set(invocations.map(({ subject, operation }) => subject ?? operation))]
       .sort(compareCodeUnits);
     candidates.push(Object.freeze({
       code: 'direct-process-transport-outside-owner',
       subject: invocationPath,
       paths: Object.freeze([invocationPath]),
-      reason: `${invocations.length - Math.min(reviewedCount, invocations.length)} of ${invocations.length} native process call(s) (${subjects.join(', ')}) have neither owner ${[...nativeProcessOwners].sort(compareCodeUnits).join(', ') || '<unresolved>'} nor an exact current TCB dispatcher admission`,
+      reason: `${invocations.length} native or owner-internal process transport call(s) (${subjects.join(', ')}) are outside sole owner ${[...nativeProcessOwners].sort(compareCodeUnits).join(', ') || '<unresolved>'}; TCB observation proves inventory, not transport authority`,
       observationClass: 'derived'
     }));
   }
