@@ -1,8 +1,9 @@
-import { isMap, isSeq, parseDocument, type Document, type Node, type YAMLSeq } from 'yaml';
+import { isMap, isSeq, type Node, type YAMLSeq } from 'yaml';
 
 import type { LoadedSemanticContract, SemanticContract, SemanticContractTransition } from '../../semantic/contracts/contract/types.ts';
 import type { SemanticMutationOperation, SemanticMutationSourceLineEnding } from '../../semantic/mutation/contract/types.ts';
-import { normalizeSemanticContract } from '../parse/load-semantic-contract.ts';
+import { isYamlParseFailure, parseYamlDocument, type StrictYamlDocument } from '../../system-architecture/foundation/runtime/yaml.ts';
+import { SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT, SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES, normalizeSemanticContract } from '../parse/load-semantic-contract.ts';
 import { SemanticMutationContractError, canonicalEquals, compareCodeUnits, mutationDiagnostic, rawSha256 } from './canonical.ts';
 
 export interface SemanticContractYamlTransform {
@@ -59,15 +60,28 @@ function sourceStyle(text: string): {
   };
 }
 
-function parseContractDocument(text: string): Document.Parsed {
-  const document = parseDocument(text, { keepSourceTokens: true, strict: true, uniqueKeys: true });
-  if (document.errors.length > 0) transformFailure('Semantic contract YAML is not a valid unique-key document');
-  return document;
+function parseContractDocument(text: string): StrictYamlDocument {
+  try {
+    return parseYamlDocument(text, {
+      label: 'Semantic mutation contract source',
+      maximumInputBytes: SEMANTIC_CONTRACT_YAML_MAX_INPUT_BYTES
+    });
+  } catch (error) {
+    if (!isYamlParseFailure(error)) throw error;
+    throw new SemanticMutationContractError(mutationDiagnostic(
+      'SEMANTIC-MUTATION-006',
+      'transform',
+      'Semantic contract YAML is not one valid bounded unique-key document',
+      { details: { yamlFailureCode: error.code, yamlFailureKind: error.kind } }
+    ));
+  }
 }
 
-function normalizedDocument(document: Document.Parsed): SemanticContract {
+function normalizedDocument(document: StrictYamlDocument): SemanticContract {
   try {
-    return normalizeSemanticContract(document.toJS() as SemanticContract);
+    return normalizeSemanticContract(document.toJS({
+      maxAliasCount: SEMANTIC_CONTRACT_YAML_MAX_ALIAS_COUNT
+    }) as SemanticContract);
   } catch {
     transformFailure('Semantic contract YAML does not satisfy the canonical contract schema');
   }
@@ -85,7 +99,7 @@ function transitionFromNode(node: Node | null | undefined): SemanticContractTran
   return { from: value.from, to: value.to, by: value.by };
 }
 
-function transitionSequence(document: Document.Parsed, stateIndex: number): YAMLSeq {
+function transitionSequence(document: StrictYamlDocument, stateIndex: number): YAMLSeq {
   const stateNode = document.getIn(['states', stateIndex], true);
   if (!isMap(stateNode)) transformFailure('Semantic contract states must remain YAML mappings');
   let transitions = document.getIn(['states', stateIndex, 'transitions'], true);
@@ -98,7 +112,7 @@ function transitionSequence(document: Document.Parsed, stateIndex: number): YAML
 }
 
 function applyOperation(
-  document: Document.Parsed,
+  document: StrictYamlDocument,
   contract: SemanticContract,
   operation: SemanticMutationOperation
 ): void {
@@ -140,7 +154,7 @@ function applyOperation(
 }
 
 function encodedDocument(
-  document: Document.Parsed,
+  document: StrictYamlDocument,
   utf8Bom: boolean,
   lineEnding: SemanticMutationSourceLineEnding,
   finalNewline: boolean
