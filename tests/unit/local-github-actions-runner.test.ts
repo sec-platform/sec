@@ -809,7 +809,6 @@ describe('local GitHub Actions runner contract', () => {
     expect(classifyLocalGitHubActionsRunnerCommandV1(
       'git', ['rev-parse', 'HEAD'], true
     )).toBe('effect');
-    expect(classifyLocalGitHubActionsRunnerCommandV1('docker', ['info'])).toBe('docker');
   });
 
   test('blocks Windows Git/GH PATH sentinels before any provider command or ref/object effect', async () => {

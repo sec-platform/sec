@@ -13,11 +13,7 @@ export type DockerDaemonCommand = (input: Readonly<{
   args: readonly string[];
   cwd: string;
   deadlineAtUnixMs: number;
-  lifecycle:
-    | 'destructive-repair-start'
-    | 'destructive-repair-stop'
-    | 'observe'
-    | 'start';
+  lifecycle: 'observe' | 'start';
 }>) => Promise<DockerDaemonCommandResult>;
 
 export interface DockerDaemonObservationInput {
@@ -37,11 +33,6 @@ export type DockerDaemonLauncherLock = <T>(operation: () => Promise<T>) => Promi
 export interface DockerDaemonEnsureStartedInput extends DockerDaemonObservationInput {
   readonly platform?: NodeJS.Platform;
   readonly withLauncherLock: DockerDaemonLauncherLock;
-}
-
-export interface DockerDaemonDestructiveRepairInput extends DockerDaemonEnsureStartedInput {
-  /** Explicit destructive owner; never used by observe or ensure-started. */
-  readonly relocateStoppedSocketEpochs: () => number | Promise<number>;
 }
 
 function fail(
@@ -134,56 +125,6 @@ export async function ensureDockerDaemonStartedWithCommand(
     const start = await run(input, Object.freeze([
       'desktop', 'start', '--timeout', String(Math.max(1, Math.floor(remainingMs(input) / 1_000)))
     ]), 'start', 'desktop-start-failed');
-    if (start.code !== 0) fail(input.endpointHost, startFailureReason(start));
-    return await observeDockerDaemonWithCommand(input);
-  });
-  if (settled === null) fail(input.endpointHost, 'desktop-launcher-busy');
-  return settled;
-}
-
-/**
- * Explicit destructive lifecycle. This is the only Docker daemon API allowed
- * to stop Desktop or relocate stopped socket epochs. It never retries a failed
- * start and issues at most one start intent for this repair operation.
- */
-export async function repairDockerDaemonDestructivelyWithCommand(
-  input: DockerDaemonDestructiveRepairInput
-): Promise<DockerDaemonCommandResult> {
-  remainingMs(input);
-  if ((input.platform ?? process.platform) !== 'win32'
-      || !/^npipe:\/{4}\.\/pipe\/dockerDesktop[A-Za-z0-9_.-]*$/u.test(input.endpointHost)) {
-    fail(input.endpointHost, 'endpoint-unavailable');
-  }
-  const settled = await input.withLauncherLock(async () => {
-    const current = await run(
-      input,
-      infoArgs(input.endpointHost),
-      'observe',
-      'endpoint-unavailable'
-    );
-    if (current.code === 0) return current;
-    const stop = await run(input, Object.freeze([
-      'desktop', 'stop', '--force', '--timeout',
-      String(Math.max(1, Math.floor(remainingMs(input) / 1_000)))
-    ]), 'destructive-repair-stop', 'desktop-stop-failed');
-    if (stop.code !== 0) {
-      const reason = startFailureReason(stop);
-      fail(input.endpointHost, reason === 'service-permission-required'
-        ? reason
-        : 'desktop-stop-failed');
-    }
-    let recovered: number;
-    try {
-      recovered = await input.relocateStoppedSocketEpochs();
-    } catch {
-      fail(input.endpointHost, 'host-socket-recovery-unavailable');
-    }
-    if (!Number.isSafeInteger(recovered) || recovered < 1) {
-      fail(input.endpointHost, 'host-socket-recovery-unavailable');
-    }
-    const start = await run(input, Object.freeze([
-      'desktop', 'start', '--timeout', String(Math.max(1, Math.floor(remainingMs(input) / 1_000)))
-    ]), 'destructive-repair-start', 'desktop-start-failed');
     if (start.code !== 0) fail(input.endpointHost, startFailureReason(start));
     return await observeDockerDaemonWithCommand(input);
   });

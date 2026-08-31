@@ -35,11 +35,21 @@ export function parseDockerEndpointIdentity(value: unknown): DockerEndpointIdent
       || input.osType !== 'linux' || input.architecture !== 'x86_64') {
     throw new Error('Docker daemon endpoint identity contract is invalid');
   }
+  const contextName = boundedIdentityText(input.contextName, 'context name');
+  const endpointHost = boundedIdentityText(input.endpointHost, 'endpoint host');
+  const daemonId = boundedIdentityText(input.daemonId, 'identity');
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(contextName)) {
+    throw new Error('Docker daemon context name is invalid');
+  }
+  if (!/^npipe:\/{4}\.\/pipe\/[A-Za-z0-9_.-]+$/u.test(endpointHost)
+      && !/^unix:\/{3}[^\u0000-\u001f]+$/u.test(endpointHost)) {
+    throw new Error('Docker daemon endpoint host must be a local npipe or unix transport');
+  }
   return Object.freeze({
     schema: input.schema,
-    contextName: boundedIdentityText(input.contextName, 'context name'),
-    endpointHost: boundedIdentityText(input.endpointHost, 'endpoint host'),
-    daemonId: boundedIdentityText(input.daemonId, 'identity'),
+    contextName,
+    endpointHost,
+    daemonId,
     osType: input.osType,
     architecture: input.architecture
   });
@@ -60,9 +70,7 @@ export type DockerDaemonAvailabilityFailureReason =
   | 'desktop-launcher-busy'
   | 'desktop-launcher-settlement-unknown'
   | 'desktop-start-failed'
-  | 'desktop-stop-failed'
   | 'endpoint-unavailable'
-  | 'host-socket-recovery-unavailable'
   | 'service-permission-required';
 
 export class DockerDaemonAvailabilityFailure extends Error {
