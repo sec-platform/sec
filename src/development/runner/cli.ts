@@ -80,7 +80,7 @@ export async function runCheckAffectedCommand(
 }
 
 function usage(): never {
-  console.error('Usage: bun ./src/development/runner/cli.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
+  console.error('Usage: bun ./src/development/runner/cli.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
 
@@ -268,14 +268,31 @@ async function main(): Promise<void> {
       runCandidateImportCheck,
       runImportCheck,
       runImportApply,
+      runStagedImportCheck,
       runStagedImportOrganizer,
       resolveCandidateImportBase
     } = await import('./import-organizer.ts');
     if (target === 'imports:check' || target === 'imports:apply') {
-      const operation = parseImportOperationArgs(args, { allowStaged: target === 'imports:apply' });
+      const operation = parseImportOperationArgs(args, { allowStaged: true });
       if (operation.staged) {
-        const candidateBase = resolveCandidateImportBase(undefined, operation.candidateBase);
-        process.exitCode = await runStagedImportOrganizer(undefined, undefined, { candidateBase });
+        const selection = operation.candidateBase === undefined
+          ? {}
+          : { candidateBase: resolveCandidateImportBase(undefined, operation.candidateBase) };
+        if (target === 'imports:check') {
+          const outcome = await runStagedImportCheck(undefined, undefined, selection);
+          if (outcome.status === 'canonical') {
+            process.exitCode = 0;
+          } else {
+            console.error(
+              `Staged imports need apply (needs-import-transform) in ${outcome.files.length} file(s):\n`
+              + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
+              + 'Run bun run imports:apply --staged before committing.'
+            );
+            process.exitCode = 1;
+          }
+        } else {
+          process.exitCode = await runStagedImportOrganizer(undefined, undefined, selection);
+        }
         return;
       }
       if (target === 'imports:check') {

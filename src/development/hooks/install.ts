@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import { chmod, lstat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { createAuthorityGitReadSession, isolatedGitReadEnvironment, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../external-capabilities/git-read/runtime/session.ts';
+import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import { isolatedGitReadEnvironment, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../external-capabilities/git-read/runtime/session.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { canonicalJson } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -13,7 +14,7 @@ const MANAGED_HOOKS_PATH = '.githooks';
 const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v3';
 const DEPS_ENSURE_COMMAND = 'bun run deps:ensure';
 const HOOKS_RECONCILE_COMMAND = 'bun run postinstall';
-const IMPORTS_APPLY_STAGED_COMMAND = 'bun run imports:apply --staged';
+const IMPORTS_CHECK_STAGED_COMMAND = 'bun run imports:check --staged';
 const IMPORTS_FREEZE_COMMAND = 'bun run imports:freeze';
 const MANAGED_PRE_COMMIT = MANAGED_HOOKS_PATH + '/pre-commit';
 const MANAGED_HOOKS = [
@@ -144,19 +145,12 @@ class GitInvocationBudget {
     this.assertEnvironmentCurrent('Git executable binding');
     if (this.providerSession !== null) return this.providerSession;
     this.assertWithin('Git executable resolution start');
-    const resolution = this.providerResolutionOverride ?? createAuthorityGitReadSession({
-      cwd: process.cwd(),
-      source: this.environment,
-      budget: {
-        deadlineMs: Math.max(1, this.deadlineAt - Date.now()),
-        maxProcesses: Math.max(1, this.maxProcesses - this.processCount),
-        maxStdoutBytes: this.maxStdoutBytes,
-        maxStderrBytes: this.maxStderrBytes,
-        maxRecords: this.maxRecords,
-        maxCommandStdoutBytes: this.maxCommandStdoutBytes,
-        maxCommandStderrBytes: this.maxCommandStderrBytes
-      }
-    });
+    const resolution = this.providerResolutionOverride;
+    if (resolution === undefined) {
+      throw new GitHookTransitionConflict(
+        'Git installer production provider must be issued by the GitRead authority owner'
+      );
+    }
     if (resolution.status !== 'ready') {
       throw providerAdmissionConflict(resolution);
     }
@@ -862,22 +856,24 @@ function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
   let deployed = source;
   if (name === 'pre-commit' || name === 'pre-push') {
     const importCommand = name === 'pre-commit'
-      ? IMPORTS_APPLY_STAGED_COMMAND
+      ? IMPORTS_CHECK_STAGED_COMMAND
       : IMPORTS_FREEZE_COMMAND;
     const firstImportCommand = source.indexOf(importCommand);
     if (firstImportCommand < 0 || firstImportCommand !== source.lastIndexOf(importCommand)) {
       throw new Error(name + ' must contain exactly one canonical ' + importCommand + ' command');
     }
-    deployed = source.replace(
-      importCommand,
-      DEPS_ENSURE_COMMAND + '\n' + importCommand
-    );
+    if (name === 'pre-push') {
+      deployed = source.replace(
+        importCommand,
+        DEPS_ENSURE_COMMAND + '\n' + importCommand
+      );
+    }
   }
   return Buffer.from(
     deployed
       .replaceAll(DEPS_ENSURE_COMMAND, bindHookCommandToRuntime(DEPS_ENSURE_COMMAND, process.execPath))
       .replaceAll(HOOKS_RECONCILE_COMMAND, bindHookCommandToRuntime(HOOKS_RECONCILE_COMMAND, process.execPath))
-      .replaceAll(IMPORTS_APPLY_STAGED_COMMAND, bindHookCommandToRuntime(IMPORTS_APPLY_STAGED_COMMAND, process.execPath))
+      .replaceAll(IMPORTS_CHECK_STAGED_COMMAND, bindHookCommandToRuntime(IMPORTS_CHECK_STAGED_COMMAND, process.execPath))
       .replaceAll(IMPORTS_FREEZE_COMMAND, bindHookCommandToRuntime(IMPORTS_FREEZE_COMMAND, process.execPath)),
     'utf8'
   );
@@ -5230,6 +5226,7 @@ async function assertManagedGenerationNamespaceBeforePublication(
 async function installGitHooksInternalWithBudget(options: {
   readonly repoRoot: string;
   readonly lifecycle?: boolean;
+  readonly providerResolution?: GitReadSessionResolution;
   readonly testOnlyGitBudget?: GitInvocationBudgetOptions;
   readonly testOnlyProviderResolution?: GitReadSessionResolution;
   readonly testOnlyBeforeSpawn?: (kind: GitSpawnKind) => void;
@@ -5958,10 +5955,13 @@ async function installGitHooksInternalWithBudget(options: {
 async function installGitHooksInternal(
   options: Parameters<typeof installGitHooksInternalWithBudget>[0]
 ): Promise<GitHookInstallationResult> {
+  if (options.providerResolution !== undefined && options.testOnlyProviderResolution !== undefined) {
+    throw new GitHookTransitionConflict('Git installer received competing production and test providers');
+  }
   return await withGitInvocationBudget(
     () => installGitHooksInternalWithBudget(options),
     options.testOnlyGitBudget,
-    options.testOnlyProviderResolution,
+    options.providerResolution ?? options.testOnlyProviderResolution,
     options.testOnlyBeforeSpawn
   );
 }
@@ -5973,12 +5973,36 @@ function conflictResult(configured: string, lifecycle: boolean): GitHookInstalla
   );
 }
 
+async function installGitHooksWithProvider(
+  options: Readonly<{ repoRoot: string; lifecycle?: boolean }>,
+  providerResolution: GitReadSessionResolution
+): Promise<GitHookInstallationResult> {
+  try {
+    return await installGitHooksInternal({ ...options, providerResolution });
+  } catch (error) {
+    const conflict = asTransition(error);
+    if (options.lifecycle === true) {
+      return Object.freeze({ status: 'conflict', message: conflict.message });
+    }
+    throw conflict;
+  }
+}
+
 export async function installGitHooks(options: {
   readonly repoRoot: string;
   readonly lifecycle?: boolean;
 }): Promise<GitHookInstallationResult> {
   try {
-    return await installGitHooksInternal(options);
+    const repoRoot = path.resolve(options.repoRoot);
+    return await withAuthorityGitReadSession({
+      cwd: repoRoot,
+      source: isolatedGitReadEnvironment(),
+      budget: DEFAULT_GIT_INVOCATION_BUDGET
+    }, async (session) => installGitHooksWithProvider({ ...options, repoRoot }, Object.freeze({
+        status: 'ready' as const,
+        route: session.providerRoute,
+        session
+      })));
   } catch (error) {
     const conflict = asTransition(error);
     if (options.lifecycle === true) {
@@ -6052,6 +6076,7 @@ async function installGitHooksMainWithBudget(options: {
   readonly argv?: readonly string[];
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly providerResolution: GitReadSessionResolution;
 } = {}): Promise<number> {
   const argv = options.argv ?? process.argv.slice(2);
   const unknownArguments = argv.filter((argument) => argument !== '--lifecycle');
@@ -6084,10 +6109,10 @@ async function installGitHooksMainWithBudget(options: {
       return 0;
     }
     if (repoRoot === null || repoRoot.length === 0) throw new Error('Git repository root is unavailable');
-    const result = await installGitHooks({
+    const result = await installGitHooksWithProvider({
       repoRoot,
       lifecycle
-    });
+    }, options.providerResolution);
     if (result.status === 'conflict') console.warn(result.message);
     else console.log(result.message);
     return 0;
@@ -6102,9 +6127,23 @@ export async function installGitHooksMain(options: {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
 } = {}): Promise<number> {
-  return await withGitInvocationBudget(
-    () => installGitHooksMainWithBudget(options)
-  );
+  const cwd = path.resolve(options.cwd ?? process.cwd());
+  return await withAuthorityGitReadSession({
+    cwd,
+    source: isolatedGitReadEnvironment(options.env ?? process.env),
+    budget: DEFAULT_GIT_INVOCATION_BUDGET
+  }, async (session) => {
+    const providerResolution = Object.freeze({
+      status: 'ready' as const,
+      route: session.providerRoute,
+      session
+    });
+    return await withGitInvocationBudget(
+      () => installGitHooksMainWithBudget({ ...options, cwd, providerResolution }),
+      {},
+      providerResolution
+    );
+  });
 }
 
 if (import.meta.main) {
