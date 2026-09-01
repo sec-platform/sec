@@ -127,6 +127,62 @@ test('a legacy journal is read-only evidence and blocks a new transaction until 
   });
 });
 
+test('a terminal legacy journal settles once into a digest-bound compact receipt', async () => {
+  await withWorkspace(async (root) => {
+    const transactionId = 'legacy-accepted';
+    const transactionRoot = path.join(root, '.sec', 'import-transform-transactions', transactionId);
+    const target = path.join(root, 'a.ts');
+    const expected = Buffer.from('a0\n');
+    const replacement = Buffer.from('a1\n');
+    const { digest } = await import('../../src/system-architecture/foundation/runtime/canonical.ts');
+    const stem = digest('a.ts');
+    await mkdir(transactionRoot, { recursive: true });
+    await Promise.all([
+      writeFile(target, replacement),
+      writeFile(path.join(root, 'b.ts'), 'b0\n'),
+      writeFile(path.join(root, 'c.ts'), 'c0\n')
+    ]);
+    await chmod(target, 0o644);
+    const targetMode = (await stat(target)).mode & 0o777;
+    const fileIdentity = Object.freeze({
+      relativePath: 'a.ts', expectedDigest: digest(expected), replacementDigest: digest(replacement)
+    });
+    const entry = (state: 'prepared' | 'publishing' | 'accepted', published: readonly string[]) => JSON.stringify({
+      formatVersion: 'sec-import-transform-journal-entry-v2', transactionId, state,
+      files: [fileIdentity], published, outstanding: [], publicationReasonCode: null, recoveryReasonCode: null
+    });
+    const journalPath = path.join(transactionRoot, 'journal.jsonl');
+    await Promise.all([
+      writeFile(path.join(transactionRoot, `${stem}.preimage`), expected),
+      writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement),
+      writeFile(path.join(transactionRoot, 'binding.json'), `${JSON.stringify({
+        formatVersion: 'sec-import-transform-transaction-v2', transactionId, workspaceRoot: root,
+        writes: [{ relativePath: 'a.ts',
+          preimageCandidateRelativePath: `a.ts.imports-transform-${transactionId}.preimage.candidate`,
+          replacementCandidateRelativePath: `a.ts.imports-transform-${transactionId}.replacement.candidate`,
+          expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: targetMode }]
+      })}\n`),
+      writeFile(journalPath, `${entry('prepared', [])}\n${entry('publishing', [])}\n`
+        + `${entry('publishing', ['a.ts'])}\n${entry('accepted', ['a.ts'])}\n`)
+    ]);
+
+    const accepted = await publishImportTransformTransaction(root, [{
+      relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n')
+    }]);
+    expect(accepted.status).toBe('accepted');
+    const receiptPath = path.join(transactionRoot, 'terminal-receipt.json');
+    expect(await readFile(receiptPath, 'utf8')).toContain('sec-import-transform-terminal-receipt-v1');
+
+    const journal = await readFile(journalPath, 'utf8');
+    await writeFile(journalPath, journal.replaceAll(transactionId, 'legacy-accepteX'));
+    const blocked = await publishImportTransformTransaction(root, [{
+      relativePath: 'c.ts', expectedBytes: Buffer.from('c0\n'), replacementBytes: Buffer.from('c1\n')
+    }]);
+    expect(blocked).toMatchObject({ status: 'recovery-required', reasonCode: 'journal-failed' });
+    expect(await readFile(path.join(root, 'c.ts'), 'utf8')).toBe('c0\n');
+  });
+});
+
 test('only an exact binding-owned candidate residue is removed during recovery', async () => {
   const run = async (candidateBytes: string) => {
     let result!: Awaited<ReturnType<typeof publishImportTransformTransaction>>;
