@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -89,7 +89,13 @@ function isRecoveryReason(value: unknown): value is RecoveryReason {
 const ImportTransformBindingFormat = 'sec-import-transform-transaction-v2' as const;
 const ImportTransformJournalFormat = 'sec-import-transform-journal-entry-v2' as const;
 const ImportTransformCompactJournalFormat = 'sec-import-transform-journal-entry-v3' as const;
+const ImportTransformTerminalReceiptFormat = 'sec-import-transform-terminal-receipt-v1' as const;
 const IMPORT_TRANSFORM_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
+// The former v2 writer copied the complete write set into every progress edge,
+// so a valid terminal journal could exceed the compact v3 ceiling.  This
+// larger limit belongs exclusively to the one-way legacy settlement reader;
+// no current writer or unfinished recovery path may consume it.
+const IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES = 64 * 1024 * 1024;
 const IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS = 100_000;
 
 class ImportTransformTransactionFailure extends Error {
@@ -340,6 +346,18 @@ type RecoveredTransaction = Readonly<{
   recoveryReasonCode: RecoveryReason | null;
 }>;
 
+type ImportTransformTerminalReceipt = Readonly<{
+  formatVersion: typeof ImportTransformTerminalReceiptFormat;
+  transactionId: string;
+  bindingDigest: string;
+  journalFormat: typeof ImportTransformJournalFormat;
+  journalDigest: string;
+  journalBytes: number;
+  state: 'accepted' | 'rolled-back';
+  publishedCount: number;
+  publicationReasonCode: PublicationReason | null;
+}>;
+
 function recoveryRequiredOutcome(
   transactionId: string,
   journalPath: string,
@@ -448,7 +466,8 @@ function parseLegacyJournalEntries(
   transactionId: string,
   files: readonly PreparedWrite[]
 ): readonly LegacyJournalEntry[] {
-  const lines = journalLines(source, 'Import transform legacy journal');
+  const lines = journalLines(source, 'Import transform legacy journal',
+    IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES);
   const result: LegacyJournalEntry[] = [];
   for (const line of lines) {
     const raw = asRecord(parseRecoveryJson(line, 'Import transform transaction journal entry'),
@@ -766,8 +785,12 @@ function decodeRecoveryUtf8(bytes: Buffer, label: string): string {
   }
 }
 
-function journalLines(source: string, label: string): readonly string[] {
-  if (Buffer.byteLength(source, 'utf8') > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
+function journalLines(
+  source: string,
+  label: string,
+  maximumBytes: number = IMPORT_TRANSFORM_JOURNAL_MAX_BYTES
+): readonly string[] {
+  if (Buffer.byteLength(source, 'utf8') > maximumBytes) {
     recoveryFailure(label + ' exceeds the bounded journal byte limit.');
   }
   const lines = source.split('\n');
@@ -822,6 +845,124 @@ async function readRegularTransactionArtifact(
   return bytes;
 }
 
+async function digestRegularTransactionArtifact(
+  filePath: string,
+  label: string,
+  maximumBytes: number
+): Promise<Readonly<{ digest: string; bytes: number }>> {
+  const metadata = await fs.lstat(filePath);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) recoveryFailure(label + ' is not an ordinary file.');
+  if (metadata.size > maximumBytes) recoveryFailure(label + ' exceeds its bounded byte limit.');
+  const handle = await fs.open(filePath, 'r');
+  const hash = createHash('sha256');
+  let offset = 0;
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== metadata.dev || opened.ino !== metadata.ino
+      || opened.size !== metadata.size) {
+      recoveryFailure(label + ' changed before retained digest readback.');
+    }
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    while (offset < opened.size) {
+      const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, opened.size - offset), offset);
+      if (bytesRead === 0) recoveryFailure(label + ' ended before its retained byte count.');
+      hash.update(buffer.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+    const after = await handle.stat();
+    const current = await fs.lstat(filePath);
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+      || current.dev !== opened.dev || current.ino !== opened.ino || current.size !== opened.size) {
+      recoveryFailure(label + ' changed during retained digest readback.');
+    }
+  } finally {
+    await handle.close();
+  }
+  return Object.freeze({ digest: hash.digest('hex'), bytes: offset });
+}
+
+function parseTerminalReceipt(
+  source: string,
+  transactionId: string,
+  bindingDigest: string,
+  fileCount: number
+): ImportTransformTerminalReceipt {
+  const raw = asRecord(parseRecoveryJson(source, 'Import transform terminal receipt'),
+    'Import transform terminal receipt');
+  exactKeys(raw, ['bindingDigest', 'formatVersion', 'journalBytes', 'journalDigest', 'journalFormat',
+    'publicationReasonCode', 'publishedCount', 'state', 'transactionId'], 'Import transform terminal receipt');
+  if (raw.formatVersion !== ImportTransformTerminalReceiptFormat || raw.transactionId !== transactionId
+    || raw.bindingDigest !== bindingDigest || raw.journalFormat !== ImportTransformJournalFormat
+    || typeof raw.journalDigest !== 'string' || !/^[0-9a-f]{64}$/u.test(raw.journalDigest)
+    || typeof raw.journalBytes !== 'number' || !Number.isSafeInteger(raw.journalBytes)
+    || raw.journalBytes <= 0 || raw.journalBytes > IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES
+    || typeof raw.publishedCount !== 'number' || !Number.isSafeInteger(raw.publishedCount)
+    || raw.publishedCount < 0 || raw.publishedCount > fileCount
+    || (raw.state !== 'accepted' && raw.state !== 'rolled-back')) {
+    recoveryFailure('Import transform terminal receipt identity is invalid.');
+  }
+  const publicationReasonCode = raw.publicationReasonCode === null ? null
+    : isPublicationReason(raw.publicationReasonCode) ? raw.publicationReasonCode
+      : recoveryFailure('Import transform terminal receipt publication reason is invalid.');
+  if ((raw.state === 'accepted' && (raw.publishedCount !== fileCount || publicationReasonCode !== null))
+    || (raw.state === 'rolled-back' && publicationReasonCode === null)) {
+    recoveryFailure('Import transform terminal receipt state is invalid.');
+  }
+  return Object.freeze({
+    formatVersion: ImportTransformTerminalReceiptFormat,
+    transactionId,
+    bindingDigest,
+    journalFormat: ImportTransformJournalFormat,
+    journalDigest: raw.journalDigest,
+    journalBytes: raw.journalBytes,
+    state: raw.state,
+    publishedCount: raw.publishedCount,
+    publicationReasonCode
+  });
+}
+
+async function readOptionalTerminalReceipt(
+  receiptPath: string,
+  transactionId: string,
+  bindingDigest: string,
+  fileCount: number
+): Promise<ImportTransformTerminalReceipt | null> {
+  try {
+    const bytes = await readRegularTransactionArtifact(receiptPath, 'Import transform terminal receipt', 4096);
+    return parseTerminalReceipt(decodeRecoveryUtf8(bytes, 'Import transform terminal receipt'),
+      transactionId, bindingDigest, fileCount);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function writeLegacyTerminalReceipt(
+  receiptPath: string,
+  transactionId: string,
+  bindingDigest: string,
+  journalBytes: Buffer,
+  terminal: LegacyJournalEntry,
+  assertLease: () => Promise<void>
+): Promise<void> {
+  if (terminal.state !== 'accepted' && terminal.state !== 'rolled-back') {
+    recoveryFailure('Only a terminal legacy journal can issue a compact settlement receipt.');
+  }
+  await assertLease();
+  const receipt: ImportTransformTerminalReceipt = Object.freeze({
+    formatVersion: ImportTransformTerminalReceiptFormat,
+    transactionId,
+    bindingDigest,
+    journalFormat: ImportTransformJournalFormat,
+    journalDigest: digest(journalBytes),
+    journalBytes: journalBytes.byteLength,
+    state: terminal.state,
+    publishedCount: terminal.published.length,
+    publicationReasonCode: terminal.publicationReasonCode
+  });
+  await writeDurable(receiptPath, `${JSON.stringify(canonicalJson(receipt))}\n`);
+}
+
 async function readUnfinishedTransaction(
   workspaceRoot: string,
   transactionRoot: string,
@@ -843,6 +984,7 @@ async function readUnfinishedTransaction(
     || binding.writes.length > IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS) {
     recoveryFailure('Import transform transaction binding identity is invalid.');
   }
+  const bindingDigest = digest(bindingBytes);
   const seen = new Set<string>();
   const files: PreparedWrite[] = [];
   for (const rawWrite of binding.writes) {
@@ -884,7 +1026,8 @@ async function readUnfinishedTransaction(
       expectedDigest: write.expectedDigest, replacementDigest: write.replacementDigest, mode: write.mode
     }));
   }
-  const allowedArtifacts = new Set<string>(['binding.json', 'journal.jsonl']);
+  const terminalReceiptPath = path.join(transactionRoot, 'terminal-receipt.json');
+  const allowedArtifacts = new Set<string>(['binding.json', 'journal.jsonl', 'terminal-receipt.json']);
   for (const file of files) {
     const stem = digest(file.relativePath);
     allowedArtifacts.add(stem + '.preimage');
@@ -904,6 +1047,30 @@ async function readUnfinishedTransaction(
       recoveryFailure('Import transform transaction contains unknown or non-regular residue.');
     }
   }
+  const terminalReceipt = await readOptionalTerminalReceipt(terminalReceiptPath,
+    transactionId, bindingDigest, files.length);
+  if (terminalReceipt !== null) {
+    const journalIdentity = await digestRegularTransactionArtifact(journalPath,
+      'Import transform legacy terminal journal', IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES);
+    if (journalIdentity.digest !== terminalReceipt.journalDigest
+      || journalIdentity.bytes !== terminalReceipt.journalBytes) {
+      recoveryFailure('Import transform legacy terminal journal drifted from its settlement receipt.');
+    }
+    return Object.freeze({
+      transactionId,
+      journalPath,
+      files: Object.freeze(files),
+      journalVersion: 'v2' as const,
+      bindingDigest,
+      compactJournalTail: null,
+      journalWasMissing: false,
+      state: terminalReceipt.state,
+      published: Object.freeze(files.slice(0, terminalReceipt.publishedCount).map((file) => file.relativePath)),
+      outstanding: Object.freeze([]),
+      publicationReasonCode: terminalReceipt.publicationReasonCode,
+      recoveryReasonCode: null
+    });
+  }
   let journalBytes: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   let journalWasMissing = false;
   let journalIdentity: { readonly dev: number; readonly ino: number; readonly size: number } | undefined;
@@ -912,7 +1079,7 @@ async function readUnfinishedTransaction(
     const metadata = await fs.lstat(journalPath);
     journalIdentity = { dev: metadata.dev, ino: metadata.ino, size: metadata.size };
     journalBytes = await readRegularTransactionArtifact(journalPath, 'Import transform transaction journal',
-      IMPORT_TRANSFORM_JOURNAL_MAX_BYTES);
+      IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') journalWasMissing = true;
     else throw error;
@@ -923,7 +1090,6 @@ async function readUnfinishedTransaction(
   const completeJournalSource = journalRepairOffset === null ? journalSource
     : journalBytes.subarray(0, journalRepairOffset).toString('utf8');
   const firstLine = completeJournalSource.split('\n').find((line) => line.length > 0);
-  const bindingDigest = digest(bindingBytes);
   if (firstLine === undefined) {
     // A missing/empty/torn-only journal has no v2 grammar to relax; the only
     // safe interpretation is pre-publication, followed by an explicit v3
@@ -942,12 +1108,25 @@ async function readUnfinishedTransaction(
   const journalVersion = firstEntry.formatVersion === ImportTransformCompactJournalFormat ? 'v3' as const
     : firstEntry.formatVersion === ImportTransformJournalFormat ? 'v2' as const
       : recoveryFailure('Import transform transaction journal format is unsupported.');
+  if (journalVersion === 'v3' && journalBytes.byteLength > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
+    recoveryFailure('Import transform compact journal exceeds its bounded byte limit.');
+  }
   if (journalVersion === 'v2') {
     // v2 is a bounded read-only legacy input; new writers never emit it.
     if (journalRepairOffset !== null) recoveryFailure('Import transform legacy journal has a partial final line.');
     const journal = parseLegacyJournalEntries(completeJournalSource, transactionId, files);
     const last = journal.at(-1);
     if (last === undefined) recoveryFailure('Import transform transaction journal is empty.');
+    if (last.state === 'accepted' || last.state === 'rolled-back') {
+      await writeLegacyTerminalReceipt(terminalReceiptPath, transactionId, bindingDigest,
+        journalBytes, last, assertLease);
+      const readback = await readOptionalTerminalReceipt(terminalReceiptPath,
+        transactionId, bindingDigest, files.length);
+      if (readback === null || readback.journalDigest !== digest(journalBytes)
+        || readback.journalBytes !== journalBytes.byteLength || readback.state !== last.state) {
+        recoveryFailure('Import transform terminal receipt readback failed.');
+      }
+    }
     return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalVersion, bindingDigest,
       compactJournalTail: null, journalWasMissing,
       state: last.state, published: last.published, outstanding: last.outstanding,
