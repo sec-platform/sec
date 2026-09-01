@@ -7,7 +7,7 @@ import {
   CI_ARTIFACT_MISSING_REASON,
   type CiArtifactManifest
 } from '../../src/verification/ci-artifacts/contract/types.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { expectCliJson } from '../testkit/cli.ts';
 import { withWorkspaceScenario } from '../testkit/workspace.ts';
 
@@ -29,7 +29,6 @@ test('artifact inventory publishes only machine evidence and diagnoses missing g
     expect(manifest.artifacts.map((artifact) => artifact.path)).toEqual(
       expect.arrayContaining(CI_ARTIFACT_PATHS.requiredGovernance)
     );
-
     await fs.rm(resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport));
     const missing = await expectCliJson<CiArtifactManifest>(workspaceRoot, ['artifacts', '--json']);
     expect(missing.summary.artifactStatus).toBe('attention');

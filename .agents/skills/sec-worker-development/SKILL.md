@@ -14,12 +14,6 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 ## 输入
 - Task Capsule/Operation Envelope、相关 owner/types/source、当前 failing reproduction 与已选择的 Action closure。
 
-## 权限与路径
-- 仅修改Envelope owned paths；forbidden paths和其他owner只读。
-
-## 允许工具与操作
-- 代码编辑、Envelope 已授权的显式 transform、selector 选择的 focused Action、Git candidate materialization。
-
 ## 前置门禁
 - Envelope完整、base未漂移、用户修正已reconcile。
 
@@ -42,8 +36,3 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 - 不运行重复 Action、日常 Full 或未被 selector 选择的 Risk。
 - 不删除测试、弱化 assertion、扩大 timeout或顺手重构。
 - 普通测试失败不自动计为 candidate invalidation。
-
-## 权威
-- `AGENTS.md`
-- `docs/development-governance.md`
-- `docs/verification-governance.md`

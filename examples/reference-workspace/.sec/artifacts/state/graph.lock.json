@@ -12,7 +12,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 1,
-      "manifestPath": "catalog/registry/official/auth.basic-session/block.manifest.yaml",
+      "manifestPath": "../../catalog/registry/official/auth.basic-session/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -23,7 +23,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 2,
-      "manifestPath": "catalog/registry/official/tenant.basic-workspace/block.manifest.yaml",
+      "manifestPath": "../../catalog/registry/official/tenant.basic-workspace/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -34,7 +34,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 3,
-      "manifestPath": "catalog/registry/official/agent.harness/block.manifest.yaml",
+      "manifestPath": "../../catalog/registry/official/agent.harness/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -45,7 +45,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 4,
-      "manifestPath": "catalog/registry/official/entity.customer-basic/block.manifest.yaml",
+      "manifestPath": "../../catalog/registry/official/entity.customer-basic/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -56,7 +56,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 5,
-      "manifestPath": "catalog/registry/official/file.upload/block.manifest.yaml",
+      "manifestPath": "../../catalog/registry/official/file.upload/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -67,7 +67,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 6,
-      "manifestPath": "catalog/registry/official/ticket.basic/block.manifest.yaml",
+      "manifestPath": "../../catalog/registry/official/ticket.basic/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -78,7 +78,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 7,
-      "manifestPath": "catalog/registry/official/comment.basic/block.manifest.yaml",
+      "manifestPath": "../../catalog/registry/official/comment.basic/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -89,7 +89,7 @@
       "version": "0.1.0",
       "kind": "capability",
       "installOrder": 8,
-      "manifestPath": "catalog/registry/official/agent.executor/block.manifest.yaml",
+      "manifestPath": "../../catalog/registry/official/agent.executor/block.manifest.yaml",
       "registrySourceId": "official",
       "registryKind": "official",
       "registryLocation": "compiler",
@@ -386,27 +386,6 @@
       "to": "tests/acceptance/agent-classifier-flow.test.ts"
     }
   ],
-  "slotTasks": [
-    {
-      "id": "customer_normalizer",
-      "block": "entity/customer-basic",
-      "target": "custom/customer_normalizer.ts",
-      "sourcePath": "source/code/slots/customer_normalizer.ts",
-      "symbol": "normalizeCustomerInput",
-      "kind": "adapter",
-      "inputType": "CustomerInput",
-      "outputType": "NormalizedCustomerInput",
-      "status": "pending",
-      "writableZones": [
-        "source/code/slots/customer_normalizer.ts",
-        "custom/"
-      ],
-      "provenanceHints": {
-        "generator": "mock-local-synthesizer",
-        "verifiedBy": []
-      }
-    }
-  ],
   "semanticLoweringTasks": [
     {
       "id": "generator:ticket/basic:ticket-status-runtime-contract",
@@ -414,8 +393,8 @@
       "generatorId": "ticket-status-runtime-contract",
       "generatorEntityId": "generator:ticket/basic:ticket-status-runtime-contract",
       "artifactEntityId": "artifact:src/installed/ticket/ticket-semantic-contract.ts",
-      "inputRevision": "sha256:b739a2e22ec53e042fae033489500dcead03fce897df3ca31d5178d103a3012d",
-      "semanticRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2",
+      "inputRevision": "sha256:ffd4d059a0766d9c3c4dbf2267eb829f0642d217496c74c152fac7e0eea166e9",
+      "semanticRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9",
       "contractId": "ticket-core",
       "contractPath": "catalog/registry/official/ticket.basic/contracts/ticket.yaml",
       "contractNamespace": "ticket",
@@ -468,13 +447,19 @@
         "name": "TicketStatus",
         "importFrom": "../../runtime/database.ts"
       },
-      "status": "pending"
+      "status": "generated",
+      "artifactBinding": {
+        "generatorEntityId": "generator:ticket/basic:ticket-status-runtime-contract",
+        "artifactEntityId": "artifact:src/installed/ticket/ticket-semantic-contract.ts",
+        "semanticRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9",
+        "compilationTransactionId": "tx:reference-workspace"
+      }
     }
   ],
   "semanticViews": {
     "formatVersion": "1",
-    "inputRevision": "sha256:b739a2e22ec53e042fae033489500dcead03fce897df3ca31d5178d103a3012d",
-    "semanticRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2",
+    "inputRevision": "sha256:ffd4d059a0766d9c3c4dbf2267eb829f0642d217496c74c152fac7e0eea166e9",
+    "semanticRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9",
     "views": [
       {
         "formatVersion": "1",
@@ -748,10 +733,6 @@
               {
                 "kind": "fact",
                 "ref": "fact:a8e9207bd604fcc68b1718ab"
-              },
-              {
-                "kind": "fact",
-                "ref": "fact:d5e36a1471cbd46aedb134b9"
               }
             ]
           },
@@ -3391,24 +3372,6 @@
             ]
           },
           {
-            "id": "slot:entity/customer-basic:customer_normalizer",
-            "entityId": "slot:entity/customer-basic:customer_normalizer",
-            "entityKind": "slot",
-            "label": "customer_normalizer",
-            "badges": [],
-            "group": "slot",
-            "references": [
-              {
-                "kind": "entity",
-                "ref": "slot:entity/customer-basic:customer_normalizer"
-              },
-              {
-                "kind": "fact",
-                "ref": "fact:d5e36a1471cbd46aedb134b9"
-              }
-            ]
-          },
-          {
             "id": "state:ticket:ticket-status",
             "entityId": "state:ticket:ticket-status",
             "entityKind": "state",
@@ -3824,19 +3787,6 @@
               {
                 "kind": "fact",
                 "ref": "fact:12852c9fe0d8186fd4d16447"
-              }
-            ]
-          },
-          {
-            "id": "edge:block:entity/customer-basic:CONTAINS:slot:entity/customer-basic:customer_normalizer:fact:d5e36a1471cbd46aedb134b9",
-            "source": "block:entity/customer-basic",
-            "target": "slot:entity/customer-basic:customer_normalizer",
-            "relation": "CONTAINS",
-            "label": "contains",
-            "references": [
-              {
-                "kind": "fact",
-                "ref": "fact:d5e36a1471cbd46aedb134b9"
               }
             ]
           },
@@ -6234,7 +6184,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -6268,7 +6218,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -6302,7 +6252,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -6336,7 +6286,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -6370,7 +6320,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -6404,7 +6354,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -6438,7 +6388,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -6472,7 +6422,7 @@
                         "compiler:resolve:resolved-block"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -6659,8 +6609,7 @@
                   "fact:64f47a87a885ebf50f573596",
                   "fact:710746e89158c7b95f442d58",
                   "fact:a4108077027c175d415cfb12",
-                  "fact:a8e9207bd604fcc68b1718ab",
-                  "fact:d5e36a1471cbd46aedb134b9"
+                  "fact:a8e9207bd604fcc68b1718ab"
                 ],
                 "status": "mixed",
                 "authorities": [
@@ -7606,26 +7555,6 @@
                 },
                 "provenanceKinds": [
                   "contract"
-                ],
-                "evidenceRefs": []
-              },
-              {
-                "targetId": "edge:block:entity/customer-basic:CONTAINS:slot:entity/customer-basic:customer_normalizer:fact:d5e36a1471cbd46aedb134b9",
-                "factIds": [
-                  "fact:d5e36a1471cbd46aedb134b9"
-                ],
-                "status": "uniform",
-                "authorities": [
-                  "derived"
-                ],
-                "hasInferred": false,
-                "hasConflict": false,
-                "confidence": {
-                  "min": 1,
-                  "max": 1
-                },
-                "provenanceKinds": [
-                  "compiler"
                 ],
                 "evidenceRefs": []
               },
@@ -12650,26 +12579,6 @@
                 "evidenceRefs": []
               },
               {
-                "targetId": "slot:entity/customer-basic:customer_normalizer",
-                "factIds": [
-                  "fact:d5e36a1471cbd46aedb134b9"
-                ],
-                "status": "uniform",
-                "authorities": [
-                  "derived"
-                ],
-                "hasInferred": false,
-                "hasConflict": false,
-                "confidence": {
-                  "min": 1,
-                  "max": 1
-                },
-                "provenanceKinds": [
-                  "compiler"
-                ],
-                "evidenceRefs": []
-              },
-              {
                 "targetId": "state:ticket:ticket-status",
                 "factIds": [
                   "fact:228e27c254139a4c1bf79b36",
@@ -13029,7 +12938,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -13063,7 +12972,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -13097,7 +13006,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -13131,7 +13040,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -13609,7 +13518,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -13643,7 +13552,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -13677,7 +13586,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -13711,7 +13620,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -14208,7 +14117,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -14242,7 +14151,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -14276,7 +14185,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -14310,7 +14219,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15063,7 +14972,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15097,7 +15006,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15131,7 +15040,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15165,7 +15074,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15199,7 +15108,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15233,7 +15142,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15267,7 +15176,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15301,7 +15210,7 @@
                         "contract:manifest:ticket/basic"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15335,7 +15244,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15369,7 +15278,7 @@
                         "compiler:generator:generator:ticket/basic:ticket-status-runtime-contract:lowering"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15403,7 +15312,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15437,7 +15346,7 @@
                         "contract:semantic-contract:ticket-core"
                       ],
                       "evidence": [],
-                      "validFromRevision": "sha256:3b97d0868cf35e15071e0fba347e5531e9cfc386a18bdffdecb2fee1259b59f2"
+                      "validFromRevision": "sha256:54321edd5e0e993503486caa2f5bfa10fa446b780e2f27e561bd6f89d49b18f9"
                     }
                   ]
                 },
@@ -15700,8 +15609,19 @@
     ]
   },
   "generatedPaths": [
-    "control/evidence/block-usage-map.json",
-    "control/evidence/install-manifest.json"
+    ".sec/artifacts/evidence/acceptance-coverage.json",
+    ".sec/artifacts/evidence/block-usage-map.json",
+    ".sec/artifacts/evidence/install-manifest.json",
+    ".sec/artifacts/evidence/policy-report.json",
+    ".sec/artifacts/evidence/runtime-report.json",
+    ".sec/artifacts/evidence/verification-report.json",
+    "package.json",
+    "src/installed/ticket/ticket-semantic-contract.ts",
+    "src/runtime/database.ts",
+    "src/runtime/store.ts",
+    "tests/runtime/unit/customer-runtime.test.ts",
+    "tests/runtime/unit/ticket-runtime.test.ts",
+    "tsconfig.json"
   ],
   "acceptancePlan": [
     "agent_can_automatically_classify_ticket",
@@ -15723,9 +15643,9 @@
     "align": "succeeded",
     "resolve": "succeeded",
     "build-ir": "succeeded",
-    "compose": "failed",
-    "adapt": "blocked",
-    "verify": "blocked",
+    "compose": "succeeded",
+    "adapt": "succeeded",
+    "verify": "failed",
     "repair": "blocked",
     "lock": "blocked",
     "emit": "blocked"

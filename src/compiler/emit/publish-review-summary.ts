@@ -6,7 +6,7 @@ import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/mani
 import type { VerificationReport } from '../../verification/contract/types.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { writeGeneratedArtifactWithLock } from '../lock.ts';
 import { buildReviewSummary } from './write-review-summary.ts';

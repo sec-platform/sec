@@ -1,5 +1,5 @@
 export { addBlock, resolveWorkspace } from './block-orchestrator.ts';
-export { adaptWorkspace, composeWorkspace } from './compose-orchestrator.ts';
+export { composeWorkspace } from './compose-orchestrator.ts';
 export { explainWorkspace, lockWorkspace, writeWorkspaceArtifacts } from './emit-orchestrator.ts';
 export { compileWorkspace } from './pipeline-orchestrator.ts';
 export type {

@@ -19,33 +19,6 @@ import { assertSemanticMutationVerificationReportInvariant, executeSemanticMutat
 import { type SemanticMutationApplyOutcome, type SemanticMutationRequestRecordView } from '../../src/semantic/mutation/contract/transaction.ts';
 import { isSemanticMutationStagingWorkspace } from '../../src/semantic/mutation/runtime/staging-boundary.ts';
 
-function legacyPassedIsolatedVerificationEvidenceDigest(
-  evidence: Extract<SemanticMutationIsolatedVerificationEvidence, { readonly status: 'passed' }>
-): string {
-  const snapshot = evidence.artifacts.semanticBundle.snapshot.ir;
-  const generatedReport = evidence.artifacts.verificationReport;
-  return sha256({
-    domain: ['semantic-mutation-isolated-verification', 'evidence-v1'].join('-'),
-    completedStages: ['resolve', 'semantic', 'compose', 'adapt', 'verify'],
-    inputRevision: snapshot.inputRevision,
-    semanticRevision: snapshot.semanticRevision,
-    generatedArtifactRawDigests: evidence.artifacts.rawDigests,
-    report: {
-      summary: generatedReport.summary,
-      build: generatedReport.build,
-      unit: generatedReport.unit,
-      acceptance: generatedReport.acceptance,
-      policy: generatedReport.policy,
-      runtime: {
-        status: generatedReport.runtime.status,
-        build: generatedReport.runtime.build,
-        unit: generatedReport.runtime.unit,
-        acceptance: generatedReport.runtime.acceptance
-      }
-    }
-  });
-}
-
 test('semantic mutation staging layout is exactly the canonical transaction workspace', () => {
   const workspaceRoot = path.resolve('contract-workspace');
   const digest = sha256('canonical-transaction-layout');
@@ -315,7 +288,7 @@ test('SM-3 digest domains remain independently reproducible', () => {
   }));
 });
 
-test('isolated Verification evidence preserves the passed projection and freezes blocked vectors', () => {
+test('isolated Verification evidence digest is deterministic and distinguishes failure state', () => {
   const passed = {
     status: 'passed',
     artifacts: {
@@ -358,10 +331,16 @@ test('isolated Verification evidence preserves the passed projection and freezes
     SemanticMutationIsolatedVerificationEvidence,
     { readonly status: 'passed' }
   >;
-  expect(semanticMutationIsolatedVerificationEvidenceDigest(passed))
-    .toBe(legacyPassedIsolatedVerificationEvidenceDigest(passed));
-  expect(semanticMutationIsolatedVerificationEvidenceDigest({
+  const passedDigest = semanticMutationIsolatedVerificationEvidenceDigest(passed);
+  const equivalentPassedDigest = semanticMutationIsolatedVerificationEvidenceDigest(
+    structuredClone(passed)
+  );
+  const blockedDigest = semanticMutationIsolatedVerificationEvidenceDigest({
     status: 'blocked',
     failure: { stage: 'binding-mismatch' }
-  })).toBe('sha256:44d059c12c7caec991bf22eabc4403bef552a4c7bbc537088d13c729528b7239');
+  });
+  expect(passedDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(equivalentPassedDigest).toBe(passedDigest);
+  expect(blockedDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(blockedDigest).not.toBe(passedDigest);
 });

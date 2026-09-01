@@ -24,6 +24,5 @@ pins:
     - id: email_notification_created
       type: EmailNotificationRecord
       required: true
-slots: []
 acceptance:
   - id: customer_creation_sends_email_notification

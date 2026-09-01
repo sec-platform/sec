@@ -27,7 +27,7 @@ export type WindowsControlCliModuleEntryAuthority = {
   observedSizeBytes: number;
   observedSha256: string;
 };
-export type WindowsControlCliCommandBinding = {
+export type WindowsControlCliExecutableBinding = {
   id: string;
   kind: 'git-for-windows' | 'github-cli';
   version: string;
@@ -38,18 +38,6 @@ export type WindowsControlCliCommandBinding = {
   }>;
   executableEntries: WindowsControlCliExecutableEntryAuthority[];
   appLocalModules: WindowsControlCliModuleEntryAuthority[];
-  versionProbe: { args: string[]; exactFirstLine: string };
-  commandContract: {
-    maxArguments: number;
-    maxTimeoutMs: number;
-    maxStdoutBytes: number;
-    maxStderrBytes: number;
-  };
-  endpoints?: {
-    host: 'github.com';
-    apiBaseUrl: 'https://api.github.com';
-    graphqlUrl: 'https://api.github.com/graphql';
-  };
 };
 export type WindowsControlCliEnvironmentAuthority = {
   schema: typeof SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SCHEMA;
@@ -58,8 +46,6 @@ export type WindowsControlCliEnvironmentAuthority = {
   architecture: 'x64';
   resourceContract: {
     maxSessionDurationMs: number;
-    maxCommandsPerSession: number;
-    maxTotalOutputBytes: number;
   };
   adoptionContract: {
     discovery: {
@@ -68,7 +54,7 @@ export type WindowsControlCliEnvironmentAuthority = {
         'windows-standard-location-untrusted-hint'
       ];
       maxPathEntries: number;
-      maxCandidatesPerCommand: number;
+      maxCandidatesPerExecutable: number;
       maxPathBytes: number;
       selection: 'unique-authenticated-physical-closure';
     };
@@ -89,14 +75,14 @@ export type WindowsControlCliEnvironmentAuthority = {
     positiveReceiptContract: {
       schema: typeof SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_RECEIPT_SCHEMA;
       candidate: 'bounded-untrusted-locator-readback';
-      executable: 'retained-exact-bytes-version-readback';
+      executable: 'retained-exact-bytes-readback';
       loader: 'minimal-app-local-and-system-loader-readback';
       workingDirectory: 'retained-no-follow-working-directory-readback';
       authorization: 'owner-issued-live-capability';
       persistentExecutableCache: 'forbidden';
     };
   };
-  commandBindings: WindowsControlCliCommandBinding[];
+  executableBindings: WindowsControlCliExecutableBinding[];
 };
 type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
   ? Value
@@ -106,15 +92,13 @@ type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
       ? { readonly [Key in keyof Value]: DeepReadonly<Value[Key]> }
       : Value;
 export type WindowsControlCliExecutableEntry = DeepReadonly<
-  WindowsControlCliCommandBinding['executableEntries'][number]
+  WindowsControlCliExecutableBinding['executableEntries'][number]
 >;
 export type WindowsControlCliAppLocalModule = DeepReadonly<
-  WindowsControlCliCommandBinding['appLocalModules'][number]
+  WindowsControlCliExecutableBinding['appLocalModules'][number]
 >;
 export type WindowsControlCliResourceContract =
   WindowsControlCliEnvironmentAuthority['resourceContract'];
-export type WindowsControlCliCommandContract =
-  WindowsControlCliCommandBinding['commandContract'];
 export type WindowsControlCliAdoptionContract =
   WindowsControlCliEnvironmentAuthority['adoptionContract'];
 export type WindowsControlCliRootClosure =
@@ -126,29 +110,22 @@ export type WindowsControlCliEnvironmentSpec = Readonly<
   WindowsControlCliEnvironmentAuthority & { specDigest: `sha256:${string}` }
 >;
 
-export type WindowsControlCliCommandBudget = Readonly<Pick<
-  WindowsControlCliCommandContract,
-  'maxArguments' | 'maxTimeoutMs' | 'maxStdoutBytes' | 'maxStderrBytes'
->>;
 export type WindowsControlCliResourceBudget = Readonly<Pick<
   WindowsControlCliResourceContract,
-  'maxSessionDurationMs' | 'maxCommandsPerSession' | 'maxTotalOutputBytes'
+  'maxSessionDurationMs'
 >>;
 export type WindowsControlCliAdoptionBudget = DeepReadonly<
   WindowsControlCliAdoptionContract
 >;
-export type WindowsControlCliBindingProjection = Readonly<{
-  readonly id: WindowsControlCliCommandBinding['id'];
-  readonly kind: WindowsControlCliCommandBinding['kind'];
+export type WindowsControlCliExecutableBindingProjection = Readonly<{
+  readonly id: WindowsControlCliExecutableBinding['id'];
+  readonly kind: WindowsControlCliExecutableBinding['kind'];
   readonly version: string;
   readonly executableName: 'git.exe' | 'gh.exe';
-  readonly candidateLayouts: DeepReadonly<WindowsControlCliCommandBinding['candidateLayouts']>;
+  readonly candidateLayouts: DeepReadonly<WindowsControlCliExecutableBinding['candidateLayouts']>;
   readonly launcherEntries: readonly WindowsControlCliExecutableEntry[];
   readonly effectiveEntry: WindowsControlCliExecutableEntry;
   readonly appLocalModules: readonly WindowsControlCliAppLocalModule[];
-  readonly versionProbe: DeepReadonly<WindowsControlCliCommandBinding['versionProbe']>;
-  readonly commandBudget: WindowsControlCliCommandBudget;
-  readonly endpoints: DeepReadonly<WindowsControlCliCommandBinding['endpoints']>;
 }>;
 export type WindowsControlCliRootClosureProjection = Readonly<{
   readonly status: WindowsControlCliRootClosure['status'];
@@ -164,7 +141,7 @@ export type WindowsControlCliEnvironmentProjection = Readonly<{
   readonly resourceBudget: WindowsControlCliResourceBudget;
   readonly adoptionBudget: WindowsControlCliAdoptionBudget;
   readonly rootClosure: WindowsControlCliRootClosureProjection;
-  readonly commandBindings: readonly WindowsControlCliBindingProjection[];
+  readonly executableBindings: readonly WindowsControlCliExecutableBindingProjection[];
 }>;
 
 type WindowsControlCliEnvironmentInputV1 =
@@ -187,24 +164,17 @@ function assertUniqueRelativePaths(
   }
 }
 
-function validateCommandBinding(
-  binding: WindowsControlCliCommandBinding,
-  index: number,
-  resource: WindowsControlCliResourceContract
+function validateExecutableBinding(
+  binding: WindowsControlCliExecutableBinding,
+  index: number
 ): void {
-  const label = `commandBindings[${index}]`;
+  const label = `executableBindings[${index}]`;
   const expectedId = index === 0 ? 'git' : 'gh';
   const expectedKind = expectedId === 'git' ? 'git-for-windows' : 'github-cli';
   const expectedExecutable = expectedId === 'git' ? 'git.exe' : 'gh.exe';
   if (binding.id !== expectedId || binding.kind !== expectedKind
       || binding.executableName !== expectedExecutable) {
-    fail(`${label} is outside the canonical command ordering and identity`);
-  }
-  if (binding.commandContract.maxArguments > 128
-      || binding.commandContract.maxTimeoutMs > resource.maxSessionDurationMs
-      || binding.commandContract.maxStdoutBytes + binding.commandContract.maxStderrBytes
-        > resource.maxTotalOutputBytes) {
-    fail(`${label}.commandContract exceeds the resource envelope`);
+    fail(`${label} is outside the canonical executable ordering and identity`);
   }
   assertUniqueRelativePaths(binding.executableEntries, `${label}.executableEntries`);
   assertUniqueRelativePaths(binding.appLocalModules, `${label}.appLocalModules`);
@@ -234,12 +204,11 @@ function validateCommandBinding(
     fail(`${label}.appLocalModules overlaps executable entries`);
   }
   if (expectedId === 'git') {
-    if (binding.endpoints !== undefined || binding.appLocalModules.length === 0
-        || !binding.version.endsWith('.windows.3')) {
-      fail('Git binding must declare its installed app-local closure without GitHub endpoints');
+    if (binding.appLocalModules.length === 0 || !binding.version.endsWith('.windows.3')) {
+      fail('Git executable binding must declare its installed app-local closure');
     }
-  } else if (binding.endpoints === undefined || binding.appLocalModules.length !== 0) {
-    fail('GitHub CLI binding must declare canonical endpoints and no app-local modules');
+  } else if (binding.appLocalModules.length !== 0) {
+    fail('GitHub CLI executable binding must not declare app-local modules');
   }
 }
 
@@ -316,9 +285,9 @@ function boundedText(input: unknown, label: string): string {
   return input;
 }
 
-function commandId(input: unknown, label: string): string {
+function executableId(input: unknown, label: string): string {
   if (typeof input !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/u.test(input)) {
-    schemaError(label, 'expected a canonical command id');
+    schemaError(label, 'expected a canonical executable id');
   }
   return input;
 }
@@ -364,24 +333,17 @@ function parseObservedEntry(
   return { roles, ...common };
 }
 
-function parseCommandBindingSchema(
+function parseExecutableBindingSchema(
   input: unknown,
   index: number
-): WindowsControlCliCommandBinding {
-  const label = `commandBindings[${index}]`;
+): WindowsControlCliExecutableBinding {
+  const label = `executableBindings[${index}]`;
   const value = exactRecord(input, label, [
     'id', 'kind', 'version', 'executableName', 'candidateLayouts',
-    'executableEntries', 'appLocalModules', 'versionProbe', 'commandContract'
-  ], ['endpoints']);
-  const versionProbe = exactRecord(value.versionProbe, `${label}.versionProbe`, ['args', 'exactFirstLine']);
-  const commandContract = exactRecord(value.commandContract, `${label}.commandContract`, [
-    'maxArguments', 'maxTimeoutMs', 'maxStdoutBytes', 'maxStderrBytes'
+    'executableEntries', 'appLocalModules'
   ]);
-  const endpoints = value.endpoints === undefined
-    ? undefined
-    : exactRecord(value.endpoints, `${label}.endpoints`, ['host', 'apiBaseUrl', 'graphqlUrl']);
   return {
-    id: commandId(value.id, `${label}.id`),
+    id: executableId(value.id, `${label}.id`),
     kind: oneOf(value.kind, ['git-for-windows', 'github-cli'] as const, `${label}.kind`),
     version: boundedText(value.version, `${label}.version`),
     executableName: oneOf(value.executableName, ['git.exe', 'gh.exe'] as const, `${label}.executableName`),
@@ -405,42 +367,21 @@ function parseCommandBindingSchema(
         entry,
         `${label}.appLocalModules[${entryIndex}]`,
         false
-      ) as WindowsControlCliModuleEntryAuthority),
-    versionProbe: {
-      args: boundedArray(versionProbe.args, `${label}.versionProbe.args`, 1, 8)
-        .map((argument, argumentIndex) => boundedText(
-          argument,
-          `${label}.versionProbe.args[${argumentIndex}]`
-        )),
-      exactFirstLine: boundedText(versionProbe.exactFirstLine, `${label}.versionProbe.exactFirstLine`)
-    },
-    commandContract: {
-      maxArguments: positiveBoundedInteger(commandContract.maxArguments, `${label}.commandContract.maxArguments`),
-      maxTimeoutMs: positiveBoundedInteger(commandContract.maxTimeoutMs, `${label}.commandContract.maxTimeoutMs`),
-      maxStdoutBytes: positiveBoundedInteger(commandContract.maxStdoutBytes, `${label}.commandContract.maxStdoutBytes`),
-      maxStderrBytes: positiveBoundedInteger(commandContract.maxStderrBytes, `${label}.commandContract.maxStderrBytes`)
-    },
-    ...(endpoints === undefined ? {} : {
-      endpoints: {
-        host: exactLiteral(endpoints.host, 'github.com', `${label}.endpoints.host`),
-        apiBaseUrl: exactLiteral(endpoints.apiBaseUrl, 'https://api.github.com', `${label}.endpoints.apiBaseUrl`),
-        graphqlUrl: exactLiteral(endpoints.graphqlUrl, 'https://api.github.com/graphql', `${label}.endpoints.graphqlUrl`)
-      }
-    })
+      ) as WindowsControlCliModuleEntryAuthority)
   };
 }
 
 function parseAuthoritySchema(input: unknown): WindowsControlCliEnvironmentAuthority {
   const value = exactRecord(input, 'root', [
     'schema', 'profileId', 'platform', 'architecture', 'resourceContract',
-    'adoptionContract', 'rootClosure', 'commandBindings'
+    'adoptionContract', 'rootClosure', 'executableBindings'
   ]);
   const resource = exactRecord(value.resourceContract, 'resourceContract', [
-    'maxSessionDurationMs', 'maxCommandsPerSession', 'maxTotalOutputBytes'
+    'maxSessionDurationMs'
   ]);
   const adoption = exactRecord(value.adoptionContract, 'adoptionContract', ['discovery', 'physicalClosure']);
   const discovery = exactRecord(adoption.discovery, 'adoptionContract.discovery', [
-    'candidateSources', 'maxPathEntries', 'maxCandidatesPerCommand', 'maxPathBytes', 'selection'
+    'candidateSources', 'maxPathEntries', 'maxCandidatesPerExecutable', 'maxPathBytes', 'selection'
   ]);
   const sources = boundedArray(discovery.candidateSources, 'adoptionContract.discovery.candidateSources', 2, 2);
   const physical = exactRecord(adoption.physicalClosure, 'adoptionContract.physicalClosure', [
@@ -460,9 +401,7 @@ function parseAuthoritySchema(input: unknown): WindowsControlCliEnvironmentAutho
     platform: exactLiteral(value.platform, 'win32', 'platform'),
     architecture: exactLiteral(value.architecture, 'x64', 'architecture'),
     resourceContract: {
-      maxSessionDurationMs: positiveBoundedInteger(resource.maxSessionDurationMs, 'resourceContract.maxSessionDurationMs'),
-      maxCommandsPerSession: positiveBoundedInteger(resource.maxCommandsPerSession, 'resourceContract.maxCommandsPerSession'),
-      maxTotalOutputBytes: positiveBoundedInteger(resource.maxTotalOutputBytes, 'resourceContract.maxTotalOutputBytes')
+      maxSessionDurationMs: positiveBoundedInteger(resource.maxSessionDurationMs, 'resourceContract.maxSessionDurationMs')
     },
     adoptionContract: {
       discovery: {
@@ -471,7 +410,10 @@ function parseAuthoritySchema(input: unknown): WindowsControlCliEnvironmentAutho
           exactLiteral(sources[1], 'windows-standard-location-untrusted-hint', 'adoptionContract.discovery.candidateSources[1]')
         ],
         maxPathEntries: positiveBoundedInteger(discovery.maxPathEntries, 'adoptionContract.discovery.maxPathEntries'),
-        maxCandidatesPerCommand: positiveBoundedInteger(discovery.maxCandidatesPerCommand, 'adoptionContract.discovery.maxCandidatesPerCommand'),
+        maxCandidatesPerExecutable: positiveBoundedInteger(
+          discovery.maxCandidatesPerExecutable,
+          'adoptionContract.discovery.maxCandidatesPerExecutable'
+        ),
         maxPathBytes: positiveBoundedInteger(discovery.maxPathBytes, 'adoptionContract.discovery.maxPathBytes'),
         selection: exactLiteral(discovery.selection, 'unique-authenticated-physical-closure', 'adoptionContract.discovery.selection')
       },
@@ -492,15 +434,15 @@ function parseAuthoritySchema(input: unknown): WindowsControlCliEnvironmentAutho
       positiveReceiptContract: {
         schema: exactLiteral(receipt.schema, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_RECEIPT_SCHEMA, 'rootClosure.positiveReceiptContract.schema'),
         candidate: exactLiteral(receipt.candidate, 'bounded-untrusted-locator-readback', 'rootClosure.positiveReceiptContract.candidate'),
-        executable: exactLiteral(receipt.executable, 'retained-exact-bytes-version-readback', 'rootClosure.positiveReceiptContract.executable'),
+        executable: exactLiteral(receipt.executable, 'retained-exact-bytes-readback', 'rootClosure.positiveReceiptContract.executable'),
         loader: exactLiteral(receipt.loader, 'minimal-app-local-and-system-loader-readback', 'rootClosure.positiveReceiptContract.loader'),
         workingDirectory: exactLiteral(receipt.workingDirectory, 'retained-no-follow-working-directory-readback', 'rootClosure.positiveReceiptContract.workingDirectory'),
         authorization: exactLiteral(receipt.authorization, 'owner-issued-live-capability', 'rootClosure.positiveReceiptContract.authorization'),
         persistentExecutableCache: exactLiteral(receipt.persistentExecutableCache, 'forbidden', 'rootClosure.positiveReceiptContract.persistentExecutableCache')
       }
     },
-    commandBindings: boundedArray(value.commandBindings, 'commandBindings', 2, 2)
-      .map(parseCommandBindingSchema)
+    executableBindings: boundedArray(value.executableBindings, 'executableBindings', 2, 2)
+      .map(parseExecutableBindingSchema)
   };
 }
 
@@ -522,21 +464,19 @@ export function parseSecWindowsControlCliEnvironmentAuthority(
   } catch (error) {
     fail(`schema validation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (value.resourceContract.maxSessionDurationMs > 120_000
-      || value.resourceContract.maxCommandsPerSession > 128
-      || value.resourceContract.maxTotalOutputBytes > 16 * 1024 * 1024) {
+  if (value.resourceContract.maxSessionDurationMs > 120_000) {
     fail('resourceContract exceeds the bounded session envelope');
   }
   const discovery = value.adoptionContract.discovery;
   const closure = value.adoptionContract.physicalClosure;
-  if (discovery.maxPathEntries > 128 || discovery.maxCandidatesPerCommand > 16
+  if (discovery.maxPathEntries > 128 || discovery.maxCandidatesPerExecutable > 16
       || discovery.maxPathBytes > 32_768 || closure.maxRetainedFiles > 64
       || closure.maxObservedBytes > 128 * 1024 * 1024
       || closure.maxPeSections > 96 || closure.maxImportedModules > 128) {
     fail('adoptionContract exceeds the bounded installed-capability envelope');
   }
-  for (const [index, binding] of value.commandBindings.entries()) {
-    validateCommandBinding(binding, index, value.resourceContract);
+  for (const [index, binding] of value.executableBindings.entries()) {
+    validateExecutableBinding(binding, index);
   }
   const body = deepFreeze(value);
   return deepFreeze({
@@ -545,9 +485,9 @@ export function parseSecWindowsControlCliEnvironmentAuthority(
   });
 }
 
-function projectBinding(
-  binding: WindowsControlCliCommandBinding
-): WindowsControlCliBindingProjection {
+function projectExecutableBinding(
+  binding: WindowsControlCliExecutableBinding
+): WindowsControlCliExecutableBindingProjection {
   const launcherEntries = Object.freeze(
     binding.executableEntries.filter(({ roles }) => roles.includes('launcher'))
   );
@@ -561,24 +501,16 @@ function projectBinding(
     candidateLayouts: binding.candidateLayouts,
     launcherEntries,
     effectiveEntry,
-    appLocalModules: binding.appLocalModules,
-    versionProbe: binding.versionProbe,
-    commandBudget: Object.freeze({
-      maxArguments: binding.commandContract.maxArguments,
-      maxTimeoutMs: binding.commandContract.maxTimeoutMs,
-      maxStdoutBytes: binding.commandContract.maxStdoutBytes,
-      maxStderrBytes: binding.commandContract.maxStderrBytes
-    }),
-    endpoints: binding.endpoints
+    appLocalModules: binding.appLocalModules
   });
 }
 
-export function getSecWindowsControlCliBindingV1(
+export function getSecWindowsControlCliExecutableBindingV1(
   spec: WindowsControlCliEnvironmentSpec,
   id: string
-): WindowsControlCliBindingProjection | null {
-  const binding = spec.commandBindings.find((candidate) => candidate.id === id);
-  return binding === undefined ? null : projectBinding(binding);
+): WindowsControlCliExecutableBindingProjection | null {
+  const binding = spec.executableBindings.find((candidate) => candidate.id === id);
+  return binding === undefined ? null : projectExecutableBinding(binding);
 }
 
 export function projectSecWindowsControlCliEnvironmentV1(
@@ -590,9 +522,7 @@ export function projectSecWindowsControlCliEnvironmentV1(
     architecture: spec.architecture,
     specDigest: spec.specDigest,
     resourceBudget: Object.freeze({
-      maxSessionDurationMs: spec.resourceContract.maxSessionDurationMs,
-      maxCommandsPerSession: spec.resourceContract.maxCommandsPerSession,
-      maxTotalOutputBytes: spec.resourceContract.maxTotalOutputBytes
+      maxSessionDurationMs: spec.resourceContract.maxSessionDurationMs
     }),
     adoptionBudget: spec.adoptionContract,
     rootClosure: Object.freeze({
@@ -601,7 +531,7 @@ export function projectSecWindowsControlCliEnvironmentV1(
       liveAvailability: spec.rootClosure.liveAvailability,
       requiredReceiptContract: spec.rootClosure.positiveReceiptContract
     }),
-    commandBindings: Object.freeze(spec.commandBindings.map(projectBinding))
+    executableBindings: Object.freeze(spec.executableBindings.map(projectExecutableBinding))
   });
 }
 

@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
 import { lockWorkspace, verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
-import { prepareAdaptedWorkspace } from '../testkit/workspace.ts';
+import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('fast lane alone does not unlock the workspace', async () => {
-  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-fast-lane-' });
+  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-fast-lane-' });
 
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   expect(report.summary.status).toBe('passed');
@@ -17,7 +17,7 @@ test('fast lane alone does not unlock the workspace', async () => {
   await expect(lockWorkspace(workspaceRoot)).rejects.toThrow();
 }, 180000);
 test('runtime lane runs generated service tests without unrelated acceptance suites', async () => {
-  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-runtime-service-lane-' });
+  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-runtime-service-lane-' });
 
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'runtime' });
   expect(report.summary.status).toBe('passed');

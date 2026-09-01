@@ -84,6 +84,7 @@ function preparationInput(): SecAgentOperationActivationPreparationInput {
       'docs/work/active-work-package.md',
       'docs/work/rolling-plan.md',
       'docs/work-packages/delegation-consumer-zero-retirement-v1.md',
+      'src/control/agent/task-capsule-host.ts',
       'src/control/agent/task-capsule.ts',
       'scripts/codex/'
     ],
@@ -96,7 +97,6 @@ function preparationInput(): SecAgentOperationActivationPreparationInput {
     operationId: secAgentOperationActivationOperationId(request.requestOperationId),
     role: 'worker',
     operationKind: 'implement',
-    availableCapabilities: ['git'],
     workDecisionReceiptDigest: digest('6'),
     workDecisionDecisionDigest: digest('7'),
     provider: provider('11')

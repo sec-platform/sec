@@ -3,7 +3,6 @@ import { expect, test } from 'bun:test';
 import { validateOverrideManifest } from '../../src/compiler/parse/load-override-manifest.ts';
 import { assertCanonicalPortableLogicalPath, isCanonicalPortableLogicalPath, isCanonicalPortableLogicalPathPrefix, portableLogicalPathCollisionKey } from '../../src/system-architecture/foundation/contract/logical-path.ts';
 import {
-  modelRelativePath,
   secRelativePath,
   workspaceConfigRelativePath
 } from '../../src/workspace/runtime/paths.ts';
@@ -83,7 +82,6 @@ test('override ownership uses the canonical portable target identity', () => {
         target: 'src/Foo.ts',
         reason: 'first owner',
         source: 'manual',
-        appliesAfter: ['adapt'],
         conflictsWith: []
       },
       {
@@ -92,17 +90,15 @@ test('override ownership uses the canonical portable target identity', () => {
         target: 'src/foo.ts',
         reason: 'portable alias',
         source: 'manual',
-        appliesAfter: ['adapt'],
         conflictsWith: []
       }
     ]
-  })).toThrow('multiple adapt owners');
+  })).toThrow('multiple owners');
 });
 
 test('override ownership rejects canonical workspace authority roots', () => {
   for (const target of [
     workspaceConfigRelativePath,
-    `${modelRelativePath}/contracts/customer.yaml`,
     `${secRelativePath}/artifacts/state/graph.lock.json`
   ]) {
     expect(() => validateOverrideManifest({
@@ -112,7 +108,6 @@ test('override ownership rejects canonical workspace authority roots', () => {
         target,
         reason: 'must remain owner-controlled',
         source: 'manual',
-        appliesAfter: ['adapt'],
         conflictsWith: []
       }]
     })).toThrow('targets a reserved path');

@@ -3,7 +3,7 @@ import { type SemanticEntity } from '../../semantic/engineering-ir/contract/enti
 import { type SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
 import { ENGINEERING_IR_FORMAT_VERSION, type EngineeringIR } from '../../semantic/engineering-ir/contract/root-types.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type { BlockManifest, ResolvedBlock, SlotTask } from '../contract.ts';
+import type { BlockManifest, ResolvedBlock } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import type { PolicyRule } from '../policies/contract/types.ts';
 import { linkWorkspaceSemanticContracts } from '../semantic-linker.ts';
@@ -14,12 +14,12 @@ import {
   appEntityId,
   artifactEntityId,
   assertEngineeringIRReferences,
+  capabilityEntityId,
   claimSemanticNamespace as claimSemanticNamespaceForStore,
   engineeringGraphId,
   generatorEntityId,
   normalizedArtifactTarget,
   semanticEntity,
-  slotEntityId,
   valueAttribute,
   type SemanticNamespaceOwner
 } from './ir-identity.ts';
@@ -44,7 +44,6 @@ export interface BuildEngineeringIRInput extends InputRevisionDomain {
   app: { id: string; name: string };
   resolvedBlocks: readonly ResolvedBlock[];
   manifests: readonly EngineeringIRManifestInput[];
-  slotTasks: readonly SlotTask[];
   acceptanceIds: readonly string[];
   policyDeclarations: readonly PolicyRule[];
   semanticContracts?: readonly LoadedSemanticContract[];
@@ -83,12 +82,12 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
     const provenance = manifestProvenance(entry);
 
     for (const capability of uniqueSorted(entry.manifest.requires)) {
-      const capabilityId = `capability:${capability}`;
+      const capabilityId = capabilityEntityId(capability);
       addEntity(semanticEntity(capabilityId, 'capability', capability));
       addFact({ subject: blockId, predicate: 'DEPENDS_ON', object: { kind: 'entity', entityId: capabilityId }, authority: 'authoritative', provenance });
     }
     for (const capability of uniqueSorted(entry.manifest.provides)) {
-      const capabilityId = `capability:${capability}`;
+      const capabilityId = capabilityEntityId(capability);
       addEntity(semanticEntity(capabilityId, 'capability', capability));
       addFact({ subject: blockId, predicate: 'PROVIDES', object: { kind: 'entity', entityId: capabilityId }, authority: 'authoritative', provenance });
     }
@@ -104,22 +103,39 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
     }
   }
 
-  for (const task of [...input.slotTasks].sort((left, right) => compareCodeUnits(`${left.block}:${left.id}`, `${right.block}:${right.id}`))) {
-    const blockId = `block:${task.block}`;
-    if (!entities.has(blockId)) throw new CompilerError('IR-IDENTITY-003', `Slot "${task.id}" references unknown block "${task.block}"`);
-    const slotId = slotEntityId(task.block, task.id);
-    addEntity(semanticEntity(slotId, 'slot', task.id, [
-      valueAttribute('slotKind', task.kind),
-      valueAttribute('target', task.target),
-      valueAttribute('symbol', task.symbol),
-      ...(task.inputType ? [valueAttribute('inputType', task.inputType)] : []),
-      ...(task.outputType ? [valueAttribute('outputType', task.outputType)] : [])
-    ]));
-    addFact({ subject: blockId, predicate: 'CONTAINS', object: { kind: 'entity', entityId: slotId }, authority: 'derived', provenance: compilerProvenance('resolve:slot-task') });
-  }
-
   for (const acceptanceId of uniqueSorted(input.acceptanceIds)) addEntity(semanticEntity(`acceptance:${acceptanceId}`, 'acceptance', acceptanceId));
   for (const policyId of uniqueSorted(input.policyDeclarations.map((policy) => policy.id))) addEntity(semanticEntity(`policy:${policyId}`, 'policy', policyId));
+
+  for (const flow of [...(input.observedFlows ?? [])].sort((left, right) =>
+    compareCodeUnits(JSON.stringify(left), JSON.stringify(right)))) {
+    const sourceId = capabilityEntityId(flow.sourceCapability);
+    if (!entities.has(sourceId)) {
+      throw new CompilerError(
+        'IR-FACT-002',
+        `Observed flow references missing source capability "${flow.sourceCapability}"`
+      );
+    }
+    const target = normalizedArtifactTarget(flow.target);
+    const artifactId = artifactEntityId(target);
+    if (!entities.has(artifactId)) {
+      addEntity(semanticEntity(artifactId, 'artifact', target, [
+        valueAttribute('artifactKind', 'source'),
+        valueAttribute('target', target)
+      ]));
+    }
+    addFact({
+      subject: sourceId,
+      predicate: 'FLOWS_TO',
+      object: { kind: 'entity', entityId: artifactId },
+      authority: 'observed',
+      provenance: [{
+        kind: 'static-analysis',
+        sourceId: flow.providerId,
+        sourcePath: normalizedArtifactTarget(flow.sourcePath),
+        revision: flow.sourceRevision
+      }]
+    });
+  }
 
   const linkedContracts = linkWorkspaceSemanticContracts(
     input.semanticContracts ?? [],

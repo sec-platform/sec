@@ -164,7 +164,6 @@ test('Semantic Frontend failure blocks mutating passes and a new transaction can
       resolve: 'succeeded',
       'build-ir': 'failed',
       compose: 'blocked',
-      adapt: 'blocked',
       verify: 'blocked',
       repair: 'blocked',
       lock: 'blocked',

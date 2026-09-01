@@ -3,11 +3,15 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import {
+  issueWindowsAppContainerExecutionCapability as issuePhysicalWindowsAppContainerExecutionCapability,
+  type WindowsAppContainerExecutionCapability
+} from '../../runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
 import { assertSameNoFollowDirectoryIdentity, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
 import { isSemanticMutationStagingWorkspace } from '../../semantic/mutation/runtime/staging-boundary.ts';
 import { canonicalEquals, digest, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { resolveWorkspaceLocalStateRoot } from '../index.ts';
+import { resolveWorkspaceLocalStateRoot } from '../contract/local-state.ts';
 import { ensureDir, type CommitFence } from '../runtime/files.ts';
 
 export const WORKSPACE_WRITE_LEASE_TOKEN_VERSION = 'workspace-write-lease-token-v3' as const;
@@ -3008,4 +3012,47 @@ export function isCanonicalWorkspaceWriteCommitFence(
   return binding !== undefined &&
     binding.workspaceRoot === path.resolve(workspaceRoot) &&
     binding.token === token;
+}
+
+/**
+ * Converts one currently-owned workspace lease into the physical executor's
+ * single-purpose, process-local AppContainer capability. Workspace admission
+ * remains here; the physical substrate never imports or interprets a lease.
+ */
+export async function issueWindowsAppContainerExecutionCapability(input: {
+  readonly workspaceRoot: string;
+  readonly stagingRoot: string;
+  readonly workspaceWriteLease: WorkspaceWriteLeaseToken;
+  readonly deadlineAtUnixMs: number;
+  readonly deadlineAtMonotonicMs: number;
+}): Promise<WindowsAppContainerExecutionCapability> {
+  const workspaceRoot = path.resolve(input.workspaceRoot);
+  const stagingRoot = path.resolve(input.stagingRoot);
+  const relativeStagingRoot = path.relative(workspaceRoot, stagingRoot);
+  if (
+    relativeStagingRoot === ''
+    || path.isAbsolute(relativeStagingRoot)
+    || relativeStagingRoot === '..'
+    || relativeStagingRoot.startsWith(`..${path.sep}`)
+  ) {
+    throw new WorkspaceWriteLeaseError(
+      'WORKSPACE-WRITE-LEASE-002',
+      'Workspace AppContainer execution root is outside the admitted workspace'
+    );
+  }
+  const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, input.workspaceWriteLease);
+  if (!isCanonicalWorkspaceWriteCommitFence(commitFence, workspaceRoot, input.workspaceWriteLease)) {
+    throw new WorkspaceWriteLeaseError(
+      'WORKSPACE-WRITE-LEASE-002',
+      'Workspace AppContainer execution capability admission is noncanonical'
+    );
+  }
+  await commitFence();
+  return issuePhysicalWindowsAppContainerExecutionCapability({
+    stagingRoot,
+    authorityBindingDigest: input.workspaceWriteLease.workspaceIdentityDigest,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    deadlineAtMonotonicMs: input.deadlineAtMonotonicMs,
+    assertCurrent: commitFence
+  });
 }

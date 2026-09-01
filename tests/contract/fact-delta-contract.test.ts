@@ -18,7 +18,6 @@ function source(): BuildEngineeringIRInput {
     app: { id: 'delta-contract', name: 'Delta Contract' },
     resolvedBlocks: [],
     manifests: [],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: []
   };

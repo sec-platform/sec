@@ -1,9 +1,13 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import { expect, test } from 'bun:test';
 
 import { loadRuntimeDependencySpec } from '../../src/toolchain/dependencies/spec.ts';
+import { ensureProjectBase, RUNTIME_DATABASE_TEMPLATE_PATH } from '../../src/workspace/application/project-base.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
-import { ensureProjectBase } from '../../src/workspace/project.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 type RuntimePackageJson = {
@@ -18,11 +22,36 @@ test('project base emits the canonical TypeScript runtime package', async () => 
     const runtimeSpec = await loadRuntimeDependencySpec();
     const paths = getWorkspacePaths(workspaceRoot);
     const projectPackage = await readJson<RuntimePackageJson>(paths.packageJsonPath);
+    const generatedDatabasePath = path.join(paths.srcRoot, 'runtime', 'database.ts');
+    const [generatedDatabaseBytes, templateBytes] = await Promise.all([
+      readFile(generatedDatabasePath),
+      readFile(RUNTIME_DATABASE_TEMPLATE_PATH)
+    ]);
+    const generatedDatabase = await import(pathToFileURL(generatedDatabasePath).href) as {
+      createDatabase(): Record<string, unknown>;
+      createRuntimeStore(persistence?: string): {
+        persistence: string;
+        database: Record<string, unknown>;
+      };
+    };
 
     expect(projectPackage.dependencies).toEqual(runtimeSpec.dependencies);
     expect(projectPackage.devDependencies).toEqual(runtimeSpec.devDependencies);
     expect(projectPackage.scripts['verify:runtime:full']).toBe('bun run test:unit');
     expect(projectPackage.scripts.dev).toBeUndefined();
     expect(projectPackage.scripts.build).toBeUndefined();
+    expect(generatedDatabaseBytes).toEqual(templateBytes);
+    expect(generatedDatabase.createDatabase()).toMatchObject({
+      nextCustomerId: 1,
+      customers: [],
+      nextTicketId: 1,
+      tickets: [],
+      nextWorklogId: 1,
+      worklogs: []
+    });
+    expect(generatedDatabase.createRuntimeStore('postgres-contract')).toMatchObject({
+      persistence: 'postgres-contract',
+      database: { customers: [], tickets: [], worklogs: [] }
+    });
   }, 'engineering-compiler-runtime-library-');
 });

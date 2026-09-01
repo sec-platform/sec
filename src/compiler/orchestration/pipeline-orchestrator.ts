@@ -11,7 +11,7 @@ import { validateReviewSummary } from '../../verification/review/contract/summar
 import { type ReviewSummary } from '../../verification/review/contract/types.ts';
 import { formatJsonFile } from '../../workspace/files.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import type { LockFile, PlanFile } from '../contract.ts';
 import { readReviewGovernanceReports } from '../emit/read-review-governance-reports.ts';
 import {
@@ -42,7 +42,7 @@ import {
 } from '../pipeline/types.ts';
 import { buildAcceptanceCoverage } from '../verify/build-acceptance-coverage.ts';
 import { resolveWorkspace } from './block-orchestrator.ts';
-import { adaptWorkspace, composeWorkspace } from './compose-orchestrator.ts';
+import { composeWorkspace } from './compose-orchestrator.ts';
 import { explainWorkspace, lockWorkspace } from './emit-orchestrator.ts';
 import {
   assertIsolatedVerificationCapability,
@@ -527,7 +527,7 @@ export async function buildPipelineCompletionProof(
   const expectedProvenance = await buildProvenance(workspaceRoot, lock);
   assertSameCanonicalJsonValue('Provenance', provenance, expectedProvenance);
 
-  const { policyReport: governancePolicyReport, repairPlan, upgradePlan, upgradeDiagnostics } =
+  const { policyReport: governancePolicyReport, upgradePlan, upgradeDiagnostics } =
     await readReviewGovernanceReports(workspaceRoot);
   assertSameCanonicalJsonValue('policy report', governancePolicyReport, verificationArtifacts.policyReport);
   const expectedExplainGraph = await buildExplainGraph(
@@ -537,7 +537,6 @@ export async function buildPipelineCompletionProof(
     verificationArtifacts.acceptanceCoverage,
     governancePolicyReport,
     upgradePlan,
-    repairPlan,
     upgradeDiagnostics
   );
   assertSameCanonicalJsonValue('ExplainGraph', explainGraph, expectedExplainGraph);
@@ -634,10 +633,6 @@ export async function compileWorkspace(
           } else if (stage === 'compose') {
             requirePipelineSemanticContext(context);
             const result = await composeWorkspace(workspaceRoot, { signal: leaseSignal }, context);
-            plan = result.plan;
-          } else if (stage === 'adapt') {
-            requirePipelineSemanticContext(context);
-            const result = await adaptWorkspace(workspaceRoot, context);
             plan = result.plan;
           } else if (stage === 'verify') {
             requirePipelineSemanticContext(context);

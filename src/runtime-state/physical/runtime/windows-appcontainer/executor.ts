@@ -11,15 +11,26 @@ import {
   writeFile
 } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import type { Pointer } from 'bun:ffi';
 import { canonicalEquals, compareCodeUnits, digest, rawSha256 } from '../../../../system-architecture/foundation/runtime/canonical.ts';
-import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, type WorkspaceWriteLeaseHandle, type WorkspaceWriteLeaseToken } from '../../../../workspace/lease.ts';
+import {
+  assertWindowsAppContainerExecutionBindingReceipt,
+  assertWindowsAppContainerExecutionCapability,
+  type WindowsAppContainerExecutionBindingReceipt,
+  type WindowsAppContainerExecutionCapability
+} from '../../contract/windows-appcontainer-execution-capability.ts';
 import {
   runObservedCommand,
   type ObservedCommandOutcome
 } from '../observed-process.ts';
+import {
+  acquireWindowsAppContainerNativeHelperCapability,
+  readWindowsAppContainerNativeHelperCapability,
+  WindowsAppContainerNativeHelperMaterializationError,
+  type WindowsAppContainerNativeHelperCapability
+} from './native-helper-materialization.ts';
 import {
   bindWindowsAppContainerObservedNativeHelperSettlement,
   classifyWindowsAppContainerObservedNativeHelperSettlement,
@@ -29,6 +40,21 @@ import {
   type WindowsAppContainerObservedNativeHelperMode,
   type WindowsAppContainerObservedNativeHelperSettlementClassification
 } from './native-helper-settlement.ts';
+import {
+  loadWindowsAppContainerProbeAssetSet,
+  stageWindowsAppContainerProbeAssetSet,
+  windowsAppContainerProbeAssetRelativePath,
+  windowsAppContainerProbeAssetRelativePaths
+} from './probe-assets.ts';
+import {
+  acquireWindowsAppContainerProbeConformanceServersForTests,
+  buildWindowsAppContainerProbeEnvironmentForTests,
+  observeWindowsAppContainerProbeReportForTests,
+  windowsAppContainerProbeReportIsIsolatedForTests,
+  type WindowsAppContainerNestedChildDiagnostic,
+  type WindowsAppContainerProbeCapability,
+  type WindowsAppContainerProbeConformanceServerLease
+} from './probe-conformance.ts';
 
 const PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x0002_0002;
 const PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002_000d;
@@ -72,9 +98,6 @@ const PROBE_OWNER_FORMAT_VERSION = 'windows-appcontainer-probe-owner-v1';
 const PROBE_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-probe-owner-v1.json';
 const PROBE_OWNER_PENDING_FILE_NAME = `${PROBE_OWNER_FILE_NAME}.pending-v1`;
 const NATIVE_RESULT_FILE_NAME = '.semantic-mutation-appcontainer-result-v1.json';
-const NATIVE_HELPER_ENTRY_PATH = fileURLToPath(
-  new URL('./native-helper.ts', import.meta.url)
-);
 const WINDOWS_HOST_TOOL_DEADLINE_MS = 120_000;
 const WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 const WINDOWS_APPCONTAINER_NATIVE_EXECUTION_DEFAULT_TIMEOUT_MS = 120_000;
@@ -86,163 +109,6 @@ const WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_BYTES = 48;
 const WINDOWS_JOB_OBJECT_ACTIVE_PROCESSES_OFFSET = 40;
 
 type BunFfiToBuffer = (typeof import('bun:ffi'))['toBuffer'];
-type NativeHelperBundleSource = () => Promise<Uint8Array>;
-interface NativeHelperEntryMetadata {
-  readonly identity: string;
-  readonly isFile: boolean;
-  readonly isSymbolicLink: boolean;
-  readonly linkCount: number;
-}
-interface NativeHelperEntryProbe {
-  readonly lstat: (value: string) => Promise<NativeHelperEntryMetadata>;
-  readonly realpath: (value: string) => Promise<string>;
-}
-interface NativeHelperBuildOutput {
-  readonly arrayBuffer: () => Promise<ArrayBuffer>;
-}
-interface NativeHelperBuildResult {
-  readonly success: boolean;
-  readonly outputs: readonly NativeHelperBuildOutput[];
-}
-type NativeHelperBuilder = (entryPath: string) => Promise<NativeHelperBuildResult>;
-interface NativeHelperBundleLoader {
-  readonly build: () => Promise<Uint8Array>;
-  readonly prepare: () => Promise<void>;
-}
-
-const NATIVE_HELPER_ENTRY_PROBE: NativeHelperEntryProbe = Object.freeze({
-  async lstat(value: string): Promise<NativeHelperEntryMetadata> {
-    const metadata = await lstat(value);
-    return Object.freeze({
-      identity: [
-        metadata.dev, metadata.ino, metadata.mode, metadata.nlink, metadata.size,
-        metadata.ctimeMs, metadata.mtimeMs
-      ].map(String).join(':'),
-      isFile: metadata.isFile(),
-      isSymbolicLink: metadata.isSymbolicLink(),
-      linkCount: Number(metadata.nlink)
-    });
-  },
-  realpath
-});
-
-const NATIVE_HELPER_BUILDER: NativeHelperBuilder = async (NATIVE_HELPER_PATH) => Bun.build({
-  entrypoints: [NATIVE_HELPER_PATH],
-  format: 'esm',
-  minify: false,
-  sourcemap: 'none',
-  splitting: false,
-  target: 'bun'
-});
-
-function sameNativePath(left: string, right: string): boolean {
-  const resolvedLeft = path.resolve(left);
-  const resolvedRight = path.resolve(right);
-  return process.platform === 'win32'
-    ? resolvedLeft.toLocaleLowerCase('en-US') === resolvedRight.toLocaleLowerCase('en-US')
-    : resolvedLeft === resolvedRight;
-}
-
-async function proveNativeHelperEntry(
-  entryPath: string,
-  probe: NativeHelperEntryProbe
-): Promise<string> {
-  try {
-    const before = await probe.lstat(entryPath);
-    const physicalPath = await probe.realpath(entryPath);
-    const after = await probe.lstat(entryPath);
-    if (!before.isFile || before.isSymbolicLink || before.linkCount !== 1 ||
-      before.identity !== after.identity || before.isFile !== after.isFile ||
-      before.isSymbolicLink !== after.isSymbolicLink || before.linkCount !== after.linkCount ||
-      !sameNativePath(physicalPath, entryPath)) {
-      throw new Error('invalid native helper entry');
-    }
-    return path.resolve(physicalPath);
-  } catch {
-    throw executionError('preparation', undefined, undefined, 'native-helper-entry');
-  }
-}
-
-async function defaultNativeHelperBundleSource(
-  entryPath = NATIVE_HELPER_ENTRY_PATH,
-  probe = NATIVE_HELPER_ENTRY_PROBE,
-  builder = NATIVE_HELPER_BUILDER
-): Promise<Uint8Array> {
-  const provenEntryPath = await proveNativeHelperEntry(entryPath, probe);
-  try {
-    const result = await builder(provenEntryPath);
-    if (!result.success || result.outputs.length !== 1) {
-      throw executionError('preparation', undefined, undefined, 'native-helper-build');
-    }
-    return new Uint8Array(await result.outputs[0].arrayBuffer());
-  } catch (error) {
-    throw normalizeExecutionError(error, 'preparation', 'native-helper-build');
-  }
-}
-
-function createNativeHelperBundleLoader(source: NativeHelperBundleSource): NativeHelperBundleLoader {
-  let cachedPromise: Promise<Uint8Array> | undefined;
-  const load = (): Promise<Uint8Array> => {
-    if (cachedPromise) return cachedPromise;
-    const pending = (async () => {
-      const bytes = await source();
-      const text = new TextDecoder().decode(bytes);
-      if (bytes.byteLength === 0 || /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u.test(text)) {
-        throw executionError('preparation', undefined, undefined, 'native-helper-bundle-contract');
-      }
-      return bytes.slice();
-    })();
-    let cached: Promise<Uint8Array>;
-    cached = pending.catch((error: unknown) => {
-      if (cachedPromise === cached) cachedPromise = undefined;
-      throw error;
-    });
-    cachedPromise = cached;
-    return cached;
-  };
-  return Object.freeze({
-    async build(): Promise<Uint8Array> {
-      return (await load()).slice();
-    },
-    async prepare(): Promise<void> {
-      await load();
-    }
-  });
-}
-
-const nativeHelperBundleLoader = createNativeHelperBundleLoader(defaultNativeHelperBundleSource);
-
-async function buildNativeHelperBundle(): Promise<Uint8Array> {
-  try {
-    return await nativeHelperBundleLoader.build();
-  } catch (error) {
-    throw normalizeExecutionError(error, 'preparation', 'native-helper-build');
-  }
-}
-
-/** Test-only isolated cache factory; never re-exported from a product facade. */
-export function createWindowsAppContainerNativeHelperBundleLoaderForTests(
-  source: NativeHelperBundleSource
-): NativeHelperBundleLoader {
-  return createNativeHelperBundleLoader(source);
-}
-
-/** Test-only pure seams for the native-helper entry proof and exact production build. */
-export async function proveWindowsAppContainerNativeHelperEntryForTests(
-  entryPath: string,
-  probe: NativeHelperEntryProbe
-): Promise<string> {
-  return proveNativeHelperEntry(entryPath, probe);
-}
-
-export async function buildWindowsAppContainerNativeHelperBundleSourceForTests(
-  entryPath = NATIVE_HELPER_ENTRY_PATH,
-  probe = NATIVE_HELPER_ENTRY_PROBE,
-  builder = NATIVE_HELPER_BUILDER
-): Promise<Uint8Array> {
-  return defaultNativeHelperBundleSource(entryPath, probe, builder);
-}
-
 const WINDOWS_APPCONTAINER_ENVIRONMENT_KEYS = new Set([
   'APPDATA',
   'BUN_INSTALL_CACHE_DIR',
@@ -270,127 +136,6 @@ const CAPABILITY_PARENT_CANARY_NAME = '.appcontainer-host-read-canary-v1';
 const CAPABILITY_OUTER_CANARY_NAME = '.appcontainer-outer-host-read-canary-v1';
 const CAPABILITY_CANARY_CONTENT = 'windows-appcontainer-host-read-canary-v1\n';
 
-const CAPABILITY_LEASE_LOSS_RUNNER = String.raw`
-import path from 'node:path';
-
-const bunConfigPath = path.join(path.dirname(process.execPath), 'bunfig.toml');
-const descendant = Bun.spawn([
-  process.execPath,
-  '--no-env-file',
-  '--config=' + bunConfigPath,
-  '--no-install',
-  '-e',
-  'setInterval(() => {}, 1000)'
-], {
-  cwd: process.cwd(),
-  env: process.env,
-  stdin: 'ignore',
-  stdout: 'ignore',
-  stderr: 'ignore'
-});
-await Bun.write('lease-loss-marker.json', JSON.stringify({
-  processId: process.pid,
-  descendantProcessId: descendant.pid
-}));
-await new Promise(() => {});
-`;
-
-const CAPABILITY_SPAWNED_RUNNER = String.raw`
-import net from 'node:net';
-import path from 'node:path';
-
-async function rawConnect(port) {
-  return await new Promise((resolve) => {
-    const socket = net.createConnection({ host: '127.0.0.1', port });
-    const timer = setTimeout(() => { socket.destroy(); resolve(false); }, 800);
-    socket.once('connect', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
-    socket.once('error', () => { clearTimeout(timer); resolve(false); });
-  });
-}
-
-const result = {
-  insideWrite: false,
-  outsideWrite: false,
-  parentRead: false,
-  outerRead: false,
-  fetchConnect: false,
-  rawConnect: false
-};
-try { await Bun.write(path.resolve(process.cwd(), 'spawned-inside.txt'), 'inside'); result.insideWrite = true; } catch {}
-try { await Bun.write(path.resolve(process.cwd(), '..', 'spawned-outside.txt'), 'outside'); result.outsideWrite = true; } catch {}
-try { await Bun.file(path.resolve(process.cwd(), '..', '.appcontainer-host-read-canary-v1')).text(); result.parentRead = true; } catch {}
-try { await Bun.file(path.resolve(process.cwd(), '..', '..', '.appcontainer-outer-host-read-canary-v1')).text(); result.outerRead = true; } catch {}
-try {
-  const response = await fetch('http://127.0.0.1:' + process.env.SEC_APPCONTAINER_PROBE_HTTP_PORT + '/probe', {
-    signal: AbortSignal.timeout(800)
-  });
-  result.fetchConnect = response.ok;
-} catch {}
-try { result.rawConnect = await rawConnect(Number(process.env.SEC_APPCONTAINER_PROBE_RAW_PORT)); } catch {}
-await Bun.write(path.resolve(process.cwd(), 'spawned-result.json'), JSON.stringify(result));
-process.exit(result.insideWrite && !result.outsideWrite && !result.parentRead && !result.outerRead &&
-  !result.fetchConnect && !result.rawConnect ? 0 : 43);
-`;
-
-const CAPABILITY_VECTOR_RUNNER = String.raw`
-import net from 'node:net';
-import path from 'node:path';
-
-async function rawConnect(port) {
-  return await new Promise((resolve) => {
-    const socket = net.createConnection({ host: '127.0.0.1', port });
-    const timer = setTimeout(() => { socket.destroy(); resolve(false); }, 800);
-    socket.once('connect', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
-    socket.once('error', () => { clearTimeout(timer); resolve(false); });
-  });
-}
-
-const direct = {
-  insideWrite: false,
-  outsideWrite: false,
-  parentRead: false,
-  outerRead: false,
-  fetchConnect: false,
-  rawConnect: false
-};
-try { await Bun.write(path.resolve(process.cwd(), 'direct-inside.txt'), 'inside'); direct.insideWrite = true; } catch {}
-try { await Bun.write(path.resolve(process.cwd(), '..', 'direct-outside.txt'), 'outside'); direct.outsideWrite = true; } catch {}
-try { await Bun.file(path.resolve(process.cwd(), '..', '.appcontainer-host-read-canary-v1')).text(); direct.parentRead = true; } catch {}
-try { await Bun.file(path.resolve(process.cwd(), '..', '..', '.appcontainer-outer-host-read-canary-v1')).text(); direct.outerRead = true; } catch {}
-try {
-  const response = await fetch('http://127.0.0.1:' + process.env.SEC_APPCONTAINER_PROBE_HTTP_PORT + '/probe', {
-    signal: AbortSignal.timeout(800)
-  });
-  direct.fetchConnect = response.ok;
-} catch {}
-try { direct.rawConnect = await rawConnect(Number(process.env.SEC_APPCONTAINER_PROBE_RAW_PORT)); } catch {}
-
-const bunConfigPath = path.join(path.dirname(process.execPath), 'bunfig.toml');
-const spawned = Bun.spawn([
-  process.execPath,
-  '--no-env-file',
-  '--config=' + bunConfigPath,
-  '--no-install',
-  '-e',
-  ${JSON.stringify(CAPABILITY_SPAWNED_RUNNER)}
-], {
-  cwd: process.cwd(),
-  env: process.env,
-  stdin: 'ignore',
-  stdout: 'ignore',
-  stderr: 'ignore'
-});
-const spawnedExitCode = await spawned.exited;
-let spawnedResult = null;
-try { spawnedResult = JSON.parse(await Bun.file(path.resolve(process.cwd(), 'spawned-result.json')).text()); } catch {}
-const report = { direct, spawnedExitCode, spawned: spawnedResult };
-await Bun.write(path.resolve(process.cwd(), 'capability-result.json'), JSON.stringify(report));
-const ok = direct.insideWrite && !direct.outsideWrite && !direct.parentRead && !direct.outerRead &&
-  !direct.fetchConnect && !direct.rawConnect && spawnedExitCode === 0 &&
-  spawnedResult?.insideWrite && !spawnedResult?.outsideWrite && !spawnedResult?.parentRead &&
-  !spawnedResult?.outerRead && !spawnedResult?.fetchConnect && !spawnedResult?.rawConnect;
-process.exit(ok ? 0 : 44);
-`;
 
 /**
  * Frozen x64/arm64 Windows ABI facts used by the FFI boundary. Keeping these
@@ -449,10 +194,6 @@ export type WindowsAppContainerCapability =
     status: 'unavailable';
     reason: 'non-windows' | 'unsupported-architecture';
   }>;
-
-export type WindowsAppContainerProbeCapability =
-  | Readonly<{ status: 'available' }>
-  | Readonly<{ status: 'unavailable' }>;
 
 export type WindowsAppContainerExecutionPhase =
   | 'invalid-input'
@@ -649,6 +390,8 @@ type WindowsAppContainerProbeInvariant =
   | 'lease-loss-owner-durable'
   | 'lease-loss-processes-exited'
   | 'isolated-child-succeeded'
+  | 'spawned-child-succeeded'
+  | 'spawned-child-isolated'
   | 'no-resource-residue'
   | 'isolation-report-valid'
   | 'canary-intact'
@@ -664,6 +407,7 @@ interface WindowsAppContainerProbeFault {
   readonly executionPhase?: WindowsAppContainerExecutionPhase;
   readonly hostToolFailure?: WindowsAppContainerHostToolFailure;
   readonly nativeCode?: number;
+  readonly nestedChildDiagnostic?: WindowsAppContainerNestedChildDiagnostic;
 }
 
 export type WindowsAppContainerDetailedProbeCapability =
@@ -718,9 +462,17 @@ export interface WindowsAppContainerExecutionRequest {
   readonly runnerArguments?: readonly string[];
   /** Complete replacement environment. The host environment is never merged. */
   readonly environment: Readonly<Record<string, string>>;
-  /** Live workspace whose exact writer lease fences every host-side effect. */
-  readonly workspaceRoot: string;
-  readonly workspaceWriteLease: WorkspaceWriteLeaseToken;
+  /** Opaque, workspace-owner-issued authorization for this exact staging root. */
+  readonly executionCapability: WindowsAppContainerExecutionCapability;
+  readonly timeoutMs?: number;
+}
+
+interface WindowsAppContainerNativeExecutionInput {
+  readonly stagingRoot: string;
+  readonly runnerRelativePath: string;
+  readonly runnerArguments?: readonly string[];
+  readonly environment: Readonly<Record<string, string>>;
+  readonly executionBinding: WindowsAppContainerExecutionBindingReceipt;
   readonly timeoutMs?: number;
 }
 
@@ -731,9 +483,22 @@ export interface WindowsAppContainerExecutionResult {
 export interface WindowsAppContainerCapabilityProbeRequest {
   readonly stagingRoot: string;
   readonly environment: Readonly<Record<string, string>>;
-  readonly workspaceRoot: string;
-  readonly workspaceWriteLease: WorkspaceWriteLeaseToken;
+  readonly executionCapability: WindowsAppContainerExecutionCapability;
+  readonly probeCapabilityProvider: WindowsAppContainerProbeCapabilityProvider;
   readonly timeoutMs?: number;
+}
+
+export interface WindowsAppContainerProbeCapabilityLease {
+  readonly capability: WindowsAppContainerExecutionCapability;
+  release(): Promise<void>;
+}
+
+export interface WindowsAppContainerProbeCapabilityProvider {
+  acquire(input: Readonly<{
+    authorizationRoot: string;
+    stagingRoot: string;
+    deadlineAtUnixMs: number;
+  }>): Promise<WindowsAppContainerProbeCapabilityLease>;
 }
 
 interface WindowsAppContainerRecoveryOwner {
@@ -767,7 +532,7 @@ interface WindowsAppContainerProbeOwner {
 }
 
 export interface WindowsAppContainerNativeExecutionRequest {
-  readonly execution: WindowsAppContainerExecutionRequest;
+  readonly execution: WindowsAppContainerNativeExecutionInput;
   readonly nativeResultPath: string;
   readonly owner: WindowsAppContainerRecoveryOwner;
 }
@@ -775,8 +540,7 @@ export interface WindowsAppContainerNativeExecutionRequest {
 interface WindowsAppContainerNativeCleanupRequest {
   readonly stagingRoot: string;
   readonly nativeResultPath: string;
-  readonly workspaceRoot: string;
-  readonly workspaceWriteLease: WorkspaceWriteLeaseToken;
+  readonly executionCapability: WindowsAppContainerExecutionCapability;
   readonly owner: WindowsAppContainerRecoveryOwner;
 }
 
@@ -1367,14 +1131,72 @@ function isInside(root: string, target: string): boolean {
     (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
-async function validateExecutionRequest(
+async function authorizeExecutionCapability(
+  capability: WindowsAppContainerExecutionCapability,
+  stagingRoot: string
+): Promise<WindowsAppContainerExecutionBindingReceipt> {
+  try {
+    return await assertWindowsAppContainerExecutionCapability(
+      capability,
+      path.resolve(stagingRoot)
+    );
+  } catch {
+    throw executionError('invalid-input');
+  }
+}
+
+async function authorizeExecutionRequest(
   request: WindowsAppContainerExecutionRequest
+): Promise<WindowsAppContainerExecutionBindingReceipt> {
+  return authorizeExecutionCapability(request.executionCapability, request.stagingRoot);
+}
+
+function authorizeNativeExecutionRequest(
+  request: WindowsAppContainerNativeExecutionInput
+): WindowsAppContainerExecutionBindingReceipt {
+  try {
+    return assertWindowsAppContainerExecutionBindingReceipt(
+      request.executionBinding,
+      path.resolve(request.stagingRoot)
+    );
+  } catch {
+    throw executionError('invalid-input');
+  }
+}
+
+function executionCommitFence(
+  capability: WindowsAppContainerExecutionCapability,
+  stagingRoot: string
+): () => Promise<void> {
+  return async () => {
+    try {
+      await assertWindowsAppContainerExecutionCapability(capability, path.resolve(stagingRoot));
+    } catch {
+      throw executionError('cleanup');
+    }
+  };
+}
+
+function nativeExecutionCommitFence(
+  receipt: WindowsAppContainerExecutionBindingReceipt,
+  stagingRoot: string
+): () => Promise<void> {
+  return async () => {
+    try {
+      assertWindowsAppContainerExecutionBindingReceipt(receipt, path.resolve(stagingRoot));
+    } catch {
+      throw executionError('cleanup');
+    }
+  };
+}
+
+async function validateExecutionRequest(
+  request: Pick<WindowsAppContainerExecutionRequest, 'stagingRoot' | 'runnerRelativePath' | 'runnerArguments' | 'environment' | 'timeoutMs'>
 ): Promise<ValidatedExecutionBoundary> {
   if (!request || typeof request !== 'object' || typeof request.stagingRoot !== 'string' ||
     typeof request.runnerRelativePath !== 'string' ||
     !request.environment || typeof request.environment !== 'object' ||
-    Array.isArray(request.environment) || typeof request.workspaceRoot !== 'string' ||
-    !request.workspaceWriteLease || typeof request.workspaceWriteLease !== 'object') {
+    Array.isArray(request.environment)) {
     throw executionError('invalid-input');
   }
   if (request.timeoutMs !== undefined &&
@@ -1403,13 +1225,6 @@ async function validateExecutionRequest(
     foldedWindowsPath(canonicalTransactionRoot) !== foldedWindowsPath(transactionRoot)) {
     throw executionError('invalid-input');
   }
-  const workspaceRoot = path.resolve(request.workspaceRoot);
-  const canonicalWorkspaceRoot = await realpath(workspaceRoot);
-  if (foldedWindowsPath(canonicalWorkspaceRoot) !== foldedWindowsPath(workspaceRoot) ||
-    !isInside(canonicalWorkspaceRoot, transactionRoot)) {
-    throw executionError('invalid-input');
-  }
-
   const relativeInput = request.runnerRelativePath;
   if (relativeInput.length === 0 || relativeInput.includes('\0') || path.isAbsolute(relativeInput) ||
     relativeInput.split(/[\\/]/u).some((segment) => segment === '..' || segment.includes(':'))) {
@@ -2322,7 +2137,20 @@ async function materializeHostBunRuntime(
 
   const configPath = path.join(configRoot, RUNTIME_CONFIG_NAME);
   await durableCreateFile(configPath, ISOLATED_BUN_CONFIG_CONTENT, commitFence);
-  const helperBundle = await buildNativeHelperBundle();
+  let helperCapability: WindowsAppContainerNativeHelperCapability;
+  let helperBundle: Uint8Array;
+  try {
+    helperCapability = await acquireWindowsAppContainerNativeHelperCapability();
+    helperBundle = readWindowsAppContainerNativeHelperCapability(helperCapability);
+  } catch (error) {
+    const failure = error instanceof WindowsAppContainerNativeHelperMaterializationError
+      ? error.failure
+      : 'native-helper-build';
+    const substage: WindowsAppContainerPreparationSubstage = failure === 'native-helper-capability'
+      ? 'native-helper-bundle-contract'
+      : failure;
+    throw executionError('preparation', undefined, undefined, substage);
+  }
   const helperContents = new TextDecoder().decode(helperBundle);
   const helperPath = path.join(configRoot, NATIVE_HELPER_BUNDLE_NAME);
   await durableCreateFile(helperPath, helperContents, commitFence);
@@ -2343,8 +2171,7 @@ async function materializeHostBunRuntime(
   ]);
   if (!helperMetadata.isFile() || helperMetadata.isSymbolicLink() || Number(helperMetadata.nlink) !== 1 ||
     foldedWindowsPath(canonicalHelperPath) !== foldedWindowsPath(helperPath) ||
-    digest(materializedHelper) !==
-      digest(helperBundle)) {
+    rawSha256(materializedHelper) !== helperCapability.contentDigest) {
     throw executionError('preparation', undefined, undefined, 'native-helper-materialization');
   }
   return { configPath, helperPath };
@@ -2945,10 +2772,9 @@ function probeOwnerLooksValid(value: unknown): value is WindowsAppContainerProbe
 }
 
 async function validateRecoveryStagingBoundary(
-  stagingRootInput: string,
-  workspaceRootInput: string
+  stagingRootInput: string
 ): Promise<Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>> {
-  if (typeof stagingRootInput !== 'string' || typeof workspaceRootInput !== 'string') {
+  if (typeof stagingRootInput !== 'string') {
     throw executionError('invalid-input');
   }
   const stagingRoot = path.resolve(stagingRootInput);
@@ -2961,14 +2787,12 @@ async function validateRecoveryStagingBoundary(
     throw executionError('invalid-input');
   }
   const transactionRoot = path.dirname(canonicalStagingRoot);
-  const [transactionMetadata, canonicalTransactionRoot, canonicalWorkspaceRoot] = await Promise.all([
+  const [transactionMetadata, canonicalTransactionRoot] = await Promise.all([
     lstat(transactionRoot),
-    realpath(transactionRoot),
-    realpath(path.resolve(workspaceRootInput))
+    realpath(transactionRoot)
   ]);
   if (!transactionMetadata.isDirectory() || transactionMetadata.isSymbolicLink() ||
-    foldedWindowsPath(canonicalTransactionRoot) !== foldedWindowsPath(transactionRoot) ||
-    !isInside(canonicalWorkspaceRoot, transactionRoot)) {
+    foldedWindowsPath(canonicalTransactionRoot) !== foldedWindowsPath(transactionRoot)) {
     throw executionError('invalid-input');
   }
   return {
@@ -3014,11 +2838,11 @@ function nativeResultPath(transactionRoot: string): string {
 async function assertRecoveryOwner(
   owner: WindowsAppContainerRecoveryOwner,
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
-  workspaceWriteLease: WorkspaceWriteLeaseToken,
+  executionBinding: WindowsAppContainerExecutionBindingReceipt,
   requestedNativeResultPath: string
 ): Promise<void> {
   if (!recoveryOwnerLooksValid(owner) ||
-    owner.workspaceIdentityDigest !== workspaceWriteLease.workspaceIdentityDigest ||
+    owner.workspaceIdentityDigest !== executionBinding.authorityBindingDigest ||
     owner.stagingIdentityDigest !== boundary.stagingIdentityDigest ||
     owner.stagingDirectoryName !== path.basename(boundary.stagingRoot) ||
     owner.appContainerName !== buildAppContainerName(boundary.stagingRoot, boundary.stagingIdentityDigest) ||
@@ -3054,10 +2878,10 @@ async function readOwnerRecord<T>(
 function assertProvisionalOwner(
   owner: WindowsAppContainerProvisionalOwner,
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
-  workspaceWriteLease: WorkspaceWriteLeaseToken
+  executionBinding: WindowsAppContainerExecutionBindingReceipt
 ): void {
   if (!provisionalOwnerLooksValid(owner) ||
-    owner.workspaceIdentityDigest !== workspaceWriteLease.workspaceIdentityDigest ||
+    owner.workspaceIdentityDigest !== executionBinding.authorityBindingDigest ||
     owner.stagingIdentityDigest !== boundary.stagingIdentityDigest ||
     owner.stagingDirectoryName !== path.basename(boundary.stagingRoot) ||
     owner.appContainerName !== buildAppContainerName(boundary.stagingRoot, boundary.stagingIdentityDigest)) {
@@ -3068,12 +2892,12 @@ function assertProvisionalOwner(
 function assertProbeOwner(
   owner: WindowsAppContainerProbeOwner,
   outerBoundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
-  outerWorkspaceWriteLease: WorkspaceWriteLeaseToken,
-  probeWorkspaceWriteLease: WorkspaceWriteLeaseToken
+  outerExecutionBinding: WindowsAppContainerExecutionBindingReceipt,
+  probeExecutionBinding: WindowsAppContainerExecutionBindingReceipt
 ): void {
   if (!probeOwnerLooksValid(owner) ||
-    owner.outerWorkspaceIdentityDigest !== outerWorkspaceWriteLease.workspaceIdentityDigest ||
-    owner.probeWorkspaceIdentityDigest !== probeWorkspaceWriteLease.workspaceIdentityDigest ||
+    owner.outerWorkspaceIdentityDigest !== outerExecutionBinding.authorityBindingDigest ||
+    owner.probeWorkspaceIdentityDigest !== probeExecutionBinding.authorityBindingDigest ||
     owner.outerStagingIdentityDigest !== outerBoundary.stagingIdentityDigest) {
     throw executionError('cleanup');
   }
@@ -3555,17 +3379,15 @@ export async function createWindowsAppContainerProfileForNativeHelper(
 ): Promise<void> {
   assertCapability();
   const execution = request.execution;
-  const commitFence = () => assertWorkspaceWriteLease(
-    execution.workspaceRoot,
-    execution.workspaceWriteLease
-  );
+  const executionBinding = authorizeNativeExecutionRequest(execution);
+  const commitFence = nativeExecutionCommitFence(executionBinding, execution.stagingRoot);
   await commitFence();
   const validated = await validateExecutionRequest(execution);
   validateAndSortEnvironment(execution.environment, validated.stagingRoot);
   await runPreparationStep('owner-publication', () => assertRecoveryOwner(
     request.owner,
     validated,
-    execution.workspaceWriteLease,
+    executionBinding,
     request.nativeResultPath
   ));
   await runPreparationStep('profile-creation', () => createAppContainerProfile(
@@ -3593,17 +3415,15 @@ async function runWindowsAppContainerNativeChildInternal(
     startedAtMs
   );
   assertCapability();
-  const commitFence = () => assertWorkspaceWriteLease(
-    execution.workspaceRoot,
-    execution.workspaceWriteLease
-  );
+  const executionBinding = authorizeNativeExecutionRequest(execution);
+  const commitFence = nativeExecutionCommitFence(executionBinding, execution.stagingRoot);
   await commitFence();
   const validated = await validateExecutionRequest(execution);
   validateAndSortEnvironment(execution.environment, validated.stagingRoot);
   await runPreparationStep('owner-publication', () => assertRecoveryOwner(
     request.owner,
     validated,
-    execution.workspaceWriteLease,
+    executionBinding,
     request.nativeResultPath
   ));
   const prepared = await runPreparationStep('runtime-identity', async () => {
@@ -3664,16 +3484,17 @@ async function cleanupWindowsAppContainerNativeOwner(
 ): Promise<void> {
   assertCapability();
   signal?.throwIfAborted();
-  const commitFence = () => assertWorkspaceWriteLease(
-    request.workspaceRoot,
-    request.workspaceWriteLease
+  const executionBinding = await authorizeExecutionCapability(
+    request.executionCapability,
+    request.stagingRoot
   );
+  const commitFence = executionCommitFence(request.executionCapability, request.stagingRoot);
   await commitFence();
-  const boundary = await validateRecoveryStagingBoundary(request.stagingRoot, request.workspaceRoot);
+  const boundary = await validateRecoveryStagingBoundary(request.stagingRoot);
   await assertRecoveryOwner(
     request.owner,
     boundary,
-    request.workspaceWriteLease,
+    executionBinding,
     request.nativeResultPath
   );
   if (provenAppContainerSid !== request.owner.appContainerSid) {
@@ -3739,8 +3560,7 @@ async function cleanupPlannedOwner(
   const cleanupRequest: WindowsAppContainerNativeCleanupRequest = {
     stagingRoot: boundary.stagingRoot,
     nativeResultPath: resultPath,
-    workspaceRoot: execution.workspaceRoot,
-    workspaceWriteLease: execution.workspaceWriteLease,
+    executionCapability: execution.executionCapability,
     owner
   };
   const provenAppContainerSid = await deriveAppContainerSidViaHelper(
@@ -3759,12 +3579,12 @@ async function cleanupPlannedOwner(
 async function cleanupProvisionalOwner(
   owner: WindowsAppContainerProvisionalOwner,
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
-  workspaceWriteLease: WorkspaceWriteLeaseToken,
+  executionBinding: WindowsAppContainerExecutionBindingReceipt,
   commitFence: () => Promise<void>,
   signal?: AbortSignal
 ): Promise<void> {
   signal?.throwIfAborted();
-  assertProvisionalOwner(owner, boundary, workspaceWriteLease);
+  assertProvisionalOwner(owner, boundary, executionBinding);
   await cleanupHostBunConfig(boundary.stagingRoot, commitFence);
   signal?.throwIfAborted();
   await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(boundary.transactionRoot), commitFence);
@@ -3844,6 +3664,7 @@ async function publishRecoveryOwner(
 
 async function recoverPreviousOwnership(
   execution: WindowsAppContainerExecutionRequest,
+  executionBinding: WindowsAppContainerExecutionBindingReceipt,
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
   commitFence: () => Promise<void>
 ): Promise<void> {
@@ -3855,7 +3676,7 @@ async function recoverPreviousOwnership(
     await assertRecoveryOwner(
       owner,
       boundary,
-      execution.workspaceWriteLease,
+      executionBinding,
       nativeResultPath(boundary.transactionRoot)
     );
     await cleanupPlannedOwner(execution, owner, boundary, commitFence);
@@ -3864,7 +3685,7 @@ async function recoverPreviousOwnership(
     await cleanupProvisionalOwner(
       provisional,
       boundary,
-      execution.workspaceWriteLease,
+      executionBinding,
       commitFence
     );
   }
@@ -3882,17 +3703,15 @@ async function runWindowsAppContainerChildInternal(
   suspendedCreateOnly: boolean
 ): Promise<WindowsAppContainerChildInternalResult> {
   assertCapability();
-  const commitFence = () => assertWorkspaceWriteLease(
-    request.workspaceRoot,
-    request.workspaceWriteLease
-  );
+  const executionBinding = await authorizeExecutionRequest(request);
+  const commitFence = executionCommitFence(request.executionCapability, request.stagingRoot);
   await commitFence();
   const validated = await validateExecutionRequest(request);
   const executionDeadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(
     request.timeoutMs
   );
   validateAndSortEnvironment(request.environment, validated.stagingRoot);
-  await recoverPreviousOwnership(request, validated, commitFence);
+  await recoverPreviousOwnership(request, executionBinding, validated, commitFence);
 
   const appContainerName = buildAppContainerName(
     validated.stagingRoot,
@@ -3900,7 +3719,7 @@ async function runWindowsAppContainerChildInternal(
   );
   const provisionalOwner: WindowsAppContainerProvisionalOwner = Object.freeze({
     formatVersion: PROVISIONAL_OWNER_FORMAT_VERSION,
-    workspaceIdentityDigest: request.workspaceWriteLease.workspaceIdentityDigest,
+    workspaceIdentityDigest: executionBinding.authorityBindingDigest,
     stagingIdentityDigest: validated.stagingIdentityDigest,
     stagingDirectoryName: path.basename(validated.stagingRoot),
     hostBunConfigRelativePath: HOST_BUN_CONFIG_RELATIVE_ROOT,
@@ -3928,7 +3747,7 @@ async function runWindowsAppContainerChildInternal(
     );
     owner = Object.freeze({
       formatVersion: RECOVERY_OWNER_FORMAT_VERSION,
-      workspaceIdentityDigest: request.workspaceWriteLease.workspaceIdentityDigest,
+      workspaceIdentityDigest: executionBinding.authorityBindingDigest,
       stagingIdentityDigest: validated.stagingIdentityDigest,
       stagingDirectoryName: path.basename(validated.stagingRoot),
       runtimeRelativePath: RUNTIME_DIRECTORY_NAME,
@@ -3950,9 +3769,12 @@ async function runWindowsAppContainerChildInternal(
     );
     const nativeRequest: WindowsAppContainerNativeExecutionRequest = {
       execution: {
-        ...request,
         stagingRoot: validated.stagingRoot,
-        runnerRelativePath: validated.runnerRelativePath
+        runnerRelativePath: validated.runnerRelativePath,
+        ...(request.runnerArguments ? { runnerArguments: request.runnerArguments } : {}),
+        environment: request.environment,
+        executionBinding,
+        ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {})
       },
       nativeResultPath: resultPath,
       owner
@@ -4020,7 +3842,7 @@ async function runWindowsAppContainerChildInternal(
       await cleanupProvisionalOwner(
         canonicalProvisional,
         validated,
-        request.workspaceWriteLease,
+        executionBinding,
         commitFence
       );
     }
@@ -4035,45 +3857,6 @@ export function runWindowsAppContainerChild(
   return runWindowsAppContainerChildInternal(request, false).then((result) => {
     if (result.kind !== 'executed') throw executionError('wait');
     return result.execution;
-  });
-}
-
-function capabilityProbeEnvironment(
-  source: Readonly<Record<string, string>>,
-  stagingRoot: string,
-  httpPort: number,
-  rawPort: number
-): Readonly<Record<string, string>> {
-  const processRoot = path.join(stagingRoot, '.process');
-  const home = path.join(processRoot, 'home');
-  const environment: Record<string, string> = {
-    ...source,
-    PATH: '',
-    HOME: home,
-    USERPROFILE: home,
-    APPDATA: path.join(processRoot, 'appdata'),
-    LOCALAPPDATA: path.join(processRoot, 'localappdata'),
-    TEMP: path.join(processRoot, 'tmp'),
-    TMP: path.join(processRoot, 'tmp'),
-    TMPDIR: path.join(processRoot, 'tmp'),
-    LANG: 'C',
-    LC_ALL: 'C',
-    TZ: 'UTC',
-    SEC_APPCONTAINER_PROBE_HTTP_PORT: String(httpPort),
-    SEC_APPCONTAINER_PROBE_RAW_PORT: String(rawPort)
-  };
-  if (environment.BUN_INSTALL_CACHE_DIR !== undefined) {
-    environment.BUN_INSTALL_CACHE_DIR = path.join(processRoot, 'bun-install-cache');
-  }
-  return Object.freeze(environment);
-}
-
-async function closeProbeServer(server: { close(callback: (error?: Error) => void): void }): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => {
-      if (error) reject(error);
-      else resolve();
-    });
   });
 }
 
@@ -4165,40 +3948,6 @@ async function executionRecoveryAuthorityExists(transactionRoot: string): Promis
   return false;
 }
 
-function capabilityReportLooksIsolated(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value) ||
-    !exactObjectKeys(value, ['direct', 'spawned', 'spawnedExitCode'])) return false;
-  const report = value as Record<string, unknown>;
-  const vectorLooksValid = (candidate: unknown): boolean => {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) ||
-      !exactObjectKeys(candidate, [
-        'fetchConnect',
-        'insideWrite',
-        'outerRead',
-        'outsideWrite',
-        'parentRead',
-        'rawConnect'
-      ])) {
-      return false;
-    }
-    const vector = candidate as Record<string, unknown>;
-    return vector.insideWrite === true && vector.outsideWrite === false &&
-      vector.parentRead === false && vector.outerRead === false &&
-      vector.fetchConnect === false && vector.rawConnect === false;
-  };
-  return vectorLooksValid(report.direct) && vectorLooksValid(report.spawned) &&
-    report.spawnedExitCode === 0;
-}
-
-/** Pure status-only projection used by the product facade and redaction tests. */
-export function redactWindowsAppContainerProbeCapabilityForTests(
-  detailed: WindowsAppContainerDetailedProbeCapability
-): WindowsAppContainerProbeCapability {
-  return detailed.status === 'available'
-    ? Object.freeze({ status: 'available' })
-    : Object.freeze({ status: 'unavailable' });
-}
-
 /**
  * Test-only detailed sentinel seam. Evidence is canonical and path-free; the
  * product API below always redacts it to exactly { status }.
@@ -4213,10 +3962,20 @@ export async function probeWindowsAppContainerCapabilityForTests(
       cleanup: Object.freeze([])
     });
   }
-  const outerFence = () => assertWorkspaceWriteLease(
-    request.workspaceRoot,
-    request.workspaceWriteLease
-  );
+  let outerExecutionBinding: WindowsAppContainerExecutionBindingReceipt;
+  try {
+    outerExecutionBinding = await assertWindowsAppContainerExecutionCapability(
+      request.executionCapability,
+      path.resolve(request.stagingRoot)
+    );
+  } catch (error) {
+    return Object.freeze({
+      status: 'unavailable',
+      primary: probeFault('boundary', 'outer-boundary-valid', error),
+      cleanup: Object.freeze([])
+    });
+  }
+  const outerFence = executionCommitFence(request.executionCapability, request.stagingRoot);
   let currentStage: WindowsAppContainerProbeStage = 'boundary';
   let currentInvariant: WindowsAppContainerProbeInvariant = 'outer-boundary-valid';
   const at = (
@@ -4241,10 +4000,10 @@ export async function probeWindowsAppContainerCapabilityForTests(
     }
   };
 
-  let probeLease: WorkspaceWriteLeaseHandle | undefined;
+  let probeLease: WindowsAppContainerProbeCapabilityLease | undefined;
+  let probeExecutionBinding: WindowsAppContainerExecutionBindingReceipt | undefined;
   let probeLeaseReleased = false;
-  let httpServer: Awaited<ReturnType<(typeof import('node:http'))['createServer']>> | undefined;
-  let rawServer: Awaited<ReturnType<(typeof import('node:net'))['createServer']>> | undefined;
+  let conformanceServers: WindowsAppContainerProbeConformanceServerLease | undefined;
   let probeRoot: string | undefined;
   let outerCanaryPath: string | undefined;
   let outerCanaryOwned = false;
@@ -4254,8 +4013,9 @@ export async function probeWindowsAppContainerCapabilityForTests(
 
   try {
     at('boundary', 'outer-boundary-valid');
+    const probeAssets = await loadWindowsAppContainerProbeAssetSet();
     await outerFence();
-    const boundary = await validateRecoveryStagingBoundary(request.stagingRoot, request.workspaceRoot);
+    const boundary = await validateRecoveryStagingBoundary(request.stagingRoot);
     validateAndSortEnvironment(request.environment, boundary.stagingRoot);
     probeRoot = path.join(boundary.stagingRoot, CAPABILITY_PROBE_RELATIVE_ROOT);
     outerCanaryPath = path.join(boundary.stagingRoot, CAPABILITY_OUTER_CANARY_NAME);
@@ -4273,42 +4033,14 @@ export async function probeWindowsAppContainerCapabilityForTests(
     await mkdir(probeStagingRoot, { recursive: true });
 
     at('server', 'probe-server-listening');
-    const { createServer: createHttpServer } = await import('node:http');
-    const { createServer: createRawServer } = await import('node:net');
-    let httpConnections = 0;
-    let rawConnections = 0;
-    httpServer = createHttpServer((_incoming, response) => {
-      httpConnections += 1;
-      response.writeHead(200, { 'content-type': 'text/plain' });
-      response.end('reachable');
-    });
-    rawServer = createRawServer((socket) => {
-      rawConnections += 1;
-      socket.destroy();
-    });
-    await Promise.all([
-      new Promise<void>((resolve, reject) => {
-        httpServer!.once('error', reject);
-        httpServer!.listen(0, '127.0.0.1', resolve);
-      }),
-      new Promise<void>((resolve, reject) => {
-        rawServer!.once('error', reject);
-        rawServer!.listen(0, '127.0.0.1', resolve);
-      })
-    ]);
-    const httpAddress = httpServer.address();
-    const rawAddress = rawServer.address();
-    if (!httpAddress || typeof httpAddress === 'string' ||
-      !rawAddress || typeof rawAddress === 'string') {
-      throwProbeFailure('server', 'probe-address-valid');
-    }
+    conformanceServers = await acquireWindowsAppContainerProbeConformanceServersForTests();
 
     at('environment', 'probe-environment-valid');
-    const environment = capabilityProbeEnvironment(
+    const environment = buildWindowsAppContainerProbeEnvironmentForTests(
       request.environment,
       probeStagingRoot,
-      httpAddress.port,
-      rawAddress.port
+      conformanceServers.httpPort,
+      conformanceServers.rawPort
     );
     validateAndSortEnvironment(environment, probeStagingRoot);
     const processDirectories = [
@@ -4324,18 +4056,32 @@ export async function probeWindowsAppContainerCapabilityForTests(
     }
 
     at('ownership', 'probe-lease-owned');
-    probeLease = await acquireWorkspaceWriteLease(probeRoot);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await probeLease.assertOwned();
+    probeLease = await request.probeCapabilityProvider.acquire({
+      authorizationRoot: probeRoot,
+      stagingRoot: probeStagingRoot,
+      deadlineAtUnixMs: outerExecutionBinding.deadlineAtUnixMs
+    });
+    probeExecutionBinding = await assertWindowsAppContainerExecutionCapability(
+      probeLease.capability,
+      probeStagingRoot
+    );
     const probeFence = async (): Promise<void> => {
       await outerFence();
-      await probeLease!.assertOwned();
+      await assertWindowsAppContainerExecutionCapability(
+        probeLease!.capability,
+        probeStagingRoot
+      );
     };
     await durableRemovePendingOwnerFile(probeOwnerPendingPath(probeRoot), probeFence);
     const existingProbeOwner = await readProbeOwner(probeOwnerPath(probeRoot));
     if (existingProbeOwner) {
       at('ownership', 'probe-owner-valid');
-      assertProbeOwner(existingProbeOwner, boundary, request.workspaceWriteLease, probeLease.token);
+      assertProbeOwner(
+        existingProbeOwner,
+        boundary,
+        outerExecutionBinding,
+        probeExecutionBinding
+      );
       outerCanaryOwned = true;
     } else {
       const parentCanaryPath = path.join(probeRoot, CAPABILITY_PARENT_CANARY_NAME);
@@ -4345,8 +4091,8 @@ export async function probeWindowsAppContainerCapabilityForTests(
       }
       const probeOwner: WindowsAppContainerProbeOwner = Object.freeze({
         formatVersion: PROBE_OWNER_FORMAT_VERSION,
-        outerWorkspaceIdentityDigest: request.workspaceWriteLease.workspaceIdentityDigest,
-        probeWorkspaceIdentityDigest: probeLease.token.workspaceIdentityDigest,
+        outerWorkspaceIdentityDigest: outerExecutionBinding.authorityBindingDigest,
+        probeWorkspaceIdentityDigest: probeExecutionBinding.authorityBindingDigest,
         outerStagingIdentityDigest: boundary.stagingIdentityDigest,
         probeStagingDirectoryName: 's',
         parentCanaryName: CAPABILITY_PARENT_CANARY_NAME,
@@ -4367,7 +4113,7 @@ export async function probeWindowsAppContainerCapabilityForTests(
         }
       } else {
         await outerFence();
-        await probeLease.assertOwned();
+        await assertWindowsAppContainerExecutionCapability(probeLease.capability, probeStagingRoot);
         await writeFile(canaryPath, CAPABILITY_CANARY_CONTENT, { flag: 'wx' });
       }
     }
@@ -4379,31 +4125,25 @@ export async function probeWindowsAppContainerCapabilityForTests(
       'spawned-result.json',
       'direct-inside.txt',
       'spawned-inside.txt',
-      'lease-loss-runner.mjs',
-      'vector-runner.mjs'
+      'execution-conformance-result.json',
+      '.spawned-probe-stdout',
+      '.spawned-probe-stderr',
+      ...windowsAppContainerProbeAssetRelativePaths()
     ]) {
       await outerFence();
-      await probeLease.assertOwned();
+      await assertWindowsAppContainerExecutionCapability(probeLease.capability, probeStagingRoot);
       await rm(path.join(probeStagingRoot, relativePath), { force: true });
     }
-    await outerFence();
-    await probeLease.assertOwned();
-    await writeFile(path.join(probeStagingRoot, 'lease-loss-runner.mjs'), CAPABILITY_LEASE_LOSS_RUNNER, {
-      flag: 'wx'
-    });
-    await outerFence();
-    await probeLease.assertOwned();
-    await writeFile(path.join(probeStagingRoot, 'vector-runner.mjs'), CAPABILITY_VECTOR_RUNNER, { flag: 'wx' });
+    await stageWindowsAppContainerProbeAssetSet(probeStagingRoot, probeAssets, probeFence);
 
     const timeoutMs = request.timeoutMs ?? 10_000;
     if (needsInitialRecovery) {
       at('initial-recovery', 'initial-owner-recovered');
       const recoveryExecution = await runWindowsAppContainerChild({
         stagingRoot: probeStagingRoot,
-        runnerRelativePath: 'vector-runner.mjs',
+        runnerRelativePath: windowsAppContainerProbeAssetRelativePath('vector-runner'),
         environment,
-        workspaceRoot: probeRoot,
-        workspaceWriteLease: probeLease.token,
+        executionCapability: probeLease.capability,
         timeoutMs
       });
       if (recoveryExecution.exitCode !== 0 || await executionRecoveryResidueExists(probeRoot) ||
@@ -4418,21 +4158,20 @@ export async function probeWindowsAppContainerCapabilityForTests(
         'spawned-inside.txt'
       ]) {
         await outerFence();
-        await probeLease.assertOwned();
+        await assertWindowsAppContainerExecutionCapability(probeLease.capability, probeStagingRoot);
         await rm(path.join(probeStagingRoot, relativePath), { force: true });
       }
     }
 
     at('prefix-recovery', 'prefix-failure-recovered');
     await outerFence();
-    await probeLease.assertOwned();
+    await assertWindowsAppContainerExecutionCapability(probeLease.capability, probeStagingRoot);
     await mkdir(path.join(probeStagingRoot, RUNTIME_DIRECTORY_NAME));
     const prefixRejected = await runWindowsAppContainerChild({
       stagingRoot: probeStagingRoot,
-      runnerRelativePath: 'vector-runner.mjs',
+      runnerRelativePath: windowsAppContainerProbeAssetRelativePath('vector-runner'),
       environment,
-      workspaceRoot: probeRoot,
-      workspaceWriteLease: probeLease.token,
+      executionCapability: probeLease.capability,
       timeoutMs
     }).then(() => false, () => true);
     if (!prefixRejected || await executionRecoveryResidueExists(probeRoot) ||
@@ -4444,10 +4183,9 @@ export async function probeWindowsAppContainerCapabilityForTests(
     at('lease-loss', 'lease-loss-observed');
     const leaseLossRejected = runWindowsAppContainerChild({
       stagingRoot: probeStagingRoot,
-      runnerRelativePath: 'lease-loss-runner.mjs',
+      runnerRelativePath: windowsAppContainerProbeAssetRelativePath('lease-loss-runner'),
       environment,
-      workspaceRoot: probeRoot,
-      workspaceWriteLease: probeLease.token,
+      executionCapability: probeLease.capability,
       timeoutMs
     }).then(() => false, () => true);
     const marker = await waitForProbeMarker(
@@ -4465,21 +4203,55 @@ export async function probeWindowsAppContainerCapabilityForTests(
     observedLeaseLossProcessIds = Object.freeze([]);
 
     at('isolated-execution', 'isolated-child-succeeded');
-    probeLease = await acquireWorkspaceWriteLease(probeRoot);
+    probeLease = await request.probeCapabilityProvider.acquire({
+      authorizationRoot: probeRoot,
+      stagingRoot: probeStagingRoot,
+      deadlineAtUnixMs: outerExecutionBinding.deadlineAtUnixMs
+    });
     probeLeaseReleased = false;
     const execution = await runWindowsAppContainerChild({
       stagingRoot: probeStagingRoot,
-      runnerRelativePath: 'vector-runner.mjs',
+      runnerRelativePath: windowsAppContainerProbeAssetRelativePath('vector-runner'),
       environment,
-      workspaceRoot: probeRoot,
-      workspaceWriteLease: probeLease.token,
+      executionCapability: probeLease.capability,
       timeoutMs
     });
     if (execution.exitCode !== 0) {
-      throwProbeFailure('isolated-execution', 'isolated-child-succeeded');
+      let spawnedFailureExitCode: number | undefined;
+      let spawnedFailureDiagnostic: WindowsAppContainerNestedChildDiagnostic | undefined;
+      try {
+        const failedReportText = await readFile(
+          path.join(probeStagingRoot, 'capability-result.json'),
+          'utf8'
+        );
+        const failedReport = JSON.parse(failedReportText) as unknown;
+        const report = observeWindowsAppContainerProbeReportForTests(failedReport);
+        if (report) {
+          spawnedFailureDiagnostic = report.spawnedDiagnostic;
+          if (report.spawnedExitCode === 43 && report.spawnedResultPresent) {
+            currentInvariant = 'spawned-child-isolated';
+          } else if (report.spawnedExitCode !== 0) {
+            currentInvariant = 'spawned-child-succeeded';
+            spawnedFailureExitCode = report.spawnedExitCode;
+          }
+        }
+      } catch {}
+      if (spawnedFailureExitCode !== undefined) {
+        throw new WindowsAppContainerProbeFailure(Object.freeze({
+          stage: 'isolated-execution',
+          invariant: currentInvariant,
+          executionPhase: 'wait',
+          nativeCode: spawnedFailureExitCode,
+          ...(spawnedFailureDiagnostic === undefined
+            ? {}
+            : { nestedChildDiagnostic: spawnedFailureDiagnostic })
+        }));
+      }
+      throwProbeFailure('isolated-execution', currentInvariant);
     }
     at('isolated-execution', 'no-resource-residue');
-    if (httpConnections !== 0 || rawConnections !== 0 ||
+    const connectionAttempts = conformanceServers.connectionAttempts();
+    if (connectionAttempts.http !== 0 || connectionAttempts.raw !== 0 ||
       await executionRecoveryResidueExists(probeRoot) ||
       await pathExists(path.join(probeStagingRoot, RUNTIME_DIRECTORY_NAME)) ||
       await pathExists(path.join(probeStagingRoot, HOST_BUN_CONFIG_RELATIVE_ROOT)) ||
@@ -4493,11 +4265,11 @@ export async function probeWindowsAppContainerCapabilityForTests(
       path.join(probeStagingRoot, 'capability-result.json'),
       'utf8'
     )) as unknown;
-    if (!capabilityReportLooksIsolated(report)) {
+    if (!windowsAppContainerProbeReportIsIsolatedForTests(report)) {
       throwProbeFailure('isolation-report', 'isolation-report-valid');
     }
     await outerFence();
-    await probeLease.assertOwned();
+    await assertWindowsAppContainerExecutionCapability(probeLease.capability, probeStagingRoot);
     if (await readFile(parentCanaryPath, 'utf8') !== CAPABILITY_CANARY_CONTENT ||
       await readFile(outerCanaryPath, 'utf8') !== CAPABILITY_CANARY_CONTENT) {
       throwProbeFailure('isolation-report', 'canary-intact');
@@ -4521,13 +4293,9 @@ export async function probeWindowsAppContainerCapabilityForTests(
         probeLeaseReleased = true;
       });
     }
-    if (httpServer) {
-      await captureCleanup('server-close', async () => closeProbeServer(httpServer!));
-      httpServer = undefined;
-    }
-    if (rawServer) {
-      await captureCleanup('server-close', async () => closeProbeServer(rawServer!));
-      rawServer = undefined;
+    if (conformanceServers) {
+      await captureCleanup('server-close', async () => conformanceServers!.close());
+      conformanceServers = undefined;
     }
 
     let outerCanaryRemoved = !outerCanaryOwned;

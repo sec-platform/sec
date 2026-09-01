@@ -19,14 +19,6 @@ description: 用于引入、升级、调用、替换或退役外部工具、Prov
 - 当前 Effect、credential、cwd/env/executable、deadline、resource、readback 和 recovery 边界。
 - `provisioning -> physical adoption -> semantic session -> operation`的实际 owner DAG。
 
-## 权限与路径
-- 只修改当前授权内的 capability ledger、唯一语义 owner、必要薄边界和被替代路径。
-- runtime adoption 不自动拥有 provisioning、installation、distribution、credential 或 publish authority。
-
-## 允许工具与操作
-- 官方 machine interface/版本/许可/安全检索，bounded capability probe，权限/数据流与同条件性能比较。
-- 直接复用成熟机制、删除无价值 wrapper 和退役旧入口。
-
 ## 前置门禁
 - 先证明真实缺口、唯一 consumer/owner 和当前 Effect；禁止先实现再寻找用途。
 - 新 Adapter 必须新增 protocol/platform/Effect/credential/version/Evidence/performance/compatibility/security 中至少一个真实边界。
@@ -51,7 +43,3 @@ description: 用于引入、升级、调用、替换或退役外部工具、Prov
 - 不建一对一镜像 wrapper，不解析 presentation 代替 JSON/porcelain/NUL/explicit format。
 - 不因“证明更严格”拥有更多对象，不把完整安装或全树扫描当 adoption 前提。
 - 不让工具权限、测试 seam 或 caller JSON 扩大 Effect authority。
-
-## 权威
-- `docs/external-provider-policy.md`
-- `docs/governance/external-capability-ledger.yaml`

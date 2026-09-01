@@ -13,46 +13,77 @@ import { projectSecWorkSelectionCli } from '../../src/control/main-health/work-s
 import { compileSecOperationDemandGraph } from '../../src/control/operation/demand.ts';
 import type { SecWorkSelectionLiveResult } from '../../src/control/work-selection/live-contract.ts';
 import { shouldReportDevRunnerSuccess } from '../../src/development/runner/cli.ts';
-import type { SecRepositoryModuleArchitectureProjection } from '../../src/system-architecture/repository-modules/contract.ts';
+import {
+  compileSecRepositoryModuleGraph,
+  compileSecRepositoryModuleTopologyProjection,
+  parseSecModuleDescriptor,
+  type SecRepositoryModuleArchitectureProjection,
+  type SecRepositoryModuleMembership
+} from '../../src/system-architecture/repository-modules/contract.ts';
+
+function architectureProjectionFixture(
+  topology: 'acyclic' | 'cyclic'
+): SecRepositoryModuleArchitectureProjection {
+  const contract = parseSecModuleDescriptor(
+    { importGraph: 'runtime', externalEntrypoints: [] },
+    'src/contract-owner/sec.module.json'
+  );
+  const runtime = parseSecModuleDescriptor(
+    { importGraph: 'runtime', externalEntrypoints: [] },
+    'src/runtime-owner/sec.module.json'
+  );
+  const descriptors = Object.freeze([contract, runtime]);
+  const membership: SecRepositoryModuleMembership = Object.freeze({
+    descriptors,
+    graphRoots: Object.freeze(descriptors.map(({ root }) => root)),
+    moduleRoots: Object.freeze(descriptors.map(({ root }) => root)),
+    moduleForPath: (candidatePath) => descriptors.find(({ root }) => (
+      candidatePath === root || candidatePath.startsWith(`${root}/`)
+    )) ?? null
+  });
+  const sources = new Map<string, string>([
+    [
+      'src/contract-owner/contract.ts',
+      topology === 'cyclic'
+        ? "import { runtime } from '../runtime-owner/runtime.ts'; export const contract = runtime;"
+        : 'export const contract = true;'
+    ],
+    [
+      'src/runtime-owner/runtime.ts',
+      topology === 'cyclic'
+        ? "import { contract } from '../contract-owner/contract.ts'; export const runtime = contract;"
+        : 'export const runtime = true;'
+    ]
+  ]);
+  const structural = compileSecRepositoryModuleTopologyProjection(
+    compileSecRepositoryModuleGraph({
+      files: [...sources.keys()],
+      readSource: (sourcePath) => sources.get(sourcePath) ?? null
+    }),
+    membership
+  );
+  return Object.freeze({
+    ...structural,
+    aggregateFacadePaths: Object.freeze([]),
+    unresolvedAggregateSurfacePaths: Object.freeze([]),
+    nodeResponsibilities: Object.freeze([])
+  });
+}
 
 describe('bounded control-plane CLI projections', () => {
   test('repository architecture projection preserves deterministic feedback projections and blocks violations', () => {
-    const empty = {
-      ownerEdges: [], strongComponents: [], reciprocalPairs: [], feedbackCuts: [],
-      aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], nodeResponsibilities: [], violations: []
-    } satisfies SecRepositoryModuleArchitectureProjection;
+    const empty = architectureProjectionFixture('acyclic');
     expect(repositoryModuleArchitectureShouldBlock(empty)).toBe(false);
     expect(projectRepositoryModuleArchitectureAudit(empty)).toEqual({
       feedbackProjections: [], reciprocalPairs: [], strongComponents: [], violations: []
     });
 
-    const witness = {
-      fromOwner: 'contract-owner',
-      toOwner: 'runtime-owner',
-      witnesses: [{
-        fromPath: 'src/contract-owner/contract.ts',
-        toPath: 'src/runtime-owner/runtime.ts',
-        kind: 'static' as const,
-        specifier: '../runtime-owner/runtime.ts'
-      }]
-    };
-    const violation = {
-      code: 'repository-node-responsibility-reverse-dependency' as const,
-      from: witness.witnesses[0].fromPath,
-      to: witness.witnesses[0].toPath,
-      detail: 'contract-owner (contract) depends on runtime-owner (runtime)'
-    };
-    const invalid = {
-      ...empty,
-      ownerEdges: [witness],
-      strongComponents: [{ ownerIds: ['contract-owner', 'runtime-owner'], edges: [witness] }],
-      feedbackCuts: [witness],
-      violations: [violation]
-    } satisfies SecRepositoryModuleArchitectureProjection;
+    const invalid = architectureProjectionFixture('cyclic');
     const projected = projectRepositoryModuleArchitectureAudit(invalid);
     expect(repositoryModuleArchitectureShouldBlock(invalid)).toBe(true);
-    expect(projected.feedbackProjections[0]?.witnesses).toEqual(witness.witnesses);
-    expect(projected.violations).toEqual([violation]);
+    expect(projected.feedbackProjections[0]?.witnesses)
+      .toEqual(invalid.feedbackCuts[0]?.witnesses);
+    expect(projected.violations).toEqual(invalid.violations);
   });
 
   test('successful hook operations are silent while direct commands retain confirmation', () => {

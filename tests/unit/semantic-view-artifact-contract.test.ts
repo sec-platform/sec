@@ -27,7 +27,7 @@ function graphWithRevision(inputRevision: string, semanticRevision: string): Exp
     edges: [],
     overlays: {
       provenance: [],
-      coverage: { blocks: [], slots: [] }
+      coverage: { blocks: [] }
     }
   };
 }
@@ -75,7 +75,7 @@ test('canonical projection rejects missing and lowering-task-stale Lock revision
   expect(() => requireLockSemanticViews(buildReviewLock())).toThrow('missing canonical semanticViews');
   expect(semanticViewArtifactsAreCurrent(
     buildReviewLock({ semanticViews: buildSemanticViewFixture() }),
-    { nodes: [], edges: [], overlays: { provenance: [], coverage: { blocks: [], slots: [] } } } as unknown as ExplainGraph
+    { nodes: [], edges: [], overlays: { provenance: [], coverage: { blocks: [] } } } as unknown as ExplainGraph
   )).toBe(false);
   expect(() => requireLockSemanticViews(buildReviewLock({
     semanticViews: {

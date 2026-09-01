@@ -24,6 +24,5 @@ pins:
     - id: customer_filtered_list
       type: CustomerRecord[]
       required: true
-slots: []
 acceptance:
   - id: customer_list_can_be_filtered

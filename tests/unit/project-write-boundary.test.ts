@@ -3,44 +3,21 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import type { LockFile } from '../../src/compiler/contract.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { checkProjectWriteBoundary } from '../../src/workspace/application/project-write-boundary.ts';
 import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
-import { checkProjectWriteBoundary, writeProjectBaseline } from '../../src/workspace/project.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { writeProjectBaseline } from '../../src/workspace/runtime/project-baseline.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function digest(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-function lockFor(artifactPath: string): LockFile {
+function baselinePathInput(artifactPath: string) {
   return {
-    formatVersion: '1',
-    app: {
-      id: 'write-boundary-test',
-      name: 'write-boundary-test',
-      stack: 'typescript-library',
-      mode: 'single-tenant'
-    },
-    resolvedBlocks: [],
-    resolvedCapabilities: [],
-    installPlan: [],
-    slotTasks: [],
-    generatedPaths: [artifactPath],
-    acceptancePlan: [],
-    passStatus: {
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
-      verify: 'pending',
-      repair: 'pending',
-      lock: 'pending',
-      emit: 'pending'
-    }
+    artifactPaths: [artifactPath]
   };
 }
 
@@ -69,7 +46,7 @@ test('project write boundary prefers current local baseline over stale provenanc
     } satisfies ProvenanceFile);
 
     await writeText(absolutePath, currentContent);
-    await writeProjectBaseline(workspaceRoot, lockFor(artifactPath));
+    await writeProjectBaseline(workspaceRoot, baselinePathInput(artifactPath));
 
     await checkProjectWriteBoundary(workspaceRoot);
 

@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+
+import { normalizeCustomer } from '../../src/installed/private/customer-normalizer.ts';
+import { currentTenant } from '../../src/installed/private/tenant-context.ts';
+
+export async function runSuite(): Promise<void> {
+  assert.equal(currentTenant({ tenantId: 'tenant-ada' }), 'tenant-ada');
+  assert.deepEqual(normalizeCustomer({ name: 'Ada Lovelace' }), {
+    name: 'Ada Lovelace',
+    normalized: true
+  });
+}

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { deepFreeze } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { parseExactJson } from '../../../system-architecture/foundation/runtime/exact-json.ts';
 
 export const REPAIR_PLAN_FORMAT_VERSION = '1' as const;
 
@@ -14,7 +15,7 @@ const repairFailurePointSchema = z.object({
     'build', 'unit', 'acceptance', 'policy', 'runtime-build',
     'runtime-unit', 'runtime-acceptance', 'summary'
   ]),
-  issueType: z.enum(['slot', 'spec', 'kernel', 'unknown']),
+  issueType: z.enum(['file', 'spec', 'kernel', 'unknown']),
   repairable: z.boolean(),
   artifactPath: nonemptyText,
   message: nonemptyText,
@@ -32,7 +33,7 @@ const repairTaskPreviewSchema = z.object({
 const repairBlockerSchema = z.object({
   blockerId: nonemptyText,
   reason: nonemptyText,
-  boundary: z.enum(['slot', 'spec', 'kernel', 'scope', 'unknown']),
+  boundary: z.enum(['file', 'spec', 'kernel', 'scope', 'unknown']),
   decisionRequired: nonemptyText,
   failurePoints: z.array(repairFailurePointSchema)
 }).strict();
@@ -69,10 +70,9 @@ const repairTaskReviewSchema = z.object({
 
 const repairTaskSchema = z.object({
   taskId: nonemptyText,
-  taskKind: z.literal('repair-slot'),
-  category: z.enum(['slot-rewrite', 'config-repair', 'generated-artifact-refresh']).optional(),
+  taskKind: z.literal('repair-file'),
+  category: z.enum(['file-repair', 'config-repair', 'generated-artifact-refresh']).optional(),
   phase: z.literal('repair'),
-  sourceSlotId: nonemptyText,
   targetBlock: nonemptyText,
   targetFile: nonemptyText,
   allowedPaths: stringList,
@@ -199,142 +199,11 @@ export function validateRepairPlan(value: unknown): RepairPlan {
   return deepFreeze(RepairPlanSchema.parse(value));
 }
 
-function rejectDuplicateJsonKeys(source: string): void {
-  let offset = 0;
-
-  function fail(message: string): never {
-    throw new Error(`Repair plan JSON ${message}`);
-  }
-
-  function skipWhitespace(): void {
-    while (offset < source.length && /\s/u.test(source[offset] ?? '')) offset += 1;
-  }
-
-  function readString(): string {
-    const start = offset;
-    if (source[offset] !== '"') fail(`expected a string at offset ${offset}`);
-    offset += 1;
-    let escaped = false;
-    while (offset < source.length) {
-      const character = source[offset] ?? '';
-      offset += 1;
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (character === '\\') {
-        escaped = true;
-        continue;
-      }
-      if (character === '"') {
-        try {
-          const value: unknown = JSON.parse(source.slice(start, offset));
-          if (typeof value !== 'string') fail(`contains a non-string key at offset ${start}`);
-          return value;
-        } catch (error) {
-          fail(`contains an invalid string at offset ${start}: ${String(error)}`);
-        }
-      }
-      if (character < '\u0020') fail(`contains an unescaped control character at offset ${offset - 1}`);
-    }
-    fail(`contains an unterminated string at offset ${start}`);
-  }
-
-  function readValue(): void {
-    skipWhitespace();
-    const character = source[offset];
-    if (character === '{') {
-      readObject();
-      return;
-    }
-    if (character === '[') {
-      readArray();
-      return;
-    }
-    if (character === '"') {
-      readString();
-      return;
-    }
-
-    const start = offset;
-    while (
-      offset < source.length &&
-      !/[\s,\]}]/u.test(source[offset] ?? '')
-    ) {
-      offset += 1;
-    }
-    if (start === offset) fail(`contains an invalid value at offset ${offset}`);
-  }
-
-  function readObject(): void {
-    offset += 1;
-    skipWhitespace();
-    const keys = new Set<string>();
-    if (source[offset] === '}') {
-      offset += 1;
-      return;
-    }
-    while (offset < source.length) {
-      skipWhitespace();
-      const key = readString();
-      if (keys.has(key)) fail(`contains duplicate key "${key}"`);
-      keys.add(key);
-      skipWhitespace();
-      if (source[offset] !== ':') fail(`expected ':' after key "${key}" at offset ${offset}`);
-      offset += 1;
-      readValue();
-      skipWhitespace();
-      if (source[offset] === '}') {
-        offset += 1;
-        return;
-      }
-      if (source[offset] !== ',') fail(`expected ',' or '}' at offset ${offset}`);
-      offset += 1;
-      skipWhitespace();
-      if (source[offset] === '}') fail(`contains a trailing comma at offset ${offset}`);
-    }
-    fail('contains an unterminated object');
-  }
-
-  function readArray(): void {
-    offset += 1;
-    skipWhitespace();
-    if (source[offset] === ']') {
-      offset += 1;
-      return;
-    }
-    while (offset < source.length) {
-      readValue();
-      skipWhitespace();
-      if (source[offset] === ']') {
-        offset += 1;
-        return;
-      }
-      if (source[offset] !== ',') fail(`expected ',' or ']' at offset ${offset}`);
-      offset += 1;
-      skipWhitespace();
-      if (source[offset] === ']') fail(`contains a trailing comma at offset ${offset}`);
-    }
-    fail('contains an unterminated array');
-  }
-
-  readValue();
-  skipWhitespace();
-  if (offset !== source.length) fail(`contains trailing data at offset ${offset}`);
-}
-
 /**
  * Parse the retained RepairPlan artifact. JSON.parse alone silently accepts
  * duplicate object keys, so the durable reader rejects that ambiguity before
  * applying the canonical schema and provenance checks above.
  */
 export function parseRepairPlanJson(source: string): RepairPlan {
-  rejectDuplicateJsonKeys(source);
-  let value: unknown;
-  try {
-    value = JSON.parse(source) as unknown;
-  } catch (error) {
-    throw new Error('Repair plan is not valid JSON', { cause: error });
-  }
-  return validateRepairPlan(value);
+  return validateRepairPlan(parseExactJson(source, 'Repair plan JSON'));
 }

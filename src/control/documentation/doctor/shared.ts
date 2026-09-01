@@ -47,6 +47,13 @@ export interface DocsDoctorResult {
   issues: DocsDoctorIssue[];
   errors: DocsDoctorIssue[];
   warnings: DocsDoctorIssue[];
+  documentationProjection?: Readonly<{
+    compilerInputDigest: `sha256:${string}`;
+    semanticGraphDigest: `sha256:${string}`;
+    clauseCount: number;
+    admissionStatus: 'complete' | 'unavailable';
+    blockers: readonly string[];
+  }>;
 }
 
 export interface DocsDoctorScanOptions {

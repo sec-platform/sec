@@ -8,7 +8,7 @@ import type {
 } from '../../src/compiler/contract.ts';
 import { buildAcceptanceCoverage } from '../../src/compiler/verify/build-acceptance-coverage.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationReport } from '../../src/verification/contract/types.ts';
-import { readYaml, writeYaml } from '../../src/workspace/yaml.ts';
+import { writeYaml } from '../../src/workspace/yaml.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
 import {
   emptyVerificationLogs,
@@ -27,9 +27,7 @@ function manifest(acceptance: BlockManifest['acceptance']): BlockManifest {
     conflicts: [],
     installs: [{ kind: 'copy', from: 'files/source.ts', to: 'src/source.ts' }],
     pins: { inputs: [], outputs: [] },
-    slots: [],
-    acceptance,
-    routes: []
+    acceptance
   };
 }
 
@@ -55,7 +53,6 @@ function lock(acceptancePlan: string[]): LockFile {
     }],
     resolvedCapabilities: [],
     installPlan: [],
-    slotTasks: [],
     generatedPaths: [],
     acceptancePlan,
     passStatus: {
@@ -63,7 +60,6 @@ function lock(acceptancePlan: string[]): LockFile {
       align: 'succeeded',
       resolve: 'succeeded',
       compose: 'succeeded',
-      adapt: 'succeeded',
       verify: 'succeeded',
       repair: 'skipped',
       lock: 'pending',
@@ -124,26 +120,26 @@ async function writeManifest(
   await writeYaml(path.join(root, 'block.manifest.yaml'), manifest(acceptance));
 }
 
-test('a planned acceptance must cover at least one resolved block or slot', async () => {
+test('a planned acceptance must cover at least one resolved block', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeManifest(workspaceRoot, [{
       id: 'orphan_acceptance',
-      covers: { blocks: [], slots: [] }
+      covers: { blocks: [] }
     }]);
     await expect(buildAcceptanceCoverage(
       workspaceRoot,
       lock(['orphan_acceptance']),
       runtime(),
       fast([])
-    )).rejects.toThrow('covers no resolved block or slot');
+    )).rejects.toThrow('covers no resolved block');
   });
 });
 
-test('acceptance targets cannot reference unknown resolved block or slot identities', async () => {
+test('acceptance targets cannot reference unknown resolved block identities', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeManifest(workspaceRoot, [{
       id: 'unknown_target',
-      covers: { blocks: ['missing/block'], slots: ['missing_slot'] }
+      covers: { blocks: ['missing/block'] }
     }]);
     await expect(buildAcceptanceCoverage(
       workspaceRoot,
@@ -201,9 +197,7 @@ test('coverage readback restores fast acceptance from the matching canonical rep
           coveredBy: ['user_can_create_customer'],
           uncovered: false
         }],
-        slots: [],
-        uncoveredBlocks: [],
-        uncoveredSlots: []
+        uncoveredBlocks: []
       }
     });
 
@@ -215,25 +209,4 @@ test('coverage readback restores fast acceptance from the matching canonical rep
     expect(coverage.acceptancePassed).toEqual(['user_can_create_customer']);
     expect(coverage.uncoveredBlocks).toEqual([]);
   });
-});
-
-test('every official registry slot is declared by at least one acceptance cover', async () => {
-  const officialRoot = path.resolve(import.meta.dir, '../../catalog/registry/official');
-  const manifests = (await fs.readdir(officialRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => path.join(officialRoot, entry.name, 'block.manifest.yaml'));
-  expect(manifests.length).toBeGreaterThan(0);
-
-  for (const manifestPath of manifests) {
-    const parsed = await readYaml<BlockManifest>(manifestPath);
-    const coveredSlots = new Set(
-      (parsed.acceptance ?? []).flatMap((acceptance) => acceptance.covers?.slots ?? [])
-    );
-    for (const slot of parsed.slots ?? []) {
-      expect(
-        coveredSlots.has(slot.id),
-        `${parsed.id} slot ${slot.id} must be declared by an acceptance cover`
-      ).toBe(true);
-    }
-  }
 });

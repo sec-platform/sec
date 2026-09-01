@@ -17,7 +17,6 @@ function basePlan(acceptanceIds: readonly string[]): PlanFile {
     },
     registry: { sources: [] },
     blocks: [],
-    slots: [],
     acceptance: acceptanceIds.map((id) => ({ id }))
   };
 }
@@ -33,15 +32,7 @@ function baseManifest(): BlockManifest {
     conflicts: [],
     installs: [{ kind: 'template', from: 'source.ts', to: 'source.ts' }],
     pins: { inputs: [], outputs: [] },
-    slots: [{
-      id: 'customer_normalizer',
-      kind: 'adapter',
-      target: 'custom/customer_normalizer.ts',
-      symbol: 'normalizeCustomerInput',
-      writableZones: ['custom/']
-    }],
     acceptance: [],
-    routes: [],
     contracts: [],
     generators: []
   };
@@ -84,8 +75,7 @@ test('Manifest acceptance definitions bind canonical dependency and coverage ide
     id: 'user_can_create_customer',
     dependsOn: ['user_can_login'],
     covers: {
-      blocks: ['entity/customer-basic'],
-      slots: ['customer_normalizer']
+      blocks: ['entity/customer-basic']
     }
   }];
   expect(() => normalizeAndValidateSemanticManifestFields(manifest)).not.toThrow();
@@ -94,11 +84,6 @@ test('Manifest acceptance definitions bind canonical dependency and coverage ide
   invalidDependency.acceptance = [{ id: 'user_can_create_customer', dependsOn: ['User_can_login'] }];
   expect(() => normalizeAndValidateSemanticManifestFields(invalidDependency))
     .toThrow('non-canonical dependency identity');
-
-  const invalidSlot = baseManifest();
-  invalidSlot.acceptance = [{ id: 'user_can_create_customer', covers: { slots: ['Customer'] } }];
-  expect(() => normalizeAndValidateSemanticManifestFields(invalidSlot))
-    .toThrow('non-canonical Slot coverage identity');
 
   const duplicate = baseManifest();
   duplicate.acceptance = [

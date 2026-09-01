@@ -1,7 +1,14 @@
-import { isActiveDocumentationPath } from '../../../control/documentation/active.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { CodexDevelopmentBuildAffectedTestInventory } from '../../test-impact/affected.ts';
-import { getSlowTestSuitesSync, isFastTestFile, isSlowTestFile, slowTestPrRiskBaselineSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
+import {
+  compileTestBudgetProjection,
+  getSlowTestSuitesSync,
+  isFastTestFile,
+  isSlowTestFile,
+  slowTestPrRiskBaselineSuiteIds,
+  slowTestSuiteIdsForFile,
+  type TestBudgetProjection
+} from '../../test-impact/contract/budget.ts';
 import { resolveTestImpactForFiles, resolveTestImpactRiskPolicies, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 
@@ -19,8 +26,8 @@ export type CiSlowTestClosureSelection = {
   resolved: boolean;
 };
 
-function baselineSlowSuiteIds(): string[] {
-  return slowTestPrRiskBaselineSuiteIds();
+function baselineSlowSuiteIds(projection: TestBudgetProjection): readonly string[] {
+  return slowTestPrRiskBaselineSuiteIds(projection);
 }
 
 function slowSuiteIdsForChangedPath(
@@ -28,7 +35,7 @@ function slowSuiteIdsForChangedPath(
   transition?: CodexDevelopmentTestImpactTransitionObservation
 ): string[] {
   const direct = slowTestSuiteIdsForFile(file);
-  if (direct.length > 0 || transition === undefined) return direct;
+  if (direct.length > 0 || transition === undefined) return [...direct];
   // A rename reports both endpoints. If the canonical suite registry was
   // updated to the new endpoint in the same transition, retain that suite's
   // risk identity for the old/base endpoint without ever making the deleted
@@ -39,10 +46,11 @@ function slowSuiteIdsForChangedPath(
 }
 
 function suitesForSlowTests(
+  projection: TestBudgetProjection,
   slowTests: string[],
   transition?: CodexDevelopmentTestImpactTransitionObservation
 ): string[] {
-  const suites = getSlowTestSuitesSync();
+  const suites = getSlowTestSuitesSync(projection);
   return uniqueSorted(
     slowTests.flatMap((file) =>
       uniqueSorted([
@@ -57,12 +65,13 @@ function suitesForSlowTests(
 
 export function selectCiSlowTestClosure(
   files: string[] | null,
-  provider?: CodexDevelopmentTestImpactSourceProvider,
+  provider: CodexDevelopmentTestImpactSourceProvider,
   transition?: CodexDevelopmentTestImpactTransitionObservation
 ): CiSlowTestClosureSelection {
+  const budgetProjection = compileTestBudgetProjection(provider.projection);
   if (!files) {
     return {
-      suites: baselineSlowSuiteIds(),
+      suites: [...baselineSlowSuiteIds(budgetProjection)],
       slowTests: [],
       affectedSlowTests: [],
       owners: ['bounded-slow-risk'],
@@ -80,12 +89,10 @@ export function selectCiSlowTestClosure(
   // recomputation. The overall inventory provides aggregate impact; per-file
   // resolution is a cheap O(1) lookup against declarations/fallback/reverse-map.
   const resolvedImpactFiles = resolveTestImpactForFiles(files, provider);
-  const providerActiveDocumentationPaths = provider === undefined
-    ? null
-    : new Set(provider.activeDocumentationPaths);
+  const providerActiveDocumentationPaths = new Set(provider.activeDocumentationPaths);
   const unresolvedFiles = files.filter((file) => {
     if (
-      (providerActiveDocumentationPaths?.has(file) ?? isActiveDocumentationPath(file))
+      providerActiveDocumentationPaths.has(file)
       || isFastTestFile(file)
       || isSlowTestFile(file)
     ) return false;
@@ -96,7 +103,7 @@ export function selectCiSlowTestClosure(
     ...directlyChangedSlowTests,
     ...inventory.affectedSlowTests
   ]);
-  const impactedSuites = suitesForSlowTests(affectedSlowTests, transition);
+  const impactedSuites = suitesForSlowTests(budgetProjection, affectedSlowTests, transition);
   const unresolvedSlowTests = directlyChangedSlowTests.filter((file) => (
     slowSuiteIdsForChangedPath(file, transition).length === 0
   ));
@@ -106,7 +113,7 @@ export function selectCiSlowTestClosure(
   // allowing a bare path to become a runnable slow selection.
   const finalSelectionResolved = selectionResolved && unresolvedSlowTests.length === 0;
   const baselineSuites = boundedBaselineRequired || !finalSelectionResolved
-    ? baselineSlowSuiteIds()
+    ? baselineSlowSuiteIds(budgetProjection)
     : [];
   const suites = uniqueSorted([...baselineSuites, ...impactedSuites]);
   const slowTests = uniqueSorted(

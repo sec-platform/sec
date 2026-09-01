@@ -180,7 +180,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     trustRevision: BASE,
     observedAt: '2026-08-09T00:00:00.000Z',
     producer: {
-      identity: 'src/control/main-health/default-branch-revision.ts',
+      identity: 'src/control/main-health/main-health-observation.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: 'health-1',
@@ -354,7 +354,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     trustRevision: BASE,
     observedAt: '2026-08-09T00:15:00.000Z',
     producer: {
-      identity: 'src/control/main-health/default-branch-revision.ts',
+      identity: 'src/control/main-health/main-health-observation.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: provenance.sourceRunId,
@@ -546,7 +546,7 @@ test('fresh MainHealth receipt may change provenance while stable health semanti
     trustRevision: BASE,
     observedAt: '2026-08-09T00:15:00.000Z',
     producer: {
-      identity: 'src/control/main-health/default-branch-revision.ts',
+      identity: 'src/control/main-health/main-health-observation.ts',
       trustRevision: BASE,
       sourceTransport: 'github-api',
       sourceRunId: 'health-merge-fresh',

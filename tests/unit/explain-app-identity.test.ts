@@ -18,7 +18,6 @@ function lock(name: string): LockFile {
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [],
-    slotTasks: [],
     generatedPaths: [],
     acceptancePlan: [],
     semanticViews: buildSemanticViewFixture(),
@@ -27,7 +26,6 @@ function lock(name: string): LockFile {
       align: "succeeded",
       resolve: "succeeded",
       compose: "succeeded",
-      adapt: "succeeded",
       verify: "succeeded",
       repair: "skipped",
       lock: "succeeded",
@@ -46,9 +44,7 @@ const coverage: AcceptanceCoverageReport = {
   status: "passed",
   acceptancePassed: [],
   blocks: [],
-  slots: [],
   uncoveredBlocks: [],
-  uncoveredSlots: [],
 };
 
 test("ExplainGraph uses lock app.id for identity and app.name only for label", async () => {

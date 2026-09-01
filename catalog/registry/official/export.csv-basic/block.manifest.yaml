@@ -24,6 +24,5 @@ pins:
     - id: customer_csv
       type: CsvDocument
       required: true
-slots: []
 acceptance:
   - id: customer_can_be_exported

@@ -16,6 +16,7 @@ import {
   type GitHubIssueReference,
   type GitHubPullRequestClosingFacts
 } from '../../../control/issues/disposition.ts';
+import { matchesCiCompilerWorkflowRunIdentity } from '../../../control/main-health/provider-policy.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import type { ReviewPrincipal, ReviewSnapshot } from '../../review/contract/stability.ts';
@@ -26,12 +27,11 @@ import type {
   GitHubWorkflowJobStepObservation,
   GitHubWorkflowRunObservation
 } from '../contract/github-observation.ts';
-import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
 import {
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-  matchesCiCompilerWorkflowRunIdentity
-} from '../index.ts';
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE
+} from '../contract/revision.ts';
+import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
 
 export type SessionDigest = `sha256:${string}`;
 

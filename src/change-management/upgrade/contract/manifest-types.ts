@@ -13,7 +13,6 @@ export interface UpgradeCreateDirectoryMigrationEntry { id: string; kind: 'creat
 export interface UpgradeDeleteFileMigrationEntry { id: string; kind: 'delete-file'; reason: string; target: string; }
 export interface UpgradeDeleteDirectoryMigrationEntry { id: string; kind: 'delete-directory'; reason: string; target: string; }
 export interface UpgradeRenameFileMigrationEntry { id: string; kind: 'rename-file'; reason: string; source: string; target: string; }
-export interface UpgradeSlotContractUpdateMigrationEntry { id: string; kind: 'slot-contract-update'; reason: string; target: string; slotId: string; inputType?: string; outputType?: string; writableZones?: string[]; }
 export interface UpgradeDbExpandContractMigrationEntry { id: string; kind: 'db-expand-contract'; reason: string; target: string; entity: string; expandField: string; contractField: string; copyJobCode?: string; }
 
 export type UpgradeMigrationEntry =
@@ -32,5 +31,4 @@ export type UpgradeMigrationEntry =
   | UpgradeDeleteFileMigrationEntry
   | UpgradeDeleteDirectoryMigrationEntry
   | UpgradeRenameFileMigrationEntry
-  | UpgradeSlotContractUpdateMigrationEntry
   | UpgradeDbExpandContractMigrationEntry;

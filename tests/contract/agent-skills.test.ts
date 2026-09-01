@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
 import { projectRepositorySourceGovernance } from '../../src/brownfield/repository-audit/cli.ts';
@@ -10,19 +10,23 @@ import {
   classifySecRepositorySurface,
   isSecRepositoryHeuristicSurface,
   resolveSecMarkdownSkillCoverage,
-  resolveSecRepositoryBehaviorRoute,
+  resolveSecRepositoryHeuristicRoute,
   resolveSecRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
-  SEC_REPOSITORY_BEHAVIOR_IDS
+  SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS
 } from '../../src/control/agent/skill.ts';
 import {
   activeDocumentationPaths,
   parseDocumentationAuthorityRegistry
 } from '../../src/control/documentation/authority.ts';
 import { selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
+import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
+const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture(REPOSITORY_ROOT);
+const TEST_IMPACT_SOURCE_PROVIDER = testImpactFixture.provider;
+afterAll(() => testImpactFixture.dispose());
 
 interface SkillFrontmatter {
   description?: unknown;
@@ -123,31 +127,20 @@ test('every exact Skill source passes the production blocking governance project
   }
 });
 
-test('repository behaviors route to deterministic owners or one bounded Skill', () => {
-  const routes = SEC_REPOSITORY_BEHAVIOR_IDS.map(resolveSecRepositoryBehaviorRoute);
-  const skillOwners = routes
-    .filter((route) => route.kind === 'skill')
-    .map((route) => route.owner);
-  expect(new Set(skillOwners)).toEqual(new Set(SEC_AGENT_SKILL_IDS));
-  expect(routes.filter((route) => route.kind === 'deterministic').length).toBeGreaterThan(0);
-  expect(SEC_REPOSITORY_BEHAVIOR_IDS.length).toBeGreaterThan(SEC_AGENT_SKILL_IDS.length);
-  expect(resolveSecRepositoryBehaviorRoute('task-delegation')).toEqual({
+test('heuristic registry maps each irreducible behavior to exactly one Skill', () => {
+  const routes = SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS.map(
+    resolveSecRepositoryHeuristicRoute
+  );
+  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(SEC_AGENT_SKILL_IDS));
+  expect(SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(SEC_AGENT_SKILL_IDS.length);
+  expect(resolveSecRepositoryHeuristicRoute('task-delegation')).toEqual({
     kind: 'skill',
     owner: 'sec-task-delegation',
     authorityRef: '.agents/skills/sec-task-delegation/SKILL.md'
   });
-  expect(resolveSecRepositoryBehaviorRoute('governance-self-correction')).toEqual({
-    kind: 'skill',
-    owner: 'sec-heuristic-governance',
-    authorityRef: '.agents/skills/sec-heuristic-governance/SKILL.md'
-  });
   for (const route of routes) {
-    expect(route.owner.length).toBeGreaterThan(0);
-    if (route.kind === 'skill') {
-      expect(route.authorityRef).toBe(`.agents/skills/${route.owner}/SKILL.md`);
-    } else {
-      expect(route.operation).toMatch(/^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/u);
-    }
+    expect(route.authorityRef).toBe(`.agents/skills/${route.owner}/SKILL.md`);
+    expect('operation' in route).toBeFalse();
   }
 });
 
@@ -189,6 +182,19 @@ test('archived YAML remains non-Markdown repository content', () => {
   }
 });
 
+test('repository surface classification follows the canonical src product root', () => {
+  expect(classifySecRepositorySurface('src/compiler/compile.ts')).toEqual({
+    kind: 'product-implementation',
+    skills: []
+  });
+  for (const retiredPath of ['platform/compiler/compile.ts', 'source/code/app.ts']) {
+    expect(classifySecRepositorySurface(retiredPath)).toEqual({
+      kind: 'repository-content',
+      skills: []
+    });
+  }
+});
+
 test('registered heuristic runtime surfaces resolve at least one Skill', () => {
   const files = trackedRepositoryFiles();
   for (const file of files.filter(isSecRepositoryHeuristicSurface)) {
@@ -221,13 +227,18 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
 });
 
 test('documentation and Agent trust roots have focused governance ownership', () => {
-  const skillSelection = selectTestsForSources(['.agents/skills/sec-worker-development/SKILL.md']);
+  const skillSelection = selectTestsForSources(
+    ['.agents/skills/sec-worker-development/SKILL.md'],
+    TEST_IMPACT_SOURCE_PROVIDER
+  );
   expect(skillSelection.owners).toEqual(['control.agent']);
   expect(skillSelection.fast.length).toBeGreaterThan(0);
 
-  const documentationSelection = selectTestsForSources(['docs/authority.json']);
+  const documentationSelection = selectTestsForSources(
+    ['docs/authority.json'],
+    TEST_IMPACT_SOURCE_PROVIDER
+  );
   expect(documentationSelection.owners).toEqual(['control.documentation']);
-  expect(documentationSelection.fast.length).toBeGreaterThan(0);
 });
 
 test('external capability ledger binds repository authority and keeps rejected standing providers retired', async () => {

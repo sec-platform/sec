@@ -8,7 +8,7 @@ import { compileRepositorySourceProgramCompilation } from '../../src/brownfield/
 import { issueTestImpactProjection } from '../../src/brownfield/source-program-model/test-impact-projection.ts';
 import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
-import { createTestImpactSourceProvider, resolveTestOwnership, selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
+import { createRepositoryTestImpactSourceProvider, resolveTestOwnership, selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -45,7 +45,7 @@ function pipelineProvider(sources: Readonly<Record<string, string>>) {
       commitSha: git(root, ['rev-parse', 'HEAD'])
     });
     const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
-    return createTestImpactSourceProvider({
+    return createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
         workspaceSnapshot,
         typeScriptModel: repositoryCompilation.typeScriptCompilation.model,

@@ -1,4 +1,4 @@
-import { testsRelativePath } from '../../workspace/paths.ts';
+import { testsRelativePath } from '../../workspace/runtime/paths.ts';
 
 export type RuntimeVerificationStep = 'unit';
 

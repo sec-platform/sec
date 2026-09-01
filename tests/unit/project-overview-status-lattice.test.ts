@@ -2,12 +2,12 @@ import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import { buildProjectOverview } from '../../src/interface/cli/project-overview.ts';
 import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
 import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
-import { buildProjectOverview } from '../../src/workspace/project.ts';
 
 function buildOverview(statuses: {
   verification: string;
@@ -21,7 +21,6 @@ function buildOverview(statuses: {
     lock: {
       app: { name: 'Status Lattice' },
       resolvedBlocks: [],
-      slotTasks: [],
       generatedPaths: []
     } as unknown as LockFile,
     explainGraph: { nodes: [], edges: [] } as unknown as ExplainGraph,

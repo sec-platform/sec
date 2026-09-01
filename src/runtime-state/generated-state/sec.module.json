@@ -9,8 +9,23 @@
         "inspectGeneratedState",
         "planGeneratedStateCleanup",
         "runGeneratedStateOperation",
-        "settleGeneratedState"
+        "settleGeneratedState",
+        "settleWorkspaceEnvironment"
       ]
+    }
+  ],
+  "causalRelations": [
+    {
+      "subject": "runtime-state.workspace-environment-settlement",
+      "relation": "settles",
+      "symbol": {
+        "path": "src/runtime-state/generated-state/environment-settlement.ts",
+        "name": "settleWorkspaceEnvironment"
+      },
+      "operation": {
+        "semanticOperation": "runtime-state.workspace-environment-settlement",
+        "requirementId": null
+      }
     }
   ],
   "preDependencyBootstrap": false

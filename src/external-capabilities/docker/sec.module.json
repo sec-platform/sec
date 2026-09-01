@@ -8,7 +8,9 @@
         "openContainerEngineSession"
       ],
       "effectKinds": [
-        "process"
+        "filesystem",
+        "process",
+        "provider"
       ],
       "operationRoles": [
         {
@@ -36,13 +38,16 @@
       },
       "effect": {
         "kinds": [
-          "process"
+          "filesystem",
+          "process",
+          "provider"
         ],
         "failureKinds": [
           "container-engine.admission-failed",
           "container-engine.desktop-launcher-path-unavailable",
           "container-engine.endpoint-unavailable",
-          "container-engine.process-settlement-failed"
+          "container-engine.process-settlement-failed",
+          "container-engine.runtime-endpoint-residue"
         ],
         "recovery": "owner-intervention"
       },

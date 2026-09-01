@@ -3,15 +3,28 @@ import type {
   GeneratedStateDomainOwnerPlan
 } from '../../runtime-state/generated-state/operation.ts';
 import type { CommitFence } from '../../workspace/files.ts';
+import type { RuntimeDependencyInstallOptions as RuntimeDependencyInternalOptions } from './runtime/operation-context.ts';
 import * as runtime from './runtime/project-runtime.ts';
 
 export type {
+  CompilerDependencyExecutionGenerationAuthority,
+  CompilerDependencyMaterializationDigest,
+  CompilerDependencyMaterializationInputProjection,
   CompilerDepsReadyState,
   DependencyAuthorityPaths,
+  RetainedCompilerDependencyExecutionGeneration,
   RuntimeDependencySourceGeneration,
   RuntimeDependencyTargetIdentity,
   RuntimeDepsStamp,
   SharedDepsReadyState
+} from './runtime/project-runtime.ts';
+
+export {
+  assertCompilerDependencyExecutionGenerationAuthority,
+  assertCompilerDependencyExecutionRetirementReceipt,
+  COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
+  projectCompilerDepsReadyState,
+  retainCompilerDependencyExecutionGeneration
 } from './runtime/project-runtime.ts';
 
 export { SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES } from './runtime/project-runtime.ts';
@@ -23,6 +36,7 @@ export { SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES } from './runtime/project-r
  */
 export interface RuntimeDependencyInstallOptions {
   readonly beforeCommit?: CommitFence;
+  readonly deadlineAtUnixMs?: number;
   readonly installMode?: 'allow' | 'offline-copy-only' | 'prebound-only';
   readonly lockTimeoutMs?: number;
   readonly rematerialize?: boolean;
@@ -32,15 +46,26 @@ export interface RuntimeDependencyInstallOptions {
 
 function dependencyInstallOptions(
   options: RuntimeDependencyInstallOptions
-): runtime.RuntimeDependencyInstallOptions {
+): RuntimeDependencyInternalOptions {
   return {
     beforeCommit: options.beforeCommit,
+    deadlineAtUnixMs: options.deadlineAtUnixMs,
     installMode: options.installMode,
     lockTimeoutMs: options.lockTimeoutMs,
     rematerialize: options.rematerialize,
     signal: options.signal,
     skipSharedDepsWarmup: options.skipSharedDepsWarmup
   };
+}
+
+export async function observeCompilerDependencyExecutionGenerationAuthority(
+  options: RuntimeDependencyInstallOptions = {},
+  compilerDependencyRoot?: string
+): Promise<runtime.CompilerDependencyExecutionGenerationAuthority | null> {
+  return runtime.observeCompilerDependencyExecutionGenerationAuthority(
+    dependencyInstallOptions(options),
+    compilerDependencyRoot
+  );
 }
 
 export const dependencyAuthorityPaths = runtime.dependencyAuthorityPaths;
@@ -93,6 +118,13 @@ export async function withProjectDependencyBridge<T>(
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<T> {
   return runtime.withProjectDependencyBridge(projectRoot, callback, dependencyInstallOptions(options));
+}
+
+/** Pure dependency-owner observation; performs no dependency materialization Effect. */
+export async function observeCompilerDependencyMaterializationInput(
+  compilerDependencyRoot?: string
+): Promise<runtime.CompilerDependencyMaterializationInputProjection> {
+  return runtime.observeCompilerDependencyMaterializationInput(compilerDependencyRoot);
 }
 
 export async function ensureCompilerDepsReady(

@@ -4,13 +4,13 @@ import type { SemanticViewSet } from '../../semantic/projection/contract/types.t
 import type { WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
 import type { PassStatus } from '../contract.ts';
 
-export const PIPELINE_JOURNAL_FORMAT_VERSION = '1' as const;
+export const PIPELINE_JOURNAL_FORMAT_VERSION = '2' as const;
+export const PIPELINE_ADAPT_RETIREMENT_SCHEMA = 'sec-pipeline-adapt-retirement-v1' as const;
 
 export const PIPELINE_STAGE_IDS = [
   'resolve',
   'semantic',
   'compose',
-  'adapt',
   'verify',
   'lock',
   'emit'
@@ -30,7 +30,6 @@ export const PIPELINE_EXECUTION_BOUNDARIES = [
   'pipeline-resolve',
   'pipeline-semantic',
   'pipeline-compose',
-  'pipeline-adapt',
   'pipeline-verify',
   'pipeline-lock',
   'pipeline-emit',
@@ -86,6 +85,14 @@ export interface PipelineJournal {
   activeTransactionId?: string;
   lastCommittedTransactionId?: string;
   transactions: PipelineTransactionRecord[];
+  retirements?: PipelineAdaptRetirementRecord[];
+}
+
+export interface PipelineAdaptRetirementRecord {
+  readonly schema: typeof PIPELINE_ADAPT_RETIREMENT_SCHEMA;
+  readonly retiredStage: 'adapt';
+  readonly legacyJournalBytesDigest: `sha256:${string}`;
+  readonly evidenceFile: string;
 }
 
 export type PipelineEventType =

@@ -2,18 +2,19 @@ import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/r
 import type { ExplainGraph } from '../../semantic/projection/contract/explain.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { countMatching } from '../../system-architecture/foundation/runtime/collections.ts';
-import { buildCiArtifactUploadGroups, CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_ARTIFACT_PATHS, CI_EMIT_ARTIFACT_PATHS, ciArtifactKindForPath, ciArtifactUploadName, countCiArtifactMissingReasons, countCiArtifactMissingReasonTypes, fixedCiArtifactPaths, isCiContractArtifactPath, normalizeCiArtifactPath, uniqueSortedCiArtifactPaths } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { buildCiArtifactUploadGroups, CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_ARTIFACT_PATHS, CI_ARTIFACT_ROOT_RELATIVE_PATH, CI_EMIT_ARTIFACT_PATHS, ciArtifactKindForPath, ciArtifactUploadName, countCiArtifactMissingReasons, countCiArtifactMissingReasonTypes, fixedCiArtifactPaths, isCanonicalCiArtifactPath, isCiContractArtifactPath, normalizeCiArtifactPath, uniqueSortedCiArtifactPaths } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactEntry, CiArtifactManifest, CiArtifactMissingEntry } from '../../verification/ci-artifacts/contract/types.ts';
 import { CI_ARTIFACT_FORMAT_VERSION, CI_ARTIFACT_MISSING_REASON } from '../../verification/ci-artifacts/contract/types.ts';
 import { validateCiArtifactManifest } from '../../verification/ci-artifacts/runtime/authority.ts';
-import { formatJsonFile, pathExists, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
+import { formatJsonFile, pathExists, publishCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { readLockFile, writeLockWithGeneratedPaths } from '../lock.ts';
 import { semanticViewArtifactsAreCurrent } from './semantic-view-artifact-contract.ts';
 import { writeProvenance } from './write-provenance.ts';
 
 interface GeneratedPathResult {
+  /** Mixed workspace output identities from the compiler lock. */
   paths: string[];
   lockExists: boolean;
   lock: LockFile | null;
@@ -69,9 +70,10 @@ async function buildCiArtifactManifestWithPlannedPaths(
   const staleSemanticArtifacts = !semanticEmitArtifactsCurrent
     ? new Set(CI_EMIT_ARTIFACT_PATHS.map(normalizeCiArtifactPath))
     : new Set<string>();
+  const generatedArtifactPaths = generatedPathResult.paths.filter(isCanonicalCiArtifactPath);
   const artifacts = uniqueSortedCiArtifactPaths([
     ...fixedCiArtifactPaths(),
-    ...generatedPathResult.paths
+    ...generatedArtifactPaths
   ]).filter((artifactPath) => !staleSemanticArtifacts.has(artifactPath));
   const entries: CiArtifactEntry[] = [];
   const missing: CiArtifactMissingEntry[] = [...staleSemanticArtifacts].map((artifactPath) => ({
@@ -79,7 +81,7 @@ async function buildCiArtifactManifestWithPlannedPaths(
     reason: CI_ARTIFACT_MISSING_REASON.staleSemanticProjection,
     declaredBy: 'artifact-manifest'
   }));
-  const generatedPaths = new Set(generatedPathResult.paths.map(normalizeCiArtifactPath));
+  const generatedPaths = new Set(generatedArtifactPaths.map(normalizeCiArtifactPath));
   const requiredGovernanceArtifacts = new Set(CI_ARTIFACT_PATHS.requiredGovernance.map(normalizeCiArtifactPath));
 
   for (const artifactPath of artifacts) {
@@ -145,13 +147,17 @@ export async function writeCiArtifactManifest(
   workspaceRoot = process.cwd(),
   commitFence?: CommitFence
 ): Promise<CiArtifactManifest> {
+  const lockPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.graphLock
+  );
   const ciArtifactsPath = resolveWorkspaceArtifactPath(
     workspaceRoot,
     CI_ARTIFACT_FILES.artifactManifest
   );
-  const lockPath = resolveWorkspaceArtifactPath(
+  const artifactsRootPath = resolveWorkspaceArtifactPath(
     workspaceRoot,
-    CI_ARTIFACT_FILES.graphLock
+    CI_ARTIFACT_ROOT_RELATIVE_PATH
   );
   const lock = readLockFile(workspaceRoot);
   await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_MANIFEST_PATH], commitFence);
@@ -159,10 +165,11 @@ export async function writeCiArtifactManifest(
     workspaceRoot,
     new Set([CI_ARTIFACT_MANIFEST_PATH])
   );
-  await publishExistingParentCanonicalWorkspaceFile({
-    workspaceRoot,
+  const manifestBytes = Buffer.from(formatJsonFile(manifest), 'utf8');
+  await publishCanonicalWorkspaceFile({
+    workspaceRoot: artifactsRootPath,
     targetPath: ciArtifactsPath,
-    bytes: Buffer.from(formatJsonFile(manifest), 'utf8'),
+    bytes: manifestBytes,
     label: 'CI artifact manifest',
     commitFence
   });

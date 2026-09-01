@@ -1,5 +1,5 @@
 import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
 import { writeYaml } from '../../workspace/yaml.ts';
 import { alignInterfaces } from '../align/align-interfaces.ts';
 import type { LockFile, ManifestEntry, PlanFile } from '../contract.ts';

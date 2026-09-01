@@ -1,10 +1,11 @@
 import type {
   UpgradeDiagnostics,
   UpgradeDiagnosticsPhase,
+  UpgradeExecutionTerminal,
   UpgradeMigrationOperation,
   UpgradePlan,
   UpgradePreflightCheck
-} from '../../../change-management/upgrade/contract/types.ts';
+} from '../../../change-management/upgrade/contract/upgrade-artifact.ts';
 import { compareCodeUnits, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { countMatching } from '../../../system-architecture/foundation/runtime/collections.ts';
 
@@ -21,7 +22,6 @@ export interface ReviewUpgradeMigrationSummary {
   reason: string;
   requiresVerification: boolean;
   source?: string;
-  slotId?: string;
 }
 
 export type ReviewUpgradeMigrationOperationSummary = UpgradeMigrationOperation;
@@ -54,7 +54,6 @@ export interface ReviewUpgradeSummary {
   impactCount: number;
   impacts: string[];
   sourceMigrationCount: number;
-  slotMigrationCount: number;
   verificationSummaries: ReviewUpgradeVerificationSummary[];
   preflightSummaries: ReviewUpgradePreflightSummary[];
   migrationSummaries: ReviewUpgradeMigrationSummary[];
@@ -95,8 +94,7 @@ function buildReviewUpgradeMigrationSummaries(plan: UpgradePlan): ReviewUpgradeM
       target: migration.target,
       reason: migration.reason,
       requiresVerification: migration.requiresVerification,
-      ...(migration.source ? { source: migration.source } : {}),
-      ...(migration.slotId ? { slotId: migration.slotId } : {})
+      ...(migration.source ? { source: migration.source } : {})
     }))
     .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
@@ -105,7 +103,6 @@ function buildReviewUpgradeMigrationOperationSummaries(plan: UpgradePlan): Revie
   return plan.migrationOperations
     .map((operation) => ({
       ...operation,
-      ...(operation.writableZones ? { writableZones: [...operation.writableZones] } : {}),
       ...(operation.path ? { path: [...operation.path] } : {})
     }))
     .sort((left, right) => compareCodeUnits(left.id, right.id));
@@ -133,6 +130,7 @@ export function buildReviewUpgradePreflightSummaries(
 
 export function buildReviewUpgradeSummary(
   upgradePlan: UpgradePlan | null,
+  executionTerminal: UpgradeExecutionTerminal | null,
   diagnostics: UpgradeDiagnostics | null
 ): ReviewUpgradeSummary | undefined {
   if (!upgradePlan) {
@@ -153,7 +151,6 @@ export function buildReviewUpgradeSummary(
       impactCount: 0,
       impacts: [],
       sourceMigrationCount: 0,
-      slotMigrationCount: 0,
       verificationSummaries: [
         { id: 'required', count: 0 },
         { id: 'skipped', count: 0 }
@@ -176,7 +173,7 @@ export function buildReviewUpgradeSummary(
   const migrationOperationSummaries = buildReviewUpgradeMigrationOperationSummaries(plan);
 
   return {
-    status: diagnostics ? 'blocked' : plan.status,
+    status: diagnostics ? 'blocked' : executionTerminal?.settlement === 'applied' ? 'applied' : 'planned',
     blockId: plan.blockId,
     fromVersion: plan.fromVersion,
     toVersion: plan.toVersion,
@@ -187,12 +184,11 @@ export function buildReviewUpgradeSummary(
     ),
     migrationCount: plan.migrationSummaries.length,
     migrationKindCounts: buildReviewUpgradeMigrationKindCounts(plan),
-    requiresVerification: requiresVerificationCount > 0 || plan.status === 'applied',
+    requiresVerification: requiresVerificationCount > 0 || executionTerminal?.settlement === 'applied',
     requiresVerificationCount,
     impactCount: plan.impacts.length,
     impacts: uniqueSorted(plan.impacts),
     sourceMigrationCount: countMatching(migrationSummaries, (migration) => migration.source !== undefined),
-    slotMigrationCount: countMatching(migrationSummaries, (migration) => migration.slotId !== undefined),
     verificationSummaries: [
       { id: 'required', count: requiresVerificationCount },
       { id: 'skipped', count: skippedVerificationCount }
@@ -226,7 +222,6 @@ export function upgradeDiagnosticsAttributionParts(details: unknown): string[] {
     ?? (role === 'target' ? path : null);
   const source = readUpgradeDiagnosticsString(details, 'source')
     ?? (role === 'source' ? path : null);
-  const slotId = readUpgradeDiagnosticsString(details, 'slotId');
   const entry = readUpgradeDiagnosticsString(details, 'entry');
   const entryId = readUpgradeDiagnosticsString(details, 'entryId');
   const entryKind = readUpgradeDiagnosticsString(details, 'entryKind');
@@ -240,7 +235,6 @@ export function upgradeDiagnosticsAttributionParts(details: unknown): string[] {
     entryKind ? `entryKind=${entryKind}` : '',
     target ? `target=${target}` : '',
     source ? `source=${source}` : '',
-    slotId ? `slot=${slotId}` : '',
     rollbackStatus ? `rollback=${rollbackStatus}` : ''
   ].filter((part) => part.length > 0);
 }

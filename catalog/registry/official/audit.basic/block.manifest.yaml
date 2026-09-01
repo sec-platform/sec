@@ -24,6 +24,5 @@ pins:
     - id: audit_entry
       type: AuditEntry
       required: true
-slots: []
 acceptance:
   - id: audit_entry_can_be_created

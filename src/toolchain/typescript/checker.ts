@@ -1,7 +1,24 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import {
+  assertRetainedNoFollowCapability,
+  assertRetainedNoFollowProvenDirectoryGeneration,
+  assertRetainedNoFollowReadOnlyDirectoryGeneration,
+  inspectNoFollowDirectoryChain,
+  retainNoFollowOrdinaryFile,
+  type RetainedNoFollowChildProcessDirectory,
+  type RetainedNoFollowProvenDirectoryGeneration,
+  type RetainedNoFollowSealedDirectoryGeneration
+} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+  issueRetainedCommandBoundary,
+  runRetainedCommand,
+  type CommandResult
+} from '../../runtime-state/physical/runtime/process.ts';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
 
 export type TypeScriptCheckerDigest = `sha256:${string}`;
 
@@ -10,7 +27,6 @@ export type TypeScriptNativeCheckerProvider = Readonly<{
   providerId: 'typescript-native-cli';
   packageAlias: '@typescript/native';
   packageName: 'typescript';
-  providerRevision: `typescript@${string}`;
   packageManifestDigest: TypeScriptCheckerDigest;
   wrapperRelativePath: 'bin/tsc';
   wrapperDigest: TypeScriptCheckerDigest;
@@ -33,6 +49,8 @@ export type InstalledTypeScriptNativeChecker = Readonly<{
 }>;
 
 export type TypeScriptNativeCheckerFailureReason =
+  | 'cancelled'
+  | 'deadline-exhausted'
   | 'package-not-installed'
   | 'native-package-not-installed'
   | 'unsupported-platform'
@@ -54,7 +72,31 @@ export type TypeScriptNativeCheckerSelection =
     detail: string;
   }>;
 
+export const TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY = Object.freeze({
+  maximumStderrBytes: 32 * 1024 * 1024,
+  maximumStdoutBytes: 32 * 1024 * 1024,
+  timeoutMs: 120_000
+});
+
+export type TypeScriptNativeCheckerExecution =
+  | Readonly<{
+    status: 'exited';
+    code: number;
+    stdout: string;
+    stderr: string;
+  }>
+  | Readonly<{
+    status: 'unverified';
+    reason: 'cancelled' | 'deadline-exhausted' | 'process-boundary-unavailable' | 'provider-drift';
+    detail: string;
+  }>;
+
 type FailureStatus = Exclude<TypeScriptNativeCheckerSelection['status'], 'selected'>;
+
+export type TypeScriptNativeCheckerSelectionOptions = Readonly<{
+  deadlineAtUnixMs: number;
+  signal?: AbortSignal;
+}>;
 
 // A selected checker is an authority-bearing capability, not a structural
 // configuration object.  Keep its issuer private so a caller cannot turn a
@@ -83,7 +125,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseJsonObject(bytes: Buffer, filePath: string): Record<string, unknown> {
   let value: unknown;
   try {
-    value = JSON.parse(bytes.toString('utf8'));
+    const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    value = parseExactJson(source, `TypeScript checker manifest ${filePath}`);
   } catch (error) {
     throw failure('unverified', 'manifest-invalid', `TypeScript checker manifest is invalid JSON: ${filePath}`, error);
   }
@@ -131,15 +174,6 @@ function parsePlatformManifest(bytes: Buffer, filePath: string): TypeScriptPlatf
   return Object.freeze({ name: value.name, version: value.version });
 }
 
-const PLATFORM_PACKAGE_BY_RUNTIME = Object.freeze({
-  'win32-x64': '@typescript/typescript-win32-x64',
-  'win32-arm64': '@typescript/typescript-win32-arm64',
-  'linux-x64': '@typescript/typescript-linux-x64',
-  'linux-arm64': '@typescript/typescript-linux-arm64',
-  'darwin-x64': '@typescript/typescript-darwin-x64',
-  'darwin-arm64': '@typescript/typescript-darwin-arm64'
-} as const);
-
 const TYPECHECK_DIAGNOSTIC_FLAGS = new Set([
   '--diagnostics', '--extendedDiagnostics', '--explainFiles', '--listFiles',
   '--noErrorTruncation', '--traceResolution'
@@ -180,19 +214,57 @@ function failure(
   );
 }
 
-function nativePackageName(): `@typescript/typescript-${string}` {
-  const key = `${process.platform}-${process.arch}` as keyof typeof PLATFORM_PACKAGE_BY_RUNTIME;
-  const value = PLATFORM_PACKAGE_BY_RUNTIME[key];
-  if (value === undefined) {
-    throw failure('unavailable', 'unsupported-platform', `No native TypeScript checker is admitted for ${key}`);
+function nativePackageName(
+  manifest: TypeScriptAliasManifest
+): `@typescript/typescript-${string}` {
+  const runtimeIdentity = `${process.platform}-${process.arch}`;
+  if (!/^[a-z0-9]+-[a-z0-9]+$/u.test(runtimeIdentity)) {
+    throw failure(
+      'unavailable',
+      'unsupported-platform',
+      `No canonical native TypeScript runtime identity exists for ${runtimeIdentity}`
+    );
   }
-  return value;
+  const candidate = `@typescript/typescript-${runtimeIdentity}` as const;
+  if (manifest.optionalDependencies[candidate] === undefined) {
+    throw failure(
+      'unavailable',
+      'unsupported-platform',
+      `The selected TypeScript package does not publish a native checker for ${runtimeIdentity}`
+    );
+  }
+  return candidate;
 }
 
-async function readRequired(filePath: string, native: boolean): Promise<Buffer> {
+function assertSelectionActive(
+  options: TypeScriptNativeCheckerSelectionOptions,
+  label: string
+): void {
+  if (options.signal?.aborted === true) {
+    throw failure('unverified', 'cancelled', `TypeScript checker ${label} was cancelled`);
+  }
+  if (!Number.isSafeInteger(options.deadlineAtUnixMs)
+      || options.deadlineAtUnixMs <= Date.now()) {
+    throw failure(
+      'unverified',
+      'deadline-exhausted',
+      `TypeScript checker ${label} exhausted its operation deadline`
+    );
+  }
+}
+
+async function readRequired(
+  filePath: string,
+  native: boolean,
+  options: TypeScriptNativeCheckerSelectionOptions
+): Promise<Buffer> {
+  assertSelectionActive(options, 'artifact observation');
   try {
-    return await fs.readFile(filePath);
+    const bytes = await fs.readFile(filePath);
+    assertSelectionActive(options, 'artifact observation readback');
+    return bytes;
   } catch (error) {
+    if (error instanceof TypeScriptNativeCheckerError) throw error;
     const code = error !== null && typeof error === 'object' && 'code' in error
       ? String((error as { code?: unknown }).code)
       : 'unknown';
@@ -208,16 +280,18 @@ async function readRequired(filePath: string, native: boolean): Promise<Buffer> 
   }
 }
 
-export async function resolveInstalledTypeScriptNativeChecker(
-  nodeModulesPath: string
+async function resolveInstalledTypeScriptNativeChecker(
+  nodeModulesPath: string,
+  options: TypeScriptNativeCheckerSelectionOptions
 ): Promise<InstalledTypeScriptNativeChecker> {
+  assertSelectionActive(options, 'selection admission');
   const aliasRoot = path.join(path.resolve(nodeModulesPath), '@typescript', 'native');
   const packageManifestPath = path.join(aliasRoot, 'package.json');
-  const packageBytes = await readRequired(packageManifestPath, false);
+  const packageBytes = await readRequired(packageManifestPath, false, options);
   const manifest = parseAliasManifest(packageBytes, packageManifestPath);
   const wrapperPath = path.join(aliasRoot, 'bin', 'tsc');
-  const wrapperBytes = await readRequired(wrapperPath, false);
-  const platformNativePackageName = nativePackageName();
+  const wrapperBytes = await readRequired(wrapperPath, false, options);
+  const platformNativePackageName = nativePackageName(manifest);
   if (manifest.optionalDependencies[platformNativePackageName] !== manifest.version) {
     throw failure(
       'mismatch',
@@ -230,7 +304,7 @@ export async function resolveInstalledTypeScriptNativeChecker(
     ...platformNativePackageName.split('/')
   );
   const platformNativeManifestPath = path.join(nativeRoot, 'package.json');
-  const nativeManifestBytes = await readRequired(platformNativeManifestPath, true);
+  const nativeManifestBytes = await readRequired(platformNativeManifestPath, true, options);
   const resolvedNativeManifest = parsePlatformManifest(
     nativeManifestBytes,
     platformNativeManifestPath
@@ -246,13 +320,12 @@ export async function resolveInstalledTypeScriptNativeChecker(
     nativeRoot,
     ...platformNativeExecutableRelativePath.split('/')
   );
-  const nativeExecutableBytes = await readRequired(nativeExecutablePath, true);
+  const nativeExecutableBytes = await readRequired(nativeExecutablePath, true, options);
   const withoutBinding = Object.freeze({
     capability: 'typescript-project-typecheck' as const,
     providerId: 'typescript-native-cli' as const,
     packageAlias: '@typescript/native' as const,
     packageName: 'typescript' as const,
-    providerRevision: `typescript@${manifest.version}` as `typescript@${string}`,
     packageManifestDigest: rawSha256(packageBytes),
     wrapperRelativePath: 'bin/tsc' as const,
     wrapperDigest: rawSha256(wrapperBytes),
@@ -275,6 +348,7 @@ export async function resolveInstalledTypeScriptNativeChecker(
     platformNativeManifestPath,
     nativeExecutablePath
   });
+  assertSelectionActive(options, 'selection settlement');
   issuedTypeScriptCheckers.add(checker);
   return checker;
 }
@@ -298,12 +372,15 @@ export function assertTypeScriptNativeChecker(
 }
 
 export async function selectInstalledTypeScriptNativeChecker(
-  nodeModulesPath: string
+  nodeModulesPath: string,
+  options: TypeScriptNativeCheckerSelectionOptions = Object.freeze({
+    deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+  })
 ): Promise<TypeScriptNativeCheckerSelection> {
   try {
     return Object.freeze({
       status: 'selected' as const,
-      checker: await resolveInstalledTypeScriptNativeChecker(nodeModulesPath)
+      checker: await resolveInstalledTypeScriptNativeChecker(nodeModulesPath, options)
     });
   } catch (error) {
     const typed = error instanceof TypeScriptNativeCheckerError
@@ -407,4 +484,227 @@ export function typeScriptCheckerArguments(
     ...canonicalTypeScriptDiagnosticArguments(args),
     '--incremental', '--tsBuildInfoFile', path.resolve(buildInfoFile)
   ]);
+}
+
+function typeScriptCheckerEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const read = (name: 'SYSTEMROOT' | 'WINDIR'): string | undefined => Object.entries(source)
+    .find(([key]) => key.toUpperCase() === name)?.[1];
+  return Object.freeze(Object.fromEntries([
+    ['SYSTEMROOT', read('SYSTEMROOT')],
+    ['WINDIR', read('WINDIR')]
+  ].filter((entry): entry is [string, string] => entry[1] !== undefined)));
+}
+
+function executionFailure(
+  reason: Extract<TypeScriptNativeCheckerExecution, { status: 'unverified' }>['reason'],
+  detail: string
+): TypeScriptNativeCheckerExecution {
+  return Object.freeze({ status: 'unverified' as const, reason, detail });
+}
+
+function isStrictPathDescendant(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative.length > 0
+    && !path.isAbsolute(relative)
+    && relative !== '..'
+    && !relative.startsWith(`..${path.sep}`);
+}
+
+/**
+ * Execute through the exact provider-issued checker. The production caller
+ * supplies its operation deadline plus owner-issued project, dependency and
+ * action-private auxiliary capabilities; checking arguments, environment,
+ * output bounds and physical process authority remain owned here.
+ */
+export async function executeTypeScriptNativeChecker(
+  checker: InstalledTypeScriptNativeChecker,
+  input: Readonly<{
+    args?: readonly string[];
+    auxiliaryDirectory: RetainedNoFollowChildProcessDirectory;
+    buildInfoFileName: string;
+    deadlineAtUnixMs: number;
+    dependencyDirectory: RetainedNoFollowProvenDirectoryGeneration;
+    forwardOutput?: boolean;
+    signal?: AbortSignal;
+    workingDirectory: RetainedNoFollowSealedDirectoryGeneration | RetainedNoFollowProvenDirectoryGeneration;
+  }>
+): Promise<TypeScriptNativeCheckerExecution> {
+  assertTypeScriptNativeChecker(checker);
+  assertRetainedNoFollowReadOnlyDirectoryGeneration(
+    input.workingDirectory,
+    'TypeScript checker immutable working generation'
+  );
+  assertRetainedNoFollowProvenDirectoryGeneration(
+    input.dependencyDirectory,
+    'TypeScript checker dependency generation'
+  );
+  const providerPaths = [
+    checker.packageManifestPath,
+    checker.wrapperPath,
+    checker.platformNativeManifestPath,
+    checker.nativeExecutablePath
+  ];
+  if (providerPaths.some((providerPath) => (
+    !isStrictPathDescendant(input.dependencyDirectory.root.path, providerPath)
+  ))) {
+    return executionFailure(
+      'process-boundary-unavailable',
+      'TypeScript checker provider is outside its retained dependency generation'
+    );
+  }
+  if (input.auxiliaryDirectory === undefined || input.buildInfoFileName === undefined) {
+    return executionFailure(
+      'process-boundary-unavailable',
+      'TypeScript checker requires one action-private auxiliary directory capability'
+    );
+  }
+  assertRetainedNoFollowCapability(
+    input.auxiliaryDirectory,
+    'working-directory',
+    'TypeScript checker action-private auxiliary directory'
+  );
+  if (input.buildInfoFileName.length === 0 || input.buildInfoFileName === '.'
+      || input.buildInfoFileName === '..' || input.buildInfoFileName.includes('/')
+      || input.buildInfoFileName.includes('\\') || input.buildInfoFileName.includes('\0')) {
+    throw new Error('Native TypeScript checker build-info name must be one ordinary leaf');
+  }
+  if (!Number.isSafeInteger(input.deadlineAtUnixMs)) {
+    throw new Error('Native TypeScript checker deadline must be an absolute safe integer');
+  }
+  const startedAtUnixMs = Date.now();
+  const deadlineAtMonotonicMs = performance.now() + Math.max(
+    0,
+    input.deadlineAtUnixMs - startedAtUnixMs
+  );
+  const remaining = (): number => Math.floor(Math.min(
+    TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
+    input.deadlineAtUnixMs - Date.now(),
+    deadlineAtMonotonicMs - performance.now()
+  ));
+  const interruption = (): 'cancelled' | 'deadline-exhausted' | null => (
+    input.signal?.aborted === true
+      ? 'cancelled'
+      : remaining() < 1
+        ? 'deadline-exhausted'
+        : null
+  );
+  const admitProgress = input.forwardOutput === true
+    ? (chunk: Buffer, stream: 'stdout' | 'stderr'): boolean => {
+        (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
+        return true;
+      }
+    : undefined;
+  const initialInterruption = interruption();
+  if (initialInterruption !== null) {
+    return executionFailure(initialInterruption, 'TypeScript checker operation ended before process admission');
+  }
+  const providerArtifacts = [
+    [checker.packageManifestPath, checker.provider.packageManifestDigest, 'alias manifest'],
+    [checker.wrapperPath, checker.provider.wrapperDigest, 'wrapper'],
+    [
+      checker.platformNativeManifestPath,
+      checker.provider.platformNativeManifestDigest,
+      'native manifest'
+    ]
+  ] as const;
+  try {
+    for (const [artifactPath, expectedDigest, label] of providerArtifacts) {
+      const retained = retainNoFollowOrdinaryFile(
+        inspectNoFollowDirectoryChain(
+          path.dirname(artifactPath),
+          `TypeScript checker ${label} parent`
+        ),
+        path.basename(artifactPath),
+        undefined,
+        `TypeScript checker ${label}`
+      );
+      try {
+        if (retained.digest().byteDigest !== expectedDigest) {
+          return executionFailure(
+            'provider-drift',
+            `TypeScript checker ${label} bytes changed before process admission`
+          );
+        }
+      } finally {
+        retained.dispose();
+      }
+    }
+  } catch (error) {
+    return executionFailure(
+      'provider-drift',
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+  const admittedInterruption = interruption();
+  if (admittedInterruption !== null) {
+    return executionFailure(admittedInterruption, 'TypeScript checker operation ended during provider admission');
+  }
+  const effectInterruption = interruption();
+  if (effectInterruption !== null) {
+    return executionFailure(effectInterruption, 'TypeScript checker operation ended before process effect');
+  }
+
+  let result: CommandResult;
+  {
+    let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | null = null;
+    try {
+      input.workingDirectory.assertCurrent();
+      input.dependencyDirectory.assertCurrent();
+      input.auxiliaryDirectory.assertCurrent();
+      await input.workingDirectory.assertAuthorityCurrent();
+      await input.dependencyDirectory.assertAuthorityCurrent();
+      executable = retainNoFollowOrdinaryFile(
+        inspectNoFollowDirectoryChain(path.dirname(checker.nativeExecutablePath), 'TypeScript checker executable parent'),
+        path.basename(checker.nativeExecutablePath),
+        undefined,
+        'TypeScript checker executable',
+        RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+        'executable'
+      );
+      if (executable.digest().byteDigest !== checker.provider.platformNativeExecutableDigest) {
+        return executionFailure('provider-drift', 'TypeScript checker executable bytes changed before process admission');
+      }
+      const boundary = issueRetainedCommandBoundary({
+        executable,
+        workingDirectory: input.workingDirectory,
+        auxiliaryInputs: [
+          { capability: input.dependencyDirectory, kind: 'directory' },
+          { capability: input.auxiliaryDirectory, kind: 'directory' }
+        ]
+      });
+      result = await runRetainedCommand(boundary, [
+        ...typeScriptCheckerArguments(
+          checker.provider,
+          path.join(input.auxiliaryDirectory.childPath, input.buildInfoFileName),
+          input.args ?? []
+        )
+      ], {
+        ...(admitProgress === undefined ? {} : { admitProgress }),
+        env: typeScriptCheckerEnvironment(process.env),
+        envMode: 'replace',
+        maxStderrBytes: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes,
+        maxStdoutBytes: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes,
+        signal: input.signal,
+        timeoutMs: remaining()
+      });
+    } catch (error) {
+      return executionFailure(
+        interruption()
+          ?? 'process-boundary-unavailable',
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      try { executable?.dispose(); } catch { /* terminal result already settled */ }
+    }
+  }
+  input.workingDirectory.assertCurrent();
+  input.dependencyDirectory.assertCurrent();
+  input.auxiliaryDirectory.assertCurrent();
+  await input.workingDirectory.assertAuthorityCurrent();
+  await input.dependencyDirectory.assertAuthorityCurrent();
+  const finalInterruption = interruption();
+  if (finalInterruption !== null) {
+    return executionFailure(finalInterruption, 'TypeScript checker operation ended during settlement');
+  }
+  return Object.freeze({ status: 'exited' as const, ...result });
 }

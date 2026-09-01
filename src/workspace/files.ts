@@ -1,4 +1,5 @@
 export {
+  deleteExpectedCanonicalWorkspaceFile,
   publishCanonicalWorkspaceFile, publishExclusiveCanonicalWorkspaceFile, publishExistingParentCanonicalWorkspaceFile,
   publishExpectedCanonicalWorkspaceFile
 } from './runtime/file-publication.ts';

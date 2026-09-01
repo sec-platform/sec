@@ -18,36 +18,31 @@ export const PASS_DEFINITIONS: Record<PassId, PassDefinition> = {
   parse: {
     id: 'parse',
     requires: [],
-    invalidates: ['align', 'resolve', 'build-ir', 'compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
+    invalidates: ['align', 'resolve', 'build-ir', 'compose', 'verify', 'repair', 'lock', 'emit']
   },
   align: {
     id: 'align',
     requires: ['parse'],
-    invalidates: ['resolve', 'build-ir', 'compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
+    invalidates: ['resolve', 'build-ir', 'compose', 'verify', 'repair', 'lock', 'emit']
   },
   resolve: {
     id: 'resolve',
     requires: ['align'],
-    invalidates: ['build-ir', 'compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
+    invalidates: ['build-ir', 'compose', 'verify', 'repair', 'lock', 'emit']
   },
   'build-ir': {
     id: 'build-ir',
     requires: ['resolve'],
-    invalidates: ['compose', 'adapt', 'verify', 'repair', 'lock', 'emit']
+    invalidates: ['compose', 'verify', 'repair', 'lock', 'emit']
   },
   compose: {
     id: 'compose',
     requires: ['build-ir'],
-    invalidates: ['adapt', 'verify', 'repair', 'lock', 'emit']
-  },
-  adapt: {
-    id: 'adapt',
-    requires: ['compose'],
     invalidates: ['verify', 'repair', 'lock', 'emit']
   },
   verify: {
     id: 'verify',
-    requires: ['adapt'],
+    requires: ['compose'],
     invalidates: ['repair', 'lock', 'emit']
   },
   repair: {
@@ -88,13 +83,6 @@ export const PIPELINE_STAGE_DEFINITIONS: Record<PipelineStageId, PipelineStageDe
     ownedPasses: ['compose'],
     requires: PASS_DEFINITIONS.compose.requires,
     invalidates: PASS_DEFINITIONS.compose.invalidates
-  },
-  adapt: {
-    id: 'adapt',
-    primaryPass: 'adapt',
-    ownedPasses: ['adapt'],
-    requires: PASS_DEFINITIONS.adapt.requires,
-    invalidates: PASS_DEFINITIONS.adapt.invalidates
   },
   verify: {
     id: 'verify',

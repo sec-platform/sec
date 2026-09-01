@@ -6,7 +6,7 @@ import { defaultInstallRegistry } from '../../src/compiler/compose/install-strat
 import { parsePrismaSchema } from '../../src/compiler/compose/merge-prisma-template.ts';
 import type { InstallPlanStep, LockFile } from '../../src/compiler/contract.ts';
 import { readText, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function mergePrismaStep(stepId: string, from: string, to = 'prisma/schema.prisma'): InstallPlanStep {

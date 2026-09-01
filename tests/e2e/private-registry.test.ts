@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 
 import {
-  adaptWorkspace,
   addBlock,
   composeWorkspace,
   explainWorkspace,
@@ -12,7 +11,7 @@ import {
 } from '../../src/compiler/orchestration/cli.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
@@ -30,7 +29,6 @@ test('workspace private registry blocks resolve, compose, and verify through an 
   ).toBe('private');
 
   await composeWorkspace(workspaceRoot);
-  await adaptWorkspace(workspaceRoot);
   const { report } = await verifyWorkspace(workspaceRoot);
   expect(report.summary.status).toBe('passed');
 

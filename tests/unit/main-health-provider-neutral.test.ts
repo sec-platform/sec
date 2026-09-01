@@ -6,8 +6,8 @@ import {
   createTrustedLocalMainHealthInput,
   createTrustedRuntimeMainHealthCheckProviderPolicyV1
 } from '../../src/control/main-health/main-health-observation.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import type { GitHubCheckObservation } from '../../src/verification/ci/contract/github-observation.ts';
-import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/verification/ci/contract/revision.ts';
 
 const MAIN = '1'.repeat(40);
 const MAIN_TREE = '2'.repeat(40);

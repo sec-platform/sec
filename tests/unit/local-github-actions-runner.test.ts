@@ -838,8 +838,8 @@ describe('local GitHub Actions runner contract', () => {
             code: 'SEC-LOCAL-GITHUB-ACTIONS-COMMAND-BLOCKED',
             command: expectedCommand,
             kind: 'read',
-            providerStatus: 'unknown',
-            reason: 'installed-executable-capability-unproven'
+            providerStatus: 'unavailable',
+            reason: 'semantic-session-unavailable'
           });
         }
       };

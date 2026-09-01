@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
 import { digest } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { compilerRoot } from '../../../workspace/paths.ts';
+import { compilerRoot } from '../../../workspace/runtime/paths.ts';
 
 type HeavyVerificationGateOwner = Readonly<{
   command: readonly string[];

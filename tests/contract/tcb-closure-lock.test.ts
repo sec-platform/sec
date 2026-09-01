@@ -186,6 +186,17 @@ test('TCB closure includes statically named relative ESM loads and rejects hidde
   )).toThrow('(eval)');
 });
 
+test('TCB closure admits the compiler API and rejects the retired code-generation provider', () => {
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-compiler-api.ts',
+    "import ts from 'typescript'; export const factory = ts.factory;"
+  )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-retired-codegen-provider.ts',
+    "import { Project } from 'ts-morph'; export const project = new Project();"
+  )).toThrow('ts-morph');
+});
+
 test('TCB closure admits only direct Bun data parser calls', () => {
   for (const member of ['TOML', 'YAML']) {
     expect(() => runtimeRelativeImportsFromSource(

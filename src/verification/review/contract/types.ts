@@ -34,16 +34,11 @@ export interface ReviewCoverageSummary {
   status: VerificationStatus;
   acceptancePassedCount: number;
   blockCount: number;
-  slotCount: number;
   coveredBlockCount: number;
-  coveredSlotCount: number;
   uncoveredBlockCount: number;
-  uncoveredSlotCount: number;
   acceptancePassed: string[];
   uncoveredBlocks: string[];
-  uncoveredSlots: string[];
   blockSummaries: ReviewCoverageTargetSummary[];
-  slotSummaries: ReviewCoverageTargetSummary[];
 }
 
 export interface ReviewFailurePoint {
@@ -57,7 +52,6 @@ export interface ReviewRegressionRisk {
   kind: 'coverage-gap' | 'override-active' | 'upgrade-impact' | 'upgrade-verification' | 'repair-verification';
   message: string;
   blockId?: string;
-  slotId?: string;
 }
 
 export interface ReviewConflictHint {
@@ -95,7 +89,6 @@ export interface ReviewCiSummary {
   regressionRiskCount: number;
   conflictHintCount: number;
   impactedBlockCount: number;
-  impactedSlotCount: number;
   runtimeEntryCount: number;
 }
 
@@ -258,7 +251,6 @@ export type { ReviewUpgradeDiagnosticsSummary, ReviewUpgradeMigrationOperationSu
 export interface ReviewRepairTaskSummary {
   taskId: string;
   category: RepairTaskCategory;
-  sourceSlotId: string;
   targetBlock: string;
   targetFile: string;
   previewStatus: 'changed' | 'unchanged' | 'missing';
@@ -300,7 +292,7 @@ export interface ReviewRepairFailureTaxonomySummary {
 
 export type ReviewRepairTargetType =
   | 'generated-file'
-  | 'slot-target'
+  | 'file-target'
   | 'acceptance-case'
   | 'policy-target'
   | 'runtime-target'
@@ -368,7 +360,6 @@ export interface ReviewSummary {
   installImpacts: ReviewInstallImpact[];
   installImpactSummary: ReviewInstallImpactSummary;
   impactedBlocks: string[];
-  impactedSlots: string[];
   failurePoints: ReviewFailurePoint[];
   regressionRisks: ReviewRegressionRisk[];
   conflictHints: ReviewConflictHint[];

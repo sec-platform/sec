@@ -14,7 +14,6 @@ const INPUT_REVISION = `sha256:${'1'.repeat(64)}`;
 const SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
 const ACCEPTANCE_ID = 'user_can_create_customer';
 const BLOCK_ID = 'entity/customer-basic';
-const SLOT_ID = 'customer_slot';
 const POLICY_SOURCE = 'catalog/policies/official/tenant.yaml';
 
 type PolicyStatus = 'passed' | 'failed' | 'skipped';
@@ -71,14 +70,7 @@ interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerific
       coveredBy: string[];
       uncovered: boolean;
     }>;
-    slots: Array<{
-      id: string;
-      declaredAcceptance: string[];
-      coveredBy: string[];
-      uncovered: boolean;
-    }>;
     uncoveredBlocks: string[];
-    uncoveredSlots: string[];
   };
 }
 
@@ -143,14 +135,7 @@ function coverage(status: 'passed' | 'failed'): AcceptanceCoverageReport {
       coveredBy: complete ? [ACCEPTANCE_ID] : [],
       uncovered: !complete
     }],
-    slots: [{
-      id: SLOT_ID,
-      declaredAcceptance: [ACCEPTANCE_ID],
-      coveredBy: complete ? [ACCEPTANCE_ID] : [],
-      uncovered: !complete
-    }],
-    uncoveredBlocks: complete ? [] : [BLOCK_ID],
-    uncoveredSlots: complete ? [] : [SLOT_ID]
+    uncoveredBlocks: complete ? [] : [BLOCK_ID]
   };
 }
 
@@ -253,12 +238,11 @@ function mutablePassedArtifact(): MutableClaimSummaryArtifactSet {
 
 function invalidateCoverage(candidate: MutableClaimSummaryArtifactSet): void {
   candidate.acceptanceCoverage.acceptancePassed = [];
-  for (const entry of [...candidate.acceptanceCoverage.blocks, ...candidate.acceptanceCoverage.slots]) {
+  for (const entry of candidate.acceptanceCoverage.blocks) {
     entry.coveredBy = [];
     entry.uncovered = true;
   }
   candidate.acceptanceCoverage.uncoveredBlocks = candidate.acceptanceCoverage.blocks.map((entry) => entry.id);
-  candidate.acceptanceCoverage.uncoveredSlots = candidate.acceptanceCoverage.slots.map((entry) => entry.id);
 }
 
 function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSet): void {

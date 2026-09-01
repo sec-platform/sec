@@ -74,6 +74,7 @@ import {
   type CodexDevelopmentMergeGateResult
 } from '../../src/control/integration/merge-gate.ts';
 import { createObservedMainHealthInput } from '../../src/control/main-health/main-health-observation.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/verification/action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
 import {
@@ -85,7 +86,7 @@ import type {
   GitHubWorkflowJobObservation,
   GitHubWorkflowRunObservation
 } from '../../src/verification/ci/contract/github-observation.ts';
-import { CI_MAIN_HEALTH_POLICY, CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA, createCiMainHealthRequestOperationId } from '../../src/verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/verification/ci/contract/revision.ts';
 import type { VerificationSessionHostedRequest } from '../../src/verification/ci/contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
@@ -164,7 +165,7 @@ import {
 import { createVerificationSession, type VerificationSession } from '../../src/verification/session/contract/session.ts';
 import { compileTcbClosureIdentity } from '../../src/verification/trust/compiler.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
-import { exactHeadTestImpactProvider } from '../helpers/test-impact-provider.ts';
+import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
 const HEAD = '2222222222222222222222222222222222222222';
@@ -173,7 +174,8 @@ const BOT = 'BOT_kgDOC98s_g';
 const PAGE = `sha256:${'a'.repeat(64)}` as const;
 const JOIN_SESSION = `sha256:${'6'.repeat(64)}` as const;
 const JOIN_ACTION = `sha256:${'7'.repeat(64)}` as const;
-const TEST_IMPACT_SOURCE_PROVIDER = exactHeadTestImpactProvider();
+const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
+const TEST_IMPACT_SOURCE_PROVIDER = testImpactFixture.provider;
 
 function changedTransition(
   changedPaths: readonly string[],
@@ -4000,6 +4002,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  testImpactFixture.dispose();
   if (sharedCloseoutCliShimSuiteRoot !== '') {
     rmSync(sharedCloseoutCliShimSuiteRoot, { recursive: true, force: true });
   }

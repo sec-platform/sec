@@ -84,7 +84,6 @@ function buildInput(withTransition: boolean): BuildEngineeringIRInput {
       registryPath: 'source/model'
     }],
     manifests: [],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: [],
     semanticContracts: [contract(withTransition)]

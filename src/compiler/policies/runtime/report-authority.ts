@@ -2,8 +2,9 @@ import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtim
 import { isCanonicalBlockId } from '../../../semantic/identity/contract/block.ts';
 import { isCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
 import { canonicalEquals, compareCodeUnits, deepFreeze, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { officialPoliciesRelativePath, policiesRelativePath, posixPath } from '../../../workspace/paths.ts';
+import { officialPoliciesRelativePath, policiesRelativePath, posixPath } from '../../../workspace/runtime/paths.ts';
 import { isCanonicalPolicyId } from '../contract/identity.ts';
+import { isPolicyRuleId } from '../contract/rules.ts';
 import type {
   MergedPolicyReportEntry,
   PolicyDiagnostic,
@@ -95,7 +96,7 @@ function parseViolation(value: unknown, label: string, diagnostic: boolean): Pol
   ];
   const record = exactRecord(value, label, required);
   if (!isCanonicalPolicyId(record.id)) throw new Error(`${label}.id is invalid`);
-  if (record.rule !== 'tenant_context_must_flow_to_query') throw new Error(`${label}.rule is invalid`);
+  if (!isPolicyRuleId(record.rule)) throw new Error(`${label}.rule is invalid`);
   if (!isLogicalPath(record.sourcePath)) throw new Error(`${label}.sourcePath is invalid`);
   const violation: PolicyViolation = {
     id: record.id,

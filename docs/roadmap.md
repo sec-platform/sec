@@ -503,7 +503,7 @@ L0 physical dependency
 - clean deterministic compilation基准；
 - Compiler Incremental Graph：content/revision/pass/profile/requirement/candidate/policy/decision/binding/provider/backend key、unknown扩大失效、clean/incremental Decision/Binding/byte parity；
 - cancellation、resource、memory、queue、cache和critical path可观察；
-- TaskEnvelope/Generator/test selection由Acceptance/Impact/ownership派生，无Customer/Ticket硬编码；
+- Generator Plan与test selection由Acceptance/Impact/ownership派生，无Customer/Ticket硬编码；
 - Provider/package升级先形成new Decision/Binding，由R6生成ImplementationBindingDelta和Impact，再由Change Management签发Compatibility Decision/Migration；
 - Adapter可保持旧合同或Migration明确阻断；
 - old Provider/Adapter/dependency/writer在迁移后退役。

@@ -13,6 +13,7 @@ import path from 'node:path';
 
 import { dispatchGitHubApiRequest } from '../../src/control/integration/integration-authorization-status-github.ts';
 import { createMainHealthLedger } from '../../src/control/main-health/contract.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import {
   classifyTrustedLocalMainHealthObservationFailure,
   issueMainHealthGitHubTestCapabilityV2,
@@ -33,7 +34,6 @@ import {
 import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../src/runtime-state/workspace-state/paths.ts';
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
-import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/verification/ci/contract/revision.ts';
 import { createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthReceipt, TRUSTED_RUNTIME_CONTAINER_IMAGE_ID, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST } from '../../src/verification/trusted-runtime/trusted-runtime-container.ts';
 
 const MAIN = '1'.repeat(40);
@@ -485,7 +485,7 @@ test('provider resolution preserves missing, unavailable, and invalid dispositio
     trustRevision: base.mainSha,
     observedAt: base.now,
     producer: {
-      identity: 'src/control/main-health/default-branch-revision.ts',
+      identity: 'src/control/main-health/main-health-observation.ts',
       trustRevision: base.mainSha,
       sourceTransport: 'github-api',
       sourceRunId: '33109458351',

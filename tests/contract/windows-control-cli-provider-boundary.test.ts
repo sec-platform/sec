@@ -1,25 +1,19 @@
-import { readFile } from 'node:fs/promises';
-
 import { expect, test } from 'bun:test';
 
 import { resolveWindowsControlCliSession } from '../../src/external-capabilities/windows-control-cli/runtime/session.ts';
 
 function request() {
   return Object.freeze({
-    workingDirectoryPathHint: String.raw`C:\SEC\repository`,
+    workingDirectoryPathHint: process.cwd(),
     deadlineAtUnixMs: Date.now() + 30_000,
-    maxCommandsPerSession: 16,
-    maxTotalArgumentBytes: 64 * 1024,
-    maxTotalOutputBytes: 1024 * 1024,
-    maxRootObservedBytes: 1024 * 1024,
-    maxExecutableObservedBytes: 64 * 1024 * 1024,
+    maxRootObservedBytes: 128 * 1024 * 1024,
+    maxExecutableObservedBytes: 128 * 1024 * 1024,
     maxRecords: 1024,
-    maxReopenRefreshes: 64,
-    maxSettlementAttempts: 16
+    maxCloseSettlementAttempts: 1
   });
 }
 
-test('production admission accepts only narrowing request constraints and has no Linux fallback', () => {
+test('production admission accepts only narrowing request constraints and has no Linux fallback', async () => {
   const resolution = resolveWindowsControlCliSession(request());
   if (process.platform === 'linux') {
     expect(resolution).toEqual({
@@ -28,11 +22,17 @@ test('production admission accepts only narrowing request constraints and has no
       detailDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
     });
   } else if (process.platform === 'win32' && process.arch === 'x64') {
-    expect(resolution).toMatchObject({
-      status: 'unknown',
-      reason: 'installed-executable-capability-unproven',
-      detailDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
-    });
+    if (resolution.status === 'ready') {
+      expect(resolution.session.providerRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
+      expect(resolution.session.observation.rootObservedBytes).toBeGreaterThan(0);
+      expect((await resolution.session.close()).status).toBe('completed');
+    } else {
+      expect(resolution).toMatchObject({
+        status: expect.stringMatching(/^(unknown|unavailable)$/u),
+        reason: expect.stringMatching(/^(installed-|retained-|working-directory|session-)/u),
+        detailDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
+      });
+    }
   } else {
     expect(resolution.status).toBe('unsupported');
   }
@@ -40,9 +40,19 @@ test('production admission accepts only narrowing request constraints and has no
     ...request(),
     deadlineAtUnixMs: Date.now() - 1
   })).toMatchObject({ status: 'unavailable', reason: 'session-request-invalid' });
+  expect(resolveWindowsControlCliSession({
+    ...request(),
+    maxRootObservedBytes: 64 * 1024
+  })).toMatchObject({ status: 'unknown', reason: 'retained-capability-unavailable' });
+  const controller = new AbortController();
+  controller.abort();
+  expect(resolveWindowsControlCliSession({
+    ...request(),
+    signal: controller.signal
+  })).toMatchObject({ status: 'unavailable', reason: 'session-aborted' });
 });
 
-test('resolution and terminal receipt surfaces contain no semantic or effect authority fields', () => {
+test('resolution and terminal receipt surfaces contain no semantic or effect authority fields', async () => {
   const forbiddenFields = new Set([
     'credential',
     'token',
@@ -54,18 +64,44 @@ test('resolution and terminal receipt surfaces contain no semantic or effect aut
     'workSelection',
     'mainHealth'
   ]);
-  const keys = Object.keys(resolveWindowsControlCliSession(request()));
+  const resolution = resolveWindowsControlCliSession(request());
+  const keys = Object.keys(resolution);
   expect(keys.some((key) => forbiddenFields.has(key))).toBe(false);
+  if (resolution.status === 'ready') {
+    const receipt = await resolution.session.close();
+    expect(Object.keys(receipt).some((key) => forbiddenFields.has(key))).toBe(false);
+  }
 });
 
-test('document-control production reads consume GitRead and have no legacy Windows gate or raw Git literal', async () => {
-  const source = await readFile(
-    'src/control/documentation/document-control-plane.ts',
-    'utf8'
-  );
-  expect(source).toContain('withAuthorityGitReadSession');
-  expect(source).toContain('documentControlGitReadScope');
-  expect(source).not.toContain('resolveWindowsControlCliSession');
-  expect(source).not.toContain('documentControlCliAdmission');
-  expect(source).not.toContain("runCommandBytes('git'");
+test('ready physical session exports no raw Git or GitHub command capability', async () => {
+  if (process.platform !== 'win32' || process.arch !== 'x64') return;
+  const resolution = resolveWindowsControlCliSession(request());
+  if (resolution.status !== 'ready') return;
+  expect(Object.hasOwn(resolution.session, 'run')).toBe(false);
+  expect(Object.keys(resolution.session)).not.toContain('command');
+  const retiredCommandFields = [
+    'counter',
+    'commandCount',
+    'argumentCount',
+    'argumentBytes',
+    'stdoutBytes',
+    'stderrBytes',
+    'totalOutputBytes',
+    'reopenRefreshes',
+    'settlementAttempts',
+    'maxCommandsPerSession',
+    'maxTotalArgumentBytes',
+    'maxTotalOutputBytes',
+    'maxReopenRefreshes',
+    'maxSettlementAttempts'
+  ];
+  expect(retiredCommandFields.some((field) => Object.hasOwn(resolution.session, field))).toBe(false);
+  expect(retiredCommandFields.some((field) => Object.hasOwn(resolution.session.budget, field))).toBe(false);
+  expect(retiredCommandFields.some((field) => Object.hasOwn(resolution.session.observation, field))).toBe(false);
+  const close = await resolution.session.close();
+  expect(close.status).toBe('completed');
+  expect(close.lifecycle).toBe('disposed');
+  expect(retiredCommandFields.some((field) => Object.hasOwn(close, field))).toBe(false);
+  expect(retiredCommandFields.some((field) => Object.hasOwn(close.observation, field))).toBe(false);
+  expect(await resolution.session.close()).toEqual(close);
 });

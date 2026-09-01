@@ -2,16 +2,15 @@ import { CI_ARTIFACT_FILES } from '../verification/ci-artifacts/contract/manifes
 import {
   overridesRelativePath,
   posixPath,
-  srcRelativePath,
   workspaceConfigRelativePath
-} from '../workspace/paths.ts';
+} from '../workspace/runtime/paths.ts';
 import type { CompilerErrorDetails } from './errors.ts';
 
 export type ErrorProtocol = {
   code: string;
   message: string;
   recoverable: boolean;
-  issueType: 'usage' | 'spec' | 'composition' | 'slot' | 'kernel';
+  issueType: 'usage' | 'spec' | 'composition' | 'kernel';
   suggestedActions: string[];
   artifactPaths: string[];
   details?: CompilerErrorDetails;
@@ -36,30 +35,26 @@ const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
   { prefix: 'RESOLVE-CYCLE-', recoverable: false, issueType: 'composition', suggestedActions: ['resolve-dependency-cycle', 'inspect-block-manifests'], artifactPaths: [CI_ARTIFACT_FILES.blockUsageMap] },
   { prefix: 'RESOLVE-INTERNAL-', recoverable: false, issueType: 'kernel', suggestedActions: ['collect-error-output', 'report-bug'], artifactPaths: [] },
   { prefix: 'RESOLVE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-resolve', 'inspect-graph-lock'], artifactPaths: [CI_ARTIFACT_FILES.blockUsageMap] },
-  { prefix: 'ALIGN-SLOT-', recoverable: true, issueType: 'composition', suggestedActions: ['fix-slot-configuration', 'inspect-block-manifest'], artifactPaths: [CI_ARTIFACT_FILES.blockUsageMap] },
   { prefix: 'ALIGN-STACK-', recoverable: false, issueType: 'composition', suggestedActions: ['choose-compatible-block', 'change-project-stack'], artifactPaths: [] },
   { prefix: 'ALIGN-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-resolve', 'inspect-graph-lock'], artifactPaths: [] },
   { prefix: 'COMPOSE-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-resolve', 'retry-platform-compose'], artifactPaths: [] },
   { prefix: 'COMPOSE-PATH-', recoverable: false, issueType: 'composition', suggestedActions: ['inspect-block-manifest', 'report-bug'], artifactPaths: [CI_ARTIFACT_FILES.installManifest] },
   { prefix: 'COMPOSE-PRISMA-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-prisma-schema', 'fix-prisma-template'], artifactPaths: [] },
   { prefix: 'COMPOSE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-compose', 'inspect-install-manifest'], artifactPaths: [CI_ARTIFACT_FILES.installManifest] },
-  { prefix: 'SLOT-WRITE-', recoverable: true, issueType: 'slot', suggestedActions: ['run-platform-compose', 'retry-platform-adapt'], artifactPaths: [] },
-  { prefix: 'SLOT-LINT-', recoverable: true, issueType: 'slot', suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'], artifactPaths: [posixPath(srcRelativePath)] },
-  { prefix: 'SLOT-', recoverable: true, issueType: 'slot', suggestedActions: ['inspect-slot-tasks', 'run-platform-adapt'], artifactPaths: [] },
   { prefix: 'OVERRIDE-SCHEMA-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-manifest', 'inspect-override-rules'], artifactPaths: [posixPath(overridesRelativePath) + '/override-manifest.yaml'] },
   { prefix: 'OVERRIDE-APPLY-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-source', 'inspect-override-manifest'], artifactPaths: [posixPath(overridesRelativePath) + '/override-manifest.yaml'] },
   { prefix: 'OVERRIDE-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-override-manifest'], artifactPaths: [posixPath(overridesRelativePath) + '/override-manifest.yaml'] },
   { prefix: 'PARSE-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-plan-file', 'inspect-app-yaml'], artifactPaths: [workspaceConfigRelativePath] },
-  { prefix: 'VERIFY-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-resolve', 'run-platform-compose', 'run-platform-adapt', 'retry-platform-verify'], artifactPaths: [] },
+  { prefix: 'VERIFY-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-resolve', 'run-platform-compose', 'retry-platform-verify'], artifactPaths: [] },
   { prefix: 'VERIFY-', recoverable: false, issueType: 'spec', suggestedActions: ['inspect-verification-report', 'run-platform-explain'], artifactPaths: [CI_ARTIFACT_FILES.verificationReport, CI_ARTIFACT_FILES.reviewSummary] },
   { prefix: 'REPAIR-BLOCKED-002', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-verify', 'retry-platform-repair-dry-run'], artifactPaths: [CI_ARTIFACT_FILES.verificationReport] },
-  { prefix: 'REPAIR-', recoverable: true, issueType: 'slot', suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'], artifactPaths: [CI_ARTIFACT_FILES.repairPlan, CI_ARTIFACT_FILES.reviewSummary] },
+  { prefix: 'REPAIR-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'], artifactPaths: [CI_ARTIFACT_FILES.repairPlan, CI_ARTIFACT_FILES.reviewSummary] },
   { prefix: 'UPGRADE-NOOP-', recoverable: true, issueType: 'composition', suggestedActions: ['choose-different-upgrade-target'], artifactPaths: [] },
   { prefix: 'UPGRADE-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['choose-compatible-upgrade-target', 'run-platform-upgrade-dry-run'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics] },
   { prefix: 'UPGRADE-MIGRATION-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan] },
   { prefix: 'UPGRADE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan] },
   { prefix: 'ENGINEERING-OPERATION-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-engineering-operation', 'fix-operation-target', 'retry-operation'], artifactPaths: [workspaceConfigRelativePath] },
-  { prefix: 'ERROR-DRIFT-', recoverable: false, issueType: 'spec', suggestedActions: ['run-platform-compose', 'run-platform-adapt', 'revert-local-project-changes'], artifactPaths: [CI_ARTIFACT_FILES.provenance] },
+  { prefix: 'ERROR-DRIFT-', recoverable: false, issueType: 'spec', suggestedActions: ['run-platform-compose', 'revert-local-project-changes'], artifactPaths: [CI_ARTIFACT_FILES.provenance] },
   { prefix: 'IMPORT-AUTHORITY-', recoverable: true, issueType: 'usage', suggestedActions: ['install-canonical-bun-version', 'align-packageManager-field', 'verify-bunfig-toolchain-profile'], artifactPaths: [] }
 ];
 

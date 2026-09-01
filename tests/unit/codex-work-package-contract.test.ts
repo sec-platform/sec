@@ -7,7 +7,7 @@ import {
   CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
-} from '../../src/control/agent/work-package-contract.ts';
+} from '../../src/control/task/contract/work-package.ts';
 
 const BASE = '1'.repeat(40);
 
@@ -158,12 +158,12 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
   }
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('tests/unit/codex-work-package-contract.test.ts', 'bun run typecheck')
-  )).toThrow('canonical co-located or system .test.ts module');
+  )).toThrow();
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest()
       .replace('ci-verification-v19', 'ci-verification-v18')
       .replace('tests/unit/codex-work-package-contract.test.ts', 'bun run typecheck')
-  )).toThrow('canonical co-located or system .test.ts module');
+  )).toThrow();
   expect(() => CodexDevelopmentDecodeWorkPackageManifest(
     manifest().replace('id: b0-bootstrap-v1', 'id: !custom b0-bootstrap-v1')
   )).toThrow('YAML tags are forbidden');

@@ -14,6 +14,7 @@ import {
   type SecDigest,
   type SecTaskCapsulePlanningContext
 } from '../../src/control/agent/task-capsule.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
@@ -54,10 +55,9 @@ function input(): SecOperationReadPlanInput {
         }
       ],
       scopeProposal: {
-        readPaths: ['docs/', 'platform/shared/'],
-        writePaths: ['platform/shared/'],
+        readPaths: ['docs/', 'src/control/agent/'],
+        writePaths: ['src/control/agent/'],
         forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
-        availableCapabilities: ['git'],
         authorizedResources: ['github:issue/346/comments'],
         authorizedGates: [],
         changedPaths: ['src/control/agent/read-plan.ts']
@@ -73,14 +73,16 @@ function input(): SecOperationReadPlanInput {
         ref: 'docs/authority.json',
         owner: 'documentation-authority-owner',
         revision: 'blob-authority-v1',
-        reasonCode: 'resolve-canonical-owner'
+        reasonCode: 'resolve-canonical-owner',
+        projection: null
       },
       {
         id: 'manifest',
         ref: 'docs/work-packages/task-capsule-compiler-v1.md',
         owner: 'development-governance-owner',
         revision: digest('c'),
-        reasonCode: 'bind-operation-scope'
+        reasonCode: 'bind-operation-scope',
+        projection: null
       }
     ],
     conditionalRefs: [
@@ -90,6 +92,7 @@ function input(): SecOperationReadPlanInput {
         owner: 'github-provider',
         revision: 'provider-snapshot-v1',
         reasonCode: 'resolve-missing-acceptance-detail',
+        projection: null,
         frontierId: 'missing-acceptance-detail'
       }
     ],
@@ -186,6 +189,46 @@ test('read receipt binds planned owner revision reason and bytes', () => {
     ...malformed,
     readReceipts: [{ ...malformed.readReceipts[0]!, owner: 'wrong-owner' }]
   })).toThrow(/planned owner, revision, and reason/u);
+});
+
+test('documentation clause projection binds exact spans to one semantic graph', () => {
+  const source = input();
+  const withoutSelectionDigest = {
+    kind: 'markdown-clauses' as const,
+    compilerInputDigest: digest('1'),
+    semanticGraphDigest: digest('2'),
+    sourceDigest: digest('3'),
+    clauses: [{
+      clauseId: 'clause:owner-boundary',
+      contentDigest: digest('4'),
+      lineStart: 10,
+      lineEnd: 18
+    }]
+  };
+  const projection = {
+    ...withoutSelectionDigest,
+    selectionDigest: sha256(withoutSelectionDigest) as SecDigest
+  };
+  const plan = compileSecOperationReadPlan({
+    ...source,
+    requiredRefs: [{
+      ...source.requiredRefs[0]!,
+      ref: 'docs/development-governance.md',
+      projection
+    }]
+  });
+  expect(plan.requiredRefs[0]!.projection).toEqual(projection);
+  expect(() => compileSecOperationReadPlan({
+    ...source,
+    requiredRefs: [{
+      ...source.requiredRefs[0]!,
+      ref: 'docs/development-governance.md',
+      projection: {
+        ...projection,
+        clauses: [{ ...projection.clauses[0]!, lineEnd: 19 }]
+      }
+    }]
+  })).toThrow(/selectionDigest mismatch/u);
 });
 
 test('plan parser rejects tampering and Skill projection carries exact upstream capsule identity', () => {

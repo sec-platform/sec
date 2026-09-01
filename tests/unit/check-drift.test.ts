@@ -6,7 +6,7 @@ import { checkReferenceDrift } from '../../src/compiler/verify/check-drift.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function computeHash(content: string): string {
@@ -135,38 +135,4 @@ describe('checkReferenceDrift', () => {
     });
   });
 
-  test('does not throw if a slot file (writable zone) is modified or missing', async () => {
-    await withTempWorkspace(async (workspaceRoot) => {
-      const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-      const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
-
-      const relativeFilePath = 'src/slots/normalizer.ts';
-      const originalContent = 'export default function normalize() {}';
-      const originalHash = computeHash(originalContent);
-
-      await ensureDir(path.dirname(path.join(root, relativeFilePath)));
-      // File is modified
-      await writeText(path.join(root, relativeFilePath), 'modified normalization logic');
-
-      // Create provenance with originType: 'slot'
-      const provenance: ProvenanceFile = {
-        formatVersion: '1',
-        artifacts: [
-          {
-            path: relativeFilePath,
-            originType: 'slot',
-            originId: 'normalizer',
-            generatedByPass: 'adapt',
-            verifiedBy: [],
-            overrideStatus: 'none',
-            hash: originalHash
-          }
-        ]
-      };
-      await writeJson(provenancePath, provenance);
-
-      // Should check and pass because it's a slot file (not in read-only zone)
-      await checkReferenceDrift(workspaceRoot);
-    });
-  });
 });

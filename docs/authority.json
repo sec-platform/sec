@@ -14,16 +14,6 @@
         "product",
         "semantic-model",
         "system-architecture"
-      ],
-      "audience": [
-        "developer",
-        "user"
-      ],
-      "consumers": [
-        "repository-home"
-      ],
-      "updateTriggers": [
-        "primary-entrypoint-change"
       ]
     },
     {
@@ -36,15 +26,6 @@
       "owns": [],
       "projects": [
         "development-governance"
-      ],
-      "audience": [
-        "agent"
-      ],
-      "consumers": [
-        "codex"
-      ],
-      "updateTriggers": [
-        "skill-routing-change"
       ]
     },
     {
@@ -56,16 +37,7 @@
       "dynamicPolicy": "forbidden",
       "owns": [],
       "projects": [],
-      "generatedFrom": "docs/authority.json",
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "docs-reader"
-      ],
-      "updateTriggers": [
-        "registry-change"
-      ]
+      "generatedFrom": "docs/authority.json"
     },
     {
       "id": "documentation-registry",
@@ -79,22 +51,7 @@
         "documentation.lifecycle",
         "documentation.ownership"
       ],
-      "projects": [],
-      "audience": [
-        "agent",
-        "developer"
-      ],
-      "consumers": [
-        "docs-doctor",
-        "docs-index",
-        "test-impact"
-      ],
-      "updateTriggers": [
-        "document-created",
-        "document-moved",
-        "document-retired",
-        "ownership-changed"
-      ]
+      "projects": []
     },
     {
       "id": "product",
@@ -109,20 +66,7 @@
         "product.success",
         "product.value"
       ],
-      "projects": [],
-      "audience": [
-        "developer",
-        "user"
-      ],
-      "consumers": [
-        "agent-user-interface",
-        "compiler-target-ir",
-        "roadmap",
-        "system-architecture"
-      ],
-      "updateTriggers": [
-        "product-goal-change"
-      ]
+      "projects": []
     },
     {
       "id": "roadmap",
@@ -135,16 +79,7 @@
         "delivery.exit-criteria",
         "delivery.stage-dag"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "work-control"
-      ],
-      "updateTriggers": [
-        "stage-dependency-change"
-      ]
+      "projects": []
     },
     {
       "id": "system-architecture",
@@ -161,19 +96,7 @@
         "architecture.single-writer",
         "architecture.workspace-zones"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "agent-user-interface",
-        "brownfield",
-        "compiler-target-ir",
-        "development-governance"
-      ],
-      "updateTriggers": [
-        "cross-domain-boundary-change"
-      ]
+      "projects": []
     },
     {
       "id": "semantic-model",
@@ -191,20 +114,7 @@
         "semantic.revision",
         "semantic.validated-boundary"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "agent-user-interface",
-        "brownfield",
-        "compiler-target-ir",
-        "delta-impact",
-        "semantic-mutation"
-      ],
-      "updateTriggers": [
-        "engineering-ir-contract-change"
-      ]
+      "projects": []
     },
     {
       "id": "delta-impact",
@@ -219,21 +129,7 @@
         "semantic.fact-delta",
         "semantic.impact"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "agent-user-interface",
-        "change-management",
-        "compiler-target-ir",
-        "runtime-distribution",
-        "semantic-mutation",
-        "verification-governance"
-      ],
-      "updateTriggers": [
-        "delta-or-impact-contract-change"
-      ]
+      "projects": []
     },
     {
       "id": "semantic-mutation",
@@ -247,17 +143,7 @@
         "semantic.source-ownership",
         "semantic.transaction-recovery"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "agent-user-interface",
-        "change-management"
-      ],
-      "updateTriggers": [
-        "mutation-contract-change"
-      ]
+      "projects": []
     },
     {
       "id": "compiler-target-ir",
@@ -276,20 +162,7 @@
         "compiler.target-program-ir",
         "compiler.type-algebra"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "agent-user-interface",
-        "change-management",
-        "delta-impact",
-        "runtime-distribution",
-        "verification-governance"
-      ],
-      "updateTriggers": [
-        "compiler-or-target-ir-boundary-change"
-      ]
+      "projects": []
     },
     {
       "id": "capability-block",
@@ -305,19 +178,10 @@
         "capability.generator",
         "capability.port",
         "capability.registry",
-        "capability.slot"
+        "capability.slot-retirement",
+        "capability.typed-extension"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "brownfield",
-        "compiler-target-ir"
-      ],
-      "updateTriggers": [
-        "registry-or-block-contract-change"
-      ]
+      "projects": []
     },
     {
       "id": "brownfield",
@@ -333,17 +197,7 @@
         "brownfield.typed-invocation",
         "brownfield.unknown-opaque"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "compiler-target-ir",
-        "system-architecture"
-      ],
-      "updateTriggers": [
-        "brownfield-stage-or-provider-contract-change"
-      ]
+      "projects": []
     },
     {
       "id": "agent-user-interface",
@@ -359,17 +213,7 @@
         "interface.machine-json",
         "interface.projection"
       ],
-      "projects": [],
-      "audience": [
-        "developer",
-        "user"
-      ],
-      "consumers": [
-        "product-adapter"
-      ],
-      "updateTriggers": [
-        "agent-or-interface-authority-change"
-      ]
+      "projects": []
     },
     {
       "id": "runtime-distribution",
@@ -387,16 +231,7 @@
         "runtime.support",
         "runtime.toolchain"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "release"
-      ],
-      "updateTriggers": [
-        "runtime-or-package-boundary-change"
-      ]
+      "projects": []
     },
     {
       "id": "change-management",
@@ -414,17 +249,7 @@
         "change.override",
         "change.upgrade"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "runtime-distribution",
-        "semantic-mutation"
-      ],
-      "updateTriggers": [
-        "upgrade-or-migration-boundary-change"
-      ]
+      "projects": []
     },
     {
       "id": "verification-governance",
@@ -446,20 +271,7 @@
         "verification.provenance",
         "verification.result"
       ],
-      "projects": [],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "change-management",
-        "ci",
-        "compiler-target-ir",
-        "delta-impact",
-        "review"
-      ],
-      "updateTriggers": [
-        "verification-authority-change"
-      ]
+      "projects": []
     },
     {
       "id": "development-governance",
@@ -479,17 +291,7 @@
         "development.skill",
         "development.work-package"
       ],
-      "projects": [],
-      "audience": [
-        "agent",
-        "developer"
-      ],
-      "consumers": [
-        "agents-entry"
-      ],
-      "updateTriggers": [
-        "agent-governance-change"
-      ]
+      "projects": []
     },
     {
       "id": "external-provider",
@@ -507,19 +309,7 @@
         "provider.retirement",
         "provider.security"
       ],
-      "projects": [],
-      "audience": [
-        "agent",
-        "developer"
-      ],
-      "consumers": [
-        "brownfield",
-        "compiler-target-ir",
-        "external-provider-ledger"
-      ],
-      "updateTriggers": [
-        "provider-policy-change"
-      ]
+      "projects": []
     },
     {
       "id": "external-provider-ledger",
@@ -533,16 +323,6 @@
       ],
       "projects": [
         "external-provider"
-      ],
-      "audience": [
-        "developer",
-        "machine"
-      ],
-      "consumers": [
-        "sec-external-capability-governance"
-      ],
-      "updateTriggers": [
-        "provider-observation-or-decision"
       ]
     },
     {
@@ -567,16 +347,7 @@
         "retirementTarget": "docs/archive/proposals/engineering-workspace-domains.md",
         "evidenceRequirement": "domain-identity-validator-query-mutation-and-consumer-migration",
         "reversalCondition": null
-      },
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "roadmap"
-      ],
-      "updateTriggers": [
-        "proposal-decision"
-      ]
+      }
     },
     {
       "id": "run-kernel-proposal",
@@ -601,16 +372,7 @@
         "retirementTarget": "docs/archive/proposals/development-run-kernel.md",
         "evidenceRequirement": "historical-run-replay-state-owner-separation-finding-generation-action-reuse-promotion-readback-and-consumer-zero-retirement",
         "reversalCondition": null
-      },
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "roadmap"
-      ],
-      "updateTriggers": [
-        "proposal-decision"
-      ]
+      }
     },
     {
       "id": "current-state",
@@ -625,15 +387,6 @@
       "projects": [
         "docs-index",
         "product"
-      ],
-      "audience": [
-        "machine"
-      ],
-      "consumers": [
-        "document-control-plane"
-      ],
-      "updateTriggers": [
-        "authority-entry-change"
       ]
     },
     {
@@ -648,16 +401,6 @@
       ],
       "projects": [
         "roadmap"
-      ],
-      "audience": [
-        "agent",
-        "developer"
-      ],
-      "consumers": [
-        "a0"
-      ],
-      "updateTriggers": [
-        "main-or-plan-invalidating-fact"
       ]
     },
     {
@@ -672,16 +415,6 @@
       ],
       "projects": [
         "development-governance"
-      ],
-      "audience": [
-        "agent",
-        "machine"
-      ],
-      "consumers": [
-        "document-control-plane"
-      ],
-      "updateTriggers": [
-        "work-package-switch"
       ]
     },
     {
@@ -696,15 +429,6 @@
         "active-work-package",
         "current-state",
         "rolling-plan"
-      ],
-      "audience": [
-        "developer"
-      ],
-      "consumers": [
-        "docs-reader"
-      ],
-      "updateTriggers": [
-        "control-plane-contract-change"
       ]
     }
   ]

@@ -1,4 +1,4 @@
-import { afterAll, expect } from 'bun:test';
+import { afterAll } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import type { BigIntStats, Dirent } from 'node:fs';
 import { constants } from 'node:fs';
@@ -10,7 +10,7 @@ import { addBlock, compileWorkspace, initWorkspace, verifyWorkspace } from '../.
 import type { PipelineStageId } from '../../src/compiler/pipeline/types.ts';
 import { getTestWorkspaceTemplateRoot, getTestWorkspaceTempRoot } from '../../src/development/runner/env-manager.ts';
 import { createConcurrencyLimit } from '../../src/system-architecture/foundation/runtime/concurrency.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { createWorkspaceWithDeferredCleanup, removeWorkspaceDirectoryWithRetry, settleWorkspaceCallback } from './workspace-cleanup.ts';
 
 const workspaceParent = getTestWorkspaceTempRoot();
@@ -22,7 +22,6 @@ export type WorkspaceTemplateKind =
   | 'empty-default'
   | 'resolved-default'
   | 'composed-default'
-  | 'adapted-default'
   | 'verified-fast-default'
   | 'locked-default'
   | 'locked-all-default'
@@ -112,8 +111,6 @@ function templatePipelineTarget(target: WorkspaceTemplateKind): {
       return { through: 'resolve', verificationLane: 'all' };
     case 'composed-default':
       return { through: 'compose', verificationLane: 'all' };
-    case 'adapted-default':
-      return { through: 'adapt', verificationLane: 'all' };
     case 'verified-fast-default':
       return { through: 'verify', verificationLane: 'fast' };
     case 'locked-default':
@@ -519,15 +516,6 @@ export async function prepareComposedWorkspace(options: WorkspacePipelineFixture
   return workspaceRoot;
 }
 
-export async function prepareAdaptedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
-  if (defaultWorkspaceOptions(options)) {
-    return cloneWorkspaceTemplate('adapted-default', options.prefix ?? 'engineering-compiler-adapted-');
-  }
-  const workspaceRoot = await createWorkspace(options.prefix);
-  await prepareWorkspacePipeline(workspaceRoot, options, 'adapted-default');
-  return workspaceRoot;
-}
-
 export async function prepareLockedWorkspace(options: WorkspacePipelineFixtureOptions = {}): Promise<string> {
   if (defaultWorkspaceOptions(options)) {
     return cloneWorkspaceTemplate('locked-default', options.prefix ?? 'engineering-compiler-locked-');
@@ -566,9 +554,4 @@ export async function withWorkspaceScenario<T>(
 ): Promise<T> {
   const workspaceRoot = await cloneWorkspaceTemplate(kind, `engineering-compiler-${kind}-scenario-`);
   return runWorkspaceCallback(workspaceRoot, callback, options);
-}
-
-export async function expectWorkspaceVerifies(workspaceRoot: string, options: { lane?: 'fast' | 'all' } = {}): Promise<void> {
-  const { report } = await verifyWorkspace(workspaceRoot, { lane: options.lane ?? 'fast' });
-  expect(report.summary.status).toBe('passed');
 }

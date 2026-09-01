@@ -2,14 +2,14 @@ import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime
 import { assertCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { normalizeNewlines } from '../../system-architecture/foundation/runtime/collections.ts';
 import { defaultLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
-import { copyRecursive } from '../../workspace/discovery.ts';
 import { writeText, type CommitFence } from '../../workspace/files.ts';
+import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import {
   isCanonicalWorkspaceArtifactPath,
   resolvePathInside,
   resolveRegistryRoot,
   resolveWorkspaceArtifactPath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
 import type { InstallPlanStep, LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 

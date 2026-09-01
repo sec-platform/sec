@@ -1,4 +1,22 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "semantic-operation.foundation",
+      "operations": [
+        "assertSecSemanticOperationProjection",
+        "assertSecSemanticOperationPlan",
+        "bindSecSemanticOperation",
+        "compileSecCapabilityBinding",
+        "compileSecSemanticOperationIntent",
+        "compileSecSemanticOperationPlan",
+        "consumeSecOperationRequirementBindingContext",
+        "issueSecOperationRequirementBindingContext",
+        "issueSecSemanticOperationAttemptContext",
+        "projectSecCapabilityDiagnostic"
+      ],
+      "operationRoles": []
+    }
+  ]
 }

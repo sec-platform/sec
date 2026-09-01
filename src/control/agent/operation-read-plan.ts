@@ -70,7 +70,8 @@ export async function resolveProspectiveWorkerOperation(
           ? 'document-authority-registry'
           : 'canonical-domain-owner',
       revision: source.revision,
-      contentDigest: source.contentDigest
+      contentDigest: source.contentDigest,
+      projection: source.projection
     })),
     Object.freeze({
       id: 'work-package-manifest',
@@ -78,7 +79,8 @@ export async function resolveProspectiveWorkerOperation(
       owner: 'document-control-a0',
       reasonCode: 'bind-operation-scope',
       revision: observation.manifestRevision,
-      contentDigest: observation.manifestDigest
+      contentDigest: observation.manifestDigest,
+      projection: null
     })
   ]);
   const requiredRefs = Object.freeze(sources.map((source) => Object.freeze({
@@ -86,7 +88,8 @@ export async function resolveProspectiveWorkerOperation(
     ref: source.ref,
     owner: source.owner,
     reasonCode: source.reasonCode,
-    revision: source.revision
+    revision: source.revision,
+    projection: source.projection
   })));
   const readReceipts = Object.freeze(requiredRefs.map((reference) => Object.freeze({
     refId: reference.id,

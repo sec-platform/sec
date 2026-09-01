@@ -73,7 +73,7 @@ export type DockerDaemonAvailabilityFailureReason =
   | 'desktop-start-failed'
   | 'endpoint-unavailable'
   | 'process-settlement-failed'
-  | 'service-permission-required';
+  | 'runtime-endpoint-residue';
 
 export type DockerDaemonAvailabilityFailurePhase =
   | 'admission'

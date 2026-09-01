@@ -2,10 +2,9 @@ import type { RegistryKind, RegistryLocation } from '../../../compiler/registry/
 
 export const PROVENANCE_FORMAT_VERSION = '1' as const;
 
-export type ProvenanceOriginType = 'block' | 'slot' | 'generated' | 'override';
+export type ProvenanceOriginType = 'block' | 'generated' | 'override';
 export type OverrideStatus = 'none' | 'manual' | 'rule-backed';
 export type OverrideSource = 'manual' | 'rule-backed';
-export type OverrideApplyPhase = 'compose' | 'adapt';
 
 export interface ProvenanceArtifact {
   path: string;
@@ -40,7 +39,6 @@ export interface OverrideEntry {
   target: string;
   reason: string;
   source: OverrideSource;
-  appliesAfter: OverrideApplyPhase[];
   conflictsWith: string[];
 }
 

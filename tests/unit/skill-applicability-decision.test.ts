@@ -3,13 +3,13 @@ import { expect, test } from 'bun:test';
 import {
   evaluateSecSkillApplicability,
   isSecAgentRole,
-  isSecAgentSkillId,
   isSecOperationKind,
   SEC_AGENT_SKILL_IDS,
   SEC_AGENT_SKILL_METADATA,
   SEC_SKILL_APPLICABILITY_SCHEMA,
   type SecSkillApplicabilityEnvelope
 } from '../../src/control/agent/skill.ts';
+import { SEC_TASK_CAPSULE_REVISION } from '../../src/control/agent/task-capsule.ts';
 
 const TRUSTED_REVISION = '7543d37ad733432cbc2ddddd205c98f574e882c4';
 
@@ -20,7 +20,6 @@ function envelope(overrides: Partial<SecSkillApplicabilityEnvelope> = {}): SecSk
     goalDigest: 'test-goal',
     trustedRevision: TRUSTED_REVISION,
     targetCandidate: 'feat/skill-applicability-gate-v1',
-    availableCapabilities: ['git', 'github', 'hosted-gate'],
     ...overrides
   };
 }
@@ -33,20 +32,7 @@ test('metadata table covers every registered Skill exactly once with valid vocab
     for (const role of metadata.roles) expect(isSecAgentRole(role)).toBe(true);
     expect(metadata.operationKinds.length).toBeGreaterThan(0);
     for (const kind of metadata.operationKinds) expect(isSecOperationKind(kind)).toBe(true);
-    expect(metadata.supersededBy === null || isSecAgentSkillId(metadata.supersededBy)).toBe(true);
-    for (const list of [
-      metadata.requiredCapabilities,
-      metadata.requiredResources,
-      metadata.requiredGates,
-      metadata.writeSurface
-    ]) {
-      expect(new Set(list).size).toBe(list.length);
-    }
-    for (const surface of metadata.writeSurface) {
-      expect(surface.startsWith('/')).toBe(false);
-      expect(surface.startsWith('./')).toBe(false);
-      expect(surface.includes('\\')).toBe(false);
-    }
+    expect(Object.keys(metadata).sort()).toEqual(['id', 'operationKinds', 'roles']);
   }
 });
 
@@ -92,95 +78,16 @@ test('multiple surviving candidates without unique operation evidence resolve am
   expect(decision.reasonCodes).toContain('ambiguous-multiple-candidates');
 });
 
-test('Skill requiring a forbidden write path resolves conflict and never selects', () => {
+test('Skill selection carries no resource, Gate, write-scope or replacement authority', () => {
+  const metadata = SEC_AGENT_SKILL_METADATA['sec-worker-development'];
+  expect(Object.keys(metadata).sort()).toEqual(['id', 'operationKinds', 'roles']);
+
   const decision = evaluateSecSkillApplicability(envelope({
-    role: 'maintainer',
-    operationKind: 'design',
-    candidates: ['sec-architecture-evolution'],
-    forbiddenPaths: ['docs/']
+    candidates: ['sec-worker-development']
   }));
-  expect(decision.status).toBe('conflict');
-  expect(decision.selectedSkillId).toBeNull();
-  expect(decision.scopeConflicts).toEqual([
-    { skillId: 'sec-architecture-evolution', kind: 'write-path' }
-  ]);
-  expect(decision.reasonCodes).toContain('conflict-write-path');
-});
-
-test('Skill write surface beyond the authorized write paths resolves conflict', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
-    role: 'maintainer',
-    operationKind: 'design',
-    candidates: ['sec-architecture-evolution'],
-    authorizedWritePaths: ['AGENTS.md']
-  }));
-  expect(decision.status).toBe('conflict');
-  expect(decision.reasonCodes).toContain('conflict-write-path');
-});
-
-test('any scope conflict fails closed even when another candidate would survive', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
-    role: 'a0',
-    operationKind: 'design',
-    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance'],
-    forbiddenPaths: ['docs/']
-  }));
-  expect(decision.status).toBe('conflict');
-  expect(decision.selectedSkillId).toBeNull();
-  expect(decision.scopeConflicts).toEqual([
-    { skillId: 'sec-architecture-evolution', kind: 'write-path' }
-  ]);
-});
-
-test('Skill requiring an unauthorized resource or Gate resolves conflict', () => {
-  const resourceConflict = evaluateSecSkillApplicability(envelope({
-    candidates: ['sec-worker-development'],
-    availableCapabilities: ['git', 'github', 'hosted-gate'],
-    authorizedGates: ['hosted-gate'],
-    metadataOverrides: {
-      'sec-worker-development': {
-        ...SEC_AGENT_SKILL_METADATA['sec-worker-development'],
-        requiredResources: ['github-api']
-      }
-    }
-  }));
-  expect(resourceConflict.status).toBe('conflict');
-  expect(resourceConflict.scopeConflicts).toEqual([
-    { skillId: 'sec-worker-development', kind: 'resource' }
-  ]);
-
-  const gateConflict = evaluateSecSkillApplicability(envelope({
-    candidates: ['sec-worker-development'],
-    availableCapabilities: ['git', 'github', 'hosted-gate'],
-    authorizedResources: ['github-api'],
-    metadataOverrides: {
-      'sec-worker-development': {
-        ...SEC_AGENT_SKILL_METADATA['sec-worker-development'],
-        requiredGates: ['hosted-gate']
-      }
-    }
-  }));
-  expect(gateConflict.status).toBe('conflict');
-  expect(gateConflict.scopeConflicts).toEqual([
-    { skillId: 'sec-worker-development', kind: 'gate' }
-  ]);
-});
-
-test('missing required capability excludes the candidate before scope checks', () => {
-  const decision = evaluateSecSkillApplicability(envelope({
-    candidates: ['sec-worker-development'],
-    availableCapabilities: ['git'],
-    metadataOverrides: {
-      'sec-worker-development': {
-        ...SEC_AGENT_SKILL_METADATA['sec-worker-development'],
-        requiredCapabilities: ['git', 'hosted-gate']
-      }
-    }
-  }));
-  expect(decision.status).toBe('none-required');
-  expect(decision.exclusionResults).toEqual([
-    { skillId: 'sec-worker-development', reason: 'capability-unavailable' }
-  ]);
+  expect(decision.status).toBe('applicable');
+  expect(decision.selectedSkillId).toBe('sec-worker-development');
+  expect('scopeConflicts' in decision).toBeFalse();
 });
 
 test('goal, role, operation, capsule binding or trusted-revision change invalidates the prior decision as stale', () => {
@@ -188,7 +95,7 @@ test('goal, role, operation, capsule binding or trusted-revision change invalida
     candidates: ['sec-worker-development'],
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
-    taskCapsuleRevision: 'task-capsule-compiler-v1'
+    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION
   }));
   expect(prior.status).toBe('applicable');
   const stale = evaluateSecSkillApplicability(envelope({
@@ -216,7 +123,7 @@ test('goal, role, operation, capsule binding or trusted-revision change invalida
     candidates: ['sec-worker-development'],
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'b'.repeat(64)}`,
-    taskCapsuleRevision: 'task-capsule-compiler-v1',
+    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION,
     priorDecision: prior
   }));
   expect(capsuleStale.status).toBe('stale');
@@ -238,22 +145,6 @@ test('candidate touching a quarantine path binds trusted guidance and never self
   expect(decision.reasonCodes).toEqual(
     expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
   );
-});
-
-test('superseded Skill is excluded even when its trigger and coverage would otherwise match', () => {
-  const superseded = evaluateSecSkillApplicability(envelope({
-    candidates: ['sec-worker-development'],
-    metadataOverrides: {
-      'sec-worker-development': {
-        ...SEC_AGENT_SKILL_METADATA['sec-worker-development'],
-        supersededBy: 'sec-failure-recovery'
-      }
-    }
-  }));
-  expect(superseded.status).toBe('none-required');
-  expect(superseded.exclusionResults).toEqual([
-    { skillId: 'sec-worker-development', reason: 'superseded' }
-  ]);
 });
 
 test('operation outside the Skill space resolves not-applicable', () => {
@@ -301,13 +192,13 @@ test('Skill prose bytes never influence the machine decision', () => {
   );
 });
 
-test('decision V1 binds every required field', () => {
+test('decision binds the operation and trusted guidance identity', () => {
   const decision = evaluateSecSkillApplicability(envelope({
     candidates: ['sec-worker-development'],
     workPackageProposalRef: 'docs/work-packages/skill-applicability-gate-v1.md',
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
-    taskCapsuleRevision: 'task-capsule-compiler-v1'
+    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION
   }));
   expect(decision.goalDigest).toBe('test-goal');
   expect(decision.trustedRevision).toBe(TRUSTED_REVISION);
@@ -317,9 +208,8 @@ test('decision V1 binds every required field', () => {
   );
   expect(decision.taskCapsuleRef).toBe('capsule-1');
   expect(decision.taskCapsuleDigest).toBe(`sha256:${'a'.repeat(64)}`);
-  expect(decision.taskCapsuleRevision).toBe('task-capsule-compiler-v1');
+  expect(decision.taskCapsuleRevision).toBe(SEC_TASK_CAPSULE_REVISION);
   expect(decision.candidateSkillIds).toEqual(['sec-worker-development']);
-  expect(decision.capabilityAvailability.git).toBe(true);
 });
 
 test('unknown candidate IDs are ignored without breaking the decision', () => {

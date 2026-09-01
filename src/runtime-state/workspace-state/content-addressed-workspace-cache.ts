@@ -4,7 +4,7 @@ import { SecError } from '../../system-architecture/foundation/contract/failure.
 import { canonicalJson, compareCodeUnits, isPlainObject, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
 import {
-  assertSecBoundSemanticOperation,
+  assertSecSemanticOperationProjection,
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
@@ -474,7 +474,7 @@ export function openContentAddressedWorkspaceCacheSession(input: Readonly<{
   repository: PhysicalDirectoryIdentity;
   signal?: AbortSignal;
 }>): ContentAddressedWorkspaceCacheSession {
-  assertSecBoundSemanticOperation(input.operation);
+  assertSecSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements
     .find(({ id }) => id === input.requirementId);
   if (requirement === undefined || !requirement.effectKinds.includes('filesystem')) {

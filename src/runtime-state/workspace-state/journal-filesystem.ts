@@ -9,6 +9,12 @@ export interface RuntimeStateJournalReadBounds {
   readonly maximumBytes: number;
 }
 
+export interface RuntimeStateJournalRetainedText {
+  readonly text: string;
+  readonly byteLength: number;
+  readonly physical: Readonly<{ device: string; inode: string }>;
+}
+
 export type RuntimeStateJournalReadFailureKind = 'deadline-exhausted' | 'maximum-bytes-exceeded';
 
 export class RuntimeStateJournalReadError extends Error {
@@ -27,8 +33,14 @@ export interface RuntimeStateJournalFileSystem {
   readText(filePath: string): string;
   /** Retains, bounds and reads one exact file handle; null means only that the leaf is absent. */
   readTextRetained(filePath: string, bounds: RuntimeStateJournalReadBounds): string | null;
+  /** Retains one exact file and returns the bytes with the same-handle physical identity. */
+  observeTextRetained(
+    filePath: string,
+    bounds: RuntimeStateJournalReadBounds
+  ): RuntimeStateJournalRetainedText | null;
   ensureDirectory(directoryPath: string): void;
   appendFsyncCas(filePath: string, expectedText: string, text: string): boolean;
+  replaceFsyncCas(filePath: string, expectedText: string, text: string): boolean;
   createExclusiveFsync(filePath: string, text: string): boolean;
   replaceFsync(filePath: string, text: string): void;
   deleteIfPresent(filePath: string): boolean;
@@ -131,13 +143,14 @@ export function createRuntimeStateJournalFileSystem(
     return bytes === null ? null : Buffer.from(bytes);
   };
 
-  const readTextRetained = (
+  const observeTextRetained = (
     filePath: string,
     bounds: RuntimeStateJournalReadBounds
-  ): string | null => {
+  ): RuntimeStateJournalRetainedText | null => {
     assertReadBounds(bounds);
     const retained = fileParent(filePath, false);
     if (retained === null) return null;
+    if (inspectNoFollowOrdinaryFileEntry(retained.parent, retained.name) === null) return null;
     const parentChain = inspectNoFollowDirectoryChain(
       retained.parent.path,
       'Runtime State journal retained read parent'
@@ -174,7 +187,11 @@ export function createRuntimeStateJournalFileSystem(
           `retained bytes ${bytes.byteLength} exceed maximumBytes ${bounds.maximumBytes}.`
         );
       }
-      return Buffer.from(bytes).toString('utf8');
+      return Object.freeze({
+        text: Buffer.from(bytes).toString('utf8'),
+        byteLength: bytes.byteLength,
+        physical: file.physical
+      });
     } finally {
       file.dispose();
     }
@@ -200,7 +217,11 @@ export function createRuntimeStateJournalFileSystem(
       if (bytes === null) throw new Error(`Runtime State journal file is absent: ${filePath}`);
       return bytes.toString('utf8');
     },
-    readTextRetained,
+    readTextRetained: (
+      filePath: string,
+      bounds: RuntimeStateJournalReadBounds
+    ) => observeTextRetained(filePath, bounds)?.text ?? null,
+    observeTextRetained,
     ensureDirectory: (directoryPath: string): void => { ensuredDirectory(directoryPath); },
     appendFsyncCas(filePath: string, expectedText: string, text: string): boolean {
       return withMutationLease(filePath, () => {
@@ -213,6 +234,21 @@ export function createRuntimeStateJournalFileSystem(
           name: retained.name,
           bytes: next,
           validate: exactBytes(next)
+        });
+        return true;
+      }) ?? false;
+    },
+    replaceFsyncCas(filePath: string, expectedText: string, text: string): boolean {
+      return withMutationLease(filePath, () => {
+        const current = readBytes(filePath)?.toString('utf8') ?? '';
+        if (current !== expectedText) return false;
+        const retained = fileParent(filePath, true)!;
+        const bytes = Buffer.from(text, 'utf8');
+        replaceDurableCanonicalFile({
+          parent: retained.parent,
+          name: retained.name,
+          bytes,
+          validate: exactBytes(bytes)
         });
         return true;
       }) ?? false;

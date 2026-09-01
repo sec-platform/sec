@@ -95,9 +95,7 @@ function completeCoverage(runtimeReport: RuntimeVerificationLaneReport) {
       coveredBy: ['customer_acceptance'],
       uncovered: false
     }],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
+    uncoveredBlocks: []
   };
 }
 

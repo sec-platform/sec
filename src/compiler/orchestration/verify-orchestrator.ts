@@ -2,6 +2,7 @@ import type { CanonicalVerificationArtifactSet } from '../../verification/artifa
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationLane, VerificationReport } from '../../verification/contract/types.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../verification/profile/contract/product.ts';
+import { ProjectIntegrityError } from '../../workspace/contract/project-integrity.ts';
 import { assertWorkspaceWriteLease } from '../../workspace/lease.ts';
 import type { LockFile } from '../contract.ts';
 import { formatCompilerFailure } from '../errors.ts';
@@ -56,7 +57,7 @@ async function writeBlockedVerificationSnapshot(
   failure: unknown,
   beforeCommit: () => Promise<void>
 ): Promise<void> {
-  const policyReport = runPolicyGate(workspaceRoot);
+  const policyReport = await runPolicyGate(workspaceRoot);
   const runtime = createSkippedRuntimeLane();
   const message = formatCompilerFailure(failure);
   const fast: VerificationReport['fast'] = {
@@ -144,7 +145,7 @@ async function verifyWorkspaceCore(
     });
     return { lock, report };
   } catch (error) {
-    if (lane !== 'runtime' && error instanceof Error && 'code' in error && error.code === 'ERROR-DRIFT-001') {
+    if (lane !== 'runtime' && error instanceof ProjectIntegrityError) {
       await writeBlockedVerificationSnapshot(workspaceRoot, lock, lane, error, beforeCommit);
     }
     throw error;

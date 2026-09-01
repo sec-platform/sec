@@ -50,12 +50,12 @@ async function __secRecoveryOwnerBehaviorProjectionV1(payload: {
   readonly transactionRoot: string;
   readonly stagingRoot: string;
 }): Promise<Readonly<{ schema: string; result: 'accepted' | 'cleanup' | 'unexpected' }>> {
-  const workspaceIdentityDigest = 'sha256:' + 'a'.repeat(64);
+  const authorityBindingDigest = 'sha256:' + 'a'.repeat(64);
   const stagingIdentityDigest = 'sha256:' + 'b'.repeat(64);
   const alternateStagingIdentityDigest = 'sha256:' + 'c'.repeat(64);
   const baseOwner: WindowsAppContainerRecoveryOwnerV1 = Object.freeze({
     formatVersion: RECOVERY_OWNER_FORMAT_VERSION,
-    workspaceIdentityDigest,
+    workspaceIdentityDigest: authorityBindingDigest,
     stagingIdentityDigest,
     stagingDirectoryName: path.basename(payload.stagingRoot),
     runtimeRelativePath: RUNTIME_DIRECTORY_NAME,
@@ -126,7 +126,7 @@ async function __secRecoveryOwnerBehaviorProjectionV1(payload: {
     await writeFile(
       path.join(
         payload.transactionRoot,
-        WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1.ownerFileName
+        WINDOWS_APPCONTAINER_RECOVERY_CONTRACT.ownerFileName
       ),
       JSON.stringify(Object.fromEntries(orderedEntries)) + '\n',
       { flag: 'wx' }
@@ -140,7 +140,12 @@ async function __secRecoveryOwnerBehaviorProjectionV1(payload: {
         transactionRoot: payload.transactionRoot,
         stagingIdentityDigest
       },
-      { workspaceIdentityDigest } as WorkspaceWriteLeaseToken,
+      {
+        formatVersion: 'windows-appcontainer-execution-binding-v1',
+        stagingRoot: payload.stagingRoot,
+        authorityBindingDigest,
+        deadlineAtUnixMs: Date.now() + 60_000
+      } as WindowsAppContainerExecutionBindingReceipt,
       requestedNativeResultPath
     );
     return Object.freeze({ schema: __secRecoveryOwnerObservationSchemaV1, result: 'accepted' });

@@ -49,9 +49,6 @@ export interface DocumentationAuthorityRecord {
   readonly projects: readonly string[];
   readonly generatedFrom?: string;
   readonly proposal?: DocumentationProposalLifecycle;
-  readonly audience: readonly string[];
-  readonly consumers: readonly string[];
-  readonly updateTriggers: readonly string[];
 }
 
 export interface DocumentationAuthorityRegistry {
@@ -66,7 +63,7 @@ const NON_OWNING_KINDS = new Set<DocumentationAuthorityKind>([
 ]);
 const RECORD_KEYS = new Set([
   'id', 'path', 'kind', 'domain', 'lifecycle', 'dynamicPolicy', 'owns', 'projects',
-  'generatedFrom', 'proposal', 'audience', 'consumers', 'updateTriggers'
+  'generatedFrom', 'proposal'
 ]);
 const PROPOSAL_KEYS = new Set([
   'disposition', 'canonicalTargets', 'activationTrigger', 'retirementTarget',
@@ -221,7 +218,6 @@ function parseRecord(value: unknown, index: number): DocumentationAuthorityRecor
   assertPlainObject(value, label);
   assertExactKeys(value, RECORD_KEYS, [
     'id', 'path', 'kind', 'domain', 'lifecycle', 'dynamicPolicy', 'owns', 'projects',
-    'audience', 'consumers', 'updateTriggers'
   ], label);
 
   const kind = enumValue(value.kind, DOCUMENT_AUTHORITY_KINDS, `${label}.kind`);
@@ -273,10 +269,7 @@ function parseRecord(value: unknown, index: number): DocumentationAuthorityRecor
     owns,
     projects: stringList(value.projects, `${label}.projects`),
     ...(generatedFrom === undefined ? {} : { generatedFrom }),
-    ...(proposal === undefined ? {} : { proposal }),
-    audience: stringList(value.audience, `${label}.audience`),
-    consumers: stringList(value.consumers, `${label}.consumers`),
-    updateTriggers: stringList(value.updateTriggers, `${label}.updateTriggers`)
+    ...(proposal === undefined ? {} : { proposal })
   };
 }
 
@@ -501,9 +494,6 @@ export function resolveDocumentationOperationOwners(input: Readonly<{
     selected.set(record.id, record);
   };
   for (const id of input.authorityRefs) addOwningRecord(id, 'Work Package authorityRefs');
-  if (!selected.has('development-governance')) {
-    throw new Error('Operation documentation authorityRefs must include development-governance.');
-  }
   for (const repositoryPath of changedPaths) {
     const changed = documentationRecordByPath(input.registry, repositoryPath);
     if (changed === undefined) continue;
@@ -559,7 +549,6 @@ export function renderDocumentationIndex(
     'title: SEC 文档导航',
     'status: active',
     'domain: documentation',
-    'last-reviewed: 2026-08-05',
     'generated-from: docs/authority.json',
     '---',
     '',

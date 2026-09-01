@@ -1,5 +1,4 @@
 import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
-import { isCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
 import { canonicalEquals, deepFreeze } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
   buildCiArtifactUploadGroups,
@@ -7,6 +6,7 @@ import {
   ciArtifactUploadName,
   countCiArtifactMissingReasons,
   countCiArtifactMissingReasonTypes,
+  isCanonicalCiArtifactPath,
   isCiContractArtifactPath,
   normalizeCiArtifactPath,
   uniqueSortedCiArtifactPaths
@@ -58,18 +58,8 @@ function exactKeys(value: Record<string, unknown>, allowed: ReadonlySet<string>,
 }
 
 function canonicalArtifactPath(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.length === 0 || normalizeCiArtifactPath(value) !== value) {
-    throw new Error(`${label} must be one canonical CI artifact path`);
-  }
-  if (value.endsWith('/**')) {
-    const directory = value.slice(0, -3);
-    if (!isCanonicalPortableLogicalPath(directory)) {
-      throw new Error(`${label} recursive artifact root is not one canonical portable logical path`);
-    }
-    return value;
-  }
-  if (!isCanonicalPortableLogicalPath(value)) {
-    throw new Error(`${label} is not one canonical portable logical path`);
+  if (typeof value !== 'string' || !isCanonicalCiArtifactPath(value)) {
+    throw new Error(`${label} must be one canonical CI artifact path below .sec/artifacts`);
   }
   return value;
 }

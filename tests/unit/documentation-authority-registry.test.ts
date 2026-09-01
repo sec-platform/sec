@@ -16,9 +16,6 @@ function authority(
     dynamicPolicy: 'forbidden',
     owns: [`test.${id}`],
     projects: [],
-    audience: ['developer'],
-    consumers: ['test'],
-    updateTriggers: ['contract-change'],
     ...overrides
   };
 }
@@ -46,9 +43,6 @@ function proposal(
       evidenceRequirement: 'consumer-migration-and-main-readback',
       reversalCondition: null
     },
-    audience: ['developer'],
-    consumers: ['roadmap'],
-    updateTriggers: ['proposal-decision'],
     ...overrides
   };
 }
@@ -83,9 +77,6 @@ test('generated projections cannot own canonical facts or receive proposal autho
     owns: [],
     projects: ['target'],
     generatedFrom: 'docs/target.md',
-    audience: ['developer'],
-    consumers: ['reader'],
-    updateTriggers: ['registry-change']
   };
   expect(() => parseDocumentationAuthorityRegistry(registry(
     authority('target', 'docs/target.md'),

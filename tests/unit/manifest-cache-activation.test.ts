@@ -33,9 +33,7 @@ function manifestSource(id: string, version: string): string {
     '    from: source.ts',
     '    to: source.ts',
     'pins: { inputs: [], outputs: [] }',
-    'slots: []',
     'acceptance: []',
-    'routes: []',
     'contracts: []',
     'generators: []',
     ''
@@ -121,6 +119,22 @@ test('addressed manifest must declare the exact requested block identity', async
   expect(() => loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] }))
     .toThrow(expect.objectContaining({ code: 'MANIFEST-SCHEMA-011' }));
 });
+
+test.each(['routes: []', 'uiPortals: []', 'uiHooks: []'])(
+  'retired UI manifest grammar is rejected instead of becoming a compatibility surface',
+  async (retiredField) => {
+    const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
+    await writeManifest(
+      registryRoot,
+      blockDirName('cache/probe'),
+      `${manifestSource('cache/probe', '1.0.0')}${retiredField}\n`
+    );
+    const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
+
+    expect(() => loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] }))
+      .toThrow(expect.objectContaining({ code: 'MANIFEST-SCHEMA-001' }));
+  }
+);
 
 test('registry enumeration rejects manifests whose physical directory cannot be reconstructed from id', async () => {
   const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();

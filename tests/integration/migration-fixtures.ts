@@ -157,16 +157,3 @@ export function textReplaceRegex(target: string, pattern: string, replacement: s
     ...(flags ? { flags } : {})
   };
 }
-
-export function slotContractUpdate(target: string): UpgradeMigrationEntry {
-  return {
-    id: 'mig-test-slot-contract-update',
-    kind: 'slot-contract-update',
-    reason: 'test slot contract update',
-    target,
-    slotId: 'customer_normalizer',
-    inputType: 'NormalizedCustomerInput',
-    outputType: 'NormalizedCustomerInput',
-    writableZones: [target]
-  };
-}

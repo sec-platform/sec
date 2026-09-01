@@ -3,16 +3,24 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { ProjectIntegrityError } from '../../src/workspace/contract/project-integrity.ts';
 import {
   getProjectBaselinePath,
   readProjectBaseline
-} from '../../src/workspace/project.ts';
+} from '../../src/workspace/runtime/project-baseline.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function writeRawBaseline(workspaceRoot: string, value: unknown): Promise<void> {
+  await writeRawBaselineSource(workspaceRoot, `${JSON.stringify(value)}\n`);
+}
+
+async function writeRawBaselineSource(
+  workspaceRoot: string,
+  source: string | Uint8Array
+): Promise<void> {
   const baselinePath = getProjectBaselinePath(workspaceRoot);
   await fs.mkdir(path.dirname(baselinePath), { recursive: true });
-  await fs.writeFile(baselinePath, `${JSON.stringify(value)}\n`, 'utf8');
+  await fs.writeFile(baselinePath, source);
 }
 
 function expectDriftFailure(read: () => unknown): void {
@@ -20,6 +28,7 @@ function expectDriftFailure(read: () => unknown): void {
     read();
     throw new Error('Expected Project baseline read to fail');
   } catch (error) {
+    expect(error).toBeInstanceOf(ProjectIntegrityError);
     expect(error).toMatchObject({ code: 'ERROR-DRIFT-001' });
   }
 }
@@ -76,6 +85,17 @@ test('project baseline accepts only canonical unique portable artifact hash reco
       await writeRawBaseline(workspaceRoot, malformed);
       expectDriftFailure(() => readProjectBaseline(workspaceRoot));
     }
+
+    for (const ambiguous of [
+      '{"formatVersion":"1","formatVersion":"1","artifacts":[]}\n',
+      `{"formatVersion":"1","artifacts":[{"path":"app/page.tsx","path":"app/page.tsx","hash":"${'a'.repeat(64)}"}]}\n`
+    ]) {
+      await writeRawBaselineSource(workspaceRoot, ambiguous);
+      expectDriftFailure(() => readProjectBaseline(workspaceRoot));
+    }
+
+    await writeRawBaselineSource(workspaceRoot, Uint8Array.from([0xc3, 0x28]));
+    expectDriftFailure(() => readProjectBaseline(workspaceRoot));
   });
 });
 

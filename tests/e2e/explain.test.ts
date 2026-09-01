@@ -33,13 +33,9 @@ test('CLI emits explain JSON for CI consumers', async () => {
           status: string;
           acceptancePassedCount: number;
           blockCount: number;
-          slotCount: number;
           coveredBlockCount: number;
-          coveredSlotCount: number;
           uncoveredBlockCount: number;
-          uncoveredSlotCount: number;
           blockSummaries: Array<{ id: string; coveredByCount: number; coveredBy: string[] }>;
-          slotSummaries: Array<{ id: string; coveredByCount: number; coveredBy: string[] }>;
         };
         provenanceSummary?: {
           artifactCount: number;
@@ -94,15 +90,12 @@ test('CLI emits explain JSON for CI consumers', async () => {
         'policy=',
         'Edge types:',
         'depends_on=',
-        'Coverage: 3 blocks; 1 slots;',
+        'Coverage: 3 blocks;',
         'uncovered blocks=0',
-        'uncovered slots=0',
         'Coverage detail: passed;',
         'covered blocks: 3/3',
-        'covered slots: 1/1',
         'Provenance origins:',
         'block=',
-        'slot=',
         'Provenance detail: artifacts:',
         'registry:',
         'unverified:',
@@ -111,10 +104,10 @@ test('CLI emits explain JSON for CI consumers', async () => {
         'CI status: passed; failures: 0; regression risks: 0; conflict hints: 0',
         'Chain: attention; stages: 3/4; attention: 1; failed: 0',
         'E2E verification: passed; lane=all; failed=none; evidence=ci=passed, failures=0',
-        'E2E coverage: passed; blocks=3/3; slots=1/1; evidence=blocks=3/3, slots=1/1',
+        'E2E coverage: passed; blocks=3/3; evidence=blocks=3/3',
         'E2E artifacts: attention; total=0; missing=0; evidence=artifacts=missing',
         'E2E review: passed; review-summary=generated; evidence=review-summary=generated',
-        'Impacted: 3 blocks, 1 slots,',
+        'Impacted: 3 blocks,',
         'Policy: passed; official: 1; project: 0; merged: 1; violations: 0'
       ],
       compactJson: {
@@ -135,7 +128,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
       rowCount: 4,
       rows: [
         { stage: 'verification', status: 'passed', evidenceCount: 2, evidence: ['ci=passed', 'failures=0'] },
-        { stage: 'coverage', status: 'passed', evidenceCount: 2, evidence: ['blocks=3/3', 'slots=1/1'] },
+        { stage: 'coverage', status: 'passed', evidenceCount: 1, evidence: ['blocks=3/3'] },
         { stage: 'artifacts', status: 'attention', evidenceCount: 1, evidence: ['artifacts=missing'] },
         { stage: 'review', status: 'passed', evidenceCount: 1, evidence: ['review-summary=generated'] }
       ]
@@ -166,7 +159,7 @@ test('CLI emits explain JSON for CI consumers', async () => {
       failedStageCount: 0,
       stageSummaries: [
         { id: 'verification', status: 'passed', detail: 'lane=all; failed=none' },
-        { id: 'coverage', status: 'passed', detail: 'blocks=3/3; slots=1/1' },
+        { id: 'coverage', status: 'passed', detail: 'blocks=3/3' },
         { id: 'artifacts', status: 'attention', detail: 'total=0; missing=0' },
         { id: 'review', status: 'passed', detail: 'review-summary=generated' }
       ]
@@ -174,11 +167,8 @@ test('CLI emits explain JSON for CI consumers', async () => {
     expect(payload.reviewSummary.coverageSummary).toMatchObject({
       status: 'passed',
       blockCount: 3,
-      slotCount: 1,
       coveredBlockCount: 3,
-      coveredSlotCount: 1,
-      uncoveredBlockCount: 0,
-      uncoveredSlotCount: 0
+      uncoveredBlockCount: 0
     });
     expect(payload.reviewSummary.coverageSummary?.blockSummaries).toEqual(
       expect.arrayContaining([
@@ -189,13 +179,6 @@ test('CLI emits explain JSON for CI consumers', async () => {
         })
       ])
     );
-    expect(payload.reviewSummary.coverageSummary?.slotSummaries).toEqual([
-      expect.objectContaining({
-        id: 'customer_normalizer',
-        coveredByCount: 2,
-        coveredBy: ['tenant_only_sees_own_customers', 'user_can_create_customer']
-      })
-    ]);
     expect(payload.reviewSummary.provenanceSummary).toMatchObject({
       overrideArtifactCount: 0,
       registryArtifactCount: expect.any(Number),
@@ -207,10 +190,6 @@ test('CLI emits explain JSON for CI consumers', async () => {
       originSummaries: expect.arrayContaining([
         expect.objectContaining({
           originType: 'block',
-          count: expect.any(Number)
-        }),
-        expect.objectContaining({
-          originType: 'slot',
           count: expect.any(Number)
         })
       ]),

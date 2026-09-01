@@ -25,6 +25,9 @@ import {
 import {
   openContainerEngineSession
 } from '../../external-capabilities/docker/runtime/container-engine-session.ts';
+import {
+  openWindowsDockerCommandProvider
+} from '../../external-capabilities/docker/runtime/windows-command-provider.ts';
 import { isolatedGitChildEnvironment } from '../../external-capabilities/git-read/runtime/session.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
@@ -44,6 +47,7 @@ import {
   compileSecSemanticOperationPlan,
   issueSecNormalDomainReadbackReceipt,
   issueSecNormalOwnerTerminalJoinReceipt,
+  issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
   type SecOperationDigest,
@@ -52,17 +56,17 @@ import {
 } from '../../system-architecture/operation/semantic.ts';
 import { compilerRuntimeLayout } from '../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../toolchain/typescript/canary.ts';
-import { createVerificationActionKey, createVerificationActionPlan, encodeVerificationActionData, issueVerificationActionTerminalSettlement, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionPlan, encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
 import { createCiVerificationLocalExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
 import { VerificationActionRunner } from '../action/runner.ts';
 import { type CodexDevelopmentVerificationEvidenceV4 } from '../ci/contract/evidence.ts';
-import { CI_VERIFICATION_WORKFLOW_PATH } from '../ci/contract/revision.ts';
 import {
   createBuildxRawJsonProgressAdmission,
   ensureLocalGitHubActionsRunnerToolchainMaterialization,
   type LocalGitHubActionsRunnerToolchainMaterialization
 } from '../ci/runtime/local-github-actions-runner.ts';
 import type { VerificationSessionHostedEnvelope } from '../ci/runtime/verification-session-runtime.ts';
+import { CI_VERIFICATION_WORKFLOW_PATH } from '../contract/revision.ts';
 
 const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
 export const TRUSTED_RUNTIME_CONTAINER_SCHEMA = ENVIRONMENT.trustedRuntime.imageSchema;
@@ -621,6 +625,10 @@ function bindTrustedRuntimeMainHealthEffect(input: Readonly<{
     actionKey: input.gate.action.actionKey,
     argv: input.gate.argv
   })) as SecOperationDigest;
+  const diagnosticContractDigest = digestValue(Object.freeze({
+    schema: 'sec-trusted-runtime-main-health-process-diagnostics-contract-v1',
+    actionKey: input.gate.action.actionKey
+  })) as SecOperationDigest;
   const plan = compileSecSemanticOperationPlan({
     operation: 'verification.trusted-runtime-main-health',
     intentDigest: input.gate.action.actionKey as SecOperationDigest,
@@ -637,28 +645,48 @@ function bindTrustedRuntimeMainHealthEffect(input: Readonly<{
       contractDigest,
       effectKinds: ['process'],
       failureKinds: ['process.failed', 'process.settlement-failed']
+    }, {
+      id: 'verification.action-diagnostics',
+      contractDigest: diagnosticContractDigest,
+      effectKinds: ['filesystem'],
+      failureKinds: [
+        'diagnostic.corrupt-object',
+        'diagnostic.deadline-exhausted',
+        'diagnostic.foreign-residue',
+        'diagnostic.incomplete-object',
+        'diagnostic.physical-replacement',
+        'diagnostic.resource-exhausted'
+      ]
     }],
     attempt: issueSecSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     })
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
-    requirementId: 'verification.trusted-container-process',
-    contractDigest,
-    providerIdentityDigest: input.providerIdentityDigest
-  })]);
+  return bindSecSemanticOperation(plan, [
+    compileSecCapabilityBinding({
+      requirementId: 'verification.trusted-container-process',
+      contractDigest,
+      providerIdentityDigest: input.providerIdentityDigest
+    }),
+    compileSecCapabilityBinding({
+      requirementId: 'verification.action-diagnostics',
+      contractDigest: diagnosticContractDigest,
+      providerIdentityDigest: digestValue('runtime-state.process-diagnostics') as SecOperationDigest
+    })
+  ]);
 }
 
-export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Readonly<{
+function issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements(input: Readonly<{
   operation: SecBoundSemanticOperation;
-  providerSettlement: SecProviderSettlementReceipt;
+  primaryProviderSettlement: SecProviderSettlementReceipt;
+  providerSettlements: readonly SecProviderSettlementReceipt[];
   endpointReadback: DockerEndpointIdentity;
   ownerTerminalContractDigest: SecOperationDigest;
   ownerTerminalReferenceDigest: SecOperationDigest;
-}>): SecOwnerTerminalJoinReceipt {
+}>) {
   const providerSettlementSet = compileSecProviderSettlementSet(
     input.operation,
-    [input.providerSettlement]
+    input.providerSettlements
   );
   const readback = issueSecNormalDomainReadbackReceipt(input.operation, providerSettlementSet, {
     readbackContractDigest: digestValue(Object.freeze({
@@ -675,13 +703,13 @@ export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Reado
       endpointHost: input.endpointReadback.endpointHost,
       daemonId: input.endpointReadback.daemonId
     })) as SecOperationDigest,
-    disposition: input.providerSettlement.physicalDisposition === 'settled'
+    disposition: input.primaryProviderSettlement.physicalDisposition === 'settled'
       ? 'applied'
-      : input.providerSettlement.physicalDisposition === 'not-started'
+      : input.primaryProviderSettlement.physicalDisposition === 'not-started'
         ? 'not-applied'
         : 'unknown'
   });
-  return issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminalProjection = issueSecNormalOwnerTerminalJoinReceipt(
     input.operation,
     providerSettlementSet,
     readback,
@@ -690,6 +718,21 @@ export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Reado
       ownerTerminalReferenceDigest: input.ownerTerminalReferenceDigest
     }
   );
+  return Object.freeze({ providerSettlementSet, readback, ownerTerminalProjection });
+}
+
+export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Readonly<{
+  operation: SecBoundSemanticOperation;
+  providerSettlement: SecProviderSettlementReceipt;
+  endpointReadback: DockerEndpointIdentity;
+  ownerTerminalContractDigest: SecOperationDigest;
+  ownerTerminalReferenceDigest: SecOperationDigest;
+}>): SecOwnerTerminalJoinReceipt {
+  return issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements({
+    ...input,
+    primaryProviderSettlement: input.providerSettlement,
+    providerSettlements: [input.providerSettlement]
+  }).ownerTerminalProjection;
 }
 
 async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
@@ -754,7 +797,10 @@ async function executeTrustedRuntimeContainerEngineOwnerOperation<T>(input: Read
   }
 }
 
-function issueTrustedRuntimeMainHealthEffectSettlement(input: Readonly<{
+async function issueTrustedRuntimeMainHealthEffectSettlement(input: Readonly<{
+  runner: VerificationActionRunner;
+  repositoryRoot: string;
+  action: VerificationActionKey;
   operation: SecBoundSemanticOperation;
   providerSettlement: SecProviderSettlementReceipt;
   actionKey: VerificationActionKeyDigest;
@@ -762,12 +808,33 @@ function issueTrustedRuntimeMainHealthEffectSettlement(input: Readonly<{
   stdout: string;
   stderr: string;
   endpointReadback: DockerEndpointIdentity;
-}>) {
+}>): Promise<ReturnType<typeof issueProcessVerificationActionTerminalSettlement>> {
   const passed = input.exitCode === 0
     && input.providerSettlement.physicalDisposition === 'settled';
-  const ownerTerminalJoinReceipt = issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
+  const diagnosticObjects = await input.runner.publishBoundProcessDiagnostics({
+    repositoryRoot: input.repositoryRoot,
+    action: input.action,
     operation: input.operation,
-    providerSettlement: input.providerSettlement,
+    processSettlement: input.providerSettlement,
+    streams: [
+      { stream: 'stdout', bytes: new TextEncoder().encode(input.stdout) },
+      { stream: 'stderr', bytes: new TextEncoder().encode(input.stderr) }
+    ]
+  });
+  const diagnosticSettlement = issueSecProviderSettlementReceipt(input.operation, {
+    requirementId: 'verification.action-diagnostics',
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: digestValue(
+      diagnosticObjects.map(({ receipt, readback }) => ({
+        objectDigest: receipt.objectDigest,
+        readbackDigest: readback.readbackDigest
+      }))
+    ) as SecOperationDigest
+  });
+  const ownerTerminalClosure = issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements({
+    operation: input.operation,
+    primaryProviderSettlement: input.providerSettlement,
+    providerSettlements: [input.providerSettlement, diagnosticSettlement],
     endpointReadback: input.endpointReadback,
     ownerTerminalContractDigest: digestValue(Object.freeze({
       schema: 'sec-trusted-runtime-main-health-owner-terminal-contract-v1',
@@ -782,9 +849,17 @@ function issueTrustedRuntimeMainHealthEffectSettlement(input: Readonly<{
       stderrDigest: digestValue(input.stderr)
     })) as SecOperationDigest
   });
-  return issueVerificationActionTerminalSettlement(ownerTerminalJoinReceipt, {
+  const actionTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
+    action: input.action,
+    operation: input.operation,
+    providerSettlementSet: ownerTerminalClosure.providerSettlementSet,
+    readback: ownerTerminalClosure.readback,
+    ownerTerminalProjection: ownerTerminalClosure.ownerTerminalProjection
+  });
+  return issueProcessVerificationActionTerminalSettlement(actionTerminalReceipt, {
     status: passed ? 'passed' : 'failed',
-    reasonCode: passed ? 'executed-success' : 'executed-failure'
+    reasonCode: passed ? 'executed-success' : 'executed-failure',
+    diagnosticObjects
   });
 }
 
@@ -2617,6 +2692,9 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   execute: (workspace: TrustedRuntimeWorkspace) => Promise<T>;
 }>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
+  const commandProvider = await openWindowsDockerCommandProvider({
+    workingDirectory: repositoryRoot
+  });
   const repositoryIdentity = repository(input.repository);
   const baseSha = sha(input.baseSha, 'workspace baseSha');
   const headSha = sha(input.headSha, 'workspace headSha');
@@ -2647,11 +2725,6 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   }
   let containerEngineSession: ContainerEngineSession | null = null;
   try {
-    const resourceEnvelopeProviderIdentityDigest = digestValue(Object.freeze({
-      schema: 'sec-container-engine-session-resource-envelope-provider-v1',
-      repository: repositoryIdentity,
-      operationKey: input.operationKey
-    })) as SecOperationDigest;
     const operation = bindTrustedRuntimeContainerEngineOperation({
       repositoryRoot,
       repository: repositoryIdentity,
@@ -2659,10 +2732,11 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
       headSha,
       operationKey: input.operationKey,
       setupMode: input.setupMode,
-      providerIdentityDigest: resourceEnvelopeProviderIdentityDigest
+      providerIdentityDigest: commandProvider.providerIdentityDigest
     });
     containerEngineSession = await openContainerEngineSession({
       operation,
+      provider: commandProvider,
       cwd: repositoryRoot,
       availability: 'ensure-started'
     });
@@ -3142,7 +3216,10 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
                 fail('MainHealth provider scope did not settle its exact command attempt');
               }
               if (result.code !== 0) executedFailureDetail = renderTrustedRuntimeCommandFailureDetail(result);
-              return issueTrustedRuntimeMainHealthEffectSettlement({
+              return await issueTrustedRuntimeMainHealthEffectSettlement({
+                runner,
+                repositoryRoot,
+                action: gate.action,
                 operation: boundEffect,
                 providerSettlement,
                 actionKey: gate.action.actionKey,

@@ -2,7 +2,6 @@
 title: SEC 文档导航
 status: active
 domain: documentation
-last-reviewed: 2026-08-05
 generated-from: docs/authority.json
 ---
 
@@ -15,7 +14,7 @@ generated-from: docs/authority.json
 | registry | documentation | `docs/authority.json` | documentation.identity、documentation.lifecycle、documentation.ownership | — |
 | authority | agent-user-interface | [`docs/agent-and-user-machine-interface.md`](agent-and-user-machine-interface.md) | ai.bounded-proposal、ai.context-packet、interface.cli、interface.machine-json、interface.projection | — |
 | authority | brownfield | [`docs/brownfield-import.md`](brownfield-import.md) | brownfield.external-library-onboarding、brownfield.lifecycle、brownfield.source-program-model、brownfield.typed-invocation、brownfield.unknown-opaque | — |
-| authority | capability-block | [`docs/capability-and-block-model.md`](capability-and-block-model.md) | capability.block、capability.block-resolution、capability.contract、capability.generator、capability.port、capability.registry、capability.slot | — |
+| authority | capability-block | [`docs/capability-and-block-model.md`](capability-and-block-model.md) | capability.block、capability.block-resolution、capability.contract、capability.generator、capability.port、capability.registry、capability.slot-retirement、capability.typed-extension | — |
 | authority | change-management | [`docs/change-management.md`](change-management.md) | change.compatibility、change.compensation、change.forward-recovery、change.implementation-binding-migration、change.migration、change.override、change.upgrade | — |
 | authority | compiler-target-ir | [`docs/compiler-target-ir.md`](compiler-target-ir.md) | compiler.application-ir、compiler.behavior-ir、compiler.implementation-resolution、compiler.lowering、compiler.pipeline、compiler.target-profile、compiler.target-program-ir、compiler.type-algebra | — |
 | authority | delta-and-impact | [`docs/delta-and-impact.md`](delta-and-impact.md) | implementation.binding-delta、implementation.impact、semantic.fact-delta、semantic.impact | — |

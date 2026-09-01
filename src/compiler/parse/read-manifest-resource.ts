@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { resolvePathInside } from '../../workspace/paths.ts';
+import { resolvePathInside } from '../../workspace/runtime/paths.ts';
 import type { ManifestEntry } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import {

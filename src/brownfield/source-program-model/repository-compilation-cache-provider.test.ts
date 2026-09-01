@@ -21,6 +21,7 @@ import {
   type ContentAddressedWorkspaceCacheSession
 } from '../../runtime-state/workspace-state/content-addressed-workspace-cache.ts';
 import { canonicalJson, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -106,7 +107,19 @@ async function runGenerationChild(
     contractDigest,
     providerIdentityDigest: sha256({ executable: executable.digest(), worker: worker.digest() }) as SecOperationDigest
   })]);
-  const session = openProcessResourceSession({ operation });
+  const session = openProcessResourceSession({
+    operation,
+    requirementBindingContext: issueSecOperationRequirementBindingContext({
+      operation,
+      requirementId,
+      resourceCeilings: [
+        { resource: 'duration-ms', maximum: 30_000 },
+        { resource: 'input-bytes', maximum: 0 },
+        { resource: 'output-bytes', maximum: 8 * 1024 * 1024 },
+        { resource: 'processes', maximum: 1 }
+      ]
+    })
+  });
   try {
     const result = await session.run(issueRetainedCommandBoundary({
       executable,

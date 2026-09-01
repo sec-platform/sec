@@ -16,12 +16,6 @@ description: 用于 frozen exact head 的独立架构、根因、状态图、证
 - 与本delta相关的既有finding、约束、事故、失败/恢复窗口和被声明superseded的实现；缺失时列入unknown，不能假定不存在。
 - 受影响canonical文档、现有状态/架构图、公共contract、producer/consumer和retirement evidence。
 
-## 权限与路径
-- Reviewer只读exact candidate、authority、Evidence与GitHub review面。
-
-## 允许工具与操作
-- diff/commit/manifest读取、Review/thread/status查询、静态/架构审查。
-
 ## 前置门禁
 - candidate frozen且Reviewer独立；base/head/tree固定。
 - required review surface已从changed authority、consumer、Effect/recovery/public contract和显式review policy编译；PR body不能替代该closure。
@@ -64,9 +58,3 @@ Reviewer报告必须按以下顺序给出；任一required section缺失或只�
 - 不把整个仓库无差别重画来伪装全貌；图只覆盖受影响owner closure，但必须包含它与上游authority、下游consumer、failure/recovery/retirement的全部相关边。
 - 不用全历史/O(history)搜索重建prior constraints；消费owner发布的bounded digest-bound set，相同未失效projection直接复用。
 - 不在多个文档或Review报告复制产品状态图；更新唯一canonical owner，其他表面只保留typed reference和本delta解释。
-
-## 权威
-- `AGENTS.md`
-- `docs/development-governance.md`
-- `docs/verification-governance.md`
-- `scripts/codex/merge-gate.ts`

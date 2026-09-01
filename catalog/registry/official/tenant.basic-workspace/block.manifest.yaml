@@ -26,7 +26,6 @@ pins:
     - id: tenant_context
       type: TenantId
       required: true
-slots: []
 acceptance:
   - id: tenant_only_sees_own_customers
     dependsOn:

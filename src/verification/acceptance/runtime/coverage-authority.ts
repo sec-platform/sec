@@ -2,7 +2,6 @@ import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtim
 import { isCanonicalAcceptanceId } from '../../../semantic/acceptance/contract/identity.ts';
 import { ACCEPTANCE_COVERAGE_FORMAT_VERSION, type AcceptanceCoverageEntry, type AcceptanceCoverageReport } from '../../../semantic/acceptance/contract/types.ts';
 import { isCanonicalBlockId } from '../../../semantic/identity/contract/block.ts';
-import { isCanonicalSlotId } from '../../../semantic/identity/contract/slot.ts';
 import { canonicalEquals, deepFreeze, uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import type { VerificationStatus } from '../../contract/types.ts';
 
@@ -11,9 +10,7 @@ const ROOT_KEYS = new Set([
   'status',
   'acceptancePassed',
   'blocks',
-  'slots',
-  'uncoveredBlocks',
-  'uncoveredSlots'
+  'uncoveredBlocks'
 ]);
 const ENTRY_KEYS = new Set(['id', 'declaredAcceptance', 'coveredBy', 'uncovered']);
 const STATUSES = new Set<VerificationStatus>(['passed', 'failed', 'skipped']);
@@ -46,15 +43,13 @@ function canonicalAcceptanceIds(value: unknown, label: string): string[] {
 
 function validateEntry(
   value: unknown,
-  index: number,
-  kind: 'block' | 'slot'
+  index: number
 ): AcceptanceCoverageEntry {
-  const label = `Acceptance Coverage ${kind}[${index}]`;
+  const label = `Acceptance Coverage block[${index}]`;
   const raw = record(value, label);
   exactKeys(raw, ENTRY_KEYS, label);
-  if (typeof raw.id !== 'string' ||
-      (kind === 'block' ? !isCanonicalBlockId(raw.id) : !isCanonicalSlotId(raw.id))) {
-    throw new Error(`${label}.id is not one canonical ${kind} identity`);
+  if (typeof raw.id !== 'string' || !isCanonicalBlockId(raw.id)) {
+    throw new Error(`${label}.id is not one canonical block identity`);
   }
   const declaredAcceptance = canonicalAcceptanceIds(raw.declaredAcceptance, `${label}.declaredAcceptance`);
   const coveredBy = canonicalAcceptanceIds(raw.coveredBy, `${label}.coveredBy`);
@@ -74,31 +69,30 @@ function validateEntry(
   };
 }
 
-function validateEntries(value: unknown, kind: 'block' | 'slot'): AcceptanceCoverageEntry[] {
-  if (!Array.isArray(value)) throw new Error(`Acceptance Coverage ${kind}s must be an array`);
-  const entries = value.map((entry, index) => validateEntry(entry, index, kind));
+function validateEntries(value: unknown): AcceptanceCoverageEntry[] {
+  if (!Array.isArray(value)) throw new Error('Acceptance Coverage blocks must be an array');
+  const entries = value.map((entry, index) => validateEntry(entry, index));
   const ids = entries.map((entry) => entry.id);
   if (new Set(ids).size !== ids.length) {
-    throw new Error(`Acceptance Coverage ${kind}s repeat an identity`);
+    throw new Error('Acceptance Coverage blocks repeat an identity');
   }
   if (!canonicalEquals(ids, uniqueSorted(ids))) {
-    throw new Error(`Acceptance Coverage ${kind}s must be canonically ordered`);
+    throw new Error('Acceptance Coverage blocks must be canonically ordered');
   }
   return entries;
 }
 
 function validateUncoveredIds(
   value: unknown,
-  entries: readonly AcceptanceCoverageEntry[],
-  kind: 'block' | 'slot'
+  entries: readonly AcceptanceCoverageEntry[]
 ): string[] {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
-    throw new Error(`Acceptance Coverage uncovered ${kind}s must be an array`);
+    throw new Error('Acceptance Coverage uncovered blocks must be an array');
   }
   const ids = value as string[];
   const expected = entries.filter((entry) => entry.uncovered).map((entry) => entry.id);
   if (!canonicalEquals(ids, expected)) {
-    throw new Error(`Acceptance Coverage uncovered ${kind}s differ from coverage entries`);
+    throw new Error('Acceptance Coverage uncovered blocks differ from coverage entries');
   }
   return [...expected];
 }
@@ -113,19 +107,15 @@ export function validateAcceptanceCoverageReport(value: unknown): AcceptanceCove
     throw new Error('Acceptance Coverage report has an invalid status');
   }
   const acceptancePassed = canonicalAcceptanceIds(raw.acceptancePassed, 'Acceptance Coverage acceptancePassed');
-  const blocks = validateEntries(raw.blocks, 'block');
-  const slots = validateEntries(raw.slots, 'slot');
-  const uncoveredBlocks = validateUncoveredIds(raw.uncoveredBlocks, blocks, 'block');
-  const uncoveredSlots = validateUncoveredIds(raw.uncoveredSlots, slots, 'slot');
+  const blocks = validateEntries(raw.blocks);
+  const uncoveredBlocks = validateUncoveredIds(raw.uncoveredBlocks, blocks);
 
   return deepFreeze({
     formatVersion: ACCEPTANCE_COVERAGE_FORMAT_VERSION,
     status: raw.status as VerificationStatus,
     acceptancePassed,
     blocks,
-    slots,
-    uncoveredBlocks,
-    uncoveredSlots
+    uncoveredBlocks
   });
 }
 

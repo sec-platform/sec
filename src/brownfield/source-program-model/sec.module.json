@@ -11,6 +11,7 @@
         "createRepositoryCompilationCacheProvider",
         "compileVirtualWorkspaceSourceSnapshot",
         "compileWorkspaceTypeScriptProjectInput",
+        "issueWorkspaceTypeScriptProjectGenerationEvidence",
         "compileSourceProgramGraphCutReductionPlan",
         "compileSourceProgramImplementationDominance",
         "compileSourceProgramTestValue",

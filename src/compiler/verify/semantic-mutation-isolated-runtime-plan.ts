@@ -568,9 +568,7 @@ function assertCompilerPackageManifest(bytes: Uint8Array): void {
       throw new Error('Compiler package manifest is missing a runtime dependency');
     }
   }
-  for (const name of [
-    '@types/bun', '@types/node', 'ts-morph', 'typescript'
-  ]) {
+  for (const name of ['@types/bun', '@types/node', 'typescript']) {
     if (typeof (value.dependencies as Record<string, unknown>)[name] !== 'string' &&
       typeof (value.devDependencies as Record<string, unknown>)[name] !== 'string') {
       throw new Error('Compiler package manifest is missing a runtime development dependency');
@@ -744,7 +742,7 @@ async function captureRuntimeSourceSnapshot(
       ...dependencyFiles
     ];
 
-    const pending = ['ts-morph', 'typescript'];
+    const pending = ['typescript'];
     const seen = new Set<string>();
     while (pending.length > 0) {
       const moduleName = pending.shift()!;
@@ -1417,9 +1415,9 @@ async function revalidateRuntimeSourceSnapshot(
 function trimRuntimeSourceSnapshots(
   protectedKey: string
 ): void {
-  for (const [key, slot] of runtimeSourceSnapshots) {
+  for (const [key, entry] of runtimeSourceSnapshots) {
     if (runtimeSourceSnapshots.size <= MAX_RUNTIME_SOURCE_SNAPSHOTS) return;
-    if (key !== protectedKey && slot.flight === undefined) runtimeSourceSnapshots.delete(key);
+    if (key !== protectedKey && entry.flight === undefined) runtimeSourceSnapshots.delete(key);
   }
 }
 
@@ -1430,19 +1428,19 @@ async function getRuntimeSourceSnapshot(
 ): Promise<RuntimeSourceSnapshot> {
   const key = runtimeSourceSnapshotLookupKey(input);
   const authorityKey = runtimeSourceAuthorityKey(input.sources);
-  let slot = runtimeSourceSnapshots.get(key);
-  if (!slot) {
-    slot = { authorityKey, captures: 0, revalidations: 0 };
-    runtimeSourceSnapshots.set(key, slot);
+  let entry = runtimeSourceSnapshots.get(key);
+  if (!entry) {
+    entry = { authorityKey, captures: 0, revalidations: 0 };
+    runtimeSourceSnapshots.set(key, entry);
   } else {
-    if (slot.authorityKey !== authorityKey) {
+    if (entry.authorityKey !== authorityKey) {
       throw new Error('Semantic Mutation runtime snapshot cache authority key is inconsistent');
     }
     runtimeSourceSnapshots.delete(key);
-    runtimeSourceSnapshots.set(key, slot);
+    runtimeSourceSnapshots.set(key, entry);
   }
   trimRuntimeSourceSnapshots(key);
-  const sharedFlight = slot.flight;
+  const sharedFlight = entry.flight;
   if (sharedFlight) {
     return await withSemanticMutationIsolatedPhaseTelemetry(
       stagingWorkspaceRoot,
@@ -1450,14 +1448,14 @@ async function getRuntimeSourceSnapshot(
       async () => await sharedFlight
     );
   }
-  const activeSlot = slot;
+  const activeEntry = entry;
   const flight = (async () => {
-    const currentSnapshot = activeSlot.snapshot;
+    const currentSnapshot = activeEntry.snapshot;
     if (currentSnapshot) {
-      if (activeSlot.cacheKey !== runtimeSourceSnapshotCacheKey(input, currentSnapshot)) {
+      if (activeEntry.cacheKey !== runtimeSourceSnapshotCacheKey(input, currentSnapshot)) {
         throw new Error('Semantic Mutation runtime snapshot cache key is inconsistent');
       }
-      activeSlot.revalidations += 1;
+      activeEntry.revalidations += 1;
       if (await withSemanticMutationIsolatedPhaseTelemetry(
         stagingWorkspaceRoot,
         'source-snapshot-revalidate',
@@ -1466,31 +1464,31 @@ async function getRuntimeSourceSnapshot(
         return currentSnapshot;
       }
     }
-    activeSlot.captures += 1;
+    activeEntry.captures += 1;
     const captured = await withSemanticMutationIsolatedPhaseTelemetry(
       stagingWorkspaceRoot,
       'source-snapshot-capture',
       async () => await captureRuntimeSourceSnapshot(input, inspector)
     );
-    activeSlot.cacheKey = runtimeSourceSnapshotCacheKey(input, captured);
-    activeSlot.snapshot = captured;
+    activeEntry.cacheKey = runtimeSourceSnapshotCacheKey(input, captured);
+    activeEntry.snapshot = captured;
     return captured;
   })();
-  activeSlot.flight = flight;
+  activeEntry.flight = flight;
   try {
     const snapshot = await flight;
-    if (activeSlot.cacheKey !== runtimeSourceSnapshotCacheKey(input, snapshot)) {
+    if (activeEntry.cacheKey !== runtimeSourceSnapshotCacheKey(input, snapshot)) {
       throw new Error('Semantic Mutation runtime snapshot cache key is inconsistent');
     }
-    activeSlot.snapshot = snapshot;
+    activeEntry.snapshot = snapshot;
     return snapshot;
   } catch (error) {
-    if (runtimeSourceSnapshots.get(key) === activeSlot && activeSlot.flight === flight) {
+    if (runtimeSourceSnapshots.get(key) === activeEntry && activeEntry.flight === flight) {
       runtimeSourceSnapshots.delete(key);
     }
     throw error;
   } finally {
-    if (activeSlot.flight === flight) activeSlot.flight = undefined;
+    if (activeEntry.flight === flight) activeEntry.flight = undefined;
     trimRuntimeSourceSnapshots(key);
   }
 }

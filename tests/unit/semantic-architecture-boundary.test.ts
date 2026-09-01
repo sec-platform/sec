@@ -28,7 +28,6 @@ function inputFixture(): BuildEngineeringIRInput {
         pins: { inputs: [{ id: 'request', type: 'Request', required: true }], outputs: [] }
       }
     }],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: []
   };

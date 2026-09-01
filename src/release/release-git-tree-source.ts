@@ -504,7 +504,6 @@ export async function materializeExactReleaseGitTree(
         }
       }
       assertReleaseGitTreeOperationLive(operation, 'provider settlement');
-      await session.close?.();
       return Object.freeze({
         schema: EXACT_RELEASE_GIT_TREE_SCHEMA,
         root: sourceRoot,

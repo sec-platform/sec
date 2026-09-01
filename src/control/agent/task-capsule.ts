@@ -2,10 +2,10 @@ import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architec
 import { compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 
 export const SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA =
-  'sec-task-capsule-compile-request-v1' as const;
-export const SEC_TASK_CAPSULE_INPUT_SCHEMA = 'sec-task-capsule-input-v1' as const;
-export const SEC_TASK_CAPSULE_SCHEMA = 'sec-task-capsule-v1' as const;
-export const SEC_TASK_CAPSULE_REVISION = 'task-capsule-compiler-v1' as const;
+  'sec-task-capsule-compile-request-v2' as const;
+export const SEC_TASK_CAPSULE_INPUT_SCHEMA = 'sec-task-capsule-input-v2' as const;
+export const SEC_TASK_CAPSULE_SCHEMA = 'sec-task-capsule-v2' as const;
+export const SEC_TASK_CAPSULE_REVISION = 'task-capsule-compiler-v2' as const;
 export const SEC_TASK_CAPSULE_AUTHORITY_STATUS = 'unbound-planning-content' as const;
 
 /** Operation vocabulary is upstream execution identity, not Skill-owned guidance. */
@@ -54,7 +54,6 @@ export interface SecAgentOperationScopeProposal {
   readonly readPaths: readonly string[];
   readonly writePaths: readonly string[];
   readonly forbiddenPaths: readonly string[];
-  readonly availableCapabilities: readonly string[];
   readonly authorizedResources: readonly string[];
   readonly authorizedGates: readonly string[];
   readonly changedPaths: readonly string[];
@@ -118,13 +117,13 @@ const PLANNING_CONTEXT_KEYS = [
 ] as const;
 const OWNER_FACT_KEYS = ['id', 'ref', 'owner', 'revision'] as const;
 const SCOPE_KEYS = [
-  'readPaths', 'writePaths', 'forbiddenPaths', 'availableCapabilities',
+  'readPaths', 'writePaths', 'forbiddenPaths',
   'authorizedResources', 'authorizedGates', 'changedPaths'
 ] as const;
 const VERIFICATION_KEYS = ['id', 'revision', 'reasonCode'] as const;
 
 function fail(message: string): never {
-  throw new Error(`Task Capsule V1: ${message}`);
+  throw new Error(`Task Capsule: ${message}`);
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -279,10 +278,6 @@ function parseScopeProposal(value: unknown): SecAgentOperationScopeProposal {
     readPaths,
     writePaths,
     forbiddenPaths,
-    availableCapabilities: sortedUniqueStrings(
-      item.availableCapabilities,
-      'planningContext.scopeProposal.availableCapabilities'
-    ),
     authorizedResources: sortedUniqueStrings(
       item.authorizedResources,
       'planningContext.scopeProposal.authorizedResources'

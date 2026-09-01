@@ -7,6 +7,7 @@ import { canonicalJson } from '../../system-architecture/foundation/runtime/cano
 import { runCommandBytes } from '../physical/runtime/process.ts';
 import { generatedStateDomainProviderMaterialDigest } from './contract.ts';
 import {
+  assertGeneratedStateDisposalReceipt,
   assertGeneratedStateRetirementObservation,
   assertGeneratedStateWorktreeRetirementEffectStart,
   GeneratedStateProducerBindingBlockedError,
@@ -457,13 +458,79 @@ test('retirement observation distinguishes exact active, retired-present, settle
   await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'retirement-observation-retired');
   expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, expected)).status)
     .toBe('retired-present');
-  expect(await lifecycle.settleRetired(LIFECYCLE_FIXTURE_PATH, expected)).toBe(true);
+  const receipt = await lifecycle.disposed(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'retirement-observation-retired',
+    profile: 'automatic'
+  });
+  expect(() => assertGeneratedStateDisposalReceipt(receipt)).not.toThrow();
+  expect(() => assertGeneratedStateDisposalReceipt(structuredClone(receipt)))
+    .toThrow('was not issued by its owner');
+  expect(receipt).toMatchObject({ profile: 'automatic', terminal: 'disposed' });
   expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, expected)).status)
     .toBe('retired-domain-settled');
   expect((await lifecycle.observeRetirement(
     '.tmp/dependency-installs/c.staging-lifecycle-absent',
     undefined
   )).status).toBe('absent');
+});
+
+test('profile-bound disposal recovers its exact durable intent and issues one terminal receipt', async () => {
+  const { options, repositoryRoot } = await fixture();
+  await mkdir(fixtureRoot(repositoryRoot), { recursive: true });
+  await writeFile(path.join(fixtureRoot(repositoryRoot), 'cache.bin'), 'cache');
+  let interrupted = false;
+  const owner = generatedStateProducerHooks({ repositoryRoot }, {
+    ...options,
+    afterQuarantineEffect: () => {
+      if (!interrupted) {
+        interrupted = true;
+        throw new Error('fixture disposal interruption');
+      }
+    }
+  });
+  await owner.born(LIFECYCLE_FIXTURE_PATH, 'profile-bound-disposal-interruption');
+  await expect(owner.disposed(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'profile-bound-disposal',
+    profile: 'automatic'
+  })).rejects.toThrow('did not reach one terminal physical absence');
+
+  const resumed = generatedStateProducerHooks({ repositoryRoot }, options);
+  await expect(resumed.disposed(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'profile-bound-disposal-foreign',
+    profile: 'automatic'
+  })).rejects.toThrow('differs from the owner retirement');
+  const receipt = await resumed.disposed(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'profile-bound-disposal',
+    profile: 'automatic'
+  });
+  const repeated = await resumed.disposed(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'profile-bound-disposal',
+    profile: 'automatic'
+  });
+  expect(() => assertGeneratedStateDisposalReceipt(receipt)).not.toThrow();
+  expect(() => assertGeneratedStateDisposalReceipt(repeated)).not.toThrow();
+  expect(repeated).toEqual(receipt);
+  expect(receipt).toMatchObject({
+    profile: 'automatic',
+    relativePath: LIFECYCLE_FIXTURE_PATH,
+    terminal: 'disposed'
+  });
+  expect(await absent(fixtureRoot(repositoryRoot))).toBe(true);
+  expect((await resumed.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status)
+    .toBe('retired-domain-settled');
+});
+
+test('a cleanup profile outside the registry leaves the active generation unchanged', async () => {
+  const { options, repositoryRoot } = await fixture();
+  await mkdir(fixtureRoot(repositoryRoot), { recursive: true });
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
+  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'profile-mismatch-preserved');
+  await expect(lifecycle.disposed(LIFECYCLE_FIXTURE_PATH, {
+    outcome: 'profile-mismatch-preserved',
+    profile: 'all-rebuildable'
+  })).rejects.toThrow('disposal profile is not owned');
+  expect(await absent(fixtureRoot(repositoryRoot))).toBe(false);
+  expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH)).status).toBe('active');
 });
 
 test('a new caller cannot retire a registration it did not birth or adopt in its producer session', async () => {

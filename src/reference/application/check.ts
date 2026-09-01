@@ -1,5 +1,5 @@
 import { CompilerError } from '../../compiler/errors.ts';
-import { runCommand } from '../../runtime-state/physical/runtime/process.ts';
+import { runDevCommand } from '../../development/runner/command-runner.ts';
 import { compilerRoot } from '../../workspace/runtime/paths.ts';
 import {
   REFERENCE_TRACKED_DIFF_ARGS,
@@ -27,35 +27,25 @@ export type ReferenceCheckReport = {
   recommendedAction: string;
 };
 
-type ReferenceCommandRunner = typeof runCommand;
-
 function commandText(args: readonly string[]): string {
   return `git ${args.join(' ')}`;
 }
 
-export async function buildReferenceCheckReport(options: {
-  root?: string;
-  commandRunner?: ReferenceCommandRunner;
-} = {}): Promise<ReferenceCheckReport> {
-  const root = options.root ?? compilerRoot;
-  const commandRunner = options.commandRunner ?? runCommand;
-  const refreshArgs = ['run', 'reference:refresh'];
-  const refreshResult = await commandRunner('bun', refreshArgs, {
-    cwd: root
-  });
-  const drift = refreshResult.code === 0
-    ? await scanReferenceDrift(root)
-    : {
-        exitCode: -1,
-        trackedExitCode: -1,
-        untrackedExitCode: -1,
-        changedPaths: []
-      };
-  const status: ReferenceCheckStatus = refreshResult.code !== 0
+export function projectReferenceCheckReport(input: Readonly<{
+  root: string;
+  refreshExitCode: number;
+  drift: Readonly<{
+    exitCode: number;
+    trackedExitCode: number;
+    untrackedExitCode: number;
+    changedPaths: readonly string[];
+  }>;
+}>): ReferenceCheckReport {
+  const status: ReferenceCheckStatus = input.refreshExitCode !== 0
     ? 'refresh-failed'
-    : drift.exitCode === 0
+    : input.drift.exitCode === 0
       ? 'clean'
-      : drift.exitCode === 1
+      : input.drift.exitCode === 1
         ? 'drifted'
         : 'diff-failed';
   const failedStage: ReferenceCheckFailedStage = status === 'clean'
@@ -67,17 +57,17 @@ export async function buildReferenceCheckReport(options: {
   return {
     status,
     failedStage,
-    root,
+    root: input.root,
     runnerCommand: 'bun run reference:check',
     refreshCommand: 'bun run reference:refresh',
-    refreshExitCode: refreshResult.code,
+    refreshExitCode: input.refreshExitCode,
     diffCommand: commandText(REFERENCE_TRACKED_DIFF_ARGS),
-    diffExitCode: drift.exitCode,
-    trackedDiffExitCode: drift.trackedExitCode,
+    diffExitCode: input.drift.exitCode,
+    trackedDiffExitCode: input.drift.trackedExitCode,
     untrackedScanCommand: commandText(REFERENCE_UNTRACKED_SCAN_ARGS),
-    untrackedScanExitCode: drift.untrackedExitCode,
-    changedPathCount: drift.changedPaths.length,
-    changedPaths: drift.changedPaths,
+    untrackedScanExitCode: input.drift.untrackedExitCode,
+    changedPathCount: input.drift.changedPaths.length,
+    changedPaths: [...input.drift.changedPaths],
     recommendedAction:
       status === 'clean'
         ? 'none'
@@ -87,6 +77,27 @@ export async function buildReferenceCheckReport(options: {
             ? 'fix-reference-refresh-before-reference-check'
             : 'inspect-git-diff-command'
   };
+}
+
+export async function buildReferenceCheckReport(): Promise<ReferenceCheckReport> {
+  const refreshExitCode = await runDevCommand(
+    'bun',
+    ['run', 'reference:refresh'],
+    process.env
+  );
+  const drift = refreshExitCode === 0
+    ? await scanReferenceDrift(compilerRoot)
+    : {
+        exitCode: -1,
+        trackedExitCode: -1,
+        untrackedExitCode: -1,
+        changedPaths: []
+      };
+  return projectReferenceCheckReport({
+    root: compilerRoot,
+    refreshExitCode,
+    drift
+  });
 }
 
 export function formatReferenceCheck(report: ReferenceCheckReport, command: string): string {

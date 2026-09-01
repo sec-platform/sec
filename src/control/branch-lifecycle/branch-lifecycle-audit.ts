@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { assertGitBranchName } from '../../system-architecture/foundation/contract/git-reference.ts';
 import type {
   BranchAuditSeverity,
   BranchLifecycleAuditFinding,
@@ -14,6 +15,8 @@ import type {
   BranchWorktreeObservation,
   ClassifiedBranchLifecycle
 } from './branch-lifecycle-types.ts';
+
+export { assertGitBranchName };
 
 export const BRANCH_LIFECYCLE_SELECTION_PROJECTION_SCHEMA =
   'sec-branch-lifecycle-selection-projection-v1' as const;
@@ -88,30 +91,6 @@ export interface BranchLifecycleSelectionProjection {
 export function assertGitSha(value: string, label = 'Git SHA'): void {
   if (!/^[0-9a-f]{40}$/u.test(value)) {
     throw new Error(`${label} must be a lowercase 40-character Git SHA.`);
-  }
-}
-
-export function assertGitBranchName(value: string, label = 'Git branch'): void {
-  if (
-    value.length === 0
-    || value.length > 255
-    || value.trim() !== value
-    || value === '@'
-    || value.startsWith('-')
-    || value.startsWith('/')
-    || value.endsWith('/')
-    || value.endsWith('.')
-    || value.includes('..')
-    || value.includes('@{')
-    || value.includes('//')
-    || /[\u0000-\u0020\u007f~^:?*[\]\\]/u.test(value)
-    || value.split('/').some((segment) => (
-      segment.length === 0
-      || segment.startsWith('.')
-      || segment.endsWith('.lock')
-    ))
-  ) {
-    throw new Error(`${label} must be one bounded option-safe Git branch name.`);
   }
 }
 

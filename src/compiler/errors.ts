@@ -1,29 +1,17 @@
-export type CompilerErrorDetails =
-  | Record<string, unknown>
-  | string
-  | number
-  | boolean
-  | null
-  | unknown[];
+import {
+  SecError,
+  type SecErrorDetails
+} from '../system-architecture/foundation/contract/failure.ts';
 
-export class CompilerError extends Error {
-  public readonly code: string;
-  public readonly details: CompilerErrorDetails;
-
-  constructor(code: string, message: string, details: CompilerErrorDetails = {}) {
-    super(message);
-    this.name = 'CompilerError';
-    this.code = code;
-    this.details = details;
-  }
-}
+export { SecError as CompilerError };
+export type CompilerErrorDetails = SecErrorDetails;
 
 export function formatCompilerFailure(error: unknown): string {
   if (!(error instanceof Error)) {
     return String(error);
   }
 
-  if (error instanceof CompilerError && error.details) {
+  if (error instanceof SecError && error.details) {
     return `${error.stack ?? error.message}\n${JSON.stringify(error.details, null, 2)}`;
   }
 
@@ -47,5 +35,5 @@ export function getErrorCode(error: unknown): string | undefined {
  * to avoid redefining the same `fail` wrapper.
  */
 export function fail(code: string, message: string, details: CompilerErrorDetails = {}): never {
-  throw new CompilerError(code, message, details);
+  throw new SecError(code, message, details);
 }

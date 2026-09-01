@@ -4,9 +4,9 @@ import path from 'node:path';
 
 import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
-import { withSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { withBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('delete directory migrations remove project directories recursively', async () => {
@@ -34,7 +34,7 @@ test('delete directory migrations remove project directories recursively', async
 });
 
 test('upgrade rejects delete directory migrations when target is not a directory', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-delete-directory-file-target-',
       migration: {
@@ -56,7 +56,7 @@ test('upgrade rejects delete directory migrations when target is not a directory
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-026'
       });
     }
@@ -66,7 +66,7 @@ test('upgrade rejects delete directory migrations when target is not a directory
 test('copy file migrations copy manifest files', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
-    const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+    const versionRoot = path.join(privateRegistryRoot, 'private.block-upgrade', 'versions', '0.2.0');
 
     await writeJson(path.join(versionRoot, 'files', 'generated', 'reports', 'schema.json'), {
       schema: 'report-v2'
@@ -94,7 +94,7 @@ test('copy file migrations copy manifest files', async () => {
 });
 
 test('upgrade rejects copy file migrations when manifest source is not a file', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-copy-file-directory-source-',
       migration: {
@@ -117,7 +117,7 @@ test('upgrade rejects copy file migrations when manifest source is not a file', 
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-024'
       });
     }
@@ -127,7 +127,7 @@ test('upgrade rejects copy file migrations when manifest source is not a file', 
 test('copy directory migrations recursively copy manifest directories', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { privateRegistryRoot } = getWorkspacePaths(workspaceRoot);
-    const versionRoot = path.join(privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0');
+    const versionRoot = path.join(privateRegistryRoot, 'private.block-upgrade', 'versions', '0.2.0');
 
     await fs.mkdir(path.join(versionRoot, 'files', 'generated', 'reports', 'templates', 'nested'), {
       recursive: true
@@ -162,7 +162,7 @@ test('copy directory migrations recursively copy manifest directories', async ()
 });
 
 test('upgrade rejects copy directory migrations when manifest source is missing', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-copy-directory-missing-source-',
       migration: {
@@ -180,7 +180,7 @@ test('upgrade rejects copy directory migrations when manifest source is missing'
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-008'
       });
     }
@@ -188,7 +188,7 @@ test('upgrade rejects copy directory migrations when manifest source is missing'
 });
 
 test('upgrade rejects copy directory migrations when manifest source is not a directory', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-copy-directory-file-source-',
       migration: {
@@ -211,7 +211,7 @@ test('upgrade rejects copy directory migrations when manifest source is not a di
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-023'
       });
     }
@@ -219,7 +219,7 @@ test('upgrade rejects copy directory migrations when manifest source is not a di
 });
 
 test('upgrade rejects missing delete file targets before planning', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-delete-file-missing-',
       migration: {
@@ -236,7 +236,7 @@ test('upgrade rejects missing delete file targets before planning', async () => 
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-016'
       });
     }
@@ -244,7 +244,7 @@ test('upgrade rejects missing delete file targets before planning', async () => 
 });
 
 test('upgrade rejects occupied rename file targets before planning', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-rename-file-occupied-',
       migration: {
@@ -270,7 +270,7 @@ test('upgrade rejects occupied rename file targets before planning', async () =>
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-020'
       });
     }

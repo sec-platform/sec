@@ -4,15 +4,15 @@ import path from 'node:path';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
 import { ensureProjectDependencies } from '../../toolchain/dependencies/runtime.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import { copyRecursive } from '../../workspace/discovery.ts';
+import { ensureProjectBase } from '../../workspace/application/project-base.ts';
 import { pathExists, removeDir, writeJson, type CommitFence } from '../../workspace/files.ts';
 import { WorkspaceWriteLeaseError } from '../../workspace/lease.ts';
+import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import {
   getWorkspacePaths,
   isPathInside,
   resolveWorkspaceArtifactPath
-} from '../../workspace/paths.ts';
-import { ensureProjectBase } from '../../workspace/project.ts';
+} from '../../workspace/runtime/paths.ts';
 import { composeProject } from '../compose/compose-project.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError, formatCompilerFailure } from '../errors.ts';

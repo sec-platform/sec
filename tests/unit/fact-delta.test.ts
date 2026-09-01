@@ -29,7 +29,6 @@ function input(
       registryPath: 'registry'
     })),
     manifests: [],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: []
   };

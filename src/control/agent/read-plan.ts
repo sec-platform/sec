@@ -1,5 +1,6 @@
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
 import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { DocumentationClauseSelectionReference } from '../documentation/compiler.ts';
 import {
   isSecAgentSkillId,
   type SecAgentSkillId,
@@ -11,10 +12,10 @@ import {
   type SecTaskCapsule
 } from './task-capsule.ts';
 
-export const SEC_OPERATION_READ_PLAN_INPUT_SCHEMA = 'sec-operation-read-plan-input-v1' as const;
-export const SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA = 'sec-operation-read-closure-request-v1' as const;
-export const SEC_OPERATION_READ_PLAN_SCHEMA = 'sec-operation-read-plan-v1' as const;
-export const SEC_OPERATION_READ_PLAN_REVISION = 'operation-read-plan-compiler-v1' as const;
+export const SEC_OPERATION_READ_PLAN_INPUT_SCHEMA = 'sec-operation-read-plan-input-v2' as const;
+export const SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA = 'sec-operation-read-closure-request-v2' as const;
+export const SEC_OPERATION_READ_PLAN_SCHEMA = 'sec-operation-read-plan-v2' as const;
+export const SEC_OPERATION_READ_PLAN_REVISION = 'operation-read-plan-compiler-v2' as const;
 export const SEC_MAINTAINER_MUTATION_POLICY = 'current-physical-state-authoritative-v1' as const;
 export const SEC_PROTECTED_ROOT_POLICY = 'outside-candidate-write-authority-v1' as const;
 export const SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES = Object.freeze([
@@ -32,7 +33,10 @@ export interface SecOperationReadReference {
   readonly owner: string;
   readonly revision: string;
   readonly reasonCode: string;
+  readonly projection: SecOperationDocumentationProjection | null;
 }
+
+export type SecOperationDocumentationProjection = DocumentationClauseSelectionReference;
 
 export interface SecConditionalReadReference extends SecOperationReadReference {
   readonly frontierId: string;
@@ -111,8 +115,12 @@ const PLAN_KEYS = [
   'preApplicabilitySkillBodiesRead', 'maintainerMutationPolicy', 'protectedRootPolicy',
   'readPlanDigest'
 ] as const;
-const READ_REF_KEYS = ['id', 'ref', 'owner', 'revision', 'reasonCode'] as const;
+const READ_REF_KEYS = ['id', 'ref', 'owner', 'revision', 'reasonCode', 'projection'] as const;
 const CONDITIONAL_REF_KEYS = [...READ_REF_KEYS, 'frontierId'] as const;
+const DOCUMENTATION_PROJECTION_KEYS = [
+  'kind', 'compilerInputDigest', 'semanticGraphDigest', 'sourceDigest', 'selectionDigest', 'clauses'
+] as const;
+const DOCUMENTATION_CLAUSE_KEYS = ['clauseId', 'contentDigest', 'lineStart', 'lineEnd'] as const;
 const FRONTIER_KEYS = ['id', 'reasonCode', 'allowedRefIds'] as const;
 const RECEIPT_KEYS = ['refId', 'owner', 'revision', 'reasonCode', 'contentDigest'] as const;
 const INVALIDATION_KEYS = ['id', 'revision'] as const;
@@ -123,7 +131,7 @@ const CORE_INVALIDATION_IDS = [
 ] as const;
 
 function fail(message: string): never {
-  throw new Error(`Operation Read Plan V1: ${message}`);
+  throw new Error(`Operation Read Plan: ${message}`);
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -178,6 +186,53 @@ function sortedById<Value extends { readonly id: string }>(values: readonly Valu
   return [...values].sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
+function positiveInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) fail(`${label} must be one positive safe integer.`);
+  return value as number;
+}
+
+function parseDocumentationProjection(
+  value: unknown,
+  label: string
+): SecOperationDocumentationProjection | null {
+  if (value === null) return null;
+  const projection = record(value, label);
+  exactKeys(projection, DOCUMENTATION_PROJECTION_KEYS, label);
+  if (projection.kind !== 'markdown-clauses') fail(`${label}.kind is unsupported.`);
+  const clauses = array(projection.clauses, `${label}.clauses`).map((entry, index) => {
+    const clause = record(entry, `${label}.clauses[${index}]`);
+    exactKeys(clause, DOCUMENTATION_CLAUSE_KEYS, `${label}.clauses[${index}]`);
+    const lineStart = positiveInteger(clause.lineStart, `${label}.clauses[${index}].lineStart`);
+    const lineEnd = positiveInteger(clause.lineEnd, `${label}.clauses[${index}].lineEnd`);
+    if (lineEnd < lineStart) fail(`${label}.clauses[${index}] line range is reversed.`);
+    return {
+      clauseId: token(clause.clauseId, `${label}.clauses[${index}].clauseId`),
+      contentDigest: digest(clause.contentDigest, `${label}.clauses[${index}].contentDigest`),
+      lineStart,
+      lineEnd
+    };
+  });
+  if (clauses.length === 0) fail(`${label}.clauses must not be empty.`);
+  if (new Set(clauses.map(({ clauseId }) => clauseId)).size !== clauses.length) {
+    fail(`${label}.clauses contains a duplicate clauseId.`);
+  }
+  for (let index = 1; index < clauses.length; index += 1) {
+    if (clauses[index - 1]!.lineEnd >= clauses[index]!.lineStart) {
+      fail(`${label}.clauses must be ordered, non-overlapping source spans.`);
+    }
+  }
+  const withoutSelectionDigest = {
+    kind: 'markdown-clauses' as const,
+    compilerInputDigest: digest(projection.compilerInputDigest, `${label}.compilerInputDigest`),
+    semanticGraphDigest: digest(projection.semanticGraphDigest, `${label}.semanticGraphDigest`),
+    sourceDigest: digest(projection.sourceDigest, `${label}.sourceDigest`),
+    clauses
+  };
+  const selectionDigest = digest(projection.selectionDigest, `${label}.selectionDigest`);
+  if (selectionDigest !== sha256(withoutSelectionDigest)) fail(`${label}.selectionDigest mismatch.`);
+  return Object.freeze({ ...withoutSelectionDigest, selectionDigest });
+}
+
 function parseReadRefs(value: unknown, conditional: false): SecOperationReadReference[];
 function parseReadRefs(value: unknown, conditional: true): SecConditionalReadReference[];
 function parseReadRefs(
@@ -193,7 +248,8 @@ function parseReadRefs(
       ref: text(item.ref, `${label}[${index}].ref`),
       owner: token(item.owner, `${label}[${index}].owner`),
       revision: text(item.revision, `${label}[${index}].revision`),
-      reasonCode: token(item.reasonCode, `${label}[${index}].reasonCode`)
+      reasonCode: token(item.reasonCode, `${label}[${index}].reasonCode`),
+      projection: parseDocumentationProjection(item.projection, `${label}[${index}].projection`)
     };
     return conditional
       ? { ...common, frontierId: token(item.frontierId, `${label}[${index}].frontierId`) }
@@ -411,11 +467,6 @@ export function projectSecSkillEnvelopeFromOperationReadPlan(
     taskCapsuleDigest: verified.taskCapsule.digest,
     taskCapsuleRevision: verified.taskCapsule.revision,
     candidates,
-    availableCapabilities: planningContext.scopeProposal.availableCapabilities,
-    authorizedResources: planningContext.scopeProposal.authorizedResources,
-    authorizedGates: planningContext.scopeProposal.authorizedGates,
-    authorizedWritePaths: planningContext.scopeProposal.writePaths,
-    forbiddenPaths: planningContext.scopeProposal.forbiddenPaths,
     changedPaths: planningContext.scopeProposal.changedPaths
   });
 }

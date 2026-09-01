@@ -17,6 +17,9 @@ import {
   openContainerEngineSession
 } from '../../../external-capabilities/docker/runtime/container-engine-session.ts';
 import {
+  openWindowsDockerCommandProvider
+} from '../../../external-capabilities/docker/runtime/windows-command-provider.ts';
+import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST
 } from '../../../external-capabilities/linux-verification/contract.ts';
@@ -24,7 +27,6 @@ import {
   compileEnvironmentMaterializationPlan,
   createEnvironmentMaterializationSpec
 } from '../../../external-capabilities/linux-verification/materialization.ts';
-import { resolveWindowsControlCliSession, type WindowsControlCliSessionRequest, type WindowsControlCliSessionResolution, type WindowsControlCliSessionResolutionReason } from '../../../external-capabilities/windows-control-cli/runtime/session.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
@@ -174,11 +176,13 @@ function bindLocalContainerEngineOperation(input: LocalContainerEngineOperationI
     requirements: [{
       id: 'external.container-engine-process',
       contractDigest,
-      effectKinds: ['process'],
+      effectKinds: ['filesystem', 'process', 'provider'],
       failureKinds: [
         'container-engine.admission-failed',
+        'container-engine.desktop-launcher-path-unavailable',
         'container-engine.endpoint-unavailable',
-        'container-engine.process-settlement-failed'
+        'container-engine.process-settlement-failed',
+        'container-engine.runtime-endpoint-residue'
       ]
     }],
     attempt: issueSecSemanticOperationAttemptContext({
@@ -205,18 +209,15 @@ async function openLocalContainerEngineSession(
   input: LocalContainerEngineOperationInput
 ): Promise<LocalContainerEngineOperationSession> {
   const cwd = path.resolve(input.cwd);
+  const commandProvider = await openWindowsDockerCommandProvider({ workingDirectory: cwd });
   const resourceEnvelope = bindLocalContainerEngineOperation({
     ...input,
     cwd,
-    providerIdentityDigest: sha256(Object.freeze({
-      schema: 'sec-local-github-actions-container-engine-resource-envelope-v1',
-      environmentId: ENVIRONMENT.environmentId,
-      cwd,
-      intent: input.intent
-    })) as SecOperationDigest
+    providerIdentityDigest: commandProvider.providerIdentityDigest
   });
   const session = await openContainerEngineSession({
     operation: resourceEnvelope,
+    provider: commandProvider,
     cwd,
     availability: input.availability,
     ...(input.expectedEndpoint === undefined ? {} : {
@@ -402,15 +403,9 @@ interface CommandResult {
 export type LocalGitHubActionsRunnerCommandKind = 'read' | 'effect';
 
 export type LocalGitHubActionsRunnerCommandFailureReason =
-  | WindowsControlCliSessionResolutionReason
-  | 'effect-authority-unavailable'
-  | 'credential-binding-unavailable'
-  | 'stdin-binding-unavailable'
-  | 'progress-binding-unavailable';
+  'semantic-session-unavailable';
 
-export type LocalGitHubActionsRunnerCommandProviderStatus =
-  | Exclude<WindowsControlCliSessionResolution, { status: 'ready' }>['status']
-  | 'ready';
+export type LocalGitHubActionsRunnerCommandProviderStatus = 'unavailable';
 
 /**
  * A command can be physically executable and still be inadmissible for this
@@ -423,7 +418,6 @@ export class LocalGitHubActionsRunnerCommandFailure extends Error {
   readonly command: 'gh' | 'git';
   readonly kind: LocalGitHubActionsRunnerCommandKind;
   readonly providerStatus: LocalGitHubActionsRunnerCommandProviderStatus;
-  readonly providerReason: WindowsControlCliSessionResolutionReason | null;
   readonly reason: LocalGitHubActionsRunnerCommandFailureReason;
   readonly detailDigest: `sha256:${string}`;
 
@@ -431,24 +425,21 @@ export class LocalGitHubActionsRunnerCommandFailure extends Error {
     command: 'gh' | 'git';
     kind: LocalGitHubActionsRunnerCommandKind;
     providerStatus: LocalGitHubActionsRunnerCommandProviderStatus;
-    providerReason?: WindowsControlCliSessionResolutionReason | null;
     reason: LocalGitHubActionsRunnerCommandFailureReason;
   }>) {
     super(
       `Local GitHub Actions runner: ${input.command} ${input.kind} command is blocked: ${input.reason}`
     );
-    this.name = 'LocalGitHubActionsRunnerCommandFailureV1';
+    this.name = 'LocalGitHubActionsRunnerCommandFailure';
     this.command = input.command;
     this.kind = input.kind;
     this.providerStatus = input.providerStatus;
-    this.providerReason = input.providerReason ?? null;
     this.reason = input.reason;
     this.detailDigest = sha256({
       code: this.code,
       command: this.command,
       kind: this.kind,
       providerStatus: this.providerStatus,
-      providerReason: this.providerReason,
       reason: this.reason
     }) as `sha256:${string}`;
   }
@@ -499,42 +490,6 @@ export function classifyLocalGitHubActionsRunnerCommandV1(
   return 'effect';
 }
 
-const LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_ARGUMENT_BYTES = 16 * 1024 * 1024;
-const LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_ROOT_BYTES = 256 * 1024 * 1024;
-const LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_RECORDS = 100_000;
-const LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_REOPEN_REFRESHES = 10_000;
-
-function createWindowsControlCliSessionRequest(
-  cwd: string,
-  timeoutMs: number
-): WindowsControlCliSessionRequest {
-  // These are consumer ceilings, not a second provider authority. They mirror
-  // the bounded maxima of windows-control-cli-session and leave one command
-  // slot for each of the provider's two version probes plus the requested read.
-  return Object.freeze({
-    workingDirectoryPathHint: cwd,
-    deadlineAtUnixMs: Date.now() + timeoutMs,
-    maxCommandsPerSession: 3,
-    maxTotalArgumentBytes: LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_ARGUMENT_BYTES,
-    maxTotalOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
-    maxRootObservedBytes: LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_ROOT_BYTES,
-    maxExecutableObservedBytes: LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_ROOT_BYTES,
-    maxRecords: LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_RECORDS,
-    maxReopenRefreshes: LOCAL_GITHUB_ACTIONS_RUNNER_WINDOWS_SESSION_MAX_REOPEN_REFRESHES,
-    maxSettlementAttempts: 3
-  });
-}
-
-function windowsControlCliFailureReasonV1(error: unknown): WindowsControlCliSessionResolutionReason {
-  const reason = error !== null && typeof error === 'object'
-    ? (error as { readonly reason?: unknown }).reason
-    : undefined;
-  if (typeof reason === 'string' && reason.length > 0) {
-    return reason as WindowsControlCliSessionResolutionReason;
-  }
-  return 'retained-capability-unavailable';
-}
-
 async function runWindowsControlCliCommand(
   command: 'gh' | 'git',
   args: readonly string[],
@@ -549,15 +504,11 @@ async function runWindowsControlCliCommand(
   }>
 ): Promise<CommandResult> {
   const kind = classifyLocalGitHubActionsRunnerCommandV1(command, args, options.input !== undefined);
-  const resolution = resolveWindowsControlCliSession(
-    createWindowsControlCliSessionRequest(options.cwd, options.timeoutMs)
-  );
   throw new LocalGitHubActionsRunnerCommandFailure({
     command,
     kind,
-    providerStatus: resolution.status,
-    providerReason: resolution.reason,
-    reason: resolution.reason
+    providerStatus: 'unavailable',
+    reason: 'semantic-session-unavailable'
   });
 }
 
@@ -3739,7 +3690,9 @@ export async function recoverLocalGitHubActionsProvider(input: Readonly<{
   }
 }
 
-export async function observeLocalGitHubActionsProvider(input: Readonly<{ cwd: string }>) {
+export async function observeLocalGitHubActionsProvider(input: Readonly<{
+  cwd: string;
+}>) {
   const context = await resolveRepositoryContext(input.cwd);
   const repository = await assertOriginRepositoryIdentity(context.repositoryRoot);
   const projection = readStateProjection(context.commonDirectory);

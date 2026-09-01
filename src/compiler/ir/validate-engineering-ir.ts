@@ -51,9 +51,6 @@ function entityIdMatchesKind(entity: SemanticEntity): boolean {
   if (entity.kind === 'port') {
     return /^port:.+:(?:input|output):.+$/.test(entity.id);
   }
-  if (entity.kind === 'slot') {
-    return /^slot:.+:.+$/.test(entity.id);
-  }
   if (entity.kind === 'field') {
     return /^field:[^:]+:.+\..+$/.test(entity.id);
   }

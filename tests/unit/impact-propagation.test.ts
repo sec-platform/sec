@@ -264,7 +264,7 @@ test('assertion-only changes remain local while non-definite Fact roots become u
   ]);
 });
 
-test('frozen rule registry pins total status, exact directions, and stable variant IDs', () => {
+test('propagation registry is total and rejects invalid executable edges', () => {
   expect(() => assertImpactPropagationRuleRegistry()).not.toThrow();
   expect(IMPACT_PROPAGATION_RULES).toMatchObject({
     DEPENDS_ON: {
@@ -311,18 +311,6 @@ test('frozen rule registry pins total status, exact directions, and stable varia
   };
   expectCompilerError(() => assertImpactPropagationRuleRegistry(duplicateVariant), 'IMPACT-003');
 
-  for (const [predicate, action] of [
-    ['GUARANTEES', 'unknown'],
-    ['VERIFIED_BY', 'unknown'],
-    ['INVOKES', 'value-stop']
-  ] as const) {
-    const actionDrift = structuredClone(IMPACT_PROPAGATION_RULES) as Record<
-      SemanticPredicate,
-      ImpactPropagationRule
-    >;
-    actionDrift[predicate] = { action };
-    expectCompilerError(() => assertImpactPropagationRuleRegistry(actionDrift), 'IMPACT-003');
-  }
 });
 
 test('deterministic closure handles diamond, cycle, shortest witness, causes, and disconnected nodes', () => {

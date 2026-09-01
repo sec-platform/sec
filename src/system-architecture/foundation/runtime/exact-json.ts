@@ -1,7 +1,18 @@
 import { SecError } from '../contract/failure.ts';
 import { isPlainObject } from './canonical.ts';
 
-export type ExactJsonFailureKind = 'duplicate-key' | 'invalid-json';
+export type ExactJsonFailureKind =
+  | 'depth-limit'
+  | 'duplicate-key'
+  | 'input-too-large'
+  | 'invalid-json'
+  | 'invalid-utf8';
+
+export interface ExactJsonBytesAdmission {
+  readonly maximumInputBytes: number;
+  /** Maximum nested object/array containers, counting the root container as one. */
+  readonly maximumDepth: number;
+}
 
 export interface ExactJsonContract {
   /** Exact root-object field set. Nested shape remains owned by the domain decoder. */
@@ -28,10 +39,15 @@ export class ExactJsonError extends SecError {
 export function parseExactJson(
   source: string,
   label = 'JSON document',
-  contract?: ExactJsonContract
+  contract?: ExactJsonContract,
+  maximumDepth?: number
 ): unknown {
   if (typeof source !== 'string') {
     throw new ExactJsonError('invalid-json', `${label} must be UTF-8 text`, 0);
+  }
+  if (maximumDepth !== undefined &&
+    (!Number.isSafeInteger(maximumDepth) || maximumDepth <= 0)) {
+    throw new TypeError(`${label} maximumDepth must be one positive safe integer`);
   }
   let offset = 0;
 
@@ -76,15 +92,21 @@ export function parseExactJson(
       return fail('invalid-json', `has an invalid object key at offset ${tokenOffset}`, error);
     }
   };
-  const readValue = (): void => {
+  const readValue = (containerDepth: number): void => {
     skipWhitespace();
     const character = source[offset];
     if (character === '{') {
-      readObject();
+      if (maximumDepth !== undefined && containerDepth >= maximumDepth) {
+        fail('depth-limit', `exceeds its maximum container depth of ${maximumDepth}`);
+      }
+      readObject(containerDepth + 1);
       return;
     }
     if (character === '[') {
-      readArray();
+      if (maximumDepth !== undefined && containerDepth >= maximumDepth) {
+        fail('depth-limit', `exceeds its maximum container depth of ${maximumDepth}`);
+      }
+      readArray(containerDepth + 1);
       return;
     }
     if (character === '"') {
@@ -96,7 +118,7 @@ export function parseExactJson(
     while (offset < source.length && !/[\u0009\u000A\u000D\u0020,\]}]/u.test(source[offset]!)) offset += 1;
     if (start === offset) fail('invalid-json', `expected a value at offset ${offset}`);
   };
-  const readObject = (): void => {
+  const readObject = (containerDepth: number): void => {
     offset += 1;
     skipWhitespace();
     const keys = new Set<string>();
@@ -114,7 +136,7 @@ export function parseExactJson(
       skipWhitespace();
       if (source[offset] !== ':') fail('invalid-json', `expected ':' at offset ${offset}`);
       offset += 1;
-      readValue();
+      readValue(containerDepth);
       skipWhitespace();
       if (source[offset] === '}') {
         offset += 1;
@@ -127,7 +149,7 @@ export function parseExactJson(
     }
     fail('invalid-json', 'has an unterminated object');
   };
-  const readArray = (): void => {
+  const readArray = (containerDepth: number): void => {
     offset += 1;
     skipWhitespace();
     if (source[offset] === ']') {
@@ -135,7 +157,7 @@ export function parseExactJson(
       return;
     }
     while (offset < source.length) {
-      readValue();
+      readValue(containerDepth);
       skipWhitespace();
       if (source[offset] === ']') {
         offset += 1;
@@ -149,7 +171,7 @@ export function parseExactJson(
     fail('invalid-json', 'has an unterminated array');
   };
 
-  readValue();
+  readValue(0);
   skipWhitespace();
   if (offset !== source.length) fail('invalid-json', `contains trailing data at offset ${offset}`);
   let value: unknown;
@@ -182,4 +204,46 @@ export function parseExactJson(
     }
   }
   return value;
+}
+
+/**
+ * Admits one bounded byte document before JSON syntax or domain validation.
+ * The caller/domain owns the concrete resource limits and semantic schema.
+ */
+export function parseExactJsonBytes(
+  bytes: Uint8Array,
+  label: string,
+  admission: ExactJsonBytesAdmission,
+  contract?: ExactJsonContract
+): unknown {
+  if (!(bytes instanceof Uint8Array)) {
+    throw new TypeError(`${label} bytes must be one Uint8Array`);
+  }
+  if (!Number.isSafeInteger(admission.maximumInputBytes) || admission.maximumInputBytes <= 0) {
+    throw new TypeError(`${label} maximumInputBytes must be one positive safe integer`);
+  }
+  if (!Number.isSafeInteger(admission.maximumDepth) || admission.maximumDepth <= 0) {
+    throw new TypeError(`${label} maximumDepth must be one positive safe integer`);
+  }
+  if (bytes.byteLength > admission.maximumInputBytes) {
+    throw new ExactJsonError(
+      'input-too-large',
+      `${label} exceeds its maximum input size of ${admission.maximumInputBytes} bytes`,
+      0
+    );
+  }
+
+  let source: string;
+  try {
+    // Preserve a leading BOM in the decoded source so JSON syntax rejects it.
+    source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch (error) {
+    throw new ExactJsonError(
+      'invalid-utf8',
+      `${label} is not exact UTF-8`,
+      0,
+      { cause: error }
+    );
+  }
+  return parseExactJson(source, label, contract, admission.maximumDepth);
 }

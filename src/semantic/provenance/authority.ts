@@ -25,7 +25,7 @@ const ARTIFACT_KEYS = new Set([
   'overrideStatus',
   'hash'
 ]);
-const ORIGIN_TYPES = new Set(['block', 'slot', 'generated', 'override']);
+const ORIGIN_TYPES = new Set(['block', 'generated', 'override']);
 const OVERRIDE_STATUSES = new Set(['none', 'manual', 'rule-backed']);
 const REGISTRY_KINDS = new Set(['official', 'private', 'community']);
 const REGISTRY_LOCATIONS = new Set(['compiler', 'workspace']);

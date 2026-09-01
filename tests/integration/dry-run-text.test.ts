@@ -2,10 +2,10 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { runPlannedSlotUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
+import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records text append migration impacts', async () => {
-  const upgradePlan = await runPlannedSlotUpgradeDryRun({
+  const upgradePlan = await runPlannedBlockUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-text-append-plan-',
     migration: {
       id: 'mig-upgrade-notes',
@@ -30,7 +30,7 @@ test('upgrade dry-run records text append migration impacts', async () => {
 });
 
 test('upgrade dry-run records literal text replace migration impacts', async () => {
-  const upgradePlan = await runPlannedSlotUpgradeDryRun({
+  const upgradePlan = await runPlannedBlockUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-text-replace-plan-',
     migration: {
       id: 'mig-upgrade-notes-literal',
@@ -69,7 +69,7 @@ test('upgrade dry-run records literal text replace migration impacts', async () 
 });
 
 test('upgrade dry-run records text replace regex migration impacts', async () => {
-  const upgradePlan = await runPlannedSlotUpgradeDryRun({
+  const upgradePlan = await runPlannedBlockUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-text-regex-plan-',
     migration: {
       id: 'mig-upgrade-notes-regex',

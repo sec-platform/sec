@@ -1,17 +1,17 @@
 import { expect } from 'bun:test';
 
-import type { UpgradePlan } from '../../src/change-management/upgrade/contract/types.ts';
+import type { UpgradePreview } from '../../src/change-management/upgrade/contract/upgrade-artifact.ts';
 import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
-import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { prepareBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
 
-type SlotUpgradeDryRunOptions = Parameters<typeof prepareSlotUpgradeDryRunFixture>[0];
+type BlockUpgradeDryRunOptions = Parameters<typeof prepareBlockUpgradeDryRunFixture>[0];
 
-export async function runPlannedSlotUpgradeDryRun(options: SlotUpgradeDryRunOptions): Promise<UpgradePlan> {
-  const { beforePlan, paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture(options);
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
+export async function runPlannedBlockUpgradeDryRun(options: BlockUpgradeDryRunOptions): Promise<UpgradePreview> {
+  const { beforePlan, paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture(options);
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true });
 
-  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.artifactKind).toBe('unbound-upgrade-preview');
   await expectFileUnchanged(paths.workspaceConfigPath, beforePlan);
   return upgradePlan;
 }

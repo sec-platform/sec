@@ -1,0 +1,10 @@
+export interface TenantSession {
+  readonly tenantId: string;
+}
+
+export function currentTenant(session: TenantSession): string {
+  if (!session.tenantId) {
+    throw new Error('Tenant context is required');
+  }
+  return session.tenantId;
+}

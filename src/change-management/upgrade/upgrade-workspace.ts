@@ -1,9 +1,9 @@
+import type { Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import semver from 'semver';
 import type {
-  LockFile, ManifestSlot,
+  LockFile,
   PlanFile,
   UpgradeMigration
 } from '../../compiler/contract.ts';
@@ -14,33 +14,44 @@ import { compileWorkspace } from '../../compiler/orchestration/pipeline-orchestr
 import { loadManifestById } from '../../compiler/parse/load-manifest.ts';
 import { loadOverrideManifest } from '../../compiler/parse/load-override-manifest.ts';
 import { loadWorkspacePlan } from '../../compiler/parse/load-plan.ts';
+import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import { copyRecursive } from '../../workspace/discovery.ts';
 import { ensureDir, isFileNotFoundError, pathExists, readJson, readOptionalJson, removeDir, writeJson, type CommitFence } from '../../workspace/files.ts';
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
+import { copyRecursive } from '../../workspace/runtime/discovery.ts';
 import {
   getWorkspacePaths,
   resolvePathInside,
   resolveWorkspaceArtifactPath,
   resolveWorkspaceLockPath,
   secRelativePath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
+import { withProjectWriteAuthorization } from '../../workspace/runtime/project-write-authorization.ts';
 import { writeYaml } from '../../workspace/yaml.ts';
 import type { UpgradeMigrationEntry } from './contract/manifest-types.ts';
 import {
+  createUpgradeExecutionAttempt,
+  createUpgradeExecutionTerminal,
+  createUpgradePlan,
+  createUpgradePreview,
+  parseUpgradeExecutionTerminalJson,
+  parseUpgradePlanJson,
+  requireUpgradeDigest,
   UPGRADE_DIAGNOSTICS_FORMAT_VERSION,
-  UPGRADE_PLAN_FORMAT_VERSION,
+  upgradeArtifactDigest,
   validateUpgradeDiagnostics,
-  validateUpgradePlan,
   type UpgradeDiagnostics,
+  type UpgradeExecutionTerminal,
   type UpgradePlan,
-  type UpgradePreflightCheck
-} from './contract/types.ts';
+  type UpgradePreflightCheck,
+  type UpgradePreview
+} from './contract/upgrade-artifact.ts';
 
 function matchesUpgradeRange(version: string, range: string): boolean {
-  const supportedRange = semver.valid(range) === range || /^\d+\.\d+\.x$/.test(range);
-  return supportedRange && semver.satisfies(version, range);
+  const supportedRange = isCanonicalRegistryVersion(range) || /^\d+\.\d+\.x$/u.test(range);
+  return supportedRange && Bun.semver.satisfies(version, range);
 }
 
 function migrationManifestDetails(migration: UpgradeMigration): Record<string, unknown> {
@@ -202,22 +213,6 @@ function validateTextReplaceRegexMigrationEntry({
   ensureMigrationString(entry.replacement, 'replacement', entryPath);
   if (entry.flags !== undefined) {
     ensureMigrationString(entry.flags, 'flags', entryPath);
-  }
-}
-
-function validateSlotContractMigrationEntry({
-  entry,
-  entryPath
-}: MigrationEntryValidationContext<'slot-contract-update'>): void {
-  ensureMigrationString(entry.slotId, 'slotId', entryPath);
-  if (entry.inputType !== undefined) {
-    ensureMigrationString(entry.inputType, 'inputType', entryPath);
-  }
-  if (entry.outputType !== undefined) {
-    ensureMigrationString(entry.outputType, 'outputType', entryPath);
-  }
-  if (entry.writableZones !== undefined) {
-    ensureMigrationStringArray(entry.writableZones, 'writableZones', entryPath);
   }
 }
 
@@ -542,8 +537,7 @@ function migrationErrorDetails(entry: UpgradeMigrationEntry): Record<string, unk
     migrationId: entry.id,
     migrationKind: entry.kind,
     target: entry.target,
-    ...('source' in entry ? { source: entry.source } : {}),
-    ...('slotId' in entry ? { slotId: entry.slotId } : {})
+    ...('source' in entry ? { source: entry.source } : {})
   };
 }
 
@@ -850,7 +844,7 @@ async function collectMigrationTargetEvidence(
   return uniqueSorted(evidence);
 }
 
-type MigrationPathStats = Awaited<ReturnType<typeof fs.stat>>;
+type MigrationPathStats = Stats;
 
 async function statOptionalMigrationPath(targetPath: string): Promise<MigrationPathStats | null> {
   try {
@@ -882,7 +876,6 @@ async function statFileMigrationTarget(
     | 'text-replace'
     | 'text-replace-regex'
     | 'text-append'
-    | 'slot-contract-update'
     | 'db-expand-contract' = 'delete-file',
   options: { allowMissing?: boolean } = {}
 ): Promise<'file' | 'missing'> {
@@ -1221,18 +1214,6 @@ const migrationOperationSpecs = {
   'delete-directory': createDeleteMigrationSpec<'delete-directory'>('directory', removeDirectoryMigrationTarget, statDirectoryMigrationTarget),
   'rename-file': createRenameMigrationSpec<'rename-file'>('file', 'Rename-file', statRenameMigrationSource),
   'rename-directory': createRenameMigrationSpec<'rename-directory'>('directory', 'Rename-directory', statRenameDirectoryMigrationSource),
-  'slot-contract-update': {
-    validate: validateSlotContractMigrationEntry,
-    apply: async ({ entry, targetPath }) => {
-      await statFileMigrationTarget(targetPath, entry.target, entry.kind);
-    },
-    buildOperation: (entry) => buildMigrationOperationRecord(entry, 'slot', {
-      slotId: entry.slotId,
-      ...(entry.inputType ? { inputType: entry.inputType } : {}),
-      ...(entry.outputType ? { outputType: entry.outputType } : {}),
-      ...(entry.writableZones ? { writableZones: [...entry.writableZones] } : {})
-    })
-  },
   'db-expand-contract': {
     validate: validateDbExpandContractMigrationEntry,
     apply: applyDbExpandContractMigration,
@@ -1275,77 +1256,6 @@ function collectJsonShapeEvidence(migrationEntries: UpgradeMigrationEntry[]): st
       : operation.valueKeyCount !== undefined && path ? [`${entry.id}:path:${path}:object:${operation.valueKeyCount}`]
       : [];
   }));
-}
-
-function ensureSlotContractValue(
-  migrationId: string,
-  field: 'inputType' | 'outputType',
-  expected: string | undefined,
-  actual: string | undefined
-): string[] {
-  if (expected === undefined) {
-    return [];
-  }
-  if (actual !== expected) {
-    throw new CompilerError(
-      'UPGRADE-MIGRATION-021',
-      `Slot contract migration "${migrationId}" ${field} does not match target manifest slot`
-    );
-  }
-  return [`${migrationId}:${field}:${actual}`];
-}
-
-function ensureSlotWritableZones(
-  migrationId: string,
-  expected: string[] | undefined,
-  actual: string[] | undefined
-): string[] {
-  if (expected === undefined) {
-    return [];
-  }
-  const actualZones = actual ?? [];
-  if (
-    expected.length !== actualZones.length ||
-    expected.some((zone, index) => zone !== actualZones[index])
-  ) {
-    throw new CompilerError(
-      'UPGRADE-MIGRATION-022',
-      `Slot contract migration "${migrationId}" writableZones do not match target manifest slot`
-    );
-  }
-  return [`${migrationId}:writableZones:${actualZones.join(',')}`];
-}
-
-function collectSlotContractEvidence(
-  targetSlots: ManifestSlot[],
-  migrationEntries: UpgradeMigrationEntry[]
-): string[] {
-  const slotsById = new Map(targetSlots.map((slot) => [slot.id, slot]));
-  const evidence: string[] = [];
-  for (const entry of migrationEntries) {
-    if (entry.kind !== 'slot-contract-update') {
-      continue;
-    }
-    const slot = slotsById.get(entry.slotId);
-    if (!slot) {
-      throw new CompilerError(
-        'UPGRADE-MIGRATION-021',
-        `Slot contract migration "${entry.id}" references missing target slot "${entry.slotId}"`
-      );
-    }
-    if (slot.target !== entry.target) {
-      throw new CompilerError(
-        'UPGRADE-MIGRATION-021',
-        `Slot contract migration "${entry.id}" target does not match target manifest slot`
-      );
-    }
-    evidence.push(`${entry.id}:slot:${entry.slotId}`);
-    evidence.push(`${entry.id}:target:${slot.target}`);
-    evidence.push(...ensureSlotContractValue(entry.id, 'inputType', entry.inputType, slot.inputType));
-    evidence.push(...ensureSlotContractValue(entry.id, 'outputType', entry.outputType, slot.outputType));
-    evidence.push(...ensureSlotWritableZones(entry.id, entry.writableZones, slot.writableZones));
-  }
-  return uniqueSorted(evidence);
 }
 
 function isJsonMigrationEntry(entry: UpgradeMigrationEntry): entry is Extract<
@@ -1476,7 +1386,6 @@ type UpgradePreflightEvidence = {
   jsonStructureEvidence: string[];
   migrationTargetEvidence: string[];
   scannedOverrides: string[];
-  slotContractEvidence: string[];
   textPatternEvidence: string[];
 };
 
@@ -1533,11 +1442,6 @@ const UPGRADE_PREFLIGHT_CHECK_SPECS = [
     evidence: ({ evidence }) => evidence.textPatternEvidence
   },
   {
-    id: 'migration-slot-contracts',
-    message: ({ evidence }) => `${evidence.slotContractEvidence.length} slot contract fields checked`,
-    evidence: ({ evidence }) => evidence.slotContractEvidence
-  },
-  {
     id: 'impact-scan',
     message: ({ impacts }) => `${impacts.length} upgrade impacts calculated`,
     evidence: ({ impacts }) => impacts
@@ -1573,7 +1477,6 @@ type UpgradePreflightEvidenceOptions = {
   impacts: string[];
   migrationEntries: UpgradeMigrationEntry[];
   targetManifestRoot: string;
-  targetSlots: ManifestSlot[];
   workspaceRoot: string;
 };
 
@@ -1585,7 +1488,6 @@ async function collectUpgradePreflightEvidence(
     impacts,
     migrationEntries,
     targetManifestRoot,
-    targetSlots,
     workspaceRoot
   } = options;
 
@@ -1595,7 +1497,6 @@ async function collectUpgradePreflightEvidence(
     jsonShapeEvidence: collectJsonShapeEvidence(migrationEntries),
     jsonStructureEvidence: await collectJsonStructureEvidence(workspaceRoot, migrationEntries),
     textPatternEvidence: await collectTextPatternEvidence(workspaceRoot, migrationEntries),
-    slotContractEvidence: collectSlotContractEvidence(targetSlots, migrationEntries),
     scannedOverrides: await detectOverrideConflicts(workspaceRoot, blockId, impacts)
   };
 }
@@ -1603,6 +1504,7 @@ async function collectUpgradePreflightEvidence(
 type UpgradePlanningOptions = {
   blockId: string;
   currentBlock: PlanFile['blocks'][number] | undefined;
+  lock: LockFile | null;
   plan: PlanFile;
   targetVersion: string;
   workspaceRoot: string;
@@ -1613,11 +1515,25 @@ type PlannedWorkspaceUpgrade = {
   impacts: string[];
   migrationEntries: UpgradeMigrationEntry[];
   targetManifestRoot: string;
-  upgradePlan: UpgradePlan;
+  upgradePreview: UpgradePreview;
 };
 
+function lockStateRevision(lock: LockFile | null): `sha256:${string}` {
+  return upgradeArtifactDigest({ domain: 'sec.upgrade.lock-state', state: lock === null ? 'absent' : 'present', lock });
+}
+
+function planningRequestRevision(input: {
+  workspaceIdentityDigest: string;
+  blockId: string;
+  targetVersion: string;
+  plan: PlanFile;
+  lock: LockFile | null;
+}): `sha256:${string}` {
+  return upgradeArtifactDigest({ domain: 'sec.upgrade.planning-request', ...input, lockRevision: lockStateRevision(input.lock) });
+}
+
 async function planWorkspaceUpgrade(options: UpgradePlanningOptions): Promise<PlannedWorkspaceUpgrade> {
-  const { blockId, currentBlock, plan, targetVersion, workspaceRoot } = options;
+  const { blockId, currentBlock, lock, plan, targetVersion, workspaceRoot } = options;
   if (!currentBlock?.version) {
     throw new CompilerError('UPGRADE-BLOCKED-003', `Block "${blockId}" is not declared in app.plan.yaml`);
   }
@@ -1643,7 +1559,6 @@ async function planWorkspaceUpgrade(options: UpgradePlanningOptions): Promise<Pl
     impacts,
     migrationEntries,
     targetManifestRoot,
-    targetSlots: targetEntry.manifest.slots,
     workspaceRoot
   });
   const preflightChecks = buildUpgradePreflightChecks({
@@ -1655,16 +1570,43 @@ async function planWorkspaceUpgrade(options: UpgradePlanningOptions): Promise<Pl
     migrations,
     targetVersion
   });
+  const compatibility = targetEntry.manifest.compatibility;
+  if (!compatibility) {
+    throw new CompilerError('UPGRADE-BLOCKED-004', `Block "${blockId}" target compatibility is unresolved`);
+  }
+  const sourceRevision = upgradeArtifactDigest({
+    domain: 'sec.upgrade.source',
+    manifest: targetEntry.manifest,
+    manifestPath: targetEntry.manifestPath,
+    registrySourceId: targetEntry.registrySourceId,
+    registryKind: targetEntry.registryKind,
+    registryLocation: targetEntry.registryLocation,
+    registryPath: targetEntry.registryPath,
+    migrationEntries
+  });
+  const lockRevision = lockStateRevision(lock);
 
   return {
     currentBlock,
     impacts,
     migrationEntries,
     targetManifestRoot,
-    upgradePlan: buildUpgradePlan(
+    upgradePreview: buildUpgradePreview(
       blockId,
       currentVersion,
       targetVersion,
+      upgradeArtifactDigest({
+        domain: 'sec.upgrade.planning-input',
+        blockId,
+        targetVersion,
+        workspacePlan: plan,
+        sourceRevision,
+        lockRevision,
+        compatibility
+      }),
+      sourceRevision,
+      lockRevision,
+      compatibility,
       preflightChecks,
       impacts,
       migrations,
@@ -1681,19 +1623,25 @@ export async function planUpgradeWorkspace(
   workspaceRoot: string,
   blockId: string,
   targetVersion: string
-): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
+): Promise<{
+  resultKind: 'preview';
+  plan: PlanFile;
+  lock: LockFile;
+  upgradePlan: UpgradePreview;
+}> {
   workspaceRoot = getWorkspacePaths(workspaceRoot).workspaceRoot;
   const plan = await loadWorkspacePlan(workspaceRoot);
+  const lock = await readLockFile(workspaceRoot);
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
   const plannedUpgrade = await planWorkspaceUpgrade({
     blockId,
     currentBlock,
+    lock,
     plan,
     targetVersion,
     workspaceRoot
   });
-  const lock = await readLockFile(workspaceRoot);
-  return { plan, lock, upgradePlan: plannedUpgrade.upgradePlan };
+  return { resultKind: 'preview', plan, lock, upgradePlan: plannedUpgrade.upgradePreview };
 }
 
 function isEmptyDiagnosticsDetails(details: unknown): boolean {
@@ -1709,10 +1657,10 @@ function isEmptyDiagnosticsDetails(details: unknown): boolean {
 async function recordUpgradeGeneratedArtifact(
   workspaceRoot: string,
   lock: LockFile,
-  artifactPath: string,
+  artifactPaths: readonly string[],
   commitFence: CommitFence
 ): Promise<void> {
-  addGeneratedPaths(lock, [artifactPath]);
+  addGeneratedPaths(lock, artifactPaths);
   await writeProvenance(workspaceRoot, lock, commitFence);
 }
 
@@ -1728,8 +1676,6 @@ const PREFLIGHT_FAILURE_BY_ERROR_CODE = new Map<string, UpgradeDiagnostics['fail
   ['UPGRADE-MIGRATION-013', 'migration-json-structure'],
   ['UPGRADE-MIGRATION-014', 'migration-text-patterns'],
   ['UPGRADE-MIGRATION-015', 'migration-text-patterns'],
-  ['UPGRADE-MIGRATION-021', 'migration-slot-contracts'],
-  ['UPGRADE-MIGRATION-022', 'migration-slot-contracts'],
   ['UPGRADE-CONFLICT-001', 'override-conflicts']
 ]);
 
@@ -1764,7 +1710,17 @@ async function writeUpgradeDiagnostics(
   workspaceRoot: string,
   blockId: string,
   targetVersion: string,
-  phase: UpgradeDiagnostics['phase'],
+  provenance:
+    | {
+        phase: 'planning';
+        workspaceIdentityDigest: string;
+        planningRequestRevision: `sha256:${string}`;
+      }
+    | {
+        phase: 'apply' | 'recovery';
+        plan: UpgradePlan;
+        terminal: UpgradeExecutionTerminal;
+      },
   error: CompilerError,
   lock: LockFile | null,
   commitFence: CommitFence
@@ -1774,24 +1730,52 @@ async function writeUpgradeDiagnostics(
     CI_ARTIFACT_FILES.upgradeDiagnostics
   );
   const details = isEmptyDiagnosticsDetails(error.details) ? undefined : error.details;
-  await writeJson(upgradeDiagnosticsPath, validateUpgradeDiagnostics({
-    formatVersion: UPGRADE_DIAGNOSTICS_FORMAT_VERSION,
-    status: 'blocked',
-    phase,
-    blockId,
-    targetVersion,
-    failedCheck: classifyPreflightFailure(error.code),
-    errorCode: error.code,
-    message: error.message,
-    ...(details === undefined ? {} : { details })
-  } satisfies UpgradeDiagnostics), commitFence);
+  const diagnostics: UpgradeDiagnostics = provenance.phase === 'planning'
+    ? validateUpgradeDiagnostics({
+        formatVersion: UPGRADE_DIAGNOSTICS_FORMAT_VERSION,
+        artifactKind: 'upgrade-diagnostics',
+        status: 'blocked',
+        phase: 'planning',
+        workspaceIdentityDigest: provenance.workspaceIdentityDigest,
+        planningRequestRevision: provenance.planningRequestRevision,
+        blockId,
+        targetVersion,
+        failedCheck: classifyPreflightFailure(error.code),
+        errorCode: error.code,
+        message: error.message,
+        ...(details === undefined ? {} : { details })
+      })
+    : validateUpgradeDiagnostics({
+        formatVersion: UPGRADE_DIAGNOSTICS_FORMAT_VERSION,
+        artifactKind: 'upgrade-diagnostics',
+        status: 'blocked',
+        phase: provenance.phase,
+        workspaceIdentityDigest: provenance.plan.workspaceIdentityDigest,
+        operationIdentityDigest: provenance.plan.operationIdentityDigest,
+        planRevision: provenance.plan.planRevision,
+        attemptRevision: provenance.terminal.attempt.attemptRevision,
+        executionTerminalRevision: provenance.terminal.terminalRevision,
+        blockId,
+        targetVersion,
+        failedCheck: classifyPreflightFailure(error.code),
+        errorCode: error.code,
+        message: error.message,
+        ...(details === undefined ? {} : { details })
+      });
+  await writeJson(upgradeDiagnosticsPath, diagnostics, commitFence);
   if (!lock) {
     return;
   }
   await recordUpgradeGeneratedArtifact(
     workspaceRoot,
     lock,
-    CI_ARTIFACT_FILES.upgradeDiagnostics,
+    provenance.phase === 'planning'
+      ? [CI_ARTIFACT_FILES.upgradeDiagnostics]
+      : [
+          CI_ARTIFACT_FILES.upgradePlan,
+          CI_ARTIFACT_FILES.upgradeExecutionTerminal,
+          CI_ARTIFACT_FILES.upgradeDiagnostics
+        ],
     commitFence
   );
 }
@@ -1812,7 +1796,6 @@ function buildMigrationSummary(entry: UpgradeMigrationEntry, migrations: Upgrade
     target: entry.target,
     reason: entry.reason,
     requiresVerification: migration?.requiresVerification ?? true,
-    ...(operation.slotId ? { slotId: operation.slotId } : {}),
     ...(operation.source ? { source: operation.source } : {})
   };
 }
@@ -1825,28 +1808,47 @@ function buildMigrationOperation(entry: UpgradeMigrationEntry): UpgradeMigration
   return spec.buildOperation(entry);
 }
 
-function buildUpgradePlan(
+function buildUpgradePreview(
   blockId: string,
   fromVersion: string,
   toVersion: string,
+  planningInputRevision: `sha256:${string}`,
+  sourceRevision: `sha256:${string}`,
+  lockRevision: `sha256:${string}`,
+  compatibility: { blockApi: string; compilerApi: string; stackProfiles: string[] },
   preflightChecks: UpgradePreflightCheck[],
   impacts: string[],
   migrations: UpgradeMigration[],
   migrationEntries: UpgradeMigrationEntry[]
-): UpgradePlan {
-  return {
-    formatVersion: UPGRADE_PLAN_FORMAT_VERSION,
+): UpgradePreview {
+  const migrationOperations = migrationEntries.map(buildMigrationOperation);
+  return createUpgradePreview({
+    artifactKind: 'unbound-upgrade-preview',
     blockId,
     fromVersion,
     toVersion,
-    status: 'planned',
+    planningInputRevision,
+    sourceRevision,
+    lockRevision,
+    compatibility: {
+      blockApi: compatibility.blockApi,
+      compilerApi: compatibility.compilerApi,
+      stackProfiles: uniqueSorted(compatibility.stackProfiles)
+    },
     preflightChecks,
     impacts,
     migrations,
     migrationKindCounts: buildMigrationKindCounts(migrationEntries),
     migrationSummaries: migrationEntries.map((entry) => buildMigrationSummary(entry, migrations)),
-    migrationOperations: migrationEntries.map(buildMigrationOperation)
-  };
+    migrationOperations,
+    orderedSteps: migrationOperations.map((operation, ordinal) => ({
+      ordinal,
+      migrationId: operation.id,
+      kind: operation.kind,
+      target: operation.target,
+      operationRevision: upgradeArtifactDigest(operation)
+    }))
+  });
 }
 
 const PRESERVED_WORKSPACE_SNAPSHOT_ENTRIES = new Set([
@@ -1978,7 +1980,6 @@ async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promi
     currentBlock,
     targetManifestRoot,
     targetVersion,
-    upgradePlan,
     workspaceWriteLease,
     workspaceRoot
   } = context;
@@ -1999,20 +2000,84 @@ async function applyPlannedWorkspaceUpgrade(context: UpgradeApplyContext): Promi
     verificationLane: 'all',
     workspaceWriteLease
   });
-  await recordUpgradeGeneratedArtifact(
-    workspaceRoot,
-    lock,
-    CI_ARTIFACT_FILES.upgradePlan,
-    commitFence
-  );
-
-  upgradePlan.status = 'applied';
-  await writeJson(
-    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
-    validateUpgradePlan(upgradePlan),
-    commitFence
-  );
   return lock;
+}
+
+function readPersistedUpgradePlan(workspaceRoot: string): UpgradePlan {
+  const artifactPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
+  const bytes = readOptionalRetainedOrdinaryFile(artifactPath, 'Upgrade plan readback');
+  if (bytes === null) {
+    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade plan readback is absent after publication');
+  }
+  return parseUpgradePlanJson(decodeExactUtf8(bytes, 'Upgrade plan readback'));
+}
+
+function readPersistedUpgradeExecutionTerminal(workspaceRoot: string): UpgradeExecutionTerminal {
+  const artifactPath = resolveWorkspaceArtifactPath(
+    workspaceRoot,
+    CI_ARTIFACT_FILES.upgradeExecutionTerminal
+  );
+  const bytes = readOptionalRetainedOrdinaryFile(artifactPath, 'Upgrade execution terminal readback');
+  if (bytes === null) {
+    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade execution terminal readback is absent after publication');
+  }
+  return parseUpgradeExecutionTerminalJson(decodeExactUtf8(bytes, 'Upgrade execution terminal readback'));
+}
+
+async function buildUpgradeExecutionTerminal(input: {
+  workspaceRoot: string;
+  plan: UpgradePlan;
+  attempt: UpgradeExecutionTerminal['attempt'];
+  resultLock: LockFile | null;
+  settlement: UpgradeExecutionTerminal['settlement'];
+}): Promise<UpgradeExecutionTerminal> {
+  const persistedPlan = readPersistedUpgradePlan(input.workspaceRoot);
+  let workspacePlan: PlanFile | null = null;
+  try {
+    workspacePlan = await loadWorkspacePlan(input.workspaceRoot);
+  } catch (error) {
+    if (input.settlement !== 'recovery-required') throw error;
+  }
+  const workspaceBlockVersion = workspacePlan?.blocks.find((block) => block.id === input.plan.blockId)?.version ?? null;
+  const resolvedBlockVersion = input.resultLock?.resolvedBlocks
+    .find((block) => block.id === input.plan.blockId)?.version ?? null;
+  return createUpgradeExecutionTerminal({
+    workspaceIdentityDigest: input.plan.workspaceIdentityDigest,
+    operationIdentityDigest: input.plan.operationIdentityDigest,
+    planRevision: input.plan.planRevision,
+    attempt: input.attempt,
+    receipts: {
+      workspacePlanRevision: upgradeArtifactDigest({
+        domain: 'sec.upgrade.workspace-plan-readback',
+        state: workspacePlan === null ? 'unresolved' : 'observed',
+        plan: workspacePlan
+      }),
+      resultLockRevision: lockStateRevision(input.resultLock),
+      planArtifactRevision: persistedPlan.planRevision
+    },
+    settlement: input.settlement,
+    readback: {
+      workspaceBlockVersion,
+      resolvedBlockVersion
+    }
+  });
+}
+
+async function publishUpgradeExecutionTerminal(
+  workspaceRoot: string,
+  terminal: UpgradeExecutionTerminal,
+  commitFence: CommitFence
+): Promise<UpgradeExecutionTerminal> {
+  await writeJson(
+    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
+    terminal,
+    commitFence
+  );
+  const readback = readPersistedUpgradeExecutionTerminal(workspaceRoot);
+  if (readback.terminalRevision !== terminal.terminalRevision) {
+    throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade execution terminal readback differs from publication');
+  }
+  return readback;
 }
 
 export async function runUpgradeWorkspaceWithLease(
@@ -2020,7 +2085,13 @@ export async function runUpgradeWorkspaceWithLease(
   blockId: string,
   targetVersion: string,
   workspaceWriteLease: WorkspaceWriteLeaseToken
-): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
+): Promise<{
+  resultKind: 'applied';
+  plan: PlanFile;
+  lock: LockFile;
+  upgradePlan: UpgradePlan;
+  upgradeExecutionTerminal: UpgradeExecutionTerminal;
+}> {
   const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
   await commitFence();
   workspaceRoot = getWorkspacePaths(workspaceRoot).workspaceRoot;
@@ -2030,22 +2101,42 @@ export async function runUpgradeWorkspaceWithLease(
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
   const existingLock = await readOptionalJson<LockFile>(readableLockPath);
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
+  const requestRevision = planningRequestRevision({
+    workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
+    blockId,
+    targetVersion,
+    plan,
+    lock: existingLock
+  });
   let plannedUpgrade: PlannedWorkspaceUpgrade;
   try {
     plannedUpgrade = await planWorkspaceUpgrade({
       blockId,
       currentBlock,
+      lock: existingLock,
       plan,
       targetVersion,
       workspaceRoot
     });
   } catch (error) {
     if (error instanceof CompilerError) {
+      await removeDir(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
+        commitFence
+      );
+      await removeDir(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
+        commitFence
+      );
       await writeUpgradeDiagnostics(
         workspaceRoot,
         blockId,
         targetVersion,
-        'planning',
+        {
+          phase: 'planning',
+          workspaceIdentityDigest: workspaceWriteLease.workspaceIdentityDigest,
+          planningRequestRevision: requestRevision
+        },
         error,
         existingLock,
         commitFence
@@ -2054,46 +2145,132 @@ export async function runUpgradeWorkspaceWithLease(
     throw error;
   }
 
-  const { upgradePlan } = plannedUpgrade;
+  const { artifactKind: ignoredPreviewKind, ...previewMaterial } = plannedUpgrade.upgradePreview;
+  const upgradePlan = createUpgradePlan({
+    workspaceIdentityDigest: requireUpgradeDigest(
+      workspaceWriteLease.workspaceIdentityDigest,
+      'Workspace write lease identity'
+    ),
+    ...previewMaterial
+  });
+  const attempt = createUpgradeExecutionAttempt({
+    leaseGeneration: workspaceWriteLease.generation,
+    leaseId: workspaceWriteLease.leaseId,
+    ownerFileIdentityDigest: workspaceWriteLease.ownerFileIdentityDigest
+  });
 
   const planSnapshot = await snapshotTextFile(paths.workspaceConfigPath);
   const lockSnapshot = await snapshotTextFile(lockPath);
   const backupRoot = await snapshotWorkspace(workspaceRoot, commitFence);
 
   try {
-    await writeJson(
-      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
-      validateUpgradePlan(upgradePlan),
+    await removeDir(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
       commitFence
     );
-    const lock = await applyPlannedWorkspaceUpgrade({
-      ...plannedUpgrade,
-      commitFence,
+    await removeDir(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
+      commitFence
+    );
+    await writeJson(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
+      upgradePlan,
+      commitFence
+    );
+    const persistedPlan = readPersistedUpgradePlan(workspaceRoot);
+    if (persistedPlan.planRevision !== upgradePlan.planRevision) {
+      throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade plan readback differs from publication');
+    }
+    const lock = await withProjectWriteAuthorization(
+      {
+        workspaceRoot,
+        operation: 'change.upgrade',
+        impactPaths: upgradePlan.impacts,
+        beforeCommit: commitFence
+      },
+      () => applyPlannedWorkspaceUpgrade({
+        ...plannedUpgrade,
+        commitFence,
+        plan,
+        targetVersion,
+        workspaceWriteLease,
+        workspaceRoot
+      })
+    );
+    const terminal = await publishUpgradeExecutionTerminal(
+      workspaceRoot,
+      await buildUpgradeExecutionTerminal({
+        workspaceRoot,
+        plan: upgradePlan,
+        attempt,
+        resultLock: lock,
+        settlement: 'applied'
+      }),
+      commitFence
+    );
+    await recordUpgradeGeneratedArtifact(
+      workspaceRoot,
+      lock,
+      [CI_ARTIFACT_FILES.upgradePlan, CI_ARTIFACT_FILES.upgradeExecutionTerminal],
+      commitFence
+    );
+    if (terminal.settlement !== 'applied') {
+      throw new CompilerError('UPGRADE-BLOCKED-005', 'Upgrade execution did not settle as applied');
+    }
+    return {
+      resultKind: 'applied',
       plan,
-      targetVersion,
-      workspaceWriteLease,
-      workspaceRoot
-    });
-    return { plan, lock, upgradePlan };
+      lock,
+      upgradePlan,
+      upgradeExecutionTerminal: terminal
+    };
   } catch (error) {
     await commitFence();
-    await restoreWorkspace(workspaceRoot, backupRoot, commitFence);
-    await restoreTextFile(paths.workspaceConfigPath, planSnapshot, commitFence);
-    await restoreTextFile(lockPath, lockSnapshot, commitFence);
-    if (error instanceof CompilerError) {
-      const rollbackError = withRollbackDiagnostics(error);
-      await writeUpgradeDiagnostics(
-        workspaceRoot,
-        blockId,
-        targetVersion,
-        'apply',
-        rollbackError,
-        existingLock,
-        commitFence
-      );
-      throw rollbackError;
+    let settlement: UpgradeExecutionTerminal['settlement'] = 'rolled-back';
+    let rollbackFailure: unknown = null;
+    try {
+      await restoreWorkspace(workspaceRoot, backupRoot, commitFence);
+      await restoreTextFile(paths.workspaceConfigPath, planSnapshot, commitFence);
+      await restoreTextFile(lockPath, lockSnapshot, commitFence);
+    } catch (recoveryError) {
+      settlement = 'recovery-required';
+      rollbackFailure = recoveryError;
     }
-    throw error;
+    const failure = error instanceof CompilerError
+      ? withRollbackDiagnostics(error)
+      : new CompilerError(
+          'UPGRADE-BLOCKED-005',
+          `Upgrade apply failed: ${error instanceof Error ? error.message : String(error)}`,
+          { rollbackStatus: settlement === 'rolled-back' ? 'restored' : 'recovery-required' }
+        );
+    const terminal = await publishUpgradeExecutionTerminal(
+      workspaceRoot,
+      await buildUpgradeExecutionTerminal({
+        workspaceRoot,
+        plan: upgradePlan,
+        attempt,
+        resultLock: settlement === 'rolled-back' ? existingLock : null,
+        settlement
+      }),
+      commitFence
+    );
+    const diagnosticFailure = rollbackFailure === null
+      ? failure
+      : new CompilerError(
+          'UPGRADE-BLOCKED-005',
+          `Upgrade recovery is required: ${rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure)}`,
+          { rollbackStatus: 'recovery-required', originalErrorCode: failure.code }
+        );
+    await writeUpgradeDiagnostics(
+      workspaceRoot,
+      blockId,
+      targetVersion,
+      { phase: settlement === 'rolled-back' ? 'apply' : 'recovery', plan: upgradePlan, terminal },
+      diagnosticFailure,
+      existingLock,
+      commitFence
+    );
+    throw diagnosticFailure;
   } finally {
     await removeDir(backupRoot);
   }

@@ -4,7 +4,7 @@ import type { LockFile } from '../../src/compiler/contract.ts';
 import { buildProvenance } from '../../src/compiler/emit/write-provenance.ts';
 import { CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeText } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('provenance records projection outputs without recursively hashing them', async () => {
@@ -16,7 +16,6 @@ test('provenance records projection outputs without recursively hashing them', a
       resolvedBlocks: [],
       resolvedCapabilities: [],
       installPlan: [],
-      slotTasks: [],
       generatedPaths: [...CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS, stablePath],
       acceptancePlan: [],
       passStatus: {
@@ -24,7 +23,6 @@ test('provenance records projection outputs without recursively hashing them', a
         align: 'succeeded',
         resolve: 'succeeded',
         compose: 'succeeded',
-        adapt: 'succeeded',
         verify: 'succeeded',
         repair: 'pending',
         lock: 'succeeded',

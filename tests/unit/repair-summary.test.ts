@@ -2,14 +2,14 @@ import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { posixPath, resolveWorkspaceArtifactPath, slotsRelativePath } from '../../src/workspace/runtime/paths.ts';
-import { buildRepairBlocker, buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { buildRepairBlocker, buildRepairFailurePoint, buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
 import { buildPassingReviewReport, buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-const SLOT_TARGET_ZETA = `${posixPath(slotsRelativePath)}/zeta.ts`;
-const SLOT_TARGET_ALPHA = `${posixPath(slotsRelativePath)}/alpha.ts`;
+const FILE_TARGET_ZETA = 'src/installed/generated/zeta.ts';
+const FILE_TARGET_ALPHA = 'src/installed/generated/alpha.ts';
 
 test('review summary surfaces pending repair tasks', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -38,11 +38,11 @@ test('review summary surfaces pending repair tasks', async () => {
     const repairPlan = buildRepairPlanArtifact({
       tasks: [
         buildRepairTask({
-          taskId: 'repair_slot_zeta',
-          category: 'slot-rewrite',
-          sourceSlotId: 'zeta',
-          targetFile: SLOT_TARGET_ZETA,
+          taskId: 'repair_file_zeta',
+          category: 'file-repair',
+          targetFile: FILE_TARGET_ZETA,
           requiredSymbols: ['zeta'],
+          failurePoints: [buildRepairFailurePoint({ targetIds: [FILE_TARGET_ZETA] })],
           preview: {
             beforeLines: 1,
             afterLines: 3,
@@ -52,10 +52,10 @@ test('review summary surfaces pending repair tasks', async () => {
           }
         }),
         buildRepairTask({
-          taskId: 'repair_slot_alpha',
-          sourceSlotId: 'alpha',
-          targetFile: SLOT_TARGET_ALPHA,
-          requiredSymbols: ['alpha']
+          taskId: 'repair_file_alpha',
+          targetFile: FILE_TARGET_ALPHA,
+          requiredSymbols: ['alpha'],
+          failurePoints: [buildRepairFailurePoint({ targetIds: [FILE_TARGET_ALPHA] })]
         })
       ],
       blockers: [buildRepairBlocker()]
@@ -84,7 +84,7 @@ test('review summary surfaces pending repair tasks', async () => {
           { id: 'unit', count: 2 }
         ],
         issueTypeSummaries: [
-          { id: 'slot', count: 2 },
+          { id: 'file', count: 2 },
           { id: 'spec', count: 1 }
         ],
         repairabilitySummaries: [
@@ -93,12 +93,13 @@ test('review summary surfaces pending repair tasks', async () => {
         ]
       },
       targetSummaries: [
+        { id: FILE_TARGET_ALPHA, targetType: 'file-target', count: 1 },
+        { id: FILE_TARGET_ZETA, targetType: 'file-target', count: 1 },
         { id: 'tenant-scope-required', targetType: 'policy-target', count: 1 },
-        { id: 'zeta.test.ts', targetType: 'slot-target', count: 2 }
       ],
-      taskCategorySummaries: [{ id: 'slot-rewrite', count: 2 }],
+      taskCategorySummaries: [{ id: 'file-repair', count: 2 }],
       targetFileCount: 2,
-      targetFiles: [SLOT_TARGET_ALPHA, SLOT_TARGET_ZETA]
+      targetFiles: [FILE_TARGET_ALPHA, FILE_TARGET_ZETA]
     });
     expect(summary.repairSummary?.taskSummaries).toHaveLength(2);
     expect(summary.repairSummary?.blockerSummaries).toHaveLength(1);
@@ -106,7 +107,7 @@ test('review summary surfaces pending repair tasks', async () => {
       lane: 'all',
       kind: 'repair',
       artifactPath: CI_ARTIFACT_FILES.repairPlan,
-      message: 'Repair blocked at spec: policy failure is outside automatic slot repair: tenant scope missing'
+      message: 'Repair blocked at spec: policy failure is outside automatic file repair: tenant scope missing'
     });
     expect(summary.conflictHints).toHaveLength(3);
 

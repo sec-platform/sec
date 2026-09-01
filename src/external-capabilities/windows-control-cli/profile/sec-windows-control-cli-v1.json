@@ -4,9 +4,7 @@
   "platform": "win32",
   "architecture": "x64",
   "resourceContract": {
-    "maxSessionDurationMs": 120000,
-    "maxCommandsPerSession": 128,
-    "maxTotalOutputBytes": 16777216
+    "maxSessionDurationMs": 120000
   },
   "adoptionContract": {
     "discovery": {
@@ -15,7 +13,7 @@
         "windows-standard-location-untrusted-hint"
       ],
       "maxPathEntries": 128,
-      "maxCandidatesPerCommand": 16,
+      "maxCandidatesPerExecutable": 16,
       "maxPathBytes": 32768,
       "selection": "unique-authenticated-physical-closure"
     },
@@ -36,14 +34,14 @@
     "positiveReceiptContract": {
       "schema": "sec-windows-control-cli-installed-adoption-receipt-v1",
       "candidate": "bounded-untrusted-locator-readback",
-      "executable": "retained-exact-bytes-version-readback",
+      "executable": "retained-exact-bytes-readback",
       "loader": "minimal-app-local-and-system-loader-readback",
       "workingDirectory": "retained-no-follow-working-directory-readback",
       "authorization": "owner-issued-live-capability",
       "persistentExecutableCache": "forbidden"
     }
   },
-  "commandBindings": [
+  "executableBindings": [
     {
       "id": "git",
       "kind": "git-for-windows",
@@ -105,17 +103,7 @@
           "observedSizeBytes": 120814,
           "observedSha256": "cb7ab3788d10940df874acd97b1821bbb5ee4a91f3eec11982bb5bf7a3c96443"
         }
-      ],
-      "versionProbe": {
-        "args": ["--version"],
-        "exactFirstLine": "git version 2.53.0.windows.3"
-      },
-      "commandContract": {
-        "maxArguments": 128,
-        "maxTimeoutMs": 60000,
-        "maxStdoutBytes": 8388608,
-        "maxStderrBytes": 524288
-      }
+      ]
     },
     {
       "id": "gh",
@@ -136,22 +124,7 @@
           "observedSha256": "249613cc9dfb61eb267acfa08c2253edea271bbbec8f3ca3bf8d949a6575d60b"
         }
       ],
-      "appLocalModules": [],
-      "versionProbe": {
-        "args": ["--version"],
-        "exactFirstLine": "gh version 2.90.0 (2026-04-16)"
-      },
-      "commandContract": {
-        "maxArguments": 128,
-        "maxTimeoutMs": 60000,
-        "maxStdoutBytes": 8388608,
-        "maxStderrBytes": 524288
-      },
-      "endpoints": {
-        "host": "github.com",
-        "apiBaseUrl": "https://api.github.com",
-        "graphqlUrl": "https://api.github.com/graphql"
-      }
+      "appLocalModules": []
     }
   ]
 }

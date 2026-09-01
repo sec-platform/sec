@@ -26,7 +26,6 @@ pins:
       type: TenantId
       required: true
   outputs: []
-slots: []
 acceptance:
   - id: workflow_approval_chain_flow
     covers:

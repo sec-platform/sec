@@ -28,7 +28,6 @@ function input(): BuildEngineeringIRInput {
       manifestPath: 'registry/item.basic/block.manifest.yaml',
       manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] } }
     }],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: [],
     semanticContracts: [contract()]

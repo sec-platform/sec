@@ -1,17 +1,20 @@
 import { expect, test } from 'bun:test';
 
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { writeJson } from '../../src/workspace/files.ts';
+import { removeDir, writeJson } from '../../src/workspace/files.ts';
 import {
-  posixPath,
-  resolveWorkspaceArtifactPath,
-  slotsRelativePath
+  resolveWorkspaceArtifactPath
 } from '../../src/workspace/runtime/paths.ts';
 import { buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import { buildRepairPlanArtifact, buildRepairTask } from '../helpers/repair-fixtures.ts';
 import type { ReviewInputsOptions } from '../helpers/review-fixtures.ts';
 import { buildReviewSummaryFromInputs } from '../helpers/review-fixtures.ts';
-import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../helpers/upgrade-fixtures.ts';
+import {
+  buildUpgradeDiagnostics,
+  buildUpgradeExecutionDiagnostics,
+  buildUpgradeExecutionTerminalArtifact,
+  buildUpgradePlanArtifact
+} from '../helpers/upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 type ReviewSummary = Awaited<ReturnType<typeof buildReviewSummaryFromInputs>>;
@@ -22,9 +25,9 @@ type UpgradeFailureAttributionCase = {
   failureMessage: string;
 };
 
-const SLOT_TARGET_ZETA = `${posixPath(slotsRelativePath)}/zeta.ts`;
-const SLOT_TARGET_ALPHA = `${posixPath(slotsRelativePath)}/alpha.ts`;
-const SLOT_TARGET_CUSTOMER_NORMALIZER = `${posixPath(slotsRelativePath)}/customer_normalizer.ts`;
+const FILE_TARGET_ZETA = 'src/installed/generated/zeta.ts';
+const FILE_TARGET_ALPHA = 'src/installed/generated/alpha.ts';
+const MIGRATION_TARGET_CUSTOMER_NORMALIZER = 'src/installed/private/customer-normalizer.ts';
 
 async function buildReviewSummaryWithUpgradeDiagnostics(
   diagnosticsOptions: UpgradeDiagnosticsOptions
@@ -34,7 +37,26 @@ async function buildReviewSummaryWithUpgradeDiagnostics(
       workspaceRoot,
       CI_ARTIFACT_FILES.upgradeDiagnostics
     );
-    await writeJson(upgradeDiagnosticsPath, buildUpgradeDiagnostics(diagnosticsOptions));
+    if (diagnosticsOptions.phase === 'apply' || diagnosticsOptions.phase === 'recovery') {
+      const plan = buildUpgradePlanArtifact();
+      const terminal = buildUpgradeExecutionTerminalArtifact(plan, {
+        settlement: diagnosticsOptions.phase === 'recovery' ? 'recovery-required' : 'rolled-back'
+      });
+      await writeJson(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan),
+        plan
+      );
+      await writeJson(
+        resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
+        terminal
+      );
+      await writeJson(
+        upgradeDiagnosticsPath,
+        buildUpgradeExecutionDiagnostics(plan, terminal, diagnosticsOptions)
+      );
+    } else {
+      await writeJson(upgradeDiagnosticsPath, buildUpgradeDiagnostics(diagnosticsOptions));
+    }
 
     return buildReviewSummaryFromInputs(workspaceRoot, {
       lock: {
@@ -81,9 +103,8 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       }
     };
     const upgradePlan = buildUpgradePlanArtifact();
-    const upgradeDiagnostics = buildUpgradeDiagnostics({
-      blockId: 'auth/basic-session',
-      targetVersion: '0.1.1',
+    const upgradeTerminal = buildUpgradeExecutionTerminalArtifact(upgradePlan, { settlement: 'rolled-back' });
+    const upgradeDiagnostics = buildUpgradeExecutionDiagnostics(upgradePlan, upgradeTerminal, {
       failedCheck: 'override-conflicts',
       errorCode: 'UPGRADE-CONFLICT-001',
       message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"',
@@ -96,16 +117,14 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       tasks: [
         buildRepairTask({
           taskId: 'repair_zeta',
-          sourceSlotId: 'zeta',
-          targetFile: SLOT_TARGET_ZETA,
+          targetFile: FILE_TARGET_ZETA,
           requiredSymbols: [],
           failureSummary: 'unit=failed',
           failurePoints: []
         }),
         buildRepairTask({
           taskId: 'repair_alpha',
-          sourceSlotId: 'alpha',
-          targetFile: SLOT_TARGET_ALPHA,
+          targetFile: FILE_TARGET_ALPHA,
           requiredSymbols: [],
           failureSummary: 'unit=failed',
           failurePoints: []
@@ -113,6 +132,10 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       ]
     });
     await writeJson(upgradePlanPath, upgradePlan);
+    await writeJson(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
+      upgradeTerminal
+    );
     await writeJson(upgradeDiagnosticsPath, upgradeDiagnostics);
     await writeJson(repairPlanPath, repairPlan);
 
@@ -127,7 +150,7 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       blockId: 'auth/basic-session',
       fromVersion: '0.1.0',
       toVersion: '0.1.1',
-      preflightCheckCount: 10,
+      preflightCheckCount: 9,
       preflightEvidenceCount: 5,
       migrationCount: 1,
       migrationKindCounts: {
@@ -138,11 +161,10 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       impactCount: 1,
       impacts: ['src/installed/auth/session.ts'],
       sourceMigrationCount: 1,
-      slotMigrationCount: 0,
       migrationOperationCount: 1,
       diagnostics: {
         status: 'blocked',
-        phase: 'planning',
+        phase: 'apply',
         failedCheck: 'override-conflicts',
         errorCode: 'UPGRADE-CONFLICT-001',
         message: 'Override "manual <hotfix>" conflicts with upgrade of "auth/basic-session"',
@@ -170,28 +192,26 @@ test('review summary surfaces pending upgrade plans without running upgrade e2e'
       message: 'Upgrade migration mig-auth-session-refresh requires verification for src/installed/auth/session.ts'
     });
 
-    upgradePlan.status = 'applied';
-    await writeJson(upgradePlanPath, upgradePlan);
+    await removeDir(upgradeDiagnosticsPath);
+    await writeJson(
+      resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeExecutionTerminal),
+      buildUpgradeExecutionTerminalArtifact(upgradePlan)
+    );
 
     const appliedSummary = await buildReviewSummaryFromInputs(workspaceRoot, reviewOptions);
 
     expect(appliedSummary.upgradeSummary).toMatchObject({
-      status: 'blocked',
+      status: 'applied',
       blockId: 'auth/basic-session',
       requiresVerification: true,
-      requiresVerificationCount: 1,
-      diagnostics: {
-        phase: 'planning',
-        failedCheck: 'override-conflicts',
-        errorCode: 'UPGRADE-CONFLICT-001'
-      }
+      requiresVerificationCount: 1
     });
     expect(appliedSummary.conflictHints).toEqual(
       expect.arrayContaining([
         {
           kind: 'upgrade-plan-present',
           relatedId: 'auth/basic-session',
-          message: 'Upgrade plan applied, verify pending: auth/basic-session 0.1.0 -> 0.1.1'
+          message: 'Upgrade applied, verify pending: auth/basic-session 0.1.0 -> 0.1.1'
         }
       ])
     );
@@ -220,10 +240,9 @@ test('review summary preserves upgrade diagnostics details without an upgrade pl
 
   expect(summary.upgradeSummary).toMatchObject({
     status: 'blocked',
-    blockId: 'private/slot-contract',
+    blockId: 'private/block-upgrade',
     toVersion: '0.2.0',
     sourceMigrationCount: 0,
-    slotMigrationCount: 0,
     migrationOperationCount: 0,
     diagnostics: {
       phase: 'planning',
@@ -267,17 +286,16 @@ test.each<UpgradeFailureAttributionCase>([
       phase: 'apply',
       failedCheck: 'migration-file-operations',
       errorCode: 'UPGRADE-MIGRATION-016',
-      message: `slot-contract-update target "${SLOT_TARGET_CUSTOMER_NORMALIZER}" is missing`,
+      message: `file-replace target "${MIGRATION_TARGET_CUSTOMER_NORMALIZER}" is missing`,
       details: {
-        migrationId: 'mig-customer-normalizer-contract',
-        migrationKind: 'slot-contract-update',
-        slotId: 'customer_normalizer',
-        target: SLOT_TARGET_CUSTOMER_NORMALIZER,
+        migrationId: 'mig-customer-normalizer-file',
+        migrationKind: 'file-replace',
+        target: MIGRATION_TARGET_CUSTOMER_NORMALIZER,
         rollbackStatus: 'restored'
       }
     },
     failureMessage:
-      `Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 slot-contract-update target "${SLOT_TARGET_CUSTOMER_NORMALIZER}" is missing; migration=mig-customer-normalizer-contract; kind=slot-contract-update; target=${SLOT_TARGET_CUSTOMER_NORMALIZER}; slot=customer_normalizer; rollback=restored`
+      `Upgrade blocked at migration-file-operations: UPGRADE-MIGRATION-016 file-replace target "${MIGRATION_TARGET_CUSTOMER_NORMALIZER}" is missing; migration=mig-customer-normalizer-file; kind=file-replace; target=${MIGRATION_TARGET_CUSTOMER_NORMALIZER}; rollback=restored`
   }
 ])('review summary includes $name migration attribution in upgrade failure points', async ({ diagnostics, failureMessage }) => {
   const summary = await buildReviewSummaryWithUpgradeDiagnostics(diagnostics);

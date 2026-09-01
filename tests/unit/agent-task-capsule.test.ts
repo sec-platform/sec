@@ -41,10 +41,9 @@ function planningContext(): SecTaskCapsulePlanningContext {
       }
     ],
     scopeProposal: {
-      readPaths: ['platform/shared/', 'docs/'],
-      writePaths: ['scripts/codex/', 'platform/shared/'],
+      readPaths: ['docs/', 'src/control/agent/'],
+      writePaths: ['src/control/agent/'],
       forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
-      availableCapabilities: ['git'],
       authorizedResources: [],
       authorizedGates: [],
       changedPaths: [

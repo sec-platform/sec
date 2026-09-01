@@ -5,15 +5,15 @@ import path from 'node:path';
 import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { readYaml, writeYaml } from '../../src/workspace/yaml.ts';
 import { expectFileUnchanged } from '../helpers/assertion-helpers.ts';
-import { writeSlotUpgradeFixture } from '../helpers/slot-upgrade-fixtures.ts';
-import { createWorkspace, prepareAdaptedWorkspace } from '../testkit/workspace.ts';
+import { writeBlockUpgradeFixture } from '../helpers/block-upgrade-fixtures.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
 
 type MigrationKindCounts = Record<string, number>;
-type MigrationSummary = { id: string; kind: string; target: string; slotId?: string };
-type MigrationOperation = { id: string; target: string; slotId?: string };
+type MigrationSummary = { id: string; kind: string; target: string };
+type MigrationOperation = { id: string; target: string };
 
 type UpgradeMigrationArtifacts = {
   migrationKindCounts: MigrationKindCounts;
@@ -46,17 +46,14 @@ function expectMigrationArtifactsToMatchPlan(plan: UpgradeMigrationArtifacts): v
       throw new Error(`Missing migration summary for ${operation.id}`);
     }
     expect(operation.target).toBe(summary.target);
-    if (summary.slotId !== undefined || operation.slotId !== undefined) {
-      expect(operation.slotId).toBe(summary.slotId);
-    }
   }
 }
 
 test('upgrade dry-run rejects unsupported shorthand semver ranges', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-range-contract-');
-  await writeSlotUpgradeFixture(workspaceRoot);
+  await writeBlockUpgradeFixture(workspaceRoot);
 
-  const manifestPath = path.join(getWorkspacePaths(workspaceRoot).privateRegistryRoot, 'private.slot-contract', 'versions', '0.2.0', 'block.manifest.yaml');
+  const manifestPath = path.join(getWorkspacePaths(workspaceRoot).privateRegistryRoot, 'private.block-upgrade', 'versions', '0.2.0', 'block.manifest.yaml');
   const manifest = await readYaml<Record<string, unknown>>(manifestPath);
   await writeYaml(manifestPath, {
     ...manifest,
@@ -66,42 +63,43 @@ test('upgrade dry-run rejects unsupported shorthand semver ranges', async () => 
     }
   });
 
-  await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true }))
+  await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true }))
     .rejects.toMatchObject({ code: 'UPGRADE-BLOCKED-002' });
 }, 180000);
 
-test('upgrade dry-run records slot contract migration impacts', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-slot-contract-plan-');
+test('upgrade dry-run records block-owned file migration impacts', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-upgrade-block-file-plan-');
 
-  await writeSlotUpgradeFixture(workspaceRoot);
+  await writeBlockUpgradeFixture(workspaceRoot);
 
   const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
   const beforePlan = await fs.readFile(workspaceConfigPath, 'utf8');
 
-  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true });
+  const { upgradePlan } = await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true });
 
-  expect(upgradePlan.status).toBe('planned');
+  expect(upgradePlan.artifactKind).toBe('unbound-upgrade-preview');
   expect(upgradePlan.migrationKindCounts).toEqual({
-    'slot-contract-update': 1
+    'file-replace': 1
   });
   expect(upgradePlan.preflightChecks).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ id: 'version-range', evidence: ['0.1.x'] }),
-      expect.objectContaining({ id: 'migration-entries', evidence: ['mig-customer-normalizer-contract:migrations/customer-normalizer-contract.json'] }),
+      expect.objectContaining({ id: 'migration-entries', evidence: ['mig-customer-normalizer-file:migrations/customer-normalizer-file.json'] }),
+      expect.objectContaining({ id: 'migration-file-operations', status: 'passed' }),
       expect.objectContaining({
-        id: 'migration-slot-contracts',
-        evidence: [
-          'mig-customer-normalizer-contract:inputType:NormalizedCustomerInput',
-          'mig-customer-normalizer-contract:outputType:NormalizedCustomerInput',
-          'mig-customer-normalizer-contract:slot:customer_normalizer',
-          'mig-customer-normalizer-contract:target:custom/customer_normalizer.ts',
-          'mig-customer-normalizer-contract:writableZones:custom/'
-        ]
+        id: 'impact-scan',
+        evidence: ['src/installed/private/block-upgrade.ts', 'src/installed/private/customer-normalizer.ts']
       }),
-      expect.objectContaining({ id: 'impact-scan', evidence: ['custom/customer_normalizer.ts', 'src/installed/private/slot-contract.ts'] }),
       expect.objectContaining({ id: 'override-conflicts', evidence: [] })
     ])
   );
+  expect(upgradePlan.migrationOperations).toContainEqual(expect.objectContaining({
+    id: 'mig-customer-normalizer-file',
+    kind: 'file-replace',
+    role: 'file',
+    source: 'files/src/installed/private/customer-normalizer.ts',
+    target: 'src/installed/private/customer-normalizer.ts'
+  }));
   expect(upgradePlan.impacts.length).toBeGreaterThan(0);
   expectMigrationArtifactsToMatchPlan(upgradePlan);
   await expectFileUnchanged(workspaceConfigPath, beforePlan);

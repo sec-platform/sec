@@ -1,9 +1,56 @@
-import { runObservedCommand, type ObservedCommandOutcome } from '../../runtime-state/physical/runtime/observed-process.ts';
-import { compilerRoot } from '../../workspace/paths.ts';
+import path from 'node:path';
+
+import {
+  inspectNoFollowDirectoryChain,
+  retainNoFollowDirectoryForChildProcess,
+  retainNoFollowOrdinaryFile,
+  type RetainedNoFollowChildProcessDirectory,
+  type RetainedNoFollowOrdinaryFile
+} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession,
+  type ProcessResourceSession,
+  type ProcessResourceSessionReceipt
+} from '../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  issueRetainedCommandBoundary,
+  retainCommandAuxiliaryOrdinaryFiles,
+  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+  RetainedCommandTransportError
+} from '../../runtime-state/physical/runtime/process.ts';
+import { settlePhysicalResources } from '../../runtime-state/physical/runtime/resource-settlement.ts';
+import type { RetainedCommandBoundary } from '../../runtime-state/physical/runtime/retained-command-boundary.ts';
+import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../../system-architecture/operation/semantic.ts';
+import { compilerRoot } from '../../workspace/runtime/paths.ts';
 import { DEFAULT_FAST_TEST_MAX_CONCURRENCY } from './fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from './test-concurrency-policy.ts';
 
 export const DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES = 8 * 1024;
+export const DEV_COMMAND_MAX_DURATION_MS = 5 * 60 * 1000;
+export const DEV_COMMAND_MAX_STDOUT_BYTES = 32 * 1024 * 1024;
+export const DEV_COMMAND_MAX_STDERR_BYTES = 32 * 1024 * 1024;
+
+const DEV_COMMAND_REQUIREMENT_ID = 'development.runner.bun-process';
+const DEV_COMMAND_CONTRACT_DIGEST = sha256({
+  domain: 'development.runner.bun-command',
+  executable: 'current-bun-runtime',
+  workingDirectory: 'owner-admitted-retained-directory',
+  processCount: 1,
+  maximumDurationMs: DEV_COMMAND_MAX_DURATION_MS,
+  maximumStdoutBytes: DEV_COMMAND_MAX_STDOUT_BYTES,
+  maximumStderrBytes: DEV_COMMAND_MAX_STDERR_BYTES
+}) as SecOperationDigest;
 
 export function boundedUtf8TextTail(
   value: string | Uint8Array,
@@ -81,17 +128,40 @@ export interface DevCommandObservation {
 
 export interface ObserveDevCommandOptions {
   readonly observe: true;
+  /** Ordinary-file inputs that must remain physically identical for the child lifetime. */
+  readonly auxiliaryOrdinaryFilePaths?: readonly string[];
+  /** Narrows the owner ceiling; callers cannot widen it. */
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+  /** Owner-admitted and retained cwd; defaults to the compiler root. */
+  readonly workingDirectory?: string;
 }
 
-type DevCommandResult<TOptions extends ObserveDevCommandOptions | undefined> =
+export interface ExecuteDevCommandOptions {
+  readonly observe?: false;
+  /** Ordinary-file inputs that must remain physically identical for the child lifetime. */
+  readonly auxiliaryOrdinaryFilePaths?: readonly string[];
+  /** Narrows the owner ceiling; callers cannot widen it. */
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+  /** Owner-admitted and retained cwd; defaults to the compiler root. */
+  readonly workingDirectory?: string;
+}
+
+type DevCommandOptions = ObserveDevCommandOptions | ExecuteDevCommandOptions;
+
+type DevCommandResult<TOptions extends DevCommandOptions | undefined> =
   TOptions extends ObserveDevCommandOptions ? DevCommandObservation : number;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function appendOutputTail(current: Buffer<ArrayBufferLike>, chunk: unknown): Buffer<ArrayBufferLike> {
-  const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+function appendOutputTail(
+  current: Buffer<ArrayBufferLike>,
+  chunk: Uint8Array
+): Buffer<ArrayBufferLike> {
+  const bytes = Buffer.from(chunk);
   if (bytes.byteLength >= DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES) {
     return Buffer.from(bytes.subarray(bytes.byteLength - DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES));
   }
@@ -102,9 +172,9 @@ function appendOutputTail(current: Buffer<ArrayBufferLike>, chunk: unknown): Buf
   return Buffer.concat([retainedCurrent, bytes]);
 }
 
-const DEV_COMMAND_FORWARD_OUTPUT_MAX_BYTES = Number.MAX_SAFE_INTEGER;
-
-function physicalOutcomeTerminal(outcome: ObservedCommandOutcome): DevCommandTerminalOutcome {
+function physicalOutcomeTerminal(
+  outcome: RetainedCommandTransportError['outcome']
+): DevCommandTerminalOutcome {
   if (outcome.status === 'spawn-failed') {
     return { kind: 'spawn-failed', error: 'canonical observed command transport failed to spawn' };
   }
@@ -125,10 +195,256 @@ function physicalOutcomeTerminal(outcome: ObservedCommandOutcome): DevCommandTer
   };
 }
 
-function physicalOutcomeFailure(outcome: ObservedCommandOutcome): string | null {
-  return outcome.status === 'exited'
-    ? null
-    : `canonical observed command transport ended with ${outcome.status}`;
+function commandTimeoutMs(options: DevCommandOptions | undefined): number {
+  const timeoutMs = options?.timeoutMs ?? DEV_COMMAND_MAX_DURATION_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 2 || timeoutMs > DEV_COMMAND_MAX_DURATION_MS) {
+    throw new Error('Dev command timeout must be a safe integer within the owner duration ceiling.');
+  }
+  return timeoutMs;
+}
+
+function exactCommandEnvironment(overrides: NodeJS.ProcessEnv): Readonly<NodeJS.ProcessEnv> {
+  const entries = new Map<string, string>();
+  const apply = (source: NodeJS.ProcessEnv): void => {
+    for (const [rawKey, value] of Object.entries(source)) {
+      if (rawKey.length === 0 || rawKey.includes('\0') || rawKey.includes('=')) {
+        throw new Error('Dev command environment key is not canonical.');
+      }
+      if (value?.includes('\0')) {
+        throw new Error('Dev command environment value is not canonical.');
+      }
+      const key = process.platform === 'win32' ? rawKey.toUpperCase() : rawKey;
+      if (value === undefined) entries.delete(key);
+      else entries.set(key, value);
+    }
+  };
+  apply(process.env);
+  apply(overrides);
+  return Object.freeze(Object.fromEntries(
+    [...entries].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+  ));
+}
+
+function compileDevCommandOperation(input: Readonly<{
+  auxiliaryOrdinaryFilePaths: readonly string[];
+  deadlineAtUnixMs: number;
+  effectiveArgv: readonly string[];
+  environment: Readonly<NodeJS.ProcessEnv>;
+  providerIdentityDigest: SecOperationDigest;
+  timeoutMs: number;
+  workingDirectory: string;
+}>): SecBoundSemanticOperation {
+  const plan = compileSecSemanticOperationPlan({
+    operation: 'development.runner.bun-command',
+    intentDigest: sha256({
+      effectiveArgv: input.effectiveArgv,
+      environment: input.environment,
+      auxiliaryOrdinaryFilePaths: input.auxiliaryOrdinaryFilePaths,
+      workingDirectory: input.workingDirectory
+    }) as SecOperationDigest,
+    decisionDigest: DEV_COMMAND_CONTRACT_DIGEST,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: DEV_COMMAND_CONTRACT_DIGEST
+    }),
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: input.timeoutMs },
+      {
+        resource: 'output-bytes',
+        maximum: DEV_COMMAND_MAX_STDOUT_BYTES + DEV_COMMAND_MAX_STDERR_BYTES
+      },
+      { resource: 'processes', maximum: 1 }
+    ],
+    requirements: [{
+      id: DEV_COMMAND_REQUIREMENT_ID,
+      contractDigest: DEV_COMMAND_CONTRACT_DIGEST,
+      effectKinds: ['process'],
+      failureKinds: [
+        'development.runner.cancelled',
+        'development.runner.deadline-exhausted',
+        'development.runner.output-limit-exceeded',
+        'development.runner.physical-identity-drift',
+        'development.runner.spawn-failed',
+        'development.runner.termination-unproven'
+      ]
+    }]
+  });
+  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: DEV_COMMAND_REQUIREMENT_ID,
+    contractDigest: DEV_COMMAND_CONTRACT_DIGEST,
+    providerIdentityDigest: input.providerIdentityDigest
+  })]);
+}
+
+interface DevCommandPhysicalCapability {
+  readonly auxiliaryOrdinaryFiles: readonly RetainedNoFollowOrdinaryFile[];
+  readonly boundary: RetainedCommandBoundary;
+  readonly executable: RetainedNoFollowOrdinaryFile;
+  readonly providerIdentityDigest: SecOperationDigest;
+  readonly workingDirectory: RetainedNoFollowChildProcessDirectory;
+}
+
+const ISSUED_DEV_COMMAND_PHYSICAL_CAPABILITIES = new WeakSet<object>();
+
+function issueDevCommandPhysicalCapability(input: Readonly<{
+  auxiliaryOrdinaryFilePaths: readonly string[];
+  workingDirectory: string;
+}>): DevCommandPhysicalCapability {
+  let auxiliaryOrdinaryFiles: readonly RetainedNoFollowOrdinaryFile[] = [];
+  let executable: RetainedNoFollowOrdinaryFile | undefined;
+  let workingDirectory: RetainedNoFollowChildProcessDirectory | undefined;
+  try {
+    const executablePath = path.resolve(process.execPath);
+    executable = retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(
+        path.dirname(executablePath),
+        'Dev command executable parent'
+      ),
+      path.basename(executablePath),
+      undefined,
+      'Dev command executable',
+      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+      'executable'
+    );
+    const workingDirectoryChain = inspectNoFollowDirectoryChain(
+      input.workingDirectory,
+      'Dev command working directory'
+    );
+    workingDirectory = retainNoFollowDirectoryForChildProcess(
+      workingDirectoryChain,
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'Dev command working directory'
+    );
+    if (input.auxiliaryOrdinaryFilePaths.length > 0) {
+      const requests = input.auxiliaryOrdinaryFilePaths.map((filePath, index) => ({
+        expectedParent: inspectNoFollowDirectoryChain(
+          path.dirname(filePath),
+          `Dev command auxiliary file[${index}] parent`
+        ),
+        label: `Dev command auxiliary file[${index}]`,
+        name: path.basename(filePath)
+      }));
+      auxiliaryOrdinaryFiles = retainCommandAuxiliaryOrdinaryFiles(
+        requests as [typeof requests[number], ...typeof requests[number][]]
+      );
+    }
+    const capability = Object.freeze({
+      auxiliaryOrdinaryFiles,
+      boundary: issueRetainedCommandBoundary({
+        executable,
+        workingDirectory,
+        auxiliaryInputs: auxiliaryOrdinaryFiles.map((capability) => ({
+          capability,
+          kind: 'ordinary-file' as const
+        }))
+      }),
+      executable,
+      providerIdentityDigest: sha256({
+        domain: 'development.runner.bun-command.physical-provider',
+        executable: {
+          path: executable.path,
+          parent: executable.parent,
+          physical: executable.physical,
+          size: executable.size
+        },
+        auxiliaryOrdinaryFiles: auxiliaryOrdinaryFiles.map((file) => ({
+          path: file.path,
+          parent: file.parent,
+          physical: file.physical,
+          size: file.size
+        })),
+        workingDirectory: workingDirectoryChain.target
+      }) as SecOperationDigest,
+      workingDirectory
+    });
+    ISSUED_DEV_COMMAND_PHYSICAL_CAPABILITIES.add(capability);
+    return capability;
+  } catch (error) {
+    settlePhysicalResources({
+      primary: { label: 'dev-command-capability-admission', error },
+      cleanup: [
+        ...[...auxiliaryOrdinaryFiles].reverse().map((file, index) => ({
+          label: `dev-command-auxiliary-file-dispose[${index}]`,
+          settle: () => file.dispose()
+        })),
+        ...(workingDirectory === undefined ? [] : [{
+          label: 'dev-command-working-directory-dispose',
+          settle: () => workingDirectory!.dispose()
+        }]),
+        ...(executable === undefined ? [] : [{
+          label: 'dev-command-executable-dispose',
+          settle: () => executable!.dispose()
+        }])
+      ]
+    });
+    throw new Error('Unreachable Dev command capability admission state.');
+  }
+}
+
+function assertDevCommandResourceReceipt(
+  receipt: ProcessResourceSessionReceipt,
+  operation: SecBoundSemanticOperation,
+  completed: boolean
+): void {
+  assertProcessResourceSessionReceipt(receipt, {
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest,
+    requirementId: DEV_COMMAND_REQUIREMENT_ID
+  });
+  if (receipt.operationIdentityDigest !== operation.plan.identity.identityDigest
+      || receipt.boundAttemptDigest !== operation.boundAttemptDigest
+      || receipt.processCount < (completed ? 1 : 0)
+      || receipt.processCount > 1
+      || receipt.settledProcessCount !== receipt.processCount
+      || receipt.successfulProcessRecordCount !== (completed ? 1 : 0)
+      || receipt.inputBytes !== 0
+      || receipt.outputBytes > DEV_COMMAND_MAX_STDOUT_BYTES + DEV_COMMAND_MAX_STDERR_BYTES) {
+    throw new Error('Dev command process receipt does not match the owner operation.');
+  }
+}
+
+function settleDevCommandExecution(input: Readonly<{
+  capability: DevCommandPhysicalCapability;
+  executionError: unknown | null;
+  completed: boolean;
+  operation: SecBoundSemanticOperation;
+  session: ProcessResourceSession;
+}>): void {
+  if (!ISSUED_DEV_COMMAND_PHYSICAL_CAPABILITIES.has(input.capability)) {
+    throw new Error('Dev command settlement requires an owner-issued physical capability.');
+  }
+  let receipt: ProcessResourceSessionReceipt | undefined;
+  try {
+    settlePhysicalResources({
+      ...(input.executionError === null ? {} : {
+        primary: { label: 'dev-command-execution', error: input.executionError }
+      }),
+      cleanup: [
+        ...[...input.capability.auxiliaryOrdinaryFiles].reverse().map((file, index) => ({
+          label: `dev-command-auxiliary-file-dispose[${index}]`,
+          settle: () => file.dispose()
+        })),
+        {
+          label: 'dev-command-process-session-close',
+          settle: () => { receipt = input.session.close(); }
+        },
+        {
+          label: 'dev-command-working-directory-dispose',
+          settle: () => input.capability.workingDirectory.dispose()
+        },
+        {
+          label: 'dev-command-executable-dispose',
+          settle: () => input.capability.executable.dispose()
+        }
+      ]
+    });
+  } catch (error) {
+    if (error !== input.executionError) throw error;
+  }
+  if (receipt === undefined) {
+    throw new Error('Dev command process session did not issue a terminal receipt.');
+  }
+  assertDevCommandResourceReceipt(receipt, input.operation, input.completed);
 }
 
 export function devCommandObservationExitCode(observation: DevCommandObservation): number {
@@ -136,12 +452,15 @@ export function devCommandObservationExitCode(observation: DevCommandObservation
   return observation.terminal.kind === 'exited' ? observation.terminal.exitCode : 1;
 }
 
-export function runDevCommand<TOptions extends ObserveDevCommandOptions | undefined = undefined>(
+export function runDevCommand<TOptions extends DevCommandOptions | undefined = undefined>(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv,
   options?: TOptions
 ): Promise<DevCommandResult<TOptions>> {
+  if (command !== 'bun') {
+    return Promise.reject(new Error('Dev command owner accepts only the canonical Bun runtime.'));
+  }
   const observed = options?.observe === true;
   const effectiveArgs = applyDefaultFastTestConcurrency(
     command,
@@ -149,75 +468,147 @@ export function runDevCommand<TOptions extends ObserveDevCommandOptions | undefi
     DEFAULT_FAST_TEST_MAX_CONCURRENCY
   );
   const effectiveArgv = Object.freeze([command, ...effectiveArgs]);
-  let stdoutTail: Buffer<ArrayBufferLike> = Buffer.alloc(0);
-  let stderrTail: Buffer<ArrayBufferLike> = Buffer.alloc(0);
-  let observationIntegrityError: string | null = null;
+  const timeoutMs = commandTimeoutMs(options);
+  const deadlineAtUnixMs = Date.now() + timeoutMs;
+  const environment = exactCommandEnvironment(env);
+  const workingDirectory = path.resolve(options?.workingDirectory ?? compilerRoot);
+  const auxiliaryOrdinaryFilePaths = Object.freeze(
+    [...(options?.auxiliaryOrdinaryFilePaths ?? [])]
+      .map((filePath) => path.resolve(filePath))
+      .sort()
+  );
+  if (new Set(auxiliaryOrdinaryFilePaths).size !== auxiliaryOrdinaryFilePaths.length) {
+    throw new Error('Dev command auxiliary ordinary-file paths must be unique.');
+  }
 
   const execute = async (): Promise<number | DevCommandObservation> => {
-    let outcome: ObservedCommandOutcome;
+    const capability = issueDevCommandPhysicalCapability({
+      auxiliaryOrdinaryFilePaths,
+      workingDirectory
+    });
+    const operation = compileDevCommandOperation({
+      auxiliaryOrdinaryFilePaths,
+      deadlineAtUnixMs,
+      effectiveArgv,
+      environment,
+      providerIdentityDigest: capability.providerIdentityDigest,
+      timeoutMs,
+      workingDirectory
+    });
+    let session: ProcessResourceSession;
     try {
-      outcome = await runObservedCommand(command, effectiveArgs, {
-        cwd: compilerRoot,
-        env,
-        stdio: observed ? (['inherit', 'pipe', 'pipe'] as const) : 'inherit',
-        ...(observed
-          ? {
-              // The public DevCommand contract forwards the complete live
-              // stream while retaining only bounded tails. The canonical
-              // process owner performs the physical lifecycle accounting;
-              // this observer remains bounded by appendOutputTail.
-              maxObservedOutputBytes: DEV_COMMAND_FORWARD_OUTPUT_MAX_BYTES,
-              onOutput: (stream: 'stdout' | 'stderr', chunk: Uint8Array): void => {
-                if (stream === 'stdout') stdoutTail = appendOutputTail(stdoutTail, chunk);
-                else stderrTail = appendOutputTail(stderrTail, chunk);
-                try {
-                  (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
-                } catch (error) {
-                  observationIntegrityError ??= `${stream} forwarding failed: ${errorMessage(error)}`;
-                }
-              }
-            }
-          : {})
+      session = openProcessResourceSession({
+        operation,
+        requirementBindingContext: issueSecOperationRequirementBindingContext({
+          operation,
+          requirementId: DEV_COMMAND_REQUIREMENT_ID,
+          resourceCeilings: [
+            { resource: 'duration-ms', maximum: timeoutMs },
+            { resource: 'input-bytes', maximum: 0 },
+            {
+              resource: 'output-bytes',
+              maximum: DEV_COMMAND_MAX_STDOUT_BYTES + DEV_COMMAND_MAX_STDERR_BYTES
+            },
+            { resource: 'processes', maximum: 1 }
+          ]
+        }),
+        signal: options?.signal
       });
     } catch (error) {
-      if (!observed) throw error;
-      outcome = Object.freeze({
-        status: 'spawn-failed' as const,
-        started: false,
-        exitCode: null,
-        signal: null,
-        durationMs: 0,
-        stdout: Object.freeze({ bytes: 0, digest: 'sha256:' as const, observerTruncated: false }),
-        stderr: Object.freeze({ bytes: 0, digest: 'sha256:' as const, observerTruncated: false }),
-        termination: Object.freeze({
-          requested: false,
-          gracefulAttempted: false,
-          forcedAttempted: false,
-          childCloseObserved: false,
-          streamsDrained: true,
-          treeClosed: true
-        })
+      settlePhysicalResources({
+        primary: { label: 'dev-command-process-session-admission', error },
+        cleanup: [
+          ...[...capability.auxiliaryOrdinaryFiles].reverse().map((file, index) => ({
+            label: `dev-command-auxiliary-file-dispose[${index}]`,
+            settle: () => file.dispose()
+          })),
+          {
+            label: 'dev-command-working-directory-dispose',
+            settle: () => capability.workingDirectory.dispose()
+          },
+          {
+            label: 'dev-command-executable-dispose',
+            settle: () => capability.executable.dispose()
+          }
+        ]
       });
-      observationIntegrityError ??= errorMessage(error);
+      throw new Error('Unreachable Dev command session admission state.');
+    }
+    const startedAt = performance.now();
+    let result: Awaited<ReturnType<ProcessResourceSession['run']>> | undefined;
+    let executionError: unknown | null = null;
+    let forwardingFailure: string | null = null;
+    let stdoutTail: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    let stderrTail: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    try {
+      result = await session.run(capability.boundary, effectiveArgs, {
+        admitProgress: (chunk, stream) => {
+          if (stream === 'stdout') stdoutTail = appendOutputTail(stdoutTail, chunk);
+          else stderrTail = appendOutputTail(stderrTail, chunk);
+          try {
+            (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
+          } catch (error) {
+            forwardingFailure ??= `${stream} forwarding failed: ${errorMessage(error)}`;
+          }
+          return true;
+        },
+        env: environment,
+        envMode: 'replace',
+        maxStderrBytes: DEV_COMMAND_MAX_STDERR_BYTES,
+        maxStdoutBytes: DEV_COMMAND_MAX_STDOUT_BYTES
+      });
+    } catch (error) {
+      executionError = error;
+    }
+    settleDevCommandExecution({
+      capability,
+      completed: result !== undefined,
+      executionError,
+      operation,
+      session
+    });
+
+    if (result === undefined) {
+      if (!observed) {
+        if (executionError instanceof RetainedCommandTransportError
+            && executionError.outcome.status !== 'spawn-failed') {
+          return 1;
+        }
+        throw executionError;
+      }
+      const terminal = executionError instanceof RetainedCommandTransportError
+        ? physicalOutcomeTerminal(executionError.outcome)
+        : { kind: 'spawn-failed' as const, error: errorMessage(executionError) };
+      const integrityError = forwardingFailure ?? errorMessage(executionError);
+      const observation = Object.freeze({
+        schema: 'sec-dev-command-observation-v1' as const,
+        effectiveArgv,
+        terminal: Object.freeze(terminal),
+        observationIntegrity: Object.freeze({
+          kind: 'failed' as const,
+          error: integrityError
+        }),
+        durationMs: executionError instanceof RetainedCommandTransportError
+          ? Math.max(0, executionError.outcome.durationMs)
+          : Math.max(0, performance.now() - startedAt),
+        stdoutTail: boundedUtf8TextTail(stdoutTail, DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES),
+        stderrTail: boundedUtf8TextTail(stderrTail, DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES)
+      });
+      return observation;
     }
 
     if (!observed) {
-      if (outcome.status === 'spawn-failed') {
-        throw new Error(`Command "${command}" failed to spawn through the canonical process owner.`);
-      }
-      return outcome.status === 'exited' ? outcome.exitCode ?? 1 : 1;
+      if (forwardingFailure !== null) throw new Error(forwardingFailure);
+      return result.result.code;
     }
-
-    const physicalFailure = physicalOutcomeFailure(outcome);
-    const integrityError = observationIntegrityError ?? physicalFailure;
     return Object.freeze({
       schema: 'sec-dev-command-observation-v1' as const,
       effectiveArgv,
-      terminal: Object.freeze(physicalOutcomeTerminal(outcome)),
-      observationIntegrity: Object.freeze(integrityError === null
+      terminal: Object.freeze({ kind: 'exited' as const, exitCode: result.result.code }),
+      observationIntegrity: Object.freeze(forwardingFailure === null
         ? { kind: 'complete' as const }
-        : { kind: 'failed' as const, error: integrityError }),
-      durationMs: Math.max(0, outcome.durationMs),
+        : { kind: 'failed' as const, error: forwardingFailure }),
+      durationMs: Math.max(0, performance.now() - startedAt),
       stdoutTail: boundedUtf8TextTail(stdoutTail, DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES),
       stderrTail: boundedUtf8TextTail(stderrTail, DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES)
     });

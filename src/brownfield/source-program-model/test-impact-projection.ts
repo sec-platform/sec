@@ -14,7 +14,7 @@ import type { SourceProgramModel, SourceProgramReference } from './contract.ts';
 import {
   assertRepositoryCompilationGenerationReceipt,
   type RepositoryCompilationGenerationReceipt
-} from './repository-compilation-fact-store.ts';
+} from './repository-compilation-cache.ts';
 import {
   workspaceSourceSnapshotIdentityForTestObservations,
   type SourceProgramTestObservations

@@ -2,9 +2,9 @@ import path from 'node:path';
 
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../runtime-state/physical/runtime/process.ts';
 import { isSemanticMutationStagingWorkspace } from '../../semantic/mutation/runtime/staging-boundary.ts';
-import { listFilesRecursive } from '../../workspace/discovery.ts';
 import { pathExists } from '../../workspace/files.ts';
-import { readProjectBaseline } from '../../workspace/project.ts';
+import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
+import { readProjectBaseline } from '../../workspace/runtime/project-baseline.ts';
 import {
   PIPELINE_VERIFY_STAGE_IDS,
   type PipelineExecutionBoundary

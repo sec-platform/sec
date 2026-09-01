@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { computeSecWindowsControlCliEnvironmentSpecDigest, getSecWindowsControlCliBindingV1, parseSecWindowsControlCliEnvironmentAuthority, projectSecWindowsControlCliEnvironmentV1, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../src/external-capabilities/windows-control-cli/contract/environment.ts';
+import { computeSecWindowsControlCliEnvironmentSpecDigest, getSecWindowsControlCliExecutableBindingV1, parseSecWindowsControlCliEnvironmentAuthority, projectSecWindowsControlCliEnvironmentV1, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST } from '../../src/external-capabilities/windows-control-cli/contract/environment.ts';
 
 function source(): Record<string, unknown> {
   const { specDigest: _specDigest, ...body } = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY;
@@ -24,7 +24,7 @@ test('canonical digest is derived from the strict profile content', () => {
 
 test('Git and GitHub bindings describe installed executable bytes and one effective role', () => {
   for (const id of ['git', 'gh'] as const) {
-    const binding = getSecWindowsControlCliBindingV1(
+    const binding = getSecWindowsControlCliExecutableBindingV1(
       SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
       id
     );
@@ -38,7 +38,7 @@ test('Git and GitHub bindings describe installed executable bytes and one effect
       binding.launcherEntries.some((entry) => entry.relativePath === layout.candidateRelativePath)))
       .toBe(true);
   }
-  const gh = getSecWindowsControlCliBindingV1(
+  const gh = getSecWindowsControlCliExecutableBindingV1(
     SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
     'gh'
   )!;
@@ -46,19 +46,21 @@ test('Git and GitHub bindings describe installed executable bytes and one effect
   expect(gh.launcherEntries[0]).toBe(gh.effectiveEntry);
 });
 
-test('projection exposes only bounded adoption, command and endpoint contracts', () => {
+test('projection exposes only bounded physical adoption and executable identities', () => {
   const projection = projectSecWindowsControlCliEnvironmentV1(
     SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
   );
   expect(projection.rootClosure.status).toBe('live-adoption-required');
   expect(projection.adoptionBudget.discovery.selection)
     .toBe('unique-authenticated-physical-closure');
-  expect(projection.commandBindings.find(({ id }) => id === 'gh')?.endpoints)
-    .toEqual({
-      host: 'github.com',
-      apiBaseUrl: 'https://api.github.com',
-      graphqlUrl: 'https://api.github.com/graphql'
-    });
+  expect(projection.executableBindings.map(({ id }) => id)).toEqual(['git', 'gh']);
+  expect(Object.hasOwn(projection.executableBindings[1]!, 'endpoints')).toBe(false);
+  expect(Object.keys(projection.resourceBudget)).toEqual(['maxSessionDurationMs']);
+  for (const binding of projection.executableBindings) {
+    expect(Object.hasOwn(binding, 'versionProbe')).toBe(false);
+    expect(Object.hasOwn(binding, 'commandContract')).toBe(false);
+    expect(Object.hasOwn(binding, 'commandBudget')).toBe(false);
+  }
 });
 
 test('unknown profile fields are rejected instead of becoming implicit authority', () => {
@@ -70,7 +72,7 @@ test('unknown profile fields are rejected instead of becoming implicit authority
 
 test('duplicate physical paths and duplicate roles are rejected', () => {
   const duplicatePath = source();
-  const duplicateBindings = duplicatePath.commandBindings as Array<Record<string, unknown>>;
+  const duplicateBindings = duplicatePath.executableBindings as Array<Record<string, unknown>>;
   const gh = duplicateBindings[1]!;
   const entries = gh.executableEntries as Array<Record<string, unknown>>;
   entries.push(structuredClone(entries[0]!));
@@ -78,7 +80,7 @@ test('duplicate physical paths and duplicate roles are rejected', () => {
     .toThrow(/duplicate case-insensitive path/u);
 
   const duplicateRole = source();
-  const bindings = duplicateRole.commandBindings as Array<Record<string, unknown>>;
+  const bindings = duplicateRole.executableBindings as Array<Record<string, unknown>>;
   const ghEntries = bindings[1]!.executableEntries as Array<Record<string, unknown>>;
   ghEntries[0]!.roles = ['launcher', 'launcher'];
   expect(() => parseSecWindowsControlCliEnvironmentAuthority(duplicateRole))
@@ -87,7 +89,7 @@ test('duplicate physical paths and duplicate roles are rejected', () => {
 
 test('candidate layouts cannot point outside declared launcher and effective entries', () => {
   const invalid = source();
-  const bindings = invalid.commandBindings as Array<Record<string, unknown>>;
+  const bindings = invalid.executableBindings as Array<Record<string, unknown>>;
   const layouts = bindings[0]!.candidateLayouts as Array<Record<string, unknown>>;
   layouts[0]!.effectiveRelativePath = 'undeclared/git.exe';
   expect(() => parseSecWindowsControlCliEnvironmentAuthority(invalid))

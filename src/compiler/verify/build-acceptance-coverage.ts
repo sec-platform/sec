@@ -21,7 +21,6 @@ interface AcceptanceDefinition {
 interface AcceptanceTargetIndex {
   readonly participation: ReadonlyMap<string, ReadonlySet<string>>;
   readonly byBlock: ReadonlyMap<string, readonly string[]>;
-  readonly bySlot: ReadonlyMap<string, readonly string[]>;
 }
 
 function buildCoverageEntry(
@@ -42,10 +41,6 @@ function buildCoverageEntry(
 
 function acceptanceBlockTargets(target: AcceptanceCoverageTarget): string[] {
   return target.acceptance.covers?.blocks ?? [target.blockId];
-}
-
-function acceptanceSlotTargets(target: AcceptanceCoverageTarget): string[] {
-  return target.acceptance.covers?.slots ?? [];
 }
 
 function buildAcceptanceTargets(
@@ -78,12 +73,10 @@ function freezeTargetIndex(index: ReadonlyMap<string, ReadonlySet<string>>): Rea
 
 function buildCoverageTargetIndex(
   targets: readonly AcceptanceCoverageTarget[],
-  resolvedBlockIds: ReadonlySet<string>,
-  resolvedSlotIds: ReadonlySet<string>
+  resolvedBlockIds: ReadonlySet<string>
 ): AcceptanceTargetIndex {
   const participation = new Map<string, Set<string>>();
   const byBlock = new Map<string, Set<string>>();
-  const bySlot = new Map<string, Set<string>>();
 
   for (const target of targets) {
     for (const blockId of acceptanceBlockTargets(target)) {
@@ -95,21 +88,11 @@ function buildCoverageTargetIndex(
       participation.set(target.id, entries);
       addIndexedAcceptance(byBlock, blockId, target.id);
     }
-    for (const slotId of acceptanceSlotTargets(target)) {
-      if (!resolvedSlotIds.has(slotId)) {
-        throw new Error(`Acceptance ${target.id} references unknown resolved slot ${slotId}`);
-      }
-      const entries = participation.get(target.id) ?? new Set<string>();
-      entries.add(`slot:${slotId}`);
-      participation.set(target.id, entries);
-      addIndexedAcceptance(bySlot, slotId, target.id);
-    }
   }
 
   return Object.freeze({
     participation,
-    byBlock: freezeTargetIndex(byBlock),
-    bySlot: freezeTargetIndex(bySlot)
+    byBlock: freezeTargetIndex(byBlock)
   });
 }
 
@@ -205,7 +188,6 @@ export async function buildAcceptanceCoverage(
 ): Promise<AcceptanceCoverageReport> {
   const fastLane = resolveFastVerificationLane(workspaceRoot, runtime, fast);
   const blockCoverage: AcceptanceCoverageEntry[] = [];
-  const slotCoverage: AcceptanceCoverageEntry[] = [];
   const targets: AcceptanceCoverageTarget[] = [];
 
   const manifestEntries = await Promise.all(
@@ -216,8 +198,7 @@ export async function buildAcceptanceCoverage(
   });
 
   const resolvedBlockIds = new Set(lock.resolvedBlocks.map((block) => block.id));
-  const resolvedSlotIds = new Set(lock.slotTasks.map((task) => task.id));
-  const targetIndex = buildCoverageTargetIndex(targets, resolvedBlockIds, resolvedSlotIds);
+  const targetIndex = buildCoverageTargetIndex(targets, resolvedBlockIds);
   const acceptanceById = buildAcceptanceDefinitions(targets);
   assertAcceptanceDependencyAcyclic(acceptanceById);
 
@@ -226,7 +207,7 @@ export async function buildAcceptanceCoverage(
       throw new Error(`Acceptance plan references undeclared acceptance ID ${acceptanceId}`);
     }
     if ((targetIndex.participation.get(acceptanceId)?.size ?? 0) === 0) {
-      throw new Error(`Acceptance plan ID ${acceptanceId} covers no resolved block or slot`);
+      throw new Error(`Acceptance plan ID ${acceptanceId} covers no resolved block`);
     }
   }
 
@@ -243,15 +224,7 @@ export async function buildAcceptanceCoverage(
     blockCoverage.push(buildCoverageEntry(block.id, declaredAcceptance, coveredBy));
   }
 
-  for (const task of lock.slotTasks) {
-    const declaredAcceptance = [...(targetIndex.bySlot.get(task.id) ?? [])];
-    const coveredBy = declaredAcceptance.filter(isSatisfied);
-    slotCoverage.push(buildCoverageEntry(task.id, declaredAcceptance, coveredBy));
-  }
-
   const canonicalBlockCoverage = [...blockCoverage]
-    .sort((left, right) => compareCodeUnits(left.id, right.id));
-  const canonicalSlotCoverage = [...slotCoverage]
     .sort((left, right) => compareCodeUnits(left.id, right.id));
 
   return validateAcceptanceCoverageReport({
@@ -259,8 +232,6 @@ export async function buildAcceptanceCoverage(
     status: runtime.status,
     acceptancePassed,
     blocks: canonicalBlockCoverage,
-    slots: canonicalSlotCoverage,
-    uncoveredBlocks: canonicalBlockCoverage.filter((entry) => entry.uncovered).map((entry) => entry.id),
-    uncoveredSlots: canonicalSlotCoverage.filter((entry) => entry.uncovered).map((entry) => entry.id)
+    uncoveredBlocks: canonicalBlockCoverage.filter((entry) => entry.uncovered).map((entry) => entry.id)
   });
 }

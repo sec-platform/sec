@@ -1,3 +1,4 @@
+import { isCanonicalPortableLogicalPath } from '../../../system-architecture/foundation/contract/logical-path.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { countPositiveValues } from '../../../system-architecture/foundation/runtime/collections.ts';
 import {
@@ -35,6 +36,7 @@ export const CI_ARTIFACT_FILES = {
   reviewSummary: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/evidence/review-summary.json`,
   repairPlan: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/workflow/repair-plan.json`,
   upgradePlan: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/workflow/upgrade-plan.json`,
+  upgradeExecutionTerminal: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/workflow/upgrade-execution-terminal.json`,
   upgradeDiagnostics: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/workflow/upgrade-diagnostics.json`,
   testResults: `${CI_ARTIFACT_ROOT_RELATIVE_PATH}/test-results/**`
 } as const;
@@ -65,6 +67,7 @@ export const CI_ARTIFACT_PATHS = {
   optionalGovernance: [
     CI_ARTIFACT_FILES.repairPlan,
     CI_ARTIFACT_FILES.upgradePlan,
+    CI_ARTIFACT_FILES.upgradeExecutionTerminal,
     CI_ARTIFACT_FILES.upgradeDiagnostics
   ],
   test: [
@@ -93,6 +96,19 @@ export function normalizeCiArtifactPath(value: string): string {
 export function isCiArtifactPath(artifactPath: string): boolean {
   return artifactPath === CI_ARTIFACT_ROOT_RELATIVE_PATH
     || artifactPath.startsWith(`${CI_ARTIFACT_ROOT_RELATIVE_PATH}/`);
+}
+
+/**
+ * Sole lexical grammar for governed CI artifact identities. Workspace source
+ * and generated output paths are different domains even when both are stored
+ * in a compiler lock.
+ */
+export function isCanonicalCiArtifactPath(value: string): boolean {
+  if (!isCiArtifactPath(value) || normalizeCiArtifactPath(value) !== value) return false;
+  if (value.endsWith('/**')) {
+    return isCanonicalPortableLogicalPath(value.slice(0, -3));
+  }
+  return isCanonicalPortableLogicalPath(value);
 }
 
 export function uniqueSortedCiArtifactPaths(values: readonly string[]): string[] {

@@ -54,7 +54,6 @@ function buildInput(): BuildEngineeringIRInput {
         }]
       }
     }],
-    slotTasks: [],
     acceptanceIds: ['item_can_transition'],
     policyDeclarations: [],
     semanticContracts: [{
@@ -426,9 +425,7 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     status: runtime.status,
     acceptancePassed: [],
     blocks: [],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
+    uncoveredBlocks: []
   };
   const claimSummary = buildExpectedProductVerificationClaimSummary(
     'all',

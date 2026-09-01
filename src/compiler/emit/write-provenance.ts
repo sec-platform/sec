@@ -9,12 +9,12 @@ import {
   CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS
 } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../verification/contract/types.ts';
+import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
 import {
   isCanonicalWorkspaceArtifactPath,
   isPathInside,
   isSafeRelativePath,
-  modelRelativePath,
   packageJsonRelativePath,
   posixPath,
   prismaRelativePath,
@@ -25,8 +25,8 @@ import {
   testsRelativePath,
   tsconfigRelativePath,
   workspaceConfigRelativePath
-} from '../../workspace/paths.ts';
-import { calculateCanonicalProjectFileHash } from '../../workspace/project.ts';
+} from '../../workspace/runtime/paths.ts';
+import { calculateCanonicalProjectFileHash } from '../../workspace/runtime/project-file-hash.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { writeGeneratedArtifactWithLock } from '../lock.ts';
@@ -49,24 +49,6 @@ const nativeWorkspaceRoots = [
   workspaceConfigRelativePath,
   secRelativePath
 ] as const;
-
-function buildTaskGeneratorId(taskId: string): string {
-  return `fill_slot_${taskId}`;
-}
-
-function buildSlotArtifact(task: LockFile['slotTasks'][number], artifactPath: string): ProvenanceArtifact {
-  return {
-    path: artifactPath,
-    originType: 'slot',
-    originId: task.id,
-    sourceBlock: task.block,
-    ...(task.sourcePath ? { sourcePath: task.sourcePath, runtimeTarget: task.target } : {}),
-    generatedByPass: task.status === 'generated' ? 'compose' : 'adapt',
-    generatorTaskId: buildTaskGeneratorId(task.id),
-    verifiedBy: uniqueSorted(task.provenanceHints.verifiedBy),
-    overrideStatus: 'none'
-  };
-}
 
 function buildSemanticArtifact(
   task: NonNullable<LockFile['semanticLoweringTasks']>[number],
@@ -199,11 +181,6 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
     ));
   }
 
-  for (const task of lock.slotTasks) {
-    if (task.sourcePath) artifacts.set(task.sourcePath, buildSlotArtifact(task, task.sourcePath));
-    artifacts.set(task.target, buildSlotArtifact(task, task.target));
-  }
-
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   for (const entry of overrideManifest.overrides) {
     const existing = artifacts.get(entry.target);
@@ -218,7 +195,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
       registryPath: existing?.registryPath,
       ...(existing?.sourcePath ? { sourcePath: existing.sourcePath } : {}),
       ...(existing?.runtimeTarget ? { runtimeTarget: existing.runtimeTarget } : {}),
-      generatedByPass: entry.appliesAfter[entry.appliesAfter.length - 1] ?? existing?.generatedByPass,
+      generatedByPass: 'compose',
       generatorTaskId: existing?.generatorTaskId,
       generatorEntityId: existing?.generatorEntityId,
       artifactEntityId: existing?.artifactEntityId,

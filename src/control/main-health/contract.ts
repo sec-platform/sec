@@ -10,6 +10,8 @@ export type MainHealthLane = 'ordinary' | 'repair';
 export type MainHealthDigest = `sha256:${string}`;
 export const MAIN_HEALTH_REPAIR_IDENTITY_SCHEMA =
   'sec-main-health-repair-work-package-identity-v1' as const;
+export const DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY =
+  'src/control/main-health/main-health-observation.ts' as const;
 
 export interface MainHealthProducer {
   readonly identity: string;

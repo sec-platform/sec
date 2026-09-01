@@ -1,10 +1,12 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { selectCiSlowTestClosure } from '../../src/verification/ci/runtime/slow-test-selection.ts';
 import { hasTestImpactForFile } from '../../src/verification/test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/verification/test-impact/runtime/transition.ts';
-import { exactHeadTestImpactProvider } from '../helpers/test-impact-provider.ts';
+import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 
-const provider = exactHeadTestImpactProvider();
+const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
+const provider = testImpactFixture.provider;
+afterAll(() => testImpactFixture.dispose());
 const resolvedSource = 'src/verification/ci/runtime/slow-test-selection.ts';
 
 describe('affected test selection batch optimization', () => {

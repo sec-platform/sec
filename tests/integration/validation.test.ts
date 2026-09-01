@@ -3,12 +3,12 @@ import path from 'node:path';
 
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
-import { prepareSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { prepareBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';
 
 test('upgrade records missing migration entry diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-missing-migration-entry-',
     migration: {
       id: 'mig-missing-entry-file',
@@ -43,7 +43,7 @@ test('upgrade records missing migration entry diagnostics before planning', asyn
 });
 
 test('upgrade rejects migration entry paths that escape the manifest root', async () => {
-  const { workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-migration-entry-escape-',
     migration: {
       id: 'mig-escaping-entry-file',
@@ -64,7 +64,7 @@ test('upgrade rejects migration entry paths that escape the manifest root', asyn
 });
 
 test('upgrade records mismatched migration entry metadata diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-mismatched-migration-entry-',
     migration: {
       id: 'mig-expected-entry',
@@ -111,7 +111,7 @@ test('upgrade records mismatched migration entry metadata diagnostics before pla
 });
 
 test('upgrade rejects duplicate migration ids before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-duplicate-migration-id-',
     migrations: [
       {
@@ -166,7 +166,7 @@ test('upgrade rejects duplicate migration ids before planning', async () => {
 });
 
 test('upgrade records migration target path escape diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-target-escape-',
     migration: {
       id: 'mig-target-escape',
@@ -211,7 +211,7 @@ test('upgrade records migration target path escape diagnostics before planning',
 });
 
 test('upgrade records migration manifest source escape diagnostics before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-source-escape-',
     migration: {
       id: 'mig-source-escape',
@@ -223,7 +223,7 @@ test('upgrade records migration manifest source escape diagnostics before planni
         kind: 'file-replace',
         reason: 'Attempt to read outside the target manifest root.',
         source: '../outside-source.ts',
-        target: 'src/installed/private/slot-contract.ts'
+        target: 'src/installed/private/block-upgrade.ts'
       }
     }
   });
@@ -256,7 +256,7 @@ test('upgrade records migration manifest source escape diagnostics before planni
 });
 
 test('upgrade rejects empty config rewrite paths before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-empty-config-path-',
     migration: {
       id: 'mig-empty-config-path',
@@ -303,7 +303,7 @@ test('upgrade rejects empty config rewrite paths before planning', async () => {
 });
 
 test('upgrade rejects JSON array structure mismatches before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-json-structure-',
     migration: {
       id: 'mig-json-array-append',
@@ -316,7 +316,7 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
         reason: 'Append upgrade metadata.',
         target: 'upgrade.metadata.json',
         path: ['upgradedBlocks'],
-        items: ['private/slot-contract@0.2.0']
+        items: ['private/block-upgrade@0.2.0']
       }
     },
     setup: async ({ paths: workspacePaths }) => {
@@ -339,7 +339,7 @@ test('upgrade rejects JSON array structure mismatches before planning', async ()
 });
 
 test('upgrade rejects JSON array parent structure mismatches before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
+  const { paths, workspaceRoot } = await prepareBlockUpgradeDryRunFixture({
     prefix: 'engineering-compiler-upgrade-json-parent-structure-',
     migration: {
       id: 'mig-json-array-append-nested',
@@ -352,7 +352,7 @@ test('upgrade rejects JSON array parent structure mismatches before planning', a
         reason: 'Append nested upgrade metadata.',
         target: 'upgrade.metadata.json',
         path: ['upgrade', 'blocks'],
-        items: ['private/slot-contract@0.2.0']
+        items: ['private/block-upgrade@0.2.0']
       }
     },
     setup: async ({ paths: workspacePaths }) => {
@@ -370,68 +370,6 @@ test('upgrade rejects JSON array parent structure mismatches before planning', a
     },
     {
       failedCheck: 'migration-json-structure'
-    }
-  );
-});
-
-test('upgrade rejects slot contract mismatches before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
-    prefix: 'engineering-compiler-upgrade-slot-contract-mismatch-',
-    migration: {
-      id: 'mig-customer-normalizer-contract',
-      kind: 'slot-contract-update',
-      entry: 'migrations/customer-normalizer-contract.json',
-      requiresVerification: true,
-      body: {
-        id: 'mig-customer-normalizer-contract',
-        kind: 'slot-contract-update',
-        reason: 'Update customer normalizer input contract to v2.',
-        target: 'custom/customer_normalizer.ts',
-        slotId: 'customer_normalizer',
-        inputType: 'CustomerInputV3',
-        outputType: 'NormalizedCustomerInput',
-        writableZones: ['custom/customer_normalizer.ts']
-      }
-    }
-  });
-
-  await expectUpgradeDryRunFailureWithDiagnostics(
-    workspaceRoot,
-    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
-    {
-      code: 'UPGRADE-MIGRATION-021'
-    },
-    {
-      failedCheck: 'migration-slot-contracts'
-    }
-  );
-});
-
-test('upgrade rejects malformed migration entries before planning', async () => {
-  const { paths, workspaceRoot } = await prepareSlotUpgradeDryRunFixture({
-    prefix: 'engineering-compiler-upgrade-malformed-migration-',
-    migration: {
-      id: 'mig-customer-normalizer-contract',
-      kind: 'slot-contract-update',
-      entry: 'migrations/customer-normalizer-contract.json',
-      requiresVerification: true,
-      body: {
-        id: 'mig-customer-normalizer-contract',
-        kind: 'slot-contract-update',
-        reason: 'Update customer normalizer input contract to v2.',
-        target: 'custom/customer_normalizer.ts'
-      }
-    }
-  });
-
-  await expectUpgradeDryRunFailureWithDiagnostics(
-    workspaceRoot,
-    resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradeDiagnostics),
-    {
-      code: 'UPGRADE-MIGRATION-011'
-    },
-    {
-      failedCheck: 'migration-entries'
     }
   );
 });

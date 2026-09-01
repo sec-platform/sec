@@ -3,11 +3,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { adaptWorkspace, verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
+import { verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
 import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('expanded official block set composes and verifies as one project', async () => {
@@ -30,9 +30,7 @@ test('expanded official block set composes and verifies as one project', async (
   const postgresContractPath = path.join(workspaceRoot, 'generated', 'postgres-contract.json');
   const resolvedLock = await readJson<LockFile>(lockPath);
   expect(resolvedLock.resolvedBlocks.length).toBe(13);
-  expect(resolvedLock.slotTasks).toHaveLength(1);
 
-  await adaptWorkspace(workspaceRoot);
   const { report } = await verifyWorkspace(workspaceRoot, { lane: 'fast' });
   expect(report.summary.status).toBe('passed');
   expect(report.runtime.unit.status).toBe('passed');
@@ -103,6 +101,4 @@ test('reference project coverage has no uncovered blocks after runtime acceptanc
 
   const uncovered = coverage.uncoveredBlocks.filter((b) => b !== 'collaboration/enterprise-hub' && b !== 'file/upload');
   expect(uncovered).toHaveLength(0);
-  const uncoveredSlots = coverage.uncoveredSlots.filter((s) => !s.includes('collaboration/enterprise-hub'));
-  expect(uncoveredSlots).toHaveLength(0);
 }, 180000);

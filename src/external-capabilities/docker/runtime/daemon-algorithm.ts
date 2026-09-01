@@ -1,8 +1,18 @@
+import { RetainedCommandTransportError } from '../../../runtime-state/physical/runtime/process.ts';
+import { RetainedRuntimeStateDirectoryError } from '../../../runtime-state/physical/runtime/retained-runtime-state-directory.ts';
+import {
+  assertRuntimeEndpointResidueReceipt,
+  assertRuntimeGenerationCensusReceipt,
+  type RuntimeEndpointResidueReceipt,
+  type RuntimeGenerationCensusReceipt
+} from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
+import { WindowsKnownFolderError } from '../../../runtime-state/physical/runtime/windows-known-folders.ts';
 import {
   DockerDaemonAvailabilityFailure,
   type DockerDaemonAvailabilityFailurePhase,
   type DockerDaemonAvailabilityFailureReason
 } from '../contract/daemon.ts';
+import { isDockerDesktopManagedEndpoint } from '../contract/windows-runtime-state.ts';
 
 export interface DockerDaemonCommandResult {
   readonly code: number;
@@ -18,9 +28,13 @@ export type DockerDaemonCommand = (input: Readonly<{
 }>) => Promise<DockerDaemonCommandResult>;
 
 export interface DockerDaemonObservationInput {
+  readonly commandDeadlineAtUnixMs: () => number;
   readonly cwd: string;
   readonly deadlineAtUnixMs: number;
   readonly endpointHost: string;
+  readonly observeRuntimeEndpointResidue?: (
+    providerEvidence: string
+  ) => RuntimeEndpointResidueReceipt | null;
   readonly run: DockerDaemonCommand;
 }
 
@@ -32,7 +46,10 @@ export interface DockerDaemonObservationInput {
 export type DockerDaemonLauncherLock = <T>(operation: () => Promise<T>) => Promise<T | null>;
 
 export interface DockerDaemonEnsureStartedInput extends DockerDaemonObservationInput {
+  readonly censusRuntimeGenerations: () => RuntimeGenerationCensusReceipt;
   readonly platform?: NodeJS.Platform;
+  readonly providerAuthorityIdentityDigest: `sha256:${string}`;
+  readonly providerIdentityDigest: `sha256:${string}`;
   readonly withLauncherLock: DockerDaemonLauncherLock;
 }
 
@@ -58,17 +75,6 @@ function remainingMs(input: DockerDaemonObservationInput): number {
   return remaining;
 }
 
-function startFailureReason(result: DockerDaemonCommandResult):
-DockerDaemonAvailabilityFailureReason {
-  const evidence = `${result.stdout}\n${result.stderr}`;
-  if (/acquiring\s+launcher\s+lock[\s\S]*\bopen\b[\s\S]*system\s+cannot\s+find/iu
-    .test(evidence)) return 'desktop-launcher-path-unavailable';
-  return /access\s+is\s+denied|access\s+denied|permission\s+denied|requires?\s+administrator/iu
-    .test(evidence)
-    ? 'service-permission-required'
-    : 'desktop-start-failed';
-}
-
 async function run(
   input: DockerDaemonObservationInput,
   args: readonly string[],
@@ -87,13 +93,17 @@ async function run(
   } catch (error) {
     if (error instanceof DockerDaemonAvailabilityFailure) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    if (Date.now() >= input.deadlineAtUnixMs || /\b(?:abort|deadline|timeout)\b/iu.test(message)) {
+    if (Date.now() >= input.deadlineAtUnixMs) {
       fail(input.endpointHost, 'deadline-exhausted', phase, message);
     }
-    if (/\b(?:known folder|LOCALAPPDATA|APPDATA|PROGRAMDATA)\b/iu.test(message)) {
+    if (error instanceof WindowsKnownFolderError
+        || error instanceof RetainedRuntimeStateDirectoryError) {
       fail(input.endpointHost, 'desktop-environment-unavailable', phase, message);
     }
-    if (/retained command|process[-\s]settlement|treeClosed|streamsDrained/iu.test(message)) {
+    if (error instanceof RetainedCommandTransportError) {
+      if (error.outcome.status === 'timed-out' || error.outcome.status === 'aborted') {
+        fail(input.endpointHost, 'deadline-exhausted', phase, message);
+      }
       fail(input.endpointHost, 'process-settlement-failed', 'process-settlement', message);
     }
     fail(input.endpointHost, failureReason, phase, message);
@@ -138,7 +148,7 @@ export async function ensureDockerDaemonStartedWithCommand(
   );
   if (initial.code === 0) return initial;
   if ((input.platform ?? process.platform) !== 'win32'
-      || !/^npipe:\/{4}\.\/pipe\/dockerDesktop[A-Za-z0-9_.-]*$/u.test(input.endpointHost)) {
+      || !isDockerDesktopManagedEndpoint(input.endpointHost)) {
     fail(input.endpointHost, 'endpoint-unavailable', 'endpoint-observe', initial.stderr);
   }
   const settled = await input.withLauncherLock(async () => {
@@ -152,17 +162,67 @@ export async function ensureDockerDaemonStartedWithCommand(
       'endpoint-observe'
     );
     if (lockedObservation.code === 0) return lockedObservation;
-    const start = await run(input, Object.freeze([
-      'desktop', 'start', '--timeout', String(Math.max(1, Math.floor(remainingMs(input) / 1_000)))
-    ]), 'start', 'desktop-start-failed', 'desktop-start');
-    const startReason = startFailureReason(start);
-    if (start.code !== 0 || startReason === 'desktop-launcher-path-unavailable') {
+    let census: RuntimeGenerationCensusReceipt;
+    try {
+      census = input.censusRuntimeGenerations();
+    } catch (error) {
+      if (error instanceof DockerDaemonAvailabilityFailure) throw error;
       fail(
         input.endpointHost,
-        startReason,
-        'desktop-start',
-        `${start.stdout}\n${start.stderr}`
+        'desktop-environment-unavailable',
+        'admission',
+        error instanceof Error ? error.message : String(error)
       );
+    }
+    assertRuntimeGenerationCensusReceipt(census);
+    if (census.providerIdentityDigest !== input.providerAuthorityIdentityDigest) {
+      fail(input.endpointHost, 'desktop-environment-unavailable', 'admission');
+    }
+    const censusEvidence = census.entries.map(({ id, state }) => `${id}:${state}`).join('\n');
+    if (census.entries.some(({ state }) => (
+      state === 'stale-residue' || state === 'inaccessible-residue'
+    ))) {
+      fail(input.endpointHost, 'runtime-endpoint-residue', 'desktop-start', censusEvidence);
+    }
+    if (census.entries.some(({ state }) => state === 'unknown')) {
+      fail(input.endpointHost, 'desktop-environment-unavailable', 'admission', censusEvidence);
+    }
+    const commandRemainingMs = Math.min(
+      remainingMs(input),
+      input.commandDeadlineAtUnixMs() - Date.now()
+    );
+    if (!Number.isSafeInteger(commandRemainingMs) || commandRemainingMs < 1) {
+      fail(input.endpointHost, 'deadline-exhausted', 'desktop-start');
+    }
+    const start = await run(input, Object.freeze([
+      'desktop', 'start', '--timeout', String(Math.max(1, Math.floor(commandRemainingMs / 1_000)))
+    ]), 'start', 'desktop-start-failed', 'desktop-start');
+    const providerEvidence = `${start.stdout}\n${start.stderr}`;
+    let residue: RuntimeEndpointResidueReceipt | null;
+    try {
+      residue = input.observeRuntimeEndpointResidue?.(providerEvidence) ?? null;
+    } catch (error) {
+      fail(
+        input.endpointHost,
+        'desktop-environment-unavailable',
+        'admission',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    if (residue !== null) {
+      assertRuntimeEndpointResidueReceipt(residue);
+      if (residue.providerIdentityDigest !== input.providerIdentityDigest) {
+        fail(input.endpointHost, 'desktop-environment-unavailable', 'admission');
+      }
+      fail(
+        input.endpointHost,
+        'runtime-endpoint-residue',
+        'desktop-start',
+        providerEvidence
+      );
+    }
+    if (start.code !== 0) {
+      fail(input.endpointHost, 'desktop-start-failed', 'desktop-start', providerEvidence);
     }
     const finalReadback = await run(
       input,

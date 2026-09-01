@@ -1,0 +1,3 @@
+export function normalizeCustomer(input: Record<string, unknown>): Record<string, unknown> {
+  return { ...input };
+}

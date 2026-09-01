@@ -4,7 +4,7 @@ import type {
 } from '../../src/compiler/contract.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
 import { loadAllManifests } from '../../src/compiler/parse/load-manifest.ts';
-import { officialRegistryRelativePath, privateRegistryRelativePath } from '../../src/workspace/paths.ts';
+import { officialRegistryRelativePath, privateRegistryRelativePath } from '../../src/workspace/runtime/paths.ts';
 
 export function buildSingleTenantPlanApp(options: Partial<PlanFile['app']> = {}): PlanFile['app'] {
   return {
@@ -46,7 +46,6 @@ export async function buildManifestValidationPlan(
   }
 
   const blocks: PlanFile['blocks'] = [];
-  const slots: PlanFile['slots'] = [];
   const visited = new Set<string>();
 
   function collectDependencies(blockId: string) {
@@ -57,17 +56,6 @@ export async function buildManifestValidationPlan(
     if (!manifestEntry) return;
 
     blocks.push({ id: manifestEntry.manifest.id, version: manifestEntry.manifest.version });
-
-    for (const slot of manifestEntry.manifest.slots) {
-      slots.push({
-        id: slot.id,
-        block: manifestEntry.manifest.id,
-        kind: slot.kind,
-        target: slot.target,
-        symbol: slot.symbol,
-        description: `Template validation placeholder for ${slot.id}`
-      });
-    }
 
     for (const req of manifestEntry.manifest.requires) {
       collectDependencies(req);
@@ -85,7 +73,6 @@ export async function buildManifestValidationPlan(
       sources: [buildOfficialPlanRegistrySource(), buildPrivatePlanRegistrySource()]
     },
     blocks,
-    slots,
     acceptance: []
   };
 }

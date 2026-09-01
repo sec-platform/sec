@@ -7,11 +7,17 @@ import type {
   CompilerDependencyExecutionGenerationAuthority,
   CompilerDepsReadyState
 } from '../runtime/project-runtime.ts';
-import { ensureCompilerDepsReady } from '../runtime/project-runtime.ts';
+import {
+  compilerDependencyLocatorWorktreeRetirementProvider,
+  disposeCompilerDependencyEnvironment,
+  ensureCompilerDepsReady
+} from '../runtime/project-runtime.ts';
 
 export interface CompilerDependencyFixturePackage {
+  readonly dependencies?: Readonly<Record<string, string>>;
   readonly main?: string;
   readonly name: string;
+  readonly packagePath?: string;
   readonly version: string;
 }
 
@@ -73,17 +79,28 @@ function normalizeDescriptor(
   if (input.lockfileBytes.length === 0) {
     throw new Error('Compiler dependency fixture lockfile must not be empty.');
   }
-  const packageNames = new Set<string>();
+  const packagePaths = new Set<string>();
   const packages = input.packages.map((manifest) => {
     assertCanonicalPackageName(manifest.name);
+    const packagePath = manifest.packagePath ?? manifest.name;
+    assertCanonicalPackageName(packagePath);
     assertCanonicalPackageMain(manifest.main);
-    if (manifest.version.length === 0 || packageNames.has(manifest.name)) {
-      throw new Error(`Compiler dependency fixture package is duplicate or versionless: ${manifest.name}`);
+    if (manifest.version.length === 0 || packagePaths.has(packagePath)) {
+      throw new Error(`Compiler dependency fixture package is duplicate or versionless: ${packagePath}`);
     }
-    packageNames.add(manifest.name);
+    packagePaths.add(packagePath);
+    const dependencies = Object.freeze({ ...(manifest.dependencies ?? {}) });
+    for (const [name, version] of Object.entries(dependencies)) {
+      assertCanonicalPackageName(name);
+      if (version.length === 0) {
+        throw new Error(`Compiler dependency fixture package dependency is versionless: ${name}`);
+      }
+    }
     return Object.freeze({
+      ...(Object.keys(dependencies).length === 0 ? {} : { dependencies }),
       ...(manifest.main === undefined ? {} : { main: manifest.main }),
       name: manifest.name,
+      ...(manifest.packagePath === undefined ? {} : { packagePath }),
       version: manifest.version
     });
   });
@@ -92,7 +109,7 @@ function normalizeDescriptor(
     ...Object.entries(input.devDependencies)
   ]) {
     assertCanonicalPackageName(name);
-    if (version.length === 0 || !packageNames.has(name)) {
+    if (version.length === 0 || !packagePaths.has(name)) {
       throw new Error(`Compiler dependency fixture manifest has no exact package materialization: ${name}`);
     }
   }
@@ -139,9 +156,18 @@ async function materializePackages(
   packages: readonly CompilerDependencyFixturePackage[]
 ): Promise<void> {
   for (const manifest of packages) {
-    const packageRoot = path.join(workingDirectory, 'node_modules', ...manifest.name.split('/'));
+    const packageRoot = path.join(
+      workingDirectory,
+      'node_modules',
+      ...(manifest.packagePath ?? manifest.name).split('/')
+    );
     await mkdir(packageRoot, { recursive: true });
-    await writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify(manifest)}\n`);
+    await writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
+      ...(manifest.dependencies === undefined ? {} : { dependencies: manifest.dependencies }),
+      ...(manifest.main === undefined ? {} : { main: manifest.main }),
+      name: manifest.name,
+      version: manifest.version
+    })}\n`);
     if (manifest.main === undefined) continue;
     const entryPath = path.join(packageRoot, ...manifest.main.replace(/^\.\//u, '').split('/'));
     await mkdir(path.dirname(entryPath), { recursive: true });
@@ -194,7 +220,8 @@ export async function issueCompilerDependencyFixtureOperation(
           ...process.env,
           SEC_CACHE_HOME: path.join(runtimeRootPath, 'cache'),
           SEC_STATE_HOME: path.join(runtimeRootPath, 'state')
-        }
+        },
+        worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
       }
     ),
     lockRevision: 0,
@@ -240,6 +267,11 @@ export async function retireCompilerDependencyFixtureOperation(
       runtimeRootNow.dev !== state.runtimeRoot.dev || runtimeRootNow.ino !== state.runtimeRoot.ino) {
     throw new Error('Compiler dependency fixture runtime root physical identity changed; residue is preserved.');
   }
+  await disposeCompilerDependencyEnvironment(
+    state.descriptor.dependencyRootPath,
+    { generatedStateLifecycle: state.lifecycle },
+    'compiler-dependency-fixture-retired'
+  );
   await rm(state.runtimeRoot.path, { recursive: true });
   state.retired = true;
 }

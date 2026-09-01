@@ -7,7 +7,6 @@ export interface AcceptanceItem {
   dependsOn?: string[];
   covers?: {
     blocks?: string[];
-    slots?: string[];
   };
 }
 
@@ -23,7 +22,5 @@ export interface AcceptanceCoverageReport {
   status: VerificationStatus;
   acceptancePassed: string[];
   blocks: AcceptanceCoverageEntry[];
-  slots: AcceptanceCoverageEntry[];
   uncoveredBlocks: string[];
-  uncoveredSlots: string[];
 }

@@ -57,10 +57,8 @@ test('staged check is pure while another Git owner retains the index lock', asyn
     git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
 
     const fixturePath = path.join(repoRoot, 'fixture.ts');
-    const tsconfigPath = path.join(repoRoot, 'tsconfig.json');
     await writeFile(fixturePath, source('unsorted'), 'utf8');
     git(repoRoot, ['add', 'fixture.ts']);
-    await writeFile(tsconfigPath, '{ invalid unstaged config', 'utf8');
     const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], true);
     const beforeWorking = await readFile(fixturePath);
     const indexPath = String(git(

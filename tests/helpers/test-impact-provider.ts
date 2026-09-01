@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { createRepositoryCompilationCacheProvider } from '../../src/brownfield/source-program-model/repository-compilation-cache-provider.ts';
 import {
   compileRepositorySourceProgramCompilation,
   repositoryCompilationDiagnosticsForTests
@@ -26,7 +27,6 @@ import {
   openContentAddressedWorkspaceCacheSession,
   type ContentAddressedWorkspaceCacheSession
 } from '../../src/runtime-state/workspace-state/content-addressed-workspace-cache.ts';
-import { createRepositoryCompilationCacheProvider } from '../../src/runtime-state/workspace-state/repository-compilation-cache-provider.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   bindSecSemanticOperation,

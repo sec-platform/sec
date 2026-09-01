@@ -5,9 +5,10 @@ import { PassThrough } from 'node:stream';
 
 import { expect, test } from 'bun:test';
 
-import { runObservedCommand, type ObservedCommandDependencies } from '../../src/runtime-state/physical/runtime/observed-process.ts';
+import { runObservedCommand, type ObservedCommandDependencies } from '../../src/runtime-state/physical/runtime/observed-process-stdin.ts';
 
 interface FakeChild extends EventEmitter {
+  readonly stdin: PassThrough;
   readonly stdout: PassThrough;
   readonly stderr: PassThrough;
   readonly pid: number;
@@ -19,6 +20,7 @@ interface FakeChild extends EventEmitter {
 function fakeChild(pid = 42_424): FakeChild {
   const child = new EventEmitter() as FakeChild;
   Object.defineProperties(child, {
+    stdin: { value: new PassThrough(), enumerable: true },
     stdout: { value: new PassThrough(), enumerable: true },
     stderr: { value: new PassThrough(), enumerable: true },
     pid: { value: pid, enumerable: true }
@@ -28,6 +30,38 @@ function fakeChild(pid = 42_424): FakeChild {
   child.kill = () => true;
   return child;
 }
+
+test('observed command writes bounded stdin and settles the real child process', async () => {
+  const input = Buffer.alloc(128 * 1024 + 7, 0x61);
+  const outcome = await runObservedCommand(
+    process.execPath,
+    ['-e', 'process.stdin.pipe(process.stdout)'],
+    {
+      cwd: process.cwd(),
+      input,
+      maxStdinBytes: input.byteLength,
+      maxObservedOutputBytes: input.byteLength,
+      timeoutMs: 10_000
+    }
+  );
+
+  expect(outcome).toMatchObject({
+    status: 'exited',
+    started: true,
+    exitCode: 0,
+    stdout: {
+      bytes: input.byteLength,
+      digest: `sha256:${createHash('sha256').update(input).digest('hex')}`,
+      observerTruncated: false
+    },
+    termination: {
+      requested: false,
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
+    }
+  });
+});
 
 function closeChild(child: FakeChild, code = 0): void {
   child.exitCode = code;

@@ -1,14 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import { isFileNotFoundError, pathExists, removeDir } from '../../../workspace/files.ts';
-import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from '../../../workspace/paths.ts';
+import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from '../../../workspace/runtime/paths.ts';
 import { loadRuntimeDependencySpec } from '../contract/runtime-dependency-spec.ts';
+import type { RuntimeDependencyInstallOptions } from '../runtime/operation-context.ts';
 import {
   disposeCanonicalSharedDependencies,
   ensureProjectDependencies,
   ensureSharedDepsReady,
   readRuntimeDepsStamp,
-  type RuntimeDependencyInstallOptions
 } from '../runtime/project-runtime.ts';
 
 export type DependencyEnvironmentMode = 'cold' | 'warm-shared' | 'warm-project' | 'dirty' | 'stale';
@@ -373,8 +374,13 @@ export async function cleanDependencyEnvironment(
   }
 
   for (const target of targets) {
-    if (path.resolve(target) === path.resolve(sharedRoot) &&
-      path.resolve(sharedRoot) === path.resolve(defaultSharedDepsRoot())) {
+    if (path.resolve(target) === path.resolve(sharedRoot)) {
+      if (path.resolve(sharedRoot) !== path.resolve(defaultSharedDepsRoot())) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Custom shared dependency roots cannot be retired through the public cleanup projection without owner-issued lifecycle authority'
+        );
+      }
       await disposeCanonicalSharedDependencies(environmentOptions);
     } else {
       await removeDir(target);

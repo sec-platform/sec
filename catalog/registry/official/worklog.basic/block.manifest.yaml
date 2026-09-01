@@ -35,7 +35,6 @@ pins:
     - id: worklog_recorded
       type: WorklogRecord
       required: true
-slots: []
 acceptance:
   - id: worklog_can_be_recorded
     dependsOn:

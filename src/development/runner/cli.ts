@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
 import { runObservedCommand } from '../../runtime-state/physical/runtime/observed-process.ts';
+import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
 import {
   createDependencyFreshProcessHandoff,
@@ -79,8 +80,48 @@ export async function runCheckAffectedCommand(
   return handoffExitCode ?? operations.runExecution(dependencies, demand);
 }
 
+/**
+ * TypeScript is itself part of the compiler dependency generation.  The CLI
+ * therefore admits and reads back that generation before it loads any module
+ * in the TypeScript execution closure.  The materialized result is passed to
+ * the runner unchanged; the runner may not bootstrap a second generation.
+ */
+export async function runTypecheckCommand(args: readonly string[]): Promise<number> {
+  const demand = compileSecOperationDemandGraph({
+    operation: 'typecheck',
+    terminalWorkIds: []
+  });
+  const dependencies = await ensureOperationDependencies(demand);
+  const admittedDependencies = reuseOperationDependencies(dependencies, demand);
+  const {
+    COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
+    retainCompilerDependencyExecutionGeneration
+  } = await import('../../toolchain/dependencies/runtime.ts');
+  const deadlineAtUnixMs = Date.now()
+    + COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY.maximumDurationMs;
+  const retained = await retainCompilerDependencyExecutionGeneration(
+    admittedDependencies.executionGenerationAuthority,
+    { deadlineAtUnixMs }
+  );
+  let transferred = false;
+  try {
+    const { runTypecheckWithRetainedDependencyGeneration } = await import(
+      './typecheck-runner.ts'
+    );
+    transferred = true;
+    return runTypecheckWithRetainedDependencyGeneration(
+      admittedDependencies,
+      retained,
+      [...args],
+      { deadlineAtUnixMs }
+    );
+  } finally {
+    if (!transferred) await retained.retire();
+  }
+}
+
 function usage(): never {
-  console.error('Usage: bun ./src/development/runner/cli.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
+  console.error('Usage: bun ./src/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
 
@@ -93,12 +134,17 @@ type ParsedImportOperationArgs = Readonly<{
 
 async function runRepositoryZeroWriteCommand(
   commandId: string,
-  operation: () => Promise<number>
+  operation: () => Promise<number>,
+  semanticOperation?: SecBoundSemanticOperation
 ): Promise<number> {
+  if (semanticOperation === undefined) {
+    console.error(`${commandId} strict-zero-write-unproven: semantic operation authority is unavailable.`);
+    return 1;
+  }
   const { runRepositoryZeroWriteOperation: runRepositoryZeroWriteOperationV1 } = await import(
     './repository-mutation-fence.ts'
   );
-  return runRepositoryZeroWriteOperationV1(commandId, operation);
+  return runRepositoryZeroWriteOperationV1(commandId, operation, { operation: semanticOperation });
 }
 
 function parseImportOperationArgs(
@@ -145,6 +191,24 @@ async function main(): Promise<void> {
   if (!target) {
     usage();
   }
+  const {
+    assertCanonicalBunPackageRunner,
+    readCanonicalBunRuntimeProjection
+  } = await import('../../toolchain/runtime/bun-version.ts');
+  const runtimeProjection = await readCanonicalBunRuntimeProjection();
+  assertCanonicalBunPackageRunner(runtimeProjection.version);
+
+  if (target === 'commit') {
+    const { runDevelopmentCommitCommand } = await import('../commit/effect-grant.ts');
+    process.exitCode = await runDevelopmentCommitCommand(args);
+    return;
+  }
+
+  if (target === 'commit:recover') {
+    const { runDevelopmentCommitRecoveryCommand } = await import('../commit/operation.ts');
+    process.exitCode = await runDevelopmentCommitRecoveryCommand(args);
+    return;
+  }
 
   if (target === 'generated-state:inspect' || target === 'generated-state:plan'
       || target === 'generated-state:cleanup') {
@@ -165,7 +229,7 @@ async function main(): Promise<void> {
   if (target === 'environment:workspace-settle') {
     const unknown = args.filter((argument) => argument !== '--fix');
     if (unknown.length > 0) usage();
-    const { settleWorkspaceEnvironment } = await import('../../runtime-state/workspace-state/settlement.ts');
+    const { settleWorkspaceEnvironment } = await import('../../runtime-state/generated-state/environment-settlement.ts');
     const result = await settleWorkspaceEnvironment({ fix: args.includes('--fix') });
     console.log(JSON.stringify(result, null, 2));
     if (result.status !== 'settled') process.exitCode = 1;
@@ -177,19 +241,29 @@ async function main(): Promise<void> {
     process.exitCode = await runCheckAffectedCommand(args, {
       runPlan: async () => {
         const { runLocalAffectedCheck } = await import('./check-runner.ts');
+        const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan.ts');
+        const operation = compileAffectedTestSelectionSemanticOperation({
+          purpose: 'check-affected'
+        });
         return runRepositoryZeroWriteCommand(
           'check:affected',
-          () => runLocalAffectedCheck(['--plan'])
+          () => runLocalAffectedCheck(['--plan'], { operation }),
+          operation
         );
       },
       ensureDependencies: ensureOperationDependencies,
       handoff: handoffDevRunnerToFreshProcess,
       runExecution: async (dependencies, demand) => {
         const { runLocalAffectedCheck } = await import('./check-runner.ts');
+        const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan.ts');
+        const operation = compileAffectedTestSelectionSemanticOperation({
+          purpose: 'check-affected'
+        });
         return runRepositoryZeroWriteCommand('check:affected', () =>
           runLocalAffectedCheck([], {
+            operation,
             prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
-          }));
+          }), operation);
       }
     });
     return;
@@ -219,10 +293,11 @@ async function main(): Promise<void> {
       return;
     }
     const { runAffectedTests } = await import('./test-runner.ts');
+    const { issueCheckAffectedTestImpactProjection } = await import('./check-affected-source.ts');
     if (args.length === 1 && args[0] === '--plan') {
       process.exitCode = await runRepositoryZeroWriteCommand(
         'test:affected',
-        () => runAffectedTests(args)
+        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args)
       );
       return;
     }
@@ -230,7 +305,7 @@ async function main(): Promise<void> {
     process.exitCode = await runRepositoryZeroWriteCommand('test:affected', () =>
       withHeavyVerificationGateLease(
         'test:affected',
-        () => runAffectedTests(args),
+        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args),
         { namespace: 'test:affected', waitTimeoutMs: 5000 }
       ));
     return;
@@ -269,7 +344,7 @@ async function main(): Promise<void> {
       runImportCheck,
       runImportApply,
       runStagedImportCheck,
-      runStagedImportOrganizer,
+      runSynchronizedStagedImportOrganizer,
       resolveCandidateImportBase
     } = await import('./import-organizer.ts');
     if (target === 'imports:check' || target === 'imports:apply') {
@@ -291,7 +366,7 @@ async function main(): Promise<void> {
             process.exitCode = 1;
           }
         } else {
-          process.exitCode = await runStagedImportOrganizer(undefined, undefined, selection);
+          process.exitCode = await runSynchronizedStagedImportOrganizer(undefined, undefined, selection);
         }
         return;
       }
@@ -351,8 +426,7 @@ async function main(): Promise<void> {
   }
 
   if (target === 'typecheck') {
-    const { runTypecheck } = await import('./typecheck-runner.ts');
-    process.exitCode = await runTypecheck(args);
+    process.exitCode = await runTypecheckCommand(args);
     return;
   }
 

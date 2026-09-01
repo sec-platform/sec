@@ -7,7 +7,6 @@ import { pathToFileURL } from 'node:url';
 
 import { afterAll, test as bunTest, expect } from 'bun:test';
 
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/agent/work-package-contract.ts';
 import {
   CodexDevelopmentActivateMainHealthRepairRollingPlan,
   CodexDevelopmentAssertControlPlaneBinding,
@@ -49,6 +48,7 @@ import {
   createMainHealthRepairWorkPackagePath
 } from '../../src/control/main-health/contract.ts';
 import { compileMainHealthRepairDecision } from '../../src/control/main-health/repair.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
@@ -361,17 +361,16 @@ test('freeze child failure envelope is bounded canonical and redacts unknown err
 });
 
 bunTest.skipIf(process.platform !== 'win32')(
-  'Windows document-control admission blocks Git reads and object/index effects before mutation',
+  'Windows document-control consumes GitRead and blocks the first unowned object/index effect',
   async () => {
     const fixture = await createFreezeFixture();
     try {
       const indexBefore = await readFile(repositoryIndexPath(fixture.repositoryRoot));
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
-      const failure = await freezeDocumentControlPlane({
-        cwd: fixture.repositoryRoot,
-        manifestPath: FREEZE_TARGET_PATH,
-        reviewedOn: '2026-08-09'
-      }).then(
+      const failure = await resolveLiveControlPlane(
+        fixture.repositoryRoot,
+        { observeGitHub: false }
+      ).then(
         () => undefined,
         (error: unknown) => error
       );
@@ -379,9 +378,9 @@ bunTest.skipIf(process.platform !== 'win32')(
       expect(failure).toMatchObject({
         code: 'DOCUMENT-CONTROL-CLI-ADMISSION-001',
         command: 'git',
-        operation: 'git-read',
+        operation: 'git-object-index-effect',
         status: 'unknown',
-        reason: 'installed-executable-capability-unproven'
+        reason: 'semantic-closure-unproven'
       });
       expect(await readFile(repositoryIndexPath(fixture.repositoryRoot))).toEqual(indexBefore);
       await expect(lstat(transactionRoot)).rejects.toMatchObject({ code: 'ENOENT' });

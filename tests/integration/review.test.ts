@@ -5,7 +5,7 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -21,7 +21,6 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         regressionRiskCount: 2,
         conflictHintCount: 1,
         impactedBlockCount: 1,
-        impactedSlotCount: 1,
         runtimeEntryCount: 1
       },
       chainSummary: {
@@ -32,7 +31,7 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         failedStageCount: 1,
         stageSummaries: [
           { id: 'verification', status: 'passed', detail: 'lane=all; failed=none' },
-          { id: 'coverage', status: 'failed', detail: 'blocks=1/2; slots=1/1' },
+          { id: 'coverage', status: 'failed', detail: 'blocks=1/2' },
           { id: 'artifacts', status: 'attention', detail: 'total=4; missing=1' },
           { id: 'review', status: 'passed', detail: 'review-summary=generated' }
         ]
@@ -50,16 +49,11 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         status: 'failed',
         acceptancePassedCount: 1,
         blockCount: 2,
-        slotCount: 1,
         coveredBlockCount: 1,
-        coveredSlotCount: 1,
         uncoveredBlockCount: 1,
-        uncoveredSlotCount: 0,
         acceptancePassed: ['smoke'],
         uncoveredBlocks: ['tenant/basic-workspace'],
-        uncoveredSlots: [],
-        blockSummaries: [],
-        slotSummaries: []
+        blockSummaries: []
       },
       provenanceSummary: {
         artifactCount: 5,
@@ -76,16 +70,16 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         registrySummaryCount: 0,
         registrySummaries: [],
         generatedPassSummaries: [],
-        unverifiedArtifacts: ['custom/customer_normalizer.ts']
+        unverifiedArtifacts: ['src/installed/entity/customer-service.ts']
       },
       changeSourceCount: 1,
       runtimeEntryCount: 1,
       installImpactCount: 1,
       changeSources: [
         {
-          path: 'custom/customer_normalizer.ts',
-          originType: 'slot',
-          originId: 'customer_normalizer'
+          path: 'src/installed/entity/customer-service.ts',
+          originType: 'block',
+          originId: 'entity/customer-basic'
         }
       ],
       runtimeEntries: [
@@ -140,7 +134,6 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         impactCount: 1,
         impacts: ['src/installed/auth/session.ts'],
         sourceMigrationCount: 1,
-        slotMigrationCount: 0,
         verificationSummaries: [{ id: 'required', count: 1 }],
         preflightSummaries: [{ group: 'migration', checkCount: 1, evidenceCount: 1 }],
         migrationSummaries: [
@@ -182,7 +175,6 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         }
       },
       impactedBlocks: ['entity/customer-basic'],
-      impactedSlots: ['customer_normalizer'],
       failurePoints: [
         {
           lane: 'fast',
@@ -199,8 +191,8 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         },
         {
           kind: 'override-active',
-          message: 'Slot customer_normalizer has active override',
-          slotId: 'customer_normalizer'
+          message: 'Block entity/customer-basic has active override',
+          blockId: 'entity/customer-basic'
         }
       ],
       conflictHints: [
@@ -213,12 +205,12 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
     };
     await writeJson(reviewSummaryPath, reviewSummary);
 
-    await expectCliVariants(workspaceRoot, ['review', 'summary'], {
+    await expectCliVariants(workspaceRoot, ['review'], {
       text: [
         'Review summary attention; format=2; stages=2/4; attention=1; failed=1',
         'CI attention; failures=1; risks=2; conflicts=1',
-        'Impact blocks=1; slots=1; runtime=1; changeSources=1; installImpacts=1',
-        'Coverage failed; blocks=1/2; slots=1/1',
+        'Impact blocks=1; runtime=1; changeSources=1; installImpacts=1',
+        'Coverage failed; blocks=1/2',
         'Provenance artifacts=5; registry=2; generated=2; unverified=3',
         'Artifacts attention; total=4; missing=1; missingReasonTypes=1; contracts=1; uploadGroups=2',
         'Stages: verification=passed, coverage=failed, artifacts=attention, review=passed',
@@ -253,14 +245,12 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
       text: [
         'Review diagnostics attention; diagnostics=4; failures=1; risks=2; conflicts=1',
         `Artifacts: ${CI_ARTIFACT_FILES.policyReport}`,
-        'Blocks: tenant/basic-workspace',
-        'Slots: customer_normalizer',
+        'Blocks: entity/customer-basic, tenant/basic-workspace',
         `Diagnostic failure:0; kind=policy; lane=fast; artifact=${CI_ARTIFACT_FILES.policyReport}; Policy tenant-scope-required: missing tenant guard`,
-        'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; slot=none; Block tenant/basic-workspace has uncovered acceptance',
+        'Diagnostic regression-risk:0; kind=coverage-gap; block=tenant/basic-workspace; Block tenant/basic-workspace has uncovered acceptance',
         'Diagnostic conflict:0; kind=upgrade-plan-present; related=auth/basic-session; Upgrade plan needs review before merge'
       ],
       json: {
-        formatVersion: '1',
         status: 'attention',
         diagnosticCount: 4,
         failureCount: 1,
@@ -268,18 +258,10 @@ test('CLI exposes review summary as text and JSON contracts', async () => {
         conflictHintCount: 1,
         artifactPathCount: 1,
         artifactPaths: [CI_ARTIFACT_FILES.policyReport],
-        blockCount: 1,
-        blocks: ['tenant/basic-workspace'],
-        slotCount: 1,
-        slots: ['customer_normalizer'],
-        diagnostics: expect.arrayContaining([
-          expect.objectContaining({ category: 'failure', kind: 'policy', lane: 'fast' }),
-          expect.objectContaining({ category: 'regression-risk', kind: 'coverage-gap', blockId: 'tenant/basic-workspace' }),
-          expect.objectContaining({ category: 'conflict', kind: 'upgrade-plan-present', relatedId: 'auth/basic-session' })
-        ])
+        blockCount: 2,
+        blocks: ['entity/customer-basic', 'tenant/basic-workspace']
       },
       compactJson: {
-        formatVersion: '1',
         diagnosticCount: 4,
         artifactPathCount: 1
       }

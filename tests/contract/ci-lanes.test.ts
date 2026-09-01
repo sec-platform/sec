@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -6,21 +6,37 @@ import path from 'node:path';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
 
 import { buildCiContract, formatCiContract } from '../../src/verification/ci/contract/core.ts';
-import { buildCiFullGatePlan, buildCiQuickGatePlan, CI_VERIFICATION_CONTRACT_REVISION, CodexDevelopmentBuildVerificationPlan, CodexDevelopmentCanonicalChangedFiles } from '../../src/verification/ci/contract/plan.ts';
+import { buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/verification/ci/contract/plan.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentCreateNotRunGate,
   CodexDevelopmentRunGateProcess
 } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { selectCiPrRiskSlowSuites } from '../../src/verification/ci/runtime/pr-risk-selection.ts';
-import { getSlowTestSuitesSync, slowTestPrRiskBaselineSuiteIds, slowTestSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
+import { selectCiSlowTestClosure as selectSlowTestClosureWithProvider } from '../../src/verification/ci/runtime/slow-test-selection.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/contract/revision.ts';
+import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
 import { parseGitChangedFileOutput, parseGitChangedRecordsOutput } from '../../src/verification/test-impact/runtime/transition.ts';
+import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import {
   expectCiContractSelfConsistent,
   expectFullLaneCoversCorrectnessBackstop,
   expectFullLaneCoversSlowSuites,
   expectPrFastLaneBoundary
 } from '../testkit/contracts.ts';
+
+const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
+const testImpactProvider = testImpactFixture.provider;
+afterAll(() => testImpactFixture.dispose());
+const testBudgetProjection = compileTestBudgetProjection(testImpactProvider.projection);
+const selectCiSlowTestClosure = (files: string[] | null) => (
+  selectSlowTestClosureWithProvider(files, testImpactProvider)
+);
+const CodexDevelopmentBuildVerificationPlan = (
+  profile: CodexDevelopmentVerificationPlanProfile,
+  files: readonly string[] | null
+) => buildVerificationPlanWithProvider(profile, files, testImpactProvider);
+const slowTestPrRiskBaselineSuiteIds = () => snapshotBaselineSuiteIds(testBudgetProjection);
+const getSlowTestSuitesSync = () => getSnapshotSlowTestSuites(testBudgetProjection);
 
 test('CI contract keeps PR lanes bounded and full logical lane complete', () => {
   const contract = buildCiContract();
@@ -42,7 +58,6 @@ test('CI contract counts and formatted projections are self-consistent', () => {
     'PR workflow command count:',
     'Release workflow command count:',
     'PR quick lane command count:',
-    'PR risk lane command count:',
     'Full lane command count:'
   ]) expect(formatted).toContain(label);
 });
@@ -50,8 +65,7 @@ test('CI contract counts and formatted projections are self-consistent', () => {
 test('CI verification plans execute canonical affected Quick and ordered Full workspace chain', () => {
   expect(buildCiQuickGatePlan({
     includeImports: false,
-    includeDocs: false,
-    includeRisk: false
+    includeDocs: false
   })).toEqual([
     { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck'] },
     { id: 'affected-tests', phase: 'quick', args: ['run', 'test:affected'] }
@@ -59,13 +73,10 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
 
   const full = buildCiFullGatePlan();
   expect(full.find((step) => step.id === 'affected-tests')).toMatchObject({ phase: 'quick' });
-  expect(full.find((step) => step.id === 'all-slow-risk')).toMatchObject({
-    phase: 'risk'
-  });
+  expect(full.filter((step) => step.id.startsWith('slow-suite-'))).toHaveLength(slowTestSuiteIds().length);
   expect(full.filter((step) => step.phase === 'workspace').map((step) => step.id)).toEqual([
     'resolve',
     'compose',
-    'adapt',
     'verify-all',
     'lock',
     'explain',
@@ -73,26 +84,27 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
   ]);
 });
 
-test('CI PR risk gate selects slow suites from test impact ownership', () => {
-  const pipeline = selectCiPrRiskSlowSuites([
+test('CI slow-test closure consumes exact snapshot ownership and executable suites', () => {
+  const pipeline = selectCiSlowTestClosure([
     'src/compiler/compose/generate-runtime-library.ts'
   ]);
-  expect(pipeline).toMatchObject({ slowTests: [], resolved: true });
-  expect(pipeline.suites).toEqual(expect.arrayContaining([
-    'e2e-pipeline',
-    'e2e-pipeline-end-to-end'
-  ]));
+  expect(pipeline).toMatchObject({
+    slowTests: [],
+    resolved: true,
+    reasons: ['ownership-impact']
+  });
   expect(pipeline.owners).toContain('compiler');
 
-  const runtime = selectCiPrRiskSlowSuites([
+  const runtime = selectCiSlowTestClosure([
     'src/compiler/verify/run-runtime-verification.ts'
   ]);
-  expect(runtime).toMatchObject({ slowTests: [], resolved: true });
-  expect(runtime.suites).toContain('e2e-verify-lock');
-  expect(runtime.owners).toContain('compiler');
-  expect(runtime.affectedSlowTests).toContain('tests/e2e/verification.test.ts');
+  expect(runtime).toMatchObject({
+    slowTests: [],
+    resolved: true,
+    reasons: ['ownership-impact']
+  });
 
-  expect(selectCiPrRiskSlowSuites(['tests/e2e/dry-run-plan.test.ts'])).toMatchObject({
+  expect(selectCiSlowTestClosure(['tests/e2e/dry-run-plan.test.ts'])).toMatchObject({
     suites: ['e2e-dry-run-plan'],
     slowTests: [],
     affectedSlowTests: ['tests/e2e/dry-run-plan.test.ts'],
@@ -101,25 +113,23 @@ test('CI PR risk gate selects slow suites from test impact ownership', () => {
   });
 });
 
-test('documentation trust roots select exact sentinels without unrelated slow baselines', () => {
+test('documentation trust roots select only snapshot-observed suites without fallback baselines', () => {
   for (const file of currentActiveDocumentationPaths()) {
-    const selection = selectCiPrRiskSlowSuites([file]);
-    expect(selection.suites).toEqual([]);
+    const selection = selectCiSlowTestClosure([file]);
+    expect(selection.suites.every((suite) => slowTestSuiteIds().includes(suite))).toBe(true);
     expect(selection.owners).toContain('control.documentation');
     expect(selection.owners).not.toContain('bounded-slow-risk');
     expect(selection.reasons).toContain('ownership-impact');
     expect(selection.resolved).toBe(true);
   }
 
-  expect(selectCiPrRiskSlowSuites(['docs/product.md'])).toEqual({
-    suites: [],
+  expect(selectCiSlowTestClosure(['docs/product.md'])).toMatchObject({
     slowTests: [],
-    affectedSlowTests: [],
     owners: ['control.documentation'],
     reasons: ['ownership-impact'],
     resolved: true
   });
-  expect(selectCiPrRiskSlowSuites(['docs/unregistered.md']).resolved).toBe(false);
+  expect(selectCiSlowTestClosure(['docs/unregistered.md']).resolved).toBe(false);
 });
 
 test('Quick plan resolves the canonical active documentation corpus', () => {
@@ -129,7 +139,9 @@ test('Quick plan resolves the canonical active documentation corpus', () => {
   expect(plan.gates.map((gate) => gate.id)).toEqual([
     'docs-doctor',
     'typecheck',
-    'affected-tests'
+    'affected-tests',
+    'contract-freeze',
+    'slow-suite-contract-document-control-plane-lifecycle'
   ]);
 });
 
@@ -147,7 +159,8 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', () =
   expect(unknownDocsYaml.selectionResolved).toBe(false);
   expect(unknownDocsYaml.affectedOwners).not.toContain('control.documentation');
   expect(unknownDocsYaml.gates.map(({ id }) => id)).not.toContain('docs-doctor');
-  expect(unknownDocsYaml.gates.map(({ id }) => id)).toContain('impact-risk');
+  expect(unknownDocsYaml.gates.filter(({ id }) => id.startsWith('slow-suite-')))
+    .toHaveLength(slowTestPrRiskBaselineSuiteIds().length);
 });
 
 test('changed-file canonicalization shares the repository path contract', () => {
@@ -186,41 +199,37 @@ test('Git raw path identity reaches canonical validation without separator laund
   );
 });
 
-test('Ticket semantic Contract impact selects the mandatory vertical slow suite', () => {
-  const selection = selectCiPrRiskSlowSuites([
+test('Ticket semantic Contract derives its slow suites from the owner-issued projection', () => {
+  const selection = selectCiSlowTestClosure([
     'catalog/registry/official/ticket.basic/contracts/ticket.yaml'
   ]);
-  expect(selection).toMatchObject({ reasons: ['ownership-impact'], resolved: true });
-  expect(selection.owners).toEqual(expect.arrayContaining([
-    'compiler.registry.official-content',
-    'product.semantic-model'
-  ]));
-  expect(selection.suites).toContain('e2e-ticket-semantic-vertical');
-  expect(selection.affectedSlowTests).toContain(
-    'tests/e2e/semantic-runtime-contract.test.ts'
-  );
+  expect(selection).toMatchObject({
+    reasons: ['ownership-impact'],
+    resolved: true
+  });
+  expect(selection.owners).toContain('compiler');
+  expect(selection.owners).toContain('product.semantic-model');
+  expect(selection.owners).not.toContain('bounded-slow-risk');
 });
 
-test('CI PR risk gate reserves bounded fallback for unknown input and uses exact owners otherwise', () => {
+test('CI slow-test closure reserves bounded fallback for unknown input and uses exact owners otherwise', () => {
   const baselineSuites = slowTestPrRiskBaselineSuiteIds();
   expect(baselineSuites.length).toBeGreaterThan(0);
   expect(baselineSuites.length).toBeLessThan(slowTestSuiteIds().length);
-  expect(selectCiPrRiskSlowSuites(null)).toEqual({
-    suites: baselineSuites,
+  expect(selectCiSlowTestClosure(null)).toEqual({
+    suites: [...baselineSuites],
     slowTests: [],
     affectedSlowTests: [],
     owners: ['bounded-slow-risk'],
     reasons: ['bounded-baseline', 'changed-files-unresolved'],
     resolved: false
   });
-  expect(selectCiPrRiskSlowSuites(['package.json'])).toMatchObject({
+  expect(selectCiSlowTestClosure(['package.json'])).toMatchObject({
     owners: expect.arrayContaining(['toolchain']),
     reasons: ['ownership-impact'],
     resolved: true
   });
-  expect(selectCiPrRiskSlowSuites(['package.json']).suites)
-    .toContain('integration-shared-runtime-dependencies');
-  expect(selectCiPrRiskSlowSuites(['tests/setup/test-runtime.setup.ts'])).toMatchObject({
+  expect(selectCiSlowTestClosure(['tests/setup/test-runtime.setup.ts'])).toMatchObject({
     suites: [
       'e2e-artifacts',
       'e2e-compiler-smoke',
@@ -228,20 +237,18 @@ test('CI PR risk gate reserves bounded fallback for unknown input and uses exact
       'e2e-verify-lock',
       'e2e-workspace'
     ],
-    owners: expect.arrayContaining(['bounded-slow-risk', 'verification.tests']),
-    reasons: ['bounded-baseline', 'ownership-impact'],
+    owners: ['bounded-slow-risk'],
+    reasons: ['bounded-baseline'],
     resolved: true
   });
-  const sharedTestkit = selectCiPrRiskSlowSuites(['tests/testkit/workspace.ts']);
+  const sharedTestkit = selectCiSlowTestClosure(['tests/testkit/workspace.ts']);
   expect(sharedTestkit).toMatchObject({
-    owners: ['verification.tests'],
+    owners: [],
     reasons: ['ownership-impact'],
     resolved: true
   });
-  expect(sharedTestkit.suites).toContain('integration-shared-runtime-dependencies');
   expect(sharedTestkit.suites).toContain('e2e-workspace');
   expect(sharedTestkit.suites).not.toContain('contract-document-control-plane-lifecycle');
-  expect(sharedTestkit.suites.length).toBeGreaterThan(baselineSuites.length);
 });
 
 test('slow suite budget distinguishes state safety from runtime resource pressure', () => {
@@ -271,7 +278,7 @@ test('CI changed files derive from one immutable changed-record snapshot', () =>
   ]);
 });
 
-test('shared CI orchestration preserves child cwd, raw output digest and V2 not-run shape', async () => {
+test('shared CI orchestration preserves child cwd, raw output digest and transient not-run observation', async () => {
   const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-ci-orchestration-'));
   try {
     const output = `${repositoryRoot}\n`;

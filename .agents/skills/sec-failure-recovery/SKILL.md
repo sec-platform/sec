@@ -14,12 +14,6 @@ description: 用于测试、Gate、Review、candidate、进程或控制面失败
 ## 输入
 - failure tail、exact identity、old/current trust epoch、mutation/prompt epoch、root-cause cluster、cleanup evidence。
 
-## 权限与路径
-- 只处理失败证据、最小delta和恢复状态；不扩大产品scope。
-
-## 允许工具与操作
-- failure tail读取、root-cause分类、最小sentinel、capsule recovery、proof reset。
-
 ## 前置门禁
 - exact failure identity、cleanup状态和输入变更已知。
 
@@ -48,9 +42,3 @@ description: 用于测试、Gate、Review、candidate、进程或控制面失败
 ## 禁止捷径
 - 不硬重置或删除未审计工作。
 - 不把所有失败累计成同一candidate次数。
-
-## 权威
-- `AGENTS.md`
-- `docs/development-governance.md`
-- `docs/verification-governance.md`
-- `docs/semantic-mutation.md`

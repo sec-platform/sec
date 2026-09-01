@@ -8,7 +8,7 @@ import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { buildExpectedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
 import { writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
 import {
   buildPassingReviewCoverage,
@@ -89,24 +89,6 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
           to: 'src/installed/entity/customer-service.ts'
         })
       ],
-      slotTasks: [
-        {
-          id: 'customer_normalizer',
-          block: BLOCK_ID,
-          target: 'custom/customer_normalizer.ts',
-          symbol: 'normalizeCustomerInput',
-          kind: 'adapter',
-          status: 'filled',
-          writableZones: ['custom/customer_normalizer.ts'],
-          provenanceHints: {
-            generator: 'test',
-            verifiedBy: [
-              ACCEPTANCE_ID,
-              ACCEPTANCE_ID
-            ]
-          }
-        }
-      ],
       generatedPaths: [
         CI_ARTIFACT_FILES.explainGraph,
         CI_ARTIFACT_FILES.repairPlan,
@@ -118,7 +100,6 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
         align: 'succeeded',
         resolve: 'succeeded',
         compose: 'succeeded',
-        adapt: 'succeeded',
         verify: 'succeeded',
         repair: 'pending',
         lock: 'pending',
@@ -145,9 +126,6 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
 
     const provenance = await buildProvenance(workspaceRoot, lock);
 
-    expect(provenance.artifacts.find((artifact) => artifact.path === 'custom/customer_normalizer.ts')).toMatchObject({
-      verifiedBy: [ACCEPTANCE_ID]
-    });
     expect(provenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
       verifiedBy: ['tests/unit/customer-runtime.test.ts']
     });
@@ -155,7 +133,6 @@ test('buildProvenance consumes only a complete canonical Verification artifact s
       ['control/graph/explain-graph.json', 'explain'],
       ['control/workflow/repair-plan.json', 'repair'],
       ['control/workflow/upgrade-plan.json', 'upgrade'],
-      ['custom/customer_normalizer.ts', 'adapt'],
       ['src/installed/entity/customer-service.ts', 'compose'],
       ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);

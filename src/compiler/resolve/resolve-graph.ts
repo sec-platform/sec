@@ -1,9 +1,9 @@
-import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
+import { portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import { relativePosixPath } from '../../workspace/paths.ts';
+import { relativePosixPath } from '../../workspace/runtime/paths.ts';
 import type { ManifestEntry, PlanFile } from '../contract.ts';
-import { LOCK_FILE_FORMAT_VERSION, type LockFile, type SlotTask } from '../contract.ts';
+import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import { loadAllManifests, loadManifestById, resolveManifestResource } from '../parse/load-manifest.ts';
 import { PASS_STATUS_PENDING } from '../pipeline/defaults.ts';
@@ -38,23 +38,6 @@ function detectConflicts(entries: readonly ManifestEntry[], capabilityProviders:
           `Block "${entry.manifest.id}" conflicts with provided capability "${conflict}"`
         );
       }
-    }
-  }
-}
-
-function assertUniqueResolvedSlotIds(entries: readonly ManifestEntry[]): void {
-  const ownerBySlotId = new Map<string, string>();
-  for (const entry of entries) {
-    for (const slot of entry.manifest.slots) {
-      const previousOwner = ownerBySlotId.get(slot.id);
-      if (previousOwner !== undefined && previousOwner !== entry.manifest.id) {
-        throw new CompilerError(
-          'RESOLVE-CONFLICT-005',
-          `Resolved Slot id "${slot.id}" is declared by both "${previousOwner}" and "${entry.manifest.id}"`,
-          { slotId: slot.id, blockIds: [previousOwner, entry.manifest.id].sort() }
-        );
-      }
-      ownerBySlotId.set(slot.id, entry.manifest.id);
     }
   }
 }
@@ -141,59 +124,6 @@ function topologicalSort(entries: readonly ManifestEntry[], providerMap: Map<str
   return result;
 }
 
-function buildSlotTasks(plan: PlanFile, manifestMap: Map<string, ManifestEntry>): SlotTask[] {
-  const explicitSlots = new Map(plan.slots.map((slot) => [`${slot.block}:${slot.id}`, slot] as const));
-  const tasks: SlotTask[] = [];
-
-  for (const entry of manifestMap.values()) {
-    for (const manifestSlot of entry.manifest.slots) {
-      if (!manifestSlot.writableZones) {
-        throw new CompilerError('ALIGN-SLOT-005', `Slot "${manifestSlot.id}" is missing writableZones`);
-      }
-      const explicitSlot = explicitSlots.get(`${entry.manifest.id}:${manifestSlot.id}`);
-      const target = explicitSlot?.target ?? manifestSlot.target;
-      if (!isCanonicalPortableLogicalPath(target)) {
-        throw new CompilerError(
-          'ALIGN-SLOT-006',
-          `Slot "${entry.manifest.id}:${manifestSlot.id}" target is not one canonical portable logical path`
-        );
-      }
-      tasks.push({
-        id: manifestSlot.id,
-        block: entry.manifest.id,
-        target,
-        ...(explicitSlot?.sourcePath ? { sourcePath: explicitSlot.sourcePath } : {}),
-        symbol: explicitSlot?.symbol ?? manifestSlot.symbol,
-        kind: explicitSlot?.kind ?? manifestSlot.kind,
-        inputType: manifestSlot.inputType,
-        outputType: manifestSlot.outputType,
-        status: 'pending',
-        writableZones: explicitSlot?.sourcePath ? [explicitSlot.sourcePath, ...manifestSlot.writableZones] : manifestSlot.writableZones,
-        provenanceHints: {
-          generator: explicitSlot ? 'mock-local-synthesizer' : null,
-          verifiedBy: []
-        }
-      });
-    }
-  }
-
-  const ownerByTarget = new Map<string, string>();
-  for (const task of tasks) {
-    const owner = `${task.block}:${task.id}`;
-    const identity = portableLogicalPathCollisionKey(task.target, 'Resolved Slot target');
-    const previous = ownerByTarget.get(identity);
-    if (previous !== undefined) {
-      throw new CompilerError(
-        'RESOLVE-CONFLICT-007',
-        `Resolved Slot target "${task.target}" has multiple owners: "${previous}", "${owner}"`,
-        { target: task.target, slotOwners: [previous, owner].sort() }
-      );
-    }
-    ownerByTarget.set(identity, owner);
-  }
-  return tasks;
-}
-
 function assertInstallTargetOwnership(installPlan: readonly LockFile['installPlan'][number][]): void {
   const byTarget = new Map<string, LockFile['installPlan']>();
   for (const step of installPlan) {
@@ -263,7 +193,6 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
   }
 
   const resolvedEntries = [...manifestMap.values()];
-  assertUniqueResolvedSlotIds(resolvedEntries);
   const providerMap = buildCapabilityProviders(resolvedEntries);
   detectConflicts(resolvedEntries, providerMap);
   const sortedEntries = topologicalSort(resolvedEntries, providerMap);
@@ -301,9 +230,6 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
     })
   );
   assertInstallTargetOwnership(installPlan);
-  const sortedManifestMap = new Map(sortedEntries.map((entry) => [entry.manifest.id, entry] as const));
-  const slotTasks = buildSlotTasks(plan, sortedManifestMap);
-
   return {
     formatVersion: LOCK_FILE_FORMAT_VERSION,
     app: {
@@ -315,7 +241,6 @@ export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promi
     resolvedBlocks,
     resolvedCapabilities: uniqueSorted([...providerMap.keys()]),
     installPlan,
-    slotTasks,
     generatedPaths: uniqueSorted([
       CI_ARTIFACT_FILES.blockUsageMap,
       CI_ARTIFACT_FILES.installManifest

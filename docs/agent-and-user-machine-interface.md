@@ -2,14 +2,13 @@
 title: Agent 与用户机器接口
 status: stable
 domain: agent-user-interface
-last-reviewed: 2026-08-22
 ---
 
 # Agent 与用户机器接口
 
 ## 产品边界
 
-SEC 是供 Agent 与用户直接调用的本地优先工程工具，不是 Web 应用。核心发行物只提供 CLI、稳定 machine JSON、内容寻址证据、语义 IR/图以及可组合的 compiler/orchestrator API。终端输出由 Pino 与 CLI formatter 承担；核心不拥有浏览器页面、HTTP/SSE UI server、HTML view、React/Next runtime 或 Playwright/Chromium 验证能力。
+SEC 是供 Agent 与用户直接调用的本地优先工程工具，不是 Web 应用。核心发行物只提供 CLI、稳定 machine JSON、内容寻址证据、语义 IR/图以及可组合的 compiler/orchestrator API。终端presentation由CLI formatter/logging owner承担；Agent/CLI interface domain不拥有SEC自身的浏览器页面、HTTP/SSE UI server、HTML view、前端应用runtime，也不拥有browser Verification authority。Target workspace Acceptance仍可按Runtime/Verification capability selection消费外部Browser Provider。
 
 Agent 与用户必须通过同一个公共机器合同读取事实和请求 Operation。交互方式不能创建第二份产品语义、状态 owner、授权、Verification、Evidence 或 terminal result。面向人的文本只解释同一 machine result，不能反向成为 authority。
 
@@ -21,9 +20,11 @@ Agent 与用户必须通过同一个公共机器合同读取事实和请求 Oper
 - canonical Engineering Operation 的 plan/apply/query/recover 结果；
 - Engineering IR、ExplainGraph、Mermaid/DOT、ReviewSummary 与 Verification/Evidence 文件；
 - Agent Context Packet 与 bounded proposal，它们只能引用 canonical identity/revision，不能签发 Effect authority；
-- compiler/orchestrator 的版本化 TypeScript API，只承载与 CLI 相同的 owner 语义。
+- compiler/orchestrator 的named TypeScript API contract，只承载与CLI相同的owner语义；只有真实外部、持久或迁移consumer需要区分多个可观察状态时才建立version域。
 
-任何消费者都必须按 schema/revision 验证输入，并在 owner、revision、scope 或 Evidence 不完整时 fail closed。人类可读格式、shell presentation、Issue/PR prose 和聊天均不是公共机器合同。
+公共机器合同要求任何消费者按owner签发的schema identity与适用revision验证输入，并在owner、identity、scope或Evidence不完整时fail closed。未由named owner schema与strict parser覆盖的CLI JSON只能是legacy projection，不能声称stable public contract；具体覆盖率由generated current projection给出，不在本文手写。不得用全局CLI envelope或泛化`formatVersion`掩盖缺口。人类可读格式、shell presentation、Issue/PR prose和聊天均不是公共机器合同；没有真实version consumer时，schema identity不能被无意义的数字字段或`Vn`名称代替。
+
+每一种激活的真实公共payload必须拥有自己的命名schema与strict parser；domain result schema由domain owner拥有，CLI只拥有command-to-owner-schema mapping、stdout/stderr/exit-code transport与compact/full projection。不能让一个全局`formatVersion`同时冒充多个不兼容对象的协议，也不能由writer、formatter和测试分别复制schema identity。默认CLI/Agent输出是同一canonical result的bounded decision projection，只包含下一步所需状态、typed blocker、计数、聚类和绑定完整结果的digest。逐路径记录、完整fact graph与full Evidence只在显式`--full`或有明确artifact consumer时产生；compact projection不得改变退出码、blocking计数、unknown语义、Evidence digest或authority，也不能成为第二状态源。完整结果由原owner保留并可按同一identity重建，不能为了展示重新扫描或重新计算业务事实。
 
 ## 可选界面边界
 
@@ -33,6 +34,6 @@ Agent 与用户必须通过同一个公共机器合同读取事实和请求 Oper
 
 ## 依赖与验证不变量
 
-`src/toolchain/dependencies/spec.ts` 是直接依赖用途与生成项目投影的公开机器 owner；`package.json` 只拥有实际安装版本和命令入口。React、ReactDOM、Next、EJS、Playwright 及其类型包属于 retired core dependencies，重新进入核心 manifest 必须被合同拒绝。
+Dependency Specification owner拥有直接依赖用途、产品边界和生成目标投影；package manifest只拥有实际安装版本与命令入口。已退役的core UI/browser dependency class必须由该唯一owner与真实consumer graph共同拒绝，具体包名和版本只存在于machine specification、package manifest与lock observation，不在本文维护第二份清单。
 
-核心变更只执行受 delta 影响且 MissingOrStale 的验证。浏览器、Docker 或外部 UI 验证不属于核心默认闭包；只有独立可选界面自身发生相关变化时，才由该界面的 owner 选择并产生自己的 Evidence。
+核心变更只执行受delta影响且MissingOrStale的验证。browser/container不属于所有核心变更的默认闭包，但可以由Target Profile、ImplementationBinding、Target runtime或Verification fixture的真实capability需求选中；只有SEC自身已退役UI/browser dependency class被无条件拒绝。request-only、DOM-free或pure semantic验证继续选择更窄Provider，不因测试目录名启动browser/container。

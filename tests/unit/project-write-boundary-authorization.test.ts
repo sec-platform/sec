@@ -2,44 +2,17 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { LockFile } from '../../src/compiler/contract.ts';
-import {
-  failPipelineTransaction,
-  startPipelineTransaction
-} from '../../src/compiler/pipeline/journal.ts';
-import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { checkProjectWriteBoundary } from '../../src/workspace/application/project-write-boundary.ts';
 import { writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
-import { checkProjectWriteBoundary, writeProjectBaseline } from '../../src/workspace/project.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { writeProjectBaseline } from '../../src/workspace/runtime/project-baseline.ts';
+import { buildUpgradePlanArtifact } from '../helpers/upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-function lockFor(path: string): LockFile {
+function baselinePathInput(path: string) {
   return {
-    formatVersion: '1',
-    app: {
-      id: 'upgrade-authorization-test',
-      name: 'upgrade-authorization-test',
-      stack: 'typescript-library',
-      mode: 'single-tenant'
-    },
-    resolvedBlocks: [],
-    resolvedCapabilities: [],
-    installPlan: [],
-    slotTasks: [],
-    generatedPaths: [path],
-    acceptancePlan: [],
-    passStatus: {
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
-      verify: 'pending',
-      repair: 'pending',
-      lock: 'pending',
-      emit: 'pending'
-    }
+    artifactPaths: [path]
   };
 }
 
@@ -47,56 +20,32 @@ async function prepareBaseline(workspaceRoot: string): Promise<void> {
   const artifactPath = 'src/ui/page.ts';
   const absolutePath = path.join(getWorkspacePaths(workspaceRoot).workspaceRoot, artifactPath);
   await writeText(absolutePath, 'export const value = 1;\n');
-  await writeProjectBaseline(workspaceRoot, lockFor(artifactPath));
+  await writeProjectBaseline(workspaceRoot, baselinePathInput(artifactPath));
 }
 
-async function withActiveUpgrade(
-  workspaceRoot: string,
-  execute: () => Promise<void>
-): Promise<void> {
-  const transactionId = await startPipelineTransaction(
-    workspaceRoot,
-    'upgrade',
-    ['resolve', 'compose'],
-    async () => undefined
-  );
-  try {
-    await execute();
-  } finally {
-    await failPipelineTransaction(
-      workspaceRoot,
-      transactionId,
-      'TEST-END',
-      'test transaction closed',
-      async () => undefined
-    );
-  }
-}
-
-test('active UpgradePlan cannot authorize traversal or duplicate impact paths', async () => {
+test('a caller-written UpgradePlan cannot mint project write authority', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await prepareBaseline(workspaceRoot);
     const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
     await fs.mkdir(path.dirname(upgradePlanPath), { recursive: true });
 
-    await withActiveUpgrade(workspaceRoot, async () => {
-      for (const impacts of [
-        ['../outside.ts'],
-        ['app/page.tsx', 'app/page.tsx']
-      ]) {
-        await fs.writeFile(upgradePlanPath, `${JSON.stringify({
-          formatVersion: '1',
-          status: 'planned',
-          impacts
-        })}\n`, 'utf8');
-        await expect(checkProjectWriteBoundary(workspaceRoot))
-          .rejects.toThrow('UpgradePlan authorization');
-      }
+    await fs.writeFile(
+      upgradePlanPath,
+      `${JSON.stringify(buildUpgradePlanArtifact({ impacts: ['src/ui/page.ts'] }))}\n`,
+      'utf8'
+    );
+    await writeText(
+      path.join(getWorkspacePaths(workspaceRoot).workspaceRoot, 'src/ui/page.ts'),
+      'export const value = 2;\n'
+    );
+    await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
+      code: 'ERROR-DRIFT-001',
+      details: { path: 'src/ui/page.ts' }
     });
   });
 });
 
-test('active UpgradePlan authorization rejects a linked workflow ancestor', async () => {
+test('a linked persisted UpgradePlan cannot become an authority side channel', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await prepareBaseline(workspaceRoot);
     const upgradePlanPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.upgradePlan);
@@ -107,7 +56,7 @@ test('active UpgradePlan authorization rejects a linked workflow ancestor', asyn
     await fs.mkdir(externalWorkflow, { recursive: true });
     await fs.writeFile(
       path.join(externalWorkflow, path.basename(upgradePlanPath)),
-      `${JSON.stringify({ formatVersion: '1', status: 'planned', impacts: ['src/ui/page.ts'] })}\n`,
+      `${JSON.stringify(buildUpgradePlanArtifact({ impacts: ['src/ui/page.ts'] }))}\n`,
       'utf8'
     );
     await fs.symlink(
@@ -116,9 +65,13 @@ test('active UpgradePlan authorization rejects a linked workflow ancestor', asyn
       process.platform === 'win32' ? 'junction' : 'dir'
     );
 
-    await withActiveUpgrade(workspaceRoot, async () => {
-      await expect(checkProjectWriteBoundary(workspaceRoot))
-        .rejects.toBeInstanceOf(PhysicalNoFollowError);
+    await writeText(
+      path.join(getWorkspacePaths(workspaceRoot).workspaceRoot, 'src/ui/page.ts'),
+      'export const value = 2;\n'
+    );
+    await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
+      code: 'ERROR-DRIFT-001',
+      details: { path: 'src/ui/page.ts' }
     });
   });
 });

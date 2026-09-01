@@ -1,12 +1,22 @@
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
+import {
+  CodexDevelopmentDefaultGitRevision,
+  CodexDevelopmentExactGitTestImpactSourceProvider
+} from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
 import { readRepositoryModuleGraphV1 } from '../../src/verification/test-impact/runtime/impact.ts';
 
 const canonicalJournal = 'src/verification/action/journal.ts';
 const canonicalRunner = 'src/verification/action/runner.ts';
 
 test('Verification Action dependency direction and process capability stay bounded', () => {
-  const graph = readRepositoryModuleGraphV1();
+  const repositoryRoot = path.resolve(import.meta.dir, '../..');
+  const headSha = CodexDevelopmentDefaultGitRevision(repositoryRoot, 'HEAD');
+  if (headSha === null) throw new Error('Verification Action boundary requires one exact Git HEAD');
+  const graph = readRepositoryModuleGraphV1(
+    CodexDevelopmentExactGitTestImpactSourceProvider(repositoryRoot, headSha)
+  );
   const productionConsumers = graph.references.filter((reference) => (
     reference.from.startsWith('scripts/')
     && (reference.resolvedTarget === canonicalRunner || reference.resolvedTarget === canonicalJournal)

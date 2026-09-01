@@ -8,10 +8,6 @@ import {
   projectWorkPackageRegistry
 } from '../../verification/ci/registry-projection.ts';
 import { parseVerificationRegistryProjection } from '../../verification/session/contract/session.ts';
-import {
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
-} from '../agent/work-package-contract.ts';
 import { projectBranchLifecycleForWorkSelection } from '../branch-lifecycle/branch-lifecycle-audit.ts';
 import {
   createBranchLifecycleGitChildEnvironment,
@@ -24,6 +20,10 @@ import {
   CodexDevelopmentParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgs } from '../documentation/document-control-plane-github-observation.ts';
+import {
+  CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest
+} from '../task/contract/work-package.ts';
 import type {
   SecCurrentWorkLifecycle,
   SecWorkDigest

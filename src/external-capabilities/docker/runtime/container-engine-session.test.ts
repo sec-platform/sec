@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { issueRuntimeGenerationCensusReceiptForTests } from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
   bindSecSemanticOperation,
@@ -11,7 +12,9 @@ import {
 import { createDockerEndpointIdentity } from '../contract/daemon.ts';
 import {
   assertContainerEngineOperationScopeAdmission,
-  compileContainerEngineOperationArguments
+  compileContainerEngineAdmissionProviderIdentity,
+  compileContainerEngineOperationArguments,
+  compileContainerEngineReadyProviderIdentity
 } from './container-engine-session.ts';
 
 const endpoint = createDockerEndpointIdentity({
@@ -21,6 +24,7 @@ const endpoint = createDockerEndpointIdentity({
   endpointHost: 'npipe:////./pipe/dockerDesktopLinuxEngine',
   osType: 'linux'
 });
+const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
 
 test('Container Engine projection injects the retained endpoint outside caller arguments', () => {
   expect(compileContainerEngineOperationArguments(endpoint, {
@@ -40,6 +44,59 @@ test('Container Engine callers cannot replace the retained endpoint', () => {
     kind: 'container-list',
     arguments: ['--host', 'npipe:////./pipe/attacker']
   })).toThrow('operation cannot replace the retained endpoint');
+});
+
+test('ready provider identity is a successor of exact admission resources and attempt', () => {
+  const physical = Object.freeze({
+    path: 'C:\\provider-root',
+    finalPath: '\\\\?\\C:\\provider-root',
+    device: 'device',
+    inode: 'inode',
+    objectId: 'object'
+  });
+  const authorityProviderIdentityDigest = digest('authority-provider');
+  const generationCensus = issueRuntimeGenerationCensusReceiptForTests({
+    providerIdentityDigest: authorityProviderIdentityDigest,
+    states: ['active']
+  });
+  const admissionInput = {
+    authorityProviderIdentityDigest,
+    projectionProviderIdentityDigest: digest('projection-provider'),
+    environmentDigest: digest('canonical-child-environment'),
+    operationIdentityDigest: digest('operation'),
+    boundAttemptDigest: digest('attempt'),
+    executable: {
+      path: 'C:\\docker.exe',
+      size: 1,
+      byteDigest: digest('executable-bytes'),
+      contentDigest: digest('executable-content')
+    },
+    workingDirectory: physical,
+    runtimeStateRoots: [{ root: physical, directory: physical }],
+    generationCensus
+  } as const;
+  const admission = compileContainerEngineAdmissionProviderIdentity(admissionInput);
+  expect(compileContainerEngineAdmissionProviderIdentity({
+    ...admissionInput,
+    boundAttemptDigest: digest('transplanted-attempt')
+  })).not.toBe(admission);
+  const transplantedCensus = issueRuntimeGenerationCensusReceiptForTests({
+    providerIdentityDigest: digest('different-authority-provider'),
+    states: ['active']
+  });
+  expect(() => compileContainerEngineAdmissionProviderIdentity({
+    ...admissionInput,
+    generationCensus: transplantedCensus
+  })).toThrow('authority provider changed');
+  const ready = compileContainerEngineReadyProviderIdentity({
+    admissionProviderIdentityDigest: admission,
+    endpoint
+  });
+  expect(ready).not.toBe(admission);
+  expect(compileContainerEngineReadyProviderIdentity({
+    admissionProviderIdentityDigest: digest('different-admission'),
+    endpoint
+  })).not.toBe(ready);
 });
 
 test('a non-authority resource envelope cannot open a provider settlement scope', () => {
@@ -64,8 +121,14 @@ test('a non-authority resource envelope cannot open a provider settlement scope'
     requirements: [{
       id: 'external.container-engine-process',
       contractDigest,
-      effectKinds: ['process'],
-      failureKinds: ['process.failed']
+      effectKinds: ['filesystem', 'process', 'provider'],
+      failureKinds: [
+        'container-engine.admission-failed',
+        'container-engine.desktop-launcher-path-unavailable',
+        'container-engine.endpoint-unavailable',
+        'container-engine.process-settlement-failed',
+        'container-engine.runtime-endpoint-residue'
+      ]
     }],
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
   });

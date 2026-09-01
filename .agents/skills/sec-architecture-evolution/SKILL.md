@@ -17,13 +17,6 @@ description: 用于 SEC canonical authority、公共合同、identity/revision�
 ## 输入
 - latest exact main、长期 Goal和阶段出口、`docs/authority.json`解析出的领域owner、当前代码/types/tests、consumer/impact图、状态与写 owner、失败/恢复证据、兼容和迁移约束。
 
-## 权限与路径
-- 只在 frozen Work Package 声明的 canonical authority、公共contract/types、contract tests与迁移说明范围内设计和修改。
-- 未冻结设计前默认只读产品实现；不得边改核心代码边反向发明 authority。
-
-## 允许工具与操作
-- repository audit、first-principles mechanism reconstruction、impact/dependency分析、代码/测试/历史Evidence读取、有限 spike、authority与contract test编辑。
-
 ## 前置门禁
 - 受信 control-plane snapshot 已解析；跨仓/广泛变化先完成 `sec-repository-audit` 或等价的全量影响证据。
 - 当前 canonical owner、消费者、写权限、迁移起点和完成定义明确；未知项必须显式。
@@ -49,10 +42,3 @@ description: 用于 SEC canonical authority、公共合同、identity/revision�
 - 不先改实现再补文档，不用新术语包装旧问题，不创建第二pipeline/loader/writer/revision算法。
 - 不把 spike、示例通过、PR body或局部测试写成架构完成。
 - 不为兼容无限保留旧路径；每条迁移必须有退出和删除条件。
-
-## 权威
-- `docs/authority.json`
-- `docs/product.md`
-- `docs/roadmap.md`
-- `docs/system-architecture.md`
-- 当前变更对应的唯一领域文档和代码合同

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../verification/action/contract/provider.ts';
-import { CI_MAIN_HEALTH_POLICY } from '../../verification/ci/contract/revision.ts';
+import { CI_MAIN_HEALTH_POLICY } from '../main-health/provider-policy.ts';
 import {
   assertBranchCloseoutOperationBinding,
   parseBranchCloseoutOperationReceipt,

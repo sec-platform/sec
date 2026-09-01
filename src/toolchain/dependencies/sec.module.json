@@ -1,4 +1,89 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [
+    "src/toolchain/dependencies/runtime.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "compiler-dependency.environment-retirement",
+      "operations": [
+        "disposeCompilerDependencyEnvironment"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "persistent-state"
+      ],
+      "operationRoles": [
+        {
+          "operation": "disposeCompilerDependencyEnvironment",
+          "role": "terminal-issuer",
+          "semanticOperation": "toolchain.compiler-dependency.environment-retirement",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    },
+    {
+      "capability": "compiler-dependency.environment-retirement-receipt",
+      "operations": [
+        "assertCompilerDependencyEnvironmentRetirementReceipt"
+      ],
+      "operationRoles": [
+        {
+          "operation": "assertCompilerDependencyEnvironmentRetirementReceipt",
+          "role": "readback-issuer",
+          "semanticOperation": "toolchain.compiler-dependency.environment-retirement",
+          "requirementId": "compiler-dependency.environment-retirement",
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "compiler-dependency.environment-retirement",
+        "operation": "disposeCompilerDependencyEnvironment"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.effectful-test"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "persistent-state"
+        ],
+        "failureKinds": [
+          "dependency.cleanup.deadline-exhausted",
+          "dependency.cleanup.identity-drift",
+          "dependency.cleanup.physical-residue",
+          "dependency.cleanup.registration-unresolved"
+        ],
+        "recovery": "resume"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "never"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ],
+  "preDependencyBootstrap": false
 }

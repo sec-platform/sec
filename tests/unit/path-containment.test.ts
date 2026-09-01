@@ -6,9 +6,7 @@ import { loadPlan } from '../../src/compiler/parse/load-plan.ts';
 import {
   getWorkspacePaths,
   posixPath,
-  privateRegistryRelativePath,
-  slotsRelativePath,
-  srcRelativePath
+  privateRegistryRelativePath
 } from '../../src/workspace/runtime/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -36,45 +34,12 @@ test('plan validation rejects registry paths that traverse outside their base ro
         ]
       },
       blocks: [],
-      slots: [],
       acceptance: []
     });
 
     expect(() => loadPlan(workspaceConfigPath))
       .toThrow(expect.objectContaining({ code: 'PLAN-VALIDATION-012' }));
   }, 'engineering-compiler-path-plan-registry-');
-});
-
-test('plan validation rejects slot targets that traverse outside the canonical source root', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const { workspaceConfigPath } = getWorkspacePaths(workspaceRoot);
-
-    await writeYaml(workspaceConfigPath, {
-      app: {
-        id: 'customer-admin',
-        name: 'customer-admin',
-        stack: 'typescript-library',
-        packageManager: 'pnpm',
-        mode: 'single-tenant'
-      },
-      blocks: [{ id: 'entity/customer-basic' }],
-      slots: [
-        {
-          id: 'customer_normalizer',
-          block: 'entity/customer-basic',
-          kind: 'adapter',
-          target: `${srcRelativePath}/${posixPath(slotsRelativePath).slice(`${srcRelativePath}/`.length)}/../../control/evil.ts`,
-          sourcePath: `${posixPath(slotsRelativePath)}/customer_normalizer.ts`,
-          symbol: 'normalizeCustomerInput',
-          description: 'Normalize customer input.'
-        }
-      ],
-      acceptance: []
-    });
-
-    expect(() => loadPlan(workspaceConfigPath))
-      .toThrow(expect.objectContaining({ code: 'PLAN-VALIDATION-008' }));
-  }, 'engineering-compiler-path-plan-slot-');
 });
 
 test('manifest validation rejects install paths that traverse outside allowed roots', () => {
@@ -99,9 +64,7 @@ test('manifest validation rejects install paths that traverse outside allowed ro
       inputs: [],
       outputs: []
     },
-    slots: [],
-    acceptance: [],
-    routes: []
+    acceptance: []
   };
 
   try {
@@ -135,7 +98,6 @@ test('install strategy rejects persisted lock targets that escape project root',
         resolvedBlocks: [],
         resolvedCapabilities: [],
         installPlan: [],
-        slotTasks: [],
         generatedPaths: [],
         acceptancePlan: [],
         passStatus: {
@@ -143,7 +105,6 @@ test('install strategy rejects persisted lock targets that escape project root',
           align: 'succeeded',
           resolve: 'succeeded',
           compose: 'pending',
-          adapt: 'pending',
           verify: 'pending',
           repair: 'pending',
           lock: 'pending',

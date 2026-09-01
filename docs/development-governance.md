@@ -417,6 +417,8 @@ Merge前必须重新观察exact candidate、base/main、Review、Verification、
 合并后的local ref、worktree、recovery material与generated state分别由其physical owner处置。删除只在exact repository/common-dir、ref preimage、worktree absence、remote state、retained physical identity、recovery artifact与owner authorization同时成立时做CAS，并在effect后读回；foreign、live、shared、replaced、partial或unknown对象全部保留并typed block。dependency/cache/browser或其他命名不授予删除权限，必须先由各自generation/retirement owner分类。
 
 Git/GitHub transport、credential environment、branch parser、bundle/archive、worktree inventory、provider pagination、CAS primitive、路径与命令由External Provider、Runtime State和branch-lifecycle machine owners唯一实现。Development Governance只规定上述生命周期与authority边界，不复制argv、环境变量、文件布局、provider route或recovery procedure。
+
+源码修改是对exact bytes的durable publication，不是presentation round-trip。局部编辑只消费live file preimage并由结构化patch或compiler/codemod owner发布；bulk transform必须由同一owner直接持有原始bytes、目标bytes、physical preimage和readback。stdout、`git show`展示、截断的tool result、日志、聊天或其他presentation输出不得成为源码写入输入。任何同时更新Git index与worktree的transform都必须先证明两者byte-exact同preimage，在同一transaction/index lock下发布并逐侧readback；任一漂移或中途失败返回typed preserve/recovery，不允许调用者从展示文本重建另一份文件。文件大小只影响transport/budget，不能改变这条写入authority。
 ## Impact 与验证选择
 
 修改公共contract、canonical authority、state owner、pipeline、runtime boundary、Provider/Adapter、Implementation Resolution或未知影响前，先消费统一Impact和test/Gate selector；当前能力不足时降级到 exact imports、public API、runtime entry、owner、consumer、dependency closure和test-impact census。不得临时安装工具改变candidate环境。
@@ -430,6 +432,8 @@ Bun test preload只拥有进程级temp/state隔离，不得准备package或网�
 dependency bootstrap；它们各自编译同一图，只有`dependency-setup`可需求managed Git hooks。复合check首次
 物化的process-local capability由同一进程以不可伪造receipt向其nested typecheck/test消费，所需capability不是
 父图子集时拒绝复用；禁止同一logical operation再次观察、安装或链接同一dependency generation。
+
+dependency bootstrap不是领域operation之前的便利步骤。任何install、link、materialization、cache publication或generation replacement的首个Effect都必须在物化前绑定domain-issued OperationKey、live authority与durable single-flight claim；同key并发caller只能join，已有terminal只能consume/readback，start后丢失handle只能按当前physical epoch执行owner readback与reconcile。只有authenticated absence或domain owner签发的conclusive not-applied/retry admission才能开始新attempt。进程内Promise、普通install lock、随机staging目录或首个Effect之后才写入的transition journal都不能代替该pre-materialization admission；完整generation必须在terminal publication与exact readback后才可交给consumer。
 
 shared dependency换代是一个物理generation transition，不是“路径现在可用”。publisher必须在effect前同时绑定
 旧generated directory、旧workspace locator、package manifests与预期新generation；只允许把仍匹配preimage的旧

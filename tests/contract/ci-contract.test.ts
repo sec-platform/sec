@@ -2,12 +2,13 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 
+import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../src/control/main-health/provider-policy.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
 import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE } from '../../src/verification/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../src/verification/action/contract/environment.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../src/verification/ci/contract/core.ts';
 import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CI_VERIFICATION_EXECUTION_MODEL, CodexDevelopmentBuildVerificationPlan } from '../../src/verification/ci/contract/plan.ts';
-import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE, createCiMainHealthRequestOperationId, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../src/verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/verification/ci/contract/revision.ts';
 import { TCB_TRUST_ROOT } from '../../src/verification/trust/compiler.ts';
 import { matchSecTrustedBootstrapPath, SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';

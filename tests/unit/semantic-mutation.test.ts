@@ -99,7 +99,6 @@ function buildInput(withTransition: boolean, appName = 'Mutation App'): BuildEng
       registryPath: 'source/model'
     }],
     manifests: [],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: [],
     semanticContracts: [contract(withTransition)]

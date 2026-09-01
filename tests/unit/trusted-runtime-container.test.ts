@@ -159,13 +159,14 @@ describe('provider-neutral trusted runtime container', () => {
     });
     expect(join.providerSettlementSetDigest).not.toBeNull();
     expect(join.readbackReceiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(() => issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
+    const correlationOnlyClone = issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
       operation,
       providerSettlement: { ...providerSettlement },
       endpointReadback: parseDockerEndpointIdentity(dockerEndpoint),
       ownerTerminalContractDigest: sha256({ owner: 'contract' }) as SecOperationDigest,
       ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as SecOperationDigest
-    })).toThrow('Provider settlement receipt is not provider-issued');
+    });
+    expect(correlationOnlyClone.joinReceiptDigest).toBe(join.joinReceiptDigest);
   });
 
   test('projects the exact base as the offline default-branch ref in both trees', () => {

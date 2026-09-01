@@ -12,8 +12,21 @@ import path from 'node:path';
 import { types as nodeTypes } from 'node:util';
 
 import {
+  encodeBoundedProcessDiagnosticObjectReceipt,
+  parseBoundedProcessDiagnosticObjectReceipt,
+  type BoundedProcessDiagnosticObjectReadbackReceipt,
+  type BoundedProcessDiagnosticPublishedObject
+} from '../../../runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
+import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  assertSecDomainReadbackReceipt,
   assertSecOwnerTerminalJoinReceipt,
-  type SecOwnerTerminalJoinReceipt
+  assertSecProviderSettlementSet,
+  assertSecSemanticOperationProjection,
+  type SecBoundSemanticOperation,
+  type SecDomainReadbackReceipt,
+  type SecOwnerTerminalJoinReceipt,
+  type SecProviderSettlementSet
 } from '../../../system-architecture/operation/semantic.ts';
 import type { VerificationReasonCode, VerificationResultStatus } from '../../result/contract/result.ts';
 import { CodexDevelopmentAssertVerificationStatusReason } from '../../result/contract/result.ts';
@@ -91,10 +104,55 @@ export type VerificationActionKey = VerificationActionKeyInput & Readonly<{
   actionKey: VerificationActionKeyDigest;
 }>;
 
+export type VerificationActionDecisionReceipt = Readonly<{
+  actionKey: VerificationActionKeyDigest;
+  operationIdentityDigest: VerificationActionKeyDigest;
+  executionPlanDigest: VerificationActionKeyDigest;
+  bindingSetIdentityDigest: VerificationActionKeyDigest;
+  decisionReceiptDigest: VerificationActionKeyDigest;
+}>;
+
+export type VerificationActionAttemptReceipt = Readonly<{
+  decisionReceiptDigest: VerificationActionKeyDigest;
+  boundAttemptDigest: VerificationActionKeyDigest;
+  attemptReceiptDigest: VerificationActionKeyDigest;
+}>;
+
+export type VerificationActionProviderSetReceipt = Readonly<{
+  attemptReceiptDigest: VerificationActionKeyDigest;
+  providerProjectionDigest: VerificationActionKeyDigest;
+  providerReceiptDigests: readonly VerificationActionKeyDigest[];
+  providerSetReceiptDigest: VerificationActionKeyDigest;
+}>;
+
+export type VerificationActionReadbackReceipt = Readonly<{
+  attemptReceiptDigest: VerificationActionKeyDigest;
+  providerSetReceiptDigest: VerificationActionKeyDigest;
+  readbackProjectionDigest: VerificationActionKeyDigest;
+  disposition: 'applied' | 'not-applied' | 'unknown';
+  readbackReceiptDigest: VerificationActionKeyDigest;
+}>;
+
+export type VerificationActionOwnerTerminalReceipt = Readonly<{
+  decision: VerificationActionDecisionReceipt;
+  attempt: VerificationActionAttemptReceipt;
+  providerSet: VerificationActionProviderSetReceipt;
+  readback: VerificationActionReadbackReceipt;
+  ownerTerminalProjectionDigest: VerificationActionKeyDigest;
+  ownerTerminalContractDigest: VerificationActionKeyDigest;
+  ownerTerminalReferenceDigest: VerificationActionKeyDigest;
+  terminalReceiptDigest: VerificationActionKeyDigest;
+}>;
+
 export type VerificationActionTerminal = Readonly<{
+  actionKey: VerificationActionKeyDigest;
+  executionKind: 'process' | 'non-process';
   status: VerificationResultStatus;
   reasonCode: VerificationReasonCode;
-  resultDigest: VerificationActionKeyDigest | null;
+  boundAttemptDigest: VerificationActionKeyDigest;
+  ownerTerminalReceiptDigest: VerificationActionKeyDigest;
+  diagnosticObjects: readonly BoundedProcessDiagnosticPublishedObject[];
+  resultDigest: VerificationActionKeyDigest;
 }>;
 
 /**
@@ -104,10 +162,15 @@ export type VerificationActionTerminal = Readonly<{
  */
 export type VerificationActionTerminalSettlement = Readonly<{
   terminal: VerificationActionTerminal;
-  ownerTerminalJoinReceipt: SecOwnerTerminalJoinReceipt;
+  ownerTerminalReceipt: VerificationActionOwnerTerminalReceipt;
 }>;
 
 const ISSUED_VERIFICATION_ACTION_TERMINAL_SETTLEMENTS = new WeakSet<object>();
+const ISSUED_VERIFICATION_ACTION_DECISIONS = new WeakSet<object>();
+const ISSUED_VERIFICATION_ACTION_ATTEMPTS = new WeakSet<object>();
+const ISSUED_VERIFICATION_ACTION_PROVIDER_SETS = new WeakSet<object>();
+const ISSUED_VERIFICATION_ACTION_READBACKS = new WeakSet<object>();
+const ISSUED_VERIFICATION_ACTION_OWNER_TERMINALS = new WeakSet<object>();
 
 export type VerificationActionDependencyKind = 'cheap-preflight' | 'upstream';
 export type VerificationActionDependencyState =
@@ -594,37 +657,360 @@ export function createVerificationActionTerminal(
   input: unknown
 ): VerificationActionTerminal {
   const value = ordinaryRecord(input, 'VerificationAction terminal');
-  exactKeys(value, ['status', 'reasonCode', 'resultDigest'], 'VerificationAction terminal');
+  exactKeys(value, [
+    'actionKey', 'executionKind', 'status', 'reasonCode', 'boundAttemptDigest',
+    'ownerTerminalReceiptDigest',
+    'diagnosticObjects', 'resultDigest'
+  ], 'VerificationAction terminal');
   assertCanonicalStatusReason(value.status, value.reasonCode);
-  const resultDigest = value.resultDigest === null
-    ? null
-    : digest(value.resultDigest, 'VerificationAction terminal.resultDigest');
+  const actionKey = digest(value.actionKey, 'VerificationAction terminal.actionKey');
+  const boundAttemptDigest = digest(
+    value.boundAttemptDigest,
+    'VerificationAction terminal.boundAttemptDigest'
+  );
+  const ownerTerminalReceiptDigest = digest(
+    value.ownerTerminalReceiptDigest,
+    'VerificationAction terminal.ownerTerminalReceiptDigest'
+  );
+  const diagnosticObjects = ordinaryArray(
+    value.diagnosticObjects,
+    'VerificationAction terminal.diagnosticObjects'
+  ).map((candidate, index) => canonicalDiagnosticObject(
+    candidate,
+    `VerificationAction terminal.diagnosticObjects[${index}]`
+  )).sort((left, right) => left.receipt.stream.localeCompare(right.receipt.stream));
+  if (value.executionKind !== 'process' && value.executionKind !== 'non-process') {
+    fail('VerificationAction terminal.executionKind', 'must be process or non-process.');
+  }
+  if (value.executionKind === 'process' && diagnosticObjects.length === 0) {
+    fail(
+      'VerificationAction terminal.diagnosticObjects',
+      'must contain owner-issued diagnostic evidence for a process terminal.'
+    );
+  }
+  if (value.executionKind === 'non-process' && diagnosticObjects.length !== 0) {
+    fail(
+      'VerificationAction terminal.diagnosticObjects',
+      'must be empty for an explicitly non-process terminal.'
+    );
+  }
+  if (new Set(diagnosticObjects.map(({ receipt }) => receipt.stream)).size
+      !== diagnosticObjects.length) {
+    fail('VerificationAction terminal.diagnosticObjects', 'contains duplicate stream objects.');
+  }
+  if (diagnosticObjects.some(({ receipt }) => receipt.boundAttemptDigest !== boundAttemptDigest)) {
+    fail(
+      'VerificationAction terminal.diagnosticObjects',
+      'contains a diagnostic object from a different operation attempt.'
+    );
+  }
+  const diagnosticSubjects = new Set(
+    diagnosticObjects.map(({ receipt }) => receipt.subjectDigest)
+  );
+  const diagnosticSettlements = new Set(
+    diagnosticObjects.map(({ receipt }) => receipt.settlementDigest)
+  );
+  if (diagnosticSubjects.size > 1 || diagnosticSettlements.size > 1) {
+    fail(
+      'VerificationAction terminal.diagnosticObjects',
+      'does not bind one subject and one process settlement.'
+    );
+  }
+  const resultDigest = digest(value.resultDigest, 'VerificationAction terminal.resultDigest');
+  if (resultDigest !== sha256({
+    actionKey,
+    executionKind: value.executionKind,
+    status: value.status,
+    reasonCode: value.reasonCode,
+    boundAttemptDigest,
+    ownerTerminalReceiptDigest,
+    diagnosticObjects: diagnosticObjects.map(({ receipt, readback }) => ({
+      objectDigest: receipt.objectDigest,
+      readbackDigest: readback.readbackDigest
+    }))
+  })) {
+    fail('VerificationAction terminal.resultDigest', 'does not bind the terminal attempt and diagnostics.');
+  }
   return Object.freeze({
+    actionKey,
+    executionKind: value.executionKind,
     status: value.status as VerificationResultStatus,
     reasonCode: value.reasonCode as VerificationReasonCode,
+    boundAttemptDigest,
+    ownerTerminalReceiptDigest,
+    diagnosticObjects: Object.freeze(diagnosticObjects),
     resultDigest
   });
 }
 
-/** Issue the sole Verification business terminal after exact owner settlement. */
-export function issueVerificationActionTerminalSettlement(
-  ownerTerminalJoinReceipt: SecOwnerTerminalJoinReceipt,
+function canonicalDiagnosticObject(
+  input: unknown,
+  label: string
+): BoundedProcessDiagnosticPublishedObject {
+  const value = ordinaryRecord(input, label);
+  exactKeys(value, ['receipt', 'readback'], label);
+  const receipt = parseBoundedProcessDiagnosticObjectReceipt(
+    encodeCanonical(value.receipt)
+  );
+  const readback = ordinaryRecord(value.readback, `${label}.readback`);
+  exactKeys(readback, [
+    'disposition', 'objectDigest', 'physicalIdentityDigest', 'contentDigest',
+    'byteLength', 'readbackDigest'
+  ], `${label}.readback`);
+  if (readback.disposition !== 'current'
+      || !Number.isSafeInteger(readback.byteLength) || Number(readback.byteLength) < 0) {
+    fail(`${label}.readback`, 'has invalid disposition or byte length.');
+  }
+  const unsigned = Object.freeze({
+    disposition: 'current' as const,
+    objectDigest: digest(readback.objectDigest, `${label}.readback.objectDigest`),
+    physicalIdentityDigest: digest(
+      readback.physicalIdentityDigest,
+      `${label}.readback.physicalIdentityDigest`
+    ),
+    contentDigest: digest(readback.contentDigest, `${label}.readback.contentDigest`),
+    byteLength: Number(readback.byteLength)
+  });
+  const canonicalReadback = Object.freeze({
+    ...unsigned,
+    readbackDigest: digest(readback.readbackDigest, `${label}.readback.readbackDigest`)
+  }) as BoundedProcessDiagnosticObjectReadbackReceipt;
+  if (canonicalReadback.objectDigest !== receipt.objectDigest
+      || canonicalReadback.contentDigest !== receipt.contentDigest
+      || canonicalReadback.byteLength !== receipt.byteLength
+      || canonicalReadback.readbackDigest !== sha256(unsigned)) {
+    fail(`${label}.readback`, 'does not bind the exact diagnostic object.');
+  }
+  return Object.freeze({ receipt, readback: canonicalReadback });
+}
+
+/**
+ * Verification Action owner cut: generic semantic receipts contribute only
+ * correlation digests.  This function issues the non-forgeable Action-owned
+ * decision -> attempt -> provider set -> readback -> terminal chain.
+ */
+export function issueVerificationActionOwnerTerminalReceipt(input: Readonly<{
+  action: VerificationActionKey;
+  operation: SecBoundSemanticOperation;
+  providerSettlementSet: SecProviderSettlementSet;
+  readback: SecDomainReadbackReceipt;
+  ownerTerminalProjection: SecOwnerTerminalJoinReceipt;
+}>): VerificationActionOwnerTerminalReceipt {
+  const action = parseVerificationActionKey(encodeCanonical(input.action));
+  assertSecSemanticOperationProjection(input.operation);
+  assertSecProviderSettlementSet(input.providerSettlementSet);
+  assertSecDomainReadbackReceipt(input.readback);
+  assertSecOwnerTerminalJoinReceipt(input.ownerTerminalProjection);
+  const operation = input.operation;
+  const operationBindsAction = operation.plan.identity.intentDigest === action.actionKey
+    || action.operation.semanticDigest === operation.plan.identity.identityDigest;
+  if (!operationBindsAction) {
+    fail('VerificationAction owner terminal', 'operation does not bind the exact Action identity.');
+  }
+  if (input.providerSettlementSet.operationIdentityDigest
+        !== operation.plan.identity.identityDigest
+      || input.providerSettlementSet.executionPlanDigest
+        !== operation.plan.execution.executionPlanDigest
+      || input.providerSettlementSet.bindingSetIdentityDigest
+        !== operation.bindingSetIdentityDigest
+      || input.providerSettlementSet.boundAttemptDigest !== operation.boundAttemptDigest
+      || input.readback.operationIdentityDigest !== operation.plan.identity.identityDigest
+      || input.readback.executionPlanDigest !== operation.plan.execution.executionPlanDigest
+      || input.readback.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
+      || input.readback.boundAttemptDigest !== operation.boundAttemptDigest
+      || input.readback.providerSettlementSetDigest
+        !== input.providerSettlementSet.providerSettlementSetDigest
+      || input.ownerTerminalProjection.operationIdentityDigest
+        !== operation.plan.identity.identityDigest
+      || input.ownerTerminalProjection.executionPlanDigest
+        !== operation.plan.execution.executionPlanDigest
+      || input.ownerTerminalProjection.bindingSetIdentityDigest
+        !== operation.bindingSetIdentityDigest
+      || input.ownerTerminalProjection.boundAttemptDigest !== operation.boundAttemptDigest
+      || input.ownerTerminalProjection.providerSettlementSetDigest
+        !== input.providerSettlementSet.providerSettlementSetDigest
+      || input.ownerTerminalProjection.readbackReceiptDigest
+        !== input.readback.readbackReceiptDigest) {
+    fail('VerificationAction owner terminal', 'correlation projections do not bind one Action attempt.');
+  }
+  const decisionWithoutDigest = Object.freeze({
+    actionKey: action.actionKey,
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    executionPlanDigest: operation.plan.execution.executionPlanDigest,
+    bindingSetIdentityDigest: operation.bindingSetIdentityDigest
+  });
+  const decision = Object.freeze({
+    ...decisionWithoutDigest,
+    decisionReceiptDigest: sha256({
+      domain: 'verification.action.decision',
+      receipt: decisionWithoutDigest
+    }) as VerificationActionKeyDigest
+  });
+  ISSUED_VERIFICATION_ACTION_DECISIONS.add(decision);
+  const attemptWithoutDigest = Object.freeze({
+    decisionReceiptDigest: decision.decisionReceiptDigest,
+    boundAttemptDigest: operation.boundAttemptDigest
+  });
+  const attempt = Object.freeze({
+    ...attemptWithoutDigest,
+    attemptReceiptDigest: sha256({
+      domain: 'verification.action.attempt',
+      receipt: attemptWithoutDigest
+    }) as VerificationActionKeyDigest
+  });
+  ISSUED_VERIFICATION_ACTION_ATTEMPTS.add(attempt);
+  const providerSetWithoutDigest = Object.freeze({
+    attemptReceiptDigest: attempt.attemptReceiptDigest,
+    providerProjectionDigest: input.providerSettlementSet.providerSettlementSetDigest,
+    providerReceiptDigests: Object.freeze([
+      ...input.providerSettlementSet.providerReceiptDigests
+    ])
+  });
+  const providerSet = Object.freeze({
+    ...providerSetWithoutDigest,
+    providerSetReceiptDigest: sha256({
+      domain: 'verification.action.provider-set',
+      receipt: providerSetWithoutDigest
+    }) as VerificationActionKeyDigest
+  });
+  ISSUED_VERIFICATION_ACTION_PROVIDER_SETS.add(providerSet);
+  const readbackWithoutDigest = Object.freeze({
+    attemptReceiptDigest: attempt.attemptReceiptDigest,
+    providerSetReceiptDigest: providerSet.providerSetReceiptDigest,
+    readbackProjectionDigest: input.readback.readbackReceiptDigest,
+    disposition: input.readback.disposition
+  });
+  const readback = Object.freeze({
+    ...readbackWithoutDigest,
+    readbackReceiptDigest: sha256({
+      domain: 'verification.action.readback',
+      receipt: readbackWithoutDigest
+    }) as VerificationActionKeyDigest
+  });
+  ISSUED_VERIFICATION_ACTION_READBACKS.add(readback);
+  const terminalWithoutDigest = Object.freeze({
+    decision,
+    attempt,
+    providerSet,
+    readback,
+    ownerTerminalProjectionDigest: input.ownerTerminalProjection.joinReceiptDigest,
+    ownerTerminalContractDigest: input.ownerTerminalProjection.ownerTerminalContractDigest,
+    ownerTerminalReferenceDigest: input.ownerTerminalProjection.ownerTerminalReferenceDigest
+  });
+  const terminal = Object.freeze({
+    ...terminalWithoutDigest,
+    terminalReceiptDigest: sha256({
+      domain: 'verification.action.owner-terminal',
+      receipt: terminalWithoutDigest
+    }) as VerificationActionKeyDigest
+  });
+  ISSUED_VERIFICATION_ACTION_OWNER_TERMINALS.add(terminal);
+  return terminal;
+}
+
+function assertVerificationActionOwnerTerminalReceipt(
+  value: unknown
+): asserts value is VerificationActionOwnerTerminalReceipt {
+  if (value === null || typeof value !== 'object'
+      || !ISSUED_VERIFICATION_ACTION_OWNER_TERMINALS.has(value)) {
+    fail('VerificationAction owner terminal', 'receipt is not Action-owner-issued.');
+  }
+  const receipt = value as VerificationActionOwnerTerminalReceipt;
+  if (!ISSUED_VERIFICATION_ACTION_DECISIONS.has(receipt.decision)
+      || !ISSUED_VERIFICATION_ACTION_ATTEMPTS.has(receipt.attempt)
+      || !ISSUED_VERIFICATION_ACTION_PROVIDER_SETS.has(receipt.providerSet)
+      || !ISSUED_VERIFICATION_ACTION_READBACKS.has(receipt.readback)) {
+    fail('VerificationAction owner terminal', 'receipt chain is not Action-owner-issued.');
+  }
+}
+
+function issueVerificationActionTerminalSettlement(
+  ownerTerminalReceipt: VerificationActionOwnerTerminalReceipt,
+  input: Readonly<{
+    executionKind: 'process' | 'non-process';
+    status: VerificationResultStatus;
+    reasonCode: VerificationReasonCode;
+    diagnosticObjects: readonly BoundedProcessDiagnosticPublishedObject[];
+  }>
+): VerificationActionTerminalSettlement {
+  assertVerificationActionOwnerTerminalReceipt(ownerTerminalReceipt);
+  const diagnosticObjects = Object.freeze(
+    [...input.diagnosticObjects]
+      .map((value, index) => canonicalDiagnosticObject(value, `diagnosticObjects[${index}]`))
+      .sort((left, right) => left.receipt.stream.localeCompare(right.receipt.stream))
+  );
+  if (diagnosticObjects.some(({ receipt }) => (
+    receipt.boundAttemptDigest !== ownerTerminalReceipt.attempt.boundAttemptDigest
+    || receipt.operationIdentityDigest !== ownerTerminalReceipt.decision.operationIdentityDigest
+    || receipt.executionPlanDigest !== ownerTerminalReceipt.decision.executionPlanDigest
+  ))) {
+    fail(
+      'diagnosticObjects',
+      'must bind the exact owner terminal operation attempt.'
+    );
+  }
+  const settlement = Object.freeze({
+    terminal: createVerificationActionTerminal({
+      actionKey: ownerTerminalReceipt.decision.actionKey,
+      executionKind: input.executionKind,
+      status: input.status,
+      reasonCode: input.reasonCode,
+      boundAttemptDigest: ownerTerminalReceipt.attempt.boundAttemptDigest,
+      ownerTerminalReceiptDigest: ownerTerminalReceipt.terminalReceiptDigest,
+      diagnosticObjects,
+      resultDigest: sha256({
+        actionKey: ownerTerminalReceipt.decision.actionKey,
+        executionKind: input.executionKind,
+        status: input.status,
+        reasonCode: input.reasonCode,
+        boundAttemptDigest: ownerTerminalReceipt.attempt.boundAttemptDigest,
+        ownerTerminalReceiptDigest: ownerTerminalReceipt.terminalReceiptDigest,
+        diagnosticObjects: diagnosticObjects.map(({ receipt, readback }) => ({
+          objectDigest: receipt.objectDigest,
+          readbackDigest: readback.readbackDigest
+        }))
+      })
+    }),
+    ownerTerminalReceipt
+  });
+  ISSUED_VERIFICATION_ACTION_TERMINAL_SETTLEMENTS.add(settlement);
+  return settlement;
+}
+
+/** Issue a Verification terminal for an operation that settled a real process. */
+export function issueProcessVerificationActionTerminalSettlement(
+  ownerTerminalReceipt: VerificationActionOwnerTerminalReceipt,
+  input: Readonly<{
+    status: VerificationResultStatus;
+    reasonCode: VerificationReasonCode;
+    diagnosticObjects: readonly BoundedProcessDiagnosticPublishedObject[];
+  }>
+): VerificationActionTerminalSettlement {
+  if (input.diagnosticObjects.length === 0) {
+    fail(
+      'diagnosticObjects',
+      'must contain owner-issued diagnostic evidence for a process terminal.'
+    );
+  }
+  return issueVerificationActionTerminalSettlement(ownerTerminalReceipt, {
+    ...input,
+    executionKind: 'process'
+  });
+}
+
+/** Issue a Verification terminal only when the operation did not start a process. */
+export function issueNonProcessVerificationActionTerminalSettlement(
+  ownerTerminalReceipt: VerificationActionOwnerTerminalReceipt,
   input: Readonly<{
     status: VerificationResultStatus;
     reasonCode: VerificationReasonCode;
   }>
 ): VerificationActionTerminalSettlement {
-  assertSecOwnerTerminalJoinReceipt(ownerTerminalJoinReceipt);
-  const settlement = Object.freeze({
-    terminal: createVerificationActionTerminal({
-      status: input.status,
-      reasonCode: input.reasonCode,
-      resultDigest: ownerTerminalJoinReceipt.joinReceiptDigest
-    }),
-    ownerTerminalJoinReceipt
+  return issueVerificationActionTerminalSettlement(ownerTerminalReceipt, {
+    ...input,
+    executionKind: 'non-process',
+    diagnosticObjects: Object.freeze([])
   });
-  ISSUED_VERIFICATION_ACTION_TERMINAL_SETTLEMENTS.add(settlement);
-  return settlement;
 }
 
 /** Project only a Verification-owner-issued settlement into durable state. */

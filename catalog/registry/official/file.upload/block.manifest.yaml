@@ -25,6 +25,5 @@ pins:
     - id: customer_attachment_uploaded
       type: CustomerAttachmentRecord
       required: true
-slots: []
 acceptance:
   - id: customer_can_upload_attachment

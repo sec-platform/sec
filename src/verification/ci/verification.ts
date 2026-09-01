@@ -14,18 +14,6 @@ import {
   rmSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
-
-import {
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest, type CodexDevelopmentWorkPackageManifest
-} from '../../control/agent/work-package-contract.ts';
-import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../development/runner/contract.ts';
-import {
-  CodexDevelopmentReadExactGitBlob,
-  type CodexDevelopmentExactGitBlobReadOptions
-} from '../../external-capabilities/git-read/exact-blob.ts';
-import { type GitBlobBytes } from '../../external-capabilities/git-read/runtime/session.ts';
-import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, scanNoFollowDirectoryTreeInventory, type NoFollowDirectoryTreeInventoryEntry, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -38,7 +26,19 @@ import {
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
-import { encodeVerificationActionData, issueVerificationActionTerminalSettlement, isVerificationActionRunnable, parseVerificationActionPlan, type VerificationActionDependencyResolution, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
+
+import {
+  CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest, type CodexDevelopmentWorkPackageManifest
+} from '../../control/task/contract/work-package.ts';
+import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../development/runner/contract.ts';
+import {
+  CodexDevelopmentReadExactGitBlob,
+  type CodexDevelopmentExactGitBlobReadOptions
+} from '../../external-capabilities/git-read/exact-blob.ts';
+import { type GitBlobBytes } from '../../external-capabilities/git-read/runtime/session.ts';
+import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, scanNoFollowDirectoryTreeInventory, type NoFollowDirectoryTreeInventoryEntry, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionPlan, type VerificationActionDependencyResolution, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProposal, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchorV2, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarkerV2 } from '../action/contract/provider.ts';
@@ -51,8 +51,8 @@ import {
   type VerificationActionRunner,
   type VerificationActionRunOutcome
 } from '../action/runner.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../result/contract/result.ts';
-import { isTestImpactModuleGraphInputFile } from '../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
 import {
@@ -92,7 +92,6 @@ import {
 } from './contract/hosted-sut-observation.ts';
 import {
   assertCiExpectedHead,
-  CI_VERIFICATION_CONTRACT_REVISION,
   CodexDevelopmentBuildVerificationPlan,
   type CodexDevelopmentVerificationPlanProfile
 } from './contract/plan.ts';
@@ -100,8 +99,7 @@ import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
   CI_VERIFICATION_SESSION_CONTRACT_REVISION,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-  CI_VERIFICATION_WORKFLOW_PATH
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from './contract/revision.ts';
 import type { VerificationSessionHostedRequest } from './contract/session-request.ts';
 import {
@@ -3681,10 +3679,18 @@ function bindCiActionEffect(
   operation: CiVerificationActionPlanClosure['normalizedOperations'][number],
   deadlineAtUnixMs: number
 ): SecBoundSemanticOperation {
-  const contractDigest = CodexDevelopmentVerificationDigest({
+  const processContractDigest = CodexDevelopmentVerificationDigest({
     schema: 'sec-ci-action-effect-contract-v1',
     actionKey: plan.action.actionKey,
     operation
+  }) as SecOperationDigest;
+  const diagnosticContractDigest = CodexDevelopmentVerificationDigest({
+    schema: 'sec-ci-action-combined-diagnostic-contract-v1',
+    actionKey: plan.action.actionKey
+  }) as SecOperationDigest;
+  const authorityGrantDigest = CodexDevelopmentVerificationDigest({
+    processContractDigest,
+    diagnosticContractDigest
   }) as SecOperationDigest;
   const semanticPlan = compileSecSemanticOperationPlan({
     operation: 'verification.hosted-ci',
@@ -3693,81 +3699,113 @@ function bindCiActionEffect(
     deadlineAtUnixMs,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: CI_ACTION_EFFECT_LEASE_MS },
+      { resource: 'input-bytes', maximum: 16 * 1024 * 1024 },
+      { resource: 'output-bytes', maximum: 16 * 1024 * 1024 },
       { resource: 'processes', maximum: 1 }
     ],
     requirements: [{
       id: 'verification.hosted-process',
-      contractDigest,
+      contractDigest: processContractDigest,
       effectKinds: ['process'],
       failureKinds: ['process.failed', 'process.settlement-failed']
+    }, {
+      id: 'verification.action-diagnostics',
+      contractDigest: diagnosticContractDigest,
+      effectKinds: ['filesystem'],
+      failureKinds: ['diagnostic.incomplete-object', 'diagnostic.resource-exhausted']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: contractDigest
-    })
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest })
   });
-  return bindSecSemanticOperation(semanticPlan, [compileSecCapabilityBinding({
-    requirementId: 'verification.hosted-process',
-    contractDigest,
-    providerIdentityDigest: CodexDevelopmentVerificationDigest({
-      schema: 'sec-ci-action-provider-binding-v1',
-      environment: plan.action.environment,
-      declaredEnvironment: plan.action.operation.declaredEnvironment
-    }) as SecOperationDigest
-  })]);
+  return bindSecSemanticOperation(semanticPlan, [
+    compileSecCapabilityBinding({
+      requirementId: 'verification.hosted-process',
+      contractDigest: processContractDigest,
+      providerIdentityDigest: CodexDevelopmentVerificationDigest({
+        schema: 'sec-ci-action-provider-binding-v1',
+        environment: plan.action.environment,
+        declaredEnvironment: plan.action.operation.declaredEnvironment
+      }) as SecOperationDigest
+    }),
+    compileSecCapabilityBinding({
+      requirementId: 'verification.action-diagnostics',
+      contractDigest: diagnosticContractDigest,
+      providerIdentityDigest: CodexDevelopmentVerificationDigest(
+        'runtime-state.process-diagnostics'
+      ) as SecOperationDigest
+    })
+  ]);
 }
 
-function issueCiActionEffectSettlement(
-  operation: SecBoundSemanticOperation,
-  plan: VerificationActionPlan,
-  gateId: string,
-  result: CodexDevelopmentGateProcessResult
-) {
+async function issueCiActionEffectSettlement(input: Readonly<{
+  runner: VerificationActionRunner;
+  repositoryRoot: string;
+  operation: SecBoundSemanticOperation;
+  plan: VerificationActionPlan;
+  gateId: string;
+  result: CodexDevelopmentGateProcessResult;
+}>) {
+  const { operation, plan, gateId, result } = input;
   if (!Number.isSafeInteger(result.code) || result.code < 0
       || !/^sha256:[0-9a-f]{64}$/u.test(result.rawOutputDigest)) {
     throw new Error('CI Action process settlement is not canonical.');
   }
-  const providerSettlement = issueSecProviderSettlementReceipt(operation, {
+  const processSettlement = issueSecProviderSettlementReceipt(operation, {
     requirementId: 'verification.hosted-process',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest({
       schema: 'sec-ci-action-provider-settlement-reference-v1',
       actionKey: plan.action.actionKey,
       gateId,
-      status: 'exited',
       exitCode: result.code,
       rawOutputDigest: result.rawOutputDigest
     }) as SecOperationDigest
   });
+  const diagnosticObjects = await input.runner.publishBoundProcessDiagnostics({
+    repositoryRoot: input.repositoryRoot,
+    action: plan.action,
+    operation,
+    processSettlement,
+    streams: [{
+      stream: 'combined-tail',
+      bytes: new TextEncoder().encode(result.failureTail)
+    }]
+  });
+  const diagnosticSettlement = issueSecProviderSettlementReceipt(operation, {
+    requirementId: 'verification.action-diagnostics',
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest(
+      diagnosticObjects.map(({ receipt, readback }) => ({
+        objectDigest: receipt.objectDigest,
+        readbackDigest: readback.readbackDigest
+      }))
+    ) as SecOperationDigest
+  });
   const providerSettlementSet = compileSecProviderSettlementSet(
     operation,
-    [providerSettlement]
+    [processSettlement, diagnosticSettlement]
   );
   const failureTailDigest = CodexDevelopmentVerificationDigest(result.failureTail);
-  const readback = issueSecNormalDomainReadbackReceipt(
-    operation,
-    providerSettlementSet,
-    {
-      readbackContractDigest: CodexDevelopmentVerificationDigest({
-        schema: 'sec-ci-action-domain-readback-contract-v1',
-        resultSchemaRevision: plan.action.resultSchemaRevision
-      }) as SecOperationDigest,
-      readbackReferenceDigest: CodexDevelopmentVerificationDigest({
-        schema: 'sec-ci-action-domain-readback-reference-v1',
-        actionKey: plan.action.actionKey,
-        gateId,
-        exitCode: result.code,
-        rawOutputDigest: result.rawOutputDigest,
-        failureTailDigest
-      }) as SecOperationDigest,
-      currentPhysicalEpochDigest: CodexDevelopmentVerificationDigest({
-        schema: 'sec-ci-action-physical-epoch-v1',
-        actionKey: plan.action.actionKey,
-        gateId,
-        rawOutputDigest: result.rawOutputDigest
-      }) as SecOperationDigest,
-      disposition: 'applied'
-    }
-  );
+  const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
+    readbackContractDigest: CodexDevelopmentVerificationDigest({
+      schema: 'sec-ci-action-domain-readback-contract-v1',
+      resultSchemaRevision: plan.action.resultSchemaRevision
+    }) as SecOperationDigest,
+    readbackReferenceDigest: CodexDevelopmentVerificationDigest({
+      schema: 'sec-ci-action-domain-readback-reference-v1',
+      actionKey: plan.action.actionKey,
+      gateId,
+      exitCode: result.code,
+      rawOutputDigest: result.rawOutputDigest,
+      failureTailDigest
+    }) as SecOperationDigest,
+    currentPhysicalEpochDigest: CodexDevelopmentVerificationDigest({
+      schema: 'sec-ci-action-physical-epoch-v1',
+      actionKey: plan.action.actionKey,
+      gateId,
+      rawOutputDigest: result.rawOutputDigest
+    }) as SecOperationDigest,
+    disposition: 'applied'
+  });
   const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
     operation,
     providerSettlementSet,
@@ -3781,15 +3819,23 @@ function issueCiActionEffectSettlement(
         schema: 'sec-ci-action-owner-terminal-reference-v1',
         actionKey: plan.action.actionKey,
         gateId,
-        status: result.code === 0 ? 'passed' : 'failed',
+        exitCode: result.code,
         rawOutputDigest: result.rawOutputDigest,
         failureTailDigest
       }) as SecOperationDigest
     }
   );
-  return issueVerificationActionTerminalSettlement(ownerTerminalJoin, {
+  const actionTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
+    action: plan.action,
+    operation,
+    providerSettlementSet,
+    readback,
+    ownerTerminalProjection: ownerTerminalJoin
+  });
+  return issueProcessVerificationActionTerminalSettlement(actionTerminalReceipt, {
     status: result.code === 0 ? 'passed' : 'failed',
-    reasonCode: result.code === 0 ? 'executed-success' : 'executed-failure'
+    reasonCode: result.code === 0 ? 'executed-success' : 'executed-failure',
+    diagnosticObjects
   });
 }
 
@@ -3883,7 +3929,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
         const boundEffect = bindCiActionEffect(
           plan,
           operation,
-          gateStarted.getTime() + CI_ACTION_EFFECT_LEASE_MS
+          Date.now() + CI_ACTION_EFFECT_LEASE_MS
         );
         physical = await options.runGate({
           id: operation.gateId,
@@ -3891,18 +3937,24 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
           env: descriptor.env
         });
         gateFinished = options.now();
-        return issueCiActionEffectSettlement(
-          boundEffect,
+        return await issueCiActionEffectSettlement({
+          runner,
+          repositoryRoot: options.repositoryRoot,
+          operation: boundEffect,
           plan,
-          operation.gateId,
-          physical
-        );
+          gateId: operation.gateId,
+          result: physical
+        });
       }
     });
     let result: VerificationGateResult;
     if (outcome.physicalExecution) {
       if (physical === null || gateStarted === null || gateFinished === null || outcome.terminal === null) {
-        throw new Error(`CI Action ${plan.action.actionKey} lost its physical terminal observation.`);
+        throw new Error(
+          `CI Action ${plan.action.actionKey} did not receive an owner-issued process terminal: ${
+            outcome.reason ?? 'physical terminal observation unavailable'
+          }`
+        );
       }
       const processResult = physical as CodexDevelopmentGateProcessResult;
       const started = gateStarted as Date;
@@ -4265,16 +4317,14 @@ export async function CodexDevelopmentCiVerificationMain(
         observation: transitionObservation
       });
     }
-    // Only the production changed-path observation may be paired with the
-    // retained worktree source provider. Injected changed-input seams do not
-    // prove that the live filesystem is the same source epoch, so they retain
-    // the structural fail-closed selection unless they grow an explicit
-    // source-provider capability of their own.
-    const testImpactProvider = changedRecordResolver === undefined
-      && changedFileResolver === undefined
-      && rawChangedFiles?.some((file) => isTestImpactModuleGraphInputFile(file))
-      ? CodexDevelopmentExactGitTestImpactSourceProvider(repositoryRoot, headSha)
-      : undefined;
+    // Selection consumes the same immutable candidate generation regardless
+    // of how the changed-path observation was obtained. Injected paths can
+    // vary the transition input in tests, but cannot inject or suppress the
+    // Source Program authority used to interpret those paths.
+    const testImpactProvider = CodexDevelopmentExactGitTestImpactSourceProvider(
+      repositoryRoot,
+      headSha
+    );
     const plan = CodexDevelopmentBuildVerificationPlan(
       profile,
       rawChangedFiles,

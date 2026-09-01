@@ -23,6 +23,5 @@ pins:
     - id: postgres_contract
       type: PostgresContract
       required: true
-slots: []
 acceptance:
   - id: postgres_contract_is_available

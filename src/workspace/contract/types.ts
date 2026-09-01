@@ -16,7 +16,6 @@ export interface WorkspacePaths {
   readonly policiesRoot: string;
   readonly overridesRoot: string;
   readonly srcRoot: string;
-  readonly slotsRoot: string;
   readonly testsRoot: string;
   readonly packageJsonPath: string;
   readonly tsconfigPath: string;
@@ -26,3 +25,5 @@ export interface WorkspacePaths {
   readonly cacheRoot: string;
   readonly workspaceWriteLeaseRoot: string;
 }
+/** Canonical root for target-workspace authoring model inputs. */
+export const modelRelativePath = 'model' as const;

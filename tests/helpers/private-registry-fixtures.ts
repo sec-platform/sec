@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 
 export async function installPrivateBannerBlock(workspaceRoot: string): Promise<void> {
@@ -46,9 +46,7 @@ export async function installPrivateBannerBlock(workspaceRoot: string): Promise<
         }
       ]
     },
-    slots: [],
-    acceptance: [],
-    routes: []
+    acceptance: []
   });
 
   await fs.writeFile(

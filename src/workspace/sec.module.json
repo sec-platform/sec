@@ -1,4 +1,14 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "workspace.project-write-authorization",
+      "operations": [
+        "currentProjectWriteAuthorization",
+        "projectProjectWriteAuthorization",
+        "withProjectWriteAuthorization"
+      ]
+    }
+  ]
 }

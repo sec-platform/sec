@@ -4,12 +4,12 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/agent/work-package-contract.ts';
 import {
   parseDocumentationAuthorityRegistry,
   renderDocumentationIndex
 } from '../../src/control/documentation/authority.ts';
 import { scanDocumentation } from '../../src/control/documentation/doctor/cli.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
 
 const PACKAGE_ID = 'docs-byte-exact-v1';
 const MANIFEST_PATH = `docs/work-packages/${PACKAGE_ID}.md`;
@@ -20,48 +20,40 @@ function registrySource(): string {
       {
         id: 'root-readme', path: 'README.md', kind: 'navigation', domain: 'entry',
         lifecycle: 'active', dynamicPolicy: 'forbidden', owns: [], projects: ['product'],
-        audience: ['developer'], consumers: ['repository-home'], updateTriggers: ['navigation-change']
       },
       {
         id: 'agents-entry', path: 'AGENTS.md', kind: 'agent-projection', domain: 'development',
         lifecycle: 'active', dynamicPolicy: 'forbidden', owns: [], projects: ['product'],
-        audience: ['agent'], consumers: ['agent-host'], updateTriggers: ['routing-change']
       },
       {
         id: 'documentation-registry', path: 'docs/authority.json', kind: 'registry',
         domain: 'documentation', lifecycle: 'stable', dynamicPolicy: 'forbidden',
         owns: ['documentation.identity', 'documentation.lifecycle', 'documentation.ownership'],
-        projects: [], audience: ['developer'], consumers: ['docs-doctor'],
-        updateTriggers: ['document-change']
+        projects: [],
       },
       {
         id: 'docs-index', path: 'docs/README.md', kind: 'navigation', domain: 'documentation',
         lifecycle: 'active', dynamicPolicy: 'forbidden', owns: [], projects: ['product'],
-        generatedFrom: 'docs/authority.json', audience: ['developer'], consumers: ['reader'],
-        updateTriggers: ['registry-change']
+        generatedFrom: 'docs/authority.json',
       },
       {
         id: 'product', path: 'docs/product.md', kind: 'authority', domain: 'product',
         lifecycle: 'stable', dynamicPolicy: 'forbidden', owns: ['product.boundary'], projects: [],
-        audience: ['developer'], consumers: ['compiler'], updateTriggers: ['product-change']
       },
       {
         id: 'current-state', path: 'docs/work/current-state.yaml', kind: 'control',
         domain: 'current-control', lifecycle: 'active', dynamicPolicy: 'control',
-        owns: ['control.resolver-authority'], projects: [], audience: ['agent'],
-        consumers: ['resolver'], updateTriggers: ['goal-change']
+        owns: ['control.resolver-authority'], projects: [],
       },
       {
         id: 'rolling-plan', path: 'docs/work/rolling-plan.md', kind: 'control',
         domain: 'current-control', lifecycle: 'active', dynamicPolicy: 'control',
-        owns: ['control.rolling-plan'], projects: [], audience: ['agent'], consumers: ['a0'],
-        updateTriggers: ['package-change']
+        owns: ['control.rolling-plan'], projects: [],
       },
       {
         id: 'active-work-package', path: 'docs/work/active-work-package.md', kind: 'control',
         domain: 'current-control', lifecycle: 'active', dynamicPolicy: 'control',
-        owns: ['control.active-work-package'], projects: [], audience: ['agent'],
-        consumers: ['resolver'], updateTriggers: ['package-change']
+        owns: ['control.active-work-package'], projects: [],
       }
     ]
   });

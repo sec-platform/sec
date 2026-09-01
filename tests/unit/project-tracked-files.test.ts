@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
-import { listTrackedProjectPaths } from '../../src/workspace/project.ts';
+import { listTrackedProjectPaths } from '../../src/workspace/runtime/project-tracked-files.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 
@@ -55,4 +55,28 @@ test('tracked project observation propagates a corrupt Git index instead of trea
     await expect(listTrackedProjectPaths(workspaceRoot))
       .rejects.toThrow('Unable to observe tracked project paths');
   });
+});
+
+test('tracked project observation canonicalizes its root and fails closed when provider admission is unavailable', async () => {
+  await withIsolatedTempDirectory(async (workspaceRoot) => {
+    const init = await runCommand('git', ['init', '--quiet'], { cwd: workspaceRoot });
+    expect(init.code).toBe(0);
+    await fs.writeFile(path.join(workspaceRoot, 'tracked.txt'), 'tracked\n', 'utf8');
+    const add = await runCommand('git', ['add', '--', 'tracked.txt'], { cwd: workspaceRoot });
+    expect(add.code).toBe(0);
+
+    const relativeRoot = path.relative(process.cwd(), workspaceRoot);
+    expect(await listTrackedProjectPaths(relativeRoot)).toEqual(new Set(['tracked.txt']));
+  });
+
+  const unavailableRoot = path.join(os.tmpdir(), `sec-tracked-provider-absent-${crypto.randomUUID()}`);
+  await expect(listTrackedProjectPaths(unavailableRoot)).rejects.toMatchObject({
+    name: 'GitReadAuthorityError',
+    message: 'Git read provider is unavailable.',
+    failure: {
+      kind: 'unresolved-git-read-provider',
+      status: 'unavailable'
+    }
+  });
+  await expect(fs.lstat(unavailableRoot)).rejects.toMatchObject({ code: 'ENOENT' });
 });

@@ -1,4 +1,4 @@
-import { platformCommand } from '../../interface/cli/contract.ts';
+import { platformCommand } from '../../interface/cli/contract/command.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { CI_ARTIFACT_FILES } from '../ci-artifacts/contract/manifest.ts';
 
@@ -32,7 +32,7 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
   {
     id: 'add-block',
     goal: 'install one capability block into a clean workspace',
-    gate: 'resolve compose adapt verify lock explain',
+    gate: 'resolve compose verify lock explain',
     command: 'bun run demo:quickstart',
     artifactPaths: [
       CI_ARTIFACT_FILES.graphLock,
@@ -43,8 +43,8 @@ const benchmarkTasks: Array<Omit<BenchmarkTask, 'artifactPathCount' | 'scoreFocu
     scoreFocus: ['success-rate', 'files-touched', 'verification-status']
   },
   {
-    id: 'repair-slot',
-    goal: 'repair one slot issue within task-envelope write bounds',
+    id: 'repair-file',
+    goal: 'repair one file issue within the repair task write bounds',
     gate: 'repair verify',
     command: platformCommand('repair', '--dry-run', '--json', '--compact'),
     artifactPaths: [

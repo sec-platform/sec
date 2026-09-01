@@ -1,0 +1,625 @@
+import { lstatSync, readlinkSync } from 'node:fs';
+import path from 'node:path';
+
+import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
+import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
+import {
+  inspectNoFollowDirectoryChain,
+  PhysicalNoFollowError,
+  retainNoFollowOrdinaryFile,
+  type PhysicalDirectoryChain
+} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { SecError } from '../../system-architecture/foundation/contract/failure.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../system-architecture/foundation/contract/repository-path.ts';
+import { rawSha256, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
+
+const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+const OBSERVATION_BUDGET = Object.freeze({
+  deadlineMs: 30_000,
+  maxProcesses: 8,
+  maxStdoutBytes: 32 * 1024 * 1024,
+  maxStderrBytes: 512 * 1024,
+  maxRecords: 250_000
+});
+const receiptBrand: unique symbol = Symbol('repository-observation-receipt');
+
+export type RepositoryObservationFailureKind =
+  | 'authority-unavailable'
+  | 'physical-unresolved'
+  | 'receipt-closed'
+  | 'receipt-unissued';
+
+export class RepositoryObservationError extends SecError {
+  readonly kind: RepositoryObservationFailureKind;
+
+  constructor(kind: RepositoryObservationFailureKind, message: string, cause?: unknown) {
+    super('DEVELOPMENT-REPOSITORY-OBSERVATION-001', message, { kind },
+      cause === undefined ? undefined : { cause });
+    this.name = 'RepositoryObservationError';
+    this.kind = kind;
+  }
+}
+
+type RepositoryPathFact = Readonly<{
+  path: string;
+  kind: 'absent' | 'file' | 'symlink';
+  device: string | null;
+  inode: string | null;
+  size: number;
+  byteDigest: `sha256:${string}` | null;
+  linkTargetDigest: `sha256:${string}` | null;
+  absenceWitnessDigest: `sha256:${string}` | null;
+}>;
+
+type RepositoryObservationBaseline = Readonly<{
+  head: string;
+  providerIdentityDigest: `sha256:${string}`;
+  repositoryRootIdentityDigest: `sha256:${string}`;
+  commonDirectoryPath: string;
+  commonDirectoryIdentityDigest: `sha256:${string}`;
+  indexPath: string;
+  indexFact: RepositoryPathFact;
+  statusBytesDigest: `sha256:${string}`;
+  changedPaths: readonly string[];
+  untrackedPaths: readonly string[];
+  worktreeFacts: readonly RepositoryPathFact[];
+  digest: `sha256:${string}`;
+}>;
+
+export interface RepositoryObservationReceipt {
+  readonly [receiptBrand]: true;
+  readonly subjectDigest: `sha256:${string}`;
+  readonly head: string;
+  readonly providerIdentityDigest: `sha256:${string}`;
+  readonly repositoryRootIdentityDigest: `sha256:${string}`;
+  readonly commonDirectoryIdentityDigest: `sha256:${string}`;
+  readonly indexDigest: `sha256:${string}`;
+  readonly statusDigest: `sha256:${string}`;
+  readonly worktreeFactsDigest: `sha256:${string}`;
+  readonly changedPaths: readonly string[];
+  readonly untrackedPaths: readonly string[];
+  readonly receiptDigest: `sha256:${string}`;
+}
+
+export type RepositoryObservationVerification = Readonly<{
+  status: 'current';
+  receiptDigest: `sha256:${string}`;
+}> | Readonly<{
+  status: 'changed';
+  receiptDigest: `sha256:${string}`;
+  currentDigest: `sha256:${string}`;
+  changedPaths: readonly string[];
+}>;
+
+type LiveObservation = {
+  readonly repositoryRoot: string;
+  readonly baseline: RepositoryObservationBaseline;
+  closed: boolean;
+  verified: boolean;
+};
+
+export type RepositoryObservedOperation<Value> = Readonly<{
+  value: Value;
+  receipt: RepositoryObservationReceipt;
+  verification: RepositoryObservationVerification;
+}>;
+
+const liveObservations = new WeakMap<object, LiveObservation>();
+
+/**
+ * Resolves the physical roots that must remain under continuous observation
+ * for one repository operation.  This is discovery only: the caller must arm
+ * the Runtime State physical observer before issuing the operation baseline.
+ */
+export async function resolveRepositoryObservationRoots(
+  repositoryRoot: string,
+  operation: SecBoundSemanticOperation
+): Promise<readonly string[]> {
+  const exactRoot = path.resolve(repositoryRoot);
+  return withAuthorityGitReadSession({
+    cwd: exactRoot,
+    environment: { LANG: 'C', LC_ALL: 'C' },
+    operation,
+    budget: OBSERVATION_BUDGET
+  }, async (session) => {
+    requireSessionIdentity(session);
+    const commonDirectory = parseDirectoryPath(await gitBytes(session, [
+      'rev-parse', '--path-format=absolute', '--git-common-dir'
+    ], 'resolve the common Git directory for continuous observation'), exactRoot,
+    'Repository common Git directory');
+    session.verifyExecutable();
+    if (session.verifyWorkingDirectory?.() !== true) {
+      throw new RepositoryObservationError(
+        'authority-unavailable',
+        'Repository observation root discovery lost its retained working directory'
+      );
+    }
+    const rootKey = process.platform === 'win32' ? exactRoot.toLowerCase() : exactRoot;
+    const commonKey = process.platform === 'win32'
+      ? commonDirectory.toLowerCase()
+      : commonDirectory;
+    const commonIsInsideRoot = commonKey === rootKey
+      || commonKey.startsWith(`${rootKey}${path.sep}`);
+    return Object.freeze(commonIsInsideRoot
+      ? [exactRoot]
+      : [exactRoot, commonDirectory].sort());
+  });
+}
+
+async function gitBytes(session: GitReadSession, args: readonly string[], label: string): Promise<Uint8Array> {
+  const command = await session.run(args);
+  if (command.kind !== 'completed') {
+    throw new GitReadAuthorityError(`Repository observation could not ${label}.`, command);
+  }
+  if (command.result.code !== 0) {
+    throw new RepositoryObservationError(
+      'authority-unavailable',
+      `Repository observation could not ${label}: ${command.result.stderr.trim()}`
+    );
+  }
+  return command.result.stdout;
+}
+
+function exactUtf8(bytes: Uint8Array, label: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new RepositoryObservationError('authority-unavailable', `${label} is not exact UTF-8`, error);
+  }
+}
+
+function exactRepositoryPath(value: string, label: string): string {
+  if (!CodexDevelopmentIsCanonicalRepositoryPath(value)) {
+    throw new RepositoryObservationError('authority-unavailable', `${label} is not canonical`);
+  }
+  return value;
+}
+
+function statusPaths(bytes: Uint8Array): Readonly<{
+  changedPaths: readonly string[];
+  untrackedPaths: readonly string[];
+}> {
+  if (bytes.byteLength === 0) {
+    return Object.freeze({ changedPaths: Object.freeze([]), untrackedPaths: Object.freeze([]) });
+  }
+  const source = exactUtf8(bytes, 'Repository status');
+  if (!source.endsWith('\0')) {
+    throw new RepositoryObservationError('authority-unavailable', 'Repository status is not NUL terminated');
+  }
+  const records = source.slice(0, -1).split('\0');
+  const changedPaths: string[] = [];
+  const untrackedPaths: string[] = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (record.length < 4 || record[2] !== ' ') {
+      throw new RepositoryObservationError('authority-unavailable', 'Repository status record is malformed');
+    }
+    const repositoryPath = exactRepositoryPath(record.slice(3), 'Repository status path');
+    changedPaths.push(repositoryPath);
+    if (record.slice(0, 2) === '??') untrackedPaths.push(repositoryPath);
+    if (record[0] === 'R' || record[0] === 'C' || record[1] === 'R' || record[1] === 'C') {
+      const previousPath = records[index + 1];
+      if (previousPath === undefined) {
+        throw new RepositoryObservationError('authority-unavailable', 'Repository rename status is incomplete');
+      }
+      changedPaths.push(exactRepositoryPath(previousPath, 'Repository prior path'));
+      index += 1;
+    }
+  }
+  return Object.freeze({
+    changedPaths: Object.freeze(uniqueSorted(changedPaths)),
+    untrackedPaths: Object.freeze(uniqueSorted(untrackedPaths))
+  });
+}
+
+function absentFact(
+  repositoryPath: string,
+  ancestor: PhysicalDirectoryChain,
+  missingSegments: readonly string[]
+): RepositoryPathFact {
+  return Object.freeze({
+    path: repositoryPath,
+    kind: 'absent',
+    device: ancestor.target.device,
+    inode: ancestor.target.inode,
+    size: 0,
+    byteDigest: null,
+    linkTargetDigest: null,
+    absenceWitnessDigest: sha256(Object.freeze({
+      ancestor: ancestor.target,
+      missingSegments
+    })) as `sha256:${string}`
+  });
+}
+
+function symlinkFact(absolutePath: string, repositoryPath: string): RepositoryPathFact {
+  const before = lstatSync(absolutePath, { bigint: true });
+  if (!before.isSymbolicLink()) {
+    throw new RepositoryObservationError('physical-unresolved', `Repository path changed type: ${repositoryPath}`);
+  }
+  const target = readlinkSync(absolutePath);
+  const after = lstatSync(absolutePath, { bigint: true });
+  if (!after.isSymbolicLink() || before.dev !== after.dev || before.ino !== after.ino
+      || before.size !== after.size || before.mtimeNs !== after.mtimeNs
+      || before.ctimeNs !== after.ctimeNs) {
+    throw new RepositoryObservationError('physical-unresolved', `Repository symlink changed during observation: ${repositoryPath}`);
+  }
+  return Object.freeze({
+    path: repositoryPath,
+    kind: 'symlink',
+    device: String(after.dev),
+    inode: String(after.ino),
+    size: Number(after.size),
+    byteDigest: null,
+    linkTargetDigest: rawSha256(target),
+    absenceWitnessDigest: null
+  });
+}
+
+type ParentWitness = Readonly<{
+  chain: PhysicalDirectoryChain;
+  missingSegments: readonly string[];
+}>;
+
+function observeParentWitness(
+  absolutePath: string,
+  parentChains: Map<string, PhysicalDirectoryChain>
+): ParentWitness {
+  let cursor = path.dirname(absolutePath);
+  const missingSegments: string[] = [];
+  for (;;) {
+    const cached = parentChains.get(cursor);
+    if (cached !== undefined) {
+      return Object.freeze({ chain: cached, missingSegments: Object.freeze(missingSegments) });
+    }
+    try {
+      const chain = inspectNoFollowDirectoryChain(cursor, 'Repository observation parent');
+      parentChains.set(cursor, chain);
+      return Object.freeze({ chain, missingSegments: Object.freeze(missingSegments) });
+    } catch (error) {
+      if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
+      const parent = path.dirname(cursor);
+      if (parent === cursor) {
+        throw new RepositoryObservationError(
+          'physical-unresolved',
+          `Repository path has no existing physical ancestor: ${absolutePath}`,
+          error
+        );
+      }
+      missingSegments.unshift(path.basename(cursor));
+      cursor = parent;
+    }
+  }
+}
+
+function assertParentChainCurrent(parent: PhysicalDirectoryChain): void {
+  const current = inspectNoFollowDirectoryChain(parent.target.path, 'Repository observation parent readback');
+  if (sha256(current) !== sha256(parent)) {
+    throw new RepositoryObservationError(
+      'physical-unresolved',
+      `Repository observation parent changed: ${parent.target.path}`
+    );
+  }
+}
+
+function absolutePathFact(
+  absolutePath: string,
+  repositoryPath: string,
+  parentChains: Map<string, PhysicalDirectoryChain>
+): RepositoryPathFact {
+  const parentWitness = observeParentWitness(absolutePath, parentChains);
+  const parent = parentWitness.chain;
+  let metadata;
+  try {
+    metadata = lstatSync(absolutePath, { bigint: true });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      assertParentChainCurrent(parent);
+      return absentFact(
+        repositoryPath,
+        parent,
+        Object.freeze([...parentWitness.missingSegments, path.basename(absolutePath)])
+      );
+    }
+    throw new RepositoryObservationError('physical-unresolved', `Repository path cannot be observed: ${repositoryPath}`, error);
+  }
+  if (parentWitness.missingSegments.length !== 0) {
+    throw new RepositoryObservationError(
+      'physical-unresolved',
+      `Repository path appeared while its missing parent was observed: ${repositoryPath}`
+    );
+  }
+  if (metadata.isSymbolicLink()) {
+    const fact = symlinkFact(absolutePath, repositoryPath);
+    assertParentChainCurrent(parent);
+    return fact;
+  }
+  if (!metadata.isFile()) {
+    throw new RepositoryObservationError('physical-unresolved', `Repository path is not an ordinary file: ${repositoryPath}`);
+  }
+  let retained;
+  let primaryFailure: unknown;
+  try {
+    retained = retainNoFollowOrdinaryFile(
+      parent,
+      path.basename(absolutePath),
+      undefined,
+      `Repository observation ${repositoryPath}`
+    );
+    const digest = retained.digest();
+    retained.assertCurrent();
+    return Object.freeze({
+      path: repositoryPath,
+      kind: 'file',
+      device: retained.physical.device,
+      inode: retained.physical.inode,
+      size: digest.size,
+      byteDigest: digest.byteDigest,
+      linkTargetDigest: null,
+      absenceWitnessDigest: null
+    });
+  } catch (error) {
+    primaryFailure = error;
+    if (error instanceof RepositoryObservationError) throw error;
+    throw new RepositoryObservationError('physical-unresolved', `Repository file observation failed: ${repositoryPath}`, error);
+  } finally {
+    try { retained?.dispose(); } catch (error) {
+      if (primaryFailure === undefined) {
+        throw new RepositoryObservationError(
+          'physical-unresolved',
+          `Repository file observation did not settle: ${repositoryPath}`,
+          error
+        );
+      }
+    }
+  }
+}
+
+function pathFact(
+  repositoryRoot: string,
+  repositoryPath: string,
+  parentChains: Map<string, PhysicalDirectoryChain>
+): RepositoryPathFact {
+  const absolutePath = path.resolve(repositoryRoot, ...repositoryPath.split('/'));
+  if (absolutePath !== repositoryRoot && !absolutePath.startsWith(`${repositoryRoot}${path.sep}`)) {
+    throw new RepositoryObservationError('physical-unresolved', `Repository path escaped its root: ${repositoryPath}`);
+  }
+  return absolutePathFact(absolutePath, repositoryPath, parentChains);
+}
+
+function pathFacts(repositoryRoot: string, paths: readonly string[]): readonly RepositoryPathFact[] {
+  const parentChains = new Map<string, PhysicalDirectoryChain>();
+  return Object.freeze(paths.map((repositoryPath) => pathFact(repositoryRoot, repositoryPath, parentChains)));
+}
+
+function parseHead(bytes: Uint8Array): string {
+  const head = exactUtf8(bytes, 'Repository HEAD').trim();
+  if (!OBJECT_ID.test(head)) {
+    throw new RepositoryObservationError('authority-unavailable', 'Repository HEAD is not one exact object id');
+  }
+  return head;
+}
+
+function parseIndexPath(bytes: Uint8Array, repositoryRoot: string): string {
+  const observed = exactUtf8(bytes, 'Repository index path').trim();
+  if (observed.length === 0) {
+    throw new RepositoryObservationError('authority-unavailable', 'Repository index path is empty');
+  }
+  return path.isAbsolute(observed) ? path.resolve(observed) : path.resolve(repositoryRoot, observed);
+}
+
+function parseDirectoryPath(bytes: Uint8Array, repositoryRoot: string, label: string): string {
+  const observed = exactUtf8(bytes, label).trim();
+  if (observed.length === 0) {
+    throw new RepositoryObservationError('authority-unavailable', `${label} is empty`);
+  }
+  return path.isAbsolute(observed) ? path.resolve(observed) : path.resolve(repositoryRoot, observed);
+}
+
+function requireSessionIdentity(session: GitReadSession): Readonly<{
+  providerIdentityDigest: `sha256:${string}`;
+  repositoryRootIdentityDigest: `sha256:${string}`;
+}> {
+  if (session.providerIdentity === null || session.workingDirectoryIdentity == null) {
+    throw new RepositoryObservationError(
+      'authority-unavailable',
+      'Repository observation requires retained Git provider and working-directory identities'
+    );
+  }
+  return Object.freeze({
+    providerIdentityDigest: sha256(session.providerIdentity) as `sha256:${string}`,
+    repositoryRootIdentityDigest: sha256(session.workingDirectoryIdentity) as `sha256:${string}`
+  });
+}
+
+async function observeBaseline(
+  session: GitReadSession,
+  repositoryRoot: string
+): Promise<RepositoryObservationBaseline> {
+  const sessionIdentity = requireSessionIdentity(session);
+  const head = parseHead(await gitBytes(session, ['rev-parse', '--verify', 'HEAD^{commit}'], 'resolve HEAD'));
+  const statusBytes = await gitBytes(session, [
+    '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
+    'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
+  ], 'observe status');
+  const indexPath = parseIndexPath(await gitBytes(session, [
+    'rev-parse', '--path-format=absolute', '--git-path', 'index'
+  ], 'resolve the index'), repositoryRoot);
+  const commonDirectoryPath = parseDirectoryPath(await gitBytes(session, [
+    'rev-parse', '--path-format=absolute', '--git-common-dir'
+  ], 'resolve the common Git directory'), repositoryRoot, 'Repository common Git directory');
+  const commonDirectoryIdentity = inspectNoFollowDirectoryChain(
+    commonDirectoryPath,
+    'Repository common Git directory'
+  );
+  const paths = statusPaths(statusBytes);
+  const indexFact = absolutePathFact(indexPath, '<git-index>', new Map());
+  const worktreeFacts = pathFacts(repositoryRoot, paths.changedPaths);
+  const headReadback = parseHead(await gitBytes(session, ['rev-parse', '--verify', 'HEAD^{commit}'], 're-observe HEAD'));
+  const statusReadback = await gitBytes(session, [
+    '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
+    'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
+  ], 're-observe status');
+  const indexReadback = absolutePathFact(indexPath, '<git-index>', new Map());
+  const commonDirectoryReadback = inspectNoFollowDirectoryChain(
+    commonDirectoryPath,
+    'Repository common Git directory readback'
+  );
+  if (headReadback !== head || rawSha256(statusReadback) !== rawSha256(statusBytes)
+      || sha256(indexReadback) !== sha256(indexFact)
+      || sha256(commonDirectoryReadback) !== sha256(commonDirectoryIdentity)
+      || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
+    throw new RepositoryObservationError('authority-unavailable', 'Repository changed while its observation receipt was issued');
+  }
+  const recordFailure = session.consumeRecords(paths.changedPaths.length + paths.untrackedPaths.length);
+  if (recordFailure !== null) {
+    throw new GitReadAuthorityError('Repository observation record budget was exhausted.', recordFailure);
+  }
+  const canonical = Object.freeze({
+    head,
+    ...sessionIdentity,
+    commonDirectoryPath,
+    commonDirectoryIdentityDigest: sha256(commonDirectoryIdentity) as `sha256:${string}`,
+    indexPath,
+    indexFact,
+    statusBytesDigest: rawSha256(statusBytes),
+    changedPaths: paths.changedPaths,
+    untrackedPaths: paths.untrackedPaths,
+    worktreeFacts
+  });
+  return Object.freeze({ ...canonical, digest: sha256(canonical) as `sha256:${string}` });
+}
+
+function issueReceipt(baseline: RepositoryObservationBaseline): RepositoryObservationReceipt {
+  const canonical = Object.freeze({
+    subjectDigest: baseline.digest,
+    head: baseline.head,
+    providerIdentityDigest: baseline.providerIdentityDigest,
+    repositoryRootIdentityDigest: baseline.repositoryRootIdentityDigest,
+    commonDirectoryIdentityDigest: baseline.commonDirectoryIdentityDigest,
+    indexDigest: sha256(baseline.indexFact) as `sha256:${string}`,
+    statusDigest: baseline.statusBytesDigest,
+    worktreeFactsDigest: sha256(baseline.worktreeFacts) as `sha256:${string}`,
+    changedPaths: baseline.changedPaths,
+    untrackedPaths: baseline.untrackedPaths
+  });
+  return Object.freeze({
+    [receiptBrand]: true as const,
+    ...canonical,
+    receiptDigest: sha256(canonical) as `sha256:${string}`
+  });
+}
+
+/**
+ * Produces a non-authoritative final-state equality projection. It does not
+ * observe transient writes and therefore cannot authorize a strict zero-write
+ * operation. Strict zero-write admission requires an opaque native change
+ * observer issued by the Runtime State physical owner.
+ */
+export async function withRepositoryFinalStateObservation<Value>(
+  repositoryRoot: string,
+  semanticOperation: SecBoundSemanticOperation,
+  operation: () => Promise<Value>
+): Promise<RepositoryObservedOperation<Value>> {
+  const exactRoot = path.resolve(repositoryRoot);
+  return withAuthorityGitReadSession({
+    cwd: exactRoot,
+    environment: { LANG: 'C', LC_ALL: 'C' },
+    operation: semanticOperation,
+    budget: OBSERVATION_BUDGET
+  }, async (session) => {
+    const baseline = await observeBaseline(session, exactRoot);
+    const receipt = issueReceipt(baseline);
+    const live: LiveObservation = {
+      repositoryRoot: exactRoot,
+      baseline,
+      closed: false,
+      verified: false
+    };
+    liveObservations.set(receipt, live);
+    try {
+      let value: Value | undefined;
+      let primaryFailure: unknown;
+      try {
+        value = await operation();
+      } catch (error) {
+        primaryFailure = error;
+      }
+      const verification = await verifyRepositoryObservationCurrent(receipt, session);
+      if (primaryFailure !== undefined) throw primaryFailure;
+      return Object.freeze({ value: value!, receipt, verification });
+    } finally {
+      live.closed = true;
+      liveObservations.delete(receipt);
+    }
+  });
+}
+
+async function verifyRepositoryObservationCurrent(
+  receipt: RepositoryObservationReceipt,
+  session: GitReadSession
+): Promise<RepositoryObservationVerification> {
+  const live = liveObservations.get(receipt);
+  if (live === undefined) {
+    throw new RepositoryObservationError('receipt-unissued', 'Repository observation receipt is not live and owner-issued');
+  }
+  if (live.closed || live.verified) {
+    throw new RepositoryObservationError('receipt-closed', 'Repository observation receipt is already settled');
+  }
+  live.verified = true;
+  {
+    const sessionIdentity = requireSessionIdentity(session);
+    const head = parseHead(await gitBytes(session, ['rev-parse', '--verify', 'HEAD^{commit}'], 'verify HEAD'));
+    const statusBytes = await gitBytes(session, [
+      '-c', 'core.quotepath=false', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
+      'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
+    ], 'verify status');
+    const currentPaths = statusPaths(statusBytes);
+    const indexFact = absolutePathFact(live.baseline.indexPath, '<git-index>', new Map());
+    const commonDirectoryIdentity = inspectNoFollowDirectoryChain(
+      live.baseline.commonDirectoryPath,
+      'Repository common Git directory final readback'
+    );
+    const providerCurrent = session.verifyExecutable()
+      && sessionIdentity.providerIdentityDigest === live.baseline.providerIdentityDigest;
+    const repositoryRootCurrent = session.verifyWorkingDirectory?.() === true
+      && sessionIdentity.repositoryRootIdentityDigest === live.baseline.repositoryRootIdentityDigest;
+    const sameGitState = head === live.baseline.head
+      && rawSha256(statusBytes) === live.baseline.statusBytesDigest
+      && sha256(indexFact) === sha256(live.baseline.indexFact)
+      && sha256(commonDirectoryIdentity) === live.baseline.commonDirectoryIdentityDigest
+      && providerCurrent
+      && repositoryRootCurrent;
+    const worktreeFacts = sameGitState
+      ? pathFacts(live.repositoryRoot, live.baseline.changedPaths)
+      : Object.freeze([]);
+    const currentCanonical = Object.freeze({
+      head,
+      providerIdentityDigest: providerCurrent ? sessionIdentity.providerIdentityDigest : null,
+      repositoryRootIdentityDigest: repositoryRootCurrent
+        ? sessionIdentity.repositoryRootIdentityDigest
+        : null,
+      commonDirectoryIdentityDigest: sha256(commonDirectoryIdentity),
+      indexPath: live.baseline.indexPath,
+      indexFact,
+      statusBytesDigest: rawSha256(statusBytes),
+      changedPaths: currentPaths.changedPaths,
+      untrackedPaths: currentPaths.untrackedPaths,
+      worktreeFacts
+    });
+    const currentDigest = sha256(currentCanonical) as `sha256:${string}`;
+    if (sameGitState && sha256(worktreeFacts) === sha256(live.baseline.worktreeFacts)) {
+      return Object.freeze({ status: 'current', receiptDigest: receipt.receiptDigest });
+    }
+    return Object.freeze({
+      status: 'changed',
+      receiptDigest: receipt.receiptDigest,
+      currentDigest,
+      changedPaths: Object.freeze(uniqueSorted([
+        ...live.baseline.changedPaths,
+        ...currentPaths.changedPaths
+      ]))
+    });
+  }
+}

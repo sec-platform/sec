@@ -14,7 +14,7 @@ import {
   resolveWorkspacePlanPath,
   resolveWorkspaceProvenancePath,
   toWorkspaceArtifactPath
-} from '../../src/workspace/paths.ts';
+} from '../../src/workspace/runtime/paths.ts';
 
 const WORKSPACE_ROOT = path.join('C:', 'fixtures', 'native-target');
 

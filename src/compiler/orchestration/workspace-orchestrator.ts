@@ -7,7 +7,7 @@ import { assertWorkspaceWriteLease, withWorkspaceWriteLease, WORKSPACE_WRITE_LEA
 import {
   getWorkspacePaths,
   resolveWorkspaceArtifactPath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
 import { writeYaml } from '../../workspace/yaml.ts';
 import { LOCK_FILE_FORMAT_VERSION, type LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
@@ -184,7 +184,6 @@ export async function initWorkspace(
       resolvedBlocks: [],
       resolvedCapabilities: [],
       installPlan: [],
-      slotTasks: [],
       generatedPaths: initialGeneratedPaths(template),
       acceptancePlan: plan.acceptance.map((entry) => entry.id),
       passStatus: { ...PASS_STATUS_PENDING }

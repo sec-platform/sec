@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import type { CiVerificationGatePhase, CiVerificationGateStep } from '../../action/contract/ci.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../contract/revision.ts';
 import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import { selectCiSlowTestClosure } from '../runtime/slow-test-selection.ts';
 
-export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v19' as const;
 export const CI_VERIFICATION_EXECUTION_MODEL = 'verification-session-v2-action-closure' as const;
 
 export type CodexDevelopmentVerificationPlanProfile = 'quick' | 'full';
@@ -142,7 +142,7 @@ function hasDocumentationLifecycleChange(owners: readonly string[]): boolean {
 export function CodexDevelopmentBuildVerificationPlan(
   profile: CodexDevelopmentVerificationPlanProfile,
   rawChangedFiles: readonly string[] | null,
-  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProvider,
+  testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider,
   transition?: CodexDevelopmentTestImpactTransitionObservation
 ): CodexDevelopmentVerificationPlan {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFiles(rawChangedFiles);

@@ -286,8 +286,9 @@ function canonicalResolvedPackage(
   });
 }
 
-export function buildRuntimeDependencyMaterializationBinding(
-  input: RuntimeDependencyMaterializationBindingInput
+function canonicalRuntimeDependencyMaterializationBinding(
+  input: RuntimeDependencyMaterializationBindingInput,
+  expectedRootNames: readonly string[] | null
 ): Readonly<RuntimeDependencyMaterializationBinding> {
   const manifestHash = canonicalDigest(input.manifestHash, 'Runtime dependency manifest digest');
   const packages = input.packages.map(canonicalResolvedPackage)
@@ -307,9 +308,18 @@ export function buildRuntimeDependencyMaterializationBinding(
     ),
     target: canonicalPackagePath(entry.target, 'Runtime dependency root package target')
   })).sort((left, right) => compareCodeUnits(left.name, right.name));
-  const expectedRoots = [...RUNTIME_DEPENDENCY_PACKAGE_NAMES].sort(compareCodeUnits);
-  if (rootPackages.length !== expectedRoots.length ||
-    rootPackages.some((entry, index) => entry.name !== expectedRoots[index])) {
+  if (rootPackages.length === 0 || rootPackages.length > 10_000 ||
+      rootPackages.some((entry, index) => index > 0 && entry.name === rootPackages[index - 1]!.name)) {
+    materializationBindingError('Runtime dependency root package identities must be non-empty and unique');
+  }
+  if (expectedRootNames !== null) {
+    const expectedRoots = [...expectedRootNames].sort(compareCodeUnits);
+    if (rootPackages.length !== expectedRoots.length ||
+      rootPackages.some((entry, index) => entry.name !== expectedRoots[index])) {
+      materializationBindingError('Runtime dependency root package closure is incomplete');
+    }
+  }
+  if (packages.length === 0 || packages.length > 100_000) {
     materializationBindingError('Runtime dependency root package closure is incomplete');
   }
   for (const rootPackage of rootPackages) {
@@ -348,6 +358,21 @@ export function buildRuntimeDependencyMaterializationBinding(
   });
 }
 
+/**
+ * The writer owns the current runtime root selection. Durable v3 bytes do not:
+ * a later capability retirement must not silently change the grammar of an
+ * already-published binding. Current readiness is checked separately against
+ * the current RuntimeDependencySpec and exact observed tree.
+ */
+export function buildRuntimeDependencyMaterializationBinding(
+  input: RuntimeDependencyMaterializationBindingInput
+): Readonly<RuntimeDependencyMaterializationBinding> {
+  return canonicalRuntimeDependencyMaterializationBinding(
+    input,
+    RUNTIME_DEPENDENCY_PACKAGE_NAMES
+  );
+}
+
 export function isRuntimeDependencyMaterializationBinding(
   value: unknown
 ): value is Readonly<RuntimeDependencyMaterializationBinding> {
@@ -360,12 +385,12 @@ export function isRuntimeDependencyMaterializationBinding(
     !candidate.toolchain || typeof candidate.toolchain !== 'object' ||
     typeof candidate.revision !== 'string') return false;
   try {
-    const canonical = buildRuntimeDependencyMaterializationBinding({
+    const canonical = canonicalRuntimeDependencyMaterializationBinding({
       manifestHash: candidate.manifestHash,
       packages: candidate.packages as RuntimeDependencyResolvedPackage[],
       rootPackages: candidate.rootPackages as { name: string; packageName: string; target: string }[],
       toolchain: candidate.toolchain as RuntimeDependencyToolchainBinding
-    });
+    }, null);
     return canonicalEquals(value, canonical);
   } catch {
     return false;

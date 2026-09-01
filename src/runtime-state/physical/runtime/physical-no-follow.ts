@@ -21,6 +21,20 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
+import {
+  assertSecSemanticOperationProjection,
+  type SecBoundSemanticOperation
+} from '../../../system-architecture/operation/semantic.ts';
+
+import {
+  openWindowsReadOnlyTreeGeneration,
+  retireWindowsReadOnlyTreeGeneration,
+  sealExistingWindowsReadOnlyTreeAuthority,
+  sealWindowsReadOnlyTreeGeneration,
+  type WindowsReadOnlyTreeAuthority,
+  type WindowsReadOnlyTreeGenerationBinding
+} from './windows-host-filesystem-authority.ts';
+
 /**
  * A deliberately narrow filesystem primitive.  It owns neither a repository
  * nor an operation's authorization semantics: callers bind these physical
@@ -35,13 +49,25 @@ export type PhysicalNoFollowFailureCode =
   | 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
   | 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED';
 
+export interface PhysicalNativeFailure {
+  readonly namespace: 'win32';
+  readonly code: number;
+  readonly failureClass: 'access-denied' | 'access-unavailable' | 'other';
+}
+
 export class PhysicalNoFollowError extends Error {
   readonly code: PhysicalNoFollowFailureCode;
+  readonly nativeFailure: PhysicalNativeFailure | null;
 
-  constructor(code: PhysicalNoFollowFailureCode, message: string, options?: { cause?: unknown }) {
+  constructor(
+    code: PhysicalNoFollowFailureCode,
+    message: string,
+    options?: { cause?: unknown; nativeFailure?: PhysicalNativeFailure }
+  ) {
     super(message, options);
     this.name = 'PhysicalNoFollowError';
     this.code = code;
+    this.nativeFailure = options?.nativeFailure ?? null;
   }
 }
 
@@ -141,6 +167,107 @@ export interface RetainedNoFollowChildProcessDirectory {
   readonly stdioSourceDescriptor: number | null;
   assertCurrent(): void;
   dispose(): void;
+}
+
+/**
+ * Complete, writer-excluded directory generation for one bounded child
+ * process. The inventory is exact: every directory, ordinary file and link is
+ * retained until disposal, and every directory handle withholds write/delete
+ * sharing so membership cannot expand or contract during execution.
+ */
+export interface RetainedNoFollowSealedDirectoryGeneration
+  extends RetainedNoFollowChildProcessDirectory {
+  readonly inventory: readonly NoFollowDirectoryTreeInventoryEntry[];
+  readonly root: PhysicalDirectoryIdentity;
+  assertAuthorityCurrent(): Promise<void>;
+  retire(): Promise<void>;
+}
+
+/**
+ * A generation whose full content and ACL closure were proved by its domain
+ * publisher before Runtime Physical retained the exact lexical/root object.
+ * Unlike an action-private sealed generation, descendants are not reopened or
+ * rehashed per consumer; the publisher-owned ACL proof excludes mutation and
+ * `assertAuthorityCurrent` revalidates its ChangeTime-bound entry census.
+ */
+export interface RetainedNoFollowProvenDirectoryGeneration
+  extends RetainedNoFollowChildProcessDirectory {
+  readonly root: PhysicalDirectoryIdentity;
+  assertAuthorityCurrent(): Promise<void>;
+  retire(): Promise<PhysicalGenerationRetirementReceipt>;
+}
+
+export interface PhysicalGenerationRetirementReceipt {
+  readonly schema: 'sec-physical-generation-retirement-v1';
+  readonly root: Readonly<{
+    path: string;
+    finalPath: string;
+    device: string;
+    inode: string;
+    objectId: string;
+  }>;
+  readonly terminal: 'released';
+}
+
+export type NoFollowDirectoryTreeRetirementReceipt = Readonly<{
+  entryCount: number;
+  root: PhysicalDirectoryIdentity;
+  status: 'physically-absent';
+}>;
+
+const issuedRetainedNoFollowSealedDirectoryGenerations = new WeakSet<object>();
+const issuedRetainedNoFollowProvenDirectoryGenerations = new WeakSet<object>();
+const issuedPhysicalGenerationRetirementReceipts = new WeakSet<object>();
+
+export function assertPhysicalGenerationRetirementReceipt(
+  receipt: PhysicalGenerationRetirementReceipt
+): void {
+  if (!issuedPhysicalGenerationRetirementReceipts.has(receipt)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Physical generation retirement receipt was not issued by Runtime Physical.'
+    );
+  }
+}
+
+export function assertRetainedNoFollowSealedDirectoryGeneration(
+  capability: RetainedNoFollowSealedDirectoryGeneration,
+  label = 'sealed directory generation'
+): void {
+  assertRetainedNoFollowCapability(capability, 'working-directory', label);
+  if (!issuedRetainedNoFollowSealedDirectoryGenerations.has(capability)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} was not issued by the physical sealed-generation owner.`
+    );
+  }
+}
+
+export function assertRetainedNoFollowProvenDirectoryGeneration(
+  capability: RetainedNoFollowProvenDirectoryGeneration,
+  label = 'proven directory generation'
+): void {
+  assertRetainedNoFollowCapability(capability, 'working-directory', label);
+  if (!issuedRetainedNoFollowProvenDirectoryGenerations.has(capability)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} was not issued by the physical proven-generation owner.`
+    );
+  }
+}
+
+export function assertRetainedNoFollowReadOnlyDirectoryGeneration(
+  capability: RetainedNoFollowSealedDirectoryGeneration | RetainedNoFollowProvenDirectoryGeneration,
+  label = 'read-only directory generation'
+): void {
+  assertRetainedNoFollowCapability(capability, 'working-directory', label);
+  if (!issuedRetainedNoFollowSealedDirectoryGenerations.has(capability)
+      && !issuedRetainedNoFollowProvenDirectoryGenerations.has(capability)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} was not issued by a physical read-only generation owner.`
+    );
+  }
 }
 
 export interface RetainedNoFollowChildProcessFile {
@@ -285,6 +412,24 @@ function physicalError(
   cause?: unknown
 ): PhysicalNoFollowError {
   return new PhysicalNoFollowError(code, message, cause === undefined ? undefined : { cause });
+}
+
+function physicalWin32Error(
+  code: PhysicalNoFollowFailureCode,
+  message: string,
+  win32Code: number
+): PhysicalNoFollowError {
+  return new PhysicalNoFollowError(code, message, {
+    nativeFailure: Object.freeze({
+      namespace: 'win32' as const,
+      code: win32Code,
+      failureClass: win32Code === 5
+        ? 'access-denied' as const
+        : win32Code === 1_920
+          ? 'access-unavailable' as const
+          : 'other' as const
+    })
+  });
 }
 
 function requireAbsoluteDirectoryPath(value: string, label: string): string {
@@ -1189,6 +1334,7 @@ const WINDOWS_FILE_WRITE_DATA = 0x0000_0002;
 const WINDOWS_FILE_READ_ATTRIBUTES = 0x0000_0080;
 const WINDOWS_FILE_READ_EA = 0x0000_0008;
 const WINDOWS_READ_CONTROL = 0x0002_0000;
+const WINDOWS_WRITE_DAC = 0x0004_0000;
 const WINDOWS_DELETE = 0x0001_0000;
 const WINDOWS_FILE_WRITE_ATTRIBUTES = 0x0000_0100;
 const WINDOWS_SHARE_READ_WRITE_DELETE = 0x0000_0007;
@@ -1219,6 +1365,7 @@ const WINDOWS_STATUS_OBJECT_NAME_NOT_FOUND = -1_073_741_772;
 const WINDOWS_STATUS_OBJECT_PATH_NOT_FOUND = -1_073_741_766;
 const WINDOWS_STATUS_OBJECT_NAME_COLLISION = -1_073_741_771;
 const WINDOWS_STATUS_SHARING_VIOLATION = -1_073_741_757;
+const WINDOWS_STATUS_ACCESS_DENIED = -1_073_741_790;
 // A just-disposed Windows handle can leave the namespace entry in the
 // delete-pending state until the final handle reference is released.  For an
 // exact retained-leaf readback this is the kernel's absent-equivalent; it is
@@ -1229,6 +1376,18 @@ type WindowsKernel32 = ReturnType<typeof loadWindowsKernel32>;
 let windowsKernel32: WindowsKernel32 | undefined;
 type WindowsNtdll = ReturnType<typeof loadWindowsNtdll>;
 let windowsNtdll: WindowsNtdll | undefined;
+type WindowsAdvapi32 = ReturnType<typeof loadWindowsAdvapi32>;
+let windowsAdvapi32: WindowsAdvapi32 | undefined;
+
+const WINDOWS_OWNER_SECURITY_INFORMATION = 0x0000_0001;
+const WINDOWS_DACL_SECURITY_INFORMATION = 0x0000_0004;
+const WINDOWS_PROTECTED_DACL_SECURITY_INFORMATION = 0x8000_0000;
+const WINDOWS_UNPROTECTED_DACL_SECURITY_INFORMATION = 0x2000_0000;
+const WINDOWS_SE_DACL_PROTECTED = 0x1000;
+const WINDOWS_FILE_DELETE_CHILD = 0x0000_0040;
+const WINDOWS_ACCESS_ALLOWED_ACE_TYPE = 0;
+const WINDOWS_ACCESS_DENIED_ACE_TYPE = 1;
+const WINDOWS_EVERYONE_SID = Buffer.from([1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]);
 
 function loadWindowsKernel32() {
   try {
@@ -1269,6 +1428,24 @@ function loadWindowsNtdll() {
 function requireWindowsNtdll(): WindowsNtdll {
   windowsNtdll ??= loadWindowsNtdll();
   return windowsNtdll;
+}
+
+function loadWindowsAdvapi32() {
+  try {
+    return dlopen('advapi32.dll', {
+      GetFileSecurityW: { args: [FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
+      GetKernelObjectSecurity: { args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
+      SetKernelObjectSecurity: { args: [FFIType.u64, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
+      SetFileSecurityW: { args: [FFIType.ptr, FFIType.u32, FFIType.ptr], returns: FFIType.i32 }
+    } as const);
+  } catch (error) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows security descriptor backend is unavailable.', error);
+  }
+}
+
+function requireWindowsAdvapi32(): WindowsAdvapi32 {
+  windowsAdvapi32 ??= loadWindowsAdvapi32();
+  return windowsAdvapi32;
 }
 
 function windowsWide(value: string): Buffer {
@@ -1376,6 +1553,30 @@ function windowsOpenPinnedReadDirectory(absolutePath: string, label: string): bi
   return handle;
 }
 
+function windowsOpenSealedReadDirectory(absolutePath: string, label: string): bigint {
+  const library = requireWindowsKernel32();
+  const handle = library.symbols.CreateFileW(
+    windowsWide(absolutePath),
+    WINDOWS_GENERIC_READ,
+    WINDOWS_SHARE_READ,
+    null,
+    WINDOWS_OPEN_EXISTING,
+    WINDOWS_FILE_FLAG_BACKUP_SEMANTICS | WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT,
+    null
+  );
+  if (handle === WINDOWS_INVALID_HANDLE) {
+    const lastError = library.symbols.GetLastError();
+    if (lastError === 2 || lastError === 3) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
+    }
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot acquire directory membership exclusion (Win32 ${lastError}).`
+    );
+  }
+  return handle;
+}
+
 /**
  * Opens an ordinary directory with delete sharing withheld.  The regular
  * inspection handles intentionally allow repository watchers to coexist; a
@@ -1444,7 +1645,11 @@ function windowsOpenNoFollowLeaf(absolutePath: string, label: string, desiredAcc
   if (handle === WINDOWS_INVALID_HANDLE) {
     const lastError = library.symbols.GetLastError();
     if (lastError === 2 || lastError === 3) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
-    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} cannot be retained without following reparse points (Win32 ${lastError}).`);
+    throw physicalWin32Error(
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+      `${label} cannot be retained without following reparse points (Win32 ${lastError}).`,
+      lastError
+    );
   }
   return handle;
 }
@@ -1547,7 +1752,8 @@ function windowsOpenRelativeDirectory(
   absolutePath: string,
   disposition: typeof WINDOWS_FILE_CREATE | typeof WINDOWS_FILE_OPEN,
   label: string,
-  shareAccess = WINDOWS_SHARE_READ_WRITE_DELETE
+  shareAccess = WINDOWS_SHARE_READ_WRITE_DELETE,
+  readOnly = false
 ): bigint | null {
   const object = windowsRelativeLeafObjectAttributes(parentHandle, name);
   const handleBuffer = Buffer.alloc(8);
@@ -1555,7 +1761,7 @@ function windowsOpenRelativeDirectory(
   const status = requireWindowsNtdll().symbols.NtCreateFile(
     handleBuffer,
     WINDOWS_FILE_READ_DATA | WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_FILE_READ_EA |
-      WINDOWS_FILE_WRITE_ATTRIBUTES | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE,
+      (readOnly ? 0 : WINDOWS_FILE_WRITE_ATTRIBUTES) | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE,
     object.objectAttributes,
     ioStatus,
     null,
@@ -1568,6 +1774,12 @@ function windowsOpenRelativeDirectory(
     0
   );
   if (status < 0) {
+    if (readOnly && status === WINDOWS_STATUS_SHARING_VIOLATION) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} cannot acquire writer exclusion while a writable or delete-capable handle is live.`
+      );
+    }
     if (disposition === WINDOWS_FILE_CREATE && status === WINDOWS_STATUS_OBJECT_NAME_COLLISION) return null;
     if (disposition === WINDOWS_FILE_OPEN &&
       (status === WINDOWS_STATUS_OBJECT_NAME_NOT_FOUND || status === WINDOWS_STATUS_OBJECT_PATH_NOT_FOUND)) return null;
@@ -1596,8 +1808,33 @@ function windowsOpenRelativeNoFollowEntry(
   name: string,
   absolutePath: string,
   kind: 'directory' | 'file' | 'link',
-  label: string
-): bigint {
+  label: string,
+  shareAccess?: number,
+  readOnly?: boolean,
+  accessDeniedAsNull?: false
+): bigint;
+function windowsOpenRelativeNoFollowEntry(
+  parentHandle: bigint,
+  parent: PhysicalDirectoryIdentity,
+  name: string,
+  absolutePath: string,
+  kind: 'directory' | 'file' | 'link',
+  label: string,
+  shareAccess: number,
+  readOnly: boolean,
+  accessDeniedAsNull: true
+): bigint | null;
+function windowsOpenRelativeNoFollowEntry(
+  parentHandle: bigint,
+  parent: PhysicalDirectoryIdentity,
+  name: string,
+  absolutePath: string,
+  kind: 'directory' | 'file' | 'link',
+  label: string,
+  shareAccess = WINDOWS_SHARE_READ_WRITE_DELETE,
+  readOnly = false,
+  accessDeniedAsNull = false
+): bigint | null {
   const object = windowsRelativeLeafObjectAttributes(parentHandle, name);
   const handleBuffer = Buffer.alloc(8);
   const ioStatus = Buffer.alloc(16);
@@ -1605,19 +1842,26 @@ function windowsOpenRelativeNoFollowEntry(
     : kind === 'file' ? WINDOWS_FILE_NON_DIRECTORY_FILE : 0;
   const status = requireWindowsNtdll().symbols.NtCreateFile(
     handleBuffer,
-    WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_FILE_READ_EA | WINDOWS_FILE_WRITE_ATTRIBUTES |
-      WINDOWS_DELETE | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE,
+    WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_FILE_READ_EA | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE |
+      (readOnly ? 0 : WINDOWS_DELETE),
     object.objectAttributes,
     ioStatus,
     null,
     WINDOWS_FILE_ATTRIBUTE_NORMAL,
-    WINDOWS_SHARE_READ_WRITE_DELETE,
+    shareAccess,
     WINDOWS_FILE_OPEN,
     kindOption | WINDOWS_FILE_SYNCHRONOUS_IO_NONALERT | WINDOWS_FILE_OPEN_REPARSE_POINT_NT,
     null,
     0
   );
   if (status < 0) {
+    if (accessDeniedAsNull && status === WINDOWS_STATUS_ACCESS_DENIED) return null;
+    if (readOnly && status === WINDOWS_STATUS_SHARING_VIOLATION) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} cannot acquire writer exclusion while a writable or delete-capable handle is live.`
+      );
+    }
     if (status === WINDOWS_STATUS_OBJECT_NAME_NOT_FOUND || status === WINDOWS_STATUS_OBJECT_PATH_NOT_FOUND ||
         status === WINDOWS_STATUS_DELETE_PENDING) {
       throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} is absent.`);
@@ -2591,6 +2835,960 @@ export function retainNoFollowDirectoryForChildProcess(
     'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
     `${label} retained child-process backend is unavailable on ${process.platform}.`
   );
+}
+
+export type ProvenDirectoryGenerationBinding = WindowsReadOnlyTreeGenerationBinding;
+
+type LinuxProvenGenerationIdentity = Readonly<{
+  ctimeNs: string;
+  device: string;
+  inode: string;
+  mode: string;
+}>;
+
+type LinuxProvenGenerationEntry = LinuxProvenGenerationIdentity & Readonly<{
+  kind: NoFollowDirectoryTreeEntryKind;
+  predecessorMode: string;
+  relativePath: string;
+}>;
+
+type LinuxProvenGenerationProof = Readonly<{
+  binding: ProvenDirectoryGenerationBinding;
+  entries: readonly LinuxProvenGenerationEntry[];
+  proofDigest: `sha256:${string}`;
+  root: LinuxProvenGenerationIdentity;
+  rootPredecessorMode: string;
+  rootPath: string;
+  schema: 'sec-linux-read-only-tree-generation-proof-v1';
+}>;
+
+function linuxProvenIdentity(metadata: Readonly<{
+  ctimeNs: bigint;
+  dev: bigint;
+  ino: bigint;
+  mode: bigint;
+}>): LinuxProvenGenerationIdentity {
+  return Object.freeze({
+    ctimeNs: String(metadata.ctimeNs),
+    device: String(metadata.dev),
+    inode: String(metadata.ino),
+    mode: String(metadata.mode)
+  });
+}
+
+function sameLinuxProvenIdentity(
+  left: LinuxProvenGenerationIdentity,
+  right: LinuxProvenGenerationIdentity
+): boolean {
+  return left.ctimeNs === right.ctimeNs && left.device === right.device
+    && left.inode === right.inode && left.mode === right.mode;
+}
+
+function linuxProofUnsigned(input: Omit<LinuxProvenGenerationProof, 'proofDigest'>): object {
+  return Object.freeze({
+    binding: input.binding,
+    entries: input.entries,
+    root: input.root,
+    rootPredecessorMode: input.rootPredecessorMode,
+    rootPath: input.rootPath,
+    schema: input.schema
+  });
+}
+
+function linuxProofDigest(
+  input: Omit<LinuxProvenGenerationProof, 'proofDigest'>
+): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(JSON.stringify(linuxProofUnsigned(input))).digest('hex')}`;
+}
+
+function parseLinuxProvenGenerationProof(text: string): LinuxProvenGenerationProof {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Linux generation proof JSON is invalid.',
+      error
+    );
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Linux generation proof is invalid.');
+  }
+  const proof = value as Partial<LinuxProvenGenerationProof>;
+  const exact = (candidate: object, keys: readonly string[]): boolean => (
+    JSON.stringify(Object.keys(candidate).sort()) === JSON.stringify([...keys].sort())
+  );
+  const validIdentity = (candidate: unknown): candidate is LinuxProvenGenerationIdentity => {
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)
+        || !exact(candidate, ['ctimeNs', 'device', 'inode', 'mode'])) return false;
+    const identity = candidate as Partial<LinuxProvenGenerationIdentity>;
+    return typeof identity.ctimeNs === 'string' && /^[1-9][0-9]*$/u.test(identity.ctimeNs)
+      && typeof identity.device === 'string' && identity.device.length > 0
+      && typeof identity.inode === 'string' && identity.inode.length > 0
+      && typeof identity.mode === 'string' && identity.mode.length > 0;
+  };
+  if (!exact(value, [
+    'binding', 'entries', 'proofDigest', 'root', 'rootPath', 'rootPredecessorMode', 'schema'
+  ])
+      || proof.schema !== 'sec-linux-read-only-tree-generation-proof-v1'
+      || proof.binding === null || typeof proof.binding !== 'object' || Array.isArray(proof.binding)
+      || !exact(proof.binding, ['generationDigest', 'treeDigest', 'treeEntryCount'])
+      || typeof proof.binding.generationDigest !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(proof.binding.generationDigest)
+      || typeof proof.binding.treeDigest !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(proof.binding.treeDigest)
+      || !Number.isSafeInteger(proof.binding.treeEntryCount)
+      || proof.binding.treeEntryCount! < 0
+      || !Array.isArray(proof.entries) || !validIdentity(proof.root)
+      || typeof proof.rootPredecessorMode !== 'string'
+      || !/^[1-9][0-9]*$/u.test(proof.rootPredecessorMode)
+      || typeof proof.rootPath !== 'string' || !path.posix.isAbsolute(proof.rootPath)
+      || typeof proof.proofDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(proof.proofDigest)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Linux generation proof shape is invalid.');
+  }
+  const entries: LinuxProvenGenerationEntry[] = [];
+  let predecessor = '';
+  for (const valueEntry of proof.entries) {
+    if (valueEntry === null || typeof valueEntry !== 'object' || Array.isArray(valueEntry)
+        || !exact(valueEntry, [
+          'ctimeNs', 'device', 'inode', 'kind', 'mode', 'predecessorMode', 'relativePath'
+        ])
+        || !validIdentity({
+          ctimeNs: (valueEntry as LinuxProvenGenerationEntry).ctimeNs,
+          device: (valueEntry as LinuxProvenGenerationEntry).device,
+          inode: (valueEntry as LinuxProvenGenerationEntry).inode,
+          mode: (valueEntry as LinuxProvenGenerationEntry).mode
+        })) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Linux generation proof entry is invalid.');
+    }
+    const entry = valueEntry as LinuxProvenGenerationEntry;
+    if (!['directory', 'file', 'link'].includes(entry.kind)
+        || !/^[1-9][0-9]*$/u.test(entry.predecessorMode)
+        || entry.relativePath.length === 0 || path.posix.isAbsolute(entry.relativePath)
+        || entry.relativePath.split('/').some((segment) => (
+          segment.length === 0 || segment === '.' || segment === '..'
+        ))
+        || (predecessor !== '' && predecessor >= entry.relativePath)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Linux generation proof path is invalid.');
+    }
+    predecessor = entry.relativePath;
+    entries.push(Object.freeze({ ...entry }));
+  }
+  const parsed = Object.freeze({
+    binding: Object.freeze({ ...proof.binding }),
+    entries: Object.freeze(entries),
+    proofDigest: proof.proofDigest,
+    root: proof.root,
+    rootPath: path.posix.resolve(proof.rootPath),
+    rootPredecessorMode: proof.rootPredecessorMode,
+    schema: proof.schema
+  }) as LinuxProvenGenerationProof;
+  if (linuxProofDigest(parsed) !== parsed.proofDigest
+      || `${JSON.stringify(parsed)}\n` !== text) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Linux generation proof bytes or digest are noncanonical.'
+    );
+  }
+  return parsed;
+}
+
+function sameProvenGenerationBinding(
+  left: ProvenDirectoryGenerationBinding,
+  right: ProvenDirectoryGenerationBinding
+): boolean {
+  return left.generationDigest === right.generationDigest
+    && left.treeDigest === right.treeDigest
+    && left.treeEntryCount === right.treeEntryCount;
+}
+
+function projectProvenDirectoryGenerationBinding(
+  proofText: string
+): ProvenDirectoryGenerationBinding {
+  let value: unknown;
+  try {
+    value = JSON.parse(proofText);
+  } catch (error) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Proven generation proof JSON is invalid.',
+      error
+    );
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Proven generation proof has no binding projection.'
+    );
+  }
+  const binding = (value as { binding?: unknown }).binding;
+  if (binding === null || typeof binding !== 'object' || Array.isArray(binding)
+      || JSON.stringify(Object.keys(binding).sort()) !== JSON.stringify([
+        'generationDigest', 'treeDigest', 'treeEntryCount'
+      ])) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Proven generation proof binding is noncanonical.'
+    );
+  }
+  const projected = binding as Partial<ProvenDirectoryGenerationBinding>;
+  if (typeof projected.generationDigest !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(projected.generationDigest)
+      || typeof projected.treeDigest !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(projected.treeDigest)
+      || !Number.isSafeInteger(projected.treeEntryCount)
+      || projected.treeEntryCount! < 0) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Proven generation proof binding is invalid.'
+    );
+  }
+  return Object.freeze({
+    generationDigest: projected.generationDigest,
+    treeDigest: projected.treeDigest,
+    treeEntryCount: projected.treeEntryCount
+  }) as ProvenDirectoryGenerationBinding;
+}
+
+function linuxGenerationEntries(
+  rootPath: string,
+  inventory: readonly Readonly<{
+    readonly relativePath: string;
+    readonly kind: NoFollowDirectoryTreeEntryKind;
+    readonly device: string;
+    readonly inode: string;
+    readonly predecessorMode?: string;
+  }>[],
+  seal: boolean,
+  label: string,
+  retainedRootPredecessorMode?: string
+): Readonly<{
+  root: LinuxProvenGenerationIdentity;
+  rootPredecessorMode: string;
+  entries: readonly LinuxProvenGenerationEntry[];
+}> {
+  const retainedRoot = linuxOpenRetainedAbsoluteDirectory(rootPath, `${label} root`);
+  const rootBefore = fstatSync(retainedRoot.directoryFd, { bigint: true });
+  const rootPredecessorMode = retainedRootPredecessorMode ?? String(rootBefore.mode);
+  const directoryFds = new Map<string, number>([['', retainedRoot.directoryFd]]);
+  const opened: number[] = [];
+  try {
+    const ordered = [...inventory].sort((left, right) => {
+      const depth = left.relativePath.split('/').length - right.relativePath.split('/').length;
+      if (depth !== 0) return depth;
+      return left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0;
+    });
+    const entries: LinuxProvenGenerationEntry[] = [];
+    for (const entry of ordered) {
+      const parts = entry.relativePath.split('/');
+      const name = parts.pop()!;
+      const parentFd = directoryFds.get(parts.join('/'));
+      if (parentFd === undefined) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} has no retained parent.`);
+      }
+      const fd = entry.kind === 'directory'
+        ? linuxOpenAt(parentFd, name, `${label} ${entry.relativePath}`)
+        : entry.kind === 'file'
+          ? linuxOpenReadableLeafAt(parentFd, name, `${label} ${entry.relativePath}`)
+          : linuxOpenLeafAt(parentFd, name, `${label} ${entry.relativePath}`);
+      opened.push(fd);
+      if (entry.kind === 'directory') directoryFds.set(entry.relativePath, fd);
+      const before = fstatSync(fd, { bigint: true });
+      if (String(before.dev) !== entry.device || String(before.ino) !== entry.inode) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+          `${label} entry identity changed: ${entry.relativePath}`
+        );
+      }
+      if (seal && entry.kind !== 'link') fchmodSync(fd, entry.kind === 'directory' ? 0o555 : 0o444);
+      const after = fstatSync(fd, { bigint: true });
+      const identity = linuxProvenIdentity(after);
+      if ((entry.kind === 'directory' && (after.mode & 0o777n) !== 0o555n)
+          || (entry.kind === 'file' && (after.mode & 0o777n) !== 0o444n)) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+          `${label} entry is not read-only: ${entry.relativePath}`
+        );
+      }
+      entries.push(Object.freeze({
+        ...identity,
+        kind: entry.kind,
+        predecessorMode: entry.predecessorMode ?? String(before.mode),
+        relativePath: entry.relativePath
+      }));
+    }
+    if (seal) fchmodSync(retainedRoot.directoryFd, 0o555);
+    const root = linuxProvenIdentity(fstatSync(retainedRoot.directoryFd, { bigint: true }));
+    if ((BigInt(root.mode) & 0o777n) !== 0o555n) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} root is not read-only.`);
+    }
+    entries.sort((left, right) => (
+      left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0
+    ));
+    return Object.freeze({ root, rootPredecessorMode, entries: Object.freeze(entries) });
+  } finally {
+    closeLinuxDescriptorsBestEffort(
+      [...new Set(opened)].reverse().concat(
+        retainedRoot.directoryFd === retainedRoot.filesystemRootFd
+          ? [retainedRoot.filesystemRootFd]
+          : [retainedRoot.directoryFd, retainedRoot.filesystemRootFd]
+      ),
+      label
+    );
+  }
+}
+
+function linuxGenerationAuthority(input: Readonly<{
+  proof: LinuxProvenGenerationProof;
+  restoreOwnerWrite: boolean;
+}>): WindowsReadOnlyTreeAuthority {
+  let released = false;
+  const assertCurrent = async (): Promise<void> => {
+    if (released) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation proof is released.');
+    }
+    const current = linuxGenerationEntries(
+      input.proof.rootPath,
+      input.proof.entries,
+      false,
+      'Linux proven generation readback',
+      input.proof.rootPredecessorMode
+    );
+    if (!sameLinuxProvenIdentity(current.root, input.proof.root)
+        || JSON.stringify(current.entries) !== JSON.stringify(input.proof.entries)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation proof changed.');
+    }
+  };
+  return Object.freeze({
+    aclDigest: input.proof.proofDigest,
+    rootPath: input.proof.rootPath,
+    assertCurrent,
+    release: async () => {
+      if (released) return;
+      if (input.restoreOwnerWrite) retireLinuxProvenGeneration(input.proof);
+      released = true;
+    }
+  });
+}
+
+function sameLinuxProvenObject(
+  metadata: Readonly<{ dev: bigint; ino: bigint }>,
+  expected: LinuxProvenGenerationIdentity
+): boolean {
+  return String(metadata.dev) === expected.device && String(metadata.ino) === expected.inode;
+}
+
+function retireLinuxProvenGeneration(proof: LinuxProvenGenerationProof): void {
+  const root = linuxOpenRetainedAbsoluteDirectory(proof.rootPath, 'Linux generation retirement root');
+  const directories = new Map<string, number>([['', root.directoryFd]]);
+  const opened: number[] = [];
+  try {
+    const ordered = [...proof.entries].sort((left, right) => {
+      const depth = left.relativePath.split('/').length - right.relativePath.split('/').length;
+      if (depth !== 0) return depth;
+      return left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0;
+    });
+    for (const entry of ordered) {
+      const parts = entry.relativePath.split('/');
+      const name = parts.pop()!;
+      const parent = directories.get(parts.join('/'));
+      if (parent === undefined) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Linux generation retirement parent disappeared.');
+      }
+      const fd = entry.kind === 'directory'
+        ? linuxOpenAt(parent, name, 'Linux generation retirement directory')
+        : entry.kind === 'file'
+          ? linuxOpenReadableLeafAt(parent, name, 'Linux generation retirement file')
+          : linuxOpenLeafAt(parent, name, 'Linux generation retirement link');
+      opened.push(fd);
+      if (entry.kind === 'directory') directories.set(entry.relativePath, fd);
+      const current = fstatSync(fd, { bigint: true });
+      if (!sameLinuxProvenObject(current, entry)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation entry changed before retirement.');
+      }
+      if (entry.kind !== 'link') {
+        const predecessorMode = BigInt(entry.predecessorMode) & 0o7777n;
+        const currentMode = current.mode & 0o7777n;
+        const sealedMode = BigInt(entry.mode) & 0o7777n;
+        if (currentMode === sealedMode) {
+          fchmodSync(fd, Number(predecessorMode));
+        } else if (currentMode !== predecessorMode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation entry has nonterminal mode residue.');
+        }
+        const readback = fstatSync(fd, { bigint: true });
+        if (!sameLinuxProvenObject(readback, entry) || (readback.mode & 0o7777n) !== predecessorMode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation entry retirement readback changed.');
+        }
+      } else if (!sameLinuxProvenIdentity(linuxProvenIdentity(current), entry)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation link changed before retirement.');
+      }
+    }
+    const currentRoot = fstatSync(root.directoryFd, { bigint: true });
+    if (!sameLinuxProvenObject(currentRoot, proof.root)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation root changed before retirement.');
+    }
+    const predecessorMode = BigInt(proof.rootPredecessorMode) & 0o7777n;
+    const currentMode = currentRoot.mode & 0o7777n;
+    const sealedMode = BigInt(proof.root.mode) & 0o7777n;
+    if (currentMode === sealedMode) {
+      fchmodSync(root.directoryFd, Number(predecessorMode));
+    } else if (currentMode !== predecessorMode) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation root has nonterminal mode residue.');
+    }
+    const rootReadback = fstatSync(root.directoryFd, { bigint: true });
+    if (!sameLinuxProvenObject(rootReadback, proof.root)
+        || (rootReadback.mode & 0o7777n) !== predecessorMode) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation root retirement readback changed.');
+    }
+  } finally {
+    closeLinuxDescriptorsBestEffort(
+      [...new Set(opened)].reverse().concat(
+        root.directoryFd === root.filesystemRootFd
+          ? [root.filesystemRootFd]
+          : [root.directoryFd, root.filesystemRootFd]
+      ),
+      'Linux generation retirement'
+    );
+  }
+}
+
+export async function materializeRetainedNoFollowProvenDirectoryGeneration(input: Readonly<{
+  binding: ProvenDirectoryGenerationBinding;
+  deadlineAtUnixMs: number;
+  inventory?: readonly NoFollowDirectoryTreeInventoryEntry[];
+  proofText: string | null;
+  root: PhysicalDirectoryIdentity;
+  releaseMode?: 'preserve' | 'restore-owner-write';
+  signal?: AbortSignal;
+}>): Promise<Readonly<{
+  generation: RetainedNoFollowProvenDirectoryGeneration;
+  proofText: string;
+  proofStatus: 'created' | 'reused';
+}>> {
+  if (input.signal?.aborted === true || !Number.isSafeInteger(input.deadlineAtUnixMs)
+      || Date.now() >= input.deadlineAtUnixMs) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Proven generation admission expired.');
+  }
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.binding.generationDigest)
+      || !/^sha256:[0-9a-f]{64}$/u.test(input.binding.treeDigest)
+      || !Number.isSafeInteger(input.binding.treeEntryCount)
+      || (input.inventory !== undefined && input.binding.treeEntryCount !== input.inventory.length)
+      || (input.proofText === null && input.inventory === undefined)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Proven generation binding is invalid.');
+  }
+  let authority: WindowsReadOnlyTreeAuthority;
+  let proofText: string;
+  let proofStatus: 'created' | 'reused';
+  if (process.platform === 'win32') {
+    if (input.proofText === null) {
+      const entryPaths = input.inventory!.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
+        path.join(input.root.path, ...relativePath.split('/'))
+      ));
+      if (input.releaseMode === 'restore-owner-write') {
+        authority = await sealExistingWindowsReadOnlyTreeAuthority(
+          input.root.path,
+          entryPaths,
+          {
+            deadlineAtMs: input.deadlineAtUnixMs,
+            ownership: 'repository-dependency-generation',
+            ownerRootPath: input.root.path,
+            repositoryRootPath: path.dirname(input.root.path),
+            signal: input.signal
+          }
+        );
+        proofText = `${JSON.stringify(Object.freeze({
+          binding: input.binding,
+          schema: 'sec-action-private-read-only-tree-generation-v1'
+        }))}\n`;
+      } else {
+        const sealed = await sealWindowsReadOnlyTreeGeneration(
+          input.root.path,
+          entryPaths,
+          input.binding,
+          { deadlineAtMs: input.deadlineAtUnixMs, signal: input.signal }
+        );
+        authority = sealed.authority;
+        proofText = sealed.proofText;
+      }
+      proofStatus = 'created';
+    } else {
+      authority = await openWindowsReadOnlyTreeGeneration(
+        input.root.path,
+        input.proofText,
+        input.binding,
+        { deadlineAtMs: input.deadlineAtUnixMs, signal: input.signal }
+      );
+      proofText = input.proofText;
+      proofStatus = 'reused';
+    }
+  } else if (process.platform === 'linux') {
+    let proof: LinuxProvenGenerationProof;
+    if (input.proofText === null) {
+      const observed = linuxGenerationEntries(
+        input.root.path,
+        input.inventory!,
+        true,
+        'Linux proven generation publication'
+      );
+      const unsigned = Object.freeze({
+        binding: Object.freeze({ ...input.binding }),
+        entries: observed.entries,
+        root: observed.root,
+        rootPath: input.root.path,
+        rootPredecessorMode: observed.rootPredecessorMode,
+        schema: 'sec-linux-read-only-tree-generation-proof-v1' as const
+      });
+      proof = Object.freeze({
+        binding: unsigned.binding,
+        entries: unsigned.entries,
+        proofDigest: linuxProofDigest(unsigned),
+        root: unsigned.root,
+        rootPath: unsigned.rootPath,
+        rootPredecessorMode: unsigned.rootPredecessorMode,
+        schema: unsigned.schema
+      });
+      proofText = `${JSON.stringify(proof)}\n`;
+      proofStatus = 'created';
+    } else {
+      proof = parseLinuxProvenGenerationProof(input.proofText);
+      if (!sameProvenGenerationBinding(proof.binding, input.binding)
+          || path.resolve(proof.rootPath) !== path.resolve(input.root.path)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation binding changed.');
+      }
+      proofText = input.proofText;
+      proofStatus = 'reused';
+    }
+    authority = linuxGenerationAuthority({
+      proof,
+      restoreOwnerWrite: input.releaseMode === 'restore-owner-write'
+    });
+    await authority.assertCurrent();
+  } else {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `Proven generation backend is unavailable on ${process.platform}.`
+    );
+  }
+  try {
+    const generation = await retainNoFollowProvenDirectoryGeneration(
+      input.root,
+      authority,
+      'Dependency proven generation',
+      15
+    );
+    return Object.freeze({ generation, proofText, proofStatus });
+  } catch (error) {
+    try { await authority.release(); } catch { /* retain the primary proof failure */ }
+    throw error;
+  }
+}
+
+/**
+ * Reopens one publisher-issued proven generation without repeating its full
+ * content inventory. The binding projection only selects the strict platform
+ * parser; the Windows/Linux proof parser still authenticates the complete
+ * canonical bytes, physical identities and writer-excluding state before a
+ * retained capability is returned.
+ */
+export async function reopenRetainedNoFollowProvenDirectoryGeneration(input: Readonly<{
+  deadlineAtUnixMs: number;
+  proofText: string;
+  root: PhysicalDirectoryIdentity;
+  signal?: AbortSignal;
+}>): Promise<Readonly<{
+  binding: ProvenDirectoryGenerationBinding;
+  generation: RetainedNoFollowProvenDirectoryGeneration;
+}>> {
+  const binding = projectProvenDirectoryGenerationBinding(input.proofText);
+  const materialized = await materializeRetainedNoFollowProvenDirectoryGeneration({
+    binding,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    proofText: input.proofText,
+    root: input.root,
+    signal: input.signal
+  });
+  return Object.freeze({ binding, generation: materialized.generation });
+}
+
+/**
+ * Retires one publisher-sealed generation before its domain owner relocates
+ * or deletes the exact root. The persisted proof is the authority: callers
+ * cannot supply replacement modes, ACLs, entry paths or a structural session.
+ */
+export async function retireNoFollowProvenDirectoryGeneration(input: Readonly<{
+  binding: ProvenDirectoryGenerationBinding;
+  deadlineAtUnixMs: number;
+  proofText: string;
+  root: PhysicalDirectoryIdentity;
+  signal?: AbortSignal;
+}>): Promise<void> {
+  if (input.signal?.aborted === true || !Number.isSafeInteger(input.deadlineAtUnixMs)
+      || Date.now() >= input.deadlineAtUnixMs) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Proven generation retirement expired.');
+  }
+  const currentRoot = assertSameNoFollowDirectoryIdentity(
+    input.root,
+    'Proven generation retirement root'
+  ).target;
+  if (process.platform === 'win32') {
+    await retireWindowsReadOnlyTreeGeneration(
+      currentRoot.path,
+      input.proofText,
+      input.binding,
+      { deadlineAtMs: input.deadlineAtUnixMs, signal: input.signal }
+    );
+  } else if (process.platform === 'linux') {
+    const proof = parseLinuxProvenGenerationProof(input.proofText);
+    if (!sameProvenGenerationBinding(proof.binding, input.binding)
+        || path.resolve(proof.rootPath) !== path.resolve(currentRoot.path)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Linux generation retirement binding changed.');
+    }
+    retireLinuxProvenGeneration(proof);
+  } else {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `Proven generation retirement backend is unavailable on ${process.platform}.`
+    );
+  }
+  const readback = assertSameNoFollowDirectoryIdentity(
+    input.root,
+    'Proven generation retirement readback'
+  ).target;
+  if (!sameIdentity(currentRoot, readback)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Proven generation root changed during retirement.');
+  }
+}
+
+/**
+ * Retains only the exact lexical/root object for a directory generation whose
+ * complete content and mutation-excluding ACL/mode closure were already
+ * verified by its canonical publisher. Descendant proof remains owned by the
+ * supplied authority and is revalidated before and after child execution.
+ */
+async function retainNoFollowProvenDirectoryGeneration(
+  expectedRoot: PhysicalDirectoryIdentity,
+  readOnlyAuthority: WindowsReadOnlyTreeAuthority,
+  label = 'proven directory generation',
+  linuxChildDescriptor = 15
+): Promise<RetainedNoFollowProvenDirectoryGeneration> {
+  const root = assertSameNoFollowDirectoryIdentity(expectedRoot, `${label} root`).target;
+  if (path.resolve(readOnlyAuthority.rootPath) !== path.resolve(root.path)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+      `${label} read-only authority belongs to another root.`
+    );
+  }
+  await readOnlyAuthority.assertCurrent();
+  let boundary: RetainedNoFollowChildProcessDirectory | null = null;
+  try {
+    boundary = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(root.path, `${label} lexical boundary`),
+      linuxChildDescriptor,
+      `${label} lexical boundary`
+    );
+    boundary.assertCurrent();
+    let disposed = false;
+    let retirement: Promise<PhysicalGenerationRetirementReceipt> | null = null;
+    const capability: RetainedNoFollowProvenDirectoryGeneration = Object.freeze({
+      childPath: boundary.childPath,
+      stdioSourceDescriptor: boundary.stdioSourceDescriptor,
+      root,
+      assertCurrent: () => {
+        if (disposed) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} is disposed.`);
+        }
+        boundary!.assertCurrent();
+      },
+      assertAuthorityCurrent: () => readOnlyAuthority.assertCurrent(),
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        boundary!.dispose();
+      },
+      retire: () => {
+        if (retirement !== null) return retirement;
+        retirement = (async () => {
+          let failure: unknown;
+          try { if (!disposed) capability.dispose(); } catch (error) { failure ??= error; }
+          try { await readOnlyAuthority.release(); } catch (error) { failure ??= error; }
+          if (failure !== undefined) throw failure;
+          const readback = assertSameNoFollowDirectoryIdentity(
+            root,
+            `${label} retirement readback`
+          ).target;
+          const receipt: PhysicalGenerationRetirementReceipt = Object.freeze({
+            schema: 'sec-physical-generation-retirement-v1' as const,
+            root: Object.freeze({
+              path: readback.path,
+              finalPath: readback.finalPath,
+              device: readback.device,
+              inode: readback.inode,
+              objectId: readback.objectId
+            }),
+            terminal: 'released' as const
+          });
+          issuedPhysicalGenerationRetirementReceipts.add(receipt);
+          return receipt;
+        })();
+        return retirement;
+      }
+    });
+    const issued = issueRetainedNoFollowCapability(capability, 'working-directory');
+    issuedRetainedNoFollowProvenDirectoryGenerations.add(issued);
+    await issued.assertAuthorityCurrent();
+    return issued;
+  } catch (error) {
+    try { boundary?.dispose(); } catch { /* retain the primary proof failure */ }
+    try { await readOnlyAuthority.release(); } catch { /* typed residue remains */ }
+    throw error;
+  }
+}
+
+/**
+ * Retains one exact directory generation for an external reader. Windows
+ * excludes writers and delete-capable handles from the root, every descendant
+ * directory, ordinary file and link. The matching ACL authority closes
+ * descendant membership creation before those handles are acquired; its
+ * owner either hardens a repository-external tree or restores a repository
+ * dependency generation's exact predecessor descriptor. Platforms without
+ * complete membership exclusion fail closed.
+ */
+export async function retainNoFollowSealedDirectoryGeneration(
+  expectedRoot: PhysicalDirectoryIdentity,
+  expectedInventory: readonly NoFollowDirectoryTreeInventoryEntry[],
+  readOnlyAuthority: WindowsReadOnlyTreeAuthority,
+  label = 'sealed directory generation'
+): Promise<RetainedNoFollowSealedDirectoryGeneration> {
+  const root = assertSameNoFollowDirectoryIdentity(expectedRoot, `${label} root`).target;
+  if (path.resolve(readOnlyAuthority.rootPath) !== path.resolve(root.path)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} ACL authority belongs to another root.`);
+  }
+  await readOnlyAuthority.assertCurrent();
+  const canonicalInventory = Object.freeze([...expectedInventory].map((entry) => Object.freeze({ ...entry })));
+  const currentInventory = scanNoFollowDirectoryTreeInventory(root, {
+    deadlineAtMs: performance.now() + 30_000,
+    maximumEntries: Math.max(1, canonicalInventory.length + 1),
+    maximumBytes: canonicalInventory.reduce((total, entry) => total + (entry.kind === 'file' ? entry.size : 0), 0)
+  });
+  if (JSON.stringify(currentInventory) !== JSON.stringify(canonicalInventory)) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+      `${label} inventory changed before retention.`
+    );
+  }
+  if (process.platform !== 'win32') {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} complete membership exclusion is unavailable on ${process.platform}.`
+    );
+  }
+
+  type RetainedEntry = Readonly<{
+    absolutePath: string;
+    entry: NoFollowDirectoryTreeInventoryEntry;
+    handle: bigint;
+  }>;
+  const rootHandle = windowsOpenSealedReadDirectory(root.path, `${label} root`);
+  let lexicalBoundary: RetainedNoFollowChildProcessDirectory | null = null;
+  const directoryHandles = new Map<string, Readonly<{
+    handle: bigint;
+    identity: PhysicalDirectoryIdentity;
+  }>>();
+  const retainedEntries: RetainedEntry[] = [];
+  let disposed = false;
+  try {
+    // CreateProcess receives an absolute Windows spelling.  Pin its complete
+    // lexical ancestor chain for the same lifetime as the descendant tree;
+    // retaining only the generation root leaves an ancestor rename/replacement
+    // able to redirect the child before it reaches that root handle.
+    lexicalBoundary = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(root.path, `${label} lexical boundary`),
+      14,
+      `${label} lexical boundary`
+    );
+    lexicalBoundary.assertCurrent();
+    const lexicalRoot = inspectNoFollowDirectoryChain(
+      root.path,
+      `${label} lexical boundary readback`
+    ).target;
+    if (!sameIdentity(root, lexicalRoot)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} lexical root changed before retention.`);
+    }
+    const rootIdentity = windowsIdentity(rootHandle, root.path, `${label} root`);
+    if (!sameIdentity(root, rootIdentity)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root identity changed.`);
+    }
+    directoryHandles.set('', Object.freeze({ handle: rootHandle, identity: root }));
+    const ordered = [...canonicalInventory].sort((left, right) => {
+      const depth = left.relativePath.split('/').length - right.relativePath.split('/').length;
+      if (depth !== 0) return depth;
+      if (left.kind === 'directory' && right.kind !== 'directory') return -1;
+      if (right.kind === 'directory' && left.kind !== 'directory') return 1;
+      return left.relativePath.localeCompare(right.relativePath);
+    });
+    for (const entry of ordered) {
+      const parts = entry.relativePath.split('/');
+      const name = parts.pop()!;
+      const parentRelativePath = parts.join('/');
+      const parent = directoryHandles.get(parentRelativePath);
+      if (parent === undefined) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} inventory has no retained parent.`);
+      }
+      const absolutePath = path.join(root.path, ...entry.relativePath.split('/'));
+      let handle: bigint;
+      if (entry.kind === 'directory') {
+        const opened = windowsOpenRelativeDirectory(
+          parent.handle,
+          parent.identity,
+          name,
+          absolutePath,
+          WINDOWS_FILE_OPEN,
+          `${label} directory ${entry.relativePath}`,
+          WINDOWS_SHARE_READ,
+          true
+        );
+        if (opened === null) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} directory disappeared.`);
+        }
+        handle = opened;
+        const identity = windowsIdentity(handle, absolutePath, `${label} directory ${entry.relativePath}`);
+        if (identity.device !== entry.device || identity.inode !== entry.inode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} directory identity changed.`);
+        }
+        directoryHandles.set(entry.relativePath, Object.freeze({ handle, identity }));
+      } else if (entry.kind === 'file') {
+        const opened = windowsOpenRelativeLeaf(
+          parent.handle,
+          parent.identity,
+          name,
+          absolutePath,
+          WINDOWS_GENERIC_READ,
+          WINDOWS_FILE_OPEN,
+          `${label} file ${entry.relativePath}`,
+          false,
+          WINDOWS_SHARE_READ,
+          false,
+          true
+        );
+        if (opened === null) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `${label} file disappeared.`);
+        }
+        handle = opened;
+        const identity = windowsRetainedLeafIdentity(handle, absolutePath, 'file', `${label} file ${entry.relativePath}`);
+        windowsRewindRetainedFile(handle, `${label} file ${entry.relativePath}`);
+        const digest = digestWindowsRetainedFile(handle, absolutePath, identity, `${label} file ${entry.relativePath}`);
+        if (identity.device !== entry.device || identity.inode !== entry.inode || digest.size !== entry.size
+            || digest.contentDigest !== entry.contentDigest) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} file generation changed.`);
+        }
+      } else {
+        handle = windowsOpenRelativeNoFollowEntry(
+          parent.handle,
+          parent.identity,
+          name,
+          absolutePath,
+          'link',
+          `${label} link ${entry.relativePath}`,
+          WINDOWS_SHARE_READ,
+          true
+        );
+        const identity = windowsRetainedLeafIdentity(handle, absolutePath, 'link', `${label} link ${entry.relativePath}`);
+        const observed = windowsRetainedReparseObservation(handle, `${label} link ${entry.relativePath}`);
+        if (identity.device !== entry.device || identity.inode !== entry.inode || observed.size !== entry.size
+            || observed.linkTarget !== entry.linkTarget) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} link generation changed.`);
+        }
+      }
+      retainedEntries.push(Object.freeze({ absolutePath, entry, handle }));
+    }
+    const sealedReadback = scanNoFollowDirectoryTreeInventory(root, {
+      deadlineAtMs: performance.now() + 30_000,
+      maximumEntries: Math.max(1, canonicalInventory.length + 1),
+      maximumBytes: canonicalInventory.reduce((total, entry) => total + (entry.kind === 'file' ? entry.size : 0), 0)
+    });
+    if (JSON.stringify(sealedReadback) !== JSON.stringify(canonicalInventory)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} inventory changed during retention.`);
+    }
+    const assertCurrent = (): void => {
+      if (disposed) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} capability is disposed.`);
+      }
+      if (!sameIdentity(root, windowsIdentity(rootHandle, root.path, `${label} root`))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} root identity changed.`);
+      }
+      lexicalBoundary?.assertCurrent();
+      for (const retained of retainedEntries) {
+        const identity = windowsRetainedLeafIdentity(
+          retained.handle,
+          retained.absolutePath,
+          retained.entry.kind,
+          `${label} ${retained.entry.relativePath}`
+        );
+        if (identity.device !== retained.entry.device || identity.inode !== retained.entry.inode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained entry identity changed.`);
+        }
+        if (retained.entry.kind === 'file') {
+          windowsRewindRetainedFile(retained.handle, `${label} ${retained.entry.relativePath}`);
+          const digest = digestWindowsRetainedFile(
+            retained.handle,
+            retained.absolutePath,
+            identity,
+            `${label} ${retained.entry.relativePath}`
+          );
+          if (digest.size !== retained.entry.size || digest.contentDigest !== retained.entry.contentDigest) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained file bytes changed.`);
+          }
+        } else if (retained.entry.kind === 'link') {
+          const observed = windowsRetainedReparseObservation(
+            retained.handle,
+            `${label} ${retained.entry.relativePath}`
+          );
+          if (observed.size !== retained.entry.size || observed.linkTarget !== retained.entry.linkTarget) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained link changed.`);
+          }
+        }
+      }
+    };
+    assertCurrent();
+    const capability = Object.freeze({
+      [RETAINED_NO_FOLLOW_CAPABILITY_BRAND]: 'working-directory' as const,
+      childPath: lexicalBoundary.childPath,
+      stdioSourceDescriptor: null,
+      root,
+      inventory: canonicalInventory,
+      assertCurrent,
+      assertAuthorityCurrent: () => readOnlyAuthority.assertCurrent(),
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        let closeError: unknown = closeWindowsHandlesBestEffort([
+          ...retainedEntries.reverse().map(({ handle }) => handle),
+          rootHandle
+        ], label);
+        try { lexicalBoundary?.dispose(); } catch (error) { closeError ??= error; }
+        if (closeError !== null) throw closeError;
+      },
+      retire: async () => {
+        let failure: unknown;
+        try { if (!disposed) capability.dispose(); } catch (error) { failure ??= error; }
+        try { await readOnlyAuthority.release(); } catch (error) { failure ??= error; }
+        if (failure !== undefined) throw failure;
+      }
+    });
+    await readOnlyAuthority.assertCurrent();
+    const issued = issueRetainedNoFollowCapability(capability, 'working-directory');
+    issuedRetainedNoFollowSealedDirectoryGenerations.add(issued);
+    return issued;
+  } catch (error) {
+    closeWindowsHandlesBestEffort([
+      ...retainedEntries.reverse().map(({ handle }) => handle),
+      rootHandle
+    ], label);
+    try { lexicalBoundary?.dispose(); } catch { /* retain the primary admission failure */ }
+    try { await readOnlyAuthority.release(); } catch { /* typed ACL residue remains */ }
+    throw error;
+  }
 }
 
 /**
@@ -4422,14 +5620,11 @@ export function createNoFollowOrdinaryDirectoryChain(
  * effect, which lets a delegated consumer adopt an issuer-created inode
  * without acquiring directory-creation authority.
  */
-export function inspectNoFollowDirectoryChild(
+function inspectNoFollowDirectoryChildInternal(
   parentInput: PhysicalDirectoryIdentity,
   name: string,
-  label = 'No-follow directory child'
+  label: string
 ): PhysicalDirectoryIdentity | null {
-  if (!/^[a-z0-9-]+$/u.test(name)) {
-    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} name is invalid.`);
-  }
   const parent = assertSameNoFollowDirectoryIdentity(parentInput, `${label} parent`).target;
   const absolutePath = path.join(parent.path, name);
   if (process.platform === 'linux') {
@@ -4481,6 +5676,37 @@ export function inspectNoFollowDirectoryChild(
     'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
     'Retained no-follow directory child inspection is unavailable on this platform.'
   );
+}
+
+/**
+ * Inspects one canonical lowercase namespace child relative to a proven
+ * parent.  Namespace identifiers remain deliberately narrower than ordinary
+ * filesystem leaf names.
+ */
+export function inspectNoFollowDirectoryChild(
+  parentInput: PhysicalDirectoryIdentity,
+  name: string,
+  label = 'No-follow directory child'
+): PhysicalDirectoryIdentity | null {
+  if (!/^[a-z0-9-]+$/u.test(name)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} name is invalid.`);
+  }
+  return inspectNoFollowDirectoryChildInternal(parentInput, name, label);
+}
+
+/**
+ * Inspects one ordinary directory leaf relative to a proven parent.  This is
+ * the control-file counterpart to the narrower namespace-child operation:
+ * dot-prefixed canonical owner names are supported, while path traversal is
+ * rejected and the retained native handle never escapes this physical owner.
+ */
+export function inspectNoFollowDirectoryLeaf(
+  parentInput: PhysicalDirectoryIdentity,
+  name: string,
+  label = 'No-follow directory leaf'
+): PhysicalDirectoryIdentity | null {
+  ensureLeafName(name);
+  return inspectNoFollowDirectoryChildInternal(parentInput, name, label);
 }
 
 /**
@@ -5233,6 +6459,199 @@ export function relocateRetainedNoFollowDirectory(input: {
   return moved;
 }
 
+type WindowsLegacySealedDirectoryRelocationProof = Readonly<{
+  schema: 'sec-windows-legacy-sealed-directory-relocation-proof-v1';
+  proofDigest: `sha256:${string}`;
+  sourcePath: string;
+  destinationPath: string;
+  operationIdentityDigest: `sha256:${string}`;
+  sourcePhysical: Readonly<Pick<PhysicalDirectoryIdentity, 'device' | 'inode' | 'objectId'>>;
+  sourceParentPhysical: Readonly<Pick<PhysicalDirectoryIdentity, 'device' | 'inode' | 'objectId'>>;
+  destinationParentPhysical: Readonly<Pick<PhysicalDirectoryIdentity, 'device' | 'inode' | 'objectId'>>;
+  predecessorDescriptorBase64: string;
+  predecessorDescriptorDigest: `sha256:${string}`;
+  temporaryDescriptorBase64: string;
+  temporaryDescriptorDigest: `sha256:${string}`;
+}>;
+
+export interface WindowsLegacySealedDirectoryRelocationCapability {
+  readonly recoveryProofText: string;
+}
+
+const windowsLegacyRelocationCapabilities = new WeakMap<
+  object,
+  Readonly<{
+    operation: SecBoundSemanticOperation;
+    proof: WindowsLegacySealedDirectoryRelocationProof;
+  }>
+>();
+
+function assertWindowsLegacyRelocationOperation(
+  operation: SecBoundSemanticOperation,
+  expectedIdentityDigest?: `sha256:${string}`
+): void {
+  assertSecSemanticOperationProjection(operation);
+  if (operation.plan.attempt.deadlineAtUnixMs <= Date.now() ||
+      (expectedIdentityDigest !== undefined &&
+        operation.plan.identity.identityDigest !== expectedIdentityDigest)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation operation is expired or foreign.');
+  }
+  const requirement = operation.plan.execution.requirements.find(
+    ({ id }) => id === 'runtime-physical.legacy-relocation'
+  );
+  if (requirement === undefined || !requirement.effectKinds.includes('filesystem') ||
+      !requirement.effectKinds.includes('persistent-state')) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation operation has no exact Effect requirement.');
+  }
+}
+
+function windowsSecurityDescriptorBytes(targetPath: string): Buffer {
+  const advapi = requireWindowsAdvapi32();
+  const required = Buffer.alloc(4);
+  const information = WINDOWS_OWNER_SECURITY_INFORMATION | WINDOWS_DACL_SECURITY_INFORMATION;
+  const first = advapi.symbols.GetFileSecurityW(windowsWide(targetPath), information, null, 0, required);
+  const length = required.readUInt32LE(0);
+  if (first !== 0 || length < 20 || length > 65_535) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation security descriptor length is invalid.');
+  }
+  const descriptor = Buffer.alloc(length);
+  if (advapi.symbols.GetFileSecurityW(windowsWide(targetPath), information, descriptor, descriptor.length, required) === 0) {
+    const win32 = requireWindowsKernel32().symbols.GetLastError();
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `Windows legacy relocation security descriptor cannot be read (Win32 ${win32}).`);
+  }
+  return descriptor;
+}
+
+function windowsWriteSecurityDescriptorBytes(targetPath: string, descriptor: Buffer): void {
+  if (descriptor.length < 20) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation security descriptor is truncated.');
+  }
+  const protection = (descriptor.readUInt16LE(2) & WINDOWS_SE_DACL_PROTECTED) === 0
+    ? WINDOWS_UNPROTECTED_DACL_SECURITY_INFORMATION
+    : WINDOWS_PROTECTED_DACL_SECURITY_INFORMATION;
+  if (requireWindowsAdvapi32().symbols.SetFileSecurityW(
+    windowsWide(targetPath),
+    WINDOWS_DACL_SECURITY_INFORMATION | protection,
+    descriptor
+  ) === 0) {
+    const win32 = requireWindowsKernel32().symbols.GetLastError();
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `Windows legacy relocation security descriptor cannot be published (Win32 ${win32}).`);
+  }
+}
+
+function windowsHandleSecurityDescriptorBytes(handle: bigint, label: string): Buffer {
+  const advapi = requireWindowsAdvapi32();
+  const required = Buffer.alloc(4);
+  const information = WINDOWS_OWNER_SECURITY_INFORMATION | WINDOWS_DACL_SECURITY_INFORMATION;
+  const first = advapi.symbols.GetKernelObjectSecurity(handle, information, null, 0, required);
+  const length = required.readUInt32LE(0);
+  if (first !== 0 || length < 20 || length > 65_535) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} retained security descriptor length is invalid.`
+    );
+  }
+  const descriptor = Buffer.alloc(length);
+  if (advapi.symbols.GetKernelObjectSecurity(
+    handle,
+    information,
+    descriptor,
+    descriptor.length,
+    required
+  ) === 0) {
+    const win32 = requireWindowsKernel32().symbols.GetLastError();
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} retained security descriptor cannot be read (Win32 ${win32}).`
+    );
+  }
+  return descriptor;
+}
+
+function windowsWriteHandleSecurityDescriptorBytes(
+  handle: bigint,
+  descriptor: Buffer,
+  label: string
+): void {
+  if (descriptor.length < 20) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} retained security descriptor is truncated.`
+    );
+  }
+  const protection = (descriptor.readUInt16LE(2) & WINDOWS_SE_DACL_PROTECTED) === 0
+    ? WINDOWS_UNPROTECTED_DACL_SECURITY_INFORMATION
+    : WINDOWS_PROTECTED_DACL_SECURITY_INFORMATION;
+  if (requireWindowsAdvapi32().symbols.SetKernelObjectSecurity(
+    handle,
+    WINDOWS_DACL_SECURITY_INFORMATION | protection,
+    descriptor
+  ) === 0) {
+    const win32 = requireWindowsKernel32().symbols.GetLastError();
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+      `${label} retained security descriptor cannot be published (Win32 ${win32}).`
+    );
+  }
+}
+
+function windowsSidAt(descriptor: Buffer, offset: number): Buffer {
+  if (offset < 0 || offset + 8 > descriptor.length) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation SID is truncated.');
+  }
+  const length = 8 + descriptor.readUInt8(offset + 1) * 4;
+  if (offset + length > descriptor.length) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation SID exceeds its descriptor.');
+  }
+  return descriptor.subarray(offset, offset + length);
+}
+
+function windowsTemporaryRelocationDescriptor(predecessor: Buffer): Buffer {
+  const temporary = Buffer.from(predecessor);
+  const ownerOffset = temporary.readUInt32LE(4);
+  const daclOffset = temporary.readUInt32LE(16);
+  if (ownerOffset === 0 || daclOffset === 0 || daclOffset + 8 > temporary.length) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation descriptor has no exact owner/DACL.');
+  }
+  const ownerSid = windowsSidAt(temporary, ownerOffset);
+  const aceCount = temporary.readUInt16LE(daclOffset + 4);
+  let aceOffset = daclOffset + 8;
+  let narrowedEveryoneDeny = false;
+  let ownerDelete = false;
+  for (let index = 0; index < aceCount; index += 1) {
+    if (aceOffset + 8 > temporary.length) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation ACE is truncated.');
+    }
+    const aceType = temporary.readUInt8(aceOffset);
+    const aceSize = temporary.readUInt16LE(aceOffset + 2);
+    if (aceSize < 20 || aceOffset + aceSize > temporary.length) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation ACE size is invalid.');
+    }
+    const aceSid = windowsSidAt(temporary, aceOffset + 8);
+    const mask = temporary.readUInt32LE(aceOffset + 4);
+    if (aceType === WINDOWS_ACCESS_DENIED_ACE_TYPE && aceSid.equals(WINDOWS_EVERYONE_SID)) {
+      const narrowed = mask & ~(WINDOWS_DELETE | WINDOWS_FILE_DELETE_CHILD);
+      if (narrowed === mask) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation descriptor has no delete deny to narrow.');
+      }
+      temporary.writeUInt32LE(narrowed >>> 0, aceOffset + 4);
+      narrowedEveryoneDeny = true;
+    } else if (aceType === WINDOWS_ACCESS_ALLOWED_ACE_TYPE && aceSid.equals(ownerSid)) {
+      temporary.writeUInt32LE((mask | WINDOWS_DELETE) >>> 0, aceOffset + 4);
+      ownerDelete = true;
+    }
+    aceOffset += aceSize;
+  }
+  if (!narrowedEveryoneDeny || !ownerDelete || temporary.equals(predecessor)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation descriptor cannot be projected without changing unrelated authority.');
+  }
+  return temporary;
+}
+
+function windowsRelocationDescriptorDigest(bytes: Buffer): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
 /**
  * Retained no-follow move between two already-proven directories.  This is
  * used when the source parent's namespace is provider-visible (Git's
@@ -5252,7 +6671,14 @@ export function relocateRetainedNoFollowDirectoryAcrossParents(input: {
     throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Retained cross-parent relocation tombstone already exists.');
   }
   if (process.platform === 'win32') {
-    const sourceHandle = windowsOpenNoFollowLeaf(source.path, 'Retained cross-parent relocation source', WINDOWS_GENERIC_READ + WINDOWS_GENERIC_WRITE + WINDOWS_DELETE + WINDOWS_FILE_WRITE_ATTRIBUTES);
+    // A directory rename requires DELETE on the source handle, not generic
+    // write access to its contents.  Requesting GENERIC_WRITE would make a
+    // correctly preserved content-write deny block the namespace-only move.
+    const sourceHandle = windowsOpenNoFollowLeaf(
+      source.path,
+      'Retained cross-parent relocation source',
+      WINDOWS_DELETE | WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE
+    );
     const sourceParentHandle = windowsOpenDirectory(sourceParent.path, 'Retained cross-parent relocation source parent', true);
     const destinationParentHandle = windowsOpenDirectory(destinationParent.path, 'Retained cross-parent relocation destination parent', true);
     try {
@@ -5293,6 +6719,244 @@ export function relocateRetainedNoFollowDirectoryAcrossParents(input: {
     throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained cross-parent relocation destination identity differs.');
   }
   return moved;
+}
+
+function windowsLegacyRelocationProofUnsigned(
+  proof: Omit<WindowsLegacySealedDirectoryRelocationProof, 'proofDigest'>
+): object {
+  return Object.freeze({
+    schema: proof.schema,
+    sourcePath: proof.sourcePath,
+    destinationPath: proof.destinationPath,
+    operationIdentityDigest: proof.operationIdentityDigest,
+    sourcePhysical: proof.sourcePhysical,
+    sourceParentPhysical: proof.sourceParentPhysical,
+    destinationParentPhysical: proof.destinationParentPhysical,
+    predecessorDescriptorBase64: proof.predecessorDescriptorBase64,
+    predecessorDescriptorDigest: proof.predecessorDescriptorDigest,
+    temporaryDescriptorBase64: proof.temporaryDescriptorBase64,
+    temporaryDescriptorDigest: proof.temporaryDescriptorDigest
+  });
+}
+
+function parseWindowsLegacyRelocationProof(text: string): WindowsLegacySealedDirectoryRelocationProof {
+  let value: unknown;
+  try { value = JSON.parse(text); } catch (error) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation proof JSON is invalid.', error);
+  }
+  const exact = (candidate: object, keys: readonly string[]): boolean =>
+    JSON.stringify(Object.keys(candidate).sort()) === JSON.stringify([...keys].sort());
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || !exact(value, [
+    'schema', 'proofDigest', 'sourcePath', 'destinationPath', 'operationIdentityDigest',
+    'sourcePhysical', 'sourceParentPhysical', 'destinationParentPhysical',
+    'predecessorDescriptorBase64', 'predecessorDescriptorDigest',
+    'temporaryDescriptorBase64', 'temporaryDescriptorDigest'
+  ])) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation proof shape is invalid.');
+  }
+  const proof = value as WindowsLegacySealedDirectoryRelocationProof;
+  const physical = (candidate: unknown): candidate is WindowsLegacySealedDirectoryRelocationProof['sourcePhysical'] =>
+    candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate) &&
+    exact(candidate, ['device', 'inode', 'objectId']) &&
+    Object.values(candidate).every((entry) => typeof entry === 'string' && entry.length > 0);
+  if (proof.schema !== 'sec-windows-legacy-sealed-directory-relocation-proof-v1' ||
+      !path.isAbsolute(proof.sourcePath) || !path.isAbsolute(proof.destinationPath) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(proof.operationIdentityDigest) ||
+      !physical(proof.sourcePhysical) || !physical(proof.sourceParentPhysical) ||
+      !physical(proof.destinationParentPhysical) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(proof.proofDigest) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(proof.predecessorDescriptorDigest) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(proof.temporaryDescriptorDigest)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation proof values are invalid.');
+  }
+  const predecessor = Buffer.from(proof.predecessorDescriptorBase64, 'base64');
+  const temporary = Buffer.from(proof.temporaryDescriptorBase64, 'base64');
+  if (windowsRelocationDescriptorDigest(predecessor) !== proof.predecessorDescriptorDigest ||
+      windowsRelocationDescriptorDigest(temporary) !== proof.temporaryDescriptorDigest ||
+      (!predecessor.equals(temporary) &&
+        !windowsTemporaryRelocationDescriptor(predecessor).equals(temporary))) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation descriptor proof differs.');
+  }
+  const digest = `sha256:${createHash('sha256').update(JSON.stringify(
+    windowsLegacyRelocationProofUnsigned(proof)
+  )).digest('hex')}`;
+  if (digest !== proof.proofDigest) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation proof digest differs.');
+  }
+  return Object.freeze(proof);
+}
+
+export function prepareWindowsLegacySealedDirectoryRelocation(input: Readonly<{
+  directory: PhysicalDirectoryIdentity;
+  destinationParent: PhysicalDirectoryIdentity;
+  destinationName: string;
+  operation: SecBoundSemanticOperation;
+}>): WindowsLegacySealedDirectoryRelocationCapability {
+  if (process.platform !== 'win32') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation is unavailable on this platform.');
+  }
+  assertWindowsLegacyRelocationOperation(input.operation);
+  ensureLeafName(input.destinationName);
+  const source = assertSameNoFollowDirectoryIdentity(input.directory, 'Windows legacy relocation source').target;
+  const sourceParent = inspectNoFollowDirectoryChain(
+    path.dirname(source.path),
+    'Windows legacy relocation source parent'
+  ).target;
+  const destinationParent = assertSameNoFollowDirectoryIdentity(input.destinationParent, 'Windows legacy relocation destination parent').target;
+  const destinationPath = path.join(destinationParent.path, input.destinationName);
+  if (inspectExactNoFollowDirectoryPresence(destinationPath, 'Windows legacy relocation destination').state !== 'absent') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Windows legacy relocation destination is occupied.');
+  }
+  const predecessor = windowsSecurityDescriptorBytes(source.path);
+  let temporary = predecessor;
+  let deleteProbe: bigint | null = null;
+  try {
+    deleteProbe = windowsOpenNoFollowLeaf(
+      source.path,
+      'Windows legacy relocation delete authority probe',
+      WINDOWS_DELETE | WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE
+    );
+    if (!sameIdentity(
+      source,
+      windowsIdentity(deleteProbe, source.path, 'Windows legacy relocation delete authority probe')
+    )) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        'Windows legacy relocation delete authority probe identity differs.'
+      );
+    }
+  } catch (error) {
+    if (!(error instanceof PhysicalNoFollowError) ||
+        error.nativeFailure?.failureClass !== 'access-denied') {
+      throw error;
+    }
+    // Only the known owner-sealed shape may be narrowed.  If the live token
+    // already has DELETE, the predecessor descriptor is itself the least-
+    // authority temporary descriptor and no ACL Effect is performed.
+    temporary = windowsTemporaryRelocationDescriptor(predecessor);
+  } finally {
+    if (deleteProbe !== null) closeWindowsHandle(deleteProbe);
+  }
+  const unsigned = Object.freeze({
+    schema: 'sec-windows-legacy-sealed-directory-relocation-proof-v1' as const,
+    sourcePath: source.path,
+    destinationPath,
+    operationIdentityDigest: input.operation.plan.identity.identityDigest,
+    sourcePhysical: Object.freeze({ device: source.device, inode: source.inode, objectId: source.objectId }),
+    sourceParentPhysical: Object.freeze({ device: sourceParent.device, inode: sourceParent.inode, objectId: sourceParent.objectId }),
+    destinationParentPhysical: Object.freeze({
+      device: destinationParent.device,
+      inode: destinationParent.inode,
+      objectId: destinationParent.objectId
+    }),
+    predecessorDescriptorBase64: predecessor.toString('base64'),
+    predecessorDescriptorDigest: windowsRelocationDescriptorDigest(predecessor),
+    temporaryDescriptorBase64: temporary.toString('base64'),
+    temporaryDescriptorDigest: windowsRelocationDescriptorDigest(temporary)
+  });
+  const proof = Object.freeze({
+    ...unsigned,
+    proofDigest: `sha256:${createHash('sha256').update(JSON.stringify(
+      windowsLegacyRelocationProofUnsigned(unsigned)
+    )).digest('hex')}`
+  }) as WindowsLegacySealedDirectoryRelocationProof;
+  const capability = Object.freeze({ recoveryProofText: JSON.stringify(proof) });
+  windowsLegacyRelocationCapabilities.set(capability, Object.freeze({ operation: input.operation, proof }));
+  return capability;
+}
+
+export function openWindowsLegacySealedDirectoryRelocation(input: Readonly<{
+  operation: SecBoundSemanticOperation;
+  recoveryProofText: string;
+}>): WindowsLegacySealedDirectoryRelocationCapability {
+  assertWindowsLegacyRelocationOperation(input.operation);
+  const proof = parseWindowsLegacyRelocationProof(input.recoveryProofText);
+  assertWindowsLegacyRelocationOperation(input.operation, proof.operationIdentityDigest);
+  const capability = Object.freeze({ recoveryProofText: input.recoveryProofText });
+  windowsLegacyRelocationCapabilities.set(capability, Object.freeze({ operation: input.operation, proof }));
+  return capability;
+}
+
+export function relocateWindowsLegacySealedDirectory(
+  capability: WindowsLegacySealedDirectoryRelocationCapability
+): Readonly<{
+  destination: PhysicalDirectoryIdentity;
+  predecessorDescriptorDigest: `sha256:${string}`;
+  temporaryDescriptorDigest: `sha256:${string}`;
+}> {
+  const issued = windowsLegacyRelocationCapabilities.get(capability);
+  if (issued === undefined) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation requires an owner-issued capability.');
+  }
+  assertWindowsLegacyRelocationOperation(issued.operation, issued.proof.operationIdentityDigest);
+  const proof = issued.proof;
+  const predecessor = Buffer.from(proof.predecessorDescriptorBase64, 'base64');
+  const temporary = Buffer.from(proof.temporaryDescriptorBase64, 'base64');
+  const sameProofPhysical = (candidate: PhysicalDirectoryIdentity): boolean =>
+    candidate.device === proof.sourcePhysical.device && candidate.inode === proof.sourcePhysical.inode &&
+    candidate.objectId === proof.sourcePhysical.objectId;
+  const source = inspectExactNoFollowDirectoryPresence(proof.sourcePath, 'Windows legacy relocation source');
+  const destination = inspectExactNoFollowDirectoryPresence(proof.destinationPath, 'Windows legacy relocation destination');
+  const sourceParent = inspectNoFollowDirectoryChain(
+    path.dirname(proof.sourcePath),
+    'Windows legacy relocation source parent'
+  ).target;
+  const destinationParent = inspectNoFollowDirectoryChain(
+    path.dirname(proof.destinationPath),
+    'Windows legacy relocation destination parent'
+  ).target;
+  if (sourceParent.device !== proof.sourceParentPhysical.device ||
+      sourceParent.inode !== proof.sourceParentPhysical.inode ||
+      sourceParent.objectId !== proof.sourceParentPhysical.objectId) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Windows legacy relocation source parent identity differs.');
+  }
+  if (destinationParent.device !== proof.destinationParentPhysical.device ||
+      destinationParent.inode !== proof.destinationParentPhysical.inode ||
+      destinationParent.objectId !== proof.destinationParentPhysical.objectId) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Windows legacy relocation destination parent identity differs.');
+  }
+  if (source.state === 'present') {
+    if (!sameProofPhysical(source.directory.target) || destination.state !== 'absent') {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Windows legacy relocation source/destination topology differs.');
+    }
+    const descriptor = windowsSecurityDescriptorBytes(proof.sourcePath);
+    if (!temporary.equals(predecessor) && descriptor.equals(predecessor)) {
+      windowsWriteSecurityDescriptorBytes(proof.sourcePath, temporary);
+      if (!windowsSecurityDescriptorBytes(proof.sourcePath).equals(temporary)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Windows legacy relocation temporary descriptor failed readback.');
+      }
+    } else if (!descriptor.equals(predecessor) && !descriptor.equals(temporary)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Windows legacy relocation source descriptor is foreign.');
+    }
+    relocateRetainedNoFollowDirectoryAcrossParents({
+      directory: source.directory.target,
+      destinationParent: inspectNoFollowDirectoryChain(
+        path.dirname(proof.destinationPath),
+        'Windows legacy relocation destination parent'
+      ).target,
+      tombstoneName: path.basename(proof.destinationPath)
+    });
+  } else if (destination.state === 'absent') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Windows legacy relocation physical generation is missing.');
+  }
+  const moved = inspectNoFollowDirectoryChain(proof.destinationPath, 'Windows legacy relocation moved generation').target;
+  if (!sameProofPhysical(moved)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Windows legacy relocation moved generation identity differs.');
+  }
+  const descriptor = windowsSecurityDescriptorBytes(proof.destinationPath);
+  if (!temporary.equals(predecessor) && descriptor.equals(temporary)) {
+    windowsWriteSecurityDescriptorBytes(proof.destinationPath, predecessor);
+  } else if (!descriptor.equals(predecessor)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Windows legacy relocation moved descriptor is foreign.');
+  }
+  if (!windowsSecurityDescriptorBytes(proof.destinationPath).equals(predecessor)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Windows legacy relocation predecessor descriptor failed readback.');
+  }
+  return Object.freeze({
+    destination: moved,
+    predecessorDescriptorDigest: proof.predecessorDescriptorDigest,
+    temporaryDescriptorDigest: proof.temporaryDescriptorDigest
+  });
 }
 
 function normalizePhysicalLinkTarget(value: string, parentPath: string): string {
@@ -5430,6 +7094,74 @@ export function publishExclusiveNoFollowLink(input: Readonly<{
     }
   }
   throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `No-follow link publication is unavailable on ${process.platform}.`);
+}
+
+/**
+ * Publishes a locator to an already-issued proven generation. Linux targets
+ * the inherited dirfd spelling rather than reopening the lexical source;
+ * Windows uses the pinned absolute generation root. Only the opaque physical
+ * capability can select this route.
+ */
+export function publishExclusiveNoFollowProvenDirectoryLink(input: Readonly<{
+  readonly parent: PhysicalDirectoryIdentity;
+  readonly name: string;
+  readonly source: RetainedNoFollowProvenDirectoryGeneration;
+}>): Readonly<{ path: string; source: PhysicalDirectoryIdentity; linkTarget: string }> {
+  assertRetainedNoFollowProvenDirectoryGeneration(input.source, 'No-follow proven link source');
+  input.source.assertCurrent();
+  if (process.platform !== 'linux') {
+    return publishExclusiveNoFollowLink({
+      parent: input.parent,
+      name: input.name,
+      source: input.source.root,
+      expectedTargetPath: input.source.root.path
+    });
+  }
+  ensureLeafName(input.name);
+  if (input.source.stdioSourceDescriptor === null
+      || input.source.childPath !== `/proc/self/fd/${input.source.stdioSourceDescriptor}`) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Linux proven generation has no canonical inherited dirfd path.'
+    );
+  }
+  const parentChain = inspectNoFollowDirectoryChain(input.parent.path, 'No-follow proven link parent');
+  const retained = linuxRetainBulkDirectoryChain(parentChain, 'No-follow proven link parent');
+  let linkFd: number | null = null;
+  try {
+    retained.assertCurrent();
+    input.source.assertCurrent();
+    const status = requireLinuxLibc().symbols.symlinkat(
+      Buffer.from(`${input.source.childPath}\0`, 'utf8'),
+      retained.target.fd,
+      Buffer.from(`${input.name}\0`, 'utf8')
+    );
+    if (status !== 0) {
+      const errno = linuxErrno();
+      if (errno === 17) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow proven link destination exists.');
+      }
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+        `No-follow proven link publication failed (errno ${errno}).`
+      );
+    }
+    linkFd = linuxOpenLeafAt(retained.target.fd, input.name, 'No-follow proven link readback');
+    const actual = linuxReadRetainedLinkTarget(linkFd, 'No-follow proven link readback');
+    if (actual !== input.source.childPath) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow proven link target changed.');
+    }
+    retained.assertCurrent();
+    input.source.assertCurrent();
+    return Object.freeze({
+      path: path.join(parentChain.target.path, input.name),
+      source: input.source.root,
+      linkTarget: actual
+    });
+  } finally {
+    if (linkFd !== null) closeSync(linkFd);
+    retained.dispose();
+  }
 }
 
 function windowsRenameRetainedNoFollowLeaf(
@@ -5703,7 +7435,14 @@ export function deleteRetainedNoFollowEntry(input: {
       for (let index = 0; index < parts.length; index += 1) {
         const nextPath = path.join(root.path, ...parts.slice(0, index + 1));
         const nextHandle = windowsOpenRelativeDirectory(
-          parentHandle, parent, parts[index]!, nextPath, WINDOWS_FILE_OPEN, 'Retained deletion ancestor'
+          parentHandle,
+          parent,
+          parts[index]!,
+          nextPath,
+          WINDOWS_FILE_OPEN,
+          'Retained deletion ancestor',
+          WINDOWS_SHARE_READ_WRITE_DELETE,
+          true
         );
         if (nextHandle === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', 'Retained deletion ancestor disappeared.');
         descendantHandles.push(nextHandle);
@@ -5717,8 +7456,92 @@ export function deleteRetainedNoFollowEntry(input: {
       }
       const leafPath = path.join(parent.path, leaf);
       leafHandle = windowsOpenRelativeNoFollowEntry(
-        parentHandle, parent, leaf, leafPath, input.kind, 'Retained deletion leaf'
+        parentHandle,
+        parent,
+        leaf,
+        leafPath,
+        input.kind,
+        'Retained deletion leaf',
+        WINDOWS_SHARE_READ_WRITE_DELETE,
+        false,
+        true
       );
+      if (leafHandle === null) {
+        let readOnlyLeaf: bigint | null = null;
+        let projectionHandle: bigint | null = null;
+        try {
+          readOnlyLeaf = windowsOpenRelativeNoFollowEntry(
+            parentHandle,
+            parent,
+            leaf,
+            leafPath,
+            input.kind,
+            'Retained deletion sealed leaf admission',
+            WINDOWS_SHARE_READ_WRITE_DELETE,
+            true
+          );
+          const sealedIdentity = windowsRetainedLeafIdentity(
+            readOnlyLeaf,
+            leafPath,
+            input.kind,
+            'Retained deletion sealed leaf admission'
+          );
+          if (sealedIdentity.device !== input.device || sealedIdentity.inode !== input.inode) {
+            throw physicalError(
+              'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+              'Retained deletion sealed leaf FileId changed before authority projection.'
+            );
+          }
+          projectionHandle = windowsOpenNoFollowLeaf(
+            leafPath,
+            'Retained deletion sealed leaf authority projection',
+            WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_READ_CONTROL | WINDOWS_WRITE_DAC | WINDOWS_SYNCHRONIZE
+          );
+          const projectionIdentity = windowsRetainedLeafIdentity(
+            projectionHandle,
+            leafPath,
+            input.kind,
+            'Retained deletion sealed leaf authority projection'
+          );
+          if (projectionIdentity.device !== sealedIdentity.device ||
+              projectionIdentity.inode !== sealedIdentity.inode) {
+            throw physicalError(
+              'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+              'Retained deletion sealed leaf changed before authority projection.'
+            );
+          }
+          const predecessor = windowsHandleSecurityDescriptorBytes(
+            projectionHandle,
+            'Retained deletion sealed leaf authority projection'
+          );
+          const temporary = windowsTemporaryRelocationDescriptor(predecessor);
+          windowsWriteHandleSecurityDescriptorBytes(
+            projectionHandle,
+            temporary,
+            'Retained deletion sealed leaf authority projection'
+          );
+          if (!windowsHandleSecurityDescriptorBytes(
+            projectionHandle,
+            'Retained deletion sealed leaf authority projection readback'
+          ).equals(temporary)) {
+            throw physicalError(
+              'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+              'Retained deletion sealed leaf descriptor projection failed readback.'
+            );
+          }
+        } finally {
+          if (projectionHandle !== null) closeWindowsHandle(projectionHandle);
+          if (readOnlyLeaf !== null) closeWindowsHandle(readOnlyLeaf);
+        }
+        leafHandle = windowsOpenRelativeNoFollowEntry(
+          parentHandle,
+          parent,
+          leaf,
+          leafPath,
+          input.kind,
+          'Retained deletion projected leaf'
+        );
+      }
       const identity = windowsRetainedLeafIdentity(leafHandle, leafPath, input.kind, 'Retained deletion leaf');
       if (identity.device !== input.device || identity.inode !== input.inode) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion leaf FileId changed.');
@@ -5835,6 +7658,142 @@ export function deleteRetainedNoFollowEntry(input: {
     if (retainedRootFd !== filesystemRootFd) closeSync(retainedRootFd);
     closeSync(filesystemRootFd);
   }
+}
+
+export interface PhysicalNoFollowEntryAccessFailureObservation {
+  readonly path: string;
+  readonly kind: 'directory' | 'file' | 'link' | 'other';
+  readonly device: string;
+  readonly inode: string;
+  readonly objectId: string;
+  readonly nativeFailure: PhysicalNativeFailure;
+}
+
+/**
+ * Observes an exact leaf preimage below a retained parent, then attempts one
+ * no-follow retained open. A receipt is returned only when the operating
+ * system rejects that physical entry with typed native status; presentation
+ * text and caller-authored failure labels are never classification inputs.
+ */
+export function observeNoFollowEntryAccessFailure(
+  parent: PhysicalDirectoryIdentity,
+  name: string
+): PhysicalNoFollowEntryAccessFailureObservation | null {
+  ensureLeafName(name);
+  const checked = assertSameNoFollowDirectoryIdentity(
+    parent,
+    'No-follow endpoint residue parent'
+  ).target;
+  if (process.platform !== 'win32') return null;
+  const target = path.join(checked.path, name);
+  const before = lstatSync(target, { bigint: true });
+  const kind = before.isDirectory()
+    ? 'directory' as const
+    : before.isFile()
+      ? 'file' as const
+      : before.isSymbolicLink()
+        ? 'link' as const
+        : 'other' as const;
+  let handle: bigint | null = null;
+  try {
+    handle = windowsOpenNoFollowLeaf(target, 'No-follow endpoint residue', WINDOWS_GENERIC_READ);
+    return null;
+  } catch (error) {
+    if (!(error instanceof PhysicalNoFollowError) || error.nativeFailure === null) throw error;
+    const currentParent = assertSameNoFollowDirectoryIdentity(
+      checked,
+      'No-follow endpoint residue parent readback'
+    ).target;
+    if (!sameIdentity(checked, currentParent)) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        'No-follow endpoint residue parent changed during native failure observation.'
+      );
+    }
+    return Object.freeze({
+      path: target,
+      kind,
+      device: String(before.dev),
+      inode: String(before.ino),
+      objectId: `lstat:${before.dev}:${before.ino}`,
+      nativeFailure: error.nativeFailure
+    });
+  } finally {
+    if (handle !== null) closeWindowsHandle(handle);
+  }
+}
+
+/**
+ * Retires one exact operation-owned directory tree from its retained parent.
+ * Every descendant is deleted by its inventoried physical identity and exact
+ * retained ancestor chain; a fresh, caller-supplied recovery deadline bounds
+ * cleanup independently from the execution deadline that produced the tree.
+ */
+export function retireNoFollowDirectoryTree(input: Readonly<{
+  deadlineAtMonotonicMs: number;
+  inventory: readonly NoFollowDirectoryTreeInventoryEntry[];
+  parent: PhysicalDirectoryIdentity;
+  root: PhysicalDirectoryIdentity;
+}>): NoFollowDirectoryTreeRetirementReceipt {
+  if (!Number.isFinite(input.deadlineAtMonotonicMs)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement deadline is invalid.');
+  }
+  const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'No-follow tree retirement parent').target;
+  const root = assertSameNoFollowDirectoryIdentity(input.root, 'No-follow tree retirement root').target;
+  if (path.dirname(root.path) !== parent.path) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement root is not a direct child of its parent.');
+  }
+  const assertRecoveryBudget = (): void => {
+    if (performance.now() >= input.deadlineAtMonotonicMs) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow tree retirement recovery deadline exceeded.');
+    }
+  };
+  const directories = new Map(input.inventory
+    .filter(({ kind }) => kind === 'directory')
+    .map((entry) => [entry.relativePath, entry] as const));
+  const ordered = [...input.inventory].sort((left, right) => {
+    const depth = right.relativePath.split('/').length - left.relativePath.split('/').length;
+    if (depth !== 0) return depth;
+    if (left.kind === 'directory' && right.kind !== 'directory') return 1;
+    if (right.kind === 'directory' && left.kind !== 'directory') return -1;
+    return right.relativePath.localeCompare(left.relativePath);
+  });
+  for (const entry of ordered) {
+    assertRecoveryBudget();
+    const parts = entry.relativePath.split('/');
+    parts.pop();
+    const ancestorDirectories = parts.map((_, index) => {
+      const relativePath = parts.slice(0, index + 1).join('/');
+      const ancestor = directories.get(relativePath);
+      if (ancestor === undefined) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow tree retirement inventory is incomplete.');
+      }
+      return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
+    });
+    deleteRetainedNoFollowEntry({
+      root,
+      relativePath: entry.relativePath,
+      kind: entry.kind,
+      device: entry.device,
+      inode: entry.inode,
+      ...(entry.linkTarget === null ? {} : { expectedLinkTarget: entry.linkTarget }),
+      ancestorDirectories
+    });
+  }
+  assertRecoveryBudget();
+  deleteRetainedNoFollowEntry({
+    root: parent,
+    relativePath: path.basename(root.path),
+    kind: 'directory',
+    device: root.device,
+    inode: root.inode,
+    ancestorDirectories: []
+  });
+  assertRecoveryBudget();
+  if (inspectNoFollowDirectoryChild(parent, path.basename(root.path)) !== null) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'No-follow tree retirement left root residue.');
+  }
+  return Object.freeze({ entryCount: ordered.length, root, status: 'physically-absent' as const });
 }
 
 /**
@@ -6030,7 +7989,14 @@ export function inspectNoFollowLinkEntry(
       }
       try {
         leafHandle = windowsOpenRelativeNoFollowEntry(
-          parentHandle, checked, name, target, 'link', 'No-follow link'
+          parentHandle,
+          checked,
+          name,
+          target,
+          'link',
+          'No-follow link',
+          WINDOWS_SHARE_READ_WRITE_DELETE,
+          true
         );
       } catch (error) {
         if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;

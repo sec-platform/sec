@@ -2,6 +2,11 @@ import { expect, test } from 'bun:test';
 
 import type { LockFile } from '../../src/compiler/contract.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import {
+  buildProjectOverview,
+  buildProjectOverviewFromWorkspace,
+  formatProjectOverview
+} from '../../src/interface/cli/project-overview.ts';
 import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
 import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
@@ -9,11 +14,6 @@ import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/
 import type { CiArtifactManifest } from '../../src/verification/ci-artifacts/contract/types.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
-import {
-  buildProjectOverview,
-  buildProjectOverviewFromWorkspace,
-  formatProjectOverview
-} from '../../src/workspace/project.ts';
 import { buildSemanticViewFixture } from '../helpers/semantic-view-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -60,24 +60,9 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     ],
     resolvedCapabilities: [],
     installPlan: [],
-    slotTasks: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        target: 'src/slots/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        kind: 'adapter',
-        status: 'verified',
-        writableZones: ['custom'],
-        provenanceHints: {
-          generator: 'adapt',
-          verifiedBy: ['user_can_create_customer']
-        }
-      }
-    ],
     generatedPaths: [
       'src/installed/auth/session.ts',
-      'src/slots/customer_normalizer.ts'
+      'src/installed/entity/customer.ts'
     ],
     acceptancePlan: [
       'user_can_login',
@@ -88,7 +73,6 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       align: 'succeeded',
       resolve: 'succeeded',
       compose: 'succeeded',
-      adapt: 'succeeded',
       verify: 'succeeded',
       repair: 'skipped',
       lock: 'succeeded',
@@ -101,11 +85,11 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     nodes: [
       { id: 'app:customer-admin', type: 'app', label: 'Customer Admin' },
       { id: 'block:auth/basic-session', type: 'block', label: 'auth/basic-session' },
-      { id: 'slot:customer_normalizer', type: 'slot', label: 'customer_normalizer' }
+      { id: 'block:entity/customer-basic', type: 'block', label: 'entity/customer-basic' }
     ],
     edges: [
       { from: 'app:customer-admin', to: 'block:auth/basic-session', type: 'depends_on' },
-      { from: 'block:auth/basic-session', to: 'slot:customer_normalizer', type: 'connects_to' }
+      { from: 'app:customer-admin', to: 'block:entity/customer-basic', type: 'depends_on' }
     ],
     overlays: {
       provenance: [],
@@ -113,9 +97,6 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         blocks: [
           { id: 'auth/basic-session', coveredBy: ['user_can_login'] },
           { id: 'entity/customer-basic', coveredBy: ['user_can_create_customer'] }
-        ],
-        slots: [
-          { id: 'customer_normalizer', coveredBy: ['user_can_create_customer'] }
         ]
       }
     }
@@ -138,10 +119,11 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         overrideStatus: 'none'
       },
       {
-        path: 'src/slots/customer_normalizer.ts',
-        originType: 'slot',
-        originId: 'customer_normalizer',
-        generatedByPass: 'adapt',
+        path: 'src/installed/entity/customer.ts',
+        originType: 'block',
+        originId: 'entity/customer-basic',
+        sourceBlock: 'entity/customer-basic',
+        generatedByPass: 'compose',
         verifiedBy: [],
         overrideStatus: 'none'
       }
@@ -202,16 +184,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         uncovered: false
       }
     ],
-    slots: [
-      {
-        id: 'customer_normalizer',
-        declaredAcceptance: ['user_can_create_customer'],
-        coveredBy: ['user_can_create_customer'],
-        uncovered: false
-      }
-    ],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
+    uncoveredBlocks: []
   };
 
   const policy: PolicyReport = {
@@ -236,8 +209,7 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       failureCount: 0,
       regressionRiskCount: 1,
       conflictHintCount: 0,
-      impactedBlockCount: 0,
-      impactedSlotCount: 1,
+      impactedBlockCount: 1,
       runtimeEntryCount: 0
     },
     chainSummary: {
@@ -257,14 +229,10 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       status: 'passed',
       acceptancePassedCount: 2,
       blockCount: 2,
-      slotCount: 1,
       coveredBlockCount: 2,
-      coveredSlotCount: 1,
       uncoveredBlockCount: 0,
-      uncoveredSlotCount: 0,
       acceptancePassed: ['user_can_login', 'user_can_create_customer'],
       uncoveredBlocks: [],
-      uncoveredSlots: [],
       blockSummaries: [
         {
           id: 'auth/basic-session',
@@ -280,15 +248,6 @@ test('buildProjectOverview summarizes shared project status and review prioritie
           declaredAcceptance: ['user_can_create_customer'],
           coveredBy: ['user_can_create_customer']
         }
-      ],
-      slotSummaries: [
-        {
-          id: 'customer_normalizer',
-          declaredAcceptanceCount: 1,
-          coveredByCount: 1,
-          declaredAcceptance: ['user_can_create_customer'],
-          coveredBy: ['user_can_create_customer']
-        }
       ]
     },
     provenanceSummary: {
@@ -299,17 +258,16 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       registryArtifactCount: 1,
       generatedArtifactCount: 2,
       generatedPassCount: 2,
-      originSummaryCount: 2,
+      originSummaryCount: 1,
       originSummaries: [
-        { originType: 'block', count: 1, paths: ['src/installed/auth/session.ts'] },
-        { originType: 'slot', count: 1, paths: ['src/slots/customer_normalizer.ts'] }
+        { originType: 'block', count: 2, paths: ['src/installed/auth/session.ts', 'src/installed/entity/customer.ts'] }
       ],
       overrideSummaryCount: 1,
       overrideSummaries: [
         {
           overrideStatus: 'none',
           count: 2,
-          paths: ['src/installed/auth/session.ts', 'src/slots/customer_normalizer.ts']
+          paths: ['src/installed/auth/session.ts', 'src/installed/entity/customer.ts']
         }
       ],
       registrySummaryCount: 1,
@@ -323,10 +281,10 @@ test('buildProjectOverview summarizes shared project status and review prioritie
         }
       ],
       generatedPassSummaries: [
-        { pass: 'adapt', count: 1, paths: ['src/slots/customer_normalizer.ts'] },
+        { pass: 'compose', count: 1, paths: ['src/installed/entity/customer.ts'] },
         { pass: 'compose', count: 1, paths: ['src/installed/auth/session.ts'] }
       ],
-      unverifiedArtifacts: ['src/slots/customer_normalizer.ts']
+      unverifiedArtifacts: ['src/installed/entity/customer.ts']
     },
     policySummary: {
       status: 'passed',
@@ -394,14 +352,13 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       runtimeEntries: [],
       groupSummaries: []
     },
-    impactedBlocks: [],
-    impactedSlots: ['customer_normalizer'],
+    impactedBlocks: ['entity/customer-basic'],
     failurePoints: [],
     regressionRisks: [
       {
         kind: 'coverage-gap',
-        slotId: 'customer_normalizer',
-        message: 'Slot customer_normalizer requires more acceptance coverage'
+        blockId: 'entity/customer-basic',
+        message: 'Block entity/customer-basic requires more acceptance coverage'
       }
     ],
     conflictHints: []
@@ -479,7 +436,6 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     aiContext: {
       appName: 'Customer Admin',
       blockCount: 2,
-      slotCount: 1,
       graphNodeCount: 3,
       graphEdgeCount: 2,
       generatedPathCount: 2,
@@ -501,16 +457,16 @@ test('buildProjectOverview summarizes shared project status and review prioritie
       reasons: ['missing artifact: fixed-governance-missing']
     },
     {
-      path: 'src/slots/customer_normalizer.ts',
-      reasons: ['unverified provenance']
+      path: 'block:entity/customer-basic',
+      reasons: ['regression risk: coverage-gap']
     },
     {
-      path: 'slot:customer_normalizer',
-      reasons: ['regression risk: coverage-gap']
+      path: 'src/installed/entity/customer.ts',
+      reasons: ['unverified provenance']
     }
   ]);
   expect(formatProjectOverview(overview)).toContain('Project overview attention');
-  expect(formatProjectOverview(overview)).toContain('Graph: 3 nodes / 2 edges; blocks=2; slots=1');
+  expect(formatProjectOverview(overview)).toContain('Graph: 3 nodes / 2 edges; blocks=2');
   expect(formatProjectOverview(overview)).toContain(
     'Risks: failures=0; regressions=1; conflicts=0; missingArtifacts=1'
   );

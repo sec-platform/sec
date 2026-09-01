@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-project/
 __pycache__/
 *.pyc
 
@@ -25,7 +24,6 @@ test-results/
 *.egg-info/
 .shared-deps/
 .sec/
-project/.runtime-deps.stamp.json
 .tmp/
 report/
 .gitnexus/
