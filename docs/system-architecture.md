@@ -522,19 +522,25 @@ semantic operation的total duration/process/input/output预算属于parent opera
 局部上限，必须收窄为`min(parent remaining, transport ceiling)`。不得把同一个child timeout依次发给materialize、handoff、retry、readback
 或cleanup而重复获得完整窗口，也不得用某个transport timeout冒充整个semantic operation的total budget。
 
-源码闭包、磁盘读回与**已加载执行代际**是三个不可互相冒充的事实。Source Program签发的operation producer closure只证明某个exact
-snapshot上的entrypoint与可达实现bytes；运行中对checkout执行`stat/read/stat`只证明那次路径读取，二者都不能证明当前进程实际加载了同一代
-bytes。任何可跨进程复用的compiler、audit、test-impact或其他semantic cache，只有在launcher于首次module load前把同一closure的exact bytes
-物化为private sealed/proven execution generation，并让child只能从该generation加载时，才可绑定implementation identity；缺少该capability时只能
-执行cold computation，禁止由caller closure、当前磁盘、module对象、WeakSet clone check或自报digest补造cache authority。
+源码闭包、磁盘读回、**封闭执行代际**与**已加载实现观察**是四个不可互相冒充的事实。Source Program签发的operation producer closure只证明
+某个exact snapshot上的entrypoint与可达实现bytes；运行中对checkout执行`stat/read/stat`只证明那次路径读取；launcher在首次module load前物化的
+`SealedImplementationExecutionGeneration`只证明child可用的private sealed/proven物理树。child从该树实际完成bootstrap后，只能经retained stream发出
+绑定attempt nonce、generation与entrypoint的strict candidate bytes；parent侧launcher/loaded-implementation owner验证origin、exact protocol、attempt、
+generation、entrypoint、single-handshake与stream settlement后，才可在本进程签发opaque `LoadedImplementationObservation`。child bytes、pre-spawn
+generation、path、echo或serialized caller对象都不能自称loaded authority。任何可跨进程复用的compiler、audit、test-impact或其他semantic cache必须
+消费该post-load opaque观察；缺少时只能执行cold computation，禁止由caller closure、当前磁盘、module对象、WeakSet clone check或自报digest补造cache
+authority。
 
 loaded implementation operation固定分离两类root：sealed execution root只承载当前实现与已保留dependency generation；subject root是被审计、
 编译或修改的业务工作区。launcher从唯一module graph取得semantic closure，Runtime Physical只接收exact bytes与retained physical identities并签发
 generation，不反向计算source graph；domain orchestrator在pre-import边界绑定entrypoint、closure/tree/dependency digest、retained runtime、argv/env、
-absolute deadline与aggregate ledger。child只返回绑定该attempt的纯结果，不能凭序列化对象发布cache或terminal。parent必须在child结算后同时验证
-generation current、process/stream settlement和domain readback，才可发布复用结果；任一bootstrap/closure unknown、physical replacement、lost handle、
-foreign binding或不完整retirement都保持typed residue与zero publication。具体bootstrap entrypoint与operation关系进入module descriptor和Source Program
-projection，不在launcher硬列文件，也不建立第二import graph。
+absolute deadline与aggregate ledger。generation materialization/retirement属于独立filesystem/dynamic-code requirement，process session只结算真实child，
+二者消费同一parent ledger但不能合并receipt或重开期限。child只返回attempt-bound handshake candidate与纯结果，不能签发opaque observation，也不能凭
+序列化对象发布cache或terminal。parent必须在child结算后同时验证parent-issued loaded observation、generation current、process/stream settlement、
+generation requirement settlement和domain readback，才可
+发布复用结果；任一bootstrap/closure unknown、physical replacement、lost handle、foreign binding或不完整retirement都保持typed residue与zero publication。
+具体bootstrap entrypoint与operation关系优先由现有module descriptor causal/operation facts和Source Program projectionjoin；只有现有grammar无法表达且真实拒绝
+consumer已存在时才扩展descriptor，禁止在launcher硬列文件、复制路径清单或建立第二import graph。
 
 physical session只证明进程、输入输出与retained executable/cwd已经物理结算；它不证明领域成功。每个effectful requirement必须由
 对应provider owner签发一张绑定exact attempt、binding与physical disposition的settlement，operation compiler随后验证与execution plan
