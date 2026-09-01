@@ -1,8 +1,9 @@
 import path from 'node:path';
 
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
-import { runObservedCommand } from '../../runtime-state/physical/runtime/observed-process.ts';
+import { runObservedCommand } from '../../runtime-state/physical/runtime/observed-process-stdin.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
+import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
 import {
   createDependencyFreshProcessHandoff,
@@ -19,7 +20,9 @@ export function shouldReportDevRunnerSuccess(
 }
 
 export async function handoffDevRunnerToFreshProcess(
-  dependencies: MaterializedOperationDependencyBootstrapResult
+  dependencies: MaterializedOperationDependencyBootstrapResult,
+  standardInput?: Uint8Array,
+  workspaceTransitionDeadlineAtUnixMs?: number
 ): Promise<number | null> {
   const handoff = createDependencyFreshProcessHandoff(dependencies);
   if (handoff === null) return null;
@@ -33,10 +36,18 @@ export async function handoffDevRunnerToFreshProcess(
     cwd: process.cwd(),
     env: {
       ...process.env,
-      [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV]: handoff.transitionDigest
+      [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV]: handoff.transitionDigest,
+      ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
+        [WORKSPACE_TRANSITION_DEADLINE_ENV]:
+          String(workspaceTransitionDeadlineAtUnixMs)
+      })
     },
     envMode: 'replace',
-    stdio: 'inherit'
+    stdio: 'inherit',
+    ...(standardInput === undefined ? {} : {
+      input: standardInput,
+      maxStdinBytes: standardInput.byteLength
+    })
   });
   return outcome.status === 'exited' ? outcome.exitCode ?? 1 : 1;
 }
@@ -121,7 +132,7 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
 }
 
 function usage(): never {
-  console.error('Usage: bun ./src/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
+  console.error('Usage: bun ./src/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
 
@@ -207,6 +218,21 @@ async function main(): Promise<void> {
   if (target === 'commit:recover') {
     const { runDevelopmentCommitRecoveryCommand } = await import('../commit/operation.ts');
     process.exitCode = await runDevelopmentCommitRecoveryCommand(args);
+    return;
+  }
+
+  if (target === 'workspace-transition') {
+    const [event, ...eventArguments] = args;
+    if (event !== 'post-checkout' && event !== 'post-merge' && event !== 'post-rewrite') usage();
+    const standardInput = event === 'post-rewrite' ? await Bun.stdin.bytes() : undefined;
+    const { runWorkspaceTransitionOperation } = await import('../workspace-transition/operation.ts');
+    process.exitCode = await runWorkspaceTransitionOperation({
+      event,
+      arguments: eventArguments,
+      standardInput,
+      repositoryRoot: process.cwd(),
+      handoff: handoffDevRunnerToFreshProcess
+    });
     return;
   }
 

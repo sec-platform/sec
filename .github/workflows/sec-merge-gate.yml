@@ -1,12 +1,10 @@
 name: sec-merge-gate
-run-name: 'integrate compiler session run ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }}'
+run-name: 'integrate compiler session run ${{ github.event.client_payload.sourceRunId }} attempt ${{ github.event.client_payload.sourceRunAttempt }}'
 
 on:
-  workflow_run:
-    workflows:
-      - compiler-pr-validation
+  repository_dispatch:
     types:
-      - completed
+      - sec-verification-session-terminal-v2
 
 permissions:
   actions: read
@@ -29,12 +27,12 @@ concurrency:
 
 jobs:
   plan:
-    if: "${{ github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.display_title, 'verify session PR #') }}"
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 10
     outputs:
       base-sha: ${{ steps.source.outputs.base-sha }}
       current-main-sha: ${{ steps.source.outputs.current-main-sha }}
+      head-sha: ${{ steps.source.outputs.head-sha }}
       pr-number: ${{ steps.source.outputs.pr-number }}
       session-revision: ${{ steps.source.outputs.session-revision }}
     steps:
@@ -42,14 +40,59 @@ jobs:
         id: source
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          SOURCE_RUN_JSON: ${{ toJSON(github.event.workflow_run) }}
-          WORKFLOW_SHA: ${{ github.sha }}
+          TERMINAL_PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         with:
           script: |
-            const run = JSON.parse(process.env.SOURCE_RUN_JSON);
-            if (run.event !== 'repository_dispatch' || run.status !== 'completed' ||
-                run.conclusion !== 'success' ||
-                !Number.isSafeInteger(run.id) || !Number.isSafeInteger(run.run_attempt) ||
+            if (context.payload.action !== 'sec-verification-session-terminal-v2') {
+              throw new Error('Merge admission event type is not canonical.');
+            }
+            const sender = context.payload.sender;
+            if (sender?.login !== 'github-actions[bot]' || sender?.id !== 41898282 ||
+                sender?.node_id !== 'MDM6Qm90NDE4OTgyODI=' || sender?.type !== 'Bot') {
+              throw new Error('Merge admission was not dispatched by the canonical Actions bot.');
+            }
+            const payload = JSON.parse(process.env.TERMINAL_PAYLOAD_JSON);
+            const expectedPayloadKeys = [
+              'artifactDigest', 'artifactId', 'artifactName', 'baseSha', 'headSha', 'prNumber',
+              'sessionRevision', 'sourceRunAttempt', 'sourceRunId',
+              'sourceWorkflowSha'
+            ].sort();
+            const payloadKeys = payload && typeof payload === 'object' && !Array.isArray(payload)
+              ? Object.keys(payload).sort()
+              : [];
+            if (payloadKeys.length !== expectedPayloadKeys.length ||
+                payloadKeys.some((key, index) => key !== expectedPayloadKeys[index]) ||
+                !Number.isSafeInteger(payload.sourceRunId) || payload.sourceRunId < 1 ||
+                !Number.isSafeInteger(payload.sourceRunAttempt) || payload.sourceRunAttempt < 1 ||
+                !Number.isSafeInteger(payload.prNumber) || payload.prNumber < 1 ||
+                !Number.isSafeInteger(payload.artifactId) || payload.artifactId < 1 ||
+                !/^[0-9a-f]{40}$/u.test(payload.sourceWorkflowSha ?? '') ||
+                !/^[0-9a-f]{40}$/u.test(payload.baseSha ?? '') ||
+                !/^[0-9a-f]{40}$/u.test(payload.headSha ?? '') ||
+                !/^sha256:[0-9a-f]{64}$/u.test(payload.sessionRevision ?? '') ||
+                !/^sha256:[0-9a-f]{64}$/u.test(payload.artifactDigest ?? '') ||
+                typeof payload.artifactName !== 'string') {
+              throw new Error('Terminal Session dispatch payload is not the exact bounded locator.');
+            }
+            let run;
+            for (let attempt = 0; attempt < 12; attempt += 1) {
+              const observed = await github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: payload.sourceRunId
+              });
+              run = observed.data;
+              if (run.status === 'completed') break;
+              if (run.status !== 'in_progress' && run.status !== 'queued') {
+                throw new Error('Compiler Session source run has an invalid settlement state.');
+              }
+              await new Promise((resolve) => setTimeout(resolve, 5_000));
+            }
+            if (run?.status !== 'completed' || run.conclusion !== 'success' ||
+                run.id !== payload.sourceRunId || run.run_attempt !== payload.sourceRunAttempt ||
+                run.head_sha !== payload.baseSha || run.head_sha !== payload.sourceWorkflowSha ||
+                run.event !== 'repository_dispatch' ||
                 typeof run.actor?.login !== 'string' || typeof run.triggering_actor?.login !== 'string') {
               throw new Error('Only one completed successful compiler repository_dispatch run can enter integration.');
             }
@@ -67,6 +110,10 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo
             });
+            if (context.payload.repository?.id !== repository.data.id ||
+                context.payload.repository?.full_name !== repository.data.full_name) {
+              throw new Error('Merge admission repository identity differs from API readback.');
+            }
             const sourceWorkflow = await github.rest.actions.getWorkflow({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -82,8 +129,15 @@ jobs:
               repo: context.repo.repo,
               username: run.triggering_actor.login
             });
+            const [actorIdentity, triggeringIdentity] = await Promise.all([
+              github.rest.users.getByUsername({ username: run.actor.login }),
+              github.rest.users.getByUsername({ username: run.triggering_actor.login })
+            ]);
             const trusted = (permission) => permission === 'maintain' || permission === 'admin';
             if (sourceWorkflow.data.path !== '.github/workflows/compiler-pr-validation.yml' ||
+                actorIdentity.data.login !== run.actor.login || actorIdentity.data.node_id !== run.actor.node_id ||
+                triggeringIdentity.data.login !== run.triggering_actor.login ||
+                triggeringIdentity.data.node_id !== run.triggering_actor.node_id ||
                 !trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
               throw new Error('Compiler workflow path or dispatch principal is not trusted.');
             }
@@ -93,8 +147,20 @@ jobs:
               branch: repository.data.default_branch
             });
             const currentBase = base.data.commit.sha;
-            if (process.env.WORKFLOW_SHA !== sessionBaseSha) {
+            if (process.env.WORKFLOW_SHA !== sessionBaseSha ||
+                payload.sourceWorkflowSha !== sessionBaseSha || payload.prNumber !== Number(terminalTitle[1]) ||
+                payload.sessionRevision !== terminalTitle[2]) {
               throw new Error('Trusted merge workflow revision differs from the original Session base.');
+            }
+            const pull = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(terminalTitle[1])
+            });
+            if (pull.data.state !== 'open' || pull.data.draft ||
+                pull.data.base.repo?.id !== repository.data.id || pull.data.head.repo?.id !== repository.data.id ||
+                pull.data.base.sha !== sessionBaseSha || pull.data.head.sha !== payload.headSha) {
+              throw new Error('Terminal Session PR base/head API readback differs from the dispatch locator.');
             }
             const baseToCurrentMain = await github.rest.repos.compareCommitsWithBasehead({
               owner: context.repo.owner,
@@ -120,17 +186,18 @@ jobs:
             if (sessionArtifacts.length !== 1 ||
                 sessionArtifact.expired !== false || !Number.isSafeInteger(sessionArtifact.id) ||
                 !Number.isSafeInteger(sessionArtifact.size_in_bytes) || sessionArtifact.size_in_bytes < 1 ||
-                sessionArtifact.workflow_run?.id !== run.id) {
+                sessionArtifact.workflow_run?.id !== run.id || sessionArtifact.id !== payload.artifactId ||
+                sessionArtifact.name !== payload.artifactName || sessionArtifact.digest !== payload.artifactDigest) {
               throw new Error('Compiler run must expose exactly one live provenance-bound terminal Session artifact.');
             }
             core.setOutput('base-sha', sessionBaseSha);
             core.setOutput('current-main-sha', currentBase);
+            core.setOutput('head-sha', payload.headSha);
             core.setOutput('pr-number', terminalTitle[1]);
             core.setOutput('session-revision', terminalTitle[2].slice(7));
 
   authorize:
     needs: plan
-    if: "${{ github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.display_title, 'verify session PR #') }}"
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-control-v1]
     timeout-minutes: *sec_integration_timeout_minutes
     permissions:
@@ -182,6 +249,7 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
+          EXPECTED_HEAD_SHA: ${{ needs.plan.outputs.head-sha }}
         with:
           script: |
             const pullNumber = Number(process.env.PR_NUMBER);
@@ -195,7 +263,8 @@ jobs:
             });
             if (pull.data.base.repo?.id !== context.payload.repository?.id ||
                 pull.data.head.repo?.id !== context.payload.repository?.id ||
-                typeof pull.data.head.sha !== 'string' || !/^[0-9a-f]{40}$/u.test(pull.data.head.sha)) {
+                typeof pull.data.head.sha !== 'string' || !/^[0-9a-f]{40}$/u.test(pull.data.head.sha) ||
+                pull.data.head.sha !== process.env.EXPECTED_HEAD_SHA) {
               throw new Error('Authorization candidate repository/head identity is invalid.');
             }
             core.setOutput('head-sha', pull.data.head.sha);

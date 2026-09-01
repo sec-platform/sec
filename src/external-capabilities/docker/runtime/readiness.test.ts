@@ -14,6 +14,7 @@ test('local Container Engine readiness rejects caller path and mode ambiguity be
     schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
     status: 'unavailable',
     mode: 'observe',
+    loginStart: { status: 'unavailable', reason: 'operation-input-invalid' },
     reason: 'invalid-input',
     phase: 'provider-admission'
   });
@@ -39,6 +40,10 @@ test('local Container Engine readiness returns a typed provider blocker without 
     schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
     status: 'unavailable',
     mode: 'observe',
+    loginStart: {
+      configurationOwner: 'docker-desktop-settings-ui',
+      automatedReconciliation: 'unsupported-by-admitted-provider'
+    },
     reason: 'command-provider-unavailable',
     phase: 'provider-admission'
   });

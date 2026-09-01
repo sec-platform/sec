@@ -255,6 +255,28 @@ export interface SourceProgramEntrypointClosure {
   readonly observationClass: SourceProgramObservationClass;
 }
 
+export type SourceProgramOperationIdentity = Readonly<{
+  readonly capability: string;
+  readonly operation: string;
+}>;
+
+/**
+ * Process-local Source Program proof of the complete implementation reachable
+ * from every descriptor-owned entrypoint of one semantic operation. Consumers
+ * select only the operation identity; paths and revisions remain compiler-owned.
+ */
+export interface SourceProgramOperationProducerClosure {
+  readonly operation: SourceProgramOperationIdentity;
+  readonly moduleId: string;
+  readonly entrypointAddresses: readonly SourceProgramEntrypointAddress[];
+  readonly sourceRevision: string;
+  readonly files: readonly Readonly<{
+    readonly path: string;
+    readonly contentDigest: string;
+  }>[];
+  readonly closureDigest: `sha256:${string}`;
+}
+
 export interface SourceProgramPackage {
   readonly manifestPath: string;
   readonly name: string;

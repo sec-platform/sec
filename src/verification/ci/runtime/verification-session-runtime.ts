@@ -55,6 +55,7 @@ import {
 import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../contract/revision.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
@@ -429,7 +430,7 @@ export interface TrustedIntegrationAuthorizationArtifact {
   workflowSha: string;
   runId: string;
   runAttempt: number;
-  eventName: 'workflow_run';
+  eventName: 'repository_dispatch';
   actorNodeId: string;
   actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
   downloadTransport: 'github-actions-artifact-api';
@@ -565,7 +566,7 @@ export function createTrustedIntegrationAuthorizationArtifact(input: {
     workflowPath: input.observation.workflowPath as '.github/workflows/sec-merge-gate.yml',
     workflowRef: input.observation.workflowRef, workflowSha: input.observation.workflowSha,
     runId: input.observation.runId, runAttempt: input.observation.runAttempt,
-    eventName: input.observation.eventName as 'workflow_run', actorNodeId: input.observation.actorNodeId,
+    eventName: input.observation.eventName as 'repository_dispatch', actorNodeId: input.observation.actorNodeId,
     actorPermission: input.observation.actorPermission, downloadTransport: 'github-actions-artifact-api' });
 }
 
@@ -1458,8 +1459,8 @@ function verifyIntegrationArtifact(input: {
     || artifact.workflowPath !== provenance.workflowPath || artifact.workflowRef !== provenance.workflowRef
     || artifact.workflowSha !== provenance.workflowSha || artifact.runId !== provenance.sourceRunId
     || artifact.runAttempt !== provenance.sourceRunAttempt || artifact.eventName !== provenance.eventName
-    || artifact.actorNodeId !== provenance.actorNodeId
-    || artifact.actorPermission !== 'admin' && artifact.actorPermission !== 'maintain'
+    || artifact.actorNodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId
+    || artifact.actorPermission !== 'none'
     || artifact.downloadTransport !== 'github-actions-artifact-api')
     || provenance.workflowSha !== session.trustRevision
     || provenance.workflowRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`

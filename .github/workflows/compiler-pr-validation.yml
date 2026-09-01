@@ -750,6 +750,7 @@ jobs:
           --json
 
       - name: Upload sole terminal Verification Session artifact
+        id: terminal-session-upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sec-verification-session-v2-pr-${{ needs.validate-hosted-request.outputs.pr-number }}-session-${{ needs.validate-hosted-request.outputs.session-revision-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
@@ -763,6 +764,98 @@ jobs:
             const artifact=JSON.parse(await Bun.file(".tmp/codex/verification-session-artifact.json").text());
             if(artifact.evidence?.status!=="passed") throw new Error(`Verification Session terminal is ${artifact.evidence?.status ?? "unknown"}`);
           '
+
+      - name: Read back passed terminal Session artifact and dispatch merge admission
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          SOURCE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          PR_NUMBER: ${{ needs.validate-hosted-request.outputs.pr-number }}
+          BASE_SHA: ${{ needs.validate-hosted-request.outputs.base-sha }}
+          HEAD_SHA: ${{ needs.validate-hosted-request.outputs.head-sha }}
+          SESSION_REVISION: ${{ needs.validate-hosted-request.outputs.session-revision }}
+          ARTIFACT_ID: ${{ steps.terminal-session-upload.outputs.artifact-id }}
+          ARTIFACT_NAME: sec-verification-session-v2-pr-${{ needs.validate-hosted-request.outputs.pr-number }}-session-${{ needs.validate-hosted-request.outputs.session-revision-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          ARTIFACT_DIGEST: sha256:${{ steps.terminal-session-upload.outputs.artifact-digest }}
+        with:
+          script: |
+            const integer = (value, label) => {
+              const parsed = Number(value);
+              if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`${label} is invalid.`);
+              return parsed;
+            };
+            const sha = (value, label) => {
+              if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) {
+                throw new Error(`${label} is invalid.`);
+              }
+              return value;
+            };
+            const digest = (value, label) => {
+              if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
+                throw new Error(`${label} is invalid.`);
+              }
+              return value;
+            };
+            const sourceRunId = integer(process.env.SOURCE_RUN_ID, 'source run id');
+            const sourceRunAttempt = integer(process.env.SOURCE_RUN_ATTEMPT, 'source run attempt');
+            const sourceWorkflowSha = sha(process.env.SOURCE_WORKFLOW_SHA, 'source workflow SHA');
+            const prNumber = integer(process.env.PR_NUMBER, 'PR number');
+            const baseSha = sha(process.env.BASE_SHA, 'base SHA');
+            const headSha = sha(process.env.HEAD_SHA, 'head SHA');
+            const sessionRevision = digest(process.env.SESSION_REVISION, 'session revision');
+            const artifactId = integer(process.env.ARTIFACT_ID, 'artifact id');
+            const artifactName = process.env.ARTIFACT_NAME;
+            const artifactDigest = digest(process.env.ARTIFACT_DIGEST, 'artifact digest');
+            const expectedTitle = `verify session PR #${prNumber} session ${sessionRevision}`;
+            const sourceRun = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: sourceRunId
+            });
+            const [sourceWorkflow, artifact] = await Promise.all([
+              github.rest.actions.getWorkflow({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: sourceRun.data.workflow_id
+              }),
+              github.rest.actions.getArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifactId
+              })
+            ]);
+            if (sourceRun.data.id !== sourceRunId || sourceRun.data.run_attempt !== sourceRunAttempt ||
+                sourceRun.data.event !== 'repository_dispatch' || sourceRun.data.head_sha !== baseSha ||
+                sourceRun.data.display_title !== expectedTitle || sourceRun.data.status !== 'in_progress' ||
+                sourceRun.data.conclusion !== null || sourceWorkflow.data.id !== sourceRun.data.workflow_id ||
+                sourceWorkflow.data.path !== '.github/workflows/compiler-pr-validation.yml' ||
+                sourceWorkflowSha !== baseSha) {
+              throw new Error('Terminal Session source run/workflow API readback is not exact.');
+            }
+            if (typeof artifactName !== 'string' || artifact.data.id !== artifactId ||
+                artifact.data.name !== artifactName || artifact.data.expired !== false ||
+                !Number.isSafeInteger(artifact.data.size_in_bytes) || artifact.data.size_in_bytes < 1 ||
+                artifact.data.workflow_run?.id !== sourceRunId || artifact.data.digest !== artifactDigest) {
+              throw new Error('Terminal Session artifact API readback is not exact.');
+            }
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'sec-verification-session-terminal-v2',
+              client_payload: {
+                sourceRunId,
+                sourceRunAttempt,
+                sourceWorkflowSha,
+                prNumber,
+                baseSha,
+                headSha,
+                sessionRevision,
+                artifactId,
+                artifactName,
+                artifactDigest
+              }
+            });
 
   resolve-verification-action:
     if: ${{ needs.validate-hosted-request.outputs.request-kind == 'action' }}

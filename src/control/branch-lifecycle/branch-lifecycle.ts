@@ -30,10 +30,9 @@ export {
   parsePreparedBranchCloseoutEnvelope,
   preparationFilePath,
   prepareBranchCloseout,
+  prepareClosedUnmergedPullRequestCloseout,
   prepareMergedPullRequestCloseout,
-  receiptFilePath,
-  type PrepareBranchCloseoutInput,
-  type PreparedBranchCloseoutEnvelope
+  receiptFilePath, type PrepareBranchCloseoutInput, type PrepareClosedUnmergedPullRequestCloseoutInput, type PreparedBranchCloseoutEnvelope
 } from './branch-closeout.ts';
 export { branchLifecycleDigest } from './branch-lifecycle-audit.ts';
 export { configureBranchLifecycleClone } from './branch-lifecycle-config.ts';
@@ -50,6 +49,21 @@ export {
   type BranchPublishedCloseoutReceipt,
   type BranchPullRequestObservation
 } from './branch-lifecycle-types.ts';
+export {
+  resolveProductionClosedUnmergedCloseoutEffectProvider,
+  type ProductionClosedUnmergedCloseoutProviderResolution
+} from './closed-unmerged-closeout-production.ts';
+export {
+  compileClosedUnmergedCloseoutOperation,
+  createClosedSupersededDispositionEvidence,
+  createEvidenceCloseDispositionEvidence,
+  executeClosedUnmergedCloseoutOperation,
+  issueClosedUnmergedCloseoutEffectProvider,
+  type ClosedUnmergedCloseoutEffectAdapter,
+  type ClosedUnmergedCloseoutEffectProvider,
+  type ClosedUnmergedCloseoutExecutionResult,
+  type ClosedUnmergedCloseoutOperation
+} from './closed-unmerged-closeout.ts';
 
 function formatAuditText(inventory: BranchLifecycleInventory): string {
   const report = auditBranchLifecycle(inventory);

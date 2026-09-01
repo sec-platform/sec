@@ -73,8 +73,27 @@ type WindowsRuntimeStateAuthorityCapability = Readonly<{
  */
 const windowsRuntimeStateAuthorityGenerations = new Map<string, WindowsRuntimeStateAuthorityGeneration>();
 
-function windowsRuntimeStateAuthorityKey(rootPath: string): string {
-  return path.win32.resolve(rootPath).toLocaleLowerCase('en-US');
+/** Reuse is valid only for one exact hardening operation and physical root tuple. */
+function windowsRuntimeStateAuthorityKey(
+  rootPath: string,
+  roots: Readonly<{
+    repository: PhysicalDirectoryChain;
+    state: PhysicalDirectoryChain;
+    cache: PhysicalDirectoryChain;
+  }>
+): string {
+  const identity = (directory: PhysicalDirectoryIdentity) => Object.freeze({
+    device: directory.device,
+    inode: directory.inode,
+    objectId: directory.objectId
+  });
+  return JSON.stringify(Object.freeze({
+    schema: 'sec-windows-runtime-state-authority-generation-key-v1',
+    operation: path.win32.resolve(rootPath).toLocaleLowerCase('en-US'),
+    repositoryRoot: identity(roots.repository.target),
+    stateRoot: identity(roots.state.target),
+    cacheRoot: identity(roots.cache.target)
+  }));
 }
 
 async function retireWindowsRuntimeStateAuthorityGeneration(generation: WindowsRuntimeStateAuthorityGeneration): Promise<void> {
@@ -145,7 +164,7 @@ async function acquireWindowsRuntimeStateAuthorityCapability(
     cache: PhysicalDirectoryChain;
   }>
 ): Promise<WindowsRuntimeStateAuthorityCapability> {
-  const key = windowsRuntimeStateAuthorityKey(rootPath);
+  const key = windowsRuntimeStateAuthorityKey(rootPath, roots);
   let generation = windowsRuntimeStateAuthorityGenerations.get(key);
   if (generation === undefined) {
     generation = {

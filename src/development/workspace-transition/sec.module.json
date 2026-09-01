@@ -1,0 +1,6 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [],
+  "preDependencyBootstrap": false
+}

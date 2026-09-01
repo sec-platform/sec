@@ -5,16 +5,16 @@ import { chmod, lstat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
-import { isolatedGitReadEnvironment, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../external-capabilities/git-read/runtime/session.ts';
+import { isolatedGitReadEnvironment, isProductionGitReadSession, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../external-capabilities/git-read/runtime/session.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { canonicalJson } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { DEV_RUNNER_ENTRYPOINT_PATH } from '../runner/contract.ts';
 
 const MANAGED_HOOKS_PATH = '.githooks';
 const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v3';
-const DEPS_ENSURE_COMMAND = 'bun run deps:ensure';
-const HOOKS_RECONCILE_COMMAND = 'bun run postinstall';
-const IMPORTS_CHECK_STAGED_COMMAND = 'bun run imports:check --staged';
+const WORKSPACE_TRANSITION_COMMAND = `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} workspace-transition`;
+const IMPORTS_APPLY_STAGED_COMMAND = 'bun run imports:apply --staged';
 const IMPORTS_FREEZE_COMMAND = 'bun run imports:freeze';
 const MANAGED_PRE_COMMIT = MANAGED_HOOKS_PATH + '/pre-commit';
 const MANAGED_HOOKS = [
@@ -302,6 +302,11 @@ async function withGitInvocationBudget<T>(
 export interface GitHookInstallationResult {
   readonly status: 'installed' | 'managed' | 'conflict';
   readonly message: string;
+}
+
+export interface ManagedGitHookReadinessObservation {
+  readonly disposition: 'ready' | 'materialization-required';
+  readonly observationDigest: `sha256:${string}`;
 }
 
 interface ManagedHookSnapshot {
@@ -855,7 +860,7 @@ function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
   const source = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes);
   if (name === 'pre-commit' || name === 'pre-push') {
     const importCommand = name === 'pre-commit'
-      ? IMPORTS_CHECK_STAGED_COMMAND
+      ? IMPORTS_APPLY_STAGED_COMMAND
       : IMPORTS_FREEZE_COMMAND;
     const firstImportCommand = source.indexOf(importCommand);
     if (firstImportCommand < 0 || firstImportCommand !== source.lastIndexOf(importCommand)) {
@@ -864,9 +869,11 @@ function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
   }
   return Buffer.from(
     source
-      .replaceAll(DEPS_ENSURE_COMMAND, bindHookCommandToRuntime(DEPS_ENSURE_COMMAND, process.execPath))
-      .replaceAll(HOOKS_RECONCILE_COMMAND, bindHookCommandToRuntime(HOOKS_RECONCILE_COMMAND, process.execPath))
-      .replaceAll(IMPORTS_CHECK_STAGED_COMMAND, bindHookCommandToRuntime(IMPORTS_CHECK_STAGED_COMMAND, process.execPath))
+      .replaceAll(
+        WORKSPACE_TRANSITION_COMMAND,
+        bindHookCommandToRuntime(WORKSPACE_TRANSITION_COMMAND, process.execPath)
+      )
+      .replaceAll(IMPORTS_APPLY_STAGED_COMMAND, bindHookCommandToRuntime(IMPORTS_APPLY_STAGED_COMMAND, process.execPath))
       .replaceAll(IMPORTS_FREEZE_COMMAND, bindHookCommandToRuntime(IMPORTS_FREEZE_COMMAND, process.execPath)),
     'utf8'
   );
@@ -5220,6 +5227,7 @@ async function installGitHooksInternalWithBudget(options: {
   readonly repoRoot: string;
   readonly lifecycle?: boolean;
   readonly providerResolution?: GitReadSessionResolution;
+  readonly observationOnly?: boolean;
   readonly testOnlyGitBudget?: GitInvocationBudgetOptions;
   readonly testOnlyProviderResolution?: GitReadSessionResolution;
   readonly testOnlyBeforeSpawn?: (kind: GitSpawnKind) => void;
@@ -5425,6 +5433,28 @@ async function installGitHooksInternalWithBudget(options: {
         path.join(existingCommonRoot.target.path, transitionName),
         'Git config managed-reuse transition namespace'
       );
+      if (options.observationOnly === true) {
+        if (transitionNamespaces.length > 0 || pendingTransition.state === 'present') {
+          return Object.freeze({
+            status: 'installed',
+            message: 'Managed Git hook transition settlement is required.'
+          });
+        }
+        await assertManagedGenerationNamespaceClean(
+          existingCommonRoot,
+          [expectedGeneration, expectedBootstrap],
+          [
+            { digest: sourceDigest, snapshots: fastSnapshots },
+            { digest: bootstrapDigest, snapshots: fastBootstrapSnapshots }
+          ],
+          [],
+          'managed readiness observation'
+        );
+        return Object.freeze({
+          status: 'managed',
+          message: 'Git hooks use an exact current managed generation.'
+        });
+      }
       if (transitionNamespaces.length > 0) {
         const fastLease = await acquireOperationLease(existingCommonRoot, operationDigest);
         if (fastLease === null) {
@@ -5479,6 +5509,12 @@ async function installGitHooksInternalWithBudget(options: {
         message: 'Git hooks already use the exact physical managed generation ' + expectedGeneration + '.'
       });
     }
+  }
+  if (options.observationOnly === true) {
+    return Object.freeze({
+      status: 'installed',
+      message: 'Managed Git hook materialization is required.'
+    });
   }
   if (
     worktreeConfigured !== null
@@ -6003,6 +6039,56 @@ export async function installGitHooks(options: {
     }
     throw conflict;
   }
+}
+
+/** Reuses the caller's exact production Git session; no second provider may be opened. */
+export async function installGitHooksWithSession(options: {
+  readonly repoRoot: string;
+  readonly lifecycle?: boolean;
+  readonly session: GitReadSession;
+}): Promise<GitHookInstallationResult> {
+  if (!isProductionGitReadSession(options.session)) {
+    throw new Error('Managed Git hook materialization requires a production Git session.');
+  }
+  const repoRoot = path.resolve(options.repoRoot);
+  if (path.resolve(options.session.cwd) !== repoRoot) {
+    throw new Error('Managed Git hook materialization session targets another worktree.');
+  }
+  return installGitHooksWithProvider({ ...options, repoRoot }, Object.freeze({
+    status: 'ready' as const,
+    route: options.session.providerRoute,
+    session: options.session
+  }));
+}
+
+export async function observeManagedGitHooksWithSession(options: {
+  readonly repoRoot: string;
+  readonly session: GitReadSession;
+}): Promise<ManagedGitHookReadinessObservation> {
+  if (!isProductionGitReadSession(options.session)) {
+    throw new Error('Managed Git hook observation requires a production Git session.');
+  }
+  const repoRoot = path.resolve(options.repoRoot);
+  if (path.resolve(options.session.cwd) !== repoRoot) {
+    throw new Error('Managed Git hook observation session targets another worktree.');
+  }
+  const result = await installGitHooksInternal({
+    repoRoot,
+    observationOnly: true,
+    providerResolution: Object.freeze({
+      status: 'ready' as const,
+      route: options.session.providerRoute,
+      session: options.session
+    })
+  });
+  const disposition = result.status === 'managed' ? 'ready' : 'materialization-required';
+  const observationDigest = sha256({
+    owner: 'development.hooks', repoRoot, disposition, result
+  }) as `sha256:${string}`;
+  return Object.freeze({
+    disposition,
+    observationDigest
+  });
 }
 
 /**

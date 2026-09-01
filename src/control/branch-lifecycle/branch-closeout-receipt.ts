@@ -78,7 +78,7 @@ export interface HostedWorkflowCommentProvenance {
   workflowSha: string;
   runId: string;
   runAttempt: number;
-  eventName: 'workflow_run';
+  eventName: 'repository_dispatch';
   sourceRunId: string;
   sourceRunAttempt: number;
   actorLogin: string;
@@ -284,7 +284,7 @@ export function createHostedWorkflowCommentProvenance(input: Omit<
   assertGitSha(input.workflowSha, 'hosted comment workflow SHA');
   if (input.workflowPath !== '.github/workflows/sec-merge-gate.yml'
     || input.workflowRef !== `${input.workflowPath}@${input.workflowSha}`
-    || input.eventName !== 'workflow_run') {
+    || input.eventName !== 'repository_dispatch') {
     throw new Error('Hosted comment workflow provenance is not the canonical merge workflow exact ref.');
   }
   positiveInteger(input.runAttempt, 'Hosted comment runAttempt');
@@ -321,7 +321,7 @@ export function parseHostedWorkflowCommentProvenance(
     workflowSha: boundedIdentity(value.workflowSha, 'Hosted comment workflowSha'),
     runId: boundedIdentity(value.runId, 'Hosted comment runId'),
     runAttempt: positiveInteger(value.runAttempt, 'Hosted comment runAttempt'),
-    eventName: value.eventName as 'workflow_run',
+    eventName: value.eventName as 'repository_dispatch',
     sourceRunId: boundedIdentity(value.sourceRunId, 'Hosted comment sourceRunId'),
     sourceRunAttempt: positiveInteger(value.sourceRunAttempt, 'Hosted comment sourceRunAttempt'),
     actorLogin: boundedIdentity(value.actorLogin, 'Hosted comment actorLogin'),
@@ -1058,21 +1058,26 @@ export function assertHostedCommentProvenanceLive(
     'hosted comment workflow run attempt readback');
   assertRecord(run.actor, 'hosted comment workflow actor');
   assertRecord(run.repository, 'hosted comment workflow repository');
+  const actionsBot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
   if (String(run.id ?? '') !== provenance.runId || run.run_attempt !== provenance.runAttempt
     || run.event !== provenance.eventName || run.path !== provenance.workflowPath
     || run.head_sha !== provenance.workflowSha
-    || run.actor.login !== provenance.actorLogin || run.actor.node_id !== provenance.actorNodeId
+    || run.actor.login !== actionsBot.login || run.actor.id !== actionsBot.id
+    || run.actor.node_id !== actionsBot.nodeId || run.actor.type !== actionsBot.type
     || String(run.repository.id ?? '') !== provenance.repositoryId) {
     throw new Error('hosted comment workflow run provenance drifted');
   }
   const source = jsonApi(repositoryRoot,
     `/repos/${repository}/actions/runs/${provenance.sourceRunId}/attempts/${provenance.sourceRunAttempt}`,
     'hosted comment source workflow run attempt readback');
+  assertRecord(source.triggering_actor, 'hosted comment source triggering actor');
   if (String(source.id ?? '') !== provenance.sourceRunId
     || source.run_attempt !== provenance.sourceRunAttempt
     || source.event !== 'repository_dispatch'
     || source.path !== '.github/workflows/compiler-pr-validation.yml'
-    || source.head_sha !== provenance.workflowSha) {
+    || source.head_sha !== provenance.workflowSha
+    || source.triggering_actor?.login !== provenance.actorLogin
+    || source.triggering_actor?.node_id !== provenance.actorNodeId) {
     throw new Error('hosted comment source workflow provenance drifted');
   }
   const permission = collaboratorCanPublishReceipt(repositoryRoot, repository, provenance.actorLogin);

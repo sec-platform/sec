@@ -29,7 +29,7 @@ import {
   type SecProviderSettlementSet,
   type SecSemanticOperationIntent
 } from '../../system-architecture/operation/semantic.ts';
-import { runStagedImportCheck } from '../runner/import-organizer.ts';
+import { verifyCandidateImportNormalization } from '../import-normalization/runtime.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
   requireUpstreamDevelopmentCommitEffectGrant
@@ -244,6 +244,8 @@ async function preflight(request: DevelopmentCommitRequest): Promise<Readonly<{
   readonly preimage: string;
   readonly tree: string;
   readonly target: string;
+  readonly indexPath: string;
+  readonly indexDigest: `sha256:${string}`;
   readonly preflightReceiptDigest: SecOperationDigest;
   readonly providerIdentityDigest: SecOperationDigest;
 }>> {
@@ -274,14 +276,6 @@ async function preflight(request: DevelopmentCommitRequest): Promise<Readonly<{
       throw new Error('Development commit repository/ref preflight is not canonical.');
     }
     const beforeIndex = await readFile(indexPath);
-    const admission = await runStagedImportCheck(repositoryRoot);
-    if (admission.status !== 'canonical') {
-      throw new Error(`Development commit precommit admission failed: ${admission.files.join(', ')}`);
-    }
-    const afterAdmissionIndex = await readFile(indexPath);
-    if (!beforeIndex.equals(afterAdmissionIndex)) {
-      throw new Error('Development commit index drifted during pure precommit admission.');
-    }
     const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-'));
     try {
       await mkdir(path.join(scratchRoot, 'objects'));
@@ -315,10 +309,9 @@ async function preflight(request: DevelopmentCommitRequest): Promise<Readonly<{
           commonDirectory,
           ref,
           preimage,
-          indexDigest: rawSha256(beforeIndex),
           tree: treeResult.value,
           target: commitResult.value,
-          admission: 'canonical'
+          indexDigest: rawSha256(beforeIndex)
         };
         return Object.freeze({
           repositoryRoot,
@@ -327,6 +320,8 @@ async function preflight(request: DevelopmentCommitRequest): Promise<Readonly<{
           preimage,
           tree: treeResult.value,
           target: commitResult.value,
+          indexPath,
+          indexDigest: rawSha256(beforeIndex),
           preflightReceiptDigest: sha256(receipt) as SecOperationDigest,
           providerIdentityDigest: sha256(session.providerIdentity) as SecOperationDigest
         });
@@ -495,6 +490,19 @@ async function execute(
         `Development commit object materialization failed: ${object.reason}`
         + (object.detail === undefined ? '' : `; ${object.detail}`)
       );
+    }
+    const normalization = await verifyCandidateImportNormalization({
+      repositoryRoot: frozen.repositoryRoot,
+      candidateCommit: frozen.target
+    });
+    if (normalization.terminal?.status !== 'passed') {
+      throw new Error(
+        `Development commit precommit admission failed: `
+        + `${normalization.reason ?? normalization.terminal?.reasonCode ?? 'noncanonical'}`
+      );
+    }
+    if (rawSha256(await readFile(frozen.indexPath)) !== frozen.indexDigest) {
+      throw new Error('Development commit index drifted during exact candidate normalization admission.');
     }
     journal = Object.freeze({ ...journal, object: object.object });
     writeJournal(frozen.commonDirectory, journalPath, journal, false);

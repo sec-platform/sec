@@ -1015,6 +1015,83 @@ function postUnregisterObservationFailureReceipt(
   return persistReceiptGeneration(recoveryRoot, receipt);
 }
 
+async function retireAuthorizedTargetForCleanup(input: Readonly<{
+  authorization: WorktreePhysicalCloseoutAuthorization;
+  cleanupPath: string;
+  expectedProofRoot: PhysicalDirectoryIdentity;
+  expectedRecoveryRoot: PhysicalDirectoryIdentity;
+  allowAuthorizedSubset: boolean;
+}>): Promise<
+  | Readonly<{ status: 'blocked'; blockers: readonly string[]; inventory: WorktreePhysicalInventory | null }>
+  | Readonly<{
+      status: 'retired';
+      cleanupPath: string;
+      inventory: WorktreePhysicalInventory;
+      retirementReceipt: WorkspaceWriteLeaseRetirementReceipt;
+    }>
+> {
+  let cleanupPath = input.cleanupPath;
+  const targetLease = await acquireWorkspaceWriteLease(cleanupPath);
+  try {
+    await targetLease.assertOwned();
+    const retainedTarget = physicalDirectory(cleanupPath, 'Authorized target cleanup root');
+    if (retainedTarget.device !== input.authorization.target.device ||
+        retainedTarget.inode !== input.authorization.target.inode) {
+      return Object.freeze({
+        status: 'blocked',
+        blockers: ['target-physical-identity-changed'],
+        inventory: null
+      });
+    }
+    const inventory = withoutLeaseOwnedNamespace(observeWorktreePhysicalInventory(cleanupPath));
+    const blockers = input.allowAuthorizedSubset
+      ? classifyAuthorizedWorktreeResidue(inventory, input.authorization.inventory)
+      : inventory.inventoryDigest === input.authorization.inventory.inventoryDigest
+        ? []
+        : ['inventory-changed-after-authorization'];
+    if (blockers.length > 0) return Object.freeze({ status: 'blocked', blockers, inventory });
+    if (cleanupPath === input.authorization.target.path) {
+      cleanupPath = relocateRetainedNoFollowDirectory({
+        directory: physicalDirectory(input.authorization.target.path, 'Target retained tombstone source'),
+        tombstoneName: input.authorization.tombstoneName
+      }).path;
+      await targetLease.relocate(cleanupPath);
+    }
+    const liveLeaseNamespace = physicalDirectory(
+      path.join(cleanupPath, '.sec', 'workspace-write-lease'),
+      'Authorized target writer lease namespace'
+    );
+    if (liveLeaseNamespace.device !== input.authorization.targetLeaseNamespace.device ||
+        liveLeaseNamespace.inode !== input.authorization.targetLeaseNamespace.inode) {
+      throw new Error('Target writer lease namespace identity changed after authorization.');
+    }
+    const intent = createRetiredWorktreeIntent({
+      authorizationDigest: input.authorization.authorizationDigest,
+      tombstoneName: input.authorization.tombstoneName,
+      targetDevice: input.authorization.target.device,
+      targetInode: input.authorization.target.inode
+    });
+    persistRetiredWorktreeIntent(input.expectedRecoveryRoot, intent);
+    const retirementReceipt = await targetLease.retireOwnedNamespace(intent.intentDigest, input.expectedProofRoot);
+    assertAuthorizedLeaseNamespaceBinding(input.authorization, retirementReceipt);
+    const phase = createRetiredWorktreePhase({
+      authorizationDigest: input.authorization.authorizationDigest,
+      tombstoneName: input.authorization.tombstoneName,
+      retirementReceipt
+    });
+    persistRetiredWorktreePhase(input.expectedRecoveryRoot, phase);
+    issueTrustedRetirement(input.authorization, retirementReceipt, phase);
+    recoverWorkspaceWriteLeaseRetirement({
+      workspaceRoot: cleanupPath,
+      intentDigest: intent.intentDigest,
+      proofParent: input.expectedProofRoot
+    });
+    return Object.freeze({ status: 'retired', cleanupPath, inventory, retirementReceipt });
+  } finally {
+    try { await targetLease.release(); } catch { /* retirement invalidates its handle */ }
+  }
+}
+
 async function executeWorktreePhysicalCloseoutUnderLease(
   input: ExecuteWorktreePhysicalCloseoutInput,
   assertLeases: () => Promise<void>
@@ -1154,6 +1231,12 @@ async function executeWorktreePhysicalCloseoutUnderLease(
   const registryAdminTombstonePath = path.join(expectedRecoveryRoot.path, authorization.registryAdmin.tombstoneName);
   let cleanupPath = authorization.target.path;
   let cleanupInventory = authorization.inventory;
+  let externalRegistryRemovalBlocker: string | null = prior !== null &&
+    loadReceiptChain(expectedRecoveryRoot, prior).some((generation) =>
+      generation.blockers.includes('external-registry-removal-without-retained-admin-effect')
+    )
+    ? 'external-registry-removal-without-retained-admin-effect'
+    : null;
   if (record !== null) {
     const tombstonePath = path.join(path.dirname(authorization.target.path), authorization.tombstoneName);
     if (retiredPhase !== null) {
@@ -1229,45 +1312,22 @@ async function executeWorktreePhysicalCloseoutUnderLease(
       const receipt = createReceipt(authorization, registry.digest, attempts, true, true, inventory, blockers);
       return persistReceiptGeneration(expectedRecoveryRoot, receipt);
     }
-    cleanupInventory = inventory;
-    // Retire the exact target lease protocol before physical cleanup.  Its
-    // identity-keyed sibling fence prevents a new writer from recreating the
-    // namespace while the authorized tree is being removed.
-    const targetLease = await acquireWorkspaceWriteLease(cleanupPath);
-    try {
-      await targetLease.assertOwned();
-      if (cleanupPath === authorization.target.path) {
-        cleanupPath = relocateRetainedNoFollowDirectory({
-          directory: physicalDirectory(authorization.target.path, 'Target retained tombstone source'),
-          tombstoneName: authorization.tombstoneName
-        }).path;
-        await targetLease.relocate(cleanupPath);
-      }
-      const liveLeaseNamespace = physicalDirectory(path.join(cleanupPath, '.sec', 'workspace-write-lease'), 'Authorized target writer lease namespace');
-      if (liveLeaseNamespace.device !== authorization.targetLeaseNamespace.device || liveLeaseNamespace.inode !== authorization.targetLeaseNamespace.inode) {
-        throw new Error('Target writer lease namespace identity changed after authorization.');
-      }
-      const intent = createRetiredWorktreeIntent({
-        authorizationDigest: authorization.authorizationDigest, tombstoneName: authorization.tombstoneName,
-        targetDevice: authorization.target.device, targetInode: authorization.target.inode
-      });
-      persistRetiredWorktreeIntent(expectedRecoveryRoot, intent);
-      retirementReceipt = await targetLease.retireOwnedNamespace(intent.intentDigest, expectedProofRoot);
-      assertAuthorizedLeaseNamespaceBinding(authorization, retirementReceipt);
-      const actualRetirementPhase = createRetiredWorktreePhase({
-        authorizationDigest: authorization.authorizationDigest,
-        tombstoneName: authorization.tombstoneName,
-        retirementReceipt
-      });
-      persistRetiredWorktreePhase(expectedRecoveryRoot, actualRetirementPhase);
-      // Only this branch holds the live target lease and received its actual
-      // retirement return value.  Durable resume branches intentionally never
-      // call this issuer, even when they later converge to physical complete.
-      issueTrustedRetirement(authorization, retirementReceipt, actualRetirementPhase);
-      recoverWorkspaceWriteLeaseRetirement({ workspaceRoot: cleanupPath, intentDigest: intent.intentDigest, proofParent: expectedProofRoot });
-    } finally {
-      try { await targetLease.release(); } catch { /* retirement invalidates its handle */ }
+    const retiredTarget = await retireAuthorizedTargetForCleanup({
+      authorization,
+      cleanupPath,
+      expectedProofRoot,
+      expectedRecoveryRoot,
+      allowAuthorizedSubset: false
+    });
+    if (retiredTarget.status === 'blocked') {
+      return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
+        authorization, registry.digest, attempts, true, true,
+        retiredTarget.inventory, retiredTarget.blockers
+      ));
     }
+    cleanupPath = retiredTarget.cleanupPath;
+    cleanupInventory = retiredTarget.inventory;
+    retirementReceipt = retiredTarget.retirementReceipt;
     }
     // The retained tombstone makes the original target literal ENOENT while
     // preserving its identity and lease fence.  Persisted authorization is
@@ -1360,6 +1420,36 @@ async function executeWorktreePhysicalCloseoutUnderLease(
       persistReceiptGeneration(expectedRecoveryRoot, createReceipt(authorization, registry.digest, attempts, false, true, null, ['registry-admin-cleanup-pending-after-crash']));
       removeAuthorizedResidue(registryAdminTombstonePath, subset, attempts);
     }
+    if (retiredPhase === null && adminTombstone === null) {
+      const target = physicalPresence(authorization.target.path, 'Externally unregistered target residue');
+      if (target !== null && target.device === authorization.target.device && target.inode === authorization.target.inode) {
+        try {
+          const retiredTarget = await retireAuthorizedTargetForCleanup({
+            authorization,
+            cleanupPath: authorization.target.path,
+            expectedProofRoot,
+            expectedRecoveryRoot,
+            allowAuthorizedSubset: true
+          });
+          if (retiredTarget.status === 'blocked') {
+            return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
+              authorization, registry.digest, attempts, false, true,
+              retiredTarget.inventory,
+              retiredTarget.blockers.map((blocker) => `external-half-settled-${blocker}`)
+            ));
+          }
+          cleanupPath = retiredTarget.cleanupPath;
+          cleanupInventory = retiredTarget.inventory;
+          retirementReceipt = retiredTarget.retirementReceipt;
+          externalRegistryRemovalBlocker = 'external-registry-removal-without-retained-admin-effect';
+        } catch (error) {
+          return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
+            authorization, registry.digest, attempts, false, true, null,
+            [`external-half-settled-retirement-blocked:${detailDigest(error instanceof Error ? error.message : String(error))}`]
+          ));
+        }
+      }
+    }
     if (retiredPhase !== null) {
       cleanupPath = path.join(path.dirname(authorization.target.path), authorization.tombstoneName);
       const tombstone = physicalPresence(cleanupPath, 'Registry-absent retired tombstone presence');
@@ -1418,10 +1508,17 @@ async function executeWorktreePhysicalCloseoutUnderLease(
       attempt.operation === 'unregister' && attempt.status === 'success'
     ));
     if (!exactAdminEffectWitnessed) {
-      return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
-        authorization, registry.digest, attempts, false, true, null,
-        ['registry-admin-disappeared-without-authorized-effect-witness']
-      ));
+      if (externalRegistryRemovalBlocker !== null) {
+        persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
+          authorization, registry.digest, attempts, false, true, cleanupInventory,
+          [externalRegistryRemovalBlocker]
+        ));
+      } else {
+        return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
+          authorization, registry.digest, attempts, false, true, null,
+          ['registry-admin-disappeared-without-authorized-effect-witness']
+        ));
+      }
     }
     const alreadyWitnessed = chain.some((generation) =>
       generation.blockers.includes('registry-admin-cleanup-readback-durable')
@@ -1435,7 +1532,7 @@ async function executeWorktreePhysicalCloseoutUnderLease(
   }
 
   try {
-    let blockers: string[] = [];
+    let blockers: string[] = externalRegistryRemovalBlocker === null ? [] : [externalRegistryRemovalBlocker];
     const remainingTarget = physicalPresence(cleanupPath, 'Residue target');
     if (remainingTarget !== null) {
       const targetIdentity = remainingTarget;
@@ -1443,8 +1540,9 @@ async function executeWorktreePhysicalCloseoutUnderLease(
         blockers.push('target-physical-identity-changed');
       } else {
         const current = observeWorktreePhysicalInventory(cleanupPath);
-        blockers = classifyAuthorizedWorktreeResidue(current, authorization.inventory);
-        if (blockers.length === 0) {
+        const residueBlockers = classifyAuthorizedWorktreeResidue(current, authorization.inventory);
+        blockers.push(...residueBlockers);
+        if (residueBlockers.length === 0) {
           await assertLeases();
           removeAuthorizedResidue(cleanupPath, current, attempts);
           if (physicalPresence(cleanupPath, 'Target cleanup crash boundary') === null) {
@@ -1473,7 +1571,9 @@ async function executeWorktreePhysicalCloseoutUnderLease(
       relativePath: null,
       detailDigest: detailDigest({ registryPresent, physicalPresent, inventoryAfter: inventoryAfter?.inventoryDigest ?? null })
     });
-    if (!registryPresent && !physicalPresent && retirementReceipt !== null) {
+    const retirementFenceCanConverge = blockers.length === 0 ||
+      (blockers.length === 1 && blockers[0] === 'external-registry-removal-without-retained-admin-effect');
+    if (!registryPresent && !physicalPresent && retirementReceipt !== null && retirementFenceCanConverge) {
       // This final proof fence applies equally to the normal path and to the
       // crash-resume shape where the tombstone has already gone away.  Public
       // phase/receipt bytes cannot bypass the retained V3 ledger; leave the
@@ -1492,7 +1592,7 @@ async function executeWorktreePhysicalCloseoutUnderLease(
         ));
       }
     }
-    if (!registryPresent && !physicalPresent && retirementReceipt !== null) {
+    if (!registryPresent && !physicalPresent && retirementReceipt !== null && retirementFenceCanConverge) {
       // This immutable nonterminal generation closes cleanup itself.  If the
       // process dies before the next completed/fence-completion generations,
       // resume accepts only this exact evidence shape and never reacquires the
@@ -1502,7 +1602,7 @@ async function executeWorktreePhysicalCloseoutUnderLease(
         ['cleanup-readback-durable-before-fence-completion']
       ));
     }
-    if (!registryPresent && !physicalPresent && retirementReceipt !== null) {
+    if (!registryPresent && !physicalPresent && retirementReceipt !== null && retirementFenceCanConverge) {
       // The physical readback is real, but the retirement fence still denies
       // ordinary writers.  This must remain an explicit nonterminal stage;
       // only fence deletion *and a subsequent durable generation* produces
@@ -1523,14 +1623,16 @@ async function executeWorktreePhysicalCloseoutUnderLease(
           ? 'retirement-fence-absence-recovered-readback'
           : 'retirement-fence-completion-readback')
       });
-      const completed = persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
-        authorization, registry.digest, attempts, false, false, null, []
-      ));
-      // This is deliberately after durable final receipt publication.  A
-      // crash before it leaves only public evidence and cannot manufacture an
-      // opaque branch capability in a later process.
-      issueTrustedCompletion(authorization, completed);
-      return completed;
+      if (blockers.length === 0) {
+        const completed = persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
+          authorization, registry.digest, attempts, false, false, null, []
+        ));
+        // This is deliberately after durable final receipt publication.  A
+        // crash before it leaves only public evidence and cannot manufacture an
+        // opaque branch capability in a later process.
+        issueTrustedCompletion(authorization, completed);
+        return completed;
+      }
     }
     return persistReceiptGeneration(expectedRecoveryRoot, createReceipt(
       authorization, registry.digest, attempts, registryPresent, physicalPresent, inventoryAfter, blockers

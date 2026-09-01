@@ -8,7 +8,7 @@ import { expect, test } from 'bun:test';
 import { installGitHooksForTest } from '../../src/development/hooks/install.ts';
 import type { GitReadProviderResolutionFailure } from '../../src/external-capabilities/git-read/runtime/session.ts';
 
-test('tracked hooks bind a pure staged check and candidate freeze without ambient EOL drift', async () => {
+test('tracked hooks bind deterministic staged normalization and candidate freeze without ambient EOL drift', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../..');
   const preCommit = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
   const prePush = await readFile(path.join(repoRoot, '.githooks', 'pre-push'), 'utf8');
@@ -37,7 +37,7 @@ test('tracked hooks bind a pure staged check and candidate freeze without ambien
     expect(executed.status).toBe(0);
     expect((await readFile(argumentsPath, 'utf8')).trim().split(/\r?\n/u)).toEqual([
       'run',
-      'imports:check',
+      'imports:apply',
       '--staged'
     ]);
   } finally {
@@ -48,11 +48,16 @@ test('tracked hooks bind a pure staged check and candidate freeze without ambien
   expect(prePush).toContain('bun run imports:freeze');
   expect(prePush).toContain('git diff --cached --quiet HEAD');
   expect(prePush).not.toContain('\r');
-  for (const dependencyHook of [postCheckout, postMerge, postRewrite]) {
-    const lifecycleIndex = dependencyHook.indexOf('bun run postinstall');
-    const dependencyIndex = dependencyHook.indexOf('bun run deps:ensure');
-    expect(lifecycleIndex).toBeGreaterThanOrEqual(0);
-    expect(dependencyIndex).toBeGreaterThan(lifecycleIndex);
+  for (const [hook, event] of [
+    [postCheckout, 'post-checkout'],
+    [postMerge, 'post-merge'],
+    [postRewrite, 'post-rewrite']
+  ] as const) {
+    expect(hook).toContain(
+      `exec bun ./src/development/runner/cli.ts workspace-transition ${event} "$@"`
+    );
+    expect(hook).not.toContain('bun run postinstall');
+    expect(hook).not.toContain('bun run deps:ensure');
   }
   expect(postCheckout).not.toContain('\r');
   expect(attributes).toContain('/.githooks/* text eol=lf');

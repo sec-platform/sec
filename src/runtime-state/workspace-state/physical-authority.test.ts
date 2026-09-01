@@ -124,6 +124,53 @@ test.skipIf(process.platform !== 'win32')('owner child generations advance witho
   }
 });
 
+test.skipIf(process.platform !== 'win32')(
+  'independent repository roots use independent generations under shared Runtime State roots',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-root-identity-'));
+    const firstRepositoryRoot = path.join(root, 'repository-first');
+    const secondRepositoryRoot = path.join(root, 'repository-second');
+    const stateRoot = path.join(root, 'state');
+    const cacheRoot = path.join(root, 'cache');
+    mkdirSync(firstRepositoryRoot);
+    mkdirSync(secondRepositoryRoot);
+    const before = observeWindowsAclSessionLifecycleForTests();
+    const first = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot: firstRepositoryRoot,
+      stateRoot,
+      cacheRoot,
+      requiredDirectories: []
+    });
+    let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let firstWarm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    try {
+      second = await acquireSecRuntimeStatePhysicalAuthority({
+        repositoryRoot: secondRepositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: []
+      });
+      const afterIndependentRoots = observeWindowsAclSessionLifecycleForTests();
+      expect(afterIndependentRoots.opened - before.opened).toBe(2);
+      expect(afterIndependentRoots.closed - before.closed).toBe(0);
+
+      firstWarm = await acquireSecRuntimeStatePhysicalAuthority({
+        repositoryRoot: firstRepositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: []
+      });
+      expect(observeWindowsAclSessionLifecycleForTests().opened).toBe(afterIndependentRoots.opened);
+      await Promise.all([first.assertCurrent(), second.assertCurrent(), firstWarm.assertCurrent()]);
+    } finally {
+      await firstWarm?.release();
+      await second?.release();
+      await first.release();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
 test.skipIf(process.platform !== 'win32')('warm closure reuses one generation and a multi-directory delta swaps it once', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-warm-delta-'));
   const repositoryRoot = path.join(root, 'repository');

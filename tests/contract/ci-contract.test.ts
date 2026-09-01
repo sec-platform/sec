@@ -89,7 +89,7 @@ const WORKFLOW_RUNNER_ROLES = Object.freeze({
   }
 } as const);
 
-test('all hosted workflow-run consumers exclude mutable provider name from identity', async () => {
+test('all hosted run consumers exclude mutable provider name from identity', async () => {
   const headSha = 'a'.repeat(40);
   const compilerTitle = `verify session PR #42 session sha256:${'b'.repeat(64)}`;
   const compilerIdentity = {
@@ -119,11 +119,11 @@ test('all hosted workflow-run consumers exclude mutable provider name from ident
   })).toBe(false);
   expect(matchesCiWorkflowRunIdentity({
     workflowPath: '.github/workflows/sec-merge-gate.yml',
-    eventName: 'workflow_run',
+    eventName: 'repository_dispatch',
     displayTitle: 'integrate compiler session run 100 attempt 1',
     headSha,
     expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
-    expectedEventName: 'workflow_run',
+    expectedEventName: 'repository_dispatch',
     expectedDisplayTitle: 'integrate compiler session run 100 attempt 1',
     expectedHeadSha: headSha
   })).toBe(true);

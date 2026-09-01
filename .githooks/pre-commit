@@ -3,4 +3,4 @@ set -eu
 
 export SEC_GIT_HOOK_ACTIVE=1
 
-bun run imports:check --staged
+bun run imports:apply --staged
