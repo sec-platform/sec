@@ -71,6 +71,7 @@ export interface RepositorySourceProgramCompilationReceipt {
   readonly moduleMembershipDigest: `sha256:${string}`;
   readonly moduleGraphDigest: `sha256:${string}`;
   readonly workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  readonly semanticSourceDigests: Readonly<Record<string, `sha256:${string}`>>;
   readonly projectGeneration: RepositoryCompilationGenerationReceipt;
   readonly cacheReceipt: RepositoryCompilationCacheReceipt | null;
   readonly moduleGraphCompilationCount: 1;
@@ -105,7 +106,9 @@ export function assertRepositorySourceProgramCompilationReceipt(
       || receipt.workspaceSnapshot.identityDigest !== receipt.workspaceSnapshotIdentityDigest
       || receipt.workspaceSnapshot.snapshotDigest !== receipt.snapshotDigest
       || receipt.workspaceSnapshot.moduleGraphDigest !== receipt.moduleGraphDigest
-      || receipt.workspaceSnapshot.moduleMembershipDigest !== receipt.moduleMembershipDigest) {
+      || receipt.workspaceSnapshot.moduleMembershipDigest !== receipt.moduleMembershipDigest
+      || sha256(receipt.semanticSourceDigests)
+        !== sha256(receipt.typeScriptCompilation.state.semanticSourceDigests)) {
     throw new Error('Source Program compilation receipt identity is not current');
   }
 }
@@ -288,6 +291,7 @@ function compileRepositorySourceProgramCompilationCore(
     moduleMembershipDigest: workspaceSnapshot.moduleMembershipDigest,
     moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
     workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
+    semanticSourceDigests: typeScriptCompilation.state.semanticSourceDigests,
     projectGenerationReceiptDigest: projectGeneration.receiptDigest,
     typeScriptModelDigest: typeScriptCompilation.model.modelDigest,
     typeScriptRequiredApiClosureDigest: typeScriptRequiredApiClosure.closureDigest,
@@ -302,6 +306,7 @@ function compileRepositorySourceProgramCompilationCore(
     moduleMembershipDigest: workspaceSnapshot.moduleMembershipDigest,
     moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
     workspaceSnapshotIdentityDigest: workspaceSnapshot.identityDigest,
+    semanticSourceDigests: typeScriptCompilation.state.semanticSourceDigests,
     projectGeneration,
     cacheReceipt,
     moduleGraphCompilationCount: workspaceSnapshot.moduleGraphCompilationCount,

@@ -74,6 +74,7 @@ export interface TypeScriptSourceProgramIncrementalState {
   readonly providerRevision: string;
   readonly sourceRevision: string;
   readonly fileDigests: Readonly<Record<string, string>>;
+  readonly semanticSourceDigests: Readonly<Record<string, `sha256:${string}`>>;
   readonly moduleDigests: Readonly<Record<string, string>>;
   readonly semanticDependencyScopes: Readonly<Record<
     string,
@@ -923,8 +924,12 @@ function spanFor(sourceFile: ts.SourceFile, node: ts.Node): SourceProgramSpan {
   });
 }
 
+function semanticSourceText(source: string): string {
+  return source.replace(/\r\n?/gu, '\n');
+}
+
 function semanticDeclarationText(sourceFile: ts.SourceFile, node: ts.Node): string {
-  return node.getText(sourceFile).replace(/\r\n?/gu, '\n');
+  return semanticSourceText(node.getText(sourceFile));
 }
 
 function executionScopeName(span: SourceProgramSpan): string {
@@ -1642,6 +1647,12 @@ function buildIncrementalState(
   const fileDigests = previousGeneration?.fileDigests ?? Object.freeze(Object.fromEntries(
     orderedIdentities.map(({ file, rawFileDigest }) => [file.path, rawFileDigest])
   ));
+  const semanticSourceDigests = Object.freeze(Object.fromEntries(
+    orderedIdentities.map(({ file }) => [
+      file.path,
+      rawSha256(semanticSourceText(file.source)) as `sha256:${string}`
+    ])
+  ));
   const moduleDigests = previousGeneration?.moduleDigests ?? Object.freeze(Object.fromEntries(
     orderedIdentities.map(({ file, moduleDigest }) => [file.path, moduleDigest])
   ));
@@ -1653,6 +1664,7 @@ function buildIncrementalState(
     providerRevision: compilerRevision,
     sourceRevision: input.sourceRevision,
     fileDigests,
+    semanticSourceDigests,
     moduleDigests,
     semanticDependencyScopes,
     moduleGraphDigest,

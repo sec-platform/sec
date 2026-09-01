@@ -741,6 +741,8 @@ test('Git LF and Windows checkout line endings have one semantic reconciliation 
     'export function run(): string {',
     "  return 'ok';",
     '}',
+    "const key = 'stable';",
+    'export const table = { [key]: true };',
     "export const value = run();",
     ''
   ].join('\n');
@@ -755,9 +757,13 @@ test('Git LF and Windows checkout line endings have one semantic reconciliation 
   const projection = reconcile(before, after);
   expect(projection.changes).toEqual([]);
   expect(projection.status).toBe('resolved');
+  expect(projection.unresolvedReasons).toEqual([]);
+  expect(after.compilation.semanticSourceDigests).toEqual(
+    before.compilation.semanticSourceDigests
+  );
   const declaration = after.compilation.model.declarations.find(({ name }) => name === 'run');
   expect(declaration?.span.start).toBe(windowsSource.indexOf('export function run'));
-  expect(declaration?.span.end).toBe(windowsSource.indexOf('\r\nexport const value'));
+  expect(declaration?.span.end).toBe(windowsSource.indexOf('\r\nconst key'));
 });
 
 test('cross-revision matching retains duplicate declaration names at their exact semantic addresses', () => {
