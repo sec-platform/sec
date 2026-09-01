@@ -144,10 +144,7 @@ async function expectManagedHooksMirror(repoRoot: string, configured: string): P
     const importCommand = hook === 'pre-commit'
       ? importsCheckStagedCommand
       : importsFreezeCommand;
-    const injected = hook === 'pre-push'
-      ? source.replace(importCommand, `${depsEnsureCommand}\n${importCommand}`)
-      : source;
-    const expected = injected
+    const expected = source
       .replaceAll(depsEnsureCommand, runtimeBoundCommand(depsEnsureCommand))
       .replaceAll(hooksReconcileCommand, runtimeBoundCommand(hooksReconcileCommand))
       .replaceAll(importsCheckStagedCommand, runtimeBoundCommand(importsCheckStagedCommand))
@@ -157,12 +154,7 @@ async function expectManagedHooksMirror(repoRoot: string, configured: string): P
     expect(installed).not.toMatch(/(?:^|\n)bun \.\/platform\/dev-runner\.ts/u);
     if (hook === 'pre-commit' || hook === 'pre-push') {
       expect(source).not.toContain(depsEnsureCommand);
-      if (hook === 'pre-commit') {
-        expect(installed).not.toContain(runtimeBoundCommand(depsEnsureCommand));
-      } else {
-        expect(installed.indexOf(runtimeBoundCommand(depsEnsureCommand)))
-          .toBeLessThan(installed.indexOf(runtimeBoundCommand(importCommand)));
-      }
+      expect(installed).not.toContain(runtimeBoundCommand(depsEnsureCommand));
     }
   }
 }

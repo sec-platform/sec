@@ -853,7 +853,6 @@ function bindHookCommandToRuntime(command: string, runtimeExecutable: string): s
 
 function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
   const source = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes);
-  let deployed = source;
   if (name === 'pre-commit' || name === 'pre-push') {
     const importCommand = name === 'pre-commit'
       ? IMPORTS_CHECK_STAGED_COMMAND
@@ -862,15 +861,9 @@ function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
     if (firstImportCommand < 0 || firstImportCommand !== source.lastIndexOf(importCommand)) {
       throw new Error(name + ' must contain exactly one canonical ' + importCommand + ' command');
     }
-    if (name === 'pre-push') {
-      deployed = source.replace(
-        importCommand,
-        DEPS_ENSURE_COMMAND + '\n' + importCommand
-      );
-    }
   }
   return Buffer.from(
-    deployed
+    source
       .replaceAll(DEPS_ENSURE_COMMAND, bindHookCommandToRuntime(DEPS_ENSURE_COMMAND, process.execPath))
       .replaceAll(HOOKS_RECONCILE_COMMAND, bindHookCommandToRuntime(HOOKS_RECONCILE_COMMAND, process.execPath))
       .replaceAll(IMPORTS_CHECK_STAGED_COMMAND, bindHookCommandToRuntime(IMPORTS_CHECK_STAGED_COMMAND, process.execPath))
