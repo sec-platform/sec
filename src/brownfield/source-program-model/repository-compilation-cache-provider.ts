@@ -504,8 +504,8 @@ export function createRepositoryCompilationCacheProvider(input: Readonly<{
           }
         },
         publish: (shards: readonly TypeScriptSourceProgramFactShard[]) => atProviderBoundary(
-          'Repository compilation cache publication',
-          () => {
+            'Repository compilation cache publication',
+            () => {
             const pack = buildPack(shards);
             const manifest = buildManifest(identity, pack);
             const manifestBytes = new TextEncoder().encode(JSON.stringify(canonicalJson(manifest)));
@@ -517,8 +517,8 @@ export function createRepositoryCompilationCacheProvider(input: Readonly<{
               entries,
               predecessorToken: encodePredecessorToken(buildPredecessorToken(identity))
             }), identity);
-          }
-        )
+            }
+          )
       });
     }
   });

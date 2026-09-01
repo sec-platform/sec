@@ -42,6 +42,7 @@ import {
   compileTypeScriptSourceProgramModelIncremental,
   querySourceProgramModel
 } from './typescript.ts';
+import { compileWorkspaceSourceRevision } from './workspace-source-snapshot.ts';
 
 test('source program classifies catalog-installed code as a resource surface', () => {
   expect(sourceProgramSurfaceForPath(
@@ -484,9 +485,7 @@ test('source program model finds capability producers, consumers, literals, and 
     source,
     contentDigest: rawSha256(source)
   }));
-  const sourceRevision = rawSha256(JSON.stringify(
-    files.map(({ contentDigest, path }) => ({ path, contentDigest }))
-  ));
+  const sourceRevision = compileWorkspaceSourceRevision(files);
   const compile = (orderedFiles: typeof files) => compileRepositorySourceProgramModel({
     sourceRevision,
     files: orderedFiles,
@@ -1047,9 +1046,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     source,
     contentDigest: rawSha256(source)
   }));
-  const sourceRevision = rawSha256(JSON.stringify(
-    files.map(({ contentDigest, path }) => ({ path, contentDigest }))
-  ));
+  const sourceRevision = compileWorkspaceSourceRevision(files);
   const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership });
   const moduleGraph = compileSecRepositoryModuleGraph({
     files: [...sources.keys()],
@@ -1135,7 +1132,12 @@ function compileGraphCutFixture(
   });
   const files = Object.entries(sources)
     .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
-    .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
+    .map(([path, source]) => Object.freeze({
+      path,
+      mode: '100644' as const,
+      source,
+      contentDigest: rawSha256(source)
+    }));
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
@@ -1365,7 +1367,11 @@ test('graph cut blocks compiler-resolved cross-file aliases and re-exports', () 
 function compileSupersessionFixture(
   sources: Readonly<Record<string, string>>,
   declareIntent = true,
-  declareObligation = declareIntent
+  declareObligation = declareIntent,
+  aggregateBudgets: readonly Readonly<{
+    resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'processes' | 'records';
+    maximum: number;
+  }>[] = [{ resource: 'duration-ms', maximum: 30_000 }]
 ) {
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
@@ -1387,7 +1393,7 @@ function compileSupersessionFixture(
             retirement: 'replacement-obligations-satisfied'
           },
           resources: {
-            aggregateBudgets: [{ resource: 'duration-ms', maximum: 30_000 }]
+            aggregateBudgets
           },
           futureSupport: { condition: 'semantic-superset-required' }
         }]
@@ -1397,14 +1403,17 @@ function compileSupersessionFixture(
   const descriptorPath = 'src/example/sec.module.json';
   const files = Object.entries(sources)
     .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
-    .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
+    .map(([path, source]) => Object.freeze({
+      path,
+      mode: '100644' as const,
+      source,
+      contentDigest: rawSha256(source)
+    }));
   const membership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
-  const sourceRevision = rawSha256(JSON.stringify(
-    files.map(({ contentDigest, path }) => ({ path, contentDigest }))
-  ));
+  const sourceRevision = compileWorkspaceSourceRevision(files);
   const model = compileRepositorySourceProgramModel({
     sourceRevision,
     files,
@@ -1451,6 +1460,27 @@ function compileSupersessionSnapshot(
 ) {
   return compileSupersessionFixture(sources, declareIntent, declareObligation).evidence;
 }
+
+test('supersession evidence preserves a zero input admission ceiling and rejects negative budgets', () => {
+  const sources = {
+    'src/example/operation.ts': "export function execute(): string { return 'ok'; }\n"
+  };
+  const exact = compileSupersessionFixture(sources, true, true, [
+    { resource: 'duration-ms', maximum: 1_000 },
+    { resource: 'input-bytes', maximum: 0 }
+  ]);
+
+  expect(exact.evidence.intentEvidence[0]?.operationObligations[0]?.obligation.resources)
+    .toEqual({
+      aggregateBudgets: [
+        { resource: 'duration-ms', maximum: 1_000 },
+        { resource: 'input-bytes', maximum: 0 }
+      ]
+    });
+  expect(() => compileSupersessionFixture(sources, true, true, [
+    { resource: 'input-bytes', maximum: -1 }
+  ])).toThrow();
+});
 
 test('supersession proves a renamed implementation only through the same owner and semantic graph', () => {
   const baseline = compileSupersessionSnapshot({

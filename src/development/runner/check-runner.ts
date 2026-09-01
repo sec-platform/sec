@@ -5,24 +5,22 @@ import {
   buildLocalAffectedCheckPlan,
   type LocalAffectedGateStep
 } from './affected-plan-contract.ts';
-import {
-  retainOperationDependencyReadGeneration,
-  type OperationDependencyBootstrapResult
-} from './dependency-bootstrap.ts';
+import type { MaterializedOperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
+import { retainOperationDependencyReadGeneration } from './dependency-read-generation.ts';
 import {
   type ResolvedAffectedTestExecution
 } from './test-runner.ts';
 
 interface LocalAffectedCheckExecutionOptions {
   readonly operation: SecBoundSemanticOperation;
-  readonly prepareCompilerDependencies?: () => Promise<OperationDependencyBootstrapResult>;
+  readonly prepareCompilerDependencies?: () => Promise<MaterializedOperationDependencyBootstrapResult>;
 }
 
 
 async function executeLocalAffectedGate(
   step: LocalAffectedGateStep,
   affectedExecution: ResolvedAffectedTestExecution,
-  compilerDependencies: OperationDependencyBootstrapResult | undefined
+  compilerDependencies: MaterializedOperationDependencyBootstrapResult | undefined
 ): Promise<number> {
   if (step.id === 'imports:check') {
     const { runImportCheck } = await import('./import-organizer.ts');
@@ -164,7 +162,7 @@ export async function runLocalAffectedCheck(
 }
 
 interface FastCheckExecutionOptions {
-  readonly prepareCompilerDependencies?: () => Promise<OperationDependencyBootstrapResult>;
+  readonly prepareCompilerDependencies?: () => Promise<MaterializedOperationDependencyBootstrapResult>;
 }
 
 export async function runFastCheck(options: FastCheckExecutionOptions = {}): Promise<number> {

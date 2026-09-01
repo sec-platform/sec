@@ -6,7 +6,7 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { assertWorkspaceTypeScriptProjectGenerationEvidence } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
-import { compileAffectedTestSelectionSemanticOperation } from '../../src/development/runner/affected-plan.ts';
+import { compileAffectedTestSelectionSemanticOperation } from '../../src/development/runner/affected-plan-contract.ts';
 import type {
   DevCommandObservation,
   ObserveDevCommandOptions

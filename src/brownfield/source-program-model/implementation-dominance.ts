@@ -226,15 +226,112 @@ function declarationDefersExecution(declaration: SourceProgramDeclaration): bool
     || declaration.kind === 'SetAccessor';
 }
 
-function declarationIdsForPaths(
+type SourceProgramCapability = SourceProgramModel['capabilities'][number];
+type SourceProgramReference = SourceProgramModel['references'][number];
+
+type SourceProgramImplementationIndex = Readonly<{
+  capabilitiesByDeclarationId: ReadonlyMap<string, readonly SourceProgramCapability[]>;
+  declarationsByDigest: ReadonlyMap<string, readonly SourceProgramDeclaration[]>;
+  declarationsById: ReadonlyMap<string, SourceProgramDeclaration>;
+  declarationsByOwnerAndName: ReadonlyMap<string, readonly SourceProgramDeclaration[]>;
+  exportedDeclarationIdsByPath: ReadonlyMap<string, readonly string[]>;
+  incomingReferencesByDeclarationId: ReadonlyMap<string, readonly SourceProgramReference[]>;
+  outgoingCallsByDeclarationId: ReadonlyMap<string, readonly SourceProgramReference[]>;
+  ownerIntentsByOwner: ReadonlyMap<string, SourceProgramOwnerIntentEvidence>;
+  pathHasUndeferredCapability: ReadonlySet<string>;
+  unknownPaths: ReadonlySet<string>;
+  unresolvedReferencesByName: ReadonlyMap<string, readonly SourceProgramReference[]>;
+}>;
+
+function appendMapValue<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const values = map.get(key);
+  if (values === undefined) map.set(key, [value]);
+  else values.push(value);
+}
+
+function ownerDeclarationKey(owner: string | null, name: string): string {
+  return `${owner ?? ''}\0${name}`;
+}
+
+function compileSourceProgramImplementationIndex(
   model: SourceProgramModel,
+  ownerIntents: readonly SourceProgramOwnerIntentEvidence[]
+): SourceProgramImplementationIndex {
+  const declarationsById = new Map(model.declarations.map((declaration) => (
+    [declaration.observationId, declaration] as const
+  )));
+  const declarationsByPath = new Map<string, SourceProgramDeclaration[]>();
+  const declarationsByDigest = new Map<string, SourceProgramDeclaration[]>();
+  const declarationsByOwnerAndName = new Map<string, SourceProgramDeclaration[]>();
+  const exportedDeclarationIdsByPath = new Map<string, string[]>();
+  for (const declaration of model.declarations) {
+    appendMapValue(declarationsByPath, declaration.path, declaration);
+    if (!declaration.exported) continue;
+    appendMapValue(declarationsByDigest, declaration.declarationDigest, declaration);
+    appendMapValue(
+      declarationsByOwnerAndName,
+      ownerDeclarationKey(declaration.moduleId, declaration.name),
+      declaration
+    );
+    appendMapValue(exportedDeclarationIdsByPath, declaration.path, declaration.observationId);
+  }
+
+  const capabilitiesByDeclarationId = new Map<string, SourceProgramCapability[]>();
+  const pathHasUndeferredCapability = new Set<string>();
+  for (const capability of model.capabilities) {
+    let deferred = false;
+    for (const declaration of declarationsByPath.get(capability.path) ?? []) {
+      if (!declarationOwnsSpan(declaration, capability.path, capability.span)) continue;
+      appendMapValue(capabilitiesByDeclarationId, declaration.observationId, capability);
+      if (declarationDefersExecution(declaration)) deferred = true;
+    }
+    if (!deferred) pathHasUndeferredCapability.add(capability.path);
+  }
+
+  const incomingReferencesByDeclarationId = new Map<string, SourceProgramReference[]>();
+  const outgoingCallsByDeclarationId = new Map<string, SourceProgramReference[]>();
+  const unresolvedReferencesByName = new Map<string, SourceProgramReference[]>();
+  for (const reference of model.references) {
+    if (reference.targetObservationId !== null) {
+      appendMapValue(incomingReferencesByDeclarationId, reference.targetObservationId, reference);
+    }
+    if (reference.observationClass === 'unknown') {
+      appendMapValue(unresolvedReferencesByName, reference.name, reference);
+    }
+    if (reference.kind !== 'call' && reference.kind !== 'construct') continue;
+    for (const declaration of declarationsByPath.get(reference.path) ?? []) {
+      if (declarationOwnsSpan(declaration, reference.path, reference.span)) {
+        appendMapValue(outgoingCallsByDeclarationId, declaration.observationId, reference);
+      }
+    }
+  }
+
+  const freezeValues = <K, V>(map: Map<K, V[]>): ReadonlyMap<K, readonly V[]> => {
+    for (const [key, values] of map) map.set(key, Object.freeze(values) as V[]);
+    return map;
+  };
+  return Object.freeze({
+    capabilitiesByDeclarationId: freezeValues(capabilitiesByDeclarationId),
+    declarationsByDigest: freezeValues(declarationsByDigest),
+    declarationsById,
+    declarationsByOwnerAndName: freezeValues(declarationsByOwnerAndName),
+    exportedDeclarationIdsByPath: freezeValues(exportedDeclarationIdsByPath),
+    incomingReferencesByDeclarationId: freezeValues(incomingReferencesByDeclarationId),
+    outgoingCallsByDeclarationId: freezeValues(outgoingCallsByDeclarationId),
+    ownerIntentsByOwner: new Map(ownerIntents.map((intent) => [intent.owner, intent] as const)),
+    pathHasUndeferredCapability,
+    unknownPaths: new Set(model.unknowns.map(({ path }) => path)),
+    unresolvedReferencesByName: freezeValues(unresolvedReferencesByName)
+  });
+}
+
+function declarationIdsForPaths(
+  index: SourceProgramImplementationIndex,
   paths: readonly string[]
 ): readonly string[] {
-  const pathSet = new Set(paths);
-  return Object.freeze(model.declarations
-    .filter(({ exported, path }) => exported && pathSet.has(path))
-    .map(({ observationId }) => observationId)
-    .sort(compareCodeUnits));
+  return Object.freeze([...new Set(paths.flatMap((path) => (
+    index.exportedDeclarationIdsByPath.get(path) ?? []
+  )))].sort(compareCodeUnits));
 }
 
 function candidate(
@@ -261,36 +358,24 @@ function candidate(
  * declaration/type/capability facts, while names, literals and paths remain
  * heuristic unknowns that cannot authorize a disposition.
  */
-export function compileSourceProgramImplementationCandidates(input: Readonly<{
+function compileSourceProgramImplementationCandidatesWithIndex(input: Readonly<{
   readonly model: SourceProgramModel;
   readonly ownerIntents: readonly SourceProgramOwnerIntentEvidence[];
-}>): readonly SourceProgramImplementationCandidateObservation[] {
-  if (!isCompiledRepositorySourceProgramModel(input.model)) {
-    throw new Error('Implementation candidate discovery requires a compiler-issued Repository Source Program Model');
-  }
+}>, index: SourceProgramImplementationIndex): readonly SourceProgramImplementationCandidateObservation[] {
   const candidates: SourceProgramImplementationCandidateObservation[] = [];
   const ownerBoundDeclarationIds = new Set<string>();
   for (const intent of input.ownerIntents) {
     for (const { operations } of intent.capabilityEnvelope) {
       for (const operation of operations) {
-        for (const declaration of input.model.declarations) {
-          if (declaration.exported
-              && declaration.moduleId === intent.owner
-              && declaration.name === operation) {
-            ownerBoundDeclarationIds.add(declaration.observationId);
-          }
+        for (const declaration of index.declarationsByOwnerAndName.get(
+          ownerDeclarationKey(intent.owner, operation)
+        ) ?? []) {
+          ownerBoundDeclarationIds.add(declaration.observationId);
         }
       }
     }
   }
-  const declarationsByDigest = new Map<string, SourceProgramDeclaration[]>();
-  for (const declaration of input.model.declarations) {
-    if (!declaration.exported) continue;
-    const group = declarationsByDigest.get(declaration.declarationDigest) ?? [];
-    group.push(declaration);
-    declarationsByDigest.set(declaration.declarationDigest, group);
-  }
-  for (const declarations of declarationsByDigest.values()) {
+  for (const declarations of index.declarationsByDigest.values()) {
     if (declarations.length < 2) continue;
     const declarationObservationIds = declarations
       .filter(({ observationId }) => !ownerBoundDeclarationIds.has(observationId))
@@ -309,11 +394,9 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
   for (const intent of input.ownerIntents) {
     for (const { capability, operations } of intent.capabilityEnvelope) {
       for (const operation of operations) {
-        const declarations = input.model.declarations.filter((declaration) => (
-          declaration.exported
-          && declaration.moduleId === intent.owner
-          && declaration.name === operation
-        ));
+        const declarations = index.declarationsByOwnerAndName.get(
+          ownerDeclarationKey(intent.owner, operation)
+        ) ?? [];
         if (declarations.length === 0) continue;
         const identity = candidate(
           'identity',
@@ -339,11 +422,9 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
     for (const { obligation, observation } of intent.operationObligations) {
       const operation = obligation.operation;
       if (operation.kind !== 'capability') continue;
-      const declarations = input.model.declarations.filter((declaration) => (
-        declaration.exported
-        && declaration.moduleId === intent.owner
-        && declaration.name === operation.operation
-      ));
+      const declarations = index.declarationsByOwnerAndName.get(
+        ownerDeclarationKey(intent.owner, operation.operation)
+      ) ?? [];
       if (declarations.length === 0) continue;
       const semanticIdentity = `operation:${operation.capability}:${operation.operation}`;
       const stateful = obligation.effect.kinds.length > 0
@@ -374,9 +455,7 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
 
   for (const declaration of input.model.declarations) {
     if (!declaration.exported) continue;
-    const invocations = input.model.capabilities.filter(({ path, span }) => (
-      declarationOwnsSpan(declaration, path, span)
-    ));
+    const invocations = index.capabilitiesByDeclarationId.get(declaration.observationId) ?? [];
     for (const invocation of invocations) {
       if (invocation.capability === 'provider' || invocation.transport === 'repository-provider') {
         const observed = candidate(
@@ -415,7 +494,7 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
     const observed = candidate(
       mapping.kind,
       mapping.identity,
-      declarationIdsForPaths(input.model, sourceCandidate.paths),
+      declarationIdsForPaths(index, sourceCandidate.paths),
       'heuristic',
       'unknown'
     );
@@ -434,23 +513,24 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
   )));
 }
 
-function declarationForObservation(
-  model: SourceProgramModel,
-  observationId: string
-): SourceProgramDeclaration | null {
-  return model.declarations.find((declaration) => declaration.observationId === observationId) ?? null;
+export function compileSourceProgramImplementationCandidates(input: Readonly<{
+  readonly model: SourceProgramModel;
+  readonly ownerIntents: readonly SourceProgramOwnerIntentEvidence[];
+}>): readonly SourceProgramImplementationCandidateObservation[] {
+  if (!isCompiledRepositorySourceProgramModel(input.model)) {
+    throw new Error('Implementation candidate discovery requires a compiler-issued Repository Source Program Model');
+  }
+  const index = compileSourceProgramImplementationIndex(input.model, input.ownerIntents);
+  return compileSourceProgramImplementationCandidatesWithIndex(input, index);
 }
 
 function compileDeclarationCapabilityClosure(
-  model: SourceProgramModel,
+  index: SourceProgramImplementationIndex,
   root: SourceProgramDeclaration
 ): Readonly<{
   readonly capabilities: readonly SourceProgramModel['capabilities'][number][];
   readonly unknown: boolean;
 }> {
-  const declarations = new Map(model.declarations.map((declaration) => (
-    [declaration.observationId, declaration] as const
-  )));
   const visited = new Set<string>();
   const pending = [root.observationId];
   const capabilities = new Map<string, SourceProgramModel['capabilities'][number]>();
@@ -460,19 +540,16 @@ function compileDeclarationCapabilityClosure(
     const observationId = pending.pop()!;
     if (visited.has(observationId)) continue;
     visited.add(observationId);
-    const declaration = declarations.get(observationId);
+    const declaration = index.declarationsById.get(observationId);
     if (declaration === undefined) {
       unknown = true;
       continue;
     }
-    for (const invocation of model.capabilities) {
-      if (!declarationOwnsSpan(declaration, invocation.path, invocation.span)) continue;
+    for (const invocation of index.capabilitiesByDeclarationId.get(observationId) ?? []) {
       capabilities.set(sha256(invocation), invocation);
       if (invocation.observationClass === 'unknown' || invocation.transport === 'unknown') unknown = true;
     }
-    for (const reference of model.references) {
-      if ((reference.kind !== 'call' && reference.kind !== 'construct')
-          || !declarationOwnsSpan(declaration, reference.path, reference.span)) continue;
+    for (const reference of index.outgoingCallsByDeclarationId.get(observationId) ?? []) {
       if (reference.observationClass === 'unknown' || reference.targetObservationId === null) {
         unknown = true;
         continue;
@@ -482,15 +559,10 @@ function compileDeclarationCapabilityClosure(
   }
 
   const closurePaths = new Set([...visited]
-    .map((observationId) => declarationForObservation(model, observationId)?.path)
+    .map((observationId) => index.declarationsById.get(observationId)?.path)
     .filter((path): path is string => path !== undefined));
-  for (const invocation of model.capabilities) {
-    if (!closurePaths.has(invocation.path)) continue;
-    const deferred = model.declarations.some((declaration) => (
-      declarationDefersExecution(declaration)
-      && declarationOwnsSpan(declaration, invocation.path, invocation.span)
-    ));
-    if (!deferred) unknown = true;
+  for (const path of closurePaths) {
+    if (index.pathHasUndeferredCapability.has(path)) unknown = true;
   }
 
   return Object.freeze({
@@ -506,19 +578,18 @@ function compileDeclarationCapabilityClosure(
 function compileUnit(
   model: SourceProgramModel,
   ownerIntents: readonly SourceProgramOwnerIntentEvidence[],
+  index: SourceProgramImplementationIndex,
   candidate: SourceProgramImplementationCandidateObservation,
   declaration: SourceProgramDeclaration
 ): SourceProgramImplementationUnit {
-  const ownerIntent = ownerIntents.find(({ owner }) => owner === declaration.moduleId);
-  const exactReferences = model.references.filter(({ targetObservationId }) => (
-    targetObservationId === declaration.observationId
+  const ownerIntent = declaration.moduleId === null
+    ? undefined
+    : index.ownerIntentsByOwner.get(declaration.moduleId);
+  const exactReferences = index.incomingReferencesByDeclarationId.get(declaration.observationId) ?? [];
+  const unresolvedReferences = (index.unresolvedReferencesByName.get(declaration.name) ?? []).filter((reference) => (
+    reference.targetPath === null || reference.targetPath === declaration.path
   ));
-  const unresolvedReferences = model.references.filter((reference) => (
-    reference.observationClass === 'unknown'
-    && reference.name === declaration.name
-    && (reference.targetPath === null || reference.targetPath === declaration.path)
-  ));
-  const capabilityClosure = compileDeclarationCapabilityClosure(model, declaration);
+  const capabilityClosure = compileDeclarationCapabilityClosure(index, declaration);
   const capabilities = capabilityClosure.capabilities;
   const obligations = operationObligations(declaration, ownerIntents);
   const ownerContractPublicOperation = candidate.kind === 'identity'
@@ -538,7 +609,7 @@ function compileUnit(
       : obligationUnknown
         ? 'unknown' as const
         : 'verified' as const;
-  const pathUnknown = model.unknowns.some(({ path }) => path === declaration.path);
+  const pathUnknown = index.unknownPaths.has(declaration.path);
   const durable = obligations.some(({ obligation }) => (
     obligation.effect.kinds.includes('persistent-state')
     || obligation.evolution.migration !== 'not-required'
@@ -739,10 +810,8 @@ export function compileSourceProgramImplementationDominance(input: Readonly<{
   if (!isCompiledRepositorySourceProgramModel(input.model)) {
     throw new Error('Implementation dominance requires a compiler-issued Repository Source Program Model');
   }
-  const declarations = new Map(input.model.declarations.map((declaration) => (
-    [declaration.observationId, declaration] as const
-  )));
-  const candidates = compileSourceProgramImplementationCandidates(input);
+  const index = compileSourceProgramImplementationIndex(input.model, input.ownerIntents);
+  const candidates = compileSourceProgramImplementationCandidatesWithIndex(input, index);
   const units: SourceProgramImplementationUnit[] = [];
   for (const candidate of candidates) {
     if (candidate.semanticIdentity.trim().length === 0
@@ -754,11 +823,11 @@ export function compileSourceProgramImplementationDominance(input: Readonly<{
       throw new Error('Heuristic implementation candidates cannot claim observed semantics');
     }
     for (const observationId of [...candidate.declarationObservationIds].sort(compareCodeUnits)) {
-      const declaration = declarations.get(observationId);
+      const declaration = index.declarationsById.get(observationId);
       if (declaration === undefined || !declaration.exported) {
         throw new Error(`Implementation candidate declaration is not one exported Source Program unit: ${observationId}`);
       }
-      units.push(compileUnit(input.model, input.ownerIntents, candidate, declaration));
+      units.push(compileUnit(input.model, input.ownerIntents, index, candidate, declaration));
     }
   }
   units.sort((left, right) => compareCodeUnits(left.semanticIdentity, right.semanticIdentity)
