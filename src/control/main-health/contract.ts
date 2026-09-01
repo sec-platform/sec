@@ -8,6 +8,7 @@ export const MAIN_HEALTH_LEDGER_SCHEMA = 'sec-main-health-ledger-v1' as const;
 export type MainHealthStatus = 'healthy' | 'degraded' | 'locked';
 export type MainHealthLane = 'ordinary' | 'repair';
 export type MainHealthDigest = `sha256:${string}`;
+export type MainHealthRoutingState = 'healthy' | 'unhealthy' | 'unresolved';
 export const MAIN_HEALTH_REPAIR_IDENTITY_SCHEMA =
   'sec-main-health-repair-work-package-identity-v1' as const;
 export const DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY =

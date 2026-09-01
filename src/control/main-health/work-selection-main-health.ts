@@ -12,10 +12,6 @@ import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import { createTrustedRuntimeMainHealthSupersessionAuthorization, createTrustedRuntimeMainHealthSupersessionIntent, createTrustedRuntimeMainHealthSupersessionPermit, createTrustedRuntimeMainHealthSupersessionReceipt, parseTrustedRuntimeMainHealthReceipt, parseTrustedRuntimeMainHealthSupersessionIntent, parseTrustedRuntimeMainHealthSupersessionPermit, parseTrustedRuntimeMainHealthSupersessionReceipt, readTrustedRuntimeMainHealthSupersessionPayload, trustedRuntimeMainHealthSupersessionPermitBytes, trustedRuntimeMainHealthSupersessionReceiptBytes, trustedRuntimeMainHealthSupersessionRequestDigest, trustedRuntimeMainHealthSupersessionStatusRequest, type TrustedRuntimeMainHealthSupersessionAuthorization, type TrustedRuntimeMainHealthSupersessionIntent, type TrustedRuntimeMainHealthSupersessionPermit, type TrustedRuntimeMainHealthSupersessionReceipt, type TrustedRuntimeOpaqueDomainPayload } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
 import { dispatchGitHubApiRequest } from '../integration/integration-authorization-status-github.ts';
-import type {
-  SecCurrentWorkLifecycle,
-  SecWorkDigest
-} from '../work-selection/contract.ts';
 import {
   createMainHealthLedger,
   createMainHealthRevision,
@@ -23,7 +19,9 @@ import {
   mainHealthLedgerCanonicalBytes,
   resolveMainHealthLedgerProjection,
   resolveOrdinaryMainHealthLane,
-  type MainHealthLedger
+  type MainHealthDigest,
+  type MainHealthLedger,
+  type MainHealthRoutingState
 } from './contract.ts';
 import {
   createRegisteredHostedMainHealthInputs,
@@ -43,8 +41,8 @@ const WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA =
 export type WorkSelectionMainHealthProviderObservation =
   | Readonly<{ kind: 'available'; ledger: MainHealthLedger }>
   | Readonly<{ kind: 'absent' }>
-  | Readonly<{ kind: 'unavailable'; ref: SecWorkDigest }>
-  | Readonly<{ kind: 'invalid'; ref: SecWorkDigest }>;
+  | Readonly<{ kind: 'unavailable'; ref: MainHealthDigest }>
+  | Readonly<{ kind: 'invalid'; ref: MainHealthDigest }>;
 
 export type MainHealthGitHubFetch = (
   input: string | URL,
@@ -676,7 +674,7 @@ export type MainHealthRuntimeAuthority = Readonly<{
 }>;
 
 type MainHealthRuntimeAuthorityBinding = Readonly<{
-  binding: SecWorkDigest;
+  binding: MainHealthDigest;
   assertCurrent: () => Promise<void>;
   directory: (absolutePath: string) => PhysicalDirectoryIdentity;
 }>;
@@ -686,19 +684,19 @@ const mainHealthRuntimeAuthorityBindings =
 
 type HostedMainHealthObservation =
   | Readonly<{ kind: 'observed'; checks: readonly GitHubCheckObservation[] }>
-  | Readonly<{ kind: 'unavailable'; ref: SecWorkDigest }>
-  | Readonly<{ kind: 'invalid'; ref: SecWorkDigest }>;
+  | Readonly<{ kind: 'unavailable'; ref: MainHealthDigest }>
+  | Readonly<{ kind: 'invalid'; ref: MainHealthDigest }>;
 
 export type WorkSelectionMainHealthProjection = Readonly<{
-  state: SecCurrentWorkLifecycle['mainHealthState'];
-  ref: SecWorkDigest;
+  state: MainHealthRoutingState;
+  ref: MainHealthDigest;
 }>;
 
-function digestRef(value: unknown): SecWorkDigest {
-  return sha256(value) as SecWorkDigest;
+function digestRef(value: unknown): MainHealthDigest {
+  return sha256(value) as MainHealthDigest;
 }
 
-function invalidRef(label: string, value: Uint8Array | string): SecWorkDigest {
+function invalidRef(label: string, value: Uint8Array | string): MainHealthDigest {
   return digestRef(Object.freeze({
     schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
     label,
@@ -807,7 +805,7 @@ function mainHealthRuntimeAuthorityBinding(
 
 export function trustedRuntimeMainHealthAuthorityBinding(
   authority: MainHealthRuntimeAuthority
-): SecWorkDigest {
+): MainHealthDigest {
   return mainHealthRuntimeAuthorityBinding(authority).binding;
 }
 
@@ -856,7 +854,7 @@ function projectLedger(input: Readonly<{
     expectedMainTreeSha: input.mainTreeSha,
     expectedTrustRevision: input.mainSha
   });
-  const state: SecCurrentWorkLifecycle['mainHealthState'] =
+  const state: MainHealthRoutingState =
     decision.observationValidity === 'invalid' || decision.ledger === null
       ? 'unresolved'
       : input.ledger.status === 'degraded'
@@ -866,7 +864,7 @@ function projectLedger(input: Readonly<{
           : 'unresolved';
   return Object.freeze({
     state,
-    ref: input.ledger.healthRevision as SecWorkDigest
+    ref: input.ledger.healthRevision as MainHealthDigest
   });
 }
 
@@ -1017,15 +1015,15 @@ type MainHealthSupersessionEffectCapability = Readonly<{
   schema: typeof MAIN_HEALTH_SUPERSESSION_EFFECT_CAPABILITY_SCHEMA;
   effect: 'prefer-exact-registered-hosted-provider';
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  hostedAuthorityDigest: SecWorkDigest;
+  hostedAuthorityDigest: MainHealthDigest;
   issuedAt: string;
   expiresAt: string;
-  authorizationDigest: SecWorkDigest;
+  authorizationDigest: MainHealthDigest;
 }>;
 
 const issuedMainHealthSupersessionCapabilities = new WeakSet<object>();
 
-function hostedMainHealthAuthorityDigest(ledger: MainHealthLedger): SecWorkDigest {
+function hostedMainHealthAuthorityDigest(ledger: MainHealthLedger): MainHealthDigest {
   return resolveMainHealthLedgerProjection(
     issueMainHealthLedgerProjection(mainHealthLedgerCanonicalBytes(ledger))
   ).bindingDigest;
@@ -1080,7 +1078,7 @@ function localHealthyMainHealthRevision(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
-}>): SecWorkDigest {
+}>): MainHealthDigest {
   return createMainHealthRevision({
     repository: input.repository,
     defaultBranch: input.defaultBranch,
@@ -1113,7 +1111,7 @@ function assertMainHealthSupersessionHostedProjection(
 function issueMainHealthSupersessionEffectCapability(input: Readonly<{
   preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
   hostedLedger: MainHealthLedger;
-  runtimeAuthorityBinding: SecWorkDigest;
+  runtimeAuthorityBinding: MainHealthDigest;
   issuedAt: string;
   issuer: Readonly<{
     transport: 'github-rest-token';
@@ -1121,7 +1119,7 @@ function issueMainHealthSupersessionEffectCapability(input: Readonly<{
     nodeId: string;
     permission: 'admin' | 'maintain';
   }>;
-  predecessorRecordDigest: SecWorkDigest | null;
+  predecessorRecordDigest: MainHealthDigest | null;
 }>): MainHealthSupersessionEffectCapability {
   const hostedAuthorityDigest = hostedMainHealthAuthorityDigest(input.hostedLedger);
   const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
@@ -1149,7 +1147,7 @@ function issueMainHealthSupersessionEffectCapability(input: Readonly<{
 
 function issueMainHealthSupersessionEffectCapabilityFromAuthorization(input: Readonly<{
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  hostedAuthorityDigest: SecWorkDigest;
+  hostedAuthorityDigest: MainHealthDigest;
   issuedAt: string;
 }>): MainHealthSupersessionEffectCapability {
   const hostedLedger = assertMainHealthSupersessionHostedProjection(input.authorization);
@@ -2671,7 +2669,7 @@ async function ensureMainHealthSupersessionProviderAuthorization(input: Readonly
   defaultBranch: string;
   preimage: ReturnType<typeof observeTrustedLocalSupersessionPreimage>;
   runtimeAuthority: MainHealthRuntimeAuthority;
-  intentDigest: SecWorkDigest;
+  intentDigest: MainHealthDigest;
   permitState: Readonly<{
     available: MainHealthSupersessionPermitCandidate | null;
     consumed: MainHealthSupersessionPermitCandidate | null;
@@ -3061,13 +3059,13 @@ export type MainHealthSupersessionObservation =
     }>
   | Readonly<{
       kind: 'inactive';
-      ref: SecWorkDigest;
+      ref: MainHealthDigest;
       /** The inactive maximal terminal remains the authenticated predecessor. */
-      recordDigest: SecWorkDigest;
+      recordDigest: MainHealthDigest;
     }>
-  | Readonly<{ kind: 'blocked'; ref: SecWorkDigest }>;
+  | Readonly<{ kind: 'blocked'; ref: MainHealthDigest }>;
 
-function mainHealthSupersessionRef(reason: string, detail: unknown): SecWorkDigest {
+function mainHealthSupersessionRef(reason: string, detail: unknown): MainHealthDigest {
   return digestRef(Object.freeze({
     schema: 'sec-main-health-supersession-observation-v2',
     reason,
@@ -3085,7 +3083,7 @@ function mainHealthSupersessionBlocked(
 function mainHealthSupersessionInactive(
   reason: string,
   detail: unknown,
-  recordDigest: SecWorkDigest
+  recordDigest: MainHealthDigest
 ): MainHealthSupersessionObservation {
   return Object.freeze({
     kind: 'inactive',
@@ -3097,7 +3095,7 @@ function mainHealthSupersessionInactive(
 type MainHealthSupersessionChainAdmission =
   | Readonly<{ kind: 'empty' }>
   | Readonly<{ kind: 'leaf'; candidate: MainHealthSupersessionTerminalCandidate }>
-  | Readonly<{ kind: 'blocked'; ref: SecWorkDigest }>;
+  | Readonly<{ kind: 'blocked'; ref: MainHealthDigest }>;
 
 /**
  * Select one authenticated maximal terminal from immutable history. A
@@ -3624,7 +3622,7 @@ async function assertMainHealthProviderConflict(input: Readonly<{
 
 function readPreparedIntentForDirectory(
   directory: ReturnType<typeof observeTrustedLocalSupersessionPreimage>['directory'],
-  operationId: SecWorkDigest
+  operationId: MainHealthDigest
 ): MainHealthSupersessionPreparedCandidate | null {
   const preparedPath = path.join(directory.path, 'prepared');
   const preparedDirectory = inspectExactNoFollowDirectoryPresence(
@@ -3676,7 +3674,7 @@ function mainHealthSupersessionPermitName(
 function publishMainHealthSupersessionPermit(input: Readonly<{
   directory: ReturnType<typeof observeTrustedLocalSupersessionPreimage>['directory'];
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization;
-  intentDigest: SecWorkDigest;
+  intentDigest: MainHealthDigest;
   phase: 'available' | 'consumed';
 }>): Readonly<{
   permit: TrustedRuntimeMainHealthSupersessionPermit;
@@ -3725,7 +3723,7 @@ function matchingMainHealthSupersessionPermits(
     permits: readonly MainHealthSupersessionPermitCandidate[];
   }>,
   authorization: TrustedRuntimeMainHealthSupersessionAuthorization,
-  intentDigest: SecWorkDigest
+  intentDigest: MainHealthDigest
 ): Readonly<{
   available: MainHealthSupersessionPermitCandidate | null;
   consumed: MainHealthSupersessionPermitCandidate | null;
@@ -4738,7 +4736,7 @@ async function reconcileCanonicalMainHealthProviderConflictBound(input: Readonly
   environment?: NodeJS.ProcessEnv;
 }>): Promise<Readonly<{
   observedAt: string;
-  authorizationDigest: SecWorkDigest;
+  authorizationDigest: MainHealthDigest;
   supersession: Readonly<{
     status: 'superseded' | 'resumed-superseded';
     receipt: TrustedRuntimeMainHealthSupersessionReceipt;
@@ -4840,7 +4838,7 @@ async function reconcileCanonicalMainHealthProviderConflictBound(input: Readonly
       permission: issuer.permission
     });
     const createCurrentAuthorization = (
-      currentPredecessor: SecWorkDigest | null
+      currentPredecessor: MainHealthDigest | null
     ): TrustedRuntimeMainHealthSupersessionAuthorization =>
       createTrustedRuntimeMainHealthSupersessionAuthorization({
         sourceName: preimage.source.relativePath,
@@ -4961,7 +4959,7 @@ export async function reconcileCanonicalMainHealthProviderConflict(input: Readon
   environment?: NodeJS.ProcessEnv;
 }>): Promise<Readonly<{
   observedAt: string;
-  authorizationDigest: SecWorkDigest;
+  authorizationDigest: MainHealthDigest;
   supersession: Readonly<{
     status: 'superseded' | 'resumed-superseded';
     receipt: TrustedRuntimeMainHealthSupersessionReceipt;
@@ -5009,17 +5007,17 @@ export type MainHealthPublicationAuthority = Readonly<{
 }>;
 
 type MainHealthPublicationAuthorityBinding = Readonly<{
-  runtimeAuthorityBinding: SecWorkDigest | null;
+  runtimeAuthorityBinding: MainHealthDigest | null;
   localPhysical: Readonly<{
     relativePath: string;
     device: string;
     inode: string;
     size: number;
-    byteDigest: SecWorkDigest;
+    byteDigest: MainHealthDigest;
   }> | null;
-  hostedAuthorityDigest: SecWorkDigest | null;
-  hostedProviderEpoch: SecWorkDigest | null;
-  hostedProvenanceDigest: SecWorkDigest | null;
+  hostedAuthorityDigest: MainHealthDigest | null;
+  hostedProviderEpoch: MainHealthDigest | null;
+  hostedProvenanceDigest: MainHealthDigest | null;
 }>;
 
 const mainHealthPublicationAuthorityBindings =
@@ -5100,7 +5098,7 @@ function mainHealthPublicationStableDigest(input: Readonly<{
   repairDecision: MainHealthRepairDecision;
   supersession: MainHealthSupersessionObservation;
   authority: MainHealthPublicationAuthority;
-}>): SecWorkDigest {
+}>): MainHealthDigest {
   const ledger = input.ledger;
   return digestRef(Object.freeze({
     schema: 'sec-main-health-publication-stable-observation-v2',
@@ -5165,7 +5163,7 @@ type WorkSelectionMainHealthSnapshotBinding = Readonly<{
   mainSha: string;
   mainTreeSha: string;
   projection: WorkSelectionMainHealthProjection;
-  stableDigest: SecWorkDigest;
+  stableDigest: MainHealthDigest;
 }>;
 
 const workSelectionMainHealthSnapshotBindings =
@@ -5191,7 +5189,7 @@ export function resolveWorkSelectionMainHealthSnapshot(input: Readonly<{
   mainTreeSha: string;
 }>): Readonly<{
   projection: WorkSelectionMainHealthProjection;
-  stableDigest: SecWorkDigest;
+  stableDigest: MainHealthDigest;
 }> {
   const binding = workSelectionMainHealthSnapshotBindings.get(input.snapshot);
   if (binding === undefined
@@ -5225,7 +5223,7 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
   repairDecision: MainHealthRepairDecision;
   supersession: MainHealthSupersessionObservation;
   authority: MainHealthPublicationAuthority;
-  stableDigest: SecWorkDigest;
+  stableDigest: MainHealthDigest;
   workSelectionSnapshot: WorkSelectionMainHealthSnapshot;
 }>> {
   return await withMainHealthGitHubReadSession({
@@ -5252,7 +5250,7 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
         repairDecision,
         supersession: observation.supersession,
         authority,
-        stableDigest: '' as SecWorkDigest
+        stableDigest: '' as MainHealthDigest
       });
       const stable = Object.freeze({
         ...result,

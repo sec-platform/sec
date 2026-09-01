@@ -1,4 +1,5 @@
 import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { MainHealthRoutingState } from '../main-health/contract.ts';
 
 export const SEC_WORK_SELECTION_INPUT_SCHEMA = 'sec-work-selection-input-v1' as const;
 export const SEC_WORK_DECISION_SCHEMA = 'sec-work-decision-v1' as const;
@@ -41,7 +42,7 @@ export interface SecCurrentWorkLifecycle {
   readonly activeRef: string | null;
   readonly activeState: 'none' | 'incomplete' | 'complete' | 'unresolved';
   readonly activeLegality: 'not-applicable' | 'legal' | 'invalid' | 'unresolved';
-  readonly mainHealthState: 'healthy' | 'unhealthy' | 'unresolved';
+  readonly mainHealthState: MainHealthRoutingState;
   readonly mainHealthRef: string;
   readonly closeoutState: 'none' | 'required' | 'unresolved';
   readonly closeoutRef: string;
