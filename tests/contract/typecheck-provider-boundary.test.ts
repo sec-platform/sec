@@ -251,12 +251,14 @@ async function withCheckerExecutionBoundary<T>(
 
 function projectInputFixture(
   configSource = '{"compilerOptions":{"strict":false}}',
-  programSource = 'export const checked = true;\n'
+  programSource = 'export const checked = true;\n',
+  unrelatedSource = 'first projection\n'
 ) {
   const descriptorPath = 'src/example/sec.module.json';
   const files = Object.freeze([
     Object.freeze({ path: 'tsconfig.json', source: configSource, contentDigest: rawSha256(configSource) }),
-    Object.freeze({ path: 'src/example/checked.ts', source: programSource, contentDigest: rawSha256(programSource) })
+    Object.freeze({ path: 'src/example/checked.ts', source: programSource, contentDigest: rawSha256(programSource) }),
+    Object.freeze({ path: 'docs/projection.md', source: unrelatedSource, contentDigest: rawSha256(unrelatedSource) })
   ]);
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path: repositoryPath }) => repositoryPath), descriptorPath],
@@ -540,6 +542,8 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
       .not.toBe(first.actionKey);
     expect(changed({ projectInput: projectInputFixture(undefined, 'export const checked = false;\n') }))
       .not.toBe(first.actionKey);
+    expect(changed({ projectInput: projectInputFixture(undefined, undefined, 'second projection\n') }))
+      .toBe(first.actionKey);
     expect(actionAt(1_900_000_000_000, testDigest('changed-typecheck-project-generation')).actionKey)
       .toBe(first.actionKey);
     expect(() => changed({

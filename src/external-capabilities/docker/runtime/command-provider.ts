@@ -19,6 +19,10 @@ import {
   DockerCommandProviderUnavailableError,
   type DockerCommandProviderCapability
 } from '../contract/command-provider.ts';
+import {
+  assertDockerDesktopLoginStart,
+  type DockerDesktopLoginStart
+} from '../contract/login-start.ts';
 
 const DOCKER_COMMAND_ENVIRONMENT_KEYS = new Set([
   'APPDATA',
@@ -40,6 +44,7 @@ const DOCKER_COMMAND_ENVIRONMENT_KEYS = new Set([
 export interface DockerCommandProviderObservation {
   readonly boundary: RetainedCommandBoundary;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
+  readonly loginStart: DockerDesktopLoginStart;
   readonly retainedOwners?: readonly RetainedRuntimeStateDirectory[];
   readonly platform: NodeJS.Platform;
   readonly providerContractDigest: SecOperationDigest;
@@ -51,6 +56,7 @@ export interface ClaimedDockerCommandProvider {
   readonly boundary: RetainedCommandBoundary;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly environmentDigest: SecOperationDigest;
+  readonly loginStart: DockerDesktopLoginStart;
   readonly retainedOwners: readonly RetainedRuntimeStateDirectory[];
   readonly executable: string;
   readonly platform: NodeJS.Platform;
@@ -171,6 +177,7 @@ export function issueDockerCommandProviderCapability(
     providerFailure('Docker command provider contract identity is invalid.');
   }
   try {
+    assertDockerDesktopLoginStart(observation.loginStart);
     assertRetainedNoFollowCapability(
       observation.boundary.executable,
       'executable',
@@ -212,6 +219,7 @@ export function issueDockerCommandProviderCapability(
   const providerIdentityDigest = sha256({
     domain: 'sec.docker.command-provider',
     environmentDigest,
+    loginStart: observation.loginStart,
     auxiliaryInputs: auxiliaryInputs.map(({ capability, kind }) => ({
       kind,
       childPath: capability.childPath,
@@ -230,6 +238,7 @@ export function issueDockerCommandProviderCapability(
   }) as SecOperationDigest;
   const capability = Object.freeze({
     executable,
+    loginStart: observation.loginStart,
     providerIdentityDigest,
     workingDirectory: workingDirectoryPath
   });
@@ -238,6 +247,7 @@ export function issueDockerCommandProviderCapability(
     boundary: observation.boundary,
     environment,
     environmentDigest,
+    loginStart: observation.loginStart,
     retainedOwners,
     executable,
     platform: observation.platform,
@@ -299,6 +309,7 @@ export function claimDockerCommandProviderCapability(
     boundary: record.boundary,
     environment: record.environment,
     environmentDigest: record.environmentDigest,
+    loginStart: record.loginStart,
     retainedOwners: record.retainedOwners,
     executable: record.executable,
     platform: record.platform,

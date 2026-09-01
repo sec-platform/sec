@@ -96,6 +96,22 @@ export interface PrepareBranchCloseoutInput {
   pullRequestNumber?: number | null;
 }
 
+export interface PrepareClosedUnmergedPullRequestCloseoutInput {
+  number: number;
+  headBranch: string;
+  headSha: string;
+  baseBranch: string;
+  baseSha: string;
+}
+
+type BranchCloseoutPreparationAdmission =
+  | { kind: 'active-work-package' }
+  | {
+      kind: 'closed-unmerged';
+      expectedBaseBranch: string;
+      expectedBaseSha: string;
+    };
+
 function createPreparedEnvelope(input: Omit<
   PreparedBranchCloseoutEnvelope,
   'schema' | 'envelopeDigest'
@@ -148,7 +164,7 @@ function normalizeForeignWorktreeObservations(
   )));
 }
 
-function assertPreparedBranchCloseoutEnvelope(
+export function assertPreparedBranchCloseoutEnvelope(
   envelope: PreparedBranchCloseoutEnvelope
 ): void {
   if (envelope.schema !== BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA) {
@@ -335,9 +351,10 @@ function persistPreparedEnvelope(envelope: PreparedBranchCloseoutEnvelope): stri
   return filePath;
 }
 
-export function prepareBranchCloseout(
+function prepareBranchCloseoutInternal(
   scope: BranchCloseoutScope,
-  input: PrepareBranchCloseoutInput
+  input: PrepareBranchCloseoutInput,
+  admission: BranchCloseoutPreparationAdmission
 ): PreparedBranchCloseoutEnvelope {
   assertGitBranchName(input.branch);
   const refState = input.refState ?? 'present';
@@ -396,6 +413,22 @@ export function prepareBranchCloseout(
     throw new Error(`PR #${pullRequestNumber} is absent from inventory.`);
   }
   if (pullRequest) {
+    if (admission.kind === 'closed-unmerged') {
+      if (pullRequest.state !== 'open') {
+        throw new Error(
+          `Closed-unmerged preparation requires an open PR, observed ${pullRequest.state}.`
+        );
+      }
+      if (
+        pullRequest.baseBranch !== admission.expectedBaseBranch
+        || pullRequest.baseSha !== admission.expectedBaseSha
+      ) {
+        throw new Error('Closed-unmerged preparation base identity differs from the exact request.');
+      }
+      if (before.activeWorkPackage.state !== 'none') {
+        throw new Error('Closed-unmerged preparation requires no active or unresolved Work Package.');
+      }
+    }
     if (refState === 'absent') {
       if (
         pullRequest.headBranch !== input.branch
@@ -430,6 +463,7 @@ export function prepareBranchCloseout(
         before.activeWorkPackage.state !== 'active'
         || before.activeWorkPackage.branch !== input.branch
       )
+      && admission.kind !== 'closed-unmerged'
     ) {
       throw new Error('Open PR closeout preparation requires the exact active Work Package branch.');
     }
@@ -499,6 +533,38 @@ export function prepareBranchCloseout(
     foreignWorktreeObservations: [] });
   persistPreparedEnvelope(envelope);
   return envelope;
+}
+
+export function prepareBranchCloseout(
+  scope: BranchCloseoutScope,
+  input: PrepareBranchCloseoutInput
+): PreparedBranchCloseoutEnvelope {
+  return prepareBranchCloseoutInternal(scope, input, { kind: 'active-work-package' });
+}
+
+/**
+ * Produces only durable recovery/preparation for an exact open PR that has no
+ * active Work Package.  It cannot close the PR or mutate refs; the separate
+ * closed-unmerged operation compiler must still prove disposition and obtain
+ * the opaque Effect provider before any external mutation.
+ */
+export function prepareClosedUnmergedPullRequestCloseout(
+  scope: BranchCloseoutScope,
+  input: PrepareClosedUnmergedPullRequestCloseoutInput
+): PreparedBranchCloseoutEnvelope {
+  assertGitBranchName(input.headBranch);
+  assertGitSha(input.headSha, 'closed-unmerged PR head');
+  assertGitBranchName(input.baseBranch, 'closed-unmerged PR base branch');
+  assertGitSha(input.baseSha, 'closed-unmerged PR base SHA');
+  return prepareBranchCloseoutInternal(scope, {
+    branch: input.headBranch,
+    expectedHeadSha: input.headSha,
+    pullRequestNumber: input.number
+  }, {
+    kind: 'closed-unmerged',
+    expectedBaseBranch: input.baseBranch,
+    expectedBaseSha: input.baseSha
+  });
 }
 
 function prepareAbsentRefRecovery(

@@ -196,6 +196,82 @@ test('real registered worktree reaches registry and physical absence under one d
   }
 }, 30_000);
 
+test('authorized externally unregistered worktree converges physical residue without elevating the missing admin effect', async () => {
+  if (process.platform !== 'win32') return;
+  const value = fixture();
+  const externalTarget = path.join(value.root, 'external-junction-target');
+  try {
+    const junctionPath = path.join(value.target, 'tracked-junction');
+    mkdirSync(junctionPath);
+    writeFileSync(path.join(junctionPath, 'sentinel.txt'), 'external target survives\n');
+    git(value.target, ['add', 'tracked-junction/sentinel.txt']);
+    git(value.target, ['commit', '-m', 'add junction preimage']);
+    value.headSha = git(value.target, ['rev-parse', 'HEAD']);
+    value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
+    renameSync(junctionPath, externalTarget);
+    symlinkSync(externalTarget, junctionPath, 'junction');
+    const externalTargetIdentity = inspectNoFollowDirectoryChain(
+      externalTarget,
+      'external junction target before half-settled recovery'
+    ).target;
+    expect(git(value.target, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('');
+
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const registryAdminPath = path.join(
+      authorization.repository.commonDir,
+      ...authorization.registryAdmin.relativePath.split('/')
+    );
+    rmSync(registryAdminPath, { recursive: true, force: true });
+    rmSync(path.join(value.target, 'tracked.txt'));
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain'])))
+      .not.toContain(gitPath(value.target));
+
+    const first = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    const retry = await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+
+    expect(first).toMatchObject({
+      terminal: 'blocked',
+      readback: { registryPresent: false, physicalPresent: false, authorizationValid: true }
+    });
+    expect(first.blockers).toContain('external-registry-removal-without-retained-admin-effect');
+    expect(retry.blockers).toContain('external-registry-removal-without-retained-admin-effect');
+    expect(existsSync(value.target)).toBe(false);
+    expect(readFileSync(path.join(externalTarget, 'sentinel.txt'), 'utf8')).toBe('external target survives\n');
+    expect(inspectNoFollowDirectoryChain(
+      externalTarget,
+      'external junction target after half-settled recovery'
+    ).target).toMatchObject({
+      device: externalTargetIdentity.device,
+      inode: externalTargetIdentity.inode
+    });
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test('closeout composes provider retirement for an automatically reused dependency locator', async () => {
   const value = fixture({ compilerDependencies: true });
   try {

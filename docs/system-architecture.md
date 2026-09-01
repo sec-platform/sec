@@ -539,6 +539,33 @@ Verification可以使用不同物理provider，但必须满足同一operation re
 
 SEC 位于框架、平台和工具之上：public surface表达领域意图、约束、authorization与可观察终态，不表达`argv`、PATH、容器镜像、缓存文件、SDK对象或provider选择。pure operation compiler把intent与owner facts编译为provider-neutral plan和capability requirements；capability owner随后签发exact binding。只要新binding证明相同semantic contract、Effect/failure/resource/readback obligations，领域operation无需改变即可替换框架或平台；任何provider字段进入intent或decision都构成第二业务owner。
 
+Operation Compiler不拥有一张不断增长的operation-name到capability清单。每个domain operation owner从自己的typed intent与
+canonical facts签发不可伪造的requirement descriptor，descriptor绑定semantic requirement、contract、Effect/failure、
+aggregate budget、依赖关系、reuse与settlement obligations；通用compiler只验证issuer、求并集、检测冲突与环、收窄共享
+absolute deadline/budget并生成DAG。CLI、hook、IDE、CI与workflow只能转交intent或已签发descriptor，不能追加、删除、重排
+requirement；capability owner不能反向选择domain operation。任何中央`operation !== x`推断、命令名switch、路径存在性判断或
+caller提供的普通结构对象都不是requirement authority。
+
+源码归一化是`development.import-normalization`领域能力，执行claim、join、reuse与terminal继续由Verification Action唯一拥有。
+归一化subject只绑定会改变结果的normalizer完整producer closure、contract/config、selected source blobs与兼容parent ActionKeys；
+branch、ref、session、attempt、deadline、temporary path与Git transport不进入ActionKey。提交入口先通过唯一normalization owner
+对staged snapshot执行确定性变换并完成exact index/worktree readback，再冻结immutable index tree、消费或执行该Action，之后才可
+物化commit object；pre-push从outgoing ref records重算同一subject并只消费fresh terminal、join authenticated
+in-flight或执行missing Action。Source Program从exact workspace snapshot的canonical module graph签发不可伪造的operation producer
+closure，normalization subject compiler再自行投影source blobs、configuration与toolchain identity；caller不得提交路径集、
+producer/config digest或PASS observation。最终PASS只由既有Verification Action journal中绑定exact ActionKey的owner
+terminal签发；content-addressed locator只能加速查找，cache miss/tamper只导致重算。normalization不建立进程内
+seal、第二journal、第二terminal owner或可持久化的自签名PASS projection。
+
+workspace transition是`post-checkout | post-merge | post-rewrite`的单一领域operation，而不是三个shell流程。Git hook只传bounded
+typed trigger；operation用绑定同一semantic operation与共享absolute deadline/aggregate ledger的authority GitRead provider sessions
+在Effect前后观察exact repository/worktree/common-dir physical identity、current head/tree；单个non-reentrant session不得跨越可能长于其
+canonical transport ceiling的dependency Effect，也不得用新session重置上层预算或省略final fence。
+再分别消费managed-hook与compiler-dependency owner的readiness projection。`ready/ready`保持零Effect，只有一个stale requirement时
+只物化该owner，两者stale时按dependency generation→至多一次fresh-process handoff→hook generation执行；`unresolved`不得降级为
+absent。event、attempt与hook argv不进入子Effect OperationKey。各子owner已有journal、lease、CAS与readback时，workspace operation
+只聚合receipt，不复制状态，也不建立父级recovery ledger。
+
 provider原始输出不得直接进入领域状态、failure reason、Evidence或完成判断。能力边界只可投影canonical typed code、bounded counters与不可逆evidence digest；原始bytes由其diagnostic/evidence retention owner按权限和期限保存，需要调查时通过受控reference读取。TypeScript、Git、GitHub、Docker/BuildKit、filesystem与process都遵循这一规则：它们可以是领域operation的能力binding或更低层primitive，但不能成为用户业务意图、Skill适用性或workflow正确性的owner。
 
 这里的“原子”指一个业务不变量要么完整成立、要么进入可恢复的typed状态，不表示每个函数、每次I/O或每个文件都单独公开。

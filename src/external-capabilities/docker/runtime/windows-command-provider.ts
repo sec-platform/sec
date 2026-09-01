@@ -25,6 +25,7 @@ import {
   DOCKER_WINDOWS_INSTALLATION_PROFILE_DIGEST
 } from '../contract/windows-installation-profile.ts';
 import { issueDockerCommandProviderCapability } from './command-provider.ts';
+import { observeWindowsDockerDesktopLoginStart } from './windows-login-start.ts';
 
 function requireSecOperationDigest(value: string, label: string): SecOperationDigest {
   if (!isSecOperationDigest(value)) {
@@ -179,6 +180,7 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
       'Windows Docker command provider working directory'
     );
     const [profileOwner, localAppData, roamingAppData, programData, temp] = environmentOwners;
+    const loginStart = await observeWindowsDockerDesktopLoginStart();
     return issueDockerCommandProviderCapability({
       boundary: issueRetainedCommandBoundary({
         executable,
@@ -202,6 +204,7 @@ export async function openWindowsDockerCommandProvider(input: Readonly<{
         TZ: 'UTC',
         USERPROFILE: profileOwner.path
       },
+      loginStart,
       platform: 'win32',
       providerContractDigest,
       retainedOwners,

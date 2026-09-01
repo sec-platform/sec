@@ -168,7 +168,9 @@ import type {
   GitHubWorkflowRunObservation
 } from '../contract/github-observation.ts';
 import {
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE,
+  parseCiVerificationSessionTerminalLocator
 } from '../contract/revision.ts';
 import {
   CodexDevelopmentDefaultChangedPaths,
@@ -1266,7 +1268,6 @@ function loadProviderBranchCloseoutRecoveryArtifact(input: {
   session: VerificationSession;
   runId: string;
   runAttempt: number;
-  actorNodeId: string;
 }): Readonly<{
   artifact: BranchCloseoutRecoveryArtifact;
   metadata: GitHubActionsArtifactObservation;
@@ -1284,9 +1285,9 @@ function loadProviderBranchCloseoutRecoveryArtifact(input: {
   if (metadata.expired || metadata.runId !== input.runId || metadata.runAttempt !== input.runAttempt
     || metadata.workflowPath !== '.github/workflows/sec-merge-gate.yml'
     || metadata.workflowRef !== `.github/workflows/sec-merge-gate.yml@${input.session.baseSha}`
-    || metadata.workflowSha !== input.session.baseSha || metadata.eventName !== 'workflow_run'
-    || metadata.actorNodeId !== input.actorNodeId
-    || (metadata.actorPermission !== 'maintain' && metadata.actorPermission !== 'admin')) {
+    || metadata.workflowSha !== input.session.baseSha || metadata.eventName !== 'repository_dispatch'
+    || metadata.actorNodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId
+    || metadata.actorPermission !== 'none') {
     throw new Error('Closeout recovery provider artifact provenance drifted.');
   }
   const source = input.github.downloadArtifactText(input.repository, metadata,
@@ -1343,7 +1344,7 @@ function githubEvent(environment: Readonly<Record<string, string | undefined>>):
 }
 
 function hostedActorLogin(event: Record<string, any>): string {
-  const login = event.workflow_run?.triggering_actor?.login ?? event.sender?.login;
+  const login = event.sender?.login;
   if (typeof login !== 'string' || login.length === 0) throw new Error('Trusted GitHub event actor login is unavailable.');
   return login;
 }
@@ -1505,17 +1506,24 @@ function loadHostedArtifactForMergeWorkflow(
   repository: string,
   event: Record<string, any>
 ) {
-  const transportRunId = String(event.workflow_run?.id ?? '');
-  if (!/^[1-9][0-9]*$/u.test(transportRunId)) throw new Error('workflow_run source run id is unavailable.');
-  const sourceRunAttempt = Number(event.workflow_run?.run_attempt);
-  if (!Number.isSafeInteger(sourceRunAttempt) || sourceRunAttempt < 1) {
-    throw new Error('workflow_run source run attempt is unavailable.');
+  if (event.action !== CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE) {
+    throw new Error('Merge workflow event is not the terminal Session dispatch.');
   }
+  const locator = parseCiVerificationSessionTerminalLocator(event.client_payload);
+  const transportRunId = String(locator.sourceRunId);
+  const sourceRunAttempt = locator.sourceRunAttempt;
   const selected = selectTrustedHostedSessionArtifact({ github, repository,
     transports: github.observeActionsArtifactsForRun(repository, transportRunId),
     requireSingleTransport: true });
   if (selected === null || selected.transportMetadata.runId !== transportRunId
-    || selected.transportMetadata.runAttempt !== sourceRunAttempt) {
+    || selected.transportMetadata.runAttempt !== sourceRunAttempt
+    || selected.transportMetadata.artifactId !== String(locator.artifactId)
+    || selected.transportMetadata.artifactName !== locator.artifactName
+    || selected.transportMetadata.archiveDigest !== locator.artifactDigest
+    || selected.artifact.session.prNumber !== locator.prNumber
+    || selected.artifact.session.baseSha !== locator.baseSha
+    || selected.artifact.session.headSha !== locator.headSha
+    || selected.artifact.session.sessionRevision !== locator.sessionRevision) {
     throw new Error('Triggering compiler run does not contain the exact trusted Session transport.');
   }
   return selected;
@@ -2064,42 +2072,51 @@ function assertHostedIntegrationIdentity(input: {
   const currentRun = apiRecord(ctx, `/repos/${repository}/actions/runs/${runId}`,
     'integrate-hosted current run readback');
   if (String(currentRun.id ?? '') !== runId || currentRun.run_attempt !== runAttempt
-    || currentRun.event !== 'workflow_run'
+    || currentRun.event !== 'repository_dispatch'
     || currentRun.path !== '.github/workflows/sec-merge-gate.yml'
     || currentRun.head_sha !== workflowSha
     || String(currentRun.repository?.id ?? '') !== repositoryId) {
     throw new Error('integrate-hosted current workflow run provenance mismatch.');
   }
-  const sourceRunId = String(event.workflow_run?.id ?? '');
-  const sourceRunAttempt = Number(event.workflow_run?.run_attempt);
+  if (event.action !== CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE) {
+    throw new Error('integrate-hosted event is not the terminal Session dispatch.');
+  }
+  const terminalLocator = parseCiVerificationSessionTerminalLocator(event.client_payload);
+  const sourceRunId = String(terminalLocator.sourceRunId);
+  const sourceRunAttempt = terminalLocator.sourceRunAttempt;
+  const sourceRun = apiRecord(ctx,
+    `/repos/${repository}/actions/runs/${sourceRunId}/attempts/${sourceRunAttempt}`,
+    'integrate-hosted source run readback');
   if (!/^[1-9][0-9]*$/u.test(sourceRunId) || !Number.isSafeInteger(sourceRunAttempt)
-    || sourceRunAttempt < 1 || event.action !== 'completed'
-    || event.workflow_run?.status !== 'completed' || event.workflow_run?.conclusion !== 'success'
-    || event.workflow_run?.event !== 'repository_dispatch'
-    || event.workflow_run?.path !== '.github/workflows/compiler-pr-validation.yml'
-    || event.workflow_run?.head_sha !== baseSha) {
-    throw new Error('integrate-hosted workflow_run source provenance mismatch.');
+    || sourceRunAttempt < 1 || String(sourceRun.id ?? '') !== sourceRunId
+    || sourceRun.run_attempt !== sourceRunAttempt || sourceRun.status !== 'completed'
+    || sourceRun.conclusion !== 'success' || sourceRun.event !== 'repository_dispatch'
+    || sourceRun.path !== '.github/workflows/compiler-pr-validation.yml'
+    || sourceRun.head_sha !== baseSha || terminalLocator.sourceWorkflowSha !== baseSha
+    || terminalLocator.prNumber !== session.prNumber || terminalLocator.headSha !== session.headSha
+    || terminalLocator.sessionRevision !== session.sessionRevision) {
+    throw new Error('integrate-hosted terminal Session source provenance mismatch.');
   }
-  const actorLogin = currentRun.actor?.login;
-  const actorNodeId = currentRun.actor?.node_id;
-  if (typeof actorLogin !== 'string' || typeof actorNodeId !== 'string') {
-    throw new Error('integrate-hosted current run actor identity is incomplete.');
+  const actionsBot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
+  if (currentRun.actor?.login !== actionsBot.login || currentRun.actor?.id !== actionsBot.id
+    || currentRun.actor?.node_id !== actionsBot.nodeId || currentRun.actor?.type !== actionsBot.type) {
+    throw new Error('integrate-hosted current run was not dispatched by the canonical Actions bot.');
   }
-  const actor = github.observePrincipal(repository, actorLogin);
-  if (actor.nodeId !== actorNodeId || (actor.permission !== 'maintain' && actor.permission !== 'admin')) {
-    throw new Error('integrate-hosted actor stable identity/live permission mismatch.');
+  const sourceActorLogin = sourceRun.actor?.login;
+  const sourceActorNodeId = sourceRun.actor?.node_id;
+  const sourceTriggeringActorLogin = sourceRun.triggering_actor?.login;
+  const sourceTriggeringActorNodeId = sourceRun.triggering_actor?.node_id;
+  if (typeof sourceActorLogin !== 'string' || typeof sourceActorNodeId !== 'string'
+    || typeof sourceTriggeringActorLogin !== 'string' || typeof sourceTriggeringActorNodeId !== 'string') {
+    throw new Error('integrate-hosted source actor/triggering principal identity is incomplete.');
   }
-  const triggeringActorLogin = environment.GITHUB_TRIGGERING_ACTOR ?? '';
-  const providerTriggeringActorLogin = currentRun.triggering_actor?.login;
-  const providerTriggeringActorNodeId = currentRun.triggering_actor?.node_id;
-  if (triggeringActorLogin.length === 0 || providerTriggeringActorLogin !== triggeringActorLogin
-    || typeof providerTriggeringActorNodeId !== 'string') {
-    throw new Error('integrate-hosted triggering actor provider/environment identity mismatch.');
-  }
-  const triggeringActor = github.observePrincipal(repository, triggeringActorLogin);
-  if (triggeringActor.nodeId !== providerTriggeringActorNodeId
-    || (triggeringActor.permission !== 'maintain' && triggeringActor.permission !== 'admin')) {
-    throw new Error('integrate-hosted triggering actor stable identity/live permission mismatch.');
+  const sourceActor = github.observePrincipal(repository, sourceActorLogin);
+  const sourceTriggeringActor = github.observePrincipal(repository, sourceTriggeringActorLogin);
+  if (sourceActor.nodeId !== sourceActorNodeId
+    || (sourceActor.permission !== 'maintain' && sourceActor.permission !== 'admin')
+    || sourceTriggeringActor.nodeId !== sourceTriggeringActorNodeId
+    || (sourceTriggeringActor.permission !== 'maintain' && sourceTriggeringActor.permission !== 'admin')) {
+    throw new Error('integrate-hosted source actor/triggering principal live identity is not trusted.');
   }
   selectCanonicalIntegrationRunOwner({
     runs: github.observeWorkflowRuns(repository, workflowSha), currentRunId: runId,
@@ -2122,8 +2139,9 @@ function assertHostedIntegrationIdentity(input: {
   const provenance = createHostedWorkflowCommentProvenance({ repositoryId,
     workflowPath: '.github/workflows/sec-merge-gate.yml',
     workflowRef: `.github/workflows/sec-merge-gate.yml@${workflowSha}`, workflowSha,
-    runId, runAttempt, eventName: 'workflow_run', sourceRunId, sourceRunAttempt,
-    actorLogin, actorNodeId, actorPermission: actor.permission,
+    runId, runAttempt, eventName: 'repository_dispatch', sourceRunId, sourceRunAttempt,
+    actorLogin: sourceTriggeringActorLogin, actorNodeId: sourceTriggeringActorNodeId,
+    actorPermission: sourceTriggeringActor.permission,
     app: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app });
   return Object.freeze({ provenance, phase });
 }
@@ -2177,8 +2195,7 @@ function loadMarkerBoundMergedAuthorizationRecovery(input: {
   const recovery = loadProviderBranchCloseoutRecoveryArtifact({ ctx: input.ctx,
     github: input.github, repository: input.repository, session: input.session,
     runId: selected.publication.recoveryArtifact.runId,
-    runAttempt: selected.publication.recoveryArtifact.runAttempt,
-    actorNodeId: selected.publication.provenance.actorNodeId });
+    runAttempt: selected.publication.recoveryArtifact.runAttempt });
   const remotePreparationDigest = recovery.remotePrepared.preparation.preparationDigest;
   const localPreparationDigest = recovery.prepared.preparation.preparationDigest;
   const publishedPreparationDigest =
@@ -3679,7 +3696,7 @@ function evaluateFreshHostedIntegration(input: {
       manifestPath: artifact.session.manifestPath, manifestDigest: artifact.session.manifestDigest,
       changedPaths },
     provenance: { workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef,
-      workflowSha: artifact.session.baseSha, eventName: 'workflow_run',
+      workflowSha: artifact.session.baseSha, eventName: 'repository_dispatch',
       sourceRunId: provenance.runId, sourceRunAttempt: provenance.runAttempt,
       actorNodeId: integrationPrincipalNodeId, actorPermission: provenance.actorPermission },
     mainHealth: freshMainHealth, platform: github.observePlatformEnforcement(repository),
@@ -4908,7 +4925,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       }
       const recovery = loadProviderBranchCloseoutRecoveryArtifact({ ctx, github, repository,
         session: artifact.session, runId: hostedProvenance.runId,
-        runAttempt: hostedProvenance.runAttempt, actorNodeId: hostedProvenance.actorNodeId });
+        runAttempt: hostedProvenance.runAttempt });
       selectedRecovery = recovery;
       originalHostPrepared = loadOriginalHostPreparedCloseout({ ctx,
         outputPath: required(args, '--output'), providerRecovery: recovery });

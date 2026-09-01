@@ -9,6 +9,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import { watch as watchFileSystem } from 'node:fs/promises';
 import path from 'node:path';
 import {
   openProcessResourceSession,
@@ -75,10 +76,12 @@ import {
   appendVerificationActionJournalEvent,
   commitVerificationActionRevocationUnderClaim,
   commitVerificationActionTerminalUnderClaim,
+  readVerificationActionClaim,
   readVerificationActionJournal,
   releaseVerificationActionClaim,
   renewVerificationActionClaim,
   revokeVerificationActionClaim,
+  type VerificationActionClaim,
   type VerificationActionJournalReadback,
   type VerificationActionJournalState
 } from './journal.ts';
@@ -199,6 +202,9 @@ export interface VerificationActionExecuteInput {
   readonly executor: VerificationActionExecutor;
   readonly recordedAt?: () => string;
   readonly leaseDurationMs?: number;
+  /** Joiners may only narrow the durable owner's live-claim window. */
+  readonly deadlineAtUnixMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 export type VerificationActionIdentityExecuteInput = Readonly<
@@ -225,27 +231,28 @@ type ExecutionContext = Readonly<{
 // to finish; retaining the settled flight until the last overlapping caller
 // exits prevents that late-authorized caller from starting a second physical
 // attempt for the same semantic ActionKey.
-const COORDINATED_ACTIONS = new Map<VerificationActionKeyDigest, CoordinatedAction>();
+const COORDINATED_ACTIONS = new Map<string, CoordinatedAction>();
 const EXECUTION_CONTEXT = new AsyncLocalStorage<ExecutionContext>();
 let ownerSequence = 0;
 
-function enterCoordinatedAction(actionKey: VerificationActionKeyDigest): CoordinatedAction {
-  let coordination = COORDINATED_ACTIONS.get(actionKey);
+function enterCoordinatedAction(coordinationKey: string): CoordinatedAction {
+  let coordination = COORDINATED_ACTIONS.get(coordinationKey);
   if (coordination === undefined) {
     coordination = { activeCallers: 0, flight: null };
-    COORDINATED_ACTIONS.set(actionKey, coordination);
+    COORDINATED_ACTIONS.set(coordinationKey, coordination);
   }
   coordination.activeCallers += 1;
   return coordination;
 }
 
 function leaveCoordinatedAction(
-  actionKey: VerificationActionKeyDigest,
+  coordinationKey: string,
   coordination: CoordinatedAction
 ): void {
   coordination.activeCallers -= 1;
-  if (coordination.activeCallers === 0 && COORDINATED_ACTIONS.get(actionKey) === coordination) {
-    COORDINATED_ACTIONS.delete(actionKey);
+  if (coordination.activeCallers === 0
+      && COORDINATED_ACTIONS.get(coordinationKey) === coordination) {
+    COORDINATED_ACTIONS.delete(coordinationKey);
   }
 }
 
@@ -539,6 +546,137 @@ function persistedSubordinateSettlement(
   return null;
 }
 
+function joinedTerminalOutcome(
+  actionKey: VerificationActionKeyDigest,
+  journal: VerificationActionJournalReadback
+): VerificationActionRunOutcome | null {
+  if ((journal.latestState === 'terminal' || journal.latestState === 'reused')
+      && journal.terminal !== null) {
+    return outcome(
+      actionKey,
+      'joined',
+      journal.latestState,
+      journal.terminal,
+      false,
+      'joined the authenticated durable Action owner terminal',
+      persistedSubordinateSettlement(journal)
+    );
+  }
+  return null;
+}
+
+function sameClaimGeneration(
+  current: VerificationActionClaim,
+  joined: VerificationActionClaim
+): boolean {
+  return current.actionKey === joined.actionKey
+    && current.ownerToken === joined.ownerToken
+    && current.acquiredAt === joined.acquiredAt;
+}
+
+async function waitForJoinedActionTerminal(input: Readonly<{
+  fs: RuntimeStateJournalFileSystem;
+  actionKey: VerificationActionKeyDigest;
+  claim: VerificationActionClaim;
+  deadlineAtUnixMs: number;
+  signal?: AbortSignal;
+}>): Promise<VerificationActionRunOutcome> {
+  const effectiveDeadlineAtUnixMs = Math.min(
+    input.deadlineAtUnixMs,
+    Date.parse(input.claim.expiresAt)
+  );
+  const initial = readVerificationActionJournal(input.fs, input.actionKey);
+  const initialTerminal = joinedTerminalOutcome(input.actionKey, initial);
+  if (initialTerminal !== null) return initialTerminal;
+  const directory = path.dirname(initial.filePath);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (input.signal?.aborted === true) abort();
+  else input.signal?.addEventListener('abort', abort, { once: true });
+  const remainingMs = Math.max(0, effectiveDeadlineAtUnixMs - Date.now());
+  const timer = setTimeout(abort, remainingMs);
+  timer.unref();
+  const eventSource = watchFileSystem(directory, {
+    persistent: false,
+    signal: controller.signal
+  });
+  const events = eventSource[Symbol.asyncIterator]();
+  try {
+    while (true) {
+      const journal = readVerificationActionJournal(input.fs, input.actionKey);
+      const terminal = joinedTerminalOutcome(input.actionKey, journal);
+      if (terminal !== null) return terminal;
+      // Claim publication is the admission linearization point. A contender
+      // may authenticate that live claim before the owner appends `queued`;
+      // the absent journal is therefore an in-flight pre-publication state,
+      // not evidence that a second execution may start or that the join failed.
+      if (journal.latestState !== null
+          && journal.latestState !== 'queued'
+          && journal.latestState !== 'running') {
+        return outcome(
+          input.actionKey,
+          'blocked',
+          journal.latestState,
+          null,
+          false,
+          `joined durable Action changed to ${journal.latestState ?? 'absent'} without a terminal`
+        );
+      }
+      const currentClaim = readVerificationActionClaim(input.fs, input.actionKey);
+      if (currentClaim === null || !sameClaimGeneration(currentClaim, input.claim)) {
+        return outcome(
+          input.actionKey,
+          'blocked',
+          journal.latestState,
+          null,
+          false,
+          'joined durable Action claim generation changed without a terminal'
+        );
+      }
+      if (input.signal?.aborted === true || Date.now() >= effectiveDeadlineAtUnixMs) {
+        return outcome(
+          input.actionKey,
+          'blocked',
+          journal.latestState,
+          null,
+          false,
+          input.signal?.aborted === true
+            ? 'joined durable Action wait was cancelled'
+            : 'joined durable Action wait exhausted its absolute deadline'
+        );
+      }
+      try {
+        const event = await events.next();
+        if (event.done) {
+          return outcome(
+            input.actionKey,
+            'blocked',
+            journal.latestState,
+            null,
+            false,
+            'joined durable Action event source closed before terminal readback'
+          );
+        }
+      } catch (error) {
+        if (controller.signal.aborted) continue;
+        return outcome(
+          input.actionKey,
+          'blocked',
+          journal.latestState,
+          null,
+          false,
+          `joined durable Action event source failed: ${error instanceof Error ? error.name : typeof error}`
+        );
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    input.signal?.removeEventListener('abort', abort);
+    controller.abort();
+    await events.return?.();
+  }
+}
+
 
 
 
@@ -650,19 +788,29 @@ export class VerificationActionRunner {
 
   async execute(input: VerificationActionExecuteInput): Promise<VerificationActionRunOutcome> {
     const action = canonicalAction(input.action);
-    const coordination = enterCoordinatedAction(action.actionKey);
+    // Process-local join is only valid inside one durable workspace journal
+    // authority.  Equal semantic ActionKeys in distinct physical repositories
+    // require independent durable terminals; cross-workspace reuse belongs to
+    // an authenticated content-addressed evidence owner, not this flight map.
+    const coordinationKey = `${realpathSync.native(path.resolve(input.repositoryRoot))}\0${action.actionKey}`;
+    const coordination = enterCoordinatedAction(coordinationKey);
     try {
-      return await this.#executeCoordinated(input, action, coordination);
+      return await this.#executeCoordinated(input, action, coordination, coordinationKey);
     } finally {
-      leaveCoordinatedAction(action.actionKey, coordination);
+      leaveCoordinatedAction(coordinationKey, coordination);
     }
   }
 
   async #executeCoordinated(
     input: VerificationActionExecuteInput,
     action: VerificationActionKey,
-    coordination: CoordinatedAction
+    coordination: CoordinatedAction,
+    coordinationKey: string
   ): Promise<VerificationActionRunOutcome> {
+    if (input.deadlineAtUnixMs !== undefined
+        && (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs < 1)) {
+      throw new Error('VerificationAction join deadline must be one positive safe Unix timestamp.');
+    }
     const executionDomain = boundedToken(input.executionDomain, 'executionDomain', () => 'process');
     const inheritedContext = EXECUTION_CONTEXT.getStore();
     if (inheritedContext !== undefined && input.ownerToken !== undefined &&
@@ -674,7 +822,7 @@ export class VerificationActionRunner {
       'ownerToken',
       nextOwnerToken
     );
-    const ownerKey = `${ownerToken}\0${action.actionKey}`;
+    const ownerKey = `${ownerToken}\0${coordinationKey}`;
     const ownerKeys = inheritedContext?.ownerKeys;
     if (ownerKeys?.has(ownerKey) && coordination.flight !== null) {
       return outcome(
@@ -737,7 +885,26 @@ export class VerificationActionRunner {
         persistedSubordinateSettlement(terminalJournal));
     }
     if (claim.disposition === 'joined') {
-      return outcome(action.actionKey, 'joined', 'running', null, false, claim.reason);
+      if (claim.claim === null) {
+        return outcome(
+          action.actionKey,
+          'blocked',
+          'running',
+          null,
+          false,
+          'joined durable Action has no authenticated live claim'
+        );
+      }
+      return waitForJoinedActionTerminal({
+        fs: journalFs,
+        actionKey: action.actionKey,
+        claim: claim.claim,
+        deadlineAtUnixMs: Math.min(
+          input.deadlineAtUnixMs ?? Date.now() + (input.leaseDurationMs ?? 300_000),
+          Date.parse(claim.claim.expiresAt)
+        ),
+        ...(input.signal === undefined ? {} : { signal: input.signal })
+      });
     }
     if (claim.disposition === 'blocked' || claim.disposition === 'contended') {
       return outcome(action.actionKey, 'blocked', null, null, false, claim.reason);
@@ -1137,6 +1304,8 @@ export async function executeLocalVerificationActionDag(
       plan,
       executionDomain: `local-dev-runner:${executionEnvironment.executionEnvironmentRevision}`,
       recordedAt: input.recordedAt,
+      deadlineAtUnixMs: boundOperation.plan.attempt.deadlineAtUnixMs,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
       executor: async () => {
         const session = openProcessResourceSession({
           operation: boundOperation,

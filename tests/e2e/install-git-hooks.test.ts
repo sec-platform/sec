@@ -20,9 +20,8 @@ import {
 // Real repository, linked-worktree, and managed-hook lifecycle acceptance belongs to the slow lane.
 
 const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
-const depsEnsureCommand = 'bun run deps:ensure';
-const hooksReconcileCommand = 'bun run postinstall';
-const importsCheckStagedCommand = 'bun run imports:check --staged';
+const workspaceTransitionCommand = `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} workspace-transition`;
+const importsApplyStagedCommand = 'bun run imports:apply --staged';
 const importsFreezeCommand = 'bun run imports:freeze';
 
 function installGitHooks(options: {
@@ -142,19 +141,18 @@ async function expectManagedHooksMirror(repoRoot: string, configured: string): P
   for (const hook of managedHookNames) {
     const source = await readFile(path.join(repoRoot, '.githooks', hook), 'utf8');
     const importCommand = hook === 'pre-commit'
-      ? importsCheckStagedCommand
+      ? importsApplyStagedCommand
       : importsFreezeCommand;
     const expected = source
-      .replaceAll(depsEnsureCommand, runtimeBoundCommand(depsEnsureCommand))
-      .replaceAll(hooksReconcileCommand, runtimeBoundCommand(hooksReconcileCommand))
-      .replaceAll(importsCheckStagedCommand, runtimeBoundCommand(importsCheckStagedCommand))
+      .replaceAll(workspaceTransitionCommand, runtimeBoundCommand(workspaceTransitionCommand))
+      .replaceAll(importsApplyStagedCommand, runtimeBoundCommand(importsApplyStagedCommand))
       .replaceAll(importsFreezeCommand, runtimeBoundCommand(importsFreezeCommand));
     const installed = await readFile(path.join(configured, hook), 'utf8');
     expect(installed).toBe(expected);
     expect(installed).not.toMatch(/(?:^|\n)bun \.\/platform\/dev-runner\.ts/u);
     if (hook === 'pre-commit' || hook === 'pre-push') {
-      expect(source).not.toContain(depsEnsureCommand);
-      expect(installed).not.toContain(runtimeBoundCommand(depsEnsureCommand));
+      expect(source).not.toContain(workspaceTransitionCommand);
+      expect(installed).not.toContain(runtimeBoundCommand(workspaceTransitionCommand));
     }
   }
 }
@@ -586,7 +584,10 @@ test('hook marker remains bound to raw index bytes when deployment bytes normali
     const previousMarker = await readFile(markerPath, 'utf8');
     const sourcePath = path.join(repoRoot, '.githooks', 'post-merge');
     const original = await readFile(sourcePath, 'utf8');
-    const normalized = original.replace(depsEnsureCommand, runtimeBoundCommand(depsEnsureCommand));
+    const normalized = original.replace(
+      workspaceTransitionCommand,
+      runtimeBoundCommand(workspaceTransitionCommand)
+    );
     expect(normalized).not.toBe(original);
     await writeFile(sourcePath, normalized, 'utf8');
     await chmod(sourcePath, 0o755);

@@ -454,7 +454,12 @@ replacement则必须在同一generation transition内使旧capability失效并�
 managed Git hook是按physical worktree绑定的authoring generation。generation identity至少包含tracked hook bytes、
 部署的exact Bun runtime bytes与该worktree Git dir物理身份；common `core.hooksPath`只保存primary checkout的bootstrap
 generation，新建linked worktree第一次checkout后必须把自己的exact generation写入worktree-local config并readback，
-不得污染common bootstrap。`post-checkout | post-merge | post-rewrite`先用guarded installer完成该绑定，再进入依赖ensure；
+不得污染common bootstrap。`post-checkout | post-merge | post-rewrite`各自只提交一个bounded typed
+`workspace-transition` intent；同一operation从owner observation派生hook generation与dependency generation的
+`ready | materialization-required | unresolved`状态，只有明确缺失或失效的requirement可以启动其唯一owner Effect。
+hook不得串联installer与dependency命令，不能用`node_modules`路径存在性替代generation authority，也不能把Git事件、
+attempt或shell transport写入子Effect identity。dependency transition需要fresh process时至多handoff一次，随后在新进程
+继续同一target closure；各子owner的durable journal/readback负责lost-handle recovery，workspace层不再建立父journal。
 legacy managed generation只可作为迁移输入，自定义hook authority保持不动并返回冲突。hook仍不签发TCB、Verification、
 scope或merge authority。
 

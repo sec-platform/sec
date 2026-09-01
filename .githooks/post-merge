@@ -2,10 +2,4 @@
 set -eu
 
 export SEC_GIT_HOOK_ACTIVE=1
-
-if [ -f ./package.json ]; then
-  bun run postinstall
-fi
-if [ -f ./package.json ]; then
-  bun run deps:ensure
-fi
+exec bun ./src/development/runner/cli.ts workspace-transition post-merge "$@"

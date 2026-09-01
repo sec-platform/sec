@@ -15,12 +15,16 @@ import {
   type DockerDaemonAvailabilityFailureReason,
   type DockerEndpointIdentity
 } from '../contract/daemon.ts';
+import type { DockerDesktopLoginStart } from '../contract/login-start.ts';
 import { disposeUnclaimedDockerCommandProviderCapability } from './command-provider.ts';
 import { openContainerEngineSession } from './container-engine-session.ts';
 import { openWindowsDockerCommandProvider } from './windows-command-provider.ts';
+import {
+  unavailableDockerDesktopLoginStart
+} from './windows-login-start.ts';
 
 export const LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA =
-  'sec-local-container-engine-readiness-v1' as const;
+  'sec-local-container-engine-readiness-v2' as const;
 
 export type LocalContainerEngineReadinessMode = 'observe' | 'ensure-started';
 
@@ -30,12 +34,14 @@ export type LocalContainerEngineReadiness =
     status: 'ready';
     mode: LocalContainerEngineReadinessMode;
     endpoint: DockerEndpointIdentity;
+    loginStart: DockerDesktopLoginStart;
     providerIdentityDigest: SecOperationDigest;
   }>
   | Readonly<{
     schema: typeof LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA;
     status: 'unavailable';
     mode: LocalContainerEngineReadinessMode;
+    loginStart: DockerDesktopLoginStart;
     reason: DockerDaemonAvailabilityFailureReason | 'command-provider-unavailable' | 'invalid-input' | 'session-unavailable';
     phase: DockerDaemonAvailabilityFailurePhase | 'provider-admission' | 'session-settlement';
     detailDigest: SecOperationDigest;
@@ -99,11 +105,13 @@ function unavailable(input: Readonly<{
   reason: Extract<LocalContainerEngineReadiness, { status: 'unavailable' }>['reason'];
   phase: Extract<LocalContainerEngineReadiness, { status: 'unavailable' }>['phase'];
   detail: unknown;
+  loginStart: DockerDesktopLoginStart;
 }>): LocalContainerEngineReadiness {
   return Object.freeze({
     schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
     status: 'unavailable',
     mode: input.mode,
+    loginStart: input.loginStart,
     reason: input.reason,
     phase: input.phase,
     detailDigest: sha256({
@@ -133,7 +141,11 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       mode,
       reason: 'invalid-input',
       phase: 'provider-admission',
-      detail: 'Local Container Engine readiness requires a canonical cwd and mode.'
+      detail: 'Local Container Engine readiness requires a canonical cwd and mode.',
+      loginStart: unavailableDockerDesktopLoginStart(
+        'operation-input-invalid',
+        'Login-start observation was not attempted for invalid operation input.'
+      )
     });
   }
   let provider: Awaited<ReturnType<typeof openWindowsDockerCommandProvider>>;
@@ -144,9 +156,14 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       mode,
       reason: 'command-provider-unavailable',
       phase: 'provider-admission',
-      detail: error
+      detail: error,
+      loginStart: unavailableDockerDesktopLoginStart(
+        'provider-admission-unavailable',
+        error
+      )
     });
   }
+  const loginStart = provider.loginStart;
 
   const operation = bindReadinessOperation({
     mode,
@@ -169,6 +186,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       status: 'ready',
       mode,
       endpoint,
+      loginStart,
       providerIdentityDigest
     });
   } catch (error) {
@@ -180,7 +198,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           mode,
           reason: 'process-settlement-failed',
           phase: 'session-settlement',
-          detail: new AggregateError([error, settlementError])
+          detail: new AggregateError([error, settlementError]),
+          loginStart
         });
       }
     } else if (error instanceof DockerCommandProviderUnavailableError) {
@@ -195,6 +214,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
         schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
         status: 'unavailable',
         mode,
+        loginStart,
         reason: error.reason,
         phase: error.phase,
         detailDigest: error.detailDigest
@@ -204,7 +224,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       mode,
       reason: 'session-unavailable',
       phase: 'provider-admission',
-      detail: error
+      detail: error,
+      loginStart
     });
   }
 }

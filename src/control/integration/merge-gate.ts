@@ -47,7 +47,7 @@ export interface CodexDevelopmentMergeGateProvenance {
   readonly workflowPath: '.github/workflows/sec-merge-gate.yml';
   readonly workflowRef: string;
   readonly workflowSha: string;
-  readonly eventName: 'workflow_run';
+  readonly eventName: 'repository_dispatch';
   readonly sourceRunId: string;
   readonly sourceRunAttempt: number;
   readonly actorNodeId: string;
@@ -231,7 +231,9 @@ export function createMergeGateProvenance(input: Omit<
   const workflowSha = sha(input.workflowSha, 'provenance.workflowSha');
   const expectedRef = `.github/workflows/sec-merge-gate.yml@${workflowSha}`;
   if (input.workflowRef !== expectedRef) fail('workflowRef must bind the exact trusted workflow blob revision.');
-  if (input.eventName !== 'workflow_run') fail('authorization can only originate from workflow_run after hosted Evidence.');
+  if (input.eventName !== 'repository_dispatch') {
+    fail('authorization can only originate from the terminal Session repository dispatch.');
+  }
   if (!Number.isSafeInteger(input.sourceRunAttempt) || input.sourceRunAttempt < 1) fail('sourceRunAttempt is invalid.');
   if (input.actorPermission !== 'maintain' && input.actorPermission !== 'admin') fail('actor permission is insufficient.');
   const withoutDigest = Object.freeze({

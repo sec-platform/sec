@@ -19,6 +19,8 @@ import type {
   SourceProgramFile,
   SourceProgramFileInput,
   SourceProgramModel,
+  SourceProgramOperationIdentity,
+  SourceProgramOperationProducerClosure,
   SourceProgramOwnerIntentEvidence,
   SourceProgramPackage,
   SourceProgramResponsibilityEvidence,
@@ -40,7 +42,10 @@ import {
   sourceProgramCurrentExactReturnProvenances,
   workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
-import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
+import {
+  assertWorkspaceSourceSnapshot,
+  type WorkspaceSourceSnapshot
+} from './workspace-source-snapshot.ts';
 
 export interface CompileRepositorySourceProgramModelInput {
   readonly sourceRevision: string;
@@ -63,6 +68,7 @@ type CompileRepositorySourceProgramModelInternalInput = CompileRepositorySourceP
 }>;
 
 const compiledRepositorySourceProgramModels = new WeakSet<object>();
+const compiledOperationProducerClosures = new WeakSet<object>();
 
 function unreachableModuleOperationIdentity(operation: never): never {
   throw new Error(`Unsupported module operation identity: ${JSON.stringify(operation)}`);
@@ -73,6 +79,93 @@ export function isCompiledRepositorySourceProgramModel(
   value: SourceProgramModel
 ): boolean {
   return compiledRepositorySourceProgramModels.has(value);
+}
+
+/**
+ * Compile one bounded operation closure from an exact Workspace Source
+ * Snapshot. The snapshot already owns the canonical import graph, so this
+ * projection neither starts the full TypeScript semantic compiler nor accepts
+ * a caller path inventory.
+ */
+export function compileSourceProgramOperationProducerClosure(
+  snapshot: WorkspaceSourceSnapshot,
+  operation: SourceProgramOperationIdentity
+): SourceProgramOperationProducerClosure {
+  assertWorkspaceSourceSnapshot(snapshot);
+  const owners = snapshot.moduleMembership.descriptors.filter((descriptor) => (
+    descriptor.capabilityProviders.some((provider) => (
+      provider.capability === operation.capability
+      && provider.operations.includes(operation.operation)
+    ))
+  ));
+  if (owners.length !== 1) {
+    throw new Error(
+      `Source Program operation must resolve to one descriptor owner: `
+      + `${operation.capability}:${operation.operation}`
+    );
+  }
+  const owner = owners[0]!;
+  if (owner.externalEntrypoints.length === 0) {
+    throw new Error(`Source Program operation owner has no external entrypoint: ${owner.moduleId}`);
+  }
+  const fileByPath = new Map(snapshot.files.map((file) => [file.path, file]));
+  const descriptorPath = `${owner.root}/sec.module.json`;
+  const reachable = new Set<string>([descriptorPath]);
+  const frontier = [...owner.externalEntrypoints];
+  while (frontier.length > 0) {
+    const repositoryPath = frontier.pop()!;
+    if (reachable.has(repositoryPath)) continue;
+    const file = fileByPath.get(repositoryPath);
+    if (file === undefined) {
+      throw new Error(`Source Program operation entrypoint is absent: ${repositoryPath}`);
+    }
+    if (snapshot.moduleGraph.unresolvedFiles.includes(repositoryPath)) {
+      throw new Error(`Source Program operation reachable graph is unresolved: ${repositoryPath}`);
+    }
+    reachable.add(repositoryPath);
+    for (const dependency of snapshot.moduleGraph.directDependencies(repositoryPath)) {
+      if (!reachable.has(dependency)) frontier.push(dependency);
+    }
+  }
+  const files = Object.freeze([...reachable].sort(compareCodeUnits).map((repositoryPath) => {
+    const file = fileByPath.get(repositoryPath);
+    if (file === undefined) {
+      throw new Error(`Source Program operation closure has no exact file digest: ${repositoryPath}`);
+    }
+    return Object.freeze({ path: repositoryPath, contentDigest: file.contentDigest });
+  }));
+  const entrypointAddresses = Object.freeze(owner.externalEntrypoints
+    .map((targetPath) => (
+      `module-entrypoint:${descriptorPath}#${owner.moduleId}:${targetPath}`
+    ) as SourceProgramEntrypointAddress)
+    .sort(compareCodeUnits));
+  const canonicalOperation = Object.freeze({
+    capability: operation.capability,
+    operation: operation.operation
+  });
+  const unsigned = Object.freeze({
+    operation: canonicalOperation,
+    moduleId: owner.moduleId,
+    entrypointAddresses,
+    sourceRevision: snapshot.sourceRevision,
+    files
+  });
+  const closure = Object.freeze({
+    ...unsigned,
+    closureDigest: sha256(unsigned) as `sha256:${string}`
+  });
+  compiledOperationProducerClosures.add(closure);
+  return closure;
+}
+
+export function requireSourceProgramOperationProducerClosure(
+  value: unknown
+): SourceProgramOperationProducerClosure {
+  if (value === null || typeof value !== 'object'
+      || !compiledOperationProducerClosures.has(value)) {
+    throw new Error('Operation producer closure is not Source Program compiler-issued');
+  }
+  return value as SourceProgramOperationProducerClosure;
 }
 
 function exactStringAttribute(entity: SemanticEntity, key: string): string | null {

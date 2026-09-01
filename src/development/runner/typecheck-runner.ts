@@ -1,12 +1,10 @@
 import path from 'node:path';
 import {
   acquireWorkingTreeWorkspaceSourceSnapshot,
-  assertPhysicalWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
   assertWorkspaceTypeScriptProjectInput,
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence,
-  type PhysicalWorkspaceSourceSnapshot,
   type WorkspaceTypeScriptProjectGenerationEvidence,
   type WorkspaceTypeScriptProjectInput
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
@@ -497,7 +495,7 @@ async function issueTypecheckOperationSettlement(
 
 
 type TypecheckProjectActionIdentity = Readonly<{
-  sourceRevision: `sha256:${string}`;
+  projectInputDigest: `sha256:${string}`;
   projectConfigDigest: `sha256:${string}`;
 }>;
 
@@ -511,33 +509,12 @@ function projectActionIdentityFromInput(
 ): TypecheckProjectActionIdentity {
   assertWorkspaceTypeScriptProjectInput(projectInput);
   return Object.freeze({
-    sourceRevision: requireActionDigest(
-      projectInput.sourceRevision,
-      'Typecheck workspace source revision'
+    projectInputDigest: requireActionDigest(
+      projectInput.projectInputDigest,
+      'Typecheck ProjectInput identity'
     ),
     projectConfigDigest: requireActionDigest(
       projectInput.projectConfigDigest,
-      'Typecheck project configuration identity'
-    )
-  });
-}
-
-function projectActionIdentityFromSnapshot(
-  snapshot: PhysicalWorkspaceSourceSnapshot,
-  projectConfigPath: string
-): TypecheckProjectActionIdentity {
-  assertPhysicalWorkspaceSourceSnapshot(snapshot);
-  const projectConfig = snapshot.file(projectConfigPath);
-  if (projectConfig === null) {
-    throw new Error(`Typecheck project configuration is absent: ${projectConfigPath}`);
-  }
-  return Object.freeze({
-    sourceRevision: requireActionDigest(
-      snapshot.sourceRevision,
-      'Typecheck workspace source revision'
-    ),
-    projectConfigDigest: requireActionDigest(
-      projectConfig.contentDigest,
       'Typecheck project configuration identity'
     )
   });
@@ -558,9 +535,9 @@ function compileTypecheckActionInputFromIdentity(input: Readonly<{
     input.project.projectConfigDigest,
     'Typecheck project configuration identity'
   );
-  const sourceRevision = requireActionDigest(
-    input.project.sourceRevision,
-    'Typecheck workspace source revision'
+  const projectInputDigest = requireActionDigest(
+    input.project.projectInputDigest,
+    'Typecheck ProjectInput identity'
   );
   const provider = input.provider;
   const nodeModulesRootDigest = actionDigest({
@@ -594,7 +571,7 @@ function compileTypecheckActionInputFromIdentity(input: Readonly<{
         { name: 'dependency-execution', digest: dependencyExecutionDigest },
         { name: 'diagnostic-arguments', digest: diagnosticDigest },
         { name: 'node-modules-root', digest: nodeModulesRootDigest },
-        { name: 'repository-source-generation', digest: sourceRevision },
+        { name: 'repository-project-input', digest: projectInputDigest },
         { name: 'project-config', digest: projectConfigDigest },
         { name: 'semantic-operation-identity', digest: input.semanticOperation.plan.identity.identityDigest },
         { name: 'provider-binding', digest: provider.toolchainBindingDigest },
@@ -608,7 +585,7 @@ function compileTypecheckActionInputFromIdentity(input: Readonly<{
     }),
     inputClosure: Object.freeze([
       { path: 'dependency/admission', digest: dependencyAdmissionDigest },
-      { path: 'repository/source-generation', digest: sourceRevision },
+      { path: 'repository/project-input', digest: projectInputDigest },
       { path: 'provider/alias-package.json', digest: provider.packageManifestDigest },
       { path: 'provider/native-executable', digest: provider.platformNativeExecutableDigest },
       { path: 'provider/native-manifest.json', digest: provider.platformNativeManifestDigest },
@@ -863,6 +840,8 @@ async function executeObservedTypecheckWithProvider(
     actionInput,
     executionClass: 'cheap-preflight',
     executionDomain: 'local-typecheck',
+    deadlineAtUnixMs: operation.deadlineAtUnixMs,
+    ...(operation.signal === undefined ? {} : { signal: operation.signal }),
     executor: async ({ action, recordSubordinateSettlement }) => {
       operation.assertActive('Source Program ProjectInput materialization admission');
       const projectGenerationEvidence = projectGeneration.materialize();
@@ -1412,18 +1391,20 @@ async function executeTypecheckWithRetainedProvider(
     }, async (session) => {
       const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
       operation.assertActive('Source Program snapshot readback');
+      operation.assertActive('Source Program ProjectInput compilation admission');
+      const projectInput = compileWorkspaceTypeScriptProjectInput(
+        snapshot,
+        installed.provider.projectConfig,
+        { dependencyGeneration: dependencyGeneration.physicalGeneration }
+      );
+      const projectGenerationEvidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
+        snapshot,
+        projectInput
+      );
+      operation.assertActive('Source Program ProjectInput compilation settlement');
       const projectGeneration = Object.freeze({
-        identity: projectActionIdentityFromSnapshot(snapshot, installed.provider.projectConfig),
-        materialize: (): WorkspaceTypeScriptProjectGenerationEvidence => {
-          operation.assertActive('Source Program ProjectInput compilation admission');
-          const projectInput = compileWorkspaceTypeScriptProjectInput(
-            snapshot,
-            installed.provider.projectConfig,
-            { dependencyGeneration: dependencyGeneration.physicalGeneration }
-          );
-          operation.assertActive('Source Program ProjectInput compilation settlement');
-          return issueWorkspaceTypeScriptProjectGenerationEvidence(snapshot, projectInput);
-        }
+        identity: projectActionIdentityFromInput(projectInput),
+        materialize: (): WorkspaceTypeScriptProjectGenerationEvidence => projectGenerationEvidence
       });
       transferred = true;
       return executeObservedTypecheckWithProvider(

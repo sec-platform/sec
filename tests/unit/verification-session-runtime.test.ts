@@ -86,7 +86,7 @@ import type {
   GitHubWorkflowJobObservation,
   GitHubWorkflowRunObservation
 } from '../../src/verification/ci/contract/github-observation.ts';
-import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA, CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE } from '../../src/verification/ci/contract/revision.ts';
 import type { VerificationSessionHostedRequest } from '../../src/verification/ci/contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
@@ -1038,7 +1038,7 @@ function reducerFixture(options: {
       headSha: HEAD, headTreeSha: HEAD, baseIsAncestor: true, behindBy: 0,
       manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST, changedPaths },
     provenance: { workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef: mergeWorkflowRef,
-      workflowSha: BASE, eventName: 'workflow_run', sourceRunId: '200', sourceRunAttempt: 1,
+      workflowSha: BASE, eventName: 'repository_dispatch', sourceRunId: '200', sourceRunAttempt: 1,
       actorNodeId: 'INTEGRATOR', actorPermission: 'maintain' },
     mainHealth: freshMainHealth, consumptionOperationId, issuedAt: mergeAt,
     expiresAt: options.authorizationExpiresAt ?? '2026-08-09T14:10:00.000Z'
@@ -1053,8 +1053,9 @@ function reducerFixture(options: {
     artifactName: `sec-merge-gate-result-v2-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-200-attempt-1`,
     archiveDigest: PAGE,
     workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef: mergeWorkflowRef,
-    workflowSha: BASE, runId: '200', runAttempt: 1, eventName: 'workflow_run',
-    actorNodeId: 'INTEGRATOR', actorPermission: 'maintain' as const, expired: false
+    workflowSha: BASE, runId: '200', runAttempt: 1, eventName: 'repository_dispatch',
+    actorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
+    actorPermission: 'none' as const, expired: false
   };
   let trustedAuthorization = createTrustedIntegrationAuthorizationArtifact({
     resultJson: encodeVerificationActionData(result), observation: authorizationMetadata
@@ -3224,7 +3225,7 @@ if (endpoint.includes('/actions/runs?head_sha=')) {
   out([{ workflow_runs: [{ id: 200,
     name: 'integrate compiler session run 100 attempt 1',
     display_title: 'integrate compiler session run 100 attempt 1',
-    path: '.github/workflows/sec-merge-gate.yml', event: 'workflow_run',
+    path: '.github/workflows/sec-merge-gate.yml', event: 'repository_dispatch',
     status: 'in_progress', conclusion: null, head_sha: state.baseSha,
     run_attempt: currentRun.run_attempt, updated_at: '2026-08-09T14:05:00.000Z' }] }]);
 }
@@ -3485,16 +3486,25 @@ function createCloseoutCliScenario(input: {
     artifactDetails: {},
     artifactFiles: {},
     runs: {
-      100: { id: 100, run_attempt: 1, event: 'repository_dispatch',
+      100: { id: 100, run_attempt: 1, status: 'completed', conclusion: 'success',
+        workflow_id: 307443415, event: 'repository_dispatch',
         path: '.github/workflows/compiler-pr-validation.yml', head_sha: BASE,
-        actor: { login: 'integrator', node_id: 'INTEGRATOR' }, repository: { id: 123 } },
-      199: { id: 199, run_attempt: 1, event: 'workflow_run',
-        path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
         actor: { login: 'integrator', node_id: 'INTEGRATOR' },
-        triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' }, repository: { id: 123 } },
-      200: { id: 200, run_attempt: currentRunAttempt, event: 'workflow_run',
+        triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' },
+        repository: { id: 123 } },
+      199: { id: 199, run_attempt: 1, event: 'repository_dispatch',
         path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
-        actor: { login: 'integrator', node_id: 'INTEGRATOR' }, triggering_actor: {
+        actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
+          id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
+          node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
+          type: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type },
+        triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' }, repository: { id: 123 } },
+      200: { id: 200, run_attempt: currentRunAttempt, event: 'repository_dispatch',
+        path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
+        actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
+          id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
+          node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
+          type: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type }, triggering_actor: {
           login: triggeringPrincipal.login, node_id: triggeringPrincipal.nodeId
         }, repository: { id: 123 } }
     }
@@ -3564,7 +3574,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
     workflowSha: BASE,
     runId,
     runAttempt: 1,
-    eventName: 'workflow_run',
+    eventName: 'repository_dispatch',
     sourceRunId: '100',
     sourceRunAttempt: 1,
     actorLogin: 'integrator',
@@ -3672,11 +3682,23 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
   };
   writeCloseoutCliHarnessState(statePath, state);
   const eventPath = path.join(root, 'event.json');
-  writeFileSync(eventPath, `${JSON.stringify({ action: 'completed', repository: {
-    id: 123, full_name: 'sec-platform/sec' }, workflow_run: {
-    id: 100, run_attempt: 1, status: 'completed', conclusion: 'success',
-    event: 'repository_dispatch', path: '.github/workflows/compiler-pr-validation.yml',
-    head_sha: BASE } }, null, 2)}\n`, 'utf8');
+  writeFileSync(eventPath, `${JSON.stringify({
+    action: CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE,
+    repository: { id: 123, full_name: 'sec-platform/sec' },
+    sender: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login },
+    client_payload: {
+      sourceRunId: 100,
+      sourceRunAttempt: 1,
+      sourceWorkflowSha: BASE,
+      prNumber: 42,
+      baseSha: BASE,
+      headSha: HEAD,
+      sessionRevision: input.fixture.artifact.session.sessionRevision,
+      artifactId: 1000,
+      artifactName: sessionArtifactName,
+      artifactDigest: PAGE
+    }
+  }, null, 2)}\n`, 'utf8');
   return { root, statePath, recoveryRoot, eventPath, binding, effectStart,
     crashReleasePath: baseState.crashReleasePath as string,
     providerPrepared: prepared, rehydratedPrepared };

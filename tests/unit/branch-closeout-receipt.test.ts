@@ -169,7 +169,7 @@ function provenance() {
     workflowSha: MAIN_SHA,
     runId: '200',
     runAttempt: 1,
-    eventName: 'workflow_run',
+    eventName: 'repository_dispatch',
     sourceRunId: '100',
     sourceRunAttempt: 1,
     actorLogin: 'integrator',

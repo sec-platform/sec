@@ -36,7 +36,9 @@ import {
 import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, issueNonProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
 import {
+  acquireVerificationActionClaim,
   appendVerificationActionJournalEvent as appendJournalEvent,
+  commitVerificationActionTerminalUnderClaim,
   readVerificationActionJournal as readJournal
 } from '../../src/verification/action/journal.ts';
 import {
@@ -326,10 +328,9 @@ function inspectRepository(repositoryRoot: string) {
 
 test('concurrent callers in different execution domains join one physical executor invocation', async () => {
   const repositoryRoot = root();
-  const secondRepositoryRoot = root();
+  const runner = new VerificationActionRunner();
+  const secondRunner = new VerificationActionRunner();
   try {
-    const runner = new VerificationActionRunner();
-    const secondRunner = new VerificationActionRunner();
     const key = action();
     let invocations = 0;
     let release!: () => void;
@@ -348,10 +349,10 @@ test('concurrent callers in different execution domains join one physical execut
     });
     await Promise.resolve();
     const second = secondRunner.execute({
-      repositoryRoot: secondRepositoryRoot,
+      repositoryRoot,
       action: key,
       executionDomain: 'domain-b',
-      plan: runnablePlan(key, secondRepositoryRoot),
+      plan: runnablePlan(key, repositoryRoot),
       executor
     });
     release();
@@ -363,8 +364,149 @@ test('concurrent callers in different execution domains join one physical execut
     expect([firstResult, secondResult].every(({ terminal }) => terminal?.status === 'passed')).toBeTrue();
     expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState).toBe('terminal');
   } finally {
+    await Promise.all([runner.close(), secondRunner.close()]);
     rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+test('equal ActionKeys in distinct workspace journal authorities publish independent terminals', async () => {
+  const firstRepositoryRoot = root();
+  const secondRepositoryRoot = root();
+  const firstRunner = new VerificationActionRunner();
+  const secondRunner = new VerificationActionRunner();
+  try {
+    const key = action();
+    let invocations = 0;
+    const execute = (
+      runner: VerificationActionRunner,
+      repositoryRoot: string,
+      executionDomain: string
+    ) => runner.execute({
+        repositoryRoot,
+        action: key,
+        executionDomain,
+        plan: runnablePlan(key, repositoryRoot),
+        executor: async () => {
+          invocations += 1;
+          return issuedSettlement(key);
+        }
+      });
+    const [first, second] = await Promise.all([
+      execute(firstRunner, firstRepositoryRoot, 'workspace-a'),
+      execute(secondRunner, secondRepositoryRoot, 'workspace-b')
+    ]);
+    expect(invocations).toBe(2);
+    expect(first.disposition).toBe('executed');
+    expect(second.disposition).toBe('executed');
+    expect(readVerificationActionJournalV2(firstRepositoryRoot, key.actionKey).latestState)
+      .toBe('terminal');
+    expect(readVerificationActionJournalV2(secondRepositoryRoot, key.actionKey).latestState)
+      .toBe('terminal');
+  } finally {
+    await Promise.all([firstRunner.close(), secondRunner.close()]);
+    rmSync(firstRepositoryRoot, { recursive: true, force: true });
     rmSync(secondRepositoryRoot, { recursive: true, force: true });
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+test('durable cross-process join waits for the authenticated owner terminal without a second execution', async () => {
+  const repositoryRoot = root();
+  try {
+    const key = preflightAction('tests/unit/durable-join.ts');
+    const fs = journalFs(repositoryRoot);
+    const ownerToken = 'durable-owner';
+    const now = new Date().toISOString();
+    const claim = acquireVerificationActionClaim({
+      fs,
+      action: key,
+      ownerToken,
+      now,
+      leaseDurationMs: 5_000
+    });
+    expect(claim.disposition).toBe('acquired');
+    appendJournalEvent({ fs, action: key, state: 'queued', recordedAt: now });
+    appendJournalEvent({ fs, action: key, state: 'running', recordedAt: now });
+    let physicalExecutions = 0;
+    const joined = new VerificationActionRunner().execute({
+      repositoryRoot,
+      action: key,
+      plan: cheapPlan(key),
+      deadlineAtUnixMs: Date.now() + 4_000,
+      executor: () => {
+        physicalExecutions += 1;
+        return issuedSettlement(key);
+      }
+    });
+    const terminal = issuedSettlement(key);
+    const publish = setTimeout(() => {
+      commitVerificationActionTerminalUnderClaim({
+        fs,
+        action: key,
+        ownerToken,
+        now: new Date().toISOString(),
+        terminal: terminal.terminal,
+        note: 'producer-owned-settlement'
+      });
+    }, 500);
+    publish.unref();
+
+    let result: Awaited<typeof joined>;
+    try {
+      result = await joined;
+    } finally {
+      clearTimeout(publish);
+    }
+    expect(result).toMatchObject({
+      disposition: 'joined',
+      state: 'terminal',
+      terminal: { status: 'passed' },
+      physicalExecution: false,
+      subordinateSettlement: 'producer-owned-settlement'
+    });
+    expect(physicalExecutions).toBe(0);
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+test('durable cross-process join deadline blocks without polling or a second execution', async () => {
+  const repositoryRoot = root();
+  try {
+    const key = preflightAction('tests/unit/durable-join-deadline.ts');
+    const fs = journalFs(repositoryRoot);
+    const now = new Date().toISOString();
+    expect(acquireVerificationActionClaim({
+      fs,
+      action: key,
+      ownerToken: 'durable-owner',
+      now,
+      leaseDurationMs: 5_000
+    }).disposition).toBe('acquired');
+    appendJournalEvent({ fs, action: key, state: 'queued', recordedAt: now });
+    appendJournalEvent({ fs, action: key, state: 'running', recordedAt: now });
+    let physicalExecutions = 0;
+
+    const result = await new VerificationActionRunner().execute({
+      repositoryRoot,
+      action: key,
+      plan: cheapPlan(key),
+      deadlineAtUnixMs: Date.now() + 50,
+      executor: () => {
+        physicalExecutions += 1;
+        return issuedSettlement(key);
+      }
+    });
+
+    expect(result).toMatchObject({
+      disposition: 'blocked',
+      state: 'running',
+      terminal: null,
+      physicalExecution: false,
+      reason: 'joined durable Action wait exhausted its absolute deadline'
+    });
+    expect(physicalExecutions).toBe(0);
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
