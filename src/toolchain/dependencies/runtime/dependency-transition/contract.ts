@@ -1,0 +1,197 @@
+import path from 'node:path';
+import {
+  type GeneratedStatePhysicalIdentity
+} from '../../../../runtime-state/generated-state/contract.ts';
+import {
+  type PhysicalDirectoryIdentity
+} from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  compareCodeUnits
+} from '../../../../system-architecture/foundation/runtime/canonical.ts';
+
+/**
+ * Sole internal owner for dependency transition journal schemas, immutable
+ * ledger state, rollover/migration recovery, slot observation, and transition
+ * state-machine topology. Public callers continue through ../runtime.ts.
+ */
+
+export interface RuntimeDependencySourceGeneration {
+  readonly schema: 'sec-runtime-dependency-source-generation-v1';
+  readonly ownerRoot: string;
+  readonly ownerRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
+  readonly sourcePath: string;
+  readonly physical: Readonly<GeneratedStatePhysicalIdentity>;
+  readonly bindingDigest: `sha256:${string}`;
+  /** Digest of every no-follow source-tree entry, including content bytes. */
+  readonly treeDigest: `sha256:${string}`;
+  /** Number of entries covered by treeDigest; part of the bounded contract. */
+  readonly treeEntryCount: number;
+  readonly epoch: `sha256:${string}`;
+}
+
+export function generatedStatePhysicalIdentity(
+  identity: Readonly<Pick<PhysicalDirectoryIdentity, 'device' | 'inode' | 'objectId'>>
+): GeneratedStatePhysicalIdentity {
+  return Object.freeze({
+    device: identity.device,
+    inode: identity.inode,
+    objectId: identity.objectId
+  });
+}
+
+export function isSha256Digest(value: unknown): value is `sha256:${string}` {
+  return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value);
+}
+
+export function sameGeneratedStateIdentity(
+  left: Readonly<GeneratedStatePhysicalIdentity>,
+  right: Readonly<GeneratedStatePhysicalIdentity>
+): boolean {
+  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
+}
+
+export type DependencyTransitionKind =
+  | 'compiler-generation'
+  | 'compiler-local-locator'
+  | 'compiler-locator'
+  | 'compiler-bridge'
+  | 'runtime-projection'
+  | 'project-projection';
+
+export type DependencyTransitionPhase =
+  | 'prepared'
+  | 'backed-up'
+  | 'published'
+  | 'binding-validated'
+  | 'stamp-readback'
+  | 'complete'
+  | 'rolled-back'
+  | 'recovery-required';
+
+export type DependencyTransitionSlot = Readonly<{
+  readonly path: string;
+  readonly kind: 'absent' | 'directory' | 'link';
+  readonly physical: Readonly<GeneratedStatePhysicalIdentity> | null;
+  readonly linkTarget: string | null;
+  readonly bindingDigest: `sha256:${string}` | null;
+}>;
+
+export interface DependencyTransitionJournal {
+  readonly schema: 'sec-dependency-transition-journal-v2';
+  readonly recordDigest: `sha256:${string}`;
+  readonly previousRecordDigest: `sha256:${string}` | null;
+  readonly sequence: number;
+  readonly operationKey: `sha256:${string}`;
+  readonly attemptNonce: string;
+  readonly kind: DependencyTransitionKind;
+  readonly ownerRoot: string;
+  readonly ownerRootPhysical: Readonly<GeneratedStatePhysicalIdentity>;
+  readonly destination: DependencyTransitionSlot;
+  readonly preimage: DependencyTransitionSlot;
+  readonly stage: DependencyTransitionSlot | null;
+  /**
+   * The operation-created staging container is a separate authority from the
+   * staged `node_modules` child.  Recovery must retain both identities before
+   * it can dispose anything; a path/name alone is never a cleanup authority.
+   */
+  readonly stageRoot: DependencyTransitionSlot | null;
+  readonly backup: DependencyTransitionSlot | null;
+  readonly sourceGeneration: Readonly<RuntimeDependencySourceGeneration>;
+  readonly phase: DependencyTransitionPhase;
+  readonly durability: 'known' | 'unknown';
+  readonly failure: Readonly<{ code: string; message: string }> | null;
+}
+
+export type DependencyTransitionUnsigned = Omit<DependencyTransitionJournal, 'recordDigest'>;
+
+export const DEPENDENCY_TRANSITION_SCHEMA = 'sec-dependency-transition-journal-v2' as const;
+
+export interface DependencyTransitionNamespace {
+  readonly ownerRoot: PhysicalDirectoryIdentity;
+  readonly backupRoot: PhysicalDirectoryIdentity;
+  readonly journalRoot: PhysicalDirectoryIdentity;
+  readonly recordsRoot: PhysicalDirectoryIdentity;
+  readonly rolloversRoot: PhysicalDirectoryIdentity | null;
+}
+
+/**
+ * The mutable `current.json` file is only a best-effort locator.  It is not a
+ * transition authority: a caller must derive the one maximal tip from the
+ * immutable record ledger before it can inspect or perform recovery effects.
+ * Keeping this distinction explicit prevents a concurrent/external pointer
+ * writer from making an older or foreign record appear authoritative.
+ */
+export interface DependencyTransitionLedger {
+  readonly namespace: DependencyTransitionNamespace;
+  readonly records: ReadonlyMap<`sha256:${string}`, DependencyTransitionJournal>;
+  readonly ledgerDigest: `sha256:${string}`;
+  readonly tip: DependencyTransitionJournal | null;
+}
+
+const GENERATED_STATE_PHYSICAL_IDENTITY_KEYS = Object.freeze(['device', 'inode', 'objectId']);
+
+export function hasExactObjectKeys(
+  value: unknown,
+  keys: readonly string[]
+): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) ||
+      Object.getPrototypeOf(value) !== Object.prototype) return false;
+  return Object.keys(value).sort(compareCodeUnits).join('\0') ===
+    [...keys].sort(compareCodeUnits).join('\0');
+}
+
+export function isCanonicalAbsolutePath(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && !value.includes('\0') &&
+    path.isAbsolute(value) && path.resolve(value) === value;
+}
+
+export function isCanonicalGeneratedStatePhysicalIdentity(value: unknown): value is GeneratedStatePhysicalIdentity {
+  return hasExactObjectKeys(value, GENERATED_STATE_PHYSICAL_IDENTITY_KEYS) &&
+    typeof value.device === 'string' && value.device.length > 0 &&
+    typeof value.inode === 'string' && value.inode.length > 0 &&
+    typeof value.objectId === 'string' && value.objectId.length > 0;
+}
+
+export function transitionSlotFromPhysical(input: Readonly<{
+  path: string;
+  kind: 'directory' | 'link';
+  physical: Readonly<GeneratedStatePhysicalIdentity>;
+  linkTarget?: string | null;
+  bindingDigest?: `sha256:${string}` | null;
+}>): DependencyTransitionSlot {
+  return Object.freeze({
+    path: path.resolve(input.path),
+    kind: input.kind,
+    physical: input.physical,
+    linkTarget: input.linkTarget ?? null,
+    bindingDigest: input.bindingDigest ?? null
+  });
+}
+
+export function transitionAbsentSlot(pathValue: string): DependencyTransitionSlot {
+  return Object.freeze({
+    path: path.resolve(pathValue),
+    kind: 'absent' as const,
+    physical: null,
+    linkTarget: null,
+    bindingDigest: null
+  });
+}
+
+export function transitionSlotMatches(
+  actual: DependencyTransitionSlot,
+  expected: DependencyTransitionSlot
+): boolean {
+  if (actual.kind !== expected.kind || path.resolve(actual.path) !== path.resolve(expected.path)) return false;
+  if (actual.kind === 'absent') return true;
+  return expected.physical !== null && actual.physical !== null &&
+    sameGeneratedStateIdentity(actual.physical, expected.physical) &&
+    (expected.kind !== 'link' || actual.linkTarget === expected.linkTarget);
+}
+
+export function sourceGenerationWithPath(
+  source: RuntimeDependencySourceGeneration,
+  sourcePath: string
+): RuntimeDependencySourceGeneration {
+  return Object.freeze({ ...source, sourcePath: path.resolve(sourcePath) });
+}
