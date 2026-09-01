@@ -2414,6 +2414,52 @@ function compileTypeScriptSourceProgramModelInternal(
         }
       }
 
+      if (ts.isNewExpression(node)) {
+        const operation = ts.isIdentifier(node.expression)
+          ? node.expression.text
+          : ts.isPropertyAccessExpression(node.expression)
+            ? node.expression.name.text
+            : null;
+        const receiver = ts.isPropertyAccessExpression(node.expression)
+          ? node.expression.expression
+          : null;
+        const binding = ts.isIdentifier(node.expression)
+          ? importedBindings.get(node.expression.text)
+          : receiver && ts.isIdentifier(receiver)
+            ? importedBindings.get(receiver.text)
+            : undefined;
+        const moduleSpecifier = binding?.moduleSpecifier ?? null;
+        const nativeProcess = moduleSpecifier === 'node:worker_threads'
+          && operation === 'Worker';
+        if (nativeProcess) {
+          const moduleId = input.moduleMembership.moduleForPath(sourcePath)?.moduleId ?? null;
+          const owningDeclarationObservationId = sourceDeclarationAt(node)?.observationId ?? null;
+          const capabilitySpan = spanFor(sourceFile, node);
+          capabilities.push(Object.freeze({
+            observationId: sha256({
+              capability: 'process',
+              operation,
+              owningDeclarationObservationId,
+              path: sourcePath,
+              start: capabilitySpan.start
+            }),
+            path: sourcePath,
+            moduleId,
+            surface: sourceProgramSurfaceForPath(sourcePath),
+            capability: 'process',
+            operation,
+            subject: null,
+            transport: 'native-runtime',
+            moduleSpecifier,
+            providerCapability: null,
+            providerModuleId: null,
+            owningDeclarationObservationId,
+            observationClass: 'observed',
+            span: capabilitySpan
+          }));
+        }
+      }
+
       if (ts.isCallExpression(node)) {
         const operation = ts.isIdentifier(node.expression)
           ? node.expression.text

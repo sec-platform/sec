@@ -4,7 +4,11 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   createMainHealthLedger,
-  createMainHealthRepairWorkPackagePath
+  createMainHealthRepairWorkPackagePath,
+  createMainHealthRevision,
+  issueMainHealthLedgerProjection,
+  mainHealthLedgerCanonicalBytes,
+  resolveMainHealthLedgerProjection
 } from '../../src/control/main-health/contract.ts';
 import { parseDockerEndpointIdentity } from '../../src/external-capabilities/docker/contract/daemon.ts';
 import {
@@ -95,7 +99,34 @@ function mainHealthRetirementFixture() {
       sourceDigest: `sha256:${'5'.repeat(64)}`
     }
   });
-  return Object.freeze({ localReceipt, hostedLedger, mainSha });
+  const hostedProjection = resolveMainHealthLedgerProjection(
+    issueMainHealthLedgerProjection(mainHealthLedgerCanonicalBytes(hostedLedger))
+  );
+  const hostedPayload = Object.freeze({
+    canonicalBytes: hostedProjection.canonicalBytes,
+    byteDigest: hostedProjection.byteDigest,
+    semanticRevision: hostedProjection.semanticRevision,
+    bindingDigest: hostedProjection.bindingDigest
+  });
+  const localHealthRevision = createMainHealthRevision({
+    repository: localReceipt.repository,
+    defaultBranch: hostedLedger.defaultBranch,
+    mainSha: localReceipt.mainSha,
+    mainTreeSha: localReceipt.mainTreeSha,
+    status: 'healthy',
+    failureFingerprints: [],
+    owner: null,
+    repairWorkPackage: null,
+    allowedLanes: ['ordinary'],
+    trustRevision: localReceipt.mainSha
+  });
+  return Object.freeze({
+    localReceipt,
+    hostedLedger,
+    hostedPayload,
+    localHealthRevision,
+    mainSha
+  });
 }
 
 function imageInspect(overrides: Record<string, unknown> = {}): string {
@@ -546,7 +577,6 @@ describe('provider-neutral trusted runtime container', () => {
       'utf8'
     );
     const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-      defaultBranch: fixture.hostedLedger.defaultBranch,
       sourceName,
       source: Object.freeze({
         relativePath: sourceName,
@@ -558,8 +588,9 @@ describe('provider-neutral trusted runtime container', () => {
         linkTarget: null
       }),
       localReceipt: fixture.localReceipt,
-      hostedLedger: fixture.hostedLedger,
-      hostedAuthorityDigest: `sha256:${'9'.repeat(64)}`,
+      localHealthRevision: fixture.localHealthRevision,
+      hostedPayload: fixture.hostedPayload,
+      hostedAuthorityDigest: fixture.hostedPayload.bindingDigest,
       runtimeAuthorityBinding: `sha256:${'a'.repeat(64)}`,
       predecessorRecordDigest: null,
       issuer: {
@@ -591,23 +622,34 @@ describe('provider-neutral trusted runtime container', () => {
       }
     });
     expect(parseTrustedRuntimeMainHealthSupersessionReceipt(
-      encodeVerificationActionData(record)
+      encodeVerificationActionData(record),
+      fixture.hostedPayload
     )).toEqual(record);
+    expect(() => resolveMainHealthLedgerProjection({
+      projectionDigest: fixture.hostedPayload.bindingDigest
+    })).toThrow('forged or belongs to another process');
+    expect(() => parseTrustedRuntimeMainHealthSupersessionReceipt(
+      encodeVerificationActionData(record),
+      {
+        ...fixture.hostedPayload,
+        bindingDigest: `sha256:${'b'.repeat(64)}`
+      }
+    )).toThrow('differs from the domain-owner readback');
     expect(record).toMatchObject({
       phase: 'complete',
       effect: 'prefer-exact-registered-hosted-provider',
       reason: 'stronger-hosted-provider-conflict',
       issuer: { nodeId: 'MDQ6VXNlcjE=', permission: 'maintain' },
       localReceipt: { receiptDigest: fixture.localReceipt.receiptDigest },
-      hostedLedger: { ledgerDigest: fixture.hostedLedger.ledgerDigest }
+      hostedPayload: { semanticRevision: fixture.hostedLedger.healthRevision }
     });
     expect(() => createTrustedRuntimeMainHealthSupersessionAuthorization({
-      defaultBranch: fixture.hostedLedger.defaultBranch,
       sourceName,
       source: { ...record.source, relativePath: `${sourceName}.forged`, bytes: sourceBytes,
         linkTarget: null, kind: 'file' },
       localReceipt: fixture.localReceipt,
-      hostedLedger: fixture.hostedLedger,
+      localHealthRevision: fixture.localHealthRevision,
+      hostedPayload: fixture.hostedPayload,
       hostedAuthorityDigest: record.hostedAuthorityDigest,
       runtimeAuthorityBinding: record.runtimeAuthorityBinding,
       predecessorRecordDigest: null,
@@ -623,7 +665,6 @@ describe('provider-neutral trusted runtime container', () => {
       'utf8'
     );
     const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-      defaultBranch: fixture.hostedLedger.defaultBranch,
       sourceName,
       source: Object.freeze({
         relativePath: sourceName,
@@ -635,8 +676,9 @@ describe('provider-neutral trusted runtime container', () => {
         linkTarget: null
       }),
       localReceipt: fixture.localReceipt,
-      hostedLedger: fixture.hostedLedger,
-      hostedAuthorityDigest: `sha256:${'9'.repeat(64)}`,
+      localHealthRevision: fixture.localHealthRevision,
+      hostedPayload: fixture.hostedPayload,
+      hostedAuthorityDigest: fixture.hostedPayload.bindingDigest,
       runtimeAuthorityBinding: `sha256:${'a'.repeat(64)}`,
       predecessorRecordDigest: null,
       issuer: {

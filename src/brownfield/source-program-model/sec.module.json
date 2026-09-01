@@ -1,6 +1,8 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": [],
+  "externalEntrypoints": [
+    "src/brownfield/source-program-model/producer-closure.ts"
+  ],
   "capabilityProviders": [
     {
       "capability": "source-program-model",
@@ -15,8 +17,32 @@
         "compileSourceProgramGraphCutReductionPlan",
         "compileSourceProgramImplementationDominance",
         "compileSourceProgramTestValue",
-        "compileTypeScriptSourceProgramModelIncremental"
+        "compileTypeScriptSourceProgramModelIncremental",
+        "compileSourceProgramOperationProducerClosure"
+      ],
+      "operationRoles": [
+        {
+          "operation": "compileSourceProgramOperationProducerClosure",
+          "role": "registration-issuer",
+          "semanticOperation": "brownfield.source-program-model.operation-producer-closure",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
+    }
+  ],
+  "causalRelations": [
+    {
+      "subject": "brownfield.source-program-model.operation-producer-closure",
+      "relation": "produces",
+      "symbol": {
+        "path": "src/brownfield/source-program-model/producer-closure.ts",
+        "name": "compileSourceProgramOperationProducerClosure"
+      },
+      "operation": {
+        "semanticOperation": "brownfield.source-program-model.operation-producer-closure",
+        "requirementId": null
+      }
     }
   ],
   "preDependencyBootstrap": false

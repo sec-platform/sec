@@ -3,23 +3,65 @@ import { describe, expect, test } from 'bun:test';
 import {
   projectRepositoryAuditCli,
   projectRepositoryModuleArchitectureAudit,
+  RepositoryAuditCliProjectionContractError,
   repositoryModuleArchitectureShouldBlock,
   type RepositoryAuditReport
 } from '../../src/brownfield/repository-audit/cli.ts';
+import { compileSourceProgramDeclarationTopology } from '../../src/brownfield/source-program-model/declaration-topology.ts';
+import { compileVirtualRepositorySourceProgramCompilation } from '../../src/brownfield/source-program-model/repository-compilation.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import {
   projectDocumentControlPlaneStatusCli
 } from '../../src/control/documentation/document-control-plane.ts';
-import { projectSecWorkSelectionCli } from '../../src/control/main-health/work-selection.ts';
 import { compileSecOperationDemandGraph } from '../../src/control/operation/demand.ts';
 import type { SecWorkSelectionLiveResult } from '../../src/control/work-selection/live-contract.ts';
+import { projectSecWorkSelectionCli } from '../../src/control/work-selection/runtime.ts';
 import { shouldReportDevRunnerSuccess } from '../../src/development/runner/cli.ts';
+import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   compileSecRepositoryModuleGraph,
+  compileSecRepositoryModuleMembershipSnapshot,
   compileSecRepositoryModuleTopologyProjection,
   parseSecModuleDescriptor,
   type SecRepositoryModuleArchitectureProjection,
   type SecRepositoryModuleMembership
 } from '../../src/system-architecture/repository-modules/contract.ts';
+
+function declarationTopologyFixture() {
+  const descriptorPath = 'src/projection-owner/sec.module.json';
+  const sourcePath = 'src/projection-owner/runtime.ts';
+  const source = 'export const projection = true;';
+  const sourceRevision = rawSha256(source);
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [descriptorPath, sourcePath],
+    descriptorSources: [{
+      descriptorPath,
+      source: JSON.stringify({
+        importGraph: 'runtime',
+        externalEntrypoints: [],
+        capabilityProviders: [],
+        operationObligations: [],
+        causalRelations: [],
+        preDependencyBootstrap: false
+      })
+    }]
+  });
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    subject: {
+      kind: 'virtual-mutation',
+      provenance: {
+        kind: 'source-program-virtual-mutation',
+        baseSnapshotDigest: rawSha256('repository-audit-projection-base'),
+        mutationDigest: sourceRevision
+      }
+    },
+    files: [{ path: sourcePath, source, contentDigest: sourceRevision }],
+    moduleMembership
+  });
+  return compileSourceProgramDeclarationTopology(
+    compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot })
+  );
+}
 
 function architectureProjectionFixture(
   topology: 'acyclic' | 'cyclic'
@@ -97,6 +139,7 @@ describe('bounded control-plane CLI projections', () => {
         ownerEdges: [], strongComponents: [], reciprocalPairs: [], feedbackCuts: [],
         aggregateFacadePaths: [], unresolvedAggregateSurfacePaths: [], nodeResponsibilities: [], violations: []
       },
+      declarationTopology: declarationTopologyFixture(),
       revision: {
         defaultHead: 'a'.repeat(40), defaultRef: 'main', defaultRefInput: 'main',
         defaultRefMode: 'ref', head: 'b'.repeat(40), tree: 'c'.repeat(40), worktree: 'clean'
@@ -121,6 +164,11 @@ describe('bounded control-plane CLI projections', () => {
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');
     expect(JSON.stringify(projected).length).toBeLessThan(1_500);
+
+    const { declarationTopology: _declarationTopology, ...staleReport } = report;
+    expect(() => projectRepositoryAuditCli(
+      staleReport as unknown as RepositoryAuditReport
+    )).toThrow(RepositoryAuditCliProjectionContractError);
   });
 
   test('work selection keeps authority identity and the actionable decision only', () => {

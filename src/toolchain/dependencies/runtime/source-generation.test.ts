@@ -10,6 +10,7 @@ import {
   compileSecRepositoryModuleMembershipSnapshot,
   parseSecModuleDescriptor
 } from '../../../system-architecture/repository-modules/contract.ts';
+import { isCanonicalRuntimeDependencySourceGeneration } from './dependency-transition/codec.ts';
 import {
   runtimeDependencyOperationContext,
   runtimeDependencyOperationOptions,
@@ -17,6 +18,8 @@ import {
 } from './operation-context.ts';
 import { readRuntimeDependencyOperationTelemetry } from './operation-telemetry.ts';
 import {
+  assertRuntimeDependencySourceGenerationIssued,
+  issuedRuntimeDependencySourceGenerationWithPath,
   runtimeDependencySourceGeneration,
   sameRuntimeDependencySourceGenerationContent
 } from './source-generation.ts';
@@ -93,6 +96,18 @@ test('source generation binds content identity to one exact physical owner topol
     const input = { binding: { packageManager: 'bun' }, options, ownerRoot, sourcePath };
     const first = await runtimeDependencySourceGeneration(input);
     const repeated = await runtimeDependencySourceGeneration(input);
+    expect(() => assertRuntimeDependencySourceGenerationIssued(first)).not.toThrow();
+    expect(() => assertRuntimeDependencySourceGenerationIssued({ ...first }))
+      .toThrow('not issued by the physical source compiler');
+    const relocated = issuedRuntimeDependencySourceGenerationWithPath(
+      first,
+      path.join(ownerRoot, 'immutable-generation')
+    );
+    expect(() => assertRuntimeDependencySourceGenerationIssued(relocated)).not.toThrow();
+    expect(isCanonicalRuntimeDependencySourceGeneration({
+      ...first,
+      epoch: `sha256:${'0'.repeat(64)}`
+    })).toBe(false);
     expect(repeated).toEqual(first);
     expect(sameRuntimeDependencySourceGenerationContent(first, repeated)).toBe(true);
 

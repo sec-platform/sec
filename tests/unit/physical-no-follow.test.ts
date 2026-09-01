@@ -24,7 +24,7 @@ import path from 'node:path';
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
 import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { PhysicalNoFollowError, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
 import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
@@ -735,6 +735,67 @@ test('tree scan records a child link as an unsafe leaf and never traverses it', 
     const entries = scanNoFollowDirectoryTree(inspectNoFollowDirectoryChain(target, 'scan target').target);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ relativePath: 'child-link', kind: 'link' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('selected forest retains one root, emits selector prefixes, and shares hard bounds', () => {
+  const root = fixtureRoot();
+  try {
+    const selected = path.join(root, 'a'.repeat(64), 'verification-actions');
+    const ignored = path.join(root, 'a'.repeat(64), 'objects');
+    const other = path.join(root, 'b'.repeat(64));
+    mkdirSync(selected, { recursive: true });
+    mkdirSync(ignored, { recursive: true });
+    mkdirSync(other, { recursive: true });
+    writeFileSync(path.join(selected, 'record.json'), 'selected\n');
+    writeFileSync(path.join(ignored, 'large.bin'), Buffer.alloc(4096));
+    writeFileSync(path.join(other, 'top-level.txt'), 'not selected\n');
+    const identity = inspectNoFollowDirectoryChain(root, 'selected forest root').target;
+    const options = {
+      deadlineAtMs: performance.now() + 10_000,
+      maximumEntries: 32,
+      maximumBytes: 64,
+      includeRelativePaths: ['*/verification-actions']
+    } as const;
+    const forest = scanNoFollowDirectoryTreeSelectedForest(identity, options);
+    expect(forest.map(({ relativePath }) => relativePath)).toEqual([
+      'a'.repeat(64),
+      `${'a'.repeat(64)}/verification-actions`,
+      `${'a'.repeat(64)}/verification-actions/record.json`,
+      'b'.repeat(64)
+    ]);
+    const sourceOnlyForest = scanNoFollowDirectoryTreeSelectedForest(identity, {
+      ...options,
+      omitNavigationPrefixes: true
+    });
+    expect(sourceOnlyForest.map(({ relativePath }) => relativePath)).toEqual([
+      `${'a'.repeat(64)}/verification-actions`,
+      `${'a'.repeat(64)}/verification-actions/record.json`
+    ]);
+    const full = scanNoFollowDirectoryTree(identity, {
+      deadlineAtMs: performance.now() + 10_000,
+      maximumEntries: 32,
+      maximumBytes: 8192
+    });
+    expect(forest.find(({ relativePath }) => relativePath.endsWith('record.json'))?.bytes)
+      .toEqual(full.find(({ relativePath }) => relativePath.endsWith('record.json'))?.bytes);
+    expect(() => scanNoFollowDirectoryTreeSelectedForest(identity, {
+      ...options,
+      maximumBytes: 1
+    })).toThrow('byte bound exceeded');
+    expect(() => scanNoFollowDirectoryTreeSelectedForest(identity, {
+      ...options,
+      deadlineAtMs: performance.now() - 1
+    })).toThrow('deadline exceeded');
+
+    const replaced = `${root}-replaced`;
+    renameSync(root, replaced);
+    mkdirSync(root);
+    expect(() => scanNoFollowDirectoryTreeSelectedForest(identity, options))
+      .toThrow('physical identity changed');
+    rmSync(replaced, { recursive: true, force: true });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

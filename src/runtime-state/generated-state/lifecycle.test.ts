@@ -7,9 +7,12 @@ import { canonicalJson } from '../../system-architecture/foundation/runtime/cano
 import { runCommandBytes } from '../physical/runtime/process.ts';
 import { generatedStateDomainProviderMaterialDigest } from './contract.ts';
 import {
+  assertGeneratedStateCleanupContinuationReceipt,
   assertGeneratedStateDisposalReceipt,
   assertGeneratedStateRetirementObservation,
   assertGeneratedStateWorktreeRetirementEffectStart,
+  continueGeneratedStateCleanup,
+  createGeneratedStateCleanupOperationSession,
   GeneratedStateProducerBindingBlockedError,
   generatedStateProducerHooks,
   inspectGeneratedState,
@@ -709,6 +712,117 @@ test('an interrupted quarantine resumes from durable intent without rediscoverin
   expect(resumed.terminal).toBe('completed');
   expect(resumed.attempts.map(({ action }) => action)).toEqual(['deleted']);
   expect(await absent(path.join(repositoryRoot, '.tmp', 'generated-state-quarantine'))).toBe(true);
+});
+
+test('bounded quarantine returns one resumable receipt across capacity, abort, deadline, and zero-repeat', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
+  await writeFile(path.join(generatedRoot, 'nested', 'cache.bin'), 'cache');
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
+  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-bounded-quarantine');
+  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
+
+  const partial = await continueGeneratedStateCleanup({
+    lifecycleOptions: options,
+    repositoryRoot,
+    profile: 'automatic',
+    relativePaths: [LIFECYCLE_FIXTURE_PATH],
+    operation: createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: performance.now() + 30_000,
+      maximumBytes: 1024,
+      maximumEntries: 1
+    })
+  });
+  assertGeneratedStateCleanupContinuationReceipt(partial);
+  expect(partial).toMatchObject({ terminal: 'continuation-required', blockers: [] });
+  expect(await absent(generatedRoot)).toBe(true);
+
+  const aborted = new AbortController();
+  aborted.abort();
+  for (const operation of [
+    createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: performance.now() + 30_000,
+      signal: aborted.signal
+    }),
+    createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: 1,
+      monotonicNowMs: () => 2
+    })
+  ]) {
+    const receipt = await continueGeneratedStateCleanup({
+      lifecycleOptions: options,
+      repositoryRoot,
+      profile: 'automatic',
+      relativePaths: [LIFECYCLE_FIXTURE_PATH],
+      operation
+    });
+    expect(receipt.terminal).toBe('continuation-required');
+  }
+
+  const completed = await continueGeneratedStateCleanup({
+    lifecycleOptions: options,
+    repositoryRoot,
+    profile: 'automatic',
+    relativePaths: [LIFECYCLE_FIXTURE_PATH],
+    operation: createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: performance.now() + 30_000
+    })
+  });
+  expect(completed.terminal).toBe('completed');
+  const repeated = await continueGeneratedStateCleanup({
+    lifecycleOptions: options,
+    repositoryRoot,
+    profile: 'automatic',
+    relativePaths: [LIFECYCLE_FIXTURE_PATH],
+    operation: createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: performance.now() + 30_000
+    })
+  });
+  expect(repeated).toMatchObject({ terminal: 'completed', quarantined: [], blockers: [] });
+});
+
+test('bounded quarantine preserves a replaced continuation root as foreign residue', async () => {
+  const { options, repositoryRoot } = await fixture();
+  const generatedRoot = fixtureRoot(repositoryRoot);
+  await mkdir(path.join(generatedRoot, 'nested'), { recursive: true });
+  await writeFile(path.join(generatedRoot, 'nested', 'cache.bin'), 'cache');
+  const lifecycle = generatedStateProducerHooks({ repositoryRoot }, options);
+  await lifecycle.born(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-operation-bounded-foreign');
+  await lifecycle.retired(LIFECYCLE_FIXTURE_PATH, 'compiler-staging-owner-completed');
+  const partial = await continueGeneratedStateCleanup({
+    lifecycleOptions: options,
+    repositoryRoot,
+    profile: 'automatic',
+    relativePaths: [LIFECYCLE_FIXTURE_PATH],
+    operation: createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: performance.now() + 30_000,
+      maximumEntries: 1
+    })
+  });
+  const quarantined = partial.quarantined[0]!;
+  const quarantinePath = path.join(
+    repositoryRoot,
+    '.tmp',
+    'generated-state-quarantine',
+    `q-${quarantined.registrationDigest.slice('sha256:'.length, 'sha256:'.length + 48)}`
+  );
+  await rename(quarantinePath, `${quarantinePath}-original`);
+  await mkdir(quarantinePath);
+  await writeFile(path.join(quarantinePath, 'foreign.txt'), 'foreign');
+
+  const blocked = await continueGeneratedStateCleanup({
+    lifecycleOptions: options,
+    repositoryRoot,
+    profile: 'automatic',
+    relativePaths: [LIFECYCLE_FIXTURE_PATH],
+    operation: createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: performance.now() + 30_000
+    })
+  });
+  expect(blocked.terminal).toBe('blocked');
+  expect(blocked.blockers).toContain(`${LIFECYCLE_FIXTURE_PATH}:cleanup-continuation-quarantine-invalid`);
+  expect(await absent(path.join(quarantinePath, 'foreign.txt'))).toBe(false);
 });
 
 test('a foreign quarantine entry prevents a completed physical settlement', async () => {

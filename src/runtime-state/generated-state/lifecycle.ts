@@ -14,6 +14,7 @@ import { createRuntimeStateJournalFileSystem } from '../workspace-state/journal-
 import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
 import {
+  GENERATED_STATE_CLEANUP_CONTINUATION_SCHEMA,
   GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA,
   GENERATED_STATE_REGISTRY,
   assertGeneratedStateWorktreeRetirement,
@@ -29,6 +30,7 @@ import {
   parseGeneratedStatePhysicalIdentity,
   parseGeneratedStateRegistration,
   retireGeneratedStateRegistration,
+  type GeneratedStateCleanupContinuationReceipt,
   type GeneratedStateCleanupProfile,
   type GeneratedStateDisposalReceipt,
   type GeneratedStateInventory,
@@ -45,7 +47,117 @@ const GENERATED_STATE_RUNTIME_VERSION = 'v1' as const;
 const GENERATED_STATE_CLEANUP_INTENT_SCHEMA = 'sec-generated-state-cleanup-intent-v2' as const;
 const GENERATED_STATE_DISPOSAL_KEY_SCHEMA = 'sec-generated-state-disposal-key-v1' as const;
 const MAXIMUM_CLEANUP_ENTRIES = 100_000;
+const MAXIMUM_CLEANUP_BYTES = 2 * 1024 * 1024 * 1024;
 const CLEANUP_DEADLINE_MS = 30_000;
+
+export interface GeneratedStateCleanupOperationSession {
+  readonly deadlineAtMonotonicMs: number;
+}
+
+type GeneratedStateCleanupOperationState = {
+  readonly deadlineAtMonotonicMs: number;
+  readonly maximumBytes: number;
+  readonly maximumEntries: number;
+  readonly monotonicNowMs: () => number;
+  readonly signal: AbortSignal | undefined;
+  observedBytes: number;
+  observedEntries: number;
+};
+
+const generatedStateCleanupOperationStates = new WeakMap<object, GeneratedStateCleanupOperationState>();
+
+export function createGeneratedStateCleanupOperationSession(input: Readonly<{
+  deadlineAtMonotonicMs: number;
+  maximumBytes?: number;
+  maximumEntries?: number;
+  monotonicNowMs?: () => number;
+  signal?: AbortSignal;
+}>): GeneratedStateCleanupOperationSession {
+  const maximumBytes = input.maximumBytes ?? MAXIMUM_CLEANUP_BYTES;
+  const maximumEntries = input.maximumEntries ?? MAXIMUM_CLEANUP_ENTRIES;
+  const monotonicNowMs = input.monotonicNowMs ?? (() => performance.now());
+  if (!Number.isFinite(input.deadlineAtMonotonicMs) ||
+      !Number.isSafeInteger(maximumBytes) || maximumBytes < 0 || maximumBytes > MAXIMUM_CLEANUP_BYTES ||
+      !Number.isSafeInteger(maximumEntries) || maximumEntries < 1 || maximumEntries > MAXIMUM_CLEANUP_ENTRIES) {
+    throw new Error('Generated-state cleanup operation bounds are invalid.');
+  }
+  const session = Object.freeze({
+    deadlineAtMonotonicMs: input.deadlineAtMonotonicMs
+  });
+  generatedStateCleanupOperationStates.set(session, {
+    deadlineAtMonotonicMs: input.deadlineAtMonotonicMs,
+    maximumBytes,
+    maximumEntries,
+    monotonicNowMs,
+    signal: input.signal,
+    observedBytes: 0,
+    observedEntries: 0
+  });
+  return session;
+}
+
+class GeneratedStateCleanupOperationExhaustedError extends Error {}
+
+function generatedStateCleanupOperationState(
+  session: GeneratedStateCleanupOperationSession | undefined
+): GeneratedStateCleanupOperationState | null {
+  if (session === undefined) return null;
+  const state = generatedStateCleanupOperationStates.get(session);
+  if (state === undefined) throw new Error('Generated-state cleanup operation session is not owner-issued.');
+  return state;
+}
+
+function assertGeneratedStateCleanupOperation(
+  state: GeneratedStateCleanupOperationState | null,
+  label: string
+): void {
+  if (state === null) return;
+  if (state.signal?.aborted === true || state.monotonicNowMs() >= state.deadlineAtMonotonicMs) {
+    throw new GeneratedStateCleanupOperationExhaustedError(`${label} exceeded the cleanup operation budget.`);
+  }
+}
+
+function cleanupInventory(
+  directory: PhysicalDirectoryIdentity,
+  state: GeneratedStateCleanupOperationState | null,
+  label: string
+) {
+  assertGeneratedStateCleanupOperation(state, label);
+  const remainingEntries = state === null ? MAXIMUM_CLEANUP_ENTRIES : state.maximumEntries - state.observedEntries;
+  const remainingBytes = state === null ? MAXIMUM_CLEANUP_BYTES : state.maximumBytes - state.observedBytes;
+  if (remainingEntries < 1 || remainingBytes < 0) {
+    throw new GeneratedStateCleanupOperationExhaustedError(`${label} exhausted aggregate cleanup capacity.`);
+  }
+  let inventory: ReturnType<typeof scanNoFollowDirectoryTreeMetadata>;
+  try {
+    inventory = scanNoFollowDirectoryTreeMetadata(directory, {
+      deadlineAtMs: state?.deadlineAtMonotonicMs ?? performance.now() + CLEANUP_DEADLINE_MS,
+      maximumEntries: remainingEntries,
+      maximumBytes: remainingBytes,
+      signal: state?.signal
+    });
+  } catch (error) {
+    if ((error instanceof PhysicalNoFollowError &&
+        error.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE') ||
+        state?.signal?.aborted === true) {
+      throw new GeneratedStateCleanupOperationExhaustedError(`${label} exhausted its bounded inventory.`);
+    }
+    throw error;
+  }
+  if (state !== null) {
+    const observedBytes = inventory.reduce(
+      (total, entry) => total + (entry.kind === 'file' ? entry.size : 0),
+      0
+    );
+    if (inventory.length > state.maximumEntries - state.observedEntries ||
+        observedBytes > state.maximumBytes - state.observedBytes) {
+      throw new GeneratedStateCleanupOperationExhaustedError(`${label} exceeded aggregate cleanup capacity.`);
+    }
+    state.observedEntries += inventory.length;
+    state.observedBytes += observedBytes;
+  }
+  return inventory;
+}
 
 export interface GeneratedStateLifecycleOptions {
   readonly afterQuarantineEffect?: (relativePath: string) => void | Promise<void>;
@@ -53,6 +165,7 @@ export interface GeneratedStateLifecycleOptions {
   readonly afterWorktreeRetirementProviderEffect?: (relativePath: string) => void | Promise<void>;
   readonly beforeCleanupEffect?: (relativePath: string) => void | Promise<void>;
   readonly clock?: () => Date;
+  readonly cleanupOperation?: GeneratedStateCleanupOperationSession;
   readonly environment?: NodeJS.ProcessEnv;
   readonly worktreeRetirementProviders?: readonly GeneratedStateWorktreeRetirementProvider[];
   readonly runGit?: (
@@ -3212,11 +3325,11 @@ export function planGeneratedStateCleanup(input: Readonly<{
   });
 }
 
-function deleteQuarantinedTree(directory: PhysicalDirectoryIdentity): void {
-  const inventory = scanNoFollowDirectoryTreeMetadata(directory, {
-    deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
-    maximumEntries: MAXIMUM_CLEANUP_ENTRIES
-  });
+function deleteQuarantinedTree(
+  directory: PhysicalDirectoryIdentity,
+  operation: GeneratedStateCleanupOperationState | null
+): void {
+  const inventory = cleanupInventory(directory, operation, 'Generated-state quarantine inventory');
   const directories = new Map<string, { device: string; inode: string }>();
   for (const entry of inventory) {
     if (entry.kind === 'directory') directories.set(entry.relativePath, entry);
@@ -3228,6 +3341,7 @@ function deleteQuarantinedTree(directory: PhysicalDirectoryIdentity): void {
       || right.relativePath.localeCompare(left.relativePath);
   });
   for (const entry of ordered) {
+    assertGeneratedStateCleanupOperation(operation, 'Generated-state quarantine entry deletion');
     const parts = entry.relativePath.split('/');
     const ancestors = parts.slice(0, -1).map((_, index) => {
       const relativePath = parts.slice(0, index + 1).join('/');
@@ -3244,6 +3358,7 @@ function deleteQuarantinedTree(directory: PhysicalDirectoryIdentity): void {
       ancestorDirectories: ancestors
     });
   }
+  assertGeneratedStateCleanupOperation(operation, 'Generated-state quarantine root deletion');
   const parent = inspectNoFollowDirectoryChain(path.dirname(directory.path), 'Generated-state quarantine parent').target;
   deleteRetainedNoFollowEntry({
     root: parent,
@@ -3261,6 +3376,14 @@ export async function settleGeneratedState(input: Readonly<{
   profile: GeneratedStateCleanupProfile | 'inspect-only';
   relativePaths?: readonly string[];
 }>, options: GeneratedStateLifecycleOptions = {}): Promise<GeneratedStateSettlement> {
+  const cleanupOperation = generatedStateCleanupOperationState(
+    options.cleanupOperation ?? createGeneratedStateCleanupOperationSession({
+      deadlineAtMonotonicMs: performance.now() + CLEANUP_DEADLINE_MS,
+      maximumBytes: MAXIMUM_CLEANUP_BYTES,
+      maximumEntries: MAXIMUM_CLEANUP_ENTRIES
+    })
+  );
+  assertGeneratedStateCleanupOperation(cleanupOperation, 'Generated-state cleanup admission');
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
   const before = await inspectGeneratedState({
@@ -3321,7 +3444,7 @@ export async function settleGeneratedState(input: Readonly<{
         if (!sameIdentity(identityOf(tombstone.directory.target), registration.root)) {
           throw new Error('Generated-state interrupted quarantine identity changed.');
         }
-        deleteQuarantinedTree(tombstone.directory.target);
+        deleteQuarantinedTree(tombstone.directory.target, cleanupOperation);
       }
       const registrationLocator = registrationPath(store, entry.relativePath);
       const transactionLocator = transactionPointerPath(store, entry.relativePath);
@@ -3395,7 +3518,7 @@ export async function settleGeneratedState(input: Readonly<{
         });
         attempts.push(Object.freeze({ relativePath, action: 'quarantined', detailRef: intentDigest }));
         await options.afterQuarantineEffect?.(relativePath);
-        deleteQuarantinedTree(moved);
+        deleteQuarantinedTree(moved, cleanupOperation);
         const absent = inspectExactNoFollowDirectoryPresence(
           path.join(quarantinePath, tombstoneName), 'Generated-state quarantine readback'
         ).state === 'absent';
@@ -3426,11 +3549,25 @@ export async function settleGeneratedState(input: Readonly<{
   const quarantinePath = path.join(workspaceRoot, '.tmp', 'generated-state-quarantine');
   const quarantine = inspectExactNoFollowDirectoryPresence(quarantinePath, 'Generated-state quarantine finalization');
   if (quarantine.state === 'present') {
-    const quarantineInventory = scanNoFollowDirectoryTreeMetadata(quarantine.directory.target, {
-        deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
-        maximumEntries: MAXIMUM_CLEANUP_ENTRIES
-      });
-    if (quarantineInventory.length === 0) {
+    let quarantineInventory: ReturnType<typeof scanNoFollowDirectoryTreeMetadata>;
+    try {
+      quarantineInventory = cleanupInventory(
+        quarantine.directory.target,
+        cleanupOperation,
+        'Generated-state quarantine finalization inventory'
+      );
+    } catch (error) {
+      if (!(error instanceof GeneratedStateCleanupOperationExhaustedError)) throw error;
+      quarantineInventory = Object.freeze([]);
+      blockers.push('.tmp/generated-state-quarantine:cleanup-operation-exhausted');
+      attempts.push(Object.freeze({
+        relativePath: '.tmp/generated-state-quarantine',
+        action: 'residue' as const,
+        detailRef: generatedStateDigest(error.message)
+      }));
+    }
+    if (quarantineInventory.length === 0 &&
+        !blockers.includes('.tmp/generated-state-quarantine:cleanup-operation-exhausted')) {
       const tmp = inspectNoFollowDirectoryChain(path.dirname(quarantinePath), 'Generated-state tmp root').target;
       deleteRetainedNoFollowEntry({
         root: tmp,
@@ -3485,14 +3622,138 @@ export async function settleGeneratedState(input: Readonly<{
   return settlement;
 }
 
-async function disposeGeneratedStateRegistration(input: Readonly<{
+const issuedGeneratedStateCleanupContinuationReceipts = new WeakSet<object>();
+
+export function assertGeneratedStateCleanupContinuationReceipt(
+  receipt: GeneratedStateCleanupContinuationReceipt
+): void {
+  if (!issuedGeneratedStateCleanupContinuationReceipts.has(receipt)) {
+    throw new Error('Generated-state cleanup continuation receipt was not issued by this owner.');
+  }
+}
+
+export async function continueGeneratedStateCleanup(input: Readonly<{
+  lifecycleOptions?: GeneratedStateLifecycleOptions;
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  profile: GeneratedStateCleanupProfile;
+  relativePaths: readonly string[];
+  operation: GeneratedStateCleanupOperationSession;
+}>): Promise<GeneratedStateCleanupContinuationReceipt> {
+  generatedStateCleanupOperationState(input.operation);
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const requested = Object.freeze(
+    [...new Set(input.relativePaths.map(normalizeGeneratedStateRelativePath))].sort()
+  );
+  if (requested.length === 0) throw new Error('Generated-state cleanup continuation requires one selected path.');
+  let settlementDigest: `sha256:${string}`;
+  try {
+    const settlement = await settleGeneratedState({
+      repositoryRoot,
+      workspaceRoot,
+      profile: input.profile,
+      relativePaths: requested
+    }, { ...input.lifecycleOptions, cleanupOperation: input.operation });
+    settlementDigest = settlement.settlementDigest;
+  } catch (error) {
+    if (!(error instanceof GeneratedStateCleanupOperationExhaustedError)) throw error;
+    settlementDigest = generatedStateDigest(Object.freeze({
+      domain: 'generated-state-cleanup-operation-exhausted',
+      repositoryRoot,
+      requested
+    }));
+  }
+
+  const after = await inspectGeneratedState(
+    { repositoryRoot, workspaceRoot, relativePaths: requested },
+    { ...input.lifecycleOptions, cleanupOperation: input.operation }
+  );
+  const store = openRuntimeStoreReadOnly(
+    workspaceRoot,
+    { ...input.lifecycleOptions, cleanupOperation: input.operation }
+  );
+  const completed: string[] = [];
+  const quarantined: Array<Readonly<{
+    relativePath: string;
+    registrationDigest: `sha256:${string}`;
+    physical: GeneratedStatePhysicalIdentity;
+  }>> = [];
+  const blockers: string[] = [];
+  for (const relativePath of requested) {
+    const entry = after.entries.find((candidate) => candidate.relativePath === relativePath);
+    if (entry?.kind === 'missing' && entry.registrationState === 'missing') {
+      completed.push(relativePath);
+      continue;
+    }
+    if (entry?.kind !== 'missing' || entry.registrationState !== 'retired' || store === null) {
+      blockers.push(`${relativePath}:cleanup-source-not-terminally-absent`);
+      continue;
+    }
+    const observation = readRegistrationLedgerObservation(store, relativePath);
+    const registration = observation.registration;
+    const intent = loadCleanupIntent(store, relativePath);
+    if (registration === null || registration.phase !== 'retired' || intent === null ||
+        intent.registrationDigest !== registration.registrationDigest ||
+        !sameIdentity(intent.root, registration.root)) {
+      blockers.push(`${relativePath}:cleanup-continuation-intent-invalid`);
+      continue;
+    }
+    const tombstone = inspectExactNoFollowDirectoryPresence(
+      path.join(workspaceRoot, '.tmp', 'generated-state-quarantine', intent.tombstoneName),
+      'Generated-state cleanup continuation quarantine readback'
+    );
+    if (tombstone.state !== 'present' ||
+        !sameIdentity(identityOf(tombstone.directory.target), registration.root)) {
+      blockers.push(`${relativePath}:cleanup-continuation-quarantine-invalid`);
+      continue;
+    }
+    quarantined.push(Object.freeze({
+      relativePath,
+      registrationDigest: registration.registrationDigest,
+      physical: registration.root
+    }));
+  }
+  await store?.assertCurrent();
+  const terminal = blockers.length > 0
+    ? 'blocked' as const
+    : quarantined.length > 0
+      ? 'continuation-required' as const
+      : 'completed' as const;
+  const material = Object.freeze({
+    schema: GENERATED_STATE_CLEANUP_CONTINUATION_SCHEMA,
+    repositoryRoot,
+    requested,
+    completed: Object.freeze(completed.sort()),
+    quarantined: Object.freeze(quarantined.sort((left, right) =>
+      left.relativePath.localeCompare(right.relativePath))),
+    blockers: Object.freeze(blockers.sort()),
+    settlementDigest,
+    terminal
+  });
+  const receipt = Object.freeze({ ...material, receiptDigest: generatedStateDigest(material) });
+  issuedGeneratedStateCleanupContinuationReceipts.add(receipt);
+  return receipt;
+}
+
+type PreparedGeneratedStateDisposal = Readonly<{
+  expectedRetirementRef: `sha256:${string}`;
+  registration: GeneratedStateRegistration;
+  relativePath: string;
+  repositoryRoot: string;
+  rule: GeneratedStateRule;
+  workspaceRoot: string;
+}>;
+
+async function prepareGeneratedStateDisposal(input: Readonly<{
+  acceptExistingRetirement?: boolean;
   repositoryRoot: string;
   workspaceRoot?: string;
   relativePath: string;
   expectedRegistrationDigest: `sha256:${string}` | null;
   outcome: string;
   profile: GeneratedStateCleanupProfile;
-}>, options: GeneratedStateLifecycleOptions): Promise<GeneratedStateDisposalReceipt> {
+}>, options: GeneratedStateLifecycleOptions): Promise<PreparedGeneratedStateDisposal> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
@@ -3530,7 +3791,7 @@ async function disposeGeneratedStateRegistration(input: Readonly<{
       `Generated-state disposal retirement predecessor is missing or foreign: ${relativePath}.`
     );
   }
-  const expectedRetirementRef = generatedStateOwnerRetirementRef(retirementAuthority, outcome);
+  let expectedRetirementRef = generatedStateOwnerRetirementRef(retirementAuthority, outcome);
   if (initial.registration?.phase === 'active') {
     if (input.expectedRegistrationDigest !== registration.registrationDigest) {
       throw new GeneratedStateProducerBindingBlockedError(
@@ -3544,10 +3805,14 @@ async function disposeGeneratedStateRegistration(input: Readonly<{
       expectedRegistrationDigest: registration.registrationDigest,
       outcome
     }, options);
-  } else if (registration.phase !== 'retired' || registration.retirementRef !== expectedRetirementRef) {
-    throw new GeneratedStateProducerBindingBlockedError(
-      `Generated-state disposal recovery differs from the owner retirement: ${relativePath}.`
-    );
+  } else {
+    if (registration.phase !== 'retired' || registration.retirementRef === null ||
+        (!input.acceptExistingRetirement && registration.retirementRef !== expectedRetirementRef)) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state disposal recovery differs from the owner retirement: ${relativePath}.`
+      );
+    }
+    expectedRetirementRef = registration.retirementRef;
   }
 
   const observedBeforeSettlement = observeRoot(workspaceRoot, relativePath);
@@ -3557,6 +3822,32 @@ async function disposeGeneratedStateRegistration(input: Readonly<{
       `Generated-state disposal physical identity changed: ${relativePath}.`
     );
   }
+  return Object.freeze({
+    expectedRetirementRef,
+    registration,
+    relativePath,
+    repositoryRoot,
+    rule,
+    workspaceRoot
+  });
+}
+
+async function disposeGeneratedStateRegistration(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expectedRegistrationDigest: `sha256:${string}` | null;
+  outcome: string;
+  profile: GeneratedStateCleanupProfile;
+}>, options: GeneratedStateLifecycleOptions): Promise<GeneratedStateDisposalReceipt> {
+  const {
+    expectedRetirementRef,
+    registration,
+    relativePath,
+    repositoryRoot,
+    rule,
+    workspaceRoot
+  } = await prepareGeneratedStateDisposal(input, options);
   if (rule.physicalForms.some(({ worktreeRetirement }) =>
     worktreeRetirement.mode === 'domain-retire'
   )) {
@@ -3668,6 +3959,30 @@ async function disposeGeneratedStateRegistration(input: Readonly<{
   return receipt;
 }
 
+async function quarantineGeneratedStateRegistration(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expectedRegistrationDigest: `sha256:${string}` | null;
+  outcome: string;
+  profile: GeneratedStateCleanupProfile;
+}>, options: GeneratedStateLifecycleOptions): Promise<GeneratedStateCleanupContinuationReceipt> {
+  if (options.cleanupOperation === undefined) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state quarantine requires one owner-issued cleanup operation session.'
+    );
+  }
+  await prepareGeneratedStateDisposal({ ...input, acceptExistingRetirement: true }, options);
+  return continueGeneratedStateCleanup({
+    lifecycleOptions: options,
+    repositoryRoot: input.repositoryRoot,
+    workspaceRoot: input.workspaceRoot,
+    profile: input.profile,
+    relativePaths: [input.relativePath],
+    operation: options.cleanupOperation
+  });
+}
+
 export function generatedStateProducerHooks(input: Readonly<{
   repositoryRoot: string;
   workspaceRoot?: string;
@@ -3701,6 +4016,10 @@ export function generatedStateProducerHooks(input: Readonly<{
     relativePath: string,
     request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
   ): Promise<GeneratedStateDisposalReceipt>;
+  quarantine(
+    relativePath: string,
+    request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
+  ): Promise<GeneratedStateCleanupContinuationReceipt>;
 }> {
   const producerSession = new Map<string, `sha256:${string}`>();
   const requireProducerBinding = (relativePath: string): `sha256:${string}` => {
@@ -3774,6 +4093,18 @@ export function generatedStateProducerHooks(input: Readonly<{
         profile: request.profile
       }, options);
       producerSession.delete(normalized);
+      return receipt;
+    },
+    quarantine: async (relativePath, request) => {
+      const normalized = normalizeGeneratedStateRelativePath(relativePath);
+      const receipt = await quarantineGeneratedStateRegistration({
+        ...input,
+        relativePath: normalized,
+        expectedRegistrationDigest: producerSession.get(normalized) ?? null,
+        outcome: request.outcome,
+        profile: request.profile
+      }, options);
+      if (receipt.terminal === 'completed') producerSession.delete(normalized);
       return receipt;
     }
   });

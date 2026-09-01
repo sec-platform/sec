@@ -23,7 +23,6 @@ test('Linux runtime state follows XDG defaults and separates repository/runtime/
   expect(layout.continuationObjectRoot).toContain('/objects/continuation-v1');
   expect(layout.continuationPointerPath).toContain('/workspaces/v1/');
   expect(layout.verificationSessionJournalRoot).toContain('/verification-sessions/v2');
-  expect(layout.verificationActionJournalRoot).toContain('/verification-actions/v2');
   expect(layout.repositoryStateRoot.startsWith('/work/sec/')).toBe(false);
 });
 
@@ -78,6 +77,9 @@ test('explicit SEC roots are deterministic and workspace locator identity does n
   });
   expect(roots.stateRoot).toBe('/runtime/sec-state');
   expect(roots.cacheRoot).toBe('/runtime/sec-cache');
+  expect(roots.testProcessTempLeaseRoot).toBe(
+    `/runtime/sec-state/workspaces/v1/${roots.workspaceLocatorKey.slice(7)}/test-process-temp/v1`
+  );
   expect(roots.workspaceLocatorKey).toBe(createSecWorkspaceLocatorKey({
     workspacePhysicalIdentity: WORKSPACE_IDENTITY
   }));

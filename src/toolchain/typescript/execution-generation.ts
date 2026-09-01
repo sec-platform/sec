@@ -3,7 +3,6 @@ import path from 'node:path';
 
 import {
   assertWorkspaceTypeScriptProjectGenerationEvidence,
-  workspaceTypeScriptDependencyGenerationPhysicalDigest,
   type WorkspaceTypeScriptProjectGenerationEvidence,
   type WorkspaceTypeScriptProjectInput
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
@@ -24,7 +23,6 @@ import {
   type RetainedTypeScriptExecutionGenerationCleanupReceipt
 } from '../../runtime-state/physical/runtime/typescript-execution-generation.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import type { retainCompilerDependencyExecutionGeneration } from '../dependencies/runtime.ts';
 
 const typeScriptExecutionGenerationBrand: unique symbol = Symbol(
   'typescript-execution-generation'
@@ -43,9 +41,17 @@ export class TypeScriptExecutionGenerationResidueError extends Error {
 export type TypeScriptExecutionGenerationCleanupReceipt =
   RetainedTypeScriptExecutionGenerationCleanupReceipt;
 
-export type RetainedTypeScriptCompilerDependencyGeneration = Awaited<
-  ReturnType<typeof retainCompilerDependencyExecutionGeneration>
->;
+/**
+ * Narrow capability consumed by the TypeScript execution owner. Dependency
+ * materialization remains owned by the upper orchestration layer; importing
+ * that runtime here would make TypeScript preload dependency admission and
+ * form a reverse toolchain cycle.
+ */
+export type RetainedTypeScriptCompilerDependencyGeneration = Readonly<{
+  physicalGeneration: RetainedNoFollowProvenDirectoryGeneration;
+  generationDigest: `sha256:${string}`;
+  retire(): Promise<unknown>;
+}>;
 
 export interface TypeScriptExecutionGeneration {
   readonly [typeScriptExecutionGenerationBrand]: true;
@@ -144,7 +150,7 @@ function assertSourceProgramExecutionConfigContainment(
     projectConfigPath: receipt.projectConfigPath,
     projectConfigDigest: receipt.projectConfigDigest,
     workspaceSnapshotIdentityDigest: receipt.workspaceSnapshotIdentityDigest,
-    dependencyGenerationPhysicalDigest: receipt.dependencyGenerationPhysicalDigest,
+    dependencyGenerationDigest: receipt.dependencyGenerationDigest,
     compilerRevision: receipt.compilerRevision,
     resolvedConfigDigest: receipt.resolvedConfigDigest
   });
@@ -152,7 +158,7 @@ function assertSourceProgramExecutionConfigContainment(
       || receipt.projectConfigPath !== projectInput.projectConfigPath
       || receipt.projectConfigDigest !== projectInput.projectConfigDigest
       || receipt.workspaceSnapshotIdentityDigest !== projectInput.workspaceSnapshotIdentityDigest
-      || receipt.dependencyGenerationPhysicalDigest !== projectInput.dependencyGenerationPhysicalDigest
+      || receipt.dependencyGenerationDigest !== projectInput.dependencyGenerationDigest
       || receipt.compilerRevision.length === 0
       || !/^sha256:[0-9a-f]{64}$/u.test(receipt.resolvedConfigDigest)
       || receipt.containmentDigest !== sha256(canonical)) {
@@ -201,10 +207,7 @@ export async function materializeTypeScriptExecutionGeneration(
   try {
     dependencyGeneration.physicalGeneration.assertCurrent();
     await dependencyGeneration.physicalGeneration.assertAuthorityCurrent();
-    if (evidence.projectInput.dependencyGenerationPhysicalDigest !==
-        workspaceTypeScriptDependencyGenerationPhysicalDigest(
-          dependencyGeneration.physicalGeneration
-        )) {
+    if (evidence.projectInput.dependencyGenerationDigest !== dependencyGeneration.generationDigest) {
       throw new Error('TypeScript ProjectInput belongs to a foreign dependency generation');
     }
     for (const fact of evidence.projectInput.externalSourceFacts) {

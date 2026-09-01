@@ -39,7 +39,9 @@ import {
   acquireVerificationActionClaim,
   appendVerificationActionJournalEvent as appendJournalEvent,
   commitVerificationActionTerminalUnderClaim,
-  readVerificationActionJournal as readJournal
+  readVerificationActionJournal as readJournal,
+  VERIFICATION_ACTION_JOURNAL_DIRECTORY,
+  VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
 } from '../../src/verification/action/journal.ts';
 import {
   executeLocalVerificationActionDag,
@@ -140,14 +142,24 @@ test.skipIf(CROSS_PROCESS_CHILD_ROOT === undefined || CROSS_PROCESS_CHILD_MARKER
         return issuedSettlement(key);
       }
     });
-    expect(['executed', 'joined', 'reused']).toContain(result.disposition);
+    expect(['executed', 'joined', 'reused'], JSON.stringify(result)).toContain(result.disposition);
   }
 );
 
 function journalFs(repositoryRoot: string) {
-  const root = resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).workspaceStateRoot;
+  const root = resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).stateRoot;
   return createRuntimeStateJournalFileSystem(
     inspectNoFollowDirectoryChain(root, 'VerificationAction runner test journal root').target
+  );
+}
+
+function workspaceJournalFs(repositoryRoot: string) {
+  const root = resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).workspaceStateRoot;
+  return createRuntimeStateJournalFileSystem(
+    inspectNoFollowDirectoryChain(
+      root,
+      'VerificationAction runner legacy workspace journal root'
+    ).target
   );
 }
 
@@ -190,7 +202,9 @@ function createAction(
     upstreamActionKeys: [],
     resultSchemaRevision: 'sec-verification-result-v1'
   };
-  return createVerificationActionKey(input);
+  const action = createVerificationActionKey(input);
+  touchedActionKeys.add(action.actionKey);
+  return action;
 }
 
 function preflightAction(inputPath = 'scripts/codex/example.ts') {
@@ -250,15 +264,40 @@ function cheapPlan(key: ReturnType<typeof preflightAction>) {
 }
 
 const runtimeRoots = new Set<string>();
+const actionJournalRoots = new Set<string>();
+const machineCutoverReceiptPaths = new Set<string>();
+const touchedActionKeys = new Set<VerificationActionKeyDigest>();
 
 afterEach(() => {
+  for (const journalRoot of actionJournalRoots) {
+    for (const actionKey of touchedActionKeys) {
+      const actionPath = path.join(
+        journalRoot,
+        `${actionKey.slice('sha256:'.length)}.jsonl`
+      );
+      for (const suffix of ['', '.claim.json', '.claim-recovery.lock', '.cutover.json']) {
+        rmSync(`${actionPath}${suffix}`, { force: true });
+      }
+    }
+  }
+  actionJournalRoots.clear();
+  for (const receiptPath of machineCutoverReceiptPaths) rmSync(receiptPath, { force: true });
+  machineCutoverReceiptPaths.clear();
+  touchedActionKeys.clear();
   for (const runtimeRoot of runtimeRoots) rmSync(runtimeRoot, { recursive: true, force: true });
   runtimeRoots.clear();
 });
 
 function root(): string {
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-runner-v2-'));
-  const workspaceStateRoot = resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).workspaceStateRoot;
+  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot });
+  const workspaceStateRoot = roots.workspaceStateRoot;
+  const actionJournalRoot = path.join(roots.stateRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY);
+  actionJournalRoots.add(actionJournalRoot);
+  machineCutoverReceiptPaths.add(path.join(
+    actionJournalRoot,
+    VERIFICATION_ACTION_MACHINE_CUTOVER_FILE
+  ));
   mkdirSync(workspaceStateRoot, { recursive: true });
   runtimeRoots.add(workspaceStateRoot);
   return repositoryRoot;
@@ -369,7 +408,42 @@ test('concurrent callers in different execution domains join one physical execut
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('equal ActionKeys in distinct workspace journal authorities publish independent terminals', async () => {
+test('runner completes machine cutover before reusing a workspace terminal without execution', async () => {
+  const repositoryRoot = root();
+  const runner = new VerificationActionRunner();
+  try {
+    const key = preflightAction('tests/unit/workspace-terminal-cutover.ts');
+    const legacyFs = workspaceJournalFs(repositoryRoot);
+    appendJournalEvent({ fs: legacyFs, action: key, state: 'queued' });
+    appendJournalEvent({ fs: legacyFs, action: key, state: 'running' });
+    appendJournalEvent({
+      fs: legacyFs,
+      action: key,
+      state: 'terminal',
+      terminal: issuedSettlement(key).terminal
+    });
+    let invocations = 0;
+    const result = await runner.execute({
+      repositoryRoot,
+      action: key,
+      plan: cheapPlan(key),
+      executor: () => {
+        invocations += 1;
+        return issuedSettlement(key);
+      }
+    });
+    expect(result.disposition).toBe('reused');
+    expect(invocations).toBe(0);
+    expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
+      .toBe('terminal');
+    expect(readJournal(legacyFs, key.actionKey).latestState).toBe('terminal');
+  } finally {
+    await runner.close();
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+test('equal ActionKeys in distinct workspaces join one machine-global physical claim and terminal', async () => {
   const firstRepositoryRoot = root();
   const secondRepositoryRoot = root();
   const firstRunner = new VerificationActionRunner();
@@ -377,6 +451,8 @@ test('equal ActionKeys in distinct workspace journal authorities publish indepen
   try {
     const key = action();
     let invocations = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
     const execute = (
       runner: VerificationActionRunner,
       repositoryRoot: string,
@@ -388,24 +464,108 @@ test('equal ActionKeys in distinct workspace journal authorities publish indepen
         plan: runnablePlan(key, repositoryRoot),
         executor: async () => {
           invocations += 1;
+          await held;
           return issuedSettlement(key);
         }
       });
-    const [first, second] = await Promise.all([
-      execute(firstRunner, firstRepositoryRoot, 'workspace-a'),
-      execute(secondRunner, secondRepositoryRoot, 'workspace-b')
-    ]);
-    expect(invocations).toBe(2);
-    expect(first.disposition).toBe('executed');
-    expect(second.disposition).toBe('executed');
-    expect(readVerificationActionJournalV2(firstRepositoryRoot, key.actionKey).latestState)
-      .toBe('terminal');
-    expect(readVerificationActionJournalV2(secondRepositoryRoot, key.actionKey).latestState)
-      .toBe('terminal');
+    const firstPromise = execute(firstRunner, firstRepositoryRoot, 'workspace-a');
+    await Promise.resolve();
+    const secondPromise = execute(secondRunner, secondRepositoryRoot, 'workspace-b');
+    release();
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+    expect(invocations).toBe(1);
+    expect(new Set([first.disposition, second.disposition])).toEqual(
+      new Set(['executed', 'joined'])
+    );
+    const firstReadback = readVerificationActionJournalV2(firstRepositoryRoot, key.actionKey);
+    const secondReadback = readVerificationActionJournalV2(secondRepositoryRoot, key.actionKey);
+    expect(firstReadback.filePath).toBe(secondReadback.filePath);
+    expect(firstReadback.latestState).toBe('terminal');
+    expect(secondReadback.terminal).toEqual(firstReadback.terminal);
   } finally {
     await Promise.all([firstRunner.close(), secondRunner.close()]);
     rmSync(firstRepositoryRoot, { recursive: true, force: true });
     rmSync(secondRepositoryRoot, { recursive: true, force: true });
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+test('distinct ActionKeys retain independent machine-global physical claims', async () => {
+  const firstRepositoryRoot = root();
+  const secondRepositoryRoot = root();
+  const firstRunner = new VerificationActionRunner();
+  const secondRunner = new VerificationActionRunner();
+  try {
+    const firstKey = preflightAction('tests/unit/global-action-a.ts');
+    const secondKey = preflightAction('tests/unit/global-action-b.ts');
+    let firstInvocations = 0;
+    let secondInvocations = 0;
+    const [first, second] = await Promise.all([
+      firstRunner.execute({
+        repositoryRoot: firstRepositoryRoot,
+        action: firstKey,
+        plan: cheapPlan(firstKey),
+        executor: () => {
+          firstInvocations += 1;
+          return issuedSettlement(firstKey);
+        }
+      }),
+      secondRunner.execute({
+        repositoryRoot: secondRepositoryRoot,
+        action: secondKey,
+        plan: cheapPlan(secondKey),
+        executor: () => {
+          secondInvocations += 1;
+          return issuedSettlement(secondKey);
+        }
+      })
+    ]);
+    expect(firstInvocations).toBe(1);
+    expect(secondInvocations).toBe(1);
+    expect(first.disposition).toBe('executed');
+    expect(second.disposition).toBe('executed');
+    expect(readVerificationActionJournalV2(firstRepositoryRoot, firstKey.actionKey).filePath)
+      .not.toBe(readVerificationActionJournalV2(secondRepositoryRoot, secondKey.actionKey).filePath);
+  } finally {
+    await Promise.all([firstRunner.close(), secondRunner.close()]);
+    rmSync(firstRepositoryRoot, { recursive: true, force: true });
+    rmSync(secondRepositoryRoot, { recursive: true, force: true });
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+test('an expired global claim observed from another workspace blocks blind restart', async () => {
+  const ownerRepositoryRoot = root();
+  const contenderRepositoryRoot = root();
+  const key = preflightAction('tests/unit/global-expired-claim.ts');
+  const ownerFs = journalFs(ownerRepositoryRoot);
+  const runner = new VerificationActionRunner();
+  try {
+    expect(acquireVerificationActionClaim({
+      fs: ownerFs,
+      action: key,
+      ownerToken: 'lost-global-owner',
+      now: '2026-08-09T00:00:00.000Z',
+      leaseDurationMs: 1_000
+    }).disposition).toBe('acquired');
+    let invocations = 0;
+    const result = await runner.execute({
+      repositoryRoot: contenderRepositoryRoot,
+      action: key,
+      plan: cheapPlan(key),
+      recordedAt: () => '2026-08-09T00:00:02.000Z',
+      executor: () => {
+        invocations += 1;
+        return issuedSettlement(key);
+      }
+    });
+    expect(result.disposition).toBe('blocked');
+    expect(result.reason).toContain('expired physical owner');
+    expect(invocations).toBe(0);
+    expect(readVerificationActionJournalV2(ownerRepositoryRoot, key.actionKey).filePath)
+      .toBe(readVerificationActionJournalV2(contenderRepositoryRoot, key.actionKey).filePath);
+  } finally {
+    await runner.close();
+    rmSync(ownerRepositoryRoot, { recursive: true, force: true });
+    rmSync(contenderRepositoryRoot, { recursive: true, force: true });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
@@ -499,7 +659,7 @@ test('durable cross-process join deadline blocks without polling or a second exe
 
     expect(result).toMatchObject({
       disposition: 'blocked',
-      state: 'running',
+      state: null,
       terminal: null,
       physicalExecution: false,
       reason: 'joined durable Action wait exhausted its absolute deadline'
@@ -510,9 +670,10 @@ test('durable cross-process join deadline blocks without polling or a second exe
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('independent processes with one missing ActionKey produce at most one physical start', async () => {
-  const repositoryRoot = root();
-  const markerPath = path.join(repositoryRoot, 'physical-start.marker');
+test('independent processes in distinct workspaces share one machine-global physical start', async () => {
+  const firstRepositoryRoot = root();
+  const secondRepositoryRoot = root();
+  const markerPath = path.join(firstRepositoryRoot, 'physical-start.marker');
   try {
     const command = [
       process.execPath,
@@ -523,18 +684,23 @@ test('independent processes with one missing ActionKey produce at most one physi
     ];
     const environment = {
       ...process.env,
-      SEC_VERIFICATION_ACTION_CHILD_ROOT: repositoryRoot,
       SEC_VERIFICATION_ACTION_CHILD_MARKER: markerPath
     };
     const first = Bun.spawn(command, {
       cwd: process.cwd(),
-      env: environment,
+      env: {
+        ...environment,
+        SEC_VERIFICATION_ACTION_CHILD_ROOT: firstRepositoryRoot
+      },
       stdout: 'pipe',
       stderr: 'pipe'
     });
     const second = Bun.spawn(command, {
       cwd: process.cwd(),
-      env: environment,
+      env: {
+        ...environment,
+        SEC_VERIFICATION_ACTION_CHILD_ROOT: secondRepositoryRoot
+      },
       stdout: 'pipe',
       stderr: 'pipe'
     });
@@ -545,12 +711,15 @@ test('independent processes with one missing ActionKey produce at most one physi
     expect(firstExit, firstOutput).toBe(0);
     expect(secondExit, secondOutput).toBe(0);
     expect(existsSync(markerPath)).toBe(true);
-    expect(readVerificationActionJournalV2(
-      repositoryRoot,
-      preflightAction('tests/unit/cross-process-action.ts').actionKey
-    ).latestState).toBe('terminal');
+    const actionKey = preflightAction('tests/unit/cross-process-action.ts').actionKey;
+    const firstReadback = readVerificationActionJournalV2(firstRepositoryRoot, actionKey);
+    const secondReadback = readVerificationActionJournalV2(secondRepositoryRoot, actionKey);
+    expect(firstReadback.filePath).toBe(secondReadback.filePath);
+    expect(firstReadback.latestState).toBe('terminal');
+    expect(secondReadback.terminal).toEqual(firstReadback.terminal);
   } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
+    rmSync(firstRepositoryRoot, { recursive: true, force: true });
+    rmSync(secondRepositoryRoot, { recursive: true, force: true });
   }
 }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
@@ -599,16 +768,17 @@ test('forged scheduler lane fails closed before any physical execution', async (
   }
 });
 
-test('a non-runnable concurrent caller cannot join an authorized physical flight', async () => {
+test('a caller without an authorized plan cannot join a cross-workspace physical flight', async () => {
   const repositoryRoot = root();
   const secondRepositoryRoot = root();
   try {
     const runner = new VerificationActionRunner();
     const key = action('caller-local-plan-action');
-    seedFailedPreflight(secondRepositoryRoot);
     let invocations = 0;
     let release!: () => void;
+    let markStarted!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
     const running = runner.execute({
       repositoryRoot,
       action: key,
@@ -616,21 +786,12 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
       plan: runnablePlan(key, repositoryRoot),
       executor: async () => {
         invocations += 1;
+        markStarted();
         await held;
         return issuedSettlement(key);
       }
     });
-    await Promise.resolve();
-    const blocked = await runner.execute({
-      repositoryRoot: secondRepositoryRoot,
-      action: key,
-      executionDomain: 'caller-local-plan-domain',
-      plan: runnablePlan(key),
-      executor: () => {
-        invocations += 1;
-        return issuedSettlement(key);
-      }
-    });
+    await started;
     const missing = await runner.execute({
       repositoryRoot: secondRepositoryRoot,
       action: key,
@@ -640,8 +801,6 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
         return issuedSettlement(key);
       }
     });
-    expect(blocked.disposition).toBe('blocked');
-    expect(blocked.reason).toContain('cheap-preflight');
     expect(missing.disposition).toBe('blocked');
     expect(missing.reason).toContain('explicit action plan required');
     expect(invocations).toBe(1);
@@ -1194,9 +1353,11 @@ function localDagFixture(environment = createCiVerificationLocalExecutionEnviron
     environment: Object.freeze({ SEC_LOCAL_FEEDBACK: DIGEST_A }),
     coveredScopeIds: Object.freeze(['gate:typecheck'])
   })];
+  const closure = buildCiVerificationActionPlanClosure({ candidate, gates });
+  for (const plan of closure.actions) touchedActionKeys.add(plan.action.actionKey);
   return {
     environment,
-    closure: buildCiVerificationActionPlanClosure({ candidate, gates })
+    closure
   };
 }
 
@@ -1399,15 +1560,20 @@ test.skipIf(process.platform !== 'win32')(
       const authorityRoot = root();
       const candidateRoot = root();
       try {
-        const fixture = localDagFixture();
+        const modeHeadSha = mode === 'output-budget' ? HEAD_SHA : `6${HEAD_SHA.slice(1)}`;
+        const modeHeadTreeSha = mode === 'output-budget' ? HEAD_TREE_SHA : `7${HEAD_TREE_SHA.slice(1)}`;
+        const fixture = localDagFixture(undefined, {
+          headSha: modeHeadSha,
+          headTreeSha: modeHeadTreeSha
+        });
         const result = await executeLocalVerificationActionDag({
           authorityRoot,
           candidateRoot,
           actionPlanClosure: fixture.closure,
           executionEnvironment: fixture.environment,
           inspectRepository: (repositoryRoot) => ({
-            headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
-            headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
+            headSha: repositoryRoot === candidateRoot ? modeHeadSha : BASE_SHA,
+            headTreeSha: repositoryRoot === candidateRoot ? modeHeadTreeSha : BASE_TREE_SHA,
             trackedClean: true,
             gitCommonDirectory: authorityRoot
           }),
@@ -1443,7 +1609,12 @@ test.skipIf(process.platform !== 'win32')(
     const authorityRoot = root();
     const candidateRoot = root();
     try {
-      const fixture = localDagFixture();
+      const modeHeadSha = mode === 'raw-provider-output' ? HEAD_SHA : `8${HEAD_SHA.slice(1)}`;
+      const modeHeadTreeSha = mode === 'raw-provider-output' ? HEAD_TREE_SHA : `9${HEAD_TREE_SHA.slice(1)}`;
+      const fixture = localDagFixture(undefined, {
+        headSha: modeHeadSha,
+        headTreeSha: modeHeadTreeSha
+      });
       let candidateObservations = 0;
       const inspectRepository = (repositoryRoot: string) => {
         if (repositoryRoot === authorityRoot) {
@@ -1456,10 +1627,10 @@ test.skipIf(process.platform !== 'win32')(
         }
         candidateObservations += 1;
         return {
-          headSha: HEAD_SHA,
+          headSha: modeHeadSha,
           headTreeSha: mode === 'candidate-readback-drift' && candidateObservations > 1
-            ? `5${HEAD_TREE_SHA.slice(1)}`
-            : HEAD_TREE_SHA,
+            ? `5${modeHeadTreeSha.slice(1)}`
+            : modeHeadTreeSha,
           trackedClean: true,
           gitCommonDirectory: authorityRoot
         };

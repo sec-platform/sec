@@ -12,7 +12,11 @@ import {
   type GitReadSession
 } from '../../external-capabilities/git-read/runtime/session.ts';
 import type { RetainedNoFollowProvenDirectoryGeneration } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import {
+  compareCodeUnits,
+  rawSha256,
+  sha256
+} from '../../system-architecture/foundation/runtime/canonical.ts';
 import { createConcurrencyLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import {
   compileSecRepositoryModuleGraph,
@@ -26,6 +30,7 @@ import {
   type SourceProgramFileInput,
   type SourceProgramModel
 } from './contract.ts';
+import { sourceProgramModuleImports } from './embedded-programs.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const SOURCE_SNAPSHOT_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -168,7 +173,7 @@ export type WorkspaceTypeScriptExecutionConfigContainmentReceipt = Readonly<{
   projectConfigPath: string;
   projectConfigDigest: `sha256:${string}`;
   workspaceSnapshotIdentityDigest: `sha256:${string}`;
-  dependencyGenerationPhysicalDigest: `sha256:${string}` | null;
+  dependencyGenerationDigest: `sha256:${string}` | null;
   compilerRevision: string;
   resolvedConfigDigest: `sha256:${string}`;
   containmentDigest: `sha256:${string}`;
@@ -183,7 +188,7 @@ export interface WorkspaceTypeScriptProjectInput {
   readonly moduleGraphDigest: `sha256:${string}`;
   readonly projectConfigPath: string;
   readonly projectConfigDigest: `sha256:${string}`;
-  readonly dependencyGenerationPhysicalDigest: `sha256:${string}` | null;
+  readonly dependencyGenerationDigest: `sha256:${string}` | null;
   readonly executionConfigContainment: WorkspaceTypeScriptExecutionConfigContainmentReceipt;
   readonly sourceFacts: readonly WorkspaceTypeScriptSourceFact[];
   readonly externalSourceFacts: readonly WorkspaceTypeScriptExternalSourceFact[];
@@ -192,15 +197,146 @@ export interface WorkspaceTypeScriptProjectInput {
   readonly observationDigest: `sha256:${string}`;
 }
 
-export function workspaceTypeScriptDependencyGenerationPhysicalDigest(
-  generation: RetainedNoFollowProvenDirectoryGeneration
-): `sha256:${string}` {
-  generation.assertCurrent();
+export interface WorkspaceTypeScriptProjectFactIdentity {
+  readonly projectConfigDigest: `sha256:${string}`;
+  readonly projectFactDigest: `sha256:${string}`;
+}
+
+function typeScriptProjectFactDigest(input: Readonly<{
+  projectConfigPath: string;
+  projectConfigDigest: `sha256:${string}`;
+  dependencyGenerationDigest: `sha256:${string}` | null;
+  rootSourceFacts: readonly WorkspaceTypeScriptSourceFact[];
+}>): `sha256:${string}` {
   return sha256(Object.freeze({
-    device: generation.root.device,
-    inode: generation.root.inode,
-    objectId: generation.root.objectId
+    identity: 'typescript-project-root-source-facts',
+    compilerRevision: ts.version,
+    ...input
   })) as `sha256:${string}`;
+}
+
+export function projectWorkspaceTypeScriptProjectFactIdentity(
+  projectInput: WorkspaceTypeScriptProjectInput
+): WorkspaceTypeScriptProjectFactIdentity {
+  assertWorkspaceTypeScriptProjectInput(projectInput);
+  return Object.freeze({
+    projectConfigDigest: projectInput.projectConfigDigest,
+    projectFactDigest: typeScriptProjectFactDigest({
+      projectConfigPath: projectInput.projectConfigPath,
+      projectConfigDigest: projectInput.projectConfigDigest,
+      dependencyGenerationDigest: projectInput.dependencyGenerationDigest,
+      rootSourceFacts: projectInput.sourceFacts.filter(({ path: sourcePath }) => (
+        sourcePath !== projectInput.projectConfigPath
+      ))
+    })
+  });
+}
+
+/**
+ * Exact TypeScript root-input identity for Action admission. This parses the
+ * canonical project configuration and hashes its selected repository sources
+ * and module membership without constructing a TypeScript Program. Physical
+ * dependency/provider materialization is represented only by the opaque
+ * generation identity issued by its owner.
+ */
+export function compileWorkspaceTypeScriptProjectFactIdentity(
+  snapshot: WorkspaceSourceSnapshot,
+  projectConfigPath: string,
+  input: Readonly<{
+    dependencyGenerationDigest: `sha256:${string}` | null;
+  }>
+): WorkspaceTypeScriptProjectFactIdentity {
+  assertWorkspaceSourceSnapshot(snapshot);
+  const projectConfig = snapshot.file(projectConfigPath);
+  if (projectConfig === null) {
+    throw new Error(`TypeScript project fact config is absent: ${projectConfigPath}`);
+  }
+  const containedProjectConfig = parseContainedTypeScriptProjectConfig(
+    projectConfig.source,
+    projectConfigPath
+  );
+  const virtualRoot = path.resolve(process.cwd(), '.sec-source-program-project-facts');
+  const virtualConfigPath = path.resolve(virtualRoot, ...projectConfigPath.split('/'));
+  const parsed = parseTypeScriptProjectConfiguration(
+    virtualConfigPath,
+    projectConfig.source,
+    containedProjectConfig,
+    {
+      useCaseSensitiveFileNames: true,
+      fileExists: (fileName) => {
+        const repositoryPath = pathInside(virtualRoot, fileName);
+        return repositoryPath !== null && snapshot.file(repositoryPath) !== null;
+      },
+      readFile: (fileName) => {
+        const repositoryPath = pathInside(virtualRoot, fileName);
+        return repositoryPath === null ? undefined : snapshot.file(repositoryPath)?.source;
+      },
+      readDirectory: (rootDir, extensions, excludes, includes, depth) => snapshotReadDirectory(
+        snapshot,
+        virtualRoot,
+        rootDir,
+        extensions,
+        excludes,
+        includes,
+        depth
+      )
+    },
+    virtualRoot
+  );
+  if (parsed.errors.length > 0) {
+    throw new Error(`TypeScript project fact config is invalid: ${ts.flattenDiagnosticMessageText(
+      parsed.errors[0]!.messageText,
+      '\n'
+    )}`);
+  }
+  const rootSources = new Map<string, WorkspaceSourceFile>();
+  const pendingSourcePaths: string[] = [];
+  const admitSource = (fileName: string): void => {
+    const repositoryPath = pathInside(virtualRoot, fileName);
+    const source = repositoryPath === null ? null : snapshot.file(repositoryPath);
+    if (repositoryPath === null || source === null) {
+      throw new Error(`TypeScript project fact source is outside its snapshot: ${fileName}`);
+    }
+    if (rootSources.has(repositoryPath)) return;
+    rootSources.set(repositoryPath, source);
+    pendingSourcePaths.push(repositoryPath);
+  };
+  parsed.fileNames.forEach(admitSource);
+  while (pendingSourcePaths.length > 0) {
+    const repositoryPath = pendingSourcePaths.pop()!;
+    const source = rootSources.get(repositoryPath)!;
+    const references = ts.preProcessFile(source.source, true, true);
+    for (const reference of [...references.importedFiles, ...references.referencedFiles]) {
+      if (reference.fileName !== '.' && !reference.fileName.startsWith('./')
+          && !reference.fileName.startsWith('../')) continue;
+      const referencedPath = pathInside(
+        virtualRoot,
+        path.resolve(virtualRoot, path.dirname(repositoryPath), reference.fileName)
+      );
+      if (referencedPath !== null && snapshot.file(referencedPath) !== null) {
+        admitSource(path.resolve(virtualRoot, ...referencedPath.split('/')));
+      }
+    }
+  }
+  const rootSourceFacts = Object.freeze([...rootSources.entries()].map(([repositoryPath, source]) => {
+    const module = snapshot.moduleMembership.moduleForPath(repositoryPath);
+    return Object.freeze({
+      path: repositoryPath,
+      contentDigest: source.contentDigest as `sha256:${string}`,
+      moduleId: module?.moduleId ?? null,
+      moduleDigest: sha256(module) as `sha256:${string}`
+    });
+  }).sort((left, right) => compareCodeUnits(left.path, right.path)));
+  const projectConfigDigest = projectConfig.contentDigest as `sha256:${string}`;
+  return Object.freeze({
+    projectConfigDigest,
+    projectFactDigest: typeScriptProjectFactDigest({
+      projectConfigPath,
+      projectConfigDigest,
+      dependencyGenerationDigest: input.dependencyGenerationDigest,
+      rootSourceFacts
+    })
+  });
 }
 
 /**
@@ -423,6 +559,7 @@ export function compileWorkspaceTypeScriptProjectInput(
   projectConfigPath: string,
   input: Readonly<{
     dependencyGeneration?: RetainedNoFollowProvenDirectoryGeneration;
+    dependencyGenerationDigest?: `sha256:${string}`;
   }> = {}
 ): WorkspaceTypeScriptProjectInput {
   assertWorkspaceSourceSnapshot(snapshot);
@@ -442,9 +579,11 @@ export function compileWorkspaceTypeScriptProjectInput(
   const dependencyGeneration = input.dependencyGeneration;
   dependencyGeneration?.assertCurrent();
   const dependencyRoot = dependencyGeneration?.root.path ?? null;
-  const dependencyGenerationPhysicalDigest = dependencyGeneration === undefined
-    ? null
-    : workspaceTypeScriptDependencyGenerationPhysicalDigest(dependencyGeneration);
+  const dependencyFinalRoot = dependencyGeneration?.root.finalPath ?? null;
+  const dependencyGenerationDigest = input.dependencyGenerationDigest ?? null;
+  if ((dependencyGeneration === undefined) !== (dependencyGenerationDigest === null)) {
+    throw new Error('TypeScript ProjectInput dependency generation authority is incomplete');
+  }
   const virtualDependencyRoot = path.resolve(virtualRoot, 'node_modules');
   const defaultLibraryRoot = path.dirname(ts.getDefaultLibFilePath({}));
   const virtualConfigPath = path.resolve(virtualRoot, ...projectConfigPath.split('/'));
@@ -452,12 +591,38 @@ export function compileWorkspaceTypeScriptProjectInput(
     const repositoryPath = pathInside(virtualRoot, fileName);
     return repositoryPath === null ? null : snapshot.file(repositoryPath);
   };
+  const dependencyHostResolutionPaths = new Map<string, string>();
+  const hostPathKey = (fileName: string): string => {
+    const resolved = path.resolve(fileName);
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  const rememberDependencyHostResolution = (
+    relative: string,
+    ...hostPaths: (string | null)[]
+  ): void => {
+    for (const hostPath of hostPaths) {
+      if (hostPath !== null) dependencyHostResolutionPaths.set(hostPathKey(hostPath), relative);
+    }
+  };
   const dependencyFileForAbsolute = (fileName: string): string | null => {
     if (dependencyRoot === null) return null;
     const relative = pathInside(virtualDependencyRoot, fileName);
-    return relative === null
+    if (relative === null) return null;
+    const lexicalHostPath = path.resolve(dependencyRoot, ...relative.split('/'));
+    const finalHostPath = dependencyFinalRoot === null
       ? null
-      : path.resolve(dependencyRoot, ...relative.split('/'));
+      : path.resolve(dependencyFinalRoot, ...relative.split('/'));
+    rememberDependencyHostResolution(relative, lexicalHostPath, finalHostPath);
+    return lexicalHostPath;
+  };
+  const dependencyPathForHostSource = (fileName: string): string | null => {
+    const virtualPath = pathInside(virtualDependencyRoot, fileName);
+    if (virtualPath !== null) return virtualPath;
+    const mappedPath = dependencyHostResolutionPaths.get(hostPathKey(fileName));
+    if (mappedPath !== undefined) return mappedPath;
+    const lexicalPath = dependencyRoot === null ? null : pathInside(dependencyRoot, fileName);
+    if (lexicalPath !== null) return lexicalPath;
+    return dependencyFinalRoot === null ? null : pathInside(dependencyFinalRoot, fileName);
   };
   const parseHost: ts.ParseConfigHost = {
     useCaseSensitiveFileNames: true,
@@ -529,6 +694,20 @@ export function compileWorkspaceTypeScriptProjectInput(
       if (externalSource === undefined || externalSource.fileName === fileName) {
         return externalSource;
       }
+      const dependencyPath = dependencyPathForHostSource(dependencyFile ?? fileName);
+      const resolvedExternalPath = dependencyPathForHostSource(externalSource.fileName);
+      if (dependencyPath !== null && resolvedExternalPath !== dependencyPath) {
+        throw new Error(
+          `TypeScript dependency host resolved outside its retained generation: ${externalSource.fileName}`
+        );
+      }
+      if (dependencyPath !== null) {
+        rememberDependencyHostResolution(
+          dependencyPath,
+          dependencyFile,
+          externalSource.fileName
+        );
+      }
       return ts.createSourceFile(
         fileName,
         externalSource.text,
@@ -583,8 +762,8 @@ export function compileWorkspaceTypeScriptProjectInput(
   const repositorySources = new Map<string, WorkspaceSourceFile>();
   const externalSources: WorkspaceTypeScriptExternalSourceFact[] = [];
   for (const sourceFile of program.getSourceFiles()) {
-    const virtualDependencyPath = pathInside(virtualDependencyRoot, sourceFile.fileName);
-    const repositoryPath = virtualDependencyPath === null
+    const dependencyPath = dependencyPathForHostSource(sourceFile.fileName);
+    const repositoryPath = dependencyPath === null
       ? pathInside(virtualRoot, sourceFile.fileName)
       : null;
     if (repositoryPath !== null) {
@@ -617,8 +796,6 @@ export function compileWorkspaceTypeScriptProjectInput(
       continue;
     }
     const defaultLibraryPath = pathInside(defaultLibraryRoot, sourceFile.fileName);
-    const dependencyPath = virtualDependencyPath
-      ?? (dependencyRoot === null ? null : pathInside(dependencyRoot, sourceFile.fileName));
     const kind = defaultLibraryPath !== null
       ? 'default-library' as const
       : dependencyPath !== null
@@ -667,14 +844,14 @@ export function compileWorkspaceTypeScriptProjectInput(
     containedProjectConfig,
     resolvedRootSourcePaths,
     orderedSourceFactsDigest,
-    dependencyGenerationPhysicalDigest
+    dependencyGenerationDigest
   })) as `sha256:${string}`;
   const containmentCanonical = Object.freeze({
     status: 'contained' as const,
     projectConfigPath,
     projectConfigDigest: projectConfig.contentDigest as `sha256:${string}`,
     workspaceSnapshotIdentityDigest: snapshot.identityDigest,
-    dependencyGenerationPhysicalDigest,
+    dependencyGenerationDigest,
     compilerRevision: ts.version,
     resolvedConfigDigest
   });
@@ -692,12 +869,12 @@ export function compileWorkspaceTypeScriptProjectInput(
   const semanticInput = Object.freeze({
     projectConfigPath,
     projectConfigDigest: projectConfig.contentDigest as `sha256:${string}`,
-    dependencyGenerationPhysicalDigest,
+    dependencyGenerationDigest,
     executionConfig: Object.freeze({
       status: executionConfigContainment.status,
       projectConfigPath: executionConfigContainment.projectConfigPath,
       projectConfigDigest: executionConfigContainment.projectConfigDigest,
-      dependencyGenerationPhysicalDigest: executionConfigContainment.dependencyGenerationPhysicalDigest,
+      dependencyGenerationDigest: executionConfigContainment.dependencyGenerationDigest,
       compilerRevision: executionConfigContainment.compilerRevision,
       resolvedConfigDigest: executionConfigContainment.resolvedConfigDigest
     }),
@@ -711,7 +888,7 @@ export function compileWorkspaceTypeScriptProjectInput(
     ...observation,
     projectConfigPath,
     projectConfigDigest: projectConfig.contentDigest as `sha256:${string}`,
-    dependencyGenerationPhysicalDigest,
+    dependencyGenerationDigest,
     executionConfigContainment,
     sourceFacts,
     externalSourceFacts,
@@ -895,7 +1072,8 @@ function issueWorkspaceSourceSnapshot(
     if (semanticProjection !== null) return semanticProjection;
     const moduleGraph = compileSecRepositoryModuleGraph({
       files: files.filter(({ path }) => isSourceProgramInputPath(path)).map(({ path }) => path),
-      readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null
+      readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null,
+      readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
     });
     const moduleGraphDigest = graphDigest(moduleGraph);
     const snapshotDigest = sha256({

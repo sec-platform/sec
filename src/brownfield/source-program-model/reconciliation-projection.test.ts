@@ -220,7 +220,7 @@ test('effectful changes require terminal and readback relations', () => {
   );
 });
 
-test('consumer-zero removal resolves only with an explicit retirement relation', () => {
+test('a retirement relation cannot self-authorize declaration removal', () => {
   const before = compileFixture({
     'src/example/service.ts': 'export function run(): string { return \'ok\'; }\n',
     'src/consumer/use.ts': "import { run } from '../example/service.ts';\nconst value = run();\nvoid value;\n"
@@ -230,8 +230,11 @@ test('consumer-zero removal resolves only with an explicit retirement relation',
   }, [serviceDescriptor('src/example/retirement.ts', 'retire', { includeRetirement: true })]);
   const projection = reconcile(before, after);
 
-  expect(projection.unresolvedReasons).toEqual([]);
-  expect(projection.status).toBe('resolved');
+  expect(projection.status).toBe('unresolved');
+  expect(projection.unresolvedReasons).toContainEqual(expect.objectContaining({
+    code: 'retirement-unresolved',
+    subject: 'example.service'
+  }));
   expect(projection.frontiers).toContainEqual(expect.objectContaining({
     subject: 'example.service',
     afterPhases: ['retirement'],

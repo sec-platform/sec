@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {
+  generatedStateDigest,
   type GeneratedStatePhysicalIdentity
 } from '../../../../runtime-state/generated-state/contract.ts';
 import {
@@ -27,6 +28,20 @@ export interface RuntimeDependencySourceGeneration {
   /** Number of entries covered by treeDigest; part of the bounded contract. */
   readonly treeEntryCount: number;
   readonly epoch: `sha256:${string}`;
+}
+
+export function runtimeDependencySourceGenerationEpoch(
+  source: Readonly<Omit<RuntimeDependencySourceGeneration, 'schema' | 'sourcePath' | 'epoch'>>
+): `sha256:${string}` {
+  return generatedStateDigest(Object.freeze({
+    schema: 'sec-runtime-dependency-generation-epoch-v1',
+    ownerRoot: source.ownerRoot,
+    ownerRootPhysical: source.ownerRootPhysical,
+    physical: source.physical,
+    bindingDigest: source.bindingDigest,
+    treeDigest: source.treeDigest,
+    treeEntryCount: source.treeEntryCount
+  }));
 }
 
 export function generatedStatePhysicalIdentity(

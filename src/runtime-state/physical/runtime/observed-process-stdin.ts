@@ -10,7 +10,8 @@ import {
   type ObservedCommandCoreOptions,
   type ObservedCommandInputCapability,
   type ObservedCommandOutcome,
-  type ObservedCommandStdinController
+  type ObservedCommandStdinController,
+  type ObservedNativeProcessResourceLedger
 } from './observed-process.ts';
 
 export * from './observed-process.ts';
@@ -25,12 +26,22 @@ export interface ObservedCommandOptions extends ObservedCommandCoreOptions {
 function startWindowsObservedStdinWriter(
   handle: bigint,
   input: Uint8Array,
-  closeHandle: () => void
+  closeHandle: () => void,
+  nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): ObservedCommandStdinController {
   const workerUrl = path.isAbsolute(windowsStdinWriterWorkerPath)
     ? pathToFileURL(windowsStdinWriterWorkerPath)
     : new URL(windowsStdinWriterWorkerPath, import.meta.url);
-  const worker = new ThreadWorker(workerUrl);
+  const workerResource = nativeResourceLedger?.admit('stdin-worker');
+  let worker: ThreadWorker;
+  try {
+    worker = new ThreadWorker(workerUrl);
+    workerResource?.start();
+  } catch (error) {
+    workerResource?.settle();
+    closeHandle();
+    throw error;
+  }
   let settled = false;
   let resolveSettlement!: (value: boolean) => void;
   const settlement = new Promise<boolean>((resolve) => {
@@ -40,6 +51,7 @@ function startWindowsObservedStdinWriter(
     if (settled) return;
     settled = true;
     closeHandle();
+    workerResource?.settle();
     resolveSettlement(value);
   };
   worker.once('message', (value: unknown) => {
@@ -62,11 +74,14 @@ function startWindowsObservedStdinWriter(
   });
 }
 
-function observedCommandInputCapability(input: Buffer): ObservedCommandInputCapability {
+function observedCommandInputCapability(
+  input: Buffer,
+  nativeResourceLedger?: ObservedNativeProcessResourceLedger
+): ObservedCommandInputCapability {
   const capability: ObservedCommandInputCapability = {
     input,
     startWindowsWriter(handle, closeHandle) {
-      return startWindowsObservedStdinWriter(handle, input, closeHandle);
+      return startWindowsObservedStdinWriter(handle, input, closeHandle, nativeResourceLedger);
     }
   };
   return Object.freeze(capability);
@@ -87,6 +102,8 @@ export async function runObservedCommand(
     command,
     args,
     coreOptions,
-    commandInput === null ? undefined : observedCommandInputCapability(commandInput)
+    commandInput === null
+      ? undefined
+      : observedCommandInputCapability(commandInput, options.nativeResourceLedger)
   );
 }

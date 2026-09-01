@@ -11,6 +11,10 @@ import {
 } from '../../../system-architecture/operation/semantic.ts';
 import { assertIndependentProviderProcessCapabilityForSession } from './independent-provider-process.ts';
 import {
+  openObservedNativeProcessResourceLedger,
+  type ObservedNativeProcessResourceLedgerSnapshot
+} from './observed-process.ts';
+import {
   runRetainedCommandBytes,
   type ByteCommandResult,
   type RunRetainedCommandOptions
@@ -41,6 +45,13 @@ export type ProcessResourceSessionReceipt = Readonly<{
   settledProcessCount: number;
   successfulProcessRecordCount: number;
   failedProcessCount: number;
+  admittedNativeResourceCount: number;
+  startedNativeResourceCount: number;
+  rootProcessCount: number;
+  stdinWorkerCount: number;
+  helperProcessCount: number;
+  settledNativeResourceCount: number;
+  failedNativeAdmissionCount: number;
   inputBytes: number;
   outputBytes: number;
   deadlineAtUnixMs: number;
@@ -220,6 +231,10 @@ export function openProcessResourceSession(input: Readonly<{
   }
   const deadlineAtUnixMs = startedAtUnixMs + admittedDurationMs;
   const deadlineAtMonotonicMs = startedAtMonotonicMs + admittedDurationMs;
+  const nativeResourceLedger = openObservedNativeProcessResourceLedger({
+    maximumResources: maximumProcesses,
+    deadlineAtMonotonicMs
+  });
   const sessionController = new AbortController();
   const abortFromCaller = (): void => sessionController.abort(input.signal?.reason);
   input.signal?.addEventListener('abort', abortFromCaller, { once: true });
@@ -294,9 +309,6 @@ export function openProcessResourceSession(input: Readonly<{
           boundary
         });
       }
-      if (processCount >= maximumProcesses) {
-        throw new Error('Process resource session process budget is exhausted.');
-      }
       const commandInputBytes = byteLength(options.input);
       if (options.maxStdinBytes !== undefined
           && (!Number.isSafeInteger(options.maxStdinBytes) || options.maxStdinBytes < 0)) {
@@ -331,6 +343,13 @@ export function openProcessResourceSession(input: Readonly<{
           'Process resource session stall deadline must be shorter than the admitted execution window.'
         );
       }
+      const requiredNativeResources = 1 + (
+        process.platform === 'win32' && options.input !== undefined ? 1 : 0
+      );
+      if (nativeResourceLedger.snapshot().admittedResourceCount + requiredNativeResources
+          > maximumProcesses) {
+        throw new Error('Process resource session process budget is exhausted.');
+      }
       const ordinal = processCount + 1;
       const admittedOutputBytes = options.maxStdoutBytes + options.maxStderrBytes;
       active = true;
@@ -344,7 +363,7 @@ export function openProcessResourceSession(input: Readonly<{
           terminationDeadlineMs,
           terminationGraceMs,
           timeoutMs
-        });
+        }, nativeResourceLedger);
         const immutableResult: ByteCommandResult = Object.freeze({
           code: result.code,
           stdout: new Uint8Array(result.stdout),
@@ -376,6 +395,7 @@ export function openProcessResourceSession(input: Readonly<{
       assertIssuedReceiver(this, 'close');
       if (active) throw new Error('Process resource session cannot close with an active child.');
       if (receipt !== null) return receipt;
+      const nativeResources: ObservedNativeProcessResourceLedgerSnapshot = nativeResourceLedger.close();
       const withoutDigest = deepFreeze({
         operationIdentityDigest: input.operation.plan.identity.identityDigest,
         boundAttemptDigest: input.operation.boundAttemptDigest,
@@ -387,6 +407,13 @@ export function openProcessResourceSession(input: Readonly<{
         settledProcessCount,
         successfulProcessRecordCount,
         failedProcessCount,
+        admittedNativeResourceCount: nativeResources.admittedResourceCount,
+        startedNativeResourceCount: nativeResources.startedResourceCount,
+        rootProcessCount: nativeResources.rootProcessCount,
+        stdinWorkerCount: nativeResources.stdinWorkerCount,
+        helperProcessCount: nativeResources.helperProcessCount,
+        settledNativeResourceCount: nativeResources.settledResourceCount,
+        failedNativeAdmissionCount: nativeResources.failedAdmissionCount,
         inputBytes,
         outputBytes,
         deadlineAtUnixMs
@@ -428,7 +455,13 @@ export function assertProcessResourceSessionReceipt(
   }
   if (receipt.settledProcessCount !== receipt.processCount
       || receipt.successfulProcessRecordCount + receipt.failedProcessCount
-        !== receipt.settledProcessCount) {
+        !== receipt.settledProcessCount
+      || receipt.settledNativeResourceCount !== receipt.admittedNativeResourceCount
+      || receipt.rootProcessCount + receipt.stdinWorkerCount + receipt.helperProcessCount
+        !== receipt.admittedNativeResourceCount
+      || receipt.startedNativeResourceCount > receipt.admittedNativeResourceCount
+      || receipt.failedNativeAdmissionCount
+        !== receipt.admittedNativeResourceCount - receipt.startedNativeResourceCount) {
     throw new Error('Process resource terminal receipt has inconsistent settlement counters.');
   }
   if (expected !== undefined

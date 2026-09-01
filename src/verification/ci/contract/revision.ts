@@ -7,45 +7,8 @@ import { VERIFICATION_SESSION_SCHEMA } from '../../session/contract/session.ts';
 /** Active trusted hosted lane. */
 export const CI_VERIFICATION_SESSION_CONTRACT_REVISION = 'ci-verification-session-v2' as const;
 export const CI_VERIFICATION_SESSION_DISPATCH_TYPE = 'sec-verify-session-v2' as const;
-export const CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE =
-  'sec-verification-session-terminal-v2' as const;
 export const CI_VERIFICATION_SESSION_REQUEST_SCHEMA = 'sec-verification-session-hosted-request-v1' as const;
 export const CI_VERIFICATION_SESSION_ARTIFACT_PREFIX = VERIFICATION_SESSION_SCHEMA;
-
-const terminalLocatorInteger = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
-const terminalLocatorSha = z.string().regex(/^[0-9a-f]{40}$/u);
-const terminalLocatorDigest = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
-const CI_VERIFICATION_SESSION_TERMINAL_LOCATOR_SCHEMA = z.object({
-  sourceRunId: terminalLocatorInteger,
-  sourceRunAttempt: terminalLocatorInteger,
-  sourceWorkflowSha: terminalLocatorSha,
-  prNumber: terminalLocatorInteger,
-  baseSha: terminalLocatorSha,
-  headSha: terminalLocatorSha,
-  sessionRevision: terminalLocatorDigest,
-  artifactId: terminalLocatorInteger,
-  artifactName: z.string().min(1).max(256).regex(/^[^\u0000-\u001f]+$/u),
-  artifactDigest: terminalLocatorDigest
-}).strict().superRefine((value, context) => {
-  if (value.sourceWorkflowSha !== value.baseSha) {
-    context.addIssue({ code: 'custom', path: ['sourceWorkflowSha'],
-      message: 'workflow SHA must equal the exact base SHA' });
-  }
-});
-
-export type CiVerificationSessionTerminalLocator = Readonly<
-  z.infer<typeof CI_VERIFICATION_SESSION_TERMINAL_LOCATOR_SCHEMA>
->;
-
-export function parseCiVerificationSessionTerminalLocator(
-  value: unknown
-): CiVerificationSessionTerminalLocator {
-  const parsed = CI_VERIFICATION_SESSION_TERMINAL_LOCATOR_SCHEMA.safeParse(value);
-  if (!parsed.success) {
-    throw new Error(`Verification Session terminal locator is invalid: ${z.prettifyError(parsed.error)}`);
-  }
-  return Object.freeze(parsed.data) as CiVerificationSessionTerminalLocator;
-}
 
 /**
  * The hosted SUT isolation policy is part of Action identity through

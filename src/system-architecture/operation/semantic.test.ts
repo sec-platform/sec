@@ -193,6 +193,72 @@ test('budget narrowing and attempt lineage never manufacture a new OperationKey'
   expect(first.attempt.attemptDigest).not.toBe(retried.attempt.attemptDigest);
 });
 
+test('semantic budgets represent static ceilings and allow only an explicit zero input ceiling', () => {
+  const zeroInput = compileSecSemanticOperationPlan({
+    operation: 'verification.typecheck',
+    intentDigest: digest('zero-input-operation'),
+    decisionDigest: digest('zero-input-decision'),
+    deadlineAtUnixMs: 1_900_000_000_000,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: 1_000 },
+      { resource: 'input-bytes', maximum: 0 },
+      { resource: 'output-bytes', maximum: 1 },
+      { resource: 'processes', maximum: 1 }
+    ],
+    requirements: [{
+      id: 'typescript.project-check',
+      contractDigest: digest('zero-input-contract'),
+      effectKinds: ['process'],
+      failureKinds: ['provider.unavailable']
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: digest('zero-input-grant')
+    })
+  });
+  expect(zeroInput.execution.aggregateBudgets).toContainEqual({
+    resource: 'input-bytes',
+    maximum: 0
+  });
+
+  expect(() => compileSecSemanticOperationPlan({
+    operation: 'verification.typecheck',
+    intentDigest: digest('zero-output-operation'),
+    decisionDigest: digest('zero-output-decision'),
+    deadlineAtUnixMs: 1_900_000_000_000,
+    aggregateBudgets: [{ resource: 'output-bytes', maximum: 0 }],
+    requirements: [{
+      id: 'typescript.project-check',
+      contractDigest: digest('zero-output-contract'),
+      effectKinds: ['process'],
+      failureKinds: ['provider.unavailable']
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: digest('zero-output-grant')
+    })
+  })).toThrow('aggregate budget is not canonical');
+
+  expect(() => compileSecSemanticOperationPlan({
+    operation: 'verification.typecheck',
+    intentDigest: digest('runtime-ledger-operation'),
+    decisionDigest: digest('runtime-ledger-decision'),
+    deadlineAtUnixMs: 1_900_000_000_000,
+    aggregateBudgets: [{
+      resource: 'input-bytes',
+      maximum: 0,
+      consumed: 0
+    } as never],
+    requirements: [{
+      id: 'typescript.project-check',
+      contractDigest: digest('runtime-ledger-contract'),
+      effectKinds: ['process'],
+      failureKinds: ['provider.unavailable']
+    }],
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: digest('runtime-ledger-grant')
+    })
+  })).toThrow('aggregate budget is not canonical');
+});
+
 test('attempt context is compiler-local correlation rather than serializable authority', () => {
   const issued = issueSecSemanticOperationAttemptContext({
     authorityGrantDigest: digest('verification-typecheck-authority-grant')

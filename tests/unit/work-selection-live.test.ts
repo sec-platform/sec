@@ -6,15 +6,6 @@ import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 
 import { createMainHealthRepairWorkPackagePath } from '../../src/control/main-health/contract.ts';
-import {
-  isExactWorkSelectionActiveIdentity,
-  isWorkSelectionProspectiveTransport,
-  observeSecRoadmapTerminalCompactionCandidate,
-  observeSecWorkSelectionLive,
-  observeSecWorkSelectionWithProviderV1,
-  requireResolvedSecWorkDecisionReceipt,
-  type SecWorkSelectionProvider
-} from '../../src/control/main-health/work-selection.ts';
 import type { SecCurrentWorkLifecycle } from '../../src/control/work-selection/contract.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
@@ -42,6 +33,15 @@ import {
   type SecWorkCurrentSpecObservation,
   type SecWorkRegistryObservation
 } from '../../src/control/work-selection/live-contract.ts';
+import {
+  isExactWorkSelectionActiveIdentity,
+  isWorkSelectionProspectiveTransport,
+  observeSecRoadmapTerminalCompactionCandidate,
+  observeSecWorkSelectionLive,
+  observeSecWorkSelectionWithProviderV1,
+  requireResolvedSecWorkDecisionReceipt,
+  type SecWorkSelectionProvider
+} from '../../src/control/work-selection/runtime.ts';
 import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
@@ -296,7 +296,7 @@ describe('work-selection live contract', () => {
 
   test('production observation fails closed when Git authority is unavailable', async () => {
     const missingCwd = path.join(tmpdir(), 'sec-work-selection-provider-admission-missing');
-    const result = await observeSecWorkSelectionLive({ cwd: missingCwd });
+    const result = await observeSecWorkSelectionLive({ cwd: missingCwd } as never);
     expect(result).toMatchObject({
       status: 'unresolved',
       reasonCodes: ['git-read-provider-unavailable']

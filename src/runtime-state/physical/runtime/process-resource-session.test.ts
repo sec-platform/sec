@@ -23,6 +23,10 @@ import {
   issueIndependentProviderProcessCapability
 } from './independent-provider-process.ts';
 import {
+  openObservedNativeProcessResourceLedger,
+  runObservedCommand
+} from './observed-process-stdin.ts';
+import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile
@@ -173,7 +177,7 @@ test('process sessions require one process Effect and complete bound resource ce
     { resource: 'duration-ms', maximum: 15_000 },
     { resource: 'input-bytes', maximum: 3 },
     { resource: 'output-bytes', maximum: 6 },
-    { resource: 'processes', maximum: 2 }
+    { resource: 'processes', maximum: 3 }
   ] });
   const session = openProcessResourceSession({
     operation,
@@ -229,6 +233,13 @@ test('process sessions require one process Effect and complete bound resource ce
       settledProcessCount: 2,
       successfulProcessRecordCount: 2,
       failedProcessCount: 0,
+      admittedNativeResourceCount: process.platform === 'win32' ? 3 : 2,
+      startedNativeResourceCount: process.platform === 'win32' ? 3 : 2,
+      rootProcessCount: 2,
+      stdinWorkerCount: process.platform === 'win32' ? 1 : 0,
+      helperProcessCount: 0,
+      settledNativeResourceCount: process.platform === 'win32' ? 3 : 2,
+      failedNativeAdmissionCount: 0,
       inputBytes: 3,
       outputBytes: 5,
       deadlineAtUnixMs: session.deadlineAtUnixMs
@@ -334,6 +345,7 @@ test('process session deadline is one fixed wall and monotonic cancellation boun
   const operation = boundOperation({
     budgets: [
       { resource: 'duration-ms', maximum: 25 },
+      { resource: 'input-bytes', maximum: 0 },
       { resource: 'output-bytes', maximum: 1 },
       { resource: 'processes', maximum: 1 }
     ],
@@ -355,6 +367,104 @@ test('process session deadline is one fixed wall and monotonic cancellation boun
     maxStdoutBytes: 0
   })).rejects.toThrow(/cancelled|deadline/u);
   session.close();
+});
+
+test('native process resource ledger irreversibly accounts roots workers helpers and failed admission', () => {
+  const ledger = openObservedNativeProcessResourceLedger({
+    maximumResources: 3,
+    deadlineAtMonotonicMs: performance.now() + 10_000
+  });
+  const root = ledger.admit('root-process');
+  root.start();
+  const worker = ledger.admit('stdin-worker');
+  worker.start();
+  worker.settle();
+  const helper = ledger.admit('termination-helper');
+  helper.settle();
+
+  expect(() => ledger.admit('root-process')).toThrow(/process budget/u);
+  expect(() => ledger.close()).toThrow(/unsettled admitted resources/u);
+  expect(() => ({ ...ledger }).admit('root-process')).toThrow(/owner-issued ledger/u);
+
+  root.settle();
+  expect(ledger.close()).toEqual({
+    admittedResourceCount: 3,
+    startedResourceCount: 2,
+    rootProcessCount: 1,
+    stdinWorkerCount: 1,
+    helperProcessCount: 1,
+    settledResourceCount: 3,
+    failedAdmissionCount: 1
+  });
+});
+
+test('native process resource ledger conservatively settles a failed root spawn', async () => {
+  const ledger = openObservedNativeProcessResourceLedger({
+    maximumResources: 1,
+    deadlineAtMonotonicMs: performance.now() + 10_000
+  });
+  const outcome = await runObservedCommand(
+    path.join(compilerRoot, 'missing-process-resource-command.exe'),
+    [],
+    {
+      cwd: compilerRoot,
+      envMode: 'replace',
+      maxObservedOutputBytes: 0,
+      nativeResourceLedger: ledger,
+      timeoutMs: 1_000
+    }
+  );
+  expect(outcome.status).toBe('spawn-failed');
+  expect(ledger.close()).toEqual({
+    admittedResourceCount: 1,
+    startedResourceCount: 0,
+    rootProcessCount: 1,
+    stdinWorkerCount: 0,
+    helperProcessCount: 0,
+    settledResourceCount: 1,
+    failedAdmissionCount: 1
+  });
+});
+
+test('failed command settlement retains its full output reservation in the terminal receipt', async () => {
+  const retained = retainTestBoundary();
+  const operation = boundOperation({
+    budgets: [
+      { resource: 'duration-ms', maximum: 10_000 },
+      { resource: 'input-bytes', maximum: 0 },
+      { resource: 'output-bytes', maximum: 2 },
+      { resource: 'processes', maximum: 1 }
+    ],
+    label: 'failed-output-reservation'
+  });
+  const session = openProcessResourceSession({
+    operation,
+    requirementBindingContext: requirementBindingContext(operation)
+  });
+  try {
+    await expect(session.run(retained.boundary, [
+      '--no-env-file',
+      '--eval',
+      "process.stdout.write('overflow')"
+    ], {
+      maxStderrBytes: 0,
+      maxStdoutBytes: 2
+    })).rejects.toThrow(/stdout exceeded/u);
+    expect(session.close()).toMatchObject({
+      processCount: 1,
+      settledProcessCount: 1,
+      successfulProcessRecordCount: 0,
+      failedProcessCount: 1,
+      admittedNativeResourceCount: 1,
+      startedNativeResourceCount: 1,
+      rootProcessCount: 1,
+      settledNativeResourceCount: 1,
+      failedNativeAdmissionCount: 0,
+      outputBytes: 2
+    });
+  } finally {
+    retained.dispose();
+  }
 });
 
 test('process session rejects operation, attempt, and provider breakaway token transplants before spawn', async () => {

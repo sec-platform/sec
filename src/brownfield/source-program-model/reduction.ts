@@ -45,6 +45,7 @@ import { compileSourceProgramTypeScriptDiagnosticSnapshot } from './typescript.t
 
 const compiledGraphCutReductionPlans = new WeakSet<object>();
 const compiledAggregateImportReductionPlans = new WeakSet<object>();
+const compiledUnusedSymbolProviderReceipts = new WeakSet<object>();
 
 export interface SourceProgramRenameLocation {
   readonly path: string;
@@ -83,8 +84,32 @@ export interface SourceProgramVersionSuffixReductionPatch {
 export interface SourceProgramUnusedSymbolEvidence {
   readonly path: string;
   readonly name: string;
+}
+
+export interface SourceProgramUnusedSymbolProviderReceipt {
+  readonly schema: 'source-program-unused-symbol-provider-receipt-v1';
   readonly provider: 'knip';
-  readonly providerRevision: string;
+  readonly providerRevision: `sha256:${string}`;
+  readonly settlement: 'completed';
+  readonly sourceRevision: string;
+  readonly sourceSnapshotDigest: string;
+  readonly configurationDigest: string;
+  readonly inputDigest: string;
+  readonly candidateDigest: string;
+  readonly candidates: readonly SourceProgramUnusedSymbolEvidence[];
+  readonly receiptDigest: string;
+}
+
+export interface CompileSourceProgramUnusedSymbolProviderReceiptInput {
+  readonly model: SourceProgramModel;
+  readonly files: readonly SourceProgramFileInput[];
+  readonly providerRevision: `sha256:${string}`;
+  readonly configuration: Readonly<{
+    readonly includedIssueTypes: readonly ['exports', 'types'];
+    readonly isShowProgress: false;
+  }>;
+  readonly settlement: 'completed';
+  readonly candidates: readonly SourceProgramUnusedSymbolEvidence[];
 }
 
 export interface SourceProgramGraphCutReduction {
@@ -1856,6 +1881,74 @@ function sourceFileSnapshotDigest(files: readonly SourceProgramFileInput[]): str
     .sort((left, right) => compareCodeUnits(left.path, right.path))));
 }
 
+function sourceFilesBindModel(
+  model: SourceProgramModel,
+  files: readonly SourceProgramFileInput[]
+): boolean {
+  const modelFiles = [...model.files]
+    .map(({ path, contentDigest }) => Object.freeze({ path, contentDigest }))
+    .sort((left, right) => compareCodeUnits(left.path, right.path));
+  const inputFiles = [...files]
+    .map(({ path, source }) => Object.freeze({ path, contentDigest: rawSha256(source) }))
+    .sort((left, right) => compareCodeUnits(left.path, right.path));
+  return new Set(inputFiles.map(({ path }) => path)).size === inputFiles.length
+    && sha256(modelFiles) === sha256(inputFiles);
+}
+
+/**
+ * Seal one completed Knip observation against the exact Source Program input.
+ * The receipt remains candidate evidence only: it can narrow which declarations
+ * need retirement review, but it cannot close an unknown consumer frontier.
+ */
+export function compileSourceProgramUnusedSymbolProviderReceipt(
+  input: CompileSourceProgramUnusedSymbolProviderReceiptInput
+): SourceProgramUnusedSymbolProviderReceipt {
+  if (!sourceProgramModelEvidenceIsExact(input.model)
+      || !sourceFilesBindModel(input.model, input.files)
+      || !DIGEST.test(input.providerRevision)
+      || input.settlement !== 'completed'
+      || input.configuration.isShowProgress !== false
+      || input.configuration.includedIssueTypes.length !== 2
+      || input.configuration.includedIssueTypes[0] !== 'exports'
+      || input.configuration.includedIssueTypes[1] !== 'types') {
+    throw new SourceProgramReductionAdmissionError(
+      'compiler-issued-plan-required',
+      'Unused-symbol provider evidence requires one completed exact-snapshot provider observation'
+    );
+  }
+  const candidates = Object.freeze([...input.candidates]
+    .map(({ path, name }) => Object.freeze({ path, name }))
+    .sort((left, right) => compareCodeUnits(left.path, right.path)
+      || compareCodeUnits(left.name, right.name)));
+  if (candidates.some(({ path, name }) => path.length === 0
+      || path.startsWith('/')
+      || path.includes('\\')
+      || path.split('/').some((segment) => segment.length === 0 || segment === '.' || segment === '..')
+      || name.trim().length === 0)
+      || new Set(candidates.map(({ path, name }) => `${path}\0${name}`)).size !== candidates.length) {
+    throw new SourceProgramReductionAdmissionError(
+      'compiler-issued-plan-required',
+      'Unused-symbol provider candidates are not canonical repository symbols'
+    );
+  }
+  const sourceSnapshotDigest = sourceFileSnapshotDigest(input.files);
+  const canonical = Object.freeze({
+    schema: 'source-program-unused-symbol-provider-receipt-v1' as const,
+    provider: 'knip' as const,
+    providerRevision: input.providerRevision,
+    settlement: input.settlement,
+    sourceRevision: input.model.sourceRevision,
+    sourceSnapshotDigest,
+    configurationDigest: sha256(input.configuration),
+    inputDigest: sha256(sourceSnapshotIdentity(input.model, input.files)),
+    candidateDigest: sha256(candidates),
+    candidates
+  });
+  const receipt = Object.freeze({ ...canonical, receiptDigest: sha256(canonical) });
+  compiledUnusedSymbolProviderReceipts.add(receipt);
+  return receipt;
+}
+
 function assertReductionSourceSnapshot(
   expectedDigest: string,
   files: readonly SourceProgramFileInput[]
@@ -2151,9 +2244,19 @@ function graphCutNewDiagnosticReason(
 export function compileSourceProgramGraphCutReductionPlan(
   model: SourceProgramModel,
   files: readonly SourceProgramFileInput[],
-  unusedSymbols: readonly SourceProgramUnusedSymbolEvidence[],
+  unusedSymbols: SourceProgramUnusedSymbolProviderReceipt,
   context: SourceProgramReductionCompilerContext
 ): SourceProgramGraphCutReductionPlan {
+  const sourceSnapshotDigest = sourceFileSnapshotDigest(files);
+  if (!compiledUnusedSymbolProviderReceipts.has(unusedSymbols)
+      || unusedSymbols.sourceRevision !== model.sourceRevision
+      || unusedSymbols.sourceSnapshotDigest !== sourceSnapshotDigest
+      || unusedSymbols.candidateDigest !== sha256(unusedSymbols.candidates)) {
+    throw new SourceProgramReductionAdmissionError(
+      'compiler-issued-plan-required',
+      'Graph-cut reduction requires one compiler-issued exact provider candidate receipt'
+    );
+  }
   const sourceFileByPath = new Map(files
     .filter(({ path }) => /\.[cm]?[jt]sx?$/iu.test(path))
     .map(({ path, source }) => [
@@ -2167,6 +2270,10 @@ export function compileSourceProgramGraphCutReductionPlan(
   const candidateKeys = new Set(model.candidates
     .filter(({ code }) => candidateCodes.has(code))
     .flatMap((candidate) => candidate.paths.map((path) => `${path}\0${candidate.subject}`)));
+  const unknownCandidateKeys = new Set(model.candidates
+    .filter(({ code, observationClass }) => candidateCodes.has(code)
+      && observationClass === 'unknown')
+    .flatMap((candidate) => candidate.paths.map((path) => `${path}\0${candidate.subject}`)));
   const moduleEntrypointPaths = new Set(model.entrypoints
     .filter(({ kind }) => kind === 'module-entrypoint')
     .flatMap(({ targetPaths }) => targetPaths));
@@ -2176,7 +2283,7 @@ export function compileSourceProgramGraphCutReductionPlan(
       || code === 'computed-property-unresolved')
     .map(({ path }) => path));
   const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, context.moduleMembership);
-  const evidence = [...unusedSymbols]
+  const evidence = [...unusedSymbols.candidates]
     .sort((left, right) => compareCodeUnits(left.path, right.path)
       || compareCodeUnits(left.name, right.name));
   const reductions: SourceProgramGraphCutReduction[] = [];
@@ -2215,6 +2322,8 @@ export function compileSourceProgramGraphCutReductionPlan(
             ? 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
             : requiredUnmaterializedObligations.length > 0
               ? 'owner-issued operation obligation is required-unmaterialized; target acceptance must precede source retirement'
+            : unknownCandidateKeys.has(key)
+              ? 'canonical Source Program consumer frontier is unknown; unused provider evidence cannot authorize deletion'
             : !candidateKeys.has(key)
               ? 'canonical Source Program did not admit consumer-zero evidence'
           : removalNode === null
@@ -2317,10 +2426,10 @@ export function compileSourceProgramGraphCutReductionPlan(
   }
   verifiedReductions.sort((left, right) => compareCodeUnits(left.path, right.path)
     || compareCodeUnits(left.name, right.name));
-  const evidenceDigest = sha256(evidence);
+  const evidenceDigest = unusedSymbols.receiptDigest;
   const plan = Object.freeze({
     sourceRevision: model.sourceRevision,
-    sourceSnapshotDigest: sourceFileSnapshotDigest(files),
+    sourceSnapshotDigest,
     evidenceDigest,
     verificationDigest,
     planDigest: sha256({

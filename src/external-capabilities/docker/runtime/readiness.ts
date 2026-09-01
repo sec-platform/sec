@@ -20,6 +20,7 @@ import { disposeUnclaimedDockerCommandProviderCapability } from './command-provi
 import { openContainerEngineSession } from './container-engine-session.ts';
 import { openWindowsDockerCommandProvider } from './windows-command-provider.ts';
 import {
+  observeWindowsDockerDesktopLoginStart,
   unavailableDockerDesktopLoginStart
 } from './windows-login-start.ts';
 
@@ -148,6 +149,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       )
     });
   }
+  const loginStart = await observeWindowsDockerDesktopLoginStart();
   let provider: Awaited<ReturnType<typeof openWindowsDockerCommandProvider>>;
   try {
     provider = await openWindowsDockerCommandProvider({ workingDirectory: cwd });
@@ -157,13 +159,9 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       reason: 'command-provider-unavailable',
       phase: 'provider-admission',
       detail: error,
-      loginStart: unavailableDockerDesktopLoginStart(
-        'provider-admission-unavailable',
-        error
-      )
+      loginStart
     });
   }
-  const loginStart = provider.loginStart;
 
   const operation = bindReadinessOperation({
     mode,

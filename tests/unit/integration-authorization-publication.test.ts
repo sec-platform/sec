@@ -4,15 +4,54 @@ import {
   HOSTED_INTEGRATION_PHASE_JOB_NAMES,
   HOSTED_INTEGRATION_PHASE_STEP_NAMES,
   assertHostedIntegrationPhaseOwnership,
+  selectCanonicalIntegrationRunOwner,
   type HostedIntegrationPhase
 } from '../../src/control/integration/integration-authorization-publication.ts';
 import type {
   GitHubWorkflowJobObservation,
-  GitHubWorkflowJobStepObservation
+  GitHubWorkflowJobStepObservation,
+  GitHubWorkflowRunObservation
 } from '../../src/verification/ci/contract/github-observation.ts';
 import { parseGitHubWorkflowJobsForAttempt } from '../../src/verification/ci/runtime/verification-session-github.ts';
 
 const WORKFLOW_SHA = '1111111111111111111111111111111111111111';
+
+function integrationRun(input: Partial<GitHubWorkflowRunObservation> & { id: string }) {
+  return Object.freeze({
+    name: 'sec-merge-gate',
+    displayTitle: 'integrate compiler session run 100 attempt 2',
+    workflowPath: '.github/workflows/sec-merge-gate.yml',
+    event: 'workflow_run',
+    status: 'in_progress',
+    conclusion: null,
+    headSha: WORKFLOW_SHA,
+    runAttempt: 1,
+    updatedAt: '2026-08-09T00:00:00.000Z',
+    ...input,
+    id: input.id
+  } satisfies GitHubWorkflowRunObservation);
+}
+
+test('completed-source wakeup has one canonical owner across duplicates and reruns', () => {
+  const input = { currentRunId: '200', currentRunAttempt: 1,
+    sourceRunId: '100', sourceRunAttempt: 2, baseSha: WORKFLOW_SHA } as const;
+  expect(selectCanonicalIntegrationRunOwner({ ...input, runs: [integrationRun({ id: '200' })] }))
+    .toEqual({ runId: '200', runAttempt: 1, sourceRunId: '100', sourceRunAttempt: 2 });
+  expect(() => selectCanonicalIntegrationRunOwner({ ...input, currentRunId: '201',
+    runs: [integrationRun({ id: '201' }), integrationRun({ id: '200' })] }))
+    .toThrow('canonical smallest exact workflow run owner');
+  expect(() => selectCanonicalIntegrationRunOwner({ ...input, currentRunAttempt: 2,
+    runs: [integrationRun({ id: '200', runAttempt: 1 })] }))
+    .toThrow('canonical smallest exact workflow run owner');
+  for (const conflict of [
+    integrationRun({ id: '200', event: 'repository_dispatch' }),
+    integrationRun({ id: '200', workflowPath: '.github/workflows/foreign.yml' }),
+    integrationRun({ id: '200', headSha: '2'.repeat(40) })
+  ]) {
+    expect(() => selectCanonicalIntegrationRunOwner({ ...input, runs: [conflict] }))
+      .toThrow('conflicting source identity');
+  }
+});
 
 function step(input: Partial<GitHubWorkflowJobStepObservation> & { name: string; number: number }) {
   return Object.freeze({

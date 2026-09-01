@@ -4,6 +4,30 @@
     "src/control/branch-lifecycle/closed-unmerged-closeout-cli.ts",
     "src/control/branch-lifecycle/trusted-runtime-closeout.ts"
   ],
-  "capabilityProviders": [],
+  "capabilityProviders": [
+    {
+      "capability": "branch-lifecycle.clone-configuration",
+      "operations": [
+        "configureBranchLifecycleClone"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process",
+        "provider"
+      ],
+      "ownerInternalOperations": [
+        "configureBranchLifecycleClone"
+      ],
+      "operationRoles": [
+        {
+          "operation": "configureBranchLifecycleClone",
+          "role": "domain-owner",
+          "semanticOperation": "control.branch-lifecycle.configure-clone",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
   "preDependencyBootstrap": false
 }

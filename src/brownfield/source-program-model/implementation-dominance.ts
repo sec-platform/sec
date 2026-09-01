@@ -65,6 +65,7 @@ export interface SourceProgramImplementationUnit {
     readonly unknown: SourceProgramImplementationFrontierStatus;
   }>;
   readonly requiredUnmaterializedObligations: readonly SourceProgramRequiredUnmaterializedObligation[];
+  readonly publicOperationEvolution: 'not-applicable' | 'verified' | 'missing' | 'unknown';
   readonly evidenceDigest: string;
 }
 
@@ -520,6 +521,8 @@ function compileUnit(
   const capabilityClosure = compileDeclarationCapabilityClosure(model, declaration);
   const capabilities = capabilityClosure.capabilities;
   const obligations = operationObligations(declaration, ownerIntents);
+  const ownerContractPublicOperation = candidate.kind === 'identity'
+    && candidate.evidenceClass === 'owner-contract';
   const hasLiveConsumer = exactReferences.length > 0;
   const requiredUnmaterializedObligations = compileSourceProgramRequiredUnmaterializedObligations(
     declaration,
@@ -528,6 +531,13 @@ function compileUnit(
   );
   const ownerIntentMissing = declaration.moduleId !== null && ownerIntent === undefined;
   const obligationUnknown = obligations.some(({ observation }) => observation.status === 'unknown');
+  const publicOperationEvolution = !ownerContractPublicOperation
+    ? 'not-applicable' as const
+    : obligations.length === 0
+      ? 'missing' as const
+      : obligationUnknown
+        ? 'unknown' as const
+        : 'verified' as const;
   const pathUnknown = model.unknowns.some(({ path }) => path === declaration.path);
   const durable = obligations.some(({ obligation }) => (
     obligation.effect.kinds.includes('persistent-state')
@@ -589,7 +599,8 @@ function compileUnit(
     consumerPaths,
     effectPaths,
     frontiers,
-    requiredUnmaterializedObligations
+    requiredUnmaterializedObligations,
+    publicOperationEvolution
   });
   const evidenceDigest = sha256(canonical);
   return Object.freeze({
@@ -610,7 +621,9 @@ function allRemovalFrontiersClosed(unit: SourceProgramImplementationUnit): boole
     && unit.frontiers.migration === 'closed'
     && unit.frontiers.retirement === 'closed'
     && unit.frontiers.acceptedFutureObligation === 'closed'
-    && unit.frontiers.unknown === 'closed';
+    && unit.frontiers.unknown === 'closed'
+    && (unit.publicOperationEvolution === 'not-applicable'
+      || unit.publicOperationEvolution === 'verified');
 }
 
 function finding(
@@ -661,8 +674,18 @@ function classifyGroup(
   }
 
   const unknown = units.some((unit) => Object.values(unit.frontiers).includes('unknown')
-    || unit.frontiers.unknown !== 'closed');
+    || unit.frontiers.unknown !== 'closed'
+    || unit.publicOperationEvolution === 'unknown');
   if (unknown) return finding('unknown', units, [], 'one or more authority frontiers remain unknown');
+
+  if (units.some(({ publicOperationEvolution }) => publicOperationEvolution === 'missing')) {
+    return finding(
+      'owner-decision-required',
+      units,
+      [],
+      'an owner-declared public capability operation has no exact evolution obligation'
+    );
+  }
 
   if (units.length > 1 && protectedState) {
     return finding(

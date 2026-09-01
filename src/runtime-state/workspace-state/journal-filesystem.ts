@@ -42,6 +42,8 @@ export interface RuntimeStateJournalFileSystem {
   appendFsyncCas(filePath: string, expectedText: string, text: string): boolean;
   replaceFsyncCas(filePath: string, expectedText: string, text: string): boolean;
   createExclusiveFsync(filePath: string, text: string): boolean;
+  mutateTextFsync(filePath: string, initialText: string, maximumBytes: number,
+    mutate: (currentText: string) => string): string;
   replaceFsync(filePath: string, text: string): void;
   deleteIfPresent(filePath: string): boolean;
 }
@@ -268,6 +270,32 @@ export function createRuntimeStateJournalFileSystem(
             && readNoFollowOrdinaryFile(retained.parent, retained.name) !== null) return false;
         throw error;
       }
+    },
+    mutateTextFsync(filePath: string, initialText: string, maximumBytes: number,
+      mutate: (currentText: string) => string): string {
+      if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+        throw new Error('Runtime State journal mutation byte ceiling is invalid.');
+      }
+      const next = withMutationLease(filePath, () => {
+        const retained = fileParent(filePath, true)!;
+        const currentBytes = readNoFollowOrdinaryFile(retained.parent, retained.name);
+        if (currentBytes !== null && currentBytes.byteLength > maximumBytes)
+          throw new Error('Runtime State journal mutation source exceeds its byte ceiling.');
+        const current = currentBytes === null ? initialText : Buffer.from(currentBytes).toString('utf8');
+        const text = mutate(current);
+        if (currentBytes !== null && text === current) return text;
+        const bytes = Buffer.from(text, 'utf8');
+        if (bytes.byteLength > maximumBytes)
+          throw new Error('Runtime State journal mutation result exceeds its byte ceiling.');
+        const publication = {
+          parent: retained.parent, name: retained.name, bytes, validate: exactBytes(bytes)
+        };
+        if (currentBytes === null) publishExclusiveDurableCanonicalFile(publication);
+        else replaceDurableCanonicalFile(publication);
+        return text;
+      });
+      if (next === null) throw new Error('Runtime State journal mutation is contended.');
+      return next;
     },
     replaceFsync(filePath: string, text: string): void {
       const replaced = withMutationLease(filePath, () => {

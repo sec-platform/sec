@@ -9,6 +9,7 @@ import {
   runGitRead
 } from '../../src/development/tooling/git/git-read.ts';
 import {
+  assertGitReadSessionReceipt,
   assertProductionGitReadSession,
   createAuthorityGitReadSession,
   createAuthorityGitScratchIndexTreeSession,
@@ -18,6 +19,8 @@ import {
   isolatedGitChildEnvironment,
   isolatedGitReadEnvironment
 } from '../../src/external-capabilities/git-read/test/session.ts';
+import { openProcessResourceSession } from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -374,6 +377,77 @@ test.skipIf(process.platform !== 'win32')(
     });
     expect(outputResolution.session.processCount).toBe(1);
     await outputResolution.session.close?.();
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'borrowed parent process history does not consume the Git-local process delta budget',
+  async () => {
+    const operation = issueTestGitReadOperation({ maxProcesses: 3 });
+    const processSession = openProcessResourceSession({
+      operation,
+      requirementBindingContext: issueSecOperationRequirementBindingContext({
+        operation,
+        requirementId: 'git-read.host-process',
+        resourceCeilings: operation.plan.execution.aggregateBudgets
+      })
+    });
+    const first = createAuthorityGitReadSession({
+      cwd: process.cwd(),
+      operation,
+      processSession,
+      budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
+    });
+    expect(first.status).toBe('ready');
+    if (first.status !== 'ready') throw new Error('First borrowed GitRead session is unavailable.');
+    expect((await first.session.run(['--version'])).kind).toBe('completed');
+    const firstReceipt = await first.session.close?.();
+    if (firstReceipt === undefined) throw new Error('First borrowed GitRead receipt is unavailable.');
+    assertGitReadSessionReceipt(firstReceipt, {
+      operationIdentityDigest: operation.plan.identity.identityDigest,
+      boundAttemptDigest: operation.boundAttemptDigest,
+      requirementId: 'git-read.host-process'
+    });
+    expect(firstReceipt.processSessionOwnership).toBe('borrowed');
+    expect(firstReceipt.processCount).toBe(1);
+    expect(processSession.processCount).toBe(1);
+
+    const second = createAuthorityGitReadSession({
+      cwd: process.cwd(),
+      operation,
+      processSession,
+      budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
+    });
+    expect(second.status).toBe('ready');
+    if (second.status !== 'ready') throw new Error('Second borrowed GitRead session is unavailable.');
+    expect(second.session.processCount).toBe(0);
+    expect((await second.session.run(['--version'])).kind).toBe('completed');
+    expect(second.session.processCount).toBe(1);
+    expect(await second.session.run(['--version'])).toMatchObject({
+      kind: 'unresolved-git-read-session',
+      reason: 'process-budget-exhausted'
+    });
+    const secondReceipt = await second.session.close?.();
+    if (secondReceipt === undefined) throw new Error('Second borrowed GitRead receipt is unavailable.');
+    expect(secondReceipt.processSessionOwnership).toBe('borrowed');
+    expect(secondReceipt.processCount).toBe(1);
+    expect(processSession.processCount).toBe(2);
+    expect(() => processSession.cooperativeDeadlineAtUnixMs()).not.toThrow();
+
+    const transplantedOperation = issueTestGitReadOperation({ maxProcesses: 1 });
+    const rejected = createAuthorityGitReadSession({
+      cwd: process.cwd(),
+      operation: transplantedOperation,
+      processSession,
+      budget: { ...GIT_READ_OPERATION_BUDGET, maxProcesses: 1 }
+    });
+    expect(rejected).toMatchObject({
+      kind: 'unresolved-git-read-provider',
+      status: 'unavailable',
+      reason: 'git-operation-admission-unavailable'
+    });
+    expect(processSession.processCount).toBe(2);
+    processSession.close();
   }
 );
 

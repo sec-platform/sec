@@ -254,10 +254,9 @@ mock.module('../../src/development/runner/env-manager.ts', () => ({
   TEST_WORKSPACE_RUN_CHILD_ENV
 }));
 
-mock.module('../../src/development/runner/test-process-temp.ts', () => ({
-  testInvocationRuntimeIsolationModeForPlatformV1: (platform: NodeJS.Platform) =>
-    platform === 'win32' || platform === 'linux' ? 'retained' : 'unavailable',
-  createTestInvocationRuntimeRootsV1: async () => {
+const mockedTestInvocationRuntimeIsolationMode = (platform: NodeJS.Platform) =>
+  platform === 'win32' || platform === 'linux' ? 'retained' : 'unavailable';
+const mockedCreateTestInvocationRuntimeRoots = async () => {
     const runRoot = mkdtempSync(path.join(tmpdir(), 'sec-test-runner-invocation-'));
     const generation = path.basename(runRoot);
     const stateRoot = path.join(runRoot, 'state-authority', generation);
@@ -267,12 +266,31 @@ mock.module('../../src/development/runner/test-process-temp.ts', () => ({
     return Object.freeze({
       stateRoot,
       cacheRoot,
+      prepareProcessTemp: (environment: NodeJS.ProcessEnv) => {
+        const processRoot = mkdtempSync(path.join(tmpdir(), 'sec-test-runner-process-'));
+        const tempRoot = path.join(processRoot, 'tmp');
+        mkdirSync(tempRoot);
+        environment.TMP = tempRoot;
+        environment.TEMP = tempRoot;
+        environment.TMPDIR = tempRoot;
+        return Object.freeze({
+          processRoot,
+          tempRoot,
+          cleanup: () => rmSync(processRoot, { recursive: true, force: true })
+        });
+      },
       cleanup: () => {
         rmSync(runRoot, { recursive: true, force: true });
         if (invocationRuntimeCleanupFailure !== null) throw invocationRuntimeCleanupFailure;
       }
     });
-  }
+  };
+
+mock.module('../../src/development/runner/test-process-temp.ts', () => ({
+  testInvocationRuntimeIsolationModeForPlatform: mockedTestInvocationRuntimeIsolationMode,
+  testInvocationRuntimeIsolationModeForPlatformV1: mockedTestInvocationRuntimeIsolationMode,
+  createTestInvocationRuntimeRoots: mockedCreateTestInvocationRuntimeRoots,
+  createTestInvocationRuntimeRootsV1: mockedCreateTestInvocationRuntimeRoots
 }));
 
 mock.module('../../src/development/runner/command-runner.ts', () => ({

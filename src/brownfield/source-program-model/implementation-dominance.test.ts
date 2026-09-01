@@ -80,7 +80,7 @@ test('equal declaration bytes without an owner responsibility remain heuristic u
   expect(compilation.findings[0]!.removableUnitIds).toEqual([]);
 });
 
-test('equal declaration bytes become equivalence evidence only inside one owner-issued operation identity', () => {
+test('equal public-operation declarations still require an exact evolution obligation', () => {
   const baseMembership = membership({
     'src/identity': 'identity-owner',
     'src/consumer': 'consumer-owner'
@@ -121,7 +121,8 @@ test('equal declaration bytes become equivalence evidence only inside one owner-
   expect(compilation.findings).toContainEqual(expect.objectContaining({
     kind: 'identity',
     semanticIdentity: 'provider-operation:identity.compare:compareIdentity',
-    disposition: 'dominated'
+    disposition: 'owner-decision-required',
+    removableUnitIds: []
   }));
   expect(compilation.findings.some(({ disposition }) => disposition === 'unknown')).toBe(false);
 });
@@ -560,7 +561,7 @@ test('consumer-zero cannot orphan an owner-authorized obligation that is not mat
   }));
 });
 
-test('comments and names cannot manufacture required-unmaterialized authority', () => {
+test('a public capability without an evolution obligation requires an owner decision', () => {
   const baseMembership = membership({ 'src/planned': 'planned-owner' });
   const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
     ...descriptor,
@@ -593,7 +594,8 @@ test('comments and names cannot manufacture required-unmaterialized authority', 
   ));
 
   expect(finding).toEqual(expect.objectContaining({
-    disposition: 'orphan',
+    disposition: 'owner-decision-required',
+    removableUnitIds: [],
     requiredUnmaterializedObligations: []
   }));
 });

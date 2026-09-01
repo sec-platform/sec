@@ -13,6 +13,12 @@ import { canonicalEquals, rawSha256, sha256 } from '../../system-architecture/fo
 import { ensureDir } from '../../workspace/files.ts';
 import { compilerRoot, relativePosixPath } from '../../workspace/runtime/paths.ts';
 import {
+  normalizeImportSnapshots,
+  type ImportCheckOutcome,
+  type ImportSourceSnapshot,
+  type ImportTransformIntent
+} from '../import-normalization/kernel.ts';
+import {
   publishImportTransformTransaction,
   type ImportTransformTransactionTestHooks
 } from './import-transform-transaction.ts';
@@ -39,8 +45,6 @@ type ImportSelectionEnvironment = Record<string, string | undefined>;
  * never performs I/O. Sorting/combining is repository authoring
  * representation; unused-removal is a separate typed transform.
  */
-export type ImportTransformIntent = 'sort-and-combine' | 'remove-unused';
-
 export type ImportOperationScope = 'candidate' | 'all';
 
 export type ImportOperationOptions = Readonly<{
@@ -73,12 +77,6 @@ type CompiledImportOperationPlan = Readonly<{
     expectedBytes: Buffer;
     replacementBytes: Buffer;
   }>[];
-}>;
-
-export type ImportCheckOutcome = Readonly<{
-  schema: 'sec-import-check-outcome-v1';
-  status: 'canonical' | 'needs-import-transform';
-  files: readonly string[];
 }>;
 
 export type ImportApplyOutcome =
@@ -168,65 +166,6 @@ function loadProjectConfig(projectRoot = compilerRoot): ts.ParsedCommandLine {
   return parsed;
 }
 
-const importFormatOptions: ts.FormatCodeSettings = {
-  indentSize: 2,
-  tabSize: 2,
-  convertTabsToSpaces: true,
-  indentStyle: ts.IndentStyle.Smart,
-  insertSpaceAfterCommaDelimiter: true,
-  insertSpaceAfterFunctionKeywordForAnonymousFunctions: true,
-  insertSpaceAfterKeywordsInControlFlowStatements: true,
-  insertSpaceAfterOpeningAndBeforeClosingNonemptyBraces: true,
-  insertSpaceAfterOpeningAndBeforeClosingNonemptyBrackets: false,
-  insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis: false,
-  insertSpaceAfterOpeningAndBeforeClosingTemplateStringBraces: false,
-  insertSpaceAfterSemicolonInForStatements: true,
-  insertSpaceBeforeAndAfterBinaryOperators: true,
-  placeOpenBraceOnNewLineForControlBlocks: false,
-  placeOpenBraceOnNewLineForFunctions: false,
-  semicolons: ts.SemicolonPreference.Insert
-};
-
-const importPreferences: ts.UserPreferences = {
-  quotePreference: 'single'
-};
-
-function sourceNewLine(source: string): '\n' | '\r\n' {
-  const firstLineFeed = source.indexOf('\n');
-  return firstLineFeed > 0 && source[firstLineFeed - 1] === '\r' ? '\r\n' : '\n';
-}
-
-function isSameFilePath(left: string, right: string): boolean {
-  return path.resolve(left) === path.resolve(right);
-}
-
-function applyTextChanges(source: string, changes: readonly ts.TextChange[]): string {
-  return [...changes]
-    .sort((left, right) => right.span.start - left.span.start)
-    .reduce((updated, change) => (
-      `${updated.slice(0, change.span.start)}${change.newText}${updated.slice(change.span.start + change.span.length)}`
-    ), source);
-}
-
-export function organizeImportsInSource(
-  service: Pick<ts.LanguageService, 'organizeImports'>,
-  fileName: string,
-  source: string,
-  intent: ImportTransformIntent = 'sort-and-combine'
-): string {
-  const mode = intent === 'remove-unused'
-    ? ts.OrganizeImportsMode.RemoveUnused
-    : ts.OrganizeImportsMode.SortAndCombine;
-  const edits = service
-    .organizeImports(
-      { type: 'file', fileName, mode },
-      { ...importFormatOptions, newLineCharacter: sourceNewLine(source) },
-      importPreferences
-    )
-    .flatMap((change) => isSameFilePath(change.fileName, fileName) ? change.textChanges : []);
-  return applyTextChanges(source, edits);
-}
-
 function gitError(args: readonly string[], stderr: Buffer | string | null): Error {
   const detail = stderr === null ? '' : Buffer.from(stderr).toString('utf8').trim();
   return new Error(`git ${args[0] ?? 'command'} failed${detail.length > 0 ? `: ${detail}` : ''}`);
@@ -298,23 +237,6 @@ function nulFields(bytes: Buffer, source: string): string[] {
 
 function isTypeScriptPath(value: string): boolean {
   return /\.[cm]?tsx?$/iu.test(value);
-}
-
-function isTypeScriptDeclarationPath(value: string): boolean {
-  return /\.d\.[cm]?ts$/iu.test(value);
-}
-
-export function importServiceRootFileNames(
-  config: Pick<ts.ParsedCommandLine, 'fileNames'>,
-  targetFileNames: readonly string[]
-): readonly string[] {
-  const roots = new Set(targetFileNames.map((fileName) => path.resolve(fileName)));
-  for (const fileName of config.fileNames) {
-    if (isTypeScriptDeclarationPath(fileName)) {
-      roots.add(path.resolve(fileName));
-    }
-  }
-  return Object.freeze([...roots].sort());
 }
 
 function typeScriptTargetsFromNameStatus(bytes: Buffer, source: string): readonly string[] {
@@ -773,85 +695,6 @@ function readStagedBlobs(
     throw new Error('git cat-file --batch returned trailing bytes');
   }
   return blobs;
-}
-
-function createImportService(
-  config: ts.ParsedCommandLine,
-  projectRoot: string,
-  projectFileNames: readonly string[],
-  files: Map<string, { version: number; content: string }>
-): ts.LanguageService {
-  const host: ts.LanguageServiceHost = {
-    getScriptFileNames: () => [...projectFileNames],
-    getScriptVersion: (fileName) => `${files.get(path.resolve(fileName))?.version ?? 0}`,
-    getScriptSnapshot: (fileName) => {
-      const content = files.get(path.resolve(fileName))?.content ?? ts.sys.readFile(fileName);
-      return content === undefined ? undefined : ts.ScriptSnapshot.fromString(content);
-    },
-    getCompilationSettings: () => config.options,
-    getCurrentDirectory: () => projectRoot,
-    getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
-    readFile: (fileName) => files.get(path.resolve(fileName))?.content ?? ts.sys.readFile(fileName),
-    fileExists: (fileName) => files.has(path.resolve(fileName)) || ts.sys.fileExists(fileName),
-    readDirectory: ts.sys.readDirectory,
-    directoryExists: ts.sys.directoryExists,
-    getDirectories: ts.sys.getDirectories,
-    realpath: ts.sys.realpath,
-    useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames,
-    getNewLine: () => '\n'
-  };
-  return ts.createLanguageService(host);
-}
-
-type ImportSourceSnapshot = Readonly<{
-  relativePath: string;
-  absolutePath: string;
-  bytes: Buffer;
-  text: string;
-}>;
-
-type NormalizedImportSnapshot = Readonly<{
-  source: ImportSourceSnapshot;
-  replacementBytes: Buffer;
-}>;
-
-/**
- * The only semantic import-normalization kernel. Snapshot adapters may read
- * bytes from the worktree or Git index, but both must submit the same shape to
- * this function. TypeScript remains the sole ordering/combining provider.
- */
-function normalizeImportSnapshots(
-  config: ts.ParsedCommandLine,
-  projectRoot: string,
-  sources: readonly ImportSourceSnapshot[],
-  intent: ImportTransformIntent = 'sort-and-combine'
-): readonly NormalizedImportSnapshot[] {
-  const ordered = [...sources].sort((left, right) => (
-    left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0
-  ));
-  if (new Set(ordered.map((source) => source.relativePath)).size !== ordered.length) {
-    throw new Error('Import normalization received duplicate repository paths');
-  }
-  const serviceFiles = new Map<string, { version: number; content: string }>(
-    ordered.map((source) => [source.absolutePath, { version: 0, content: source.text }])
-  );
-  const service = createImportService(
-    config,
-    projectRoot,
-    importServiceRootFileNames(config, ordered.map((source) => source.absolutePath)),
-    serviceFiles
-  );
-  try {
-    return Object.freeze(ordered.map((source) => Object.freeze({
-      source,
-      replacementBytes: Buffer.from(
-        organizeImportsInSource(service, source.absolutePath, source.text, intent),
-        'utf8'
-      )
-    })));
-  } finally {
-    service.dispose();
-  }
 }
 
 function assertIndexUnchanged(

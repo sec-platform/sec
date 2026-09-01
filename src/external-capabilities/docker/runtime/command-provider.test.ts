@@ -67,15 +67,6 @@ async function retainedProviderFixture() {
   const capability = issueDockerCommandProviderCapability({
     boundary: issueRetainedCommandBoundary({ executable, workingDirectory }),
     environment,
-    loginStart: Object.freeze({
-      schema: 'sec-docker-desktop-login-start-v1',
-      status: 'enabled',
-      configurationOwner: 'docker-desktop-settings-ui',
-      observationSource: 'docker-desktop-documented-settings-store',
-      automatedReconciliation: 'unsupported-by-admitted-provider',
-      reconciliation: 'satisfied',
-      settingsStoreDigest: rawSha256('sec.docker.login-start.fixture')
-    }),
     platform: process.platform,
     providerContractDigest: rawSha256('sec.docker.command-provider.fixture'),
     workingDirectory: directory.target
@@ -97,7 +88,9 @@ test('Docker command provider ignores ambient command and directory redirection'
     process.env.PROGRAMFILES = path.join(fixture.root, 'ambient-program-files');
     process.env.TEMP = path.join(fixture.root, 'ambient-temp');
     process.env.TMP = path.join(fixture.root, 'ambient-tmp');
+    expect('loginStart' in fixture.capability).toBe(false);
     claimed = claimDockerCommandProviderCapability(fixture.capability);
+    expect('loginStart' in claimed).toBe(false);
     expect(claimed.executable).toBe(fixture.executablePath);
     expect(claimed.environment.PATH).toBe('');
     expect(claimed.environment.TEMP).toBe(fixture.root);

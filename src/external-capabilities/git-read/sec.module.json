@@ -5,8 +5,20 @@
     {
       "capability": "git.read",
       "operations": [
-        "createAuthorityGitReadSession",
         "withAuthorityGitReadSession"
+      ],
+      "effectKinds": [
+        "process",
+        "provider"
+      ],
+      "operationRoles": [
+        {
+          "operation": "withAuthorityGitReadSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.git-read.observe",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
     },
     {
@@ -47,6 +59,77 @@
           "recovery": null
         }
       ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "git.read",
+        "operation": "withAuthorityGitReadSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "brownfield.repository-audit",
+          "control.agent",
+          "control.branch-lifecycle",
+          "control.continuation",
+          "control.documentation",
+          "control.work-selection",
+          "development.commit",
+          "development.hooks",
+          "development.runner",
+          "development.tooling",
+          "development.workspace-transition",
+          "reference",
+          "release",
+          "runtime-state.generated-state",
+          "workspace.runtime"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 120000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 69206016
+          },
+          {
+            "resource": "processes",
+            "maximum": 128
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
     }
   ]
 }

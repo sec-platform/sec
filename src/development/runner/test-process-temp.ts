@@ -1,23 +1,81 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { assertPhysicallyDisjointDirectoryChains, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, physicallyContainsDirectoryChain, PhysicalNoFollowError, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  acquirePhysicalMutationLease,
+  type PhysicalMutationLeaseOptions,
+  type PhysicalMutationLeaseOwner
+} from '../../runtime-state/physical/runtime/mutation-lease.ts';
+import {
+  assertPhysicallyDisjointDirectoryChains,
+  assertSameNoFollowDirectoryIdentity,
+  createExclusiveNoFollowDirectory,
+  createNoFollowDirectoryChain,
+  inspectExactNoFollowDirectoryPresence,
+  inspectNoFollowDirectoryChain,
+  inspectNoFollowDirectoryChild,
+  physicallyContainsDirectoryChain,
+  relocateRetainedNoFollowDirectory,
+  retireNoFollowDirectoryTree,
+  scanNoFollowDirectoryTreeMetadata,
+  type PhysicalDirectoryChain,
+  type PhysicalDirectoryIdentity
+} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
+import {
+  acquireSecRuntimeStatePhysicalAuthority,
+  type SecRuntimeStatePhysicalAuthority
+} from '../../runtime-state/workspace-state/physical-authority.ts';
+import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { parseExactJson } from '../../system-architecture/foundation/runtime/exact-json.ts';
+
+const TEST_PROCESS_TEMP_ASSIGNMENT_ENV = 'SEC_TEST_PROCESS_TEMP_ASSIGNMENT_V1';
+const TEST_PROCESS_TEMP_ASSIGNMENT_SCHEMA = 'sec-test-process-temp-assignment-v1';
+const TEST_PROCESS_TEMP_CONTAINER = 't';
+const TEST_PROCESS_TEMP_STAGING_PREFIX = 's';
+const TEST_PROCESS_TEMP_GENERATION_PREFIX = 'g';
+const TEST_RUNTIME_CLEANUP_SCAN_BUDGET_MS = 10_000;
+const TEST_RUNTIME_CLEANUP_MAXIMUM_ENTRIES = 100_000;
+const TEST_PROCESS_TEMP_LOCATOR_HEX_LENGTH = 24;
+const TEST_INVOCATION_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+type TestProcessTempDigest = `sha256:${string}`;
+
 export interface TestProcessTempRoot {
   readonly processRoot: string;
   readonly tempRoot: string;
-  readonly cleanup: () => void;
+  readonly cleanup: () => Promise<void>;
 }
 
 export interface TestInvocationRuntimeRoots {
   readonly stateRoot: string;
   readonly cacheRoot: string;
-  readonly cleanup: () => void;
+  readonly prepareProcessTemp: (environment: NodeJS.ProcessEnv) => TestProcessTempRoot;
+  readonly cleanup: () => Promise<void>;
 }
 
-const TEST_RUNTIME_CLEANUP_SCAN_BUDGET_MS = 10_000;
+export interface PreparedTestInvocationRuntime {
+  readonly ownership: 'direct' | 'parent-assigned';
+  readonly stateRoot: string;
+  readonly cacheRoot: string;
+  readonly processRoot: string;
+  readonly tempRoot: string;
+  readonly cleanup: () => Promise<void>;
+}
+
+export class TestProcessTempLifecycleError extends Error {
+  readonly code:
+    | 'TEST_PROCESS_TEMP_OWNED'
+    | 'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN'
+    | 'TEST_PROCESS_TEMP_CLEANUP_FAILED';
+
+  constructor(code: TestProcessTempLifecycleError['code'], message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'TestProcessTempLifecycleError';
+    this.code = code;
+  }
+}
 
 export function testInvocationRuntimeIsolationModeForPlatform(
   platform: NodeJS.Platform
@@ -25,55 +83,49 @@ export function testInvocationRuntimeIsolationModeForPlatform(
   return platform === 'win32' || platform === 'linux' ? 'retained' : 'unavailable';
 }
 
-function isReplacementSafeCleanupPreservation(error: unknown): boolean {
-  return error instanceof PhysicalNoFollowError
-    && (error.code === 'PHYSICAL_NO_FOLLOW_ABSENT'
-      || error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+function sameIdentity(left: PhysicalDirectoryIdentity, right: PhysicalDirectoryIdentity): boolean {
+  return left.path === right.path && left.finalPath === right.finalPath
+    && left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
 }
 
-function deleteOwnedDirectoryGeneration(
-  generation: PhysicalDirectoryChain,
-  label: string
+function assignTempEnvironment(environment: NodeJS.ProcessEnv, tempRoot: string): void {
+  environment.TMPDIR = environment.TMP = environment.TEMP = tempRoot;
+}
+
+const TEST_INVOCATION_ENVIRONMENT_KEYS = Object.freeze([
+  'SEC_STATE_HOME',
+  'SEC_CACHE_HOME',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  TEST_PROCESS_TEMP_ASSIGNMENT_ENV
+] as const);
+
+type TestInvocationEnvironmentKey = typeof TEST_INVOCATION_ENVIRONMENT_KEYS[number];
+
+function captureTestInvocationEnvironment(
+  environment: NodeJS.ProcessEnv
+): ReadonlyMap<TestInvocationEnvironmentKey, string | undefined> {
+  return new Map(TEST_INVOCATION_ENVIRONMENT_KEYS.map((key) => [key, environment[key]]));
+}
+
+function restoreTestInvocationEnvironment(
+  environment: NodeJS.ProcessEnv,
+  snapshot: ReadonlyMap<TestInvocationEnvironmentKey, string | undefined>
 ): void {
-  const inventory = scanNoFollowDirectoryTreeMetadata(generation.target, {
-    deadlineAtMs: performance.now() + TEST_RUNTIME_CLEANUP_SCAN_BUDGET_MS,
-    maximumEntries: 100_000
-  });
-  const directories = new Map(inventory
-    .filter((entry) => entry.kind === 'directory')
-    .map((entry) => [entry.relativePath, entry]));
-  for (const entry of [...inventory].sort((left, right) => {
-    const depth = (value: string): number => value.split('/').length;
-    return depth(right.relativePath) - depth(left.relativePath) ||
-      right.relativePath.localeCompare(left.relativePath);
-  })) {
-    const components = entry.relativePath.split('/');
-    components.pop();
-    const ancestorDirectories = components.map((_, index) => {
-      const relativePath = components.slice(0, index + 1).join('/');
-      const ancestor = directories.get(relativePath);
-      if (ancestor === undefined) throw new Error(`${label} cleanup inventory is incomplete.`);
-      return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
-    });
-    deleteRetainedNoFollowEntry({
-      root: generation.target,
-      relativePath: entry.relativePath,
-      kind: entry.kind,
-      device: entry.device,
-      inode: entry.inode,
-      ancestorDirectories
-    });
+  for (const key of TEST_INVOCATION_ENVIRONMENT_KEYS) {
+    const value = snapshot.get(key);
+    if (value === undefined) delete environment[key];
+    else environment[key] = value;
   }
-  const parent = generation.ancestors.at(-2);
-  if (parent === undefined) throw new Error(`${label} has no retained parent.`);
-  deleteRetainedNoFollowEntry({
-    root: parent,
-    relativePath: path.basename(generation.target.path),
-    kind: 'directory',
-    device: generation.target.device,
-    inode: generation.target.inode,
-    ancestorDirectories: []
-  });
+}
+
+function requireAssignedRuntimeRoot(environment: NodeJS.ProcessEnv, key: 'SEC_STATE_HOME' | 'SEC_CACHE_HOME'): string {
+  const value = environment[key];
+  if (value === undefined || !path.isAbsolute(value)) {
+    throw new Error(`Parent-assigned SEC test runtime requires an absolute ${key}.`);
+  }
+  return path.resolve(value);
 }
 
 function createExclusiveOwnedDirectoryGeneration(
@@ -81,10 +133,26 @@ function createExclusiveOwnedDirectoryGeneration(
   name: string
 ): PhysicalDirectoryChain {
   const target = createExclusiveNoFollowDirectory(parent.target, name);
-  return Object.freeze({
-    target,
-    ancestors: Object.freeze([...parent.ancestors, target])
+  return Object.freeze({ target, ancestors: Object.freeze([...parent.ancestors, target]) });
+}
+
+function retireDirectoryTree(parent: PhysicalDirectoryIdentity, root: PhysicalDirectoryIdentity): void {
+  const inventory = scanNoFollowDirectoryTreeMetadata(root, {
+    deadlineAtMs: performance.now() + TEST_RUNTIME_CLEANUP_SCAN_BUDGET_MS,
+    maximumEntries: TEST_RUNTIME_CLEANUP_MAXIMUM_ENTRIES
   });
+  retireNoFollowDirectoryTree({
+    deadlineAtMonotonicMs: performance.now() + TEST_RUNTIME_CLEANUP_SCAN_BUDGET_MS,
+    inventory,
+    parent,
+    root
+  });
+}
+
+function deleteOwnedDirectoryGeneration(generation: PhysicalDirectoryChain, label: string): void {
+  const parent = generation.ancestors.at(-2);
+  if (parent === undefined) throw new Error(`${label} has no retained parent.`);
+  retireDirectoryTree(parent, generation.target);
 }
 
 function isSameOrInside(candidate: string, parent: string): boolean {
@@ -145,20 +213,387 @@ function assertLocationOutsidePhysicalRoot(
   }
 }
 
+function ownerLocator(owner: PhysicalMutationLeaseOwner): string {
+  const token = owner.token.replaceAll('-', '');
+  if (!/^[0-9a-f]{32}$/u.test(token)) {
+    throw new TestProcessTempLifecycleError(
+      'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
+      'SEC test process temp lease owner identity is invalid.'
+    );
+  }
+  return token.slice(0, TEST_PROCESS_TEMP_LOCATOR_HEX_LENGTH);
+}
+
+function digestLocator(digest: TestProcessTempDigest): string {
+  return digest.slice('sha256:'.length, 'sha256:'.length + TEST_PROCESS_TEMP_LOCATOR_HEX_LENGTH);
+}
+
+function requireInvocationKey(value: string): string {
+  if (!TEST_INVOCATION_KEY_PATTERN.test(value)) {
+    throw new Error('SEC test invocation key must be a canonical UUID.');
+  }
+  return value;
+}
+
+function invocationStagingPrefix(invocationDigest: TestProcessTempDigest): string {
+  return `${TEST_PROCESS_TEMP_STAGING_PREFIX}${digestLocator(invocationDigest)}`;
+}
+
+function generationName(
+  container: PhysicalDirectoryIdentity,
+  invocationDigest: TestProcessTempDigest,
+  owner: PhysicalMutationLeaseOwner,
+  physical: PhysicalDirectoryIdentity
+): string {
+  const physicalDigest = sha256(Object.freeze({
+    schema: 'sec-test-process-temp-physical-binding-v1',
+    invocationDigest,
+    owner,
+    container: Object.freeze({
+      device: container.device,
+      inode: container.inode,
+      objectId: container.objectId
+    }),
+    physical: Object.freeze({
+      device: physical.device,
+      inode: physical.inode,
+      objectId: physical.objectId
+    })
+  })) as TestProcessTempDigest;
+  return `${TEST_PROCESS_TEMP_GENERATION_PREFIX}${physicalDigest.slice('sha256:'.length)}`;
+}
+
+function topLevelInventory(root: PhysicalDirectoryIdentity) {
+  return scanNoFollowDirectoryTreeMetadata(root, {
+    deadlineAtMs: performance.now() + TEST_RUNTIME_CLEANUP_SCAN_BUDGET_MS,
+    maximumEntries: TEST_RUNTIME_CLEANUP_MAXIMUM_ENTRIES
+  }).filter(({ relativePath }) => !relativePath.includes('/'));
+}
+
+function recoverReclaimedGeneration(input: Readonly<{
+  container: PhysicalDirectoryIdentity;
+  invocationDigest: TestProcessTempDigest;
+  owner: PhysicalMutationLeaseOwner;
+}>): void {
+  const entries = topLevelInventory(input.container);
+  const prefix = TEST_PROCESS_TEMP_GENERATION_PREFIX;
+  const candidates = entries.filter(({ relativePath }) => relativePath.startsWith(prefix));
+  const conflicting = entries.filter(({ relativePath }) =>
+    !relativePath.startsWith(prefix));
+  if (conflicting.length > 0) {
+    throw new TestProcessTempLifecycleError(
+      'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
+      'SEC test process temp container has foreign or ambiguous residue.'
+    );
+  }
+  for (const candidate of candidates) {
+    const suffix = candidate.relativePath.slice(prefix.length);
+    const match = /^[0-9a-f]{64}$/u.exec(suffix);
+    if (candidate.kind !== 'directory' || match === null) {
+      throw new TestProcessTempLifecycleError(
+        'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
+        'SEC test process temp reclaimed generation is unknown.'
+      );
+    }
+    const retained = inspectNoFollowDirectoryChild(
+      input.container,
+      candidate.relativePath,
+      'SEC test process temp reclaimed generation'
+    );
+    if (retained === null
+        || candidate.relativePath !== generationName(
+          input.container,
+          input.invocationDigest,
+          input.owner,
+          retained
+        )) {
+      throw new TestProcessTempLifecycleError(
+        'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
+        'SEC test process temp reclaimed generation physical identity is unknown.'
+      );
+    }
+    retireDirectoryTree(input.container, retained);
+  }
+}
+
+function assertInvocationContainerEmpty(
+  container: PhysicalDirectoryIdentity,
+  invocationDigest: TestProcessTempDigest
+): void {
+  if (topLevelInventory(container).length > 0) {
+    throw new TestProcessTempLifecycleError(
+      'TEST_PROCESS_TEMP_RESIDUE_UNKNOWN',
+      'SEC test process temp container is not empty after owner recovery.'
+    );
+  }
+}
+
+function createChildGeneration(input: Readonly<{
+  container: PhysicalDirectoryChain;
+  invocationDigest: TestProcessTempDigest;
+  owner: PhysicalMutationLeaseOwner;
+}>): PhysicalDirectoryChain {
+  const stagingName = `${invocationStagingPrefix(input.invocationDigest)}${ownerLocator(input.owner)}${randomBytes(12).toString('hex')}`;
+  const staging = createExclusiveOwnedDirectoryGeneration(input.container, stagingName);
+  const name = generationName(
+    input.container.target,
+    input.invocationDigest,
+    input.owner,
+    staging.target
+  );
+  const target = relocateRetainedNoFollowDirectory({ directory: staging.target, tombstoneName: name });
+  return Object.freeze({
+    target,
+    ancestors: Object.freeze([...input.container.ancestors, target])
+  });
+}
+
+function createParentOwnedTempSupervisor(input: Readonly<{
+  containerParent: PhysicalDirectoryChain;
+  containerName: string;
+  invocationDigest: TestProcessTempDigest;
+  leaseName: string;
+  leaseParent: PhysicalDirectoryIdentity;
+  leaseOptions?: PhysicalMutationLeaseOptions;
+}>): Readonly<{
+  prepare(environment: NodeJS.ProcessEnv): TestProcessTempRoot;
+  cleanup(): void;
+}> {
+  const lease = acquirePhysicalMutationLease(
+    input.leaseParent,
+    input.leaseName,
+    input.leaseOptions
+  );
+  if (lease === null) {
+    throw new TestProcessTempLifecycleError(
+      'TEST_PROCESS_TEMP_OWNED',
+      'SEC test process temp is owned by another live or unverified process.'
+    );
+  }
+  let container: PhysicalDirectoryChain;
+  try {
+    const containerIdentity = createNoFollowDirectoryChain(
+      input.containerParent.target,
+      [input.containerName]
+    );
+    container = inspectNoFollowDirectoryChain(
+      containerIdentity.path,
+      'SEC test process temp invocation container'
+    );
+    if (lease.reclaimedOwner !== null) {
+      recoverReclaimedGeneration({
+        container: container.target,
+        invocationDigest: input.invocationDigest,
+        owner: lease.reclaimedOwner
+      });
+    }
+    assertInvocationContainerEmpty(container.target, input.invocationDigest);
+  } catch (error) {
+    try {
+      lease.release();
+    } catch (releaseError) {
+      throw new AggregateError(
+        [error, releaseError],
+        'SEC test process temp preparation and lease settlement failed.'
+      );
+    }
+    throw error;
+  }
+  const active = new Map<string, PhysicalDirectoryChain>();
+  let ownerSettled = false;
+
+  const settleGeneration = (generation: PhysicalDirectoryChain): void => {
+    deleteOwnedDirectoryGeneration(generation, 'SEC test process temp generation');
+    active.delete(generation.target.path);
+  };
+
+  return Object.freeze({
+    prepare(environment): TestProcessTempRoot {
+      if (ownerSettled) throw new Error('SEC test process temp supervisor is settled.');
+      const generation = createChildGeneration({
+        container,
+        invocationDigest: input.invocationDigest,
+        owner: lease.owner
+      });
+      try {
+        const temp = createExclusiveOwnedDirectoryGeneration(generation, 'tmp');
+        const assignment = Object.freeze({
+          schema: TEST_PROCESS_TEMP_ASSIGNMENT_SCHEMA,
+          parent: container.target,
+          root: generation.target
+        });
+        environment[TEST_PROCESS_TEMP_ASSIGNMENT_ENV] = JSON.stringify(assignment);
+        assignTempEnvironment(environment, temp.target.path);
+        active.set(generation.target.path, generation);
+        let settled = false;
+        return Object.freeze({
+          processRoot: generation.target.path,
+          tempRoot: temp.target.path,
+          cleanup: async (): Promise<void> => {
+            if (settled) return;
+            settleGeneration(generation);
+            settled = true;
+          }
+        });
+      } catch (error) {
+        try {
+          settleGeneration(generation);
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            'SEC test process temp preparation and cleanup failed.'
+          );
+        }
+        throw error;
+      }
+    },
+    cleanup(): void {
+      if (ownerSettled) return;
+      const failures: unknown[] = [];
+      for (const generation of [...active.values()]) {
+        try { settleGeneration(generation); } catch (error) { failures.push(error); }
+      }
+      try {
+        deleteOwnedDirectoryGeneration(container, 'SEC test process temp invocation container');
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        lease.release();
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length === 0) {
+        ownerSettled = true;
+      } else {
+        throw new TestProcessTempLifecycleError(
+          'TEST_PROCESS_TEMP_CLEANUP_FAILED',
+          'SEC test process temp settlement failed.',
+          { cause: new AggregateError(failures) }
+        );
+      }
+    }
+  });
+}
+
+function parseIdentity(value: unknown): PhysicalDirectoryIdentity | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== 5 || keys.join('\0') !== ['device', 'finalPath', 'inode', 'objectId', 'path'].join('\0')
+      || typeof record.path !== 'string' || !path.isAbsolute(record.path)
+      || typeof record.finalPath !== 'string' || record.finalPath.length === 0
+      || typeof record.device !== 'string' || record.device.length === 0
+      || typeof record.inode !== 'string' || record.inode.length === 0
+      || typeof record.objectId !== 'string' || record.objectId.length === 0) return null;
+  return Object.freeze({
+    path: path.resolve(record.path),
+    finalPath: record.finalPath,
+    device: record.device,
+    inode: record.inode,
+    objectId: record.objectId
+  });
+}
+
+/** Child-side adoption performs no delete Effect; cleanup stays with the direct parent supervisor. */
+export function consumeTestProcessTempAssignmentV1(input: Readonly<{
+  environment: NodeJS.ProcessEnv;
+}>): TestProcessTempRoot | null {
+  const serialized = input.environment[TEST_PROCESS_TEMP_ASSIGNMENT_ENV];
+  if (serialized === undefined) return null;
+  const value = parseExactJson(serialized, 'SEC test process temp parent assignment', {
+    rootObjectKeys: ['parent', 'root', 'schema']
+  }, 3) as Record<string, unknown>;
+  const parent = parseIdentity(value.parent);
+  const root = parseIdentity(value.root);
+  if (value.schema !== TEST_PROCESS_TEMP_ASSIGNMENT_SCHEMA || parent === null || root === null
+      || root.path !== path.join(parent.path, path.basename(root.path))
+      || !sameIdentity(inspectNoFollowDirectoryChain(root.path, 'Assigned SEC test process temp').target, root)) {
+    throw new Error('SEC test process temp parent assignment is invalid or replaced.');
+  }
+  assertSameNoFollowDirectoryIdentity(parent, 'Assigned SEC test process temp parent');
+  const tempRoot = path.join(root.path, 'tmp');
+  inspectNoFollowDirectoryChain(tempRoot, 'Assigned SEC test TMP root');
+  assignTempEnvironment(input.environment, tempRoot);
+  return Object.freeze({
+    processRoot: root.path,
+    tempRoot,
+    cleanup: async (): Promise<void> => undefined
+  });
+}
+
+async function releaseAuthority(
+  authority: SecRuntimeStatePhysicalAuthority | null,
+  primary?: unknown
+): Promise<void> {
+  if (authority === null) {
+    if (primary !== undefined) throw primary;
+    return;
+  }
+  try {
+    await authority.release();
+  } catch (releaseError) {
+    if (primary !== undefined) {
+      throw new AggregateError([primary, releaseError], 'SEC test Runtime State authority settlement failed.');
+    }
+    throw releaseError;
+  }
+  if (primary !== undefined) throw primary;
+}
+
+async function createRetainedTempSupervisor(input: Readonly<{
+  repositoryRoot: string;
+  hostTempRoot: string;
+  environment: NodeJS.ProcessEnv;
+  authority: SecRuntimeStatePhysicalAuthority;
+  invocationKey: string;
+  leaseOptions?: PhysicalMutationLeaseOptions;
+}>): Promise<ReturnType<typeof createParentOwnedTempSupervisor>> {
+  const roots = resolveSecWorkspaceRuntimeRoots({
+    repositoryRoot: input.repositoryRoot,
+    environment: input.environment
+  });
+  const hostTemp = inspectNoFollowDirectoryChain(input.hostTempRoot, 'SEC test OS temp root');
+  const repository = inspectNoFollowDirectoryChain(input.repositoryRoot, 'SEC test repository root');
+  assertPhysicallyDisjointDirectoryChains(hostTemp, repository, 'SEC test OS temp root and repository');
+  assertLocationOutsidePhysicalRoot(roots.stateRoot, hostTemp, 'Runtime State root');
+  assertLocationOutsidePhysicalRoot(roots.cacheRoot, hostTemp, 'Runtime Cache root');
+  const physicalIdentity = (value: PhysicalDirectoryIdentity) => Object.freeze({
+    device: value.device,
+    inode: value.inode,
+    objectId: value.objectId
+  });
+  const invocationDigest = sha256(Object.freeze({
+    schema: 'sec-test-process-temp-invocation-binding-v1',
+    invocationKey: requireInvocationKey(input.invocationKey),
+    workspaceLocatorKey: roots.workspaceLocatorKey,
+    repository: physicalIdentity(repository.target),
+    hostTemp: physicalIdentity(hostTemp.target)
+  })) as TestProcessTempDigest;
+  return createParentOwnedTempSupervisor({
+    containerParent: hostTemp,
+    containerName: `${TEST_PROCESS_TEMP_CONTAINER}${digestLocator(invocationDigest)}`,
+    invocationDigest,
+    leaseName: `invocation-${invocationDigest.slice('sha256:'.length)}.lease`,
+    leaseParent: input.authority.directory(roots.testProcessTempLeaseRoot),
+    leaseOptions: input.leaseOptions
+  });
+}
+
 /**
- * Creates one process-owned temporary generation outside repository, Runtime
- * State and Runtime Cache authority. The caller owns lifecycle registration;
- * cleanup is identity-bound and deliberately preserves ambiguous replacements.
+ * Creates one parent-owned temporary generation outside repository, Runtime
+ * State and Runtime Cache. Runtime State owns only the workspace-scoped lease;
+ * the OS temporary root remains disposable data.
  */
 export async function createTestProcessTempRootV1(input: Readonly<{
   repositoryRoot: string;
   hostTempRoot: string;
   environment: NodeJS.ProcessEnv;
+  invocationKey?: string;
 }>): Promise<TestProcessTempRoot> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const hostTempRoot = path.resolve(input.hostTempRoot);
   const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment: input.environment });
-
   assertLexicallyDisjoint(hostTempRoot, repositoryRoot, 'OS temp root and repository');
   assertLexicallyDisjoint(hostTempRoot, roots.stateRoot, 'OS temp root and Runtime State');
   assertLexicallyDisjoint(hostTempRoot, roots.cacheRoot, 'OS temp root and Runtime Cache');
@@ -174,124 +609,211 @@ export async function createTestProcessTempRootV1(input: Readonly<{
     assertLexicallyDisjoint(physicalHostTempRoot, physicalRepositoryRoot, 'physical OS temp root and repository');
     assertLexicallyDisjoint(physicalHostTempRoot, physicalStateRoot, 'physical OS temp root and Runtime State');
     assertLexicallyDisjoint(physicalHostTempRoot, physicalCacheRoot, 'physical OS temp root and Runtime Cache');
-
     const processRoot = await fs.mkdtemp(path.join(physicalHostTempRoot, 'sec-test-process-'));
     const tempRoot = path.join(processRoot, 'tmp');
     await fs.mkdir(tempRoot);
-    input.environment.TMPDIR = tempRoot;
-    input.environment.TMP = tempRoot;
-    input.environment.TEMP = tempRoot;
-    // Darwin supplies no path API that can recursively delete only if the
-    // created directory identity is still current. The OS temporary lifecycle
-    // owns reclamation, so this capability intentionally has no delete effect.
-    return Object.freeze({ processRoot, tempRoot, cleanup: () => undefined });
+    assignTempEnvironment(input.environment, tempRoot);
+    return Object.freeze({ processRoot, tempRoot, cleanup: async (): Promise<void> => undefined });
   }
 
-  const hostTemp = inspectNoFollowDirectoryChain(hostTempRoot, 'SEC test OS temp root');
-  const repository = inspectNoFollowDirectoryChain(repositoryRoot, 'SEC test repository root');
-  assertPhysicallyDisjointDirectoryChains(hostTemp, repository, 'SEC test OS temp root and repository');
-  assertLocationOutsidePhysicalRoot(roots.stateRoot, hostTemp, 'Runtime State root');
-  assertLocationOutsidePhysicalRoot(roots.cacheRoot, hostTemp, 'Runtime Cache root');
+  let authority: SecRuntimeStatePhysicalAuthority | null = null;
+  try {
+    authority = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot,
+      stateRoot: roots.stateRoot,
+      cacheRoot: roots.cacheRoot,
+      requiredDirectories: [roots.testProcessTempLeaseRoot]
+    });
+    const supervisor = await createRetainedTempSupervisor({
+      repositoryRoot,
+      hostTempRoot,
+      environment: input.environment,
+      authority,
+      invocationKey: input.invocationKey ?? randomUUID()
+    });
+    const generation = supervisor.prepare(input.environment);
+    let settled = false;
+    return Object.freeze({
+      processRoot: generation.processRoot,
+      tempRoot: generation.tempRoot,
+      cleanup: async (): Promise<void> => {
+        if (settled) return;
+        let primary: unknown;
+        try {
+          await generation.cleanup();
+          supervisor.cleanup();
+        } catch (error) {
+          primary = error;
+        }
+        await releaseAuthority(authority, primary);
+        if (primary === undefined) settled = true;
+      }
+    });
+  } catch (error) {
+    await releaseAuthority(authority, error);
+    throw error;
+  }
+}
 
-  const processRoot = await fs.mkdtemp(path.join(hostTempRoot, 'sec-test-process-'));
-  let processGeneration: PhysicalDirectoryChain | null = null;
-  const cleanup = (): void => {
-    if (processGeneration === null) return;
-    try {
-      if (path.dirname(processRoot) !== hostTempRoot
-        || !path.basename(processRoot).startsWith('sec-test-process-')) return;
-      deleteOwnedDirectoryGeneration(processGeneration, 'SEC test process cleanup generation');
-    } catch (error) {
-      // Only a proven absence or identity replacement is a safe preservation
-      // outcome. Operational failures remain visible to the preload owner.
-      if (!isReplacementSafeCleanupPreservation(error)) throw error;
+/** Allocates one invocation-owned State/Cache pair and one parent-owned child TMP supervisor. */
+export async function createTestInvocationRuntimeRoots(input: Readonly<{
+  repositoryRoot: string;
+  hostTempRoot: string;
+  environment: NodeJS.ProcessEnv;
+  invocationKey?: string;
+  testOnlyOwnerPid?: number;
+  testOnlyProcessAlive?: (pid: number) => 'alive' | 'dead' | 'unknown';
+  testOnlyProcessNonce?: string;
+}>): Promise<TestInvocationRuntimeRoots> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment: input.environment });
+  const generationNameValue = `run-${randomBytes(32).toString('hex')}`;
+  const stateParentPath = path.join(roots.stateRoot, 'test-invocation-runs', 'v1');
+  const cacheParentPath = path.join(roots.cacheRoot, 'test-invocation-runs', 'v1');
+  let authority: SecRuntimeStatePhysicalAuthority | null = null;
+  let state: PhysicalDirectoryChain | null = null;
+  let cache: PhysicalDirectoryChain | null = null;
+  let supervisor: ReturnType<typeof createParentOwnedTempSupervisor> | null = null;
+  let settled = false;
+
+  const cleanup = async (): Promise<void> => {
+    if (settled) return;
+    const failures: unknown[] = [];
+    for (const settle of [
+      () => supervisor?.cleanup(),
+      () => { if (cache !== null) deleteOwnedDirectoryGeneration(cache, 'SEC test invocation Cache generation'); },
+      () => { if (state !== null) deleteOwnedDirectoryGeneration(state, 'SEC test invocation State generation'); }
+    ]) {
+      try { settle(); } catch (error) { failures.push(error); }
     }
+    try { await authority?.release(); } catch (error) { failures.push(error); }
+    if (failures.length > 0) {
+      throw new TestProcessTempLifecycleError(
+        'TEST_PROCESS_TEMP_CLEANUP_FAILED',
+        'SEC test invocation runtime cleanup failed.',
+        { cause: new AggregateError(failures) }
+      );
+    }
+    settled = true;
   };
 
   try {
-    assertSameNoFollowDirectoryIdentity(hostTemp.target, 'SEC test OS temp creation parent');
-    processGeneration = inspectNoFollowDirectoryChain(processRoot, 'SEC test process temp generation');
-    assertPhysicallyDisjointDirectoryChains(
-      processGeneration, repository, 'SEC test process temp generation and repository'
-    );
-    assertLocationOutsidePhysicalRoot(roots.stateRoot, hostTemp, 'Runtime State root readback');
-    assertLocationOutsidePhysicalRoot(roots.cacheRoot, hostTemp, 'Runtime Cache root readback');
-    const tempRoot = path.join(processRoot, 'tmp');
-    await fs.mkdir(tempRoot);
-    inspectNoFollowDirectoryChain(tempRoot, 'SEC test process TMP root');
-    input.environment.TMPDIR = tempRoot;
-    input.environment.TMP = tempRoot;
-    input.environment.TEMP = tempRoot;
-    return Object.freeze({ processRoot, tempRoot, cleanup });
+    const hostTemp = inspectNoFollowDirectoryChain(path.resolve(input.hostTempRoot), 'SEC test OS temp root');
+    const repository = inspectNoFollowDirectoryChain(repositoryRoot, 'SEC test repository root');
+    assertPhysicallyDisjointDirectoryChains(hostTemp, repository, 'SEC test OS temp root and repository');
+    assertLocationOutsidePhysicalRoot(roots.stateRoot, hostTemp, 'Runtime State root');
+    assertLocationOutsidePhysicalRoot(roots.cacheRoot, hostTemp, 'Runtime Cache root');
+    authority = await acquireSecRuntimeStatePhysicalAuthority({
+      repositoryRoot,
+      stateRoot: roots.stateRoot,
+      cacheRoot: roots.cacheRoot,
+      requiredDirectories: [stateParentPath, cacheParentPath, roots.testProcessTempLeaseRoot]
+    });
+    supervisor = await createRetainedTempSupervisor({
+      repositoryRoot,
+      hostTempRoot: input.hostTempRoot,
+      environment: input.environment,
+      authority,
+      invocationKey: input.invocationKey ?? randomUUID(),
+      leaseOptions: {
+        ...(input.testOnlyOwnerPid === undefined ? {} : { ownerPid: input.testOnlyOwnerPid }),
+        ...(input.testOnlyProcessAlive === undefined ? {} : { processAlive: input.testOnlyProcessAlive }),
+        ...(input.testOnlyProcessNonce === undefined ? {} : { processNonce: input.testOnlyProcessNonce })
+      }
+    });
+    state = createExclusiveOwnedDirectoryGeneration(authority.directoryChain(stateParentPath), generationNameValue);
+    cache = createExclusiveOwnedDirectoryGeneration(authority.directoryChain(cacheParentPath), generationNameValue);
+    await authority.assertCurrent();
+    assertPhysicallyDisjointDirectoryChains(state, cache, 'SEC test invocation State and Cache generations');
+    return Object.freeze({
+      stateRoot: state.target.path,
+      cacheRoot: cache.target.path,
+      prepareProcessTemp: (environment: NodeJS.ProcessEnv) => {
+        if (supervisor === null) throw new Error('SEC test process temp supervisor is unavailable.');
+        return supervisor.prepare(environment);
+      },
+      cleanup
+    });
   } catch (error) {
     try {
-      cleanup();
+      await cleanup();
     } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], 'SEC test process temp preparation and cleanup failed.');
+      throw new AggregateError([error, cleanupError], 'SEC test invocation runtime preparation and cleanup failed.');
     }
     throw error;
   }
 }
 
 /**
- * Allocates one invocation-owned State/Cache pair beneath their canonical
- * external roots. Children may freely materialize within the pair; cleanup is
- * bound to the two exact directory objects and preserves replacements.
+ * Prepares the complete Runtime State, Cache and TMP lifecycle for one direct
+ * test process. A runner-assigned child adopts its parent's generation and
+ * never opens a second physical owner.
  */
-export async function createTestInvocationRuntimeRoots(input: Readonly<{
+export async function prepareTestInvocationRuntime(input: Readonly<{
   repositoryRoot: string;
+  hostTempRoot: string;
   environment: NodeJS.ProcessEnv;
-}>): Promise<TestInvocationRuntimeRoots> {
-  const repositoryRoot = path.resolve(input.repositoryRoot);
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment: input.environment });
-  const generationName = `run-${randomBytes(32).toString('hex')}`;
-  const stateParentPath = path.join(roots.stateRoot, 'test-invocation-runs', 'v1');
-  const cacheParentPath = path.join(roots.cacheRoot, 'test-invocation-runs', 'v1');
+}>): Promise<PreparedTestInvocationRuntime> {
+  const environmentSnapshot = captureTestInvocationEnvironment(input.environment);
+  let invocation: TestInvocationRuntimeRoots | null = null;
+  let processTemp: TestProcessTempRoot | null = null;
 
-  let state: PhysicalDirectoryChain | null = null;
-  let cache: PhysicalDirectoryChain | null = null;
-  const cleanupGeneration = (generation: PhysicalDirectoryChain | null, label: string): void => {
-    if (generation === null) return;
-    deleteOwnedDirectoryGeneration(generation, label);
-  };
-  const cleanup = (): void => {
+  const settle = async (): Promise<void> => {
     const failures: unknown[] = [];
-    for (const [generation, label] of [
-      [cache, 'SEC test invocation Cache cleanup generation'],
-      [state, 'SEC test invocation State cleanup generation']
-    ] as const) {
-      try {
-        cleanupGeneration(generation, label);
-      } catch (error) {
-        failures.push(error);
-      }
+    try {
+      await processTemp?.cleanup();
+    } catch (error) {
+      failures.push(error);
     }
-    if (failures.length > 0) {
-      throw new AggregateError(failures, 'SEC test invocation runtime cleanup failed.');
+    try {
+      await invocation?.cleanup();
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      restoreTestInvocationEnvironment(input.environment, environmentSnapshot);
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'SEC test invocation runtime settlement failed.');
     }
   };
 
   try {
-    const authority = await acquireSecRuntimeStatePhysicalAuthority({
-      repositoryRoot,
-      stateRoot: roots.stateRoot,
-      cacheRoot: roots.cacheRoot,
-      requiredDirectories: [stateParentPath, cacheParentPath]
+    const assigned = consumeTestProcessTempAssignmentV1({ environment: input.environment });
+    if (assigned !== null) {
+      processTemp = assigned;
+      const stateRoot = requireAssignedRuntimeRoot(input.environment, 'SEC_STATE_HOME');
+      const cacheRoot = requireAssignedRuntimeRoot(input.environment, 'SEC_CACHE_HOME');
+      return Object.freeze({
+        ownership: 'parent-assigned',
+        stateRoot,
+        cacheRoot,
+        processRoot: assigned.processRoot,
+        tempRoot: assigned.tempRoot,
+        cleanup: settle
+      });
+    }
+
+    invocation = await createTestInvocationRuntimeRoots(input);
+    input.environment.SEC_STATE_HOME = invocation.stateRoot;
+    input.environment.SEC_CACHE_HOME = invocation.cacheRoot;
+    processTemp = invocation.prepareProcessTemp(input.environment);
+    return Object.freeze({
+      ownership: 'direct',
+      stateRoot: invocation.stateRoot,
+      cacheRoot: invocation.cacheRoot,
+      processRoot: processTemp.processRoot,
+      tempRoot: processTemp.tempRoot,
+      cleanup: settle
     });
-    state = createExclusiveOwnedDirectoryGeneration(
-      authority.directoryChain(stateParentPath), generationName
-    );
-    cache = createExclusiveOwnedDirectoryGeneration(
-      authority.directoryChain(cacheParentPath), generationName
-    );
-    await authority.assertCurrent();
-    assertPhysicallyDisjointDirectoryChains(state, cache, 'SEC test invocation State and Cache generations');
-    return Object.freeze({ stateRoot: state.target.path, cacheRoot: cache.target.path, cleanup });
   } catch (error) {
     try {
-      cleanup();
-    } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], 'SEC test invocation runtime preparation and cleanup failed.');
+      await settle();
+    } catch (settlementError) {
+      throw new AggregateError(
+        [error, settlementError],
+        'SEC test invocation runtime preparation and settlement failed.'
+      );
     }
     throw error;
   }

@@ -9,13 +9,10 @@ import { isolatedGitReadEnvironment, isProductionGitReadSession, type GitReadPro
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { canonicalJson, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { DEV_RUNNER_ENTRYPOINT_PATH } from '../runner/contract.ts';
 
 const MANAGED_HOOKS_PATH = '.githooks';
 const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v3';
-const WORKSPACE_TRANSITION_COMMAND = `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} workspace-transition`;
-const IMPORTS_APPLY_STAGED_COMMAND = 'bun run imports:apply --staged';
-const IMPORTS_FREEZE_COMMAND = 'bun run imports:freeze';
+const MANAGED_HOOK_BUN_INVOCATION = /^(exec )?bun(?= )/gmu;
 const MANAGED_PRE_COMMIT = MANAGED_HOOKS_PATH + '/pre-commit';
 const MANAGED_HOOKS = [
   MANAGED_PRE_COMMIT,
@@ -851,30 +848,17 @@ function shellQuotedRuntimeExecutable(executable: string): string {
   return "'" + shellPath.replaceAll("'", "'\"'\"'") + "'";
 }
 
-function bindHookCommandToRuntime(command: string, runtimeExecutable: string): string {
-  if (!command.startsWith('bun ')) throw new Error('Managed hook command must use canonical Bun syntax');
-  return shellQuotedRuntimeExecutable(runtimeExecutable) + command.slice('bun'.length);
-}
-
 function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
   const source = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes);
-  if (name === 'pre-commit' || name === 'pre-push') {
-    const importCommand = name === 'pre-commit'
-      ? IMPORTS_APPLY_STAGED_COMMAND
-      : IMPORTS_FREEZE_COMMAND;
-    const firstImportCommand = source.indexOf(importCommand);
-    if (firstImportCommand < 0 || firstImportCommand !== source.lastIndexOf(importCommand)) {
-      throw new Error(name + ' must contain exactly one canonical ' + importCommand + ' command');
-    }
+  const invocations = Array.from(source.matchAll(MANAGED_HOOK_BUN_INVOCATION));
+  if (invocations.length !== 1) {
+    throw new Error(name + ' must contain exactly one top-level Bun invocation');
   }
+  const runtimeExecutable = shellQuotedRuntimeExecutable(process.execPath);
   return Buffer.from(
-    source
-      .replaceAll(
-        WORKSPACE_TRANSITION_COMMAND,
-        bindHookCommandToRuntime(WORKSPACE_TRANSITION_COMMAND, process.execPath)
-      )
-      .replaceAll(IMPORTS_APPLY_STAGED_COMMAND, bindHookCommandToRuntime(IMPORTS_APPLY_STAGED_COMMAND, process.execPath))
-      .replaceAll(IMPORTS_FREEZE_COMMAND, bindHookCommandToRuntime(IMPORTS_FREEZE_COMMAND, process.execPath)),
+    source.replace(MANAGED_HOOK_BUN_INVOCATION, (_match, prefix: string | undefined) => (
+      (prefix ?? '') + runtimeExecutable
+    )),
     'utf8'
   );
 }

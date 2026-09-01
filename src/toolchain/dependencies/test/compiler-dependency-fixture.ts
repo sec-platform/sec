@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { generatedStateProducerHooks } from '../../../runtime-state/generated-state/lifecycle.ts';
+import { issueRuntimeDependencyTestMaterialization } from '../runtime/materialization-fixture-capability.ts';
 import type {
   CompilerDependencyExecutionGenerationAuthority,
   CompilerDepsReadyState
@@ -187,10 +188,10 @@ async function ensureFixture(
   rematerialize: boolean
 ): Promise<CompilerDependencyFixtureReadyState> {
   const ready = await ensureCompilerDepsReady({
-    commandRunner: async (_command, _args, options) => {
-      await materializePackages(options.cwd, state.descriptor.packages);
+    testMaterialization: issueRuntimeDependencyTestMaterialization(async (request) => {
+      await materializePackages(request.cwd, state.descriptor.packages);
       return { code: 0, stdout: 'ok', stderr: '' };
-    },
+    }),
     generatedStateLifecycle: state.lifecycle,
     rematerialize
   }, state.descriptor.dependencyRootPath);

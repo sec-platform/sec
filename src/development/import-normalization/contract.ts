@@ -1,12 +1,4 @@
-import type {
-  SourceProgramOperationProducerClosure
-} from '../../brownfield/source-program-model/contract.ts';
-import {
-  requireSourceProgramOperationProducerClosure
-} from '../../brownfield/source-program-model/repository.ts';
-import {
-  sourceProgramTypeScriptCompilerIdentity
-} from '../../brownfield/source-program-model/typescript.ts';
+import type { SourceProgramOperationProducerClosure } from '../../brownfield/source-program-model/contract.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
   type PhysicalWorkspaceSourceSnapshot
@@ -38,8 +30,9 @@ export type CandidateNormalizationBlob = Readonly<{
 
 export type CandidateNormalizationSubject = Readonly<{
   schema: typeof CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA;
-  candidateTreeObjectId: string;
+  candidateCommitSha: string;
   selectedBlobs: readonly CandidateNormalizationBlob[];
+  observationBlobs: readonly CandidateNormalizationBlob[];
   producerClosureDigest: CandidateNormalizationDigest;
   normalizationContractDigest: CandidateNormalizationDigest;
   configurationDigest: CandidateNormalizationDigest;
@@ -50,16 +43,24 @@ export type CandidateNormalizationSubject = Readonly<{
 }>;
 
 const issuedCandidateNormalizationSubjects = new WeakSet<object>();
+const candidateNormalizationSnapshots = new WeakMap<object, Readonly<{
+  snapshot: PhysicalWorkspaceSourceSnapshot;
+  targetPaths: readonly string[];
+}>>();
 
 const NORMALIZATION_CONTRACT_DIGEST = sha256({
   actionKind: ACTION_KIND,
   operationIdentity: OPERATION_IDENTITY,
   subjectSchema: CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA,
-  transform: 'typescript-organize-imports-sort-and-combine'
+  transform: 'typescript-organize-imports-sort-and-combine',
+  subjectSelection: 'exact-base-to-candidate-typescript-diff',
+  executionInput: 'owner-issued-immutable-workspace-snapshot',
+  readback: 'exact-snapshot-subject-digest'
 }) as CandidateNormalizationDigest;
 const NORMALIZATION_RESULT_CONTRACT_DIGEST = sha256({
   authority: 'verification-action-owner-terminal',
-  statuses: ['canonical', 'needs-import-transform']
+  statuses: ['canonical', 'needs-import-transform'],
+  passedRequires: ['exact-snapshot-execution', 'exact-snapshot-readback']
 }) as CandidateNormalizationDigest;
 
 function isCandidateNormalizationPath(value: string): boolean {
@@ -72,13 +73,18 @@ function isCandidateNormalizationPath(value: string): boolean {
  */
 export function compileCandidateNormalizationSubject(input: Readonly<{
   snapshot: PhysicalWorkspaceSourceSnapshot;
+  baseSnapshot: PhysicalWorkspaceSourceSnapshot;
   producerClosure: SourceProgramOperationProducerClosure;
+  compilerIdentity: Readonly<{
+    compilerRevision: CandidateNormalizationDigest;
+    providerRevision: CandidateNormalizationDigest;
+  }>;
 }>): CandidateNormalizationSubject {
   assertPhysicalWorkspaceSourceSnapshot(input.snapshot);
-  const producerClosure = requireSourceProgramOperationProducerClosure(input.producerClosure);
+  assertPhysicalWorkspaceSourceSnapshot(input.baseSnapshot);
+  const producerClosure = input.producerClosure;
   if (producerClosure.operation.capability !== IMPORT_NORMALIZATION_OPERATION.capability
-      || producerClosure.operation.operation !== IMPORT_NORMALIZATION_OPERATION.operation
-      || producerClosure.sourceRevision !== input.snapshot.sourceRevision) {
+      || producerClosure.operation.operation !== IMPORT_NORMALIZATION_OPERATION.operation) {
     throw new Error('Candidate normalization producer closure does not bind the exact snapshot operation');
   }
   const provenance = input.snapshot.subject.provenance;
@@ -89,14 +95,21 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
   if (projectConfig === null) {
     throw new Error('Candidate normalization exact snapshot has no tsconfig.json');
   }
-  const toolchain = sourceProgramTypeScriptCompilerIdentity();
   const configurationFiles = Object.freeze(input.snapshot.files
     .filter(({ path }) => path === 'bun.lock'
       || path.endsWith('.json') || path.endsWith('.jsonc'))
     .map(({ path, contentDigest }) => Object.freeze({ path, contentDigest }))
     .sort((left, right) => left.path.localeCompare(right.path)));
+  const baseFiles = new Map(input.baseSnapshot.files.map((file) => [file.path, file.contentDigest]));
   const selectedBlobs = Object.freeze(input.snapshot.files
-    .filter(({ path }) => isCandidateNormalizationPath(path))
+    .filter(({ path, contentDigest }) => isCandidateNormalizationPath(path)
+      && baseFiles.get(path) !== contentDigest)
+    .map(({ path, contentDigest }) => Object.freeze({
+      path,
+      digest: contentDigest as CandidateNormalizationDigest
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path)));
+  const observationBlobs = Object.freeze(input.snapshot.files
     .map(({ path, contentDigest }) => Object.freeze({
       path,
       digest: contentDigest as CandidateNormalizationDigest
@@ -104,16 +117,17 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
     .sort((left, right) => left.path.localeCompare(right.path)));
   const unsigned = deepFreeze({
     schema: CANDIDATE_NORMALIZATION_SUBJECT_SCHEMA,
-    candidateTreeObjectId: provenance.commitSha,
+    candidateCommitSha: provenance.commitSha,
     selectedBlobs,
+    observationBlobs,
     producerClosureDigest: producerClosure.closureDigest as CandidateNormalizationDigest,
     normalizationContractDigest: NORMALIZATION_CONTRACT_DIGEST,
     configurationDigest: sha256({
       projectConfigPath: projectConfig.path,
       configurationFiles
     }) as CandidateNormalizationDigest,
-    toolchainDigest: toolchain.compilerRevision as CandidateNormalizationDigest,
-    providerContractDigest: toolchain.providerRevision as CandidateNormalizationDigest,
+    toolchainDigest: input.compilerIdentity.compilerRevision,
+    providerContractDigest: input.compilerIdentity.providerRevision,
     resultContractDigest: NORMALIZATION_RESULT_CONTRACT_DIGEST
   });
   const subject = deepFreeze({
@@ -121,6 +135,10 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
     subjectDigest: sha256(unsigned) as CandidateNormalizationDigest
   }) as CandidateNormalizationSubject;
   issuedCandidateNormalizationSubjects.add(subject);
+  candidateNormalizationSnapshots.set(subject, Object.freeze({
+    snapshot: input.snapshot,
+    targetPaths: Object.freeze(selectedBlobs.map(({ path }) => path))
+  }));
   return subject;
 }
 
@@ -130,6 +148,40 @@ export function requireCandidateNormalizationSubject(value: unknown): CandidateN
     throw new Error('Candidate normalization subject is not owner-issued');
   }
   return value as CandidateNormalizationSubject;
+}
+
+export function requireCandidateNormalizationSnapshot(
+  subjectInput: CandidateNormalizationSubject
+): Readonly<{
+  snapshot: PhysicalWorkspaceSourceSnapshot;
+  targetPaths: readonly string[];
+}> {
+  const subject = requireCandidateNormalizationSubject(subjectInput);
+  const execution = candidateNormalizationSnapshots.get(subject);
+  if (execution === undefined) {
+    throw new Error('Candidate normalization subject has no owner-issued immutable snapshot');
+  }
+  const { snapshot } = execution;
+  assertPhysicalWorkspaceSourceSnapshot(snapshot);
+  if (snapshot.subject.provenance.kind !== 'git-tree'
+      || snapshot.subject.provenance.commitSha !== subject.candidateCommitSha) {
+    throw new Error('Candidate normalization immutable snapshot provenance is invalid');
+  }
+  const targetPaths = new Set(execution.targetPaths);
+  const selectedBlobs = snapshot.files
+    .filter(({ path }) => targetPaths.has(path))
+    .map(({ path, contentDigest }) => ({ path, digest: contentDigest }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  if (JSON.stringify(selectedBlobs) !== JSON.stringify(subject.selectedBlobs)) {
+    throw new Error('Candidate normalization immutable snapshot differs from its subject');
+  }
+  const observationBlobs = snapshot.files
+    .map(({ path, contentDigest }) => ({ path, digest: contentDigest }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  if (JSON.stringify(observationBlobs) !== JSON.stringify(subject.observationBlobs)) {
+    throw new Error('Candidate normalization observation closure differs from its subject');
+  }
+  return execution;
 }
 
 export function compileCandidateNormalizationActionKey(
@@ -152,7 +204,7 @@ export function compileCandidateNormalizationActionKey(
         digest: subject.configurationDigest
       }]
     },
-    inputClosure: subject.selectedBlobs,
+    inputClosure: subject.observationBlobs,
     environment: {
       toolchainRevision: subject.toolchainDigest,
       providerRevision: subject.providerContractDigest,

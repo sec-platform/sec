@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import {
   DEV_COMMAND_MAX_DURATION_MS,
+  DEV_COMMAND_MAX_STDIN_BYTES,
   DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES,
   boundedUtf8TextTail,
   devCommandObservationExitCode,
@@ -93,6 +94,31 @@ test('canonical Bun execution retains an owner-admitted cwd and script input', a
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('canonical Bun execution accounts immutable stdin in the owner process session', async () => {
+  const input = Buffer.from('fresh-process-standard-input', 'utf8');
+  const stdoutWrites: Uint8Array[] = [];
+  process.stdout.write = ((chunk: Uint8Array) => {
+    stdoutWrites.push(Buffer.from(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  const code = await runDevCommand('bun', [
+    '--no-env-file',
+    '--eval',
+    'process.stdout.write(await Bun.stdin.text())'
+  ], {}, { input });
+
+  expect(code).toBe(0);
+  expect(Buffer.concat(stdoutWrites)).toEqual(input);
+
+  expect(() => runDevCommand('bun', ['--version'], {}, {
+    input: new Uint8Array(DEV_COMMAND_MAX_STDIN_BYTES + 1)
+  })).toThrow('owner input-byte ceiling');
+  expect(() => runDevCommand('bun', ['--version'], {}, {
+    deadlineAtUnixMs: Date.now() - 1
+  })).toThrow('parent deadline is exhausted');
 });
 
 test('observed execution forwards live output and retains bounded UTF-8 tails', async () => {

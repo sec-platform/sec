@@ -5,21 +5,32 @@ import {
   type SecOperationDemandGraph
 } from '../../control/operation/demand.ts';
 import { canonicalJson, digest } from '../../system-architecture/foundation/runtime/canonical.ts';
-import {
-  COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
-  ensureCompilerDepsReady,
-  observeCompilerDependencyExecutionGenerationAuthority,
-  observeCompilerDependencyMaterializationInput,
-  projectCompilerDepsReadyState,
-  type CompilerDependencyExecutionGenerationAuthority,
-  type CompilerDependencyMaterializationInputProjection,
-  type CompilerDepsReadyState
-} from '../../toolchain/dependencies/runtime.ts';
+import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import type {
   VerificationActionKey,
+  VerificationActionKeyDigest,
   VerificationActionKeyInput,
   VerificationActionTerminalSettlement
 } from '../../verification/action/contract/action.ts';
+
+type CompilerDependencyExecutionGenerationAuthority = Readonly<{
+  generationDigest: `sha256:${string}`;
+}>;
+
+type CompilerDependencyMaterializationInputProjection = Readonly<{
+  manifestHash: `sha256:${string}`;
+  projectionDigest: `sha256:${string}`;
+}>;
+
+type CompilerDepsReadyState = Readonly<{
+  executionGenerationAuthority: CompilerDependencyExecutionGenerationAuthority;
+  manifestHash: string;
+  nodeModulesPath: string;
+  requiresFreshProcess: boolean;
+  root: string;
+  source: 'existing' | 'installed';
+  transitionDigest: `sha256:${string}`;
+}>;
 
 export interface DevDependencyBootstrapResult {
   readonly manifestHash: string;
@@ -38,6 +49,16 @@ export interface OperationDependencyBootstrapResult extends DependencyTransition
 export interface MaterializedOperationDependencyBootstrapResult
   extends OperationDependencyBootstrapResult, DependencyTransitionBootstrapResult {}
 
+export type OperationDependencyReadGenerationResolution =
+  | Readonly<{
+      status: 'ready';
+      generation: RetainedCompilerDependencyReadGeneration;
+    }>
+  | Readonly<{
+      status: 'unavailable';
+      reason: 'dependency-generation-absent';
+    }>;
+
 const materializedOperationDemands = new WeakMap<
   OperationDependencyBootstrapResult,
   SecOperationDemandGraph
@@ -54,8 +75,6 @@ interface OperationDependencyBootstrapOptions extends CompilerDependencyBootstra
   readonly signal?: AbortSignal;
 }
 
-const DEPENDENCY_BOOTSTRAP_ACTION_REVISION = 'compiler-dependency-materialization-v1' as const;
-const DEPENDENCY_BOOTSTRAP_RESULT_REVISION = 'compiler-dependency-ready-state-v1' as const;
 const DEPENDENCY_BOOTSTRAP_REQUIREMENT = 'development.compiler-dependency-materialization' as const;
 const DEPENDENCY_BOOTSTRAP_JOIN_POLL_MS = 50;
 
@@ -63,9 +82,29 @@ function actionDigest(value: unknown): `sha256:${string}` {
   return `sha256:${digest(JSON.stringify(canonicalJson(value)))}`;
 }
 
+const DEPENDENCY_BOOTSTRAP_SEMANTIC_CONTRACT = Object.freeze({
+  operation: 'development.compiler-dependency-materialization',
+  authority: 'compiler-dependency-runtime-owner',
+  input: 'manifest-and-runtime-executable-identity',
+  settlement: 'verification-action-machine-global-owner-terminal-readback',
+  recovery: 'legacy-conflict-quarantine-no-reuse',
+  output: 'compiler-dependency-ready-state-with-execution-generation-authority'
+});
+const DEPENDENCY_BOOTSTRAP_ACTION_REVISION = actionDigest(
+  DEPENDENCY_BOOTSTRAP_SEMANTIC_CONTRACT
+);
+const DEPENDENCY_BOOTSTRAP_RESULT_REVISION = actionDigest(Object.freeze({
+  producerContractRevision: DEPENDENCY_BOOTSTRAP_ACTION_REVISION,
+  result: DEPENDENCY_BOOTSTRAP_SEMANTIC_CONTRACT.output
+}));
+
 function compileDependencyBootstrapActionInput(
-  projection: CompilerDependencyMaterializationInputProjection
+  projection: CompilerDependencyMaterializationInputProjection,
+  recoveryPredecessorActionKeys: readonly VerificationActionKeyDigest[] = []
 ): VerificationActionKeyInput {
+  const recoveryLineage = recoveryPredecessorActionKeys.length === 0
+    ? null
+    : actionDigest(Object.freeze([...recoveryPredecessorActionKeys]));
   return Object.freeze({
     actionKind: 'compiler-dependency-materialization',
     producer: Object.freeze({
@@ -75,17 +114,34 @@ function compileDependencyBootstrapActionInput(
     operation: Object.freeze({
       identity: 'development.compiler-dependency-materialization',
       revision: DEPENDENCY_BOOTSTRAP_ACTION_REVISION,
-      semanticDigest: projection.projectionDigest,
+      semanticDigest: recoveryLineage === null
+        ? projection.projectionDigest
+        : actionDigest(Object.freeze({
+            materializationInput: projection.projectionDigest,
+            recoveryLineage
+          })),
       workingDirectory: '.',
-      declaredEnvironment: Object.freeze([{
-        name: 'compiler-dependency-materialization-input',
-        digest: projection.projectionDigest
-      }])
+      declaredEnvironment: Object.freeze([
+        {
+          name: 'compiler-dependency-materialization-input',
+          digest: projection.projectionDigest
+        },
+        ...(recoveryLineage === null ? [] : [{
+          name: 'compiler-dependency-recovery-lineage',
+          digest: recoveryLineage
+        }])
+      ])
     }),
-    inputClosure: Object.freeze([{
-      path: 'compiler-dependency-materialization-input',
-      digest: projection.projectionDigest
-    }]),
+    inputClosure: Object.freeze([
+      {
+        path: 'compiler-dependency-materialization-input',
+        digest: projection.projectionDigest
+      },
+      ...(recoveryLineage === null ? [] : [{
+        path: 'compiler-dependency-recovery-lineage',
+        digest: recoveryLineage
+      }])
+    ]),
     environment: Object.freeze({
       toolchainRevision: projection.manifestHash,
       providerRevision: DEPENDENCY_BOOTSTRAP_ACTION_REVISION,
@@ -180,11 +236,50 @@ export function reuseOperationDependencies(
   return result;
 }
 
+/**
+ * Retains only an already-published compiler generation. With no admitted
+ * bootstrap result this performs the dependency owner's read-only observation;
+ * it never installs, repairs, hands off or publishes consumer ledger state.
+ */
+export async function retainOperationDependencyReadGeneration(input: Readonly<{
+  dependencies?: OperationDependencyBootstrapResult;
+  deadlineAtUnixMs: number;
+  signal?: AbortSignal;
+}>): Promise<OperationDependencyReadGenerationResolution> {
+  const dependencyRuntime = await import('../../toolchain/dependencies/runtime.ts');
+  let authority;
+  if (input.dependencies !== undefined) {
+    if (!materializedOperationDemands.has(input.dependencies)) {
+      throw new Error('Operation dependency read generation requires an admitted bootstrap result.');
+    }
+    authority = input.dependencies.executionGenerationAuthority;
+  } else {
+    authority = await dependencyRuntime.observeCompilerDependencyExecutionGenerationAuthority({
+      deadlineAtUnixMs: input.deadlineAtUnixMs,
+      signal: input.signal
+    });
+    if (authority === null) {
+      return Object.freeze({
+        status: 'unavailable' as const,
+        reason: 'dependency-generation-absent' as const
+      });
+    }
+  }
+  return Object.freeze({
+    status: 'ready' as const,
+    generation: await dependencyRuntime.retainCompilerDependencyReadGeneration(authority, {
+      deadlineAtUnixMs: input.deadlineAtUnixMs,
+      signal: input.signal
+    })
+  });
+}
+
 async function issueDependencyBootstrapTerminal(
   action: VerificationActionKey,
   projection: CompilerDependencyMaterializationInputProjection,
   ready: CompilerDepsReadyState,
-  deadlineAtUnixMs: number
+  deadlineAtUnixMs: number,
+  maximumDurationMs: number
 ): Promise<VerificationActionTerminalSettlement> {
   const [{
     bindSecSemanticOperation,
@@ -216,7 +311,7 @@ async function issueDependencyBootstrapTerminal(
     deadlineAtUnixMs,
     aggregateBudgets: [{
       resource: 'duration-ms',
-      maximum: COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY.maximumDurationMs
+      maximum: maximumDurationMs
     }],
     requirements: [{
       id: DEPENDENCY_BOOTSTRAP_REQUIREMENT,
@@ -307,9 +402,12 @@ async function waitForDependencyBootstrapJoin(
 async function materializeCompilerDependenciesSingleFlight(
   options: OperationDependencyBootstrapOptions
 ): Promise<CompilerDepsReadyState> {
+  const dependencyRuntime = await import('../../toolchain/dependencies/runtime.ts');
+  const maximumDurationMs =
+    dependencyRuntime.COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY.maximumDurationMs;
   const repositoryRoot = options.repositoryRoot ?? process.cwd();
   const deadlineAtUnixMs = options.deadlineAtUnixMs
-    ?? Date.now() + COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY.maximumDurationMs;
+    ?? Date.now() + maximumDurationMs;
   assertDependencyBootstrapLive(deadlineAtUnixMs, options.signal);
   const [{ createVerificationActionKey, createVerificationActionPlan }, {
     VerificationActionRunner
@@ -317,36 +415,41 @@ async function materializeCompilerDependenciesSingleFlight(
     import('../../verification/action/contract/action.ts'),
     import('../../verification/action/runner.ts')
   ]);
-  const materializationInput = await observeCompilerDependencyMaterializationInput(repositoryRoot);
-  const action = createVerificationActionKey(
-    compileDependencyBootstrapActionInput(materializationInput)
-  );
-  const plan = createVerificationActionPlan({
-    action,
-    executionClass: 'cheap-preflight',
-    dependencies: []
-  });
-  const ensure = options.ensureCompilerDeps ?? (() => ensureCanonicalCompilerDependencies(
-    options,
-    repositoryRoot
-  ));
+  const materializationInput = await dependencyRuntime
+    .observeCompilerDependencyMaterializationInput(repositoryRoot);
+  const ensure = options.ensureCompilerDeps ?? (() => dependencyRuntime.ensureCompilerDepsReady({
+    deadlineAtUnixMs: options.deadlineAtUnixMs,
+    signal: options.signal
+  }, repositoryRoot));
   const readback = options.ensureCompilerDeps !== undefined
     ? async () => {
       const ready = await options.ensureCompilerDeps!();
       return ready.source === 'existing' ? ready : null;
     }
     : async () => {
-    const observed = await observeCompilerDependencyExecutionGenerationAuthority(
+    const observed = await dependencyRuntime.observeCompilerDependencyExecutionGenerationAuthority(
       { deadlineAtUnixMs, signal: options.signal },
       repositoryRoot
     );
     if (observed === null) return null;
-    return projectCompilerDepsReadyState(observed);
+    return dependencyRuntime.projectCompilerDepsReadyState(observed);
     };
   const runner = new VerificationActionRunner();
+  const recoveryPredecessorActionKeys: VerificationActionKeyDigest[] = [];
   try {
     while (true) {
       assertDependencyBootstrapLive(deadlineAtUnixMs, options.signal);
+      const action = createVerificationActionKey(
+        compileDependencyBootstrapActionInput(
+          materializationInput,
+          recoveryPredecessorActionKeys
+        )
+      );
+      const plan = createVerificationActionPlan({
+        action,
+        executionClass: 'cheap-preflight',
+        dependencies: []
+      });
       let ownedReady: CompilerDepsReadyState | null = null;
       const outcome = await runner.execute({
         repositoryRoot,
@@ -354,10 +457,15 @@ async function materializeCompilerDependenciesSingleFlight(
         plan,
         executionDomain: 'compiler-dependency-materialization',
         ownerToken: `dependency-bootstrap:${process.pid}:${randomUUID()}`,
-        leaseDurationMs: COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY.maximumDurationMs,
+        leaseDurationMs: maximumDurationMs,
         executor: async ({ action: ownedAction }) => {
-          const ready = await ensure();
-          const currentInput = await observeCompilerDependencyMaterializationInput(repositoryRoot);
+          const recoveredReady = recoveryPredecessorActionKeys.length > 0
+              && options.ensureCompilerDeps === undefined
+            ? await readback()
+            : null;
+          const ready = recoveredReady ?? await ensure();
+          const currentInput = await dependencyRuntime
+            .observeCompilerDependencyMaterializationInput(repositoryRoot);
           if (currentInput.projectionDigest !== materializationInput.projectionDigest) {
             throw new Error('Dependency bootstrap inputs changed during materialization.');
           }
@@ -366,7 +474,8 @@ async function materializeCompilerDependenciesSingleFlight(
             ownedAction,
             currentInput,
             ready,
-            deadlineAtUnixMs
+            deadlineAtUnixMs,
+            maximumDurationMs
           );
         }
       });
@@ -382,6 +491,18 @@ async function materializeCompilerDependenciesSingleFlight(
         return current;
       }
       if (outcome.disposition !== 'joined' || outcome.state !== 'running') {
+        const recoverableCancellation = outcome.disposition === 'blocked'
+          && outcome.reason !== null
+          && (
+            /^abandoned (?:queued|running) Action was durably cancelled; a new Action identity is required$/u
+              .test(outcome.reason)
+            || outcome.reason.startsWith('action is already cancelled;')
+          );
+        if (recoverableCancellation
+            && !recoveryPredecessorActionKeys.includes(action.actionKey)) {
+          recoveryPredecessorActionKeys.push(action.actionKey);
+          continue;
+        }
         throw new Error(`Dependency bootstrap Action blocked: ${outcome.reason ?? 'unknown reason'}`);
       }
       await waitForDependencyBootstrapJoin(deadlineAtUnixMs, options.signal);
@@ -389,23 +510,6 @@ async function materializeCompilerDependenciesSingleFlight(
   } finally {
     await runner.close();
   }
-}
-
-function ensureCanonicalCompilerDependencies(
-  options: Pick<OperationDependencyBootstrapOptions, 'deadlineAtUnixMs' | 'signal'>,
-  repositoryRoot = process.cwd()
-): Promise<CompilerDepsReadyState> {
-  if (options.deadlineAtUnixMs !== undefined && (!Number.isSafeInteger(options.deadlineAtUnixMs)
-      || options.deadlineAtUnixMs <= Date.now())) {
-    throw new Error('Dependency bootstrap operation deadline is exhausted.');
-  }
-  if (options.signal?.aborted === true) {
-    throw new Error('Dependency bootstrap operation was cancelled.');
-  }
-  return ensureCompilerDepsReady({
-    deadlineAtUnixMs: options.deadlineAtUnixMs,
-    signal: options.signal
-  }, repositoryRoot);
 }
 
 /**

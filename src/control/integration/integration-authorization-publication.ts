@@ -148,7 +148,7 @@ function comparePositiveDecimal(left: string, right: string): number {
 }
 
 /**
- * Duplicate terminal Session dispatch deliveries are ordered by immutable provider run id.
+ * Duplicate completed-source wakeups are ordered by immutable provider run id.
  * Only the smallest exact run may mint the remote start claim; reruns of that
  * same run use its current provider runAttempt.
  */
@@ -178,7 +178,7 @@ export function selectCanonicalIntegrationRunOwner(input: {
       displayTitle: run.displayTitle,
       headSha: run.headSha,
       expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
-      expectedEventName: 'repository_dispatch',
+      expectedEventName: 'workflow_run',
       expectedDisplayTitle: expectedTitle,
       expectedHeadSha: input.baseSha
     })) {

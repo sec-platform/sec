@@ -276,7 +276,7 @@ test('closeout composes provider retirement for an automatically reused dependen
   const value = fixture({ compilerDependencies: true });
   try {
     await ensureCompilerDepsReady({
-      commandRunner: async (_command, _args, command) => {
+      materialize: async (_args, command) => {
         materializeCompilerDependencyFixtureV1(command.cwd);
         return { code: 0, stdout: 'ok', stderr: '' };
       }
@@ -286,7 +286,7 @@ test('closeout composes provider retirement for an automatically reused dependen
       workspaceRoot: value.target
     });
     const ready = await ensureCompilerDepsReady({
-      commandRunner: async () => {
+      materialize: async () => {
         throw new Error('Linked-worktree closeout fixture must reuse the exact local generation.');
       },
       generatedStateLifecycle: lifecycle

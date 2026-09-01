@@ -13,9 +13,20 @@ import {
   type DockerDesktopLoginStart,
   type DockerDesktopLoginStartUnavailableReason
 } from '../contract/login-start.ts';
+import { DOCKER_WINDOWS_INSTALLATION_PROFILE_DIGEST } from '../contract/windows-installation-profile.ts';
 
 const SETTINGS_STORE_FILE = 'settings-store.json';
 const MAXIMUM_SETTINGS_STORE_BYTES = 1024 * 1024;
+const LOGIN_START_OBSERVATION_PROVIDER_IDENTITY_DIGEST = sha256({
+  domain: 'sec.docker.desktop-login-start.observation-provider',
+  source: DOCKER_DESKTOP_LOGIN_START_OBSERVATION_SOURCE,
+  schemaSupport: 'unsupported'
+}) as SecOperationDigest;
+
+export type DockerDesktopLoginStartObservationEvidence = Readonly<{
+  providerVersionDigest: SecOperationDigest;
+  physicalObservationReceiptDigest: SecOperationDigest;
+}>;
 
 function unavailable(
   reason: DockerDesktopLoginStartUnavailableReason,
@@ -47,8 +58,13 @@ export function unavailableDockerDesktopLoginStart(
 }
 
 export function projectDockerDesktopLoginStartSettingsStore(
-  bytes: Uint8Array
+  bytes: Uint8Array,
+  evidence: DockerDesktopLoginStartObservationEvidence
 ): DockerDesktopLoginStart {
+  if (!/^sha256:[a-f0-9]{64}$/u.test(evidence.providerVersionDigest)
+      || !/^sha256:[a-f0-9]{64}$/u.test(evidence.physicalObservationReceiptDigest)) {
+    return unavailable('settings-store-invalid', 'Settings observation evidence is invalid.');
+  }
   if (bytes.byteLength === 0 || bytes.byteLength > MAXIMUM_SETTINGS_STORE_BYTES) {
     return unavailable('settings-store-invalid', 'Settings store byte length is outside bounds.');
   }
@@ -64,21 +80,26 @@ export function projectDockerDesktopLoginStartSettingsStore(
   const autoStart = (value as Record<string, unknown>).AutoStart;
   if (typeof autoStart !== 'boolean') {
     return unavailable(
-      'auto-start-setting-unavailable',
-      'Docker Desktop AutoStart is not a boolean.'
+      'settings-schema-unrecognized',
+      'Docker Desktop settings schema does not expose one boolean AutoStart value.'
     );
   }
-  const status = autoStart ? 'enabled' : 'disabled';
+  const semanticValue = autoStart ? 'enabled' : 'disabled';
   return Object.freeze({
     schema: DOCKER_DESKTOP_LOGIN_START_SCHEMA,
-    status,
+    status: 'observed-provider-value',
+    value: semanticValue,
+    schemaSupport: 'unsupported',
     configurationOwner: DOCKER_DESKTOP_LOGIN_START_CONFIGURATION_OWNER,
     observationSource: DOCKER_DESKTOP_LOGIN_START_OBSERVATION_SOURCE,
     automatedReconciliation: 'unsupported-by-admitted-provider',
-    reconciliation: autoStart ? 'satisfied' : 'docker-desktop-settings-ui-required',
-    settingsStoreDigest: sha256({
-      domain: 'sec.docker.desktop-login-start.settings-store',
-      bytes: Buffer.from(bytes).toString('base64')
+    reconciliation: 'schema-unsupported',
+    providerIdentityDigest: LOGIN_START_OBSERVATION_PROVIDER_IDENTITY_DIGEST,
+    providerVersionDigest: evidence.providerVersionDigest,
+    physicalObservationReceiptDigest: evidence.physicalObservationReceiptDigest,
+    semanticValueDigest: sha256({
+      domain: 'sec.docker.desktop-login-start.semantic-value',
+      value: semanticValue
     }) as SecOperationDigest
   });
 }
@@ -109,7 +130,18 @@ export async function observeWindowsDockerDesktopLoginStart(): Promise<DockerDes
     if (entry === null || entry.kind !== 'file' || entry.bytes === null) {
       result = unavailable('settings-store-unavailable', 'Settings store is absent.');
     } else {
-      result = projectDockerDesktopLoginStartSettingsStore(entry.bytes);
+      result = projectDockerDesktopLoginStartSettingsStore(entry.bytes, {
+        providerVersionDigest: DOCKER_WINDOWS_INSTALLATION_PROFILE_DIGEST as SecOperationDigest,
+        physicalObservationReceiptDigest: sha256({
+          domain: 'sec.docker.desktop-login-start.physical-observation',
+          directory: settingsDirectory.directory,
+          file: {
+            device: entry.device,
+            inode: entry.inode,
+            size: entry.size
+          }
+        }) as SecOperationDigest
+      });
     }
   } catch (error) {
     result = unavailable('settings-store-unavailable', error);

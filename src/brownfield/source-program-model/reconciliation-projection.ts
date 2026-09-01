@@ -699,14 +699,18 @@ export function compileSourceProgramReconciliationProjection(
           { afterConsumerPaths }
         ));
       }
-      if (!afterPhases.includes('retirement')) {
-        reasons.push(reconciliationReason(
-          'retirement-unresolved',
-          subject,
-          subjectChanges.flatMap(({ before }) => before === null ? [] : [before.path]),
-          { afterPhases }
-        ));
-      }
+      // A `retires` causal relation proves only that a retirement phase is
+      // represented in the candidate graph. It is not the Change Management
+      // admission that closes external/durable/history, migration, accepted
+      // future obligations, and the unknown ledger. Until that exact receipt
+      // is a reconciliation input, every physical declaration removal remains
+      // fail-closed even when the phase projection contains `retirement`.
+      reasons.push(reconciliationReason(
+        'retirement-unresolved',
+        subject,
+        subjectChanges.flatMap(({ before }) => before === null ? [] : [before.path]),
+        { afterPhases, retirementAdmission: 'unresolved' }
+      ));
     }
     const effectful = afterPhases.includes('effect') || beforePhases.includes('effect');
     const durable = afterPhases.includes('writer') || beforePhases.includes('writer');

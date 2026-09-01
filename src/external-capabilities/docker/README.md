@@ -13,17 +13,21 @@ not treated as the login-start semantic owner. Docker Desktop 4.87 can retain
 that entry while its own `AutoStart` setting is false, so registration presence
 alone cannot prove the user intent is enabled.
 
-SEC reads only Docker's documented `%APPDATA%\\Docker\\settings-store.json`
-location through the retained Windows Known Folder boundary. The projection is
-bounded, fail-closed, and exposes no setting values other than the `AutoStart`
-boolean and a digest. SEC never edits that file or the Windows registry.
+SEC can observe Docker Desktop's current `%APPDATA%\\Docker\\settings-store.json`
+provider value through the retained Windows Known Folder boundary, but Docker
+does not publish a stable machine schema for that file. The bounded projection
+therefore reports `observed-provider-value / schema-unsupported`; it binds only
+the parsed `AutoStart` value, observation-provider revision and physical file
+receipt. Unrelated settings bytes do not enter command-provider identity or the
+semantic value digest. SEC never edits that file or the Windows registry.
 
 The admitted Docker Desktop CLI supports `start`, `stop`, `restart`, and
 `status`, but exposes no settings mutation command. Docker's administrator
 settings reference also does not expose login-start as an enforceable setting.
-Consequently, `disabled` reconciles to
-`docker-desktop-settings-ui-required`; current-session `--start` remains a
-separate bounded Effect and never claims to repair future-login behavior.
+Consequently, neither observed boolean value is promoted to product
+`satisfied`. Docker Desktop Settings UI remains the only mutation owner;
+current-session `--start` remains a separate bounded Effect and never claims to
+repair future-login behavior.
 
 Primary interface references:
 

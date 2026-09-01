@@ -6,6 +6,8 @@ export const GENERATED_STATE_REGISTRY_SCHEMA = 'sec-generated-state-registry-v1'
 export const GENERATED_STATE_REGISTRATION_SCHEMA = 'sec-generated-state-registration-v1' as const;
 export const GENERATED_STATE_INVENTORY_SCHEMA = 'sec-generated-state-inventory-v1' as const;
 export const GENERATED_STATE_SETTLEMENT_SCHEMA = 'sec-generated-state-settlement-v1' as const;
+export const GENERATED_STATE_CLEANUP_CONTINUATION_SCHEMA =
+  'sec-generated-state-cleanup-continuation-v1' as const;
 export const GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA = 'sec-generated-state-disposal-receipt-v1' as const;
 export const GENERATED_STATE_WORKTREE_RETIREMENT_SCHEMA = "sec-generated-state-worktree-retirement-v1" as const;
 
@@ -140,6 +142,29 @@ export interface GeneratedStateSettlement {
   readonly blockers: readonly string[];
   readonly generatedAt: string;
   readonly settlementDigest: `sha256:${string}`;
+}
+
+/**
+ * Owner-issued readback for a bounded cleanup turn.  `continuation-required`
+ * means every selected source root is already absent and any remaining bytes
+ * are retained under the generated-state quarantine's durable cleanup intent;
+ * a later operation may continue that exact intent with a fresh bounded
+ * session.  It never means that unknown or foreign state was accepted.
+ */
+export interface GeneratedStateCleanupContinuationReceipt {
+  readonly schema: typeof GENERATED_STATE_CLEANUP_CONTINUATION_SCHEMA;
+  readonly repositoryRoot: string;
+  readonly requested: readonly string[];
+  readonly completed: readonly string[];
+  readonly quarantined: readonly Readonly<{
+    relativePath: string;
+    registrationDigest: `sha256:${string}`;
+    physical: GeneratedStatePhysicalIdentity;
+  }>[];
+  readonly blockers: readonly string[];
+  readonly settlementDigest: `sha256:${string}`;
+  readonly terminal: 'completed' | 'continuation-required' | 'blocked';
+  readonly receiptDigest: `sha256:${string}`;
 }
 
 export interface GeneratedStateDisposalReceipt {

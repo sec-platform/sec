@@ -63,18 +63,17 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
     })}\n`);
     return 2;
   }
-  // The ready branch is intentionally unreachable until the external provider
-  // owner exports a closed-unmerged semantic capability.  Keeping this typed
-  // blocker here prevents a raw gh/git fallback from silently appearing.
+  // A ready semantic provider still cannot create the branch-lifecycle
+  // preparation/evidence/Effect-start envelope from CLI flags alone.
   process.stdout.write(`${JSON.stringify({
     status: 'preserved',
     operation: 'closed-unmerged-closeout',
     repository: input.repository,
     pullRequestNumber: input.pullRequestNumber,
     disposition: input.disposition,
-    stage: 'effect-provider-admission',
+    stage: 'operation-envelope-admission',
     providerStatus: 'unavailable',
-    providerReason: 'semantic-effect-provider-unavailable'
+    providerReason: 'branch-closeout-operation-envelope-unavailable'
   })}\n`);
   return 2;
 }

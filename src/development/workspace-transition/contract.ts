@@ -2,7 +2,9 @@ export const WORKSPACE_TRANSITION_FAILURE_CODES = [
   'workspace-transition-argument-invalid',
   'workspace-transition-current-head-mismatch',
   'workspace-transition-object-id-invalid',
+  'workspace-transition-operation-budget-exhausted',
   'workspace-transition-observation-unresolved',
+  'workspace-transition-provider-integration-unavailable',
   'workspace-transition-rewrite-extra-unsupported',
   'workspace-transition-rewrite-input-invalid',
   'workspace-transition-rewrite-input-limit-exceeded'

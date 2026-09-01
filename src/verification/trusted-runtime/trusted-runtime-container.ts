@@ -7,11 +7,6 @@ import {
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 
-import {
-  createMainHealthRevision,
-  parseMainHealthLedger,
-  type MainHealthLedger
-} from '../../control/main-health/contract.ts';
 import type {
   ContainerEngineOperation,
   ContainerEngineOperationOptions,
@@ -73,11 +68,11 @@ export const TRUSTED_RUNTIME_CONTAINER_SCHEMA = ENVIRONMENT.trustedRuntime.image
 export const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA =
   'sec-trusted-runtime-main-health-receipt-v2' as const;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_SUPERSESSION_SCHEMA =
-  'sec-trusted-runtime-main-health-supersession-v2' as const;
+  'sec-trusted-runtime-main-health-supersession-v3' as const;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_SUPERSESSION_INTENT_SCHEMA =
-  'sec-trusted-runtime-main-health-supersession-intent-v2' as const;
+  'sec-trusted-runtime-main-health-supersession-intent-v3' as const;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_SUPERSESSION_PERMIT_SCHEMA =
-  'sec-trusted-runtime-main-health-supersession-permit-v2' as const;
+  'sec-trusted-runtime-main-health-supersession-permit-v3' as const;
 export const TRUSTED_RUNTIME_MAIN_HEALTH_BASELINE_OBSERVATION_SCHEMA =
   'sec-trusted-runtime-main-health-baseline-observation-v2' as const;
 export const TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA =
@@ -313,7 +308,7 @@ export interface TrustedRuntimeMainHealthSupersessionReceipt {
   }>;
   readonly localReceipt: TrustedRuntimeMainHealthReceipt;
   readonly localHealthRevision: Digest;
-  readonly hostedLedger: MainHealthLedger;
+  readonly hostedPayload: TrustedRuntimeOpaqueDomainPayload;
   readonly hostedAuthorityDigest: Digest;
   readonly effectAuthorizationDigest: Digest;
   readonly providerAuthorization: Readonly<{
@@ -334,6 +329,18 @@ export interface TrustedRuntimeMainHealthSupersessionReceipt {
   /** Stable semantic identity; excludes provider timestamps and other evidence volatility. */
   readonly semanticDigest: Digest;
   readonly recordDigest: Digest;
+}
+
+/**
+ * Opaque canonical payload supplied by the domain owner.  Trusted Runtime
+ * proves only byte identity, binding, persistence, and effect settlement; it
+ * never parses or re-signs the payload's domain semantics.
+ */
+export interface TrustedRuntimeOpaqueDomainPayload {
+  readonly canonicalBytes: string;
+  readonly byteDigest: Digest;
+  readonly semanticRevision: Digest;
+  readonly bindingDigest: Digest;
 }
 
 export type TrustedRuntimeMainHealthSupersessionAuthorization = Readonly<
@@ -406,6 +413,85 @@ function digestBytes(value: string | Uint8Array): Digest {
 
 function digestValue(value: unknown): Digest {
   return digestBytes(encodeVerificationActionData(value));
+}
+
+function normalizeTrustedRuntimeOpaqueDomainPayload(
+  value: unknown
+): TrustedRuntimeOpaqueDomainPayload {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('opaque domain payload must be an object');
+  }
+  const record = value as Record<string, unknown>;
+  const expectedKeys = ['bindingDigest', 'byteDigest', 'canonicalBytes', 'semanticRevision'];
+  const actualKeys = Object.keys(record).sort();
+  if (actualKeys.length !== expectedKeys.length
+      || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+    fail('opaque domain payload shape is invalid');
+  }
+  if (typeof record.canonicalBytes !== 'string'
+      || record.canonicalBytes.length === 0
+      || Buffer.byteLength(record.canonicalBytes, 'utf8') > 1_048_576
+      || Buffer.from(record.canonicalBytes, 'utf8').toString('utf8') !== record.canonicalBytes) {
+    fail('opaque domain payload bytes are not bounded exact UTF-8');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(record.canonicalBytes) as unknown;
+  } catch {
+    fail('opaque domain payload bytes are not JSON');
+  }
+  if (encodeVerificationActionData(parsed) !== record.canonicalBytes) {
+    fail('opaque domain payload bytes are not canonical JSON');
+  }
+  const byteDigest = digest(record.byteDigest, 'opaque domain payload byteDigest');
+  if (digestBytes(Buffer.from(record.canonicalBytes, 'utf8')) !== byteDigest) {
+    fail('opaque domain payload byte digest mismatch');
+  }
+  return Object.freeze({
+    canonicalBytes: record.canonicalBytes,
+    byteDigest,
+    semanticRevision: digest(
+      record.semanticRevision,
+      'opaque domain payload semanticRevision'
+    ),
+    bindingDigest: digest(record.bindingDigest, 'opaque domain payload bindingDigest')
+  });
+}
+
+/**
+ * Extract the opaque persisted bytes before the domain owner re-parses and
+ * re-signs them.  This function does not interpret MainHealth fields.
+ */
+export function readTrustedRuntimeMainHealthSupersessionPayload(
+  value: unknown
+): TrustedRuntimeOpaqueDomainPayload {
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      fail('MainHealth supersession payload container is not JSON');
+    }
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('MainHealth supersession payload container must be an object');
+  }
+  const record = value as Record<string, unknown>;
+  const authorization = record.authorization;
+  const container = authorization !== null
+      && typeof authorization === 'object'
+      && !Array.isArray(authorization)
+    ? authorization as Record<string, unknown>
+    : record;
+  return normalizeTrustedRuntimeOpaqueDomainPayload(container.hostedPayload);
+}
+
+function assertExactTrustedRuntimeOpaqueDomainPayload(
+  actual: TrustedRuntimeOpaqueDomainPayload,
+  expected: TrustedRuntimeOpaqueDomainPayload
+): void {
+  if (encodeVerificationActionData(actual) !== encodeVerificationActionData(expected)) {
+    fail('opaque domain payload differs from the domain-owner readback');
+  }
 }
 
 export function parseTrustedRuntimeMainHealthAffectedPlan(
@@ -1888,7 +1974,7 @@ export function trustedRuntimeMainHealthSupersessionRequestDigest(
 ): Digest {
   const request = trustedRuntimeMainHealthSupersessionStatusRequest(authorization);
   return digestValue(Object.freeze({
-    schema: 'sec-trusted-runtime-main-health-supersession-request-v2',
+    schema: 'sec-trusted-runtime-main-health-supersession-request-v3',
     repository: authorization.repository,
     mainSha: authorization.mainSha,
     operationId: authorization.operationId,
@@ -1907,7 +1993,7 @@ function trustedRuntimeMainHealthSupersessionSemanticDigest(input: Readonly<{
 }>): Digest {
   const authorization = input.authorization;
   return digestValue(Object.freeze({
-    schema: 'sec-trusted-runtime-main-health-supersession-semantic-v2',
+    schema: 'sec-trusted-runtime-main-health-supersession-semantic-v3',
     repository: authorization.repository,
     mainSha: authorization.mainSha,
     mainTreeSha: authorization.mainTreeSha,
@@ -1946,7 +2032,6 @@ export function createTrustedRuntimeMainHealthSupersessionIntent(input: Readonly
   preparedAt: string;
 }>): TrustedRuntimeMainHealthSupersessionIntent {
   const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-    defaultBranch: input.authorization.hostedLedger.defaultBranch,
     sourceName: input.authorization.sourceName,
     source: Object.freeze({
       relativePath: input.authorization.sourceName,
@@ -1961,7 +2046,8 @@ export function createTrustedRuntimeMainHealthSupersessionIntent(input: Readonly
       linkTarget: null
     }),
     localReceipt: input.authorization.localReceipt,
-    hostedLedger: input.authorization.hostedLedger,
+    localHealthRevision: input.authorization.localHealthRevision,
+    hostedPayload: input.authorization.hostedPayload,
     hostedAuthorityDigest: input.authorization.hostedAuthorityDigest,
     runtimeAuthorityBinding: input.authorization.runtimeAuthorityBinding,
     predecessorRecordDigest: input.authorization.predecessorRecordDigest,
@@ -1983,7 +2069,8 @@ export function createTrustedRuntimeMainHealthSupersessionIntent(input: Readonly
 }
 
 export function parseTrustedRuntimeMainHealthSupersessionIntent(
-  value: unknown
+  value: unknown,
+  hostedPayload: TrustedRuntimeOpaqueDomainPayload
 ): TrustedRuntimeMainHealthSupersessionIntent {
   if (typeof value === 'string') {
     try {
@@ -2004,7 +2091,10 @@ export function parseTrustedRuntimeMainHealthSupersessionIntent(
       || record.phase !== 'prepared') {
     fail('MainHealth supersession intent shape is invalid');
   }
-  const authorization = parseTrustedRuntimeMainHealthSupersessionAuthorization(record.authorization);
+  const authorization = parseTrustedRuntimeMainHealthSupersessionAuthorization(
+    record.authorization,
+    hostedPayload
+  );
   const rebuilt = createTrustedRuntimeMainHealthSupersessionIntent({
     authorization,
     preparedAt: canonicalInstant(record.preparedAt, 'MainHealth supersession preparedAt')
@@ -2158,11 +2248,11 @@ export function parseTrustedRuntimeMainHealthSupersessionPermit(
 }
 
 export function createTrustedRuntimeMainHealthSupersessionAuthorization(input: Readonly<{
-  defaultBranch: string;
   sourceName: string;
   source: NoFollowDirectoryTreeEntry;
   localReceipt: TrustedRuntimeMainHealthReceipt;
-  hostedLedger: MainHealthLedger;
+  localHealthRevision: Digest;
+  hostedPayload: TrustedRuntimeOpaqueDomainPayload;
   hostedAuthorityDigest: Digest;
   runtimeAuthorityBinding: Digest;
   predecessorRecordDigest: Digest | null;
@@ -2176,7 +2266,6 @@ export function createTrustedRuntimeMainHealthSupersessionAuthorization(input: R
   const localReceipt = parseTrustedRuntimeMainHealthReceipt(
     encodeVerificationActionData(input.localReceipt)
   );
-  const defaultBranch = bounded(input.defaultBranch, 'MainHealth supersession defaultBranch');
   const sourceName = bounded(input.sourceName, 'MainHealth supersession sourceName');
   const expectedSourceName = `main-${localReceipt.mainSha}.json`;
   const localReceiptBytes = Buffer.from(
@@ -2193,34 +2282,21 @@ export function createTrustedRuntimeMainHealthSupersessionAuthorization(input: R
       || !Buffer.from(input.source.bytes).equals(localReceiptBytes)) {
     fail('MainHealth supersession source is not the exact canonical receipt preimage');
   }
-  const hostedLedger = parseMainHealthLedger(encodeVerificationActionData(input.hostedLedger));
-  if (hostedLedger.repository !== localReceipt.repository
-      || hostedLedger.defaultBranch !== defaultBranch
-      || hostedLedger.mainSha !== localReceipt.mainSha
-      || hostedLedger.mainTreeSha !== localReceipt.mainTreeSha
-      || hostedLedger.trustRevision !== localReceipt.mainSha
-      || hostedLedger.producer.sourceTransport !== 'github-api') {
-    fail('MainHealth supersession hosted provider is not exact or authenticated');
-  }
-  const localHealthRevision = createMainHealthRevision({
-    repository: localReceipt.repository,
-    defaultBranch,
-    mainSha: localReceipt.mainSha,
-    mainTreeSha: localReceipt.mainTreeSha,
-    status: 'healthy',
-    failureFingerprints: Object.freeze([]),
-    owner: null,
-    repairWorkPackage: null,
-    allowedLanes: Object.freeze(['ordinary'] as const),
-    trustRevision: localReceipt.mainSha
-  });
-  if (hostedLedger.healthRevision === localHealthRevision) {
+  const hostedPayload = normalizeTrustedRuntimeOpaqueDomainPayload(input.hostedPayload);
+  const localHealthRevision = digest(
+    input.localHealthRevision,
+    'MainHealth supersession localHealthRevision'
+  );
+  if (hostedPayload.semanticRevision === localHealthRevision) {
     fail('MainHealth supersession requires a semantic provider conflict');
   }
   const hostedAuthorityDigest = digest(
     input.hostedAuthorityDigest,
     'MainHealth supersession hostedAuthorityDigest'
   );
+  if (hostedPayload.bindingDigest !== hostedAuthorityDigest) {
+    fail('MainHealth supersession opaque payload binding is not exact');
+  }
   const runtimeAuthorityBinding = digest(
     input.runtimeAuthorityBinding,
     'MainHealth supersession runtimeAuthorityBinding'
@@ -2249,7 +2325,7 @@ export function createTrustedRuntimeMainHealthSupersessionAuthorization(input: R
     byteDigest: digestBytes(localReceiptBytes)
   });
   const operationId = digestValue(Object.freeze({
-    schema: 'sec-trusted-runtime-main-health-supersession-operation-v2',
+    schema: 'sec-trusted-runtime-main-health-supersession-operation-v3',
     effect: 'prefer-exact-registered-hosted-provider',
     repository: localReceipt.repository,
     mainSha: localReceipt.mainSha,
@@ -2271,7 +2347,7 @@ export function createTrustedRuntimeMainHealthSupersessionAuthorization(input: R
   // serialize before either can publish a prepared intent or issue the
   // external POST; otherwise distinct operationIds would fork the chain.
   const subjectLeaseDigest = digestValue(Object.freeze({
-    schema: 'sec-trusted-runtime-main-health-supersession-subject-v2',
+    schema: 'sec-trusted-runtime-main-health-supersession-subject-v3',
     repository: localReceipt.repository,
     mainSha: localReceipt.mainSha,
     mainTreeSha: localReceipt.mainTreeSha,
@@ -2279,7 +2355,7 @@ export function createTrustedRuntimeMainHealthSupersessionAuthorization(input: R
   }));
   const operationLeaseName = `.main-health-supersession-subject-${subjectLeaseDigest.slice('sha256:'.length)}.lock`;
   const effectAuthorizationDigest = digestValue(Object.freeze({
-    schema: 'sec-trusted-runtime-main-health-supersession-authorization-v2',
+    schema: 'sec-trusted-runtime-main-health-supersession-authorization-v3',
     operationId,
     operationLeaseName,
     issuer: Object.freeze({
@@ -2304,7 +2380,7 @@ export function createTrustedRuntimeMainHealthSupersessionAuthorization(input: R
     source,
     localReceipt,
     localHealthRevision,
-    hostedLedger,
+    hostedPayload,
     hostedAuthorityDigest,
     runtimeAuthorityBinding,
     predecessorRecordDigest,
@@ -2313,7 +2389,8 @@ export function createTrustedRuntimeMainHealthSupersessionAuthorization(input: R
 }
 
 function parseTrustedRuntimeMainHealthSupersessionAuthorization(
-  value: unknown
+  value: unknown,
+  hostedPayload: TrustedRuntimeOpaqueDomainPayload
 ): TrustedRuntimeMainHealthSupersessionAuthorization {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     fail('MainHealth supersession authorization must be an object');
@@ -2328,10 +2405,10 @@ function parseTrustedRuntimeMainHealthSupersessionAuthorization(
   const sourceRecord = source as Record<string, unknown>;
   const issuerRecord = issuer as Record<string, unknown>;
   const localReceipt = parseTrustedRuntimeMainHealthReceipt(record.localReceipt);
-  const hostedLedger = parseMainHealthLedger(encodeVerificationActionData(record.hostedLedger));
+  const embeddedHostedPayload = normalizeTrustedRuntimeOpaqueDomainPayload(record.hostedPayload);
+  assertExactTrustedRuntimeOpaqueDomainPayload(embeddedHostedPayload, hostedPayload);
   const sourceBytes = Buffer.from(`${encodeVerificationActionData(localReceipt)}\n`, 'utf8');
   return createTrustedRuntimeMainHealthSupersessionAuthorization({
-    defaultBranch: hostedLedger.defaultBranch,
     sourceName: bounded(record.sourceName, 'MainHealth supersession sourceName'),
     source: Object.freeze({
       relativePath: bounded(record.sourceName, 'MainHealth supersession sourceName'),
@@ -2343,7 +2420,11 @@ function parseTrustedRuntimeMainHealthSupersessionAuthorization(
       linkTarget: null
     }),
     localReceipt,
-    hostedLedger,
+    localHealthRevision: digest(
+      record.localHealthRevision,
+      'MainHealth supersession localHealthRevision'
+    ),
+    hostedPayload: embeddedHostedPayload,
     hostedAuthorityDigest: digest(
       record.hostedAuthorityDigest,
       'MainHealth supersession hostedAuthorityDigest'
@@ -2394,7 +2475,6 @@ export function createTrustedRuntimeMainHealthSupersessionReceipt(input: Readonl
     'utf8'
   );
   const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-    defaultBranch: supplied.hostedLedger.defaultBranch,
     sourceName: supplied.sourceName,
     source: Object.freeze({
       relativePath: supplied.sourceName,
@@ -2406,7 +2486,8 @@ export function createTrustedRuntimeMainHealthSupersessionReceipt(input: Readonl
       linkTarget: null
     }),
     localReceipt: supplied.localReceipt,
-    hostedLedger: supplied.hostedLedger,
+    localHealthRevision: supplied.localHealthRevision,
+    hostedPayload: supplied.hostedPayload,
     hostedAuthorityDigest: supplied.hostedAuthorityDigest,
     runtimeAuthorityBinding: supplied.runtimeAuthorityBinding,
     predecessorRecordDigest: supplied.predecessorRecordDigest,
@@ -2490,7 +2571,8 @@ export function createTrustedRuntimeMainHealthSupersessionReceipt(input: Readonl
 }
 
 export function parseTrustedRuntimeMainHealthSupersessionReceipt(
-  value: unknown
+  value: unknown,
+  hostedPayload: TrustedRuntimeOpaqueDomainPayload
 ): TrustedRuntimeMainHealthSupersessionReceipt {
   if (typeof value === 'string') {
     try {
@@ -2508,7 +2590,7 @@ export function parseTrustedRuntimeMainHealthSupersessionReceipt(
     'operationId', 'operationLeaseName', 'predecessorRecordDigest',
     'preparedIntentDigest', 'runtimeAuthorityBinding',
     'issuer', 'authorizedAt', 'sourceName',
-    'source', 'localReceipt', 'localHealthRevision', 'hostedLedger',
+    'source', 'localReceipt', 'localHealthRevision', 'hostedPayload',
     'hostedAuthorityDigest', 'effectAuthorizationDigest', 'providerAuthorization',
     'semanticDigest', 'recordDigest'
   ].sort();
@@ -2557,9 +2639,9 @@ export function parseTrustedRuntimeMainHealthSupersessionReceipt(
       )) {
     fail('MainHealth supersession source byte identity is invalid');
   }
-  const hostedLedger = parseMainHealthLedger(encodeVerificationActionData(record.hostedLedger));
+  const embeddedHostedPayload = normalizeTrustedRuntimeOpaqueDomainPayload(record.hostedPayload);
+  assertExactTrustedRuntimeOpaqueDomainPayload(embeddedHostedPayload, hostedPayload);
   const authorization = createTrustedRuntimeMainHealthSupersessionAuthorization({
-    defaultBranch: hostedLedger.defaultBranch,
     sourceName: bounded(record.sourceName, 'MainHealth supersession sourceName'),
     source: Object.freeze({
       relativePath: bounded(record.sourceName, 'MainHealth supersession sourceName'),
@@ -2571,7 +2653,11 @@ export function parseTrustedRuntimeMainHealthSupersessionReceipt(
       linkTarget: null
     }),
     localReceipt,
-    hostedLedger,
+    localHealthRevision: digest(
+      record.localHealthRevision,
+      'MainHealth supersession localHealthRevision'
+    ),
+    hostedPayload: embeddedHostedPayload,
     hostedAuthorityDigest: digest(
       record.hostedAuthorityDigest,
       'MainHealth supersession hostedAuthorityDigest'

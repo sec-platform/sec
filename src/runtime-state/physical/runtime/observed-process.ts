@@ -89,6 +89,128 @@ export interface ObservedCommandTerminationEvidence {
   readonly treeClosed: boolean;
 }
 
+export type ObservedNativeProcessResourceKind =
+  | 'root-process'
+  | 'stdin-worker'
+  | 'termination-helper';
+
+export type ObservedNativeProcessResourceLedgerSnapshot = Readonly<{
+  admittedResourceCount: number;
+  startedResourceCount: number;
+  rootProcessCount: number;
+  stdinWorkerCount: number;
+  helperProcessCount: number;
+  settledResourceCount: number;
+  failedAdmissionCount: number;
+}>;
+
+export interface ObservedNativeProcessResourceToken {
+  start(): void;
+  settle(): void;
+}
+
+export interface ObservedNativeProcessResourceLedger {
+  readonly deadlineAtMonotonicMs: number;
+  admit(kind: ObservedNativeProcessResourceKind): ObservedNativeProcessResourceToken;
+  snapshot(): ObservedNativeProcessResourceLedgerSnapshot;
+  close(): ObservedNativeProcessResourceLedgerSnapshot;
+}
+
+const ISSUED_OBSERVED_NATIVE_RESOURCE_LEDGERS = new WeakSet<object>();
+const ISSUED_OBSERVED_NATIVE_RESOURCE_TOKENS = new WeakSet<object>();
+
+/** Process-owner internal ledger. Raw process transports cannot mint this capability. */
+export function openObservedNativeProcessResourceLedger(input: Readonly<{
+  maximumResources: number;
+  deadlineAtMonotonicMs: number;
+}>): ObservedNativeProcessResourceLedger {
+  if (!Number.isSafeInteger(input.maximumResources) || input.maximumResources < 1) {
+    throw new Error('Native process resource ledger maximum is invalid.');
+  }
+  if (!Number.isFinite(input.deadlineAtMonotonicMs)) {
+    throw new Error('Native process resource ledger deadline is invalid.');
+  }
+  let admittedResourceCount = 0;
+  let startedResourceCount = 0;
+  let rootProcessCount = 0;
+  let stdinWorkerCount = 0;
+  let helperProcessCount = 0;
+  let settledResourceCount = 0;
+  let failedAdmissionCount = 0;
+  let closed = false;
+  const snapshot = (): ObservedNativeProcessResourceLedgerSnapshot => Object.freeze({
+    admittedResourceCount,
+    startedResourceCount,
+    rootProcessCount,
+    stdinWorkerCount,
+    helperProcessCount,
+    settledResourceCount,
+    failedAdmissionCount
+  });
+  const ledger: ObservedNativeProcessResourceLedger = {
+    deadlineAtMonotonicMs: input.deadlineAtMonotonicMs,
+    admit(kind) {
+      if (!ISSUED_OBSERVED_NATIVE_RESOURCE_LEDGERS.has(this) || closed) {
+        throw new Error('Native process resource admission requires one live owner-issued ledger.');
+      }
+      if (kind !== 'root-process' && kind !== 'stdin-worker' && kind !== 'termination-helper') {
+        throw new Error('Native process resource kind is invalid.');
+      }
+      if (performance.now() >= input.deadlineAtMonotonicMs) {
+        throw new Error('Native process resource ledger deadline is exhausted.');
+      }
+      if (admittedResourceCount >= input.maximumResources) {
+        throw new Error('Native process resource ledger process budget is exhausted.');
+      }
+      admittedResourceCount += 1;
+      if (kind === 'root-process') rootProcessCount += 1;
+      else if (kind === 'stdin-worker') stdinWorkerCount += 1;
+      else helperProcessCount += 1;
+      let started = false;
+      let settled = false;
+      const token: ObservedNativeProcessResourceToken = Object.freeze({
+        start(): void {
+          if (!ISSUED_OBSERVED_NATIVE_RESOURCE_TOKENS.has(this) || settled) {
+            throw new Error('Native process resource start requires one unsettled owner token.');
+          }
+          if (started) return;
+          started = true;
+          startedResourceCount += 1;
+        },
+        settle(): void {
+          if (!ISSUED_OBSERVED_NATIVE_RESOURCE_TOKENS.has(this)) {
+            throw new Error('Native process resource settlement requires one owner token.');
+          }
+          if (settled) return;
+          settled = true;
+          settledResourceCount += 1;
+          if (!started) failedAdmissionCount += 1;
+        }
+      });
+      ISSUED_OBSERVED_NATIVE_RESOURCE_TOKENS.add(token);
+      return token;
+    },
+    snapshot() {
+      if (!ISSUED_OBSERVED_NATIVE_RESOURCE_LEDGERS.has(this)) {
+        throw new Error('Native process resource snapshot requires one owner-issued ledger.');
+      }
+      return snapshot();
+    },
+    close() {
+      if (!ISSUED_OBSERVED_NATIVE_RESOURCE_LEDGERS.has(this)) {
+        throw new Error('Native process resource close requires one owner-issued ledger.');
+      }
+      if (settledResourceCount !== admittedResourceCount) {
+        throw new Error('Native process resource ledger cannot close with unsettled admitted resources.');
+      }
+      closed = true;
+      return snapshot();
+    }
+  };
+  ISSUED_OBSERVED_NATIVE_RESOURCE_LEDGERS.add(ledger);
+  return Object.freeze(ledger);
+}
+
 export interface ObservedCommandOutcome {
   readonly status: ObservedCommandStatus;
   readonly trigger?: ObservedCommandTrigger;
@@ -184,6 +306,8 @@ export interface ObservedCommandCoreOptions {
    * external descendant settled.
    */
   readonly independentProvider?: IndependentProviderProcessCapability;
+  /** Process-owner internal native resource ledger; never a semantic Effect grant. */
+  readonly nativeResourceLedger?: ObservedNativeProcessResourceLedger;
   /** Internal deterministic test seam. */
   readonly dependencies?: Partial<ObservedCommandDependencies>;
 }
@@ -266,6 +390,7 @@ export interface ObservedProcessTreeTerminationRequest {
   readonly isChildCloseObserved: () => boolean;
   readonly waitForChildClose: (timeoutMs: number) => Promise<boolean>;
   readonly runtime: ObservedProcessRuntime;
+  readonly nativeResourceLedger?: ObservedNativeProcessResourceLedger;
 }
 
 export interface ObservedProcessTreeTerminationResult {
@@ -1092,7 +1217,9 @@ async function terminateWindowsProcessTree(
     }
     const systemDirectory = path.win32.join(request.runtime.systemRoot, 'System32');
     let killer: ChildProcess;
+    let helperResource: ObservedNativeProcessResourceToken | undefined;
     try {
+      helperResource = request.nativeResourceLedger?.admit('termination-helper');
       killer = await request.runtime.spawnChild(
         path.win32.join(systemDirectory, 'taskkill.exe'),
         ['/PID', String(pid), '/T', ...(force ? ['/F'] : [])],
@@ -1108,80 +1235,93 @@ async function terminateWindowsProcessTree(
           windowsHide: true
         }
       );
+      helperResource?.start();
     } catch (error) {
+      if (error instanceof ObservedNativeLifecycleFailure && error.started) helperResource?.start();
+      helperResource?.settle();
       return {
         commandSucceeded: false,
         helperTreeClosed: error instanceof ObservedNativeLifecycleFailure
           ? error.termination.treeClosed
-          : true
+        : true
       };
     }
-    const phaseDeadline = phaseDeadlineAtMs(
-      request.deadlineAtMs,
-      request.graceMs,
-      request.runtime
-    );
-    let killerLifecycleFailure: ObservedNativeLifecycleFailure | undefined;
-    let helperForceAttempted = false;
-    const captureLifecycleFailure = (failure: ObservedNativeLifecycleFailure): void => {
-      killerLifecycleFailure ??= failure;
-    };
-    let closed = await waitForProcessClose(
-      killer,
-      phaseDeadline,
-      request.runtime,
-      captureLifecycleFailure
-    );
-    const killerController = windowsObservedJobs.get(killer);
-    if (!closed) {
-      if (killerController) {
-        killerController.terminate();
-        helperForceAttempted = true;
-      }
-      else killer.kill('SIGKILL');
-      closed = await waitForProcessClose(
-        killer,
+    try {
+      const phaseDeadline = phaseDeadlineAtMs(
         request.deadlineAtMs,
+        request.graceMs,
+        request.runtime
+      );
+      let killerLifecycleFailure: ObservedNativeLifecycleFailure | undefined;
+      let helperForceAttempted = false;
+      const captureLifecycleFailure = (failure: ObservedNativeLifecycleFailure): void => {
+        killerLifecycleFailure ??= failure;
+      };
+      let closed = await waitForProcessClose(
+        killer,
+        phaseDeadline,
         request.runtime,
         captureLifecycleFailure
       );
+      const killerController = windowsObservedJobs.get(killer);
+      if (!closed) {
+        if (killerController) {
+          killerController.terminate();
+          helperForceAttempted = true;
+        }
+        else killer.kill('SIGKILL');
+        closed = await waitForProcessClose(
+          killer,
+          request.deadlineAtMs,
+          request.runtime,
+          captureLifecycleFailure
+        );
+      }
+      let taskkillTreeClosed = killerController === undefined
+        ? killerLifecycleFailure?.termination.treeClosed === true ||
+          (killerLifecycleFailure === undefined && closed && killer.exitCode !== null)
+        : false;
+      if (killerController) {
+        let active = killerController.activeProcessCount();
+        if (active !== 0 && !helperForceAttempted &&
+          remainingBudgetMs(request.deadlineAtMs, request.runtime) > 0) {
+          killerController.terminate();
+          helperForceAttempted = true;
+        }
+        while (active !== 0 && active !== null &&
+          remainingBudgetMs(request.deadlineAtMs, request.runtime) > 0) {
+          await new Promise<void>((resolve) => request.runtime.setTimer(
+            resolve,
+            Math.min(5, remainingBudgetMs(request.deadlineAtMs, request.runtime))
+          ));
+          active = killerController.activeProcessCount();
+        }
+        taskkillTreeClosed = closed && active === 0;
+        if (windowsObservedJobs.get(killer) === killerController) {
+          killerController.close();
+          windowsObservedJobs.delete(killer);
+        }
+      }
+      return {
+        commandSucceeded: closed && taskkillTreeClosed && killer.exitCode === 0,
+        helperTreeClosed: taskkillTreeClosed
+      };
+    } finally {
+      helperResource?.settle();
     }
-    let taskkillTreeClosed = killerController === undefined
-      ? killerLifecycleFailure?.termination.treeClosed === true ||
-        (killerLifecycleFailure === undefined && closed && killer.exitCode !== null)
-      : false;
-    if (killerController) {
-      let active = killerController.activeProcessCount();
-      if (active !== 0 && !helperForceAttempted &&
-        remainingBudgetMs(request.deadlineAtMs, request.runtime) > 0) {
-        killerController.terminate();
-        helperForceAttempted = true;
-      }
-      while (active !== 0 && active !== null &&
-        remainingBudgetMs(request.deadlineAtMs, request.runtime) > 0) {
-        await new Promise<void>((resolve) => request.runtime.setTimer(
-          resolve,
-          Math.min(5, remainingBudgetMs(request.deadlineAtMs, request.runtime))
-        ));
-        active = killerController.activeProcessCount();
-      }
-      taskkillTreeClosed = closed && active === 0;
-      if (windowsObservedJobs.get(killer) === killerController) {
-        killerController.close();
-        windowsObservedJobs.delete(killer);
-      }
-    }
-    return {
-      commandSucceeded: closed && taskkillTreeClosed && killer.exitCode === 0,
-      helperTreeClosed: taskkillTreeClosed
-    };
   };
 
   const controller = windowsObservedJobs.get(request.child);
   if (controller) {
     let gracefulAttempted = false;
     let helperTreesClosed = true;
-    if (pid && !request.isChildCloseObserved() &&
+    // Owner-issued resource sessions already retain the Job controller. Use
+    // that native capability directly so termination cannot require a child
+    // process that was not reserved at root-process admission. The legacy
+    // raw transport keeps taskkill accounting below until its consumers move
+    // behind the resource-session owner.
+    if (request.nativeResourceLedger === undefined
+      && pid && !request.isChildCloseObserved() &&
       remainingBudgetMs(request.deadlineAtMs, request.runtime) > 0) {
       gracefulAttempted = true;
       const graceful = await runTaskkill(false);
@@ -1382,8 +1522,15 @@ export async function runObservedCommand(
 
   const startedAt = dependencies.monotonicNowMs();
   const operationDeadlineAtMs = options.timeoutMs === undefined
-    ? null
-    : startedAt + options.timeoutMs;
+    ? options.nativeResourceLedger?.deadlineAtMonotonicMs ?? null
+    : Math.min(
+      startedAt + options.timeoutMs,
+      options.nativeResourceLedger?.deadlineAtMonotonicMs ?? Number.POSITIVE_INFINITY
+    );
+  const settlementDeadlineAtMs = (): number => Math.min(
+    dependencies.monotonicNowMs() + terminationDeadlineMs,
+    options.nativeResourceLedger?.deadlineAtMonotonicMs ?? Number.POSITIVE_INFINITY
+  );
   const stdout = emptyStreamEvidence();
   const stderr = emptyStreamEvidence();
   let child: ChildProcess | undefined;
@@ -1396,6 +1543,7 @@ export async function runObservedCommand(
   let settlementFenceLost = false;
   let timeoutTimer: ObservedProcessTimerHandle | undefined;
   let fenceTimer: ObservedProcessTimerHandle | undefined;
+  let rootResource: ObservedNativeProcessResourceToken | undefined;
   const closeWaiters = new Set<(closed: boolean) => void>();
   const processRuntime: ObservedProcessRuntime = Object.freeze({
     platform: dependencies.platform,
@@ -1481,6 +1629,7 @@ export async function runObservedCommand(
     const stdio = (commandInput === null
       ? configuredStdio
       : Object.assign([...configuredStdio], { 0: 'pipe' as const })) as SpawnOptions['stdio'];
+    rootResource = options.nativeResourceLedger?.admit('root-process');
     child = await dependencies.spawnChild(command, args, {
       cwd: options.cwd,
       env,
@@ -1491,7 +1640,10 @@ export async function runObservedCommand(
       detached: dependencies.platform !== 'win32',
       ...(inputCapability === undefined ? {} : { observedInput: inputCapability })
     });
+    rootResource?.start();
   } catch (error) {
+    if (error instanceof ObservedNativeLifecycleFailure && error.started) rootResource?.start();
+    rootResource?.settle();
     if (error instanceof ObservedNativeLifecycleFailure) return finishLifecycleFailure(error);
     return finishWithoutChild('spawn-failed');
   }
@@ -1548,7 +1700,7 @@ export async function runObservedCommand(
       closeWaiters.clear();
       void (async () => {
         if (options.afterSettlement !== undefined) {
-          const fenceDeadlineAtMs = dependencies.monotonicNowMs() + terminationDeadlineMs;
+          const fenceDeadlineAtMs = settlementDeadlineAtMs();
           const finalFencePassed = await raceWithDeadline(
             Promise.resolve()
               .then(() => options.afterSettlement!())
@@ -1577,6 +1729,7 @@ export async function runObservedCommand(
         if (nativeDiagnostic !== undefined) {
           observedNativeLifecycleDiagnostics.set(outcome, nativeDiagnostic);
         }
+        rootResource?.settle();
         resolve(outcome);
       })();
     };
@@ -1603,7 +1756,7 @@ export async function runObservedCommand(
         runningChild.stdin.destroy();
       }
       if (timeoutTimer !== undefined) dependencies.clearTimer(timeoutTimer);
-      const deadlineAtMs = dependencies.monotonicNowMs() + terminationDeadlineMs;
+      const deadlineAtMs = settlementDeadlineAtMs();
       const termination = await raceWithDeadline(
         Promise.resolve().then(() => dependencies.terminateProcessTree({
           child: runningChild,
@@ -1611,7 +1764,8 @@ export async function runObservedCommand(
           graceMs: terminationGraceMs,
           isChildCloseObserved: () => childCloseObserved,
           waitForChildClose,
-          runtime: processRuntime
+          runtime: processRuntime,
+          nativeResourceLedger: options.nativeResourceLedger
         })),
         deadlineAtMs,
         dependencies
@@ -1729,7 +1883,7 @@ export async function runObservedCommand(
       for (const waiter of [...closeWaiters]) waiter(true);
       if (trigger !== undefined || settled) return;
       const rootPid = runningChild.pid;
-      const deadlineAtMs = dependencies.monotonicNowMs() + terminationDeadlineMs;
+      const deadlineAtMs = settlementDeadlineAtMs();
       void raceWithDeadline(Promise.all([
         rootPid === undefined
           ? Promise.resolve(false)

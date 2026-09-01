@@ -20,10 +20,6 @@ import { createScopeAuthorization } from '../../src/control/scope/authorization.
 import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
 import { CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../../src/verification/ci/contract/evidence.ts';
-import {
-  CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE,
-  parseCiVerificationSessionTerminalLocator
-} from '../../src/verification/ci/contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/verification/result/contract/result.ts';
 import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer } from '../../src/verification/review/contract/stability.ts';
 import { createVerificationSession } from '../../src/verification/session/contract/session.ts';
@@ -338,7 +334,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
     workflowPath: '.github/workflows/sec-merge-gate.yml',
     workflowRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
     workflowSha: BASE,
-    eventName: 'repository_dispatch',
+    eventName: 'workflow_run',
     sourceRunId: 'merge-200',
     sourceRunAttempt: 1,
     actorNodeId: 'USER_integrator',
@@ -780,33 +776,30 @@ function githubScript(step: WorkflowStep | undefined): string {
   return script;
 }
 
-async function executeMergePlan(payloadOverride: Readonly<Record<string, unknown>> = {}) {
+async function executeMergePlan(options: Readonly<{
+    sourceStatus?: string;
+    sourceConclusion?: string | null;
+    sourceRunAttempt?: number;
+    sourceDisplayTitle?: string;
+    artifactDigest?: `sha256:${string}`;
+    artifactRunId?: number;
+  }> = {}) {
   const workflow = await readMergeWorkflow();
   const script = githubScript(workflow.jobs.plan?.steps[0]);
   const sessionRevision = D('9');
   const artifactName =
     `sec-verification-session-v2-pr-${PR}-session-${sessionRevision.slice(7)}-run-100-attempt-2`;
-  const payload = {
-    sourceRunId: 100,
-    sourceRunAttempt: 2,
-    sourceWorkflowSha: BASE,
-    prNumber: PR,
-    baseSha: BASE,
-    headSha: HEAD,
-    sessionRevision,
-    artifactId: 9018395538,
-    artifactName,
-    artifactDigest: D('8'),
-    ...payloadOverride
-  };
   const outputs = new Map<string, string>();
   const github = {
     rest: {
       actions: {
         getWorkflowRun: async () => ({ data: {
           id: 100, run_attempt: 2, workflow_id: 307443415, event: 'repository_dispatch',
-          status: 'completed', conclusion: 'success', head_sha: BASE,
-          display_title: `verify session PR #${PR} session ${sessionRevision}`,
+          status: options.sourceStatus ?? 'completed',
+          conclusion: options.sourceConclusion === undefined ? 'success' : options.sourceConclusion,
+          head_sha: BASE,
+          display_title: options.sourceDisplayTitle
+            ?? `verify session PR #${PR} session ${sessionRevision}`,
           actor: { login: 'integrator', node_id: 'USER_integrator' },
           triggering_actor: { login: 'integrator', node_id: 'USER_integrator' }
         } }),
@@ -835,153 +828,71 @@ async function executeMergePlan(payloadOverride: Readonly<Record<string, unknown
     paginate: async () => [{
       id: 9018395538,
       name: artifactName,
-      digest: D('8'),
+      digest: options.artifactDigest ?? D('8'),
       expired: false,
       size_in_bytes: 100,
-      workflow_run: { id: 100 }
+      workflow_run: { id: options.artifactRunId ?? 100 }
     }]
   };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
     ...args: string[]
   ) => (...values: unknown[]) => Promise<void>;
-  await new AsyncFunction('github', 'context', 'core', 'process', 'setTimeout', script)(
+  await new AsyncFunction('github', 'context', 'core', 'process', script)(
     github,
     { repo: { owner: 'sec-platform', repo: 'sec' },
       payload: {
-        action: CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE,
-        sender: { login: 'github-actions[bot]', id: 41898282,
-          node_id: 'MDM6Qm90NDE4OTgyODI=', type: 'Bot' },
-        repository: { id: 123, full_name: 'sec-platform/sec' }
+        action: 'completed',
+        repository: { id: 123, full_name: 'sec-platform/sec' },
+        workflow_run: { id: 100, run_attempt: options.sourceRunAttempt ?? 2 }
       } },
-    { setOutput: (name: string, value: string) => outputs.set(name, value) },
-    { env: { TERMINAL_PAYLOAD_JSON: JSON.stringify(payload), WORKFLOW_SHA: BASE } },
-    setTimeout
+    { setOutput: (name: string, value: string) => outputs.set(name, value), notice: () => undefined },
+    { env: { WORKFLOW_RUN_JSON: JSON.stringify({ id: 100,
+      run_attempt: options.sourceRunAttempt ?? 2 }), WORKFLOW_SHA: BASE } }
   );
   return outputs;
 }
 
-async function executeCompilerTerminalPublisher(input: {
-  sourceStatus?: string;
-  artifactDigest?: `sha256:${string}`;
-} = {}) {
-  const workflow = await readCompilerWorkflow();
-  const step = workflow.jobs['coordinate-verification-session']?.steps.find(
-    ({ name }) => name === 'Read back passed terminal Session artifact and dispatch merge admission'
-  );
-  const script = githubScript(step);
-  const sessionRevision = D('9');
-  const artifactName =
-    `sec-verification-session-v2-pr-${PR}-session-${sessionRevision.slice(7)}-run-100-attempt-2`;
-  const dispatches: unknown[] = [];
-  const github = { rest: {
-    actions: {
-      getWorkflowRun: async () => ({ data: {
-        id: 100, run_attempt: 2, workflow_id: 307443415, event: 'repository_dispatch',
-        head_sha: BASE, display_title: `verify session PR #${PR} session ${sessionRevision}`,
-        status: input.sourceStatus ?? 'in_progress', conclusion: null
-      } }),
-      getWorkflow: async () => ({ data: {
-        id: 307443415, path: '.github/workflows/compiler-pr-validation.yml'
-      } }),
-      getArtifact: async () => ({ data: {
-        id: 9018395538, name: artifactName, expired: false, size_in_bytes: 100,
-        workflow_run: { id: 100 }, digest: input.artifactDigest ?? D('8')
-      } })
-    },
-    repos: {
-      createDispatchEvent: async (value: unknown) => { dispatches.push(value); }
-    }
-  } };
-  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
-    ...args: string[]
-  ) => (...values: unknown[]) => Promise<void>;
-  const execute = new AsyncFunction('github', 'context', 'process', script)(
-    github,
-    { repo: { owner: 'sec-platform', repo: 'sec' } },
-    { env: {
-      SOURCE_RUN_ID: '100',
-      SOURCE_RUN_ATTEMPT: '2',
-      SOURCE_WORKFLOW_SHA: BASE,
-      PR_NUMBER: String(PR),
-      BASE_SHA: BASE,
-      HEAD_SHA: HEAD,
-      SESSION_REVISION: sessionRevision,
-      ARTIFACT_ID: '9018395538',
-      ARTIFACT_NAME: artifactName,
-      ARTIFACT_DIGEST: D('8')
-    } }
-  );
-  return { execute, dispatches };
-}
-
-test('terminal Session dispatch locator rejects tampering and preserves the exact API locator', () => {
-  const locator = {
-    sourceRunId: 100,
-    sourceRunAttempt: 2,
-    sourceWorkflowSha: BASE,
-    prNumber: PR,
-    baseSha: BASE,
-    headSha: HEAD,
-    sessionRevision: D('9'),
-    artifactId: 9018395538,
-    artifactName: `sec-verification-session-v2-pr-${PR}-session-${D('9').slice(7)}-run-100-attempt-2`,
-    artifactDigest: D('8')
-  } as const;
-  expect(parseCiVerificationSessionTerminalLocator(locator)).toEqual(locator);
-  expect(() => parseCiVerificationSessionTerminalLocator({ ...locator, headSha: BASE, extra: true }))
-    .toThrow('Unrecognized key');
-  expect(() => parseCiVerificationSessionTerminalLocator({ ...locator, sourceWorkflowSha: HEAD }))
-    .toThrow('workflow SHA must equal the exact base SHA');
-});
-
-test('merge plan derives exact terminal identity from API readback and rejects locator tampering', async () => {
+test('merge plan derives terminal identity from completed source-run API readback', async () => {
   const outputs = await executeMergePlan();
   expect(Object.fromEntries(outputs)).toEqual({
+    ready: 'true',
     'base-sha': BASE,
     'current-main-sha': BASE,
     'head-sha': HEAD,
     'pr-number': String(PR),
     'session-revision': D('9').slice(7)
   });
-  await expect(executeMergePlan({ headSha: '5'.repeat(40) }))
-    .rejects.toThrow('PR base/head API readback differs');
-  await expect(executeMergePlan({ artifactDigest: D('7') }))
+  await expect(executeMergePlan({ artifactRunId: 101 }))
     .rejects.toThrow('exactly one live provenance-bound terminal Session artifact');
 });
 
-test('compiler publishes merge admission only after passed terminal artifact readback', async () => {
+test('merge wakeup is event-driven and rejects stale or nonterminal provider observations', async () => {
+  const workflow = await readMergeWorkflow();
+  const script = githubScript(workflow.jobs.plan?.steps[0]);
+  expect(script).not.toContain('setTimeout');
+  expect(script).not.toContain('for (let attempt');
+  await expect(executeMergePlan({ sourceStatus: 'in_progress', sourceConclusion: null }))
+    .rejects.toThrow('wakeup disagrees with source run API settlement');
+  const staleCompletion = await executeMergePlan({ sourceRunAttempt: 1 });
+  expect(Object.fromEntries(staleCompletion)).toEqual({ ready: 'false' });
+  const unrelatedCompletion = await executeMergePlan({
+    sourceDisplayTitle: 'produce one hosted verification action'
+  });
+  expect(Object.fromEntries(unrelatedCompletion)).toEqual({ ready: 'false' });
+});
+
+test('compiler exposes one terminal artifact and relies on native completion wakeup', async () => {
   const workflow = await readCompilerWorkflow();
   const coordinator = workflow.jobs['coordinate-verification-session']!;
   const names = coordinator.steps.map(({ name }) => name);
   const upload = names.indexOf('Upload sole terminal Verification Session artifact');
   const terminal = names.indexOf('Preserve exact terminal five-state Session result');
-  const dispatch = names.indexOf('Read back passed terminal Session artifact and dispatch merge admission');
   expect(upload).toBeGreaterThan(-1);
   expect(terminal).toBeGreaterThan(upload);
-  expect(dispatch).toBeGreaterThan(terminal);
-  expect(coordinator.steps[dispatch]?.uses)
-    .toBe('actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b');
-  expect(githubScript(coordinator.steps[dispatch])).toContain(
-    `event_type: '${CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE}'`
-  );
   const dispatchSites = Object.values(workflow.jobs).flatMap((job) => job.steps)
     .filter((candidate) => typeof candidate.with?.script === 'string' &&
       candidate.with.script.includes('createDispatchEvent'));
-  expect(dispatchSites).toHaveLength(1);
-  const positive = await executeCompilerTerminalPublisher();
-  await positive.execute;
-  expect(positive.dispatches).toHaveLength(1);
-  expect(positive.dispatches[0]).toMatchObject({
-    event_type: CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE,
-    client_payload: { sourceRunId: 100, sourceRunAttempt: 2, prNumber: PR,
-      baseSha: BASE, headSha: HEAD, sessionRevision: D('9') }
-  });
-  const nonTerminal = await executeCompilerTerminalPublisher({ sourceStatus: 'queued' });
-  await expect(nonTerminal.execute).rejects.toThrow('source run/workflow API readback is not exact');
-  expect(nonTerminal.dispatches).toHaveLength(0);
-  const artifactTamper = await executeCompilerTerminalPublisher({ artifactDigest: D('7') });
-  await expect(artifactTamper.execute).rejects.toThrow('artifact API readback is not exact');
-  expect(artifactTamper.dispatches).toHaveLength(0);
+  expect(dispatchSites).toHaveLength(0);
 });
 
 test('hosted integration splits read-only authorization, terminal status, and merge effects', async () => {
@@ -991,10 +902,10 @@ test('hosted integration splits read-only authorization, terminal status, and me
   const terminal = workflow.jobs['terminal-status']!;
   const integrate = workflow.jobs.integrate!;
 
-  expect(workflow.on.repository_dispatch).toEqual({
-    types: [CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE]
+  expect(workflow.on.repository_dispatch).toBeUndefined();
+  expect(workflow.on.workflow_run).toEqual({
+    workflows: ['compiler-pr-validation'], types: ['completed']
   });
-  expect(workflow.on.workflow_run).toBeUndefined();
   expect(workflow.permissions).toEqual({ actions: 'read', contents: 'read' });
   expect(workflow.concurrency).toEqual({
     group: 'sec-integration-${{ github.repository_id }}-${{ github.event.repository.default_branch }}',
@@ -1008,7 +919,7 @@ test('hosted integration splits read-only authorization, terminal status, and me
     .toBe('actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b');
 
   expect(authorize.needs).toBe('plan');
-  expect(authorize.if).toBeUndefined();
+  expect(authorize.if).toBe("${{ needs.plan.outputs.ready == 'true' }}");
   expect(authorize.permissions).toEqual({
     actions: 'read',
     checks: 'read',

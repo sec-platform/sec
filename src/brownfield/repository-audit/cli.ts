@@ -95,7 +95,7 @@ import { compileSourceProgramImplementationDominance } from '../source-program-m
 import {
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
-import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramUnusedSymbolEvidence } from '../source-program-model/reduction.ts';
+import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramUnusedSymbolProviderReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramUnusedSymbolEvidence, type SourceProgramUnusedSymbolProviderReceipt } from '../source-program-model/reduction.ts';
 import { createRepositoryCompilationCacheProvider } from '../source-program-model/repository-compilation-cache-provider.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
 import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
@@ -472,6 +472,45 @@ export interface RepositoryAuditCliProjection {
   readonly unknownsDigest: `sha256:${string}`;
 }
 
+export class RepositoryAuditCliProjectionContractError extends Error {
+  readonly code = 'repository-audit-cli-projection-source-invalid' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'RepositoryAuditCliProjectionContractError';
+  }
+}
+
+function assertRepositoryAuditCliProjectionSource(
+  report: RepositoryAuditReport
+): void {
+  const architecture = report?.architecture;
+  const declarationTopology = report?.declarationTopology;
+  if (architecture === null || typeof architecture !== 'object'
+      || !Array.isArray(architecture.feedbackCuts)
+      || !Array.isArray(architecture.reciprocalPairs)
+      || !Array.isArray(architecture.strongComponents)
+      || !Array.isArray(architecture.violations)
+      || declarationTopology === null || typeof declarationTopology !== 'object'
+      || !/^sha256:[0-9a-f]{64}$/u.test(declarationTopology.topologyDigest)
+      || !Array.isArray(declarationTopology.declarations)
+      || !Array.isArray(declarationTopology.edges)
+      || !Array.isArray(declarationTopology.strongComponents)
+      || !Array.isArray(declarationTopology.unknowns)
+      || report.revision === null || typeof report.revision !== 'object'
+      || report.summary === null || typeof report.summary !== 'object'
+      || !Array.isArray(report.findings)
+      || report.findings.some((finding) => (
+        finding === null || typeof finding !== 'object' || typeof finding.code !== 'string'
+      ))
+      || !Array.isArray(report.unknowns)
+      || report.unknowns.some((unknown) => typeof unknown !== 'string')) {
+    throw new RepositoryAuditCliProjectionContractError(
+      'Repository audit CLI projection requires one complete canonical report source.'
+    );
+  }
+}
+
 /**
  * Interactive audit output is a decision projection, not a second report.
  * The exact full report remains available through --full or --output.
@@ -479,6 +518,7 @@ export interface RepositoryAuditCliProjection {
 export function projectRepositoryAuditCli(
   report: RepositoryAuditReport
 ): RepositoryAuditCliProjection {
+  assertRepositoryAuditCliProjectionSource(report);
   return Object.freeze({
     architecture: projectRepositoryModuleArchitectureCli(report.architecture),
     declarationTopology: Object.freeze({
@@ -1178,8 +1218,10 @@ async function compileWorkingTreeModuleTopology(
 }
 
 async function compileKnipUnusedSymbolEvidence(
-  repositoryRoot: string
-): Promise<readonly SourceProgramUnusedSymbolEvidence[]> {
+  repositoryRoot: string,
+  model: SourceProgramModel,
+  files: readonly SourceProgramFileInput[]
+): Promise<SourceProgramUnusedSymbolProviderReceipt> {
   const options = await createKnipOptions({
     cwd: repositoryRoot,
     includedIssueTypes: ['exports', 'types'],
@@ -1197,15 +1239,23 @@ async function compileKnipUnusedSymbolEvidence(
       for (const name of Object.keys(symbols)) {
         evidence.push(Object.freeze({
           path: repositoryPath,
-          name,
-          provider: 'knip',
-          providerRevision
+          name
         }));
       }
     }
   }
-  return Object.freeze(evidence.sort((left, right) =>
-    compareCodeUnits(left.path, right.path) || compareCodeUnits(left.name, right.name)));
+  return compileSourceProgramUnusedSymbolProviderReceipt({
+    model,
+    files,
+    providerRevision,
+    configuration: Object.freeze({
+      includedIssueTypes: Object.freeze(['exports', 'types'] as const),
+      isShowProgress: false as const
+    }),
+    settlement: 'completed',
+    candidates: Object.freeze(evidence.sort((left, right) =>
+      compareCodeUnits(left.path, right.path) || compareCodeUnits(left.name, right.name)))
+  });
 }
 
 async function compileWorkingTreeSourceProgram(
@@ -2562,7 +2612,11 @@ export async function runRepositoryAuditCli(
       ? compileSourceProgramGraphCutReductionPlan(
           model,
           worktreeAudit.sourceFiles,
-          await compileKnipUnusedSymbolEvidence(DEFAULT_REPOSITORY_ROOT),
+          await compileKnipUnusedSymbolEvidence(
+            DEFAULT_REPOSITORY_ROOT,
+            model,
+            worktreeAudit.sourceFiles
+          ),
           Object.freeze({
             moduleMembership: worktreeAudit.moduleMembership,
             reviewedProcessDispatchers: worktreeAudit.reviewedProcessDispatchers

@@ -78,7 +78,7 @@ export interface HostedWorkflowCommentProvenance {
   workflowSha: string;
   runId: string;
   runAttempt: number;
-  eventName: 'repository_dispatch';
+  eventName: 'workflow_run';
   sourceRunId: string;
   sourceRunAttempt: number;
   actorLogin: string;
@@ -284,7 +284,7 @@ export function createHostedWorkflowCommentProvenance(input: Omit<
   assertGitSha(input.workflowSha, 'hosted comment workflow SHA');
   if (input.workflowPath !== '.github/workflows/sec-merge-gate.yml'
     || input.workflowRef !== `${input.workflowPath}@${input.workflowSha}`
-    || input.eventName !== 'repository_dispatch') {
+    || input.eventName !== 'workflow_run') {
     throw new Error('Hosted comment workflow provenance is not the canonical merge workflow exact ref.');
   }
   positiveInteger(input.runAttempt, 'Hosted comment runAttempt');
@@ -321,7 +321,7 @@ export function parseHostedWorkflowCommentProvenance(
     workflowSha: boundedIdentity(value.workflowSha, 'Hosted comment workflowSha'),
     runId: boundedIdentity(value.runId, 'Hosted comment runId'),
     runAttempt: positiveInteger(value.runAttempt, 'Hosted comment runAttempt'),
-    eventName: value.eventName as 'repository_dispatch',
+    eventName: value.eventName as 'workflow_run',
     sourceRunId: boundedIdentity(value.sourceRunId, 'Hosted comment sourceRunId'),
     sourceRunAttempt: positiveInteger(value.sourceRunAttempt, 'Hosted comment sourceRunAttempt'),
     actorLogin: boundedIdentity(value.actorLogin, 'Hosted comment actorLogin'),
@@ -1058,12 +1058,9 @@ export function assertHostedCommentProvenanceLive(
     'hosted comment workflow run attempt readback');
   assertRecord(run.actor, 'hosted comment workflow actor');
   assertRecord(run.repository, 'hosted comment workflow repository');
-  const actionsBot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
   if (String(run.id ?? '') !== provenance.runId || run.run_attempt !== provenance.runAttempt
     || run.event !== provenance.eventName || run.path !== provenance.workflowPath
     || run.head_sha !== provenance.workflowSha
-    || run.actor.login !== actionsBot.login || run.actor.id !== actionsBot.id
-    || run.actor.node_id !== actionsBot.nodeId || run.actor.type !== actionsBot.type
     || String(run.repository.id ?? '') !== provenance.repositoryId) {
     throw new Error('hosted comment workflow run provenance drifted');
   }

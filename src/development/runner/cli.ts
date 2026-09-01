@@ -1,9 +1,9 @@
 import path from 'node:path';
 
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
-import { runObservedCommand } from '../../runtime-state/physical/runtime/observed-process-stdin.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
+import { runDevCommand } from './command-runner.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
 import {
   createDependencyFreshProcessHandoff,
@@ -31,25 +31,21 @@ export async function handoffDevRunnerToFreshProcess(
   if (entrypoint === undefined || path.relative(canonicalEntrypoint, path.resolve(entrypoint)) !== '') {
     throw new Error('Dev runner fresh-process handoff has no exact entrypoint identity.');
   }
-  const argv = [process.execPath, entrypoint, ...process.argv.slice(2)];
-  const outcome = await runObservedCommand(process.execPath, argv.slice(1), {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
+  return runDevCommand('bun', [entrypoint, ...process.argv.slice(2)], {
       [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV]: handoff.transitionDigest,
       ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
         [WORKSPACE_TRANSITION_DEADLINE_ENV]:
           String(workspaceTransitionDeadlineAtUnixMs)
       })
-    },
-    envMode: 'replace',
-    stdio: 'inherit',
+  }, {
+    workingDirectory: process.cwd(),
+    ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
+      deadlineAtUnixMs: workspaceTransitionDeadlineAtUnixMs
+    }),
     ...(standardInput === undefined ? {} : {
-      input: standardInput,
-      maxStdinBytes: standardInput.byteLength
+      input: standardInput
     })
   });
-  return outcome.status === 'exited' ? outcome.exitCode ?? 1 : 1;
 }
 
 type CheckAffectedDemand = ReturnType<typeof compileSecOperationDemandGraph>;
@@ -104,31 +100,8 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
   });
   const dependencies = await ensureOperationDependencies(demand);
   const admittedDependencies = reuseOperationDependencies(dependencies, demand);
-  const {
-    COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
-    retainCompilerDependencyExecutionGeneration
-  } = await import('../../toolchain/dependencies/runtime.ts');
-  const deadlineAtUnixMs = Date.now()
-    + COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY.maximumDurationMs;
-  const retained = await retainCompilerDependencyExecutionGeneration(
-    admittedDependencies.executionGenerationAuthority,
-    { deadlineAtUnixMs }
-  );
-  let transferred = false;
-  try {
-    const { runTypecheckWithRetainedDependencyGeneration } = await import(
-      './typecheck-runner.ts'
-    );
-    transferred = true;
-    return runTypecheckWithRetainedDependencyGeneration(
-      admittedDependencies,
-      retained,
-      [...args],
-      { deadlineAtUnixMs }
-    );
-  } finally {
-    if (!transferred) await retained.retire();
-  }
+  const { runTypecheckWithDependencyAuthority } = await import('./typecheck-runner.ts');
+  return runTypecheckWithDependencyAuthority(admittedDependencies, [...args]);
 }
 
 function usage(): never {

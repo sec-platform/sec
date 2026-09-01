@@ -260,16 +260,18 @@ export type SourceProgramOperationIdentity = Readonly<{
   readonly operation: string;
 }>;
 
+declare const sourceProgramOperationProducerClosureBrand: unique symbol;
+
 /**
  * Process-local Source Program proof of the complete implementation reachable
  * from every descriptor-owned entrypoint of one semantic operation. Consumers
  * select only the operation identity; paths and revisions remain compiler-owned.
  */
 export interface SourceProgramOperationProducerClosure {
+  readonly [sourceProgramOperationProducerClosureBrand]: true;
   readonly operation: SourceProgramOperationIdentity;
   readonly moduleId: string;
   readonly entrypointAddresses: readonly SourceProgramEntrypointAddress[];
-  readonly sourceRevision: string;
   readonly files: readonly Readonly<{
     readonly path: string;
     readonly contentDigest: string;
@@ -369,6 +371,7 @@ export type SourceProgramCandidateCode =
   | 'versioned-declaration-conflicts-with-canonical-name'
   | 'versioned-declaration-without-coexisting-version'
   | 'direct-process-transport-outside-owner'
+  | 'process-resource-session-boundary-unresolved'
   | 'durable-worker-domain-import'
   | 'durable-worker-generic-input-exposed'
   | 'operation-issuer-role-conflict'
@@ -388,6 +391,7 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
   'causal-identity-unresolved',
   'causal-relation-owner-bypass',
   'direct-process-transport-outside-owner',
+  'process-resource-session-boundary-unresolved',
   'durable-worker-domain-import',
   'durable-worker-generic-input-exposed',
   'duplicate-production-endpoint-literal',

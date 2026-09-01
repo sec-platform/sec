@@ -84,7 +84,12 @@ test('repository module operation obligations are strict and bind declared publi
       retirement: 'replacement-obligations-satisfied'
     },
     resources: {
-      aggregateBudgets: [{ resource: 'duration-ms', maximum: 1_000 }]
+      aggregateBudgets: [
+        { resource: 'duration-ms', maximum: 1_000 },
+        { resource: 'input-bytes', maximum: 0 },
+        { resource: 'output-bytes', maximum: 1 },
+        { resource: 'processes', maximum: 1 }
+      ]
     },
     futureSupport: { condition: 'semantic-superset-required' }
   } as const;
@@ -119,6 +124,30 @@ test('repository module operation obligations are strict and bind declared publi
     ...descriptor,
     operationObligations: [{
       ...obligation,
+      resources: {
+        aggregateBudgets: obligation.resources.aggregateBudgets.filter(
+          ({ resource }) => resource !== 'input-bytes'
+        )
+      }
+    }]
+  }, 'src/provider/sec.module.json')).toThrow(
+    'process Effect obligation must declare exactly one input-bytes ceiling'
+  );
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    operationObligations: [{
+      ...obligation,
+      resources: {
+        aggregateBudgets: obligation.resources.aggregateBudgets.map((budget) => (
+          budget.resource === 'output-bytes' ? { ...budget, maximum: 0 } : budget
+        ))
+      }
+    }]
+  }, 'src/provider/sec.module.json')).toThrow('expected a canonical static aggregate ceiling');
+  expect(() => parseSecModuleDescriptor({
+    ...descriptor,
+    operationObligations: [{
+      ...obligation,
       operation: { ...obligation.operation, operation: 'undeclared' }
     }]
   }, 'src/provider/sec.module.json')).toThrow('must bind one declared capability provider operation');
@@ -144,6 +173,8 @@ test('effectful provider exposure separates owner internals from operation-bound
     resources: {
       aggregateBudgets: [
         { resource: 'duration-ms', maximum: 1_000 },
+        { resource: 'input-bytes', maximum: 0 },
+        { resource: 'output-bytes', maximum: 1 },
         { resource: 'processes', maximum: 1 }
       ]
     },

@@ -641,6 +641,7 @@ export function runtimeRelativeImportsFromSource(
       && node.text === 'module'
       && !isPropertyName(node)
       && !isTypeOnlyIdentifier(node)
+      && !isLocallyBoundIdentifier(node)
     ) {
       const isDirectRequireOwner = (
         ts.isPropertyAccessExpression(node.parent)
@@ -759,6 +760,18 @@ export function runtimeRelativeImportsFromSource(
           && node.parent.expression === node
           && node.parent.questionDotToken === undefined
         );
+        const isDirectBuiltinStdinRead = (
+          bunNamespace === 'Bun'
+          && member === 'stdin'
+          && node.questionDotToken === undefined
+          && ts.isPropertyAccessExpression(node.parent)
+          && node.parent.expression === node
+          && node.parent.name.text === 'bytes'
+          && node.parent.questionDotToken === undefined
+          && ts.isCallExpression(node.parent.parent)
+          && node.parent.parent.expression === node.parent
+          && node.parent.parent.questionDotToken === undefined
+        );
         if (TCB_BUN_PROCESS_LOADERS.has(`Bun.${member}`)) {
           if (!ts.isCallExpression(node.parent) || node.parent.expression !== node) {
             rejectUnmodeledLoader(`indirect Bun process loader ${bunNamespace}.${member}`);
@@ -768,6 +781,7 @@ export function runtimeRelativeImportsFromSource(
           && !isDirectBuiltinSemverSatisfies
           && !isDirectBuiltinTranspilerConstruction
           && !isDirectBuiltinExecutableLookup
+          && !isDirectBuiltinStdinRead
           && !TCB_BUN_SAFE_GLOBAL_MEMBERS.has(member)
         ) {
           rejectUnmodeledLoader(`unclassified Bun namespace member ${bunNamespace}.${member}`);
@@ -817,6 +831,7 @@ export function runtimeRelativeImportsFromSource(
       && bunProcessBindings.has(node.text)
       && !isImportBindingDeclaration(node)
       && !isPropertyName(node)
+      && !isTypeOnlyIdentifier(node)
       && !(ts.isCallExpression(node.parent) && node.parent.expression === node)
     ) rejectUnmodeledLoader(`indirect bun process binding ${node.text}`);
     if (
@@ -824,6 +839,7 @@ export function runtimeRelativeImportsFromSource(
       && childProcessBindings.has(node.text)
       && !isImportBindingDeclaration(node)
       && !isPropertyName(node)
+      && !isTypeOnlyIdentifier(node)
       && !(ts.isCallExpression(node.parent) && node.parent.expression === node)
     ) rejectUnmodeledLoader(`indirect node:child_process binding ${node.text}`);
     if (
@@ -831,12 +847,14 @@ export function runtimeRelativeImportsFromSource(
       && threadWorkerBindings.has(node.text)
       && !isImportBindingDeclaration(node)
       && !isPropertyName(node)
+      && !isTypeOnlyIdentifier(node)
       && !(ts.isNewExpression(node.parent) && node.parent.expression === node)
     ) rejectUnmodeledLoader(`indirect node:worker_threads Worker binding ${node.text}`);
     if (
       ts.isIdentifier(node)
       && childProcessNamespaces.has(node.text)
       && !isImportBindingDeclaration(node)
+      && !isTypeOnlyIdentifier(node)
     ) {
       const namespaceAccess = ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node
         ? node.parent

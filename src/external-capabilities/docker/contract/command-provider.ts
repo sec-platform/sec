@@ -1,5 +1,4 @@
 import type { SecOperationDigest } from '../../../system-architecture/operation/semantic.ts';
-import type { DockerDesktopLoginStart } from './login-start.ts';
 
 /**
  * Opaque ownership transfer for one already-retained Docker executable/cwd
@@ -8,7 +7,6 @@ import type { DockerDesktopLoginStart } from './login-start.ts';
  */
 export interface DockerCommandProviderCapability {
   readonly executable: string;
-  readonly loginStart: DockerDesktopLoginStart;
   readonly providerIdentityDigest: SecOperationDigest;
   readonly workingDirectory: string;
 }

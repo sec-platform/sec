@@ -5,7 +5,10 @@ import {
   buildLocalAffectedCheckPlan,
   type LocalAffectedGateStep
 } from './affected-plan-contract.ts';
-import type { OperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
+import {
+  retainOperationDependencyReadGeneration,
+  type OperationDependencyBootstrapResult
+} from './dependency-bootstrap.ts';
 import {
   type ResolvedAffectedTestExecution
 } from './test-runner.ts';
@@ -75,15 +78,40 @@ export async function runLocalAffectedCheck(
   }
   const { issueCheckAffectedTestImpactProjection } = await import('./check-affected-source.ts');
   const { resolveAffectedTestExecution } = await import('./test-runner.ts');
-  const affectedExecution = await resolveAffectedTestExecution({
-    operation: options.operation,
-    issueTestImpactProjection: issueCheckAffectedTestImpactProjection,
-    // This owner performs the explicit admission immediately before compiler
-    // dependency preparation and before every gate. Plan output keeps the
-    // resolution-time fence; execution avoids an otherwise redundant full
-    // source census before its own adjacent fence.
-    verifyAtResolution: args.length === 1
-  });
+  if (args.length === 0 && !options.prepareCompilerDependencies) {
+    console.error('Local affected execution requires completed compiler dependency admission.');
+    return 1;
+  }
+  const compilerDependencies = args.length === 0
+    ? await options.prepareCompilerDependencies!()
+    : undefined;
+  const dependencyResolution = compilerDependencies === undefined
+    ? null
+    : await retainOperationDependencyReadGeneration({
+        dependencies: compilerDependencies,
+        deadlineAtUnixMs: options.operation.plan.attempt.deadlineAtUnixMs
+      });
+  if (dependencyResolution?.status === 'unavailable') {
+    console.error(`Affected ProjectInput dependency generation is unavailable: ${dependencyResolution.reason}`);
+    return 1;
+  }
+  let affectedExecution: ResolvedAffectedTestExecution | null;
+  try {
+    affectedExecution = await resolveAffectedTestExecution({
+      dependencyGeneration: dependencyResolution?.generation,
+      operation: options.operation,
+      issueTestImpactProjection: issueCheckAffectedTestImpactProjection,
+      // This owner performs the explicit admission immediately before compiler
+      // dependency preparation and before every gate. Plan output keeps the
+      // resolution-time fence; execution avoids an otherwise redundant full
+      // source census before its own adjacent fence.
+      verifyAtResolution: args.length === 1
+    });
+  } finally {
+    if (dependencyResolution?.status === 'ready') {
+      await dependencyResolution.generation.retire();
+    }
+  }
   if (!affectedExecution) {
     console.error('Failed to detect affected test files.');
     return 1;
@@ -119,9 +147,10 @@ export async function runLocalAffectedCheck(
     console.error('Local affected compiler Gates require the canonical dependency preparation capability.');
     return 1;
   }
-  const compilerDependencies = compilerGateSelected
-    ? await options.prepareCompilerDependencies!()
-    : undefined;
+  if (compilerGateSelected && compilerDependencies === undefined) {
+    console.error('Local affected compiler Gates require completed dependency admission.');
+    return 1;
+  }
 
   console.log(`Running local affected Gate union once: ${plan.gates.map(({ id }) => id).join(' -> ')}`);
   for (const step of plan.gates) {

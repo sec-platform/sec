@@ -547,10 +547,11 @@ requirement；capability owner不能反向选择domain operation。任何中央`
 caller提供的普通结构对象都不是requirement authority。
 
 源码归一化是`development.import-normalization`领域能力，执行claim、join、reuse与terminal继续由Verification Action唯一拥有。
-归一化subject只绑定会改变结果的normalizer完整producer closure、contract/config、selected source blobs与兼容parent ActionKeys；
+归一化subject只绑定会改变结果的normalizer完整producer closure、contract/config、exact base-to-candidate selected source blobs与兼容parent ActionKeys；
 branch、ref、session、attempt、deadline、temporary path与Git transport不进入ActionKey。提交入口先通过唯一normalization owner
-对staged snapshot执行确定性变换并完成exact index/worktree readback，再冻结immutable index tree、消费或执行该Action，之后才可
-物化commit object；pre-push从outgoing ref records重算同一subject并只消费fresh terminal、join authenticated
+把hook已归一化的index冻结为immutable candidate；Action executor只消费该candidate的exact Source Program bytes，绝不回读live index，
+并在terminal前按同一Git tree object census完成readback。只有owner terminal与commit owner的index未漂移readback同时成立，才可CAS更新ref；
+pre-push从outgoing ref records重算同一subject并只消费fresh terminal、join authenticated
 in-flight或执行missing Action。Source Program从exact workspace snapshot的canonical module graph签发不可伪造的operation producer
 closure，normalization subject compiler再自行投影source blobs、configuration与toolchain identity；caller不得提交路径集、
 producer/config digest或PASS observation。最终PASS只由既有Verification Action journal中绑定exact ActionKey的owner
@@ -742,6 +743,31 @@ freeze exact files + consumers + tests + owner
 digest和终止条件，不能保留可执行compatibility facade或让新旧owner并行签发准入。完成退出条件是target module role与DAG已由
 同一exact graph证明、所有operation obligations verified、旧consumer/import/facade/alias/descriptor为零、unknown为零，并且迁移
 状态本身已退役。任何unknown必须形成typed blocker并保留迁移状态，不能被写成完成；路径移动或单次测试通过也不是完成。
+
+### 整体重构的已接受未物化义务
+
+下列义务是下一次整体架构迁移的输入，不是当前实现已完成能力，也不是为了未来猜测而保留空壳。激活条件是当前候选完成
+default-branch readback后启动一次Architecture Evolution transaction；该transaction结束时逐项以exact Source Program、真实Effect、
+持久readback和replacement/retirement receipt证明完成，随后本清单由同一owner重算，禁止长期保留“待办兼容层”。
+
+- **单一源码事实**：一个compiler-issued exact Source Program同时服务typecheck、test-impact、repository audit、unused/duplicate/hardcode、
+  import normalization和测试价值编译。pre-dependency bootstrap只允许不依赖待物化包的最小kernel；依赖完整Compiler API、YAML、Zod或并发库的
+  分析阶段必须在dependency admission之后消费同一snapshot，不能各自重扫或回退正则。
+- **责任图切换**：当前跨Control、Verification、Runner与Trusted Runtime的owner SCC必须由纯contract/projection和单向operation调用切开，
+  不以目录移动、barrel、facade或复制类型消环。每个物理迁移批次同时更新descriptor、consumer、test-impact与旧路径退役。
+- **资源守恒**：顶层operation把唯一绝对deadline和不可逆资源ledger分配给同进程子操作；跨进程handoff使用绑定parent attempt、remaining
+  allocation和同一deadline的durable subordinate receipt。不得传递内存capability、按child重开预算或让static ceiling冒充真实计量。
+- **外部能力分型**：Git read、ref CAS、bundle、remote fetch、config mutation与GitHub semantic read分别拥有窄operation；同步exact-blob、
+  裸process、ambient credential和generic argv路径在消费者迁移后原子退役。Docker、compiler、dependency与hook执行消费同一Process/Provider
+  settlement模型，不新增一对一wrapper。
+- **持久恢复**：Verification Action、dependency transition、workspace handoff和lost-handle worker只允许normal reader接受当前grammar；旧状态仅由
+  migration/recovery owner在受保护lease中读取并产生quarantine、migration或terminal receipt，不能降级为cache miss、盲重跑或手工删除。
+- **TypeScript性能闭包**：保留已实测基线——native cold约3.2秒、warm约1.2秒、当前整条typecheck约6秒、每进程authoring scan约0.7–1.1秒、
+  Windows Runtime ACL首次证明约2.95秒而同进程约70毫秒。目标不是新增daemon，而是复用Source Program/fact shards，消除重复扫描，并由
+  Windows physical owner提供同强度native retained证明；验收重新测cold/warm/delta及terminal-hit零Effect。
+
+这些义务只有在真实consumer、已接受product decision或现有durable/recovery状态证明时才保持`required-unmaterialized`；任一义务失去上述
+证据即重新进入replacement/consumer-zero裁决，不能靠本段文字、名称、测试或开放世界假设获得永久存在权。
 
 ## 能力成熟度
 

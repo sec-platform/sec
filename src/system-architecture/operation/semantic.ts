@@ -29,6 +29,13 @@ export const SEC_OPERATION_BUDGET_RESOURCES = [
 export type SecOperationBudgetResource =
   (typeof SEC_OPERATION_BUDGET_RESOURCES)[number];
 
+export const SEC_PROCESS_OPERATION_BUDGET_RESOURCES = Object.freeze([
+  'duration-ms',
+  'input-bytes',
+  'output-bytes',
+  'processes'
+] as const satisfies readonly SecOperationBudgetResource[]);
+
 export type SecOperationRequirement = Readonly<{
   readonly id: string;
   readonly contractDigest: SecOperationDigest;
@@ -38,6 +45,7 @@ export type SecOperationRequirement = Readonly<{
 
 export type SecOperationBudget = Readonly<{
   readonly resource: SecOperationBudgetResource;
+  /** Static aggregate ceiling. Runtime consumption belongs to the physical resource ledger. */
   readonly maximum: number;
 }>;
 
@@ -227,6 +235,24 @@ function canonicalUniqueStrings(values: readonly string[], label: string): reado
   return Object.freeze(canonical);
 }
 
+export function isCanonicalSecOperationBudgetMaximum(
+  resource: SecOperationBudgetResource,
+  maximum: number
+): boolean {
+  return SEC_OPERATION_BUDGET_RESOURCES.includes(resource)
+    && Number.isSafeInteger(maximum)
+    && (maximum > 0 || (resource === 'input-bytes' && maximum === 0));
+}
+
+function canonicalOperationBudget(budget: SecOperationBudget): SecOperationBudget {
+  const keys = Object.keys(budget).sort(compareCodeUnits);
+  if (keys.length !== 2 || keys[0] !== 'maximum' || keys[1] !== 'resource'
+      || !isCanonicalSecOperationBudgetMaximum(budget.resource, budget.maximum)) {
+    throw new Error('Semantic operation aggregate budget is not canonical.');
+  }
+  return Object.freeze({ resource: budget.resource, maximum: budget.maximum });
+}
+
 function canonicalRequirement(
   requirement: SecOperationRequirement
 ): SecOperationRequirement {
@@ -264,14 +290,7 @@ export function compileSecSemanticOperationIntent(input: Readonly<{
   const operation = requireId(input.operation, 'Semantic operation');
   const aggregateBudgets = [...input.aggregateBudgets]
     .sort((left, right) => compareCodeUnits(left.resource, right.resource))
-    .map(({ resource, maximum }) => {
-      if (!SEC_OPERATION_BUDGET_RESOURCES.includes(resource)
-          || !Number.isSafeInteger(maximum)
-          || maximum < 1) {
-        throw new Error('Semantic operation aggregate budget is not canonical.');
-      }
-      return Object.freeze({ resource, maximum });
-    });
+    .map(canonicalOperationBudget);
   if (new Set(aggregateBudgets.map(({ resource }) => resource)).size
       !== aggregateBudgets.length) {
     throw new Error('Semantic operation aggregate budgets must be unique by resource.');

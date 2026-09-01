@@ -5,6 +5,7 @@ import {
   assertWorkspaceTypeScriptProjectInput,
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence,
+  projectWorkspaceTypeScriptProjectFactIdentity,
   type WorkspaceTypeScriptProjectGenerationEvidence,
   type WorkspaceTypeScriptProjectInput
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
@@ -28,7 +29,6 @@ import {
   type SecOperationDigest,
   type SecProviderPhysicalDisposition
 } from '../../system-architecture/operation/semantic.ts';
-import { retainCompilerDependencyExecutionGeneration } from '../../toolchain/dependencies/runtime.ts';
 import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, type InstalledTypeScriptNativeChecker, type TypeScriptNativeCheckerProvider } from '../../toolchain/typescript/checker.ts';
 import {
   assertTypeScriptExecutionGeneration,
@@ -58,12 +58,30 @@ import type {
 } from '../../verification/result/contract/result.ts';
 import { compilerRoot, isPathInside } from '../../workspace/runtime/paths.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
-import type { OperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
+
+type TypecheckDependencyExecutionGenerationAuthority = Readonly<{
+  generationDigest: `sha256:${string}`;
+}>;
+
+/**
+ * Dependency admission is completed by the upper runner before this module is
+ * loaded. This structural projection keeps the TypeScript operation free of a
+ * static dependency-runtime edge; the physical capability is revalidated by
+ * the dependency owner at the dynamic Effect boundary.
+ */
+type TypecheckDependencyAdmission = Readonly<{
+  executionGenerationAuthority: TypecheckDependencyExecutionGenerationAuthority;
+  manifestHash: string;
+  nodeModulesPath: string;
+  requiresFreshProcess: boolean;
+  source: 'existing' | 'installed';
+  transitionDigest: `sha256:${string}`;
+}>;
 
 const TYPECHECK_ACTION_KIND = 'typescript-project-typecheck' as const;
 const TYPECHECK_ACTION_PRODUCER = Object.freeze({
   identity: 'src/development/runner/typecheck-runner',
-  revision: 'physical-bound-acl-proof-reuse-action'
+  revision: 'deferred-generation-fact-admission'
 });
 const TYPECHECK_ACTION_OPERATION = Object.freeze({
   identity: 'project-typecheck',
@@ -140,6 +158,44 @@ function issueTypecheckOperationContext(
 
 function actionDigest(value: unknown): VerificationActionKeyDigest {
   return sha256(value) as VerificationActionKeyDigest;
+}
+
+async function retainTypeScriptDependencyGeneration(
+  authority: TypecheckDependencyExecutionGenerationAuthority,
+  operation: TypecheckOperationContext
+): Promise<RetainedTypeScriptCompilerDependencyGeneration> {
+  operation.assertActive('dependency generation retention admission');
+  const dependencyRuntime = await import('../../toolchain/dependencies/runtime.ts');
+  const generation = await dependencyRuntime.retainCompilerDependencyExecutionGeneration(
+    authority as Parameters<
+      typeof dependencyRuntime.retainCompilerDependencyExecutionGeneration
+    >[0],
+    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+  );
+  if (generation.generationDigest !== authority.generationDigest) {
+    await generation.retire();
+    throw new Error('Dependency owner retained a foreign TypeScript execution generation.');
+  }
+  return generation;
+}
+
+async function retainTypeScriptDependencyReadGeneration(
+  authority: TypecheckDependencyExecutionGenerationAuthority,
+  operation: TypecheckOperationContext
+) {
+  operation.assertActive('dependency read generation retention admission');
+  const dependencyRuntime = await import('../../toolchain/dependencies/runtime.ts');
+  const generation = await dependencyRuntime.retainCompilerDependencyReadGeneration(
+    authority as Parameters<
+      typeof dependencyRuntime.retainCompilerDependencyReadGeneration
+    >[0],
+    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+  );
+  if (generation.generationDigest !== authority.generationDigest) {
+    await generation.retire();
+    throw new Error('Dependency owner retained a foreign TypeScript read generation.');
+  }
+  return generation;
 }
 
 type TypecheckSubordinateStage = Readonly<{
@@ -501,20 +557,65 @@ type TypecheckProjectActionIdentity = Readonly<{
 
 type TypecheckProjectGenerationSource = Readonly<{
   identity: TypecheckProjectActionIdentity;
-  materialize(): WorkspaceTypeScriptProjectGenerationEvidence;
+  materialize(
+    dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration
+  ): WorkspaceTypeScriptProjectGenerationEvidence;
 }>;
+
+type TypecheckActionProviderIdentity = Readonly<{
+  bindingDigest: VerificationActionKeyDigest;
+  closure: readonly Readonly<{ path: string; digest: VerificationActionKeyDigest }>[];
+}>;
+
+function physicalTypecheckActionProviderIdentity(
+  provider: TypeScriptNativeCheckerProvider
+): TypecheckActionProviderIdentity {
+  return Object.freeze({
+    bindingDigest: provider.toolchainBindingDigest,
+    closure: Object.freeze([
+      { path: 'provider/alias-package.json', digest: provider.packageManifestDigest },
+      { path: 'provider/native-executable', digest: provider.platformNativeExecutableDigest },
+      { path: 'provider/native-manifest.json', digest: provider.platformNativeManifestDigest },
+      { path: 'provider/toolchain-binding', digest: provider.toolchainBindingDigest },
+      { path: 'provider/wrapper', digest: provider.wrapperDigest }
+    ])
+  });
+}
+
+function deferredTypecheckActionProviderIdentity(
+  generationDigest: `sha256:${string}`
+): TypecheckActionProviderIdentity {
+  const selectionContractDigest = actionDigest({
+    owner: 'src/toolchain/typescript/checker.ts',
+    selection: 'typescript-native-cli-from-retained-generation',
+    packageAlias: '@typescript/native',
+    platform: process.platform,
+    architecture: process.arch,
+    projectConfig: 'tsconfig.json',
+    noEmit: true,
+    incremental: true
+  });
+  return Object.freeze({
+    bindingDigest: actionDigest({ generationDigest, selectionContractDigest }),
+    closure: Object.freeze([
+      { path: 'dependency/execution-generation', digest: generationDigest },
+      { path: 'provider/selection-contract', digest: selectionContractDigest }
+    ])
+  });
+}
 
 function projectActionIdentityFromInput(
   projectInput: WorkspaceTypeScriptProjectInput
 ): TypecheckProjectActionIdentity {
   assertWorkspaceTypeScriptProjectInput(projectInput);
+  const factIdentity = projectWorkspaceTypeScriptProjectFactIdentity(projectInput);
   return Object.freeze({
     projectInputDigest: requireActionDigest(
-      projectInput.projectInputDigest,
-      'Typecheck ProjectInput identity'
+      factIdentity.projectFactDigest,
+      'Typecheck Project fact identity'
     ),
     projectConfigDigest: requireActionDigest(
-      projectInput.projectConfigDigest,
+      factIdentity.projectConfigDigest,
       'Typecheck project configuration identity'
     )
   });
@@ -522,7 +623,7 @@ function projectActionIdentityFromInput(
 
 function compileTypecheckActionInputFromIdentity(input: Readonly<{
   dependencies: TypecheckBuildDependencyIdentity;
-  provider: TypeScriptNativeCheckerProvider;
+  provider: TypecheckActionProviderIdentity;
   project: TypecheckProjectActionIdentity;
   diagnosticArguments: readonly string[];
   semanticOperation: SecBoundSemanticOperation;
@@ -574,11 +675,7 @@ function compileTypecheckActionInputFromIdentity(input: Readonly<{
         { name: 'repository-project-input', digest: projectInputDigest },
         { name: 'project-config', digest: projectConfigDigest },
         { name: 'semantic-operation-identity', digest: input.semanticOperation.plan.identity.identityDigest },
-        { name: 'provider-binding', digest: provider.toolchainBindingDigest },
-        { name: 'provider-native-executable', digest: provider.platformNativeExecutableDigest },
-        { name: 'provider-native-manifest', digest: provider.platformNativeManifestDigest },
-        { name: 'provider-package-manifest', digest: provider.packageManifestDigest },
-        { name: 'provider-wrapper', digest: provider.wrapperDigest },
+        { name: 'provider-binding', digest: provider.bindingDigest },
         { name: 'process-policy', digest: executionPolicyDigest },
         { name: 'toolchain-runtime', digest: runtimeDigest }
       ])
@@ -586,18 +683,14 @@ function compileTypecheckActionInputFromIdentity(input: Readonly<{
     inputClosure: Object.freeze([
       { path: 'dependency/admission', digest: dependencyAdmissionDigest },
       { path: 'repository/project-input', digest: projectInputDigest },
-      { path: 'provider/alias-package.json', digest: provider.packageManifestDigest },
-      { path: 'provider/native-executable', digest: provider.platformNativeExecutableDigest },
-      { path: 'provider/native-manifest.json', digest: provider.platformNativeManifestDigest },
-      { path: 'provider/toolchain-binding', digest: provider.toolchainBindingDigest },
-      { path: 'provider/wrapper', digest: provider.wrapperDigest },
+      ...provider.closure,
       { path: 'provider/process-policy', digest: executionPolicyDigest },
       { path: 'semantic/operation-identity', digest: input.semanticOperation.plan.identity.identityDigest },
       { path: 'tsconfig.json', digest: projectConfigDigest }
     ]),
     environment: Object.freeze({
       toolchainRevision: `bun@${Bun.version}`,
-      providerRevision: provider.toolchainBindingDigest,
+      providerRevision: provider.bindingDigest,
       contractRevision: TYPECHECK_ACTION_CONTRACT
     }),
     requiredCheapPreflightActionKeys: Object.freeze([]),
@@ -615,7 +708,7 @@ export function compileTypecheckActionInput(input: Readonly<{
 }>): VerificationActionKeyInput {
   return compileTypecheckActionInputFromIdentity({
     dependencies: input.dependencies,
-    provider: input.provider,
+    provider: physicalTypecheckActionProviderIdentity(input.provider),
     project: projectActionIdentityFromInput(input.projectInput),
     diagnosticArguments: input.diagnosticArguments,
     semanticOperation: input.semanticOperation
@@ -633,6 +726,20 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
   if (input.projectConfigPath !== provider.projectConfig) {
     throw new Error('Typecheck semantic operation project config must come from the selected provider.');
   }
+  return compileTypecheckSemanticOperationWithProviderIdentity({
+    projectConfigPath: input.projectConfigPath,
+    diagnosticArguments: input.diagnosticArguments,
+    providerIdentityDigest: provider.toolchainBindingDigest,
+    deadlineAtUnixMs: input.deadlineAtUnixMs
+  });
+}
+
+function compileTypecheckSemanticOperationWithProviderIdentity(input: Readonly<{
+  projectConfigPath: string;
+  diagnosticArguments: readonly string[];
+  providerIdentityDigest: VerificationActionKeyDigest;
+  deadlineAtUnixMs: number;
+}>): SecBoundSemanticOperation {
   const checkerContractDigest = actionDigest({
     operation: 'verification.typecheck',
     projectConfig: 'tsconfig.json',
@@ -714,7 +821,7 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
     compileSecCapabilityBinding({
       requirementId: TYPECHECK_REQUIREMENT.projectCheck,
       contractDigest: checkerContractDigest,
-      providerIdentityDigest: provider.toolchainBindingDigest as SecOperationDigest
+      providerIdentityDigest: input.providerIdentityDigest as SecOperationDigest
     }),
     compileSecCapabilityBinding({
       requirementId: 'verification.action-diagnostics',
@@ -780,17 +887,17 @@ export function resolveTypecheckBuildInfoPath(input: Readonly<{
 }
 
 export type TypecheckBuildDependencyIdentity = Readonly<Pick<
-  OperationDependencyBootstrapResult,
+  TypecheckDependencyAdmission,
   'nodeModulesPath' | 'requiresFreshProcess' | 'source'
 > & { readonly identityDigest: `sha256:${string}` }>;
 
 type MaterializedTypecheckBuildDependencyIdentity = TypecheckBuildDependencyIdentity & Readonly<Pick<
-  OperationDependencyBootstrapResult,
+  TypecheckDependencyAdmission,
   'executionGenerationAuthority'
 >>;
 
 function materializedTypecheckDependencyIdentity(
-  dependencies: OperationDependencyBootstrapResult
+  dependencies: TypecheckDependencyAdmission
 ): MaterializedTypecheckBuildDependencyIdentity {
   return Object.freeze({
     executionGenerationAuthority: dependencies.executionGenerationAuthority,
@@ -808,23 +915,17 @@ function materializedTypecheckDependencyIdentity(
 
 async function executeObservedTypecheckWithProvider(
   dependencies: MaterializedTypecheckBuildDependencyIdentity,
-  dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration,
-  installed: InstalledTypeScriptNativeChecker,
+  initialDependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration | null,
+  initialInstalled: InstalledTypeScriptNativeChecker | null,
+  actionProviderIdentity: TypecheckActionProviderIdentity,
   diagnosticArguments: readonly string[],
   operation: TypecheckOperationContext,
   semanticOperation: SecBoundSemanticOperation,
   projectGeneration: TypecheckProjectGenerationSource
 ): Promise<number> {
-  const provider = installed.provider;
-  const buildInfoFile = resolveTypecheckBuildInfoPath({
-    provider,
-    dependencyIdentityDigest: dependencies.identityDigest,
-    nodeModulesPath: dependencies.nodeModulesPath,
-    projectConfigDigest: projectGeneration.identity.projectConfigDigest
-  });
   const actionInput = compileTypecheckActionInputFromIdentity({
     dependencies,
-    provider,
+    provider: actionProviderIdentity,
     project: projectGeneration.identity,
     diagnosticArguments,
     semanticOperation
@@ -832,6 +933,8 @@ async function executeObservedTypecheckWithProvider(
   const executionLifecycle: { generation: TypeScriptExecutionGeneration | null } = {
     generation: null
   };
+  let dependencyGeneration = initialDependencyGeneration;
+  let installed = initialInstalled;
   let dependencyGenerationTransferred = false;
   let outcome: Awaited<ReturnType<VerificationActionRunner['executeIdentity']>>;
   try {
@@ -843,10 +946,41 @@ async function executeObservedTypecheckWithProvider(
     deadlineAtUnixMs: operation.deadlineAtUnixMs,
     ...(operation.signal === undefined ? {} : { signal: operation.signal }),
     executor: async ({ action, recordSubordinateSettlement }) => {
+      if (dependencyGeneration === null) {
+        dependencyGeneration = await retainTypeScriptDependencyGeneration(
+          dependencies.executionGenerationAuthority,
+          operation
+        );
+      }
+      if (dependencyGeneration.generationDigest
+          !== dependencies.executionGenerationAuthority.generationDigest) {
+        throw new Error('Typecheck executor retained a foreign dependency generation.');
+      }
+      if (installed === null) {
+        installed = requireSelectedTypeScriptNativeChecker(
+          await selectInstalledTypeScriptNativeChecker(
+            dependencyGeneration.physicalGeneration.root.path,
+            operation
+          )
+        );
+      }
+      const selectedChecker = installed;
+      const provider = selectedChecker.provider;
+      const buildInfoFile = resolveTypecheckBuildInfoPath({
+        provider,
+        dependencyIdentityDigest: dependencies.identityDigest,
+        nodeModulesPath: dependencies.nodeModulesPath,
+        projectConfigDigest: projectGeneration.identity.projectConfigDigest
+      });
       operation.assertActive('Source Program ProjectInput materialization admission');
-      const projectGenerationEvidence = projectGeneration.materialize();
+      const projectGenerationEvidence = projectGeneration.materialize(dependencyGeneration);
       assertWorkspaceTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
       const projectInput = projectGenerationEvidence.projectInput;
+      const materializedProjectIdentity = projectActionIdentityFromInput(projectInput);
+      if (materializedProjectIdentity.projectInputDigest !== projectGeneration.identity.projectInputDigest
+          || materializedProjectIdentity.projectConfigDigest !== projectGeneration.identity.projectConfigDigest) {
+        throw new Error('Typecheck materialized ProjectInput differs from its admitted fact identity.');
+      }
       const executionGenerationDigest = typeScriptExecutionGenerationDigest(projectGenerationEvidence);
       operation.assertActive('Source Program ProjectInput materialization settlement');
       const setupStartedAtMonotonicMs = performance.now();
@@ -1076,7 +1210,7 @@ async function executeObservedTypecheckWithProvider(
         let execution: Awaited<ReturnType<typeof executeTypeScriptNativeChecker>>;
         const executionStartedAtMonotonicMs = performance.now();
         try {
-          execution = await executeTypeScriptNativeChecker(installed, {
+          execution = await executeTypeScriptNativeChecker(selectedChecker, {
             args: diagnosticArguments,
             auxiliaryDirectory: incrementalState.auxiliaryDirectory,
             buildInfoFileName: incrementalState.buildInfoFileName,
@@ -1276,7 +1410,7 @@ async function executeObservedTypecheckWithProvider(
   } finally {
     if (executionLifecycle.generation !== null) {
       await executionLifecycle.generation.retire();
-    } else if (!dependencyGenerationTransferred) {
+    } else if (!dependencyGenerationTransferred && dependencyGeneration !== null) {
       await dependencyGeneration.retire();
     }
   }
@@ -1328,6 +1462,7 @@ async function executeTypecheckWithProjectGeneration(
       dependencies,
       dependencyGeneration,
       installed,
+      physicalTypecheckActionProviderIdentity(installed.provider),
       diagnosticArguments,
       operation,
       semanticOperation,
@@ -1352,9 +1487,9 @@ async function executeTypecheckWithProvider(
   assertTypeScriptNativeChecker(installed);
   canonicalTypeScriptDiagnosticArguments(args);
   operation.assertActive('Source Program observation admission');
-  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+  const dependencyGeneration = await retainTypeScriptDependencyGeneration(
     dependencies.executionGenerationAuthority,
-    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+    operation
   );
   return executeTypecheckWithRetainedProvider(
     dependencies,
@@ -1367,14 +1502,15 @@ async function executeTypecheckWithProvider(
 
 async function executeTypecheckWithRetainedProvider(
   dependencies: MaterializedTypecheckBuildDependencyIdentity,
-  dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration,
-  installed: InstalledTypeScriptNativeChecker,
+  initialDependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration | null,
+  initialInstalled: InstalledTypeScriptNativeChecker | null,
   args: string[],
   operation: TypecheckOperationContext
 ): Promise<number> {
-  assertTypeScriptNativeChecker(installed);
+  if (initialInstalled !== null) assertTypeScriptNativeChecker(initialInstalled);
   canonicalTypeScriptDiagnosticArguments(args);
   operation.assertActive('retained Source Program observation admission');
+  const projectConfigPath = 'tsconfig.json';
   let transferred = false;
   try {
     return await withAuthorityGitReadSession({
@@ -1391,39 +1527,65 @@ async function executeTypecheckWithRetainedProvider(
     }, async (session) => {
       const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
       operation.assertActive('Source Program snapshot readback');
-      operation.assertActive('Source Program ProjectInput compilation admission');
-      const projectInput = compileWorkspaceTypeScriptProjectInput(
-        snapshot,
-        installed.provider.projectConfig,
-        { dependencyGeneration: dependencyGeneration.physicalGeneration }
+      operation.assertActive('Source Program ProjectInput admission');
+      const readGeneration = await retainTypeScriptDependencyReadGeneration(
+        dependencies.executionGenerationAuthority,
+        operation
       );
-      const projectGenerationEvidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
-        snapshot,
-        projectInput
-      );
-      operation.assertActive('Source Program ProjectInput compilation settlement');
+      let projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
+      try {
+        const projectInput = compileWorkspaceTypeScriptProjectInput(
+          snapshot,
+          projectConfigPath,
+          {
+            dependencyGeneration: readGeneration.physicalGeneration,
+            dependencyGenerationDigest: readGeneration.generationDigest
+          }
+        );
+        operation.assertActive('Source Program ProjectInput compilation settlement');
+        projectGenerationEvidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
+          snapshot,
+          projectInput
+        );
+      } finally {
+        await readGeneration.retire();
+      }
       const projectGeneration = Object.freeze({
-        identity: projectActionIdentityFromInput(projectInput),
-        materialize: (): WorkspaceTypeScriptProjectGenerationEvidence => projectGenerationEvidence
+        identity: projectActionIdentityFromInput(projectGenerationEvidence.projectInput),
+        materialize: (
+          retainedGeneration: RetainedTypeScriptCompilerDependencyGeneration
+        ): WorkspaceTypeScriptProjectGenerationEvidence => {
+          if (retainedGeneration.generationDigest
+              !== dependencies.executionGenerationAuthority.generationDigest) {
+            throw new Error('Typecheck ProjectInput retained a foreign dependency generation.');
+          }
+          return projectGenerationEvidence;
+        }
       });
       transferred = true;
+      const actionProviderIdentity = deferredTypecheckActionProviderIdentity(
+        dependencies.executionGenerationAuthority.generationDigest
+      );
       return executeObservedTypecheckWithProvider(
         dependencies,
-        dependencyGeneration,
-        installed,
+        initialDependencyGeneration,
+        initialInstalled,
+        actionProviderIdentity,
         canonicalTypeScriptDiagnosticArguments(args),
         operation,
-        compileTypecheckSemanticOperation({
-          projectConfigPath: installed.provider.projectConfig,
+        compileTypecheckSemanticOperationWithProviderIdentity({
+          projectConfigPath,
           diagnosticArguments: canonicalTypeScriptDiagnosticArguments(args),
-          checker: installed,
+          providerIdentityDigest: actionProviderIdentity.bindingDigest,
           deadlineAtUnixMs: operation.deadlineAtUnixMs
         }),
         projectGeneration
       );
     });
   } finally {
-    if (!transferred) await dependencyGeneration.retire();
+    if (!transferred && initialDependencyGeneration !== null) {
+      await initialDependencyGeneration.retire();
+    }
   }
 }
 
@@ -1434,7 +1596,7 @@ async function executeTypecheckWithRetainedProvider(
  * checker execution, readback and terminal cleanup.
  */
 export async function runTypecheckWithRetainedDependencyGeneration(
-  dependencies: OperationDependencyBootstrapResult,
+  dependencies: TypecheckDependencyAdmission,
   dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration,
   args: string[] = [],
   options: TypecheckOperationOptions = {}
@@ -1464,12 +1626,32 @@ export async function runTypecheckWithRetainedDependencyGeneration(
 }
 
 /**
+ * Canonical CLI path. The opaque dependency generation identity participates
+ * in ProjectInput and Action admission; physical retention and checker
+ * selection occur only inside the winning VerificationAction executor.
+ */
+export async function runTypecheckWithDependencyAuthority(
+  dependencies: TypecheckDependencyAdmission,
+  args: string[] = [],
+  options: TypecheckOperationOptions = {}
+): Promise<number> {
+  const operation = issueTypecheckOperationContext(options);
+  return executeTypecheckWithRetainedProvider(
+    materializedTypecheckDependencyIdentity(dependencies),
+    null,
+    null,
+    args,
+    operation
+  );
+}
+
+/**
  * Orchestration seam for Source Program evidence already admitted by its
  * canonical owner. The runner materializes that evidence into one private,
  * writer-excluded execution generation before checker Effects.
  */
 export async function runTypecheckWithProjectGenerationEvidence(
-  dependencies: OperationDependencyBootstrapResult,
+  dependencies: TypecheckDependencyAdmission,
   installed: InstalledTypeScriptNativeChecker,
   projectGeneration: WorkspaceTypeScriptProjectGenerationEvidence,
   args: string[] = [],
@@ -1478,9 +1660,9 @@ export async function runTypecheckWithProjectGenerationEvidence(
   const operation = issueTypecheckOperationContext(options);
   assertWorkspaceTypeScriptProjectGenerationEvidence(projectGeneration);
   const dependencyIdentity = materializedTypecheckDependencyIdentity(dependencies);
-  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+  const dependencyGeneration = await retainTypeScriptDependencyGeneration(
     dependencyIdentity.executionGenerationAuthority,
-    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+    operation
   );
   return executeTypecheckWithProjectGeneration(
     dependencyIdentity,
@@ -1493,7 +1675,7 @@ export async function runTypecheckWithProjectGenerationEvidence(
 }
 
 export async function runTypecheckWithProvider(
-  dependencies: OperationDependencyBootstrapResult,
+  dependencies: TypecheckDependencyAdmission,
   installed: InstalledTypeScriptNativeChecker,
   args: string[] = [],
   options: TypecheckOperationOptions = {}
@@ -1508,15 +1690,15 @@ export async function runTypecheckWithProvider(
 }
 
 export async function runTypecheckWithDependencyRoot(
-  dependencies: OperationDependencyBootstrapResult,
+  dependencies: TypecheckDependencyAdmission,
   args: string[] = [],
   options: TypecheckOperationOptions = {}
 ): Promise<number> {
   const operation = issueTypecheckOperationContext(options);
   const dependencyIdentity = materializedTypecheckDependencyIdentity(dependencies);
-  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+  const dependencyGeneration = await retainTypeScriptDependencyGeneration(
     dependencyIdentity.executionGenerationAuthority,
-    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+    operation
   );
   let transferred = false;
   try {
@@ -1540,7 +1722,7 @@ export async function runTypecheckWithDependencyRoot(
 }
 
 export async function runTypecheckWithDependencyRootAndProjectGenerationEvidence(
-  dependencies: OperationDependencyBootstrapResult,
+  dependencies: TypecheckDependencyAdmission,
   projectGeneration: WorkspaceTypeScriptProjectGenerationEvidence,
   args: string[] = [],
   options: TypecheckOperationOptions = {}
@@ -1548,9 +1730,9 @@ export async function runTypecheckWithDependencyRootAndProjectGenerationEvidence
   const operation = issueTypecheckOperationContext(options);
   assertWorkspaceTypeScriptProjectGenerationEvidence(projectGeneration);
   const dependencyIdentity = materializedTypecheckDependencyIdentity(dependencies);
-  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+  const dependencyGeneration = await retainTypeScriptDependencyGeneration(
     dependencyIdentity.executionGenerationAuthority,
-    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+    operation
   );
   let transferred = false;
   try {

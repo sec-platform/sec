@@ -52,15 +52,15 @@ describe('shared runtime dependency projection', () => {
     await withTempWorkspace(async (tempRoot) => {
       const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
       let unexpectedSpawnCalls = 0;
-      const commandRunner = async () => {
+      const materialize = async () => {
         unexpectedSpawnCalls += 1;
         return { code: 1, stdout: '', stderr: 'unexpected package-manager spawn' };
       };
 
       const ready = await Promise.all([
-        ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot }),
-        ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot }),
-        ensureSharedDepsReady({ commandRunner, pollIntervalMs: 10, sharedDepsRoot })
+        ensureSharedDepsReady({ materialize, pollIntervalMs: 10, sharedDepsRoot }),
+        ensureSharedDepsReady({ materialize, pollIntervalMs: 10, sharedDepsRoot }),
+        ensureSharedDepsReady({ materialize, pollIntervalMs: 10, sharedDepsRoot })
       ]);
 
       expect(unexpectedSpawnCalls).toBe(0);
@@ -119,7 +119,7 @@ describe('shared runtime dependency projection', () => {
 
       await expect(
         ensureSharedDepsReady({
-          commandRunner: async () => {
+          materialize: async () => {
             unexpectedInstallCalls += 1;
             return { code: 1, stdout: '', stderr: 'unexpected reinstall' };
           },
@@ -147,7 +147,7 @@ describe('shared runtime dependency projection', () => {
 
       await expect(
         ensureSharedDepsReady({
-          commandRunner: async () => {
+          materialize: async () => {
             installCalls += 1;
             return { code: 0, stdout: 'unexpected', stderr: '' };
           },
@@ -177,7 +177,7 @@ describe('shared runtime dependency projection', () => {
 
       await expect(
         ensureSharedDepsReady({
-          commandRunner: async () => {
+          materialize: async () => {
             installCalls += 1;
             return { code: 0, stdout: 'unexpected', stderr: '' };
           },
@@ -300,7 +300,7 @@ describe('ensureProjectDependencies', () => {
         beforeCommit: async () => {
           fenceCalls += 1;
         },
-        commandRunner: async () => {
+        materialize: async () => {
           installCalls += 1;
           return { code: 1, stdout: '', stderr: 'unexpected' };
         },
@@ -367,7 +367,7 @@ describe('ensureProjectDependencies', () => {
 
       await expect(
         ensureProjectDependencies(workspaceRoot, {
-          commandRunner: async () => {
+          materialize: async () => {
             installCalls += 1;
             return { code: 0, stdout: 'unexpected', stderr: '' };
           },
@@ -379,7 +379,7 @@ describe('ensureProjectDependencies', () => {
       await fs.rm(bindingPath, { force: true });
       await expect(
         ensureProjectDependencies(workspaceRoot, {
-          commandRunner: async () => {
+          materialize: async () => {
             installCalls += 1;
             return { code: 0, stdout: 'unexpected', stderr: '' };
           },
@@ -402,7 +402,7 @@ describe('ensureProjectDependencies', () => {
       const shared = await ensureSharedDepsReady({ sharedDepsRoot });
       const sequence: string[] = [];
       await ensureProjectDependencies(workspaceRoot, {
-        commandRunner: async () => {
+        materialize: async () => {
           sequence.push('unexpected-spawn');
           return { code: 1, stdout: '', stderr: 'unexpected' };
         },
@@ -417,7 +417,7 @@ describe('ensureProjectDependencies', () => {
 
       await ensureProjectDependencies(workspaceRoot, {
         beforeCommit,
-        commandRunner: async () => {
+        materialize: async () => {
           sequence.push('unexpected-spawn');
           return { code: 1, stdout: '', stderr: 'unexpected' };
         },
