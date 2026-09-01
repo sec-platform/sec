@@ -8,6 +8,7 @@ import {
   type SecOperationDigest
 } from '../../system-architecture/operation/semantic.ts';
 import {
+  assertGitReadSessionReceipt,
   createAuthorityGitReadSession,
   isProductionGitReadSession,
   resolveGitReadSessionBudget,
@@ -106,9 +107,10 @@ export async function withAuthorityGitReadSession<T>(
   operation: (session: GitReadSession) => Promise<T>
 ): Promise<T> {
   const { operation: suppliedOperation, ...sessionInput } = input;
+  const boundOperation = suppliedOperation ?? issueGitReadAuthorityOperation(sessionInput);
   const resolution = createAuthorityGitReadSession({
     ...sessionInput,
-    operation: suppliedOperation ?? issueGitReadAuthorityOperation(sessionInput)
+    operation: boundOperation
   });
   if (resolution.status !== 'ready') {
     throw new GitReadAuthorityError('Git read provider is unavailable.', resolution);
@@ -132,7 +134,18 @@ export async function withAuthorityGitReadSession<T>(
     primaryError = error;
   }
   try {
-    await session.close?.();
+    const receipt = await session.close?.();
+    const processRequirements = boundOperation.plan.execution.requirements.filter(
+      ({ effectKinds }) => effectKinds.includes('process')
+    );
+    if (receipt === undefined || processRequirements.length !== 1) {
+      throw new Error('Git read authority did not receive one terminal provider receipt.');
+    }
+    assertGitReadSessionReceipt(receipt, {
+      operationIdentityDigest: boundOperation.plan.identity.identityDigest,
+      boundAttemptDigest: boundOperation.boundAttemptDigest,
+      requirementId: processRequirements[0]!.id
+    });
   } catch (error) {
     primaryError ??= error;
   }

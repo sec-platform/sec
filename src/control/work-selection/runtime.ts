@@ -21,13 +21,25 @@ import {
 } from '../documentation/document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgs } from '../documentation/document-control-plane-github-observation.ts';
 import {
+  assertMainHealthPublicationAuthorityStable,
+  observeCanonicalMainHealthForPublication,
+  observeWorkSelectionGitHubBranchRefs,
+  observeWorkSelectionGitHubDefaultRef,
+  observeWorkSelectionGitHubIssues,
+  observeWorkSelectionGitHubOpenPullRequests,
+  resolveWorkSelectionMainHealthSnapshot,
+  withMainHealthGitHubReadSession,
+  type WorkSelectionMainHealthProjection,
+  type WorkSelectionMainHealthSnapshot
+} from '../main-health/work-selection-main-health.ts';
+import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
 import type {
   SecCurrentWorkLifecycle,
   SecWorkDigest
-} from '../work-selection/contract.ts';
+} from './contract.ts';
 import {
   compileSecWorkSelectionTerminalProjection,
   createSecRoadmapTerminalCompactionCandidate,
@@ -46,18 +58,7 @@ import {
   type SecWorkDecisionReceipt,
   type SecWorkRegistryObservation,
   type SecWorkSelectionLiveResult
-} from '../work-selection/live-contract.ts';
-import {
-  observeCanonicalMainHealthForWorkSelection,
-  observeWorkSelectionGitHubBranchRefs,
-  observeWorkSelectionGitHubDefaultRef,
-  observeWorkSelectionGitHubIssues,
-  observeWorkSelectionGitHubOpenPullRequests,
-  resolveWorkSelectionMainHealthSnapshot,
-  withMainHealthGitHubReadSession,
-  type WorkSelectionMainHealthProjection,
-  type WorkSelectionMainHealthSnapshot
-} from './work-selection-main-health.ts';
+} from './live-contract.ts';
 
 // A provider callback is a testing seam, not a production authority. Keep
 // that distinction outside the structural live-result contract so JSON or
@@ -129,6 +130,14 @@ export interface ObserveSecWorkSelectionLiveInput {
   /** Owner-issued T2 routing snapshot; callers cannot construct this value. */
   readonly mainHealthSnapshot?: WorkSelectionMainHealthSnapshot;
 }
+
+export type ObserveSecWorkSelectionProductionInput = Readonly<
+  Omit<ObserveSecWorkSelectionLiveInput, 'exactMain' | 'exactMainTree' | 'mainHealthSnapshot'> & {
+    exactMain: string;
+    exactMainTree: string;
+    mainHealthSnapshot: WorkSelectionMainHealthSnapshot;
+  }
+>;
 
 class LiveObservationFailure extends Error {
   readonly reasonCode: string;
@@ -725,35 +734,6 @@ async function observeCanonicalBranchLifecycle(input: {
   });
 }
 
-async function observeCanonicalMainHealth(input: {
-  root: string;
-  repository: string;
-  defaultBranch: string;
-  exactMain: string;
-  exactMainTree: string;
-}): Promise<Readonly<{
-  state: SecCurrentWorkLifecycle['mainHealthState'];
-  ref: SecWorkDigest;
-}>> {
-  try {
-    return await observeCanonicalMainHealthForWorkSelection({
-      repositoryRoot: input.root,
-      repository: input.repository,
-      defaultBranch: input.defaultBranch,
-      mainSha: input.exactMain,
-      mainTreeSha: input.exactMainTree
-    });
-  } catch (error) {
-    // Credential enrollment and bounded REST transport are owned by the
-    // MainHealth provider. A missing/unavailable capability is a typed live
-    // observation blocker, never an ambient fallback or generic success path.
-    throw new LiveObservationFailure(
-      'main-health-provider-unavailable',
-      error instanceof Error ? error.message : String(error)
-    );
-  }
-}
-
 function observeCanonicalControl(input: {
   spec: ReturnType<typeof CodexDevelopmentParseCurrentStateSpec>;
   pointerSource: string;
@@ -793,7 +773,7 @@ function currentLifecycle(input: {
   catalogItems: readonly SecRoadmapWorkCatalogItem[];
   openPullRequests: ReturnType<typeof parseOpenPullRequestList>;
   branchLifecycle: ReturnType<typeof projectBranchLifecycleForWorkSelection>;
-  mainHealth: Awaited<ReturnType<typeof observeCanonicalMainHealth>>;
+  mainHealth: WorkSelectionMainHealthProjection;
   control: ReturnType<typeof observeCanonicalControl>;
   terminalCandidate: SecRoadmapTerminalCompactionCandidate | null;
 }): SecCurrentWorkLifecycle {
@@ -944,15 +924,20 @@ async function observeSecWorkSelectionWithinHostedSession(
     };
     const mainHealth = mainHealthTestObserver === undefined
       ? input.mainHealthSnapshot === undefined
-        ? await observeCanonicalMainHealth(mainHealthInput)
+        ? (() => {
+            throw new LiveObservationFailure(
+              'main-health-snapshot-required',
+              `${mainHealthInput.repository}:${mainHealthInput.exactMain}:${mainHealthInput.exactMainTree}`
+            );
+          })()
         : resolveWorkSelectionMainHealthSnapshot({
-            snapshot: input.mainHealthSnapshot,
-            repositoryRoot: mainHealthInput.root,
-            repository: mainHealthInput.repository,
-            defaultBranch: mainHealthInput.defaultBranch,
-            mainSha: mainHealthInput.exactMain,
-            mainTreeSha: mainHealthInput.exactMainTree
-          }).projection
+          snapshot: input.mainHealthSnapshot,
+          repositoryRoot: mainHealthInput.root,
+          repository: mainHealthInput.repository,
+          defaultBranch: mainHealthInput.defaultBranch,
+          mainSha: mainHealthInput.exactMain,
+          mainTreeSha: mainHealthInput.exactMainTree
+        }).projection
       : await mainHealthTestObserver({
           repositoryRoot: mainHealthInput.root,
           repository: mainHealthInput.repository,
@@ -1088,6 +1073,15 @@ async function observeSecWorkSelectionBound(
   try {
     const root = await repositoryRoot(run, input.cwd);
     const defaultProjection = await resolveCanonicalDefaultProjection({ run, root });
+    if (mainHealthTestObserver === undefined
+        && (input.exactMain === undefined
+          || input.exactMainTree === undefined
+          || input.mainHealthSnapshot === undefined)) {
+      throw new LiveObservationFailure(
+        'main-health-snapshot-required',
+        `${defaultProjection.state.resolver.repository}:${defaultProjection.state.resolver.defaultRef}`
+      );
+    }
     const hosted = mainHealthTestObserver === undefined
       ? productionWorkSelectionHostedProvider
       : testWorkSelectionHostedProvider(run, root);
@@ -1137,61 +1131,85 @@ export async function observeSecWorkSelectionWithProviderV1(
   return result;
 }
 
-/** Standard trusted composition root for production callers. */
+async function withProductionGitRead<T>(
+  cwd: string,
+  operation: (run: CommandRunner) => Promise<T>
+): Promise<T> {
+  return await withAuthorityGitReadSession({
+    cwd,
+    budget: {
+      deadlineMs: 120_000,
+      maxProcesses: 32,
+      maxTotalArgumentBytes: 1024 * 1024,
+      maxStdoutBytes: 64 * 1024 * 1024,
+      maxStderrBytes: 2 * 1024 * 1024,
+      maxRecords: 100_000
+    }
+  }, async (session: GitReadSession) => {
+    const run: CommandRunner = async (command, args, commandCwd, environment) => {
+      if (command !== 'git' || path.resolve(commandCwd) !== path.resolve(session.cwd)
+          || environment !== undefined) {
+        throw new LiveObservationFailure(
+          'git-read-session-boundary-invalid',
+          JSON.stringify({ command, cwd: commandCwd, hasEnvironment: environment !== undefined })
+        );
+      }
+      const observation = await session.run(args);
+      if (observation.kind !== 'completed') {
+        return {
+          status: null,
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.from(JSON.stringify(observation), 'utf8')
+        };
+      }
+      return {
+        status: observation.result.code,
+        stdout: Buffer.from(observation.result.stdout),
+        stderr: Buffer.from(observation.result.stderr, 'utf8')
+      };
+    };
+    return await operation(run);
+  });
+}
+
+function retainProductionWorkSelectionResult(
+  result: SecWorkSelectionLiveResult
+): SecWorkSelectionLiveResult {
+  productionSecWorkSelectionLiveResults.add(result);
+  if (result.status === 'resolved') productionSecWorkDecisionReceipts.add(result.receipt);
+  return result;
+}
+
+function unresolvedProductionWorkSelection(error: unknown): SecWorkSelectionLiveResult {
+  const reasonCode = error instanceof GitReadAuthorityError
+    ? 'git-read-provider-unavailable'
+    : error instanceof LiveObservationFailure
+      ? error.reasonCode
+      : 'live-observation-unsupported';
+  const blockerRef = error instanceof LiveObservationFailure
+    ? error.blockerRef
+    : rawSha256(error instanceof Error ? error.message : String(error));
+  return retainProductionWorkSelectionResult(unresolvedSecWorkSelectionLiveResult({
+    reasonCodes: [reasonCode],
+    blockerRefs: [blockerRef]
+  }));
+}
+
+/**
+ * Trusted semantic consumer. Production callers must pass an exact main and
+ * the opaque T2 snapshot issued by the MainHealth owner.
+ */
 export async function observeSecWorkSelectionLive(
-  input: ObserveSecWorkSelectionLiveInput
+  input: ObserveSecWorkSelectionProductionInput
 ): Promise<SecWorkSelectionLiveResult> {
   let result: SecWorkSelectionLiveResult;
   try {
-    result = await withAuthorityGitReadSession({
-      cwd: input.cwd,
-      budget: {
-        deadlineMs: 120_000,
-        maxProcesses: 32,
-        maxTotalArgumentBytes: 1024 * 1024,
-        maxStdoutBytes: 64 * 1024 * 1024,
-        maxStderrBytes: 2 * 1024 * 1024,
-        maxRecords: 100_000
-      }
-    }, async (session: GitReadSession) => {
-      const run: CommandRunner = async (command, args, cwd, environment) => {
-        if (command !== 'git' || path.resolve(cwd) !== path.resolve(session.cwd)
-            || environment !== undefined) {
-          throw new LiveObservationFailure(
-            'git-read-session-boundary-invalid',
-            JSON.stringify({ command, cwd, hasEnvironment: environment !== undefined })
-          );
-        }
-        const observation = await session.run(args);
-        if (observation.kind !== 'completed') {
-          return {
-            status: null,
-            stdout: Buffer.alloc(0),
-            stderr: Buffer.from(JSON.stringify(observation), 'utf8')
-          };
-        }
-        return {
-          status: observation.result.code,
-          stdout: Buffer.from(observation.result.stdout),
-          stderr: Buffer.from(observation.result.stderr, 'utf8')
-        };
-      };
-      return await observeSecWorkSelectionBound(input, run);
-    });
+    result = await withProductionGitRead(input.cwd, async (run) =>
+      await observeSecWorkSelectionBound(input, run));
   } catch (error) {
-    const reasonCode = error instanceof GitReadAuthorityError
-      ? 'git-read-provider-unavailable'
-      : 'live-observation-unsupported';
-    result = unresolvedSecWorkSelectionLiveResult({
-      reasonCodes: [reasonCode],
-      blockerRefs: [rawSha256(error instanceof Error ? error.message : String(error))]
-    });
+    return unresolvedProductionWorkSelection(error);
   }
-  productionSecWorkSelectionLiveResults.add(result);
-  if (result.status === 'resolved') {
-    productionSecWorkDecisionReceipts.add(result.receipt);
-  }
-  return result;
+  return retainProductionWorkSelectionResult(result);
 }
 
 export function requireResolvedSecWorkDecisionReceipt(
@@ -1297,8 +1315,62 @@ export function projectSecWorkSelectionCli(
 
 function usage(): string {
   return 'Usage:\n'
-    + '  bun src/control/main-health/work-selection.ts observe [--json] [--full]\n'
-    + '  bun src/control/main-health/work-selection.ts project --reviewed-on <YYYY-MM-DD> [--json]\n';
+    + '  bun src/control/work-selection/runtime.ts observe [--json] [--full]\n'
+    + '  bun src/control/work-selection/runtime.ts project --reviewed-on <YYYY-MM-DD> [--json]\n';
+}
+
+async function observeSecWorkSelectionCliMainHealthFirst(cwd: string): Promise<SecWorkSelectionLiveResult> {
+  try {
+    const result = await withProductionGitRead(cwd, async (run) => {
+      const root = await repositoryRoot(run, cwd);
+      const defaultProjection = await resolveCanonicalDefaultProjection({ run, root });
+      const exactMain = gitSha(decodeUtf8(await requireCommand(run, 'git', [
+        'rev-parse', '--verify', defaultProjection.state.resolver.defaultRef
+      ], root, 'local-default-unresolved'), 'local-default-invalid'), 'local-default-invalid');
+      const exactMainTree = gitSha(decodeUtf8(await requireCommand(run, 'git', [
+        'rev-parse', `${exactMain}^{tree}`
+      ], root, 'exact-main-tree-unresolved'), 'exact-main-tree-invalid'), 'exact-main-tree-invalid');
+      return await withMainHealthGitHubReadSession({
+        repositoryRoot: root,
+        repository: defaultProjection.state.resolver.repository,
+        operation: async () => {
+          const snapshotInput = Object.freeze({
+            repositoryRoot: root,
+            repository: defaultProjection.state.resolver.repository,
+            defaultBranch: defaultProjection.state.resolver.defaultBranch,
+            mainSha: exactMain,
+            mainTreeSha: exactMainTree
+          });
+          const first = await observeCanonicalMainHealthForPublication(snapshotInput);
+          const second = await observeCanonicalMainHealthForPublication(snapshotInput);
+          assertMainHealthPublicationAuthorityStable(first.authority, second.authority);
+          if (first.stableDigest !== second.stableDigest) {
+            throw new LiveObservationFailure(
+              'main-health-snapshot-drift',
+              `${first.stableDigest}:${second.stableDigest}`
+            );
+          }
+          if (second.repairDecision.routingState !== 'ordinary-only') {
+            return unresolvedSecWorkSelectionLiveResult({
+              reasonCodes: [second.repairDecision.routingState === 'repair-only'
+                ? 'main-health-repair-only'
+                : 'main-health-locked'],
+              blockerRefs: [second.stableDigest]
+            });
+          }
+          return await observeSecWorkSelectionBound({
+            cwd: root,
+            exactMain,
+            exactMainTree,
+            mainHealthSnapshot: second.workSelectionSnapshot
+          }, run);
+        }
+      });
+    });
+    return retainProductionWorkSelectionResult(result);
+  } catch (error) {
+    return unresolvedProductionWorkSelection(error);
+  }
 }
 
 async function main(): Promise<void> {
@@ -1325,7 +1397,7 @@ async function main(): Promise<void> {
     }
     if (reviewedOn === undefined) throw new Error(usage());
   }
-  const result = await observeSecWorkSelectionLive({ cwd: process.cwd() });
+  const result = await observeSecWorkSelectionCliMainHealthFirst(process.cwd());
   if (command === 'observe') {
     const output = args.includes('--full') ? result : projectSecWorkSelectionCli(result);
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);

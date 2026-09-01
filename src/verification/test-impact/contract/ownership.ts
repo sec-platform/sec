@@ -1,5 +1,3 @@
-import { isActiveDocumentationPath } from '../../../control/documentation/active.ts';
-
 export const TEST_IMPACT_SOURCE_KINDS = [
   'typescript',
   'manifest',
@@ -47,7 +45,7 @@ export function testImpactModuleIdsForSourceKind(
 
 export function classifyTestImpactSource(
   file: string,
-  activeDocumentationPath: (candidate: string) => boolean = isActiveDocumentationPath
+  activeDocumentationPath: (candidate: string) => boolean
 ): TestImpactSourceKind | null {
   if (activeDocumentationPath(file)) return 'active-documentation';
   if (/^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file)) return 'agent-skill';

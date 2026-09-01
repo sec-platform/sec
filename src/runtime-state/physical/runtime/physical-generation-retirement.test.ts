@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -86,6 +86,65 @@ test('physical generation retirement issues one exact terminal receipt after rel
     await rm(root, { recursive: true, force: true });
   }
 }, 30_000);
+
+test('tree retirement reads back an uppercase ordinary root and deletes a junction leaf without following it', async () => {
+  const parentPath = await mkdtemp(path.join(tmpdir(), 'sec-tree-retirement-uppercase-'));
+  const rootPath = path.join(parentPath, 'Generation-UPPER');
+  const externalTarget = path.join(parentPath, 'external-target');
+  try {
+    await mkdir(path.join(rootPath, 'nested'), { recursive: true });
+    await mkdir(externalTarget);
+    await writeFile(path.join(externalTarget, 'preserved.txt'), 'preserved\n');
+    await symlink(externalTarget, path.join(rootPath, 'Retained-Link'),
+      process.platform === 'win32' ? 'junction' : 'dir');
+    const root = inspectNoFollowDirectoryChain(rootPath, 'uppercase retirement fixture').target;
+    const inventory = scanNoFollowDirectoryTreeInventory(root, {
+      deadlineAtMs: performance.now() + 30_000,
+      maximumBytes: 1_024,
+      maximumEntries: 8
+    });
+    const receipt = retireNoFollowDirectoryTree({
+      deadlineAtMonotonicMs: performance.now() + 30_000,
+      inventory,
+      parent: inspectNoFollowDirectoryChain(parentPath, 'uppercase retirement parent fixture').target,
+      root
+    });
+    expect(receipt.status).toBe('physically-absent');
+    await expect(lstat(rootPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(path.join(externalTarget, 'preserved.txt'), 'utf8')).toBe('preserved\n');
+  } finally {
+    await rm(parentPath, { recursive: true, force: true });
+  }
+});
+
+test('tree retirement preserves both sides of a root replacement ABA', async () => {
+  const parentPath = await mkdtemp(path.join(tmpdir(), 'sec-tree-retirement-aba-'));
+  const rootPath = path.join(parentPath, 'Generation-UPPER');
+  const displacedPath = path.join(parentPath, 'displaced-generation');
+  try {
+    await mkdir(rootPath);
+    await writeFile(path.join(rootPath, 'owned.txt'), 'owned\n');
+    const root = inspectNoFollowDirectoryChain(rootPath, 'retirement ABA fixture').target;
+    const inventory = scanNoFollowDirectoryTreeInventory(root, {
+      deadlineAtMs: performance.now() + 30_000,
+      maximumBytes: 1_024,
+      maximumEntries: 8
+    });
+    await rename(rootPath, displacedPath);
+    await mkdir(rootPath);
+    await writeFile(path.join(rootPath, 'replacement.txt'), 'replacement\n');
+    expect(() => retireNoFollowDirectoryTree({
+      deadlineAtMonotonicMs: performance.now() + 30_000,
+      inventory,
+      parent: inspectNoFollowDirectoryChain(parentPath, 'retirement ABA parent fixture').target,
+      root
+    })).toThrow('identity changed');
+    expect(await readFile(path.join(displacedPath, 'owned.txt'), 'utf8')).toBe('owned\n');
+    expect(await readFile(path.join(rootPath, 'replacement.txt'), 'utf8')).toBe('replacement\n');
+  } finally {
+    await rm(parentPath, { recursive: true, force: true });
+  }
+});
 
 test.skipIf(process.platform !== 'win32')(
   'Windows legacy relocation preserves an already-authorized descriptor without an ACL Effect',

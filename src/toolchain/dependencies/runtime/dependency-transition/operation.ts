@@ -21,6 +21,9 @@ import {
   runtimeDependencyOperationRemainingMs
 } from '../operation-context.ts';
 import {
+  assertRuntimeDependencySourceGenerationIssued
+} from '../source-generation.ts';
+import {
   assertDependencyTransitionRecordBytes,
   dependencyTransitionDigestWithoutRecord,
   dependencyTransitionRecordBytes,
@@ -321,6 +324,7 @@ export async function beginDependencyTransition(input: Readonly<{
   options: RuntimeDependencyOperationOptions;
 }>): Promise<DependencyTransitionJournal> {
   runtimeDependencyOperationRemainingMs(input.options, 'Dependency transition begin admission');
+  assertRuntimeDependencySourceGenerationIssued(input.sourceGeneration);
   const ownerRoot = inspectNoFollowDirectoryChain(
     input.ownerRoot,
     'Dependency transition owner root'
@@ -376,6 +380,53 @@ export async function beginDependencyTransition(input: Readonly<{
     const relativeStage = path.relative(stageRoot.path, stage.path);
     if (relativeStage.startsWith('..') || path.isAbsolute(relativeStage) || relativeStage.length === 0) {
       throw new SecError('RUNTIME-DEPS-002', 'Dependency transition stage is not contained by its recorded staging root');
+    }
+  }
+  const sourceOwner = inspectNoFollowDirectoryChain(
+    input.sourceGeneration.ownerRoot,
+    'Dependency transition source-generation owner root'
+  ).target;
+  if (!sameGeneratedStateIdentity(
+    generatedStatePhysicalIdentity(sourceOwner),
+    input.sourceGeneration.ownerRootPhysical
+  )) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Dependency transition source-generation owner physical identity is foreign or stale'
+    );
+  }
+  const stageCarriesSource = (input.kind === 'compiler-generation' ||
+    input.kind === 'compiler-local-locator') && stage?.kind === 'directory';
+  if (stageCarriesSource) {
+    if (stage!.physical === null || !sameGeneratedStateIdentity(
+      stage!.physical,
+      input.sourceGeneration.physical
+    )) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Dependency transition stage is not the compiler-issued source generation'
+      );
+    }
+    if (input.kind === 'compiler-generation' &&
+        path.resolve(input.sourceGeneration.sourcePath) !== path.resolve(stage!.path)) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler generation transition source path is not its exact staged generation'
+      );
+    }
+  } else {
+    const source = inspectNoFollowDirectoryChain(
+      input.sourceGeneration.sourcePath,
+      'Dependency transition source generation'
+    ).target;
+    if (!sameGeneratedStateIdentity(
+      generatedStatePhysicalIdentity(source),
+      input.sourceGeneration.physical
+    )) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Dependency transition source generation physical identity is foreign or stale'
+      );
     }
   }
   const current = await readDependencyTransition(ownerRoot.path, input.options);

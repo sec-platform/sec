@@ -11,15 +11,14 @@ import {
 import { issueTestImpactProjection } from '../../src/brownfield/source-program-model/test-impact-projection.ts';
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
+  acquireWorkingTreeWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput,
+  issueWorkspaceTypeScriptProjectGenerationEvidence,
   type PhysicalWorkspaceSourceSnapshot,
   type WorkspaceTypeScriptProjectInput
 } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../src/control/documentation/active.ts';
-import {
-  issueCheckAffectedTestImpactProjection,
-  type AffectedTestImpactProjectionIssuer
-} from '../../src/development/runner/check-affected-source.ts';
+import type { AffectedTestImpactProjectionIssuer } from '../../src/development/runner/check-affected-source.ts';
 import { withAuthorityGitReadSession } from '../../src/external-capabilities/git-read/authority.ts';
 import { isolatedGitReadEnvironment } from '../../src/external-capabilities/git-read/runtime/session.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -244,7 +243,7 @@ function openRepositoryCompilationCacheSession(input: Readonly<{
       moduleGraphDigest: input.snapshot.moduleGraphDigest,
       projectInputDigest: input.projectInput.projectInputDigest,
       projectConfigDigest: input.projectInput.projectConfigDigest,
-      dependencyGenerationPhysicalDigest: input.projectInput.dependencyGenerationPhysicalDigest,
+      dependencyGenerationDigest: input.projectInput.dependencyGenerationDigest,
       executionConfigContainment: input.projectInput.executionConfigContainment
     })) as SecOperationDigest,
     decisionDigest: contractDigest,
@@ -342,7 +341,30 @@ export async function createExactGitTreeTestRunnerFixture(
       affectedObservation = await withAuthorityGitReadSession({
         cwd: repositoryRoot,
         budget: { deadlineMs: 120_000 }
-      }, (session) => issueCheckAffectedTestImpactProjection({ repositoryRoot, session }));
+      }, async (session) => {
+        const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+        const projectInput = compileWorkspaceTypeScriptProjectInput(
+          workspaceSnapshot,
+          tsconfigRelativePath
+        );
+        const compilation = compileRepositorySourceProgramCompilation({
+          workspaceSnapshot,
+          projectInput,
+          repositoryRoot
+        });
+        return Object.freeze({
+          projection: issueTestImpactProjection({
+            workspaceSnapshot,
+            projectGeneration: compilation.projectGeneration,
+            typeScriptModel: compilation.typeScriptCompilation.model,
+            testObservations: compilation.testObservations
+          }),
+          projectGenerationEvidence: issueWorkspaceTypeScriptProjectGenerationEvidence(
+            workspaceSnapshot,
+            projectInput
+          )
+        });
+      });
     } finally {
       process.chdir(previousWorkingDirectory);
     }

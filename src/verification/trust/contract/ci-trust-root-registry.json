@@ -72,6 +72,7 @@
     "src/runtime-state/physical/runtime/windows-known-folders.ts -> bun:ffi",
     "src/runtime-state/physical/runtime/windows-repository-change-observer.ts -> bun:ffi",
     "src/runtime-state/physical/runtime/windows-stdin-writer-worker.mjs -> bun:ffi",
+    "src/verification/ci/contract/revision.ts -> zod",
     "src/verification/gate/state/heavy-lease.ts -> bun:ffi",
     "src/verification/review/contract/summary.ts -> zod"
   ]

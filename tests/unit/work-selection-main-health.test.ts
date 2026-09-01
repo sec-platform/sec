@@ -20,7 +20,6 @@ import {
   issueTrustedRuntimeMainHealthAuthorityV2,
   observeCanonicalMainHealthForRepairTestingV2,
   observeCanonicalMainHealthForRepairV1,
-  observeCanonicalMainHealthForWorkSelection,
   observeCanonicalMainHealthForWorkSelectionTestingV2,
   observeMainHealthGitHubDefaultBranchSha,
   reconcileCanonicalMainHealthProviderConflict,
@@ -237,10 +236,6 @@ test('production MainHealth entrypoints consume exact local evidence when hosted
     });
     const unavailableInput = Object.freeze({ ...input, capability: unavailableCapability });
     const requestCountBeforeProductionGuard = requestLog.length;
-    await expect(withMainHealthGitHubTestSessionV2({
-      capability: readCapability,
-      operation: () => observeCanonicalMainHealthForWorkSelection(input)
-    })).rejects.toThrow('not bound to this repository/effect');
     await expect(withMainHealthGitHubTestSessionV2({
       capability: readCapability,
       operation: () => observeCanonicalMainHealthForRepairV1(input)

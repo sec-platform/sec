@@ -1,10 +1,12 @@
 name: sec-merge-gate
-run-name: 'integrate compiler session run ${{ github.event.client_payload.sourceRunId }} attempt ${{ github.event.client_payload.sourceRunAttempt }}'
+run-name: "${{ format('integrate compiler session run {0} attempt {1}', github.event.workflow_run.id, github.event.workflow_run.run_attempt) }}"
 
 on:
-  repository_dispatch:
+  workflow_run:
+    workflows:
+      - compiler-pr-validation
     types:
-      - sec-verification-session-terminal-v2
+      - completed
 
 permissions:
   actions: read
@@ -30,6 +32,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 10
     outputs:
+      ready: ${{ steps.source.outputs.ready }}
       base-sha: ${{ steps.source.outputs.base-sha }}
       current-main-sha: ${{ steps.source.outputs.current-main-sha }}
       head-sha: ${{ steps.source.outputs.head-sha }}
@@ -40,67 +43,47 @@ jobs:
         id: source
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          TERMINAL_PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
+          WORKFLOW_RUN_JSON: ${{ toJSON(github.event.workflow_run) }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         with:
           script: |
-            if (context.payload.action !== 'sec-verification-session-terminal-v2') {
-              throw new Error('Merge admission event type is not canonical.');
+            const wakeup = JSON.parse(process.env.WORKFLOW_RUN_JSON);
+            if (context.payload.action !== 'completed' ||
+                !Number.isSafeInteger(wakeup?.id) || wakeup.id < 1 ||
+                !Number.isSafeInteger(wakeup?.run_attempt) || wakeup.run_attempt < 1) {
+              throw new Error('Compiler completion wakeup is not a bounded run locator.');
             }
-            const sender = context.payload.sender;
-            if (sender?.login !== 'github-actions[bot]' || sender?.id !== 41898282 ||
-                sender?.node_id !== 'MDM6Qm90NDE4OTgyODI=' || sender?.type !== 'Bot') {
-              throw new Error('Merge admission was not dispatched by the canonical Actions bot.');
+            const locator = { runId: wakeup.id, runAttempt: wakeup.run_attempt };
+            const observed = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: locator.runId
+            });
+            const run = observed.data;
+            if (run.id !== locator.runId || run.run_attempt !== locator.runAttempt) {
+              core.setOutput('ready', 'false');
+              core.notice('WAITING: stale or out-of-order compiler run wakeup.');
+              return;
             }
-            const payload = JSON.parse(process.env.TERMINAL_PAYLOAD_JSON);
-            const expectedPayloadKeys = [
-              'artifactDigest', 'artifactId', 'artifactName', 'baseSha', 'headSha', 'prNumber',
-              'sessionRevision', 'sourceRunAttempt', 'sourceRunId',
-              'sourceWorkflowSha'
-            ].sort();
-            const payloadKeys = payload && typeof payload === 'object' && !Array.isArray(payload)
-              ? Object.keys(payload).sort()
-              : [];
-            if (payloadKeys.length !== expectedPayloadKeys.length ||
-                payloadKeys.some((key, index) => key !== expectedPayloadKeys[index]) ||
-                !Number.isSafeInteger(payload.sourceRunId) || payload.sourceRunId < 1 ||
-                !Number.isSafeInteger(payload.sourceRunAttempt) || payload.sourceRunAttempt < 1 ||
-                !Number.isSafeInteger(payload.prNumber) || payload.prNumber < 1 ||
-                !Number.isSafeInteger(payload.artifactId) || payload.artifactId < 1 ||
-                !/^[0-9a-f]{40}$/u.test(payload.sourceWorkflowSha ?? '') ||
-                !/^[0-9a-f]{40}$/u.test(payload.baseSha ?? '') ||
-                !/^[0-9a-f]{40}$/u.test(payload.headSha ?? '') ||
-                !/^sha256:[0-9a-f]{64}$/u.test(payload.sessionRevision ?? '') ||
-                !/^sha256:[0-9a-f]{64}$/u.test(payload.artifactDigest ?? '') ||
-                typeof payload.artifactName !== 'string') {
-              throw new Error('Terminal Session dispatch payload is not the exact bounded locator.');
+            if (run.status !== 'completed') {
+              throw new Error('Completed workflow_run wakeup disagrees with source run API settlement.');
             }
-            let run;
-            for (let attempt = 0; attempt < 12; attempt += 1) {
-              const observed = await github.rest.actions.getWorkflowRun({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: payload.sourceRunId
-              });
-              run = observed.data;
-              if (run.status === 'completed') break;
-              if (run.status !== 'in_progress' && run.status !== 'queued') {
-                throw new Error('Compiler Session source run has an invalid settlement state.');
-              }
-              await new Promise((resolve) => setTimeout(resolve, 5_000));
-            }
-            if (run?.status !== 'completed' || run.conclusion !== 'success' ||
-                run.id !== payload.sourceRunId || run.run_attempt !== payload.sourceRunAttempt ||
-                run.head_sha !== payload.baseSha || run.head_sha !== payload.sourceWorkflowSha ||
-                run.event !== 'repository_dispatch' ||
-                typeof run.actor?.login !== 'string' || typeof run.triggering_actor?.login !== 'string') {
-              throw new Error('Only one completed successful compiler repository_dispatch run can enter integration.');
+            if (run.conclusion !== 'success') {
+              core.setOutput('ready', 'false');
+              core.notice(`WAITING: compiler run completed without a passed Session (${run.conclusion ?? 'unknown'}).`);
+              return;
             }
             const terminalTitle = /^verify session PR #([1-9][0-9]*) session (sha256:[0-9a-f]{64})$/u.exec(
               run.display_title ?? ''
             );
             if (terminalTitle === null) {
-              throw new Error('Only an external sec-verify-session-v2 terminal Session run can enter integration.');
+              core.setOutput('ready', 'false');
+              core.notice('WAITING: completed compiler run is not a terminal Verification Session.');
+              return;
+            }
+            if (run.event !== 'repository_dispatch' ||
+                typeof run.actor?.login !== 'string' || typeof run.triggering_actor?.login !== 'string') {
+              throw new Error('A terminal Verification Session must be one completed repository_dispatch run.');
             }
             const sessionBaseSha = run.head_sha;
             if (typeof sessionBaseSha !== 'string' || !/^[0-9a-f]{40}$/u.test(sessionBaseSha)) {
@@ -147,9 +130,7 @@ jobs:
               branch: repository.data.default_branch
             });
             const currentBase = base.data.commit.sha;
-            if (process.env.WORKFLOW_SHA !== sessionBaseSha ||
-                payload.sourceWorkflowSha !== sessionBaseSha || payload.prNumber !== Number(terminalTitle[1]) ||
-                payload.sessionRevision !== terminalTitle[2]) {
+            if (process.env.WORKFLOW_SHA !== sessionBaseSha) {
               throw new Error('Trusted merge workflow revision differs from the original Session base.');
             }
             const pull = await github.rest.pulls.get({
@@ -159,8 +140,8 @@ jobs:
             });
             if (pull.data.state !== 'open' || pull.data.draft ||
                 pull.data.base.repo?.id !== repository.data.id || pull.data.head.repo?.id !== repository.data.id ||
-                pull.data.base.sha !== sessionBaseSha || pull.data.head.sha !== payload.headSha) {
-              throw new Error('Terminal Session PR base/head API readback differs from the dispatch locator.');
+                pull.data.base.sha !== sessionBaseSha || !/^[0-9a-f]{40}$/u.test(pull.data.head.sha ?? '')) {
+              throw new Error('Terminal Session PR base/head API readback is not exact.');
             }
             const baseToCurrentMain = await github.rest.repos.compareCommitsWithBasehead({
               owner: context.repo.owner,
@@ -186,18 +167,20 @@ jobs:
             if (sessionArtifacts.length !== 1 ||
                 sessionArtifact.expired !== false || !Number.isSafeInteger(sessionArtifact.id) ||
                 !Number.isSafeInteger(sessionArtifact.size_in_bytes) || sessionArtifact.size_in_bytes < 1 ||
-                sessionArtifact.workflow_run?.id !== run.id || sessionArtifact.id !== payload.artifactId ||
-                sessionArtifact.name !== payload.artifactName || sessionArtifact.digest !== payload.artifactDigest) {
+                sessionArtifact.workflow_run?.id !== run.id ||
+                !/^sha256:[0-9a-f]{64}$/u.test(sessionArtifact.digest ?? '')) {
               throw new Error('Compiler run must expose exactly one live provenance-bound terminal Session artifact.');
             }
+            core.setOutput('ready', 'true');
             core.setOutput('base-sha', sessionBaseSha);
             core.setOutput('current-main-sha', currentBase);
-            core.setOutput('head-sha', payload.headSha);
+            core.setOutput('head-sha', pull.data.head.sha);
             core.setOutput('pr-number', terminalTitle[1]);
             core.setOutput('session-revision', terminalTitle[2].slice(7));
 
   authorize:
     needs: plan
+    if: ${{ needs.plan.outputs.ready == 'true' }}
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-control-v1]
     timeout-minutes: *sec_integration_timeout_minutes
     permissions:

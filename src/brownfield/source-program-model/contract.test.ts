@@ -18,6 +18,7 @@ import {
   compileSourceProgramSupersessionEvidenceIdentity,
   compileSourceProgramSupersessionReceipt,
   compileSourceProgramTestRetirementReceipt,
+  compileSourceProgramUnusedSymbolProviderReceipt,
   compileSourceProgramVersionSuffixReductionPlan,
   parseSourceProgramSupersessionEvidence,
   projectSourceProgramTestRetirementDispositions,
@@ -67,7 +68,7 @@ test('source program input closure excludes target workspaces and generated arti
   )).toBe(false);
 });
 
-test('TypeScript semantic compilation excludes test and resource declarations from the production authority graph', () => {
+test('TypeScript semantic compilation keeps production and test surfaces distinct while excluding resources', () => {
   const moduleMembership = Object.freeze({
     descriptors: Object.freeze([]),
     graphRoots: Object.freeze([]),
@@ -89,8 +90,14 @@ test('TypeScript semantic compilation excludes test and resource declarations fr
     moduleMembership
   });
 
-  expect(model.files.map(({ path }) => path)).toEqual(['src/example.ts']);
-  expect(model.declarations.map(({ name }) => name)).toEqual(['productionValue']);
+  expect(model.files.map(({ path, surface }) => ({ path, surface }))).toEqual([
+    { path: 'src/example.ts', surface: 'production' },
+    { path: 'tests/example.test.ts', surface: 'test' }
+  ]);
+  expect(model.declarations.map(({ name, path }) => ({ name, path }))).toEqual([
+    { name: 'productionValue', path: 'src/example.ts' },
+    { name: 'mirroredTestValue', path: 'tests/example.test.ts' }
+  ]);
 });
 
 test('unbound Source Program facts remain unknown responsibility evidence', () => {
@@ -813,7 +820,8 @@ test('source program blocks owner-internal process primitives at repository prov
       contentDigest
     })))),
     files,
-    moduleMembership
+    moduleMembership,
+    reviewedProcessDispatchers: [`${consumerPath}::nativePrimitive`]
   });
 
   expect(model.capabilities).toContainEqual(expect.objectContaining({
@@ -826,6 +834,105 @@ test('source program blocks owner-internal process primitives at repository prov
   expect(model.candidates).toContainEqual(expect.objectContaining({
     code: 'direct-process-transport-outside-owner',
     subject: consumerPath,
+    paths: [consumerPath]
+  }));
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'process-resource-session-boundary-unresolved',
+    subject: 'process.native'
+  }));
+});
+
+test('source program blocks raw process primitives imported only as a production test seam', () => {
+  const providerPath = 'src/physical-provider/process.ts';
+  const consumerPath = 'src/consumer/options.ts';
+  const descriptorPath = 'src/physical-provider/sec.module.json';
+  const files = [
+    {
+      path: providerPath,
+      source: 'export function nativePrimitive(): void {}\n'
+    },
+    {
+      path: consumerPath,
+      source: "import { nativePrimitive } from '../physical-provider/process.ts';\n"
+        + 'export interface Options { runner?: typeof nativePrimitive }\n'
+    }
+  ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: [descriptorPath, 'src/consumer/sec.module.json', ...files.map(({ path }) => path)],
+    descriptorSources: [
+      {
+        descriptorPath,
+        source: JSON.stringify({
+          importGraph: 'runtime',
+          externalEntrypoints: [],
+          capabilityProviders: [{
+            capability: 'process.native',
+            operations: ['nativePrimitive'],
+            effectKinds: ['process'],
+            ownerInternalOperations: ['nativePrimitive']
+          }]
+        })
+      },
+      {
+        descriptorPath: 'src/consumer/sec.module.json',
+        source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
+      }
+    ]
+  });
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: rawSha256(JSON.stringify(files.map(({ path, contentDigest }) => ({
+      path,
+      contentDigest
+    })))),
+    files,
+    moduleMembership,
+    reviewedProcessDispatchers: [`${consumerPath}::nativePrimitive`]
+  });
+
+  expect(model.capabilities).not.toContainEqual(expect.objectContaining({
+    path: consumerPath,
+    capability: 'process'
+  }));
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'direct-process-transport-outside-owner',
+    subject: consumerPath,
+    paths: [consumerPath],
+    reason: expect.stringContaining('1 raw owner-internal import')
+  }));
+});
+
+test('source program classifies worker-thread construction as native process transport', () => {
+  const consumerPath = 'src/consumer/worker.ts';
+  const source = "import { Worker } from 'node:worker_threads';\n"
+    + "export function start(): Worker { return new Worker('./worker.ts'); }\n";
+  const files = [{ path: consumerPath, source, contentDigest: rawSha256(source) }];
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: ['src/consumer/sec.module.json', consumerPath],
+    descriptorSources: [{
+      descriptorPath: 'src/consumer/sec.module.json',
+      source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
+    }]
+  });
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: rawSha256(JSON.stringify(files)),
+    files,
+    moduleMembership
+  });
+
+  expect(model.capabilities).toContainEqual(expect.objectContaining({
+    path: consumerPath,
+    capability: 'process',
+    operation: 'Worker',
+    moduleSpecifier: 'node:worker_threads',
+    transport: 'native-runtime'
+  }));
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'direct-process-transport-outside-owner',
+    subject: consumerPath
+  }));
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'process-resource-session-boundary-unresolved',
+    subject: 'process.native',
     paths: [consumerPath]
   }));
 });
@@ -1038,6 +1145,52 @@ function compileGraphCutFixture(
   return Object.freeze({ files, model, moduleMembership, sourceRevision });
 }
 
+function compileGraphCutProviderReceipt(
+  fixture: ReturnType<typeof compileGraphCutFixture>,
+  candidates: readonly Readonly<{ readonly path: string; readonly name: string }>[]
+) {
+  return compileSourceProgramUnusedSymbolProviderReceipt({
+    model: fixture.model,
+    files: fixture.files,
+    providerRevision: rawSha256('synthetic-knip-provider-revision'),
+    configuration: Object.freeze({
+      includedIssueTypes: Object.freeze(['exports', 'types'] as const),
+      isShowProgress: false as const
+    }),
+    settlement: 'completed',
+    candidates
+  });
+}
+
+test('unused-symbol provider evidence requires a sealed exact provider receipt', () => {
+  const fixture = compileGraphCutFixture({
+    'src/example/contract.ts': 'export const UNUSED = 1;\n'
+  });
+  const candidates = Object.freeze([Object.freeze({
+    path: 'src/example/contract.ts',
+    name: 'UNUSED'
+  })]);
+  expect(() => compileSourceProgramUnusedSymbolProviderReceipt({
+    model: fixture.model,
+    files: fixture.files,
+    providerRevision: 'synthetic-knip' as `sha256:${string}`,
+    configuration: Object.freeze({
+      includedIssueTypes: Object.freeze(['exports', 'types'] as const),
+      isShowProgress: false as const
+    }),
+    settlement: 'completed',
+    candidates
+  })).toThrow('completed exact-snapshot provider observation');
+
+  const receipt = compileGraphCutProviderReceipt(fixture, candidates);
+  expect(() => compileSourceProgramGraphCutReductionPlan(
+    fixture.model,
+    fixture.files,
+    { ...receipt },
+    { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
+  )).toThrow('compiler-issued exact provider candidate receipt');
+});
+
 test('graph cut blocks a declaration with same-file type consumers from the canonical Program', () => {
   const fixture = compileGraphCutFixture({
     'src/example/contract.ts': [
@@ -1049,12 +1202,10 @@ test('graph cut blocks a declaration with same-file type consumers from the cano
   const plan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
     fixture.files,
-    [{
+    compileGraphCutProviderReceipt(fixture, [{
       path: 'src/example/contract.ts',
-      name: 'SourceProgramObservationClass',
-      provider: 'knip',
-      providerRevision: 'synthetic-knip'
-    }],
+      name: 'SourceProgramObservationClass'
+    }]),
     { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
   );
 
@@ -1066,54 +1217,41 @@ test('graph cut blocks a declaration with same-file type consumers from the cano
   }));
 });
 
-test('graph cut verifies one consumer-zero declaration against a virtual exact Program', () => {
+test('graph cut keeps Source Program unknown consumer frontiers blocked', () => {
   const fixture = compileGraphCutFixture({
     'src/example/contract.ts': 'export const UNUSED = 1;\nexport const KEPT = 2;\n'
   });
   const plan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
     fixture.files,
-    [{
+    compileGraphCutProviderReceipt(fixture, [{
       path: 'src/example/contract.ts',
-      name: 'UNUSED',
-      provider: 'knip',
-      providerRevision: 'synthetic-knip'
-    }],
+      name: 'UNUSED'
+    }]),
     { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
   );
-  const patch = renderSourceProgramGraphCutReductionPatch(plan, fixture.files);
 
   expect(plan.reductions).toContainEqual(expect.objectContaining({
     path: 'src/example/contract.ts',
     name: 'UNUSED',
-    status: 'ready',
-    reason: null
+    status: 'blocked',
+    disposition: 'blocked',
+    reason: 'canonical Source Program consumer frontier is unknown; unused provider evidence cannot authorize deletion'
   }));
-  expect(patch.patch).toContain('-export const UNUSED = 1;');
-  expect(patch.patch).toContain('export const KEPT');
-  expect(patch.files).toEqual([expect.objectContaining({
-    path: 'src/example/contract.ts',
-    afterDigest: rawSha256('export const KEPT = 2;\n')
-  })]);
-  const changedFiles = fixture.files.map((file) => Object.freeze({
+  expect(() => renderSourceProgramGraphCutReductionPatch(plan, fixture.files)).toThrow(
+    'Graph-cut patch requires at least one ready reduction'
+  );
+  const driftedFiles = fixture.files.map((file) => Object.freeze({
     ...file,
     source: `${file.source}// external drift\n`,
     contentDigest: rawSha256(`${file.source}// external drift\n`)
   }));
-  try {
-    renderSourceProgramGraphCutReductionPatch(plan, changedFiles);
-    throw new Error('expected graph-cut source snapshot drift to block');
-  } catch (error) {
-    expect(error).toBeInstanceOf(SourceProgramReductionAdmissionError);
-    expect((error as SourceProgramReductionAdmissionError).code).toBe('source-snapshot-drift');
-  }
-  try {
-    renderSourceProgramGraphCutReductionPatch({ ...plan }, fixture.files);
-    throw new Error('expected forged graph-cut plan to block');
-  } catch (error) {
-    expect(error).toBeInstanceOf(SourceProgramReductionAdmissionError);
-    expect((error as SourceProgramReductionAdmissionError).code).toBe('compiler-issued-plan-required');
-  }
+  expect(() => renderSourceProgramGraphCutReductionPatch(plan, driftedFiles)).toThrow(
+    'do not match the compiler-sealed Source Program snapshot'
+  );
+  expect(() => renderSourceProgramGraphCutReductionPatch({ ...plan }, fixture.files)).toThrow(
+    'compiler-issued verified plan'
+  );
 });
 
 test('graph cut blocks typed required-unmaterialized owner obligations before deletion', () => {
@@ -1146,12 +1284,10 @@ test('graph cut blocks typed required-unmaterialized owner obligations before de
   const plan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
     fixture.files,
-    [{
+    compileGraphCutProviderReceipt(fixture, [{
       path: 'src/example/contract.ts',
-      name: 'deliver',
-      provider: 'knip',
-      providerRevision: 'synthetic-knip'
-    }],
+      name: 'deliver'
+    }]),
     { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
   );
 
@@ -1175,7 +1311,7 @@ test('graph cut blocks typed required-unmaterialized owner obligations before de
   );
 });
 
-test('graph cut blocks a consumer-zero declaration whose body changes reference semantics', () => {
+test('graph cut rejects unknown consumer-zero before virtual semantic comparison', () => {
   const fixture = compileGraphCutFixture({
     'src/example/contract.ts': [
       'function register(): number { return 1; }',
@@ -1187,12 +1323,10 @@ test('graph cut blocks a consumer-zero declaration whose body changes reference 
   const plan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
     fixture.files,
-    [{
+    compileGraphCutProviderReceipt(fixture, [{
       path: 'src/example/contract.ts',
-      name: 'UNUSED',
-      provider: 'knip',
-      providerRevision: 'synthetic-knip'
-    }],
+      name: 'UNUSED'
+    }]),
     { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
   );
 
@@ -1200,7 +1334,7 @@ test('graph cut blocks a consumer-zero declaration whose body changes reference 
     path: 'src/example/contract.ts',
     name: 'UNUSED',
     status: 'blocked',
-    reason: 'virtual graph cut changes declarations, references, entrypoints, or capability semantics'
+    reason: 'canonical Source Program consumer frontier is unknown; unused provider evidence cannot authorize deletion'
   }));
 });
 
@@ -1213,12 +1347,10 @@ test('graph cut blocks compiler-resolved cross-file aliases and re-exports', () 
   const plan = compileSourceProgramGraphCutReductionPlan(
     fixture.model,
     fixture.files,
-    [{
+    compileGraphCutProviderReceipt(fixture, [{
       path: 'src/example/provider.ts',
-      name: 'SharedContract',
-      provider: 'knip',
-      providerRevision: 'synthetic-knip'
-    }],
+      name: 'SharedContract'
+    }]),
     { moduleMembership: fixture.moduleMembership, reviewedProcessDispatchers: [] }
   );
 
@@ -1872,7 +2004,12 @@ test('source program keeps an effectful public operation without an exact domain
           retirement: 'replacement-obligations-satisfied'
         },
         resources: {
-          aggregateBudgets: [{ resource: 'processes', maximum: 1 }]
+          aggregateBudgets: [
+            { resource: 'duration-ms', maximum: 1_000 },
+            { resource: 'input-bytes', maximum: 0 },
+            { resource: 'output-bytes', maximum: 1 },
+            { resource: 'processes', maximum: 1 }
+          ]
         },
         futureSupport: { condition: 'semantic-superset-required' }
       }]

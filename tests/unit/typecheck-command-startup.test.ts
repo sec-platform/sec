@@ -21,10 +21,8 @@ test('typecheck command admits dependencies before loading the TypeScript execut
     calls: [
       'dependency:ensure',
       'dependency:readback',
-      'generation:retain',
       'runner:load',
-      'runner:execute:--diagnostic-only',
-      'generation:retire'
+      'runner:execute:--diagnostic-only'
     ],
     exitCode: 0
   });

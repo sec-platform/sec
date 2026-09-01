@@ -76,12 +76,16 @@
             "maximum": 300000
           },
           {
+            "resource": "input-bytes",
+            "maximum": 1048576
+          },
+          {
             "resource": "output-bytes",
             "maximum": 67108864
           },
           {
             "resource": "processes",
-            "maximum": 1
+            "maximum": 2
           }
         ]
       },

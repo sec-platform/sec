@@ -11,9 +11,7 @@ export type {
   CompilerDependencyMaterializationDigest,
   CompilerDependencyMaterializationInputProjection,
   CompilerDepsReadyState,
-  DependencyAuthorityPaths,
-  RetainedCompilerDependencyExecutionGeneration,
-  RuntimeDependencySourceGeneration,
+  DependencyAuthorityPaths, RetainedCompilerDependencyExecutionGeneration, RetainedCompilerDependencyReadGeneration, RuntimeDependencySourceGeneration,
   RuntimeDependencyTargetIdentity,
   RuntimeDepsStamp,
   SharedDepsReadyState
@@ -23,8 +21,7 @@ export {
   assertCompilerDependencyExecutionGenerationAuthority,
   assertCompilerDependencyExecutionRetirementReceipt,
   COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY,
-  projectCompilerDepsReadyState,
-  retainCompilerDependencyExecutionGeneration
+  projectCompilerDepsReadyState, retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration
 } from './runtime/project-runtime.ts';
 
 export { SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES } from './runtime/project-runtime.ts';

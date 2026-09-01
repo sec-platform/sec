@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, beforeAll, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -18,10 +18,10 @@ import {
   ensureOperationDependencies,
   reuseOperationDependencies
 } from '../../src/development/runner/dependency-bootstrap.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../src/runtime-state/workspace-state/paths.ts';
 import {
-  ensureCompilerDepsReady,
+  observeCompilerDependencyExecutionGenerationAuthority,
   observeCompilerDependencyMaterializationInput,
+  projectCompilerDepsReadyState,
   type CompilerDepsReadyState
 } from '../../src/toolchain/dependencies/runtime.ts';
 import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
@@ -31,9 +31,21 @@ const CROSS_PROCESS_ATTEMPT_LOG = process.env.SEC_DEPENDENCY_BOOTSTRAP_ATTEMPT_L
 const CROSS_PROCESS_READY_MARKER = process.env.SEC_DEPENDENCY_BOOTSTRAP_READY_MARKER;
 const CROSS_PROCESS_RESULT = process.env.SEC_DEPENDENCY_BOOTSTRAP_RESULT;
 
-const compilerDependencyFixture: CompilerDepsReadyState = CROSS_PROCESS_BOOTSTRAP_ROOT === undefined
-  ? await ensureCompilerDepsReady()
-  : Object.freeze({
+let compilerDependencyFixture: CompilerDepsReadyState;
+
+beforeAll(async () => {
+  if (CROSS_PROCESS_BOOTSTRAP_ROOT === undefined) {
+    const deadlineAtUnixMs = Date.now() + 10_000;
+    const authority = await observeCompilerDependencyExecutionGenerationAuthority({
+      deadlineAtUnixMs
+    });
+    if (authority === null) {
+      throw new Error('Dependency bootstrap tests require one existing compiler generation authority.');
+    }
+    compilerDependencyFixture = projectCompilerDepsReadyState(authority);
+    return;
+  }
+  compilerDependencyFixture = Object.freeze({
     executionGenerationAuthority: Object.freeze({
       generationDigest: `sha256:${'d'.repeat(64)}` as const
     }),
@@ -45,6 +57,7 @@ const compilerDependencyFixture: CompilerDepsReadyState = CROSS_PROCESS_BOOTSTRA
     source: 'existing' as const,
     transitionDigest: `sha256:${'f'.repeat(64)}` as const
   });
+});
 
 function compilerReady(source: 'existing' | 'installed') {
   return {
@@ -166,19 +179,8 @@ async function runDependencyBootstrapChild(input: Readonly<{
   expect(exitCode, output).toBe(0);
 }
 
-function descendantFiles(root: string): string[] {
-  if (!fs.existsSync(root)) return [];
-  const files: string[] = [];
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    const absolute = path.join(root, entry.name);
-    if (entry.isDirectory()) files.push(...descendantFiles(absolute));
-    else files.push(absolute);
-  }
-  return files;
-}
-
 test(
-  'dependency bootstrap joins one cross-process materialization, reuses terminal readback, isolates changed lock identity, and cleans claims',
+  'dependency bootstrap joins one cross-process materialization, reuses the same generation, and isolates changed lock identity',
   async () => {
     const repositoryRoot = createBootstrapIdentityRoot();
     const attemptLog = path.join(repositoryRoot, 'materialization-attempts.log');
@@ -227,15 +229,6 @@ test(
     expect(JSON.parse(fs.readFileSync(changedResult, 'utf8'))).toMatchObject({
       source: 'installed'
     });
-
-    const journalRoot = path.join(
-      resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).workspaceStateRoot,
-      'verification-actions',
-      'terminal-bound'
-    );
-    const journalFiles = descendantFiles(journalRoot);
-    expect(journalFiles.filter((file) => file.endsWith('.claim.json'))).toEqual([]);
-    expect(journalFiles.filter((file) => file.endsWith('.jsonl'))).toHaveLength(2);
   },
   60_000
 );

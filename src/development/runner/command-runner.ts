@@ -22,7 +22,7 @@ import {
 } from '../../runtime-state/physical/runtime/process.ts';
 import { settlePhysicalResources } from '../../runtime-state/physical/runtime/resource-settlement.ts';
 import type { RetainedCommandBoundary } from '../../runtime-state/physical/runtime/retained-command-boundary.ts';
-import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
@@ -38,6 +38,7 @@ import { applyDefaultFastTestConcurrency } from './test-concurrency-policy.ts';
 
 export const DEV_COMMAND_OUTPUT_TAIL_MAX_BYTES = 8 * 1024;
 export const DEV_COMMAND_MAX_DURATION_MS = 5 * 60 * 1000;
+export const DEV_COMMAND_MAX_STDIN_BYTES = 1024 * 1024;
 export const DEV_COMMAND_MAX_STDOUT_BYTES = 32 * 1024 * 1024;
 export const DEV_COMMAND_MAX_STDERR_BYTES = 32 * 1024 * 1024;
 
@@ -46,8 +47,9 @@ const DEV_COMMAND_CONTRACT_DIGEST = sha256({
   domain: 'development.runner.bun-command',
   executable: 'current-bun-runtime',
   workingDirectory: 'owner-admitted-retained-directory',
-  processCount: 1,
+  maximumNativeProcessResources: 2,
   maximumDurationMs: DEV_COMMAND_MAX_DURATION_MS,
+  maximumStdinBytes: DEV_COMMAND_MAX_STDIN_BYTES,
   maximumStdoutBytes: DEV_COMMAND_MAX_STDOUT_BYTES,
   maximumStderrBytes: DEV_COMMAND_MAX_STDERR_BYTES
 }) as SecOperationDigest;
@@ -132,6 +134,10 @@ export interface ObserveDevCommandOptions {
   readonly auxiliaryOrdinaryFilePaths?: readonly string[];
   /** Narrows the owner ceiling; callers cannot widen it. */
   readonly timeoutMs?: number;
+  /** Narrows the owner deadline without starting a new duration window. */
+  readonly deadlineAtUnixMs?: number;
+  /** Immutable bytes admitted to the single child stdin stream. */
+  readonly input?: Uint8Array;
   readonly signal?: AbortSignal;
   /** Owner-admitted and retained cwd; defaults to the compiler root. */
   readonly workingDirectory?: string;
@@ -143,6 +149,10 @@ export interface ExecuteDevCommandOptions {
   readonly auxiliaryOrdinaryFilePaths?: readonly string[];
   /** Narrows the owner ceiling; callers cannot widen it. */
   readonly timeoutMs?: number;
+  /** Narrows the owner deadline without starting a new duration window. */
+  readonly deadlineAtUnixMs?: number;
+  /** Immutable bytes admitted to the single child stdin stream. */
+  readonly input?: Uint8Array;
   readonly signal?: AbortSignal;
   /** Owner-admitted and retained cwd; defaults to the compiler root. */
   readonly workingDirectory?: string;
@@ -195,12 +205,26 @@ function physicalOutcomeTerminal(
   };
 }
 
-function commandTimeoutMs(options: DevCommandOptions | undefined): number {
+function commandTiming(options: DevCommandOptions | undefined): Readonly<{
+  deadlineAtUnixMs: number;
+  timeoutMs: number;
+}> {
   const timeoutMs = options?.timeoutMs ?? DEV_COMMAND_MAX_DURATION_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 2 || timeoutMs > DEV_COMMAND_MAX_DURATION_MS) {
     throw new Error('Dev command timeout must be a safe integer within the owner duration ceiling.');
   }
-  return timeoutMs;
+  const now = Date.now();
+  const ownerDeadlineAtUnixMs = now + timeoutMs;
+  const parentDeadlineAtUnixMs = options?.deadlineAtUnixMs ?? ownerDeadlineAtUnixMs;
+  if (!Number.isSafeInteger(parentDeadlineAtUnixMs)) {
+    throw new Error('Dev command parent deadline must be a safe integer.');
+  }
+  const deadlineAtUnixMs = Math.min(ownerDeadlineAtUnixMs, parentDeadlineAtUnixMs);
+  const remainingMs = deadlineAtUnixMs - now;
+  if (remainingMs < 2) {
+    throw new Error('Dev command parent deadline is exhausted.');
+  }
+  return Object.freeze({ deadlineAtUnixMs, timeoutMs: remainingMs });
 }
 
 function exactCommandEnvironment(overrides: NodeJS.ProcessEnv): Readonly<NodeJS.ProcessEnv> {
@@ -230,6 +254,9 @@ function compileDevCommandOperation(input: Readonly<{
   deadlineAtUnixMs: number;
   effectiveArgv: readonly string[];
   environment: Readonly<NodeJS.ProcessEnv>;
+  inputDigest: `sha256:${string}`;
+  inputBytes: number;
+  maximumNativeProcessResources: number;
   providerIdentityDigest: SecOperationDigest;
   timeoutMs: number;
   workingDirectory: string;
@@ -239,6 +266,7 @@ function compileDevCommandOperation(input: Readonly<{
     intentDigest: sha256({
       effectiveArgv: input.effectiveArgv,
       environment: input.environment,
+      inputDigest: input.inputDigest,
       auxiliaryOrdinaryFilePaths: input.auxiliaryOrdinaryFilePaths,
       workingDirectory: input.workingDirectory
     }) as SecOperationDigest,
@@ -249,11 +277,12 @@ function compileDevCommandOperation(input: Readonly<{
     }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: input.timeoutMs },
+      { resource: 'input-bytes', maximum: input.inputBytes },
       {
         resource: 'output-bytes',
         maximum: DEV_COMMAND_MAX_STDOUT_BYTES + DEV_COMMAND_MAX_STDERR_BYTES
       },
-      { resource: 'processes', maximum: 1 }
+      { resource: 'processes', maximum: input.maximumNativeProcessResources }
     ],
     requirements: [{
       id: DEV_COMMAND_REQUIREMENT_ID,
@@ -384,7 +413,8 @@ function issueDevCommandPhysicalCapability(input: Readonly<{
 function assertDevCommandResourceReceipt(
   receipt: ProcessResourceSessionReceipt,
   operation: SecBoundSemanticOperation,
-  completed: boolean
+  completed: boolean,
+  expectedInputBytes: number
 ): void {
   assertProcessResourceSessionReceipt(receipt, {
     operationIdentityDigest: operation.plan.identity.identityDigest,
@@ -397,7 +427,7 @@ function assertDevCommandResourceReceipt(
       || receipt.processCount > 1
       || receipt.settledProcessCount !== receipt.processCount
       || receipt.successfulProcessRecordCount !== (completed ? 1 : 0)
-      || receipt.inputBytes !== 0
+      || receipt.inputBytes !== expectedInputBytes
       || receipt.outputBytes > DEV_COMMAND_MAX_STDOUT_BYTES + DEV_COMMAND_MAX_STDERR_BYTES) {
     throw new Error('Dev command process receipt does not match the owner operation.');
   }
@@ -407,6 +437,7 @@ function settleDevCommandExecution(input: Readonly<{
   capability: DevCommandPhysicalCapability;
   executionError: unknown | null;
   completed: boolean;
+  expectedInputBytes: number;
   operation: SecBoundSemanticOperation;
   session: ProcessResourceSession;
 }>): void {
@@ -444,7 +475,12 @@ function settleDevCommandExecution(input: Readonly<{
   if (receipt === undefined) {
     throw new Error('Dev command process session did not issue a terminal receipt.');
   }
-  assertDevCommandResourceReceipt(receipt, input.operation, input.completed);
+  assertDevCommandResourceReceipt(
+    receipt,
+    input.operation,
+    input.completed,
+    input.expectedInputBytes
+  );
 }
 
 export function devCommandObservationExitCode(observation: DevCommandObservation): number {
@@ -468,8 +504,16 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
     DEFAULT_FAST_TEST_MAX_CONCURRENCY
   );
   const effectiveArgv = Object.freeze([command, ...effectiveArgs]);
-  const timeoutMs = commandTimeoutMs(options);
-  const deadlineAtUnixMs = Date.now() + timeoutMs;
+  const { deadlineAtUnixMs, timeoutMs } = commandTiming(options);
+  const commandInput = options?.input === undefined
+    ? undefined
+    : new Uint8Array(options.input);
+  if (commandInput !== undefined && commandInput.byteLength > DEV_COMMAND_MAX_STDIN_BYTES) {
+    throw new Error('Dev command stdin exceeds the owner input-byte ceiling.');
+  }
+  const inputBytes = commandInput?.byteLength ?? 0;
+  const maximumNativeProcessResources =
+    process.platform === 'win32' && commandInput !== undefined ? 2 : 1;
   const environment = exactCommandEnvironment(env);
   const workingDirectory = path.resolve(options?.workingDirectory ?? compilerRoot);
   const auxiliaryOrdinaryFilePaths = Object.freeze(
@@ -491,6 +535,9 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
       deadlineAtUnixMs,
       effectiveArgv,
       environment,
+      inputBytes,
+      inputDigest: rawSha256(commandInput ?? new Uint8Array()),
+      maximumNativeProcessResources,
       providerIdentityDigest: capability.providerIdentityDigest,
       timeoutMs,
       workingDirectory
@@ -504,12 +551,12 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
           requirementId: DEV_COMMAND_REQUIREMENT_ID,
           resourceCeilings: [
             { resource: 'duration-ms', maximum: timeoutMs },
-            { resource: 'input-bytes', maximum: 0 },
+            { resource: 'input-bytes', maximum: inputBytes },
             {
               resource: 'output-bytes',
               maximum: DEV_COMMAND_MAX_STDOUT_BYTES + DEV_COMMAND_MAX_STDERR_BYTES
             },
-            { resource: 'processes', maximum: 1 }
+            { resource: 'processes', maximum: maximumNativeProcessResources }
           ]
         }),
         signal: options?.signal
@@ -554,6 +601,10 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
         },
         env: environment,
         envMode: 'replace',
+        ...(commandInput === undefined ? {} : {
+          input: commandInput,
+          maxStdinBytes: commandInput.byteLength
+        }),
         maxStderrBytes: DEV_COMMAND_MAX_STDERR_BYTES,
         maxStdoutBytes: DEV_COMMAND_MAX_STDOUT_BYTES
       });
@@ -564,6 +615,7 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
       capability,
       completed: result !== undefined,
       executionError,
+      expectedInputBytes: inputBytes,
       operation,
       session
     });

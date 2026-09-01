@@ -10,7 +10,7 @@ function moduleHref(repositoryPath: string): string {
 test('document-control required admission shares one MainHealth session and routes before selection', () => {
   const documentControlHref = moduleHref('src/control/documentation/document-control-plane.ts');
   const mainHealthHref = moduleHref('src/control/main-health/work-selection-main-health.ts');
-  const selectionHref = moduleHref('src/control/main-health/work-selection.ts');
+  const selectionHref = moduleHref('src/control/work-selection/runtime.ts');
   const source = `
 import { mock } from 'bun:test';
 
@@ -18,6 +18,7 @@ let routingState = 'ordinary-only';
 let sessionDepth = 0;
 let sessionCount = 0;
 let calls = [];
+let latestSnapshot = null;
 
 mock.module(${JSON.stringify(mainHealthHref)}, () => ({
   withMainHealthGitHubReadSession: async (input) => {
@@ -42,13 +43,15 @@ mock.module(${JSON.stringify(mainHealthHref)}, () => ({
   observeCanonicalMainHealthForPublication: async (input) => {
     if (sessionDepth !== 1) throw new Error('MainHealth snapshot escaped the shared session');
     calls.push('repair:' + input.mainSha);
+    latestSnapshot = Object.freeze({ ordinal: calls.length });
     return Object.freeze({
       authority: Object.freeze({}),
       stableDigest: 'sha256:' + '1'.repeat(64),
       projection: Object.freeze({ state: 'healthy', ref: 'sha256:' + '2'.repeat(64) }),
       ledger: null,
       repairDecision: Object.freeze({ routingState, marker: 'repair-' + routingState }),
-      supersession: Object.freeze({ kind: 'absent' })
+      supersession: Object.freeze({ kind: 'absent' }),
+      workSelectionSnapshot: latestSnapshot
     });
   }
 }));
@@ -63,6 +66,9 @@ const selectionResult = Object.freeze({
 mock.module(${JSON.stringify(selectionHref)}, () => ({
   observeSecWorkSelectionLive: async (input) => {
     if (sessionDepth !== 1) throw new Error('selection escaped the shared MainHealth session');
+    if (input.mainHealthSnapshot !== latestSnapshot) {
+      throw new Error('selection did not consume the exact T2 MainHealth snapshot');
+    }
     calls.push('selection:' + input.exactMain);
     return selectionResult;
   }

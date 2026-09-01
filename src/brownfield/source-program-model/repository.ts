@@ -9,6 +9,7 @@ import { compileSecRepositoryModuleGraph, type SecRepositoryModuleMembership } f
 import type {
   SourceProgramCandidate,
   SourceProgramCapabilityAuthorityClass,
+  SourceProgramCapabilityInvocation,
   SourceProgramCausalRelationEvidence,
   SourceProgramDeclaration,
   SourceProgramDependency,
@@ -19,8 +20,6 @@ import type {
   SourceProgramFile,
   SourceProgramFileInput,
   SourceProgramModel,
-  SourceProgramOperationIdentity,
-  SourceProgramOperationProducerClosure,
   SourceProgramOwnerIntentEvidence,
   SourceProgramPackage,
   SourceProgramResponsibilityEvidence,
@@ -29,6 +28,10 @@ import type {
   SourceProgramUnknown
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
+import {
+  compileSourceProgramEmbeddedWorkflowPrograms,
+  sourceProgramModuleImports
+} from './embedded-programs.ts';
 import {
   compileSourceProgramTestObservations,
   compileSourceProgramTestObservationsFromWorkspaceSnapshot,
@@ -42,17 +45,14 @@ import {
   sourceProgramCurrentExactReturnProvenances,
   workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
-import {
-  assertWorkspaceSourceSnapshot,
-  type WorkspaceSourceSnapshot
-} from './workspace-source-snapshot.ts';
+import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 export interface CompileRepositorySourceProgramModelInput {
   readonly sourceRevision: string;
   readonly files: readonly SourceProgramFileInput[];
   readonly moduleMembership: SecRepositoryModuleMembership;
   readonly unknowns?: readonly SourceProgramUnknown[];
-  /** Exact process dispatcher identities admitted by the current TCB compiler. */
+  /** Exact process dispatcher inventory observed by the current TCB compiler; never Effect authority. */
   readonly reviewedProcessDispatchers?: readonly string[];
   /**
    * Exact TypeScript facts compiled by this package's incremental compiler.
@@ -68,7 +68,6 @@ type CompileRepositorySourceProgramModelInternalInput = CompileRepositorySourceP
 }>;
 
 const compiledRepositorySourceProgramModels = new WeakSet<object>();
-const compiledOperationProducerClosures = new WeakSet<object>();
 
 function unreachableModuleOperationIdentity(operation: never): never {
   throw new Error(`Unsupported module operation identity: ${JSON.stringify(operation)}`);
@@ -79,93 +78,6 @@ export function isCompiledRepositorySourceProgramModel(
   value: SourceProgramModel
 ): boolean {
   return compiledRepositorySourceProgramModels.has(value);
-}
-
-/**
- * Compile one bounded operation closure from an exact Workspace Source
- * Snapshot. The snapshot already owns the canonical import graph, so this
- * projection neither starts the full TypeScript semantic compiler nor accepts
- * a caller path inventory.
- */
-export function compileSourceProgramOperationProducerClosure(
-  snapshot: WorkspaceSourceSnapshot,
-  operation: SourceProgramOperationIdentity
-): SourceProgramOperationProducerClosure {
-  assertWorkspaceSourceSnapshot(snapshot);
-  const owners = snapshot.moduleMembership.descriptors.filter((descriptor) => (
-    descriptor.capabilityProviders.some((provider) => (
-      provider.capability === operation.capability
-      && provider.operations.includes(operation.operation)
-    ))
-  ));
-  if (owners.length !== 1) {
-    throw new Error(
-      `Source Program operation must resolve to one descriptor owner: `
-      + `${operation.capability}:${operation.operation}`
-    );
-  }
-  const owner = owners[0]!;
-  if (owner.externalEntrypoints.length === 0) {
-    throw new Error(`Source Program operation owner has no external entrypoint: ${owner.moduleId}`);
-  }
-  const fileByPath = new Map(snapshot.files.map((file) => [file.path, file]));
-  const descriptorPath = `${owner.root}/sec.module.json`;
-  const reachable = new Set<string>([descriptorPath]);
-  const frontier = [...owner.externalEntrypoints];
-  while (frontier.length > 0) {
-    const repositoryPath = frontier.pop()!;
-    if (reachable.has(repositoryPath)) continue;
-    const file = fileByPath.get(repositoryPath);
-    if (file === undefined) {
-      throw new Error(`Source Program operation entrypoint is absent: ${repositoryPath}`);
-    }
-    if (snapshot.moduleGraph.unresolvedFiles.includes(repositoryPath)) {
-      throw new Error(`Source Program operation reachable graph is unresolved: ${repositoryPath}`);
-    }
-    reachable.add(repositoryPath);
-    for (const dependency of snapshot.moduleGraph.directDependencies(repositoryPath)) {
-      if (!reachable.has(dependency)) frontier.push(dependency);
-    }
-  }
-  const files = Object.freeze([...reachable].sort(compareCodeUnits).map((repositoryPath) => {
-    const file = fileByPath.get(repositoryPath);
-    if (file === undefined) {
-      throw new Error(`Source Program operation closure has no exact file digest: ${repositoryPath}`);
-    }
-    return Object.freeze({ path: repositoryPath, contentDigest: file.contentDigest });
-  }));
-  const entrypointAddresses = Object.freeze(owner.externalEntrypoints
-    .map((targetPath) => (
-      `module-entrypoint:${descriptorPath}#${owner.moduleId}:${targetPath}`
-    ) as SourceProgramEntrypointAddress)
-    .sort(compareCodeUnits));
-  const canonicalOperation = Object.freeze({
-    capability: operation.capability,
-    operation: operation.operation
-  });
-  const unsigned = Object.freeze({
-    operation: canonicalOperation,
-    moduleId: owner.moduleId,
-    entrypointAddresses,
-    sourceRevision: snapshot.sourceRevision,
-    files
-  });
-  const closure = Object.freeze({
-    ...unsigned,
-    closureDigest: sha256(unsigned) as `sha256:${string}`
-  });
-  compiledOperationProducerClosures.add(closure);
-  return closure;
-}
-
-export function requireSourceProgramOperationProducerClosure(
-  value: unknown
-): SourceProgramOperationProducerClosure {
-  if (value === null || typeof value !== 'object'
-      || !compiledOperationProducerClosures.has(value)) {
-    throw new Error('Operation producer closure is not Source Program compiler-issued');
-  }
-  return value as SourceProgramOperationProducerClosure;
 }
 
 function exactStringAttribute(entity: SemanticEntity, key: string): string | null {
@@ -780,6 +692,60 @@ function compileRepositorySourceProgramModelInternal(
     ...(input.unknowns ?? []),
     ...semanticModel.unknowns
   ];
+  const embeddedWorkflowUnits = Object.freeze(input.files.flatMap((file) => (
+    compileSourceProgramEmbeddedWorkflowPrograms(file)
+  )));
+  const embeddedCapabilities: readonly SourceProgramCapabilityInvocation[] = Object.freeze(
+    embeddedWorkflowUnits.map((unit) => {
+      const canonical = Object.freeze({
+        path: unit.ownerPath,
+        moduleId: null,
+        surface: 'workflow' as const,
+        capability: unit.kind === 'github-script' ? 'dynamic-code' as const : 'process' as const,
+        operation: unit.kind,
+        subject: unit.address,
+        transport: unit.kind === 'github-script' ? 'package-api' as const : 'unknown' as const,
+        moduleSpecifier: unit.provider,
+        providerCapability: null,
+        providerModuleId: null,
+        owningDeclarationObservationId: null,
+        observationClass: unit.unknowns.length === 0 ? 'derived' as const : 'unknown' as const,
+        span: unit.span
+      });
+      return Object.freeze({
+        observationId: sha256({ ...canonical, contentDigest: unit.contentDigest }),
+        ...canonical
+      });
+    })
+  );
+  const embeddedReferences = Object.freeze(embeddedWorkflowUnits.flatMap((unit) => (
+    unit.imports.map((reference) => Object.freeze({
+      path: unit.ownerPath,
+      kind: 'import' as const,
+      name: '*',
+      moduleSpecifier: reference.specifier,
+      sourceObservationId: null,
+      sourceRelation: 'module-initialization' as const,
+      targetObservationId: null,
+      targetPath: null,
+      observationClass: reference.specifier.startsWith('.') ? 'unknown' as const : 'observed' as const,
+      span: unit.span
+    }))
+  )));
+  const capabilities = Object.freeze([
+    ...semanticModel.capabilities,
+    ...embeddedCapabilities
+  ]);
+  for (const unit of embeddedWorkflowUnits) {
+    for (const unknown of unit.unknowns) {
+      unknowns.push(Object.freeze({
+        code: unknown.code,
+        path: unit.ownerPath,
+        detail: `${unit.address}: ${unknown.detail}`,
+        span: unit.span
+      }));
+    }
+  }
   const filePaths = new Set(input.files.map(({ path: repositoryPath }) => repositoryPath));
   const externalConsumers = new Map<string, Set<string>>();
   for (const unknown of semanticModel.unknowns) {
@@ -1136,18 +1102,34 @@ function compileRepositorySourceProgramModelInternal(
         span: null
       }));
     }
-    if (/^\.github\/workflows\/[^/]+\.ya?ml$/iu.test(file.path)) {
+    if (sourceProgramSurfaceForPath(file.path) === 'workflow') {
+      const units = embeddedWorkflowUnits.filter(({ ownerPath }) => ownerPath === file.path);
       entrypoints.push(observedEntrypoint({
         path: file.path,
         kind: 'workflow',
         name: path.posix.basename(file.path),
         command: null,
-        targetEntrypoints: Object.freeze([]),
+        targetEntrypoints: Object.freeze(units.map(({ address }) => (
+          entrypointAddress('workflow', file.path, address)
+        ))),
         targetPaths: Object.freeze([file.path]),
         targetPackages: Object.freeze([]),
         observationClass: 'observed',
         span: null
       }));
+      for (const unit of units) {
+        entrypoints.push(observedEntrypoint({
+          path: file.path,
+          kind: 'workflow',
+          name: unit.address,
+          command: null,
+          targetEntrypoints: Object.freeze([]),
+          targetPaths: Object.freeze([]),
+          targetPackages: unit.targetPackages,
+          observationClass: unit.unknowns.length === 0 ? 'derived' : 'unknown',
+          span: unit.span
+        }));
+      }
     }
   }
 
@@ -1196,7 +1178,8 @@ function compileRepositorySourceProgramModelInternal(
   const sourceByPath = new Map(input.files.map((file) => [file.path, file.source] as const));
   const importGraph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
     files: Object.freeze([...sourceByPath.keys()].sort(compareCodeUnits)),
-    readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
+    readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null,
+    readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
   });
   const entrypointByAddress = new Map(entrypoints.map((entrypoint) => [
     entrypointAddress(entrypoint.kind, entrypoint.path, entrypoint.name),
@@ -1234,8 +1217,8 @@ function compileRepositorySourceProgramModelInternal(
       unresolved
     });
   };
-  const capabilitiesByPath = new Map<string, typeof semanticModel.capabilities[number][]>();
-  for (const capability of semanticModel.capabilities) {
+  const capabilitiesByPath = new Map<string, SourceProgramCapabilityInvocation[]>();
+  for (const capability of capabilities) {
     const group = capabilitiesByPath.get(capability.path) ?? [];
     group.push(capability);
     capabilitiesByPath.set(capability.path, group);
@@ -1570,11 +1553,66 @@ function compileRepositorySourceProgramModelInternal(
       }));
     }
   }
-  const nativeProcessOwners = new Set(input.moduleMembership.descriptors
-    .filter(({ capabilityProviders }) => capabilityProviders.some(({ capability }) => capability === 'process.native'))
-    .map(({ moduleId }) => moduleId));
-  const directNativeProcessByPath = new Map<string, typeof semanticModel.capabilities[number][]>();
-  for (const invocation of semanticModel.capabilities) {
+  const nativeProcessProviders = input.moduleMembership.descriptors.flatMap((descriptor) => (
+    descriptor.capabilityProviders.flatMap((provider) => (
+      provider.capability === 'process.native'
+        ? [Object.freeze({ descriptor, provider })]
+        : []
+    ))
+  ));
+  const nativeProcessOwners = new Set(nativeProcessProviders.map(({ descriptor }) => (
+    descriptor.moduleId
+  )));
+  const publicProcessOperations = nativeProcessProviders.flatMap(({ descriptor, provider }) => (
+    provider.operations.flatMap((operation) => (
+      provider.ownerInternalOperations.includes(operation)
+        ? []
+        : [Object.freeze({ descriptor, operation })]
+    ))
+  ));
+  const observesNativeProcessTransport = capabilities.some((capability) => (
+    capability.capability === 'process'
+    && (capability.transport === 'native-runtime'
+      || capability.providerCapability === 'process.native')
+  ));
+  if ((nativeProcessProviders.length > 0 || observesNativeProcessTransport)
+      && (nativeProcessProviders.length !== 1 || publicProcessOperations.length !== 1)) {
+    const boundaryPaths = nativeProcessProviders.length > 0
+      ? nativeProcessProviders.map(({ descriptor }) => `${descriptor.root}/sec.module.json`)
+      : capabilities.flatMap((capability) => (
+          capability.capability === 'process' && capability.transport === 'native-runtime'
+            ? [capability.path]
+            : []
+        ));
+    candidates.push(Object.freeze({
+      code: 'process-resource-session-boundary-unresolved',
+      subject: 'process.native',
+      paths: Object.freeze([...new Set(boundaryPaths)].sort(compareCodeUnits)),
+      reason: nativeProcessProviders.length !== 1
+        ? `native process transport must have one physical owner, observed ${nativeProcessProviders.length}`
+        : `native process transport must expose one owner-issued resource session and keep every other operation owner-internal, observed ${publicProcessOperations.length} public operations`,
+      observationClass: 'derived'
+    }));
+  }
+  type DirectNativeProcessObservation = Readonly<{
+    operation: string;
+    subject: string | null;
+    source: 'import' | 'invocation';
+  }>;
+  const directNativeProcessByPath = new Map<string, DirectNativeProcessObservation[]>();
+  const recordDirectNativeProcess = (
+    invocationPath: string,
+    observation: DirectNativeProcessObservation
+  ): void => {
+    const group = directNativeProcessByPath.get(invocationPath) ?? [];
+    if (!group.some((candidate) => candidate.operation === observation.operation
+        && candidate.subject === observation.subject
+        && candidate.source === observation.source)) {
+      group.push(observation);
+      directNativeProcessByPath.set(invocationPath, group);
+    }
+  };
+  for (const invocation of capabilities) {
     if (invocation.capability !== 'process' || invocation.surface !== 'production') continue;
     const providerDescriptor = invocation.providerModuleId === null
       ? null
@@ -1593,18 +1631,44 @@ function compileRepositorySourceProgramModelInternal(
     const isNativeTransportOutsideOwner = invocation.transport === 'native-runtime'
       && (invocation.moduleId === null || !nativeProcessOwners.has(invocation.moduleId));
     if (!crossesOwnerInternalProviderBoundary && !isNativeTransportOutsideOwner) continue;
-    const group = directNativeProcessByPath.get(invocation.path) ?? [];
-    group.push(invocation);
-    directNativeProcessByPath.set(invocation.path, group);
+    recordDirectNativeProcess(invocation.path, Object.freeze({
+      operation: invocation.operation,
+      subject: invocation.subject,
+      source: 'invocation'
+    }));
+  }
+  const declarationByObservationId = new Map(typescriptModel.declarations.map((declaration) => (
+    [declaration.observationId, declaration] as const
+  )));
+  for (const reference of semanticModel.references) {
+    if (sourceProgramSurfaceForPath(reference.path) !== 'production'
+        || reference.targetObservationId === null) continue;
+    const target = declarationByObservationId.get(reference.targetObservationId);
+    if (target === undefined || target.moduleId === null) continue;
+    const providerBinding = nativeProcessProviders.find(({ descriptor, provider }) => (
+      descriptor.moduleId === target.moduleId
+      && provider.ownerInternalOperations.includes(target.name)
+    ));
+    const sourceModuleId = input.moduleMembership.moduleForPath(reference.path)?.moduleId ?? null;
+    if (providerBinding === undefined || sourceModuleId === target.moduleId) continue;
+    recordDirectNativeProcess(reference.path, Object.freeze({
+      operation: target.name,
+      subject: null,
+      source: 'import'
+    }));
   }
   for (const [invocationPath, invocations] of directNativeProcessByPath) {
     const subjects = [...new Set(invocations.map(({ subject, operation }) => subject ?? operation))]
       .sort(compareCodeUnits);
+    const importedOperations = [...new Set(invocations
+      .filter(({ source }) => source === 'import')
+      .map(({ operation }) => operation))].sort(compareCodeUnits);
+    const invocationCount = invocations.filter(({ source }) => source === 'invocation').length;
     candidates.push(Object.freeze({
       code: 'direct-process-transport-outside-owner',
       subject: invocationPath,
       paths: Object.freeze([invocationPath]),
-      reason: `${invocations.length} native or owner-internal process transport call(s) (${subjects.join(', ')}) are outside sole owner ${[...nativeProcessOwners].sort(compareCodeUnits).join(', ') || '<unresolved>'}; TCB observation proves inventory, not transport authority`,
+      reason: `${invocationCount} native or owner-internal process transport call(s) and ${importedOperations.length} raw owner-internal import(s) (${subjects.join(', ')}) are outside sole owner ${[...nativeProcessOwners].sort(compareCodeUnits).join(', ') || '<unresolved>'}; static descriptor, budget and TCB observation prove inventory only, never transport authority`,
       observationClass: 'derived'
     }));
   }
@@ -2027,14 +2091,14 @@ function compileRepositorySourceProgramModelInternal(
     ]),
     files: Object.freeze(files),
     declarations: typescriptModel.declarations,
-    references: semanticModel.references,
+    references: Object.freeze([...semanticModel.references, ...embeddedReferences]),
     returnProvenances: typescriptModel.returnProvenances,
     literals: semanticModel.literals,
     entrypoints: Object.freeze(entrypoints),
     entrypointClosures: Object.freeze(entrypointClosures),
     packages: Object.freeze(packages),
     dependencies: Object.freeze(dependencies),
-    capabilities: semanticModel.capabilities,
+    capabilities,
     candidates: Object.freeze(deduplicatedCandidates),
     unknowns: Object.freeze(unknowns)
   };

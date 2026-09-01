@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { IssuedTestImpactProjection } from '../../brownfield/source-program-model/test-impact-projection.ts';
@@ -17,6 +18,7 @@ import { deepFreeze, rawSha256, sha256, uniqueSorted } from '../../system-archit
 import { uniqueSortedLines } from '../../system-architecture/foundation/runtime/collections.ts';
 import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
+import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import { selectCiSlowTestClosure } from '../../verification/ci/runtime/slow-test-selection.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../../verification/freeze.ts';
 import {
@@ -53,6 +55,7 @@ import {
 } from './command-runner.ts';
 import {
   ensureOperationDependencies,
+  retainOperationDependencyReadGeneration,
   reuseOperationDependencies,
   type OperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
@@ -753,8 +756,16 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
     throw new Error(`Test budget source snapshot is unavailable: ${resolution.kind}`);
   }
   const session = resolution.session;
+  const dependencyResolution = await retainOperationDependencyReadGeneration({
+    deadlineAtUnixMs
+  });
+  if (dependencyResolution.status !== 'ready') {
+    await session.close?.();
+    throw new Error(`Test budget dependency generation is unavailable: ${dependencyResolution.reason}`);
+  }
   try {
     const observation = await issueCheckAffectedTestImpactProjection({
+      dependencyGeneration: dependencyResolution.generation,
       repositoryRoot: compilerRoot,
       session
     });
@@ -763,6 +774,7 @@ export async function issueCurrentTestImpactSourceProvider(): Promise<CodexDevel
       activeDocumentationPaths: currentActiveDocumentationPaths()
     });
   } finally {
+    await dependencyResolution.generation.retire();
     await session.close?.();
   }
 }
@@ -788,12 +800,14 @@ function sameGitSelectionObservation(
 async function issueAffectedWorkingTreeTestImpactProjection(
   session: GitReadSession,
   initialObservation: GitSelectionGitObservation,
-  issueProjection: AffectedTestImpactProjectionIssuer
+  issueProjection: AffectedTestImpactProjectionIssuer,
+  dependencyGeneration: RetainedCompilerDependencyReadGeneration
 ): Promise<Readonly<{
   projection: IssuedTestImpactProjection;
   projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
 }> | null> {
   const observation = await issueProjection({
+    dependencyGeneration,
     repositoryRoot: compilerRoot,
     session
   });
@@ -1053,11 +1067,11 @@ async function runBoundedFastTestInvocations(
     concurrency,
     (invocation) => {
       const args = managedBunTestArgs(invocation.args);
-      return runDevCommand(
-        'bun', args, fastInvocationEnvironment(env, invocationRuntime, invocation.id), {
-          observe: true,
-          timeoutMs: testSupervisorTimeoutMs(args)
-        }
+      return runWithParentOwnedProcessTemp(invocationRuntime, env, invocation.id, (prepared) =>
+        runDevCommand('bun', args, prepared, {
+            observe: true,
+            timeoutMs: testSupervisorTimeoutMs(args)
+          })
       );
     },
     (observation) => devCommandObservationExitCode(observation) !== 0
@@ -1104,6 +1118,35 @@ function fastInvocationEnvironment(
   };
 }
 
+async function runWithParentOwnedProcessTemp<TResult>(
+  runtime: TestInvocationRuntimeRoots | null,
+  environment: NodeJS.ProcessEnv,
+  invocationId: string,
+  run: (environment: NodeJS.ProcessEnv) => Promise<TResult>
+): Promise<TResult> {
+  const childEnvironment = fastInvocationEnvironment(environment, runtime, invocationId);
+  if (runtime === null) return run(childEnvironment);
+  const generation = runtime.prepareProcessTemp(childEnvironment);
+  let outcome: Readonly<{ value: TResult }> | null = null;
+  let primary: unknown;
+  try {
+    outcome = { value: await run(childEnvironment) };
+  } catch (error) {
+    primary = error;
+  }
+  try {
+    await generation.cleanup();
+  } catch (cleanupError) {
+    if (primary !== undefined) {
+      throw new AggregateError([primary, cleanupError], 'Test command and process temp settlement failed.');
+    }
+    throw cleanupError;
+  }
+  if (primary !== undefined) throw primary;
+  if (outcome === null) throw new Error('Test command settlement lost its primary outcome.');
+  return outcome.value;
+}
+
 async function runWithTestInvocationRuntime(
   environment: NodeJS.ProcessEnv,
   run: (runtime: TestInvocationRuntimeRoots | null) => Promise<number>
@@ -1116,6 +1159,7 @@ async function runWithTestInvocationRuntime(
     if (testInvocationRuntimeIsolationModeForPlatform(process.platform) === 'retained') {
       runtime = await createTestInvocationRuntimeRoots({
         repositoryRoot: compilerRoot,
+        hostTempRoot: tmpdir(),
         environment: { ...secRuntimeStateEnvironment(), ...environment }
       });
     }
@@ -1125,7 +1169,7 @@ async function runWithTestInvocationRuntime(
     primaryFailure = error;
   }
   try {
-    runtime?.cleanup();
+    await runtime?.cleanup();
   } catch (error) {
     console.error(`Test invocation runtime cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
     if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
@@ -1408,17 +1452,32 @@ async function runAffectedTestPlan(
 }
 
 export async function resolveAffectedTestExecution(options: Readonly<{
+  dependencyGeneration?: RetainedCompilerDependencyReadGeneration;
   operation: SecBoundSemanticOperation;
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer;
   /** Callers with an explicit pre-effect fence may defer this first recheck. */
   verifyAtResolution?: boolean;
 }>): Promise<ResolvedAffectedTestExecution | null> {
+  const ownedDependencyResolution = options.dependencyGeneration === undefined
+    ? await retainOperationDependencyReadGeneration({
+        deadlineAtUnixMs: options.operation.plan.attempt.deadlineAtUnixMs
+      })
+    : null;
+  if (ownedDependencyResolution?.status === 'unavailable') {
+    console.error(`Affected ProjectInput dependency generation is unavailable: ${ownedDependencyResolution.reason}`);
+    return null;
+  }
+  const dependencyGeneration = options.dependencyGeneration
+    ?? ownedDependencyResolution!.generation;
   const gitResolution = createAuthorityGitReadSession({
     cwd: compilerRoot,
     operation: options.operation,
     budget: GIT_READ_OPERATION_BUDGET
   });
   if (gitResolution.status !== 'ready') {
+    if (ownedDependencyResolution?.status === 'ready') {
+      await ownedDependencyResolution.generation.retire();
+    }
     return null;
   }
   const gitSession = gitResolution.session;
@@ -1432,7 +1491,8 @@ export async function resolveAffectedTestExecution(options: Readonly<{
       testImpactObservation = await issueAffectedWorkingTreeTestImpactProjection(
         gitSession,
         changed.gitObservation,
-        options.issueTestImpactProjection
+        options.issueTestImpactProjection,
+        dependencyGeneration
       );
       gitRevalidationLedger = createAffectedGitRevalidationLedger(
         options.operation,
@@ -1446,6 +1506,9 @@ export async function resolveAffectedTestExecution(options: Readonly<{
     // plan keeps values, not a live provider capability.
     await gitSession.close?.();
     initialSessionFailure = gitSession.failure;
+    if (ownedDependencyResolution?.status === 'ready') {
+      await ownedDependencyResolution.generation.retire();
+    }
   }
   if (initialSessionFailure !== null || changed === null || gitRevalidationLedger === null) return null;
   const revalidationLedger = gitRevalidationLedger;
@@ -1567,10 +1630,10 @@ export async function runTests(args: string[] = []): Promise<number> {
         const environment = pathEnv(binPath);
         const invocationArgs = managedBunTestArgs(['test', ...args]);
         exitCode = await runWithTestInvocationRuntime(environment, (runtime) =>
-          runDevCommand(
-            'bun', invocationArgs, fastInvocationEnvironment(environment, runtime, 'direct:001'),
-            { timeoutMs: testSupervisorTimeoutMs(invocationArgs) }
-          ));
+          runWithParentOwnedProcessTemp(runtime, environment, 'direct:001', (prepared) =>
+            runDevCommand('bun', invocationArgs, prepared, {
+              timeoutMs: testSupervisorTimeoutMs(invocationArgs)
+            })));
       });
       return exitCode;
     }
@@ -1597,21 +1660,23 @@ export async function runTests(args: string[] = []): Promise<number> {
             timeoutMs: testSupervisorTimeoutMs(invocationArgs)
           })
         : await runWithTestInvocationRuntime(environment, (runtime) =>
-            runDevCommand(
-              'bun', invocationArgs, fastInvocationEnvironment(environment, runtime, 'direct:001'),
-              { timeoutMs: testSupervisorTimeoutMs(invocationArgs) }
-            ));
+            runWithParentOwnedProcessTemp(runtime, environment, 'direct:001', (prepared) =>
+              runDevCommand('bun', invocationArgs, prepared, {
+                timeoutMs: testSupervisorTimeoutMs(invocationArgs)
+              })));
       return;
     }
     exitCode = await runWithTestInvocationRuntime(environment, async (runtime) => {
       for (const invocation of fullTestInvocations(budgetProjection!)) {
-        const invocationEnvironment = invocation.kind === 'fast'
-          ? fastInvocationEnvironment(environment, runtime, invocation.id)
-          : environment;
         const invocationArgs = managedBunTestArgs(invocation.args);
-        const code = await runDevCommand('bun', invocationArgs, invocationEnvironment, {
-          timeoutMs: testSupervisorTimeoutMs(invocationArgs)
-        });
+        const code = invocation.kind === 'fast'
+          ? await runWithParentOwnedProcessTemp(runtime, environment, invocation.id, (prepared) =>
+              runDevCommand('bun', invocationArgs, prepared, {
+                timeoutMs: testSupervisorTimeoutMs(invocationArgs)
+              }))
+          : await runDevCommand('bun', invocationArgs, environment, {
+              timeoutMs: testSupervisorTimeoutMs(invocationArgs)
+            });
         if (code !== 0) return code;
       }
       return 0;
@@ -1635,6 +1700,7 @@ export async function runFastTests(
     if (testInvocationRuntimeIsolationModeForPlatform(process.platform) === 'retained') {
       invocationRuntime = await createTestInvocationRuntimeRoots({
         repositoryRoot: compilerRoot,
+        hostTempRoot: tmpdir(),
         environment: { ...secRuntimeStateEnvironment(), ...workspaceEnv }
       });
     }
@@ -1668,7 +1734,7 @@ export async function runFastTests(
     primaryFailure = error;
   }
   try {
-    invocationRuntime?.cleanup();
+    await invocationRuntime?.cleanup();
   } catch (error) {
     console.error(`Fast test invocation runtime cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
     if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
@@ -1718,12 +1784,11 @@ export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promi
     exitCode = await runWithTestInvocationRuntime(environment, async (runtime) => {
       for (const [index, invocation] of buildContractFreezeRunnerInvocations(targets).entries()) {
         const invocationArgs = managedBunTestArgs(invocation.args);
-        const code = await runDevCommand(
-          'bun',
-          invocationArgs,
-          fastInvocationEnvironment(environment, runtime, `contract-freeze:${String(index + 1).padStart(3, '0')}`),
-          { timeoutMs: testSupervisorTimeoutMs(invocationArgs) }
-        );
+        const code = await runWithParentOwnedProcessTemp(
+          runtime, environment, `contract-freeze:${String(index + 1).padStart(3, '0')}`, (prepared) =>
+          runDevCommand('bun', invocationArgs, prepared, {
+            timeoutMs: testSupervisorTimeoutMs(invocationArgs)
+          }));
         if (code !== 0) return code;
       }
       return 0;

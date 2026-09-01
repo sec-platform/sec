@@ -1,15 +1,16 @@
 import crypto from 'node:crypto';
 
 import type {
+  GeneratedStateCleanupContinuationReceipt,
   GeneratedStateCleanupProfile,
   GeneratedStateDisposalReceipt,
   GeneratedStatePhysicalIdentity,
   GeneratedStateRegistration
 } from '../../../runtime-state/generated-state/contract.ts';
 import type { GeneratedStateRetirementObservation } from '../../../runtime-state/generated-state/lifecycle.ts';
-import { runCommand } from '../../../runtime-state/physical/runtime/process.ts';
 import { SecError } from '../../../system-architecture/foundation/contract/failure.ts';
 import type { CommitFence } from '../../../workspace/files.ts';
+import type { RuntimeDependencyTestMaterializationCapability } from './materialization-fixture-capability.ts';
 
 const DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS = 300_000;
 export const MAX_DEPENDENCY_OPERATION_TIMEOUT_MS = DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS;
@@ -23,7 +24,6 @@ export const COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY = Object.freeze({
 
 export interface RuntimeDependencyInstallOptions {
   beforeCommit?: CommitFence;
-  commandRunner?: typeof runCommand;
   /** Parent absolute wall-clock deadline; the owner narrows it into its monotonic operation ledger. */
   deadlineAtUnixMs?: number;
   installMode?: 'allow' | 'offline-copy-only' | 'prebound-only';
@@ -49,6 +49,13 @@ export interface RuntimeDependencyInstallOptions {
   testInstallLockDelete?: (filePath: string, attempt: number) => void | Promise<void>;
   testInstallLockDeletePlatform?: NodeJS.Platform;
   testCompilerRename?: (source: string, target: string) => Promise<void>;
+  /**
+   * Process-local materialization capability issued only by the dependency
+   * test owner.  It can replace the install result in deterministic fixtures,
+   * but it can neither choose an executable nor become a production process
+   * transport.
+   */
+  testMaterialization?: RuntimeDependencyTestMaterializationCapability;
   generatedStateLifecycle?: Readonly<{
     born(relativePath: string, operationId: string): Promise<void>;
     /** Read-only adoption of an issuer-created active registration. */
@@ -111,6 +118,10 @@ export interface RuntimeDependencyInstallOptions {
       relativePath: string,
       request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
     ): Promise<GeneratedStateDisposalReceipt>;
+    quarantine?: (
+      relativePath: string,
+      request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
+    ) => Promise<GeneratedStateCleanupContinuationReceipt>;
   }>;
 }
 

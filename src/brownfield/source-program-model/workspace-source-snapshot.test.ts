@@ -21,6 +21,7 @@ import {
   acquireWorkingTreeWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
   compileVirtualWorkspaceSourceSnapshot,
+  compileWorkspaceTypeScriptProjectFactIdentity,
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence
 } from './workspace-source-snapshot.ts';
@@ -146,6 +147,18 @@ test('working tree and exact Git tree issue one transport-neutral source generat
   expect(working.subjectDigest).not.toBe(exact.subjectDigest);
   expect(working.physicalObservationReceipt?.kind).toBe('working-tree-observation');
   expect(exact.physicalObservationReceipt).toMatchObject({ kind: 'git-tree', commitSha });
+});
+
+test('Project fact identity is stable across observation sessions and consumes opaque generation identity', async () => {
+  const { repositoryRoot } = await createRepository();
+  const first = await workingSnapshot(repositoryRoot);
+  const second = await workingSnapshot(repositoryRoot);
+  const generationDigest = `sha256:${'a'.repeat(64)}` as const;
+  expect(compileWorkspaceTypeScriptProjectFactIdentity(first, 'tsconfig.json', {
+    dependencyGenerationDigest: generationDigest
+  })).toEqual(compileWorkspaceTypeScriptProjectFactIdentity(second, 'tsconfig.json', {
+    dependencyGenerationDigest: generationDigest
+  }));
 });
 
 test('working generation includes dirty and untracked source while excluding deleted membership', async () => {
@@ -344,7 +357,8 @@ test('immutable execution generation isolates workspace mutation and retires its
       const evidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
         snapshot,
         compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json', {
-          dependencyGeneration: retainedDependencyGeneration.physicalGeneration
+          dependencyGeneration: retainedDependencyGeneration.physicalGeneration,
+          dependencyGenerationDigest: retainedDependencyGeneration.generationDigest
         })
       );
       expect(evidence.projectInput.externalSourceFacts.some(({ kind, path: sourcePath }) => (
@@ -400,7 +414,8 @@ test('immutable execution generation isolates workspace mutation and retires its
       const replacementEvidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
         snapshot,
         compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json', {
-          dependencyGeneration: replacementDependencyGeneration.physicalGeneration
+          dependencyGeneration: replacementDependencyGeneration.physicalGeneration,
+          dependencyGenerationDigest: replacementDependencyGeneration.generationDigest
         })
       );
       await expect(materializeTypeScriptExecutionGeneration(replacementEvidence, {

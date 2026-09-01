@@ -13,6 +13,7 @@ import { SecError } from '../../../system-architecture/foundation/contract/failu
 import {
   generatedStatePhysicalIdentity,
   isSha256Digest,
+  runtimeDependencySourceGenerationEpoch,
   sameGeneratedStateIdentity,
   type RuntimeDependencySourceGeneration
 } from './dependency-transition/contract.ts';
@@ -55,6 +56,37 @@ const runtimeDependencySourceGenerationInFlight = new Map<
   string,
   RuntimeDependencySourceGenerationInFlight
 >();
+
+const issuedRuntimeDependencySourceGenerations = new WeakSet<object>();
+
+function issueRuntimeDependencySourceGeneration(
+  source: RuntimeDependencySourceGeneration
+): RuntimeDependencySourceGeneration {
+  issuedRuntimeDependencySourceGenerations.add(source);
+  return source;
+}
+
+export function assertRuntimeDependencySourceGenerationIssued(
+  source: RuntimeDependencySourceGeneration
+): void {
+  if (!issuedRuntimeDependencySourceGenerations.has(source)) {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Dependency transition source generation was not issued by the physical source compiler'
+    );
+  }
+}
+
+export function issuedRuntimeDependencySourceGenerationWithPath(
+  source: RuntimeDependencySourceGeneration,
+  sourcePath: string
+): RuntimeDependencySourceGeneration {
+  assertRuntimeDependencySourceGenerationIssued(source);
+  return issueRuntimeDependencySourceGeneration(Object.freeze({
+    ...source,
+    sourcePath: path.resolve(sourcePath)
+  }));
+}
 
 function runtimeDependencySourceGenerationBounds(
   requested: Partial<RuntimeDependencySourceGenerationBounds> | undefined
@@ -181,8 +213,7 @@ async function runtimeDependencySourceGenerationInternal(
     );
   }
   const { treeDigest, treeEntryCount } = runtimeDependencyTreeIdentity(treeInventory);
-  const epoch = generatedStateDigest(Object.freeze({
-    schema: 'sec-runtime-dependency-generation-epoch-v1',
+  const epoch = runtimeDependencySourceGenerationEpoch(Object.freeze({
     ownerRoot,
     ownerRootPhysical,
     physical,
@@ -190,7 +221,7 @@ async function runtimeDependencySourceGenerationInternal(
     treeDigest,
     treeEntryCount
   }));
-  return Object.freeze({
+  return issueRuntimeDependencySourceGeneration(Object.freeze({
     schema: 'sec-runtime-dependency-source-generation-v1' as const,
     ownerRoot,
     ownerRootPhysical,
@@ -200,7 +231,7 @@ async function runtimeDependencySourceGenerationInternal(
     treeDigest,
     treeEntryCount,
     epoch
-  });
+  }));
 }
 
 function sameRuntimeDependencySourceGenerationBounds(

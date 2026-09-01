@@ -10,6 +10,9 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { compileRepositorySourceProgramModel } from '../../src/brownfield/source-program-model/repository.ts';
+import { rawSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
 import {
   TCB_REVIEWED_NETWORK_DISPATCHERS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
@@ -26,7 +29,7 @@ import {
   selectTcbClosureCandidateAction,
   verifyTcbClosureLock as verifyTcbClosureLockAgainstExactTree
 } from '../../src/verification/trust/compiler.ts';
-import { SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY, projectSecTrustedBootstrapDispatcherDataflowV1, reverseProjectSecTrustedBootstrapDispatcherCounterexampleV1 } from '../../src/verification/trust/contract/root.ts';
+import { SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/verification/trust/contract/root.ts';
 
 const LIVE_TCB_CLOSURE = compileTrustedRuntimeClosure();
 const TCB_CLOSURE_LOCK = computeTcbClosureLock(LIVE_TCB_CLOSURE);
@@ -46,16 +49,6 @@ const trustedRuntimeClosure = (
 const verifyTcbClosureLock = (
   input: Parameters<typeof verifyTcbClosureLockAgainstExactTree>[0]
 ) => verifyTcbClosureLockAgainstExactTree(input, { expectedIdentity: TCB_CLOSURE_LOCK });
-
-const TRUSTED_DISPATCHER_PROJECTION = projectSecTrustedBootstrapDispatcherDataflowV1({
-  processDispatchers: LIVE_TCB_CLOSURE.reviewedProcessDispatchers,
-  networkDispatchers: LIVE_TCB_CLOSURE.reviewedNetworkDispatchers
-});
-
-function projectedBoundary(boundary: string) {
-  return [...TRUSTED_DISPATCHER_PROJECTION.process, ...TRUSTED_DISPATCHER_PROJECTION.network]
-    .filter((entry) => entry.boundary === boundary);
-}
 
 test('TCB candidate root exclusively drives closure discovery and hashing', () => {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-')));
@@ -171,6 +164,17 @@ test('TCB closure distinguishes runtime-local process bindings from the host pro
   )).toThrow('escaped process namespace');
 });
 
+test('TCB closure distinguishes a local module binding from the host module namespace', () => {
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-local-module-binding.ts',
+    'const module = { moduleId: "local" }; export const id = module.moduleId;'
+  )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-host-module-escape.ts',
+    'export const escaped = module;'
+  )).toThrow('escaped module loader namespace');
+});
+
 test('TCB closure includes statically named relative ESM loads and rejects hidden dynamic source', () => {
   expect(runtimeRelativeImportsFromSource(
     'synthetic-static-dynamic-import.ts',
@@ -227,6 +231,29 @@ test('TCB closure classifies only a direct Bun executable lookup', () => {
     'synthetic-bun-executable-lookup.ts',
     "export const executable = Bun['which']('git');"
   )).toThrow('computed Bun namespace member Bun[...]');
+});
+
+test('TCB closure classifies only a direct bounded Bun standard-input read', () => {
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-bun-stdin.ts',
+    'export const bytes = await Bun.stdin.bytes();'
+  )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-bun-stdin.ts',
+    'const stdin = Bun.stdin; export const bytes = await stdin.bytes();'
+  )).toThrow('unclassified Bun namespace member Bun.stdin');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-bun-stdin.ts',
+    "export const bytes = await Bun['stdin'].bytes();"
+  )).toThrow('computed Bun namespace member Bun[...]');
+});
+
+test('TCB closure does not treat erased provider type references as runtime transport', () => {
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-worker-type.ts',
+    "import { Worker as ThreadWorker } from 'node:worker_threads';\n"
+      + 'export let worker: ThreadWorker | null = null;\n'
+  )).not.toThrow();
 });
 
 test('TCB closure is one exact-tree Action with a pure compiler result', () => {
@@ -304,42 +331,62 @@ test('TCB closure lock binds Git blobs and content digests for every module', ()
   expect(Object.keys(TCB_CLOSURE_LOCK.moduleContentDigests)).toHaveLength(TCB_CLOSURE_LOCK.moduleCount);
 });
 
-test('Action provider preflight consumes the production dispatcher dataflow projection', () => {
-  const entries = projectedBoundary('verification-action');
-  expect(entries.length).toBeGreaterThan(0);
-  expect(new Set(entries.map((entry) => entry.identity)).size).toBe(entries.length);
-  expect(entries.every((entry) => entry.kind === 'process')).toBe(true);
-  expect(entries.every((entry) => entry.authority.ownerId === SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER)).toBe(true);
-  expect(entries.every((entry) => entry.authority.principleId === 'sec-trusted-bootstrap-dispatcher-dataflow-v1')).toBe(true);
-  expect(entries.every((entry) => entry.authority.evidence.includes('module-graph-closure'))).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.shell === 'forbidden')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.deadline === 'bounded' || entry.dataflow.deadline === 'provider-bound'))
-    .toBe(true);
-  expect(entries.every((entry) => TCB_CLOSURE_LOCK.modules.includes(entry.repositoryPath))).toBe(true);
+test('reviewed dispatcher census remains non-authorizing source observation', () => {
+  const packageSource = JSON.stringify({
+    name: 'tcb-observation-fixture',
+    private: true,
+    scripts: { inspect: 'bun ./src/example/cli.ts' }
+  });
+  const descriptorSource = JSON.stringify({
+    importGraph: 'runtime',
+    externalEntrypoints: [],
+    capabilityProviders: []
+  });
+  const sources = [
+    ['package.json', packageSource],
+    ['src/example/sec.module.json', descriptorSource],
+    [
+      'src/example/cli.ts',
+      "import { spawnSync } from 'node:child_process';\n"
+      + "export function run(): void { spawnSync('git', ['status']); }\n"
+    ]
+  ] as const;
+  const files = sources.map(([repositoryPath, source]) => ({
+    path: repositoryPath,
+    source,
+    contentDigest: rawSha256(source)
+  }));
+  const sourceRevision = rawSha256(JSON.stringify(
+    files.map(({ contentDigest, path: repositoryPath }) => ({ path: repositoryPath, contentDigest }))
+  ));
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
+    descriptorSources: [{
+      descriptorPath: 'src/example/sec.module.json',
+      source: descriptorSource
+    }]
+  });
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision,
+    files,
+    moduleMembership,
+    reviewedProcessDispatchers: [
+      'src/example/cli.ts::function-declaration:run::spawnSync#1'
+    ]
+  });
 
-  const processIdentity = entries[0]!.identity;
-  expect(() => projectSecTrustedBootstrapDispatcherDataflowV1({
-    processDispatchers: [processIdentity, processIdentity]
-  })).toThrow('duplicate identity');
-  const networkIdentity = TRUSTED_DISPATCHER_PROJECTION.network[0]!.identity;
-  expect(() => projectSecTrustedBootstrapDispatcherDataflowV1({
-    processDispatchers: [networkIdentity]
-  })).toThrow('Network loader cannot be projected as a process dispatcher');
-});
-
-test('Hosted archive inventory consumes one bounded production dispatcher projection', () => {
-  const entries = projectedBoundary('hosted-archive-inventory');
-  expect(entries.length).toBeGreaterThan(0);
-  expect(entries.every((entry) => entry.kind === 'process')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.executable === 'fixed-interpreter')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.environment === 'explicit-allowlist')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.output === 'bounded')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.shell === 'forbidden')).toBe(true);
+  expect(model.candidates).toContainEqual(expect.objectContaining({
+    code: 'direct-process-transport-outside-owner',
+    subject: 'src/example/cli.ts'
+  }));
+  expect('authority' in TCB_CLOSURE_LOCK).toBe(false);
 });
 
 test('verification-action runner receives a narrow repository capability and cannot dispatch processes', () => {
   const repositoryPath = 'src/verification/action/runner.ts';
-  expect(TRUSTED_DISPATCHER_PROJECTION.process.some((entry) => entry.repositoryPath === repositoryPath)).toBe(false);
+  expect(TCB_CLOSURE_LOCK.reviewedProcessDispatchers.some((entry) =>
+    entry.startsWith(`${repositoryPath}::`)
+  )).toBe(false);
 
   const repositoryRoot = path.resolve(import.meta.dir, '../..');
   const snapshot = createTcbClosureCandidateSnapshot({ candidateRoot: repositoryRoot });
@@ -356,63 +403,6 @@ test('verification-action runner receives a narrow repository capability and can
   expect(moduleReferences).not.toContain('./branch-lifecycle-command.ts');
 });
 
-test('TCB network effects consume one direct canonical dataflow projection', () => {
-  const entries = projectedBoundary('github-api');
-  expect(entries.length).toBeGreaterThan(0);
-  expect(entries.every((entry) => entry.kind === 'network')).toBe(true);
-  expect(entries.every((entry) => entry.loader === 'globalThis.fetch')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.argv === 'url-and-request-init')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.environment === 'provider-bound')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.shell === 'not-applicable')).toBe(true);
-
-  const counterexample = reverseProjectSecTrustedBootstrapDispatcherCounterexampleV1({
-    projection: TRUSTED_DISPATCHER_PROJECTION,
-    dispatcherIdentity: entries[0]!.identity,
-    designDelta: 'effect-dataflow'
-  });
-  expect(counterexample.status).toBe('counterexample');
-  expect(counterexample.owner.principleId).toBe('sec-trusted-bootstrap-dispatcher-dataflow-v1');
-  expect(counterexample.designDelta.machineTarget).toBe('tcb-closure-lock.reviewedNetworkDispatchers');
-  expect(counterexample.migrationClosure.ownerId).toBe(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
-  expect(counterexample.migrationClosure.evidence).toContain('content-digest-readback');
-
-  const unknown = reverseProjectSecTrustedBootstrapDispatcherCounterexampleV1({
-    projection: TRUSTED_DISPATCHER_PROJECTION,
-    dispatcherIdentity: 'scripts/unknown.ts::function-declaration:nearMiss::spawn#1',
-    designDelta: 'dispatcher-identity'
-  });
-  expect(unknown.owner.ownerId).toBe(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
-  expect(unknown.designDelta.machineTarget).toBe('tcb-closure-lock.reviewedProcessDispatchers');
-  expect(() => reverseProjectSecTrustedBootstrapDispatcherCounterexampleV1({
-    projection: TRUSTED_DISPATCHER_PROJECTION,
-    dispatcherIdentity: entries[0]!.identity,
-    designDelta: 'not-a-design-delta' as never
-  })).toThrow('design delta is not recognized');
-});
-
-test('local Actions runner dispatcher binds executable domain, cwd, environment, bounds, and ordinal', () => {
-  const entries = projectedBoundary('local-actions-runner');
-  expect(entries.length).toBeGreaterThan(0);
-  expect(entries.every((entry) => entry.kind === 'process')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.executable === 'command-input')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.cwd === 'caller-cwd')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.environment === 'provider-bound')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.output === 'bounded')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.deadline === 'bounded')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.shell === 'forbidden')).toBe(true);
-});
-
-test('docs-doctor index-tree consumes the production dispatcher projection', () => {
-  const entries = projectedBoundary('docs-doctor-index');
-  expect(entries.length).toBeGreaterThan(0);
-  expect(entries.every((entry) => entry.kind === 'process')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.cwd === 'repository-root')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.environment === 'provider-bound')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.output === 'bounded')).toBe(true);
-  expect(entries.every((entry) => entry.dataflow.shell === 'forbidden')).toBe(true);
-  expect(entries.every((entry) => TRUSTED_DISPATCHER_PROJECTION.process.includes(entry))).toBe(true);
-});
-
 test('live TCB closure passes lock verification', () => {
   const closure = trustedRuntimeClosure();
   const verification = verifyTcbClosureLock(closure);
@@ -424,6 +414,20 @@ test('live process dispatcher allowlist exactly matches the derived identity', (
   expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort()).toEqual(
     [...TCB_CLOSURE_LOCK.reviewedProcessDispatchers].sort()
   );
+});
+
+test('closure identity changes when its reviewed dispatcher observation changes', () => {
+  const changed = trustedRuntimeClosure();
+  changed.reviewedProcessDispatchers.add(
+    'src/synthetic.ts::function-declaration:dispatch::spawn#1'
+  );
+  const changedLock = computeTcbClosureLock(changed);
+
+  expect(changedLock.reviewedProcessDispatchers).not.toEqual(
+    TCB_CLOSURE_LOCK.reviewedProcessDispatchers
+  );
+  expect(changedLock.trustRevision).not.toBe(TCB_CLOSURE_LOCK.trustRevision);
+  expect(changedLock.closureDigest).not.toBe(TCB_CLOSURE_LOCK.closureDigest);
 });
 
 test('live network dispatcher allowlist exactly matches the derived identity', () => {

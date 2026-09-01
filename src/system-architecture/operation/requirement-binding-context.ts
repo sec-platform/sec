@@ -5,7 +5,7 @@ import {
 } from '../foundation/runtime/canonical.ts';
 import {
   assertSecSemanticOperationProjection,
-  SEC_OPERATION_BUDGET_RESOURCES,
+  isCanonicalSecOperationBudgetMaximum,
   type SecBoundSemanticOperation,
   type SecOperationBudgetResource,
   type SecOperationDigest
@@ -70,18 +70,19 @@ function canonicalResourceCeilings(
   }
   const ceilings = [...suppliedCeilings]
     .sort((left, right) => compareCodeUnits(left.resource, right.resource))
-    .map(({ resource, maximum }) => {
-      const explicitZeroInput = resource === 'input-bytes' && maximum === 0;
-      if (!SEC_OPERATION_BUDGET_RESOURCES.includes(resource)
-          || !Number.isSafeInteger(maximum)
-          || (maximum < 1 && !explicitZeroInput)) {
+    .map((ceiling) => {
+      const keys = Object.keys(ceiling).sort(compareCodeUnits);
+      if (keys.length !== 2 || keys[0] !== 'maximum' || keys[1] !== 'resource') {
+        throw new Error('Operation requirement resource ceiling is not canonical.');
+      }
+      const { resource, maximum } = ceiling;
+      if (!isCanonicalSecOperationBudgetMaximum(resource, maximum)) {
         throw new Error('Operation requirement resource ceiling is not canonical.');
       }
       const parent = operation.plan.execution.aggregateBudgets.find(
         ({ resource: candidate }) => candidate === resource
       );
-      if ((!explicitZeroInput && parent === undefined)
-          || (parent !== undefined && maximum > parent.maximum)) {
+      if (parent === undefined || maximum > parent.maximum) {
         throw new Error(
           `Operation requirement resource ceiling ${resource} is not narrowed from its operation.`
         );

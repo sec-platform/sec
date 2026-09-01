@@ -34,12 +34,12 @@ import {
   withMainHealthGitHubReadSession,
   type MainHealthRuntimeAuthority
 } from '../main-health/work-selection-main-health.ts';
-import { observeSecWorkSelectionLive } from '../main-health/work-selection.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
 import { assertSecRoadmapTerminalCompactionCandidate } from '../work-selection/live-contract.ts';
+import { observeSecWorkSelectionLive } from '../work-selection/runtime.ts';
 import {
   CodexDevelopmentAssertControlPlaneBinding,
   CodexDevelopmentAssertInitiallyAbsentEntryTransition,

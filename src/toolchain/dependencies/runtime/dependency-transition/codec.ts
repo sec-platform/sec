@@ -13,13 +13,14 @@ import {
 } from '../../../../workspace/files.ts';
 import {
   DEPENDENCY_TRANSITION_SCHEMA,
-  type DependencyTransitionJournal,
-  type DependencyTransitionSlot,
-  type DependencyTransitionUnsigned,
   hasExactObjectKeys,
   isCanonicalAbsolutePath,
   isCanonicalGeneratedStatePhysicalIdentity,
   isSha256Digest,
+  runtimeDependencySourceGenerationEpoch,
+  type DependencyTransitionJournal,
+  type DependencyTransitionSlot,
+  type DependencyTransitionUnsigned,
   type RuntimeDependencySourceGeneration
 } from './contract.ts';
 
@@ -73,16 +74,23 @@ export function isCanonicalDependencyTransitionSlot(value: unknown): value is De
 export function isCanonicalRuntimeDependencySourceGeneration(
   value: unknown
 ): value is RuntimeDependencySourceGeneration {
-  if (!hasExactObjectKeys(value, RUNTIME_SOURCE_GENERATION_KEYS) ||
-      value.schema !== 'sec-runtime-dependency-source-generation-v1' ||
+  if (!hasExactObjectKeys(value, RUNTIME_SOURCE_GENERATION_KEYS)) return false;
+  if (value.schema !== 'sec-runtime-dependency-source-generation-v1' ||
       !isCanonicalAbsolutePath(value.ownerRoot) ||
       !isCanonicalAbsolutePath(value.sourcePath) ||
       !isCanonicalGeneratedStatePhysicalIdentity(value.ownerRootPhysical) ||
       !isCanonicalGeneratedStatePhysicalIdentity(value.physical) ||
       !isSha256Digest(value.bindingDigest) || !isSha256Digest(value.treeDigest) ||
-      !Number.isSafeInteger(value.treeEntryCount) || (value.treeEntryCount as number) < 0 ||
-      !isSha256Digest(value.epoch)) return false;
-  return true;
+      !Number.isSafeInteger(value.treeEntryCount) || typeof value.treeEntryCount !== 'number' ||
+      value.treeEntryCount < 0 || !isSha256Digest(value.epoch)) return false;
+  return runtimeDependencySourceGenerationEpoch({
+    ownerRoot: value.ownerRoot,
+    ownerRootPhysical: value.ownerRootPhysical,
+    physical: value.physical,
+    bindingDigest: value.bindingDigest,
+    treeDigest: value.treeDigest,
+    treeEntryCount: value.treeEntryCount
+  }) === value.epoch;
 }
 
 function isCanonicalDescendantPath(ownerRoot: string, candidate: string): boolean {

@@ -374,6 +374,75 @@ export interface NoFollowDirectoryTreeMetadataOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface NoFollowSelectedDirectoryForestOptions extends NoFollowDirectoryTreeMetadataOptions {
+  /** Canonical relative roots. `*` matches exactly one path segment. */
+  readonly includeRelativePaths: readonly string[];
+  /** Navigation-only wildcard parents are not evidence and are omitted. */
+  readonly omitNavigationPrefixes?: boolean;
+}
+
+function selectedForestPatterns(values: readonly string[]): readonly (readonly string[])[] {
+  if (values.length === 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Selected forest requires at least one include path.');
+  }
+  return Object.freeze(values.map((value) => {
+    if (value.length === 0 || value.includes('\\') || value.startsWith('/') || value.endsWith('/')) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Selected forest include path is not canonical.');
+    }
+    const segments = value.split('/');
+    if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..'
+        || segment.includes('\0') || (segment !== '*' && !/^[A-Za-z0-9._-]+$/u.test(segment)))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Selected forest include path is not canonical.');
+    }
+    return Object.freeze(segments);
+  }));
+}
+
+function selectedForestPathRole(
+  relativePath: string,
+  patterns: readonly (readonly string[])[]
+): 'excluded' | 'navigation' | 'selected' {
+  const segments = relativePath.split('/');
+  let navigation = false;
+  for (const pattern of patterns) {
+    const shared = Math.min(pattern.length, segments.length);
+    let matches = true;
+    for (let index = 0; index < shared; index += 1) {
+      if (pattern[index] !== '*' && pattern[index] !== segments[index]) {
+        matches = false;
+        break;
+      }
+    }
+    if (!matches) continue;
+    if (segments.length >= pattern.length) return 'selected';
+    navigation = true;
+  }
+  return navigation ? 'navigation' : 'excluded';
+}
+
+function selectedForestLiteralChildren(
+  relativePath: string,
+  patterns: readonly (readonly string[])[]
+): readonly string[] | null {
+  const segments = relativePath.split('/');
+  const children = new Set<string>();
+  for (const pattern of patterns) {
+    if (segments.length >= pattern.length) continue;
+    let matches = true;
+    for (const [index, segment] of segments.entries()) {
+      if (pattern[index] !== '*' && pattern[index] !== segment) {
+        matches = false;
+        break;
+      }
+    }
+    if (!matches) continue;
+    const child = pattern[segments.length]!;
+    if (child === '*') return null;
+    children.add(child);
+  }
+  return Object.freeze([...children].sort((left, right) => left.localeCompare(right)));
+}
+
 export interface NoFollowDirectoryTreeCopyRoot {
   /** Source identity observed through the no-follow directory backend. */
   readonly source: PhysicalDirectoryIdentity;
@@ -4182,7 +4251,9 @@ function metadataScanNames(
 function scanNoFollowDirectoryTreeInternal(
   root: PhysicalDirectoryIdentity,
   fileMode: NoFollowDirectoryTreeFileMode,
-  metadataOptions: Partial<NoFollowDirectoryTreeMetadataOptions> = {}
+  metadataOptions: Partial<NoFollowDirectoryTreeMetadataOptions> = {},
+  selectedPatterns: readonly (readonly string[])[] | null = null,
+  omitNavigationPrefixes = false
 ): readonly InternalNoFollowDirectoryTreeEntry[] {
   const boundedMetadata = Object.freeze({
     deadlineAtMs: metadataOptions.deadlineAtMs ?? Number.POSITIVE_INFINITY,
@@ -4240,6 +4311,10 @@ function scanNoFollowDirectoryTreeInternal(
           }
           if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Directory entry contains NUL.');
           const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
+          const selectedRole = selectedPatterns === null
+            ? 'selected'
+            : selectedForestPathRole(relativePath, selectedPatterns);
+          if (selectedRole === 'excluded') continue;
           const retained = linuxOpenLeafAt(directoryFd, name, 'No-follow scan leaf');
           try {
             const stat = fstatSync(retained, { bigint: true });
@@ -4274,13 +4349,15 @@ function scanNoFollowDirectoryTreeInternal(
                 }
               } finally { closeSync(readable); }
             }
-            entries.push(Object.freeze({
-              relativePath, kind, device: String(stat.dev), inode: String(stat.ino), size: Number(stat.size),
-              bytes, contentDigest,
-              linkTarget: kind === 'link'
-                ? linuxReadRetainedLinkTarget(retained, 'No-follow scan retained link')
-                : null
-            }));
+            if (!(omitNavigationPrefixes && selectedRole === 'navigation')) {
+              entries.push(Object.freeze({
+                relativePath, kind, device: String(stat.dev), inode: String(stat.ino), size: Number(stat.size),
+                bytes, contentDigest,
+                linkTarget: kind === 'link'
+                  ? linuxReadRetainedLinkTarget(retained, 'No-follow scan retained link')
+                  : null
+              }));
+            }
             if (kind === 'directory') visitRetained(retained, relativePath);
           } finally { closeSync(retained); }
         }
@@ -4315,14 +4392,44 @@ function scanNoFollowDirectoryTreeInternal(
       if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Directory entry contains NUL.');
       const absolute = path.join(directory, name);
       const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
+      const selectedRole = selectedPatterns === null
+        ? 'selected'
+        : selectedForestPathRole(relativePath, selectedPatterns);
+      if (selectedRole === 'excluded') continue;
       if (process.platform === 'win32') {
+        if (omitNavigationPrefixes && selectedRole === 'navigation' && selectedPatterns !== null) {
+          const literalChildren = selectedForestLiteralChildren(relativePath, selectedPatterns);
+          if (literalChildren !== null) {
+            for (const child of literalChildren) {
+              const childAbsolute = path.join(absolute, child);
+              const presence = inspectExactNoFollowDirectoryPresence(
+                childAbsolute,
+                'No-follow selected forest root'
+              );
+              if (presence.state === 'absent') continue;
+              const childRelativePath = `${relativePath}/${child}`;
+              const scanned = Object.freeze({
+                ...windowsScanRetainedEntry(childAbsolute, 'No-follow selected forest root', reserveFileBytes),
+                contentDigest: null
+              });
+              if (scanned.kind !== 'directory') {
+                throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow selected forest root is not a directory.');
+              }
+              entries.push(Object.freeze({ ...scanned, relativePath: childRelativePath }));
+              visit(childAbsolute, childRelativePath);
+            }
+            continue;
+          }
+        }
         const scanned = fileMode === 'bounded-bytes'
           ? Object.freeze({ ...windowsScanRetainedEntry(absolute, 'No-follow scan entry', reserveFileBytes), contentDigest: null })
           : fileMode === 'metadata-only'
             ? Object.freeze({ ...windowsMetadataRetainedEntry(absolute, 'No-follow metadata entry'), bytes: null })
             : Object.freeze({ ...windowsInventoryRetainedEntry(absolute, 'No-follow inventory entry', reserveFileBytes), bytes: null });
         if (fileMode === 'metadata-only' && scanned.kind === 'file') reserveFileBytes(scanned.size);
-        entries.push(Object.freeze({ ...scanned, relativePath }));
+        if (!(omitNavigationPrefixes && selectedRole === 'navigation')) {
+          entries.push(Object.freeze({ ...scanned, relativePath }));
+        }
         if (scanned.kind === 'directory') visit(absolute, relativePath);
         continue;
       }
@@ -4402,6 +4509,34 @@ export function scanNoFollowDirectoryTree(
   options: Partial<NoFollowDirectoryTreeMetadataOptions> = {}
 ): readonly NoFollowDirectoryTreeEntry[] {
   return Object.freeze(scanNoFollowDirectoryTreeInternal(root, 'bounded-bytes', options).map((entry) => Object.freeze({
+    relativePath: entry.relativePath,
+    kind: entry.kind,
+    device: entry.device,
+    inode: entry.inode,
+    size: entry.size,
+    bytes: entry.bytes,
+    linkTarget: entry.linkTarget
+  })));
+}
+
+/**
+ * Retains one root while inventorying a caller-selected forest. Selection is
+ * structural only: canonical relative path segments plus a one-segment `*`.
+ * Prefix entries are retained and emitted, so callers can classify unknown
+ * top-level residue without reopening each selected subtree.
+ */
+export function scanNoFollowDirectoryTreeSelectedForest(
+  root: PhysicalDirectoryIdentity,
+  options: NoFollowSelectedDirectoryForestOptions
+): readonly NoFollowDirectoryTreeEntry[] {
+  const patterns = selectedForestPatterns(options.includeRelativePaths);
+  return Object.freeze(scanNoFollowDirectoryTreeInternal(
+    root,
+    'bounded-bytes',
+    options,
+    patterns,
+    options.omitNavigationPrefixes ?? false
+  ).map((entry) => Object.freeze({
     relativePath: entry.relativePath,
     kind: entry.kind,
     device: entry.device,
@@ -7790,7 +7925,7 @@ export function retireNoFollowDirectoryTree(input: Readonly<{
     ancestorDirectories: []
   });
   assertRecoveryBudget();
-  if (inspectNoFollowDirectoryChild(parent, path.basename(root.path)) !== null) {
+  if (inspectNoFollowDirectoryLeaf(parent, path.basename(root.path), 'No-follow tree retirement root readback') !== null) {
     throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'No-follow tree retirement left root residue.');
   }
   return Object.freeze({ entryCount: ordered.length, root, status: 'physically-absent' as const });

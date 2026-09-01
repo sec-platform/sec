@@ -5,8 +5,25 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { generatedStateDigest } from '../../src/runtime-state/generated-state/contract.ts';
+import {
+  generatedStateProducerHooks,
+  inspectGeneratedState
+} from '../../src/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { migrateDependencyTransitionJournal } from '../../src/toolchain/dependencies/runtime.ts';
+import { compilerDependencyIdentity } from '../../src/toolchain/dependencies/runtime/compiler-materialization-input.ts';
+import {
+  advanceDependencyTransition,
+  beginDependencyTransition,
+  readDependencyTransition,
+  transitionFailure
+} from '../../src/toolchain/dependencies/runtime/dependency-transition/operation.ts';
+import {
+  runtimeDependencyOperationOptions
+} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+import {
+  runtimeDependencySourceGeneration
+} from '../../src/toolchain/dependencies/runtime/source-generation.ts';
+import { migrateDependencyTransitionJournal } from '../../src/toolchain/dependencies/test/runtime.ts';
 
 const LEGACY_SCHEMA = 'sec-dependency-transition-journal-v1' as const;
 const LEGACY_NAMESPACE = '.dependency-transition-v1';
@@ -152,6 +169,33 @@ function targetJournalRoot(root: string): string {
   );
 }
 
+function compilerStagePath(root: string, name: string): string {
+  return path.join(root, '.tmp', 'dependency-installs', `c.staging-${name}`);
+}
+
+function compilerStageRelativePath(root: string, name: string): string {
+  return path.relative(root, compilerStagePath(root, name)).replaceAll('\\', '/');
+}
+
+async function registerCompilerStage(
+  root: string,
+  name: string,
+  state: 'active' | 'retired'
+): Promise<string> {
+  const stagePath = compilerStagePath(root, name);
+  const relativePath = compilerStageRelativePath(root, name);
+  await mkdir(path.join(stagePath, 'node_modules'), { recursive: true });
+  const lifecycle = generatedStateProducerHooks({
+    repositoryRoot: root,
+    workspaceRoot: root
+  });
+  await lifecycle.born(relativePath, `dependency-transition-test-${name}`);
+  if (state === 'retired') {
+    await lifecycle.retired(relativePath, 'dependency-transition-test-retired');
+  }
+  return relativePath;
+}
+
 async function writeLegacyRecords(
   root: string,
   records = buildLegacyRecords(root)
@@ -203,6 +247,271 @@ function expectSameFileSet(
     expect(actual.get(name)).toEqual(bytes);
   }
 }
+
+const COMPILER_BINDING_FILE = '.sec-compiler-deps-binding-v5.json';
+
+function pinnedBunVersionForTest(): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)/u.exec(process.versions.bun ?? '');
+  if (match === null) throw new Error('test requires one semantic Bun runtime version');
+  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
+}
+
+async function prepareBridgeRecovery(input: Readonly<{
+  failure: 'bun-runtime-drift' | Readonly<{ code: string; message: string }> | null;
+  root: string;
+}>): Promise<Readonly<{
+  bridgePath: string;
+  installIdentityFailure: Readonly<{ code: string; message: string }> | null;
+  pinnedBunVersion: string;
+  sourcePath: string;
+}>> {
+  const pinnedBunVersion = pinnedBunVersionForTest();
+  const sourcePath = path.join(input.root, 'node_modules');
+  const bridgePath = path.join(input.root, 'consumer', 'node_modules');
+  await mkdir(sourcePath, { recursive: true });
+  await mkdir(path.dirname(bridgePath), { recursive: true });
+  const fixtureIdentity = generatedStateDigest({ ownerRoot: input.root, pinnedBunVersion });
+  const binding = Object.freeze({
+    architecture: process.arch,
+    bunExecutablePath: path.join(input.root, 'persisted-bun.exe'),
+    bunExecutableSha256: fixtureIdentity,
+    bunVersion: pinnedBunVersion,
+    declaredBunVersion: pinnedBunVersion,
+    dependencyManifestSha256: fixtureIdentity,
+    formatVersion: 'compiler-deps-binding-v5' as const,
+    installConfigSha256: null,
+    lockSha256: fixtureIdentity,
+    manifestHash: fixtureIdentity,
+    packages: Object.freeze([]),
+    platform: process.platform,
+    runtimeMaterialization: null
+  });
+  await Promise.all([
+    writeFile(path.join(sourcePath, COMPILER_BINDING_FILE), `${JSON.stringify(binding)}\n`, 'utf8'),
+    writeFile(path.join(input.root, '.bun-version'), `${pinnedBunVersion}\n`, 'utf8'),
+    writeFile(path.join(input.root, 'bun.lock'), '', 'utf8'),
+    writeFile(path.join(input.root, 'package.json'), `${JSON.stringify({
+      dependencies: {},
+      devDependencies: {},
+      packageManager: `bun@${pinnedBunVersion}`
+    })}\n`, 'utf8')
+  ]);
+  const options = runtimeDependencyOperationOptions({ lockTimeoutMs: 30_000 });
+  const sourceGeneration = await runtimeDependencySourceGeneration({
+    binding,
+    options,
+    ownerRoot: input.root,
+    sourcePath
+  });
+  let transition = await beginDependencyTransition({
+    backupPath: null,
+    bindingDigest: sourceGeneration.bindingDigest,
+    destinationPath: bridgePath,
+    kind: 'compiler-bridge',
+    options,
+    ownerRoot: input.root,
+    sourceGeneration,
+    stagePath: null
+  });
+  let installIdentityFailure: Readonly<{ code: string; message: string }> | null = null;
+  if (input.failure === 'bun-runtime-drift') {
+    try {
+      await compilerDependencyIdentity(input.root);
+      throw new Error('mismatched materialization identity was accepted');
+    } catch (error) {
+      installIdentityFailure = transitionFailure(error);
+    }
+  }
+  const durableFailure = input.failure === 'bun-runtime-drift'
+    ? installIdentityFailure
+    : input.failure;
+  if (durableFailure !== null) {
+    transition = await advanceDependencyTransition(transition, {
+      durability: 'unknown',
+      failure: durableFailure,
+      phase: 'recovery-required'
+    }, options);
+  }
+  expect(transition.destination.kind).toBe('absent');
+  return Object.freeze({ bridgePath, installIdentityFailure, pinnedBunVersion, sourcePath });
+}
+
+test('settles only the persisted current-Bun recovery premise without admitting a new install', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-bun-drift-'));
+  try {
+    const { installIdentityFailure } = await prepareBridgeRecovery({
+      failure: 'bun-runtime-drift',
+      root
+    });
+
+    // The materialization identity remains strict: this root cannot start a
+    // new install under the current Bun generation.
+    expect(installIdentityFailure).toMatchObject({
+      code: 'IMPORT-AUTHORITY-001',
+      message: expect.stringContaining('Bun runtime identity mismatch')
+    });
+
+    let commandStarts = 0;
+    await migrateDependencyTransitionJournal(root, {
+      materialize: async () => {
+        commandStarts += 1;
+        return { code: 0, stderr: '', stdout: '' };
+      },
+      lockTimeoutMs: 30_000
+    });
+    const terminal = await readDependencyTransition(
+      root,
+      runtimeDependencyOperationOptions({ lockTimeoutMs: 30_000 })
+    );
+    expect(terminal).toMatchObject({
+      durability: 'known',
+      failure: null,
+      kind: 'compiler-bridge',
+      phase: 'rolled-back'
+    });
+    expect(commandStarts).toBe(0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('settles exact active and retired legacy stage registrations without admitting installation', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-stage-registration-'));
+  try {
+    const active = await registerCompilerStage(root, 'active', 'active');
+    const retired = await registerCompilerStage(root, 'retired', 'retired');
+    let commandStarts = 0;
+
+    await migrateDependencyTransitionJournal(root, {
+      materialize: async () => {
+        commandStarts += 1;
+        return { code: 0, stderr: '', stdout: '' };
+      },
+      lockTimeoutMs: 30_000
+    });
+
+    const inventory = await inspectGeneratedState({
+      repositoryRoot: root,
+      workspaceRoot: root,
+      relativePaths: [active, retired]
+    });
+    expect(commandStarts).toBe(0);
+    expect(inventory.blockers).toEqual([]);
+    expect(inventory.entries.map(({ kind, registrationState }) => ({ kind, registrationState })))
+      .toEqual([
+        { kind: 'missing', registrationState: 'missing' },
+        { kind: 'missing', registrationState: 'missing' }
+      ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 10_000);
+
+test('preserves unregistered or physically replaced legacy stages before any settlement effect', async () => {
+  for (const mutation of ['unregistered', 'replaced'] as const) {
+    const root = await mkdtemp(path.join(os.tmpdir(), `sec-dependency-stage-${mutation}-`));
+    try {
+      const registered = await registerCompilerStage(root, 'registered', 'retired');
+      const blockedPath = compilerStagePath(root, 'blocked');
+      await mkdir(path.join(blockedPath, 'node_modules'), { recursive: true });
+      if (mutation === 'replaced') {
+        const blockedRelative = compilerStageRelativePath(root, 'blocked');
+        const lifecycle = generatedStateProducerHooks({ repositoryRoot: root, workspaceRoot: root });
+        await lifecycle.born(blockedRelative, 'dependency-transition-test-replaced');
+        await rename(blockedPath, `${blockedPath}-original`);
+        await mkdir(path.join(blockedPath, 'node_modules'), { recursive: true });
+      }
+
+      await expect(migrateDependencyTransitionJournal(root, {
+        lockTimeoutMs: 30_000
+      })).rejects.toMatchObject({ code: 'RUNTIME-DEPS-004' });
+
+      const registeredInventory = await inspectGeneratedState({
+        repositoryRoot: root,
+        workspaceRoot: root,
+        relativePaths: [registered]
+      });
+      expect(registeredInventory.entries[0]).toMatchObject({
+        kind: 'directory',
+        registrationState: 'retired'
+      });
+      expect((await readdir(path.dirname(blockedPath))).includes(path.basename(blockedPath))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('preserves unknown bridge recovery failures instead of reclassifying them as Bun drift', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-bridge-unknown-'));
+  try {
+    await prepareBridgeRecovery({
+      failure: Object.freeze({ code: 'UNKNOWN-RECOVERY', message: 'unclassified owner failure' }),
+      root
+    });
+    const recordsRoot = path.join(targetJournalRoot(root), 'records');
+    const beforeRecords = (await readdir(recordsRoot)).sort();
+    await expect(migrateDependencyTransitionJournal(root, {
+      lockTimeoutMs: 30_000
+    })).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+    expect((await readdir(recordsRoot)).sort()).toEqual(beforeRecords);
+    const preserved = await readDependencyTransition(
+      root,
+      runtimeDependencyOperationOptions({ lockTimeoutMs: 30_000 })
+    );
+    expect(preserved).toMatchObject({
+      failure: { code: 'UNKNOWN-RECOVERY', message: 'unclassified owner failure' },
+      phase: 'recovery-required'
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('blocks bridge recovery when persisted source, destination, owner, or journal evidence changes', async () => {
+  for (const mutation of ['source', 'destination', 'owner', 'journal'] as const) {
+    const root = await mkdtemp(path.join(os.tmpdir(), `sec-dependency-bridge-${mutation}-`));
+    let displacedRoot: string | null = null;
+    try {
+      const { bridgePath, pinnedBunVersion, sourcePath } = await prepareBridgeRecovery({
+        failure: 'bun-runtime-drift',
+        root
+      });
+      // The helper derives the same deterministic mismatch value; keeping it
+      // separate from source/destination mutations avoids making the test
+      // depend on the repository's declared Bun version.
+      expect(pinnedBunVersion).toBe(pinnedBunVersionForTest());
+      if (mutation === 'source') {
+        await writeFile(path.join(sourcePath, 'tampered-after-intent.txt'), 'tamper\n', 'utf8');
+      } else if (mutation === 'destination') {
+        await mkdir(bridgePath);
+      } else if (mutation === 'owner') {
+        displacedRoot = `${root}-displaced`;
+        await rename(root, displacedRoot);
+        await mkdir(root);
+        for (const entry of ['.tmp', '.bun-version', 'bun.lock', 'consumer', 'node_modules', 'package.json']) {
+          await rename(path.join(displacedRoot, entry), path.join(root, entry));
+        }
+      } else {
+        const recordsRoot = path.join(targetJournalRoot(root), 'records');
+        for (const name of await readdir(recordsRoot)) {
+          const recordPath = path.join(recordsRoot, name);
+          const value = JSON.parse(await readFile(recordPath, 'utf8')) as Record<string, unknown>;
+          if (value.phase === 'recovery-required') {
+            await writeFile(recordPath, `${JSON.stringify({ ...value, unexpected: true })}\n`, 'utf8');
+            break;
+          }
+        }
+      }
+      await expect(migrateDependencyTransitionJournal(root, {
+        lockTimeoutMs: 30_000
+      })).rejects.toMatchObject({ code: expect.stringMatching(/^(?:IMPORT-AUTHORITY-004|RUNTIME-DEPS-002)$/u) });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      if (displacedRoot !== null) await rm(displacedRoot, { recursive: true, force: true });
+    }
+  }
+});
 
 test('retires a valid terminal legacy ledger into one immutable v2 admission and retains v1 evidence', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-transition-migration-'));

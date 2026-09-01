@@ -68,12 +68,21 @@ function expectUnique(values: readonly string[]): void {
 }
 
 test('repository sources route by semantic kind and module identity', () => {
-  expect(classifyTestImpactSource('catalog/registry/official/ticket.basic/block.manifest.yaml'))
+  const activeDocumentationPath = (candidate: string) => candidate === 'docs/roadmap.md';
+  expect(classifyTestImpactSource(
+    'catalog/registry/official/ticket.basic/block.manifest.yaml',
+    activeDocumentationPath
+  ))
     .toBe('manifest');
-  expect(classifyTestImpactSource('source/model/app.plan.yaml')).toBe('source-model');
-  expect(classifyTestImpactSource('.github/workflows/compiler-pr-validation.yml')).toBe('workflow');
-  expect(classifyTestImpactSource('docs/roadmap.md')).toBe('active-documentation');
-  expect(classifyTestImpactSource('docs/unregistered.manifest.yaml')).toBeNull();
+  expect(classifyTestImpactSource('source/model/app.plan.yaml', activeDocumentationPath))
+    .toBe('source-model');
+  expect(classifyTestImpactSource(
+    '.github/workflows/compiler-pr-validation.yml', activeDocumentationPath
+  )).toBe('workflow');
+  expect(classifyTestImpactSource('docs/roadmap.md', activeDocumentationPath))
+    .toBe('active-documentation');
+  expect(classifyTestImpactSource('docs/unregistered.manifest.yaml', activeDocumentationPath))
+    .toBeNull();
 
   const compilerFixturePath = 'src/compiler/fixture.ts';
   const provider = sourceProvider({

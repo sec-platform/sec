@@ -168,9 +168,7 @@ import type {
   GitHubWorkflowRunObservation
 } from '../contract/github-observation.ts';
 import {
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-  CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE,
-  parseCiVerificationSessionTerminalLocator
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../contract/revision.ts';
 import {
   CodexDevelopmentDefaultChangedPaths,
@@ -1506,27 +1504,32 @@ function loadHostedArtifactForMergeWorkflow(
   repository: string,
   event: Record<string, any>
 ) {
-  if (event.action !== CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE) {
-    throw new Error('Merge workflow event is not the terminal Session dispatch.');
-  }
-  const locator = parseCiVerificationSessionTerminalLocator(event.client_payload);
-  const transportRunId = String(locator.sourceRunId);
-  const sourceRunAttempt = locator.sourceRunAttempt;
+  const wakeup = hostedMergeWakeupLocator(event);
+  const transportRunId = wakeup.sourceRunId;
+  const sourceRunAttempt = wakeup.sourceRunAttempt;
   const selected = selectTrustedHostedSessionArtifact({ github, repository,
     transports: github.observeActionsArtifactsForRun(repository, transportRunId),
     requireSingleTransport: true });
   if (selected === null || selected.transportMetadata.runId !== transportRunId
-    || selected.transportMetadata.runAttempt !== sourceRunAttempt
-    || selected.transportMetadata.artifactId !== String(locator.artifactId)
-    || selected.transportMetadata.artifactName !== locator.artifactName
-    || selected.transportMetadata.archiveDigest !== locator.artifactDigest
-    || selected.artifact.session.prNumber !== locator.prNumber
-    || selected.artifact.session.baseSha !== locator.baseSha
-    || selected.artifact.session.headSha !== locator.headSha
-    || selected.artifact.session.sessionRevision !== locator.sessionRevision) {
+    || selected.transportMetadata.runAttempt !== sourceRunAttempt) {
     throw new Error('Triggering compiler run does not contain the exact trusted Session transport.');
   }
   return selected;
+}
+
+function hostedMergeWakeupLocator(event: Record<string, any>): Readonly<{
+  eventName: 'workflow_run';
+  sourceRunId: string;
+  sourceRunAttempt: number;
+}> {
+  const run = event.workflow_run;
+  if (event.action !== 'completed' || run === null || typeof run !== 'object'
+    || !Number.isSafeInteger(run.id) || run.id < 1
+    || !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1) {
+    throw new Error('Merge workflow event is not a bounded compiler completion wakeup.');
+  }
+  return Object.freeze({ eventName: 'workflow_run' as const, sourceRunId: String(run.id),
+    sourceRunAttempt: run.run_attempt });
 }
 
 function exactCommitMarker(message: string, name: string): string {
@@ -2071,19 +2074,16 @@ function assertHostedIntegrationIdentity(input: {
   }
   const currentRun = apiRecord(ctx, `/repos/${repository}/actions/runs/${runId}`,
     'integrate-hosted current run readback');
+  const wakeup = hostedMergeWakeupLocator(event);
   if (String(currentRun.id ?? '') !== runId || currentRun.run_attempt !== runAttempt
-    || currentRun.event !== 'repository_dispatch'
+    || currentRun.event !== wakeup.eventName
     || currentRun.path !== '.github/workflows/sec-merge-gate.yml'
     || currentRun.head_sha !== workflowSha
     || String(currentRun.repository?.id ?? '') !== repositoryId) {
     throw new Error('integrate-hosted current workflow run provenance mismatch.');
   }
-  if (event.action !== CI_VERIFICATION_SESSION_TERMINAL_DISPATCH_TYPE) {
-    throw new Error('integrate-hosted event is not the terminal Session dispatch.');
-  }
-  const terminalLocator = parseCiVerificationSessionTerminalLocator(event.client_payload);
-  const sourceRunId = String(terminalLocator.sourceRunId);
-  const sourceRunAttempt = terminalLocator.sourceRunAttempt;
+  const sourceRunId = wakeup.sourceRunId;
+  const sourceRunAttempt = wakeup.sourceRunAttempt;
   const sourceRun = apiRecord(ctx,
     `/repos/${repository}/actions/runs/${sourceRunId}/attempts/${sourceRunAttempt}`,
     'integrate-hosted source run readback');
@@ -2092,15 +2092,8 @@ function assertHostedIntegrationIdentity(input: {
     || sourceRun.run_attempt !== sourceRunAttempt || sourceRun.status !== 'completed'
     || sourceRun.conclusion !== 'success' || sourceRun.event !== 'repository_dispatch'
     || sourceRun.path !== '.github/workflows/compiler-pr-validation.yml'
-    || sourceRun.head_sha !== baseSha || terminalLocator.sourceWorkflowSha !== baseSha
-    || terminalLocator.prNumber !== session.prNumber || terminalLocator.headSha !== session.headSha
-    || terminalLocator.sessionRevision !== session.sessionRevision) {
+    || sourceRun.head_sha !== baseSha) {
     throw new Error('integrate-hosted terminal Session source provenance mismatch.');
-  }
-  const actionsBot = CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot;
-  if (currentRun.actor?.login !== actionsBot.login || currentRun.actor?.id !== actionsBot.id
-    || currentRun.actor?.node_id !== actionsBot.nodeId || currentRun.actor?.type !== actionsBot.type) {
-    throw new Error('integrate-hosted current run was not dispatched by the canonical Actions bot.');
   }
   const sourceActorLogin = sourceRun.actor?.login;
   const sourceActorNodeId = sourceRun.actor?.node_id;
@@ -2139,7 +2132,7 @@ function assertHostedIntegrationIdentity(input: {
   const provenance = createHostedWorkflowCommentProvenance({ repositoryId,
     workflowPath: '.github/workflows/sec-merge-gate.yml',
     workflowRef: `.github/workflows/sec-merge-gate.yml@${workflowSha}`, workflowSha,
-    runId, runAttempt, eventName: 'repository_dispatch', sourceRunId, sourceRunAttempt,
+    runId, runAttempt, eventName: 'workflow_run', sourceRunId, sourceRunAttempt,
     actorLogin: sourceTriggeringActorLogin, actorNodeId: sourceTriggeringActorNodeId,
     actorPermission: sourceTriggeringActor.permission,
     app: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app });
@@ -3696,7 +3689,7 @@ function evaluateFreshHostedIntegration(input: {
       manifestPath: artifact.session.manifestPath, manifestDigest: artifact.session.manifestDigest,
       changedPaths },
     provenance: { workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef,
-      workflowSha: artifact.session.baseSha, eventName: 'repository_dispatch',
+      workflowSha: artifact.session.baseSha, eventName: 'workflow_run',
       sourceRunId: provenance.runId, sourceRunAttempt: provenance.runAttempt,
       actorNodeId: integrationPrincipalNodeId, actorPermission: provenance.actorPermission },
     mainHealth: freshMainHealth, platform: github.observePlatformEnforcement(repository),

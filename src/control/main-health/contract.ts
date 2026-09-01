@@ -47,6 +47,30 @@ export interface MainHealthLedger {
   readonly ledgerDigest: MainHealthDigest;
 }
 
+/**
+ * Same-process MainHealth authority projection.  The public object carries no
+ * caller-supplied repository or ledger fields; those fields are resolved from
+ * the private binding created only after the canonical MainHealth parser has
+ * accepted the exact bytes.
+ */
+export interface MainHealthLedgerProjection {
+  readonly projectionDigest: MainHealthDigest;
+}
+
+export interface MainHealthLedgerProjectionBinding {
+  readonly canonicalBytes: string;
+  readonly byteDigest: MainHealthDigest;
+  readonly semanticRevision: MainHealthDigest;
+  readonly ledgerDigest: MainHealthDigest;
+  readonly bindingDigest: MainHealthDigest;
+  readonly ledger: MainHealthLedger;
+}
+
+const mainHealthLedgerProjectionBindings = new WeakMap<
+  object,
+  MainHealthLedgerProjectionBinding
+>();
+
 export type MainHealthLedgerInput = Omit<MainHealthLedger, 'schema' | 'healthRevision' | 'ledgerDigest'>;
 export type MainHealthSemanticInput = Omit<MainHealthLedgerInput, 'producer' | 'expiresAt' | 'observedAt'>;
 
@@ -215,6 +239,78 @@ export function parseMainHealthLedger(source: string): MainHealthLedger {
   if (ledger.healthRevision !== parsed.healthRevision) fail('health semantic revision mismatch.');
   if (ledger.ledgerDigest !== parsed.ledgerDigest) fail('digest mismatch.');
   return ledger;
+}
+
+export function mainHealthLedgerCanonicalBytes(ledger: MainHealthLedger): string {
+  return encodeVerificationActionData(
+    parseMainHealthLedger(encodeVerificationActionData(ledger))
+  );
+}
+
+/**
+ * Strictly parse exact canonical bytes and issue the only opaque projection
+ * which may cross from MainHealth into lower durable/effect owners.
+ */
+export function issueMainHealthLedgerProjection(
+  canonicalBytes: string
+): MainHealthLedgerProjection {
+  const ledger = parseMainHealthLedger(canonicalBytes);
+  const normalizedBytes = encodeVerificationActionData(ledger);
+  if (canonicalBytes !== normalizedBytes) {
+    fail('projection source bytes are not canonical.');
+  }
+  const byteDigest = `sha256:${createHash('sha256')
+    .update(Buffer.from(normalizedBytes, 'utf8'))
+    .digest('hex')}` as MainHealthDigest;
+  const bindingDigest = hash(Object.freeze({
+    schema: 'sec-hosted-main-health-live-authority-v1',
+    repository: ledger.repository,
+    defaultBranch: ledger.defaultBranch,
+    mainSha: ledger.mainSha,
+    mainTreeSha: ledger.mainTreeSha,
+    healthRevision: ledger.healthRevision,
+    trustRevision: ledger.trustRevision,
+    producer: ledger.producer
+  }));
+  const binding = Object.freeze({
+    canonicalBytes: normalizedBytes,
+    byteDigest,
+    semanticRevision: ledger.healthRevision,
+    ledgerDigest: ledger.ledgerDigest,
+    bindingDigest,
+    ledger
+  });
+  const projection = Object.freeze({
+    projectionDigest: hash(Object.freeze({
+      schema: 'sec-main-health-ledger-projection-v1',
+      byteDigest,
+      semanticRevision: binding.semanticRevision,
+      ledgerDigest: binding.ledgerDigest,
+      bindingDigest
+    }))
+  });
+  mainHealthLedgerProjectionBindings.set(projection, binding);
+  return projection;
+}
+
+export function resolveMainHealthLedgerProjection(
+  projection: MainHealthLedgerProjection
+): MainHealthLedgerProjectionBinding {
+  const binding = mainHealthLedgerProjectionBindings.get(projection);
+  if (binding === undefined) {
+    fail('ledger projection is forged or belongs to another process.');
+  }
+  const expectedProjectionDigest = hash(Object.freeze({
+    schema: 'sec-main-health-ledger-projection-v1',
+    byteDigest: binding.byteDigest,
+    semanticRevision: binding.semanticRevision,
+    ledgerDigest: binding.ledgerDigest,
+    bindingDigest: binding.bindingDigest
+  }));
+  if (projection.projectionDigest !== expectedProjectionDigest) {
+    fail('ledger projection binding changed.');
+  }
+  return binding;
 }
 
 export interface MainHealthLaneDecision {

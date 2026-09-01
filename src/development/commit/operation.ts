@@ -493,6 +493,7 @@ async function execute(
     }
     const normalization = await verifyCandidateImportNormalization({
       repositoryRoot: frozen.repositoryRoot,
+      candidateBase: frozen.preimage,
       candidateCommit: frozen.target
     });
     if (normalization.terminal?.status !== 'passed') {

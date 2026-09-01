@@ -1,7 +1,8 @@
 {
   "importGraph": "runtime",
   "externalEntrypoints": [
-    "src/development/import-normalization/runtime.ts"
+    "src/development/import-normalization/runtime.ts",
+    "src/development/import-normalization/kernel.ts"
   ],
   "capabilityProviders": [
     {
@@ -59,6 +60,10 @@
           {
             "resource": "duration-ms",
             "maximum": 300000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 0
           },
           {
             "resource": "output-bytes",

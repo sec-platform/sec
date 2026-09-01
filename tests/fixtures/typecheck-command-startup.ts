@@ -13,11 +13,6 @@ const materializedDependencies = Object.freeze({
   source: 'existing',
   transitionDigest: `sha256:${'c'.repeat(64)}`
 });
-const retainedGeneration = Object.freeze({
-  retire: async () => {
-    calls.push('generation:retire');
-  }
-});
 
 function moduleHref(repositoryPath: string): string {
   return pathToFileURL(path.resolve(repositoryPath)).href;
@@ -41,13 +36,8 @@ mock.module(moduleHref('src/development/runner/dependency-bootstrap.ts'), () => 
 }));
 
 mock.module(moduleHref('src/toolchain/dependencies/runtime.ts'), () => ({
-  COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY: Object.freeze({ maximumDurationMs: 30_000 }),
-  retainCompilerDependencyExecutionGeneration: async (authority: unknown) => {
-    if (authority !== materializedDependencies.executionGenerationAuthority) {
-      throw new Error('TypeScript startup retained another dependency generation.');
-    }
-    calls.push('generation:retain');
-    return retainedGeneration;
+  retainCompilerDependencyExecutionGeneration: async () => {
+    throw new Error('TypeScript startup retained a dependency generation before Action admission.');
   }
 }));
 
@@ -57,19 +47,14 @@ mock.module(moduleHref('src/development/runner/typecheck-runner.ts'), () => {
   }
   calls.push('runner:load');
   return {
-    runTypecheckWithRetainedDependencyGeneration: async (
+    runTypecheckWithDependencyAuthority: async (
       dependencies: unknown,
-      generation: unknown,
       args: readonly string[]
     ) => {
       if (dependencies !== materializedDependencies) {
         throw new Error('TypeScript runner did not receive the admitted dependency result.');
       }
-      if (generation !== retainedGeneration) {
-        throw new Error('TypeScript runner did not receive the retained dependency generation.');
-      }
       calls.push(`runner:execute:${args.join(',')}`);
-      await retainedGeneration.retire();
       return 0;
     }
   };

@@ -129,6 +129,7 @@ function compileReleaseBuilderOperation(input: Readonly<{
     }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: remainingDurationMs },
+      { resource: 'input-bytes', maximum: 0 },
       {
         resource: 'output-bytes',
         maximum: input.maximumStdoutBytes + RELEASE_BUILDER_MAX_STDERR_BYTES
@@ -251,10 +252,7 @@ async function runReleaseBuilderCommand(
       requirementBindingContext: issueSecOperationRequirementBindingContext({
         operation,
         requirementId: RELEASE_BUILDER_REQUIREMENT,
-        resourceCeilings: [
-          ...operation.plan.execution.aggregateBudgets,
-          { resource: 'input-bytes', maximum: 0 }
-        ]
+        resourceCeilings: operation.plan.execution.aggregateBudgets
       })
     });
     result = await session.run(

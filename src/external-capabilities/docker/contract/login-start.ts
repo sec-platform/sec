@@ -11,11 +11,10 @@ export const DOCKER_DESKTOP_LOGIN_START_OBSERVATION_SOURCE =
 
 export type DockerDesktopLoginStartUnavailableReason =
   | 'operation-input-invalid'
-  | 'provider-admission-unavailable'
   | 'platform-unsupported'
   | 'settings-store-unavailable'
   | 'settings-store-invalid'
-  | 'auto-start-setting-unavailable';
+  | 'settings-schema-unrecognized';
 
 /**
  * Read-only projection of Docker Desktop's own per-user login-start setting.
@@ -28,12 +27,17 @@ export type DockerDesktopLoginStartUnavailableReason =
 export type DockerDesktopLoginStart =
   | Readonly<{
     schema: typeof DOCKER_DESKTOP_LOGIN_START_SCHEMA;
-    status: 'enabled' | 'disabled';
+    status: 'observed-provider-value';
+    value: 'enabled' | 'disabled';
+    schemaSupport: 'unsupported';
     configurationOwner: typeof DOCKER_DESKTOP_LOGIN_START_CONFIGURATION_OWNER;
     observationSource: typeof DOCKER_DESKTOP_LOGIN_START_OBSERVATION_SOURCE;
     automatedReconciliation: 'unsupported-by-admitted-provider';
-    reconciliation: 'satisfied' | 'docker-desktop-settings-ui-required';
-    settingsStoreDigest: SecOperationDigest;
+    reconciliation: 'schema-unsupported';
+    providerIdentityDigest: SecOperationDigest;
+    providerVersionDigest: SecOperationDigest;
+    physicalObservationReceiptDigest: SecOperationDigest;
+    semanticValueDigest: SecOperationDigest;
   }>
   | Readonly<{
     schema: typeof DOCKER_DESKTOP_LOGIN_START_SCHEMA;
@@ -53,11 +57,14 @@ export function assertDockerDesktopLoginStart(value: DockerDesktopLoginStart): v
       || value.automatedReconciliation !== 'unsupported-by-admitted-provider') {
     throw new Error('Docker Desktop login-start projection identity is invalid.');
   }
-  if (value.status === 'enabled' || value.status === 'disabled') {
-    if (value.reconciliation !== (value.status === 'enabled'
-      ? 'satisfied'
-      : 'docker-desktop-settings-ui-required')
-        || !/^sha256:[a-f0-9]{64}$/u.test(value.settingsStoreDigest)) {
+  if (value.status === 'observed-provider-value') {
+    if ((value.value !== 'enabled' && value.value !== 'disabled')
+        || value.schemaSupport !== 'unsupported'
+        || value.reconciliation !== 'schema-unsupported'
+        || !/^sha256:[a-f0-9]{64}$/u.test(value.providerIdentityDigest)
+        || !/^sha256:[a-f0-9]{64}$/u.test(value.providerVersionDigest)
+        || !/^sha256:[a-f0-9]{64}$/u.test(value.physicalObservationReceiptDigest)
+        || !/^sha256:[a-f0-9]{64}$/u.test(value.semanticValueDigest)) {
       throw new Error('Docker Desktop login-start setting projection is invalid.');
     }
     return;

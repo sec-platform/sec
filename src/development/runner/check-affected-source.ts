@@ -10,10 +10,12 @@ import {
   type WorkspaceTypeScriptProjectGenerationEvidence
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
 import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
+import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
 
 export type AffectedTestImpactProjectionIssuer = (
   input: Readonly<{
+    dependencyGeneration: RetainedCompilerDependencyReadGeneration;
     repositoryRoot: string;
     session: GitReadSession;
   }>
@@ -31,7 +33,11 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
   });
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
-    tsconfigRelativePath
+    tsconfigRelativePath,
+    {
+      dependencyGeneration: input.dependencyGeneration.physicalGeneration,
+      dependencyGenerationDigest: input.dependencyGeneration.generationDigest
+    }
   );
   const compilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,

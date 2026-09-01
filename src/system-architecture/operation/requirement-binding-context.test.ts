@@ -19,7 +19,10 @@ function digest(value: string): SecOperationDigest {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
-function operation(provider: string): SecBoundSemanticOperation {
+function operation(
+  provider: string,
+  inputMaximum: number | null = 4_096
+): SecBoundSemanticOperation {
   const requirementContractDigest = digest('typescript-project-check-contract');
   const plan = compileSecSemanticOperationPlan({
     operation: 'typecheck.project-check',
@@ -28,7 +31,9 @@ function operation(provider: string): SecBoundSemanticOperation {
     deadlineAtUnixMs: Date.now() + 60_000,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 60_000 },
-      { resource: 'input-bytes', maximum: 4_096 },
+      ...(inputMaximum === null
+        ? []
+        : [{ resource: 'input-bytes' as const, maximum: inputMaximum }]),
       { resource: 'output-bytes', maximum: 8_192 },
       { resource: 'processes', maximum: 2 }
     ],
@@ -148,4 +153,33 @@ test('context rejects foreign requirements and ceiling widening while identity f
   expect(narrow.executionPlanDigest).toBe(nextAttempt.executionPlanDigest);
   expect(narrow.boundAttemptDigest).not.toBe(nextAttempt.boundAttemptDigest);
   expect(narrow.contextDigest).not.toBe(nextAttempt.contextDigest);
+});
+
+test('requirement binding narrows an explicitly declared zero input ceiling and never creates one', () => {
+  const explicitZero = consumeSecOperationRequirementBindingContext(
+    issueSecOperationRequirementBindingContext({
+      operation: operation('zero-input-provider', 0),
+      requirementId: 'typescript.project-check',
+      resourceCeilings: [{ resource: 'input-bytes', maximum: 0 }]
+    })
+  );
+  expect(explicitZero.resourceCeilings).toEqual([
+    { resource: 'input-bytes', maximum: 0 }
+  ]);
+
+  expect(() => issueSecOperationRequirementBindingContext({
+    operation: operation('absent-input-provider', null),
+    requirementId: 'typescript.project-check',
+    resourceCeilings: [{ resource: 'input-bytes', maximum: 0 }]
+  })).toThrow('input-bytes is not narrowed from its operation');
+
+  expect(() => issueSecOperationRequirementBindingContext({
+    operation: operation('runtime-ledger-provider', 0),
+    requirementId: 'typescript.project-check',
+    resourceCeilings: [{
+      resource: 'input-bytes',
+      maximum: 0,
+      consumed: 0
+    } as never]
+  })).toThrow('resource ceiling is not canonical');
 });

@@ -119,11 +119,11 @@ test('all hosted run consumers exclude mutable provider name from identity', asy
   })).toBe(false);
   expect(matchesCiWorkflowRunIdentity({
     workflowPath: '.github/workflows/sec-merge-gate.yml',
-    eventName: 'repository_dispatch',
+    eventName: 'workflow_run',
     displayTitle: 'integrate compiler session run 100 attempt 1',
     headSha,
     expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
-    expectedEventName: 'repository_dispatch',
+    expectedEventName: 'workflow_run',
     expectedDisplayTitle: 'integrate compiler session run 100 attempt 1',
     expectedHeadSha: headSha
   })).toBe(true);

@@ -1,9 +1,15 @@
 import {
-  compileSourceProgramOperationProducerClosure
-} from '../../brownfield/source-program-model/repository.ts';
+  compileSourceProgramOperationProducerClosure,
+  requireSourceProgramOperationProducerClosure
+} from '../../brownfield/source-program-model/producer-closure.ts';
+import {
+  assertSourceProgramTypeScriptCompilerIdentity,
+  sourceProgramTypeScriptCompilerIdentity
+} from '../../brownfield/source-program-model/typescript.ts';
 import {
   acquireExactGitTreeWorkspaceSourceSnapshot
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
+import { CodexDevelopmentListExactGitTreeEntries } from '../../external-capabilities/git-read/exact-blob.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   bindSecSemanticOperation,
@@ -25,24 +31,61 @@ import {
   createVerificationActionRunner,
   type VerificationActionRunOutcome
 } from '../../verification/action/runner.ts';
-import { runStagedImportCheck } from '../runner/import-organizer.ts';
 import {
   compileCandidateNormalizationActionKey,
   compileCandidateNormalizationSubject,
   IMPORT_NORMALIZATION_OPERATION,
+  requireCandidateNormalizationSnapshot,
   type CandidateNormalizationDigest,
   type CandidateNormalizationSubject
 } from './contract.ts';
+import { checkImmutableImportSnapshot } from './kernel.ts';
 
 const candidateNormalizationActionRunner = createVerificationActionRunner();
+
+function readBackCandidateNormalizationSnapshot(input: Readonly<{
+  repositoryRoot: string;
+  subject: CandidateNormalizationSubject;
+}>): CandidateNormalizationDigest {
+  const { snapshot } = requireCandidateNormalizationSnapshot(input.subject);
+  const provenance = snapshot.subject.provenance;
+  if (provenance.kind !== 'git-tree') {
+    throw new Error('Candidate normalization readback requires exact Git provenance');
+  }
+  const entries = CodexDevelopmentListExactGitTreeEntries({
+    repositoryRoot: input.repositoryRoot,
+    commitSha: provenance.commitSha
+  });
+  const ordinaryEntries = entries.filter(({ mode, type }) => (
+    (mode === '100644' || mode === '100755') && type === 'blob'
+  ));
+  if (sha256(entries) !== provenance.identityDigest
+      || sha256(ordinaryEntries.map(({ blobSha, mode, repositoryPath }) => ({
+        blobSha,
+        mode,
+        repositoryPath
+      }))) !== provenance.objectCensusDigest) {
+    throw new Error('Candidate normalization exact Git tree changed before terminal readback');
+  }
+  return input.subject.subjectDigest;
+}
 
 async function settleNormalizationObservation(
   subject: CandidateNormalizationSubject,
   action: ReturnType<typeof compileCandidateNormalizationActionKey>,
   status: 'canonical' | 'needs-import-transform',
-  files: readonly string[]
+  files: readonly string[],
+  readbackSubjectDigest: CandidateNormalizationDigest
 ): Promise<VerificationActionTerminalSettlement> {
-  const observationDigest = sha256({ status, files }) as CandidateNormalizationDigest;
+  if (readbackSubjectDigest !== subject.subjectDigest) {
+    throw new Error('Candidate normalization exact snapshot changed before terminal readback');
+  }
+  const observationDigest = sha256({
+    status,
+    files,
+    executionSubjectDigest: subject.subjectDigest,
+    readbackSubjectDigest
+  }) as CandidateNormalizationDigest;
   const plan = compileSecSemanticOperationPlan({
     operation: 'development.import-normalization',
     intentDigest: action.actionKey,
@@ -78,7 +121,7 @@ async function settleNormalizationObservation(
   const readback = issueSecNormalDomainReadbackReceipt(bound, providerSet, {
     readbackContractDigest: subject.resultContractDigest,
     readbackReferenceDigest: observationDigest,
-    currentPhysicalEpochDigest: subject.subjectDigest,
+    currentPhysicalEpochDigest: readbackSubjectDigest,
     disposition: passed ? 'applied' : 'not-applied'
   });
   const join = issueSecNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
@@ -106,17 +149,30 @@ async function settleNormalizationObservation(
  */
 export async function verifyCandidateImportNormalization(input: Readonly<{
   repositoryRoot: string;
+  candidateBase: string;
   candidateCommit: string;
 }>): Promise<VerificationActionRunOutcome> {
   const snapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
     repositoryRoot: input.repositoryRoot,
     commitSha: input.candidateCommit
   });
+  const baseSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+    repositoryRoot: input.repositoryRoot,
+    commitSha: input.candidateBase
+  });
   const producerClosure = compileSourceProgramOperationProducerClosure(
     snapshot,
     IMPORT_NORMALIZATION_OPERATION
   );
-  const subject = compileCandidateNormalizationSubject({ snapshot, producerClosure });
+  requireSourceProgramOperationProducerClosure(producerClosure);
+  const compilerIdentity = sourceProgramTypeScriptCompilerIdentity();
+  assertSourceProgramTypeScriptCompilerIdentity(compilerIdentity);
+  const subject = compileCandidateNormalizationSubject({
+    snapshot,
+    baseSnapshot,
+    producerClosure,
+    compilerIdentity
+  });
   const action = compileCandidateNormalizationActionKey(subject);
   const { schema: _schema, actionKey: _actionKey, ...actionInput } = action;
   return candidateNormalizationActionRunner.executeIdentity({
@@ -125,12 +181,27 @@ export async function verifyCandidateImportNormalization(input: Readonly<{
     executionClass: 'cheap-preflight',
     executionDomain: 'candidate-import-normalization',
     executor: async () => {
-      const observation = await runStagedImportCheck(input.repositoryRoot);
+      const execution = requireCandidateNormalizationSnapshot(subject);
+      const observation = checkImmutableImportSnapshot({
+        projectRoot: input.repositoryRoot,
+        files: execution.snapshot.files.map(({ path, source, contentDigest }) => Object.freeze({
+          relativePath: path,
+          source,
+          contentDigest: contentDigest as CandidateNormalizationDigest
+        })),
+        targetPaths: execution.targetPaths,
+        expectedInputClosure: action.inputClosure
+      });
+      const readbackSubjectDigest = readBackCandidateNormalizationSnapshot({
+        repositoryRoot: input.repositoryRoot,
+        subject
+      });
       return settleNormalizationObservation(
         subject,
         action,
         observation.status,
-        observation.files
+        observation.files,
+        readbackSubjectDigest
       );
     }
   });

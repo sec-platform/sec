@@ -5,22 +5,23 @@ import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-archi
 import {
   compileSourceProgramOperationProducerClosure,
   requireSourceProgramOperationProducerClosure
-} from './repository.ts';
+} from './producer-closure.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 const OPERATION = Object.freeze({ capability: 'fixture.normalize', operation: 'verify' });
 
-function fixture(implementation: string) {
+function fixture(implementation: string, unrelated = 'export const unrelated = true;\n') {
   const descriptor = JSON.stringify({
     importGraph: 'runtime',
-    externalEntrypoints: ['src/normalize/runtime.ts'],
+    externalEntrypoints: ['src/normalize/runtime.ts', 'src/normalize/other.ts'],
     capabilityProviders: [{ capability: OPERATION.capability, operations: [OPERATION.operation] }]
   });
   const sources = new Map([
     ['src/normalize/sec.module.json', descriptor],
     ['src/normalize/runtime.ts', "import { normalize } from './kernel.ts';\nexport const verify = normalize;\n"],
+    ['src/normalize/other.ts', "export const inspect = true;\n"],
     ['src/normalize/kernel.ts', implementation],
-    ['src/unrelated.ts', 'export const unrelated = true;\n']
+    ['src/unrelated.ts', unrelated]
   ]);
   const files = [...sources].map(([path, source]) => Object.freeze({
     path,
@@ -51,7 +52,7 @@ function fixture(implementation: string) {
   });
 }
 
-test('operation producer closure is the descriptor-owned entrypoint union and reachable graph', () => {
+test('operation producer closure is the one descriptor-owned operation entrypoint and reachable graph', () => {
   const closure = compileSourceProgramOperationProducerClosure(
     fixture('export function normalize(): void {}\n'),
     OPERATION
@@ -74,4 +75,10 @@ test('operation producer closure is the descriptor-owned entrypoint union and re
     OPERATION
   );
   expect(changed.closureDigest).not.toBe(closure.closureDigest);
+
+  const unrelatedChanged = compileSourceProgramOperationProducerClosure(
+    fixture('export function normalize(): void {}\n', 'export const unrelated = false;\n'),
+    OPERATION
+  );
+  expect(unrelatedChanged.closureDigest).toBe(closure.closureDigest);
 });

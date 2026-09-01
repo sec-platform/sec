@@ -25,7 +25,7 @@ import {
 import { createRuntimeStateJournalFileSystem, type RuntimeStateJournalFileSystem } from '../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../runtime-state/workspace-state/paths.ts';
 import {
-  acquireSecRuntimeJournalAuthority,
+  acquireSecRuntimeStatePhysicalAuthority,
   type SecRuntimeStatePhysicalAuthority
 } from '../../runtime-state/workspace-state/physical-authority.ts';
 import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
@@ -76,11 +76,14 @@ import {
   appendVerificationActionJournalEvent,
   commitVerificationActionRevocationUnderClaim,
   commitVerificationActionTerminalUnderClaim,
+  ensureVerificationActionMachineGlobalCutover,
   readVerificationActionClaim,
   readVerificationActionJournal,
   releaseVerificationActionClaim,
   renewVerificationActionClaim,
   revokeVerificationActionClaim,
+  VERIFICATION_ACTION_JOURNAL_DIRECTORY,
+  VerificationActionJournalError,
   type VerificationActionClaim,
   type VerificationActionJournalReadback,
   type VerificationActionJournalState
@@ -585,10 +588,7 @@ async function waitForJoinedActionTerminal(input: Readonly<{
     input.deadlineAtUnixMs,
     Date.parse(input.claim.expiresAt)
   );
-  const initial = readVerificationActionJournal(input.fs, input.actionKey);
-  const initialTerminal = joinedTerminalOutcome(input.actionKey, initial);
-  if (initialTerminal !== null) return initialTerminal;
-  const directory = path.dirname(initial.filePath);
+  const directory = path.join(input.fs.rootPath, VERIFICATION_ACTION_JOURNAL_DIRECTORY);
   const controller = new AbortController();
   const abort = () => controller.abort();
   if (input.signal?.aborted === true) abort();
@@ -602,42 +602,38 @@ async function waitForJoinedActionTerminal(input: Readonly<{
   });
   const events = eventSource[Symbol.asyncIterator]();
   try {
-    while (true) {
+    // The watcher is live before the first post-admission observation. Claim
+    // deletion happens strictly after terminal journal commit, so an absent
+    // claim now authorizes one stable terminal readback without racing the
+    // owner's durable journal replacement.
+    const admittedClaim = readVerificationActionClaim(input.fs, input.actionKey);
+    if (admittedClaim === null) {
       const journal = readVerificationActionJournal(input.fs, input.actionKey);
-      const terminal = joinedTerminalOutcome(input.actionKey, journal);
-      if (terminal !== null) return terminal;
-      // Claim publication is the admission linearization point. A contender
-      // may authenticate that live claim before the owner appends `queued`;
-      // the absent journal is therefore an in-flight pre-publication state,
-      // not evidence that a second execution may start or that the join failed.
-      if (journal.latestState !== null
-          && journal.latestState !== 'queued'
-          && journal.latestState !== 'running') {
-        return outcome(
-          input.actionKey,
-          'blocked',
-          journal.latestState,
-          null,
-          false,
-          `joined durable Action changed to ${journal.latestState ?? 'absent'} without a terminal`
-        );
-      }
-      const currentClaim = readVerificationActionClaim(input.fs, input.actionKey);
-      if (currentClaim === null || !sameClaimGeneration(currentClaim, input.claim)) {
-        return outcome(
-          input.actionKey,
-          'blocked',
-          journal.latestState,
-          null,
-          false,
-          'joined durable Action claim generation changed without a terminal'
-        );
-      }
+      return joinedTerminalOutcome(input.actionKey, journal) ?? outcome(
+        input.actionKey,
+        'blocked',
+        journal.latestState,
+        null,
+        false,
+        'joined durable Action released its claim without a terminal'
+      );
+    }
+    if (!sameClaimGeneration(admittedClaim, input.claim)) {
+      return outcome(
+        input.actionKey,
+        'blocked',
+        null,
+        null,
+        false,
+        'joined durable Action claim generation changed before terminal readback'
+      );
+    }
+    while (true) {
       if (input.signal?.aborted === true || Date.now() >= effectiveDeadlineAtUnixMs) {
         return outcome(
           input.actionKey,
           'blocked',
-          journal.latestState,
+          null,
           null,
           false,
           input.signal?.aborted === true
@@ -645,29 +641,63 @@ async function waitForJoinedActionTerminal(input: Readonly<{
             : 'joined durable Action wait exhausted its absolute deadline'
         );
       }
+      let event: Awaited<ReturnType<typeof events.next>>;
       try {
-        const event = await events.next();
-        if (event.done) {
-          return outcome(
-            input.actionKey,
-            'blocked',
-            journal.latestState,
-            null,
-            false,
-            'joined durable Action event source closed before terminal readback'
-          );
-        }
+        event = await events.next();
       } catch (error) {
         if (controller.signal.aborted) continue;
         return outcome(
           input.actionKey,
           'blocked',
-          journal.latestState,
+          null,
           null,
           false,
           `joined durable Action event source failed: ${error instanceof Error ? error.name : typeof error}`
         );
       }
+      if (event.done) {
+        return outcome(
+          input.actionKey,
+          'blocked',
+          null,
+          null,
+          false,
+          'joined durable Action event source closed before terminal readback'
+        );
+      }
+      let currentClaim: VerificationActionClaim | null;
+      try {
+        currentClaim = readVerificationActionClaim(input.fs, input.actionKey);
+      } catch {
+        // A claim renewal or terminal deletion may replace the retained file
+        // between the watch event and this observation. No authority can be
+        // inferred from that transient physical race; wait for the next event.
+        continue;
+      }
+      if (currentClaim !== null) {
+        if (!sameClaimGeneration(currentClaim, input.claim)) {
+          return outcome(
+            input.actionKey,
+            'blocked',
+            null,
+            null,
+            false,
+            'joined durable Action claim generation changed without a terminal'
+          );
+        }
+        continue;
+      }
+      const journal = readVerificationActionJournal(input.fs, input.actionKey);
+      const terminal = joinedTerminalOutcome(input.actionKey, journal);
+      if (terminal !== null) return terminal;
+      return outcome(
+        input.actionKey,
+        'blocked',
+        journal.latestState,
+        null,
+        false,
+        'joined durable Action released its claim without a terminal'
+      );
     }
   } finally {
     clearTimeout(timer);
@@ -681,6 +711,59 @@ async function waitForJoinedActionTerminal(input: Readonly<{
 
 
 
+async function ensureMachineCutoverBeforeAdmission(
+  fs: RuntimeStateJournalFileSystem
+): Promise<void> {
+  const attempt = (): 'complete' | 'contended' => {
+    try {
+      ensureVerificationActionMachineGlobalCutover(fs);
+      return 'complete';
+    } catch (error) {
+      if (error instanceof VerificationActionJournalError
+          && error.kind === 'recovery-required'
+          && error.message.endsWith('machine cutover mutation is contended.')) {
+        return 'contended';
+      }
+      throw error;
+    }
+  };
+  if (attempt() === 'complete') return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  const directory = path.join(fs.rootPath, VERIFICATION_ACTION_JOURNAL_DIRECTORY);
+  const events = watchFileSystem(directory, { signal: controller.signal })[Symbol.asyncIterator]();
+  try {
+    // The watcher is live before re-observation, closing the completion event
+    // race without polling or opening a second cutover coordinator.
+    if (attempt() === 'complete') return;
+    while (true) {
+      let event: Awaited<ReturnType<typeof events.next>>;
+      try {
+        event = await events.next();
+      } catch (error) {
+        if (controller.signal.aborted) {
+          throw new VerificationActionJournalError(
+            'recovery-required',
+            'machine cutover wait exhausted its absolute deadline.'
+          );
+        }
+        throw error;
+      }
+      if (event.done) {
+        throw new VerificationActionJournalError(
+          'recovery-required',
+          'machine cutover event source closed before completion.'
+        );
+      }
+      if (attempt() === 'complete') return;
+    }
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+    await events.return?.();
+  }
+}
+
 export class VerificationActionRunner {
   readonly #journalFileSystemPromises = new Map<string, Promise<RuntimeStateJournalFileSystem>>();
   readonly #journalFileSystems = new Map<string, RuntimeStateJournalFileSystem>();
@@ -692,13 +775,27 @@ export class VerificationActionRunner {
     let pending = this.#journalFileSystemPromises.get(physicalRoot);
     if (pending === undefined) {
       pending = (async () => {
-        const authority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: physicalRoot });
+        const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: physicalRoot });
+        const actionJournalRoot = path.join(
+          roots.stateRoot,
+          VERIFICATION_ACTION_JOURNAL_DIRECTORY
+        );
+        const authority = await acquireSecRuntimeStatePhysicalAuthority({
+          repositoryRoot: physicalRoot,
+          stateRoot: roots.stateRoot,
+          cacheRoot: roots.cacheRoot,
+          requiredDirectories: [
+            actionJournalRoot,
+            roots.workspaceStateRoot,
+            roots.processDiagnosticObjectRoot
+          ]
+        });
         try {
           await authority.assertCurrent();
-          const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: physicalRoot });
           const fs = createRuntimeStateJournalFileSystem(
-            authority.directory(roots.workspaceStateRoot)
+            authority.stateRoot
           );
+          await ensureMachineCutoverBeforeAdmission(fs);
           const diagnostics = createBoundedProcessDiagnosticObjectStore({
             authority,
             repositoryRoot: physicalRoot
@@ -788,11 +885,10 @@ export class VerificationActionRunner {
 
   async execute(input: VerificationActionExecuteInput): Promise<VerificationActionRunOutcome> {
     const action = canonicalAction(input.action);
-    // Process-local join is only valid inside one durable workspace journal
-    // authority.  Equal semantic ActionKeys in distinct physical repositories
-    // require independent durable terminals; cross-workspace reuse belongs to
-    // an authenticated content-addressed evidence owner, not this flight map.
-    const coordinationKey = `${realpathSync.native(path.resolve(input.repositoryRoot))}\0${action.actionKey}`;
+    // ActionKey is the portable physical-execution identity. The durable
+    // Runtime State claim below is machine-global, so the process-local fast
+    // path must use the same identity and cannot fork by workspace or lane.
+    const coordinationKey = action.actionKey;
     const coordination = enterCoordinatedAction(coordinationKey);
     try {
       return await this.#executeCoordinated(input, action, coordination, coordinationKey);

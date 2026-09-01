@@ -430,7 +430,7 @@ export interface TrustedIntegrationAuthorizationArtifact {
   workflowSha: string;
   runId: string;
   runAttempt: number;
-  eventName: 'repository_dispatch';
+  eventName: 'workflow_run';
   actorNodeId: string;
   actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
   downloadTransport: 'github-actions-artifact-api';
@@ -561,12 +561,16 @@ export function createTrustedIntegrationAuthorizationArtifact(input: {
   observation: GitHubActionsArtifactObservation;
 }): TrustedIntegrationAuthorizationArtifact {
   const result = CodexDevelopmentParseMergeGateResult(input.resultJson);
+  if (input.observation.workflowPath !== '.github/workflows/sec-merge-gate.yml'
+    || input.observation.eventName !== 'workflow_run') {
+    throw new Error('Integration authorization artifact is not bound to the completed-source workflow.');
+  }
   return Object.freeze({ resultJson: input.resultJson, artifactId: input.observation.artifactId,
     artifactName: input.observation.artifactName, canonicalByteDigest: hash(result),
     workflowPath: input.observation.workflowPath as '.github/workflows/sec-merge-gate.yml',
     workflowRef: input.observation.workflowRef, workflowSha: input.observation.workflowSha,
     runId: input.observation.runId, runAttempt: input.observation.runAttempt,
-    eventName: input.observation.eventName as 'repository_dispatch', actorNodeId: input.observation.actorNodeId,
+    eventName: input.observation.eventName as 'workflow_run', actorNodeId: input.observation.actorNodeId,
     actorPermission: input.observation.actorPermission, downloadTransport: 'github-actions-artifact-api' });
 }
 

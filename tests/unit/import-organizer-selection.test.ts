@@ -6,9 +6,11 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import {
-  compileImportOperationPlan,
   importServiceRootFileNames,
-  organizeImportsInSource,
+  organizeImportsInSource
+} from '../../src/development/import-normalization/kernel.ts';
+import {
+  compileImportOperationPlan,
   resolveCandidateImportBase
 } from '../../src/development/runner/import-organizer.ts';
 

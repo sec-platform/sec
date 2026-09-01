@@ -37,7 +37,11 @@ import {
   CodexDevelopmentParseCurrentStateSpec,
   CodexDevelopmentParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
-import { observeSecWorkSelectionLive } from '../main-health/work-selection.ts';
+import {
+  assertMainHealthPublicationAuthorityStable,
+  observeCanonicalMainHealthForPublication,
+  withMainHealthGitHubReadSession
+} from '../main-health/work-selection-main-health.ts';
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
   CodexDevelopmentParseCurrentWorkPackageManifest,
@@ -49,6 +53,7 @@ import {
   type SecRoadmapWorkCatalogItem,
   type SecWorkDecisionReceipt
 } from '../work-selection/live-contract.ts';
+import { observeSecWorkSelectionLive } from '../work-selection/runtime.ts';
 import {
   assertAgentOperationActivationWorkPackageCensus,
   isCanonicalAgentOperationActivationWorkPackagePath
@@ -518,14 +523,70 @@ function observeOperationAuthorityOwners(
 }
 
 async function requireResolvedWorkDecision(root: string): Promise<SecWorkDecisionReceipt> {
-  const result = await observeSecWorkSelectionLive({ cwd: root });
-  if (result.status !== 'resolved') {
-    unavailable('activation-stale', JSON.stringify({
-      reasonCodes: result.reasonCodes,
-      blockerRefsDigest: sha256(result.blockerRefs)
-    }));
+  try {
+    const candidateHead = gitHead(root);
+    const candidateState = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
+      readGitBlob(root, `${candidateHead}:${CONTROL_PATHS.currentState}`).bytes,
+      'activation-stale'
+    ));
+    const exactMain = gitSha(
+      textCommand('git', ['rev-parse', '--verify', candidateState.resolver.defaultRef], root,
+        'activation-stale'),
+      'activation-stale'
+    );
+    const exactMainTree = gitTree(root, exactMain);
+    const trustedState = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
+      readGitBlob(root, `${exactMain}:${CONTROL_PATHS.currentState}`).bytes,
+      'activation-stale'
+    ));
+    if (trustedState.resolver.repository !== candidateState.resolver.repository
+        || trustedState.resolver.remote !== candidateState.resolver.remote
+        || trustedState.resolver.defaultBranch !== candidateState.resolver.defaultBranch
+        || trustedState.resolver.defaultRef !== candidateState.resolver.defaultRef) {
+      unavailable('activation-stale', 'main-health-current-state-identity-drift');
+    }
+    return await withMainHealthGitHubReadSession({
+      repositoryRoot: root,
+      repository: trustedState.resolver.repository,
+      operation: async () => {
+        const snapshotInput = Object.freeze({
+          repositoryRoot: root,
+          repository: trustedState.resolver.repository,
+          defaultBranch: trustedState.resolver.defaultBranch,
+          mainSha: exactMain,
+          mainTreeSha: exactMainTree
+        });
+        const first = await observeCanonicalMainHealthForPublication(snapshotInput);
+        const second = await observeCanonicalMainHealthForPublication(snapshotInput);
+        assertMainHealthPublicationAuthorityStable(first.authority, second.authority);
+        if (first.stableDigest !== second.stableDigest) {
+          unavailable('activation-stale', 'main-health-snapshot-drift');
+        }
+        if (second.repairDecision.routingState !== 'ordinary-only') {
+          unavailable('activation-stale', JSON.stringify({
+            routingState: second.repairDecision.routingState,
+            stableDigest: second.stableDigest
+          }));
+        }
+        const result = await observeSecWorkSelectionLive({
+          cwd: root,
+          exactMain,
+          exactMainTree,
+          mainHealthSnapshot: second.workSelectionSnapshot
+        });
+        if (result.status !== 'resolved') {
+          unavailable('activation-stale', JSON.stringify({
+            reasonCodes: result.reasonCodes,
+            blockerRefsDigest: sha256(result.blockerRefs)
+          }));
+        }
+        return result.receipt;
+      }
+    });
+  } catch (error) {
+    if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
+    unavailable('activation-stale', error instanceof Error ? error.message : String(error));
   }
-  return result.receipt;
 }
 
 function workBinding(

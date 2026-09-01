@@ -8,7 +8,8 @@ import type { IndependentProviderProcessCapability } from './independent-provide
 import {
   copyBoundedCommandInput,
   runObservedCommand,
-  type ObservedCommandOutcome
+  type ObservedCommandOutcome,
+  type ObservedNativeProcessResourceLedger
 } from './observed-process-stdin.ts';
 import {
   assertRetainedNoFollowCapability,
@@ -608,17 +609,21 @@ export function runCommandBytes(
 export function runRetainedCommand(
   boundary: RetainedCommandBoundary,
   args: string[],
-  options: RunRetainedCommandOptions
+  options: RunRetainedCommandOptions,
+  /** Process-owner internal capability; semantic consumers cannot mint it. */
+  nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<CommandResult> {
-  return runRetainedCommandCaptureV1(boundary, args, options, 'text');
+  return runRetainedCommandCaptureV1(boundary, args, options, 'text', nativeResourceLedger);
 }
 
 export function runRetainedCommandBytes(
   boundary: RetainedCommandBoundary,
   args: string[],
-  options: RunRetainedCommandOptions
+  options: RunRetainedCommandOptions,
+  /** Process-owner internal capability; semantic consumers cannot mint it. */
+  nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<ByteCommandResult> {
-  return runRetainedCommandCaptureV1(boundary, args, options, 'bytes');
+  return runRetainedCommandCaptureV1(boundary, args, options, 'bytes', nativeResourceLedger);
 }
 
 function retainedCommandTransportError(
@@ -641,19 +646,22 @@ function runRetainedCommandCaptureV1(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
-  stdoutMode: 'text'
+  stdoutMode: 'text',
+  nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<CommandResult>;
 function runRetainedCommandCaptureV1(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
-  stdoutMode: 'bytes'
+  stdoutMode: 'bytes',
+  nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<ByteCommandResult>;
 async function runRetainedCommandCaptureV1(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
-  stdoutMode: 'bytes' | 'text'
+  stdoutMode: 'bytes' | 'text',
+  nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<ByteCommandResult | CommandResult> {
   if (options.maxStdinBytes !== undefined
       && (!Number.isSafeInteger(options.maxStdinBytes) || options.maxStdinBytes < 0)) {
@@ -764,6 +772,7 @@ async function runRetainedCommandCaptureV1(
       envMode: options.envMode,
       ...(commandInput === null ? {} : { input: commandInput, maxStdinBytes: options.maxStdinBytes }),
       maxObservedOutputBytes: Math.max(options.maxStdoutBytes, options.maxStderrBytes),
+      nativeResourceLedger,
       onChunk: (stream, byteLength) => {
         if (stream === 'stdout') {
           stdoutBytes += byteLength;

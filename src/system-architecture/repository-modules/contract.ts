@@ -5,6 +5,12 @@ import ts from 'typescript';
 
 import { compileClosedDirectedGraphStrongComponents } from '../foundation/runtime/directed-graph.ts';
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from '../operation/identity.ts';
+import {
+  isCanonicalSecOperationBudgetMaximum,
+  SEC_OPERATION_BUDGET_RESOURCES,
+  SEC_PROCESS_OPERATION_BUDGET_RESOURCES,
+  type SecOperationBudgetResource
+} from '../operation/semantic.ts';
 import { isSecRepositoryTestModulePath } from './test-module-path.ts';
 
 /**
@@ -137,8 +143,9 @@ export type SecModuleOperationObligation = Readonly<{
     readonly retirement: 'consumer-zero' | 'never' | 'replacement-obligations-satisfied';
   }>;
   readonly resources: Readonly<{
+    /** Static ceilings only; physical workers own runtime accounting and settlement. */
     readonly aggregateBudgets: readonly Readonly<{
-      readonly resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'processes' | 'records';
+      readonly resource: SecOperationBudgetResource;
       readonly maximum: number;
     }>[];
   }>;
@@ -918,15 +925,29 @@ function descriptorOperationObligations(
       const resource = descriptorEnum(
         budgetRecord.resource,
         `${field}.resources.aggregateBudgets[${budgetIndex}].resource`,
-        ['duration-ms', 'input-bytes', 'output-bytes', 'processes', 'records'] as const
+        SEC_OPERATION_BUDGET_RESOURCES
       );
-      if (!Number.isSafeInteger(budgetRecord.maximum) || (budgetRecord.maximum as number) <= 0) {
-        descriptorError(`${field}.resources.aggregateBudgets[${budgetIndex}].maximum`, 'expected a positive safe integer');
+      if (!isCanonicalSecOperationBudgetMaximum(resource, budgetRecord.maximum as number)) {
+        descriptorError(
+          `${field}.resources.aggregateBudgets[${budgetIndex}].maximum`,
+          'expected a canonical static aggregate ceiling'
+        );
       }
       return Object.freeze({ resource, maximum: budgetRecord.maximum as number });
     });
     if (new Set(aggregateBudgets.map(({ resource }) => resource)).size !== aggregateBudgets.length) {
       descriptorError(`${field}.resources.aggregateBudgets`, 'resource entries must be unique');
+    }
+    if (effectKinds.includes('process')) {
+      const missingProcessResources = SEC_PROCESS_OPERATION_BUDGET_RESOURCES.filter(
+        (resource) => !aggregateBudgets.some((budget) => budget.resource === resource)
+      );
+      if (missingProcessResources.length > 0) {
+        descriptorError(
+          `${field}.resources.aggregateBudgets`,
+          `process Effect obligation must declare exactly one ${missingProcessResources.join(', ')} ceiling`
+        );
+      }
     }
     const resources = Object.freeze({ aggregateBudgets: Object.freeze(aggregateBudgets) });
     const futureSupportRecord = descriptorExactRecord(

@@ -40,6 +40,12 @@ templates、examples、licenses、unused helpers 和其他无关 payload。adopt
 projection；它不得复制 executable bytes，不得成为 authority，live session 仍必须从当前 retained physical state
 重新发行。
 
+若 retained direct executable 会按协议、config 或 credential route 派生 transport/helper child，最小因果闭包必须
+在首次 network/process Effect 前同时绑定这些 descendant image 的 immutable manifest、loader closure、固定 dispatch
+grammar、credential principal/permission epoch 与 retained issuer。只 fence parent image、只允许一个 helper 名称或事后
+观察 child path 都不能签发 descendant authority；manifest/issuer 任一缺失时 semantic provider 必须 typed unavailable，
+并以 zero child、zero network、zero credential acquisition 和完整 physical settlement 的负例证明没有旁路。
+
 机器约束必须阻止这条边界退化：production adoption module 不得 import download/archive extraction/installer
 surface；unsupported/unavailable provider 的 negative test 必须证明 zero network、zero install/cache publication、zero child spawn；
 candidate path、same-path ABA、executable/dependency drift、cwd replacement、deadline、close settlement 和 origin forgery 必须 typed
