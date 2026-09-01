@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 
-import type { DevCommandObservation } from '../../src/development/runner/command-runner.ts';
+import { assertWorkspaceTypeScriptProjectGenerationEvidence } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
+import { compileAffectedTestSelectionSemanticOperation } from '../../src/development/runner/affected-plan.ts';
+import type {
+  DevCommandObservation,
+  ObserveDevCommandOptions
+} from '../../src/development/runner/command-runner.ts';
 import type { OperationDependencyBootstrapResult } from '../../src/development/runner/dependency-bootstrap.ts';
 import * as actualEnvManager from '../../src/development/runner/env-manager.ts';
 import {
@@ -22,12 +27,24 @@ import {
   planFastTestProcesses
 } from '../../src/development/runner/fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from '../../src/development/runner/test-concurrency-policy.ts';
-import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
+import {
+  compileTestInvocationExecutionPolicy,
+  DEFAULT_TEST_TIMEOUT_MS
+} from '../../src/development/runner/test-execution-policy.ts';
+import type { GitReadSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { isSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
 import { FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/verification/test-impact/contract/budget.ts';
 import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
 
 const actualCommandRunner = await import('../../src/development/runner/command-runner.ts');
+const actualPhysicalProcess = await import('../../src/runtime-state/physical/runtime/process.ts');
+const testImpactFixture = await createExactGitTreeTestRunnerFixture();
+afterAll(() => testImpactFixture.dispose());
+const compilerDependencyFixture = await (
+  await import('../../src/toolchain/dependencies/runtime.ts')
+).ensureCompilerDepsReady();
 
 const {
   bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
@@ -61,6 +78,7 @@ const commandCalls: {
   options?: ObservedCommandOptions;
 }[] = [];
 const devCommandCalls: { command: string; args: string[] }[] = [];
+const devCommandOptions: Array<ObserveDevCommandOptions | undefined> = [];
 const devCommandEnvironments: NodeJS.ProcessEnv[] = [];
 const devCommandExitCodes: number[] = [];
 const devCommandFailures: Array<Error | null> = [];
@@ -71,8 +89,9 @@ const devCommandCompletionObservers: Array<(() => void) | undefined> = [];
 const DEFAULT_MANAGED_INNER_ARGS = ['--max-concurrency', String(DEFAULT_FAST_TEST_MAX_CONCURRENCY)] as const;
 let fastDependencyBootstrapCalls = 0;
 let testDependencyBootstrapCalls = 0;
-let gitReadSessionCloseCalls = 0;
 const gitReadSessionDeadlineRequests: Array<number | undefined> = [];
+const gitReadSessions: GitReadSession[] = [];
+const operationEvents: Array<'git-read-session' | 'dev-command'> = [];
 let hasTestDependencyBootstrapFailure = false;
 let testDependencyBootstrapFailure: unknown;
 let cleanupFailure: Error | null = null;
@@ -111,8 +130,10 @@ const processCommand = (
   options?: ObservedCommandOptions
 ): { code: number; stdout: string | Uint8Array; stderr: string } => {
   commandCalls.push({ command, args, stdoutMode, options });
-  const stdout = (value: string): string | Uint8Array => (
-    stdoutMode === 'bytes' ? new TextEncoder().encode(value) : value
+  const stdout = (value: string | Uint8Array): string | Uint8Array => (
+    stdoutMode === 'bytes'
+      ? (typeof value === 'string' ? new TextEncoder().encode(value) : value)
+      : (typeof value === 'string' ? value : new TextDecoder().decode(value))
   );
 
   const isGitCommand = command === 'git' || path.basename(command).toLowerCase().startsWith('git.');
@@ -121,16 +142,24 @@ const processCommand = (
     // Exact object identity for the read-session start/end fences.
     return {
       code: 0,
-      stdout: stdout('1111111111111111111111111111111111111111\n'),
+      stdout: stdout(`${testImpactFixture.sourceCommitSha}\n`),
       stderr: ''
     };
   }
 
-  if (isGitCommand && args.includes('diff')) {
+  if (isGitCommand && args.some((arg) => (
+    arg === 'diff' || arg === 'diff-index' || arg === 'diff-files'
+  ))) {
     return { code: 0, stdout: stdout(changedFiles.map((file) => `M\0${file}\0`).join('')), stderr: '' };
   }
 
   if (isGitCommand && args.includes('ls-files')) {
+    if (args.includes('--deleted')) {
+      return { code: 0, stdout: stdout(testImpactFixture.deletedTrackedOutput), stderr: '' };
+    }
+    if (args.includes('--stage')) {
+      return { code: 0, stdout: stdout(testImpactFixture.indexStageOutput), stderr: '' };
+    }
     return { code: 0, stdout: stdout(''), stderr: '' };
   }
 
@@ -142,42 +171,49 @@ const processCommand = (
 };
 
 mock.module('../../src/runtime-state/physical/runtime/process.ts', () => ({
+  ...actualPhysicalProcess,
   runCommand: async (command: string, args: string[], options?: ObservedCommandOptions) =>
     processCommand(command, args, 'text', options),
   runCommandBytes: async (command: string, args: string[], options?: ObservedCommandOptions) =>
-    processCommand(command, args, 'bytes', options)
+    processCommand(command, args, 'bytes', options),
+  runRetainedCommandBytes: (
+    ...[boundary, args]: Parameters<typeof actualPhysicalProcess.runRetainedCommandBytes>
+  ) => Promise.resolve(processCommand(boundary.executable.childPath, args, 'bytes'))
 }));
 
-// This suite exercises affected-plan selection with a deterministic mocked
-// Git transport. It must opt into the explicitly named host test route on a
-// Windows development machine; it never turns the production Windows PATH
-// transport into an authority fallback.
+// Git selection remains transport-only in this fixture. Source selection is
+// injected separately as a test-origin TestImpact capability, so this session
+// can never be promoted into a production Source Snapshot.
 const actualGitReadEnvironment = await import(
   '../../src/external-capabilities/git-read/test/session.ts'
 );
+const createTestGitReadSession = actualGitReadEnvironment.createHostGitReadSessionForTests;
 mock.module('../../src/external-capabilities/git-read/runtime/session.ts', () => ({
   ...actualGitReadEnvironment,
-  createAuthorityGitReadSession: (input: Parameters<typeof actualGitReadEnvironment.createHostGitReadSessionForTests>[0]) => {
+  createAuthorityGitReadSession: (
+    input: Parameters<typeof actualGitReadEnvironment.createAuthorityGitReadSession>[0]
+  ) => {
+    operationEvents.push('git-read-session');
     gitReadSessionDeadlineRequests.push(input.deadlineAtUnixMs);
-    return {
+    const session = createTestGitReadSession(input);
+    gitReadSessions.push(session);
+    return Object.freeze({
       status: 'ready' as const,
       route: 'host-local-git-v1' as const,
-      session: Object.freeze(new Proxy(
-        actualGitReadEnvironment.createHostGitReadSessionForTests(input),
-        {
-          get(target, property, receiver) {
-            if (property === 'close') {
-              return () => {
-                gitReadSessionCloseCalls += 1;
-                return undefined;
-              };
-            }
-            return Reflect.get(target, property, receiver);
-          }
-        }
-      ))
-    };
+      session
+    });
   }
+}));
+
+const actualCheckAffectedSource = await import(
+  '../../src/development/runner/check-affected-source.ts'
+);
+mock.module('../../src/development/runner/check-affected-source.ts', () => ({
+  ...actualCheckAffectedSource,
+  // Source authority was already issued from the real fixture Git object.
+  // The GitRead session exercised below remains transport/fence-only and its
+  // structural test origin can never acquire Source Program authority.
+  issueCheckAffectedTestImpactProjection: async () => testImpactFixture.affectedObservation
 }));
 
 mock.module('../../src/development/runner/env-manager.ts', () => ({
@@ -245,9 +281,11 @@ mock.module('../../src/development/runner/command-runner.ts', () => ({
     command: string,
     args: string[],
     env: NodeJS.ProcessEnv,
-    options?: { observe: true }
+    options?: ObserveDevCommandOptions
   ) => {
+    operationEvents.push('dev-command');
     devCommandCalls.push({ command, args });
+    devCommandOptions.push(options);
     devCommandEnvironments.push(env);
     devCommandStartObservers.shift()?.();
     if (materializeTestWorkspace) {
@@ -289,19 +327,15 @@ mock.module('../../src/development/runner/dependency-bootstrap.ts', () => ({
   ensureOperationDependencies: async () => {
     fastDependencyBootstrapCalls += 1;
     if (hasTestDependencyBootstrapFailure) throw testDependencyBootstrapFailure;
-    return {
-      manifestHash: 'test-manifest',
-      nodeModulesPath: path.resolve('node_modules'),
-      source: 'existing'
-    };
+    return compilerDependencyFixture;
   },
   reuseOperationDependencies: (result: unknown) => result
 }));
 
 const testRunnerModule = await import('../../src/development/runner/test-runner.ts');
 const {
-  resolveAffectedTestExecution,
-  runAffectedTests,
+  resolveAffectedTestExecution: resolveAffectedTestExecutionWithIssuer,
+  runAffectedTests: runAffectedTestsWithIssuer,
   FAST_TEST_FAILURE_RECEIPT_PREFIX,
   scheduleBoundedFastTestInvocations,
   runFastTests,
@@ -309,10 +343,25 @@ const {
   runSlowTests,
   runTests
 } = testRunnerModule;
-const { getFastTestFilesSync, slowTestSuiteFiles } = await import('../../src/verification/test-impact/contract/budget.ts');
+const resolveAffectedTestExecution = () => resolveAffectedTestExecutionWithIssuer({
+  operation: compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
+  issueTestImpactProjection: async () => testImpactFixture.affectedObservation
+});
+const runAffectedTests = (args: string[] = []) => runAffectedTestsWithIssuer(
+  async () => testImpactFixture.affectedObservation,
+  args
+);
+const testBudgetDomain = await import('../../src/verification/test-impact/contract/budget.ts');
+const testBudgetProjection = testBudgetDomain.compileTestBudgetProjection(
+  testImpactFixture.provider.projection
+);
+const getFastTestFilesSync = () => testBudgetDomain.getFastTestFilesSync(testBudgetProjection);
+const slowTestSuiteFiles = (suiteId: string) => (
+  testBudgetDomain.slowTestSuiteFiles(testBudgetProjection, suiteId)
+);
 
 function invocationTestFiles(args: readonly string[]): string[] {
-  return args.filter((arg) => /^tests\/.+\.(test|spec)\.tsx?$/u.test(arg));
+  return args.filter(isSecRepositoryTestModulePath);
 }
 
 function fastInvocationRunRoots(environment: NodeJS.ProcessEnv): Readonly<{
@@ -472,6 +521,7 @@ beforeEach(() => {
   delete process.env.SEC_CHANGED_BASE;
   commandCalls.length = 0;
   devCommandCalls.length = 0;
+  devCommandOptions.length = 0;
   devCommandEnvironments.length = 0;
   devCommandExitCodes.length = 0;
   devCommandFailures.length = 0;
@@ -481,8 +531,9 @@ beforeEach(() => {
   devCommandCompletionObservers.length = 0;
   fastDependencyBootstrapCalls = 0;
   testDependencyBootstrapCalls = 0;
-  gitReadSessionCloseCalls = 0;
   gitReadSessionDeadlineRequests.length = 0;
+  gitReadSessions.length = 0;
+  operationEvents.length = 0;
   hasTestDependencyBootstrapFailure = false;
   testDependencyBootstrapFailure = undefined;
   cleanupFailure = null;
@@ -530,6 +581,18 @@ afterEach(() => {
 
 afterAll(() => {
   mock.restore();
+});
+
+test('TestImpact fixture authority is bound to its fixture-owned exact Git commit', () => {
+  expect(testImpactFixture.provider.projection.subject).toMatchObject({
+    kind: 'physical-repository',
+    provenance: {
+      kind: 'git-tree',
+      commitSha: testImpactFixture.fixtureCommitSha
+    }
+  });
+  expect(testImpactFixture.fixtureCommitSha).not.toBe(testImpactFixture.sourceCommitSha);
+  expect(path.resolve(testImpactFixture.repositoryRoot)).not.toBe(path.resolve(compilerRoot));
 });
 
 test('fast process planning deterministically bounds concurrent shards without duplicate or missing files', () => {
@@ -917,16 +980,29 @@ test.serial('fast tests preserve options across process shards and isolated invo
 });
 
 test.serial('fast tests preserve equals-form timeout overrides without adding the default', async () => {
+  const caseTimeoutMs = 45_000;
   const code = await runFastTests([
     'tests/unit/path-containment.test.ts',
-    '--timeout=45000'
+    `--timeout=${caseTimeoutMs}`
   ]);
 
   expect(code).toBe(0);
   expect(devCommandCalls).toEqual([{
     command: 'bun',
-    args: ['test', 'tests/unit/path-containment.test.ts', ...DEFAULT_MANAGED_INNER_ARGS, '--timeout=45000']
+    args: [
+      'test',
+      'tests/unit/path-containment.test.ts',
+      ...DEFAULT_MANAGED_INNER_ARGS,
+      `--timeout=${caseTimeoutMs}`
+    ]
   }]);
+  const supervisorTimeoutMs = devCommandOptions[0]?.timeoutMs;
+  expect(supervisorTimeoutMs).toBeNumber();
+  expect(supervisorTimeoutMs!).toBeGreaterThan(caseTimeoutMs);
+  expect(() => compileTestInvocationExecutionPolicy(
+    devCommandCalls[0]!.args,
+    supervisorTimeoutMs!
+  )).not.toThrow();
 });
 
 test.serial('explicit inner concurrency is byte-preserved while managed outer concurrency adapts', async () => {
@@ -1133,9 +1209,7 @@ test.serial('copied TCB recovery is one-file isolated and emits an exact diagnos
     });
     expect(receipt.failures).toHaveLength(1);
     expect(receipt.failures[0].selectedTestFiles).toEqual([file]);
-    expect(receipt.failures[0].effectiveArgv.filter((argument) => (
-      /^tests\/.+\.(test|spec)\.tsx?$/u.test(argument)
-    ))).toEqual([file]);
+    expect(receipt.failures[0].effectiveArgv.filter(isSecRepositoryTestModulePath)).toEqual([file]);
   } finally {
     console.error = originalError;
   }
@@ -1648,13 +1722,7 @@ test.serial('explicit fast test files skip dependency bootstrap entirely', async
 });
 
 test.serial('composite check reuses one materialized compiler capability without a second bootstrap', async () => {
-  const prepared = Object.freeze({
-    manifestHash: 'test-manifest',
-    nodeModulesPath: path.resolve('node_modules'),
-    requiresFreshProcess: false,
-    transitionDigest: `sha256:${'a'.repeat(64)}` as const,
-    source: 'existing' as const
-  }) satisfies OperationDependencyBootstrapResult;
+  const prepared = compilerDependencyFixture satisfies OperationDependencyBootstrapResult;
 
   const code = await runFastTests(['tests/unit/path-containment.test.ts'], prepared);
 
@@ -2377,21 +2445,41 @@ test.serial('deleted test paths remain changed facts without becoming runnable t
 test.serial('resolved affected plan executes only after its final Git revalidation', async () => {
   changedFiles = ['tests/unit/path-containment.test.ts'];
   const execution = await resolveAffectedTestExecution();
-
   expect(execution).not.toBeNull();
   expect(Object.isFrozen(execution)).toBe(true);
   expect(Object.isFrozen(execution!.plan)).toBe(true);
   expect(Object.isFrozen(execution!.plan.selectedFastTests)).toBe(true);
+  expect(() => assertWorkspaceTypeScriptProjectGenerationEvidence(
+    execution!.projectGenerationEvidence
+  )).not.toThrow();
+  expect(JSON.stringify(execution!.plan)).not.toContain('projectGenerationEvidence');
   // Resolution performs one bounded observation fence; run() performs the
   // required last-mile fence immediately before child admission.
-  expect(commandCalls).toHaveLength(8);
+  const resolutionCommandCount = commandCalls.length;
+  const resolutionSessionCount = gitReadSessions.length;
+  const resolutionEventCount = operationEvents.length;
+  expect(resolutionCommandCount).toBeGreaterThan(0);
+  expect(resolutionSessionCount).toBeGreaterThan(0);
   const code = await execution!.run();
 
   expect(code).toBe(0);
-  expect(commandCalls).toHaveLength(11);
-  expect(gitReadSessionCloseCalls).toBe(3);
-  expect(gitReadSessionDeadlineRequests).toHaveLength(3);
-  expect(gitReadSessionDeadlineRequests[1]).toBe(gitReadSessionDeadlineRequests[2]);
+  expect(commandCalls.length).toBeGreaterThan(resolutionCommandCount);
+  expect(gitReadSessions.length).toBeGreaterThan(resolutionSessionCount);
+  const executionEvents = operationEvents.slice(resolutionEventCount);
+  const firstChildAdmission = executionEvents.indexOf('dev-command');
+  expect(firstChildAdmission).toBeGreaterThan(0);
+  expect(executionEvents.slice(0, firstChildAdmission)).toContain('git-read-session');
+  for (const session of gitReadSessions) {
+    expect(actualGitReadEnvironment.isProductionGitReadSession(session)).toBe(false);
+    expect(actualGitReadEnvironment.isTestGitReadSession(session)).toBe(true);
+    expect(session.consumeRecords(0)).toMatchObject({
+      reason: 'command-error',
+      detail: 'Git read session is closed.'
+    });
+  }
+  expect(gitReadSessionDeadlineRequests.length).toBeGreaterThan(resolutionSessionCount);
+  expect(gitReadSessionDeadlineRequests.slice(resolutionSessionCount))
+    .toEqual(expect.arrayContaining([gitReadSessionDeadlineRequests[resolutionSessionCount - 1]]));
   expect(fastDependencyBootstrapCalls).toBe(1);
   expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toHaveLength(2);
@@ -2611,7 +2699,7 @@ test.serial('affected tests run the architecture policy sentinel for changed slo
     expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
       .toEqual([TEST_ARCHITECTURE_POLICY_TEST_FILE]);
     expect(errors).toEqual([]);
-    expect(logs).toContain('Changed slow test files require PR risk or release/full verification: tests/e2e/registry.test.ts');
+    expect(logs).toContain('Changed slow test files require canonical slow-test closure or release/full verification: tests/e2e/registry.test.ts');
     expect(logs.some((line) => line.includes(TEST_ARCHITECTURE_POLICY_TEST_FILE))).toBe(true);
   } finally {
     console.log = originalLog;

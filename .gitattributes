@@ -34,7 +34,6 @@
 /.prettierrc      text eol=lf
 /.prettierrc.*    text eol=lf
 /.bun-version     text eol=lf
-/.dependency-cruiser.json text eol=lf
 
 # === Git hooks (canonical LF, shell scripts) ===
 /.githooks/* text eol=lf

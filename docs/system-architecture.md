@@ -264,6 +264,27 @@ semantic identity / responsibility
 
 任一边缺失都只能得到`unknown`；任一语义identity出现第二declaration、writer、parser、issuer、readback、cache truth、test oracle、wrapper或transport都是候选`duplicate-owner`。Implementation Dominance 只能在完整producer/consumer/Effect/durable/external/recovery/readback frontier上裁决，不得用名字、文本相似度、单一codec、测试绿色或历史使用量签发删除/保留结论。
 
+成熟分析工具只签发**候选证据**，不各自建立一张仓库真值图。TypeScript Compiler/Language Service拥有当前TypeScript snapshot的symbol、type、alias、re-export与reference语义；Knip可提供unused候选，jscpd可提供lexical clone spans，ast-grep/semgrep/tree-sitter可提供结构或跨语言candidate，dependency-cruiser等外部图工具最多提供可复核witness。每份外部证据必须绑定provider identity/revision、exact input snapshot、配置与unknown，并投影到同一个Source Program object/span；Reduction再用真实entrypoint、consumer、owner、Effect、durable state、recovery、external contract与future obligation裁决`required | derivable | duplicate-owner | dominated | orphan | unknown`。工具数量、相似度、unused标签、零仓内import或presentation报告本身都不能签发删除或合并。
+
+外部轮子的采用同样受Implementation Dominance约束：先记录它替代的自研declaration/graph/parser/wrapper和无法覆盖的真实SEC边界；迁移所有consumer后删除被支配实现、配置、缓存与测试oracle。若引入后provider、wrapper、manual registry、source scan或graph owner总数增加而旧owner未达到consumer-zero，该采用就是`dominated`。不为单个工具建立长期镜像API；只有provider version、跨进程Effect、credential、resource budget、strict machine output或settlement确实需要SEC边界时才保留薄Adapter。
+
+### 变更衔接必须由同一图编译
+
+Agent交接文字、修改文件清单、测试名称、提交消息和“已处理所有consumer”的自报都不能证明一个纵切片闭合。每个逻辑纵切片完成写入后，**Reconciliation Projection**从同一before/after Source Program receipt、module responsibility、owner-issued causal relations和external/durable projections自动编译：
+
+```text
+changed declaration / schema / capability / operation
+→ exact aliases, re-exports, callers and dynamic unknowns
+→ producer / parser / writer / Effect / terminal / readback / recovery counterparts
+→ public facade and registration projections
+→ affected behavior, durable, Effect and failure-property observations
+→ retired owner / edge / cache / configuration frontier
+```
+
+任一required counterpart仍指向旧identity、缺少exact replacement、出现第二owner、producer已变而consumer/parser/test仍绑定旧receipt、或unknown跨越Effect/terminal边界时，该纵切片保持`reconciliation-unresolved`，不能进入下一写者、formal Evidence、commit或merge。纯文件移动若symbol/consumer/owner图等价可以机械证明并复用；语义改变只重算受影响闭包。该projection按逻辑纵切片和exact source receipt产生，不要求每改一个文件提交，也不等到提交后才发现缺口；Git commit只封存已经闭合的projection，不能制造闭环。
+
+Reconciliation Projection不保存第二份手工path/consumer/test matrix。它复用Source Program、module descriptor、capability ledger、format/parser owner和test observation的typed facts；工具candidate先归一到同一object/span，再参与闭包。这样“漏拿一个consumer”“多复制一个predicate/parser/graph算法”“facade改向后形成反向环”“测试仍引用退役identity”成为同一类可计算的图差，而不是依赖下一个Agent偶然发现。
+
 该闭包同时覆盖代码、数据、测试、文档、Skill、Work Package、命令、Provider、进程、缓存与生成物；不得为某一对象类型建立专用“完整性”世界。后续出现一个新类别时，修复的对象是Source Program/Reduction/owner contract的关系模型和未知边界，并重算全部受影响节点；不是新增一条Zod、lint、Skill提示、路径allowlist或手写例外。
 
 机器因果图只使用一套最小关系语义：`declares | produces | parses | reads | writes | executes | settles | reads-back | recovers | caches | projects | verifies | migrates | retires`。这不是新的全局registry或领域状态库：代码关系由TypeScript Program/TypeChecker投影，持久格式、文档、Skill、Work Package、Provider ledger与Runtime State分别由其既有owner签发typed projection；Reduction只join这些投影，不重新解析领域正文，也不能据此签发领域authority。
@@ -457,7 +478,11 @@ witness并裁决。contract/computation/capability/operation/workflow/interface 
 symbol/consumer/Effect facts共同证明时成立；
 多角色冲突、opaque Effect或事实不足一律为unknown并阻断生产DAG准入。测试edge只验证测试边界，不得进入生产SCC。
 
-实现写入前必须先由同一Source Program编译**placement projection**：从目标业务operation、不可合并的semantic/authority角色、角色间实际会形成自授权或自证的incompatible edges、现有package owner、首个真实consumer、Effect/readback/recovery closure和retirement target，推导每个declaration应进入的最具体既有owner。角色不同不等于物理package不同；同一provider或runtime lifecycle中只有在合并后能签发自己的前置authorization、自己的完成truth或自己的replay admission时才必须拆owner。相反，只因角色名不同而一角色一目录、一descriptor或一facade，会把逻辑分层误写成物理碎片。
+实现写入前必须先由同一Source Program编译**placement projection**：从目标业务operation、不可合并的semantic/authority角色、declaration/reference SCC、角色间实际会形成自授权或自证的incompatible edges、现有package owner、首个真实consumer、Effect/readback/recovery closure和retirement target，推导每个declaration应进入的最具体既有owner。角色不同不等于物理package不同；同一provider或runtime lifecycle中只有在合并后能签发自己的前置authorization、自己的完成truth或自己的replay admission时才必须拆owner。相反，只因角色名不同而一角色一目录、一descriptor或一facade，会把逻辑分层误写成物理碎片。
+
+declaration topology只能由同一次compiler-issued Source Program receipt编译：每条reference在TypeChecker遍历时绑定精确source declaration或显式`module-initialization`，再对全仓declaration graph做一次SCC；下游不得用span、文本、名字、单文件Program或caller提供的facts反推source declaration。该topology仍只证明依赖关系，不证明owner或placement；只有它与同一snapshot的module responsibility、owner-issued causal relation、operation obligation、Effect/state/recovery/readback、consumer和retirement事实完成join后才允许给出placement。任一事实缺失时结果必须是bounded unknown，不能把“无环”“文件很大”或Agent判断升级成物理搬迁authority。
+
+placement projection不得重新读取source、计算第二份文件bytes或以LOC、byte、declaration数量阈值签发拆分结论。exact tracked content只由Workspace Snapshot观察一次；Source Program、Module Architecture、test-impact、typecheck与audit共享其内容identity和已编译facts。物理bytes/LOC若已经由snapshot记录，只能作为调度成本、诊断和迁移优先级，不能成为owner、package、facade或split authority。是否拆分只由declaration responsibility partition、跨partition reference direction、Effect/state/failure/recovery closure、consumer与retirement义务共同决定；事实不足返回bounded unknown，不进行猜测式搬迁。
 
 新package只有在placement projection证明全部现有owner都不拥有该职责、加入现有owner会产生incompatible edge或SCC、且新package同时拥有真实consumer和retirement replacement时才可创建。投影必须同时给出变更前后`owner/module/descriptor/facade/SCC`数量、净source LOC、被删除的旧edge与旧owner；能力图未增加而这些计数上升，或只是把同一operation identity复制到多个路径时，Implementation Dominance将其判为`dominated`并阻止写入。Task Envelope、现有目录、测试路径和worker文件清单只能收窄写权限，不能决定代码归属；发现它们与placement projection冲突时先修canonical architecture/ownership，再实现，禁止在错误位置完成后靠搬迁或alias补救。
 
@@ -649,7 +674,7 @@ exported declaration owner
 这些是target admission invariants。任何surface classifier若把canonical source root之外的可执行源码降格为resource、无法绑定workspace
 identity或没有对应machine finding，maturity必须保持unresolved；修复只能进入同一Source Program/module graph，不得增加第二路径scanner。
 
-预算是迁移触发器，不是用更高常量永久容纳巨型 owner。超过预算的 package 必须拆成同一 semantic owner 下的 bounded physical modules；不得通过复制 owner、增加 facade 层或放宽 ceiling 规避。
+运行时operation的deadline/process/input/output/entry预算是Effect资源合同；源码文件大小不是模块边界。已有snapshot中的规模事实只能帮助安排迁移顺序，不能独立触发拆分。巨型文件只有在placement projection证明存在可分离的responsibility partition、单向依赖和不缩小的consumer/Effect/failure/recovery义务时才迁移到同一semantic owner下的bounded physical modules；不得通过复制owner、增加facade层、固定阈值或放宽ceiling规避。
 
 ### 测试物理架构
 

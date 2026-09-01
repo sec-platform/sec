@@ -9,22 +9,29 @@ import {
   type SecRepositoryModuleMembership
 } from '../../system-architecture/repository-modules/contract.ts';
 import {
+  resolveSourceProgramCompilationOperation,
+  sourceProgramCompilationCheckpoint,
+  type SourceProgramCompilationOperation
+} from './compilation-operation.ts';
+import {
   sourceProgramSurfaceForPath,
   type SourceProgramCapabilityInvocation,
   type SourceProgramDeclaration,
   type SourceProgramFileInput,
   type SourceProgramLiteral,
   type SourceProgramModel,
+  type SourceProgramOperationRoleProvenance,
   type SourceProgramReference,
   type SourceProgramReferenceKind,
   type SourceProgramSpan,
   type SourceProgramUnknown
 } from './contract.ts';
-import type { IssuedRepositoryCompilationContext } from './repository-compilation-context.ts';
 import {
   isCompiledTypeScriptSourceProgramModel,
-  repositoryCompilationDigestForTypeScriptModel
+  sourceProgramTypeScriptSourceFile,
+  workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
+import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 export interface CompileSourceProgramTestObservationsInput {
   /** Production-only facts signed by the canonical Source Program compiler. */
@@ -33,10 +40,16 @@ export interface CompileSourceProgramTestObservationsInput {
   readonly files: readonly SourceProgramFileInput[];
   readonly moduleMembership: SecRepositoryModuleMembership;
   readonly repositoryRoot?: string;
+  /** Reuse the enclosing compilation operation; this module never issues one. */
+  readonly operation?: SourceProgramCompilationOperation;
 }
 
-type CompileSourceProgramTestObservationsInternalInput = CompileSourceProgramTestObservationsInput & Readonly<{
-  repositoryCompilation?: IssuedRepositoryCompilationContext;
+type CompileSourceProgramTestObservationsInternalInput = Omit<
+  CompileSourceProgramTestObservationsInput,
+  'operation'
+> & Readonly<{
+  operation: SourceProgramCompilationOperation;
+  repositoryCompilation?: WorkspaceSourceSnapshot;
 }>;
 
 export type SourceProgramTestSemanticClass =
@@ -65,6 +78,12 @@ export interface SourceProgramTestRegistrationObservation {
   readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
   readonly capabilityOperations: readonly string[];
+  readonly capabilityObservationIds: readonly string[];
+  readonly registrationProvenance: readonly SourceProgramOperationRoleProvenance[];
+  readonly supervisorPolicyProvenance: readonly SourceProgramOperationRoleProvenance[];
+  readonly terminalProvenance: readonly SourceProgramOperationRoleProvenance[];
+  readonly readbackProvenance: readonly SourceProgramOperationRoleProvenance[];
+  readonly unknownEdges: readonly string[];
   readonly unknowns: readonly string[];
 }
 
@@ -93,7 +112,7 @@ const observationsByFiles = new WeakMap<
 >();
 const repositoryCompilationDigestByObservations = new WeakMap<object, `sha256:${string}`>();
 
-export function repositoryCompilationDigestForTestObservations(
+export function workspaceSourceSnapshotIdentityForTestObservations(
   observations: SourceProgramTestObservations
 ): `sha256:${string}` | null {
   return repositoryCompilationDigestByObservations.get(observations) ?? null;
@@ -116,13 +135,6 @@ type ImportedBinding = Readonly<{
 const TEST_SUPPORT_MODULE = /^(?:bun:test|node:test|node:assert(?:\/strict)?|vitest(?:\/.*)?|@jest\/globals|uvu|tap)$/iu;
 const RUNTIME_BUILTIN_MODULE = /^(?:node:|bun:)/u;
 
-function scriptKind(repositoryPath: string): ts.ScriptKind {
-  if (/\.tsx$/iu.test(repositoryPath)) return ts.ScriptKind.TSX;
-  if (/\.jsx$/iu.test(repositoryPath)) return ts.ScriptKind.JSX;
-  if (/\.(?:js|mjs|cjs)$/iu.test(repositoryPath)) return ts.ScriptKind.JS;
-  return ts.ScriptKind.TS;
-}
-
 function spanFor(sourceFile: ts.SourceFile, node: ts.Node): SourceProgramSpan {
   const start = node.getStart(sourceFile, false);
   const end = node.getEnd();
@@ -139,19 +151,32 @@ function spanFor(sourceFile: ts.SourceFile, node: ts.Node): SourceProgramSpan {
 }
 
 function graphTarget(
-  graph: SecRepositoryModuleGraph,
+  targets: ReadonlyMap<string, string | null>,
   from: string,
   moduleSpecifier: string,
   kind: 'static' | 'dynamic' | 'require' = 'static'
 ): string | null {
-  return graph.references.find((reference) => reference.from === from
-    && reference.kind === kind
-    && reference.specifier === moduleSpecifier)?.resolvedTarget ?? null;
+  return targets.get(`${from}\0${kind}\0${moduleSpecifier}`) ?? null;
+}
+
+function graphTargetIndex(
+  graph: SecRepositoryModuleGraph,
+  operation: SourceProgramCompilationOperation
+): ReadonlyMap<string, string | null> {
+  const targets = new Map<string, string | null>();
+  for (const reference of graph.references) {
+    checkpoint(operation);
+    const key = `${reference.from}\0${reference.kind}\0${reference.specifier}`;
+    // Preserve the former Array.find semantics if an unresolved graph ever
+    // contains more than one candidate for the same import edge.
+    if (!targets.has(key)) targets.set(key, reference.resolvedTarget);
+  }
+  return targets;
 }
 
 function importBindings(
   sourceFile: ts.SourceFile,
-  graph: SecRepositoryModuleGraph
+  graphTargets: ReadonlyMap<string, string | null>
 ): ReadonlyMap<string, ImportedBinding> {
   const bindings = new Map<string, ImportedBinding>();
   for (const statement of sourceFile.statements) {
@@ -159,7 +184,7 @@ function importBindings(
         || statement.importClause === undefined
         || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
     const moduleSpecifier = statement.moduleSpecifier.text;
-    const targetPath = graphTarget(graph, sourceFile.fileName, moduleSpecifier);
+    const targetPath = graphTarget(graphTargets, sourceFile.fileName, moduleSpecifier);
     const clause = statement.importClause;
     if (clause.name !== undefined) {
       bindings.set(clause.name.text, Object.freeze({
@@ -189,17 +214,18 @@ function importBindings(
 }
 
 function declarationIndex(
-  model: SourceProgramModel
+  model: SourceProgramModel,
+  operation: SourceProgramCompilationOperation
 ): ReadonlyMap<string, SourceProgramDeclaration> {
-  const declarations = new Map(model.declarations.map((declaration) => [
-    `${declaration.path}\0${declaration.name}`,
-    declaration
-  ] as const));
-  const byObservation = new Map(model.declarations.map((declaration) => [
-    declaration.observationId,
-    declaration
-  ] as const));
+  const declarations = new Map<string, SourceProgramDeclaration>();
+  const byObservation = new Map<string, SourceProgramDeclaration>();
+  for (const declaration of model.declarations) {
+    checkpoint(operation);
+    declarations.set(`${declaration.path}\0${declaration.name}`, declaration);
+    byObservation.set(declaration.observationId, declaration);
+  }
   for (const reference of model.references) {
+    checkpoint(operation);
     if (reference.kind !== 'reexport' || reference.targetObservationId === null) continue;
     const target = byObservation.get(reference.targetObservationId);
     if (target === undefined) continue;
@@ -219,6 +245,273 @@ function resolvedDeclaration(
   return declarations.get(`${binding.targetPath}\0${name}`) ?? null;
 }
 
+function operationRoleProvenance(
+  declaration: SourceProgramDeclaration,
+  moduleMembership: SecRepositoryModuleMembership
+): readonly SourceProgramOperationRoleProvenance[] {
+  const module = moduleMembership.moduleForPath(declaration.path);
+  if (module === null) return Object.freeze([]);
+  return Object.freeze(module.capabilityProviders.flatMap((provider) => (
+    provider.operationRoles
+      .filter(({ operation }) => operation === declaration.name)
+      .map((binding) => Object.freeze({
+        declarationObservationId: declaration.observationId,
+        moduleId: module.moduleId,
+        capability: provider.capability,
+        operation: binding.operation,
+        role: binding.role,
+        semanticOperation: binding.semanticOperation,
+        requirementId: binding.requirementId
+      }))
+  )));
+}
+
+function callReferenceForExpression(
+  sourceFile: ts.SourceFile,
+  repositoryPath: string,
+  expression: ts.LeftHandSideExpression,
+  callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>
+): SourceProgramReference | null {
+  const start = expression.getStart(sourceFile, false);
+  const end = expression.getEnd();
+  const references = callReferencesByPath.get(repositoryPath) ?? [];
+  let lower = 0;
+  let upper = references.length;
+  while (lower < upper) {
+    const middle = (lower + upper) >>> 1;
+    if (references[middle]!.span.start < start) lower = middle + 1;
+    else upper = middle;
+  }
+  let candidate: SourceProgramReference | null = null;
+  for (let index = lower; index < references.length; index += 1) {
+    const reference = references[index]!;
+    if (reference.span.start > end) break;
+    if (reference.span.end > end) continue;
+    if (candidate !== null) return null;
+    candidate = reference;
+  }
+  return candidate;
+}
+
+function recordsByPath<T extends Readonly<{ readonly path: string }>>(
+  records: readonly T[],
+  operation: SourceProgramCompilationOperation
+): ReadonlyMap<string, readonly T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const record of records) {
+    checkpoint(operation);
+    const pathRecords = grouped.get(record.path) ?? [];
+    pathRecords.push(record);
+    grouped.set(record.path, pathRecords);
+  }
+  return new Map([...grouped].map(([repositoryPath, pathRecords]) => [
+    repositoryPath,
+    Object.freeze(pathRecords)
+  ] as const));
+}
+
+function callReferenceIndex(
+  references: readonly SourceProgramReference[],
+  operation: SourceProgramCompilationOperation
+): ReadonlyMap<string, readonly SourceProgramReference[]> {
+  const calls: SourceProgramReference[] = [];
+  for (const reference of references) {
+    checkpoint(operation);
+    if (reference.kind === 'call') calls.push(reference);
+  }
+  const grouped = recordsByPath(calls, operation);
+  return new Map([...grouped].map(([repositoryPath, pathReferences]) => [
+    repositoryPath,
+    Object.freeze([...pathReferences].sort((left, right) => (
+      left.span.start - right.span.start
+      || left.span.end - right.span.end
+      || compareCodeUnits(left.name, right.name)
+      || compareCodeUnits(left.targetObservationId ?? '', right.targetObservationId ?? '')
+    )))
+  ] as const));
+}
+
+function compilerRegistrationKind(
+  sourceFile: ts.SourceFile,
+  repositoryPath: string,
+  node: ts.CallExpression,
+  callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
+  declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
+  moduleMembership: SecRepositoryModuleMembership
+): string | null {
+  const direct = testRegistrationKind(node.expression);
+  if (direct !== null) return direct;
+  return compilerRegistrationProvenance(
+    sourceFile,
+    repositoryPath,
+    node,
+    callReferencesByPath,
+    declarationsByObservation,
+    moduleMembership
+  )[0]?.operation ?? null;
+}
+
+function compilerRegistrationProvenance(
+  sourceFile: ts.SourceFile,
+  repositoryPath: string,
+  node: ts.CallExpression,
+  callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
+  declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
+  moduleMembership: SecRepositoryModuleMembership
+): readonly SourceProgramOperationRoleProvenance[] {
+  if (testRegistrationKind(node.expression) !== null) return Object.freeze([]);
+  const call = callReferenceForExpression(
+    sourceFile,
+    repositoryPath,
+    node.expression,
+    callReferencesByPath
+  );
+  if (call?.targetObservationId === null || call === null) return Object.freeze([]);
+  const declaration = declarationsByObservation.get(call.targetObservationId);
+  if (declaration === undefined) return Object.freeze([]);
+  return Object.freeze(operationRoleProvenance(declaration, moduleMembership)
+    .filter(({ role }) => role === 'registration-issuer'));
+}
+
+function reachableDeclarationIds(
+  registrationSpan: SourceProgramSpan,
+  path: string,
+  callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
+  declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
+  containedDeclarationIdsByObservation: ReadonlyMap<string, readonly string[]>,
+  callTargetIdsBySourceObservation: ReadonlyMap<string, readonly string[]>,
+  operation: SourceProgramCompilationOperation
+): ReadonlySet<string> {
+  const reachable = new Set(recordsWithinSpan(
+    callReferencesByPath.get(path) ?? [],
+    registrationSpan.start,
+    registrationSpan.end
+  ).filter((reference) => reference.targetObservationId !== null)
+    .map((reference) => reference.targetObservationId!));
+  const queue = [...reachable];
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    checkpoint(operation);
+    const sourceObservationId = queue[queueIndex]!;
+    if (!declarationsByObservation.has(sourceObservationId)) continue;
+    for (const targetObservationId of [
+      ...(containedDeclarationIdsByObservation.get(sourceObservationId) ?? []),
+      ...(callTargetIdsBySourceObservation.get(sourceObservationId) ?? [])
+    ]) {
+      if (reachable.has(targetObservationId)) continue;
+      reachable.add(targetObservationId);
+      queue.push(targetObservationId);
+    }
+  }
+  return reachable;
+}
+
+function declarationReachabilityIndexes(
+  declarations: readonly SourceProgramDeclaration[],
+  references: readonly SourceProgramReference[],
+  operation: SourceProgramCompilationOperation
+): Readonly<{
+  declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>;
+  containedDeclarationIdsByObservation: ReadonlyMap<string, readonly string[]>;
+  callTargetIdsBySourceObservation: ReadonlyMap<string, readonly string[]>;
+}> {
+  const declarationsByObservation = new Map<string, SourceProgramDeclaration>();
+  for (const declaration of declarations) {
+    checkpoint(operation);
+    declarationsByObservation.set(declaration.observationId, declaration);
+  }
+  const declarationsByPath = recordsByPath(declarations, operation);
+  const containedDeclarationIdsByObservation = new Map<string, readonly string[]>();
+  for (const pathDeclarations of declarationsByPath.values()) {
+    checkpoint(operation);
+    const ordered = [...pathDeclarations].sort((left, right) => (
+      left.span.start - right.span.start
+      || right.span.end - left.span.end
+      || compareCodeUnits(left.observationId, right.observationId)
+    ));
+    for (const declaration of ordered) {
+      checkpoint(operation);
+      let lower = 0;
+      let upper = ordered.length;
+      while (lower < upper) {
+        const middle = (lower + upper) >>> 1;
+        if (ordered[middle]!.span.start < declaration.span.start) lower = middle + 1;
+        else upper = middle;
+      }
+      const contained: string[] = [];
+      for (let index = lower; index < ordered.length; index += 1) {
+        const nested = ordered[index]!;
+        if (nested.span.start > declaration.span.end) break;
+        if (nested.observationId !== declaration.observationId
+            && nested.span.end <= declaration.span.end) {
+          contained.push(nested.observationId);
+        }
+      }
+      containedDeclarationIdsByObservation.set(
+        declaration.observationId,
+        Object.freeze(contained)
+      );
+    }
+  }
+  const callTargets = new Map<string, Set<string>>();
+  for (const reference of references) {
+    checkpoint(operation);
+    if (reference.kind !== 'call'
+        || reference.sourceObservationId === null
+        || reference.targetObservationId === null) continue;
+    const targets = callTargets.get(reference.sourceObservationId) ?? new Set<string>();
+    targets.add(reference.targetObservationId);
+    callTargets.set(reference.sourceObservationId, targets);
+  }
+  return Object.freeze({
+    declarationsByObservation,
+    containedDeclarationIdsByObservation,
+    callTargetIdsBySourceObservation: new Map([...callTargets].map(([observationId, targets]) => [
+      observationId,
+      Object.freeze([...targets].sort(compareCodeUnits))
+    ] as const))
+  });
+}
+
+function checkpoint(operation: SourceProgramCompilationOperation): void {
+  sourceProgramCompilationCheckpoint(operation, 'test-observations');
+}
+
+function spannedRecordsByPath<T extends Readonly<{
+  readonly path: string;
+  readonly span: SourceProgramSpan;
+}>>(
+  records: readonly T[],
+  operation: SourceProgramCompilationOperation
+): ReadonlyMap<string, readonly T[]> {
+  return new Map([...recordsByPath(records, operation)].map(([repositoryPath, pathRecords]) => [
+    repositoryPath,
+    Object.freeze([...pathRecords].sort((left, right) => (
+      left.span.start - right.span.start || left.span.end - right.span.end
+    )))
+  ] as const));
+}
+
+function recordsWithinSpan<T extends Readonly<{ readonly span: SourceProgramSpan }>>(
+  records: readonly T[],
+  start: number,
+  end: number
+): readonly T[] {
+  let lower = 0;
+  let upper = records.length;
+  while (lower < upper) {
+    const middle = (lower + upper) >>> 1;
+    if (records[middle]!.span.start < start) lower = middle + 1;
+    else upper = middle;
+  }
+  const contained: T[] = [];
+  for (let index = lower; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (record.span.start > end) break;
+    if (record.span.end <= end) contained.push(record);
+  }
+  return contained;
+}
+
 function reference(
   sourceFile: ts.SourceFile,
   node: ts.Node,
@@ -233,6 +526,8 @@ function reference(
     kind,
     name,
     moduleSpecifier: binding.moduleSpecifier,
+    sourceObservationId: null,
+    sourceRelation: 'module-initialization',
     targetObservationId: declaration?.observationId ?? null,
     targetPath: signedTargetPath,
     observationClass: declaration === null && signedTargetPath === null ? 'unknown' : 'observed',
@@ -337,9 +632,13 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return current;
 }
 
-function constantInitializers(sourceFile: ts.SourceFile): ReadonlyMap<string, ts.Expression> {
+function constantInitializers(
+  sourceFile: ts.SourceFile,
+  operation: SourceProgramCompilationOperation
+): ReadonlyMap<string, ts.Expression> {
   const values = new Map<string, ts.Expression>();
   const visit = (node: ts.Node): void => {
+    checkpoint(operation);
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
       values.set(node.name.text, node.initializer);
     }
@@ -513,17 +812,15 @@ function registrationCallback(node: ts.CallExpression): ts.FunctionLikeDeclarati
 function semanticClassesForRegistration(
   references: readonly SourceProgramReference[],
   capabilities: readonly SourceProgramCapabilityInvocation[],
-  registration: ts.CallExpression
+  registration: ts.CallExpression,
+  operation: SourceProgramCompilationOperation
 ): readonly SourceProgramTestSemanticClass[] {
   const classes = new Set<SourceProgramTestSemanticClass>();
-  const start = registration.getStart();
-  const end = registration.getEnd();
-  const registrationReferences = references.filter(({ span }) => span.start >= start && span.end <= end);
-  if (registrationReferences.some(({ kind, targetPath }) =>
+  if (references.some(({ kind, targetPath }) =>
     (kind === 'call' || kind === 'construct')
     && targetPath !== null
     && sourceProgramSurfaceForPath(targetPath) !== 'test')) classes.add('behavior');
-  const registrationCapabilities = capabilities.filter(({ span }) => span.start >= start && span.end <= end);
+  const registrationCapabilities = capabilities;
   if (registrationCapabilities.length > 0) classes.add('effect');
   const operations = new Set(registrationCapabilities.map(({ operation }) => operation.toLowerCase()));
   const hasRead = [...operations].some((operation) => /read|stat|scan|inspect|open/u.test(operation));
@@ -532,6 +829,7 @@ function semanticClassesForRegistration(
   let hasFailureBoundary = false;
   let hasPropertyIteration = false;
   const visit = (node: ts.Node): void => {
+    checkpoint(operation);
     if (ts.isCallExpression(node)) {
       const matcher = assertionMatcher(node)?.matcher;
       if (matcher !== undefined && /throw|reject|fail/iu.test(matcher)) hasFailureBoundary = true;
@@ -556,14 +854,17 @@ function semanticClassesForRegistration(
 function compileSourceProgramTestObservationsInternal(
   input: CompileSourceProgramTestObservationsInternalInput
 ): SourceProgramTestObservations {
+  checkpoint(input.operation);
   input.repositoryCompilation?.assertMatches(input);
   if (!isCompiledTypeScriptSourceProgramModel(input.productionModel)
-      || input.productionModel.files.some(({ surface }) => surface !== 'production')) {
-    throw new Error('test observations require an exact production-only Source Program model');
+      || input.productionModel.files.some(({ surface }) => (
+        surface !== 'production' && surface !== 'test'
+      ))) {
+    throw new Error('test observations require one exact production-and-test Source Program model');
   }
   if (input.repositoryCompilation !== undefined
-      && repositoryCompilationDigestForTypeScriptModel(input.productionModel)
-        !== input.repositoryCompilation.contextDigest) {
+      && workspaceSourceSnapshotIdentityForTypeScriptModel(input.productionModel)
+        !== input.repositoryCompilation.identityDigest) {
     throw new Error('test observations cannot mix a production model from another repository compilation');
   }
   const files = [...input.files].sort((left, right) => compareCodeUnits(left.path, right.path));
@@ -571,17 +872,44 @@ function compileSourceProgramTestObservationsInternal(
       || files.some((file) => rawSha256(file.source) !== file.contentDigest)) {
     throw new Error('test observations require canonical exact source bytes');
   }
-  const productionFiles = new Map(input.productionModel.files.map((file) => [file.path, file] as const));
-  if ([...productionFiles].some(([repositoryPath, observed]) =>
-    files.find(({ path }) => path === repositoryPath)?.contentDigest !== observed.contentDigest)) {
-    throw new Error('test observations do not bind the production model bytes');
+  const filesByPath = new Map(files.map((file) => [file.path, file] as const));
+  const compiledFiles = new Map(input.productionModel.files.map((file) => [file.path, file] as const));
+  if ([...compiledFiles].some(([repositoryPath, observed]) =>
+    filesByPath.get(repositoryPath)?.contentDigest !== observed.contentDigest)) {
+    throw new Error('test observations do not bind the compiler model bytes');
   }
+  const productionFiles = new Map([...compiledFiles].filter(([, file]) => file.surface === 'production'));
   const sourceByPath = new Map(files.map((file) => [file.path, file.source] as const));
-  const graph = input.repositoryCompilation?.moduleGraphFor('test-observations') ?? compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
     files: files.map(({ path }) => path),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
   });
-  const declarations = declarationIndex(input.productionModel);
+  const graphTargets = graphTargetIndex(graph, input.operation);
+  const declarations = declarationIndex(input.productionModel, input.operation);
+  const compilerReferences = input.productionModel.references.filter(({ path: observationPath }) => (
+    sourceProgramSurfaceForPath(observationPath) === 'test'
+  ));
+  const compilerLiterals = input.productionModel.literals.filter(({ path: observationPath }) => (
+    sourceProgramSurfaceForPath(observationPath) === 'test'
+  ));
+  const compilerCapabilities = input.productionModel.capabilities.filter(({ path: observationPath }) => (
+    sourceProgramSurfaceForPath(observationPath) === 'test'
+  ));
+  const compilerUnknowns = input.productionModel.unknowns.filter(({ path: observationPath }) => (
+    sourceProgramSurfaceForPath(observationPath) === 'test'
+  ));
+  const callReferencesByPath = callReferenceIndex(compilerReferences, input.operation);
+  const reachability = declarationReachabilityIndexes(
+    input.productionModel.declarations,
+    compilerReferences,
+    input.operation
+  );
+  const declarationsByObservation = reachability.declarationsByObservation;
+  const compilerReferencesByPath = spannedRecordsByPath(compilerReferences, input.operation);
+  const compilerCapabilitiesByPath = spannedRecordsByPath(compilerCapabilities, input.operation);
+  const compilerUnknownsByPath = spannedRecordsByPath(compilerUnknowns.filter((unknown): unknown is SourceProgramUnknown & Readonly<{
+    span: SourceProgramSpan;
+  }> => unknown.span !== null), input.operation);
   const references: SourceProgramReference[] = [];
   const literals: SourceProgramLiteral[] = [];
   const capabilities: SourceProgramCapabilityInvocation[] = [];
@@ -593,13 +921,17 @@ function compileSourceProgramTestObservationsInternal(
   const productionPaths = new Set(productionFiles.keys());
 
   for (const file of testFiles) {
-    const sourceFile = ts.createSourceFile(
-      file.path,
-      file.source,
-      ts.ScriptTarget.Latest,
-      true,
-      scriptKind(file.path)
-    );
+    checkpoint(input.operation);
+    const sourceFile = sourceProgramTypeScriptSourceFile(input.productionModel, file.path);
+    if (sourceFile === null) {
+      unknowns.push(Object.freeze({
+        code: 'test-compiler-syntax-unresolved',
+        path: file.path,
+        detail: 'exact compiler syntax is not bound to the Source Program receipt',
+        span: null
+      }));
+      continue;
+    }
     const parseDiagnostics = (sourceFile as ts.SourceFile & {
       readonly parseDiagnostics?: readonly ts.Diagnostic[];
     }).parseDiagnostics ?? [];
@@ -620,12 +952,13 @@ function compileSourceProgramTestObservationsInternal(
         span: null
       }));
     }
-    const bindings = importBindings(sourceFile, graph);
-    const constants = constantInitializers(sourceFile);
+    const bindings = importBindings(sourceFile, graphTargets);
+    const constants = constantInitializers(sourceFile, input.operation);
     const importedNames = importedBindingNames(sourceFile);
     const registrationNodes: ts.CallExpression[] = [];
     const unresolvedBindings = new Set<string>();
     const visit = (node: ts.Node): void => {
+      checkpoint(input.operation);
       if (ts.isIdentifier(node)
           && !isImportBindingDeclaration(node)
           && !isCallTarget(node)) {
@@ -663,7 +996,14 @@ function compileSourceProgramTestObservationsInternal(
         }));
       }
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-        if (ts.isCallExpression(node) && testRegistrationKind(node.expression) !== null) {
+        if (ts.isCallExpression(node) && compilerRegistrationKind(
+          sourceFile,
+          file.path,
+          node,
+          callReferencesByPath,
+          declarationsByObservation,
+          input.moduleMembership
+        ) !== null) {
           registrationNodes.push(node);
         }
         if (ts.isCallExpression(node)) {
@@ -715,7 +1055,15 @@ function compileSourceProgramTestObservationsInternal(
                 : null;
           if (capability !== null) {
             const firstArgument = node.arguments?.[0];
+            const capabilitySpan = spanFor(sourceFile, node);
             capabilities.push(Object.freeze({
+              observationId: sha256({
+                capability,
+                operation: bound.operation,
+                owningDeclarationObservationId: null,
+                path: file.path,
+                start: capabilitySpan.start
+              }),
               path: file.path,
               moduleId: input.moduleMembership.moduleForPath(file.path)?.moduleId ?? null,
               surface: 'test',
@@ -734,10 +1082,11 @@ function compileSourceProgramTestObservationsInternal(
               moduleSpecifier: bound.binding.moduleSpecifier,
               providerCapability: provider?.capability ?? null,
               providerModuleId: provider === null ? null : importedModule!.moduleId,
+              owningDeclarationObservationId: null,
               observationClass: provider !== null || nativeProcess || runtimeBuiltin
                 ? 'observed'
                 : 'unknown',
-              span: spanFor(sourceFile, node)
+              span: capabilitySpan
             }));
           }
         }
@@ -761,7 +1110,15 @@ function compileSourceProgramTestObservationsInternal(
                 : null;
           if (capability !== null && operation !== null) {
             const firstArgument = node.arguments[0];
+            const capabilitySpan = spanFor(sourceFile, node);
             capabilities.push(Object.freeze({
+              observationId: sha256({
+                capability,
+                operation,
+                owningDeclarationObservationId: null,
+                path: file.path,
+                start: capabilitySpan.start
+              }),
               path: file.path,
               moduleId: input.moduleMembership.moduleForPath(file.path)?.moduleId ?? null,
               surface: 'test',
@@ -774,8 +1131,9 @@ function compileSourceProgramTestObservationsInternal(
               moduleSpecifier: capability === 'process' ? 'bun' : null,
               providerCapability: null,
               providerModuleId: null,
+              owningDeclarationObservationId: null,
               observationClass: 'observed',
-              span: spanFor(sourceFile, node)
+              span: capabilitySpan
             }));
           }
         }
@@ -790,7 +1148,7 @@ function compileSourceProgramTestObservationsInternal(
               span: spanFor(sourceFile, node)
             }));
           } else {
-            const targetPath = graphTarget(graph, file.path, argument.text, 'dynamic');
+            const targetPath = graphTarget(graphTargets, file.path, argument.text, 'dynamic');
             const dynamicBinding = Object.freeze({
               moduleSpecifier: argument.text,
               targetPath,
@@ -832,7 +1190,7 @@ function compileSourceProgramTestObservationsInternal(
           || statement.moduleSpecifier === undefined
           || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
       const specifier = statement.moduleSpecifier.text;
-      const targetPath = graphTarget(graph, file.path, specifier);
+      const targetPath = graphTarget(graphTargets, file.path, specifier);
       const exportedNames = statement.exportClause !== undefined
           && ts.isNamedExports(statement.exportClause)
         ? statement.exportClause.elements.map((element) => (element.propertyName ?? element.name).text)
@@ -851,10 +1209,19 @@ function compileSourceProgramTestObservationsInternal(
         ));
       }
     }
-    const fileReferences = references.filter(({ path: observationPath }) => observationPath === file.path);
-    const fileCapabilities = capabilities.filter(({ path: observationPath }) => observationPath === file.path);
+    const fileReferences = compilerReferencesByPath.get(file.path) ?? [];
+    const fileCapabilities = compilerCapabilitiesByPath.get(file.path) ?? [];
+    const fileUnknowns = compilerUnknownsByPath.get(file.path) ?? [];
     registrationNodes.forEach((registration, index) => {
-      const kind = testRegistrationKind(registration.expression)!;
+      checkpoint(input.operation);
+      const kind = compilerRegistrationKind(
+        sourceFile,
+        file.path,
+        registration,
+        callReferencesByPath,
+        declarationsByObservation,
+        input.moduleMembership
+      )!;
       const titleExpression = registration.arguments[0];
       const title = titleExpression === undefined
         ? null
@@ -897,29 +1264,110 @@ function compileSourceProgramTestObservationsInternal(
       }));
       const registrationStart = registration.getStart(sourceFile);
       const registrationEnd = registration.getEnd();
-      const observedProductionPaths = Object.freeze([...new Set(fileReferences
-        .filter(({ targetPath, span }) => targetPath !== null
-          && productionPaths.has(targetPath)
-          && span.start >= registrationStart
-          && span.end <= registrationEnd)
+      const registrationSpan = spanFor(sourceFile, registration);
+      const reachableDeclarations = reachableDeclarationIds(
+        registrationSpan,
+        file.path,
+        callReferencesByPath,
+        reachability.declarationsByObservation,
+        reachability.containedDeclarationIdsByObservation,
+        reachability.callTargetIdsBySourceObservation,
+        input.operation
+      );
+      const reachableCapabilities = [...new Map([
+        ...recordsWithinSpan(fileCapabilities, registrationStart, registrationEnd),
+        ...fileCapabilities.filter(({ owningDeclarationObservationId }) => (
+          owningDeclarationObservationId !== null
+          && reachableDeclarations.has(owningDeclarationObservationId)))
+      ].map((capability) => [capability.observationId, capability] as const)).values()];
+      const reachableRoles = Object.freeze([...reachableDeclarations]
+        .flatMap((observationId) => {
+          const declaration = declarationsByObservation.get(observationId);
+          return declaration === undefined
+            ? []
+            : operationRoleProvenance(declaration, input.moduleMembership);
+        })
+        .sort((left, right) => compareCodeUnits(left.declarationObservationId, right.declarationObservationId)
+          || compareCodeUnits(left.role, right.role)
+          || compareCodeUnits(left.operation, right.operation)));
+      const registrationReferences = recordsWithinSpan(
+        fileReferences,
+        registrationStart,
+        registrationEnd
+      );
+      const observedProductionPaths = Object.freeze([...new Set(registrationReferences
+        .filter(({ targetPath }) => targetPath !== null
+          && productionPaths.has(targetPath))
         .map(({ targetPath }) => targetPath!))].sort(compareCodeUnits));
-      const capabilityOperations = Object.freeze([...new Set(fileCapabilities
-        .filter(({ span }) => span.start >= registrationStart && span.end <= registrationEnd)
+      const capabilityOperations = Object.freeze([...new Set(reachableCapabilities
         .map(({ operation }) => operation))].sort(compareCodeUnits));
-      const semanticClasses = semanticClassesForRegistration(fileReferences, fileCapabilities, registration);
+      const capabilityObservationIds = Object.freeze(reachableCapabilities
+        .map(({ observationId }) => observationId)
+        .sort(compareCodeUnits));
+      const registrationProvenance = compilerRegistrationProvenance(
+        sourceFile,
+        file.path,
+        registration,
+        callReferencesByPath,
+        declarationsByObservation,
+        input.moduleMembership
+      );
+      const registrationSemanticOperations = new Set(registrationProvenance.map(({ semanticOperation }) => (
+        semanticOperation
+      )));
+      const supervisorPolicyProvenance = Object.freeze(reachableRoles.filter(({ role, semanticOperation }) => (
+        role === 'domain-owner' && registrationSemanticOperations.has(semanticOperation)
+      )));
+      const terminalProvenance = Object.freeze(reachableRoles.filter(({ role, semanticOperation }) => (
+        role === 'terminal-issuer' && registrationSemanticOperations.has(semanticOperation)
+      )));
+      const readbackProvenance = Object.freeze(reachableRoles.filter(({ role, semanticOperation }) => (
+        role === 'readback-issuer' && registrationSemanticOperations.has(semanticOperation)
+      )));
+      const unknownEdges = Object.freeze(recordsWithinSpan(
+        fileUnknowns,
+        registrationStart,
+        registrationEnd
+      ).map(({ code, detail }) => `${code}:${detail}`).sort(compareCodeUnits));
+      const semanticClasses = semanticClassesForRegistration(
+        registrationReferences,
+        reachableCapabilities,
+        registration,
+        input.operation
+      );
+      const provenanceUnknowns = registrationProvenance.length === 0
+        ? []
+        : [
+            ...(supervisorPolicyProvenance.length === 0
+              ? ['test-supervisor-policy-provenance-unresolved']
+              : []),
+            ...(terminalProvenance.length === 0
+              ? ['test-terminal-provenance-unresolved']
+              : []),
+            ...(readbackProvenance.length === 0
+              ? ['test-readback-provenance-unresolved']
+              : [])
+          ];
       registrations.push(Object.freeze({
         path: file.path,
         index,
         kind,
         title,
-        span: spanFor(sourceFile, registration),
+        span: registrationSpan,
         assertions: assertionObservations,
         semanticClasses,
         observedProductionPaths,
         capabilityOperations,
-        unknowns: semanticClasses.length === 0
-          ? Object.freeze(['test-semantic-class-unresolved'])
-          : Object.freeze([])
+        capabilityObservationIds,
+        registrationProvenance,
+        supervisorPolicyProvenance,
+        terminalProvenance,
+        readbackProvenance,
+        unknownEdges,
+        unknowns: Object.freeze([
+          ...(semanticClasses.length === 0 ? ['test-semantic-class-unresolved'] : []),
+          ...provenanceUnknowns
+        ].sort(compareCodeUnits))
       }));
     });
   }
@@ -942,6 +1390,7 @@ function compileSourceProgramTestObservationsInternal(
     || (left.span?.start ?? -1) - (right.span?.start ?? -1)
     || compareCodeUnits(left.code, right.code)
     || compareCodeUnits(left.detail, right.detail));
+  checkpoint(input.operation);
   const canonical = Object.freeze({
     // The revision names the repository snapshot shared with the production
     // model. Exact test bytes are independently bound by observationDigest;
@@ -950,12 +1399,12 @@ function compileSourceProgramTestObservationsInternal(
     sourceRevision: input.productionModel.sourceRevision,
     productionModelDigest: input.productionModel.modelDigest,
     testPaths: Object.freeze(testFiles.map(({ path }) => path)),
-    references: Object.freeze(references),
-    literals: Object.freeze(literals),
-    capabilities: Object.freeze(capabilities),
+    references: Object.freeze(compilerReferences),
+    literals: Object.freeze(compilerLiterals),
+    capabilities: Object.freeze(compilerCapabilities),
     registrations: Object.freeze(registrations),
     productionSourceReads: Object.freeze(productionSourceReads),
-    unknowns: Object.freeze(unknowns)
+    unknowns: Object.freeze([...compilerUnknowns, ...unknowns])
   });
   const observations = Object.freeze({
     ...canonical,
@@ -964,7 +1413,7 @@ function compileSourceProgramTestObservationsInternal(
   if (input.repositoryCompilation !== undefined) {
     repositoryCompilationDigestByObservations.set(
       observations,
-      input.repositoryCompilation.contextDigest
+      input.repositoryCompilation.identityDigest
     );
   }
   observationsByFiles.set(input.files, observations);
@@ -974,13 +1423,20 @@ function compileSourceProgramTestObservationsInternal(
 export function compileSourceProgramTestObservations(
   input: CompileSourceProgramTestObservationsInput
 ): SourceProgramTestObservations {
-  return compileSourceProgramTestObservationsInternal(input);
+  return compileSourceProgramTestObservationsInternal({
+    ...input,
+    operation: resolveSourceProgramCompilationOperation(input.operation)
+  });
 }
 
-export function compileSourceProgramTestObservationsFromRepositoryCompilation(
+export function compileSourceProgramTestObservationsFromWorkspaceSnapshot(
   input: CompileSourceProgramTestObservationsInput,
-  repositoryCompilation: IssuedRepositoryCompilationContext
+  repositoryCompilation: WorkspaceSourceSnapshot
 ): SourceProgramTestObservations {
   repositoryCompilation.assertMatches(input);
-  return compileSourceProgramTestObservationsInternal({ ...input, repositoryCompilation });
+  return compileSourceProgramTestObservationsInternal({
+    ...input,
+    operation: resolveSourceProgramCompilationOperation(input.operation),
+    repositoryCompilation
+  });
 }

@@ -3,11 +3,16 @@ import { expect, test } from 'bun:test';
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compileSecRepositoryModuleMembershipSnapshot } from '../../system-architecture/repository-modules/contract.ts';
 import {
+  createSourceProgramCompilationOperation,
+  SourceProgramCompilationInterruptedError
+} from './compilation-operation.ts';
+import {
   type RepositoryCompilationCacheProvider,
   type RepositoryCompilationGenerationReceipt
 } from './repository-compilation-cache.ts';
 import {
-  compileVirtualRepositorySourceProgramCompilation
+  compileVirtualRepositorySourceProgramCompilation,
+  repositoryCompilationDiagnosticsForTests
 } from './repository-compilation.ts';
 import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
 import {
@@ -30,6 +35,10 @@ function fixture(value: number) {
   const descriptorPath = 'src/example/sec.module.json';
   const sources = Object.freeze({
     'src/example/operation.ts': `export const value = ${value};\n`,
+    'tsconfig.json': `${JSON.stringify({
+      compilerOptions: { strict: true },
+      include: ['src/**/*.ts']
+    })}\n`,
     'tests/example.test.ts': [
       "import { expect, test } from 'bun:test';",
       "import { value } from '../src/example/operation.ts';",
@@ -91,7 +100,8 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
   expect(receipt.workspaceSnapshot.moduleGraphCompilationCount).toBe(1);
   expect(receipt.workspaceSnapshot.moduleGraph.files).toEqual([
     'src/example/operation.ts',
-    'tests/example.test.ts'
+    'tests/example.test.ts',
+    'tsconfig.json'
   ]);
   expect(workspaceSourceSnapshotIdentityForTypeScriptModel(receipt.typeScriptCompilation.model))
     .toBe(receipt.workspaceSnapshotIdentityDigest);
@@ -192,7 +202,7 @@ test('cache absence and open, read, or publish failure preserve the cold semanti
   });
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
-    'src/example/operation.ts'
+    'tsconfig.json'
   );
   const cold = compileVirtualRepositorySourceProgramCompilation({
     workspaceSnapshot,
@@ -238,4 +248,80 @@ test('cache absence and open, read, or publish failure preserve the cold semanti
     expect(recovered.cacheReceipt).toBeNull();
     expect(recovered.receiptDigest).toBe(cold.receiptDigest);
   }
+});
+
+test('one bounded compilation reports exact phases and rejects late cache publication', () => {
+  const input = fixture(1);
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    ...input,
+    subject: virtualSnapshotSubject('bounded-compilation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
+  });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
+  const operation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + 30_000
+  });
+  const receipt = compileVirtualRepositorySourceProgramCompilation({
+    workspaceSnapshot,
+    projectInput,
+    operation
+  });
+  const diagnostics = repositoryCompilationDiagnosticsForTests(workspaceSnapshot);
+  expect(receipt.typeScriptCompilation.mode).toBe('full');
+  const events = diagnostics?.phaseEvents ?? [];
+  expect(events.length).toBeGreaterThan(0);
+  expect(events.every((event, index) => (
+    index === 0 || event.elapsedMs >= events[index - 1]!.elapsedMs
+  ))).toBeTrue();
+  const intervalByPhase = new Map(events.map(({ phase }) => [
+    phase,
+    events.filter((event) => event.phase === phase)
+  ]));
+  expect([...intervalByPhase.values()].every((interval) => (
+    interval.length === 2
+      && interval[0]?.state === 'start'
+      && interval[1]?.state === 'complete'
+  ))).toBeTrue();
+  expect(intervalByPhase.has('program-materialization')).toBeTrue();
+  expect(intervalByPhase.has('fact-shard-assembly')).toBeTrue();
+  expect(events.at(-1)).toEqual(expect.objectContaining({
+    phase: 'settlement',
+    state: 'complete'
+  }));
+
+  let publishCount = 0;
+  const expired = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() - 1
+  });
+  const cacheProvider: RepositoryCompilationCacheProvider = Object.freeze({
+    openContentAddressedHint: (generation: RepositoryCompilationGenerationReceipt) => {
+      const miss = Object.freeze({
+        status: 'miss' as const,
+        keyDigest: generation.generationDigest
+      });
+      return Object.freeze({
+        keyDigest: generation.generationDigest,
+        loadExact: () => miss,
+        loadPredecessor: () => miss,
+        publish: () => {
+          publishCount += 1;
+          return miss;
+        }
+      });
+    }
+  });
+  let failure: unknown;
+  try {
+    compileVirtualRepositorySourceProgramCompilation({
+      workspaceSnapshot,
+      projectInput,
+      cacheProvider,
+      operation: expired
+    });
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(SourceProgramCompilationInterruptedError);
+  expect((failure as SourceProgramCompilationInterruptedError).code)
+    .toBe('source-program-compilation-deadline-exhausted');
+  expect(publishCount).toBe(0);
 });

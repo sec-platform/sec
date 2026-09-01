@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import nodePath from 'node:path';
+import ts from 'typescript';
 
+import { compileClosedDirectedGraphStrongComponents } from '../foundation/runtime/directed-graph.ts';
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from '../operation/identity.ts';
+import { isSecRepositoryTestModulePath } from './test-module-path.ts';
 
 /**
  * The repository graph frontier is owned here. Consumers must derive their
@@ -85,6 +88,7 @@ export const SEC_MODULE_OPERATION_ROLES = Object.freeze([
   'durable-worker',
   'grant-issuer',
   'provider-settlement-issuer',
+  'registration-issuer',
   'readback-issuer',
   'recovery-issuer',
   'terminal-issuer'
@@ -171,8 +175,14 @@ export type SecRepositoryModuleGraph = Readonly<{
 
 export type SecRepositoryModuleBoundaryViolationCode =
   | 'authority-mint-export-unclassified'
+  | 'compiler-no-upward-entrypoint-deps'
   | 'cross-package-aggregate-surface'
   | 'module-dependency-cycle'
+  | 'no-registry-to-compiler'
+  | 'no-unresolved-production-dependencies'
+  | 'orchestrator-no-cli-or-dev-runner'
+  | 'platform-compiler-facade-boundary'
+  | 'product-no-codex-control-plane'
   | 'repository-module-internal-cycle'
   | 'repository-node-responsibility-reverse-dependency'
   | 'repository-node-responsibility-unresolved'
@@ -183,6 +193,9 @@ export type SecRepositoryModuleBoundaryViolationCode =
   | 'repository-entrypoint-owner-ambiguous'
   | 'repository-entrypoint-owner-unresolved'
   | 'repository-entrypoint-not-declared'
+  | 'semantic-foundations-no-reverse-mutation-deps'
+  | 'semantic-mutation-no-upward-layer-deps'
+  | 'verification-evidence-no-child-runner'
   | 'unowned-production-source';
 
 export type SecRepositoryModuleBoundaryViolation = Readonly<{
@@ -1057,9 +1070,9 @@ function normalizeRepositoryPath(value: string): string {
 
 function isTestOnlyRepositoryModulePath(value: string): boolean {
   const normalized = normalizeSecRepositoryPath(value);
-  return normalized.startsWith('tests/')
-    || normalized.includes('/test/')
-    || /(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized);
+  return isSecRepositoryTestModulePath(normalized)
+    || normalized.startsWith('tests/')
+    || normalized.includes('/test/');
 }
 
 function absolutePathWithinRepository(repositoryRoot: string, relativePath: string): string {
@@ -1071,141 +1084,6 @@ function absolutePathWithinRepository(repositoryRoot: string, relativePath: stri
   return absolute;
 }
 
-function skipWhitespaceAndComments(source: string, start: number): number {
-  let index = start;
-  while (index < source.length) {
-    if (/\s/u.test(source[index] ?? '')) {
-      index += 1;
-      continue;
-    }
-    if (source.startsWith('//', index)) {
-      const newline = source.indexOf('\n', index + 2);
-      index = newline === -1 ? source.length : newline + 1;
-      continue;
-    }
-    if (source.startsWith('/*', index)) {
-      const end = source.indexOf('*/', index + 2);
-      index = end === -1 ? source.length : end + 2;
-      continue;
-    }
-    break;
-  }
-  return index;
-}
-
-function readQuotedString(
-  source: string,
-  start: number
-): { readonly value: string; readonly next: number } | null {
-  const quote = source[start];
-  if (quote !== '"' && quote !== "'") return null;
-  let value = '';
-  let index = start + 1;
-  while (index < source.length) {
-    const character = source[index];
-    if (character === '\\') {
-      const escaped = source[index + 1];
-      if (escaped === undefined) return null;
-      value += escaped;
-      index += 2;
-      continue;
-    }
-    if (character === quote) return { value, next: index + 1 };
-    value += character;
-    index += 1;
-  }
-  return null;
-}
-
-function skipQuotedOrTemplate(source: string, start: number): number {
-  const quote = source[start];
-  if (quote === '`') {
-    let index = start + 1;
-    while (index < source.length) {
-      if (source[index] === '\\') {
-        index += 2;
-        continue;
-      }
-      if (source[index] === '`') return index + 1;
-      index += 1;
-    }
-    return source.length;
-  }
-  const parsed = readQuotedString(source, start);
-  return parsed?.next ?? source.length;
-}
-
-function isIdentifierStart(character: string | undefined): boolean {
-  return character !== undefined && /[A-Za-z_$]/u.test(character);
-}
-
-function isIdentifierPart(character: string | undefined): boolean {
-  return character !== undefined && /[A-Za-z0-9_$]/u.test(character);
-}
-
-type SecModuleImportReference = Readonly<{
-  readonly kind: SecModuleImportKind;
-  readonly specifier: string | null;
-}>;
-
-function extractImportReferences(source: string): readonly SecModuleImportReference[] {
-  const references: SecModuleImportReference[] = [];
-  let index = 0;
-  while (index < source.length) {
-    const character = source[index];
-    if (character === '/' && source[index + 1] === '/') {
-      index = skipWhitespaceAndComments(source, index);
-      continue;
-    }
-    if (character === '/' && source[index + 1] === '*') {
-      index = skipWhitespaceAndComments(source, index);
-      continue;
-    }
-    if (character === '"' || character === "'" || character === '`') {
-      index = skipQuotedOrTemplate(source, index);
-      continue;
-    }
-    if (!isIdentifierStart(character)) {
-      index += 1;
-      continue;
-    }
-    const tokenStart = index;
-    index += 1;
-    while (isIdentifierPart(source[index])) index += 1;
-    const token = source.slice(tokenStart, index);
-    if (token !== 'import' && token !== 'export' && token !== 'require' && token !== 'from') {
-      continue;
-    }
-    let next = skipWhitespaceAndComments(source, index);
-    if (token === 'from') {
-      const parsed = readQuotedString(source, next);
-      if (parsed) references.push({ kind: 'static', specifier: parsed.value });
-      continue;
-    }
-    if (token === 'export') continue;
-    if (token === 'import' && source[next] !== '(') {
-      const parsed = readQuotedString(source, next);
-      if (parsed) references.push({ kind: 'static', specifier: parsed.value });
-      continue;
-    }
-    if (token === 'import' || token === 'require') {
-      if (source[next] === '(') {
-        next = skipWhitespaceAndComments(source, next + 1);
-        const parsed = readQuotedString(source, next);
-        if (parsed) {
-          references.push({
-            kind: token === 'import' ? 'dynamic' : 'require',
-            specifier: parsed.value
-          });
-        } else if (token === 'import') {
-          references.push({ kind: 'dynamic', specifier: null });
-        }
-      }
-    }
-  }
-  return Object.freeze(references);
-}
-
 /**
  * The only import scanner exposed to downstream graph consumers.  It keeps
  * the cache seam typed while preventing test-impact or another projection from
@@ -1214,11 +1092,50 @@ function extractImportReferences(source: string): readonly SecModuleImportRefere
 export function scanSecRepositoryModuleImports(
   source: string
 ): readonly SecRepositoryModuleGraphImport[] {
-  return Object.freeze(extractImportReferences(source)
-    .filter((reference): reference is SecModuleImportReference & { readonly specifier: string } => (
-      reference.specifier !== null
-    ))
-    .map(({ kind, specifier }) => Object.freeze({ kind, specifier })));
+  const sourceFile = ts.createSourceFile(
+    'repository-module.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const imports: SecRepositoryModuleGraphImport[] = [];
+  const add = (kind: SecModuleImportKind, specifier: string): void => {
+    imports.push(Object.freeze({ kind, specifier }));
+  };
+  for (const reference of [
+    ...sourceFile.referencedFiles,
+    ...sourceFile.typeReferenceDirectives,
+    ...sourceFile.libReferenceDirectives
+  ]) add('static', reference.fileName);
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+        && node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)) {
+      add('static', node.moduleSpecifier.text);
+    } else if (ts.isImportEqualsDeclaration(node)
+        && ts.isExternalModuleReference(node.moduleReference)
+        && node.moduleReference.expression !== undefined
+        && ts.isStringLiteralLike(node.moduleReference.expression)) {
+      add('require', node.moduleReference.expression.text);
+    } else if (ts.isCallExpression(node) && node.arguments.length > 0
+        && ts.isStringLiteralLike(node.arguments[0]!)) {
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        add('dynamic', node.arguments[0]!.text);
+      } else if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
+        add('require', node.arguments[0]!.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return Object.freeze([...new Map(imports.map((reference) => [
+    `${reference.kind}\0${reference.specifier}`,
+    reference
+  ])).values()].sort((left, right) => (
+    left.specifier < right.specifier ? -1
+      : left.specifier > right.specifier ? 1
+        : left.kind < right.kind ? -1 : left.kind > right.kind ? 1 : 0
+  )));
 }
 
 /**
@@ -1265,9 +1182,7 @@ export function resolveSecRepositoryModuleImportCandidates(
 }
 
 function requiresLocalModuleResolution(specifier: string): boolean {
-  if (!specifier.startsWith('.')) return false;
-  const extension = nodePath.posix.extname(specifier);
-  return extension === '' || /^\.(?:[cm]?[jt]sx?)$/u.test(extension);
+  return specifier.startsWith('.');
 }
 
 function isCanonicalSecRepositoryModulePath(value: string): boolean {
@@ -1526,54 +1441,12 @@ function compileRepositoryStrongComponentIds(
   nodeIds: readonly string[],
   edges: readonly Readonly<{ readonly from: string; readonly to: string }>[]
 ): readonly (readonly string[])[] {
-  const dependencies = new Map<string, string[]>();
   const selfLoops = new Set<string>();
   for (const edge of edges) {
-    const targets = dependencies.get(edge.from) ?? [];
-    targets.push(edge.to);
-    dependencies.set(edge.from, targets);
     if (edge.from === edge.to) selfLoops.add(edge.from);
   }
-  for (const [source, targets] of dependencies) {
-    dependencies.set(source, [...new Set(targets)].sort(repositoryModuleTextOrder));
-  }
-
-  const indices = new Map<string, number>();
-  const lowLinks = new Map<string, number>();
-  const stack: string[] = [];
-  const onStack = new Set<string>();
-  const components: (readonly string[])[] = [];
-  let nextIndex = 0;
-  const visit = (nodeId: string): void => {
-    indices.set(nodeId, nextIndex);
-    lowLinks.set(nodeId, nextIndex);
-    nextIndex += 1;
-    stack.push(nodeId);
-    onStack.add(nodeId);
-    for (const dependency of dependencies.get(nodeId) ?? []) {
-      if (!indices.has(dependency)) {
-        visit(dependency);
-        lowLinks.set(nodeId, Math.min(lowLinks.get(nodeId)!, lowLinks.get(dependency)!));
-      } else if (onStack.has(dependency)) {
-        lowLinks.set(nodeId, Math.min(lowLinks.get(nodeId)!, indices.get(dependency)!));
-      }
-    }
-    if (lowLinks.get(nodeId) !== indices.get(nodeId)) return;
-    const componentNodeIds: string[] = [];
-    for (;;) {
-      const current = stack.pop()!;
-      onStack.delete(current);
-      componentNodeIds.push(current);
-      if (current === nodeId) break;
-    }
-    if (componentNodeIds.length < 2 && !selfLoops.has(componentNodeIds[0]!)) return;
-    components.push(Object.freeze(componentNodeIds.sort(repositoryModuleTextOrder)));
-  };
-  for (const nodeId of [...new Set(nodeIds)].sort(repositoryModuleTextOrder)) {
-    if (!indices.has(nodeId)) visit(nodeId);
-  }
-  return Object.freeze(components.sort((left, right) => (
-    repositoryModuleTextOrder(left[0]!, right[0]!)
+  return Object.freeze(compileClosedDirectedGraphStrongComponents(nodeIds, edges).filter((component) => (
+    component.length > 1 || selfLoops.has(component[0]!)
   )));
 }
 
@@ -1602,8 +1475,8 @@ function compileRepositoryModuleFileStrongComponents(
   const edgesByOwner = new Map<string, SecRepositoryModuleEdgeWitness[]>();
   for (const reference of graph.references) {
     if (reference.resolvedTarget === null
-        || isTestOnlyRepositoryModulePath(reference.from)
-        || isTestOnlyRepositoryModulePath(reference.resolvedTarget)) continue;
+        || /\.d\.[cm]?ts$/u.test(reference.from)
+        || /\.d\.[cm]?ts$/u.test(reference.resolvedTarget)) continue;
     const sourceOwner = membership.moduleForPath(reference.from);
     const targetOwner = membership.moduleForPath(reference.resolvedTarget);
     if (sourceOwner === null || targetOwner === null
@@ -1743,6 +1616,115 @@ export function compileSecRepositoryModuleTopologyProjection(
   });
 }
 
+type RepositorySourceAddress = Readonly<{
+  domain: string;
+  area: string | null;
+  path: string;
+}>;
+
+const PRODUCT_SOURCE_DOMAINS = new Set([
+  'compiler',
+  'external-capabilities',
+  'reference',
+  'release',
+  'runtime-state',
+  'semantic',
+  'toolchain',
+  'workspace'
+]);
+
+const COMPILER_INTERNAL_FACADE_AREAS = new Set([
+  'align',
+  'codegen',
+  'compose',
+  'emit',
+  'parse',
+  'repair',
+  'resolve',
+  'synthesize',
+  'verify'
+]);
+
+function repositorySourceAddress(value: string): RepositorySourceAddress | null {
+  const path = normalizeSecRepositoryPath(value);
+  const segments = path.split('/');
+  if (segments[0] !== 'src' || segments.length < 2) return null;
+  return Object.freeze({
+    domain: segments[1]!,
+    area: segments.length > 2 ? segments[2]! : null,
+    path
+  });
+}
+
+function collectRepositoryImportPolicyViolations(
+  reference: SecRepositoryModuleGraphReference
+): readonly SecRepositoryModuleBoundaryViolation[] {
+  if (reference.resolvedTarget === null) return Object.freeze([]);
+  const source = repositorySourceAddress(reference.from);
+  const target = repositorySourceAddress(reference.resolvedTarget);
+  if (source === null || target === null) return Object.freeze([]);
+  const violations: SecRepositoryModuleBoundaryViolation[] = [];
+  const add = (code: SecRepositoryModuleBoundaryViolationCode): void => {
+    violations.push(Object.freeze({
+      code,
+      from: source.path,
+      to: target.path,
+      detail: `${code}: ${source.path} imports ${target.path}`
+    }));
+  };
+
+  if (source.domain === 'compiler'
+      && source.area !== 'orchestration'
+      && (target.domain === 'interface' && target.area === 'cli'
+        || target.domain === 'compiler' && target.area === 'orchestration'
+        || target.domain === 'development' && target.area === 'runner')) {
+    add('compiler-no-upward-entrypoint-deps');
+  }
+  if (source.domain === 'compiler'
+      && source.area === 'orchestration'
+      && (target.domain === 'interface' && target.area === 'cli'
+        || target.domain === 'development' && target.area === 'runner')) {
+    add('orchestrator-no-cli-or-dev-runner');
+  }
+  if (PRODUCT_SOURCE_DOMAINS.has(source.domain)
+      && !isSecRepositoryTestModulePath(source.path)
+      && target.domain === 'control'
+      && target.area !== 'task') {
+    add('product-no-codex-control-plane');
+  }
+  if (source.domain !== 'compiler'
+      && !(source.domain === 'change-management' && source.area === 'upgrade')
+      && target.domain === 'compiler'
+      && target.area !== null
+      && COMPILER_INTERNAL_FACADE_AREAS.has(target.area)) {
+    add('platform-compiler-facade-boundary');
+  }
+  if (source.path === 'src/compiler/verify/semantic-mutation-isolated-verification-evidence.ts'
+      && target.path === 'src/compiler/verify/run-semantic-mutation-isolated-child.ts') {
+    add('verification-evidence-no-child-runner');
+  }
+  if (source.domain === 'compiler'
+      && source.area === 'semantic-mutation'
+      && (target.domain === 'workspace'
+        || target.domain === 'change-management' && target.area === 'upgrade'
+        || target.domain === 'compiler' && (target.area === 'orchestration' || target.area === 'repair'))) {
+    add('semantic-mutation-no-upward-layer-deps');
+  }
+  if (source.domain === 'compiler'
+      && (source.area === 'ir' || source.area === 'semantic-impact' || source.area === 'projection')
+      && target.domain === 'compiler'
+      && target.area === 'semantic-mutation') {
+    add('semantic-foundations-no-reverse-mutation-deps');
+  }
+  if (source.domain === 'compiler'
+      && source.area === 'registry'
+      && target.domain === 'compiler'
+      && target.area !== 'registry') {
+    add('no-registry-to-compiler');
+  }
+  return Object.freeze(violations);
+}
+
 /**
  * Enforce the physical package contract on a graph compiled from one source
  * snapshot. The low-level graph owns package membership, bootstrap admission,
@@ -1756,6 +1738,20 @@ export function collectSecRepositoryModuleBoundaryViolations(
   membership: SecRepositoryModuleMembership
 ): readonly SecRepositoryModuleBoundaryViolation[] {
   const violations: SecRepositoryModuleBoundaryViolation[] = [];
+  for (const unresolvedFile of graph.unresolvedFiles) {
+    if (repositorySourceAddress(unresolvedFile) === null || /\.d\.[cm]?ts$/u.test(unresolvedFile)) {
+      continue;
+    }
+    violations.push(Object.freeze({
+      code: 'no-unresolved-production-dependencies',
+      from: unresolvedFile,
+      to: '<unresolved>',
+      detail: `${unresolvedFile} has an unresolved source or local dependency`
+    }));
+  }
+  for (const reference of graph.references) {
+    violations.push(...collectRepositoryImportPolicyViolations(reference));
+  }
   const ownerEdges = compileRepositoryModuleOwnerEdges(graph, membership);
   const moduleIds = membership.descriptors.map(({ moduleId }) => moduleId);
   const components = compileRepositoryModuleStrongComponents(moduleIds, ownerEdges);

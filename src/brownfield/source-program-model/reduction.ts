@@ -7,6 +7,7 @@ import type {
   SecRepositoryModuleArchitectureProjection,
   SecRepositoryModuleMembership
 } from '../../system-architecture/repository-modules/contract.ts';
+import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type {
   SourceProgramCapabilityInvocation,
   SourceProgramDeclaration,
@@ -15,15 +16,25 @@ import type {
   SourceProgramOperationObligationEvidence,
   SourceProgramOwnerIntentEvidence,
   SourceProgramReference,
-  SourceProgramSpan
+  SourceProgramSpan,
+  SourceProgramSupersessionFinding,
+  SourceProgramSupersessionFindingCode,
+  SourceProgramSupersessionLifecycleCost,
+  SourceProgramSupersessionReceipt,
+  SourceProgramSupersessionReplacement,
+  SourceProgramSupersessionStatus
 } from './contract.ts';
 import {
+  compileSourceProgramRequiredUnmaterializedObligations,
+  type SourceProgramRequiredUnmaterializedObligation
+} from './implementation-dominance.ts';
+import {
   compileRepositorySourceProgramModel,
+  compileSourceProgramOwnerIntentEvidence,
   isCompiledRepositorySourceProgramModel
 } from './repository.ts';
 import {
   compileSourceProgramTestBaselineEvidence,
-  isSourceProgramTestModulePath,
   type SourceProgramTestDisposition,
   type SourceProgramTestDispositionProjection,
   type SourceProgramTestRegistration,
@@ -78,9 +89,11 @@ export interface SourceProgramUnusedSymbolEvidence {
 
 export interface SourceProgramGraphCutReduction {
   readonly status: 'ready' | 'blocked';
+  readonly disposition: 'delete' | 'required-unmaterialized' | 'blocked';
   readonly path: string;
   readonly name: string;
   readonly removalSpan: SourceProgramSpan | null;
+  readonly requiredUnmaterializedObligations: readonly SourceProgramRequiredUnmaterializedObligation[];
   readonly reason: string | null;
 }
 
@@ -147,75 +160,6 @@ export interface SourceProgramAggregateImportReductionPatch {
     beforeDigest: string;
     afterDigest: string;
   }>[];
-}
-
-export type SourceProgramSupersessionStatus =
-  | 'equivalent'
-  | 'superseded'
-  | 'owner-decision-required';
-
-export type SourceProgramSupersessionFindingCode =
-  | 'baseline-evidence-invalid'
-  | 'current-evidence-invalid'
-  | 'dynamic-or-external-observation-unresolved'
-  | 'design-intent-unresolved'
-  | 'design-intent-regressed'
-  | 'lifecycle-cost-not-reduced'
-  | 'operation-obligation-unresolved'
-  | 'required-entrypoint-missing'
-  | 'required-production-behavior-missing'
-  | 'required-resource-missing'
-  | 'required-test-boundary-missing'
-  | 'replacement-ambiguous';
-
-export interface SourceProgramSupersessionFinding {
-  readonly code: SourceProgramSupersessionFindingCode;
-  readonly baselineId: string | null;
-  readonly owner: string | null;
-  readonly baselinePaths: readonly string[];
-  readonly currentCandidateIds: readonly string[];
-  readonly detail: string;
-}
-
-export interface SourceProgramSupersessionReplacement {
-  readonly kind: 'entrypoint' | 'production' | 'resource' | 'test';
-  readonly baselineId: string;
-  readonly currentIds: readonly string[];
-  readonly owner: string | null;
-  readonly baselinePaths: readonly string[];
-  readonly currentPaths: readonly string[];
-  readonly proof: 'exact-semantic-obligation' | 'strict-observation-superset';
-}
-
-export interface SourceProgramSupersessionReceipt {
-  readonly status: SourceProgramSupersessionStatus;
-  readonly baseline: Readonly<{
-    readonly sourceRevision: string;
-    readonly modelDigest: string;
-    readonly testCompilationDigest: string;
-    readonly intentEvidenceDigest: string;
-  }>;
-  readonly current: Readonly<{
-    readonly sourceRevision: string;
-    readonly modelDigest: string;
-    readonly testCompilationDigest: string;
-    readonly intentEvidenceDigest: string;
-  }>;
-  readonly lifecycleCost: Readonly<{
-    readonly baseline: SourceProgramSupersessionLifecycleCost;
-    readonly current: SourceProgramSupersessionLifecycleCost;
-  }>;
-  readonly replacements: readonly SourceProgramSupersessionReplacement[];
-  readonly findings: readonly SourceProgramSupersessionFinding[];
-  readonly receiptDigest: string;
-}
-
-export interface SourceProgramSupersessionLifecycleCost {
-  readonly productionUnits: number;
-  readonly testUnits: number;
-  readonly owners: number;
-  readonly unresolvedObservations: number;
-  readonly unobservedTestRisk: number;
 }
 
 export const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA = Object.freeze({
@@ -1527,21 +1471,21 @@ export function compileSourceProgramTestRetirementReceipt(
   }
   const baselineTestPaths = Object.freeze(input.baselineFiles
     .map(({ path }) => path)
-    .filter(isSourceProgramTestModulePath)
+    .filter(isSecRepositoryTestModulePath)
     .sort(compareCodeUnits));
   if (sha256(baselineTestPaths) !== sha256(input.currentTestCompilation.baselineTestPaths)) {
     throw new Error('Test retirement tracked baseline differs from Test Value compilation');
   }
   const currentTestPaths = new Set(input.currentFiles
     .map(({ path }) => path)
-    .filter(isSourceProgramTestModulePath));
+    .filter(isSecRepositoryTestModulePath));
   const knownPaths = new Set([
     ...input.baselineFiles.map(({ path }) => path),
     ...input.currentFiles.map(({ path }) => path)
   ]);
   const censusByPath = new Map(compileSourceProgramTestBaselineEvidence(
     baselineTestPaths,
-    input.baselineFiles.filter(({ path }) => isSourceProgramTestModulePath(path)),
+    input.baselineFiles.filter(({ path }) => isSecRepositoryTestModulePath(path)),
     input.baseline.identity.sourceRevision,
     input.currentFiles
   ).map((evidence) => [evidence.path, evidence] as const));
@@ -2231,6 +2175,7 @@ export function compileSourceProgramGraphCutReductionPlan(
       || code === 'dynamic-runtime-opaque'
       || code === 'computed-property-unresolved')
     .map(({ path }) => path));
+  const ownerIntents = compileSourceProgramOwnerIntentEvidence(model, context.moduleMembership);
   const evidence = [...unusedSymbols]
     .sort((left, right) => compareCodeUnits(left.path, right.path)
       || compareCodeUnits(left.name, right.name));
@@ -2246,6 +2191,13 @@ export function compileSourceProgramGraphCutReductionPlan(
     const declaration = matchingDeclarations.length === 1 ? matchingDeclarations[0] : undefined;
     const consumers = declaration === undefined ? [] : model.references.filter((reference) =>
       reference.targetObservationId === declaration.observationId);
+    const requiredUnmaterializedObligations = declaration === undefined
+      ? Object.freeze([])
+      : compileSourceProgramRequiredUnmaterializedObligations(
+          declaration,
+          ownerIntents,
+          consumers.length > 0
+        );
     const sourceFile = sourceFileByPath.get(item.path);
     const declarationNode = declaration === undefined || sourceFile === undefined
       ? null
@@ -2261,6 +2213,8 @@ export function compileSourceProgramGraphCutReductionPlan(
           ? 'declaration source snapshot is unresolved'
           : consumers.length > 0
             ? 'TypeScript Program resolved one or more value, type, alias, or re-export consumers'
+            : requiredUnmaterializedObligations.length > 0
+              ? 'owner-issued operation obligation is required-unmaterialized; target acceptance must precede source retirement'
             : !candidateKeys.has(key)
               ? 'canonical Source Program did not admit consumer-zero evidence'
           : removalNode === null
@@ -2268,9 +2222,15 @@ export function compileSourceProgramGraphCutReductionPlan(
             : null;
     const reduction = Object.freeze({
       status: reason === null ? 'ready' : 'blocked',
+      disposition: reason === null
+        ? 'delete'
+        : requiredUnmaterializedObligations.length > 0
+          ? 'required-unmaterialized'
+          : 'blocked',
       path: item.path,
       name: item.name,
       removalSpan: reason === null ? graphCutRemovalSpan(sourceFile!, removalNode!) : null,
+      requiredUnmaterializedObligations,
       reason
     } satisfies SourceProgramGraphCutReduction);
     reductions.push(reduction);
@@ -2299,6 +2259,7 @@ export function compileSourceProgramGraphCutReductionPlan(
     ? Object.freeze({
         ...reduction,
         status: 'blocked' as const,
+        disposition: 'blocked' as const,
         removalSpan: null,
         reason: 'graph-cut removal overlaps another candidate declaration'
       })
@@ -2347,6 +2308,7 @@ export function compileSourceProgramGraphCutReductionPlan(
         ? Object.freeze({
             ...reduction,
             status: 'blocked' as const,
+            disposition: 'blocked' as const,
             removalSpan: null,
             reason: verificationReason
           })

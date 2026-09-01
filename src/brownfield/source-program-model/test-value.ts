@@ -4,12 +4,13 @@ import ts from 'typescript';
 
 import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { resolveSecRepositoryModuleImportCandidates } from '../../system-architecture/repository-modules/contract.ts';
+import { isSecRepositoryTestModulePath } from '../../system-architecture/repository-modules/test-module-path.ts';
 import type {
   SourceProgramFileInput,
   SourceProgramModel,
-  SourceProgramSpan
+  SourceProgramSpan,
+  SourceProgramSupersessionReceipt
 } from './contract.ts';
-import type { SourceProgramSupersessionReceipt } from './reduction.ts';
 import {
   sourceProgramTestObservationsForFiles,
   type SourceProgramTestSemanticClass
@@ -187,7 +188,6 @@ export interface CompileSourceProgramTestValueInput {
   readonly baselineEvidence?: readonly unknown[];
 }
 
-const TEST_MODULE_PATH = /^(?:src|tests)\/.+\.(?:test|spec)\.(?:[cm]?[jt]sx?)$/iu;
 const GOVERNED_TEXT_DOCUMENT = /^(?:AGENTS\.md|\.agents\/skills\/.+\/SKILL\.md|\.github\/workflows\/[^/]+\.ya?ml)$/u;
 const IDENTITY_NAME = /^(?:format)?(?:schema|version)$|(?:Schema|Version)$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -221,15 +221,6 @@ function sourceProgramScriptKind(repositoryPath: string): ts.ScriptKind {
     return ts.ScriptKind.JS;
   }
   return ts.ScriptKind.TS;
-}
-
-/**
- * The test-value compiler and audit entrypoint must use one test-module
- * identity.  Keeping this predicate in the owner prevents a second, subtly
- * different path census from deciding which baseline files are governed.
- */
-export function isSourceProgramTestModulePath(value: string): boolean {
-  return TEST_MODULE_PATH.test(value);
 }
 
 function dispositionError(field: string, detail: string): never {
@@ -306,7 +297,7 @@ function canonicalTestPath(value: unknown, field: string): string {
     return dispositionError(field, 'expected a non-empty test path');
   }
   const normalized = value.replaceAll('\\', '/');
-  if (normalized !== value || !TEST_MODULE_PATH.test(normalized)
+  if (normalized !== value || !isSecRepositoryTestModulePath(normalized)
       || normalized.includes('/../') || normalized.startsWith('../')
       || normalized.includes('/./') || normalized.endsWith('/.')) {
     return dispositionError(field, 'expected a canonical repository-relative test path');
@@ -971,7 +962,7 @@ export function compileSourceProgramTestValue(
   const baselineTestPaths = canonicalBaselinePaths(input.baselineTestPaths ?? []);
   const baselineDigest = sourceProgramTestBaselineDigest(baselineTestPaths);
   const candidateTestPaths = new Set(input.files
-    .filter(({ path: filePath }) => TEST_MODULE_PATH.test(filePath))
+    .filter(({ path: filePath }) => isSecRepositoryTestModulePath(filePath))
     .map(({ path: filePath }) => filePath));
   const baselineEvidence = Object.freeze((input.baselineEvidence ?? [])
     .map((evidence) => canonicalBaselineEvidence(evidence, baselineTestPaths))

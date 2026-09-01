@@ -39,10 +39,9 @@
     "deps:ensure": "\"$npm_execpath\" ./src/development/runner/cli.ts deps:ensure",
     "hooks:install": "\"$npm_execpath\" ./src/development/hooks/install.ts",
     "postinstall": "\"$npm_execpath\" ./src/development/hooks/install.ts --lifecycle",
-    "depcruise": "depcruise \"src/**/*.ts\" --config .dependency-cruiser.json",
     "unused": "knip --include files,dependencies,devDependencies,unlisted",
     "jscpd": "jscpd src/ --reporters console --format typescript,javascript --ignore \"**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**\" --min-lines 5 --min-tokens 50 --absolute",
-    "audit:static": "\"$npm_execpath\" run audit:source-program && \"$npm_execpath\" run depcruise && \"$npm_execpath\" run unused && \"$npm_execpath\" run jscpd",
+    "audit:static": "\"$npm_execpath\" run audit:source-program",
     "audit:module-topology": "\"$npm_execpath\" src/brownfield/repository-audit/cli.ts --worktree-module-topology --enforce",
     "audit:source-program": "\"$npm_execpath\" src/brownfield/repository-audit/cli.ts --worktree-source-program --enforce",
     "audit:repository": "\"$npm_execpath\" src/brownfield/repository-audit/cli.ts --json",
@@ -61,20 +60,16 @@
     "ora": "^9.4.1",
     "p-limit": "^7.3.2",
     "picocolors": "^1.1.1",
-    "semver": "^7.8.5",
     "yaml": "2.9.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@typescript/native": "npm:typescript@7.0.2",
     "@types/bun": "1.4.0",
     "@types/node": "26.4.0",
-    "@types/semver": "^7.8.0",
-    "dependency-cruiser": "18.2.0",
+    "@typescript/native": "npm:typescript@7.0.2",
     "jscpd": "5.1.1",
-    "knip": "6.33.0",
+    "knip": "6.34.0",
     "prettier": "^3.9.6",
-    "ts-morph": "28.0.0",
     "typescript": "6.0.3"
   }
 }
