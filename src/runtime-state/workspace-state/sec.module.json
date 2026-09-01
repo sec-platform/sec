@@ -18,6 +18,24 @@
       "effectKinds": [
         "filesystem"
       ]
+    },
+    {
+      "capability": "runtime-state.process-diagnostics",
+      "operations": [
+        "createBoundedProcessDiagnosticObjectStore"
+      ],
+      "effectKinds": [
+        "filesystem"
+      ]
+    },
+    {
+      "capability": "runtime-state.external-provider-coordination",
+      "operations": [
+        "withSecUserExternalProviderCoordinationLease"
+      ],
+      "effectKinds": [
+        "filesystem"
+      ]
     }
   ],
   "operationObligations": [
@@ -51,13 +69,122 @@
       },
       "resources": {
         "aggregateBudgets": [
-          { "resource": "duration-ms", "maximum": 300000 },
-          { "resource": "input-bytes", "maximum": 1073741824 },
-          { "resource": "output-bytes", "maximum": 1073741824 },
-          { "resource": "records", "maximum": 500000 }
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 1073741824
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 1073741824
+          },
+          {
+            "resource": "records",
+            "maximum": 500000
+          }
         ]
       },
-      "futureSupport": { "condition": "semantic-superset-required" }
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.process-diagnostics",
+        "operation": "createBoundedProcessDiagnosticObjectStore"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.action"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "diagnostic.corrupt-object",
+          "diagnostic.deadline-exhausted",
+          "diagnostic.foreign-residue",
+          "diagnostic.incomplete-object",
+          "diagnostic.physical-replacement",
+          "diagnostic.resource-exhausted"
+        ],
+        "recovery": "resume"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "consumer-zero"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 33554432
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33554432
+          },
+          {
+            "resource": "records",
+            "maximum": 1024
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.external-provider-coordination",
+        "operation": "withSecUserExternalProviderCoordinationLease"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "external-capabilities.docker"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "external-provider-coordination.deadline-exhausted",
+          "external-provider-coordination.path-unavailable",
+          "external-provider-coordination.settlement-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "consumer-zero"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
     }
   ],
   "preDependencyBootstrap": false

@@ -11,7 +11,7 @@ import {
 import { runPolicyGate } from '../../src/compiler/verify/run-policy-gate.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { pathExists, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

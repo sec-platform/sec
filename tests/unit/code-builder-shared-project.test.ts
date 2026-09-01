@@ -1,61 +1,96 @@
 import { expect, test } from 'bun:test';
-import { Project } from 'ts-morph';
-import { CodeBuilder, getDefaultProject } from '../../src/compiler/codegen/code-builder.ts';
+import ts from 'typescript';
 
-test('getDefaultProject returns the same Project instance across multiple calls', () => {
-  const first = getDefaultProject();
-  const second = getDefaultProject();
-  expect(first).toBe(second);
-  expect(first).toBeInstanceOf(Project);
+import { CodeBuilder } from '../../src/compiler/codegen/code-builder.ts';
+
+function parsed(source: string): ts.SourceFile {
+  return ts.createSourceFile(
+    'generated.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+}
+
+test('independent builders retain declaration ownership without shared mutable compiler state', () => {
+  const builderA = new CodeBuilder('generated/a.ts')
+    .addVariable({ name: 'aValue', initializer: '1' });
+  const builderB = new CodeBuilder('generated/b.ts')
+    .addVariable({ name: 'bValue', initializer: '2' });
+
+  const names = (source: string) => parsed(source).statements
+    .filter(ts.isVariableStatement)
+    .flatMap((statement) => statement.declarationList.declarations)
+    .map((declaration) => declaration.name.getText());
+  expect(names(builderA.getText())).toEqual(['aValue']);
+  expect(names(builderB.getText())).toEqual(['bValue']);
 });
 
-test('multiple CodeBuilder instances share the same underlying Project', () => {
-  const project = getDefaultProject();
-  const builderA = new CodeBuilder('shared-project/a.ts');
-  const builderB = new CodeBuilder('shared-project/b.ts');
+test('builder preserves comment/import/declaration order and deduplicates named imports', () => {
+  const source = new CodeBuilder('generated/order.ts')
+    .addVariable({ name: 'existing', initializer: '0' })
+    .addFileComment('@generated owner:semantic-lowering')
+    .addImport({
+      moduleSpecifier: './contract.ts',
+      namedImports: ['Ticket', 'Ticket'],
+      isTypeOnly: true
+    })
+    .addVariable({ name: 'result', initializer: 'existing', isExported: true })
+    .getText();
+  const sourceFile = parsed(source);
 
-  builderA.addVariable({ name: 'aValue', initializer: '1' });
-  builderB.addVariable({ name: 'bValue', initializer: '2' });
-
-  // Both source files should exist in the shared project
-  expect(project.getSourceFile('shared-project/a.ts')).toBeDefined();
-  expect(project.getSourceFile('shared-project/b.ts')).toBeDefined();
-
-  // Each builder's output is independent despite sharing the project
-  expect(builderA.getText()).toContain('aValue');
-  expect(builderB.getText()).toContain('bValue');
-  expect(builderA.getText()).not.toContain('bValue');
-  expect(builderB.getText()).not.toContain('aValue');
+  expect(source.startsWith('// @generated owner:semantic-lowering\n')).toBe(true);
+  expect(sourceFile.statements.map((statement) => statement.kind)).toEqual([
+    ts.SyntaxKind.ImportDeclaration,
+    ts.SyntaxKind.VariableStatement,
+    ts.SyntaxKind.VariableStatement
+  ]);
+  const declaration = sourceFile.statements[0];
+  expect(declaration && ts.isImportDeclaration(declaration)
+    ? declaration.importClause?.namedBindings?.getText()
+    : null).toBe('{ Ticket }');
 });
 
-test('CodeBuilder accepts an external project parameter for testing/override', () => {
-  const externalProject = new Project({
-    useInMemoryFileSystem: true,
-    skipLoadingLibFiles: true,
-    skipAddingFilesFromTsConfig: true,
-    skipFileDependencyResolution: true
-  });
-  const builder = new CodeBuilder('external-project/c.ts', '', externalProject);
+test('builder emits optional parameters, access modifiers, interfaces and export assignments', () => {
+  const source = new CodeBuilder('generated/contract.ts')
+    .addInterface('Options', [{ name: 'label', type: 'string', isReadonly: true, isOptional: true }], true)
+    .addClass({
+      name: 'Service',
+      isExported: true,
+      properties: [{ name: 'value', type: 'number', scope: 'private', isReadonly: true, initializer: '1' }],
+      methods: [{
+        name: 'read',
+        scope: 'public',
+        parameters: [{ name: 'options', type: 'Options', isOptional: true }],
+        returnType: 'number',
+        body: 'return this.value;'
+      }]
+    })
+    .addExportAssignment('Service')
+    .getText();
+  const sourceFile = parsed(source);
 
-  builder.addVariable({ name: 'cValue', initializer: '3' });
-
-  expect(externalProject.getSourceFile('external-project/c.ts')).toBeDefined();
-  expect(builder.getText()).toContain('cValue');
-  // The external project must not be the default shared project
-  expect(externalProject).not.toBe(getDefaultProject());
+  expect(sourceFile.statements.some(ts.isInterfaceDeclaration)).toBe(true);
+  expect(sourceFile.statements.some(ts.isClassDeclaration)).toBe(true);
+  expect(sourceFile.statements.some(ts.isExportAssignment)).toBe(true);
+  const classDeclaration = sourceFile.statements.find(ts.isClassDeclaration)!;
+  const method = classDeclaration.members.find(ts.isMethodDeclaration)!;
+  expect(method.parameters[0]?.questionToken).toBeDefined();
 });
 
-test('source files from different CodeBuilders coexist in the shared Project', () => {
-  const project = getDefaultProject();
-  const beforeCount = project.getSourceFiles().length;
-
-  const builderOne = new CodeBuilder(`coexist-${beforeCount}/one.ts`);
-  const builderTwo = new CodeBuilder(`coexist-${beforeCount}/two.ts`);
-
-  builderOne.addFunction({ name: 'first', body: 'return 1;' });
-  builderTwo.addFunction({ name: 'second', body: 'return 2;' });
-
-  expect(project.getSourceFiles().length).toBe(beforeCount + 2);
-  expect(project.getSourceFile(`coexist-${beforeCount}/one.ts`)).toBeDefined();
-  expect(project.getSourceFile(`coexist-${beforeCount}/two.ts`)).toBeDefined();
+test('builder rejects malformed fragments before exposing generated source', () => {
+  expect(() => new CodeBuilder().addFunction({
+    name: 'broken',
+    body: 'return {'
+  })).toThrow('Function broken body is not valid TypeScript');
+  expect(() => new CodeBuilder().addVariable({
+    name: 'broken',
+    initializer: 'value +'
+  })).toThrow('Variable broken initializer is not valid TypeScript');
+  expect(() => new CodeBuilder().addImport({
+    moduleSpecifier: './contract.ts',
+    namedImports: ['Named'],
+    namespaceImport: 'contract'
+  })).toThrow('cannot combine namespaceImport with namedImports');
 });

@@ -30,7 +30,6 @@ pins:
     - id: agent_executed
       type: TicketRecord
       required: true
-slots: []
 acceptance:
   - id: agent_can_automatically_classify_ticket
     dependsOn:

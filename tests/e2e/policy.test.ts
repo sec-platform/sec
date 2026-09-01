@@ -2,54 +2,59 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/compiler/policies/contract/rules.ts';
 import {
   runPolicyGate
 } from '../../src/compiler/verify/run-policy-gate.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
-import { createWorkspace, prepareAdaptedWorkspace } from '../testkit/workspace.ts';
+import { createWorkspace, prepareComposedWorkspace } from '../testkit/workspace.ts';
 
-async function writeCustomerService(workspaceRoot: string, matchesStructuralHeuristic: boolean): Promise<void> {
-  const customerServicePath = path.join(
+const TENANT_FLOW_RULE = TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE;
+const TENANT_FLOW_PREDICATE = policySemanticRule(TENANT_FLOW_RULE).requiredPredicate;
+
+function customerServicePath(workspaceRoot: string): string {
+  return path.join(
     workspaceRoot,
     'src',
     'installed',
     'entity',
     'customer-service.ts'
   );
-  await fs.mkdir(path.dirname(customerServicePath), { recursive: true });
-  await fs.writeFile(
-    customerServicePath,
-    matchesStructuralHeuristic
-      ? `import type { Session } from '../auth/session.ts';\nimport { currentTenant } from '../tenant/context.ts';\n\nexport function listCustomers(db: { customers: Array<{ tenantId: string }> }, session: Session) {\n  const tenantId = currentTenant(session);\n  return db.customers.filter((customer) => customer.tenantId === tenantId);\n}\n`
-      : `import type { Session } from '../auth/session.ts';\n\nexport function listCustomers(db: { customers: Array<{ tenantId: string }> }, session: Session) {\n  return db.customers.filter((customer) => customer.tenantId === session.tenantId);\n}\n`,
-    'utf8'
-  );
 }
 
-test('source-structure match cannot mint a semantic Policy PASS', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-assurance-pass-');
-  await writeCustomerService(workspaceRoot, true);
+test('validated Engineering IR facts prove the tenant flow policy', async () => {
+  const workspaceRoot = await prepareComposedWorkspace({
+    prefix: 'engineering-compiler-policy-assurance-pass-'
+  });
 
   const report = await runPolicyGate(workspaceRoot);
   expect(report.status).toBe('passed');
   expect(report.violations).toEqual([]);
   expect(report.diagnostics).toEqual([]);
   expect(report.evaluation).toMatchObject({
-    assurance: 'source-structure',
-    requiredSemanticPredicates: ['FLOWS_TO'],
-    unsupportedSemanticPredicates: ['FLOWS_TO']
+    assurance: 'semantic',
+    requiredSemanticPredicates: [TENANT_FLOW_PREDICATE],
+    unsupportedSemanticPredicates: []
   });
 }, 180000);
 
-test('source-structure mismatch is advisory and cannot mint a semantic Policy FAIL', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-assurance-diagnostic-');
-  await writeCustomerService(workspaceRoot, false);
+test('unproven tenant flow fails closed instead of becoming an advisory', async () => {
+  const workspaceRoot = await prepareComposedWorkspace({
+    prefix: 'engineering-compiler-policy-assurance-diagnostic-'
+  });
+  const targetPath = customerServicePath(workspaceRoot);
+  const source = await fs.readFile(targetPath, 'utf8');
+  await fs.writeFile(
+    targetPath,
+    source.replaceAll('currentTenant(session)', 'session.tenantId'),
+    'utf8'
+  );
 
   const report = await runPolicyGate(workspaceRoot);
-  expect(report.status).toBe('passed');
-  expect(report.violations).toEqual([]);
-  expect(report.official.violations).toEqual([]);
+  expect(report.status).toBe('failed');
+  expect(report.violations).toHaveLength(1);
+  expect(report.official.violations).toHaveLength(1);
   expect(report.project.violations).toEqual([]);
   expect(report.diagnostics).toHaveLength(1);
   expect(report.diagnostics?.[0]).toMatchObject({
@@ -60,22 +65,26 @@ test('source-structure mismatch is advisory and cannot mint a semantic Policy FA
 }, 180000);
 
 test('an applicable policy target must be a retained readable ordinary file', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-missing-target-');
+  const workspaceRoot = await prepareComposedWorkspace({
+    prefix: 'engineering-compiler-policy-missing-target-'
+  });
+  await fs.rm(customerServicePath(workspaceRoot));
 
   await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Applicable policy target is missing/);
 }, 180000);
 
 test('project policy declarations override the official definition without changing assurance', async () => {
-  const workspaceRoot = await createWorkspace('engineering-compiler-policy-project-precedence-');
+  const workspaceRoot = await prepareComposedWorkspace({
+    prefix: 'engineering-compiler-policy-project-precedence-'
+  });
   const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
-  await writeCustomerService(workspaceRoot, true);
   await fs.mkdir(projectPoliciesRoot, { recursive: true });
   await writeYaml(path.join(projectPoliciesRoot, 'tenant.yaml'), {
     policies: [{
       id: 'tenant-scope-required',
       severity: 'blocker',
       appliesTo: ['entity/customer-basic'],
-      rule: 'tenant_context_must_flow_to_query'
+      rule: TENANT_FLOW_RULE
     }]
   });
 
@@ -86,13 +95,12 @@ test('project policy declarations override the official definition without chang
     sourceScope: 'project',
     sourcePath: 'model/policies/tenant.yaml'
   });
-  expect(report.evaluation?.assurance).toBe('source-structure');
+  expect(report.evaluation?.assurance).toBe('semantic');
 }, 180000);
 
 test('unknown policy rules fail at the declaration schema boundary', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-unknown-rule-');
   const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
-  await writeCustomerService(workspaceRoot, true);
   await fs.mkdir(projectPoliciesRoot, { recursive: true });
   await writeYaml(path.join(projectPoliciesRoot, 'unknown.yaml'), {
     policies: [{
@@ -109,7 +117,6 @@ test('unknown policy rules fail at the declaration schema boundary', async () =>
 test('same policy id with different declarations is a conflict, not last-wins input', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-policy-conflicting-duplicate-');
   const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
-  await writeCustomerService(workspaceRoot, true);
   await fs.mkdir(projectPoliciesRoot, { recursive: true });
   await writeYaml(path.join(projectPoliciesRoot, 'duplicate.yaml'), {
     policies: [
@@ -117,13 +124,13 @@ test('same policy id with different declarations is a conflict, not last-wins in
         id: 'duplicate-policy',
         severity: 'warn',
         appliesTo: ['entity/customer-basic'],
-        rule: 'tenant_context_must_flow_to_query'
+        rule: TENANT_FLOW_RULE
       },
       {
         id: 'duplicate-policy',
         severity: 'blocker',
         appliesTo: ['entity/customer-basic'],
-        rule: 'tenant_context_must_flow_to_query'
+        rule: TENANT_FLOW_RULE
       }
     ]
   });
@@ -132,7 +139,7 @@ test('same policy id with different declarations is a conflict, not last-wins in
 }, 180000);
 
 test('policy applicability is derived from the resolved install plan across blocks', async () => {
-  const workspaceRoot = await prepareAdaptedWorkspace({
+  const workspaceRoot = await prepareComposedWorkspace({
     prefix: 'engineering-compiler-policy-targets-',
     blockIds: ['ticket/basic', 'worklog/basic']
   });
@@ -145,5 +152,5 @@ test('policy applicability is derived from the resolved install plan across bloc
     'src/installed/ticket/ticket-service.ts',
     'src/installed/worklog/worklog-service.ts'
   ]);
-  expect(report.evaluation?.unsupportedSemanticPredicates).toEqual(['FLOWS_TO']);
+  expect(report.evaluation?.unsupportedSemanticPredicates).toEqual([]);
 }, 180000);

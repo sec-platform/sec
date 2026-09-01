@@ -9,7 +9,7 @@ import {
   acquireWorkspaceWriteLease,
   WorkspaceWriteLeaseError
 } from '../../src/workspace/lease.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 test('init creates the minimal workspace on an empty root', async () => {
@@ -21,7 +21,6 @@ test('init creates the minimal workspace on an empty root', async () => {
   expect(result.planPath).toBe(paths.workspaceConfigPath);
   expect(plan.app.id).toBe('app');
   expect(plan.blocks).toEqual([]);
-  expect(plan.slots).toEqual([]);
   expect(plan.acceptance).toEqual([]);
   expect(await fs.readFile(result.lockPath, 'utf8')).not.toContain('customer-admin');
   await expect(fs.lstat(paths.srcRoot)).resolves.toMatchObject({});

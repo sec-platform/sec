@@ -1,13 +1,20 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 
+import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/verification/ci/contract/core.ts';
 import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/verification/ci/contract/plan.ts';
-import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/verification/ci/contract/revision.ts';
+import { slowTestSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../src/verification/trust/compiler.ts';
 import { matchSecTrustedBootstrapPath, SEC_TCB_CLOSURE_RUNTIME_PATH } from '../../src/verification/trust/contract/root.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
+import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
+
+const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
+const testImpactProvider = testImpactFixture.provider;
+afterAll(() => testImpactFixture.dispose());
 
 type WorkflowStep = Readonly<{
   name: string;
@@ -50,16 +57,25 @@ function step(workflow: Workflow, job: string, name: string): WorkflowStep {
 }
 
 test('Quick and Full plan topology remains deterministic behind the Action normalizer', () => {
-  expect(buildCiQuickGatePlan({ includeImports: true, includeDocs: true, includeRisk: true }).map(({ id }) => id))
-    .toEqual(['imports', 'docs-doctor', 'typecheck', 'affected-tests', 'impact-risk']);
-  expect(buildCiFullGatePlan().map(({ id }) => id)).toEqual([
-    'imports', 'typecheck', 'docs-doctor', 'affected-tests', 'full-fast', 'test-budget', 'contract-freeze',
-    'all-slow-risk', 'benchmark-task-suite', 'deps-warmup', 'resolve', 'compose', 'adapt', 'verify-all',
-    'lock', 'explain', 'reference-check'
+  expect(buildCiQuickGatePlan({
+    includeImports: true,
+    includeDocs: true,
+    selectedSlowSuites: ['e2e-artifacts']
+  }).map(({ id }) => id)).toEqual([
+    'imports', 'docs-doctor', 'typecheck', 'affected-tests', 'contract-freeze', 'slow-suite-e2e-artifacts'
   ]);
-  expect(CodexDevelopmentBuildVerificationPlan('full', [], undefined).gates.map(({ id }) => id))
+  const fullGateIds = buildCiFullGatePlan().map(({ id }) => id);
+  expect(fullGateIds).toEqual(expect.arrayContaining([
+    'imports', 'typecheck', 'docs-doctor', 'affected-tests', 'full-fast', 'test-budget',
+    'contract-freeze', 'benchmark-task-suite', 'deps-warmup', 'resolve', 'compose',
+    'verify-all', 'lock', 'explain', 'reference-check'
+  ]));
+  expect(fullGateIds.filter((id) => id.startsWith('slow-suite-')).sort()).toEqual(
+    slowTestSuiteIds().map((suite) => `slow-suite-${suite}`).sort()
+  );
+  expect(CodexDevelopmentBuildVerificationPlan('full', [], testImpactProvider).gates.map(({ id }) => id))
     .not.toContain('docs-doctor');
-  expect(CodexDevelopmentBuildVerificationPlan('full', null, undefined).gates.map(({ id }) => id))
+  expect(CodexDevelopmentBuildVerificationPlan('full', null, testImpactProvider).gates.map(({ id }) => id))
     .toContain('docs-doctor');
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');

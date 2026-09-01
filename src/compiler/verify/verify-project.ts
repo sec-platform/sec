@@ -9,9 +9,9 @@ import type { CanonicalVerificationArtifactSet } from '../../verification/artifa
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationLane, VerificationReport } from '../../verification/contract/types.ts';
 import { buildExpectedProductVerificationClaimSummary, buildProductVerificationObservationBindings, type ProductVerificationGateObservation, type ProductVerificationObservations } from '../../verification/profile/contract/product.ts';
-import { listFilesRecursive } from '../../workspace/discovery.ts';
-import { getWorkspacePaths, relativePosixPath } from '../../workspace/paths.ts';
-import { checkProjectBeforeVerify } from '../../workspace/project.ts';
+import { checkProjectBeforeVerify } from '../../workspace/application/project-integrity.ts';
+import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
+import { getWorkspacePaths, relativePosixPath } from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError, formatCompilerFailure } from '../errors.ts';
 import { addGeneratedPaths, assertPassStatus } from '../lock.ts';
@@ -25,7 +25,6 @@ import {
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
-import { checkSlotDirectCapabilities } from './slot-capability-lint.ts';
 import {
   consumeStagedVerificationProof,
   revalidateStagedVerificationProof,
@@ -46,17 +45,6 @@ export function productVerificationSubjectRevision(lock: LockFile): string {
     resolvedBlocks: lock.resolvedBlocks,
     resolvedCapabilities: lock.resolvedCapabilities,
     installPlan: lock.installPlan,
-    slotTasks: lock.slotTasks.map((task) => ({
-      id: task.id,
-      block: task.block,
-      target: task.target,
-      ...(task.sourcePath ? { sourcePath: task.sourcePath } : {}),
-      symbol: task.symbol,
-      kind: task.kind,
-      ...(task.inputType ? { inputType: task.inputType } : {}),
-      ...(task.outputType ? { outputType: task.outputType } : {}),
-      writableZones: task.writableZones
-    })),
     semanticLoweringTasks: lock.semanticLoweringTasks,
     semanticViews: lock.semanticViews,
     acceptancePlan: lock.acceptancePlan
@@ -228,7 +216,7 @@ async function runFastVerification(
     return { lane, failure: error };
   }
 
-  const policyReport = runPolicyGate(workspaceRoot);
+  const policyReport = await runPolicyGate(workspaceRoot);
   lane.policyReport = policyReport;
   lane.policy = { status: policyReport.status, violations: policyReport.violations };
   lane.logs.stdout = [
@@ -295,28 +283,6 @@ function updateVerifyPassState(lock: LockFile, report: VerificationReport): void
   lock.passStatus.verify = report.summary.status === 'failed' ? 'failed' : 'pending';
 }
 
-function updateVerifiedSlotTasks(
-  lock: LockFile,
-  report: VerificationReport,
-  acceptanceCoverage: AcceptanceCoverageReport
-): void {
-  if (report.summary.requestedLane !== 'all') return;
-  const coverageBySlot = new Map(
-    acceptanceCoverage.slots.map((entry) => [entry.id, entry] as const)
-  );
-  for (const task of lock.slotTasks) {
-    if (task.status === 'filled' || task.status === 'verified') {
-      const coverage = coverageBySlot.get(task.id);
-      const verified = report.summary.status === 'passed' &&
-        coverage !== undefined &&
-        !coverage.uncovered &&
-        coverage.coveredBy.length > 0;
-      task.status = verified ? 'verified' : 'filled';
-      task.provenanceHints.verifiedBy = verified ? [...coverage.coveredBy] : [];
-    }
-  }
-}
-
 function ensureGeneratedPaths(lock: LockFile): void {
   addGeneratedPaths(lock, [
     CI_ARTIFACT_FILES.verificationReport,
@@ -340,7 +306,7 @@ export async function assertStagedVerificationLiveContext(
     artifacts.runtimeReport,
     artifacts.verificationReport.fast
   );
-  const policyReport = runPolicyGate(workspaceRoot);
+  const policyReport = await runPolicyGate(workspaceRoot);
   const acceptanceCoverage = await acceptanceCoveragePromise;
   if (!canonicalEquals(policyReport, artifacts.policyReport) ||
       !canonicalEquals(acceptanceCoverage, artifacts.acceptanceCoverage)) {
@@ -357,14 +323,13 @@ export async function verifyProject(
   const logger = options.logger ?? defaultLogger;
   assertPassStatus(
     lock,
-    'adapt',
+    'compose',
     'succeeded',
-    new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify')
+    new CompilerError('VERIFY-BLOCKED-001', 'compose must succeed before verify')
   );
 
   await emitVerifyBoundary(options, 'verify-preflight');
   await checkProjectBeforeVerify(workspaceRoot);
-  await checkSlotDirectCapabilities(workspaceRoot, lock);
   if (options.isolated) {
     await ensureProjectDependencies(workspaceRoot, {
       beforeCommit: options.beforeCommit,
@@ -390,7 +355,6 @@ export async function verifyProject(
     await options.beforeCommit?.();
     ensureGeneratedPaths(lock);
     updateVerifyPassState(lock, artifacts.verificationReport);
-    updateVerifiedSlotTasks(lock, artifacts.verificationReport, artifacts.acceptanceCoverage);
     await emitVerifyBoundary(options, 'verify-artifact-publish');
     const published = await publishVerificationArtifactSet({
       workspaceRoot,
@@ -484,7 +448,6 @@ export async function verifyProject(
 
   ensureGeneratedPaths(lock);
   updateVerifyPassState(lock, report);
-  updateVerifiedSlotTasks(lock, report, coverage);
 
   if (summary.status === 'passed') await emitVerifyBoundary(options, 'verify-artifact-publish');
   await options.beforeCommit?.();

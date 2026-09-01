@@ -10,11 +10,11 @@ import { createExclusiveNoFollowDirectory, createNoFollowOrdinaryDirectoryChain,
 import { resolveSecRuntimeCacheRoot } from '../../../runtime-state/workspace-state/layout.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../system-architecture/foundation/contract/repository-path.ts';
-import { isPathInside } from '../../../workspace/paths.ts';
+import { isPathInside } from '../../../workspace/runtime/paths.ts';
 import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
-} from '../../agent/work-package-contract.ts';
+} from '../../task/contract/work-package.ts';
 import {
   assertSecRoadmapTerminalCompactionDelta,
   parseSecRoadmapWorkCatalog
@@ -26,6 +26,10 @@ import {
   renderDocumentationIndex,
   type DocumentationAuthorityRegistry
 } from '../authority.ts';
+import {
+  compileDocumentationSemanticGraph,
+  unavailableDocumentationAdmissionProjection
+} from '../compiler.ts';
 import {
   CodexDevelopmentAssertControlPlaneBinding,
   CodexDevelopmentClassifyWorkPackageCensus,
@@ -220,6 +224,41 @@ export async function scanDocumentation(
     errors: issues.filter((issue) => issue.level === 'error'),
     warnings: issues.filter((issue) => issue.level === 'warn')
   };
+
+  let documentationProjection: DocsDoctorResult['documentationProjection'];
+  try {
+    const records = registry.documents
+      .filter((record) => (record.kind === 'authority' || record.kind === 'corpus-contract')
+        && record.lifecycle === 'stable')
+      .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+    const sources = await Promise.all(records.map(async (record) => ({
+      documentId: record.id,
+      source: decodeUtf8(
+        await fs.readFile(path.join(repositoryRoot, ...record.path.split('/'))),
+        `Documentation compiler source ${record.path}`
+      )
+    })));
+    const graph = compileDocumentationSemanticGraph({
+      trustedTree: 'working-tree',
+      registry,
+      sources,
+      admission: unavailableDocumentationAdmissionProjection('working-tree')
+    });
+    documentationProjection = Object.freeze({
+      compilerInputDigest: graph.compilerInputDigest,
+      semanticGraphDigest: graph.semanticGraphDigest,
+      clauseCount: graph.clauses.length,
+      admissionStatus: graph.admissionStatus,
+      blockers: graph.blockers
+    });
+  } catch (error) {
+    pushIssue(issues, {
+      level: 'error',
+      code: 'documentation-semantic-graph-invalid',
+      file: DOCUMENT_AUTHORITY_REGISTRY_PATH,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
 
   const registeredPaths = new Set(activeDocumentationPaths(registry));
   for (const record of registry.documents) {
@@ -560,7 +599,8 @@ export async function scanDocumentation(
   return {
     issues: sortedIssues,
     errors: sortedIssues.filter((issue) => issue.level === 'error'),
-    warnings: sortedIssues.filter((issue) => issue.level === 'warn')
+    warnings: sortedIssues.filter((issue) => issue.level === 'warn'),
+    ...(documentationProjection === undefined ? {} : { documentationProjection })
   };
 }
 
@@ -971,7 +1011,7 @@ function listCapturedWorkPackagePaths(
 }
 
 if (import.meta.main) {
-  const repositoryRoot = path.resolve(import.meta.dir, '../..');
+  const repositoryRoot = path.resolve(import.meta.dir, '../../../..');
   const argv = process.argv.slice(2);
   let sinceRef: string | undefined;
   for (let i = 0; i < argv.length; i++) {
@@ -1065,6 +1105,14 @@ if (import.meta.main) {
       console.error(`[${issue.level}] ${issue.code} ${issue.file}: ${issue.message}`);
     }
     console.log(`docs-doctor: ${result.errors.length} error(s), ${result.warnings.length} warning(s)`);
+    if (result.documentationProjection !== undefined) {
+      console.log(
+        'docs-doctor: documentation graph %s, %d clause(s), admission %s',
+        result.documentationProjection.semanticGraphDigest,
+        result.documentationProjection.clauseCount,
+        result.documentationProjection.admissionStatus
+      );
+    }
     if (result.errors.length > 0) process.exitCode = 1;
   } finally {
     capturedIndexTree.dispose();

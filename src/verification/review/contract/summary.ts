@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { deepFreeze } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { parseExactJson } from '../../../system-architecture/foundation/runtime/exact-json.ts';
 import { REVIEW_SUMMARY_FORMAT_VERSION, type ReviewSummary } from './types.ts';
 
 const text = z.string();
@@ -14,7 +15,6 @@ const ciSummary = z.object({
   regressionRiskCount: count,
   conflictHintCount: count,
   impactedBlockCount: count,
-  impactedSlotCount: count,
   runtimeEntryCount: count
 }).strict();
 
@@ -99,20 +99,15 @@ const coverageSummary = z.object({
   status: z.enum(['passed', 'failed', 'skipped']),
   acceptancePassedCount: count,
   blockCount: count,
-  slotCount: count,
   coveredBlockCount: count,
-  coveredSlotCount: count,
   uncoveredBlockCount: count,
-  uncoveredSlotCount: count,
   acceptancePassed: texts,
   uncoveredBlocks: texts,
-  uncoveredSlots: texts,
-  blockSummaries: z.array(coverageTarget),
-  slotSummaries: z.array(coverageTarget)
+  blockSummaries: z.array(coverageTarget)
 }).strict();
 
 const provenanceOrigin = z.object({
-  originType: z.enum(['block', 'slot', 'generated', 'override']),
+  originType: z.enum(['block', 'generated', 'override']),
   count,
   paths: texts
 }).strict();
@@ -161,8 +156,7 @@ const repairFailureTaxonomy = z.object({
 
 const repairTask = z.object({
   taskId: text,
-  category: z.enum(['slot-rewrite', 'config-repair', 'generated-artifact-refresh']),
-  sourceSlotId: text,
+  category: z.enum(['file-repair', 'config-repair', 'generated-artifact-refresh']),
   targetBlock: text,
   targetFile: text,
   previewStatus: z.enum(['changed', 'unchanged', 'missing']),
@@ -206,7 +200,7 @@ const repairSummary = z.object({
   failureTaxonomy: repairFailureTaxonomy,
   targetSummaries: z.array(z.object({
     id: text,
-    targetType: z.enum(['generated-file', 'slot-target', 'acceptance-case', 'policy-target', 'runtime-target', 'unknown']),
+    targetType: z.enum(['generated-file', 'file-target', 'acceptance-case', 'policy-target', 'runtime-target', 'unknown']),
     count
   }).strict()),
   taskCategorySummaries: z.array(repairFailureTaxonomyEntry),
@@ -220,12 +214,8 @@ const migrationOperation = z.object({
   id: text,
   kind: text,
   target: text,
-  role: z.enum(['file', 'directory', 'json', 'text', 'slot', 'prisma']),
+  role: z.enum(['file', 'directory', 'json', 'text', 'prisma']),
   source: text.optional(),
-  slotId: text.optional(),
-  inputType: text.optional(),
-  outputType: text.optional(),
-  writableZones: texts.optional(),
   path: texts.optional(),
   updateCount: count.optional(),
   itemCount: count.optional(),
@@ -254,7 +244,6 @@ const upgradeSummary = z.object({
   impactCount: count,
   impacts: texts,
   sourceMigrationCount: count,
-  slotMigrationCount: count,
   verificationSummaries: z.array(z.object({ id: z.enum(['required', 'skipped']), count }).strict()),
   preflightSummaries: z.array(z.object({ group: text, checkCount: count, evidenceCount: count }).strict()),
   migrationSummaries: z.array(z.object({
@@ -263,8 +252,7 @@ const upgradeSummary = z.object({
     target: text,
     reason: text,
     requiresVerification: z.boolean(),
-    source: text.optional(),
-    slotId: text.optional()
+    source: text.optional()
   }).strict()),
   migrationOperationCount: count,
   migrationOperationSummaries: z.array(migrationOperation),
@@ -363,7 +351,7 @@ const installImpactSummary = z.object({
 
 const changeSource = z.object({
   path: text,
-  originType: z.enum(['block', 'slot', 'generated', 'override']),
+  originType: z.enum(['block', 'generated', 'override']),
   originId: text,
   sourcePath: text.optional(),
   runtimeTarget: text.optional(),
@@ -392,8 +380,7 @@ const failurePoint = z.object({
 const regressionRisk = z.object({
   kind: z.enum(['coverage-gap', 'override-active', 'upgrade-impact', 'upgrade-verification', 'repair-verification']),
   message: text,
-  blockId: text.optional(),
-  slotId: text.optional()
+  blockId: text.optional()
 }).strict();
 
 const conflictHint = z.object({
@@ -422,7 +409,6 @@ export const ReviewSummarySchema = z.object({
   installImpacts: z.array(installImpact),
   installImpactSummary,
   impactedBlocks: texts,
-  impactedSlots: texts,
   failurePoints: z.array(failurePoint),
   regressionRisks: z.array(regressionRisk),
   conflictHints: z.array(conflictHint)
@@ -430,4 +416,12 @@ export const ReviewSummarySchema = z.object({
 
 export function validateReviewSummary(value: unknown): ReviewSummary {
   return deepFreeze(ReviewSummarySchema.parse(value)) as ReviewSummary;
+}
+
+/**
+ * Parses one durable Review Summary without losing duplicate object keys before
+ * the domain schema can enforce its exact field and format identity contract.
+ */
+export function parseReviewSummaryJson(source: string): ReviewSummary {
+  return validateReviewSummary(parseExactJson(source, 'Review Summary JSON'));
 }

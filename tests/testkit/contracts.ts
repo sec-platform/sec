@@ -27,9 +27,6 @@ export function expectPrFastLaneBoundary(contract: CiContract): void {
   expect(contract.prQuickLaneCommands).not.toContain('bun run test:slow');
   expect(contract.prQuickLaneCommands.every((command) => !command.includes('--lane all'))).toBe(true);
 
-  expect(contract.prRiskLaneCommands).toContain('bun src/verification/ci/pr-risk.ts');
-  expect(contract.prRiskLaneCommands).not.toContain('bun run test:slow');
-  expect(contract.prRiskLaneCommands.every((command) => !command.includes('--lane all'))).toBe(true);
 }
 
 export function expectFullLaneCoversSlowSuites(contract: CiContract, suiteIds: readonly string[]): void {

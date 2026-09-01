@@ -6,8 +6,9 @@ import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVe
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/verification/action/contract/environment.ts';
 import type { VerificationActionProviderOrigin } from '../../src/verification/action/contract/provider.ts';
 import { CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedActionRawResult, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/verification/ci/contract/hosted-sut-observation.ts';
-import { buildCiQuickGatePlan, CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/ci/contract/plan.ts';
+import { buildCiQuickGatePlan } from '../../src/verification/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/contract/revision.ts';
 
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}` as VerificationActionKeyDigest;
@@ -36,7 +37,7 @@ const candidate: CiVerificationActionCandidate = Object.freeze({
 const closure = buildCiVerificationActionPlanClosure({
   candidate,
   gates: [ciVerificationGateStep(
-    buildCiQuickGatePlan({ includeImports: false, includeDocs: false, includeRisk: false })[0]!
+    buildCiQuickGatePlan({ includeImports: false, includeDocs: false })[0]!
   )]
 });
 const actionPlan = closure.actions[0]!;

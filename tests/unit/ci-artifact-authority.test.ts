@@ -61,6 +61,33 @@ test('CI artifact authority rejects non-portable and normalized-on-read path spe
     .toThrow('canonical CI artifact path');
 });
 
+test('CI artifact authority rejects workspace source paths as governed artifacts', () => {
+  const base = emptyCiArtifactManifest();
+  const candidate = {
+    ...base,
+    artifacts: [{
+      path: 'package.json',
+      kind: 'governance',
+      uploadName: ciArtifactUploadName('package.json'),
+      exists: true
+    }],
+    summary: {
+      ...base.summary,
+      artifactCount: 1,
+      governanceCount: 1,
+      uploadGroupCount: 1
+    },
+    uploadGroups: [{
+      kind: 'governance',
+      count: 1,
+      paths: ['package.json']
+    }]
+  };
+
+  expect(() => validateCiArtifactManifest(candidate))
+    .toThrow('canonical CI artifact path below .sec/artifacts');
+});
+
 test('CI artifact authority rejects one path being both present and missing', () => {
   const base = emptyCiArtifactManifest();
   const path = CI_ARTIFACT_FILES.verificationReport;

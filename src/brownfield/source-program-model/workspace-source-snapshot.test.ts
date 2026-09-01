@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +8,8 @@ import { afterEach, expect, test } from 'bun:test';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import { inspectNoFollowDirectoryChain } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { retainCompilerDependencyExecutionGeneration } from '../../toolchain/dependencies/runtime.ts';
 import {
   issueCompilerDependencyFixtureOperation,
   retireCompilerDependencyFixtureOperation,
@@ -18,6 +20,7 @@ import {
   acquireExactGitTreeWorkspaceSourceSnapshot,
   acquireWorkingTreeWorkspaceSourceSnapshot,
   assertWorkspaceTypeScriptProjectGenerationEvidence,
+  compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence
 } from './workspace-source-snapshot.ts';
@@ -62,12 +65,20 @@ async function createRepository(): Promise<Readonly<{ commitSha: string; reposit
     'export const removed = true;\n'
   );
   await writeFile(
+    path.join(repositoryRoot, 'src', 'example', 'excluded.ts'),
+    'export const excluded = true;\n'
+  );
+  await writeFile(
     path.join(repositoryRoot, 'src', 'example', 'non-checker.yaml'),
     'kind: source-program-resource\n'
   );
   await writeFile(
     path.join(repositoryRoot, 'tsconfig.json'),
-    `${JSON.stringify({ compilerOptions: { strict: true }, include: ['src/**/*.ts'] }, null, 2)}\n`
+    `${JSON.stringify({
+      compilerOptions: { strict: true },
+      include: ['src/**/*.ts'],
+      exclude: ['src/example/excluded.ts']
+    }, null, 2)}\n`
   );
   git(repositoryRoot, ['add', '--all']);
   git(repositoryRoot, ['update-index', '--chmod=+x', 'src/example/value.ts']);
@@ -83,6 +94,30 @@ async function workingSnapshot(repositoryRoot: string) {
     cwd: repositoryRoot,
     budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
   }, (session) => acquireWorkingTreeWorkspaceSourceSnapshot({ session }));
+}
+
+function virtualProjectSnapshot(sources: Readonly<Record<string, string>>) {
+  return compileVirtualWorkspaceSourceSnapshot({
+    subject: Object.freeze({
+      kind: 'virtual-mutation' as const,
+      provenance: Object.freeze({
+        kind: 'source-program-virtual-mutation' as const,
+        baseSnapshotDigest: rawSha256('project-input-test-base'),
+        mutationDigest: rawSha256(JSON.stringify(sources))
+      })
+    }),
+    files: Object.entries(sources).map(([sourcePath, source]) => Object.freeze({
+      path: sourcePath,
+      source,
+      contentDigest: rawSha256(source)
+    })),
+    moduleMembership: Object.freeze({
+      descriptors: Object.freeze([]),
+      graphRoots: Object.freeze([]),
+      moduleRoots: Object.freeze([]),
+      moduleForPath: () => null
+    })
+  });
 }
 
 afterEach(async () => {
@@ -137,12 +172,13 @@ test('working-tree project generation evidence is owner-issued and opaque', asyn
   const { repositoryRoot } = await createRepository();
   await withAuthorityGitReadSession({
     cwd: repositoryRoot,
-    budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
+    budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 8 })
   }, async (session) => {
     const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
     const evidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
       snapshot,
-      compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json')
+      projectInput
     );
     const valuePath = path.join(repositoryRoot, 'src', 'example', 'value.ts');
     await writeFile(valuePath, 'export const value = 9;\n');
@@ -150,6 +186,110 @@ test('working-tree project generation evidence is owner-issued and opaque', asyn
     expect(() => assertWorkspaceTypeScriptProjectGenerationEvidence({ ...evidence }))
       .toThrow('was not issued by the Source Program owner');
     expect(evidence.projectInput.projectInputDigest).toMatch(/^sha256:/u);
+    expect(evidence.projectInput.sourceFacts.map(({ path: sourcePath }) => sourcePath))
+      .not.toContain('src/example/excluded.ts');
+    expect(evidence.projectInput.externalSourceFacts.some(({ kind }) => (
+      kind === 'default-library'
+    ))).toBe(true);
+    await writeFile(
+      path.join(repositoryRoot, 'src', 'example', 'excluded.ts'),
+      'export const excluded = "changed outside Program input";\n'
+    );
+    const changedSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const changedInput = compileWorkspaceTypeScriptProjectInput(changedSnapshot, 'tsconfig.json');
+    expect(changedSnapshot.sourceRevision).not.toBe(snapshot.sourceRevision);
+    expect(changedInput.projectInputDigest).toBe(projectInput.projectInputDigest);
+    expect(changedInput.observationDigest).not.toBe(projectInput.observationDigest);
+  });
+});
+
+test('ProjectInput preserves TypeScript requested path identity on Windows', () => {
+  const snapshot = virtualProjectSnapshot({
+    'src/example/removed.ts': 'export const removed = true;\n',
+    'src/example/value.ts': "import { removed } from './removed.ts'; export const value = removed;\n",
+    'tsconfig.json': `${JSON.stringify({
+      compilerOptions: { allowImportingTsExtensions: true, strict: true },
+      include: ['src/**/*.ts']
+    }, null, 2)}\n`
+  });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
+
+  expect(projectInput.sourceFacts.map(({ path: sourcePath }) => sourcePath)).toEqual([
+    'src/example/removed.ts',
+    'src/example/value.ts',
+    'tsconfig.json'
+  ]);
+});
+
+test('ProjectInput represents a valid config with no matched TypeScript inputs as an empty generation', () => {
+  const snapshot = virtualProjectSnapshot({
+    'src/example/value.ts': 'export const value = true;\n',
+    'tsconfig.json': `${JSON.stringify({
+      compilerOptions: { strict: true },
+      include: ['src/absent/**/*.ts']
+    }, null, 2)}\n`
+  });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
+
+  expect(projectInput.sourceFacts.map(({ path: sourcePath }) => sourcePath)).toEqual([
+    'tsconfig.json'
+  ]);
+  expect(projectInput.externalSourceFacts).toEqual([]);
+
+  const invalidSnapshot = virtualProjectSnapshot({
+    'tsconfig.json': `${JSON.stringify({
+      compilerOptions: { strict: 'not-a-boolean' },
+      include: ['src/absent/**/*.ts']
+    }, null, 2)}\n`
+  });
+  expect(() => compileWorkspaceTypeScriptProjectInput(invalidSnapshot, 'tsconfig.json'))
+    .toThrow('TypeScript ProjectInput config is invalid');
+
+  const explicitlyInvalidEmptySnapshot = virtualProjectSnapshot({
+    'tsconfig.json': `${JSON.stringify({ files: [] }, null, 2)}\n`
+  });
+  expect(() => compileWorkspaceTypeScriptProjectInput(
+    explicitlyInvalidEmptySnapshot,
+    'tsconfig.json'
+  )).toThrow('TypeScript ProjectInput config is invalid');
+});
+
+test('ProjectInput rejects source escape before any materialization authority is requested', async () => {
+  const { repositoryRoot } = await createRepository();
+  await writeFile(
+    path.join(repositoryRoot, 'src', 'example', 'value.ts'),
+    "import '/foreign.ts'; export const value = 1;\n"
+  );
+  await withAuthorityGitReadSession({
+    cwd: repositoryRoot,
+    budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 8 })
+  }, async (session) => {
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    expect(() => compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json'))
+      .toThrow('absolute or invalid import');
+    await writeFile(
+      path.join(repositoryRoot, 'src', 'example', 'value.ts'),
+      "import '../../../foreign'; export const value = 1;\n"
+    );
+    const parentEscape = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    expect(() => compileWorkspaceTypeScriptProjectInput(parentEscape, 'tsconfig.json'))
+      .toThrow('import escapes its snapshot');
+  });
+});
+
+test('ProjectInput rejects package declarations without one retained dependency generation', async () => {
+  const { repositoryRoot } = await createRepository();
+  await writeFile(
+    path.join(repositoryRoot, 'src', 'example', 'value.ts'),
+    "import type { Command } from 'commander'; export const value: Command | null = null;\n"
+  );
+  await withAuthorityGitReadSession({
+    cwd: repositoryRoot,
+    budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
+  }, async (session) => {
+    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    expect(() => compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json'))
+      .toThrow('loaded a foreign source');
   });
 });
 
@@ -168,7 +308,7 @@ test('immutable execution generation isolates workspace mutation and retires its
     dependencyRootPath,
     devDependencies: { 'ts-morph': '1.0.0', typescript: '1.0.0' },
     lockfileBytes: 'fixture-lock\n',
-    packages: [{ name: 'commander', version: '1.0.0' }, {
+    packages: [{ main: 'index.d.ts', name: 'commander', version: '1.0.0' }, {
       main: 'dist/ts-morph-common.js',
       name: '@ts-morph/common',
       version: '1.0.0'
@@ -188,26 +328,39 @@ test('immutable execution generation isolates workspace mutation and retires its
   });
   const dependencyGeneration = await settleCompilerDependencyFixtureOperation(dependencyFixture);
   try {
+    await writeFile(
+      path.join(repositoryRoot, 'src', 'example', 'value.ts'),
+      "import 'commander'; export const value = 1;\n"
+    );
     await withAuthorityGitReadSession({
       cwd: repositoryRoot,
       budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
     }, async (session) => {
       const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+      const retainedDependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+        dependencyGeneration.executionGenerationAuthority,
+        { deadlineAtUnixMs: Date.now() + 30_000 }
+      );
       const evidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
         snapshot,
-        compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json')
+        compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json', {
+          dependencyGeneration: retainedDependencyGeneration.physicalGeneration
+        })
       );
+      expect(evidence.projectInput.externalSourceFacts.some(({ kind, path: sourcePath }) => (
+        kind === 'dependency-generation' && sourcePath.startsWith('commander/')
+      ))).toBe(true);
       const generation = await materializeTypeScriptExecutionGeneration(evidence, {
         deadlineAtUnixMs: Date.now() + 30_000,
-        dependencyGenerationAuthority: dependencyGeneration.executionGenerationAuthority,
-        dependencyRootPath: dependencyGeneration.nodeModulesPath,
+        dependencyGeneration: retainedDependencyGeneration,
+        dependencyLocatorPath: dependencyGeneration.nodeModulesPath,
         generationParent: inspectNoFollowDirectoryChain(generationParentPath).target
       });
       const generationRoot = generation.workingDirectory.childPath;
       try {
         await writeFile(path.join(repositoryRoot, 'src', 'example', 'value.ts'), 'export const value = 9;\n');
         expect(await readFile(path.join(generationRoot, 'src', 'example', 'value.ts'), 'utf8'))
-          .toBe('export const value = 1;\n');
+          .toBe("import 'commander'; export const value = 1;\n");
         expect(await lstat(path.join(generationRoot, 'src', 'example', 'non-checker.yaml'))
           .then(() => true, () => false)).toBe(false);
         await expect(writeFile(
@@ -231,6 +384,32 @@ test('immutable execution generation isolates workspace mutation and retires its
       }
       expect(await lstat(generationRoot).then(() => true, () => false)).toBe(false);
       await expect(generation.assertCurrent()).rejects.toThrow('retired');
+
+      const generationParentBeforeForeignLocator = await readdir(generationParentPath);
+      const foreignGenerationPath = path.join(ownerRoot, 'foreign-dependency-generation');
+      await mkdir(foreignGenerationPath);
+      const foreignPreimage = await lstat(foreignGenerationPath, { bigint: true });
+      await rm(foreignGenerationPath, { recursive: true });
+      await mkdir(foreignGenerationPath);
+      const foreignReplacement = await lstat(foreignGenerationPath, { bigint: true });
+      expect(foreignReplacement.ino).not.toBe(foreignPreimage.ino);
+      const replacementDependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+        dependencyGeneration.executionGenerationAuthority,
+        { deadlineAtUnixMs: Date.now() + 30_000 }
+      );
+      const replacementEvidence = issueWorkspaceTypeScriptProjectGenerationEvidence(
+        snapshot,
+        compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json', {
+          dependencyGeneration: replacementDependencyGeneration.physicalGeneration
+        })
+      );
+      await expect(materializeTypeScriptExecutionGeneration(replacementEvidence, {
+        deadlineAtUnixMs: Date.now() + 30_000,
+        dependencyGeneration: replacementDependencyGeneration,
+        dependencyLocatorPath: foreignGenerationPath,
+        generationParent: inspectNoFollowDirectoryChain(generationParentPath).target
+      })).rejects.toThrow('targets a foreign generation');
+      expect(await readdir(generationParentPath)).toEqual(generationParentBeforeForeignLocator);
     });
   } finally {
     await retireCompilerDependencyFixtureOperation(dependencyFixture);

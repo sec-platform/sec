@@ -4,11 +4,11 @@ import path from 'node:path';
 
 import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
-import { withSlotUpgradeDryRunFixture } from '../helpers/slot-upgrade-fixtures.ts';
+import { withBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('upgrade rejects text append migrations when target is a directory', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-text-append-directory-target-',
       migration: {
@@ -29,7 +29,7 @@ test('upgrade rejects text append migrations when target is a directory', async 
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-017'
       });
     }
@@ -63,7 +63,7 @@ test('literal text replace migrations update all matching text', async () => {
 });
 
 test('upgrade rejects malformed literal text replace migration entries before planning', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-malformed-text-replace-',
       migration: {
@@ -81,7 +81,7 @@ test('upgrade rejects malformed literal text replace migration entries before pl
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-011',
         details: {
           failedCheck: 'migration-entries',
@@ -95,7 +95,7 @@ test('upgrade rejects malformed literal text replace migration entries before pl
 });
 
 test('upgrade rejects literal text replace migrations when search text is missing', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-text-replace-missing-',
       migration: {
@@ -118,7 +118,7 @@ test('upgrade rejects literal text replace migrations when search text is missin
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-015'
       });
     }
@@ -126,7 +126,7 @@ test('upgrade rejects literal text replace migrations when search text is missin
 });
 
 test('upgrade rejects malformed text replace regex migration entries before planning', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-malformed-text-regex-',
       migration: {
@@ -144,7 +144,7 @@ test('upgrade rejects malformed text replace regex migration entries before plan
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-011'
       });
     }
@@ -152,7 +152,7 @@ test('upgrade rejects malformed text replace regex migration entries before plan
 });
 
 test('upgrade rejects invalid text replace regex patterns before planning', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-invalid-text-regex-',
       migration: {
@@ -171,7 +171,7 @@ test('upgrade rejects invalid text replace regex patterns before planning', asyn
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-014'
       });
     }
@@ -179,7 +179,7 @@ test('upgrade rejects invalid text replace regex patterns before planning', asyn
 });
 
 test('upgrade rejects malformed text append migration entries before planning', async () => {
-  await withSlotUpgradeDryRunFixture(
+  await withBlockUpgradeDryRunFixture(
     {
       prefix: 'engineering-compiler-upgrade-malformed-text-append-',
       migration: {
@@ -196,7 +196,7 @@ test('upgrade rejects malformed text append migration entries before planning', 
       }
     },
     async ({ workspaceRoot }) => {
-      await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
+      await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0', { dryRun: true })).rejects.toMatchObject({
         code: 'UPGRADE-MIGRATION-011'
       });
     }

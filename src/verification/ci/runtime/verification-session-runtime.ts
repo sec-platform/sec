@@ -43,6 +43,7 @@ import {
   type MainHealthLedgerInput
 } from '../../../control/main-health/contract.ts';
 import { createObservedMainHealthInput } from '../../../control/main-health/main-health-observation.ts';
+import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../control/main-health/provider-policy.ts';
 import {
   assertScopeAuthorizationCurrent,
   createScopeAuthorization,
@@ -54,29 +55,30 @@ import {
 import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../contract/revision.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
-import type {
-  GitHubCheckObservation
-} from '../contract/github-observation.ts';
-import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
 import {
-  CI_MAIN_HEALTH_POLICY,
-  CI_MAIN_HEALTH_POLICY_DIGEST,
-  CI_VERIFICATION_CONTRACT_REVISION,
-  CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
-  CI_VERIFICATION_WORKFLOW_PATH,
   CodexDevelopmentAssertVerificationSessionArtifact,
   CodexDevelopmentAssertVerificationSessionArtifactCurrent,
-  CodexDevelopmentBuildVerificationPlan,
   CodexDevelopmentFinalizeVerificationSessionArtifact,
   CodexDevelopmentRefreshVerificationSessionArtifact,
   type CodexDevelopmentVerificationEvidenceProducer,
   type CodexDevelopmentVerificationEvidenceV4,
   type CodexDevelopmentVerificationSessionArtifact
-} from '../index.ts';
+} from '../contract/evidence.ts';
+import type {
+  GitHubCheckObservation
+} from '../contract/github-observation.ts';
+import {
+  CodexDevelopmentBuildVerificationPlan
+} from '../contract/plan.ts';
+import {
+  CI_VERIFICATION_SESSION_REQUEST_SCHEMA
+} from '../contract/revision.ts';
+import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
   type GitHubActionsArtifactObservation,
@@ -240,7 +242,7 @@ export function reconstructVerificationSessionHostedFacts(input: {
   candidate: GitHubCandidateObservation;
   changedPaths: readonly string[];
   testImpactTransition: CodexDevelopmentTestImpactTransitionObservation;
-  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProvider;
+  testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider;
   integrationPrincipalNodeId: string;
   producerPrincipalNodeId: string;
   sourceRunId: string;
@@ -765,7 +767,7 @@ export function prepareTrustedMainVerificationSession(input: {
   manifestDigest: Digest;
   changedPaths: readonly string[];
   testImpactTransition: CodexDevelopmentTestImpactTransitionObservation;
-  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProvider;
+  testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider;
   profile: 'quick' | 'full';
   integrationPrincipalNodeId: string;
   producerPrincipalNodeId: string;
@@ -938,7 +940,7 @@ export function prepareLocalQuickVerificationActionPlan(input: {
   manifestDigest: Digest;
   changedPaths: readonly string[];
   testImpactTransition: CodexDevelopmentTestImpactTransitionObservation;
-  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProvider;
+  testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider;
   expectedTestImpactTransitionDigest: Digest;
   scopeAuthorizationRevision: Digest;
   executionEnvironment: CiVerificationExecutionEnvironment;

@@ -11,7 +11,7 @@ import {
   runCandidateImportOrganizer,
   runImportApply,
   runImportCheck,
-  runStagedImportOrganizer,
+  runStagedIndexOnlyImportOrganizer,
   workingTreeTypeScriptTargets
 } from '../../src/development/runner/import-organizer.ts';
 
@@ -217,7 +217,7 @@ test.concurrent('staged organizer selects pre-commit changes without rewriting a
     await writeFile(fixturePath, staged, 'utf8');
     git(repoRoot, ['add', 'fixture.ts']);
 
-    expect(await runStagedImportOrganizer(repoRoot)).toBe(0);
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
 
     expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
     expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
@@ -238,7 +238,7 @@ test.concurrent('candidate organizer repairs the complete amended commit diff in
     git(repoRoot, ['add', 'README.md']);
     const contexts: string[] = [];
 
-    expect(await runStagedImportOrganizer(repoRoot, {
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot, {
       candidateContext: (mode) => {
         contexts.push(mode);
       }
@@ -249,7 +249,7 @@ test.concurrent('candidate organizer repairs the complete amended commit diff in
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim().split(/\r?\n/u).sort())
       .toEqual(['README.md', 'fixture.ts']);
     expect(contexts).toEqual(['working-tree']);
-    expect(await runStagedImportOrganizer(repoRoot, {
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot, {
       candidateContext: (mode) => {
         contexts.push(mode);
       }
@@ -290,7 +290,7 @@ test.concurrent('clean candidate context fails closed if an untracked path appea
     git(repoRoot, ['add', 'fixture.ts']);
     let context = '';
 
-    await expect(runStagedImportOrganizer(repoRoot, {
+    await expect(runStagedIndexOnlyImportOrganizer(repoRoot, {
       candidateContext: async (mode) => {
         context = mode;
         await writeFile(path.join(repoRoot, 'concurrent.txt'), 'concurrent untracked path\n', 'utf8');
@@ -569,7 +569,7 @@ test.concurrent('candidate organizer reads configuration and project context fro
     await writeFile(valuesPath, 'invalid unstaged project source', 'utf8');
     const contexts: string[] = [];
 
-    expect(await runStagedImportOrganizer(repoRoot, {
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot, {
       candidateContext: (mode) => {
         contexts.push(mode);
       }
@@ -587,9 +587,9 @@ test.concurrent('candidate organizer reads configuration and project context fro
 test.concurrent('candidate organizer requires one exact full commit identity', async () => {
   await withRepository(async (repoRoot) => {
     const head = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
-    await expect(runStagedImportOrganizer(repoRoot, {}, { candidateBase: head.slice(0, 12) }))
+    await expect(runStagedIndexOnlyImportOrganizer(repoRoot, {}, { candidateBase: head.slice(0, 12) }))
       .rejects.toThrow('one full Git object ID');
-    await expect(runStagedImportOrganizer(repoRoot, {}, { candidateBase: 'f'.repeat(40) }))
+    await expect(runStagedIndexOnlyImportOrganizer(repoRoot, {}, { candidateBase: 'f'.repeat(40) }))
       .rejects.toThrow('git rev-parse failed');
   });
 });
@@ -604,7 +604,7 @@ test.concurrent('staged organizer preserves bytes visible through an external ha
       await link(fixturePath, aliasPath);
       git(repoRoot, ['add', 'fixture.ts']);
 
-      expect(await runStagedImportOrganizer(repoRoot)).toBe(0);
+      expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
 
       expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(
         `${source('sorted')}export const stagedChange = answer;\n`
@@ -629,7 +629,7 @@ test.skipIf(process.platform === 'win32')(
         await symlink(fixturePath, aliasPath, 'file');
         git(repoRoot, ['add', 'fixture.ts']);
 
-        expect(await runStagedImportOrganizer(repoRoot)).toBe(0);
+        expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
 
         expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(source('sorted')));
         expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
@@ -650,7 +650,7 @@ test.concurrent('staged organizer normalizes only the index when unstaged bytes 
     git(repoRoot, ['add', 'fixture.ts']);
     await writeFile(fixturePath, working, 'utf8');
 
-    expect(await runStagedImportOrganizer(repoRoot)).toBe(0);
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
 
     expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(source('sorted')));
     expect(await readFile(fixturePath, 'utf8')).toBe(working);
@@ -665,7 +665,7 @@ test.concurrent('staged organizer preserves CRLF and executable mode for an adde
     git(repoRoot, ['add', fileName]);
     git(repoRoot, ['update-index', '--chmod=+x', fileName]);
 
-    expect(await runStagedImportOrganizer(repoRoot)).toBe(0);
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
 
     const expected = Buffer.from(source('sorted', '\r\n'));
     expect(await stagedBytes(repoRoot, fileName)).toEqual(expected);
@@ -682,7 +682,7 @@ test.concurrent('staged organizer follows the rename target without restoring th
     await writeFile(targetPath, source('unsorted'), 'utf8');
     git(repoRoot, ['add', '--all']);
 
-    expect(await runStagedImportOrganizer(repoRoot)).toBe(0);
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
 
     expect(await stagedBytes(repoRoot, 'renamed.ts')).toEqual(Buffer.from(source('sorted')));
     expect(await readFile(targetPath)).toEqual(Buffer.from(source('unsorted')));
@@ -701,7 +701,7 @@ test.concurrent('staged organizer owns the real index lock while preserving a co
     git(repoRoot, ['add', 'fixture.ts']);
     let restageRejected = false;
 
-    expect(await runStagedImportOrganizer(repoRoot, {
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot, {
       afterIndexLock: async () => {
         await writeFile(fixturePath, concurrentWorking, 'utf8');
         const result = spawnSync('git', ['add', 'fixture.ts'], {
@@ -727,7 +727,7 @@ test.concurrent('staged organizer is a no-op when only non-TypeScript paths are 
     git(repoRoot, ['add', 'README.md']);
     const before = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
 
-    expect(await runStagedImportOrganizer(repoRoot)).toBe(0);
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot)).toBe(0);
 
     expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(before);
   });
@@ -743,7 +743,7 @@ test.concurrent('staged organizer publishes no index entry when multi-file blob 
     const before = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
     let generated = 0;
 
-    await expect(runStagedImportOrganizer(repoRoot, {
+    await expect(runStagedIndexOnlyImportOrganizer(repoRoot, {
       beforeHash: () => {
         generated += 1;
         if (generated === 2) throw new Error('injected blob generation failure');
@@ -767,7 +767,7 @@ test.concurrent('staged organizer rejects non-ordinary and unresolved TypeScript
     git(repoRoot, ['update-index', '--add', '--cacheinfo', `120000,${linkObject},link.ts`]);
     const before = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
 
-    await expect(runStagedImportOrganizer(repoRoot)).rejects.toThrow('not an ordinary file');
+    await expect(runStagedIndexOnlyImportOrganizer(repoRoot)).rejects.toThrow('not an ordinary file');
     expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(before);
     expect(await stagedBytes(repoRoot, 'link.ts')).toEqual(Buffer.from('values.ts'));
     expect(await readFile(path.join(repoRoot, 'link.ts'))).toEqual(workingBytes);
@@ -785,7 +785,7 @@ test.concurrent('staged organizer rejects non-ordinary and unresolved TypeScript
     git(repoRoot, ['update-index', '--index-info'], { input: records });
     const before = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
 
-    await expect(runStagedImportOrganizer(repoRoot)).rejects.toThrow('unresolved TypeScript index stages');
+    await expect(runStagedIndexOnlyImportOrganizer(repoRoot)).rejects.toThrow('unresolved TypeScript index stages');
     expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(before);
   });
 });

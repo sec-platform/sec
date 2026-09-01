@@ -1,4 +1,8 @@
 import * as environment from './application/dependency-environment.ts';
+export {
+  formatDependencyFreshnessDecision,
+  getDependencyFreshness
+} from './application/dependency-freshness.ts';
 
 export type {
   DependencyCleanOptions,

@@ -55,7 +55,7 @@ function writeCompilerDependencyInputsV1(root: string): void {
   writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({
     packageManager: `bun@${process.versions.bun}`,
     dependencies: { commander: '1.0.0' },
-    devDependencies: { 'ts-morph': '1.0.0', typescript: '1.0.0' }
+    devDependencies: { typescript: '1.0.0' }
   })}\n`, 'utf8');
   writeFileSync(path.join(root, 'bun.lock'), 'lock-v1\n', 'utf8');
   writeFileSync(path.join(root, '.bun-version'), `${process.versions.bun}\n`, 'utf8');
@@ -65,9 +65,6 @@ function writeCompilerDependencyInputsV1(root: string): void {
 function materializeCompilerDependencyFixtureV1(root: string): void {
   const packages = [
     { name: 'commander', version: '1.0.0' },
-    { name: '@ts-morph/common', version: '1.0.0', main: 'dist/ts-morph-common.js' },
-    { name: 'code-block-writer', version: '1.0.0', main: './script/mod.js' },
-    { name: 'ts-morph', version: '1.0.0', main: 'dist/ts-morph.js' },
     { name: 'typescript', version: '1.0.0', main: './lib/typescript.js' }
   ];
   for (const manifest of packages) {

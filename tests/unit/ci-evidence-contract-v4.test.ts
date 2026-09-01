@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test';
 
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
 import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, type CodexDevelopmentVerificationGateEvidenceV4 } from '../../src/verification/ci/contract/evidence.ts';
-import { buildCiQuickGatePlan, CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/ci/contract/plan.ts';
+import { buildCiQuickGatePlan } from '../../src/verification/ci/contract/plan.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/verification/result/contract/result.ts';
 
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
@@ -21,7 +22,7 @@ const candidate: CiVerificationActionCandidate = {
 };
 const plan = buildCiVerificationActionPlanClosure({
   candidate,
-  gates: buildCiQuickGatePlan({ includeImports: false, includeDocs: false, includeRisk: false })
+  gates: buildCiQuickGatePlan({ includeImports: false, includeDocs: false })
     .map(ciVerificationGateStep)
 });
 

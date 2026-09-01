@@ -1,14 +1,17 @@
 {
-  "status": "skipped",
+  "status": "passed",
   "build": {
     "status": "skipped",
     "passed": [],
     "failed": [],
-    "command": "bun run build"
+    "command": null
   },
   "unit": {
-    "status": "skipped",
-    "passed": [],
+    "status": "passed",
+    "passed": [
+      "tests/runtime/unit/customer-runtime.test.ts",
+      "tests/runtime/unit/ticket-runtime.test.ts"
+    ],
     "failed": [],
     "command": "bun run test:unit"
   },
@@ -16,10 +19,10 @@
     "status": "skipped",
     "passed": [],
     "failed": [],
-    "command": "bun run test:acceptance"
+    "command": null
   },
   "logs": {
-    "stdout": "",
+    "stdout": "runtime-unit:passed tests/runtime/unit/customer-runtime.test.ts,tests/runtime/unit/ticket-runtime.test.ts\n",
     "stderr": ""
   }
 }

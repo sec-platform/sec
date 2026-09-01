@@ -1,3 +1,5 @@
+import type { PolicyRuleId } from './rules.ts';
+
 export type PolicySeverity = 'info' | 'warn' | 'error' | 'blocker';
 export type PolicySourceScope = 'official' | 'project';
 
@@ -17,7 +19,7 @@ export interface PolicyViolation {
   id: string;
   severity: PolicySeverity;
   appliesTo: string[];
-  rule: string;
+  rule: PolicyRuleId;
   files: string[];
   message: string;
   sourceScope: PolicySourceScope;
@@ -75,7 +77,7 @@ export interface PolicyRule {
   id: string;
   severity: PolicySeverity;
   appliesTo: string[];
-  rule: string;
+  rule: PolicyRuleId;
 }
 
 export interface PolicySpec {

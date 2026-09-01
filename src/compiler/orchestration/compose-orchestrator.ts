@@ -10,7 +10,6 @@ import { loadWorkspacePlan } from '../parse/load-plan.ts';
 import { executePipelineStage, withPipelineTransaction } from '../pipeline/kernel.ts';
 import { requirePipelineSemanticContext } from '../pipeline/semantic-context.ts';
 import type { PipelineExecutionContext, PipelineSemanticContext } from '../pipeline/types.ts';
-import { adaptProject } from '../synthesize/adapt-project.ts';
 import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
 
 function readRequiredComposeLock(workspaceRoot: string): LockFile {
@@ -81,30 +80,6 @@ export async function composeWorkspace(
       stageContext,
       options
     ),
-    { extractLock: (result) => result.lock }
-  );
-}
-
-async function adaptWorkspaceCore(
-  workspaceRoot: string,
-  context: PipelineExecutionContext
-): Promise<{ plan: PlanFile; lock: LockFile }> {
-  const plan = loadWorkspacePlan(workspaceRoot);
-  const lock = readLockFile(workspaceRoot);
-  const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
-  await adaptProject(workspaceRoot, plan, lock, commitFence);
-  return { plan, lock };
-}
-
-export async function adaptWorkspace(
-  workspaceRoot = process.cwd(),
-  context?: PipelineExecutionContext
-): Promise<{ plan: PlanFile; lock: LockFile }> {
-  return executePipelineStage(
-    workspaceRoot,
-    'adapt',
-    context,
-    (stageContext) => adaptWorkspaceCore(workspaceRoot, stageContext),
     { extractLock: (result) => result.lock }
   );
 }

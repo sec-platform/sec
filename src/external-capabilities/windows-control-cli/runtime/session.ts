@@ -5,14 +5,18 @@ import {
   SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON,
   SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE
 } from '../contract/environment.ts';
+import {
+  WindowsControlCliInstalledAdoptionError,
+  adoptInstalledWindowsControlCli,
+  type WindowsControlCliInstalledAdoption
+} from './installed-adoption.ts';
 
 /**
- * Production Windows control-CLI admission.
- *
- * The current repository has no authenticated installed-capability adopter.
- * Therefore this operation is deliberately zero-effect and can only return a
- * typed non-ready result. A future positive implementation must be backed by
- * real retained executable/cwd capabilities; test issuers do not live here.
+ * Production Windows control-CLI admission. Untrusted PATH and standard
+ * locations are locators only: the installed adopter must bind each declared
+ * executable to exact manifest bytes, the effective PE loader closure, the OS System32
+ * readback, and retained executable/cwd capabilities before this surface can
+ * return ready. It never provisions a tool or promotes a test issuer.
  */
 export const WINDOWS_CONTROL_CLI_SESSION_SCHEMA =
   'sec-windows-control-cli-session-v1' as const;
@@ -20,27 +24,13 @@ export const WINDOWS_CONTROL_CLI_SESSION_PROVIDER_REVISION =
   'sec-windows-control-cli-installed-adoption-session-v1' as const;
 
 const WINDOWS_ARCHITECTURE = 'x64' as const;
-const MAX_ARGUMENT_BYTES = 16 * 1024 * 1024;
-const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const MAX_OBSERVED_BYTES = 256 * 1024 * 1024;
 const MAX_RECORDS = 100_000;
-
-export type SupportedCommandId = 'git' | 'gh';
+const MAX_CLOSE_SETTLEMENT_ATTEMPTS = 1;
 
 export type WindowsControlCliSessionLifecycleState =
-  | 'unbound'
-  | 'platform/profile'
-  | 'bounded-path-hints'
-  | 'derived-official-layout-root'
-  | 'authenticated-root-closure'
-  | 'retained-working-directory'
-  | 'retained-effective-executable'
-  | 'digest-physical-version-probe'
-  | 'serial-bounded-commands'
-  | 'per-command-end-fence'
+  | 'digest-physical-binding'
   | 'session-end-fence'
-  | 'tree-stdio-settlement'
-  | 'terminal-receipt'
   | 'disposed'
   | 'invalidated';
 
@@ -56,14 +46,12 @@ export type WindowsControlCliSessionResolutionReason =
   | 'session-request-invalid'
   | 'working-directory-binding-drift'
   | typeof SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON
+  | 'installed-executable-ambiguous'
+  | 'installed-executable-manifest-mismatch'
+  | 'installed-loader-closure-unproven'
   | 'retained-capability-unavailable'
   | 'provider-epoch-drift'
-  | 'command-budget-exhausted'
-  | 'command-arguments-invalid'
-  | 'command-output-budget-exhausted'
-  | 'command-settlement-unproven'
-  | 'command-version-drift'
-  | 'reentrant-command'
+  | 'close-settlement-budget-exhausted'
   | 'session-deadline-exhausted'
   | 'session-aborted';
 
@@ -77,52 +65,29 @@ export type WindowsControlCliSessionResolution =
   | WindowsControlCliSessionFailure
   | Readonly<{ readonly status: 'ready'; readonly session: WindowsControlCliLiveSession }>;
 
-export type WindowsControlCliSessionCounter = Readonly<{
-  readonly commandCount: number;
-  readonly argumentCount: number;
-  readonly argumentBytes: number;
-  readonly stdoutBytes: number;
-  readonly stderrBytes: number;
-  readonly totalOutputBytes: number;
+export type WindowsControlCliPhysicalObservation = Readonly<{
   readonly rootObservedBytes: number;
   readonly executableObservedBytes: number;
   readonly records: number;
-  readonly reopenRefreshes: number;
-  readonly settlementAttempts: number;
+  readonly closeSettlementAttempts: number;
 }>;
 
-export type WindowsControlCliSessionBudget = Readonly<{
+export type WindowsControlCliPhysicalBudget = Readonly<{
   readonly maxSessionDurationMs: number;
-  readonly maxCommandsPerSession: number;
-  readonly maxTotalArgumentBytes: number;
-  readonly maxTotalOutputBytes: number;
   readonly maxRootObservedBytes: number;
   readonly maxExecutableObservedBytes: number;
   readonly maxRecords: number;
-  readonly maxReopenRefreshes: number;
-  readonly maxSettlementAttempts: number;
+  readonly maxCloseSettlementAttempts: number;
 }>;
 
 export type WindowsControlCliSessionRequest = Readonly<{
   readonly workingDirectoryPathHint: string;
   readonly deadlineAtUnixMs: number;
   readonly signal?: AbortSignal;
-  readonly maxCommandsPerSession: number;
-  readonly maxTotalArgumentBytes: number;
-  readonly maxTotalOutputBytes: number;
   readonly maxRootObservedBytes: number;
   readonly maxExecutableObservedBytes: number;
   readonly maxRecords: number;
-  readonly maxReopenRefreshes: number;
-  readonly maxSettlementAttempts: number;
-}>;
-
-export type WindowsControlCliSessionCommandResult = Readonly<{
-  readonly commandId: SupportedCommandId;
-  readonly code: number;
-  readonly stdout: Uint8Array;
-  readonly stderr: Uint8Array;
-  readonly counter: WindowsControlCliSessionCounter;
+  readonly maxCloseSettlementAttempts: number;
 }>;
 
 export type WindowsControlCliTerminalReceipt = Readonly<{
@@ -132,8 +97,8 @@ export type WindowsControlCliTerminalReceipt = Readonly<{
   readonly providerRevision: `sha256:${string}`;
   readonly profileId: string;
   readonly specDigest: `sha256:${string}`;
-  readonly lifecycle: 'tree-stdio-settlement' | 'disposed';
-  readonly counter: WindowsControlCliSessionCounter;
+  readonly lifecycle: 'disposed';
+  readonly observation: WindowsControlCliPhysicalObservation;
   readonly receiptDigest: `sha256:${string}`;
 }>;
 
@@ -144,11 +109,15 @@ export interface WindowsControlCliLiveSession {
   readonly specDigest: `sha256:${string}`;
   readonly providerRevision: `sha256:${string}`;
   readonly lifecycleState: WindowsControlCliSessionLifecycleState;
-  readonly counter: WindowsControlCliSessionCounter;
-  readonly budget: WindowsControlCliSessionBudget;
-  run(commandId: SupportedCommandId, args: readonly string[]): Promise<WindowsControlCliSessionCommandResult>;
+  readonly observation: WindowsControlCliPhysicalObservation;
+  readonly budget: WindowsControlCliPhysicalBudget;
   close(): Promise<WindowsControlCliTerminalReceipt>;
 }
+
+type SessionDeadline = Readonly<{
+  remainingMs(): number;
+  assertLive(): void;
+}>;
 
 function normalizedLocator(value: string): string {
   return value.replaceAll('/', '\\').replace(/[\\]+$/u, '').toLowerCase();
@@ -171,14 +140,14 @@ function validateRequest(
   if (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= now) {
     throw new Error('session deadline must be a future safe Unix millisecond');
   }
-  assertPositiveInteger(input.maxCommandsPerSession, 'maxCommandsPerSession', 128);
-  assertPositiveInteger(input.maxTotalArgumentBytes, 'maxTotalArgumentBytes', MAX_ARGUMENT_BYTES);
-  assertPositiveInteger(input.maxTotalOutputBytes, 'maxTotalOutputBytes', MAX_OUTPUT_BYTES);
   assertPositiveInteger(input.maxRootObservedBytes, 'maxRootObservedBytes', MAX_OBSERVED_BYTES);
   assertPositiveInteger(input.maxExecutableObservedBytes, 'maxExecutableObservedBytes', MAX_OBSERVED_BYTES);
   assertPositiveInteger(input.maxRecords, 'maxRecords', MAX_RECORDS);
-  assertPositiveInteger(input.maxReopenRefreshes, 'maxReopenRefreshes', 10_000);
-  assertPositiveInteger(input.maxSettlementAttempts, 'maxSettlementAttempts', 10_000);
+  assertPositiveInteger(
+    input.maxCloseSettlementAttempts,
+    'maxCloseSettlementAttempts',
+    MAX_CLOSE_SETTLEMENT_ATTEMPTS
+  );
   return Object.freeze({ ...input });
 }
 
@@ -199,14 +168,10 @@ function detailDigest(
     request: request === null ? null : {
       cwdDigest: sha256(normalizedLocator(request.workingDirectoryPathHint)),
       deadlineClass: 'caller-absolute-deadline',
-      maxCommandsPerSession: request.maxCommandsPerSession,
-      maxTotalArgumentBytes: request.maxTotalArgumentBytes,
-      maxTotalOutputBytes: request.maxTotalOutputBytes,
       maxRootObservedBytes: request.maxRootObservedBytes,
       maxExecutableObservedBytes: request.maxExecutableObservedBytes,
       maxRecords: request.maxRecords,
-      maxReopenRefreshes: request.maxReopenRefreshes,
-      maxSettlementAttempts: request.maxSettlementAttempts
+      maxCloseSettlementAttempts: request.maxCloseSettlementAttempts
     }
   }) as `sha256:${string}`;
 }
@@ -225,18 +190,151 @@ function failure(
   });
 }
 
-/**
- * Zero-effect production admission. No PATH lookup, filesystem discovery,
- * process launch, download, extraction, installation, or cache write occurs.
- */
+function sessionDeadline(
+  request: WindowsControlCliSessionRequest,
+  startedAtUnixMs: number,
+  startedAtMonotonicMs: number
+): SessionDeadline {
+  const deadlineAtUnixMs = Math.min(
+    request.deadlineAtUnixMs,
+    startedAtUnixMs + SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.resourceContract.maxSessionDurationMs
+  );
+  const deadlineAtMonotonicMs = startedAtMonotonicMs
+    + Math.max(0, deadlineAtUnixMs - startedAtUnixMs);
+  const remainingMs = (): number => Math.min(
+    deadlineAtUnixMs - Date.now(),
+    Math.floor(deadlineAtMonotonicMs - performance.now())
+  );
+  const assertLive = (): void => {
+    if (request.signal?.aborted === true) {
+      throw new WindowsControlCliInstalledAdoptionError('session-aborted');
+    }
+    if (remainingMs() < 1) {
+      throw new WindowsControlCliInstalledAdoptionError('session-deadline-exhausted');
+    }
+  };
+  return Object.freeze({ remainingMs, assertLive });
+}
+
+function initialObservation(
+  adoption: WindowsControlCliInstalledAdoption
+): WindowsControlCliPhysicalObservation {
+  return Object.freeze({
+    rootObservedBytes: adoption.rootObservedBytes,
+    executableObservedBytes: adoption.executableObservedBytes,
+    records: adoption.records,
+    closeSettlementAttempts: 0
+  });
+}
+
+function sessionBudget(request: WindowsControlCliSessionRequest): WindowsControlCliPhysicalBudget {
+  const contract = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.resourceContract;
+  return Object.freeze({
+    maxSessionDurationMs: Math.min(
+      contract.maxSessionDurationMs,
+      request.deadlineAtUnixMs - Date.now()
+    ),
+    maxRootObservedBytes: request.maxRootObservedBytes,
+    maxExecutableObservedBytes: request.maxExecutableObservedBytes,
+    maxRecords: request.maxRecords,
+    maxCloseSettlementAttempts: request.maxCloseSettlementAttempts
+  });
+}
+
+function projectSessionReason(error: unknown): WindowsControlCliSessionResolutionReason {
+  if (error instanceof WindowsControlCliInstalledAdoptionError) return error.reason;
+  return 'retained-capability-unavailable';
+}
+
+function createLiveSession(
+  request: WindowsControlCliSessionRequest,
+  adoption: WindowsControlCliInstalledAdoption,
+  deadline: SessionDeadline
+): WindowsControlCliLiveSession {
+  const budget = sessionBudget(request);
+  let observation = initialObservation(adoption);
+  if (observation.rootObservedBytes > budget.maxRootObservedBytes
+      || observation.executableObservedBytes > budget.maxExecutableObservedBytes
+      || observation.records > budget.maxRecords) {
+    adoption.dispose();
+    throw new WindowsControlCliInstalledAdoptionError('retained-capability-unavailable');
+  }
+  let lifecycleState: WindowsControlCliSessionLifecycleState = 'digest-physical-binding';
+  let terminal: WindowsControlCliTerminalReceipt | null = null;
+  let invalidReason: WindowsControlCliSessionResolutionReason | null = null;
+  const invalidate = (reason: WindowsControlCliSessionResolutionReason): void => {
+    invalidReason ??= reason;
+    lifecycleState = 'invalidated';
+  };
+  const receipt = (status: 'completed' | 'invalidated'): WindowsControlCliTerminalReceipt => {
+    const body = Object.freeze({
+      schema: WINDOWS_CONTROL_CLI_SESSION_SCHEMA,
+      status,
+      reason: invalidReason,
+      providerRevision: adoption.providerRevision,
+      profileId: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId,
+      specDigest: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
+      lifecycle: 'disposed' as const,
+      observation
+    });
+    return Object.freeze({
+      ...body,
+      receiptDigest: sha256(body) as `sha256:${string}`
+    });
+  };
+
+  const session: WindowsControlCliLiveSession = {
+    schema: WINDOWS_CONTROL_CLI_SESSION_SCHEMA,
+    surface: SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE,
+    profileId: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.profileId,
+    specDigest: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST,
+    providerRevision: adoption.providerRevision,
+    get lifecycleState() { return lifecycleState; },
+    get observation() { return observation; },
+    budget,
+    async close() {
+      if (terminal !== null) return terminal;
+      if (observation.closeSettlementAttempts >= budget.maxCloseSettlementAttempts) {
+        invalidate('close-settlement-budget-exhausted');
+      } else {
+        observation = Object.freeze({
+          ...observation,
+          closeSettlementAttempts: observation.closeSettlementAttempts + 1
+        });
+      }
+      try {
+        if (invalidReason === null) {
+          deadline.assertLive();
+          adoption.assertCurrent();
+          lifecycleState = 'session-end-fence';
+        }
+      } catch (error) {
+        invalidate(projectSessionReason(error));
+      }
+      try {
+        adoption.dispose();
+        lifecycleState = 'disposed';
+      } catch {
+        invalidate('provider-epoch-drift');
+      }
+      terminal = receipt(invalidReason === null ? 'completed' : 'invalidated');
+      return terminal;
+    }
+  };
+  return Object.freeze(session);
+}
+
+/** Production admission performs bounded read-only adoption and no provisioning. */
 export function resolveWindowsControlCliSession(
   requestInput: WindowsControlCliSessionRequest
-): WindowsControlCliSessionFailure {
+): WindowsControlCliSessionResolution {
   const platform = process.platform;
   const architecture = process.arch;
+  const startedAtUnixMs = Date.now();
+  const startedAtMonotonicMs = performance.now();
   let request: WindowsControlCliSessionRequest;
   try {
-    request = validateRequest(requestInput, Date.now());
+    request = validateRequest(requestInput, startedAtUnixMs);
   } catch {
     return failure('unavailable', 'session-request-invalid', platform, architecture);
   }
@@ -246,11 +344,32 @@ export function resolveWindowsControlCliSession(
   if (architecture !== WINDOWS_ARCHITECTURE) {
     return failure('unsupported', 'unsupported-architecture', platform, architecture, request);
   }
-  return failure(
-    'unknown',
-    SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON,
-    platform,
-    architecture,
-    request
-  );
+  const deadline = sessionDeadline(request, startedAtUnixMs, startedAtMonotonicMs);
+  try {
+    const adoption = adoptInstalledWindowsControlCli({
+      spec: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+      workingDirectory: request.workingDirectoryPathHint,
+      deadline,
+      budget: {
+        maxRootObservedBytes: Math.min(
+          request.maxRootObservedBytes,
+          SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.adoptionContract.physicalClosure.maxObservedBytes
+        ),
+        maxExecutableObservedBytes: request.maxExecutableObservedBytes,
+        maxRecords: request.maxRecords
+      }
+    });
+    return Object.freeze({ status: 'ready', session: createLiveSession(request, adoption, deadline) });
+  } catch (error) {
+    const reason = projectSessionReason(error);
+    return failure(
+      reason === 'session-aborted' || reason === 'session-deadline-exhausted'
+        ? 'unavailable'
+        : 'unknown',
+      reason,
+      platform,
+      architecture,
+      request
+    );
+  }
 }

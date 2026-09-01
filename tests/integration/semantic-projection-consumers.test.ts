@@ -9,7 +9,7 @@ import type { ExplainGraph } from '../../src/semantic/projection/contract/explai
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { prepareLockedWorkspace } from '../testkit/workspace.ts';
 
 test('ExplainGraph and ReviewSummary consume one canonical SemanticViewSet identity', async () => {

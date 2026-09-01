@@ -1,8 +1,9 @@
-import type { UpgradeDiagnostics } from '../../change-management/upgrade/contract/types.ts';
+import type { UpgradeDiagnostics } from '../../change-management/upgrade/contract/upgrade-artifact.ts';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import { semanticViewFactIds } from '../../semantic/projection/contract/types.ts';
 import type { OverrideStatus, ProvenanceFile, ProvenanceOriginType } from '../../semantic/provenance/contract/types.ts';
 import type { RepairPlan, RepairTaskCategory } from '../../semantic/repair/contract/types.ts';
+import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { countMatching, summarizeCounts } from '../../system-architecture/foundation/runtime/collections.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
@@ -12,13 +13,12 @@ import type { ReviewConflictHint, ReviewFailurePoint, ReviewInstallImpact, Revie
 import { REVIEW_SUMMARY_FORMAT_VERSION } from '../../verification/review/contract/types.ts';
 import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '../../verification/review/contract/upgrade.ts';
 import { buildReviewChainSummary } from '../../verification/review/runtime/matrix.ts';
+import { modelRelativePath } from '../../workspace/contract/types.ts';
 import {
   isCanonicalWorkspaceArtifactPath,
-  modelRelativePath,
   policiesRelativePath,
   posixPath,
-  srcRelativePath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
@@ -35,7 +35,7 @@ function failurePointKey(point: ReviewFailurePoint): string {
 }
 
 function regressionRiskKey(risk: ReviewRegressionRisk): string {
-  return `${risk.kind}:${risk.blockId ?? ''}:${risk.slotId ?? ''}:${risk.message}`;
+  return `${risk.kind}:${risk.blockId ?? ''}:${risk.message}`;
 }
 
 function conflictHintKey(hint: ReviewConflictHint): string {
@@ -121,10 +121,9 @@ function addVerificationFailurePoint(points: Map<string, ReviewFailurePoint>, sp
   }
 }
 
-type ReviewTargetIdentity = Readonly<{ blockId: string; slotId?: string }>;
+type ReviewTargetIdentity = Readonly<{ blockId: string }>;
 
 interface ReviewTargetIndex {
-  readonly slotByTarget: ReadonlyMap<string, ReviewTargetIdentity | null>;
   readonly installByTarget: ReadonlyMap<string, ReviewTargetIdentity | null>;
   readonly runtimeEntryByPath: ReadonlyMap<string, RuntimeAttribution>;
 }
@@ -140,7 +139,7 @@ function addUniqueTargetIdentity(
     return;
   }
   if (existing === null || existing === undefined
-    || existing.blockId !== identity.blockId || existing.slotId !== identity.slotId) {
+    || existing.blockId !== identity.blockId) {
     index.set(target, null);
   }
 }
@@ -149,23 +148,17 @@ function buildReviewTargetIndex(
   lock: LockFile,
   runtimeEntryByPath: ReadonlyMap<string, RuntimeAttribution>
 ): ReviewTargetIndex {
-  const slotByTarget = new Map<string, ReviewTargetIdentity | null>();
   const installByTarget = new Map<string, ReviewTargetIdentity | null>();
-  for (const task of lock.slotTasks) {
-    addUniqueTargetIdentity(slotByTarget, task.target, { blockId: task.block, slotId: task.id });
-  }
   for (const step of lock.installPlan) {
     addUniqueTargetIdentity(installByTarget, step.to, { blockId: step.blockId });
   }
-  return { slotByTarget, installByTarget, runtimeEntryByPath };
+  return { installByTarget, runtimeEntryByPath };
 }
 
 function mapOverrideTarget(
   target: string,
   index: ReviewTargetIndex
-): Pick<ReviewRegressionRisk, 'blockId' | 'slotId'> {
-  const slotIdentity = index.slotByTarget.get(target);
-  if (slotIdentity) return slotIdentity;
+): Pick<ReviewRegressionRisk, 'blockId'> {
   const installIdentity = index.installByTarget.get(target);
   if (installIdentity) return installIdentity;
   const runtimeEntry = index.runtimeEntryByPath.get(target);
@@ -185,7 +178,6 @@ function buildReviewCiSummary(
   regressionRisks: ReviewRegressionRisk[],
   conflictHints: ReviewConflictHint[],
   impactedBlocks: string[],
-  impactedSlots: string[],
   runtimeEntries: ReviewSummary['runtimeEntries']
 ): ReviewSummary['ciSummary'] {
   const failureCount = failurePoints.length;
@@ -194,7 +186,7 @@ function buildReviewCiSummary(
   return {
     status: failureCount > 0 ? 'failed' : regressionRiskCount > 0 || conflictHintCount > 0 ? 'attention' : 'passed',
     failureCount, regressionRiskCount, conflictHintCount,
-    impactedBlockCount: impactedBlocks.length, impactedSlotCount: impactedSlots.length, runtimeEntryCount: runtimeEntries.length
+    impactedBlockCount: impactedBlocks.length, runtimeEntryCount: runtimeEntries.length
   };
 }
 
@@ -235,16 +227,11 @@ function buildCoverageSummary(coverage: AcceptanceCoverageReport): NonNullable<R
     status: coverage.status,
     acceptancePassedCount: coverage.acceptancePassed.length,
     blockCount: coverage.blocks.length,
-    slotCount: coverage.slots.length,
     coveredBlockCount: coverage.blocks.length - coverage.uncoveredBlocks.length,
-    coveredSlotCount: coverage.slots.length - coverage.uncoveredSlots.length,
     uncoveredBlockCount: coverage.uncoveredBlocks.length,
-    uncoveredSlotCount: coverage.uncoveredSlots.length,
     acceptancePassed: uniqueSorted(coverage.acceptancePassed),
     uncoveredBlocks: uniqueSorted(coverage.uncoveredBlocks),
-    uncoveredSlots: uniqueSorted(coverage.uncoveredSlots),
-    blockSummaries: buildCoverageTargetSummaries(coverage.blocks),
-    slotSummaries: buildCoverageTargetSummaries(coverage.slots)
+    blockSummaries: buildCoverageTargetSummaries(coverage.blocks)
   };
 }
 
@@ -314,12 +301,11 @@ function repairTargetType(
 ): NonNullable<ReviewSummary['repairSummary']>['targetSummaries'][number]['targetType'] {
   if (isCanonicalWorkspaceArtifactPath(targetId)) return 'generated-file';
   if (targetId.startsWith(`${posixPath(policiesRelativePath)}/`)) return 'policy-target';
-  if (targetId.startsWith(`${srcRelativePath}/`)) return 'slot-target';
   if (targetId.startsWith(`${modelRelativePath}/`)) return point.kind === 'policy' ? 'policy-target' : 'unknown';
   if (point.kind === 'acceptance' || targetId.endsWith('.spec.ts')) return 'acceptance-case';
   if (point.kind === 'runtime-unit' || point.kind === 'runtime-acceptance') return 'runtime-target';
   if (point.kind === 'policy') return 'policy-target';
-  if (point.issueType === 'slot') return 'slot-target';
+  if (isCanonicalPortableLogicalPath(targetId)) return 'file-target';
   return 'unknown';
 }
 
@@ -339,10 +325,6 @@ function buildRepairTargetSummaries(repairPlan: RepairPlan): NonNullable<ReviewS
     .sort((left, right) => compareCodeUnits(`${left.targetType}:${left.id}`, `${right.targetType}:${right.id}`));
 }
 
-function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCategory {
-  return task.category ?? 'slot-rewrite';
-}
-
 function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<RepairPlan['tasks'][number]['review']> {
   const failureTargets = uniqueSorted(task.failurePoints.flatMap((p) => p.targetIds ?? []));
   return task.review ?? {
@@ -353,6 +335,10 @@ function repairTaskReview(task: RepairPlan['tasks'][number]): NonNullable<Repair
     forbiddenOperations: uniqueSorted(task.forbiddenOperations), testsToPass: uniqueSorted(task.testsToPass),
     failureTargets
   };
+}
+
+function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCategory {
+  return task.category ?? 'file-repair';
 }
 
 const PENDING_ACTION_MAP: Record<string, ReviewRepairVerificationTrace['nextAction']> = {
@@ -376,7 +362,7 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
       const previewStatus: 'changed' | 'unchanged' | 'missing' = task.preview
         ? task.preview.changed ? 'changed' : 'unchanged' : 'missing';
       return {
-        taskId: task.taskId, category: repairTaskCategory(task), sourceSlotId: task.sourceSlotId,
+        taskId: task.taskId, category: repairTaskCategory(task),
         targetBlock: task.targetBlock, targetFile: task.targetFile, previewStatus,
         addedLines: task.preview?.addedLines ?? 0, removedLines: task.preview?.removedLines ?? 0,
         failurePointCount: task.failurePoints.length, targetIds: review.failureTargets,
@@ -523,7 +509,13 @@ export async function buildReviewSummary(
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
-  const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = readReviewGovernanceReports(workspaceRoot);
+  const {
+    policyReport,
+    repairPlan,
+    upgradePlan,
+    upgradeExecutionTerminal,
+    upgradeDiagnostics
+  } = readReviewGovernanceReports(workspaceRoot);
   const attributionTargets = uniqueSorted([
     ...provenance.artifacts.map((artifact) => artifact.path),
     ...overrideManifest.overrides.map((override) => override.target)
@@ -538,7 +530,11 @@ export async function buildReviewSummary(
   const provenanceSummary = buildProvenanceSummary(provenance);
   const policySummary = policyReport ? buildReviewPolicySummary(policyReport) : undefined;
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
-  const upgradeSummary = buildReviewUpgradeSummary(upgradePlan, upgradeDiagnostics);
+  const upgradeSummary = buildReviewUpgradeSummary(
+    upgradePlan,
+    upgradeExecutionTerminal,
+    upgradeDiagnostics
+  );
   const failurePoints = new Map<string, ReviewFailurePoint>();
   const regressionRisks = new Map<string, ReviewRegressionRisk>();
   const conflictHints = new Map<string, ReviewConflictHint>();
@@ -565,10 +561,6 @@ export async function buildReviewSummary(
   for (const blockId of coverage.uncoveredBlocks) {
     addRegressionRisk(regressionRisks, { kind: 'coverage-gap', blockId, message: `Block ${blockId} has no runtime acceptance coverage` });
   }
-  for (const slotId of coverage.uncoveredSlots) {
-    addRegressionRisk(regressionRisks, { kind: 'coverage-gap', slotId, message: `Slot ${slotId} has no runtime acceptance coverage` });
-  }
-
   for (const override of overrideManifest.overrides) {
     addRegressionRisk(regressionRisks, {
       kind: 'override-active',
@@ -583,7 +575,9 @@ export async function buildReviewSummary(
   if (upgradePlan) {
     addConflictHint(conflictHints, {
       kind: 'upgrade-plan-present', relatedId: upgradePlan.blockId,
-      message: upgradePlan.status === 'applied' ? `Upgrade plan applied, verify pending: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}` : `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
+      message: upgradeExecutionTerminal?.settlement === 'applied'
+        ? `Upgrade applied, verify pending: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
+        : `Upgrade plan present: ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`
     });
     if (upgradePlan.preflightChecks.length > 0) {
       addConflictHint(conflictHints, { kind: 'upgrade-preflight-passed', relatedId: upgradePlan.blockId, message: `Upgrade preflight passed: ${upgradePlan.preflightChecks.map((c) => c.id).join(', ')}` });
@@ -635,7 +629,6 @@ export async function buildReviewSummary(
   const installImpacts = buildInstallImpacts(lock);
   const installImpactSummary = buildInstallImpactSummary(installImpacts);
   const impactedBlocks = uniqueSorted(lock.resolvedBlocks.map((b) => b.id));
-  const impactedSlots = uniqueSorted(lock.slotTasks.map((t) => t.id));
   const sortedFailurePoints = [...failurePoints.values()].sort(compareFailurePoints);
   const sortedRegressionRisks = [...regressionRisks.values()].sort(compareRegressionRisks);
   const sortedConflictHints = [...conflictHints.values()].sort(compareConflictHints);
@@ -643,7 +636,7 @@ export async function buildReviewSummary(
 
   return {
     formatVersion: REVIEW_SUMMARY_FORMAT_VERSION,
-    ciSummary: buildReviewCiSummary(sortedFailurePoints, sortedRegressionRisks, sortedConflictHints, impactedBlocks, impactedSlots, runtimeEntries),
+    ciSummary: buildReviewCiSummary(sortedFailurePoints, sortedRegressionRisks, sortedConflictHints, impactedBlocks, runtimeEntries),
     chainSummary: buildReviewChainSummary(report, coverageSummary, artifactSummary),
     ...(semanticViewSummary ? { semanticViewSummary } : {}),
     ...(artifactSummary ? { artifactSummary } : {}),
@@ -653,7 +646,7 @@ export async function buildReviewSummary(
     ...(upgradeSummary ? { upgradeSummary } : {}),
     changeSourceCount: changeSources.length, runtimeEntryCount: runtimeEntries.length, installImpactCount: installImpacts.length,
     changeSources, runtimeEntries, verticalSlices: buildVerticalSliceAttributions(runtimeEntries),
-    installImpacts, installImpactSummary, impactedBlocks, impactedSlots,
+    installImpacts, installImpactSummary, impactedBlocks,
     failurePoints: sortedFailurePoints, regressionRisks: sortedRegressionRisks, conflictHints: sortedConflictHints
   };
 }

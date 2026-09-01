@@ -34,7 +34,6 @@ test('current reference projection preserves library applicability and typed Pol
   expect(source.acceptance.map(({ id }) => id)).toContain('customer_can_upload_attachment');
   expect(source.acceptance.map(({ id }) => id)).toContain('ticket_attachment_can_be_uploaded');
   expect(artifacts.acceptanceCoverage.uncoveredBlocks).toEqual([]);
-  expect(artifacts.acceptanceCoverage.uncoveredSlots).toEqual([]);
   expect(artifacts.acceptanceCoverage.acceptancePassed).toContain('customer_can_upload_attachment');
   expect(artifacts.acceptanceCoverage.acceptancePassed).toContain('ticket_attachment_can_be_uploaded');
 

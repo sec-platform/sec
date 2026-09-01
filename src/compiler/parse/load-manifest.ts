@@ -7,7 +7,7 @@ import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, Phy
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
 import { compareCodeUnits, rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { pathExists } from '../../workspace/files.ts';
-import { blockDirName, isSafeRelativePath, officialRegistryRelativePath, posixPath, resolvePathInside, resolveRegistryRoot } from '../../workspace/paths.ts';
+import { blockDirName, isSafeRelativePath, officialRegistryRelativePath, posixPath, resolvePathInside, resolveRegistryRoot } from '../../workspace/runtime/paths.ts';
 import type { BlockManifest, ManifestEntry, PlanRegistrySource, ResolvedBlock } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
 import type { RegistryKind, RegistryLocation } from '../registry/contract/types.ts';
@@ -28,6 +28,23 @@ interface ManifestLoadOptions {
   version?: string;
   registrySources?: PlanRegistrySource[];
 }
+
+const MANIFEST_ROOT_FIELDS = new Set<keyof BlockManifest>([
+  'id',
+  'version',
+  'kind',
+  'stackProfiles',
+  'compatibility',
+  'requires',
+  'provides',
+  'conflicts',
+  'installs',
+  'pins',
+  'acceptance',
+  'upgrade',
+  'contracts',
+  'generators'
+]);
 
 function registryBlockRoot(registryRoot: string, blockId: string): string {
   return path.join(registryRoot, blockDirName(blockId));
@@ -224,6 +241,13 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new CompilerError('MANIFEST-SCHEMA-001', 'Manifest must be one object');
   }
+  const unknownFields = Object.keys(manifest).filter((field) => !MANIFEST_ROOT_FIELDS.has(field as keyof BlockManifest));
+  if (unknownFields.length > 0) {
+    throw new CompilerError(
+      'MANIFEST-SCHEMA-001',
+      `Manifest has unsupported fields: ${unknownFields.sort().join(', ')}`
+    );
+  }
   if (!isCanonicalBlockId(manifest.id) || !isCanonicalRegistryVersion(manifest.version)) {
     throw new CompilerError(
       'MANIFEST-SCHEMA-015',
@@ -233,7 +257,6 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
   if (manifest.kind !== 'capability' && manifest.kind !== 'strategy' && manifest.kind !== 'infra' && manifest.kind !== 'governance') {
     throw new CompilerError('MANIFEST-SCHEMA-001', `Manifest "${manifest.id}" has unsupported kind "${String(manifest.kind)}"`);
   }
-
   manifest.stackProfiles ??= [];
   if (!Array.isArray(manifest.stackProfiles)) {
     throw new CompilerError('MANIFEST-SCHEMA-002', `Manifest "${manifest.id}" stackProfiles must be an array`);
@@ -255,11 +278,7 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
     inputs: manifest.pins?.inputs ?? [],
     outputs: manifest.pins?.outputs ?? []
   };
-  manifest.slots ??= [];
   manifest.acceptance ??= [];
-  manifest.routes ??= [];
-  manifest.uiPortals ??= [];
-  manifest.uiHooks ??= [];
   manifest.upgrade ??= { from: [], migrations: [] };
   manifest.upgrade.from ??= [];
   manifest.upgrade.migrations ??= [];
@@ -270,8 +289,7 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
   if (!Array.isArray(manifest.installs) || manifest.installs.length === 0) {
     throw new CompilerError('MANIFEST-SCHEMA-003', `Manifest "${manifest.id}" must declare installs`);
   }
-  if (!Array.isArray(manifest.slots) || !Array.isArray(manifest.acceptance) || !Array.isArray(manifest.routes) ||
-    !Array.isArray(manifest.uiPortals) || !Array.isArray(manifest.uiHooks)) {
+  if (!Array.isArray(manifest.acceptance)) {
     throw new CompilerError('MANIFEST-SCHEMA-001', `Manifest "${manifest.id}" collection fields must be arrays`);
   }
   if (!Array.isArray(manifest.pins.inputs) || !Array.isArray(manifest.pins.outputs)) {
@@ -287,27 +305,6 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
     }
     if (!isSafeRelativePath(install.from) || !isSafeRelativePath(install.to)) {
       throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest "${manifest.id}" install paths must stay inside their allowed roots`);
-    }
-  }
-  for (const slot of manifest.slots) {
-    if (!slot || typeof slot !== 'object' || !slot.target || !isSafeRelativePath(slot.target)) {
-      throw new CompilerError('MANIFEST-SCHEMA-007', `Manifest "${manifest.id}" slot targets must stay inside the project tree`);
-    }
-    if (slot.writableZones !== undefined && !Array.isArray(slot.writableZones)) {
-      throw new CompilerError('MANIFEST-SCHEMA-008', `Manifest "${manifest.id}" slot writableZones must be an array`);
-    }
-    if (slot.writableZones?.some((zone) => !isSafeRelativePath(zone))) {
-      throw new CompilerError('MANIFEST-SCHEMA-008', `Manifest "${manifest.id}" slot writableZones must stay inside the project tree`);
-    }
-  }
-  for (const portal of manifest.uiPortals) {
-    if (!portal || typeof portal !== 'object' || !portal.id) {
-      throw new CompilerError('MANIFEST-SCHEMA-009', `Manifest "${manifest.id}" UI Portals require an id`);
-    }
-  }
-  for (const hook of manifest.uiHooks) {
-    if (!hook || typeof hook !== 'object' || !hook.targetPortal || !hook.component || !hook.importFrom) {
-      throw new CompilerError('MANIFEST-SCHEMA-010', `Manifest "${manifest.id}" UI Hooks require targetPortal/component/importFrom`);
     }
   }
 }

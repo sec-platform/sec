@@ -3,9 +3,21 @@ import path from 'node:path';
 
 import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { openProcessResourceSession, type ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, issueRetainedCommandBoundary, resolveExecutableLocator, runRetainedCommandBytes, type ByteCommandResult, type RetainedCommandAuxiliaryInput, type RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/process.ts';
-import { rawSha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import type { SecBoundSemanticOperation } from '../../../system-architecture/operation/semantic.ts';
+import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, issueRetainedCommandBoundary, resolveExecutableLocator, runRetainedCommandBytes, type ByteCommandResult } from '../../../runtime-state/physical/runtime/process.ts';
+import type { RetainedCommandAuxiliaryInput, RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
+import { rawSha256, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecProviderSettlementReceipt,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest,
+  type SecProviderSettlementReceipt,
+  type SecSemanticOperationAttemptContext,
+  type SecSemanticOperationIntent
+} from '../../../system-architecture/operation/semantic.ts';
 
 /**
  * Value bound to GIT_CONFIG_GLOBAL so trusted Git children ignore the
@@ -351,7 +363,7 @@ export type GitScratchIndexTreeFailureReason =
 
 export type GitScratchIndexTreeResult<T> = Readonly<
   { status: 'ready'; value: T } |
-  { status: 'unavailable'; reason: GitScratchIndexTreeFailureReason }
+  { status: 'unavailable'; reason: GitScratchIndexTreeFailureReason; detail?: string }
 >;
 
 /**
@@ -364,6 +376,7 @@ export type GitScratchIndexTreeSession = Readonly<{
   readonly scratchRoot: string;
   readonly objectFormat: 'sha1' | 'sha256';
   writeTree(): Promise<GitScratchIndexTreeResult<string>>;
+  commitTree(input: GitCommitTreeInput): Promise<GitScratchIndexTreeResult<string>>;
   observe(args: readonly string[]): Promise<GitScratchIndexTreeResult<ByteCommandResult>>;
   close(): Promise<GitScratchIndexTreeFailureReason | null>;
 }>;
@@ -377,11 +390,167 @@ type GitScratchExecutionOwner = Readonly<{
   run(
     args: readonly string[],
     environment: Readonly<Record<string, string>>,
-    boundary: RetainedCommandBoundary
+    boundary: RetainedCommandBoundary,
+    input?: Uint8Array
   ): Promise<GitReadSessionCommand>;
 }>;
 
 const GIT_SCRATCH_EXECUTION_OWNERS = new WeakMap<object, GitScratchExecutionOwner>();
+
+export type GitCommitIdentity = Readonly<{
+  readonly name: string;
+  readonly email: string;
+  /** Git internal date: `<unix-seconds> <+|->HHMM`. */
+  readonly date: string;
+}>;
+
+export type GitCommitTreeInput = Readonly<{
+  readonly tree: string;
+  readonly parents: readonly string[];
+  readonly message: string;
+  readonly author: GitCommitIdentity;
+  readonly committer: GitCommitIdentity;
+}>;
+
+export type GitDevelopmentCommitContract = GitCommitTreeInput & Readonly<{
+  readonly repositoryRoot: string;
+  readonly worktreeRoot: string;
+  readonly ref: string;
+  readonly expectedOld: string;
+  readonly target: string;
+  readonly signing: 'disabled';
+  readonly hooks: 'disabled';
+  readonly preflightReceiptDigest: SecOperationDigest;
+}>;
+
+export type GitDevelopmentCommitEffectResult = Readonly<
+  | { readonly status: 'completed'; readonly object: string }
+  | { readonly status: 'cas-conflict'; readonly object: string }
+  | { readonly status: 'unavailable'; readonly reason: 'operation-not-authorized' | 'invalid-contract' | 'provider-failed' | 'index-drift' | 'target-mismatch'; readonly detail?: string }
+>;
+
+type GitDevelopmentCommitExecutionOwner = Readonly<{
+  readonly operation: SecBoundSemanticOperation;
+  readonly providerIdentityDigest: SecOperationDigest;
+  run(
+    args: readonly string[],
+    environment: Readonly<Record<string, string>>,
+    input?: Uint8Array
+  ): Promise<GitReadSessionCommand>;
+}>;
+
+const GIT_DEVELOPMENT_COMMIT_EXECUTION_OWNERS = new WeakMap<object, GitDevelopmentCommitExecutionOwner>();
+
+const GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+const GIT_COMMIT_REF_PATTERN = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u;
+const GIT_INTERNAL_DATE_PATTERN = /^(?:0|[1-9][0-9]*) [+-][0-9]{4}$/u;
+
+function canonicalCommitIdentity(identity: GitCommitIdentity): GitCommitIdentity | null {
+  if (identity.name.length === 0 || identity.name.length > 256
+      || identity.email.length < 3 || identity.email.length > 320
+      || /[\0\r\n<>]/u.test(identity.name)
+      || /[\0\r\n<>]/u.test(identity.email)
+      || !GIT_INTERNAL_DATE_PATTERN.test(identity.date)) return null;
+  const [, zone] = identity.date.split(' ');
+  const hours = Number(zone?.slice(1, 3));
+  const minutes = Number(zone?.slice(3, 5));
+  if (!Number.isSafeInteger(hours) || !Number.isSafeInteger(minutes)
+      || hours > 14 || minutes > 59 || (hours === 14 && minutes !== 0)) return null;
+  return Object.freeze({ name: identity.name, email: identity.email, date: identity.date });
+}
+
+function canonicalCommitTreeInput(input: GitCommitTreeInput): GitCommitTreeInput | null {
+  const author = canonicalCommitIdentity(input.author);
+  const committer = canonicalCommitIdentity(input.committer);
+  if (!GIT_OBJECT_ID_PATTERN.test(input.tree)
+      || input.parents.length !== 1
+      || !GIT_OBJECT_ID_PATTERN.test(input.parents[0] ?? '')
+      || input.message.length === 0
+      || Buffer.byteLength(input.message, 'utf8') > 64 * 1024
+      || input.message.includes('\0')
+      || author === null || committer === null) return null;
+  return Object.freeze({
+    tree: input.tree,
+    parents: Object.freeze([...input.parents]),
+    message: input.message,
+    author,
+    committer
+  });
+}
+
+function commitEnvironment(
+  input: GitCommitTreeInput,
+  base: Readonly<Record<string, string>>
+): Readonly<Record<string, string>> {
+  // `base` is already issuer-isolated and may intentionally carry retained
+  // scratch selectors. Re-running ambient isolation would delete those exact
+  // GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY capabilities before commit-tree.
+  return Object.freeze({
+    ...base,
+    GIT_AUTHOR_NAME: input.author.name,
+    GIT_AUTHOR_EMAIL: input.author.email,
+    GIT_AUTHOR_DATE: input.author.date,
+    GIT_COMMITTER_NAME: input.committer.name,
+    GIT_COMMITTER_EMAIL: input.committer.email,
+    GIT_COMMITTER_DATE: input.committer.date
+  });
+}
+
+export function compileGitDevelopmentCommitContractDigest(
+  input: GitDevelopmentCommitContract
+): SecOperationDigest {
+  const treeInput = canonicalCommitTreeInput(input);
+  if (treeInput === null
+      || !path.isAbsolute(input.repositoryRoot)
+      || path.resolve(input.repositoryRoot) !== input.repositoryRoot
+      || !path.isAbsolute(input.worktreeRoot)
+      || path.resolve(input.worktreeRoot) !== input.worktreeRoot
+      || !GIT_COMMIT_REF_PATTERN.test(input.ref)
+      || input.expectedOld !== input.parents[0]
+      || !GIT_OBJECT_ID_PATTERN.test(input.target)
+      || input.signing !== 'disabled'
+      || input.hooks !== 'disabled'
+      || !/^sha256:[0-9a-f]{64}$/u.test(input.preflightReceiptDigest)) {
+    throw new Error('Git development commit contract is not canonical.');
+  }
+  return sha256({
+    schema: 'sec-development-commit-git-contract-v1',
+    repositoryRoot: input.repositoryRoot,
+    worktreeRoot: input.worktreeRoot,
+    ref: input.ref,
+    expectedOld: input.expectedOld,
+    target: input.target,
+    ...treeInput,
+    signing: input.signing,
+    hooks: input.hooks,
+    preflightReceiptDigest: input.preflightReceiptDigest
+  }) as SecOperationDigest;
+}
+
+function authorizedDevelopmentCommitOwner(
+  session: GitReadSession,
+  contract: GitDevelopmentCommitContract
+): GitDevelopmentCommitExecutionOwner | null {
+  const owner = GIT_DEVELOPMENT_COMMIT_EXECUTION_OWNERS.get(session);
+  if (owner === undefined || !isProductionGitReadSession(session)) return null;
+  let contractDigest: SecOperationDigest;
+  try {
+    contractDigest = compileGitDevelopmentCommitContractDigest(contract);
+  } catch {
+    return null;
+  }
+  const requirements = owner.operation.plan.execution.requirements;
+  if (requirements.length !== 1) return null;
+  const requirement = requirements[0]!;
+  if (requirement.contractDigest !== contractDigest
+      || JSON.stringify(requirement.effectKinds) !== JSON.stringify(['filesystem', 'process'])) return null;
+  const binding = owner.operation.bindings[0];
+  if (binding === undefined
+      || binding.requirementId !== requirement.id
+      || binding.contractDigest !== contractDigest
+      || binding.providerIdentityDigest !== owner.providerIdentityDigest) return null;
+  return owner;
+}
 
 /**
  * A session's origin is deliberately not a public data property.  The
@@ -894,8 +1063,29 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   let operationAdmissionFailure: string | null = null;
   if (input.origin === 'production') {
     try {
+      const processRequirements = input.operation.plan.execution.requirements.filter(
+        ({ effectKinds }) => effectKinds.includes('process')
+      );
+      if (processRequirements.length !== 1) {
+        throw new Error('Git read process admission requires exactly one process requirement.');
+      }
       processResourceSession = openProcessResourceSession({
         operation: input.operation,
+        requirementBindingContext: issueSecOperationRequirementBindingContext({
+          operation: input.operation,
+          requirementId: processRequirements[0]!.id,
+          resourceCeilings: [
+            ...input.operation.plan.execution.aggregateBudgets.filter(({ resource }) => (
+              resource === 'duration-ms'
+              || resource === 'input-bytes'
+              || resource === 'output-bytes'
+              || resource === 'processes'
+            )),
+            ...(input.operation.plan.execution.aggregateBudgets.some(
+              ({ resource }) => resource === 'input-bytes'
+            ) ? [] : [{ resource: 'input-bytes' as const, maximum: 0 }])
+          ]
+        }),
         signal: input.signal
       });
     } catch (error) {
@@ -1216,6 +1406,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     readonly args: readonly string[];
     readonly boundary: RetainedCommandBoundary;
     readonly environment: Readonly<Record<string, string>>;
+    readonly input?: Uint8Array;
   }> | null = null;
   const session: GitReadSession = {
     cwd: input.cwd,
@@ -1346,7 +1537,8 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       if (options.input !== undefined && !(options.input instanceof Uint8Array)) {
         return fail('command-error', 'Git read session stdin must be one Uint8Array.');
       }
-      const commandInput = options.input === undefined ? null : Buffer.from(options.input);
+      const suppliedInput = scratchInvocation?.input ?? options.input;
+      const commandInput = suppliedInput === undefined ? null : Buffer.from(suppliedInput);
       if (commandInput !== null && stdinBytes + commandInput.byteLength > budget.maxStdinBytes) {
         return fail('stdin-budget-exhausted', 'Git read session stdin-byte budget exhausted.');
       }
@@ -1540,8 +1732,15 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     }
   };
   const issuedSession = Object.freeze(session);
-  if (input.origin === 'production') PRODUCTION_GIT_READ_SESSIONS.add(issuedSession);
-  else TEST_GIT_READ_SESSIONS.add(issuedSession);
+  if (input.origin === 'production'
+      && failure === null
+      && processResourceSession !== null
+      && retainedCommandBoundary !== null
+      && issuedSession.providerIdentity !== null) {
+    PRODUCTION_GIT_READ_SESSIONS.add(issuedSession);
+  } else if (input.origin === 'test') {
+    TEST_GIT_READ_SESSIONS.add(issuedSession);
+  }
   GIT_SCRATCH_EXECUTION_OWNERS.set(issuedSession, Object.freeze({
     issueBoundary(auxiliaryInputs: readonly RetainedCommandAuxiliaryInput[]): RetainedCommandBoundary {
       if (retainedCommandBoundary === null) {
@@ -1556,19 +1755,38 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     async run(
       args: readonly string[],
       environment: Readonly<Record<string, string>>,
-      boundary: RetainedCommandBoundary
+      boundary: RetainedCommandBoundary,
+      input?: Uint8Array
     ): Promise<GitReadSessionCommand> {
       if (authorizedScratchInvocation !== null) {
         throw new Error('Git scratch computation does not permit concurrent or nested invocation.');
       }
-      authorizedScratchInvocation = Object.freeze({ args, boundary, environment });
+      authorizedScratchInvocation = Object.freeze({
+        args,
+        boundary,
+        environment,
+        ...(input === undefined ? {} : { input })
+      });
       try {
-        return await issuedSession.run(args);
+        return await issuedSession.run(args, input === undefined ? {} : { input });
       } finally {
         authorizedScratchInvocation = null;
       }
     }
   }));
+  if (input.origin === 'production' && issuedSession.providerIdentity !== null) {
+    const scratchOwner = GIT_SCRATCH_EXECUTION_OWNERS.get(issuedSession)!;
+    GIT_DEVELOPMENT_COMMIT_EXECUTION_OWNERS.set(issuedSession, Object.freeze({
+      operation: input.operation,
+      providerIdentityDigest: sha256(issuedSession.providerIdentity) as SecOperationDigest,
+      run(args, environment, commandInput) {
+        if (retainedCommandBoundary === null) {
+          throw new Error('Git retained executable/cwd provider is unavailable for development commit.');
+        }
+        return scratchOwner.run(args, environment, retainedCommandBoundary, commandInput);
+      }
+    }));
+  }
   if (failure !== null) {
     let admissionSettlementFailure: unknown;
     settlementAttempts += 1;
@@ -1820,9 +2038,16 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
     }, input.gitReadSession.env));
     let closed = false;
     let terminalFailure: GitScratchIndexTreeFailureReason | null = null;
-    const unavailable = <T>(reason: GitScratchIndexTreeFailureReason): GitScratchIndexTreeResult<T> => {
+    const unavailable = <T>(
+      reason: GitScratchIndexTreeFailureReason,
+      detail?: string
+    ): GitScratchIndexTreeResult<T> => {
       terminalFailure ??= reason;
-      return Object.freeze({ status: 'unavailable', reason: terminalFailure });
+      return Object.freeze({
+        status: 'unavailable',
+        reason: terminalFailure,
+        ...(detail === undefined ? {} : { detail })
+      });
     };
     const assertCurrent = (): boolean => {
       if (closed) {
@@ -1857,12 +2082,18 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       }
       return true;
     };
-    const run = async (args: readonly string[]): Promise<GitReadSessionCommand | null> => {
+    const runWithInput = async (
+      args: readonly string[],
+      commandEnvironment: Readonly<Record<string, string>>,
+      commandInput?: Uint8Array
+    ): Promise<GitReadSessionCommand | null> => {
       if (!assertCurrent()) return null;
-      const result = await executionOwner.run(args, environment, boundary);
+      const result = await executionOwner.run(args, commandEnvironment, boundary, commandInput);
       if (!assertCurrent()) return null;
       return result;
     };
+    const run = (args: readonly string[]): Promise<GitReadSessionCommand | null> =>
+      runWithInput(args, environment);
     const scratchSession: GitScratchIndexTreeSession = Object.freeze({
       scratchRoot,
       objectFormat,
@@ -1871,6 +2102,34 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         const command = await run(Object.freeze(['write-tree']));
         if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
           return unavailable(terminalFailure ?? 'session-failed');
+        }
+        const value = Buffer.from(command.result.stdout).toString('utf8').trim();
+        const expectedLength = objectFormat === 'sha1' ? 40 : 64;
+        if (!new RegExp(`^[0-9a-f]{${expectedLength}}$`, 'u').test(value)) {
+          return unavailable('session-failed');
+        }
+        return Object.freeze({ status: 'ready', value });
+      },
+      async commitTree(commitInput: GitCommitTreeInput): Promise<GitScratchIndexTreeResult<string>> {
+        if (terminalFailure !== null) return unavailable(terminalFailure);
+        const canonical = canonicalCommitTreeInput(commitInput);
+        if (canonical === null) return unavailable('session-failed');
+        const args = Object.freeze([
+          'commit-tree', canonical.tree,
+          ...canonical.parents.flatMap((parent) => ['-p', parent])
+        ]);
+        const command = await runWithInput(
+          args,
+          commitEnvironment(canonical, environment),
+          Buffer.from(canonical.message, 'utf8')
+        );
+        if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
+          const detail = command === null
+            ? `provider=null; session=${input.gitReadSession.failure?.reason ?? 'none'}`
+            : command.kind === 'completed'
+              ? `exit=${command.result.code}; stderr=${command.result.stderr.trim() || '<empty>'}; session=${input.gitReadSession.failure?.reason ?? 'none'}`
+              : `provider=${command.reason}; detail=${command.detail}; session=${input.gitReadSession.failure?.reason ?? 'none'}`;
+          return unavailable(terminalFailure ?? 'session-failed', detail);
         }
         const value = Buffer.from(command.result.stdout).toString('utf8').trim();
         const expectedLength = objectFormat === 'sha1' ? 40 : 64;
@@ -1927,6 +2186,125 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         : 'invalid-scratch-layout'
     });
   }
+}
+
+/**
+ * Materializes exactly one precomputed development commit object. The caller
+ * cannot select argv, enable signing/hooks, or change the retained provider.
+ * Ref mutation is deliberately a separate CAS step so the domain owner can
+ * durably record the object before the only externally-visible transition.
+ */
+export async function materializeAuthorityDevelopmentCommitObject(input: Readonly<{
+  readonly gitReadSession: GitReadSession;
+  readonly contract: GitDevelopmentCommitContract;
+}>): Promise<GitDevelopmentCommitEffectResult> {
+  const owner = authorizedDevelopmentCommitOwner(input.gitReadSession, input.contract);
+  if (owner === null) {
+    return Object.freeze({ status: 'unavailable', reason: 'operation-not-authorized' });
+  }
+  if (path.resolve(input.gitReadSession.cwd) !== input.contract.worktreeRoot) {
+    return Object.freeze({ status: 'unavailable', reason: 'invalid-contract' });
+  }
+  const environment = commitEnvironment(input.contract, input.gitReadSession.env);
+  const tree = await owner.run(Object.freeze(['write-tree']), environment);
+  if (tree.kind !== 'completed' || tree.result.code !== 0) {
+    return Object.freeze({
+      status: 'unavailable',
+      reason: 'provider-failed',
+      detail: tree.kind === 'completed'
+        ? `write-tree exit=${tree.result.code}; stderr=${tree.result.stderr.trim() || '<empty>'}`
+        : `write-tree provider=${tree.reason}; detail=${tree.detail}`
+    });
+  }
+  const observedTree = Buffer.from(tree.result.stdout).toString('utf8').trim();
+  if (observedTree !== input.contract.tree) {
+    return Object.freeze({ status: 'unavailable', reason: 'index-drift' });
+  }
+  const commit = await owner.run(
+    Object.freeze([
+      'commit-tree', input.contract.tree,
+      ...input.contract.parents.flatMap((parent) => ['-p', parent])
+    ]),
+    environment,
+    Buffer.from(input.contract.message, 'utf8')
+  );
+  if (commit.kind !== 'completed' || commit.result.code !== 0) {
+    return Object.freeze({
+      status: 'unavailable',
+      reason: 'provider-failed',
+      detail: commit.kind === 'completed'
+        ? `commit-tree exit=${commit.result.code}; stderr=${commit.result.stderr.trim() || '<empty>'}`
+        : `commit-tree provider=${commit.reason}; detail=${commit.detail}`
+    });
+  }
+  const object = Buffer.from(commit.result.stdout).toString('utf8').trim();
+  if (object !== input.contract.target) {
+    return Object.freeze({ status: 'unavailable', reason: 'target-mismatch' });
+  }
+  return Object.freeze({ status: 'completed', object });
+}
+
+/** Git owns its provider binding and settlement, but never the grant or attempt lineage. */
+export function bindGitDevelopmentCommitOperation(input: Readonly<{
+  intent: SecSemanticOperationIntent;
+  attempt: SecSemanticOperationAttemptContext;
+  providerIdentityDigest: SecOperationDigest;
+  deadlineAtUnixMs: number;
+}>): SecBoundSemanticOperation {
+  const plan = compileSecSemanticOperationPlan({
+    operation: input.intent.identity.operation,
+    intentDigest: input.intent.identity.intentDigest,
+    decisionDigest: input.intent.identity.decisionDigest,
+    aggregateBudgets: input.intent.execution.aggregateBudgets,
+    requirements: input.intent.execution.requirements,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    attempt: input.attempt
+  });
+  return bindSecSemanticOperation(plan, plan.execution.requirements.map((requirement) =>
+    compileSecCapabilityBinding({
+      requirementId: requirement.id,
+      contractDigest: requirement.contractDigest,
+      providerIdentityDigest: input.providerIdentityDigest
+    })));
+}
+
+export function settleGitDevelopmentCommitOperation(
+  operation: SecBoundSemanticOperation,
+  result: GitDevelopmentCommitEffectResult
+): SecProviderSettlementReceipt {
+  return issueSecProviderSettlementReceipt(operation, {
+    requirementId: 'repository.commit',
+    physicalDisposition: result.status === 'completed' ? 'settled' : 'unknown',
+    providerSettlementReferenceDigest: sha256(result) as SecOperationDigest
+  });
+}
+
+/** Exact `update-ref <new> <old>` CAS for the already-materialized object. */
+export async function compareAndSwapAuthorityDevelopmentCommitRef(input: Readonly<{
+  readonly gitReadSession: GitReadSession;
+  readonly contract: GitDevelopmentCommitContract;
+}>): Promise<GitDevelopmentCommitEffectResult> {
+  const owner = authorizedDevelopmentCommitOwner(input.gitReadSession, input.contract);
+  if (owner === null) {
+    return Object.freeze({ status: 'unavailable', reason: 'operation-not-authorized' });
+  }
+  if (path.resolve(input.gitReadSession.cwd) !== input.contract.worktreeRoot) {
+    return Object.freeze({ status: 'unavailable', reason: 'invalid-contract' });
+  }
+  const update = await owner.run(Object.freeze([
+    'update-ref', '--create-reflog', '-m', 'development.commit',
+    input.contract.ref, input.contract.target, input.contract.expectedOld
+  ]), input.gitReadSession.env);
+  if (update.kind !== 'completed') {
+    return Object.freeze({
+      status: 'unavailable',
+      reason: 'provider-failed',
+      detail: `update-ref provider=${update.reason}; detail=${update.detail}`
+    });
+  }
+  return update.result.code === 0
+    ? Object.freeze({ status: 'completed', object: input.contract.target })
+    : Object.freeze({ status: 'cas-conflict', object: input.contract.target });
 }
 
 /**

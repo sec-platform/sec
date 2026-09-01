@@ -4,12 +4,12 @@ import { createHash } from 'node:crypto';
 
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import type { GitHubCheckObservation } from '../../verification/ci/contract/github-observation.ts';
-import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../verification/ci/contract/revision.ts';
 import {
   createMainHealthRepairWorkPackagePath,
+  DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,
   type MainHealthLedgerInput
 } from './contract.ts';
-import { DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY } from './default-branch-revision.ts';
+import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from './provider-policy.ts';
 
 type Digest = `sha256:${string}`;
 

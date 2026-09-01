@@ -1,101 +1,20 @@
-import path from 'node:path';
-
-import { isActiveDocumentationPath } from '../../control/documentation/active.ts';
+import type { SecBoundSemanticOperation } from '../../system-architecture/operation/semantic.ts';
 import { isAffectedSelectionFailClosed } from '../../verification/test-impact/affected.ts';
-import type { OperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
 import {
   affectedTestPlanExitCode,
-  resolveAffectedTestExecution,
-  type AffectedTestPlan,
+  buildLocalAffectedCheckPlan,
+  type LocalAffectedGateStep
+} from './affected-plan-contract.ts';
+import type { OperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
+import {
   type ResolvedAffectedTestExecution
 } from './test-runner.ts';
 
-export type LocalAffectedGateId =
-  | 'imports:check'
-  | 'typecheck'
-  | 'docs:doctor'
-  | 'test:affected';
-
-export interface LocalAffectedGateStep {
-  readonly id: LocalAffectedGateId;
-  readonly command: string;
-}
-
-export interface LocalAffectedCheckPlan {
-  readonly schema: 'sec-local-affected-check-plan-v1';
-  readonly resolved: boolean;
-  readonly changedPaths: string[];
-  readonly affectedPlan: AffectedTestPlan;
-  readonly gates: LocalAffectedGateStep[];
-  readonly umbrellaCommand: 'bun run check:affected';
-  readonly subsumedStandaloneCommands: string[];
-}
-
 interface LocalAffectedCheckExecutionOptions {
+  readonly operation: SecBoundSemanticOperation;
   readonly prepareCompilerDependencies?: () => Promise<OperationDependencyBootstrapResult>;
 }
 
-const TYPECHECK_AUTHORITY_PATHS = new Set([
-  'bun.lock',
-  'bunfig.toml',
-  'package.json',
-  'tsconfig.json'
-]);
-
-function hasTypeScriptInput(paths: readonly string[]): boolean {
-  return paths.some((file) => /\.[cm]?tsx?$/u.test(file));
-}
-
-function hasTypecheckAuthorityInput(paths: readonly string[]): boolean {
-  return paths.some((file) => (
-    TYPECHECK_AUTHORITY_PATHS.has(file)
-    || /^tsconfig(?:\.[^/]+)?\.json$/u.test(file)
-  ));
-}
-
-function gate(id: LocalAffectedGateId): LocalAffectedGateStep {
-  return { id, command: `bun run ${id}` };
-}
-
-export function buildLocalAffectedCheckPlan(
-  affectedPlan: AffectedTestPlan
-): LocalAffectedCheckPlan {
-  const changedPaths = [...affectedPlan.changedPaths];
-  const activeDocsChanged = changedPaths.some(isActiveDocumentationPath);
-  const activeDocsOnly = changedPaths.length > 0
-    && changedPaths.every(isActiveDocumentationPath);
-  const typescriptChanged = hasTypeScriptInput(changedPaths);
-  const typecheckRequired = typescriptChanged || hasTypecheckAuthorityInput(changedPaths);
-  // Issue #206: include test:affected gate whenever fast tests are selected OR
-  // the selection trust boundary is fail-closed (but only when ownership is
-  // resolved — when ownership itself is unresolved, plan.resolved is false and
-  // runLocalAffectedCheck short-circuits before executing any gate, so we keep
-  // gates empty to match the "no invented broad fallback" contract).
-  // Previously, an empty selectedFastTests silently skipped test:affected even
-  // when the empty closure was caused by an unresolved selection — a
-  // false-green. Now the gate runs and fails closed via runAffectedTestPlan.
-  const failClosed = affectedPlan.resolved
-    && isAffectedSelectionFailClosed(affectedPlan.selectionTrustBoundary);
-  const testAffectedRequired = affectedPlan.selectedFastTests.length > 0 || failClosed;
-  const gates = activeDocsOnly
-    ? [gate('docs:doctor')]
-    : [
-      ...(typescriptChanged ? [gate('imports:check')] : []),
-      ...(typecheckRequired ? [gate('typecheck')] : []),
-      ...(activeDocsChanged ? [gate('docs:doctor')] : []),
-      ...(testAffectedRequired ? [gate('test:affected')] : [])
-    ];
-
-  return {
-    schema: 'sec-local-affected-check-plan-v1',
-    resolved: affectedPlan.resolved,
-    changedPaths,
-    affectedPlan,
-    gates,
-    umbrellaCommand: 'bun run check:affected',
-    subsumedStandaloneCommands: gates.map(({ command }) => command)
-  };
-}
 
 async function executeLocalAffectedGate(
   step: LocalAffectedGateStep,
@@ -113,10 +32,17 @@ async function executeLocalAffectedGate(
     return 1;
   }
   if (step.id === 'typecheck') {
-    const { runTypecheck, runTypecheckWithDependencyRoot } = await import('./typecheck-runner.ts');
-    return compilerDependencies
-      ? runTypecheckWithDependencyRoot(compilerDependencies)
-      : runTypecheck();
+    if (compilerDependencies === undefined) {
+      console.error('Local affected typecheck requires completed compiler dependency admission.');
+      return 1;
+    }
+    const { runTypecheckWithDependencyRootAndProjectGenerationEvidence } = await import(
+      './typecheck-runner.ts'
+    );
+    return runTypecheckWithDependencyRootAndProjectGenerationEvidence(
+      compilerDependencies,
+      affectedExecution.projectGenerationEvidence
+    );
   }
   if (step.id === 'docs:doctor') {
     const { runDevCommand } = await import('./command-runner.ts');
@@ -141,13 +67,17 @@ async function assertAffectedExecutionCurrent(
 
 export async function runLocalAffectedCheck(
   args: string[] = [],
-  options: LocalAffectedCheckExecutionOptions = {}
+  options: LocalAffectedCheckExecutionOptions
 ): Promise<number> {
   if (args.length > 0 && !(args.length === 1 && args[0] === '--plan')) {
     console.error('check:affected accepts only --plan.');
     return 1;
   }
+  const { issueCheckAffectedTestImpactProjection } = await import('./check-affected-source.ts');
+  const { resolveAffectedTestExecution } = await import('./test-runner.ts');
   const affectedExecution = await resolveAffectedTestExecution({
+    operation: options.operation,
+    issueTestImpactProjection: issueCheckAffectedTestImpactProjection,
     // This owner performs the explicit admission immediately before compiler
     // dependency preparation and before every gate. Plan output keeps the
     // resolution-time fence; execution avoids an otherwise redundant full

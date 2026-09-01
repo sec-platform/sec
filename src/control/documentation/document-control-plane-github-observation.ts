@@ -7,7 +7,7 @@
  * repository census.
  */
 
-import { assertGitBranchName } from '../branch-lifecycle/branch-lifecycle-audit.ts';
+import { assertGitBranchName } from '../../system-architecture/foundation/contract/git-reference.ts';
 
 export interface GitHubOpenInventoryCounts {
   readonly pullRequests: number;

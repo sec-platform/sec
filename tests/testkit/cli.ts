@@ -180,29 +180,6 @@ export async function expectCliVariants<TJson = unknown, TCompactJson = unknown>
   return { text, json, compactJson };
 }
 
-export async function runCliPipeline(
-  workspaceRoot: string,
-  options: { init?: boolean; target?: 'composed' | 'adapted'; verifyLane?: 'fast' | 'all'; lock?: boolean; explain?: boolean } = {}
-): Promise<void> {
-  if (options.init !== false) {
-    await expectCliSuccess(workspaceRoot, ['init'], 'Initialized project workspace\n');
-  }
-  await expectCliSuccess(workspaceRoot, ['resolve'], 'Resolved 3 blocks\n');
-  await expectCliSuccess(workspaceRoot, ['compose'], 'Composed project\n');
-  if (options.target === 'composed') return;
-
-  await expectCliSuccess(workspaceRoot, ['adapt'], 'Adapted slots\n');
-  if (options.verifyLane) {
-    const verification = await expectCliSuccess(workspaceRoot, ['verify', '--lane', options.verifyLane]);
-    expect(verification.stdout).toContain(`Verification passed (${options.verifyLane})`);
-  }
-  if (options.lock) {
-    await expectCliSuccess(workspaceRoot, ['lock'], 'Locked project\n');
-  }
-  if (options.explain) {
-    await expectCliSuccess(workspaceRoot, ['explain']);
-  }
-}
 
 export async function expectCliUsageError(
   workspaceRoot: string,

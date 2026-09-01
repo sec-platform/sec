@@ -4,10 +4,8 @@ import type { RegistryKind, RegistryLocation } from '../registry/contract/types.
 
 export type PackageManager = 'pnpm' | 'npm' | 'yarn';
 export type AppMode = 'single-tenant' | 'multi-tenant';
-export const SLOT_KINDS = ['adapter', 'policy', 'ux', 'repair'] as const;
 export const MANIFEST_KINDS = ['capability', 'strategy', 'infra', 'governance'] as const;
 
-export type SlotKind = (typeof SLOT_KINDS)[number];
 export type ManifestKind = (typeof MANIFEST_KINDS)[number];
 
 export interface PlanApp {
@@ -28,21 +26,10 @@ export interface PlanRegistrySource {
 export interface PlanRegistry { sources: PlanRegistrySource[]; }
 export interface PlanBlock { id: string; version?: string; }
 
-export interface PlanSlot {
-  id: string;
-  block: string;
-  kind: SlotKind;
-  target: string;
-  sourcePath?: string;
-  symbol: string;
-  description: string;
-}
-
 export interface PlanFile {
   app: PlanApp;
   registry: PlanRegistry;
   blocks: PlanBlock[];
-  slots: PlanSlot[];
   acceptance: AcceptanceItem[];
 }
 
@@ -56,27 +43,7 @@ export interface ManifestCompatibility {
   stackProfiles: string[];
 }
 
-export interface ManifestSlot {
-  id: string;
-  kind: SlotKind;
-  target: string;
-  symbol: string;
-  inputType?: string;
-  outputType?: string;
-  writableZones?: string[];
-}
-
-export interface ManifestRoute { path: string; file: string; }
 export interface ManifestPins { inputs: ManifestPin[]; outputs: ManifestPin[]; }
-export interface ManifestUiPortal { id: string; description?: string; }
-
-export interface ManifestUiHook {
-  targetPortal: string;
-  component: string;
-  importFrom: string;
-  dataBinder?: string;
-  renderSnippet?: string;
-}
 
 export interface UpgradeMigration {
   id: string;
@@ -103,12 +70,8 @@ interface BlockManifestBase {
   conflicts: string[];
   installs: InstallInstruction[];
   pins: ManifestPins;
-  slots: ManifestSlot[];
   acceptance: AcceptanceItem[];
-  routes: ManifestRoute[];
   upgrade?: UpgradeConfig;
-  uiPortals?: ManifestUiPortal[];
-  uiHooks?: ManifestUiHook[];
 }
 
 export type BlockManifest = BlockManifestBase & Partial<{

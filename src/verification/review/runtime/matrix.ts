@@ -34,7 +34,7 @@ function buildReviewChainStage(
     return { id, status: report.summary.status, detail: `lane=${report.summary.requestedLane}; failed=${report.summary.failedLanes.join(',') || 'none'}` };
   }
   if (id === 'coverage') {
-    return { id, status: coverageSummary.status === 'passed' ? 'passed' : coverageSummary.status === 'skipped' ? 'attention' : 'failed', detail: `blocks=${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}; slots=${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}` };
+    return { id, status: coverageSummary.status === 'passed' ? 'passed' : coverageSummary.status === 'skipped' ? 'attention' : 'failed', detail: `blocks=${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}` };
   }
   if (id === 'artifacts') {
     return { id, status: artifactSummary?.artifactStatus ?? 'attention', detail: `total=${artifactSummary?.artifactCount ?? 0}; missing=${artifactSummary?.missingCount ?? 0}` };
@@ -68,7 +68,7 @@ export function e2eStageEvidence(
   if (stageId === 'verification') return [`ci=${ciSummary.status}`, `failures=${ciSummary.failureCount}`];
   if (stageId === 'coverage') {
     return coverageSummary
-      ? [`blocks=${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}`, `slots=${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}`]
+      ? [`blocks=${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}`]
       : ['coverage=missing'];
   }
   if (stageId === 'artifacts') {

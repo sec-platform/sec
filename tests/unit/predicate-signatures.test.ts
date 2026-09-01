@@ -6,57 +6,9 @@ import {
   assertEngineeringIRPredicateSignatures,
   assertPredicateSignatureRegistry,
 } from "../../src/compiler/ir/predicate-signatures.ts";
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/compiler/policies/contract/rules.ts';
 import { type SemanticEntity, type SemanticEntityKind } from '../../src/semantic/engineering-ir/contract/entity-types.ts';
 import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticFactObject, type SemanticPredicate } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
-
-const ACTIVE_PREDICATES: readonly SemanticPredicate[] = [
-  "AWAITS",
-  "CONSUMES",
-  "CONTAINS",
-  "DECLARES",
-  "DEPENDS_ON",
-  "EMITS",
-  "ENFORCES",
-  "GENERATES",
-  "GUARANTEES",
-  "HANDLES",
-  "IMPLEMENTS",
-  "INVOKES",
-  "LOWERS_TO",
-  "MUTATES",
-  "OWNS",
-  "PERFORMS_EFFECT",
-  "PRECEDES",
-  "PROVIDES",
-  "READS",
-  "REQUIRES",
-  "REQUIRES_PERMISSION",
-  "RETRIES",
-  "TRANSITIONS_TO",
-  "VERIFIED_BY",
-  "WRITES",
-];
-
-const RESERVED_PREDICATES: readonly SemanticPredicate[] = [
-  "ASSUMES",
-  "CONNECTS_TO",
-  "CROSSES_BOUNDARY",
-  "DERIVES_FROM",
-  "DESERIALIZES_FROM",
-  "DISPOSES",
-  "ESCAPES",
-  "FLOWS_TO",
-  "FORKS_TO",
-  "INITIALIZES",
-  "JOINS",
-  "ORIGINATES_FROM",
-  "PERSISTS_AS",
-  "SANITIZES",
-  "SERIALIZES_AS",
-  "TRANSFORMS_TO",
-  "VALIDATES",
-  "VIOLATES",
-];
 
 function entity(id: string, kind: SemanticEntityKind): SemanticEntity {
   return { id, kind, label: id, attributes: [] };
@@ -99,22 +51,28 @@ function expectCompilerError(run: () => unknown, code: string): CompilerError {
   throw new Error(`Expected CompilerError ${code}`);
 }
 
-test("predicate registry owns every SemanticPredicate as active or reserved", () => {
+test("predicate registry owns every SemanticPredicate with a valid signature", () => {
   expect(Object.keys(PREDICATE_SIGNATURE_REGISTRY).sort()).toEqual(
     [...SEMANTIC_PREDICATES].sort(),
   );
-  expect(
-    SEMANTIC_PREDICATES.filter(
-      (predicate) =>
-        PREDICATE_SIGNATURE_REGISTRY[predicate].status === "active",
-    ).sort(),
-  ).toEqual([...ACTIVE_PREDICATES]);
-  expect(
-    SEMANTIC_PREDICATES.filter(
-      (predicate) =>
-        PREDICATE_SIGNATURE_REGISTRY[predicate].status === "reserved",
-    ).sort(),
-  ).toEqual([...RESERVED_PREDICATES]);
+  expect(() => assertPredicateSignatureRegistry()).not.toThrow();
+});
+
+test("the policy predicate accepts only capability-to-artifact facts", () => {
+  const predicate = policySemanticRule(TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE).requiredPredicate;
+  const capability = entity('capability:tenant/context', 'capability');
+  const artifact = entity('artifact:customer-service', 'artifact');
+  expect(() => assertEngineeringIRPredicateSignatures(
+    [capability, artifact],
+    [fact('fact:tenant-flow', capability.id, predicate, { kind: 'entity', entityId: artifact.id })]
+  )).not.toThrow();
+  expectCompilerError(
+    () => assertEngineeringIRPredicateSignatures(
+      [entity('block:tenant', 'block'), artifact],
+      [fact('fact:invalid-tenant-flow', 'block:tenant', predicate, { kind: 'entity', entityId: artifact.id })]
+    ),
+    'IR-PREDICATE-002'
+  );
 });
 
 test("controlled multi-variant predicates are statically unambiguous", () => {

@@ -3,7 +3,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { resolveWindowsControlCliSession, type WindowsControlCliSessionFailure, type WindowsControlCliSessionRequest } from '../../external-capabilities/windows-control-cli/runtime/session.ts';
 import { publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../runtime-state/physical/runtime/process.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
@@ -37,12 +36,6 @@ import {
 import { renderIndependentReviewTrailer } from '../../verification/review/contract/stability.ts';
 import { createTrustedRuntimeHostCommandEnvironment, createTrustedRuntimeMainHealthBaselineObservation, createTrustedRuntimeMainHealthReceipt, executeTrustedRuntimeContainerVerification, executeTrustedRuntimeMainHealth, executeTrustedRuntimeWorkspaceCanary, parseTrustedRuntimeContainerReceipt, parseTrustedRuntimeMainHealthReceipt, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, trustedRuntimeMainHealthCarryForwardBaselineMatches, type TrustedRuntimeContainerReceipt, type TrustedRuntimeMainHealthReceipt } from '../../verification/trusted-runtime/trusted-runtime-container.ts';
 import {
-  CodexDevelopmentAssertWorkPackageOwnership,
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentWorkPackageManifestDigest
-} from '../agent/work-package-contract.ts';
-import {
   dispatchGitHubApiRequest,
   integrationAuthorizationStatusMergeMarkers,
   parseIntegrationAuthorizationStatusPublication,
@@ -66,6 +59,12 @@ import {
   withMainHealthGitHubReadOperationBudget,
   type MainHealthRuntimeAuthority
 } from '../main-health/work-selection-main-health.ts';
+import {
+  CodexDevelopmentAssertWorkPackageOwnership,
+  CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentParseWorkPackageLocator,
+  CodexDevelopmentWorkPackageManifestDigest
+} from '../task/contract/work-package.ts';
 
 const TRUSTED_RUNTIME_ACTION_BUNDLE_SCHEMA =
   'sec-trusted-runtime-action-bundle-v1' as const;
@@ -113,7 +112,7 @@ export class TrustedRuntimeControlCliUnavailableError extends Error {
   readonly code = 'trusted-runtime-control-cli-unavailable' as const;
 
   constructor(
-    readonly providerStatus: WindowsControlCliSessionFailure['status'],
+    readonly providerStatus: 'unavailable',
     readonly providerReason: string,
     readonly providerDetailDigest: `sha256:${string}`
   ) {
@@ -121,43 +120,25 @@ export class TrustedRuntimeControlCliUnavailableError extends Error {
       `Trusted runtime Windows control CLI is ${providerStatus}: ${providerReason} `
       + `(${providerDetailDigest})`
     );
-    this.name = 'TrustedRuntimeControlCliUnavailableErrorV1';
+    this.name = 'TrustedRuntimeControlCliUnavailableError';
   }
 }
 
-function trustedRuntimeWindowsControlCliRequest(
-  repositoryRoot: string,
-  deadlineAtUnixMs: number
-): WindowsControlCliSessionRequest {
-  return Object.freeze({
-    workingDirectoryPathHint: path.resolve(repositoryRoot),
-    deadlineAtUnixMs,
-    maxCommandsPerSession: 128,
-    maxTotalArgumentBytes: 16 * 1024 * 1024,
-    maxTotalOutputBytes: 16 * 1024 * 1024,
-    maxRootObservedBytes: 256 * 1024 * 1024,
-    maxExecutableObservedBytes: 256 * 1024 * 1024,
-    maxRecords: 100_000,
-    maxReopenRefreshes: 10_000,
-    maxSettlementAttempts: 128
-  });
-}
-
 /**
- * The current exact Windows provider has no authenticated root/image closure,
- * and its command surface does not yet bind caller-owned Git/GitHub semantic
- * environment or Effect authority. Every closeout entry therefore resolves
- * it before any raw or nested CLI client can start and remains typed blocked.
+ * Trusted closeout already owns hosted GitHub semantics, but its local Git
+ * observations/effects have not yet been moved into one opaque Git operation.
+ * Physical executable adoption cannot authorize those operations, so Windows
+ * remains typed unavailable before any raw or nested CLI client can start.
  */
 function assertTrustedRuntimeWindowsControlCliAdmission(repositoryRoot: string): void {
   if (process.platform !== 'win32') return;
-  const resolution = resolveWindowsControlCliSession(
-    trustedRuntimeWindowsControlCliRequest(repositoryRoot, Date.now() + 120_000)
-  );
   throw new TrustedRuntimeControlCliUnavailableError(
-    resolution.status,
-    resolution.reason,
-    resolution.detailDigest
+    'unavailable',
+    'semantic-session-unavailable',
+    hash({
+      boundary: 'trusted-runtime-closeout-windows-semantic-session',
+      repositoryRoot: path.resolve(repositoryRoot)
+    })
   );
 }
 

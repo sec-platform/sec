@@ -8,7 +8,7 @@ import { readOptionalCanonicalVerificationArtifactSet } from '../../src/verifica
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { buildBlockedProductVerificationClaimSummary } from '../../src/verification/profile/contract/product.ts';
 import { ensureProjectBase } from '../../src/workspace/application/project-base.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { buildReviewLock } from '../helpers/review-fixtures.ts';
 import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -60,9 +60,7 @@ function blockedArtifactSet() {
     status: 'skipped' as const,
     acceptancePassed: [] as string[],
     blocks: [],
-    slots: [],
-    uncoveredBlocks: [] as string[],
-    uncoveredSlots: [] as string[]
+    uncoveredBlocks: [] as string[]
   };
 
   return {

@@ -17,7 +17,6 @@ import {
   jsonObjectMerge,
   renameDirectory,
   renameFile,
-  slotContractUpdate,
   textAppend
 } from './migration-fixtures.ts';
 
@@ -516,47 +515,6 @@ test('text-append migration rejects directory targets', async () => {
 
     await expect(
       applyMigrationEntries(workspaceRoot, manifestRoot, ['docs/upgrade-notes.md'], [textAppend('docs/upgrade-notes.md', '- first note\n')])
-    ).rejects.toMatchObject({
-      code: 'UPGRADE-MIGRATION-017'
-    });
-  });
-});
-
-test('slot-contract-update migration verifies custom slot target without changing files', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'custom'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-    await fs.writeFile(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), 'export const marker = true;\n', 'utf8');
-
-    await applyMigrationEntries(
-      workspaceRoot,
-      manifestRoot,
-      ['custom/customer_normalizer.ts'],
-      [slotContractUpdate('custom/customer_normalizer.ts')]
-    );
-
-    await expect(fs.readFile(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), 'utf8')).resolves.toBe(
-      'export const marker = true;\n'
-    );
-  });
-});
-
-test('slot-contract-update migration rejects directory custom slot targets', async () => {
-  await withTempWorkspace(async (tempRoot) => {
-    const workspaceRoot = tempRoot;
-    const manifestRoot = path.join(tempRoot, 'manifest');
-    await fs.mkdir(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), { recursive: true });
-    await fs.mkdir(manifestRoot, { recursive: true });
-
-    await expect(
-      applyMigrationEntries(
-        workspaceRoot,
-        manifestRoot,
-        ['custom/customer_normalizer.ts'],
-        [slotContractUpdate('custom/customer_normalizer.ts')]
-      )
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-017'
     });

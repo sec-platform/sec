@@ -1,6 +1,5 @@
 import { access, cp, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { expect, test } from 'bun:test';
 
@@ -41,7 +40,7 @@ import { SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryReco
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import {
   acceptedResult,
   digest,
@@ -1085,12 +1084,6 @@ test('ticket semantic contract lowers into the runtime transition contract', asy
       overrideStatus: 'none'
     });
     expect(fixture.runtimeContractProvenance?.hash).toBeDefined();
-
-    const ticketSuite = await import(
-      `${pathToFileURL(path.join(fixture.workspaceRoot, 'tests', 'shared', 'ticket-service-suite.ts')).href}?transaction=${fixture.compilation.transactionId}`
-    );
-    await ticketSuite.runTicketServiceSuite();
-    await ticketSuite.runTicketFlowSuite();
   }, 'engineering-compiler-semantic-runtime-contract-');
 }, 120000);
 
@@ -1106,6 +1099,9 @@ test('ticket semantic core closes the verified pipeline and three canonical proj
     (await loadWorkspaceEngineeringIRBuildInput(workspaceRoot)).engineeringIRInput
   );
   expect(verificationReport.fast.status).toBe('passed');
+  expect(verificationReport.fast.unit.status).toBe('passed');
+  expect(verificationReport.fast.acceptance.status).toBe('passed');
+  expect(verificationReport.runtime.unit.status).toBe('passed');
   expect(verificationReport.summary.status).toBe('passed');
 
   const architecture = projectArchitectureView(ticketSnapshot, 'responsibility:ticket:TicketLifecycle');

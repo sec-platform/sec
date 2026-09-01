@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import type { SemanticGeneratorDeclaration } from '../../semantic/generation/contract/types.ts';
 import type { SemanticMutationLoadedSourceCandidate } from '../../semantic/mutation/contract/types.ts';
-import { getWorkspacePaths, posixPath } from '../../workspace/paths.ts';
+import { getWorkspacePaths, posixPath } from '../../workspace/runtime/paths.ts';
 import type { LockFile, ManifestEntry } from '../contract.ts';
 import { readLockFile } from '../lock.ts';
 import {
@@ -76,7 +76,6 @@ export async function loadWorkspaceEngineeringIRBuildInput(
           generators: entry.manifest.generators
         }
       })),
-      slotTasks: lock.slotTasks,
       acceptanceIds: plan.acceptance.map((acceptance) => acceptance.id),
       policyDeclarations: policyDeclarations.policies,
       semanticContracts

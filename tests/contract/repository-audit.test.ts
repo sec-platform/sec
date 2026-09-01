@@ -155,7 +155,7 @@ test('heuristic candidate extraction ignores historical authority but exposes hi
     '// Codex Agent must stop when the canonical owner is unresolved.'
   )).toHaveLength(1);
   expect(extractHeuristicBehaviorCandidates(
-    '.dependency-cruiser.json',
+    'tsconfig.json',
     '"comment": "platform/ 不得依赖 scripts/codex 开发控制面。"'
   )).toEqual([]);
 });

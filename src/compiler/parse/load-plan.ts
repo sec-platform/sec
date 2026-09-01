@@ -3,9 +3,8 @@ import YAML from 'yaml';
 
 import { isCanonicalAcceptanceId } from '../../semantic/acceptance/contract/identity.ts';
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../semantic/identity/contract/block.ts';
-import { isCanonicalSlotId } from '../../semantic/identity/contract/slot.ts';
 import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { getWorkspacePaths, officialRegistryRelativePath, posixPath, privateRegistryRelativePath, srcRelativePath } from '../../workspace/paths.ts';
+import { getWorkspacePaths, officialRegistryRelativePath, posixPath, privateRegistryRelativePath } from '../../workspace/runtime/paths.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../contract.ts';
 import { SUPPORTED_STACK } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
@@ -34,9 +33,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const PLAN_ROOT_FIELDS = new Set<keyof PlanFile>([
+  'app',
+  'registry',
+  'blocks',
+  'acceptance'
+]);
+
 function assertRawPlanShape(value: unknown): asserts value is Partial<PlanFile> {
   if (!isRecord(value)) {
     throw new CompilerError('PLAN-VALIDATION-022', 'Plan root must be one object');
+  }
+  const unknownFields = Object.keys(value).filter((field) => !PLAN_ROOT_FIELDS.has(field as keyof PlanFile));
+  if (unknownFields.length > 0) {
+    throw new CompilerError(
+      'PLAN-VALIDATION-022',
+      `Plan root has unsupported fields: ${unknownFields.sort().join(', ')}`
+    );
   }
   if (value.app !== undefined && !isRecord(value.app)) {
     throw new CompilerError('PLAN-VALIDATION-022', 'app must be one object');
@@ -56,7 +69,6 @@ function assertRawPlanShape(value: unknown): asserts value is Partial<PlanFile> 
   }
   for (const [field, code] of [
     ['blocks', 'PLAN-VALIDATION-004'],
-    ['slots', 'PLAN-VALIDATION-006'],
     ['acceptance', 'PLAN-VALIDATION-021']
   ] as const) {
     if (value[field] !== undefined && !Array.isArray(value[field])) {
@@ -91,7 +103,6 @@ export function normalizePlan(plan: PlanFile): PlanFile {
         .map((source) => normalizeRegistrySource(source))
     },
     blocks: normalized.blocks ?? [],
-    slots: normalized.slots ?? [],
     acceptance: normalized.acceptance ?? []
   };
 }
@@ -184,51 +195,6 @@ export function validatePlan(plan: PlanFile): void {
       throw new CompilerError('PLAN-VALIDATION-005', `Duplicate block id "${block.id}"`);
     }
     blockIds.add(block.id);
-  }
-
-  if (!Array.isArray(plan.slots)) {
-    throw new CompilerError('PLAN-VALIDATION-006', 'slots must be an array');
-  }
-  const slotIds = new Set<string>();
-  for (const slot of plan.slots) {
-    if (!slot || typeof slot !== 'object' || !slot.block || !slot.kind || !slot.target || !slot.symbol) {
-      throw new CompilerError('PLAN-VALIDATION-006', `Slot "${slot?.id ?? '<unknown>'}" is incomplete`);
-    }
-    if (!isCanonicalSlotId(slot.id)) {
-      throw new CompilerError(
-        'PLAN-VALIDATION-024',
-        `Slot id "${String(slot.id)}" is not one canonical lowercase logical identity`
-      );
-    }
-    if (!isCanonicalBlockId(slot.block)) {
-      throw new CompilerError(
-        'PLAN-VALIDATION-006',
-        `Slot "${slot.id}" references a non-canonical block id "${String(slot.block)}"`
-      );
-    }
-    if (slot.kind !== 'adapter' && slot.kind !== 'policy' && slot.kind !== 'ux' && slot.kind !== 'repair') {
-      throw new CompilerError(
-        'PLAN-VALIDATION-020',
-        `Slot "${slot.id}" has unsupported kind "${String(slot.kind)}"`
-      );
-    }
-    if (slotIds.has(slot.id)) {
-      throw new CompilerError('PLAN-VALIDATION-007', `Duplicate slot id "${slot.id}"`);
-    }
-    if (!blockIds.has(slot.block)) {
-      throw new CompilerError('PLAN-REFERENCE-002', `Slot "${slot.id}" references unknown block "${slot.block}"`);
-    }
-    if (!isCanonicalPortableLogicalPath(slot.target) || !slot.target.startsWith(`${srcRelativePath}/`)) {
-      throw new CompilerError('PLAN-VALIDATION-008', `Slot "${slot.id}" must target canonical ${srcRelativePath}/ path`);
-    }
-    if (
-      slot.sourcePath &&
-      (!isCanonicalPortableLogicalPath(slot.sourcePath) ||
-        !slot.sourcePath.startsWith(`${srcRelativePath}/`))
-    ) {
-      throw new CompilerError('PLAN-VALIDATION-013', `Slot "${slot.id}" sourcePath must target canonical ${srcRelativePath}/ path`);
-    }
-    slotIds.add(slot.id);
   }
 
   if (!Array.isArray(plan.acceptance)) {

@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/agent/work-package-contract.ts';
 import {
   CodexDevelopmentActivateMainHealthRepairRollingPlan,
   CodexDevelopmentAssertRollingMachineBaseBinding,
@@ -13,6 +12,7 @@ import {
   CodexDevelopmentRenderCommittedCandidateReplanRollingPlan,
   CodexDevelopmentRequiresCommittedCandidateProjectionRefresh
 } from '../../src/control/documentation/document-control-plane-contract.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
 import {
   compileSecWorkRollingTransitionProjection,
   renderSecWorkRollingTransitionPlan

@@ -5,6 +5,7 @@ import type {
   DependencyCleanOptions,
   DependencyEnvironmentStatus
 } from '../../src/toolchain/dependencies/environment.ts';
+import * as dependencyEnvironmentDomain from '../../src/toolchain/dependencies/environment.ts';
 import {
   runCliInProcess as runCli,
   type CliResult,
@@ -54,6 +55,7 @@ test('dependency maintenance CLI routes through one explicit command domain with
     const calls: DependencyCommandCall[] = [];
     const status = dependencyStatus(workspaceRoot);
     const domain = {
+      ...dependencyEnvironmentDomain,
       cleanDependencyEnvironment: async (root: string | undefined, options: DependencyCleanOptions) => {
         const observedRoot = root ?? process.cwd();
         calls.push({ method: 'clean', options, workspaceRoot: observedRoot });

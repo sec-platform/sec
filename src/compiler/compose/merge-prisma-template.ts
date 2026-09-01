@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { writeText, type CommitFence } from '../../workspace/files.ts';
-import { getWorkspacePaths } from '../../workspace/paths.ts';
+import { getWorkspacePaths } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
 
 export interface PrismaBlock {

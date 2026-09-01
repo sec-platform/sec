@@ -24,7 +24,6 @@ pins:
     - id: agent_registered
       type: AIAgentRecord
       required: true
-slots: []
 acceptance:
   - id: agent_can_be_registered
     dependsOn:

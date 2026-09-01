@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAssertTestImpactTransitionSelection, CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/verification/test-impact/runtime/transition.ts';
+import { CodexDevelopmentAssertTestImpactTransitionSelection, CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/verification/test-impact/runtime/transition.ts';
 
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -44,7 +44,7 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     '--diff-filter=ACDMRTUXB',
     'HEAD'
   ]);
-  expect(gitChangedFileDiffArgs('main', null)).toEqual([
+  expect(gitIndexChangedFileDiffArgs('main')).toEqual([
     '--no-pager',
     '-c',
     'core.quotepath=false',
@@ -52,15 +52,29 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     'core.fsmonitor=false',
     '-c',
     'core.untrackedCache=false',
-    'diff',
-    '--no-ext-diff',
-    '--no-textconv',
+    'diff-index',
+    '--cached',
     '--name-status',
     '-z',
     '--find-renames',
     '--find-copies',
     '--diff-filter=ACDMRTUXB',
     'main'
+  ]);
+  expect(gitWorktreeChangedFileDiffArgs()).toEqual([
+    '--no-pager',
+    '-c',
+    'core.quotepath=false',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
+    'diff-files',
+    '--name-status',
+    '-z',
+    '--find-renames',
+    '--find-copies',
+    '--diff-filter=ACDMRTUXB'
   ]);
   expect(gitUntrackedFileArgs()).toEqual([
     '--no-pager',

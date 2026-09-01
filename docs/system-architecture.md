@@ -602,6 +602,8 @@ explicit unknown frontier；新增语言只新增provider-owned selector/fact sh
 将Source Program facts、authoritative Contracts和adopted assertions汇合为新immutable semantic snapshot；Evidence若需要进入语义世界，也必须经
 显式admission产生新snapshot，不能修改旧snapshot。
 
+当一个semantic input只消费更宽Content Manifest或Workspace Observation的resolved closure时，其identity只包含实际closure、解析合同与必要外部generation；完整workspace、provider session、physical epoch和读取receipt只进入observation/evidence identity。更宽content generation可以作为保守的廉价失效索引，不能嵌入更窄pure result、冒充其业务依赖或迫使无关字节变化重签semantic identity。
+
 不存在统一的`CompilerGeneration`。Requirement、Candidate、Decision、Binding、每个pure stage result、Target Program与Artifact Content分别拥有
 identity；stage key只绑定精确上游refs、stage/compiler/backend contract和实际影响它的policy/provider semantic revision。attempt nonce、deadline、
 execution lane、cache path、Git transport epoch与Evidence ID不得进入pure result identity。绝大多数Projection只是可丢弃的bounded函数结果，不拥有

@@ -1,1 +1,1 @@
-export { checkReferenceDrift } from '../../workspace/project.ts';
+export { checkReferenceDrift } from '../../workspace/application/project-integrity.ts';

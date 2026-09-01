@@ -5,7 +5,6 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/agent/work-package-contract.ts';
 import {
   parseDocumentationAuthorityRegistry,
   renderDocumentationIndex,
@@ -24,11 +23,12 @@ import {
   compileDocsDoctorIndexSnapshotLayout,
   DOCS_DOCTOR_INDEX_SNAPSHOT_LAYOUT
 } from '../../src/control/documentation/index-snapshot.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/control/task/contract/work-package.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END
 } from '../../src/control/work-selection/live-contract.ts';
-import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/ci/contract/plan.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/contract/revision.ts';
 
 const ACTIVE_PACKAGE_ID = 'fixture-active-v1';
 const ACTIVE_MANIFEST = `docs/work-packages/${ACTIVE_PACKAGE_ID}.md`;
@@ -79,9 +79,6 @@ function fixtureRegistry(): DocumentationAuthorityRegistry {
         dynamicPolicy: 'forbidden',
         owns: [],
         projects: ['product'],
-        audience: ['developer'],
-        consumers: ['repository-home'],
-        updateTriggers: ['navigation-changed']
       },
       {
         id: 'agents-entry',
@@ -92,9 +89,6 @@ function fixtureRegistry(): DocumentationAuthorityRegistry {
         dynamicPolicy: 'forbidden',
         owns: [],
         projects: ['product'],
-        audience: ['agent'],
-        consumers: ['agent-host'],
-        updateTriggers: ['skill-routing-changed']
       },
       {
         id: 'documentation-registry',
@@ -109,9 +103,6 @@ function fixtureRegistry(): DocumentationAuthorityRegistry {
           'documentation.ownership'
         ],
         projects: [],
-        audience: ['developer'],
-        consumers: ['docs-doctor'],
-        updateTriggers: ['document-created']
       },
       {
         id: 'docs-index',
@@ -123,9 +114,6 @@ function fixtureRegistry(): DocumentationAuthorityRegistry {
         owns: [],
         projects: ['product'],
         generatedFrom: 'docs/authority.json',
-        audience: ['developer'],
-        consumers: ['docs-reader'],
-        updateTriggers: ['registry-changed']
       },
       {
         id: 'product',
@@ -136,9 +124,6 @@ function fixtureRegistry(): DocumentationAuthorityRegistry {
         dynamicPolicy: 'forbidden',
         owns: ['product.boundary'],
         projects: [],
-        audience: ['developer'],
-        consumers: ['compiler'],
-        updateTriggers: ['product-boundary-changed']
       },
       {
         id: 'current-state',
@@ -149,9 +134,6 @@ function fixtureRegistry(): DocumentationAuthorityRegistry {
         dynamicPolicy: 'control',
         owns: ['control.resolver-authority'],
         projects: [],
-        audience: ['agent'],
-        consumers: ['resolver'],
-        updateTriggers: ['goal-authority-changed']
       },
       {
         id: 'rolling-plan',
@@ -162,9 +144,6 @@ function fixtureRegistry(): DocumentationAuthorityRegistry {
         dynamicPolicy: 'control',
         owns: ['control.rolling-plan'],
         projects: [],
-        audience: ['agent'],
-        consumers: ['a0'],
-        updateTriggers: ['work-package-changed']
       },
       {
         id: 'active-work-package',
@@ -175,9 +154,6 @@ function fixtureRegistry(): DocumentationAuthorityRegistry {
         dynamicPolicy: 'control',
         owns: ['control.active-work-package'],
         projects: [],
-        audience: ['agent'],
-        consumers: ['resolver'],
-        updateTriggers: ['work-package-changed']
       }
     ]
   }));

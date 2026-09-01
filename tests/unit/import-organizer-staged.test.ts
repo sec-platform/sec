@@ -5,7 +5,10 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { runStagedImportOrganizer } from '../../src/development/runner/import-organizer.ts';
+import {
+  runStagedIndexOnlyImportOrganizer,
+  runSynchronizedStagedImportOrganizer
+} from '../../src/development/runner/import-organizer.ts';
 import { generatedStateProducerHooks } from '../../src/runtime-state/generated-state/lifecycle.ts';
 
 function git(repoRoot: string, args: readonly string[], bytes = false): string | Buffer {
@@ -109,17 +112,23 @@ test('staged organizer fast sentinel preserves working bytes while normalizing t
     await writeFile(fixturePath, workingBytes);
 
     const lifecycle: string[] = [];
-    expect(await runStagedImportOrganizer(repoRoot, {
+    const lifecycleOwner = generatedStateProducerHooks({ repositoryRoot: repoRoot });
+    expect(await runStagedIndexOnlyImportOrganizer(repoRoot, {
       generatedStateLifecycle: {
-        born: async (relativePath) => {
+        born: async (relativePath, operationId) => {
           expect(relativePath).toMatch(/^\.tmp\/import-candidate-snapshots\/snapshot-/u);
           await access(path.join(repoRoot, ...relativePath.split('/')));
+          await lifecycleOwner.born(relativePath, operationId);
           lifecycle.push(`born:${relativePath}`);
         },
-        disposed: async (relativePath, outcome) => {
-          expect(outcome).toBe('candidate-snapshot-consumed');
-          await rm(path.join(repoRoot, ...relativePath.split('/')), { recursive: true, force: true });
+        disposed: async (relativePath, request) => {
+          expect(request).toMatchObject({
+            outcome: 'candidate-snapshot-consumed',
+            profile: 'automatic'
+          });
+          const receipt = await lifecycleOwner.disposed(relativePath, request);
           lifecycle.push(`disposed:${relativePath}`);
+          return receipt;
         }
       }
     }, { candidateBase })).toBe(0);
@@ -155,13 +164,13 @@ test('candidate snapshot retained capability rejects ancestor substitution witho
     git(repoRoot, ['add', 'fixture.ts']);
     await writeFile(fixturePath, `${source('unsorted')}// unstaged\n`);
 
-    await expect(runStagedImportOrganizer(repoRoot, {
+    await expect(runStagedIndexOnlyImportOrganizer(repoRoot, {
       generatedStateLifecycle: {
         born: async (pathValue, operationId) => {
           relativePath = pathValue;
           await lifecycle.born(pathValue, operationId);
         },
-        disposed: async (pathValue, outcome) => lifecycle.disposed(pathValue, outcome)
+        disposed: async (pathValue, request) => lifecycle.disposed(pathValue, request)
       },
       beforeCandidateSnapshotWrite: async (pathValue) => {
         snapshotRoot = pathValue;
@@ -180,7 +189,10 @@ test('candidate snapshot retained capability rejects ancestor substitution witho
 
     await rm(snapshotRoot!, { recursive: true, force: true });
     await rename(movedRoot!, snapshotRoot!);
-    await lifecycle.disposed(relativePath!, 'negative-test-restored-owner');
+    await lifecycle.disposed(relativePath!, {
+      outcome: 'negative-test-restored-owner',
+      profile: 'automatic'
+    });
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }
@@ -194,7 +206,7 @@ test('candidate snapshot birth failure preserves the primary error without inven
   try {
     let observedError: unknown;
     try {
-      await runStagedImportOrganizer(repoRoot, {
+      await runStagedIndexOnlyImportOrganizer(repoRoot, {
         generatedStateLifecycle: {
           born: async (relativePath) => {
             snapshotRelativePath = relativePath;
@@ -202,6 +214,7 @@ test('candidate snapshot birth failure preserves the primary error without inven
           },
           disposed: async () => {
             disposedCalls += 1;
+            throw new Error('unexpected disposal after birth failure');
           }
         }
       }, { candidateBase });
@@ -225,7 +238,7 @@ test('candidate snapshot cleanup records its failure after a successful birth wi
   try {
     let observedError: unknown;
     try {
-      await runStagedImportOrganizer(repoRoot, {
+      await runStagedIndexOnlyImportOrganizer(repoRoot, {
         generatedStateLifecycle: {
           born: async () => undefined,
           disposed: async () => {
@@ -243,6 +256,130 @@ test('candidate snapshot cleanup records its failure after a successful birth wi
     expect(observedError).toBeInstanceOf(AggregateError);
     const failures = [...(observedError as AggregateError).errors];
     expect(failures).toEqual([primaryError, cleanupError]);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+async function prepareSynchronizedCandidate(prefix: string): Promise<Readonly<{
+  repoRoot: string;
+  fixturePath: string;
+  stagedBytes: Buffer;
+}>> {
+  const repoRoot = await mkdtemp(path.join(tmpdir(), prefix));
+  git(repoRoot, ['init', '--quiet']);
+  git(repoRoot, ['config', 'user.email', 'tests@example.com']);
+  git(repoRoot, ['config', 'user.name', 'SEC Tests']);
+  git(repoRoot, ['config', 'core.autocrlf', 'false']);
+  await Promise.all([
+    writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
+      compilerOptions: {
+        allowImportingTsExtensions: true,
+        module: 'ESNext',
+        moduleResolution: 'Bundler',
+        noEmit: true,
+        target: 'ES2022'
+      },
+      include: ['**/*.ts']
+    }, null, 2)}\n`, 'utf8'),
+    writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
+    writeFile(path.join(repoRoot, 'fixture.ts'), source('sorted'), 'utf8')
+  ]);
+  git(repoRoot, ['add', '--all']);
+  git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+  const fixturePath = path.join(repoRoot, 'fixture.ts');
+  const stagedBytes = Buffer.from(source('unsorted'));
+  await writeFile(fixturePath, stagedBytes);
+  git(repoRoot, ['add', 'fixture.ts']);
+  return Object.freeze({ repoRoot, fixturePath, stagedBytes });
+}
+
+test('synchronized staged apply publishes exact bytes to index and worktree without presenting source', async () => {
+  const { fixturePath, repoRoot } = await prepareSynchronizedCandidate('sec-import-sync-');
+  const largeSentinel = `PRESENTATION_MUST_NOT_CONTAIN_${'x'.repeat(256 * 1024)}`;
+  const stagedBytes = Buffer.from(`${source('unsorted')}// ${largeSentinel}\n`);
+  const messages: string[] = [];
+  const originalLog = console.log;
+  try {
+    await writeFile(fixturePath, stagedBytes);
+    git(repoRoot, ['add', 'fixture.ts']);
+    console.log = (...values: unknown[]) => {
+      messages.push(values.map(String).join(' '));
+    };
+    expect(await runSynchronizedStagedImportOrganizer(repoRoot)).toBe(0);
+    const expected = Buffer.from(`${source('sorted')}// ${largeSentinel}\n`);
+    expect(await readFile(fixturePath)).toEqual(expected);
+    const objectId = String(git(repoRoot, ['rev-parse', ':fixture.ts'])).trim();
+    expect(git(repoRoot, ['cat-file', 'blob', objectId], true)).toEqual(expected);
+    const presentation = messages.join('\n');
+    expect(presentation).not.toContain(largeSentinel);
+    expect(Buffer.byteLength(presentation, 'utf8')).toBeLessThan(1024);
+  } finally {
+    console.log = originalLog;
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('synchronized staged apply accepts a target that normalizes back to the candidate base', async () => {
+  const { fixturePath, repoRoot } = await prepareSynchronizedCandidate('sec-import-sync-base-');
+  try {
+    expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('fixture.ts');
+
+    expect(await runSynchronizedStagedImportOrganizer(repoRoot)).toBe(0);
+
+    const expected = Buffer.from(source('sorted'));
+    expect(await readFile(fixturePath)).toEqual(expected);
+    const objectId = String(git(repoRoot, ['rev-parse', ':fixture.ts'])).trim();
+    expect(git(repoRoot, ['cat-file', 'blob', objectId], true)).toEqual(expected);
+    expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('');
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('synchronized staged apply rejects index-worktree drift with zero publication', async () => {
+  const { fixturePath, repoRoot, stagedBytes } = await prepareSynchronizedCandidate('sec-import-sync-drift-');
+  try {
+    const worktreeBytes = Buffer.concat([stagedBytes, Buffer.from('// unstaged owner bytes\n')]);
+    await writeFile(fixturePath, worktreeBytes);
+    const indexBefore = git(repoRoot, ['ls-files', '--stage', '-z'], true);
+    let observed: unknown;
+    try {
+      await runSynchronizedStagedImportOrganizer(repoRoot);
+    } catch (error) {
+      observed = error;
+    }
+    expect(observed).toMatchObject({ code: 'IMPORT-STAGED-WORKTREE-DIVERGED' });
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], true)).toEqual(indexBefore);
+    expect(await readFile(fixturePath)).toEqual(worktreeBytes);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('synchronized staged apply rolls back a pre-index failure and exposes durable recovery journals', async () => {
+  const { fixturePath, repoRoot, stagedBytes } = await prepareSynchronizedCandidate('sec-import-sync-rollback-');
+  try {
+    const indexBefore = git(repoRoot, ['ls-files', '--stage', '-z'], true);
+    let observed: unknown;
+    try {
+      await runSynchronizedStagedImportOrganizer(repoRoot, {
+        beforeSynchronizedIndexPublish: () => {
+          throw new Error('injected index publication failure');
+        }
+      });
+    } catch (error) {
+      observed = error;
+    }
+    expect(observed).toMatchObject({
+      code: 'IMPORT-STAGED-SYNC-ROLLED-BACK',
+      details: {
+        forwardJournalPath: expect.stringContaining('journal.jsonl'),
+        rollbackJournalPath: expect.stringContaining('journal.jsonl')
+      }
+    });
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], true)).toEqual(indexBefore);
+    expect((await readFile(fixturePath)).equals(stagedBytes)).toBe(true);
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
   }

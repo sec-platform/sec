@@ -1,20 +1,25 @@
 import path from 'node:path';
 
-import type { LockFile } from '../../compiler/contract.ts';
-import { CompilerError } from '../../compiler/errors.ts';
 import { PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { readOptionalRetainedJson } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import {
+  decodeExactUtf8,
+  readOptionalRetainedOrdinaryFile
+} from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
-import { canonicalEquals, deepFreeze, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import {
   PROJECT_BASELINE_FORMAT_VERSION,
+  parseProjectBaseline,
+  parseProjectBaselineJson,
   type ProjectBaselineArtifact,
-  type ProjectBaselineFile
-} from '../index.ts';
+  type ProjectBaselineFile,
+  type ProjectBaselinePathInput
+} from '../contract/project-baseline.ts';
+import { ProjectIntegrityError } from '../contract/project-integrity.ts';
+import { modelRelativePath } from '../contract/types.ts';
 import { writeJson, type CommitFence } from './files.ts';
 import {
   getWorkspacePaths,
-  modelRelativePath,
   resolvePathInside,
   secRelativePath,
   tsconfigRelativePath,
@@ -27,9 +32,6 @@ export interface ProjectBaselineAssertionOptions {
   expectedArtifactPaths?: readonly string[];
 }
 
-const PROJECT_BASELINE_KEYS = new Set(['formatVersion', 'artifacts']);
-const PROJECT_BASELINE_ARTIFACT_KEYS = new Set(['path', 'hash']);
-
 export function getProjectBaselinePath(workspaceRoot: string): string {
   const { cacheRoot } = getWorkspacePaths(workspaceRoot);
   return path.join(cacheRoot, 'project-baseline.json');
@@ -37,38 +39,28 @@ export function getProjectBaselinePath(workspaceRoot: string): string {
 
 function requireCanonicalBaselineArtifactPath(artifactPath: string): string {
   if (!isCanonicalPortableLogicalPath(artifactPath)) {
-    throw new CompilerError(
-      'ERROR-DRIFT-001',
+    throw new ProjectIntegrityError(
       `Project baseline path is not one canonical portable logical path: ${artifactPath}`
     );
   }
   return artifactPath;
 }
 
-function isReadOnlyProjectPath(artifactPath: string, slotTargets: ReadonlySet<string>): boolean {
+function isReadOnlyProjectPath(artifactPath: string): boolean {
   return (
     !artifactPath.startsWith(`${modelRelativePath}/`) &&
     !artifactPath.startsWith(`${secRelativePath}/`) &&
-    !slotTargets.has(artifactPath) &&
     artifactPath !== workspaceConfigRelativePath &&
     artifactPath !== tsconfigRelativePath
   );
 }
 
 export function currentReadOnlyProjectPaths(
-  lock: LockFile,
-  additionalPaths: readonly string[] = []
+  input: ProjectBaselinePathInput
 ): string[] {
-  const slotTargets = new Set(
-    lock.slotTasks.map((task) => requireCanonicalBaselineArtifactPath(task.target))
-  );
-  const candidates = [
-    ...lock.installPlan.map((step) => step.to),
-    ...lock.generatedPaths,
-    ...additionalPaths
-  ].map(requireCanonicalBaselineArtifactPath);
+  const candidates = input.artifactPaths.map(requireCanonicalBaselineArtifactPath);
   return uniqueSorted(candidates)
-    .filter((artifactPath) => isReadOnlyProjectPath(artifactPath, slotTargets));
+    .filter(isReadOnlyProjectPath);
 }
 
 /**
@@ -98,78 +90,30 @@ function expectedArtifactPaths(options: ProjectBaselineAssertionOptions): readon
 }
 
 function invalidBaseline(message: string): never {
-  throw new CompilerError('ERROR-DRIFT-001', `Project baseline is stale or malformed: ${message}`);
-}
-
-function hasExactKeys(value: Record<string, unknown>, expected: ReadonlySet<string>): boolean {
-  const keys = Object.keys(value);
-  return keys.length === expected.size && keys.every((key) => expected.has(key));
-}
-
-function validateProjectBaseline(value: unknown): ProjectBaselineFile {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return invalidBaseline('root must be one object');
-  }
-  const baseline = value as Record<string, unknown>;
-  if (!hasExactKeys(baseline, PROJECT_BASELINE_KEYS)) {
-    return invalidBaseline('root has an unsupported field set');
-  }
-  if (baseline.formatVersion !== PROJECT_BASELINE_FORMAT_VERSION) {
-    return invalidBaseline(`unsupported formatVersion "${String(baseline.formatVersion)}"`);
-  }
-  if (!Array.isArray(baseline.artifacts)) {
-    return invalidBaseline('artifacts must be an array');
-  }
-
-  const artifacts: ProjectBaselineArtifact[] = [];
-  const seenPaths = new Set<string>();
-  for (const rawArtifact of baseline.artifacts) {
-    if (rawArtifact === null || typeof rawArtifact !== 'object' || Array.isArray(rawArtifact)) {
-      return invalidBaseline('every artifact must be one object');
-    }
-    const artifact = rawArtifact as Record<string, unknown>;
-    if (!hasExactKeys(artifact, PROJECT_BASELINE_ARTIFACT_KEYS)) {
-      return invalidBaseline('artifact has an unsupported field set');
-    }
-    if (typeof artifact.path !== 'string' || !isCanonicalPortableLogicalPath(artifact.path)) {
-      return invalidBaseline(`artifact path is not canonical: ${String(artifact.path)}`);
-    }
-    if (typeof artifact.hash !== 'string' || !/^[0-9a-f]{64}$/u.test(artifact.hash)) {
-      return invalidBaseline(`artifact hash is invalid for ${artifact.path}`);
-    }
-    if (seenPaths.has(artifact.path)) {
-      return invalidBaseline(`duplicate artifact path ${artifact.path}`);
-    }
-    seenPaths.add(artifact.path);
-    artifacts.push({ path: artifact.path, hash: artifact.hash });
-  }
-
-  const artifactPaths = artifacts.map((artifact) => artifact.path);
-  if (!canonicalEquals(artifactPaths, uniqueSorted(artifactPaths))) {
-    return invalidBaseline('artifact paths must be canonically ordered');
-  }
-
-  return deepFreeze({
-    formatVersion: PROJECT_BASELINE_FORMAT_VERSION,
-    artifacts
-  });
+  throw new ProjectIntegrityError(`Project baseline is stale or malformed: ${message}`);
 }
 
 export function readProjectBaseline(workspaceRoot: string): ProjectBaselineFile | null {
-  let raw: unknown;
+  let bytes: Uint8Array | null;
   try {
-    raw = readOptionalRetainedJson<unknown>(
+    bytes = readOptionalRetainedOrdinaryFile(
       getProjectBaselinePath(workspaceRoot),
       'Project baseline'
     );
   } catch (error) {
     if (error instanceof PhysicalNoFollowError) throw error;
-    throw new CompilerError(
-      'ERROR-DRIFT-001',
-      `Project baseline cannot be read as retained JSON: ${error instanceof Error ? error.message : String(error)}`
+    throw new ProjectIntegrityError(
+      `Project baseline cannot be read as retained bytes: ${error instanceof Error ? error.message : String(error)}`
     );
   }
-  return raw === null ? null : validateProjectBaseline(raw);
+  if (bytes === null) return null;
+  try {
+    return parseProjectBaselineJson(decodeExactUtf8(bytes, 'Project baseline'));
+  } catch (error) {
+    throw new ProjectIntegrityError(
+      `Project baseline is stale or malformed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 export function assertProjectBaseline(
@@ -193,9 +137,8 @@ export function assertProjectBaseline(
     const artifactPath = expected?.path ?? current?.path ?? '';
     if (!expected || !current?.hash) {
       if (allowedChangedPaths.has(artifactPath)) continue;
-      throw new CompilerError(
-        'ERROR-DRIFT-001',
-        `Project drift detected: Read-only project file is missing after adapt: ${artifactPath}`,
+      throw new ProjectIntegrityError(
+        `Project drift detected: Read-only project file is missing after composition: ${artifactPath}`,
         {
           path: artifactPath,
           expectedHash: expected?.hash,
@@ -205,9 +148,8 @@ export function assertProjectBaseline(
     }
     if (current.hash !== expected.hash) {
       if (allowedChangedPaths.has(artifactPath)) continue;
-      throw new CompilerError(
-        'ERROR-DRIFT-001',
-        `Project drift detected: Read-only project file modified after adapt: ${expected.path}`,
+      throw new ProjectIntegrityError(
+        `Project drift detected: Read-only project file modified after composition: ${expected.path}`,
         {
           path: expected.path,
           expectedHash: expected.hash,
@@ -220,26 +162,24 @@ export function assertProjectBaseline(
 
 export async function writeProjectBaseline(
   workspaceRoot: string,
-  lock: LockFile,
-  additionalPaths: readonly string[] = [],
+  input: ProjectBaselinePathInput,
   commitFence?: CommitFence
 ): Promise<ProjectBaselineFile> {
   const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-  const artifactPaths = currentReadOnlyProjectPaths(lock, additionalPaths);
+  const artifactPaths = currentReadOnlyProjectPaths(input);
   const calculated = calculateArtifactHashes(root, artifactPaths);
   const artifacts: ProjectBaselineArtifact[] = [];
 
   for (const artifact of calculated) {
     if (!artifact.hash) {
-      throw new CompilerError(
-        'ERROR-DRIFT-001',
+      throw new ProjectIntegrityError(
         `Project baseline failed: Declared read-only project file is missing: ${artifact.path}`
       );
     }
     artifacts.push({ path: artifact.path, hash: artifact.hash });
   }
 
-  const baseline = deepFreeze<ProjectBaselineFile>({
+  const baseline = parseProjectBaseline({
     formatVersion: PROJECT_BASELINE_FORMAT_VERSION,
     artifacts
   });

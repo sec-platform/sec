@@ -1,17 +1,53 @@
 {
-  "status": "skipped",
+  "status": "passed",
   "official": {
-    "policies": [],
-    "sources": [],
+    "policies": [
+      "tenant-scope-required"
+    ],
+    "sources": [
+      {
+        "path": "catalog/policies/official/policy.spec.yaml",
+        "policyIds": [
+          "tenant-scope-required"
+        ]
+      }
+    ],
     "violations": []
   },
   "project": {
     "policies": [],
-    "sources": [],
+    "sources": [
+      {
+        "path": "model/policies/policy.spec.yaml",
+        "policyIds": []
+      }
+    ],
     "violations": []
   },
   "merged": {
-    "policies": []
+    "policies": [
+      {
+        "id": "tenant-scope-required",
+        "sourceScope": "official",
+        "sourcePath": "catalog/policies/official/policy.spec.yaml",
+        "targets": [
+          "src/installed/entity/customer-service.ts",
+          "src/installed/ticket/ticket-service.ts"
+        ]
+      }
+    ]
   },
-  "violations": []
+  "violations": [],
+  "diagnostics": [],
+  "evaluation": {
+    "providerId": "sec-policy-source-structure",
+    "providerRevision": "tenant-context-structure-v1",
+    "assurance": "source-structure",
+    "requiredSemanticPredicates": [
+      "FLOWS_TO"
+    ],
+    "unsupportedSemanticPredicates": [
+      "FLOWS_TO"
+    ]
+  }
 }

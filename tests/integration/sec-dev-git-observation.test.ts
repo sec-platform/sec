@@ -6,11 +6,17 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
-  captureRepositoryMutationState,
+  compileAffectedTestSelectionSemanticOperation
+} from '../../src/development/runner/affected-plan.ts';
+import {
   runRepositoryZeroWriteOperation
 } from '../../src/development/runner/repository-mutation-fence.ts';
 import {
+  withRepositoryFinalStateObservation
+} from '../../src/development/runner/repository-observation.ts';
+import {
   assertGitObjectId,
+  GIT_READ_OPERATION_BUDGET,
   readBlobBatch,
   readCommitBlobInventory,
   readTextAttributesBatch,
@@ -29,6 +35,10 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   });
   if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(' ')} failed`);
   return result.stdout.trim();
+}
+
+function gitReadOperation() {
+  return compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });
 }
 
 async function createRepository(prefix: string): Promise<string> {
@@ -55,7 +65,11 @@ test('Git read mechanics accept full SHA-1 and SHA-256 object IDs', () => {
 test('batch blob and attribute observations bind to one exact commit', async () => {
   const root = await createRepository('sec-dev-git-batch-');
   try {
-    await withAuthorityGitReadSession({ cwd: root }, async (session) => {
+    await withAuthorityGitReadSession({
+      cwd: root,
+      operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET
+    }, async (session) => {
       const commit = await resolveExactHeadCommit(session);
       const inventory = await readCommitBlobInventory(session, commit);
       expect(inventory.map((entry) => entry.path)).toEqual(['.gitattributes', 'committed.ts']);
@@ -76,8 +90,16 @@ test('batch blob and attribute observations bind to one exact commit', async () 
 test('Git replacement objects cannot substitute committed blob bytes', async () => {
   const root = await createRepository('sec-dev-git-replace-');
   try {
-    const commit = await withAuthorityGitReadSession({ cwd: root }, (session) => resolveExactHeadCommit(session));
-    const committed = await withAuthorityGitReadSession({ cwd: root }, (session) =>
+    const commit = await withAuthorityGitReadSession({
+      cwd: root,
+      operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET
+    }, (session) => resolveExactHeadCommit(session));
+    const committed = await withAuthorityGitReadSession({
+      cwd: root,
+      operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET
+    }, (session) =>
       readCommitBlobInventory(session, commit)
     ).then((inventory) => inventory.find((entry) => entry.path === 'committed.ts')!);
     const replacementPath = path.join(root, 'replacement.tmp');
@@ -87,7 +109,11 @@ test('Git replacement objects cannot substitute committed blob bytes', async () 
     git(root, ['replace', committed.objectId, replacement]);
 
     expect(git(root, ['cat-file', 'blob', committed.objectId])).toContain('committed = null');
-    await withAuthorityGitReadSession({ cwd: root }, async (session) => {
+    await withAuthorityGitReadSession({
+      cwd: root,
+      operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET
+    }, async (session) => {
       const blobs = await readBlobBatch(session, [committed.objectId]);
       expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
     });
@@ -102,8 +128,10 @@ test('trusted Git reads reject ambient config injection', async () => {
     const moduleUrl = pathToFileURL(path.resolve('src/development/tooling/git/git-read.ts')).href;
     const source = [
       `import { withAuthorityGitReadSession } from ${JSON.stringify(pathToFileURL(path.resolve('src/external-capabilities/git-read/authority.ts')).href)};`,
-      `import { runGitRead } from ${JSON.stringify(moduleUrl)};`,
-      `const result = await withAuthorityGitReadSession({ cwd: ${JSON.stringify(root)} }, (session) => runGitRead(session, ['config', '--get', 'sec.injected']));`,
+      `import { compileAffectedTestSelectionSemanticOperation } from ${JSON.stringify(pathToFileURL(path.resolve('src/development/runner/affected-plan.ts')).href)};`,
+      `import { GIT_READ_OPERATION_BUDGET, runGitRead } from ${JSON.stringify(moduleUrl)};`,
+      `const operation = compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' });`,
+      `const result = await withAuthorityGitReadSession({ cwd: ${JSON.stringify(root)}, operation, budget: GIT_READ_OPERATION_BUDGET }, (session) => runGitRead(session, ['config', '--get', 'sec.injected']));`,
       "process.stdout.write(JSON.stringify({ status: result.status, stdoutByteLength: result.stdout.byteLength }));"
     ].join('\n');
     const ambientChild = spawnSync(process.execPath, ['--no-env-file', '--eval', source], {
@@ -122,7 +150,11 @@ test('trusted Git reads reject ambient config injection', async () => {
     expect(ambientChild.stderr).toBe('');
     expect(JSON.parse(ambientChild.stdout)).toEqual({ status: 1, stdoutByteLength: 0 });
 
-    await withAuthorityGitReadSession({ cwd: root }, async (session) => {
+    await withAuthorityGitReadSession({
+      cwd: root,
+      operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET
+    }, async (session) => {
       const result = await runGitRead(session, ['config', '--get', 'sec.injected']);
       expect(result.status).toBe(1);
       expect(result.stdout.byteLength).toBe(0);
@@ -137,7 +169,11 @@ test('committed attribute policy is isolated from .git/info/attributes overrides
   try {
     await fs.mkdir(path.join(root, '.git', 'info'), { recursive: true });
     await fs.writeFile(path.join(root, '.git', 'info', 'attributes'), '*.ts -text\n');
-    await withAuthorityGitReadSession({ cwd: root }, async (session) => {
+    await withAuthorityGitReadSession({
+      cwd: root,
+      operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET
+    }, async (session) => {
       const commit = await resolveExactHeadCommit(session);
       const attributes = await readTextAttributesBatch(session, commit, ['committed.ts']);
       expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
@@ -213,26 +249,35 @@ test('worktree settlement distinguishes settled, dirty, and untracked without fa
 test('repository mutation fence preserves dirty candidates and detects tracked, index, and untracked changes', async () => {
   const root = await createRepository('sec-dev-mutation-fence-');
   try {
-    const initial = await captureRepositoryMutationState(root);
-
-    await fs.writeFile(path.join(root, 'committed.ts'), 'export const committed = false;\n');
-    const worktreeChanged = await captureRepositoryMutationState(root);
-    expect(worktreeChanged.digest).not.toBe(initial.digest);
-    expect(worktreeChanged.changedPaths).toEqual(['committed.ts']);
-
-    git(root, ['add', 'committed.ts']);
-    const indexChanged = await captureRepositoryMutationState(root);
-    expect(indexChanged.digest).not.toBe(worktreeChanged.digest);
-    expect(indexChanged.changedPaths).toEqual(['committed.ts']);
+    const changed = await withRepositoryFinalStateObservation(
+      root,
+      compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
+      async () => {
+        await fs.writeFile(path.join(root, 'committed.ts'), 'export const committed = false;\n');
+        git(root, ['add', 'committed.ts']);
+        await fs.writeFile(path.join(root, 'committed.ts'), 'export const unstaged = true;\n');
+        await fs.writeFile(path.join(root, 'untracked.ts'), 'export const untracked = true;\n');
+        return 'composite-change';
+      }
+    );
+    expect(changed.verification.status).toBe('changed');
+    if (changed.verification.status === 'changed') {
+      expect(changed.verification.changedPaths).toEqual(['committed.ts', 'untracked.ts']);
+    }
 
     git(root, ['reset', '--hard', '--quiet', 'HEAD']);
-    await fs.writeFile(path.join(root, 'untracked.ts'), 'export const untracked = true;\n');
-    const untrackedChanged = await captureRepositoryMutationState(root);
-    expect(untrackedChanged.digest).not.toBe(initial.digest);
-    expect(untrackedChanged.changedPaths).toEqual(['untracked.ts']);
-
     await fs.rm(path.join(root, 'untracked.ts'));
-    expect((await captureRepositoryMutationState(root)).digest).toBe(initial.digest);
+    const current = await withRepositoryFinalStateObservation(
+      root,
+      compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
+      async () => 'current'
+    );
+    expect(current.verification.status).toBe('current');
+    expect(current.value).toBe('current');
+    expect(Object.isFrozen(current.receipt)).toBe(true);
+    expect(current.receipt.providerIdentityDigest).toStartWith('sha256:');
+    expect(current.receipt.repositoryRootIdentityDigest).toStartWith('sha256:');
+    expect(current.receipt.commonDirectoryIdentityDigest).toStartWith('sha256:');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -241,19 +286,26 @@ test('repository mutation fence preserves dirty candidates and detects tracked, 
 test('repository mutation operation fence turns a child write into one diagnostic failure', async () => {
   const root = await createRepository('sec-dev-mutation-operation-');
   const diagnostics: string[] = [];
+  let operationCallCount = 0;
   try {
     const result = await runRepositoryZeroWriteOperation(
       'test:fixture',
       async () => {
+        operationCallCount += 1;
         await fs.writeFile(path.join(root, 'committed.ts'), 'export const escaped = true;\n');
         return 0;
       },
-      { repositoryRoot: root, report: (message) => diagnostics.push(message) }
+      {
+        operation: compileAffectedTestSelectionSemanticOperation({ purpose: 'check-affected' }),
+        repositoryRoot: root,
+        report: (message) => diagnostics.push(message)
+      }
     );
     expect(result).toBe(1);
+    expect(operationCallCount).toBe(1);
     expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]).toContain('test:fixture mutated Git-visible repository state');
-    expect(diagnostics[0]).toContain('committed.ts');
+    expect(diagnostics[0]).toContain('mutated or lost continuous observation');
+    expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8')).toBe('export const escaped = true;\n');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -16,6 +16,7 @@ import {
   prepareFrozenReleaseSource,
   type ReleaseBuilderIdentity
 } from '../../src/release/release-source-materialization.ts';
+import { PACKAGE_SOURCE_LAUNCHER_SCRIPT } from '../../src/toolchain/runtime.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
@@ -93,8 +94,7 @@ async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
         `./${FIXTURE_ENTRYPOINT.artifact}`
     },
     scripts: {
-      [FIXTURE_ENTRYPOINT.command]:
-        `bun ./${FIXTURE_ENTRYPOINT.source}`
+      [FIXTURE_ENTRYPOINT.command]: PACKAGE_SOURCE_LAUNCHER_SCRIPT
     },
     dependencies: {
       'fixture-dependency': 'file:./vendor/fixture-dependency'
@@ -151,6 +151,28 @@ test('release runtime requirement rejects absent and mismatched Bun without a No
     }
   }
   expect(() => assertReleaseBunRuntimeRequirement(requirement, Bun.version)).not.toThrow();
+});
+
+test('release builder identity mismatch blocks before an artifact process can publish', async () => {
+  const sourceRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-builder-unavailable-'));
+  const artifactRoot = path.join(sourceRoot, 'artifact-must-not-exist');
+  try {
+    await expect(buildFrozenReleaseBundle(Object.freeze({
+      schema: 'sec-frozen-release-source-v1' as const,
+      root: sourceRoot,
+      sourceCommit: 'a'.repeat(40),
+      sourceTree: 'b'.repeat(40),
+      packageVersion: '1.0.0',
+      entrypoint: FIXTURE_ENTRYPOINT,
+      dependencies: Object.freeze([]),
+      dependencyLockDigest: `sha256:${'c'.repeat(64)}` as const,
+      builder: currentBuilder({ executableSha256: `sha256:${'d'.repeat(64)}` }),
+      stageRoot: sourceRoot
+    }), artifactRoot)).rejects.toThrow('Release Bun builder identity changed before bundle execution');
+    await expect(fs.lstat(artifactRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(sourceRoot, { recursive: true, force: true });
+  }
 });
 
 test('release entrypoint normalization permits only the Bun interpreter directive', () => {
@@ -298,4 +320,45 @@ test('release source rejects Git LFS pointer bytes instead of packaging pointer 
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
   }
+});
+
+test('exact Git source preserves binary blobs behind NUL-delimited path records', async () => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-binary-'));
+  const binaryPath = process.platform === 'win32'
+    ? 'binary payload.bin'
+    : 'binary\tpayload.bin';
+  const expected = Buffer.from([0x00, 0xff, 0x80, 0x0a, 0x09, 0x7f]);
+  try {
+    await initRepository(repositoryRoot);
+    await fs.writeFile(path.join(repositoryRoot, binaryPath), expected);
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'binary-nul-record']);
+
+    const materialized = await materializeExactReleaseGitTree(repositoryRoot);
+    try {
+      await expect(fs.readFile(path.join(materialized.root, binaryPath)))
+        .resolves.toEqual(expected);
+    } finally {
+      await rm(materialized.stageRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('release Git admission rejects expired operations and unavailable providers before materialization', async () => {
+  await expect(materializeExactReleaseGitTree(process.cwd(), {
+    deadlineAtUnixMs: Date.now() - 1
+  })).rejects.toThrow('requires one future absolute deadline');
+
+  const unavailableRoot = path.join(tmpdir(), `sec-release-provider-absent-${crypto.randomUUID()}`);
+  await expect(materializeExactReleaseGitTree(unavailableRoot)).rejects.toMatchObject({
+    name: 'GitReadAuthorityError',
+    message: 'Git read provider is unavailable.',
+    failure: {
+      kind: 'unresolved-git-read-provider',
+      status: 'unavailable'
+    }
+  });
+  await expect(fs.lstat(unavailableRoot)).rejects.toMatchObject({ code: 'ENOENT' });
 });

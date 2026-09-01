@@ -16,7 +16,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
-import { type GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
+import {
+  GIT_READ_DEFAULT_OPERATION_BUDGET,
+  type GitReadSession
+} from '../../external-capabilities/git-read/runtime/session.ts';
 
 import type { SecRuntimeStateLayout } from '../../runtime-state/workspace-state/layout.ts';
 import { resolveSecRuntimeStateForRepository } from '../../runtime-state/workspace-state/paths.ts';
@@ -26,7 +29,7 @@ import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
-} from '../agent/work-package-contract.ts';
+} from '../task/contract/work-package.ts';
 import {
   admitLocalContinuation,
   parseLocalContinuationCheckpoint,
@@ -254,7 +257,7 @@ export async function observeLocalContinuation(input: Readonly<{
   admission: LocalContinuationAdmission;
 }>> {
   return withAuthorityGitReadSession(
-    { cwd: input.cwd },
+    { cwd: input.cwd, budget: GIT_READ_DEFAULT_OPERATION_BUDGET },
     async (session) => observeLocalContinuationWithSession(session, input)
   );
 }
@@ -344,7 +347,10 @@ export async function continueLocalDevelopment(input: Readonly<{
   cwd: string;
   options: ContinueOptions;
 }>): Promise<ManagedDevelopmentContinuation> {
-  return withAuthorityGitReadSession({ cwd: input.cwd }, async (session) => {
+  return withAuthorityGitReadSession({
+    cwd: input.cwd,
+    budget: GIT_READ_DEFAULT_OPERATION_BUDGET
+  }, async (session) => {
   const root = await repositoryRoot(session);
   let checkpoint: LocalContinuationCheckpoint;
   let importedAdmission: LocalContinuationAdmission | null = null;

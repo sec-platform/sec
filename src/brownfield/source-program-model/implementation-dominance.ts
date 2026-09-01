@@ -2,6 +2,7 @@ import { compareCodeUnits, sha256 } from '../../system-architecture/foundation/r
 import type {
   SourceProgramDeclaration,
   SourceProgramModel,
+  SourceProgramOperationObligationEvidence,
   SourceProgramOwnerIntentEvidence
 } from './contract.ts';
 import { isCompiledRepositorySourceProgramModel } from './repository.ts';
@@ -58,8 +59,12 @@ export interface SourceProgramImplementationUnit {
     readonly external: SourceProgramImplementationFrontierStatus;
     readonly recovery: SourceProgramImplementationFrontierStatus;
     readonly readback: SourceProgramImplementationFrontierStatus;
+    readonly migration: SourceProgramImplementationFrontierStatus;
+    readonly retirement: SourceProgramImplementationFrontierStatus;
+    readonly acceptedFutureObligation: SourceProgramImplementationFrontierStatus;
     readonly unknown: SourceProgramImplementationFrontierStatus;
   }>;
+  readonly requiredUnmaterializedObligations: readonly SourceProgramRequiredUnmaterializedObligation[];
   readonly evidenceDigest: string;
 }
 
@@ -67,9 +72,31 @@ export type SourceProgramImplementationDisposition =
   | 'duplicate-owner'
   | 'dominated'
   | 'orphan'
+  | 'required-unmaterialized'
   | 'migration-required'
   | 'owner-decision-required'
   | 'unknown';
+
+export interface SourceProgramRequiredUnmaterializedObligation {
+  readonly targetOwner: string;
+  readonly operation: SourceProgramOperationObligationEvidence['obligation']['operation'];
+  readonly acceptance: Readonly<{
+    readonly consumerSupport: SourceProgramOperationObligationEvidence['obligation']['consumerSupport'];
+    readonly effect: SourceProgramOperationObligationEvidence['obligation']['effect'];
+    readonly resources: SourceProgramOperationObligationEvidence['obligation']['resources'];
+  }>;
+  readonly responsibilities: Readonly<{
+    readonly evolution: SourceProgramOperationObligationEvidence['obligation']['evolution'];
+    readonly futureSupport: SourceProgramOperationObligationEvidence['obligation']['futureSupport'];
+  }>;
+  readonly replacementDag: readonly Readonly<{
+    readonly node: 'target-closure' | 'obligation-acceptance' | 'source-retirement';
+    readonly owner: string;
+    readonly dependsOn: readonly ('target-closure' | 'obligation-acceptance')[];
+  }>[];
+  readonly observation: SourceProgramOperationObligationEvidence['observation'];
+  readonly evidenceDigest: string;
+}
 
 export interface SourceProgramImplementationDominanceFinding {
   readonly disposition: SourceProgramImplementationDisposition;
@@ -78,6 +105,7 @@ export interface SourceProgramImplementationDominanceFinding {
   readonly canonicalOwner: string | null;
   readonly unitIds: readonly string[];
   readonly removableUnitIds: readonly string[];
+  readonly requiredUnmaterializedObligations: readonly SourceProgramRequiredUnmaterializedObligation[];
   readonly reason: string;
   readonly evidenceDigest: string;
 }
@@ -102,6 +130,75 @@ function operationObligations(
       ? operation.operation === declaration.name
       : operation.path === declaration.path;
   }));
+}
+
+function operationObligationRequiresMaterialization(
+  evidence: SourceProgramOperationObligationEvidence
+): boolean {
+  if (evidence.observation.reason === 'identity-unresolved'
+      || evidence.observation.reason === 'effect-closure-unresolved') return false;
+  const missingConsumers = evidence.obligation.consumerSupport.consumers.some((consumer) => (
+    !evidence.observation.consumerModuleIds.includes(consumer)
+  ));
+  return missingConsumers
+    || evidence.obligation.evolution.retirement !== 'consumer-zero'
+    || evidence.obligation.futureSupport.condition !== 'explicit-owner-decision';
+}
+
+/**
+ * Project one already owner-issued obligation into the exact replacement DAG
+ * needed by retirement consumers. This adds no plan or authority: every
+ * acceptance field is copied from the canonical operation obligation and the
+ * current observation remains attached as the materialization gap.
+ */
+export function compileSourceProgramRequiredUnmaterializedObligations(
+  declaration: SourceProgramDeclaration,
+  ownerIntents: readonly SourceProgramOwnerIntentEvidence[],
+  hasLiveConsumer: boolean
+): readonly SourceProgramRequiredUnmaterializedObligation[] {
+  if (hasLiveConsumer) return Object.freeze([]);
+  const owner = ownerIntents.find(({ owner: candidate }) => candidate === declaration.moduleId);
+  if (owner === undefined) return Object.freeze([]);
+  return Object.freeze(operationObligations(declaration, ownerIntents)
+    .filter(operationObligationRequiresMaterialization)
+    .map((evidence) => {
+      const canonical = Object.freeze({
+        targetOwner: owner.owner,
+        operation: evidence.obligation.operation,
+        acceptance: Object.freeze({
+          consumerSupport: evidence.obligation.consumerSupport,
+          effect: evidence.obligation.effect,
+          resources: evidence.obligation.resources
+        }),
+        responsibilities: Object.freeze({
+          evolution: evidence.obligation.evolution,
+          futureSupport: evidence.obligation.futureSupport
+        }),
+        replacementDag: Object.freeze([
+          Object.freeze({
+            node: 'target-closure' as const,
+            owner: owner.owner,
+            dependsOn: Object.freeze([])
+          }),
+          Object.freeze({
+            node: 'obligation-acceptance' as const,
+            owner: owner.owner,
+            dependsOn: Object.freeze(['target-closure' as const])
+          }),
+          Object.freeze({
+            node: 'source-retirement' as const,
+            owner: owner.owner,
+            dependsOn: Object.freeze(['obligation-acceptance' as const])
+          })
+        ]),
+        observation: evidence.observation
+      });
+      return Object.freeze({ ...canonical, evidenceDigest: sha256(canonical) });
+    })
+    .sort((left, right) => compareCodeUnits(
+      JSON.stringify(left.operation),
+      JSON.stringify(right.operation)
+    )));
 }
 
 function frontierFromPresence(present: boolean, unknown: boolean): SourceProgramImplementationFrontierStatus {
@@ -423,6 +520,12 @@ function compileUnit(
   const capabilityClosure = compileDeclarationCapabilityClosure(model, declaration);
   const capabilities = capabilityClosure.capabilities;
   const obligations = operationObligations(declaration, ownerIntents);
+  const hasLiveConsumer = exactReferences.length > 0;
+  const requiredUnmaterializedObligations = compileSourceProgramRequiredUnmaterializedObligations(
+    declaration,
+    ownerIntents,
+    hasLiveConsumer
+  );
   const ownerIntentMissing = declaration.moduleId !== null && ownerIntent === undefined;
   const obligationUnknown = obligations.some(({ observation }) => observation.status === 'unknown');
   const pathUnknown = model.unknowns.some(({ path }) => path === declaration.path);
@@ -431,6 +534,11 @@ function compileUnit(
     || obligation.evolution.migration !== 'not-required'
   ));
   const recovery = obligations.some(({ obligation }) => obligation.effect.recovery !== 'not-applicable');
+  const migration = obligations.some(({ obligation }) => obligation.evolution.migration !== 'not-required');
+  const retirement = obligations.some(({ obligation }) => obligation.evolution.retirement !== 'consumer-zero');
+  const acceptedFutureObligation = obligations.some(({ obligation }) => (
+    obligation.futureSupport.condition !== 'explicit-owner-decision'
+  ));
   const readbackUnknown = candidate.kind === 'completion-proof';
   const external = capabilities.some(({ capability, transport }) => (
     capability === 'network'
@@ -465,6 +573,9 @@ function compileUnit(
     external: frontierFromPresence(external, obligationUnknown),
     recovery: frontierFromPresence(recovery, obligationUnknown),
     readback: readbackUnknown ? 'unknown' as const : 'closed' as const,
+    migration: frontierFromPresence(migration, obligationUnknown),
+    retirement: frontierFromPresence(retirement, obligationUnknown),
+    acceptedFutureObligation: frontierFromPresence(acceptedFutureObligation, obligationUnknown),
     unknown: unknown ? 'present' as const : 'closed' as const
   });
   const canonical = Object.freeze({
@@ -477,7 +588,8 @@ function compileUnit(
     producerPaths,
     consumerPaths,
     effectPaths,
-    frontiers
+    frontiers,
+    requiredUnmaterializedObligations
   });
   const evidenceDigest = sha256(canonical);
   return Object.freeze({
@@ -495,6 +607,9 @@ function allRemovalFrontiersClosed(unit: SourceProgramImplementationUnit): boole
     && unit.frontiers.external === 'closed'
     && unit.frontiers.recovery === 'closed'
     && unit.frontiers.readback === 'closed'
+    && unit.frontiers.migration === 'closed'
+    && unit.frontiers.retirement === 'closed'
+    && unit.frontiers.acceptedFutureObligation === 'closed'
     && unit.frontiers.unknown === 'closed';
 }
 
@@ -502,7 +617,8 @@ function finding(
   disposition: SourceProgramImplementationDisposition,
   units: readonly SourceProgramImplementationUnit[],
   removableUnitIds: readonly string[],
-  reason: string
+  reason: string,
+  requiredUnmaterializedObligations: readonly SourceProgramRequiredUnmaterializedObligation[] = []
 ): SourceProgramImplementationDominanceFinding {
   const owners = [...new Set(units.map(({ canonicalOwner }) => canonicalOwner).filter((owner) => owner !== null))]
     .sort(compareCodeUnits);
@@ -513,6 +629,8 @@ function finding(
     canonicalOwner: owners.length === 1 ? owners[0]! : null,
     unitIds: Object.freeze(units.map(({ unitId }) => unitId).sort(compareCodeUnits)),
     removableUnitIds: Object.freeze([...removableUnitIds].sort(compareCodeUnits)),
+    requiredUnmaterializedObligations: Object.freeze([...requiredUnmaterializedObligations]
+      .sort((left, right) => compareCodeUnits(left.evidenceDigest, right.evidenceDigest))),
     reason
   });
   return Object.freeze({ ...canonical, evidenceDigest: sha256(canonical) });
@@ -521,17 +639,31 @@ function finding(
 function classifyGroup(
   units: readonly SourceProgramImplementationUnit[]
 ): SourceProgramImplementationDominanceFinding {
-  const unknown = units.some((unit) => Object.values(unit.frontiers).includes('unknown')
-    || unit.frontiers.unknown !== 'closed');
-  if (unknown) return finding('unknown', units, [], 'one or more authority frontiers remain unknown');
-
   const protectedState = units.some((unit) => (
     unit.frontiers.durable === 'present'
     || unit.frontiers.recovery === 'present'
     || unit.frontiers.effect === 'present'
     || unit.frontiers.external === 'present'
     || unit.frontiers.readback === 'present'
+    || unit.frontiers.migration === 'present'
   ));
+  const requiredUnmaterializedObligations = units.flatMap((unit) => (
+    unit.requiredUnmaterializedObligations
+  ));
+  if (!protectedState && requiredUnmaterializedObligations.length > 0) {
+    return finding(
+      'required-unmaterialized',
+      units,
+      [],
+      'an owner-issued operation obligation has no live consumer closure and must reach acceptance before source retirement',
+      requiredUnmaterializedObligations
+    );
+  }
+
+  const unknown = units.some((unit) => Object.values(unit.frontiers).includes('unknown')
+    || unit.frontiers.unknown !== 'closed');
+  if (unknown) return finding('unknown', units, [], 'one or more authority frontiers remain unknown');
+
   if (units.length > 1 && protectedState) {
     return finding(
       'migration-required',

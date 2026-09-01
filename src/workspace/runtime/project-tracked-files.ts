@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
 import {
   sha256,
@@ -89,9 +91,10 @@ function exactNulPaths(bytes: Uint8Array): string[] {
  * equivalent to "untracked" and must propagate to the integrity caller.
  */
 export async function listTrackedProjectPaths(workspaceRoot: string): Promise<Set<string> | null> {
-  const operation = compileTrackedProjectPathOperation(workspaceRoot);
+  const absoluteWorkspaceRoot = path.resolve(workspaceRoot);
+  const operation = compileTrackedProjectPathOperation(absoluteWorkspaceRoot);
   return withAuthorityGitReadSession({
-      cwd: workspaceRoot,
+      cwd: absoluteWorkspaceRoot,
       environment: { LANG: 'C', LC_ALL: 'C' },
       operation,
       deadlineAtUnixMs: operation.plan.attempt.deadlineAtUnixMs,

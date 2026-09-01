@@ -47,7 +47,7 @@ export function CodexDevelopmentAffectedInventoryInputs(
 
 export function CodexDevelopmentBuildAffectedTestInventory(
   files: readonly string[],
-  provider?: CodexDevelopmentTestImpactSourceProvider,
+  provider: CodexDevelopmentTestImpactSourceProvider,
   transition?: CodexDevelopmentTestImpactTransitionObservation
 ): CodexDevelopmentAffectedTestInventory {
   const changedFastTests = uniqueSorted(files.filter(isFastTestFile));
@@ -106,7 +106,7 @@ export function CodexDevelopmentBuildAffectedTestInventory(
  * The seven trust boundaries an affected-test selection can land in.
  *
  * - `unresolved-git`: git discovery of changed files failed entirely.
- * - `unresolved-ownership`: ci-pr-risk selection found changed paths that map
+ * - `unresolved-ownership`: slow-test closure found changed paths that map
  *   to no ownership declaration, fallback rule, or reverse-import edge.
  * - `unresolved-selection`: sourceChanged but the reverse-import-map closure
  *   is incomplete for a reason NOT attributable to a specific module read
@@ -134,13 +134,13 @@ export type AffectedSelectionTrustBoundary =
 
 /**
  * Input to the classification. All fields are produced by the existing
- * affected-test plan pipeline (test-runner.ts + ci-pr-risk-selection.ts +
+ * affected-test plan pipeline (test-runner.ts + slow-test-selection.ts +
  * affected-test-inventory.ts); this contract only consumes them.
  */
 export interface AffectedSelectionClassificationInput {
   /** True when gitChangedFiles() returned null. */
   gitDiscoveryFailed: boolean;
-  /** ci-pr-risk selection `resolved` field (ownership of changed paths). */
+  /** slow-test closure `resolved` field (ownership of changed paths). */
   ownershipResolved: boolean;
   /** inventory.sourceChanged — at least one changed file is a test impact source. */
   sourceChanged: boolean;

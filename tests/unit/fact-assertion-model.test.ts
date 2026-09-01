@@ -65,7 +65,6 @@ function projectionInput(): BuildEngineeringIRInput {
       manifestPath: 'registry/test.basic/block.manifest.yaml',
       manifest: { requires: [], provides: [], pins: { inputs: [], outputs: [] } }
     }],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: []
   };

@@ -150,7 +150,6 @@ export async function resolveTrustedWorkerTaskCapsule(
         readPaths,
         writePaths,
         forbiddenPaths: activation.manifest.forbiddenPaths,
-        availableCapabilities: preparation.availableCapabilities,
         authorizedResources: [],
         authorizedGates: [],
         changedPaths: activation.changedPaths

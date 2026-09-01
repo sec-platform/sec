@@ -35,7 +35,6 @@ export function buildReviewLock(options: ReviewLockOptions = {}): LockFile {
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [],
-    slotTasks: [],
     generatedPaths: [],
     acceptancePlan: [],
     passStatus: {
@@ -43,7 +42,6 @@ export function buildReviewLock(options: ReviewLockOptions = {}): LockFile {
       align: 'succeeded',
       resolve: 'succeeded',
       compose: 'succeeded',
-      adapt: 'succeeded',
       verify: 'succeeded',
       repair: 'skipped',
       lock: 'pending',
@@ -72,9 +70,7 @@ export function buildPassingReviewCoverage(options: Partial<AcceptanceCoverageRe
     status: 'passed',
     acceptancePassed: [],
     blocks: [],
-    slots: [],
     uncoveredBlocks: [],
-    uncoveredSlots: [],
     ...options
   };
 }

@@ -1,15 +1,21 @@
 import { deepFreeze, sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
-  assertSecBoundSemanticOperation,
+  consumeSecOperationRequirementBindingContext,
+  type SecOperationRequirementBindingContext,
+  type SecOperationRequirementBindingProjection
+} from '../../../system-architecture/operation/requirement-binding-context.ts';
+import {
+  assertSecSemanticOperationProjection,
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../../system-architecture/operation/semantic.ts';
+import { assertIndependentProviderProcessCapabilityForSession } from './independent-provider-process.ts';
 import {
   runRetainedCommandBytes,
   type ByteCommandResult,
-  type RetainedCommandBoundary,
   type RunRetainedCommandOptions
 } from './process.ts';
+import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
 export type ProcessResourceRunOptions = Omit<
   RunRetainedCommandOptions,
@@ -27,7 +33,13 @@ export type ProcessResourceRunResult = Readonly<{
 export type ProcessResourceSessionReceipt = Readonly<{
   operationIdentityDigest: SecOperationDigest;
   boundAttemptDigest: SecOperationDigest;
+  requirementId: string;
+  providerBindingDigest: SecOperationDigest;
+  resourceCeilingIdentityDigest: SecOperationDigest;
+  requirementBindingContextDigest: SecOperationDigest;
   processCount: number;
+  settledProcessCount: number;
+  successfulProcessRecordCount: number;
   failedProcessCount: number;
   inputBytes: number;
   outputBytes: number;
@@ -38,15 +50,29 @@ export type ProcessResourceSessionReceipt = Readonly<{
 export interface ProcessResourceSession {
   readonly operationIdentityDigest: SecOperationDigest;
   readonly boundAttemptDigest: SecOperationDigest;
+  readonly requirementId: string;
+  readonly resourceCeilingIdentityDigest: SecOperationDigest;
   readonly deadlineAtUnixMs: number;
   /** The monotonic counterpart of deadlineAtUnixMs, fixed at admission. */
   readonly deadlineAtMonotonicMs: number;
   /** Aborts on caller cancellation, the fixed deadline, or session close. */
   readonly signal: AbortSignal;
   readonly processCount: number;
+  /** Terminal child settlements observed by this session. */
+  readonly settledProcessCount: number;
+  /** Successful immutable command result records issued by this session. */
+  readonly successfulProcessRecordCount: number;
   readonly inputBytes: number;
   /** Aggregate output budget irrevocably admitted to process attempts. */
   readonly outputBytes: number;
+  /**
+   * Latest child-owned cooperative deadline that still leaves one complete
+   * grace interval before this session's forced-execution deadline.
+   */
+  cooperativeDeadlineAtUnixMs(
+    this: ProcessResourceSession,
+    options?: Readonly<{ terminationGraceMs?: number }>
+  ): number;
   run(
     this: ProcessResourceSession,
     boundary: RetainedCommandBoundary,
@@ -57,14 +83,48 @@ export interface ProcessResourceSession {
 }
 
 const ISSUED_PROCESS_RESOURCE_SESSIONS = new WeakSet<object>();
+const ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS = new WeakSet<object>();
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const DEFAULT_TERMINATION_GRACE_MS = 5_000;
 
-function budget(
-  operation: SecBoundSemanticOperation,
+function executionTiming(
+  totalRemainingMs: number,
+  requestedTerminationGraceMs?: number
+): Readonly<{
+  terminationGraceMs: number;
+  terminationDeadlineMs: number;
+  timeoutMs: number;
+}> {
+  if (totalRemainingMs < 2) {
+    throw new Error('Process resource session deadline cannot admit child execution and settlement.');
+  }
+  const terminationGraceMs = requestedTerminationGraceMs ?? Math.min(
+    DEFAULT_TERMINATION_GRACE_MS,
+    Math.max(1, Math.floor((totalRemainingMs - 1) / 20))
+  );
+  if (!Number.isSafeInteger(terminationGraceMs)
+      || terminationGraceMs < 1
+      || terminationGraceMs >= totalRemainingMs) {
+    throw new Error('Process resource session termination grace exceeds the remaining deadline.');
+  }
+  const terminationDeadlineMs = Math.min(
+    totalRemainingMs - 1,
+    terminationGraceMs <= Math.floor((totalRemainingMs - 1) / 4)
+      ? terminationGraceMs * 4
+      : totalRemainingMs - 1
+  );
+  return Object.freeze({
+    terminationGraceMs,
+    terminationDeadlineMs,
+    timeoutMs: totalRemainingMs - terminationDeadlineMs
+  });
+}
+
+function ceiling(
+  projection: SecOperationRequirementBindingProjection,
   resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'processes'
 ): number | null {
-  return operation.plan.execution.aggregateBudgets
+  return projection.resourceCeilings
     .find((candidate) => candidate.resource === resource)?.maximum ?? null;
 }
 
@@ -81,28 +141,66 @@ function byteLength(value: Uint8Array | undefined): number {
 
 export function openProcessResourceSession(input: Readonly<{
   operation: SecBoundSemanticOperation;
+  requirementBindingContext: SecOperationRequirementBindingContext;
   signal?: AbortSignal;
 }>): ProcessResourceSession {
-  assertSecBoundSemanticOperation(input.operation);
-  if (!input.operation.plan.execution.requirements.some(({ effectKinds }) => (
-    effectKinds.includes('process')
-  ))) {
+  // This session only meters a caller's already-retained command capability.
+  // The semantic operation is correlation/budget input, never Effect grant.
+  assertSecSemanticOperationProjection(input.operation);
+  const bindingProjection = consumeSecOperationRequirementBindingContext(
+    input.requirementBindingContext
+  );
+  if (bindingProjection.operationIdentityDigest
+        !== input.operation.plan.identity.identityDigest
+      || bindingProjection.executionPlanDigest
+        !== input.operation.plan.execution.executionPlanDigest
+      || bindingProjection.boundAttemptDigest !== input.operation.boundAttemptDigest) {
+    throw new Error('Process resource session rejected an operation binding context transplant.');
+  }
+  const requirement = input.operation.plan.execution.requirements.find(
+    ({ id }) => id === bindingProjection.requirementId
+  );
+  const providerBinding = input.operation.bindings.find(
+    ({ requirementId }) => requirementId === bindingProjection.requirementId
+  );
+  if (requirement === undefined || providerBinding === undefined
+      || requirement.contractDigest !== bindingProjection.requirementContractDigest
+      || providerBinding.contractDigest !== bindingProjection.requirementContractDigest
+      || providerBinding.providerIdentityDigest !== bindingProjection.providerIdentityDigest
+      || providerBinding.bindingDigest !== bindingProjection.providerBindingDigest) {
+    throw new Error('Process resource session rejected a requirement or provider binding transplant.');
+  }
+  if (!requirement.effectKinds.includes('process')) {
     throw new Error('Process resource session requires a bound process Effect requirement.');
   }
+  const expectedProcessResources = [
+    'duration-ms',
+    'input-bytes',
+    'output-bytes',
+    'processes'
+  ] as const;
+  if (bindingProjection.resourceCeilings.length !== expectedProcessResources.length
+      || expectedProcessResources.some((resource) => (
+        !bindingProjection.resourceCeilings.some((candidate) => candidate.resource === resource)
+      ))) {
+    throw new Error('Process resource session requires one complete process resource ceiling set.');
+  }
   const maximumDurationMs = requirePositiveBudget(
-    budget(input.operation, 'duration-ms'),
+    ceiling(bindingProjection, 'duration-ms'),
     'duration-ms'
   );
   const maximumProcesses = requirePositiveBudget(
-    budget(input.operation, 'processes'),
+    ceiling(bindingProjection, 'processes'),
     'processes'
   );
   const maximumOutputBytes = requirePositiveBudget(
-    budget(input.operation, 'output-bytes'),
+    ceiling(bindingProjection, 'output-bytes'),
     'output-bytes'
   );
-  const maximumInputBytes = budget(input.operation, 'input-bytes') ?? 0;
-  if (!Number.isSafeInteger(maximumInputBytes) || maximumInputBytes < 0) {
+  const maximumInputBytes = ceiling(bindingProjection, 'input-bytes');
+  if (maximumInputBytes === null
+      || !Number.isSafeInteger(maximumInputBytes)
+      || maximumInputBytes < 0) {
     throw new Error('Process resource session input-bytes aggregate budget is invalid.');
   }
   const startedAtUnixMs = Date.now();
@@ -131,6 +229,8 @@ export function openProcessResourceSession(input: Readonly<{
   }, admittedDurationMs);
   deadlineTimer.unref();
   let processCount = 0;
+  let settledProcessCount = 0;
+  let successfulProcessRecordCount = 0;
   let failedProcessCount = 0;
   let inputBytes = 0;
   let outputBytes = 0;
@@ -159,16 +259,41 @@ export function openProcessResourceSession(input: Readonly<{
   const session: ProcessResourceSession = {
     operationIdentityDigest: input.operation.plan.identity.identityDigest,
     boundAttemptDigest: input.operation.boundAttemptDigest,
+    requirementId: requirement.id,
+    resourceCeilingIdentityDigest: bindingProjection.resourceCeilingIdentityDigest,
     deadlineAtUnixMs,
     deadlineAtMonotonicMs,
     signal: sessionController.signal,
     get processCount() { return processCount; },
+    get settledProcessCount() { return settledProcessCount; },
+    get successfulProcessRecordCount() { return successfulProcessRecordCount; },
     get inputBytes() { return inputBytes; },
     get outputBytes() { return outputBytes; },
+    cooperativeDeadlineAtUnixMs(options = {}) {
+      assertIssuedReceiver(this, 'cooperative deadline');
+      assertLive();
+      if (active) throw new Error('Process resource session cannot issue a deadline during execution.');
+      const timing = executionTiming(remainingMs(), options.terminationGraceMs);
+      const cooperativeDurationMs = timing.timeoutMs - timing.terminationGraceMs;
+      if (cooperativeDurationMs < 1) {
+        throw new Error('Process resource session has no cooperative child deadline remaining.');
+      }
+      return Math.min(deadlineAtUnixMs - 1, Date.now() + cooperativeDurationMs);
+    },
     async run(boundary, args, options) {
       assertIssuedReceiver(this, 'execution');
       assertLive();
       if (active) throw new Error('Process resource session is single-flight.');
+      if (options.independentProvider !== undefined) {
+        if (!requirement.effectKinds.includes('provider')) {
+          throw new Error('Process resource session has no bound provider identity.');
+        }
+        assertIndependentProviderProcessCapabilityForSession(options.independentProvider, {
+          operationIdentityDigest: input.operation.plan.identity.identityDigest,
+          boundAttemptDigest: input.operation.boundAttemptDigest,
+          boundary
+        });
+      }
       if (processCount >= maximumProcesses) {
         throw new Error('Process resource session process budget is exhausted.');
       }
@@ -192,28 +317,10 @@ export function openProcessResourceSession(input: Readonly<{
           || options.maxStdoutBytes > remainingOutputBytes - options.maxStderrBytes) {
         throw new Error('Process resource session output-byte admission exceeds the remaining budget.');
       }
-      const totalRemainingMs = remainingMs();
-      if (totalRemainingMs < 2) {
-        throw new Error('Process resource session deadline cannot admit child execution and settlement.');
-      }
-      const terminationGraceMs = options.terminationGraceMs ?? Math.min(
-        DEFAULT_TERMINATION_GRACE_MS,
-        // Preserve most of the absolute budget for execution while retaining
-        // four escalation/grace intervals for a physically settled child.
-        Math.max(1, Math.floor((totalRemainingMs - 1) / 20))
+      const { terminationDeadlineMs, terminationGraceMs, timeoutMs } = executionTiming(
+        remainingMs(),
+        options.terminationGraceMs
       );
-      if (!Number.isSafeInteger(terminationGraceMs)
-          || terminationGraceMs < 1
-          || terminationGraceMs >= totalRemainingMs) {
-        throw new Error('Process resource session termination grace exceeds the remaining deadline.');
-      }
-      const terminationDeadlineMs = Math.min(
-        totalRemainingMs - 1,
-        terminationGraceMs <= Math.floor((totalRemainingMs - 1) / 4)
-          ? terminationGraceMs * 4
-          : totalRemainingMs - 1
-      );
-      const timeoutMs = totalRemainingMs - terminationDeadlineMs;
       if (options.stallTimeoutMs !== undefined && (
         !Number.isSafeInteger(options.stallTimeoutMs)
         || options.stallTimeoutMs < 1
@@ -255,11 +362,13 @@ export function openProcessResourceSession(input: Readonly<{
         // the full reservation conservatively because their final byte count
         // is not trustworthy.
         outputBytes -= admittedOutputBytes - observedOutputBytes;
+        successfulProcessRecordCount += 1;
         return Object.freeze({ ordinal, result: immutableResult });
       } catch (error) {
         failedProcessCount += 1;
         throw error;
       } finally {
+        settledProcessCount += 1;
         active = false;
       }
     },
@@ -270,7 +379,13 @@ export function openProcessResourceSession(input: Readonly<{
       const withoutDigest = deepFreeze({
         operationIdentityDigest: input.operation.plan.identity.identityDigest,
         boundAttemptDigest: input.operation.boundAttemptDigest,
+        requirementId: requirement.id,
+        providerBindingDigest: providerBinding.bindingDigest,
+        resourceCeilingIdentityDigest: bindingProjection.resourceCeilingIdentityDigest,
+        requirementBindingContextDigest: bindingProjection.contextDigest,
         processCount,
+        settledProcessCount,
+        successfulProcessRecordCount,
         failedProcessCount,
         inputBytes,
         outputBytes,
@@ -283,6 +398,7 @@ export function openProcessResourceSession(input: Readonly<{
           receipt: withoutDigest
         }) as SecOperationDigest
       });
+      ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS.add(receipt);
       clearTimeout(deadlineTimer);
       input.signal?.removeEventListener('abort', abortFromCaller);
       sessionController.abort(new Error('Process resource session is closed.'));
@@ -291,4 +407,34 @@ export function openProcessResourceSession(input: Readonly<{
   };
   ISSUED_PROCESS_RESOURCE_SESSIONS.add(session);
   return Object.freeze(session);
+}
+
+/**
+ * Mechanical origin and identity gate for a terminal physical-process receipt.
+ * Serialized or structurally copied bytes are evidence only and cannot be
+ * promoted back into a settlement capability.
+ */
+export function assertProcessResourceSessionReceipt(
+  receipt: ProcessResourceSessionReceipt,
+  expected?: Readonly<{
+    readonly operationIdentityDigest: SecOperationDigest;
+    readonly boundAttemptDigest: SecOperationDigest;
+    readonly requirementId: string;
+  }>
+): void {
+  if (receipt === null || typeof receipt !== 'object'
+      || !ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS.has(receipt)) {
+    throw new Error('Process resource settlement requires an owner-issued terminal receipt.');
+  }
+  if (receipt.settledProcessCount !== receipt.processCount
+      || receipt.successfulProcessRecordCount + receipt.failedProcessCount
+        !== receipt.settledProcessCount) {
+    throw new Error('Process resource terminal receipt has inconsistent settlement counters.');
+  }
+  if (expected !== undefined
+      && (receipt.operationIdentityDigest !== expected.operationIdentityDigest
+        || receipt.boundAttemptDigest !== expected.boundAttemptDigest
+        || receipt.requirementId !== expected.requirementId)) {
+    throw new Error('Process resource terminal receipt does not match the expected operation requirement.');
+  }
 }

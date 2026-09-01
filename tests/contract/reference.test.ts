@@ -3,8 +3,15 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { assertReferenceCheckClean, buildReferenceCheckReport, formatReferenceCheck } from '../../src/reference/application/check.ts';
-import { parseReferenceGitPathRecords } from '../../src/reference/runtime/drift-scan.ts';
+import {
+  assertReferenceCheckClean,
+  formatReferenceCheck,
+  projectReferenceCheckReport
+} from '../../src/reference/application/check.ts';
+import {
+  parseReferenceGitPathRecords,
+  scanReferenceDrift
+} from '../../src/reference/runtime/drift-scan.ts';
 import { runCommand } from '../../src/runtime-state/physical/runtime/process.ts';
 
 function bytes(value: string): Uint8Array {
@@ -32,9 +39,11 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
     await fs.writeFile(path.join(referenceRoot, 'sec.yaml'), 'name: changed\n', 'utf8');
     await fs.mkdir(path.join(referenceRoot, 'model'), { recursive: true });
     await fs.writeFile(path.join(referenceRoot, 'model', 'new-policy.yaml'), 'policy: new\n', 'utf8');
-    const report = await buildReferenceCheckReport({
+    const drift = await scanReferenceDrift(root);
+    const report = projectReferenceCheckReport({
       root,
-      commandRunner: async () => ({ code: 0, stdout: '', stderr: '' })
+      refreshExitCode: 0,
+      drift
     });
 
     expect(report.status).toBe('drifted');
@@ -50,19 +59,25 @@ test('reference check blocks tracked and untracked workspace drift', async () =>
 });
 
 test('reference check never reports clean when refresh or Git observation fails', async () => {
-  const refreshFailed = await buildReferenceCheckReport({
-    // A nonexistent root proves the Git provider is not admitted after the
-    // refresh failure without exposing a second injected Git transport.
+  const refreshFailed = projectReferenceCheckReport({
     root: path.join(os.tmpdir(), 'sec-reference-root-must-not-be-read'),
-    commandRunner: async () => ({ code: 2, stdout: '', stderr: 'refresh failed' })
+    refreshExitCode: 2,
+    drift: {
+      exitCode: -1,
+      trackedExitCode: -1,
+      untrackedExitCode: -1,
+      changedPaths: []
+    }
   });
   expect(() => assertReferenceCheckClean(refreshFailed)).toThrow('reference refresh failed');
 
   const nonRepositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-reference-nonrepo-'));
   try {
-    const gitFailed = await buildReferenceCheckReport({
+    const drift = await scanReferenceDrift(nonRepositoryRoot);
+    const gitFailed = projectReferenceCheckReport({
       root: nonRepositoryRoot,
-      commandRunner: async () => ({ code: 0, stdout: '', stderr: '' })
+      refreshExitCode: 0,
+      drift
     });
     expect(() => assertReferenceCheckClean(gitFailed)).toThrow('reference diff command failed');
   } finally {

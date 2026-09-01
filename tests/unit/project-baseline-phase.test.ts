@@ -3,47 +3,24 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import type { LockFile } from '../../src/compiler/contract.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
 import {
   checkProjectBeforeCompile,
-  checkProjectBeforeVerify, writeProjectBaseline
-} from '../../src/workspace/project.ts';
+  checkProjectBeforeVerify
+} from '../../src/workspace/application/project-integrity.ts';
+import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { writeProjectBaseline } from '../../src/workspace/runtime/project-baseline.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function digest(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-function lockFor(generatedPath: string): LockFile {
+function baselinePathInput(generatedPath: string) {
   return {
-    formatVersion: '1',
-    app: {
-      id: 'baseline-test',
-      name: 'baseline-test',
-      stack: 'typescript-library',
-      mode: 'single-tenant'
-    },
-    resolvedBlocks: [],
-    resolvedCapabilities: [],
-    installPlan: [],
-    slotTasks: [],
-    generatedPaths: [generatedPath],
-    acceptancePlan: [],
-    passStatus: {
-      parse: 'succeeded',
-      align: 'succeeded',
-      resolve: 'succeeded',
-      compose: 'succeeded',
-      adapt: 'succeeded',
-      verify: 'pending',
-      repair: 'pending',
-      lock: 'pending',
-      emit: 'pending'
-    }
+    artifactPaths: [generatedPath]
   };
 }
 
@@ -78,7 +55,7 @@ test('current baseline accepts compiler output changes and detects later project
     await checkProjectBeforeCompile(workspaceRoot);
 
     await writeText(absolutePath, currentContent);
-    await writeProjectBaseline(workspaceRoot, lockFor(artifactPath));
+    await writeProjectBaseline(workspaceRoot, baselinePathInput(artifactPath));
     await checkProjectBeforeVerify(workspaceRoot);
 
     await writeText(absolutePath, `${currentContent}\nexport const changed = true;`);

@@ -1,17 +1,15 @@
-import type { UpgradeDiagnostics, UpgradePlan } from '../../change-management/upgrade/contract/types.ts';
+import type { UpgradeDiagnostics, UpgradePlan } from '../../change-management/upgrade/contract/upgrade-artifact.ts';
 import type { AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
 import type { ExplainEdgeType, ExplainGraph, ExplainGraphEdge, ExplainGraphNode, ExplainNodeType } from '../../semantic/projection/contract/explain.ts';
 import type { SemanticViewSet, ViewReference } from '../../semantic/projection/contract/types.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
-import type { RepairPlan } from '../../semantic/repair/contract/types.ts';
 import { compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { readOptionalAcceptanceCoverageReport } from '../../verification/acceptance/runtime/coverage-authority.ts';
 import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../verification/ci-artifacts/contract/manifest.ts';
 import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { CompilerError } from '../errors.ts';
-import { slotEntityId } from '../ir/ir-identity.ts';
 import { writeGeneratedArtifactWithLock } from '../lock.ts';
 import type { PolicyReport } from '../policies/contract/types.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
@@ -110,35 +108,6 @@ function legacyPinEdgeType(relation: string, targetId: string): ExplainEdgeType 
   return explainEdgeType(relation);
 }
 
-interface SlotIdentityIndex {
-  readonly byBlockAndId: ReadonlyMap<string, string>;
-  readonly byId: ReadonlyMap<string, string>;
-}
-
-function slotIdentityKey(blockId: string, slotId: string): string {
-  return `${blockId}\u0000${slotId}`;
-}
-
-function buildSlotIdentityIndex(lock: LockFile): SlotIdentityIndex {
-  const byBlockAndId = new Map<string, string>();
-  const byId = new Map<string, string>();
-  for (const task of lock.slotTasks) {
-    const canonical = slotEntityId(task.block, task.id);
-    const exactKey = slotIdentityKey(task.block, task.id);
-    if (!byBlockAndId.has(exactKey)) byBlockAndId.set(exactKey, canonical);
-    if (!byId.has(task.id)) byId.set(task.id, canonical);
-  }
-  return { byBlockAndId, byId };
-}
-
-function canonicalSlotId(index: SlotIdentityIndex, slotId: string, blockId?: string): string {
-  if (blockId) {
-    const exact = index.byBlockAndId.get(slotIdentityKey(blockId, slotId));
-    if (exact) return exact;
-  }
-  return index.byId.get(slotId) ?? `slot:${slotId}`;
-}
-
 function addSemanticProjection(g: GraphBuilder, semanticViews: SemanticViewSet): void {
   for (const view of semanticViews.views) {
     for (const node of view.nodes) {
@@ -179,26 +148,13 @@ export async function buildExplainGraph(
   coverage: AcceptanceCoverageReport,
   policyReport: PolicyReport | null,
   upgradePlan: UpgradePlan | null = null,
-  repairPlan: RepairPlan | null = null,
   upgradeDiagnostics: UpgradeDiagnostics | null = null
 ): Promise<ExplainGraph> {
   const g = new GraphBuilder();
   const semanticViews = requireLockSemanticViews(lock);
   const appId = `app:${lock.app.id}`;
-  const slotIdentityIndex = buildSlotIdentityIndex(lock);
-
   addSemanticProjection(g, semanticViews);
   g.node(appId, 'app', lock.app.name);
-
-  for (const task of lock.slotTasks) {
-    const slotId = canonicalSlotId(slotIdentityIndex, task.id, task.block);
-    const sourcePath = task.sourcePath ?? task.target;
-    const sourceFileId = `file:${sourcePath}`;
-    g.node(slotId, 'slot', task.id);
-    g.node(sourceFileId, 'file', sourcePath);
-    g.edge(slotId, sourceFileId, 'writes_to');
-    if (task.sourcePath) g.link(sourceFileId, `file:${task.target}`, 'connects_to', 'file', task.target);
-  }
 
   const runtimeAttributions = new Map(
     (await buildRuntimeAttributions(lock, provenance.artifacts.map((artifact) => artifact.path), workspaceRoot))
@@ -208,9 +164,7 @@ export async function buildExplainGraph(
   for (const artifact of provenance.artifacts) {
     const fileId = `file:${artifact.path}`;
     g.node(fileId, 'file', artifact.path);
-    const originId = artifact.originType === 'slot'
-      ? canonicalSlotId(slotIdentityIndex, artifact.originId, artifact.sourceBlock)
-      : artifact.originType === 'block' ? `block:${artifact.originId}`
+    const originId = artifact.originType === 'block' ? `block:${artifact.originId}`
       : artifact.originType === 'override' ? `override:${artifact.originId}`
       : appId;
     if (artifact.originType === 'override') g.node(originId, 'override', artifact.originId);
@@ -261,12 +215,6 @@ export async function buildExplainGraph(
       g.link(migrationId, `file:${migration.target}`, 'writes_to', 'file', migration.target);
       g.edge(upgradeId, migrationId, 'depends_on');
       g.edge(migrationId, verificationId, 'depends_on');
-      if (migration.kind === 'slot-contract-update' && migration.slotId) {
-        const slotId = canonicalSlotId(slotIdentityIndex, migration.slotId, upgradePlan.blockId);
-        g.node(slotId, 'slot', migration.slotId);
-        g.edge(`block:${upgradePlan.blockId}`, slotId, 'connects_to');
-        g.edge(slotId, `file:${migration.target}`, 'writes_to');
-      }
     }
   }
 
@@ -291,23 +239,6 @@ export async function buildExplainGraph(
     );
   }
 
-  if (repairPlan) {
-    for (const task of repairPlan.tasks) {
-      const repairId = `repair:${task.taskId}`;
-      const category = task.category ?? 'slot-rewrite';
-      g.node(repairId, 'repair', task.taskId);
-      g.link(repairId, `repair-category:${category}`, 'depends_on', 'repair', category);
-      g.link(
-        repairId,
-        canonicalSlotId(slotIdentityIndex, task.sourceSlotId, task.targetBlock),
-        'connects_to',
-        'slot',
-        task.sourceSlotId
-      );
-      g.link(repairId, `file:${task.targetFile}`, 'writes_to', 'file', task.targetFile);
-    }
-  }
-
   for (const acceptanceId of lock.acceptancePlan) {
     g.node(`acceptance:${acceptanceId}`, 'acceptance', acceptanceId);
   }
@@ -316,21 +247,10 @@ export async function buildExplainGraph(
       g.edge(`block:${blockCoverage.id}`, `acceptance:${acceptanceId}`, 'verified_by');
     }
   }
-  for (const slotCoverage of coverage.slots) {
-    for (const acceptanceId of slotCoverage.coveredBy) {
-      g.edge(
-        canonicalSlotId(slotIdentityIndex, slotCoverage.id),
-        `acceptance:${acceptanceId}`,
-        'verified_by'
-      );
-    }
-  }
-
   return g.build(semanticViews, {
     provenance: provenance.artifacts,
     coverage: {
-      blocks: coverage.blocks.map((entry) => ({ id: entry.id, coveredBy: [...entry.coveredBy] })),
-      slots: coverage.slots.map((entry) => ({ id: entry.id, coveredBy: [...entry.coveredBy] }))
+      blocks: coverage.blocks.map((entry) => ({ id: entry.id, coveredBy: [...entry.coveredBy] }))
     }
   });
 }
@@ -434,7 +354,7 @@ export async function writeExplainGraph(
       if (coverage === null) {
         throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
       }
-      const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } =
+      const { policyReport, upgradePlan, upgradeDiagnostics } =
         readReviewGovernanceReports(workspaceRoot);
       const nextProvenance = provenance.artifacts.some((artifact) =>
         artifact.path === CI_ARTIFACT_FILES.explainGraph)
@@ -447,7 +367,6 @@ export async function writeExplainGraph(
         coverage,
         policyReport,
         upgradePlan,
-        repairPlan,
         upgradeDiagnostics
       );
       await publishGraphArtifact(

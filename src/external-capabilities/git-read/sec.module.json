@@ -8,6 +8,45 @@
         "createAuthorityGitReadSession",
         "withAuthorityGitReadSession"
       ]
+    },
+    {
+      "capability": "git.development-commit-plumbing",
+      "operations": [
+        "materializeAuthorityDevelopmentCommitObject",
+        "compareAndSwapAuthorityDevelopmentCommitRef"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "ownerInternalOperations": [
+        "materializeAuthorityDevelopmentCommitObject",
+        "compareAndSwapAuthorityDevelopmentCommitRef"
+      ],
+      "operationRoles": []
+    },
+    {
+      "capability": "git.semantic-operation",
+      "operations": [
+        "bindGitDevelopmentCommitOperation",
+        "settleGitDevelopmentCommitOperation"
+      ],
+      "operationRoles": [
+        {
+          "operation": "bindGitDevelopmentCommitOperation",
+          "role": "binding-issuer",
+          "semanticOperation": "development.commit",
+          "requirementId": "repository.commit",
+          "recovery": null
+        },
+        {
+          "operation": "settleGitDevelopmentCommitOperation",
+          "role": "provider-settlement-issuer",
+          "semanticOperation": "development.commit",
+          "requirementId": "repository.commit",
+          "recovery": null
+        }
+      ]
     }
   ]
 }

@@ -14,14 +14,7 @@ function canonicalCoverage() {
       coveredBy: ['acceptance_login'],
       uncovered: false
     }],
-    slots: [{
-      id: 'session_adapter',
-      declaredAcceptance: ['acceptance_login'],
-      coveredBy: ['acceptance_login'],
-      uncovered: false
-    }],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
+    uncoveredBlocks: []
   } as const;
 }
 
@@ -74,7 +67,7 @@ test('Acceptance Coverage authority rejects duplicate or noncanonical Acceptance
     .toThrow('canonical Acceptance IDs');
 });
 
-test('Acceptance Coverage authority rejects noncanonical block and slot ordering', () => {
+test('Acceptance Coverage authority rejects noncanonical block ordering', () => {
   const blockOrder = structuredClone(canonicalCoverage()) as any;
   blockOrder.blocks = [
     {
@@ -87,17 +80,4 @@ test('Acceptance Coverage authority rejects noncanonical block and slot ordering
   ];
   expect(() => validateAcceptanceCoverageReport(blockOrder))
     .toThrow('blocks must be canonically ordered');
-
-  const slotOrder = structuredClone(canonicalCoverage()) as any;
-  slotOrder.slots = [
-    {
-      id: 'token_adapter',
-      declaredAcceptance: ['acceptance_login'],
-      coveredBy: ['acceptance_login'],
-      uncovered: false
-    },
-    ...slotOrder.slots
-  ];
-  expect(() => validateAcceptanceCoverageReport(slotOrder))
-    .toThrow('slots must be canonically ordered');
 });

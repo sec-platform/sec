@@ -10,14 +10,28 @@ import {
 import {
   compileTypecheckActionInput,
   compileTypecheckSemanticOperation,
+  requireTypecheckSubordinateTerminal,
   resolveTypecheckBuildInfoPath,
-  runTypecheckWithDependencyRoot,
+  runTypecheckWithProjectGenerationEvidence,
   runTypecheckWithProvider
 } from '../../src/development/runner/typecheck-runner.ts';
+import {
+  inspectNoFollowDirectoryChain,
+  materializeRetainedNoFollowProvenDirectoryGeneration,
+  retainNoFollowDirectoryForChildProcess,
+  retainNoFollowSealedDirectoryGeneration,
+  scanNoFollowDirectoryTreeInventory,
+  type RetainedNoFollowChildProcessDirectory,
+  type RetainedNoFollowProvenDirectoryGeneration,
+  type RetainedNoFollowSealedDirectoryGeneration
+} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
+import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../src/runtime-state/workspace-state/layout.ts';
 import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 import {
   bindSecSemanticOperation,
+  compileSecCapabilityBinding,
   compileSecProviderSettlementSet,
   compileSecSemanticOperationPlan,
   issueSecNormalDomainReadbackReceipt,
@@ -29,13 +43,211 @@ import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-a
 import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments } from '../../src/toolchain/typescript/checker.ts';
 import {
   createVerificationActionKey,
-  issueVerificationActionTerminalSettlement,
+  issueProcessVerificationActionTerminalSettlement,
+  issueVerificationActionOwnerTerminalReceipt,
   projectVerificationActionTerminal
 } from '../../src/verification/action/contract/action.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
 const PROJECT_CONFIG_DIGEST = `sha256:${'b'.repeat(64)}` as const;
 const FIXTURE_PROVIDER_VERSION = '1.0.0';
+
+function testDigest(value: unknown): `sha256:${string}` {
+  return sha256(value) as `sha256:${string}`;
+}
+
+function testActionForOperation(
+  operation: ReturnType<typeof compileTypecheckSemanticOperation>
+) {
+  return createVerificationActionKey({
+    actionKind: 'typescript-project-typecheck-test',
+    producer: { identity: 'typecheck-provider-boundary-test', revision: 'semantic-operation' },
+    operation: {
+      identity: 'typecheck-provider-boundary',
+      revision: 'semantic-operation',
+      semanticDigest: operation.plan.identity.identityDigest,
+      workingDirectory: '.',
+      declaredEnvironment: []
+    },
+    inputClosure: [],
+    environment: {
+      toolchainRevision: 'fixture',
+      providerRevision: 'fixture',
+      contractRevision: 'semantic-operation'
+    },
+    requiredCheapPreflightActionKeys: [],
+    upstreamActionKeys: [],
+    resultSchemaRevision: 'typecheck-provider-boundary-result'
+  });
+}
+
+function issuePassedVerificationTerminalFixture() {
+  const effectContractDigest = testDigest('typecheck-terminal-fixture-effect');
+  const operation = bindSecSemanticOperation(
+    compileSecSemanticOperationPlan({
+      operation: 'verification.typecheck-terminal-fixture',
+      intentDigest: testDigest('typecheck-terminal-fixture-intent'),
+      decisionDigest: testDigest('typecheck-terminal-fixture-decision'),
+      deadlineAtUnixMs: Date.now() + 30_000,
+      aggregateBudgets: [{ resource: 'processes', maximum: 1 }],
+      requirements: [{
+        id: 'typescript.project-check',
+        contractDigest: effectContractDigest,
+        effectKinds: ['process'],
+        failureKinds: ['process.failed']
+      }],
+      attempt: issueSecSemanticOperationAttemptContext({
+        authorityGrantDigest: testDigest('typecheck-terminal-fixture-grant')
+      })
+    }),
+    [compileSecCapabilityBinding({
+      requirementId: 'typescript.project-check',
+      contractDigest: effectContractDigest,
+      providerIdentityDigest: testDigest('typecheck-terminal-fixture-provider')
+    })]
+  );
+  const settlement = issueSecProviderSettlementReceipt(operation, {
+    requirementId: 'typescript.project-check',
+    physicalDisposition: 'settled',
+    providerSettlementReferenceDigest: testDigest('typecheck-terminal-fixture-settlement')
+  });
+  const settlements = compileSecProviderSettlementSet(operation, [settlement]);
+  const readback = issueSecNormalDomainReadbackReceipt(operation, settlements, {
+    readbackContractDigest: testDigest('typecheck-terminal-fixture-readback-contract'),
+    readbackReferenceDigest: testDigest('typecheck-terminal-fixture-readback'),
+    currentPhysicalEpochDigest: testDigest('typecheck-terminal-fixture-epoch'),
+    disposition: 'applied'
+  });
+  const join = issueSecNormalOwnerTerminalJoinReceipt(operation, settlements, readback, {
+    ownerTerminalContractDigest: testDigest('typecheck-terminal-fixture-owner-contract'),
+    ownerTerminalReferenceDigest: testDigest('typecheck-terminal-fixture-owner-reference')
+  });
+  const receipt = createBoundedProcessDiagnosticObjectReceipt({
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    executionPlanDigest: operation.plan.execution.executionPlanDigest,
+    boundAttemptDigest: operation.boundAttemptDigest,
+    subjectDigest: testDigest('typecheck-terminal-fixture-subject'),
+    settlementDigest: settlements.providerSettlementSetDigest,
+    stream: 'stderr',
+    bytes: new TextEncoder().encode('typecheck terminal fixture diagnostic'),
+    retainedUntilUnixMs: operation.plan.attempt.deadlineAtUnixMs
+  });
+  const readbackUnsigned = Object.freeze({
+    disposition: 'current' as const,
+    objectDigest: receipt.objectDigest,
+    physicalIdentityDigest: testDigest('typecheck-terminal-fixture-diagnostic-physical'),
+    contentDigest: receipt.contentDigest,
+    byteLength: receipt.byteLength
+  });
+  const actionTerminal = issueVerificationActionOwnerTerminalReceipt({
+    action: testActionForOperation(operation),
+    operation,
+    providerSettlementSet: settlements,
+    readback,
+    ownerTerminalProjection: join
+  });
+  return projectVerificationActionTerminal(issueProcessVerificationActionTerminalSettlement(actionTerminal, {
+    status: 'passed',
+    reasonCode: 'executed-success',
+    diagnosticObjects: [Object.freeze({
+      receipt,
+      readback: Object.freeze({
+        ...readbackUnsigned,
+        readbackDigest: testDigest(readbackUnsigned)
+      })
+    })]
+  }));
+}
+
+type TypecheckTerminalOutcomeFixture = Parameters<
+  typeof requireTypecheckSubordinateTerminal
+>[0];
+
+/** Project the canonical runner outcome after an owner-issued terminal commit. */
+function projectExecutedTypecheckOutcomeFixture(
+  terminal: NonNullable<TypecheckTerminalOutcomeFixture['terminal']>,
+  subordinateSettlement: string | null,
+  disposition: Extract<TypecheckTerminalOutcomeFixture['disposition'], 'executed' | 'reused'> = 'executed'
+): TypecheckTerminalOutcomeFixture {
+  return Object.freeze({
+    disposition,
+    state: 'terminal',
+    terminal,
+    reason: null,
+    subordinateSettlement
+  });
+}
+
+async function withCheckerExecutionBoundary<T>(
+  workingRoot: string,
+  dependencyRoot: string,
+  callback: (boundary: Readonly<{
+    auxiliaryDirectory: RetainedNoFollowChildProcessDirectory;
+    buildInfoFileName: 'tsconfig.tsbuildinfo';
+    dependencyDirectory: RetainedNoFollowProvenDirectoryGeneration;
+    workingDirectory: RetainedNoFollowSealedDirectoryGeneration;
+  }>) => Promise<T>
+): Promise<T> {
+  const root = inspectNoFollowDirectoryChain(workingRoot, 'test immutable checker root').target;
+  const inventory = scanNoFollowDirectoryTreeInventory(root, {
+    deadlineAtMs: performance.now() + 30_000,
+    maximumBytes: 16 * 1024 * 1024,
+    maximumEntries: 256
+  });
+  const authority = await sealExistingWindowsReadOnlyTreeAuthority(
+    root.path,
+    inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
+      path.join(root.path, ...relativePath.split('/'))
+    )),
+    {
+      deadlineAtMs: Date.now() + 30_000,
+      ownerRootPath: path.dirname(root.path),
+      repositoryRootPath: process.cwd()
+    }
+  );
+  const workingDirectory = await retainNoFollowSealedDirectoryGeneration(root, inventory, authority);
+  const dependencyIdentity = inspectNoFollowDirectoryChain(
+    dependencyRoot,
+    'test checker dependency root'
+  ).target;
+  const dependencyInventory = scanNoFollowDirectoryTreeInventory(dependencyIdentity, {
+    deadlineAtMs: performance.now() + 30_000,
+    maximumBytes: 256 * 1024 * 1024,
+    maximumEntries: 20_000
+  });
+  const dependencyTreeDigest = testDigest(dependencyInventory);
+  const dependencyDirectory = (await materializeRetainedNoFollowProvenDirectoryGeneration({
+    binding: {
+      generationDigest: testDigest({ dependencyRoot, dependencyTreeDigest }),
+      treeDigest: dependencyTreeDigest,
+      treeEntryCount: dependencyInventory.length
+    },
+    deadlineAtUnixMs: Date.now() + 30_000,
+    inventory: dependencyInventory,
+    proofText: null,
+    releaseMode: 'restore-owner-write',
+    root: dependencyIdentity
+  })).generation;
+  const auxiliaryRoot = path.join(path.dirname(workingRoot), 'action-private-auxiliary');
+  await fs.mkdir(auxiliaryRoot);
+  const auxiliaryDirectory = retainNoFollowDirectoryForChildProcess(
+    inspectNoFollowDirectoryChain(auxiliaryRoot, 'test checker action-private auxiliary root'),
+    4,
+    'test checker action-private auxiliary root'
+  );
+  try {
+    return await callback(Object.freeze({
+      auxiliaryDirectory,
+      buildInfoFileName: 'tsconfig.tsbuildinfo',
+      dependencyDirectory,
+      workingDirectory
+    }));
+  } finally {
+    auxiliaryDirectory.dispose();
+    await dependencyDirectory.retire();
+    await workingDirectory.retire();
+  }
+}
 
 function projectInputFixture(
   configSource = '{"compilerOptions":{"strict":false}}',
@@ -79,7 +291,7 @@ function projectInputFixture(
 
 function currentNativePackageName(): `@typescript/typescript-${string}` {
   const suffix = `${process.platform}-${process.arch}`;
-  if (!['win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64'].includes(suffix)) {
+  if (!/^[a-z0-9]+-[a-z0-9]+$/u.test(suffix)) {
     throw new Error(`Test host has no admitted native TypeScript package: ${suffix}`);
   }
   return `@typescript/typescript-${suffix}`;
@@ -122,6 +334,29 @@ async function writeNativeCheckerFixture(
   return nodeModulesPath;
 }
 
+async function copyInstalledNativeCheckerFixture(root: string): Promise<string> {
+  const sourceNodeModulesPath = path.join(process.cwd(), 'node_modules');
+  const targetNodeModulesPath = path.join(root, 'node_modules');
+  const nativePackageName = currentNativePackageName();
+  const relativeFiles = [
+    path.join('@typescript', 'native', 'package.json'),
+    path.join('@typescript', 'native', 'bin', 'tsc'),
+    path.join(...nativePackageName.split('/'), 'package.json')
+  ];
+  for (const relativeFile of relativeFiles) {
+    const target = path.join(targetNodeModulesPath, relativeFile);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.copyFile(path.join(sourceNodeModulesPath, relativeFile), target);
+  }
+  const nativeLibraryRelativePath = path.join(...nativePackageName.split('/'), 'lib');
+  await fs.cp(
+    path.join(sourceNodeModulesPath, nativeLibraryRelativePath),
+    path.join(targetNodeModulesPath, nativeLibraryRelativePath),
+    { recursive: true }
+  );
+  return targetNodeModulesPath;
+}
+
 async function selectNativeChecker(nodeModulesPath: string) {
   return requireSelectedTypeScriptNativeChecker(
     await selectInstalledTypeScriptNativeChecker(nodeModulesPath)
@@ -152,6 +387,24 @@ test('native checker selection fails closed without falling back to the programm
   }
 });
 
+test('native checker selection consumes the caller operation deadline and cancellation', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-selection-budget-'));
+  try {
+    const nodeModulesPath = path.join(root, 'node_modules');
+    expect(await selectInstalledTypeScriptNativeChecker(nodeModulesPath, {
+      deadlineAtUnixMs: Date.now() - 1
+    })).toMatchObject({ status: 'unverified', reason: 'deadline-exhausted' });
+    const controller = new AbortController();
+    controller.abort();
+    expect(await selectInstalledTypeScriptNativeChecker(nodeModulesPath, {
+      deadlineAtUnixMs: Date.now() + 30_000,
+      signal: controller.signal
+    })).toMatchObject({ status: 'unverified', reason: 'cancelled' });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('native checker rejects an alias and platform package from different revisions', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-mismatch-'));
   try {
@@ -172,37 +425,17 @@ test('native checker preserves unverified artifact failures as a terminal select
     await fs.mkdir(wrapperPath);
     expect(await selectInstalledTypeScriptNativeChecker(nodeModulesPath))
       .toMatchObject({ status: 'unverified', reason: 'artifact-unreadable' });
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
 
-test('runner dependency-root admission preserves every non-selected provider status without fallback', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-runner-selection-'));
-  const dependencyInput = (nodeModulesPath: string) => ({
-    nodeModulesPath,
-    manifestHash: `sha256:${'8'.repeat(64)}`,
-    requiresFreshProcess: false,
-    source: 'existing' as const,
-    transitionDigest: DEPENDENCY_TRANSITION_DIGEST
-  });
-  try {
-    const unavailableRoot = path.join(root, 'unavailable', 'node_modules');
-    await expect(runTypecheckWithDependencyRoot(dependencyInput(unavailableRoot)))
-      .rejects.toMatchObject({ status: 'unavailable', reason: 'package-not-installed' });
-
-    const mismatchRoot = await writeNativeCheckerFixture(path.join(root, 'mismatch'), {
-      nativeVersion: '1.0.1'
-    });
-    await expect(runTypecheckWithDependencyRoot(dependencyInput(mismatchRoot)))
-      .rejects.toMatchObject({ status: 'mismatch', reason: 'provider-version-mismatch' });
-
-    const unverifiedRoot = await writeNativeCheckerFixture(path.join(root, 'unverified'));
-    const wrapperPath = path.join(unverifiedRoot, '@typescript', 'native', 'bin', 'tsc');
-    await fs.rm(wrapperPath);
-    await fs.mkdir(wrapperPath);
-    await expect(runTypecheckWithDependencyRoot(dependencyInput(unverifiedRoot)))
-      .rejects.toMatchObject({ status: 'unverified', reason: 'artifact-unreadable' });
+    const duplicateKeyRoot = path.join(root, 'duplicate-key');
+    const duplicateKeyModules = await writeNativeCheckerFixture(duplicateKeyRoot);
+    const manifestPath = path.join(duplicateKeyModules, '@typescript', 'native', 'package.json');
+    const manifest = await fs.readFile(manifestPath, 'utf8');
+    await fs.writeFile(
+      manifestPath,
+      manifest.replace('{"name":"typescript"', '{"name":"typescript","name":"typescript"')
+    );
+    expect(await selectInstalledTypeScriptNativeChecker(duplicateKeyModules))
+      .toMatchObject({ status: 'unverified', reason: 'manifest-invalid' });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -271,10 +504,13 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
     const semanticAt = (deadlineAtUnixMs: number) => compileTypecheckSemanticOperation({
       projectConfigPath: installed.provider.projectConfig,
       diagnosticArguments: [],
-      provider: installed.provider,
+      checker: installed,
       deadlineAtUnixMs
     });
-    const actionAt = (deadlineAtUnixMs: number) => createVerificationActionKey(
+    const actionAt = (
+      deadlineAtUnixMs: number,
+      _observedProjectGenerationDigest = testDigest('typecheck-project-generation')
+    ) => createVerificationActionKey(
       compileTypecheckActionInput({
         dependencies,
         provider: installed.provider,
@@ -304,6 +540,8 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
       .not.toBe(first.actionKey);
     expect(changed({ projectInput: projectInputFixture(undefined, 'export const checked = false;\n') }))
       .not.toBe(first.actionKey);
+    expect(actionAt(1_900_000_000_000, testDigest('changed-typecheck-project-generation')).actionKey)
+      .toBe(first.actionKey);
     expect(() => changed({
       projectInput: { ...projectInput } as typeof projectInput
     })).toThrow('was not issued');
@@ -335,13 +573,14 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
       .not.toBe(baseSemanticOperation.boundAttemptDigest);
     expect(changed({ semanticOperation: changedBudgetOperation })).toBe(first.actionKey);
     await fs.writeFile(path.join(root, 'node_modules', '@typescript', 'native', 'bin', 'tsc'), 'changed-wrapper');
-    const changedProvider = (await selectNativeChecker(path.join(root, 'node_modules'))).provider;
+    const changedInstalled = await selectNativeChecker(path.join(root, 'node_modules'));
+    const changedProvider = changedInstalled.provider;
     expect(changed({
       provider: changedProvider,
       semanticOperation: compileTypecheckSemanticOperation({
         projectConfigPath: changedProvider.projectConfig,
         diagnosticArguments: [],
-        provider: changedProvider,
+        checker: changedInstalled,
         deadlineAtUnixMs: 1_900_000_000_000
       })
     })).not.toBe(first.actionKey);
@@ -350,45 +589,109 @@ test('typecheck Action identity excludes attempt time and keeps one reusable key
   }
 });
 
-test('typecheck settles source observation and project check as one exact provider set', async () => {
+test('typecheck terminal consumer requires one strict physically-clean subordinate settlement for PASS', () => {
+  const passedTerminal = issuePassedVerificationTerminalFixture();
+  const body = (input: Readonly<{
+    cleanup?: Record<string, unknown>;
+    execution?: Record<string, unknown>;
+    readback?: Record<string, unknown>;
+    setup?: Record<string, unknown>;
+  }> = {}) => JSON.stringify({
+    setup: input.setup ?? { status: 'complete', durationMs: 7 },
+    execution: input.execution ?? {
+      status: 'exited',
+      exitCode: 0,
+      stdoutDigest: testDigest('stdout'),
+      stderrDigest: testDigest('stderr'),
+      durationMs: 11
+    },
+    cleanup: input.cleanup ?? { status: 'physically-clean', durationMs: 3 },
+    readback: input.readback ?? {
+      status: 'current',
+      reason: 'immutable-execution-generation-current'
+    }
+  });
+
+  const executed = requireTypecheckSubordinateTerminal(
+    projectExecutedTypecheckOutcomeFixture(passedTerminal, body())
+  );
+  expect(executed).toMatchObject({
+    setup: { status: 'complete', durationMs: 7 },
+    execution: { status: 'exited', exitCode: 0, durationMs: 11 },
+    cleanup: { status: 'physically-clean', durationMs: 3 },
+    readback: { status: 'current' }
+  });
+  expect(requireTypecheckSubordinateTerminal(
+    projectExecutedTypecheckOutcomeFixture(passedTerminal, body(), 'reused')
+  )).toEqual(executed);
+  expect(() => requireTypecheckSubordinateTerminal({
+    ...projectExecutedTypecheckOutcomeFixture(passedTerminal, null),
+    terminal: null
+  })).toThrow(expect.objectContaining({ kind: 'terminal-missing', status: 'blocked' }));
+  for (const [subordinateSettlement, kind] of [
+    [null, 'subordinate-missing'],
+    ['not-json', 'subordinate-corrupt'],
+    [body({ cleanup: { status: 'pending' } }), 'subordinate-corrupt'],
+    [body({ setup: { status: 'complete', durationMs: -1 } }), 'subordinate-corrupt'],
+    [body({ cleanup: {
+      status: 'physical-residue',
+      reason: 'physical-cleanup-failed',
+      errorName: 'CleanupError',
+      message: 'residue remains'
+    } }), 'cleanup-unsettled'],
+    [body({ execution: {
+      status: 'exited',
+      exitCode: 1,
+      stdoutDigest: testDigest('stdout'),
+      stderrDigest: testDigest('stderr')
+    } }), 'pass-phase-mismatch']
+  ] as const) {
+    expect(() => requireTypecheckSubordinateTerminal(
+      projectExecutedTypecheckOutcomeFixture(passedTerminal, subordinateSettlement)
+    )).toThrow(expect.objectContaining({ kind, status: 'blocked' }));
+  }
+});
+
+test('typecheck consumes Source Program input and joins checker plus retained diagnostics', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-settlement-'));
   try {
     const installed = await selectNativeChecker(await writeNativeCheckerFixture(root));
     const operation = compileTypecheckSemanticOperation({
       projectConfigPath: installed.provider.projectConfig,
       diagnosticArguments: [],
-      provider: installed.provider,
+      checker: installed,
       deadlineAtUnixMs: 1_900_000_000_000
     });
-    expect(operation.plan.execution.requirements.map(({ id }) => id)).toEqual([
-      'repository.source-observation',
-      'typescript.project-check'
-    ]);
-    const sourceObservation = issueSecProviderSettlementReceipt(operation, {
-      requirementId: 'repository.source-observation',
-      physicalDisposition: 'settled',
-      providerSettlementReferenceDigest: sha256('source-observation-settled')
-    });
+    expect(new Set(operation.plan.execution.requirements.flatMap(({ effectKinds }) => effectKinds)))
+      .toEqual(new Set(['filesystem', 'process']));
     const checker = issueSecProviderSettlementReceipt(operation, {
       requirementId: 'typescript.project-check',
       physicalDisposition: 'unknown',
-      providerSettlementReferenceDigest: sha256('checker-handle-lost')
+      providerSettlementReferenceDigest: testDigest('checker-handle-lost')
     });
+    expect(() => compileSecProviderSettlementSet(operation, [])).toThrow(
+      'exactly one receipt per requirement'
+    );
     expect(() => compileSecProviderSettlementSet(operation, [checker])).toThrow(
       'exactly one receipt per requirement'
     );
-    const settlementSet = compileSecProviderSettlementSet(operation, [checker, sourceObservation]);
+    const diagnostic = issueSecProviderSettlementReceipt(operation, {
+      requirementId: 'verification.action-diagnostics',
+      physicalDisposition: 'settled',
+      providerSettlementReferenceDigest: testDigest('diagnostic-object-settled')
+    });
+    const settlementSet = compileSecProviderSettlementSet(operation, [checker, diagnostic]);
     expect(settlementSet.settlements.map(({ requirementId, physicalDisposition }) => ({
       requirementId,
       physicalDisposition
-    }))).toEqual([
-      { requirementId: 'repository.source-observation', physicalDisposition: 'settled' },
-      { requirementId: 'typescript.project-check', physicalDisposition: 'unknown' }
-    ]);
+    }))).toEqual(expect.arrayContaining([
+      { requirementId: 'typescript.project-check', physicalDisposition: 'unknown' },
+      { requirementId: 'verification.action-diagnostics', physicalDisposition: 'settled' }
+    ]));
     const readback = issueSecNormalDomainReadbackReceipt(operation, settlementSet, {
-      readbackContractDigest: sha256('typecheck-readback-contract'),
-      readbackReferenceDigest: sha256('typecheck-input-invalidated'),
-      currentPhysicalEpochDigest: sha256('typecheck-current-physical-epoch'),
+      readbackContractDigest: testDigest('typecheck-readback-contract'),
+      readbackReferenceDigest: testDigest('typecheck-input-invalidated'),
+      currentPhysicalEpochDigest: testDigest('typecheck-current-physical-epoch'),
       disposition: 'unknown'
     });
     const terminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
@@ -396,20 +699,52 @@ test('typecheck settles source observation and project check as one exact provid
       settlementSet,
       readback,
       {
-        ownerTerminalContractDigest: sha256('typecheck-action-terminal-contract'),
-        ownerTerminalReferenceDigest: sha256('typecheck-action-terminal-reference')
+        ownerTerminalContractDigest: testDigest('typecheck-action-terminal-contract'),
+        ownerTerminalReferenceDigest: testDigest('typecheck-action-terminal-reference')
       }
     );
+    const diagnosticReceipt = createBoundedProcessDiagnosticObjectReceipt({
+      operationIdentityDigest: operation.plan.identity.identityDigest,
+      executionPlanDigest: operation.plan.execution.executionPlanDigest,
+      boundAttemptDigest: operation.boundAttemptDigest,
+      subjectDigest: testDigest('typecheck-input-invalidated-diagnostic'),
+      settlementDigest: settlementSet.providerSettlementSetDigest,
+      stream: 'stderr',
+      bytes: new TextEncoder().encode('typecheck input invalidated'),
+      retainedUntilUnixMs: operation.plan.attempt.deadlineAtUnixMs
+    });
+    const diagnosticReadback = Object.freeze({
+      disposition: 'current' as const,
+      objectDigest: diagnosticReceipt.objectDigest,
+      physicalIdentityDigest: testDigest('typecheck-input-invalidated-diagnostic-physical'),
+      contentDigest: diagnosticReceipt.contentDigest,
+      byteLength: diagnosticReceipt.byteLength
+    });
+    const actionTerminal = issueVerificationActionOwnerTerminalReceipt({
+      action: testActionForOperation(operation),
+      operation,
+      providerSettlementSet: settlementSet,
+      readback,
+      ownerTerminalProjection: terminalJoin
+    });
     const terminal = projectVerificationActionTerminal(
-      issueVerificationActionTerminalSettlement(terminalJoin, {
+      issueProcessVerificationActionTerminalSettlement(actionTerminal, {
         status: 'invalidated',
-        reasonCode: 'input-invalidated'
+        reasonCode: 'input-invalidated',
+        diagnosticObjects: [Object.freeze({
+          receipt: diagnosticReceipt,
+          readback: Object.freeze({
+            ...diagnosticReadback,
+            readbackDigest: testDigest(diagnosticReadback)
+          })
+        })]
       })
     );
-    expect(terminal).toEqual({
+    expect(terminal).toMatchObject({
       status: 'invalidated',
       reasonCode: 'input-invalidated',
-      resultDigest: terminalJoin.joinReceiptDigest
+      boundAttemptDigest: terminalJoin.boundAttemptDigest,
+      ownerTerminalReceiptDigest: actionTerminal.terminalReceiptDigest
     });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -448,42 +783,83 @@ test('native checker capability rejects structural substitutions at the effect b
     );
     const forged = { ...installed };
     expect(() => assertTypeScriptNativeChecker(forged)).toThrow('not issued by the native provider resolver');
+    expect(() => compileTypecheckSemanticOperation({
+      checker: forged as never,
+      deadlineAtUnixMs: 1_900_000_000_000,
+      diagnosticArguments: [],
+      projectConfigPath: installed.provider.projectConfig
+    })).toThrow('not issued by the native provider resolver');
     expect(() => assertTypeScriptNativeChecker(installed)).not.toThrow();
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
-test('issued checker rejects package or executable byte drift before incremental state effects', async () => {
+test.skipIf(process.platform !== 'win32')('native checker cannot cross into a different retained dependency generation', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-root-binding-'));
+  try {
+    const checkerRoot = path.join(root, 'checker');
+    const dependencyRoot = path.join(root, 'dependency');
+    const checker = await selectNativeChecker(await writeNativeCheckerFixture(checkerRoot));
+    const otherNodeModules = await writeNativeCheckerFixture(dependencyRoot);
+    const projectRoot = path.join(root, 'project');
+    await fs.mkdir(projectRoot);
+    await withCheckerExecutionBoundary(projectRoot, otherNodeModules, async (boundary) => {
+      expect(await executeTypeScriptNativeChecker(checker, {
+        ...boundary,
+        deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+      })).toMatchObject({
+        status: 'unverified',
+        reason: 'process-boundary-unavailable'
+      });
+    });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')('issued checker rejects package or executable byte drift before incremental state effects', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-drift-'));
   try {
-    const nodeModulesPath = await writeNativeCheckerFixture(root);
-    const packageManifestPath = path.join(nodeModulesPath, '@typescript', 'native', 'package.json');
-    const nativeExecutablePath = path.join(
-      nodeModulesPath,
+    const packageFixture = path.join(root, 'package-drift');
+    const packageModules = await writeNativeCheckerFixture(packageFixture);
+    const packageBoundChecker = await selectNativeChecker(packageModules);
+    await fs.appendFile(path.join(packageModules, '@typescript', 'native', 'package.json'), ' ');
+    const packageProject = path.join(packageFixture, 'project');
+    await fs.mkdir(packageProject);
+    await withCheckerExecutionBoundary(packageProject, packageModules, async (boundary) => {
+      expect(await executeTypeScriptNativeChecker(packageBoundChecker, {
+        ...boundary,
+        deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+      })).toMatchObject({ status: 'unverified', reason: 'provider-drift' });
+      await expect(fs.stat(path.join(
+        boundary.auxiliaryDirectory.childPath,
+        boundary.buildInfoFileName
+      ))).rejects.toMatchObject({ code: 'ENOENT' });
+
+    });
+
+    const executableFixture = path.join(root, 'executable-drift');
+    const executableModules = await writeNativeCheckerFixture(executableFixture);
+    const executableBoundChecker = await selectNativeChecker(executableModules);
+    await fs.writeFile(path.join(
+      executableModules,
       ...currentNativePackageName().split('/'),
       'lib',
       process.platform === 'win32' ? 'tsc.exe' : 'tsc'
-    );
-    const buildInfoFile = path.join(root, 'cache', 'tsconfig.tsbuildinfo');
-
-    const packageBoundChecker = await selectNativeChecker(nodeModulesPath);
-    await fs.appendFile(packageManifestPath, ' ');
-    expect(await executeTypeScriptNativeChecker(packageBoundChecker, {
-      buildInfoFile,
-      deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-      workingDirectory: root
-    })).toMatchObject({ status: 'unverified', reason: 'provider-drift' });
-    await expect(fs.stat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
-
-    const executableBoundChecker = await selectNativeChecker(nodeModulesPath);
-    await fs.writeFile(nativeExecutablePath, 'changed-native-executable');
-    expect(await executeTypeScriptNativeChecker(executableBoundChecker, {
-      buildInfoFile,
-      deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-      workingDirectory: root
-    })).toMatchObject({ status: 'unverified', reason: 'provider-drift' });
-    await expect(fs.stat(buildInfoFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    ), 'changed-native-executable');
+    const executableProject = path.join(executableFixture, 'project');
+    await fs.mkdir(executableProject);
+    await withCheckerExecutionBoundary(executableProject, executableModules, async (boundary) => {
+      expect(await executeTypeScriptNativeChecker(executableBoundChecker, {
+        ...boundary,
+        deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+      })).toMatchObject({ status: 'unverified', reason: 'provider-drift' });
+      await expect(fs.stat(path.join(
+        boundary.auxiliaryDirectory.childPath,
+        boundary.buildInfoFileName
+      ))).rejects.toMatchObject({ code: 'ENOENT' });
+    });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -500,18 +876,41 @@ test('unsupported checker arguments fail before cache or process effects', async
       requiresFreshProcess: false,
       source: 'existing',
       transitionDigest: DEPENDENCY_TRANSITION_DIGEST,
-    }, installed, ['--project', 'other.json'])).rejects.toThrow('provider-owned');
+    } as never, installed, ['--project', 'other.json'])).rejects.toThrow('provider-owned');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
-test('provider-issued native checker executes one bounded project and writes its incremental state', async () => {
+test('typecheck runner rejects caller-constructed Source Program generation evidence before effects', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-generation-origin-'));
+  try {
+    const nodeModulesPath = await writeNativeCheckerFixture(root);
+    const installed = await selectNativeChecker(nodeModulesPath);
+    await expect(runTypecheckWithProjectGenerationEvidence({
+      nodeModulesPath,
+      manifestHash: 'fixture-manifest',
+      requiresFreshProcess: false,
+      source: 'existing',
+      transitionDigest: DEPENDENCY_TRANSITION_DIGEST
+    } as never, installed, {
+      generationDigest: sha256('forged-generation'),
+      projectInput: projectInputFixture()
+    } as never)).rejects.toThrow('was not issued by the Source Program owner');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')('provider-issued native checker writes incremental state only inside its action-private auxiliary capability', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-effect-'));
   try {
+    const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
+    const projectRoot = path.join(root, 'project');
+    await fs.mkdir(projectRoot);
     await Promise.all([
-      fs.writeFile(path.join(root, 'input.ts'), 'export const answer: number = 42;\n'),
-      fs.writeFile(path.join(root, 'tsconfig.json'), JSON.stringify({
+      fs.writeFile(path.join(projectRoot, 'input.ts'), 'export const answer: number = 42;\n'),
+      fs.writeFile(path.join(projectRoot, 'tsconfig.json'), JSON.stringify({
         compilerOptions: {
           incremental: true,
           noEmit: true,
@@ -521,46 +920,57 @@ test('provider-issued native checker executes one bounded project and writes its
         files: ['input.ts']
       }))
     ]);
-    const buildInfoFile = path.join(root, '.state', 'typecheck.tsbuildinfo');
-    await fs.mkdir(path.dirname(buildInfoFile), { recursive: true });
-    const checker = await selectNativeChecker(
-      path.join(process.cwd(), 'node_modules')
+    const checker = await selectNativeChecker(nodeModulesPath);
+    const result = await withCheckerExecutionBoundary(
+      projectRoot,
+      nodeModulesPath,
+      (boundary) => executeTypeScriptNativeChecker(checker, {
+        ...boundary,
+        deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+      })
     );
-    const result = await executeTypeScriptNativeChecker(checker, {
-      buildInfoFile,
-      deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-      workingDirectory: root
-    });
     expect(result).toMatchObject({ status: 'exited', code: 0 });
-    expect((await fs.stat(buildInfoFile)).isFile()).toBe(true);
+    expect((await fs.stat(path.join(
+      root,
+      'action-private-auxiliary',
+      'tsconfig.tsbuildinfo'
+    ))).isFile()).toBe(true);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
-test('expired or cancelled native checker operation creates no incremental state', async () => {
+test.skipIf(process.platform !== 'win32')('expired or cancelled native checker operation creates no incremental state', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-native-typecheck-deadline-'));
   try {
-    await fs.writeFile(path.join(root, 'tsconfig.json'), JSON.stringify({ files: [] }));
-    const buildInfoFile = path.join(root, 'typecheck.tsbuildinfo');
-    const checker = await selectNativeChecker(
-      path.join(process.cwd(), 'node_modules')
+    const nodeModulesPath = await copyInstalledNativeCheckerFixture(root);
+    const projectRoot = path.join(root, 'project');
+    await fs.mkdir(projectRoot);
+    await fs.writeFile(path.join(projectRoot, 'tsconfig.json'), JSON.stringify({ files: [] }));
+    const checker = await selectNativeChecker(nodeModulesPath);
+    await withCheckerExecutionBoundary(
+      projectRoot,
+      nodeModulesPath,
+      async (boundary) => {
+        expect(await executeTypeScriptNativeChecker(checker, {
+          ...boundary,
+          deadlineAtUnixMs: Date.now() - 1
+        })).toMatchObject({ status: 'unverified', reason: 'deadline-exhausted' });
+        const buildInfoFile = path.join(
+          boundary.auxiliaryDirectory.childPath,
+          boundary.buildInfoFileName
+        );
+        expect(await fs.stat(buildInfoFile).then(() => true, () => false)).toBe(false);
+        const controller = new AbortController();
+        controller.abort();
+        expect(await executeTypeScriptNativeChecker(checker, {
+          ...boundary,
+          deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
+          signal: controller.signal
+        })).toMatchObject({ status: 'unverified', reason: 'cancelled' });
+        expect(await fs.stat(buildInfoFile).then(() => true, () => false)).toBe(false);
+      }
     );
-    expect(await executeTypeScriptNativeChecker(checker, {
-      buildInfoFile,
-      deadlineAtUnixMs: Date.now() - 1,
-      workingDirectory: root
-    })).toMatchObject({ status: 'unverified', reason: 'deadline-exhausted' });
-    expect(await fs.stat(buildInfoFile).then(() => true, () => false)).toBe(false);
-    const controller = new AbortController();
-    controller.abort();
-    expect(await executeTypeScriptNativeChecker(checker, {
-      buildInfoFile,
-      deadlineAtUnixMs: Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs,
-      signal: controller.signal,
-      workingDirectory: root
-    })).toMatchObject({ status: 'unverified', reason: 'cancelled' });
-    expect(await fs.stat(buildInfoFile).then(() => true, () => false)).toBe(false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

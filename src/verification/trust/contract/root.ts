@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { REPOSITORY_AUDIT_ENTRYPOINT_PATH } from '../../../brownfield/source-program-model/contract.ts';
-import { CI_VERIFICATION_WORKFLOW_PATH } from '../../ci/contract/revision.ts';
+import { CI_VERIFICATION_WORKFLOW_PATH } from '../../contract/revision.ts';
 
 export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA = 'sec-trusted-bootstrap-registry-v3' as const;
 export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH =

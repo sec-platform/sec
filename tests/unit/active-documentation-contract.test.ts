@@ -45,9 +45,6 @@ function authorityRecord(
     dynamicPolicy: 'forbidden',
     owns: [`test.${id}`],
     projects: [],
-    audience: ['developer'],
-    consumers: ['test'],
-    updateTriggers: ['contract-change'],
     ...overrides
   };
 }
@@ -66,9 +63,6 @@ function navigationRecord(
     dynamicPolicy: 'forbidden',
     owns: [],
     projects: [],
-    audience: ['developer'],
-    consumers: ['reader'],
-    updateTriggers: ['navigation-change'],
     ...overrides
   };
 }
@@ -96,9 +90,6 @@ function proposalRecord(
       evidenceRequirement: 'consumer-migration-and-main-readback',
       reversalCondition: null
     },
-    audience: ['developer'],
-    consumers: ['roadmap'],
-    updateTriggers: ['proposal-decision'],
     ...overrides
   };
 }
@@ -134,10 +125,10 @@ test('documentation registry reuses canonical paths and rejects Windows aliases'
 
 test('existing registry lists retain code-unit ordering semantics', () => {
   expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    authorityRecord('ordered', 'docs/ordered.md', { audience: ['A', 'a'] })
+    authorityRecord('ordered', 'docs/ordered.md', { owns: ['test.A', 'test.a'] })
   ))).not.toThrow();
   expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    authorityRecord('reversed', 'docs/reversed.md', { audience: ['a', 'A'] })
+    authorityRecord('reversed', 'docs/reversed.md', { owns: ['test.a', 'test.A'] })
   ))).toThrow(/canonical code-unit order/);
 });
 

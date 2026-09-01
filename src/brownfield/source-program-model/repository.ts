@@ -22,6 +22,7 @@ import type {
   SourceProgramOwnerIntentEvidence,
   SourceProgramPackage,
   SourceProgramResponsibilityEvidence,
+  SourceProgramReturnValueProvenance,
   SourceProgramTopologySummary,
   SourceProgramUnknown
 } from './contract.ts';
@@ -36,6 +37,7 @@ import {
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
   isCompiledTypeScriptSourceProgramModel,
+  sourceProgramCurrentExactReturnProvenances,
   workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
 import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
@@ -463,9 +465,7 @@ function durableWorkerInputRisk(
     true,
     scriptKindForPath(file.path)
   );
-  let functionLike: ts.FunctionLikeDeclaration | null = null;
-  const visit = (node: ts.Node): void => {
-    if (functionLike !== null) return;
+  const findFunctionLike = (node: ts.Node): ts.SignatureDeclaration | undefined => {
     const named = node as ts.NamedDeclaration;
     const name = named.name;
     if (name !== undefined
@@ -473,16 +473,16 @@ function durableWorkerInputRisk(
         && name.text === declaration.name
         && node.getStart(sourceFile) === declaration.span.start
         && node.getEnd() === declaration.span.end) {
-      if (ts.isFunctionLike(node)) functionLike = node;
-      else if (ts.isVariableDeclaration(node)
+      if (ts.isFunctionLike(node)) return node;
+      if (ts.isVariableDeclaration(node)
           && node.initializer !== undefined
-          && ts.isFunctionLike(node.initializer)) functionLike = node.initializer;
+          && ts.isFunctionLike(node.initializer)) return node.initializer;
     }
-    ts.forEachChild(node, visit);
+    return ts.forEachChild(node, findFunctionLike);
   };
-  visit(sourceFile);
-  if (functionLike === null) return 'unresolved';
-  const parameters = (functionLike as ts.FunctionLikeDeclaration).parameters;
+  const functionLike = findFunctionLike(sourceFile);
+  if (functionLike === undefined) return 'unresolved';
+  const parameters = functionLike.parameters;
   if (parameters.length === 0) return null;
   let unresolved = false;
   for (const parameter of parameters) {
@@ -552,52 +552,56 @@ export function compileSourceProgramCausalRelationEvidence(
     || compareCodeUnits(left.intent.symbol.name, right.intent.symbol.name)));
 }
 
-function declarationCallTargets(
-  declaration: SourceProgramDeclaration,
-  model: SourceProgramModel
-): readonly string[] {
-  const containingDeclarations = model.declarations.filter((candidate) => (
-    candidate.path === declaration.path
-    && candidate.span.start >= declaration.span.start
-    && candidate.span.end <= declaration.span.end
-  ));
-  return Object.freeze(model.references.flatMap((reference) => {
-    if (reference.path !== declaration.path
-        || reference.kind !== 'call'
-        || reference.targetObservationId === null
-        || reference.span.start < declaration.span.start
-        || reference.span.end > declaration.span.end) return [];
-    const exactContainer = containingDeclarations
-      .filter(({ span }) => span.start <= reference.span.start && span.end >= reference.span.end)
-      .sort((left, right) => (left.span.end - left.span.start) - (right.span.end - right.span.start))[0];
-    return exactContainer?.observationId === declaration.observationId
-      ? [reference.targetObservationId]
-      : [];
-  }));
-}
-
-function declarationReaches(
-  startObservationId: string,
-  targetObservationId: string,
+function declarationReturnsCanonicalParser(
+  declarationObservationId: string,
+  parserObservationId: string,
   model: SourceProgramModel
 ): boolean {
-  const declarations = new Map(model.declarations.map((declaration) => (
-    [declaration.observationId, declaration] as const
-  )));
-  const pending = [startObservationId];
-  const visited = new Set<string>();
-  while (pending.length > 0) {
-    const current = pending.shift()!;
-    if (current === targetObservationId) return true;
-    if (visited.has(current)) continue;
-    visited.add(current);
-    const declaration = declarations.get(current);
-    if (declaration === undefined) continue;
-    for (const target of declarationCallTargets(declaration, model)) {
-      if (!visited.has(target)) pending.push(target);
+  const currentExactProvenances = sourceProgramCurrentExactReturnProvenances(model);
+  if (currentExactProvenances === null) return false;
+  const provenanceByDeclaration = new Map(currentExactProvenances.map((provenance) => [
+    provenance.declarationObservationId,
+    provenance
+  ] as const));
+  const opaque = Object.freeze({ kind: 'opaque' as const });
+  const resolveValue = (
+    value: SourceProgramReturnValueProvenance,
+    parameters: readonly (readonly SourceProgramReturnValueProvenance[])[],
+    activeDeclarations: ReadonlySet<string>
+  ): readonly SourceProgramReturnValueProvenance[] => {
+    if (value.kind === 'parameter') return parameters[value.index] ?? Object.freeze([opaque]);
+    if (value.kind !== 'call-result') return Object.freeze([value]);
+    if (value.targetObservationId === parserObservationId) return Object.freeze([value]);
+    if (activeDeclarations.has(value.targetObservationId)) return Object.freeze([opaque]);
+    const target = provenanceByDeclaration.get(value.targetObservationId);
+    if (target === undefined || target.normalReturns.length === 0) {
+      return Object.freeze([opaque]);
     }
-  }
-  return false;
+    const nextParameters = Object.freeze(value.arguments.map((argument) => Object.freeze(
+      argument.flatMap((argumentValue) => resolveValue(
+        argumentValue,
+        parameters,
+        activeDeclarations
+      ))
+    )));
+    const nextActive = new Set(activeDeclarations);
+    nextActive.add(value.targetObservationId);
+    return Object.freeze(target.normalReturns.flatMap((targetValue) => resolveValue(
+      targetValue,
+      nextParameters,
+      nextActive
+    )));
+  };
+  const provenance = provenanceByDeclaration.get(declarationObservationId);
+  if (provenance === undefined || provenance.normalReturns.length === 0) return false;
+  const resolved = provenance.normalReturns.flatMap((value) => resolveValue(
+    value,
+    Object.freeze([]),
+    new Set([declarationObservationId])
+  ));
+  return resolved.length > 0 && resolved.every((value) => (
+    value.kind === 'call-result' && value.targetObservationId === parserObservationId
+  ));
 }
 
 function compileRepositorySourceProgramModelInternal(
@@ -629,7 +633,8 @@ function compileRepositorySourceProgramModelInternal(
   const expectedTypeScriptFiles = input.files
     .filter(({ path: repositoryPath }) => (
       /\.(?:[cm]?[jt]sx?)$/iu.test(repositoryPath)
-      && sourceProgramSurfaceForPath(repositoryPath) === 'production'
+      && (sourceProgramSurfaceForPath(repositoryPath) === 'production'
+        || sourceProgramSurfaceForPath(repositoryPath) === 'test')
     ))
     .map(({ path: repositoryPath, contentDigest }) => `${repositoryPath}\0${contentDigest}`)
     .sort(compareCodeUnits);
@@ -664,10 +669,16 @@ function compileRepositorySourceProgramModelInternal(
   }
   const semanticModel = Object.freeze({
     ...typescriptModel,
-    references: Object.freeze([...typescriptModel.references, ...testObservations.references]),
-    literals: Object.freeze([...typescriptModel.literals, ...testObservations.literals]),
-    capabilities: Object.freeze([...typescriptModel.capabilities, ...testObservations.capabilities]),
-    unknowns: Object.freeze([...typescriptModel.unknowns, ...testObservations.unknowns])
+    unknowns: Object.freeze([
+      ...typescriptModel.unknowns,
+      ...testObservations.unknowns.filter((unknown) => !typescriptModel.unknowns.some((existing) => (
+        existing.code === unknown.code
+        && existing.path === unknown.path
+        && existing.detail === unknown.detail
+        && existing.span?.start === unknown.span?.start
+        && existing.span?.end === unknown.span?.end
+      )))
+    ])
   });
   const entrypoints: SourceProgramEntrypoint[] = [...typescriptModel.entrypoints];
   const packages: SourceProgramPackage[] = [];
@@ -1089,9 +1100,7 @@ function compileRepositorySourceProgramModelInternal(
     || compareCodeUnits(left.code, right.code)
     || compareCodeUnits(left.detail, right.detail)
   );
-  const sourceByPath = new Map(input.files
-    .filter(({ path: repositoryPath }) => /\.[cm]?[jt]sx?$/iu.test(repositoryPath))
-    .map((file) => [file.path, file.source] as const));
+  const sourceByPath = new Map(input.files.map((file) => [file.path, file.source] as const));
   const importGraph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
     files: Object.freeze([...sourceByPath.keys()].sort(compareCodeUnits)),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
@@ -1241,7 +1250,11 @@ function compileRepositorySourceProgramModelInternal(
       if (matchingParsers.length === 1
           && readerObservationId !== null
           && parserObservationId !== null
-          && declarationReaches(readerObservationId, parserObservationId, typescriptModel)) continue;
+          && declarationReturnsCanonicalParser(
+            readerObservationId,
+            parserObservationId,
+            typescriptModel
+          )) continue;
       candidates.push(Object.freeze({
         code: 'causal-relation-owner-bypass',
         subject: `${subject}:parser/readback`,
@@ -1251,7 +1264,7 @@ function compileRepositorySourceProgramModelInternal(
         ].sort(compareCodeUnits)),
         reason: matchingParsers.length !== 1
           ? 'readback relation lacks one canonical parser owned by the semantic subject declaration owner for the same operation requirement'
-          : 'readback implementation does not reach the canonical owner parser through the exact TypeScript call graph',
+          : 'not every normal readback return is causally derived from the canonical owner parser',
         observationClass: matchingParsers.length === 1 ? 'derived' : 'unknown'
       }));
     }
@@ -1365,18 +1378,19 @@ function compileRepositorySourceProgramModelInternal(
   }
   for (const descriptor of input.moduleMembership.descriptors) {
     for (const obligation of descriptor.operationObligations) {
-      if (obligation.operation.kind !== 'capability' || obligation.effect.kinds.length === 0) continue;
+      const operation = obligation.operation;
+      if (operation.kind !== 'capability' || obligation.effect.kinds.length === 0) continue;
       const exactDomainOwner = roleBindings.find(({ descriptor: owner, provider, binding }) => (
         owner.moduleId === descriptor.moduleId
-        && provider.capability === obligation.operation.capability
-        && binding.operation === obligation.operation.operation
+        && provider.capability === operation.capability
+        && binding.operation === operation.operation
         && binding.role === 'domain-owner'
         && binding.requirementId === null
       ));
       if (exactDomainOwner !== undefined) continue;
       candidates.push(Object.freeze({
         code: 'operation-critical-role-unresolved',
-        subject: `${obligation.operation.capability}:${obligation.operation.operation}`,
+        subject: `${operation.capability}:${operation.operation}`,
         paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
         reason: 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
         observationClass: 'unknown'
@@ -1921,6 +1935,7 @@ function compileRepositorySourceProgramModelInternal(
     files: Object.freeze(files),
     declarations: typescriptModel.declarations,
     references: semanticModel.references,
+    returnProvenances: typescriptModel.returnProvenances,
     literals: semanticModel.literals,
     entrypoints: Object.freeze(entrypoints),
     entrypointClosures: Object.freeze(entrypointClosures),

@@ -1,4 +1,9 @@
-import type { UpgradeDiagnostics, UpgradePlan } from '../../change-management/upgrade/contract/types.ts';
+import type {
+  UpgradeDiagnostics,
+  UpgradeExecutionTerminal,
+  UpgradePlan,
+  UpgradePreview
+} from '../../change-management/upgrade/contract/upgrade-artifact.ts';
 import type { InstallPlanStep, LockFile } from '../../compiler/contract.ts';
 import type { PolicyReport } from '../../compiler/policies/contract/types.ts';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../semantic/acceptance/contract/types.ts';
@@ -15,7 +20,7 @@ import { buildReviewPolicySummary } from '../../verification/review/contract/pol
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
 import { upgradeDiagnosticsAttributionParts } from '../../verification/review/contract/upgrade.ts';
 import { buildE2eMatrix, type E2eMatrix } from '../../verification/review/runtime/matrix.ts';
-import { toWorkspaceArtifactPath } from '../../workspace/paths.ts';
+import { toWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import { formatCounts, formatFields, formatList, formatMergedSummaryEntries, formatSummaryEntries, optionalFields } from './format-utils.ts';
 
 export type ArtifactPathUploadGroup = CiArtifactUploadGroup;
@@ -209,7 +214,6 @@ export function formatLockInspect(lock: LockFile): string {
       `stack=${lock.app.stack}`,
       `mode=${lock.app.mode}`,
       `blocks=${lock.resolvedBlocks.length}`,
-      `slots=${lock.slotTasks.length}`,
       `generated=${lock.generatedPaths.length}`,
       `acceptance=${lock.acceptancePlan.length}`
     ]),
@@ -228,10 +232,7 @@ export function formatExplainGraphInspect(graph: ExplainGraph): string {
     `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
     `Node types: ${formatCounts(graph.nodes.map((node) => node.type))}`,
     `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
-    formatFields([
-      `Coverage overlay: ${graph.overlays.coverage.blocks.length} blocks`,
-      `${graph.overlays.coverage.slots.length} slots`
-    ]),
+    `Coverage overlay: ${graph.overlays.coverage.blocks.length} blocks`,
     `Provenance overlay: ${graph.overlays.provenance.length} artifacts`
   ].join('\n');
 }
@@ -278,7 +279,6 @@ export type ReviewDiagnosticEntry =
     kind: ReviewSummary['regressionRisks'][number]['kind'];
     message: string;
     blockId?: string;
-    slotId?: string;
   }
   | {
     id: string;
@@ -298,8 +298,6 @@ export type ReviewDiagnosticsInspect = {
   artifactPaths: string[];
   blockCount: number;
   blocks: string[];
-  slotCount: number;
-  slots: string[];
   diagnostics: ReviewDiagnosticEntry[];
 };
 
@@ -318,8 +316,7 @@ export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDia
       category: 'regression-risk' as const,
       kind: risk.kind,
       message: risk.message,
-      ...(risk.blockId ? { blockId: risk.blockId } : {}),
-      ...(risk.slotId ? { slotId: risk.slotId } : {})
+      ...(risk.blockId ? { blockId: risk.blockId } : {})
     })),
     ...summary.conflictHints.map((hint, index) => ({
       id: `conflict:${index}`,
@@ -331,7 +328,6 @@ export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDia
   ];
   const artifactPaths = uniqueSorted(summary.failurePoints.map((point) => point.artifactPath));
   const blocks = uniqueSorted(summary.regressionRisks.map((risk) => risk.blockId ?? ''));
-  const slots = uniqueSorted(summary.regressionRisks.map((risk) => risk.slotId ?? ''));
 
   return {
     status: summary.ciSummary.status,
@@ -343,8 +339,6 @@ export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDia
     artifactPaths,
     blockCount: blocks.length,
     blocks,
-    slotCount: slots.length,
-    slots,
     diagnostics
   };
 }
@@ -352,7 +346,7 @@ export function buildReviewDiagnosticsInspect(summary: ReviewSummary): ReviewDia
 function formatReviewDiagnostic(entry: ReviewDiagnosticEntry): string {
   const fields: string[] = [`Diagnostic ${entry.id}`, `kind=${entry.kind}`];
   if (entry.category === 'failure') fields.push(`lane=${entry.lane}`, `artifact=${entry.artifactPath}`);
-  else if (entry.category === 'regression-risk') fields.push(`block=${entry.blockId ?? 'none'}`, `slot=${entry.slotId ?? 'none'}`);
+  else if (entry.category === 'regression-risk') fields.push(`block=${entry.blockId ?? 'none'}`);
   else fields.push(`related=${entry.relatedId}`);
   fields.push(entry.message);
   return formatFields(fields);
@@ -369,7 +363,6 @@ export function formatReviewDiagnosticsInspect(inspect: ReviewDiagnosticsInspect
     ]),
     `Artifacts: ${formatList(inspect.artifactPaths)}`,
     `Blocks: ${formatList(inspect.blocks)}`,
-    `Slots: ${formatList(inspect.slots)}`,
     ...inspect.diagnostics.slice(0, 10).map((entry) => formatReviewDiagnostic(entry))
   ].join('\n');
 }
@@ -453,11 +446,7 @@ function formatUpgradeMigrationDetails(
     `target=${migration.target}`,
     ...optionalFields([
       [migration.source, `source=${migration.source}`],
-      [migration.slotId, `slot=${migration.slotId}`],
       [operation?.role, `role=${operation?.role}`],
-      [operation?.inputType, `input=${operation?.inputType}`],
-      [operation?.outputType, `output=${operation?.outputType}`],
-      [operation?.writableZones, `writableZones=${operation?.writableZones?.join(',')}`],
       [operation?.path, `path=${operation?.path?.join('.')}`],
       [operation?.updateCount, `updates=${operation?.updateCount}`],
       [operation?.itemCount, `items=${operation?.itemCount}`],
@@ -564,7 +553,7 @@ export function formatPolicyReport(report: NonNullable<ReviewSummary['policySumm
 
 export type AcceptanceTargetInspect = {
   status: AcceptanceCoverageReport['status'];
-  targetKind: 'blocks' | 'slots';
+  targetKind: 'blocks';
   targetCount: number;
   coveredCount: number;
   uncoveredCount: number;
@@ -573,14 +562,13 @@ export type AcceptanceTargetInspect = {
 };
 
 export function buildAcceptanceTargetInspect(
-  report: AcceptanceCoverageReport,
-  targetKind: 'blocks' | 'slots'
+  report: AcceptanceCoverageReport
 ): AcceptanceTargetInspect {
-  const entries = targetKind === 'blocks' ? report.blocks : report.slots;
-  const uncoveredIds = targetKind === 'blocks' ? report.uncoveredBlocks : report.uncoveredSlots;
+  const entries = report.blocks;
+  const uncoveredIds = report.uncoveredBlocks;
   return {
     status: report.status,
-    targetKind,
+    targetKind: 'blocks',
     targetCount: entries.length,
     coveredCount: countMatching(entries, (entry) => !entry.uncovered),
     uncoveredCount: uncoveredIds.length,
@@ -594,7 +582,7 @@ export function buildAcceptanceTargetInspect(
 }
 
 function formatAcceptanceTarget(
-  label: 'Target' | 'Block' | 'Slot',
+  label: 'Target' | 'Block',
   target: AcceptanceTargetInspect['targets'][number]
 ): string {
   return formatFields([
@@ -606,9 +594,8 @@ function formatAcceptanceTarget(
 }
 
 export function formatAcceptanceTargets(report: AcceptanceTargetInspect): string {
-  const label = report.targetKind === 'blocks' ? 'Acceptance coverage blocks' : 'Acceptance coverage slots';
   return [
-    `${label} ${report.status}`,
+    `Acceptance coverage blocks ${report.status}`,
     formatFields([
       `targets=${report.targetCount}`,
       `covered=${report.coveredCount}`,
@@ -620,21 +607,16 @@ export function formatAcceptanceTargets(report: AcceptanceTargetInspect): string
 }
 
 export function formatAcceptanceCoverage(report: AcceptanceCoverageReport): string {
-  const blockTargets = buildAcceptanceTargetInspect(report, 'blocks');
-  const slotTargets = buildAcceptanceTargetInspect(report, 'slots');
+  const blockTargets = buildAcceptanceTargetInspect(report);
   return [
     formatFields([
       `Acceptance coverage ${report.status}`,
       `acceptancePassed=${report.acceptancePassed.length}`,
       `blocks=${blockTargets.coveredCount}/${blockTargets.targetCount}`,
-      `slots=${slotTargets.coveredCount}/${slotTargets.targetCount}`,
-      `uncoveredBlocks=${blockTargets.uncoveredCount}`,
-      `uncoveredSlots=${slotTargets.uncoveredCount}`
+      `uncoveredBlocks=${blockTargets.uncoveredCount}`
     ]),
     `Uncovered blocks: ${formatList(blockTargets.uncoveredIds)}`,
-    `Uncovered slots: ${formatList(slotTargets.uncoveredIds)}`,
-    ...blockTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Block', target)),
-    ...slotTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Slot', target))
+    ...blockTargets.targets.slice(0, 3).map((target) => formatAcceptanceTarget('Block', target))
   ].join('\n');
 }
 
@@ -748,7 +730,6 @@ export function formatProvenanceRegistry(provenance: ProvenanceFile): string {
   ];
   const sampleArtifacts = [
     ...provenance.artifacts.filter((artifact) => artifact.originType === 'block').slice(0, 2),
-    ...provenance.artifacts.filter((artifact) => artifact.originType === 'slot').slice(0, 2),
     ...provenance.artifacts.filter((artifact) => artifact.originType === 'override').slice(0, 2),
     ...provenance.artifacts.filter((artifact) => artifact.originType === 'generated').slice(0, 2)
   ].slice(0, 5);
@@ -786,15 +767,13 @@ export function formatReviewSummaryContract(summary: ReviewSummary): string {
     ]),
     formatFields([
       `Impact blocks=${summary.impactedBlocks.length}`,
-      `slots=${summary.impactedSlots.length}`,
       `runtime=${summary.runtimeEntryCount}`,
       `changeSources=${summary.changeSourceCount}`,
       `installImpacts=${summary.installImpactCount}`
     ]),
     formatFields([
       `Coverage ${coverage?.status ?? 'missing'}`,
-      `blocks=${coverage ? `${coverage.coveredBlockCount}/${coverage.blockCount}` : 'missing'}`,
-      `slots=${coverage ? `${coverage.coveredSlotCount}/${coverage.slotCount}` : 'missing'}`
+      `blocks=${coverage ? `${coverage.coveredBlockCount}/${coverage.blockCount}` : 'missing'}`
     ]),
     formatFields([
       `Provenance artifacts=${provenance?.artifactCount ?? 0}`,
@@ -859,8 +838,13 @@ export function formatUpgradeDiagnostics(diagnostics: UpgradeDiagnostics): strin
   ].join('\n');
 }
 
-export function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
-  const suffix = dryRun ? ' (dry-run)' : '';
+type UpgradePlanningDisplay = UpgradePlan | UpgradePreview;
+
+function formatUpgradePlanningSummary(
+  upgradePlan: UpgradePlanningDisplay,
+  presentation: 'preview' | 'planned' | 'applied'
+): string {
+  const suffix = presentation === 'preview' ? ' (dry-run)' : '';
   const migrationKinds = Object.entries(upgradePlan.migrationKindCounts)
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([kind, count]) => `${kind}=${count}`);
@@ -875,7 +859,7 @@ export function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean):
   const lines = [
     `Upgrade ${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}${suffix}`,
     formatFields([
-      `Status: ${upgradePlan.status}`,
+      `Status: ${presentation}`,
       `migrations: ${upgradePlan.migrations.length}`,
       `preflight checks: ${upgradePlan.preflightChecks.length}`
     ]),
@@ -900,6 +884,20 @@ export function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean):
   return lines.join('\n');
 }
 
+export function formatUpgradePreview(upgradePreview: UpgradePreview): string {
+  return formatUpgradePlanningSummary(upgradePreview, 'preview');
+}
+
+export function formatUpgradePlan(
+  upgradePlan: UpgradePlan,
+  executionTerminal: UpgradeExecutionTerminal | null
+): string {
+  return formatUpgradePlanningSummary(
+    upgradePlan,
+    executionTerminal?.settlement === 'applied' ? 'applied' : 'planned'
+  );
+}
+
 export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewSummary): string {
   const {
     artifactSummary,
@@ -913,12 +911,7 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
     graph.overlays.coverage.blocks,
     (block) => block.coveredBy.length === 0
   );
-  const uncoveredSlots = coverageSummary?.uncoveredSlotCount ?? countMatching(
-    graph.overlays.coverage.slots,
-    (slot) => slot.coveredBy.length === 0
-  );
   const blockCount = coverageSummary?.blockCount ?? graph.overlays.coverage.blocks.length;
-  const slotCount = coverageSummary?.slotCount ?? graph.overlays.coverage.slots.length;
   const e2eMatrix = buildE2eMatrix(reviewSummary);
   const lines = [
     `Explain graph ${graph.nodes.length} nodes ${graph.edges.length} edges`,
@@ -926,9 +919,7 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
     `Edge types: ${formatCounts(graph.edges.map((edge) => edge.type))}`,
     formatFields([
       `Coverage: ${blockCount} blocks`,
-      `${slotCount} slots`,
-      `uncovered blocks=${uncoveredBlocks}`,
-      `uncovered slots=${uncoveredSlots}`
+      `uncovered blocks=${uncoveredBlocks}`
     ]),
     `Provenance origins: ${formatCounts(
       graph.overlays.provenance.map((artifact) => artifact.originType)
@@ -948,7 +939,6 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
     ...e2eMatrix.rows.map((row) => formatE2eMatrixRow(row, 'E2E ')),
     [
       `Impacted: ${ciSummary.impactedBlockCount} blocks`,
-      `${ciSummary.impactedSlotCount} slots`,
       `${ciSummary.runtimeEntryCount} runtime entries`
     ].join(', ')
   ];
@@ -958,8 +948,7 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
       formatFields([
         `Coverage detail: ${coverageSummary.status}`,
         `acceptance passed: ${coverageSummary.acceptancePassedCount}`,
-        `covered blocks: ${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}`,
-        `covered slots: ${coverageSummary.coveredSlotCount}/${coverageSummary.slotCount}`
+        `covered blocks: ${coverageSummary.coveredBlockCount}/${coverageSummary.blockCount}`
       ])
     );
   }
@@ -1056,7 +1045,6 @@ export function formatExplainSummary(graph: ExplainGraph, reviewSummary: ReviewS
           upgrade.migrationOperationSummaries.map((operation) => ({ id: operation.role, count: 1 }))
         )}`,
         `sources: ${upgrade.sourceMigrationCount}`,
-        `slots: ${upgrade.slotMigrationCount}`,
         `requires verification: ${upgrade.requiresVerification}`,
         `verification: ${formatSummaryEntries(upgrade.verificationSummaries)}`
       ])

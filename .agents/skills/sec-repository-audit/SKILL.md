@@ -18,14 +18,6 @@ description: 用于用户要求全面分析 SEC 仓库、重大架构变更前�
 - exact repository/default/head/tree identity、clean index/worktree、全部 tracked paths、open PR/Issue、CI/Review、active pointer与manifest。
 - `docs/authority.json`、模块/入口/公共合同、状态与写 owner、依赖/工具链、测试/CI/Gate、外部能力账本和历史边界。
 
-## 权限与路径
-- 默认只读全部 tracked repository、Git/GitHub事实和批准的外部只读分析结果。
-- 只有 frozen Work Package 明确拥有时，才写审计脚本、Skill/coverage合同、控制面或绑定 exact revision 的机器报告；不直接修改产品 owner seam。
-
-## 允许工具与操作
-- exact-tree/raw-blob census、`scripts/codex/repository-audit.ts`、精确 Git/GitHub读取、受信 documentation/impact/static analysis 和已批准外部只读 Evidence。
-- 按 tracked-path census 下钻 authority、types、tests、source、runtime、workflow和配置；允许生成 JSON 审计结果，不生成第二事实源式叙述文档。
-
 ## 前置门禁
 - 受信 document-control-plane snapshot 已解析 latest default branch、exact revision、GitHub facts和active control plane。
 - 仓库可完整读取；任何路径、submodule、生成输入或外部 authority 不可访问时必须记录 unknown，禁止假定已覆盖。
@@ -53,10 +45,3 @@ description: 用于用户要求全面分析 SEC 仓库、重大架构变更前�
 - 不把审计报告提升为产品/架构 authority，不把所有发现塞进一个巨型实现包。
 - 不把确定性算法、类型字段和产品事实机械复制为 Skill；只抽取真实启发式行为。
 - 不把dirty checkout、index或只含候选计数的摘要标记为exact-revision Evidence。
-
-## 权威
-- `AGENTS.md`
-- `docs/authority.json`
-- `docs/development-governance.md`
-- `platform/control/agent/skill.ts`
-- `scripts/codex/repository-audit.ts`

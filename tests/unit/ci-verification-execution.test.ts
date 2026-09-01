@@ -260,14 +260,17 @@ function baseOptions(root: string) {
     repositoryRoot: root,
     gitRevision: revisions,
     trackedTreeIsClean: () => true,
-    changedFiles: () => ['src/compiler/orchestration/cli.ts'],
+    // Injected changed-path tests have no immutable source receipt. Use one
+    // owner-resolved documentation path; source graph selection is exercised
+    // only through the exact Git provider route.
+    changedFiles: () => ['docs/product.md'],
     readExactGitBlob: () => exactManifest(),
     runGate: async () => ({ code: 0, rawOutputDigest: RAW, failureTail: '' })
   };
 }
 
 function hostedGates(): readonly CiVerificationProducerGate[] {
-  return buildCiQuickGatePlan({ includeImports: true, includeDocs: true, includeRisk: false })
+  return buildCiQuickGatePlan({ includeImports: true, includeDocs: true })
     .map(ciVerificationGateStep);
 }
 

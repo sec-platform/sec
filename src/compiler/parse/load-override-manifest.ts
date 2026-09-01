@@ -4,25 +4,24 @@ import YAML from 'yaml';
 import { z } from 'zod';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { OverrideApplyPhase, OverrideEntry, OverrideManifest } from '../../semantic/provenance/contract/types.ts';
+import type { OverrideEntry, OverrideManifest } from '../../semantic/provenance/contract/types.ts';
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from '../../system-architecture/foundation/contract/logical-path.ts';
+import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { pathEntryExists } from '../../workspace/files.ts';
 import {
   getWorkspacePaths,
-  modelRelativePath,
   packageJsonRelativePath,
   secRelativePath,
   tsconfigRelativePath,
   workspaceConfigRelativePath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
 
-const ALLOWED_OVERRIDE_PHASES = new Set<OverrideApplyPhase>(['compose', 'adapt']);
 const BLOCKED_OVERRIDE_TARGET_PREFIXES = [
   `${modelRelativePath}/`,
   `${secRelativePath}/`
 ];
-const BLOCKED_OVERRIDE_TARGETS = new Set([
+const BLOCKED_OVERRIDE_TARGETS = new Set<string>([
   workspaceConfigRelativePath,
   packageJsonRelativePath,
   tsconfigRelativePath
@@ -35,7 +34,6 @@ const overrideEntrySchema = z.object({
   target: z.string().min(1),
   reason: z.string().trim().min(1),
   source: z.enum(['manual', 'rule-backed']).default('manual'),
-  appliesAfter: z.array(z.enum(['compose', 'adapt'])).min(1).default(['adapt']),
   conflictsWith: z.array(z.string().regex(OVERRIDE_ID)).default([])
 }).strict();
 
@@ -58,7 +56,7 @@ function requireCanonicalOverridePath(kind: string, value: string): void {
 
 export function validateOverrideManifest(manifest: OverrideManifest): OverrideManifest {
   const ids = new Set<string>();
-  const targetPhaseOwners = new Map<string, string>();
+  const targetOwners = new Map<string, string>();
 
   for (const entry of manifest.overrides) {
     if (ids.has(entry.id)) {
@@ -82,35 +80,15 @@ export function validateOverrideManifest(manifest: OverrideManifest): OverrideMa
       );
     }
 
-    const phases = new Set<OverrideApplyPhase>();
-    for (const phase of entry.appliesAfter) {
-      if (!ALLOWED_OVERRIDE_PHASES.has(phase)) {
-        throw new CompilerError(
-          'OVERRIDE-SCHEMA-006',
-          `Override "${entry.id}" has unsupported phase "${phase}"`
-        );
-      }
-      if (phases.has(phase)) {
-        throw new CompilerError(
-          'OVERRIDE-SCHEMA-006',
-          `Override "${entry.id}" repeats phase "${phase}"`
-        );
-      }
-      phases.add(phase);
-
-      const targetPhaseKey = `${phase}:${portableLogicalPathCollisionKey(
-        entry.target,
-        'Override target'
-      )}`;
-      const previousOwner = targetPhaseOwners.get(targetPhaseKey);
-      if (previousOwner !== undefined) {
-        throw new CompilerError(
-          'OVERRIDE-SCHEMA-008',
-          `Override target "${entry.target}" has multiple ${phase} owners: "${previousOwner}", "${entry.id}"`
-        );
-      }
-      targetPhaseOwners.set(targetPhaseKey, entry.id);
+    const targetKey = portableLogicalPathCollisionKey(entry.target, 'Override target');
+    const previousOwner = targetOwners.get(targetKey);
+    if (previousOwner !== undefined) {
+      throw new CompilerError(
+        'OVERRIDE-SCHEMA-008',
+        `Override target "${entry.target}" has multiple owners: "${previousOwner}", "${entry.id}"`
+      );
     }
+    targetOwners.set(targetKey, entry.id);
 
     const conflicts = new Set<string>();
     for (const conflictId of entry.conflictsWith) {
@@ -169,7 +147,6 @@ function parseOverrideManifest(source: string, filePath: string): OverrideManife
       target: entry.target,
       reason: entry.reason,
       source: entry.source,
-      appliesAfter: [...entry.appliesAfter],
       conflictsWith: [...entry.conflictsWith]
     }))
   };

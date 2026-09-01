@@ -19,7 +19,6 @@ pins:
     - id: actor_identity
       type: Session
       required: true
-slots: []
 acceptance:
   - id: user_can_login
     covers:

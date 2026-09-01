@@ -24,7 +24,8 @@ import path from 'node:path';
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
 import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { PhysicalNoFollowError, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { PhysicalNoFollowError, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 function fixtureRoot(): string {
@@ -164,6 +165,41 @@ test('retained child inspection is create-free and exclusive creation never adop
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows relative directory leaf inspection proves hidden absence and rejects reparse children',
+  () => {
+    const root = fixtureRoot();
+    try {
+      const parentPath = path.join(root, 'parent');
+      const externalPath = path.join(root, 'external');
+      mkdirSync(parentPath);
+      mkdirSync(externalPath);
+      const parent = inspectNoFollowDirectoryChain(parentPath).target;
+
+      expect(inspectNoFollowDirectoryLeaf(parent, '.dependency-transition-v1')).toBeNull();
+      expect(existsSync(path.join(parentPath, '.dependency-transition-v1'))).toBe(false);
+
+      const controlPath = path.join(parentPath, '.dependency-transition-v1');
+      mkdirSync(controlPath);
+      expect(inspectNoFollowDirectoryLeaf(parent, '.dependency-transition-v1')?.path)
+        .toBe(path.resolve(controlPath));
+
+      const aliasPath = path.join(parentPath, '.dependency-transition-alias');
+      symlinkSync(externalPath, aliasPath, 'junction');
+      expectPhysicalCode(
+        () => inspectNoFollowDirectoryLeaf(parent, '.dependency-transition-alias'),
+        'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+      );
+      expectPhysicalCode(
+        () => inspectNoFollowDirectoryLeaf(parent, '..'),
+        'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test('Linux directory-create transaction rejects parent, ancestor, and child replacement races', () => {
   if (process.platform !== 'linux') return;
@@ -363,6 +399,116 @@ test('retained child-process directory reads the authorized inode after lexical 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('sealed directory generation excludes membership and byte writers for its child lifetime', async () => {
+  const root = fixtureRoot();
+  const repositoryRoot = fixtureRoot();
+  try {
+    const generation = path.join(root, 'generation');
+    mkdirSync(path.join(generation, 'src'), { recursive: true });
+    writeFileSync(path.join(generation, 'src', 'value.ts'), 'export const value = 1;\n');
+    const physical = inspectNoFollowDirectoryChain(generation, 'sealed generation fixture').target;
+    const inventory = scanNoFollowDirectoryTreeInventory(physical, {
+      deadlineAtMs: performance.now() + 5_000,
+      maximumEntries: 8,
+      maximumBytes: 1024
+    });
+    if (process.platform !== 'win32') {
+      await expect(sealExistingWindowsReadOnlyTreeAuthority(generation, [], {
+        ownerRootPath: root,
+        repositoryRootPath: repositoryRoot
+      })).rejects.toMatchObject({ failure: 'unsupported-platform' });
+      return;
+    }
+    const readOnlyAuthority = await sealExistingWindowsReadOnlyTreeAuthority(
+      generation,
+      inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
+        path.join(generation, ...relativePath.split('/'))
+      )),
+      { ownerRootPath: root, repositoryRootPath: repositoryRoot }
+    );
+    const capability = await retainNoFollowSealedDirectoryGeneration(
+      physical,
+      inventory,
+      readOnlyAuthority
+    );
+    try {
+      expect(() => renameSync(root, `${root}-moved`)).toThrow();
+      expect(() => writeFileSync(path.join(generation, 'src', 'value.ts'), 'export const value = 2;\n'))
+        .toThrow();
+      expect(() => writeFileSync(path.join(generation, 'src', 'extra.ts'), 'export {};\n'))
+        .toThrow();
+      expect(() => renameSync(path.join(generation, 'src'), path.join(generation, 'moved')))
+        .toThrow();
+      capability.assertCurrent();
+      const child = spawnSync(process.execPath, [
+        '-e',
+        'process.stdout.write(require("node:fs").readFileSync(require("node:path").join(process.argv[1], "src", "value.ts"), "utf8"))',
+        capability.childPath
+      ], { encoding: 'utf8' });
+      expect(child.status).toBe(0);
+      expect(child.stdout).toBe('export const value = 1;\n');
+    } finally {
+      await capability.retire();
+    }
+    writeFileSync(path.join(generation, 'src', 'extra.ts'), 'export {};\n');
+    expect(readFileSync(path.join(generation, 'src', 'extra.ts'), 'utf8')).toBe('export {};\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'win32')(
+  'sealed repository-local generation excludes descendant writers without foreign ACL ownership',
+  async () => {
+    const root = fixtureRoot();
+    try {
+      const generation = path.join(root, 'dependency-generation');
+      mkdirSync(path.join(generation, 'package'), { recursive: true });
+      writeFileSync(path.join(generation, 'package', 'index.js'), 'module.exports = 1;\n');
+      const physical = inspectNoFollowDirectoryChain(generation).target;
+      const inventory = scanNoFollowDirectoryTreeInventory(physical, {
+        deadlineAtMs: performance.now() + 5_000,
+        maximumEntries: 8,
+        maximumBytes: 1024
+      });
+      const authority = await sealExistingWindowsReadOnlyTreeAuthority(
+        generation,
+        inventory.filter(({ kind }) => kind !== 'link').map(({ relativePath }) => (
+          path.join(generation, ...relativePath.split('/'))
+        )),
+        {
+          ownership: 'repository-dependency-generation',
+          ownerRootPath: generation,
+          repositoryRootPath: root
+        }
+      );
+      const capability = await retainNoFollowSealedDirectoryGeneration(
+        physical,
+        inventory,
+        authority,
+        'repository-local dependency generation'
+      );
+      try {
+        expect(() => writeFileSync(
+          path.join(generation, 'package', 'index.js'),
+          'module.exports = 2;\n'
+        )).toThrow();
+        expect(() => writeFileSync(
+          path.join(generation, 'package', 'extra.js'),
+          'module.exports = 3;\n'
+        )).toThrow();
+        capability.assertCurrent();
+      } finally {
+        await capability.retire();
+      }
+      writeFileSync(path.join(generation, 'package', 'extra.js'), 'module.exports = 4;\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test('Windows retained child-process boundary blocks relocation above its pinned parent', () => {
   if (process.platform !== 'win32') return;

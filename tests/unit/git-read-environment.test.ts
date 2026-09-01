@@ -294,18 +294,26 @@ test('test sessions cannot cross the production GitRead issuer boundary', async 
   }
 });
 
-test('production GitRead rejects a structural operation clone before provider discovery', () => {
+test('semantic projection origin cannot replace the production Git provider capability', async () => {
   const operation = issueTestGitReadOperation();
   const resolution = createAuthorityGitReadSession({
     cwd: process.cwd(),
+    // A shallow projection copy is only correlation and budget input. The
+    // Git owner must still retain the executable/cwd and privately issue the
+    // production session below.
     operation: { ...operation },
     budget: GIT_READ_OPERATION_BUDGET
   });
-  expect(resolution).toMatchObject({
-    kind: 'unresolved-git-read-provider',
-    status: 'unavailable',
-    reason: 'git-operation-admission-unavailable'
-  });
+  expect(resolution.status).toBe('ready');
+  if (resolution.status !== 'ready') return;
+  try {
+    expect(isProductionGitReadSession(resolution.session)).toBe(true);
+    expect(isProductionGitReadSession({ ...resolution.session })).toBe(false);
+    expect(isProductionGitReadSession({ ...operation } as unknown as typeof resolution.session))
+      .toBe(false);
+  } finally {
+    await resolution.session.close?.();
+  }
 });
 
 test.skipIf(process.platform !== 'win32')(
@@ -326,6 +334,9 @@ test.skipIf(process.platform !== 'win32')(
       kind: 'unresolved-git-read-session',
       reason: 'cancelled'
     });
+    if (result.kind !== 'unresolved-git-read-session') {
+      throw new Error('GitRead cancellation did not produce a typed session failure.');
+    }
     expect(resolution.session.processCount).toBe(0);
     expect(resolution.session.consumeRecords(1)).toBe(result);
     await resolution.session.close?.();

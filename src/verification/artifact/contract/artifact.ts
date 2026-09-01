@@ -252,8 +252,7 @@ function exactAcceptanceCoverage(
   const report = validatedAcceptanceCoverage(value);
   if (report === null) return false;
   const declaredAcceptance = [...new Set([
-    ...report.blocks.flatMap((entry) => entry.declaredAcceptance),
-    ...report.slots.flatMap((entry) => entry.declaredAcceptance)
+    ...report.blocks.flatMap((entry) => entry.declaredAcceptance)
   ])].sort();
   const expectedAccepted = acceptanceIdsProvenByVerificationReports(fast, runtime, declaredAcceptance);
   const accepted = new Set(report.acceptancePassed);
@@ -261,8 +260,7 @@ function exactAcceptanceCoverage(
     structuredClone(report.acceptancePassed),
     expectedAccepted
   ) &&
-    report.blocks.every((entry) => entry.coveredBy.every((id) => accepted.has(id))) &&
-    report.slots.every((entry) => entry.coveredBy.every((id) => accepted.has(id)));
+    report.blocks.every((entry) => entry.coveredBy.every((id) => accepted.has(id)));
 }
 
 export function isCanonicalVerificationArtifactSet(

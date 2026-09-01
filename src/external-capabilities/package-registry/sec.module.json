@@ -1,0 +1,13 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "package-registry-read",
+      "operations": [
+        "queryAnonymousPackageRegistryLatestVersions"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

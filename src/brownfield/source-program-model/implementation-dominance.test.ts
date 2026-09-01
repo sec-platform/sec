@@ -20,6 +20,7 @@ function membership(ownerByRoot: Readonly<Record<string, string>>): SecRepositor
     externalEntrypoints: Object.freeze([]),
     capabilityProviders: Object.freeze([]),
     operationObligations: Object.freeze([]),
+    causalRelations: Object.freeze([]),
     preDependencyBootstrap: false
   })));
   return Object.freeze({
@@ -477,5 +478,161 @@ test('similar transition operations with different recovery remain an owner migr
     kind: 'transition-algebra',
     disposition: 'migration-required',
     removableUnitIds: []
+  }));
+});
+
+test('consumer-zero cannot orphan an owner-authorized obligation that is not materialized', () => {
+  const baseMembership = membership({ 'src/planned': 'planned-owner' });
+  const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
+    ...descriptor,
+    capabilityProviders: Object.freeze([Object.freeze({
+      capability: 'planned.delivery',
+      operations: Object.freeze(['deliver']),
+      effectKinds: Object.freeze([]),
+      ownerInternalOperations: Object.freeze([]),
+      operationRoles: Object.freeze([])
+    })]),
+    operationObligations: Object.freeze([Object.freeze({
+      operation: Object.freeze({
+        kind: 'capability' as const,
+        capability: 'planned.delivery',
+        operation: 'deliver'
+      }),
+      consumerSupport: Object.freeze({ consumers: Object.freeze([]) }),
+      effect: Object.freeze({
+        kinds: Object.freeze([]),
+        failureKinds: Object.freeze([]),
+        recovery: 'not-applicable' as const
+      }),
+      evolution: Object.freeze({
+        migration: 'not-required' as const,
+        retirement: 'replacement-obligations-satisfied' as const
+      }),
+      resources: Object.freeze({
+        aggregateBudgets: Object.freeze([Object.freeze({
+          resource: 'duration-ms' as const,
+          maximum: 100
+        })])
+      }),
+      futureSupport: Object.freeze({ condition: 'semantic-superset-required' as const })
+    })])
+  }));
+  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
+  const source = 'export function deliver(): string { return "pending"; }\n';
+  const files = [Object.freeze({
+    path: 'src/planned/deliver.ts',
+    source,
+    contentDigest: rawSha256(source)
+  })];
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+  const compilation = compileSourceProgramImplementationDominance({
+    model,
+    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
+  });
+  const finding = compilation.findings.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:planned.delivery:deliver'
+  ));
+
+  expect(finding).toEqual(expect.objectContaining({
+    disposition: 'required-unmaterialized',
+    canonicalOwner: 'planned-owner',
+    removableUnitIds: [],
+    requiredUnmaterializedObligations: [expect.objectContaining({
+      targetOwner: 'planned-owner',
+      acceptance: expect.objectContaining({
+        resources: expect.objectContaining({
+          aggregateBudgets: [expect.objectContaining({ resource: 'duration-ms', maximum: 100 })]
+        })
+      }),
+      responsibilities: expect.objectContaining({
+        evolution: expect.objectContaining({ retirement: 'replacement-obligations-satisfied' })
+      }),
+      replacementDag: [
+        expect.objectContaining({ node: 'target-closure', dependsOn: [] }),
+        expect.objectContaining({ node: 'obligation-acceptance', dependsOn: ['target-closure'] }),
+        expect.objectContaining({ node: 'source-retirement', dependsOn: ['obligation-acceptance'] })
+      ]
+    })]
+  }));
+});
+
+test('comments and names cannot manufacture required-unmaterialized authority', () => {
+  const baseMembership = membership({ 'src/planned': 'planned-owner' });
+  const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
+    ...descriptor,
+    capabilityProviders: Object.freeze([Object.freeze({
+      capability: 'planned.delivery',
+      operations: Object.freeze(['requiredUnmaterializedDelivery']),
+      effectKinds: Object.freeze([]),
+      ownerInternalOperations: Object.freeze([]),
+      operationRoles: Object.freeze([])
+    })])
+  }));
+  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
+  const source = '// Maintainer accepted this future operation in chat.\nexport function requiredUnmaterializedDelivery(): string { return "unused"; }\n';
+  const files = [Object.freeze({
+    path: 'src/planned/deliver.ts',
+    source,
+    contentDigest: rawSha256(source)
+  })];
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+  const compilation = compileSourceProgramImplementationDominance({
+    model,
+    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
+  });
+  const finding = compilation.findings.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:planned.delivery:requiredUnmaterializedDelivery'
+  ));
+
+  expect(finding).toEqual(expect.objectContaining({
+    disposition: 'orphan',
+    requiredUnmaterializedObligations: []
+  }));
+});
+
+test('unresolved runtime closure remains unknown without an owner-issued obligation', () => {
+  const baseMembership = membership({ 'src/planned': 'planned-owner' });
+  const descriptors = baseMembership.descriptors.map((descriptor) => Object.freeze({
+    ...descriptor,
+    capabilityProviders: Object.freeze([Object.freeze({
+      capability: 'planned.delivery',
+      operations: Object.freeze(['deliver']),
+      effectKinds: Object.freeze([]),
+      ownerInternalOperations: Object.freeze([]),
+      operationRoles: Object.freeze([])
+    })])
+  }));
+  const moduleMembership = Object.freeze({ ...baseMembership, descriptors });
+  const source = 'export async function deliver(target: string): Promise<unknown> { return import(target); }\n';
+  const files = [Object.freeze({
+    path: 'src/planned/deliver.ts',
+    source,
+    contentDigest: rawSha256(source)
+  })];
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
+    files,
+    moduleMembership
+  });
+  const compilation = compileSourceProgramImplementationDominance({
+    model,
+    ownerIntents: compileSourceProgramOwnerIntentEvidence(model, moduleMembership)
+  });
+  const finding = compilation.findings.find(({ semanticIdentity }) => (
+    semanticIdentity === 'provider-operation:planned.delivery:deliver'
+  ));
+
+  expect(finding).toEqual(expect.objectContaining({
+    disposition: 'unknown',
+    removableUnitIds: [],
+    requiredUnmaterializedObligations: []
   }));
 });

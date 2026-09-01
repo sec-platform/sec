@@ -2,10 +2,10 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { adaptWorkspace, explainWorkspace, lockWorkspace, verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
+import { composeWorkspace, explainWorkspace, lockWorkspace, verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { writeYaml } from '../../src/workspace/yaml.ts';
 import { expectGraphEdge, expectGraphNode, expectReviewConflictHint, expectReviewRegressionRisk } from '../helpers/graph-assertions.ts';
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';
@@ -19,47 +19,34 @@ test('override-manifest can replace a generated file and surface override proven
   await writeYaml(overrideManifestPath, {
     overrides: [
       {
-        id: 'customer-normalizer-manual',
-        entry: 'patches/customer-normalizer.override.ts',
-        target: 'custom/customer_normalizer.ts',
-        reason: 'manual-normalizer-rewrite',
+        id: 'customer-service-manual',
+        entry: 'patches/customer-service.override.ts',
+        target: 'src/installed/entity/customer-service.ts',
+        reason: 'manual-customer-service-rewrite',
         source: 'manual',
-        appliesAfter: ['adapt'],
         conflictsWith: ['entity/customer-basic@>=0.2.0']
       }
     ]
   });
 
-  const customerNormalizerOverride = String.raw`import type { CustomerInput, NormalizedCustomerInput } from '../src/runtime/database.ts';
+  const customerServicePath = path.join(workspaceRoot, 'src', 'installed', 'entity', 'customer-service.ts');
+  const customerServiceOverride = `${await fs.readFile(customerServicePath, 'utf8')}\n// Manual customer service override active.\n`;
+  await fs.writeFile(
+    path.join(paths.overridesRoot, 'patches', 'customer-service.override.ts'),
+    customerServiceOverride,
+    'utf8'
+  );
 
-// manual override path
-export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomerInput {
-  const name = String(input.name ?? '').trim();
-  if (!name) {
-    throw new Error('Customer name is required');
-  }
-
-  return {
-    name,
-    email: String(input.email ?? '').trim().toLowerCase(),
-    phone: String(input.phone ?? '').replace(/\D+/g, ''),
-    company: String(input.company ?? '').trim() || 'Unknown'
-  };
-}
-`;
-
-  await fs.writeFile(path.join(paths.overridesRoot, 'patches', 'customer-normalizer.override.ts'), customerNormalizerOverride, 'utf8');
-
-  await adaptWorkspace(workspaceRoot);
-  const overriddenSource = await fs.readFile(path.join(workspaceRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
-  expect(overriddenSource).toMatch(/manual override path/);
+  await composeWorkspace(workspaceRoot);
+  await expect(fs.readFile(customerServicePath, 'utf8'))
+    .resolves.toContain('Manual customer service override active.');
 
   const { report } = await verifyWorkspace(workspaceRoot);
   expect(report.summary.status).toBe('passed');
 
   await lockWorkspace(workspaceRoot);
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
-  expectGraphNode(graph, { id: 'override:customer-normalizer-manual' });
+  expectGraphNode(graph, { id: 'override:customer-service-manual' });
   expectGraphNode(graph, { type: 'pin' });
   expectGraphNode(graph, { id: 'policy:tenant-scope-required' });
   expectGraphEdge(graph, {
@@ -68,8 +55,8 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
     type: 'connects_to'
   });
   expectGraphEdge(graph, {
-    from: 'file:custom/customer_normalizer.ts',
-    to: 'override:customer-normalizer-manual',
+    from: 'file:src/installed/entity/customer-service.ts',
+    to: 'override:customer-service-manual',
     type: 'originates_from'
   });
 
@@ -79,19 +66,18 @@ export function normalizeCustomerInput(input: CustomerInput): NormalizedCustomer
   expect(
     provenance.artifacts.some(
       (artifact) =>
-        artifact.path === 'custom/customer_normalizer.ts' && artifact.originType === 'override' && artifact.overrideStatus === 'manual'
+        artifact.path === 'src/installed/entity/customer-service.ts' && artifact.originType === 'override' && artifact.overrideStatus === 'manual'
     )
   ).toBe(true);
   expectReviewRegressionRisk(reviewSummary, {
     kind: 'override-active',
     blockId: 'entity/customer-basic',
-    slotId: 'customer_normalizer',
-    message: 'Override active: customer-normalizer-manual -> custom/customer_normalizer.ts'
+    message: 'Override active: customer-service-manual -> src/installed/entity/customer-service.ts'
   });
   expectReviewConflictHint(reviewSummary, {
     kind: 'override-conflict',
     relatedId: 'entity/customer-basic@>=0.2.0',
-    message: 'Override customer-normalizer-manual conflicts with entity/customer-basic@>=0.2.0'
+    message: 'Override customer-service-manual conflicts with entity/customer-basic@>=0.2.0'
   });
 }, 120000);
 
@@ -114,7 +100,6 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
         target: 'src/installed/ticket/ticket-service.ts',
         reason: 'manual-ticket-runtime-copy-change',
         source: 'manual',
-        appliesAfter: ['adapt'],
         conflictsWith: ['ticket/basic@>=0.2.0', 'worklog/basic@>=0.2.0']
       }
     ]
@@ -122,7 +107,7 @@ test('override-manifest surfaces ticket runtime override attribution', async () 
   const ticketServiceOverridePath = path.join(paths.overridesRoot, 'patches', 'ticket-service.override.ts');
   await fs.writeFile(ticketServiceOverridePath, ticketServiceOverride, 'utf8');
 
-  await adaptWorkspace(workspaceRoot);
+  await composeWorkspace(workspaceRoot);
   await expect(fs.readFile(ticketServicePath, 'utf8')).resolves.toContain('Manual ticket runtime override active.');
 
   let report: any;

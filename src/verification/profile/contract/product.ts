@@ -175,8 +175,7 @@ function completeAcceptanceCoverage(
   return coverage !== null &&
     coverage.status === runtime.status &&
     coverage.acceptancePassed.length > 0 &&
-    coverage.uncoveredBlocks.length === 0 &&
-    coverage.uncoveredSlots.length === 0;
+    coverage.uncoveredBlocks.length === 0;
 }
 
 export function buildExpectedProductFastGate(

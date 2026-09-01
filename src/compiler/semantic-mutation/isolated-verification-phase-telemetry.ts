@@ -1,6 +1,5 @@
 import { mkdir, open, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { performance } from 'node:perf_hooks';
 
 import { getErrorCode } from '../errors.ts';
 import { sortedKeys } from './canonical.ts';
@@ -130,7 +129,7 @@ export async function withSemanticMutationIsolatedPhaseTelemetry<T>(
     state: 'started',
     durationMs: 0
   });
-  const startedAt = performance.now();
+  const startedAt = globalThis.performance.now();
   try {
     return await execute();
   } finally {
@@ -138,7 +137,7 @@ export async function withSemanticMutationIsolatedPhaseTelemetry<T>(
       formatVersion: SEMANTIC_MUTATION_ISOLATED_PHASE_TELEMETRY_FORMAT,
       phase,
       state: 'completed',
-      durationMs: Math.max(0, Math.round(performance.now() - startedAt))
+      durationMs: Math.max(0, Math.round(globalThis.performance.now() - startedAt))
     });
   }
 }

@@ -22,10 +22,11 @@ test('review summary surfaces provenance summary', async () => {
         overrideStatus: 'none'
       },
       {
-        path: 'custom/customer_normalizer.ts',
-        originType: 'slot',
-        originId: 'customer_normalizer',
-        generatedByPass: 'adapt',
+        path: 'src/installed/entity/customer-service.ts',
+        originType: 'block',
+        originId: 'entity/customer-basic',
+        sourceBlock: 'entity/customer-basic',
+        generatedByPass: 'compose',
         verifiedBy: [],
         overrideStatus: 'none'
       },
@@ -56,16 +57,16 @@ test('review summary surfaces provenance summary', async () => {
     registryArtifactCount: 1,
     generatedArtifactCount: 4,
     generatedPassCount: 3,
-    originSummaryCount: 4,
+    originSummaryCount: 3,
     overrideSummaryCount: 2,
     registrySummaryCount: 1,
     unverifiedArtifacts: [
       'app/tickets/page.tsx',
       CI_ARTIFACT_FILES.reviewSummary,
-      'custom/customer_normalizer.ts'
+      'src/installed/entity/customer-service.ts'
     ]
   });
-  expect(summary.provenanceSummary?.originSummaries).toHaveLength(4);
+  expect(summary.provenanceSummary?.originSummaries).toHaveLength(3);
   expect(summary.provenanceSummary?.overrideSummaries).toHaveLength(2);
   expect(summary.provenanceSummary?.registrySummaries).toHaveLength(1);
   expect(summary.provenanceSummary?.generatedPassSummaries).toHaveLength(3);

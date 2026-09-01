@@ -1,25 +1,35 @@
 import path from 'node:path';
 
 import {
-  inspectNoFollowDirectoryChain,
-  inspectNoFollowOrdinaryFileEntry,
-  retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile
+  issueIndependentProviderProcessCapability,
+  type IndependentProviderProcessCapability
+} from '../../../runtime-state/physical/runtime/independent-provider-process.ts';
+import {
+  type PhysicalDirectoryIdentity
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   openProcessResourceSession
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import { RetainedCommandTransportError } from '../../../runtime-state/physical/runtime/process.ts';
 import {
-  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-  issueRetainedCommandBoundary,
-  resolveExecutableLocator,
-  type RetainedCommandBoundary
-} from '../../../runtime-state/physical/runtime/process.ts';
-import { resolveWindowsKnownFolderPath } from '../../../runtime-state/physical/runtime/windows-known-folders.ts';
+  settlePhysicalResources
+} from '../../../runtime-state/physical/runtime/resource-settlement.ts';
+import {
+  openRetainedWindowsRuntimeStateDirectory,
+  type RetainedRuntimeStateDirectory
+} from '../../../runtime-state/physical/runtime/retained-runtime-state-directory.ts';
+import {
+  assertRuntimeGenerationCensusReceipt,
+  censusRetainedRuntimeGenerations,
+  observeRetainedRuntimeEndpointResidue,
+  type RetainedRuntimeGenerationCensus,
+  type RuntimeEndpointResidueReceipt,
+  type RuntimeGenerationCensusReceipt
+} from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../../system-architecture/operation/requirement-binding-context.ts';
 import {
-  assertSecBoundSemanticOperation,
+  assertSecSemanticOperationProjection,
   issueSecProviderSettlementReceipt,
   type SecBoundSemanticOperation,
   type SecOperationDigest,
@@ -38,17 +48,16 @@ import {
   parseDockerEndpointIdentity,
   type DockerEndpointIdentity
 } from '../contract/daemon.ts';
+import { DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT } from '../contract/windows-runtime-state.ts';
+import {
+  claimDockerCommandProviderCapability
+} from './command-provider.ts';
 import {
   ensureDockerDaemonStartedWithCommand,
   observeDockerDaemonWithCommand,
   type DockerDaemonCommandResult
 } from './daemon-algorithm.ts';
 import { withDockerDesktopLauncherLock } from './daemon.ts';
-
-const DOCKER_COMMAND_ENVIRONMENT_KEYS = Object.freeze([
-  'HOME', 'PATH', 'PROGRAMFILES', 'SYSTEMROOT', 'TEMP', 'TMP',
-  'USERPROFILE', 'WINDIR'
-] as const);
 
 const OPERATION_PREFIX = Object.freeze({
   'buildx-bake': ['buildx', 'bake'],
@@ -91,7 +100,7 @@ export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
   providerIdentityDigest: SecOperationDigest;
   sessionDeadlineAtUnixMs: number;
 }>): void {
-  assertSecBoundSemanticOperation(input.operation);
+  assertSecSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements.find(
     ({ id }) => id === input.requirementId
   );
@@ -99,7 +108,9 @@ export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
     ({ requirementId }) => requirementId === input.requirementId
   );
   if (requirement === undefined || binding === undefined
-      || !requirement.effectKinds.includes('process')
+      || !(['filesystem', 'process', 'provider'] as const).every((kind) => (
+        requirement.effectKinds.includes(kind)
+      ))
       || binding.contractDigest !== requirement.contractDigest
       || binding.providerIdentityDigest !== input.providerIdentityDigest) {
     fail('provider settlement scope does not bind this retained Container Engine provider');
@@ -114,33 +125,181 @@ export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
   }
 }
 
-function projectedEnvironment(
-  keys: readonly string[],
-  source: NodeJS.ProcessEnv
-): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  for (const expected of keys) {
-    const actual = Object.keys(source).find((candidate) => candidate.toUpperCase() === expected);
-    if (actual !== undefined && source[actual] !== undefined) environment[actual] = source[actual];
+export function compileContainerEngineAdmissionProviderIdentity(input: Readonly<{
+  authorityProviderIdentityDigest: SecOperationDigest;
+  projectionProviderIdentityDigest: SecOperationDigest;
+  environmentDigest: SecOperationDigest;
+  operationIdentityDigest: SecOperationDigest;
+  boundAttemptDigest: SecOperationDigest;
+  executable: Readonly<{
+    path: string;
+    size: number;
+    byteDigest: `sha256:${string}`;
+    contentDigest: `sha256:${string}`;
+  }>;
+  workingDirectory: PhysicalDirectoryIdentity;
+  runtimeStateRoots: readonly Readonly<{
+    root: PhysicalDirectoryIdentity;
+    directory: PhysicalDirectoryIdentity;
+  }>[];
+  generationCensus: RuntimeGenerationCensusReceipt;
+}>): SecOperationDigest {
+  assertRuntimeGenerationCensusReceipt(input.generationCensus);
+  if (input.generationCensus.providerIdentityDigest
+      !== input.authorityProviderIdentityDigest) {
+    throw new Error('Container Engine generation census authority provider changed.');
   }
-  return environment;
+  return sha256({
+    schema: 'sec-container-engine-provider-admission-identity-v1',
+    ...input
+  }) as SecOperationDigest;
 }
 
-async function dockerDesktopLifecycleEnvironment(): Promise<NodeJS.ProcessEnv> {
-  const [localAppData, appData, programData] = await Promise.all([
-    resolveWindowsKnownFolderPath('local-app-data'),
-    resolveWindowsKnownFolderPath('roaming-app-data'),
-    resolveWindowsKnownFolderPath('program-data')
-  ]);
-  for (const [label, directory] of Object.entries({ localAppData, appData, programData })) {
-    inspectNoFollowDirectoryChain(directory, `Docker Desktop ${label} known folder`);
-  }
-  return {
-    ...projectedEnvironment(DOCKER_COMMAND_ENVIRONMENT_KEYS, process.env),
-    APPDATA: appData,
-    LOCALAPPDATA: localAppData,
-    PROGRAMDATA: programData
+export function compileContainerEngineReadyProviderIdentity(input: Readonly<{
+  admissionProviderIdentityDigest: SecOperationDigest;
+  endpoint: DockerEndpointIdentity;
+}>): SecOperationDigest {
+  const endpoint = parseDockerEndpointIdentity(input.endpoint);
+  return sha256({
+    schema: 'sec-container-engine-retained-provider-identity-v1',
+    predecessorAdmissionProviderIdentityDigest: input.admissionProviderIdentityDigest,
+    endpoint
+  }) as SecOperationDigest;
+}
+
+interface DockerDesktopLifecycleEnvironment {
+  identityMaterial(): readonly Readonly<{
+    root: PhysicalDirectoryIdentity;
+    directory: PhysicalDirectoryIdentity;
+  }>[];
+  assertCurrent(): void;
+  censusRuntimeGenerations(
+    providerIdentityDigest: `sha256:${string}`
+  ): RuntimeGenerationCensusReceipt;
+  observeRuntimeEndpointResidue(
+    providerEvidence: string,
+    providerIdentityDigest: `sha256:${string}`
+  ): RuntimeEndpointResidueReceipt | null;
+  close(): void;
+}
+
+async function dockerDesktopLifecycleEnvironment(): Promise<DockerDesktopLifecycleEnvironment> {
+  const retained: RetainedRuntimeStateDirectory[] = [];
+  let generationCensus: RetainedRuntimeGenerationCensus | null = null;
+  let closed = false;
+  let terminalCloseFailure: unknown;
+  const close = (): void => {
+    if (closed) {
+      if (terminalCloseFailure !== undefined) throw terminalCloseFailure;
+      return;
+    }
+    try {
+      settlePhysicalResources({
+        cleanup: [
+          ...(generationCensus === null ? [] : [{
+            label: 'runtime-generation-census',
+            settle: () => generationCensus!.close()
+          }]),
+          ...[...retained].reverse().map((directory, index) => ({
+            label: `runtime-state-root-${index}`,
+            settle: () => { directory.close(); }
+          }))
+        ]
+      });
+    } catch (error) {
+      terminalCloseFailure = error;
+      throw error;
+    } finally {
+      closed = true;
+    }
   };
+  try {
+    const profile = await openRetainedWindowsRuntimeStateDirectory({
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.profile
+    });
+    retained.push(profile);
+    const localAppData = await openRetainedWindowsRuntimeStateDirectory({
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData
+    });
+    retained.push(localAppData);
+    const appData = await openRetainedWindowsRuntimeStateDirectory({
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.roamingAppData
+    });
+    retained.push(appData);
+    const programData = await openRetainedWindowsRuntimeStateDirectory({
+      ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.programData
+    });
+    retained.push(programData);
+    const ownerByFolder = new Map([
+      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.profile.folder, profile],
+      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.localAppData.folder, localAppData],
+      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.roamingAppData.folder, appData],
+      [DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.programData.folder, programData]
+    ] as const);
+    return Object.freeze({
+      identityMaterial() {
+        if (closed) throw new Error('Docker Desktop retained runtime-state environment is closed.');
+        return Object.freeze(retained.map(({ root, directory }) => Object.freeze({
+          root,
+          directory
+        })));
+      },
+      assertCurrent(): void {
+        if (closed) throw new Error('Docker Desktop retained runtime-state environment is closed.');
+        for (const directory of retained) directory.assertCurrent();
+      },
+      censusRuntimeGenerations(
+        providerIdentityDigest: `sha256:${string}`
+      ): RuntimeGenerationCensusReceipt {
+        if (closed) throw new Error('Docker Desktop retained runtime-state environment is closed.');
+        if (generationCensus !== null) {
+          if (generationCensus.receipt.providerIdentityDigest !== providerIdentityDigest) {
+            throw new Error('Docker Desktop runtime generation census provider identity changed.');
+          }
+          return generationCensus.receipt;
+        }
+        generationCensus = censusRetainedRuntimeGenerations({
+          providerIdentityDigest,
+          ...DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.generationCensus,
+          profiles: DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT.generationRoots.map((profile) => {
+            const owner = ownerByFolder.get(profile.folder);
+            if (owner === undefined) {
+              throw new Error('Docker Desktop generation root has no retained Known Folder owner.');
+            }
+            return Object.freeze({
+              id: profile.id,
+              owner,
+              segments: profile.segments,
+              childDescriptor: profile.childDescriptor
+            });
+          })
+        });
+        return generationCensus.receipt;
+      },
+      observeRuntimeEndpointResidue(
+        providerEvidence: string,
+        providerIdentityDigest: `sha256:${string}`
+      ): RuntimeEndpointResidueReceipt | null {
+        if (closed) throw new Error('Docker Desktop retained runtime-state environment is closed.');
+        if (generationCensus === null) {
+          throw new Error('Docker Desktop runtime generation census has not been admitted.');
+        }
+        return observeRetainedRuntimeEndpointResidue({
+          admittedGenerationRoots: generationCensus.generations.map(({ directory }) => directory),
+          providerEvidence,
+          providerIdentityDigest,
+          roots: retained
+        });
+      },
+      close
+    });
+  } catch (error) {
+    settlePhysicalResources({
+      primary: Object.freeze({ label: 'runtime-state-admission', error }),
+      cleanup: [{ label: 'runtime-state-close', settle: close }]
+    });
+    throw error;
+  }
 }
 
 function boundedArguments(arguments_: readonly string[]): readonly string[] {
@@ -251,78 +410,123 @@ function assertPositiveBound(value: number, label: string): number {
   return value;
 }
 
-async function retainDockerCommandBoundary(cwd: string): Promise<Readonly<{
-  boundary: RetainedCommandBoundary;
-  executable: string;
-}>> {
-  const canonicalCwd = path.resolve(cwd);
-  if (!path.isAbsolute(cwd) || canonicalCwd !== cwd) fail('cwd must be canonical and absolute');
-  const cwdIdentity = inspectNoFollowDirectoryChain(canonicalCwd, 'Container Engine session cwd');
-  const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === 'PATH');
-  const pathValue = pathKey === undefined ? '' : process.env[pathKey] ?? '';
-  const executable = resolveExecutableLocator('docker', { cwd: canonicalCwd, pathValue });
-  if (executable === null) fail('Docker executable is unavailable');
-  const executableParent = inspectNoFollowDirectoryChain(
-    path.dirname(executable),
-    'Container Engine executable parent'
-  );
-  const executableEntry = inspectNoFollowOrdinaryFileEntry(
-    executableParent.target,
-    path.basename(executable)
-  );
-  if (executableEntry === null || executableEntry.kind !== 'file') {
-    fail('Docker executable is not a retained ordinary file');
-  }
-  let retainedExecutable: ReturnType<typeof retainNoFollowOrdinaryFile> | null = null;
-  let retainedCwd: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | null = null;
-  try {
-    retainedExecutable = retainNoFollowOrdinaryFile(
-      executableParent,
-      path.basename(executable),
-      { device: executableEntry.device, inode: executableEntry.inode },
-      'Container Engine retained executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
-    retainedCwd = retainNoFollowDirectoryForChildProcess(
-      cwdIdentity,
-      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-      'Container Engine retained working directory'
-    );
-    return Object.freeze({
-      boundary: issueRetainedCommandBoundary({
-        executable: retainedExecutable,
-        workingDirectory: retainedCwd
-      }),
-      executable
-    });
-  } catch (error) {
-    retainedCwd?.dispose();
-    retainedExecutable?.dispose();
-    throw error;
-  }
-}
-
 export async function openContainerEngineSession(
   input: OpenContainerEngineSessionInput
 ): Promise<ContainerEngineSession> {
   const cwd = path.resolve(input.cwd);
   if (!path.isAbsolute(input.cwd) || cwd !== input.cwd) fail('cwd must be canonical and absolute');
-  const processSession = openProcessResourceSession({
-    operation: input.operation,
-    ...(input.signal === undefined ? {} : { signal: input.signal })
-  });
-  let retained: Awaited<ReturnType<typeof retainDockerCommandBoundary>>;
+  const retained = claimDockerCommandProviderCapability(input.provider);
+  const auxiliaryCleanup = () => [...retained.auxiliaryInputs].reverse().map(
+    (auxiliary, index) => ({
+      label: `provider-auxiliary-dispose-${index}`,
+      settle: () => auxiliary.capability.dispose()
+    })
+  );
+  if (retained.workingDirectory.path !== cwd || retained.executable !== input.provider.executable) {
+    settlePhysicalResources({
+      primary: Object.freeze({
+        label: 'command-provider-admission',
+        error: new Error('Container Engine command provider does not bind this working directory.')
+      }),
+      cleanup: [
+        ...auxiliaryCleanup(),
+        ...[...retained.retainedOwners].reverse().map((owner, index) => ({
+          label: `provider-owner-close-${index}`,
+          settle: () => { owner.close(); }
+        })),
+        {
+          label: 'working-directory-dispose',
+          settle: () => retained.boundary.workingDirectory.dispose()
+        },
+        {
+          label: 'executable-dispose',
+          settle: () => retained.boundary.executable.dispose()
+        }
+      ]
+    });
+  }
+  const providerAuthorityBinding = input.operation.bindings.find((binding) => (
+    input.operation.plan.execution.requirements.some((requirement) => (
+      requirement.id === binding.requirementId
+      && requirement.effectKinds.includes('provider')
+      && requirement.effectKinds.includes('process')
+    ))
+  ));
+  if (providerAuthorityBinding === undefined
+      || providerAuthorityBinding.providerIdentityDigest !== retained.providerIdentityDigest) {
+    const error = new Error(
+      'Container Engine session: bound command provider identity is unavailable'
+    );
+    settlePhysicalResources({
+      primary: Object.freeze({ label: 'provider-authority-admission', error }),
+      cleanup: [
+        ...auxiliaryCleanup(),
+        ...[...retained.retainedOwners].reverse().map((owner, index) => ({
+          label: `provider-owner-close-${index}`,
+          settle: () => { owner.close(); }
+        })),
+        {
+          label: 'working-directory-dispose',
+          settle: () => retained.boundary.workingDirectory.dispose()
+        },
+        {
+          label: 'executable-dispose',
+          settle: () => retained.boundary.executable.dispose()
+        }
+      ]
+    });
+    throw error;
+  }
+  const providerAuthorityIdentityDigest = providerAuthorityBinding.providerIdentityDigest;
+  let processSession: ReturnType<typeof openProcessResourceSession>;
   try {
-    retained = await retainDockerCommandBoundary(cwd);
+    processSession = openProcessResourceSession({
+      operation: input.operation,
+      requirementBindingContext: issueSecOperationRequirementBindingContext({
+        operation: input.operation,
+        requirementId: providerAuthorityBinding.requirementId,
+        resourceCeilings: [
+          ...input.operation.plan.execution.aggregateBudgets.filter(({ resource }) => (
+            resource === 'duration-ms'
+            || resource === 'input-bytes'
+            || resource === 'output-bytes'
+            || resource === 'processes'
+          )),
+          ...(input.operation.plan.execution.aggregateBudgets.some(
+            ({ resource }) => resource === 'input-bytes'
+          ) ? [] : [{ resource: 'input-bytes' as const, maximum: 0 }])
+        ]
+      }),
+      ...(input.signal === undefined ? {} : { signal: input.signal })
+    });
   } catch (error) {
-    processSession.close();
+    settlePhysicalResources({
+      primary: Object.freeze({ label: 'process-session-admission', error }),
+      cleanup: [
+        ...auxiliaryCleanup(),
+        ...[...retained.retainedOwners].reverse().map((owner, index) => ({
+          label: `provider-owner-close-${index}`,
+          settle: () => { owner.close(); }
+        })),
+        {
+          label: 'working-directory-dispose',
+          settle: () => retained.boundary.workingDirectory.dispose()
+        },
+        {
+          label: 'executable-dispose',
+          settle: () => retained.boundary.executable.dispose()
+        }
+      ]
+    });
     throw error;
   }
   let active = 0;
   let closing = false;
   let closed = false;
   let terminalCloseFailure: unknown;
+  let runtimeState: DockerDesktopLifecycleEnvironment | null = null;
+  let independentProvider: IndependentProviderProcessCapability | null = null;
+  let admissionProviderIdentityDigest: SecOperationDigest = providerAuthorityIdentityDigest;
   type ScopeCommandSettlement = Readonly<{
     ordinal: number;
     operationKind: ContainerEngineOperation['kind'];
@@ -341,12 +545,12 @@ export async function openContainerEngineSession(
     settlements: ScopeCommandSettlement[];
   };
   let currentScope: ActiveScope | null = null;
-  const environment = projectedEnvironment(DOCKER_COMMAND_ENVIRONMENT_KEYS, process.env);
+  const environment = retained.environment;
 
   const rawRun = async (
     args: readonly string[],
     options: ContainerEngineOperationOptions = {},
-    lifecycle: 'observe' | 'start' = 'observe',
+    providerCapability?: IndependentProviderProcessCapability,
     scopedOperation?: ContainerEngineOperation
   ): Promise<ContainerEngineCommandResult> => {
     if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
@@ -390,10 +594,12 @@ export async function openContainerEngineSession(
     active += 1;
     let transportSettled = false;
     try {
+      runtimeState?.assertCurrent();
+      for (const owner of retained.retainedOwners) owner.assertCurrent();
       const { ordinal, result } = await processSession.run(retained.boundary, [
         ...boundedOwnerArguments(args)
       ], {
-        env: lifecycle === 'observe' ? environment : await dockerDesktopLifecycleEnvironment(),
+        env: environment,
         envMode: 'replace',
         ...(options.input === undefined ? {} : {
           input: options.input,
@@ -404,8 +610,13 @@ export async function openContainerEngineSession(
           admitProgress: options.admitProgress
         }),
         maxStdoutBytes: stdoutBound,
-        maxStderrBytes: stderrBound
+        maxStderrBytes: stderrBound,
+        ...(providerCapability === undefined ? {} : {
+          independentProvider: providerCapability
+        })
       });
+      runtimeState?.assertCurrent();
+      for (const owner of retained.retainedOwners) owner.assertCurrent();
       const commandResult = Object.freeze({
         code: result.code,
         stdout: Buffer.from(result.stdout),
@@ -451,6 +662,34 @@ export async function openContainerEngineSession(
   };
 
   try {
+    if (process.platform === 'win32') {
+      runtimeState = await dockerDesktopLifecycleEnvironment();
+      independentProvider = issueIndependentProviderProcessCapability({
+        boundary: retained.boundary,
+        operation: input.operation
+      });
+      const providerPhysicalIdentityDigest = independentProvider.providerPhysicalIdentityDigest;
+      const generationCensus = runtimeState.censusRuntimeGenerations(
+        providerPhysicalIdentityDigest
+      );
+      const executableDigest = retained.boundary.executable.digest();
+      admissionProviderIdentityDigest = compileContainerEngineAdmissionProviderIdentity({
+        authorityProviderIdentityDigest: providerPhysicalIdentityDigest,
+        projectionProviderIdentityDigest: providerAuthorityIdentityDigest,
+        environmentDigest: retained.environmentDigest,
+        operationIdentityDigest: input.operation.plan.identity.identityDigest,
+        boundAttemptDigest: input.operation.boundAttemptDigest,
+        executable: {
+          path: retained.executable,
+          size: executableDigest.size,
+          byteDigest: executableDigest.byteDigest,
+          contentDigest: executableDigest.contentDigest
+        },
+        workingDirectory: retained.workingDirectory,
+        runtimeStateRoots: runtimeState.identityMaterial(),
+        generationCensus
+      });
+    }
     let endpoint: DockerEndpointIdentity;
     if (input.expectedEndpoint === undefined) {
       const contextName = boundedIdentityText(
@@ -478,7 +717,9 @@ export async function openContainerEngineSession(
         const result = await rawRun(
           command.args,
           { acceptAnyExitCode: true, maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 },
-          command.lifecycle
+          command.lifecycle === 'start'
+            ? independentProvider ?? fail('independent provider admission is unavailable')
+            : undefined
         );
         return Object.freeze({
           code: result.code,
@@ -487,16 +728,35 @@ export async function openContainerEngineSession(
         });
       };
       const daemonInput = Object.freeze({
+        commandDeadlineAtUnixMs: () => processSession.cooperativeDeadlineAtUnixMs(),
         cwd,
         deadlineAtUnixMs: processSession.deadlineAtUnixMs,
         endpointHost,
+        ...(runtimeState === null ? {} : {
+          observeRuntimeEndpointResidue: (providerEvidence: string) => (
+            runtimeState!.observeRuntimeEndpointResidue(
+              providerEvidence,
+              admissionProviderIdentityDigest
+            )
+          )
+        }),
         run: daemonRun
       });
       const available = input.availability === 'ensure-started'
         ? await ensureDockerDaemonStartedWithCommand({
           ...daemonInput,
+          censusRuntimeGenerations: () => runtimeState!.censusRuntimeGenerations(
+            independentProvider!.providerPhysicalIdentityDigest
+          ),
+          providerAuthorityIdentityDigest: independentProvider!.providerPhysicalIdentityDigest,
+          providerIdentityDigest: admissionProviderIdentityDigest,
           withLauncherLock: async (operation) => await withDockerDesktopLauncherLock(
-            { deadlineAtUnixMs: processSession.deadlineAtUnixMs, endpointHost },
+            {
+              endpointHost,
+              operation: input.operation,
+              repositoryRoot: cwd,
+              requirementId: providerAuthorityBinding.requirementId
+            },
             operation
           )
         })
@@ -521,18 +781,10 @@ export async function openContainerEngineSession(
       }
     }
 
-    const executableDigest = retained.boundary.executable.digest();
-    const providerIdentityDigest = sha256({
-      schema: 'sec-container-engine-retained-provider-identity-v1',
-      cwd,
-      endpoint,
-      executable: {
-        path: retained.executable,
-        size: executableDigest.size,
-        byteDigest: executableDigest.byteDigest,
-        contentDigest: executableDigest.contentDigest
-      }
-    }) as SecOperationDigest;
+    const providerIdentityDigest = compileContainerEngineReadyProviderIdentity({
+      admissionProviderIdentityDigest,
+      endpoint
+    });
     const session: ContainerEngineSession = Object.freeze({
       endpoint,
       cwd,
@@ -623,7 +875,7 @@ export async function openContainerEngineSession(
       ): Promise<ContainerEngineCommandResult> => await rawRun(
         compileContainerEngineOperationArguments(endpoint, operation),
         options,
-        'observe',
+        undefined,
         operation
       ),
       close: () => {
@@ -634,27 +886,72 @@ export async function openContainerEngineSession(
         if (active > 0) fail('session cannot close with an active operation');
         if (currentScope !== null) fail('session cannot close with an unsettled operation scope');
         closing = true;
-        let closeFailure: unknown;
         try {
-          retained.boundary.executable.assertCurrent();
-          retained.boundary.workingDirectory.assertCurrent();
+          settlePhysicalResources({
+            cleanup: [
+              {
+                label: 'executable-readback',
+                settle: () => retained.boundary.executable.assertCurrent()
+              },
+              {
+                label: 'working-directory-readback',
+                settle: () => retained.boundary.workingDirectory.assertCurrent()
+              },
+              ...retained.retainedOwners.map((owner, index) => ({
+                label: `provider-owner-readback-${index}`,
+                settle: () => owner.assertCurrent()
+              })),
+              ...retained.auxiliaryInputs.map((auxiliary, index) => ({
+                label: `provider-auxiliary-readback-${index}`,
+                settle: () => auxiliary.capability.assertCurrent()
+              })),
+              { label: 'process-session-close', settle: () => { processSession.close(); } },
+              { label: 'runtime-state-close', settle: () => { runtimeState?.close(); } },
+              ...auxiliaryCleanup(),
+              ...[...retained.retainedOwners].reverse().map((owner, index) => ({
+                label: `provider-owner-close-${index}`,
+                settle: () => { owner.close(); }
+              })),
+              {
+                label: 'working-directory-dispose',
+                settle: () => retained.boundary.workingDirectory.dispose()
+              },
+              {
+                label: 'executable-dispose',
+                settle: () => retained.boundary.executable.dispose()
+              }
+            ]
+          });
         } catch (error) {
-          closeFailure = error;
+          terminalCloseFailure = error;
+          throw error;
         } finally {
-          try { processSession.close(); } catch (error) { closeFailure ??= error; }
-          try { retained.boundary.workingDirectory.dispose(); } catch (error) { closeFailure ??= error; }
-          try { retained.boundary.executable.dispose(); } catch (error) { closeFailure ??= error; }
-          terminalCloseFailure = closeFailure;
           closed = true;
         }
-        if (closeFailure !== undefined) throw closeFailure;
       }
     });
     return session;
   } catch (error) {
-    try { processSession.close(); } catch { /* preserve admission failure */ }
-    try { retained.boundary.workingDirectory.dispose(); } catch { /* preserve admission failure */ }
-    try { retained.boundary.executable.dispose(); } catch { /* preserve admission failure */ }
+    settlePhysicalResources({
+      primary: Object.freeze({ label: 'provider-admission', error }),
+      cleanup: [
+        { label: 'process-session-close', settle: () => { processSession.close(); } },
+        { label: 'runtime-state-close', settle: () => { runtimeState?.close(); } },
+        ...auxiliaryCleanup(),
+        ...[...retained.retainedOwners].reverse().map((owner, index) => ({
+          label: `provider-owner-close-${index}`,
+          settle: () => { owner.close(); }
+        })),
+        {
+          label: 'working-directory-dispose',
+          settle: () => retained.boundary.workingDirectory.dispose()
+        },
+        {
+          label: 'executable-dispose',
+          settle: () => retained.boundary.executable.dispose()
+        }
+      ]
+    });
     throw error;
   }
 }

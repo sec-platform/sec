@@ -1,13 +1,17 @@
 import path from 'node:path';
 import {
   acquireWorkingTreeWorkspaceSourceSnapshot,
+  assertPhysicalWorkspaceSourceSnapshot,
+  assertWorkspaceTypeScriptProjectGenerationEvidence,
   assertWorkspaceTypeScriptProjectInput,
   compileWorkspaceTypeScriptProjectInput,
+  issueWorkspaceTypeScriptProjectGenerationEvidence,
+  type PhysicalWorkspaceSourceSnapshot,
+  type WorkspaceTypeScriptProjectGenerationEvidence,
   type WorkspaceTypeScriptProjectInput
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
-import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
 import { withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
-import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
+import { WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY } from '../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import { sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
@@ -26,55 +30,353 @@ import {
   type SecOperationDigest,
   type SecProviderPhysicalDisposition
 } from '../../system-architecture/operation/semantic.ts';
+import { retainCompilerDependencyExecutionGeneration } from '../../toolchain/dependencies/runtime.ts';
 import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, type InstalledTypeScriptNativeChecker, type TypeScriptNativeCheckerProvider } from '../../toolchain/typescript/checker.ts';
+import {
+  assertTypeScriptExecutionGeneration,
+  materializeTypeScriptExecutionGeneration,
+  typeScriptExecutionGenerationDigest,
+  type RetainedTypeScriptCompilerDependencyGeneration,
+  type TypeScriptExecutionGeneration
+} from '../../toolchain/typescript/execution-generation.ts';
 import { prepareTypeScriptIncrementalState } from '../../toolchain/typescript/incremental-state.ts';
 import {
-  issueVerificationActionTerminalSettlement,
+  issueNonProcessVerificationActionTerminalSettlement,
+  issueProcessVerificationActionTerminalSettlement,
+  issueVerificationActionOwnerTerminalReceipt,
+  type VerificationActionKey,
   type VerificationActionKeyDigest,
   type VerificationActionKeyInput,
+  type VerificationActionTerminal,
   type VerificationActionTerminalSettlement
 } from '../../verification/action/contract/action.ts';
 import {
-  VerificationActionRunner
+  VerificationActionRunner,
+  type VerificationActionRunOutcome
 } from '../../verification/action/runner.ts';
 import type {
   VerificationReasonCode,
   VerificationResultStatus
 } from '../../verification/result/contract/result.ts';
 import { compilerRoot, isPathInside } from '../../workspace/runtime/paths.ts';
-import {
-  ensureOperationDependencies,
-  type OperationDependencyBootstrapResult
-} from './dependency-bootstrap.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
+import type { OperationDependencyBootstrapResult } from './dependency-bootstrap.ts';
 
 const TYPECHECK_ACTION_KIND = 'typescript-project-typecheck' as const;
 const TYPECHECK_ACTION_PRODUCER = Object.freeze({
   identity: 'src/development/runner/typecheck-runner',
-  revision: 'native-checker-action'
+  revision: 'physical-bound-acl-proof-reuse-action'
 });
 const TYPECHECK_ACTION_OPERATION = Object.freeze({
   identity: 'project-typecheck',
-  revision: 'native-checker-command'
+  revision: 'physical-bound-acl-proof-terminal'
 });
-const TYPECHECK_ACTION_CONTRACT = 'typescript-native-checker-action' as const;
-const TYPECHECK_ACTION_RESULT = 'typescript-project-typecheck-terminal' as const;
+const TYPECHECK_ACTION_CONTRACT = 'typescript-native-checker-physical-bound-acl-proof' as const;
+const TYPECHECK_ACTION_RESULT = 'typescript-project-typecheck-physical-bound-terminal' as const;
 const TYPECHECK_REQUIREMENT = Object.freeze({
-  sourceObservation: 'repository.source-observation',
   projectCheck: 'typescript.project-check'
 } as const);
-const typecheckActionRunner = new VerificationActionRunner();
-const TYPECHECK_SOURCE_OBSERVATION_BUDGET = Object.freeze({
-  deadlineMs: 30_000,
-  // One retained-provider identity probe plus two initial and two final
-  // membership reads. The single live session owns all five attempts.
-  maxProcesses: 5,
-  maxStdoutBytes: 32 * 1024 * 1024,
-  maxStderrBytes: 512 * 1024,
-  maxRecords: 250_000
+const TYPECHECK_MATERIALIZATION_DURATION_MS = 120_000;
+const TYPECHECK_MATERIALIZATION_POLICY = Object.freeze({
+  maximumDurationMs: TYPECHECK_MATERIALIZATION_DURATION_MS
 });
+const TYPECHECK_OPERATION_DURATION_MS = TYPECHECK_MATERIALIZATION_DURATION_MS
+  + WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY.maximumDurationMs
+  + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs;
+const typecheckActionRunner = new VerificationActionRunner();
+
+export type TypecheckOperationOptions = Readonly<{
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+}>;
+
+type TypecheckOperationContext = Readonly<{
+  deadlineAtUnixMs: number;
+  deadlineAtMonotonicMs: number;
+  signal?: AbortSignal;
+  assertActive(label: string): void;
+  remainingMs(label: string): number;
+}>;
+
+function issueTypecheckOperationContext(
+  options: TypecheckOperationOptions = {}
+): TypecheckOperationContext {
+  const startedAtUnixMs = Date.now();
+  const maximumDeadlineAtUnixMs = startedAtUnixMs + TYPECHECK_OPERATION_DURATION_MS;
+  if (options.deadlineAtUnixMs !== undefined
+      && (!Number.isSafeInteger(options.deadlineAtUnixMs)
+        || options.deadlineAtUnixMs <= startedAtUnixMs)) {
+    throw new Error('TypeScript typecheck deadline must be one future absolute safe integer.');
+  }
+  const deadlineAtUnixMs = Math.min(
+    options.deadlineAtUnixMs ?? maximumDeadlineAtUnixMs,
+    maximumDeadlineAtUnixMs
+  );
+  const deadlineAtMonotonicMs = performance.now() + Math.max(
+    0,
+    deadlineAtUnixMs - startedAtUnixMs
+  );
+  const remainingMs = (label: string): number => {
+    if (options.signal?.aborted === true) {
+      throw new Error(`TypeScript typecheck ${label} was cancelled.`);
+    }
+    const remaining = Math.floor(Math.min(
+      deadlineAtUnixMs - Date.now(),
+      deadlineAtMonotonicMs - performance.now()
+    ));
+    if (remaining < 1) {
+      throw new Error(`TypeScript typecheck ${label} exhausted its operation deadline.`);
+    }
+    return remaining;
+  };
+  const context: TypecheckOperationContext = Object.freeze({
+    deadlineAtUnixMs,
+    deadlineAtMonotonicMs,
+    signal: options.signal,
+    assertActive(label: string): void { void remainingMs(label); },
+    remainingMs
+  });
+  context.assertActive('admission');
+  return context;
+}
 
 function actionDigest(value: unknown): VerificationActionKeyDigest {
   return sha256(value) as VerificationActionKeyDigest;
+}
+
+type TypecheckSubordinateStage = Readonly<{
+  status: string;
+  durationMs?: number;
+  reason?: string;
+  errorName?: string;
+  message?: string;
+  exitCode?: number;
+  stdoutDigest?: VerificationActionKeyDigest;
+  stderrDigest?: VerificationActionKeyDigest;
+}>;
+
+type TypecheckSubordinateSettlement = Readonly<{
+  setup: TypecheckSubordinateStage;
+  execution: TypecheckSubordinateStage;
+  cleanup: TypecheckSubordinateStage;
+  readback: TypecheckSubordinateStage;
+}>;
+
+function boundedDiagnosticText(value: unknown, maximum: number): string {
+  return String(value)
+    .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, maximum);
+}
+
+function subordinateError(error: unknown): TypecheckSubordinateStage {
+  return Object.freeze({
+    status: 'failed',
+    errorName: boundedDiagnosticText(error instanceof Error ? error.name : typeof error, 64),
+    message: boundedDiagnosticText(error instanceof Error ? error.message : String(error), 240)
+  });
+}
+
+function encodeTypecheckSubordinateSettlement(
+  value: TypecheckSubordinateSettlement
+): string {
+  const encoded = JSON.stringify(value);
+  if (encoded.length > 1024 || Buffer.byteLength(encoded, 'utf8') > 1024
+      || /[\u0000-\u001f]/u.test(encoded)) {
+    throw new Error('TypeScript subordinate settlement exceeds the existing journal note bound.');
+  }
+  return encoded;
+}
+
+function projectTypecheckSubordinateSettlement(value: string): TypecheckSubordinateSettlement {
+  const parsed: unknown = JSON.parse(value);
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('TypeScript subordinate settlement is not one object.');
+  }
+  const record = parsed as Record<string, unknown>;
+  if (Object.keys(record).sort().join(',') !== 'cleanup,execution,readback,setup') {
+    throw new Error('TypeScript subordinate settlement stages are not canonical.');
+  }
+  const stage = (name: 'setup' | 'execution' | 'cleanup' | 'readback'): Record<string, unknown> => {
+    const observation = record[name];
+    if (observation === null || typeof observation !== 'object' || Array.isArray(observation)) {
+      throw new Error(`TypeScript subordinate settlement ${name} stage is invalid.`);
+    }
+    return observation as Record<string, unknown>;
+  };
+  const exact = (observation: Record<string, unknown>, keys: readonly string[], label: string): void => {
+    const actualKeys = Object.keys(observation).sort().join(',');
+    const canonicalKeys = [...keys, ...(observation.durationMs === undefined ? [] : ['durationMs'])]
+      .sort().join(',');
+    if (actualKeys !== canonicalKeys) {
+      throw new Error(`TypeScript subordinate settlement ${label} fields are not canonical.`);
+    }
+    if (observation.durationMs !== undefined && (
+      !Number.isSafeInteger(observation.durationMs) || (observation.durationMs as number) < 0
+    )) {
+      throw new Error(`TypeScript subordinate settlement ${label} duration is invalid.`);
+    }
+  };
+  const bounded = (candidate: unknown, maximum: number, label: string): string => {
+    if (typeof candidate !== 'string' || candidate.length === 0 || candidate.length > maximum
+        || /[\u0000-\u001f\u007f]/u.test(candidate)) {
+      throw new Error(`TypeScript subordinate settlement ${label} is invalid.`);
+    }
+    return candidate;
+  };
+  const reason = (observation: Record<string, unknown>, allowed: readonly string[], label: string): void => {
+    if (!allowed.includes(bounded(observation.reason, 128, `${label} reason`))) {
+      throw new Error(`TypeScript subordinate settlement ${label} reason is not allowed.`);
+    }
+  };
+  const error = (observation: Record<string, unknown>, label: string): void => {
+    bounded(observation.errorName, 64, `${label} errorName`);
+    bounded(observation.message, 240, `${label} message`);
+  };
+
+  const setup = stage('setup');
+  switch (setup.status) {
+    case 'complete':
+      exact(setup, ['status'], 'setup');
+      break;
+    case 'failed':
+      exact(setup, ['status', 'reason', 'errorName', 'message'], 'setup');
+      reason(setup, ['setup-failed'], 'setup');
+      error(setup, 'setup');
+      break;
+    default:
+      throw new Error('TypeScript subordinate settlement setup status is not terminal.');
+  }
+
+  const execution = stage('execution');
+  switch (execution.status) {
+    case 'not-started':
+      exact(execution, ['status'], 'execution');
+      break;
+    case 'unverified':
+      exact(execution, ['status', 'reason', 'message'], 'execution');
+      reason(execution, [
+        'cancelled', 'deadline-exhausted', 'process-boundary-unavailable', 'provider-drift'
+      ], 'execution');
+      bounded(execution.message, 240, 'execution message');
+      break;
+    case 'failed':
+      exact(execution, ['status', 'reason', 'errorName', 'message'], 'execution');
+      reason(execution, ['execution-unsettled', 'unexpected-settlement-failure'], 'execution');
+      error(execution, 'execution');
+      break;
+    case 'exited':
+      exact(execution, ['status', 'exitCode', 'stdoutDigest', 'stderrDigest'], 'execution');
+      if (!Number.isSafeInteger(execution.exitCode)) {
+        throw new Error('TypeScript subordinate settlement execution exitCode is invalid.');
+      }
+      requireActionDigest(String(execution.stdoutDigest), 'TypeScript subordinate stdout');
+      requireActionDigest(String(execution.stderrDigest), 'TypeScript subordinate stderr');
+      break;
+    default:
+      throw new Error('TypeScript subordinate settlement execution status is not terminal.');
+  }
+
+  const cleanup = stage('cleanup');
+  switch (cleanup.status) {
+    case 'physically-clean':
+      exact(cleanup, ['status'], 'cleanup');
+      break;
+    case 'physical-residue':
+      exact(cleanup, ['status', 'reason', 'errorName', 'message'], 'cleanup');
+      reason(cleanup, ['generation-cleanup-failed', 'physical-cleanup-failed'], 'cleanup');
+      error(cleanup, 'cleanup');
+      break;
+    default:
+      throw new Error('TypeScript subordinate settlement cleanup status is not terminal.');
+  }
+
+  const readback = stage('readback');
+  switch (readback.status) {
+    case 'not-applied':
+      exact(readback, ['status'], 'readback');
+      break;
+    case 'current':
+      exact(readback, ['status', 'reason'], 'readback');
+      reason(readback, ['immutable-execution-generation-current'], 'readback');
+      break;
+    case 'invalidated':
+      exact(readback, ['status', 'reason', 'errorName', 'message'], 'readback');
+      reason(readback, ['provider-or-cache-authority-drift'], 'readback');
+      error(readback, 'readback');
+      break;
+    default:
+      throw new Error('TypeScript subordinate settlement readback status is not terminal.');
+  }
+  return Object.freeze(record as TypecheckSubordinateSettlement);
+}
+
+export type TypecheckSubordinateSettlementBlockKind =
+  | 'terminal-missing'
+  | 'subordinate-missing'
+  | 'subordinate-corrupt'
+  | 'cleanup-unsettled'
+  | 'pass-phase-mismatch';
+
+export class TypecheckSubordinateSettlementBlockError extends Error {
+  readonly kind: TypecheckSubordinateSettlementBlockKind;
+  readonly status = 'blocked' as const;
+
+  constructor(kind: TypecheckSubordinateSettlementBlockKind, message: string, cause?: unknown) {
+    super(`TypeScript typecheck terminal blocked: ${message}`, { cause });
+    this.name = 'TypecheckSubordinateSettlementBlockError';
+    this.kind = kind;
+  }
+}
+
+export function requireTypecheckSubordinateTerminal(
+  outcome: Pick<
+    VerificationActionRunOutcome,
+    'disposition' | 'reason' | 'state' | 'subordinateSettlement' | 'terminal'
+  >
+): TypecheckSubordinateSettlement {
+  const terminal: VerificationActionTerminal | null = outcome.terminal;
+  if (terminal === null) {
+    throw new TypecheckSubordinateSettlementBlockError(
+      'terminal-missing',
+      `generic Action outcome has no terminal; disposition=${outcome.disposition}; state=${outcome.state ?? 'none'}; reason=${outcome.reason ?? 'none'}.`
+    );
+  }
+  if (outcome.subordinateSettlement === null) {
+    throw new TypecheckSubordinateSettlementBlockError(
+      'subordinate-missing',
+      'persisted terminal has no producer-owned subordinate settlement.'
+    );
+  }
+  let subordinate: TypecheckSubordinateSettlement;
+  try {
+    subordinate = projectTypecheckSubordinateSettlement(outcome.subordinateSettlement);
+  } catch (error) {
+    throw new TypecheckSubordinateSettlementBlockError(
+      'subordinate-corrupt',
+      'persisted subordinate settlement is not canonical.',
+      error
+    );
+  }
+  if (subordinate.cleanup.status !== 'physically-clean') {
+    throw new TypecheckSubordinateSettlementBlockError(
+      'cleanup-unsettled',
+      'subordinate cleanup is not physically clean.'
+    );
+  }
+  if (terminal.status === 'passed' && (
+    subordinate.setup.status !== 'complete'
+    || subordinate.execution.status !== 'exited'
+    || subordinate.execution.exitCode !== 0
+    || subordinate.readback.status !== 'current'
+  )) {
+    throw new TypecheckSubordinateSettlementBlockError(
+      'pass-phase-mismatch',
+      'PASS does not have complete setup, successful execution, physical cleanup and current readback.'
+    );
+  }
+  return subordinate;
 }
 
 function requireActionDigest(value: string, label: string): VerificationActionKeyDigest {
@@ -89,28 +391,20 @@ function canonicalPathIdentity(value: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
-function issueTypecheckOperationSettlement(
+async function issueTypecheckOperationSettlement(
   operation: SecBoundSemanticOperation,
   input: Readonly<{
+    action: VerificationActionKey;
     actionKey: VerificationActionKeyDigest;
-    sourceObservationDisposition: SecProviderPhysicalDisposition;
     checkerDisposition: SecProviderPhysicalDisposition;
     executionObservation: unknown;
     readback: unknown;
     readbackDisposition: SecDomainReadbackDisposition;
     status: VerificationResultStatus;
     reasonCode: VerificationReasonCode;
+    processOutput: Readonly<{ stdout: string; stderr: string }> | null;
   }>
-): VerificationActionTerminalSettlement {
-  const sourceObservation = issueSecProviderSettlementReceipt(operation, {
-    requirementId: TYPECHECK_REQUIREMENT.sourceObservation,
-    physicalDisposition: input.sourceObservationDisposition,
-    providerSettlementReferenceDigest: actionDigest({
-      actionKey: input.actionKey,
-      requirement: TYPECHECK_REQUIREMENT.sourceObservation,
-      readback: input.readback
-    }) as SecOperationDigest
-  });
+): Promise<VerificationActionTerminalSettlement> {
   const checker = issueSecProviderSettlementReceipt(operation, {
     requirementId: TYPECHECK_REQUIREMENT.projectCheck,
     physicalDisposition: input.checkerDisposition,
@@ -120,10 +414,31 @@ function issueTypecheckOperationSettlement(
       executionObservation: input.executionObservation
     }) as SecOperationDigest
   });
-  const providerSettlementSet = compileSecProviderSettlementSet(operation, [
-    sourceObservation,
-    checker
-  ]);
+  const diagnosticObjects = input.processOutput === null
+    ? Object.freeze([])
+    : await typecheckActionRunner.publishBoundProcessDiagnostics({
+        repositoryRoot: compilerRoot,
+        action: input.action,
+        operation,
+        processSettlement: checker,
+        streams: [
+          { stream: 'stdout', bytes: new TextEncoder().encode(input.processOutput.stdout) },
+          { stream: 'stderr', bytes: new TextEncoder().encode(input.processOutput.stderr) }
+        ]
+      });
+  const providerSettlements = [checker, issueSecProviderSettlementReceipt(operation, {
+    requirementId: 'verification.action-diagnostics',
+    physicalDisposition: diagnosticObjects.length === 0 ? 'not-started' : 'settled',
+    providerSettlementReferenceDigest: actionDigest(
+      diagnosticObjects.length === 0
+        ? { status: 'not-started', operationAttempt: operation.boundAttemptDigest }
+        : diagnosticObjects.map(({ receipt, readback }) => ({
+            objectDigest: receipt.objectDigest,
+            readbackDigest: readback.readbackDigest
+          }))
+    ) as SecOperationDigest
+  })];
+  const providerSettlementSet = compileSecProviderSettlementSet(operation, providerSettlements);
   const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
     readbackContractDigest: actionDigest({
       contract: 'typescript-project-check-readback',
@@ -155,32 +470,97 @@ function issueTypecheckOperationSettlement(
       }) as SecOperationDigest
     }
   );
-  return issueVerificationActionTerminalSettlement(ownerTerminalJoin, {
+  const actionTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
+    action: input.action,
+    operation,
+    providerSettlementSet,
+    readback,
+    ownerTerminalProjection: ownerTerminalJoin
+  });
+  if (input.processOutput !== null) {
+    return issueProcessVerificationActionTerminalSettlement(actionTerminalReceipt, {
+      status: input.status,
+      reasonCode: input.reasonCode,
+      diagnosticObjects
+    });
+  }
+  if (input.checkerDisposition !== 'not-started') {
+    throw new Error(
+      'Typecheck process outcome cannot issue a terminal without bound diagnostic evidence.'
+    );
+  }
+  return issueNonProcessVerificationActionTerminalSettlement(actionTerminalReceipt, {
     status: input.status,
     reasonCode: input.reasonCode
   });
 }
 
 
-export function compileTypecheckActionInput(input: Readonly<{
+type TypecheckProjectActionIdentity = Readonly<{
+  sourceRevision: `sha256:${string}`;
+  projectConfigDigest: `sha256:${string}`;
+}>;
+
+type TypecheckProjectGenerationSource = Readonly<{
+  identity: TypecheckProjectActionIdentity;
+  materialize(): WorkspaceTypeScriptProjectGenerationEvidence;
+}>;
+
+function projectActionIdentityFromInput(
+  projectInput: WorkspaceTypeScriptProjectInput
+): TypecheckProjectActionIdentity {
+  assertWorkspaceTypeScriptProjectInput(projectInput);
+  return Object.freeze({
+    sourceRevision: requireActionDigest(
+      projectInput.sourceRevision,
+      'Typecheck workspace source revision'
+    ),
+    projectConfigDigest: requireActionDigest(
+      projectInput.projectConfigDigest,
+      'Typecheck project configuration identity'
+    )
+  });
+}
+
+function projectActionIdentityFromSnapshot(
+  snapshot: PhysicalWorkspaceSourceSnapshot,
+  projectConfigPath: string
+): TypecheckProjectActionIdentity {
+  assertPhysicalWorkspaceSourceSnapshot(snapshot);
+  const projectConfig = snapshot.file(projectConfigPath);
+  if (projectConfig === null) {
+    throw new Error(`Typecheck project configuration is absent: ${projectConfigPath}`);
+  }
+  return Object.freeze({
+    sourceRevision: requireActionDigest(
+      snapshot.sourceRevision,
+      'Typecheck workspace source revision'
+    ),
+    projectConfigDigest: requireActionDigest(
+      projectConfig.contentDigest,
+      'Typecheck project configuration identity'
+    )
+  });
+}
+
+function compileTypecheckActionInputFromIdentity(input: Readonly<{
   dependencies: TypecheckBuildDependencyIdentity;
   provider: TypeScriptNativeCheckerProvider;
-  projectInput: WorkspaceTypeScriptProjectInput;
+  project: TypecheckProjectActionIdentity;
   diagnosticArguments: readonly string[];
   semanticOperation: SecBoundSemanticOperation;
 }>): VerificationActionKeyInput {
-  assertWorkspaceTypeScriptProjectInput(input.projectInput);
   const dependencyAdmissionDigest = requireActionDigest(
     input.dependencies.identityDigest,
     'Typecheck dependency admission identity'
   );
   const projectConfigDigest = requireActionDigest(
-    input.projectInput.projectConfigDigest,
+    input.project.projectConfigDigest,
     'Typecheck project configuration identity'
   );
-  const projectInputDigest = requireActionDigest(
-    input.projectInput.projectInputDigest,
-    'Typecheck project input identity'
+  const sourceRevision = requireActionDigest(
+    input.project.sourceRevision,
+    'Typecheck workspace source revision'
   );
   const provider = input.provider;
   const nodeModulesRootDigest = actionDigest({
@@ -197,7 +577,11 @@ export function compileTypecheckActionInput(input: Readonly<{
     arguments: input.diagnosticArguments
   });
   const semanticDigest = input.semanticOperation.plan.identity.identityDigest;
-  const executionPolicyDigest = actionDigest(TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY);
+  const executionPolicyDigest = actionDigest({
+    checker: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY,
+    generationSetup: TYPECHECK_MATERIALIZATION_POLICY,
+    windowsReadOnlyTreeAdmission: WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY
+  });
   return Object.freeze({
     actionKind: TYPECHECK_ACTION_KIND,
     producer: TYPECHECK_ACTION_PRODUCER,
@@ -210,7 +594,7 @@ export function compileTypecheckActionInput(input: Readonly<{
         { name: 'dependency-execution', digest: dependencyExecutionDigest },
         { name: 'diagnostic-arguments', digest: diagnosticDigest },
         { name: 'node-modules-root', digest: nodeModulesRootDigest },
-        { name: 'project-input', digest: projectInputDigest },
+        { name: 'repository-source-generation', digest: sourceRevision },
         { name: 'project-config', digest: projectConfigDigest },
         { name: 'semantic-operation-identity', digest: input.semanticOperation.plan.identity.identityDigest },
         { name: 'provider-binding', digest: provider.toolchainBindingDigest },
@@ -224,7 +608,7 @@ export function compileTypecheckActionInput(input: Readonly<{
     }),
     inputClosure: Object.freeze([
       { path: 'dependency/admission', digest: dependencyAdmissionDigest },
-      { path: 'repository/typescript-input', digest: projectInputDigest },
+      { path: 'repository/source-generation', digest: sourceRevision },
       { path: 'provider/alias-package.json', digest: provider.packageManifestDigest },
       { path: 'provider/native-executable', digest: provider.platformNativeExecutableDigest },
       { path: 'provider/native-manifest.json', digest: provider.platformNativeManifestDigest },
@@ -245,28 +629,52 @@ export function compileTypecheckActionInput(input: Readonly<{
   });
 }
 
+export function compileTypecheckActionInput(input: Readonly<{
+  dependencies: TypecheckBuildDependencyIdentity;
+  provider: TypeScriptNativeCheckerProvider;
+  projectInput: WorkspaceTypeScriptProjectInput;
+  diagnosticArguments: readonly string[];
+  semanticOperation: SecBoundSemanticOperation;
+}>): VerificationActionKeyInput {
+  return compileTypecheckActionInputFromIdentity({
+    dependencies: input.dependencies,
+    provider: input.provider,
+    project: projectActionIdentityFromInput(input.projectInput),
+    diagnosticArguments: input.diagnosticArguments,
+    semanticOperation: input.semanticOperation
+  });
+}
+
 export function compileTypecheckSemanticOperation(input: Readonly<{
   projectConfigPath: string;
   diagnosticArguments: readonly string[];
-  provider: TypeScriptNativeCheckerProvider;
+  checker: InstalledTypeScriptNativeChecker;
   deadlineAtUnixMs: number;
 }>): SecBoundSemanticOperation {
-  if (input.projectConfigPath !== input.provider.projectConfig) {
+  assertTypeScriptNativeChecker(input.checker);
+  const provider = input.checker.provider;
+  if (input.projectConfigPath !== provider.projectConfig) {
     throw new Error('Typecheck semantic operation project config must come from the selected provider.');
   }
   const checkerContractDigest = actionDigest({
     operation: 'verification.typecheck',
     projectConfig: 'tsconfig.json',
     noEmit: true,
-    incremental: true
+    incremental: true,
+    immutableGeneration: true,
+    actionPrivateAuxiliary: true,
+    physicalCleanTerminal: true,
+    generationSetupPolicy: TYPECHECK_MATERIALIZATION_POLICY,
+    checkerExecutionPolicy: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY,
+    windowsReadOnlyTreeAdmissionPolicy: WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY
   }) as SecOperationDigest;
-  const sourceObservationContractDigest = actionDigest({
-    operation: 'verification.typecheck.source-observation',
-    subject: 'working-tree-source-program'
+  const diagnosticContractDigest = actionDigest({
+    operation: 'verification.typecheck-process-diagnostics',
+    streams: ['stderr', 'stdout']
   }) as SecOperationDigest;
   const decisionDigest = actionDigest({
     checkerContractDigest,
-    sourceObservationContractDigest
+    diagnosticContractDigest
   }) as SecOperationDigest;
   const plan = compileSecSemanticOperationPlan({
     operation: 'verification.typecheck',
@@ -282,33 +690,21 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
     aggregateBudgets: [
       {
         resource: 'duration-ms',
-        maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs
+        maximum: TYPECHECK_OPERATION_DURATION_MS
+      },
+      {
+        resource: 'input-bytes',
+        maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
+          + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
       },
       {
         resource: 'output-bytes',
         maximum: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStdoutBytes
           + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.maximumStderrBytes
-          + TYPECHECK_SOURCE_OBSERVATION_BUDGET.maxProcesses * (
-            TYPECHECK_SOURCE_OBSERVATION_BUDGET.maxStdoutBytes
-            + TYPECHECK_SOURCE_OBSERVATION_BUDGET.maxStderrBytes
-          )
       },
-      { resource: 'processes', maximum: TYPECHECK_SOURCE_OBSERVATION_BUDGET.maxProcesses + 1 },
-      { resource: 'records', maximum: TYPECHECK_SOURCE_OBSERVATION_BUDGET.maxRecords }
+      { resource: 'processes', maximum: 1 }
     ],
     requirements: [
-      {
-        id: TYPECHECK_REQUIREMENT.sourceObservation,
-        contractDigest: sourceObservationContractDigest,
-        effectKinds: ['process'],
-        failureKinds: [
-          'provider.cancelled',
-          'provider.deadline-exhausted',
-          'provider.drift',
-          'provider.unavailable',
-          'provider.unverified'
-        ]
-      },
       {
         id: TYPECHECK_REQUIREMENT.projectCheck,
         contractDigest: checkerContractDigest,
@@ -321,19 +717,32 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
           'provider.unavailable',
           'provider.unverified'
         ]
+      },
+      {
+        id: 'verification.action-diagnostics',
+        contractDigest: diagnosticContractDigest,
+        effectKinds: ['filesystem'],
+        failureKinds: [
+          'diagnostic.corrupt-object',
+          'diagnostic.deadline-exhausted',
+          'diagnostic.foreign-residue',
+          'diagnostic.incomplete-object',
+          'diagnostic.physical-replacement',
+          'diagnostic.resource-exhausted'
+        ]
       }
     ]
   });
   return bindSecSemanticOperation(plan, [
     compileSecCapabilityBinding({
-      requirementId: TYPECHECK_REQUIREMENT.sourceObservation,
-      contractDigest: sourceObservationContractDigest,
-      providerIdentityDigest: sourceObservationContractDigest
-    }),
-    compileSecCapabilityBinding({
       requirementId: TYPECHECK_REQUIREMENT.projectCheck,
       contractDigest: checkerContractDigest,
-      providerIdentityDigest: input.provider.toolchainBindingDigest as SecOperationDigest
+      providerIdentityDigest: provider.toolchainBindingDigest as SecOperationDigest
+    }),
+    compileSecCapabilityBinding({
+      requirementId: 'verification.action-diagnostics',
+      contractDigest: diagnosticContractDigest,
+      providerIdentityDigest: actionDigest('runtime-state.process-diagnostics') as SecOperationDigest
     })
   ]);
 }
@@ -382,18 +791,15 @@ export function resolveTypecheckBuildInfoPath(input: Readonly<{
     projectConfig: input.provider.projectConfig,
     runtimeRevision: `bun@${Bun.version}`
   })).slice(7);
-  const buildInfoFile = path.join(derivedCacheRoot, cacheKey, 'tsconfig.tsbuildinfo');
+  const buildInfoFile = path.join(
+    derivedCacheRoot,
+    cacheKey,
+    'typescript-incremental-seed-v1.json'
+  );
   if (isPathInside(resolvedCompilerRoot, buildInfoFile)) {
-    throw new Error('TypeCheck derived build-info cache must remain outside the compiler tree');
+    throw new Error('TypeCheck incremental seed cache must remain outside the compiler tree');
   }
   return buildInfoFile;
-}
-
-async function typecheckDependencyContext(): Promise<OperationDependencyBootstrapResult> {
-  return ensureOperationDependencies(compileSecOperationDemandGraph({
-    operation: 'typecheck',
-    terminalWorkIds: []
-  }));
 }
 
 export type TypecheckBuildDependencyIdentity = Readonly<Pick<
@@ -401,10 +807,16 @@ export type TypecheckBuildDependencyIdentity = Readonly<Pick<
   'nodeModulesPath' | 'requiresFreshProcess' | 'source'
 > & { readonly identityDigest: `sha256:${string}` }>;
 
+type MaterializedTypecheckBuildDependencyIdentity = TypecheckBuildDependencyIdentity & Readonly<Pick<
+  OperationDependencyBootstrapResult,
+  'executionGenerationAuthority'
+>>;
+
 function materializedTypecheckDependencyIdentity(
   dependencies: OperationDependencyBootstrapResult
-): TypecheckBuildDependencyIdentity {
+): MaterializedTypecheckBuildDependencyIdentity {
   return Object.freeze({
+    executionGenerationAuthority: dependencies.executionGenerationAuthority,
     identityDigest: sha256(Object.freeze({
       kind: 'materialized-dependency-generation',
       manifestHash: dependencies.manifestHash,
@@ -417,62 +829,55 @@ function materializedTypecheckDependencyIdentity(
   });
 }
 
-async function assertTypeScriptProviderCurrent(
-  nodeModulesPath: string,
-  installed: InstalledTypeScriptNativeChecker
-): Promise<void> {
-  const current = requireSelectedTypeScriptNativeChecker(
-    await selectInstalledTypeScriptNativeChecker(nodeModulesPath)
-  );
-  if (current.provider.toolchainBindingDigest !== installed.provider.toolchainBindingDigest
-      || current.packageManifestPath !== installed.packageManifestPath
-      || current.wrapperPath !== installed.wrapperPath
-      || current.platformNativeManifestPath !== installed.platformNativeManifestPath
-      || current.nativeExecutablePath !== installed.nativeExecutablePath) {
-    throw new Error('Native TypeScript provider changed across command execution');
-  }
-}
-
-async function observeTypecheckProjectInput(
-  projectConfigPath: string,
-  session: GitReadSession
-): Promise<WorkspaceTypeScriptProjectInput> {
-  return compileWorkspaceTypeScriptProjectInput(
-    await acquireWorkingTreeWorkspaceSourceSnapshot({ session }),
-    projectConfigPath
-  );
-}
-
 async function executeObservedTypecheckWithProvider(
-  dependencies: TypecheckBuildDependencyIdentity,
+  dependencies: MaterializedTypecheckBuildDependencyIdentity,
+  dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration,
   installed: InstalledTypeScriptNativeChecker,
   diagnosticArguments: readonly string[],
-  deadlineAtUnixMs: number,
+  operation: TypecheckOperationContext,
   semanticOperation: SecBoundSemanticOperation,
-  session: GitReadSession
+  projectGeneration: TypecheckProjectGenerationSource
 ): Promise<number> {
   const provider = installed.provider;
-  const projectInput = await observeTypecheckProjectInput(provider.projectConfig, session);
   const buildInfoFile = resolveTypecheckBuildInfoPath({
     provider,
     dependencyIdentityDigest: dependencies.identityDigest,
     nodeModulesPath: dependencies.nodeModulesPath,
-    projectConfigDigest: projectInput.projectConfigDigest
+    projectConfigDigest: projectGeneration.identity.projectConfigDigest
   });
-  await assertTypeScriptProviderCurrent(dependencies.nodeModulesPath, installed);
-  const actionInput = compileTypecheckActionInput({
+  const actionInput = compileTypecheckActionInputFromIdentity({
     dependencies,
     provider,
-    projectInput,
+    project: projectGeneration.identity,
     diagnosticArguments,
     semanticOperation
   });
-  const outcome = await typecheckActionRunner.executeIdentity({
+  const executionLifecycle: { generation: TypeScriptExecutionGeneration | null } = {
+    generation: null
+  };
+  let dependencyGenerationTransferred = false;
+  let outcome: Awaited<ReturnType<VerificationActionRunner['executeIdentity']>>;
+  try {
+    outcome = await typecheckActionRunner.executeIdentity({
     repositoryRoot: compilerRoot,
     actionInput,
     executionClass: 'cheap-preflight',
     executionDomain: 'local-typecheck',
-    executor: async ({ action }) => {
+    executor: async ({ action, recordSubordinateSettlement }) => {
+      operation.assertActive('Source Program ProjectInput materialization admission');
+      const projectGenerationEvidence = projectGeneration.materialize();
+      assertWorkspaceTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
+      const projectInput = projectGenerationEvidence.projectInput;
+      const executionGenerationDigest = typeScriptExecutionGenerationDigest(projectGenerationEvidence);
+      operation.assertActive('Source Program ProjectInput materialization settlement');
+      const setupStartedAtMonotonicMs = performance.now();
+      const elapsedMs = (startedAtMonotonicMs: number): number => Math.max(
+        0,
+        Math.round(performance.now() - startedAtMonotonicMs)
+      );
+      let setupDurationMs: number | undefined;
+      let executionDurationMs = 0;
+      let cleanupDurationMs = 0;
       const domainBinding = Object.freeze({
         dependencyAdmission: dependencies.identityDigest,
         diagnosticArguments,
@@ -488,16 +893,17 @@ async function executeObservedTypecheckWithProvider(
         message: error instanceof Error ? error.message : String(error),
         name: error instanceof Error ? error.name : typeof error
       });
-      const settlement = (
+      const settlement = async (
         checkerDisposition: SecProviderPhysicalDisposition,
         readbackDisposition: SecDomainReadbackDisposition,
         status: VerificationResultStatus,
         reasonCode: VerificationReasonCode,
         executionObservation: unknown,
         readback: unknown,
-      ) => issueTypecheckOperationSettlement(semanticOperation, {
+        processOutput: Readonly<{ stdout: string; stderr: string }> | null = null
+      ) => await issueTypecheckOperationSettlement(semanticOperation, {
+        action,
         actionKey: action.actionKey,
-        sourceObservationDisposition: 'settled',
         checkerDisposition,
         executionObservation: Object.freeze({
           ...domainBinding,
@@ -506,113 +912,232 @@ async function executeObservedTypecheckWithProvider(
         readback,
         readbackDisposition,
         status,
-        reasonCode
+        reasonCode,
+        processOutput
       });
-      const postReadback = async (
-        cacheAuthority?: ReturnType<typeof acquireSecRuntimeCachePhysicalAuthority>
-      ) => {
+      let setupStage: TypecheckSubordinateStage = Object.freeze({ status: 'pending' });
+      let executionStage: TypecheckSubordinateStage = Object.freeze({ status: 'not-started' });
+      let cleanupStage: TypecheckSubordinateStage = Object.freeze({ status: 'pending' });
+      let readbackStage: TypecheckSubordinateStage = Object.freeze({ status: 'not-applied' });
+      const finalSettlement = async (
+        checkerDisposition: SecProviderPhysicalDisposition,
+        readbackDisposition: SecDomainReadbackDisposition,
+        status: VerificationResultStatus,
+        reasonCode: VerificationReasonCode,
+        executionObservation: unknown,
+        readback: unknown,
+        processOutput: Readonly<{ stdout: string; stderr: string }> | null = null
+      ): Promise<VerificationActionTerminalSettlement> => {
+        const withDuration = (
+          stage: TypecheckSubordinateStage,
+          durationMs: number
+        ): TypecheckSubordinateStage => Object.freeze({ ...stage, durationMs });
+        recordSubordinateSettlement(encodeTypecheckSubordinateSettlement(Object.freeze({
+          setup: withDuration(
+            setupStage,
+            setupDurationMs ?? elapsedMs(setupStartedAtMonotonicMs)
+          ),
+          execution: withDuration(executionStage, executionDurationMs),
+          cleanup: withDuration(cleanupStage, cleanupDurationMs),
+          readback: readbackStage
+        })));
+        return await settlement(
+          checkerDisposition,
+          readbackDisposition,
+          status,
+          reasonCode,
+          executionObservation,
+          readback,
+          processOutput
+        );
+      };
+      let cacheAuthority: ReturnType<typeof acquireSecRuntimeCachePhysicalAuthority> | null = null;
+      const postReadback = async () => {
         try {
-          await assertTypeScriptProviderCurrent(dependencies.nodeModulesPath, installed);
+          operation.assertActive('readback admission');
           cacheAuthority?.assertCurrent();
+          if (executionLifecycle.generation === null) {
+            throw new Error('TypeScript immutable execution generation was not issued');
+          }
+          await executionLifecycle.generation.assertCurrent();
+          operation.assertActive('readback settlement');
         } catch (error) {
-          return Object.freeze({
+          const readback = Object.freeze({
             status: 'invalidated' as const,
             reason: 'provider-or-cache-authority-drift',
             errorDigest: errorDigest(error)
           });
-        }
-        try {
-          const currentProjectInput = await observeTypecheckProjectInput(provider.projectConfig, session);
-          if (currentProjectInput.projectInputDigest === projectInput.projectInputDigest) {
-            return Object.freeze({
-              status: 'current' as const,
-              dependencyGenerationDigest: dependencies.identityDigest,
-              observationDigest: projectInput.observationDigest,
-              projectInputDigest: projectInput.projectInputDigest,
-              providerBindingDigest: provider.toolchainBindingDigest
-            });
-          }
-          return Object.freeze({
-            status: 'invalidated' as const,
-            reason: 'workspace-source-snapshot-changed',
-            observationDigest: projectInput.observationDigest,
-            refreshedObservationDigest: currentProjectInput.observationDigest,
-            refreshedProjectInputDigest: currentProjectInput.projectInputDigest
+          readbackStage = Object.freeze({
+            ...subordinateError(error),
+            status: 'invalidated',
+            reason: readback.reason
           });
-        } catch (error) {
-          return Object.freeze({
-            status: 'invalidated' as const,
-            reason: 'project-input-readback-unresolved',
-            errorDigest: errorDigest(error),
-            observationDigest: projectInput.observationDigest
-          });
+          return readback;
         }
-      };
-      try {
-        await assertTypeScriptProviderCurrent(dependencies.nodeModulesPath, installed);
-      } catch (error) {
         const readback = Object.freeze({
-          status: 'invalidated' as const,
-          reason: 'provider-drift-before-process',
-          errorDigest: errorDigest(error)
+          status: 'current' as const,
+          reason: 'immutable-execution-generation-current',
+          observationDigest: projectInput.observationDigest,
+          generationDigest: executionGenerationDigest
         });
-        return settlement(
-          'not-started',
-          'not-applied',
-          'invalidated',
-          'input-invalidated',
-          Object.freeze({ status: 'not-started', reason: 'provider-drift' }),
-          readback
-        );
-      }
-      let cacheAuthority: ReturnType<typeof acquireSecRuntimeCachePhysicalAuthority>;
+        readbackStage = Object.freeze({ status: 'current', reason: readback.reason });
+        return readback;
+      };
       let incrementalState: Awaited<ReturnType<typeof prepareTypeScriptIncrementalState>>;
       try {
-        const cacheRoot = path.dirname(path.dirname(buildInfoFile));
+        operation.assertActive('runtime cache admission');
+        const cacheRoot = path.join(resolveSecRuntimeCacheRoot({
+          platform: currentSecRuntimePlatform(),
+          environment: secRuntimeStateEnvironment(),
+          repositoryRoot: compilerRoot
+        }), 'typecheck');
+        const generationParentPath = path.join(cacheRoot, 'execution-generations');
+        const auxiliaryParentPath = path.join(cacheRoot, 'action-auxiliaries');
         cacheAuthority = acquireSecRuntimeCachePhysicalAuthority({
           repositoryRoot: compilerRoot,
           cacheRoot,
-          requiredDirectories: [path.dirname(buildInfoFile)]
+          requiredDirectories: [
+            path.dirname(buildInfoFile),
+            generationParentPath,
+            auxiliaryParentPath
+          ]
         });
         cacheAuthority.assertCurrent();
-        incrementalState = await prepareTypeScriptIncrementalState(buildInfoFile);
+        operation.assertActive('runtime cache readback');
+        dependencyGenerationTransferred = true;
+        executionLifecycle.generation = await materializeTypeScriptExecutionGeneration(
+          projectGenerationEvidence,
+          {
+            deadlineAtUnixMs: operation.deadlineAtUnixMs,
+            dependencyGeneration,
+            dependencyLocatorPath: dependencies.nodeModulesPath,
+            generationParent: cacheAuthority.directory(generationParentPath),
+            signal: operation.signal
+          }
+        );
+        assertTypeScriptExecutionGeneration(executionLifecycle.generation);
+        if (executionLifecycle.generation.generationDigest !== executionGenerationDigest) {
+          throw new Error('TypeScript execution generation identity differs from its Action input');
+        }
+        await executionLifecycle.generation.assertCurrent();
+        incrementalState = await prepareTypeScriptIncrementalState({
+          actionPrivateParent: cacheAuthority.directory(auxiliaryParentPath),
+          deadlineAtUnixMs: operation.deadlineAtUnixMs,
+          seedBindingDigest: actionDigest({
+            stableSeed: canonicalPathIdentity(buildInfoFile)
+          }),
+          stableSeedFile: buildInfoFile,
+          signal: operation.signal,
+          stableSeedParent: cacheAuthority.directory(path.dirname(buildInfoFile))
+        });
       } catch (error) {
-        const readback = await postReadback();
-        return settlement(
+        setupDurationMs = elapsedMs(setupStartedAtMonotonicMs);
+        const cleanupStartedAtMonotonicMs = performance.now();
+        let generationCleanup: unknown = null;
+        let cleanupFailure: unknown;
+        if (executionLifecycle.generation !== null) {
+          try {
+            generationCleanup = await executionLifecycle.generation.retire();
+          } catch (cleanupError) {
+            cleanupFailure = cleanupError;
+          }
+        }
+        cleanupDurationMs = elapsedMs(cleanupStartedAtMonotonicMs);
+        if (cleanupFailure !== undefined) {
+          setupStage = Object.freeze({
+            ...subordinateError(error),
+            reason: 'setup-failed'
+          });
+          cleanupStage = Object.freeze({
+            ...subordinateError(cleanupFailure),
+            status: 'physical-residue',
+            reason: 'generation-cleanup-failed'
+          });
+          return finalSettlement(
+            'not-started',
+            'unknown',
+            'failed',
+            'cleanup-failed',
+            Object.freeze({
+              status: 'setup-cleanup-failed',
+              setupErrorDigest: errorDigest(error),
+              cleanupErrorDigest: errorDigest(cleanupFailure)
+            }),
+            Object.freeze({ status: 'physical-residue', generationCleanup })
+          );
+        }
+        setupStage = Object.freeze({
+          ...subordinateError(error),
+          reason: 'setup-failed'
+        });
+        cleanupStage = Object.freeze({ status: 'physically-clean' });
+        return finalSettlement(
           'not-started',
-          'unknown',
+          'not-applied',
           'failed',
           'process-settlement-failed',
           Object.freeze({
             status: 'setup-failed',
             errorDigest: errorDigest(error)
           }),
-          readback
+          Object.freeze({ status: 'physically-clean', generationCleanup })
         );
       }
+      const executionGeneration = executionLifecycle.generation;
+      if (executionGeneration === null) {
+        throw new Error('TypeScript immutable execution generation setup returned without a capability');
+      }
+      setupDurationMs = elapsedMs(setupStartedAtMonotonicMs);
+      setupStage = Object.freeze({ status: 'complete' });
+      let settledProcessOutput: Readonly<{ stdout: string; stderr: string }> | null = null;
+      let settledCheckerDisposition: SecProviderPhysicalDisposition = 'not-started';
+      let settledReadbackDisposition: SecDomainReadbackDisposition = 'not-applied';
 
       const executeAndSettle = async (): Promise<VerificationActionTerminalSettlement> => {
         let execution: Awaited<ReturnType<typeof executeTypeScriptNativeChecker>>;
+        const executionStartedAtMonotonicMs = performance.now();
         try {
           execution = await executeTypeScriptNativeChecker(installed, {
             args: diagnosticArguments,
-            buildInfoFile: incrementalState.executionBuildInfoFile,
-            deadlineAtUnixMs,
+            auxiliaryDirectory: incrementalState.auxiliaryDirectory,
+            buildInfoFileName: incrementalState.buildInfoFileName,
+            deadlineAtUnixMs: semanticOperation.plan.attempt.deadlineAtUnixMs,
+            dependencyDirectory: executionGeneration.dependencyDirectory,
             forwardOutput: true,
-            workingDirectory: compilerRoot
+            signal: operation.signal,
+            workingDirectory: executionGeneration.workingDirectory
           });
         } catch (error) {
-          const readback = await postReadback(cacheAuthority);
+          const executionFailure = subordinateError(error);
+          executionStage = Object.freeze({
+            ...executionFailure,
+            reason: 'execution-unsettled'
+          });
+          settledProcessOutput = Object.freeze({
+            stdout: '',
+            stderr: `${executionFailure.errorName ?? 'Error'}: ${executionFailure.message ?? 'TypeScript checker execution failed'}\n`
+          });
+          settledCheckerDisposition = 'unknown';
+          settledReadbackDisposition = 'unknown';
+          const readback = await postReadback();
           return settlement(
-            'unknown',
-            'unknown',
+            settledCheckerDisposition,
+            settledReadbackDisposition,
             'failed',
             'process-settlement-failed',
             Object.freeze({ status: 'execution-unsettled', errorDigest: errorDigest(error) }),
-            readback
+            readback,
+            settledProcessOutput
           );
+        } finally {
+          executionDurationMs = elapsedMs(executionStartedAtMonotonicMs);
         }
         if (execution.status === 'unverified') {
+          executionStage = Object.freeze({
+            status: 'unverified',
+            reason: execution.reason,
+            message: boundedDiagnosticText(execution.detail, 240)
+          });
           const checkerBinding = semanticOperation.bindings.find(({ requirementId }) => (
             requirementId === TYPECHECK_REQUIREMENT.projectCheck
           ));
@@ -625,7 +1150,9 @@ async function executeObservedTypecheckWithProvider(
             failureKind: `provider.${execution.reason}`,
             rawEvidence: execution.detail
           });
-          const readback = await postReadback(cacheAuthority);
+          const readback = await postReadback();
+          settledCheckerDisposition = 'not-started';
+          settledReadbackDisposition = 'not-applied';
           const terminal = readback.status === 'invalidated'
             ? { status: 'invalidated', reasonCode: 'input-invalidated' } as const
             : execution.reason === 'deadline-exhausted'
@@ -636,8 +1163,8 @@ async function executeObservedTypecheckWithProvider(
                   ? { status: 'unsupported', reasonCode: 'capability-unsupported' } as const
                   : { status: 'invalidated', reasonCode: 'input-invalidated' } as const;
           return settlement(
-            'unknown',
-            'unknown',
+            settledCheckerDisposition,
+            settledReadbackDisposition,
             terminal.status,
             terminal.reasonCode,
             Object.freeze({
@@ -649,25 +1176,22 @@ async function executeObservedTypecheckWithProvider(
             readback
           );
         }
-        let incrementalPublished: boolean;
-        try {
-          incrementalPublished = await incrementalState.publish();
-        } catch (error) {
-          const readback = await postReadback(cacheAuthority);
-          return settlement(
-            'settled',
-            'applied',
-            'failed',
-            'cleanup-failed',
-            Object.freeze({
-              status: 'incremental-publication-failed',
-              exitCode: execution.code,
-              errorDigest: errorDigest(error)
-            }),
-            readback
-          );
-        }
-        const readback = await postReadback(cacheAuthority);
+        settledProcessOutput = Object.freeze({
+          stdout: execution.stdout,
+          stderr: execution.stderr
+        });
+        settledCheckerDisposition = 'settled';
+        settledReadbackDisposition = 'applied';
+        const incrementalPublication = await incrementalState.publish().catch(() => (
+          Object.freeze({ status: 'cache-unavailable' as const })
+        ));
+        executionStage = Object.freeze({
+          status: 'exited',
+          exitCode: execution.code,
+          stdoutDigest: actionDigest(execution.stdout),
+          stderrDigest: actionDigest(execution.stderr)
+        });
+        const readback = await postReadback();
         if (readback.status === 'invalidated') {
           return settlement(
             'settled',
@@ -677,11 +1201,12 @@ async function executeObservedTypecheckWithProvider(
             Object.freeze({
               status: 'exited',
               exitCode: execution.code,
-              incrementalPublished,
+              incrementalPublication,
               stdoutDigest: actionDigest(execution.stdout),
               stderrDigest: actionDigest(execution.stderr)
             }),
-            readback
+            readback,
+            settledProcessOutput
           );
         }
         return settlement(
@@ -692,11 +1217,12 @@ async function executeObservedTypecheckWithProvider(
           Object.freeze({
             status: 'exited',
             exitCode: execution.code,
-            incrementalPublished,
+            incrementalPublication,
             stdoutDigest: actionDigest(execution.stdout),
             stderrDigest: actionDigest(execution.stderr)
           }),
-          readback
+          readback,
+          settledProcessOutput
         );
       };
 
@@ -704,38 +1230,93 @@ async function executeObservedTypecheckWithProvider(
       try {
         issued = await executeAndSettle();
       } catch (error) {
-        const readback = await postReadback(cacheAuthority);
-        issued = settlement(
-          'unknown',
-          'unknown',
-          'failed',
-          'process-settlement-failed',
-          Object.freeze({ status: 'unexpected-settlement-failure', errorDigest: errorDigest(error) }),
-          readback
-        );
+        executionStage = Object.freeze({
+          ...subordinateError(error),
+          reason: 'unexpected-settlement-failure'
+        });
+        throw error;
+      }
+      let auxiliaryCleanup: unknown = null;
+      let generationCleanup: unknown = null;
+      let cleanupFailure: unknown;
+      const cleanupStartedAtMonotonicMs = performance.now();
+      try {
+        auxiliaryCleanup = await incrementalState.dispose();
+      } catch (error) {
+        cleanupFailure ??= error;
       }
       try {
-        await incrementalState.dispose();
+        generationCleanup = await executionGeneration.retire();
       } catch (error) {
-        const readback = await postReadback(cacheAuthority);
-        issued = settlement(
+        cleanupFailure ??= error;
+      }
+      cleanupDurationMs = elapsedMs(cleanupStartedAtMonotonicMs);
+      if (cleanupFailure !== undefined) {
+        cleanupStage = Object.freeze({
+          ...subordinateError(cleanupFailure),
+          status: 'physical-residue',
+          reason: 'physical-cleanup-failed'
+        });
+        return finalSettlement(
           'settled',
-          'applied',
+          'unknown',
           'failed',
           'cleanup-failed',
           Object.freeze({
-            status: 'incremental-disposal-failed',
-            errorDigest: errorDigest(error),
-            priorSettlement: issued.ownerTerminalJoinReceipt.joinReceiptDigest
+            status: 'physical-cleanup-failed',
+            errorDigest: errorDigest(cleanupFailure),
+            priorSettlement: issued.ownerTerminalReceipt.terminalReceiptDigest
           }),
-          readback
+          Object.freeze({
+            status: 'physical-residue',
+            auxiliaryCleanup,
+            generationCleanup
+          }),
+          settledProcessOutput
         );
       }
-      return issued;
+      cleanupStage = Object.freeze({ status: 'physically-clean' });
+      return finalSettlement(
+        settledCheckerDisposition,
+        settledReadbackDisposition,
+        issued.terminal.status,
+        issued.terminal.reasonCode,
+        Object.freeze({
+          status: 'physically-clean-terminal',
+          priorSettlement: issued.ownerTerminalReceipt.terminalReceiptDigest
+        }),
+        Object.freeze({
+          status: 'physically-clean',
+          auxiliaryCleanup,
+          generationCleanup
+        }),
+        settledProcessOutput
+      );
+      }
+    });
+  } finally {
+    if (executionLifecycle.generation !== null) {
+      await executionLifecycle.generation.retire();
+    } else if (!dependencyGenerationTransferred) {
+      await dependencyGeneration.retire();
     }
-  });
-  if (outcome.terminal?.status === 'passed') return 0;
-  if (outcome.terminal?.status === 'failed') return 1;
+  }
+  let subordinate: TypecheckSubordinateSettlement;
+  try {
+    subordinate = requireTypecheckSubordinateTerminal(outcome);
+  } catch (error) {
+    if (error instanceof TypecheckSubordinateSettlementBlockError) {
+      process.stderr.write(`${error.message} [${error.kind}]\n`);
+    }
+    throw error;
+  }
+  if (outcome.terminal!.status !== 'passed') {
+    process.stderr.write(
+      `TypeScript typecheck subordinate settlement: ${encodeTypecheckSubordinateSettlement(subordinate)}\n`
+    );
+  }
+  if (outcome.terminal!.status === 'passed') return 0;
+  if (outcome.terminal!.status === 'failed') return 1;
   throw new Error(
     `TypeScript typecheck action did not produce a passed terminal: ${
       outcome.reason ?? outcome.terminal?.reasonCode ?? 'unresolved'
@@ -743,61 +1324,271 @@ async function executeObservedTypecheckWithProvider(
   );
 }
 
-async function executeTypecheckWithProvider(
-  dependencies: TypecheckBuildDependencyIdentity,
+async function executeTypecheckWithProjectGeneration(
+  dependencies: MaterializedTypecheckBuildDependencyIdentity,
+  dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration,
   installed: InstalledTypeScriptNativeChecker,
-  args: string[]
+  projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence,
+  args: string[],
+  operation: TypecheckOperationContext
+): Promise<number> {
+  let transferred = false;
+  try {
+    operation.assertActive('project generation admission');
+    assertTypeScriptNativeChecker(installed);
+    assertWorkspaceTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
+    const diagnosticArguments = canonicalTypeScriptDiagnosticArguments(args);
+    const semanticOperation = compileTypecheckSemanticOperation({
+      projectConfigPath: installed.provider.projectConfig,
+      diagnosticArguments,
+      checker: installed,
+      deadlineAtUnixMs: operation.deadlineAtUnixMs
+    });
+    transferred = true;
+    return executeObservedTypecheckWithProvider(
+      dependencies,
+      dependencyGeneration,
+      installed,
+      diagnosticArguments,
+      operation,
+      semanticOperation,
+      Object.freeze({
+        identity: projectActionIdentityFromInput(projectGenerationEvidence.projectInput),
+        materialize: () => projectGenerationEvidence
+      })
+    );
+  } finally {
+    if (!transferred) await dependencyGeneration.retire();
+  }
+}
+
+async function executeTypecheckWithProvider(
+  dependencies: MaterializedTypecheckBuildDependencyIdentity,
+  installed: InstalledTypeScriptNativeChecker,
+  args: string[],
+  operation: TypecheckOperationContext
 ): Promise<number> {
   // Reject structural/test/provider substitutions and caller-owned checking
   // semantics before Git discovery, cache, or command Effects.
   assertTypeScriptNativeChecker(installed);
-  const diagnosticArguments = canonicalTypeScriptDiagnosticArguments(args);
-  const deadlineAtUnixMs = Date.now() + TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY.timeoutMs;
-  const semanticOperation = compileTypecheckSemanticOperation({
-    projectConfigPath: installed.provider.projectConfig,
-    diagnosticArguments,
-    provider: installed.provider,
-    deadlineAtUnixMs
-  });
-  return withAuthorityGitReadSession({
-    cwd: compilerRoot,
-    environment: { LANG: 'C', LC_ALL: 'C' },
-    operation: semanticOperation,
-    budget: TYPECHECK_SOURCE_OBSERVATION_BUDGET,
-    deadlineAtUnixMs
-  }, (session) => executeObservedTypecheckWithProvider(
+  canonicalTypeScriptDiagnosticArguments(args);
+  operation.assertActive('Source Program observation admission');
+  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+    dependencies.executionGenerationAuthority,
+    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+  );
+  return executeTypecheckWithRetainedProvider(
     dependencies,
+    dependencyGeneration,
     installed,
-    diagnosticArguments,
-    deadlineAtUnixMs,
-    semanticOperation,
-    session
-  ));
+    args,
+    operation
+  );
+}
+
+async function executeTypecheckWithRetainedProvider(
+  dependencies: MaterializedTypecheckBuildDependencyIdentity,
+  dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration,
+  installed: InstalledTypeScriptNativeChecker,
+  args: string[],
+  operation: TypecheckOperationContext
+): Promise<number> {
+  assertTypeScriptNativeChecker(installed);
+  canonicalTypeScriptDiagnosticArguments(args);
+  operation.assertActive('retained Source Program observation admission');
+  let transferred = false;
+  try {
+    return await withAuthorityGitReadSession({
+      cwd: compilerRoot,
+      deadlineAtUnixMs: operation.deadlineAtUnixMs,
+      budget: Object.freeze({
+        ...GIT_READ_OPERATION_BUDGET,
+        deadlineMs: Math.min(
+          GIT_READ_OPERATION_BUDGET.deadlineMs,
+          operation.remainingMs('Git read admission')
+        )
+      }),
+      signal: operation.signal
+    }, async (session) => {
+      const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+      operation.assertActive('Source Program snapshot readback');
+      const projectGeneration = Object.freeze({
+        identity: projectActionIdentityFromSnapshot(snapshot, installed.provider.projectConfig),
+        materialize: (): WorkspaceTypeScriptProjectGenerationEvidence => {
+          operation.assertActive('Source Program ProjectInput compilation admission');
+          const projectInput = compileWorkspaceTypeScriptProjectInput(
+            snapshot,
+            installed.provider.projectConfig,
+            { dependencyGeneration: dependencyGeneration.physicalGeneration }
+          );
+          operation.assertActive('Source Program ProjectInput compilation settlement');
+          return issueWorkspaceTypeScriptProjectGenerationEvidence(snapshot, projectInput);
+        }
+      });
+      transferred = true;
+      return executeObservedTypecheckWithProvider(
+        dependencies,
+        dependencyGeneration,
+        installed,
+        canonicalTypeScriptDiagnosticArguments(args),
+        operation,
+        compileTypecheckSemanticOperation({
+          projectConfigPath: installed.provider.projectConfig,
+          diagnosticArguments: canonicalTypeScriptDiagnosticArguments(args),
+          checker: installed,
+          deadlineAtUnixMs: operation.deadlineAtUnixMs
+        }),
+        projectGeneration
+      );
+    });
+  } finally {
+    if (!transferred) await dependencyGeneration.retire();
+  }
+}
+
+/**
+ * Startup entry for a caller that retained the compiler generation before
+ * importing this module. The runner takes ownership of the capability and
+ * keeps it live through TypeScript module loading, Source Program observation,
+ * checker execution, readback and terminal cleanup.
+ */
+export async function runTypecheckWithRetainedDependencyGeneration(
+  dependencies: OperationDependencyBootstrapResult,
+  dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration,
+  args: string[] = [],
+  options: TypecheckOperationOptions = {}
+): Promise<number> {
+  const operation = issueTypecheckOperationContext(options);
+  let transferred = false;
+  try {
+    dependencyGeneration.physicalGeneration.assertCurrent();
+    await dependencyGeneration.physicalGeneration.assertAuthorityCurrent();
+    const installed = requireSelectedTypeScriptNativeChecker(
+      await selectInstalledTypeScriptNativeChecker(
+        dependencyGeneration.physicalGeneration.root.path,
+        operation
+      )
+    );
+    transferred = true;
+    return executeTypecheckWithRetainedProvider(
+      materializedTypecheckDependencyIdentity(dependencies),
+      dependencyGeneration,
+      installed,
+      args,
+      operation
+    );
+  } finally {
+    if (!transferred) await dependencyGeneration.retire();
+  }
+}
+
+/**
+ * Orchestration seam for Source Program evidence already admitted by its
+ * canonical owner. The runner materializes that evidence into one private,
+ * writer-excluded execution generation before checker Effects.
+ */
+export async function runTypecheckWithProjectGenerationEvidence(
+  dependencies: OperationDependencyBootstrapResult,
+  installed: InstalledTypeScriptNativeChecker,
+  projectGeneration: WorkspaceTypeScriptProjectGenerationEvidence,
+  args: string[] = [],
+  options: TypecheckOperationOptions = {}
+): Promise<number> {
+  const operation = issueTypecheckOperationContext(options);
+  assertWorkspaceTypeScriptProjectGenerationEvidence(projectGeneration);
+  const dependencyIdentity = materializedTypecheckDependencyIdentity(dependencies);
+  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+    dependencyIdentity.executionGenerationAuthority,
+    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+  );
+  return executeTypecheckWithProjectGeneration(
+    dependencyIdentity,
+    dependencyGeneration,
+    installed,
+    projectGeneration,
+    args,
+    operation
+  );
 }
 
 export async function runTypecheckWithProvider(
   dependencies: OperationDependencyBootstrapResult,
   installed: InstalledTypeScriptNativeChecker,
-  args: string[] = []
+  args: string[] = [],
+  options: TypecheckOperationOptions = {}
 ): Promise<number> {
+  const operation = issueTypecheckOperationContext(options);
   return executeTypecheckWithProvider(
     materializedTypecheckDependencyIdentity(dependencies),
     installed,
-    args
+    args,
+    operation
   );
 }
 
 export async function runTypecheckWithDependencyRoot(
   dependencies: OperationDependencyBootstrapResult,
-  args: string[] = []
+  args: string[] = [],
+  options: TypecheckOperationOptions = {}
 ): Promise<number> {
-  const installed = requireSelectedTypeScriptNativeChecker(
-    await selectInstalledTypeScriptNativeChecker(dependencies.nodeModulesPath)
+  const operation = issueTypecheckOperationContext(options);
+  const dependencyIdentity = materializedTypecheckDependencyIdentity(dependencies);
+  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+    dependencyIdentity.executionGenerationAuthority,
+    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
   );
-  return runTypecheckWithProvider(dependencies, installed, args);
+  let transferred = false;
+  try {
+    const installed = requireSelectedTypeScriptNativeChecker(
+      await selectInstalledTypeScriptNativeChecker(
+        dependencyGeneration.physicalGeneration.root.path,
+        operation
+      )
+    );
+    transferred = true;
+    return executeTypecheckWithRetainedProvider(
+      dependencyIdentity,
+      dependencyGeneration,
+      installed,
+      args,
+      operation
+    );
+  } finally {
+    if (!transferred) await dependencyGeneration.retire();
+  }
 }
 
-export async function runTypecheck(args: string[] = []): Promise<number> {
-  const dependencies = await typecheckDependencyContext();
-  return runTypecheckWithDependencyRoot(dependencies, args);
+export async function runTypecheckWithDependencyRootAndProjectGenerationEvidence(
+  dependencies: OperationDependencyBootstrapResult,
+  projectGeneration: WorkspaceTypeScriptProjectGenerationEvidence,
+  args: string[] = [],
+  options: TypecheckOperationOptions = {}
+): Promise<number> {
+  const operation = issueTypecheckOperationContext(options);
+  assertWorkspaceTypeScriptProjectGenerationEvidence(projectGeneration);
+  const dependencyIdentity = materializedTypecheckDependencyIdentity(dependencies);
+  const dependencyGeneration = await retainCompilerDependencyExecutionGeneration(
+    dependencyIdentity.executionGenerationAuthority,
+    { deadlineAtUnixMs: operation.deadlineAtUnixMs, signal: operation.signal }
+  );
+  let transferred = false;
+  try {
+    const installed = requireSelectedTypeScriptNativeChecker(
+      await selectInstalledTypeScriptNativeChecker(
+        dependencyGeneration.physicalGeneration.root.path,
+        operation
+      )
+    );
+    transferred = true;
+    return executeTypecheckWithProjectGeneration(
+      dependencyIdentity,
+      dependencyGeneration,
+      installed,
+      projectGeneration,
+      args,
+      operation
+    );
+  } finally {
+    if (!transferred) await dependencyGeneration.retire();
+  }
 }

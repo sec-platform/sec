@@ -2,7 +2,6 @@
 title: 产品目标与系统边界
 status: stable
 domain: product
-last-reviewed: 2026-08-06
 ---
 
 # 产品目标与系统边界
@@ -32,21 +31,9 @@ SEC 不是为了隐藏源码，也不是要求用户精通所有框架和类库�
 
 ## 两条产品主链
 
-SEC 同时服务两类真实工程，但它们必须共享同一个 Engineering Semantic Model，不能发展为两套 identity、Responsibility、Effect、Permission、Implementation truth 或 Verification 真值。
+SEC 同时服务两类真实工程，但它们必须共享同一个 Engineering Semantic Model，不能发展为两套 identity、Responsibility、Effect、Permission、Implementation truth 或 Verification 真值。内部对象链、authority flow与依赖方向只由System Architecture拥有；本文只表达用户旅程与终局结果，不复制流水。
 
 ### 既有工程治理
-
-```text
-Existing Workspace
-→ Physical Workspace Observation
-→ Source Program Model
-→ Engineering Semantic Model
-→ Responsibility / Delta / Impact
-→ Operation / Authorization / Plan
-→ Transactional Mutation
-→ Verification / Evidence
-→ Publish / Recovery / Readback
-```
 
 用户可以在不先重写工程、不先封装 Block、也不假装完整理解所有源码的前提下：
 
@@ -60,39 +47,23 @@ Existing Workspace
 
 ### 确定性工程生成
 
-```text
-Product Intent / Contract / Block
-→ Engineering Semantic Model
-→ Application IR
-→ Behavior IR
-→ Implementation Resolution
-→ exact Implementation Binding
-→ Target Program IR
-→ Backend
-→ Source / Test / Config / Artifact
-→ Verification / Evidence
-```
+用户可以声明产品意图、工程合同和可复用能力，SEC把它们确定性地变成Target workspace的真实源码与标准工程产物。
+相同输入必须得到相同结果；实现选择必须可解释并遵守用户合同、安全、权限、许可证、依赖与验证边界，不能由模型偏好、
+示例品牌或目标源码文本偶然决定。内部lowering、resolver和backend职责只由System/Compiler owner定义。
 
-用户可以声明产品意图、工程合同和可复用能力，SEC 通过 validated、target-independent、implementation resolution和target-specific层逐步lowering，确定性地产生真实项目源码与标准工程产物。
+### 共享产品真值
 
-平台不能直接在“无数种源码文本”中凭模型偏好选择。它必须先淘汰不满足Semantic Contract、Target、安全、权限、许可证、dependency closure和Verification要求的实现，再按明确政策在合格候选中选择，并以稳定tie-break得到唯一结果。
+两条用户旅程必须投影同一工程语义、实现选择、变化、验证与恢复真值；既有工程不能因来源不同获得第二套identity，
+确定性生成也不能因目标不同绕过同一用户约束。内部对象链、authority flow、transaction、provider和artifact边界只由
+相应架构owner定义，Product只要求所有用户入口给出同一可解释结果。
 
-Backend 不能重新猜业务语义或选择类库；Generator 不能按 Customer、Ticket 或品牌名称特化 Core。
+## 产品对象与术语边界
 
-### 共享闭环
-
-两条主链共同使用：
-
-- stable Entity / Fact / Assertion identity；
-- Semantic Contract 与 Semantic Responsibility；
-- State、Operation、Policy、Permission、Effect、Scenario 与 Acceptance；
-- Implementation Requirement、Constraint、Decision 与 exact Binding；
-- Authoring Source、Governed Extension 与 Opaque Boundary；
-- Fact/Binding Delta、Impact、Provenance、Explain 与 Verification；
-- 统一 Operation、Mutation、transaction、journal、rollback/recovery；
-- Host、Toolchain、Target、Provider、Adapter 与 Distribution 的正交边界。
-
-Brownfield Adopt 后的 source 与新工程 Contract 都只是不同 Authoring Source。Normalize 只是把已完整证明的 Governed Source/Provider局部切换为 SEC-owned deterministic projection，不创建第二语义母模型。
+- **SEC repository** 是 SEC 产品自身的仓库；其生产源码区由System Architecture workspace-zone contract唯一签发，本文不复制物理路径。测试、文档、配置、生成物和运行状态各自属于自己的合同，不因包含代码文本就成为第二产品源码图。
+- **Target workspace** 是用户在 IDE 中使用 SEC 开发、观察、生成、迁移和验证目标软件的工作区。它不是 SEC repository，也不是 SEC 自身运行状态目录。
+- **Authoring Source** 是能够产生权威工程事实的语义角色，不是目录名称。Target workspace 中的文件、声明式合同或受治理扩展只有在相应 owner 和生命周期合同下才能成为 Authoring Source。
+- **Source Program Model** 是对目标工作区或 SEC 产品源码的物理与符号观察。它提供结构 Evidence 和候选关系，但不把文件路径、目录名称或源码文本提升为业务语义。
+- **Project** 只在具体领域合同确实定义该业务对象时使用；泛指用户开发对象时统一称 Target workspace，泛指 SEC 本身时统一称 SEC repository，避免让一个词同时指产品、仓库、工作区和生成结果。
 
 ## 用户控制模型
 
@@ -111,23 +82,7 @@ Brownfield Adopt 后的 source 与新工程 Contract 都只是不同 Authoring S
 
 ## 任意类库与正式支持
 
-产品不能把“官方支持/不能使用”做成二分：
-
-```text
-L0 physical dependency
-→ L1 typed external invocation
-→ L2 declared governed invocation
-→ L3 observed / inferred candidate
-→ L4 verified Provider / Adapter
-→ L5 normalized SEC-owned projection
-```
-
-- L0/L1允许用户立即安装或结构化调用陌生类库，不要求SEC预先拥有专用Adapter；
-- L1只证明调用shape和类型，不证明Effect、幂等性、retry、timeout、cancellation、安全和runtime behavior；
-- L2允许用户声明受治理边界，但声明仍需验证；
-- L3分析和AI只产生candidate/Evidence；
-- L4才允许平台自动选择、迁移并形成正式候选；
-- L5只适用于能完整表示、round-trip、验证、迁移并删除旧writer的局部范围。
+产品不能把“官方支持/不能使用”做成二分。外部能力从物理存在、结构化调用、受治理声明、观察候选、已验证Provider/Adapter到可被SEC-owned projection替代的成熟度，由External Provider唯一owner定义和计算；本文只拥有用户结果：陌生类库可以先被结构化使用或保持unknown，自动选择、迁移和支持承诺只能在相应成熟度、Binding、Evidence与退出条件闭合后发生。
 
 因此“任意类库可用”与“平台理解全部行为”“官方承诺支持”是不同产品能力。未知必须可用但诚实地保持unknown/opaque。
 
@@ -163,9 +118,13 @@ terminal user outcome
 + reversal / retirement condition
 ```
 
+SEC 的终局业务能力是：让用户在真实 Target workspace 中声明或重建工程语义，确定性解析合格实现，在明确权限和资源边界内实施变化，并用同一 identity 对实际语义变化、物理 Effect、Verification、Migration、Recovery 与 readback 给出可解释结果。任何 IR、Block、Slot、文件布局、界面、脚本或测试都只是实现这一结果的可替换手段，不能反向成为产品目标。
+
 “终局”不是开放世界猜测。不能证明的未来保持 unknown；但已经证明的后继、升级、替换、运维和退役 consumer 不能因“当前只调用一次”被忽略。业务价值是所有代码、测试、Provider、文档和治理对象存在的最终理由；不能改善用户结果或降低正确变化全生命周期成本的对象必须派生、合并或删除。
 
 系统替换还必须吸收旧 owner 已经正式声明并由真实 consumer、roadmap transition、支持窗口或重新激活条件证明的设计目的与未来能力边界。当前行为相同不等于可以退役：新系统必须以更小或更强的 canonical primitive 覆盖同一可观察结果、演进方向、失败/恢复边界和全生命周期成本；缺少任一覆盖时返回 `design-intent-unresolved`。注释、死代码、闲置 API、版本后缀、测试自证或“以后可能会用”不是未来价值 Evidence，不能授权保留旧实现，也不能授权凭空扩建新机制。
+
+替换裁决比较的是语义覆盖，不是表示相似：旧系统当前可观察价值和由 canonical owner 明确签发的未来设计意图都必须被覆盖或显式拒绝；旧名称、目录、fixture、版本后缀、schema 数字、测试数量和历史代码体积本身不产生价值，也不要求新系统保留同形结构。
 
 充分探究也不是无界读取。每次任务先冻结会改变裁决的问题、unknown 与 Evidence 类型，再从 authority、依赖、因果、consumer 和 Impact 图编译最小完整闭包；删掉任一必要引用会使裁决不完整，加入不能回答未决问题的材料则是噪声。根因、owner、机制、验证或退役被新证据推翻时，全部下游设计和 Evidence 必须失效并重算。
 
@@ -177,7 +136,7 @@ terminal user outcome
 
 ### 实现
 
-以 Block、Semantic Contract、Provider、Adapter、Reference Provider、Governed Source 和受治理扩展复用工程能力。复用单位包含合同、类型、Target、验证、来源、权限、迁移和失败边界，而不是只复制文件或API调用。
+以 Semantic Contract、Provider、Adapter、Reference Provider、Governed Source 和受治理扩展复用工程能力。复用单位包含合同、类型、Target、验证、来源、权限、迁移和失败边界，而不是只复制文件、包装成 Slot 或复制API调用。Block是可选资产封装，不能成为所有能力必须经过的芯片化中间层；它是否成立只由Capability/Block owner的admission决定。
 
 平台优先采用成熟可靠轮子，但只在真实consumer、同条件A/B、安全/许可证审查、conformance和退出条件闭合后正式采用。`defer`只能保持显式unknown或推迟采用，不能授权把临时自研同构实现固化成长期第二owner。SEC原生实现只承担自身独有语义或少量Reference基准，不重写整个软件生态。
 
@@ -191,35 +150,11 @@ terminal user outcome
 
 目标不是依赖更强模型维持工程正确性，而是通过结构化事实、受限操作和机器合同降低模型能力与 token 需求。
 
-## 核心单位
+## 多入口一致性
 
-- **Block**：分发、版本、信任、升级、迁移和资产封装单位；不是默认架构理解或最终实现选择单位。
-- **Semantic Contract**：声明 Entity、Responsibility、Operation、State、Policy、Permission、Effect、Scenario 与 Acceptance。
-- **Semantic Responsibility**：工程对象承担状态、行为、Effect、资源与合同责任的稳定理解单位，可以位于一个 Block 内或通过显式合同跨 Block。
-- **Semantic Fact / Assertion**：最小 canonical 工程陈述，以及不同来源对该陈述的独立声明。
-- **Implementation Requirement / Constraint**：从validated语义派生的实现需求和不可被优化抵消的边界。
-- **Resolution Decision / Implementation Binding**：可解释选择记录，以及精确Provider/package/version/config/Adapter/Target/dependency闭包。
-- **Provider / Adapter**：提供具体能力的可替换实现，以及稳定Contract到其API的映射；不拥有业务Responsibility。
-- **Authoring Source**：用户、项目或受治理操作可以修改的权威输入。
-- **Source Program Model**：对物理源码、模块、符号、类型、引用和候选流关系的 observed/derived 表示，不自动拥有业务 authority。
-- **TypedInvocation**：无专用Adapter时对外部函数/构造器/方法的结构化类型调用，默认保留行为unknown。
-- **Governed Extension**：SEC 不完全表达内部算法，但拥有接口、Effect、Owner、Source binding 与 Verification 的代码区域。
-- **Opaque Boundary**：当前不能安全理解、重生成或自动修改的显式边界。
-- **Engineering Operation**：对 semantic target 的受限意图，绑定预期 revision、实现约束、Effect、Permission、must-preserve 与 Verification；不是任意文件 patch。
-- **Verification Claim / Evidence**：对 exact input、Binding、environment 和 requirement 的物理证明，不等同于一个绿色命令状态。
-
-图、文件、模块、包、UI 卡片、Binding和外部分析结果都可以映射这些对象，但不能自动取得Engineering authority。
-
-## 产品形态
-
-- **CLI**：确定性编译、实现解析、查询、验证、迁移与恢复的薄入口。
-- **Agent / CLI Interface**：通过稳定 machine JSON、语义图和受控操作解释实现、影响、Evidence 与决策，不拥有浏览器 UI 或第二写路径。
-- **AI / Tool Adapter**：只暴露有权限的查询与 proposal 接口，不暴露第二套写路径或实现选择器。
-- **Registry**：分发 Block、Contract、Generator、Provider/Adapter声明、Verification 与 Migration；长期资产不是模板数量。
-- **Provider 层**：语言前端、静态分析、运行时观察、应用类库、构建和外部工具以可替换能力接入。
-- **Agent Operation System**：以 Role、typed Operation Envelope、一个 Primary Skill、确定性服务和外部 Run State 组织 SEC 自身开发，不让 Skill prose 成为第二状态机。
-
-所有入口必须消费同一 canonical producer、Implementation Resolver、Operation/Mutation facade 和 Verification 结果真值。
+CLI、Agent、API、报告和未来交互界面只是同一产品能力的投影。它们必须让用户观察和提交相同的intent、constraint、
+decision、change、failure与recovery语义，不能分别维护实现选择、成功状态或写路径。任何具体载体、协议、registry、
+provider、Block或AI workflow只有在自己的canonical owner证明真实consumer与全生命周期价值后才可存在；Product不冻结其shape。
 
 ## 优先适用范围
 
@@ -237,10 +172,10 @@ terminal user outcome
 ## 与相邻系统的边界
 
 - 脚手架和模板解决初始化；SEC 负责持续组合、实现解析、验证、升级、来源和语义变化。
-- SDK 和库复用调用点；SEC的Provider/Adapter/Block复用能力、合同、生成策略、验收与迁移。
+- SDK 和库复用调用点；SEC的Provider、Adapter与可选分发资产复用能力、合同、生成策略、验收与迁移。
 - 包管理器解析包名与版本依赖；SEC额外解析“哪个完整实现闭包满足当前Semantic Contract和Target”。
 - 工作流引擎编排运行时流程；SEC 位于工程构建、演进和治理层。
-- 低代码平台通常绑定专用运行时；SEC 输出真实项目源码和标准目标，并允许用户从自动选择到精确pin/custom。
+- 低代码平台通常绑定专用运行时；SEC 输出 Target workspace 的真实源码和标准目标，并允许用户从自动选择到精确pin/custom。
 - 代码知识图从源码推断关系；SEC 的 canonical semantics 来自受权威输入、显式采用和编译规则，源码图只提供 Evidence 或候选。
 - AI 编码助手直接操作源码；SEC 把 AI 限制为受控 Semantic/Implementation proposal operator 或 bounded source operator。
 - 通用 AGI 试图拥有开放世界行动；SEC 只在可验证工程对象、权限、状态和操作合同内提供工程智能。
@@ -248,6 +183,10 @@ terminal user outcome
 ## 非目标
 
 SEC 不是通用 IDE、低代码私有运行时、模板市场、单纯代码知识图、任意语言自动翻译器、万能包市场、自由式整仓 AI 编码器或依赖私有聊天状态才能继续的 Agent harness。
+
+SEC 产品自身不拥有浏览器、Playwright、Workbench、local view、前端 UI graph 或第二交互应用运行时。这些产品面已经退役；这不限制 SEC 对 Target workspace 中浏览器应用合同的语义治理或代码生成。通用 Node、process、文件系统、锁、deadline、资源预算和外部能力治理继续由各自 canonical owner 服务其他真实 consumer，但不能成为复活 SEC 浏览器能力图的理由。
+
+SEC 也不以 Block/Slot 芯片化、把所有能力包装为统一插槽、维护旧目录形状或保留 Vn facade 为目标。只有被真实用户结果消费的编译、语义理解、实现解析、验证、升级、迁移、恢复和分发能力可以继续存在；其表示必须从唯一语义 owner 派生。
 
 SEC 不承诺：
 
@@ -289,33 +228,32 @@ SEC 也不以一次性生成大量 IR、Provider、Domain、Skill、Gate 或治�
 → 更小的 Operation Envelope / Context Packet
 → 更强的 Verification / Recovery
 → 更安全的 Mutation / Upgrade / Migration
-→ 更可复用的 Block / Provider / Adapter / Evidence
+→ 更可复用的 Contract / Provider / Adapter / Evidence
 → 更低的维护成本
 → 继续沉淀 Contract、实现候选、迁移和运行历史
 ```
 
-真正的资产不是 Prompt、模板或某个流行库，而是可演进的 Contract、Block、stable identity、Fact Provenance、Source/Implementation binding、Verification、Migration 和已验证的 Provider 协议。
+真正的资产不是 Prompt、模板、Slot、Block 数量或某个流行库，而是可演进的 Contract、stable identity、Fact Provenance、Source/Implementation binding、Verification、Migration 和已验证的 Provider 协议；Block只有在承载这些资产的真实分发生命周期时才有价值。
 
 ## TypeScript 产品闭环成功判据
 
 SEC 达到首个真实 TypeScript 产品闭环时，应同时满足：
 
-1. 多组无关业务模型不修改 compiler core 的业务或品牌分支。
-2. 同一个 Engineering Semantic Model 同时服务 Brownfield governance 与 deterministic generation。
-3. 支持的模型可以完整 lowering；不支持的组合在Implementation Resolution或emit前确定性拒绝。
-4. 同一 validated semantics、Target、constraints、Provider catalog、Resolution Policy和Backend revisions产生相同Decision、Binding与byte-stable结果。
-5. 对真实 TypeScript workspace 建立可重复的 Physical Inventory 与 Source Program Model，并显式显示 coverage、unknown 和 opaque。
-6. 没有专用Adapter的外部package可以通过TypedInvocation结构化调用，但行为unknown不会被伪装成正式支持。
-7. Responsibility reconstruction 能输出 source binding、state/effect/permission facets、conflict 与 confidence，且候选不越权成为 authority。
-8. 同一Target-independent Contract至少有两个无关合格实现；一个不合格和一个unknown候选能够fail closed。
-9. `prefer`不合格时可解释回退，`require/pin`不合格时blocked，Custom实现保持受治理和opaque边界。
-10. 变更前可以计算保守 predicted Semantic/Implementation Impact，变更后可以验证actual Fact/Binding Delta、actual Impact 与可观察行为。
-11. 依赖升级或Provider替换不会静默改变timeout、retry、error、serialization、consistency、安全或Effect；无法保持时产生明确Migration。
-12. 至少一个 canonical Authoring Source operation 和一个 Brownfield Governed Source operation完成 authorization、CAS、transaction、Verification、rollback/recovery 与 readback。
-13. 未完整理解的源码仍可被安全观察、显式拥有并在受限边界内修改。
-14. Agent/CLI可以从intent/constraint到pin/custom执行主要Semantic Operations，并解释选择、淘汰原因与迁移影响，不建立第二写路径或Resolver。
-15. AI 只在小而明确的 Context Packet、Operation Envelope、角色权限、实现约束和路径交集内提交 proposal/candidate。
-16. 失败要么在发布前拒绝，要么恢复 exact prior state/Binding，要么进入可诊断的 recovery-required。
-17. 用户看到健康、实现、影响、证据、未知和阻塞，不需要理解内部脚本或精通每个类库才能判断工程状态。
-18. clean package、exact Binding closure、目标 Host/Target physical Evidence、发布 receipt 与 support maturity分别可验证。
-19. 至少两个与 SEC reference business 无关的真实外部 TypeScript 工程重复核心纵切片，Core 不增加业务或品牌名称分支。
+- 从canonical semantic/consumer graph可重算地覆盖彼此无关的业务模型、外部工程、候选实现与unknown/opaque等价类；新增覆盖不会要求compiler core增加业务、品牌或fixture分支，具体测试表示、路径和数量由Verification machine contract派生；
+- 同一个 Engineering Semantic Model同时服务Brownfield governance与deterministic generation；
+- 支持的模型可以完整lowering；不支持的组合在Implementation Resolution或emit前确定性拒绝；
+- 同一validated semantics、Target、constraints、Provider catalog、Resolution Policy和Backend revisions产生相同Decision、Binding与byte-stable结果；
+- 对真实TypeScript Target workspace建立可重复的Physical Inventory与Source Program Model，并显式显示coverage、unknown和opaque；
+- 没有专用Adapter的外部package可以通过TypedInvocation结构化调用，但行为unknown不会被伪装成正式支持；
+- Responsibility reconstruction输出source binding、state/effect/permission facets、conflict与confidence，且候选不越权成为authority；
+- 当真实catalog包含独立合格、不合格和unknown候选时，Resolver能稳定选择、解释拒绝并fail closed，而不依赖冻结的候选数量；
+- `prefer`不合格时可解释回退，`require/pin`不合格时blocked，Custom实现保持受治理和opaque边界；
+- 变更前可以计算保守predicted Semantic/Implementation Impact，变更后可以验证actual Fact/Binding Delta、actual Impact与可观察行为；
+- 依赖升级或Provider替换不会静默改变timeout、retry、error、serialization、consistency、安全或Effect；无法保持时产生明确Migration；
+- 每个受支持的Authoring Source和Brownfield Governed Source operation class都完成authorization、CAS、transaction、Verification、rollback/recovery与readback；
+- 未完整理解的源码仍可被安全观察、显式拥有并在受限边界内修改；
+- Agent/CLI可以从intent/constraint到pin/custom执行适用Semantic Operations，并解释选择、淘汰原因与迁移影响，不建立第二写路径或Resolver；
+- AI只在最小充分Context Packet、Operation Envelope、角色权限、实现约束和路径交集内提交proposal/candidate；
+- 失败要么在发布前拒绝，要么恢复exact prior state/Binding，要么进入可诊断的recovery-required；
+- 用户看到健康、实现、影响、证据、未知和阻塞，不需要理解内部脚本或精通每个类库才能判断工程状态；
+- clean package、exact Binding closure、目标Host/Target physical Evidence、发布receipt与support maturity分别可验证。

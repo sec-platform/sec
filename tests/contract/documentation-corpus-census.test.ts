@@ -4,10 +4,10 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentWorkPackageSchema } from '../../src/control/agent/work-package-contract.ts';
 import {
   parseDocumentationAuthorityRegistry
 } from '../../src/control/documentation/authority.ts';
+import { CodexDevelopmentWorkPackageSchema } from '../../src/control/task/contract/work-package.ts';
 import { compareCodeUnits } from '../../src/system-architecture/foundation/runtime/canonical.ts';
 
 const ROOT = path.resolve(import.meta.dir, '../..');

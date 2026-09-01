@@ -20,7 +20,7 @@ export async function expectUpgradeDryRunFailure(
   options: UpgradeFailureOptions = {}
 ): Promise<void> {
   await expect(
-    upgradeWorkspace(workspaceRoot, options.blockId ?? 'private/slot-contract', options.targetVersion ?? '0.2.0', {
+    upgradeWorkspace(workspaceRoot, options.blockId ?? 'private/block-upgrade', options.targetVersion ?? '0.2.0', {
       dryRun: true
     })
   ).rejects.toMatchObject(expectedError);
@@ -37,7 +37,7 @@ export async function expectUpgradeDryRunFailureWithDiagnostics(
   try {
     await upgradeWorkspace(
       workspaceRoot,
-      options.blockId ?? 'private/slot-contract',
+      options.blockId ?? 'private/block-upgrade',
       options.targetVersion ?? '0.2.0',
       { dryRun: true }
     );

@@ -54,19 +54,6 @@ function ticketFixture(): BuildEngineeringIRInput {
         }
       }
     ],
-    slotTasks: [{
-      id: 'ticket_title_formatter',
-      block: 'ticket/basic',
-      target: 'custom/ticket_title_formatter.ts',
-      sourcePath: 'source/code/slots/ticket_title_formatter.ts',
-      symbol: 'formatTicketTitle',
-      kind: 'adapter',
-      inputType: 'TicketTitleInput',
-      outputType: 'FormattedTicketTitle',
-      status: 'filled',
-      writableZones: ['custom/'],
-      provenanceHints: { generator: null, verifiedBy: [] }
-    }],
     acceptanceIds: ['ticket_can_be_created', 'user_can_login'],
     policyDeclarations: [{
       id: 'tenant-scope-required',

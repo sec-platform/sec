@@ -6077,7 +6077,7 @@ async function installGitHooksMainWithBudget(options: {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly providerResolution: GitReadSessionResolution;
-} = {}): Promise<number> {
+}): Promise<number> {
   const argv = options.argv ?? process.argv.slice(2);
   const unknownArguments = argv.filter((argument) => argument !== '--lifecycle');
   if (unknownArguments.length > 0) {

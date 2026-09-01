@@ -13,7 +13,7 @@ import {
   createWorkspaceWriteLeaseManager,
   WorkspaceWriteLeaseError
 } from '../../src/workspace/lease.ts';
-import { getWorkspacePaths } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function activeOwnerPath(leaseRoot: string): Promise<string> {

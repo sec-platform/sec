@@ -6,6 +6,7 @@
 import { open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
+import { parseExactJsonBytes } from '../../system-architecture/foundation/runtime/exact-json.ts';
 import {
   PIPELINE_EXECUTION_BOUNDARIES,
   type PipelineExecutionBoundary
@@ -113,18 +114,13 @@ function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
 export function parseSemanticMutationIsolatedChildOutcomeBytes(
   bytes: Uint8Array
 ): SemanticMutationIsolatedChildOutcome {
-  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > MAX_OUTCOME_BYTES) {
-    throw new Error('Semantic Mutation isolated child outcome bytes are invalid');
-  }
-  let source: string;
-  try {
-    source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch {
-    throw new Error('Semantic Mutation isolated child outcome bytes are invalid');
-  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(source) as unknown;
+    parsed = parseExactJsonBytes(
+      bytes,
+      'Semantic Mutation isolated child outcome',
+      { maximumInputBytes: MAX_OUTCOME_BYTES, maximumDepth: 1 }
+    );
   } catch {
     throw new Error('Semantic Mutation isolated child outcome bytes are invalid');
   }

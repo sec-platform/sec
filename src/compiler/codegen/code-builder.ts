@@ -1,28 +1,10 @@
-import { Project, Scope, VariableDeclarationKind, type SourceFile } from 'ts-morph';
+import ts from 'typescript';
 
 /**
- * 代码生成 Builder API（基于 ts-morph Structure API）
- *
- * 设计目标：类似 LLVM IRBuilder，程序化构造 TS 源码 AST，而非大段模板字符串拼接。
- * - 顶层声明（import / type / variable / function / class / interface）通过 Builder 方法构造
- * - 函数体与方法体内部用 ts-morph 的 statements 字符串接口（ts-morph 会解析为 AST，
- *   语法错误会立即抛出，保证生成的代码可解析）
- * - 类型安全：每个方法返回 this，支持链式调用
- * - 可组合：多个 Builder 调用可串行构造一个完整文件
- *
- * 使用示例：
- *   const builder = new CodeBuilder('service.ts');
- *   builder
- *     .addFileComment('@generated-rpc-gateway block-id:ticket.basic')
- *     .addImport({ moduleSpecifier: 'yaml', namedImports: ['parse'] })
- *     .addFunction({
- *       name: 'parseDocument',
- *       isAsync: true,
- *       isExported: true,
- *       parameters: [{ name: 'request', type: 'Request' }],
- *       body: `return { ok: true };`
- *     });
- *   const code = builder.getText();
+ * Small TypeScript code-generation builder backed by the repository-pinned
+ * TypeScript compiler API. Business callers provide declaration data; this
+ * module alone owns parsing fragments, constructing nodes, printing source,
+ * and rejecting malformed generated syntax.
  */
 
 export interface ImportSpec {
@@ -37,7 +19,6 @@ export interface ParameterSpec {
   name: string;
   type?: string;
   isReadonly?: boolean;
-  /** 标记可选参数（在参数名后加 ?），如 `options?: {...}`。 */
   isOptional?: boolean;
 }
 
@@ -47,7 +28,6 @@ export interface FunctionSpec {
   isExported?: boolean;
   parameters?: ParameterSpec[];
   returnType?: string;
-  /** 函数体语句文本，ts-morph 会解析为 AST 语句序列。 */
   body: string;
 }
 
@@ -66,7 +46,6 @@ export interface MethodSpec {
   scope?: 'public' | 'private' | 'protected';
   parameters?: ParameterSpec[];
   returnType?: string;
-  /** 方法体语句文本。 */
   body: string;
 }
 
@@ -93,212 +72,324 @@ export interface InterfacePropertySpec {
   isOptional?: boolean;
 }
 
-/**
- * 进程级共享 ts-morph Project 单例。
- *
- * CodeBuilder 历史上每次构造都 new 一个 Project，导致大量重复的 ts-morph
- * 初始化开销。由于所有 CodeBuilder 生成的 SourceFile 都使用内存文件系统、
- * 不加载 lib 文件、不解析依赖，多个 SourceFile 可以安全共存于同一个 Project。
- * 通过 getDefaultProject() 复用单例可显著降低编译管线中的 Project 构造成本。
- */
-let _defaultProject: Project | null = null;
+const PRINTER = ts.createPrinter({
+  newLine: ts.NewLineKind.LineFeed,
+  removeComments: false
+});
 
-export function getDefaultProject(): Project {
-  if (_defaultProject === null) {
-    _defaultProject = new Project({
-      useInMemoryFileSystem: true,
-      skipLoadingLibFiles: true,
-      skipAddingFilesFromTsConfig: true,
-      skipFileDependencyResolution: true
-    });
+function diagnosticMessage(diagnostic: ts.Diagnostic): string {
+  return ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+}
+
+function parseSource(text: string, label: string, fileName = 'generated.ts'): ts.SourceFile {
+  const diagnostics = ts.transpileModule(text, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ESNext
+    },
+    fileName,
+    reportDiagnostics: true
+  }).diagnostics?.filter(({ category }) => category === ts.DiagnosticCategory.Error) ?? [];
+  if (diagnostics.length > 0) {
+    throw new Error(`${label} is not valid TypeScript: ${diagnosticMessage(diagnostics[0]!)}`);
   }
-  return _defaultProject;
+  return ts.createSourceFile(
+    fileName,
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+}
+
+function parseType(text: string, label: string): ts.TypeNode {
+  const source = parseSource(`type __SecGeneratedType = ${text};`, label);
+  const declaration = source.statements[0];
+  if (!declaration || !ts.isTypeAliasDeclaration(declaration)) {
+    throw new Error(`${label} did not produce a TypeScript type.`);
+  }
+  return declaration.type;
+}
+
+function parseExpression(text: string, label: string): ts.Expression {
+  const source = parseSource(`const __secGeneratedExpression = ${text};`, label);
+  const statement = source.statements[0];
+  const declaration = statement && ts.isVariableStatement(statement)
+    ? statement.declarationList.declarations[0]
+    : undefined;
+  if (!declaration?.initializer) {
+    throw new Error(`${label} did not produce a TypeScript expression.`);
+  }
+  return declaration.initializer;
+}
+
+function parseBody(text: string, label: string): ts.Block {
+  const source = parseSource(`function __secGeneratedBody() {\n${text}\n}`, label);
+  const declaration = source.statements[0];
+  if (!declaration || !ts.isFunctionDeclaration(declaration) || !declaration.body) {
+    throw new Error(`${label} did not produce a TypeScript function body.`);
+  }
+  return declaration.body;
+}
+
+function parseStatements(text: string, label: string): readonly ts.Statement[] {
+  return [...parseSource(text, label).statements];
+}
+
+function synthesize<T extends ts.Node>(node: T): T {
+  const visit = (current: ts.Node): void => {
+    ts.setTextRange(current, { pos: -1, end: -1 });
+    current.forEachChild(visit);
+  };
+  visit(node);
+  return node;
+}
+
+function scopeModifier(
+  scope: 'public' | 'private' | 'protected' | undefined
+): ts.Modifier | undefined {
+  switch (scope) {
+    case 'public': return ts.factory.createModifier(ts.SyntaxKind.PublicKeyword);
+    case 'private': return ts.factory.createModifier(ts.SyntaxKind.PrivateKeyword);
+    case 'protected': return ts.factory.createModifier(ts.SyntaxKind.ProtectedKeyword);
+    default: return undefined;
+  }
+}
+
+function modifiers(input: Readonly<{
+  exported?: boolean;
+  async?: boolean;
+  scope?: 'public' | 'private' | 'protected';
+  readonly?: boolean;
+}>): readonly ts.Modifier[] | undefined {
+  const values = [
+    input.exported ? ts.factory.createModifier(ts.SyntaxKind.ExportKeyword) : undefined,
+    scopeModifier(input.scope),
+    input.async ? ts.factory.createModifier(ts.SyntaxKind.AsyncKeyword) : undefined,
+    input.readonly ? ts.factory.createModifier(ts.SyntaxKind.ReadonlyKeyword) : undefined
+  ].filter((value): value is ts.Modifier => value !== undefined);
+  return values.length === 0 ? undefined : values;
+}
+
+function parameter(spec: ParameterSpec, label: string): ts.ParameterDeclaration {
+  return ts.factory.createParameterDeclaration(
+    modifiers({ readonly: spec.isReadonly }),
+    undefined,
+    spec.name,
+    spec.isOptional ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : undefined,
+    spec.type === undefined ? undefined : parseType(spec.type, `${label} type`),
+    undefined
+  );
+}
+
+function heritageType(
+  text: string,
+  token: 'extends' | 'implements',
+  label: string
+): ts.ExpressionWithTypeArguments {
+  const source = parseSource(`class __SecGenerated ${token} ${text} {}`, label);
+  const declaration = source.statements[0];
+  const type = declaration && ts.isClassDeclaration(declaration)
+    ? declaration.heritageClauses?.[0]?.types[0]
+    : undefined;
+  if (!type) {
+    throw new Error(`${label} did not produce a TypeScript heritage type.`);
+  }
+  return type;
 }
 
 export class CodeBuilder {
-  private readonly sourceFile: SourceFile;
-  /**
-   * 文件顶部注释（如 @generated 标记）。
-   * 单独存储并在 getText() 时拼接到最前面，避免 ts-morph 的 addImportDeclaration
-   * 总是把 import 插到文件顶部、把 insertText(0,...) 的注释挤到 import 之后。
-   */
+  private readonly baseSourceFile: ts.SourceFile;
+  private readonly imports: ts.ImportDeclaration[] = [];
+  private readonly statements: ts.Statement[] = [];
   private fileComment: string | null = null;
 
-  constructor(filePath: string = 'generated.ts', initialText: string = '', project?: Project) {
-    const resolvedProject = project ?? getDefaultProject();
-    this.sourceFile = resolvedProject.createSourceFile(filePath, initialText, { overwrite: true });
+  constructor(filePath = 'generated.ts', initialText = '') {
+    this.baseSourceFile = parseSource(initialText, `Initial source for ${filePath}`, filePath);
   }
 
-  /**
-   * 在文件顶部添加注释（如 @generated 标记）。
-   * comment 不带 // 前缀，本方法会按需添加。
-   * 注释会拼接到最终输出的最前面（在所有 import 之上），调用顺序无关。
-   */
   addFileComment(comment: string): this {
     this.fileComment = comment;
     return this;
   }
 
-  /**
-   * 添加 import 声明。
-   */
   addImport(spec: ImportSpec): this {
-    const namedImports = spec.namedImports === undefined
+    if (spec.namespaceImport !== undefined && spec.namedImports !== undefined) {
+      throw new Error('Import cannot combine namespaceImport with namedImports.');
+    }
+    const names = spec.namedImports === undefined
       ? undefined
       : [...new Set(spec.namedImports)];
-    this.sourceFile.addImportDeclaration({
-      moduleSpecifier: spec.moduleSpecifier,
-      namedImports: namedImports?.map(name => ({ name })),
-      defaultImport: spec.defaultImport,
-      namespaceImport: spec.namespaceImport,
-      isTypeOnly: spec.isTypeOnly ?? false
-    });
-    return this;
+    const namedBindings = spec.namespaceImport !== undefined
+      ? ts.factory.createNamespaceImport(ts.factory.createIdentifier(spec.namespaceImport))
+      : names === undefined
+        ? undefined
+        : ts.factory.createNamedImports(names.map((name) =>
+            ts.factory.createImportSpecifier(false, undefined, ts.factory.createIdentifier(name))
+          ));
+    return this.addStatement(ts.factory.createImportDeclaration(
+      undefined,
+      ts.factory.createImportClause(
+        spec.isTypeOnly ?? false,
+        spec.defaultImport === undefined
+          ? undefined
+          : ts.factory.createIdentifier(spec.defaultImport),
+        namedBindings
+      ),
+      ts.factory.createStringLiteral(spec.moduleSpecifier)
+    ), 'Import declaration', true);
   }
 
-  /**
-   * 添加 type alias。
-   */
   addTypeAlias(name: string, type: string, isExported = false): this {
-    this.sourceFile.addTypeAlias({ name, type, isExported });
-    return this;
-  }
-
-  /**
-   * 添加 const 变量声明。
-   */
-  addVariable(spec: VariableSpec): this {
-    this.sourceFile.addVariableStatement({
-      declarationKind: VariableDeclarationKind.Const,
-      declarations: [{ name: spec.name, type: spec.type, initializer: spec.initializer }],
-      isExported: spec.isExported
-    });
-    return this;
-  }
-
-  /**
-   * 添加函数声明。
-   * body 是函数体内的语句文本，ts-morph 会将其解析为 AST 节点（语法错误会抛出）。
-   */
-  addFunction(spec: FunctionSpec): this {
-    this.sourceFile.addFunction({
-      name: spec.name,
-      isAsync: spec.isAsync,
-      isExported: spec.isExported,
-      parameters: spec.parameters?.map(p => ({
-        name: p.name,
-        type: p.type,
-        isReadonly: p.isReadonly,
-        hasQuestionToken: p.isOptional
-      })),
-      returnType: spec.returnType,
-      statements: spec.body
-    });
-    return this;
-  }
-
-  /**
-   * 添加类声明。
-   * scope 字符串会被转换为 ts-morph 的 Scope 枚举，以保证类型安全。
-   */
-  addClass(spec: ClassSpec): this {
-    this.sourceFile.addClass({
-      name: spec.name,
-      isExported: spec.isExported,
-      extends: spec.extends,
-      implements: spec.implements,
-      properties: spec.properties?.map(p => ({
-        name: p.name,
-        type: p.type,
-        initializer: p.initializer,
-        scope: toScope(p.scope),
-        isReadonly: p.isReadonly
-      })),
-      methods: spec.methods?.map(m => ({
-        name: m.name,
-        isAsync: m.isAsync,
-        isExported: m.isExported,
-        scope: toScope(m.scope),
-        parameters: m.parameters?.map(p => ({
-          name: p.name,
-          type: p.type,
-          isReadonly: p.isReadonly,
-          hasQuestionToken: p.isOptional
-        })),
-        returnType: m.returnType,
-        statements: m.body
-      }))
-    });
-    return this;
-  }
-
-  /**
-   * 添加 interface 声明。
-   */
-  addInterface(
-    name: string,
-    properties: InterfacePropertySpec[],
-    isExported = false
-  ): this {
-    this.sourceFile.addInterface({
+    return this.addStatement(ts.factory.createTypeAliasDeclaration(
+      modifiers({ exported: isExported }),
       name,
-      isExported,
-      properties: properties.map(p => ({
-        name: p.name,
-        type: p.type,
-        isReadonly: p.isReadonly,
-        isOptional: p.isOptional
-      }))
-    });
-    return this;
+      undefined,
+      parseType(type, `Type alias ${name}`)
+    ), `Type alias ${name}`);
   }
 
-  /**
-   * 添加 export default 赋值。
-   */
-  addExportAssignment(expression: string): this {
-    this.sourceFile.addExportAssignment({ expression });
-    return this;
+  addVariable(spec: VariableSpec): this {
+    const declaration = ts.factory.createVariableDeclaration(
+      spec.name,
+      undefined,
+      spec.type === undefined ? undefined : parseType(spec.type, `Variable ${spec.name} type`),
+      parseExpression(spec.initializer, `Variable ${spec.name} initializer`)
+    );
+    return this.addStatement(ts.factory.createVariableStatement(
+      modifiers({ exported: spec.isExported }),
+      ts.factory.createVariableDeclarationList([declaration], ts.NodeFlags.Const)
+    ), `Variable ${spec.name}`);
   }
 
-  /**
-   * 在文件末尾追加原始文本（用于无法用 Structure API 表达的边角场景）。
-   * 调用方需自行保证语法正确性。
-   */
-  appendRaw(text: string): this {
-    this.sourceFile.addStatements(text);
-    return this;
+  addFunction(spec: FunctionSpec): this {
+    return this.addStatement(ts.factory.createFunctionDeclaration(
+      modifiers({ exported: spec.isExported, async: spec.isAsync }),
+      undefined,
+      spec.name,
+      undefined,
+      (spec.parameters ?? []).map((value, index) =>
+        parameter(value, `Function ${spec.name} parameter ${index}`)
+      ),
+      spec.returnType === undefined ? undefined : parseType(spec.returnType, `Function ${spec.name} return type`),
+      parseBody(spec.body, `Function ${spec.name} body`)
+    ), `Function ${spec.name}`);
   }
 
-  /**
-   * 获取生成的代码文本。
-   * 若通过 addFileComment 设置了文件顶部注释，会拼接到最前面。
-   */
-  getText(): string {
-    const body = this.sourceFile.getText();
-    if (this.fileComment) {
-      return `// ${this.fileComment}\n${body}`;
+  addClass(spec: ClassSpec): this {
+    const heritageClauses: ts.HeritageClause[] = [];
+    if (spec.extends !== undefined) {
+      heritageClauses.push(ts.factory.createHeritageClause(
+        ts.SyntaxKind.ExtendsKeyword,
+        [heritageType(spec.extends, 'extends', `Class ${spec.name} extends`)]
+      ));
     }
-    return body;
+    if ((spec.implements?.length ?? 0) > 0) {
+      heritageClauses.push(ts.factory.createHeritageClause(
+        ts.SyntaxKind.ImplementsKeyword,
+        spec.implements!.map((value, index) =>
+          heritageType(value, 'implements', `Class ${spec.name} implements ${index}`)
+        )
+      ));
+    }
+    const properties = (spec.properties ?? []).map((value) =>
+      ts.factory.createPropertyDeclaration(
+        modifiers({ scope: value.scope, readonly: value.isReadonly }),
+        value.name,
+        undefined,
+        value.type === undefined ? undefined : parseType(value.type, `Property ${spec.name}.${value.name} type`),
+        value.initializer === undefined
+          ? undefined
+          : parseExpression(value.initializer, `Property ${spec.name}.${value.name} initializer`)
+      )
+    );
+    const methods = (spec.methods ?? []).map((value) =>
+      ts.factory.createMethodDeclaration(
+        modifiers({ exported: value.isExported, async: value.isAsync, scope: value.scope }),
+        undefined,
+        value.name,
+        undefined,
+        undefined,
+        (value.parameters ?? []).map((entry, index) =>
+          parameter(entry, `Method ${spec.name}.${value.name} parameter ${index}`)
+        ),
+        value.returnType === undefined
+          ? undefined
+          : parseType(value.returnType, `Method ${spec.name}.${value.name} return type`),
+        parseBody(value.body, `Method ${spec.name}.${value.name} body`)
+      )
+    );
+    return this.addStatement(ts.factory.createClassDeclaration(
+      modifiers({ exported: spec.isExported }),
+      spec.name,
+      undefined,
+      heritageClauses,
+      [...properties, ...methods]
+    ), `Class ${spec.name}`);
   }
 
-  /**
-   * 获取底层 SourceFile，用于高级操作或 ts-morph 直接交互。
-   */
-  getSourceFile(): SourceFile {
-    return this.sourceFile;
+  addInterface(name: string, properties: InterfacePropertySpec[], isExported = false): this {
+    return this.addStatement(ts.factory.createInterfaceDeclaration(
+      modifiers({ exported: isExported }),
+      name,
+      undefined,
+      undefined,
+      properties.map((value) => ts.factory.createPropertySignature(
+        modifiers({ readonly: value.isReadonly }),
+        value.name,
+        value.isOptional ? ts.factory.createToken(ts.SyntaxKind.QuestionToken) : undefined,
+        parseType(value.type, `Interface ${name}.${value.name} type`)
+      ))
+    ), `Interface ${name}`);
   }
-}
 
-/**
- * 将字符串 scope 转换为 ts-morph 的 Scope 枚举。
- * 保留字符串输入是为了调用方的人体工学（无需关心 ts-morph 内部枚举）。
- */
-function toScope(scope?: 'public' | 'private' | 'protected'): Scope | undefined {
-  switch (scope) {
-    case 'public': return Scope.Public;
-    case 'private': return Scope.Private;
-    case 'protected': return Scope.Protected;
-    default: return undefined;
+  addExportAssignment(expression: string): this {
+    return this.addStatement(ts.factory.createExportAssignment(
+      undefined,
+      false,
+      parseExpression(expression, 'Export assignment')
+    ), 'Export assignment');
+  }
+
+  appendRaw(text: string): this {
+    for (const statement of parseStatements(text, 'Appended source')) {
+      this.statements.push(synthesize(statement));
+    }
+    return this;
+  }
+
+  getText(): string {
+    const body = PRINTER.printFile(this.getSourceFile());
+    const text = this.fileComment === null ? body : `// ${this.fileComment}\n${body}`;
+    parseSource(text, `Generated source ${this.baseSourceFile.fileName}`, this.baseSourceFile.fileName);
+    return text;
+  }
+
+  getSourceFile(): ts.SourceFile {
+    return ts.factory.updateSourceFile(
+      this.baseSourceFile,
+      [...this.imports, ...this.baseSourceFile.statements, ...this.statements]
+    );
+  }
+
+  private addStatement(statement: ts.Statement, label: string, insertAsImport = false): this {
+    const synthesized = synthesize(statement);
+    const candidateImports = insertAsImport
+      ? [...this.imports, synthesized as ts.ImportDeclaration]
+      : this.imports;
+    const candidateStatements = insertAsImport
+      ? this.statements
+      : [...this.statements, synthesized];
+    const candidate = ts.factory.updateSourceFile(
+      this.baseSourceFile,
+      [...candidateImports, ...this.baseSourceFile.statements, ...candidateStatements]
+    );
+    parseSource(PRINTER.printFile(candidate), label, this.baseSourceFile.fileName);
+    if (insertAsImport) {
+      this.imports.push(synthesized as ts.ImportDeclaration);
+    } else {
+      this.statements.push(synthesized);
+    }
+    return this;
   }
 }

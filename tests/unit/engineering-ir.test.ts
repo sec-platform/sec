@@ -54,21 +54,6 @@ function fixture(): BuildEngineeringIRInput {
         }
       }
     ],
-    slotTasks: [
-      {
-        id: 'ticket_title_formatter',
-        block: 'ticket/basic',
-        target: 'custom/ticket_title_formatter.ts',
-        sourcePath: 'source/code/slots/ticket_title_formatter.ts',
-        symbol: 'formatTicketTitle',
-        kind: 'adapter',
-        inputType: 'TicketTitleInput',
-        outputType: 'FormattedTicketTitle',
-        status: 'filled',
-        writableZones: ['custom/'],
-        provenanceHints: { generator: null, verifiedBy: [] }
-      }
-    ],
     acceptanceIds: ['ticket_can_be_created', 'user_can_login'],
     policyDeclarations: [{
       id: 'tenant-scope-required',
@@ -121,7 +106,6 @@ test('buildEngineeringIR is deterministic across input ordering', () => {
     ...input,
     resolvedBlocks: [...input.resolvedBlocks].reverse(),
     manifests: [...input.manifests].reverse(),
-    slotTasks: [...input.slotTasks].reverse(),
     acceptanceIds: [...input.acceptanceIds].reverse(),
     policyDeclarations: [...input.policyDeclarations].reverse()
   };
@@ -177,17 +161,6 @@ test('buildEngineeringIR rejects a manifest for an unresolved block', () => {
       }]
     }),
     'IR-IDENTITY-002'
-  );
-});
-
-test('buildEngineeringIR rejects a slot that references an unknown block', () => {
-  const input = fixture();
-  expectCompilerError(
-    () => buildEngineeringIR({
-      ...input,
-      slotTasks: [{ ...input.slotTasks[0]!, block: 'missing/block' }]
-    }),
-    'IR-IDENTITY-003'
   );
 });
 

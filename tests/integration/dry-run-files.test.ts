@@ -2,10 +2,10 @@ import { expect, test } from 'bun:test';
 import path from 'node:path';
 
 import { writeJson } from '../../src/workspace/files.ts';
-import { runPlannedSlotUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
+import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records delete file migration impacts', async () => {
-  const upgradePlan = await runPlannedSlotUpgradeDryRun({
+  const upgradePlan = await runPlannedBlockUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-delete-file-plan-',
     migration: {
       id: 'mig-delete-obsolete-report',
@@ -43,7 +43,7 @@ test('upgrade dry-run records delete file migration impacts', async () => {
 });
 
 test('upgrade dry-run records copy file migration impacts', async () => {
-  const upgradePlan = await runPlannedSlotUpgradeDryRun({
+  const upgradePlan = await runPlannedBlockUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-copy-file-plan-',
     migration: {
       id: 'mig-copy-report-schema',
@@ -82,7 +82,7 @@ test('upgrade dry-run records copy file migration impacts', async () => {
 });
 
 test('upgrade dry-run records rename file migration impacts', async () => {
-  const upgradePlan = await runPlannedSlotUpgradeDryRun({
+  const upgradePlan = await runPlannedBlockUpgradeDryRun({
     prefix: 'engineering-compiler-upgrade-rename-file-plan-',
     migration: {
       id: 'mig-rename-report',

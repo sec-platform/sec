@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes, type RetainedCommandBoundary } from '../../src/runtime-state/physical/runtime/process.ts';
+import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes } from '../../src/runtime-state/physical/runtime/process.ts';
 import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 const splitUtf8Script = [
@@ -226,12 +226,13 @@ test.skipIf(process.platform !== 'win32')(
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'timeout command cwd'
   );
+  const boundary = issueRetainedCommandBoundary({
+    executable: retained,
+    workingDirectory: retainedWorkingDirectory
+  });
   let failure: unknown;
   try {
-    await runRetainedCommand({
-      executable: retained,
-      workingDirectory: retainedWorkingDirectory
-    }, [
+    await runRetainedCommand(boundary, [
       '--no-env-file',
       '--eval',
       [
@@ -268,27 +269,7 @@ test.skipIf(process.platform !== 'win32')(
   }
 );
 
-test('retained command transport rejects an invalid platform descriptor contract before spawn', async () => {
-  const invalid = Object.freeze({
-    executable: Object.freeze({
-      childPath: process.platform === 'linux' ? '/proc/self/fd/65' : path.resolve(process.execPath),
-      stdioSourceDescriptor: 0,
-      assertCurrent: () => {}
-    }),
-    workingDirectory: Object.freeze({
-      childPath: process.platform === 'linux'
-        ? `/proc/self/fd/${RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR}`
-        : path.resolve(compilerRoot),
-      stdioSourceDescriptor: process.platform === 'linux' ? 4 : null,
-      assertCurrent: () => {}
-    })
-  }) as unknown as RetainedCommandBoundary;
-  await expect(runRetainedCommand(invalid, ['--version'], {
-    ...RETAINED_TEST_COMMAND_BUDGET
-  })).rejects.toThrow('was not issued by the physical no-follow owner');
-});
-
-test('retained command transport rejects a physical file not issued for executable use', async () => {
+test('retained command issuer rejects a physical file not issued for executable use', () => {
   const executablePath = path.resolve(process.execPath);
   const ordinaryFile = retainNoFollowOrdinaryFile(
     inspectNoFollowDirectoryChain(path.dirname(executablePath), 'ordinary file parent'),
@@ -303,10 +284,10 @@ test('retained command transport rejects a physical file not issued for executab
     'role confusion cwd'
   );
   try {
-    await expect(runRetainedCommand({
+    expect(() => issueRetainedCommandBoundary({
       executable: ordinaryFile,
       workingDirectory
-    }, ['--version'], RETAINED_TEST_COMMAND_BUDGET)).rejects.toThrow('role executable');
+    })).toThrow('role executable');
   } finally {
     workingDirectory.dispose();
     ordinaryFile.dispose();
@@ -331,12 +312,17 @@ test.skipIf(process.platform !== 'win32')(
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
     'disposed command cwd'
   );
+  const boundary = issueRetainedCommandBoundary({
+    executable: retained,
+    workingDirectory: retainedWorkingDirectory
+  });
   retained.dispose();
   try {
-    await expect(runRetainedCommand({
-      executable: retained,
-      workingDirectory: retainedWorkingDirectory
-    }, ['--version'], RETAINED_TEST_COMMAND_BUDGET)).rejects.toThrow('capability is disposed');
+    await expect(runRetainedCommand(
+      boundary,
+      ['--version'],
+      RETAINED_TEST_COMMAND_BUDGET
+    )).rejects.toThrow('capability is disposed');
   } finally {
     retainedWorkingDirectory.dispose();
   }

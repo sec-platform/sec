@@ -20,7 +20,6 @@ function rootPackage(): RootPackageJson {
       '@typescript/native': 'npm:typescript@7.0.2',
       '@types/bun': '1.3.13',
       '@types/node': '25.6.0',
-      'ts-morph': '28.0.0',
       typescript: '6.0.3'
     }
   };
@@ -74,7 +73,6 @@ test('generated runtime dependency owner contains only the terminal TypeScript l
     '@typescript/native': 'npm:typescript@7.0.2',
     '@types/bun': '1.3.13',
     '@types/node': '25.6.0',
-    'ts-morph': '28.0.0',
     typescript: '6.0.3'
   });
   expect(RUNTIME_DEPENDENCY_PACKAGE_NAMES).toEqual([
@@ -82,7 +80,6 @@ test('generated runtime dependency owner contains only the terminal TypeScript l
     '@types/bun',
     '@types/node',
     '@typescript/native',
-    'ts-morph',
     'typescript'
   ]);
   expect(spec.manifestHash).toMatch(/^[a-f0-9]{64}$/u);
@@ -115,6 +112,37 @@ test('materialization binding owns the complete transitive closure and exact Bun
   expect(isRuntimeDependencyMaterializationBinding({ ...binding, unexpected: true })).toBe(false);
 });
 
+test('durable materialization grammar survives a later current-root retirement', () => {
+  const current = materializationBinding();
+  const retiredRoot = Object.freeze({
+    edges: Object.freeze([]),
+    manifestSha256: '8'.repeat(64),
+    name: 'retired-tool',
+    relativePath: 'retired-tool',
+    version: '1.0.0'
+  });
+  const content = Object.freeze({
+    formatVersion: current.formatVersion,
+    manifestHash: current.manifestHash,
+    packages: Object.freeze([...current.packages, retiredRoot]
+      .sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0)),
+    rootPackages: Object.freeze([...current.rootPackages, Object.freeze({
+      name: retiredRoot.name,
+      packageName: retiredRoot.name,
+      target: retiredRoot.relativePath
+    })].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)),
+    toolchain: current.toolchain
+  });
+  const historical = Object.freeze({
+    ...content,
+    revision: `sha256:${digest(JSON.stringify(canonicalJson(content)))}` as const
+  });
+
+  expect(isRuntimeDependencyMaterializationBinding(historical)).toBe(true);
+  expect(() => buildRuntimeDependencyMaterializationBinding(historical))
+    .toThrow('root package closure is incomplete');
+});
+
 test('materialization binding rejects incomplete edges and Bun identity disagreement', () => {
   const binding = materializationBinding();
   expect(() => buildRuntimeDependencyMaterializationBinding({
@@ -130,12 +158,20 @@ test('materialization binding rejects incomplete edges and Bun identity disagree
 test('legacy materialization grammar is exact recovery input and never current readiness', () => {
   const current = materializationBinding();
   const legacyNames = ['@types/bun', '@types/node', 'ts-morph', 'typescript', 'yaml'];
+  const legacyPackages = [
+    ...current.packages.filter(({ name }) => legacyNames.includes(name) || name === 'transitive'),
+    {
+      edges: [],
+      manifestSha256: 'a'.repeat(64),
+      name: 'ts-morph',
+      relativePath: 'ts-morph',
+      version: '1.0.0'
+    }
+  ].sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0);
   const content = Object.freeze({
     formatVersion: 'sec-runtime-dependency-materialization-v2' as const,
     manifestHash: current.manifestHash,
-    packages: Object.freeze(current.packages.filter(({ name }) =>
-      legacyNames.includes(name) || name === 'transitive'
-    )),
+    packages: Object.freeze(legacyPackages),
     rootPackages: Object.freeze(legacyNames.map((name) => Object.freeze({ name, target: name }))),
     toolchain: current.toolchain
   });

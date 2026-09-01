@@ -14,19 +14,19 @@ import {
 import type { CurrentCanonicalVerificationReport } from '../../verification/artifact/contract/artifact.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
 import type { RuntimeVerificationLaneReport, SemanticMutationVerificationCapabilityPlan } from '../../verification/contract/types.ts';
-import { listFilesRecursive } from '../../workspace/discovery.ts';
+import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { pathExists, type CommitFence } from '../../workspace/files.ts';
 import { createWorkspaceWriteCommitFence, isCanonicalWorkspaceWriteCommitFence, type WorkspaceWriteLeaseToken } from '../../workspace/lease.ts';
+import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
 import {
   compilerRoot,
-  modelRelativePath,
   officialRegistryRelativePath,
   posixPath,
   resolveWorkspaceArtifactPath,
   resolveWorkspaceLockPath,
   resolveWorkspacePlanPath,
   srcRelativePath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
 import { getErrorCode } from '../errors.ts';
 import { readLockFile } from '../lock.ts';
 import { loadWorkspacePlan } from '../parse/load-plan.ts';
@@ -965,10 +965,6 @@ function relocateIsolatedRunnerBundle(
     throw new Error('Semantic Mutation isolated runner dependency relocation is invalid');
   }
   const expectedRuntimeDirectories = Object.freeze([
-    Object.freeze({
-      sourceSuffix: '/node_modules/@ts-morph/common/dist',
-      runtimeDirectory: path.posix.join(runtimeNodeModulesRoot, '@ts-morph/common/dist')
-    }),
     Object.freeze({
       sourceSuffix: '/node_modules/typescript/lib',
       runtimeDirectory: path.posix.join(runtimeNodeModulesRoot, 'typescript/lib')

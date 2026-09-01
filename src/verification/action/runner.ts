@@ -7,7 +7,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import {
@@ -15,10 +15,21 @@ import {
   type ProcessResourceRunResult,
   type ProcessResourceSession
 } from '../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  createBoundedProcessDiagnosticObjectStore,
+  type BoundedProcessDiagnosticObjectStore,
+  type BoundedProcessDiagnosticPublishedObject,
+  type BoundedProcessDiagnosticStream
+} from '../../runtime-state/workspace-state/bounded-process-diagnostic-object.ts';
 import { createRuntimeStateJournalFileSystem, type RuntimeStateJournalFileSystem } from '../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeJournalAuthority } from '../../runtime-state/workspace-state/physical-authority.ts';
 import {
+  acquireSecRuntimeJournalAuthority,
+  type SecRuntimeStatePhysicalAuthority
+} from '../../runtime-state/workspace-state/physical-authority.ts';
+import { issueSecOperationRequirementBindingContext } from '../../system-architecture/operation/requirement-binding-context.ts';
+import {
+  assertSecProviderSettlementReceipt,
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecProviderSettlementSet,
@@ -28,13 +39,15 @@ import {
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
-  type SecOperationDigest
+  type SecOperationDigest,
+  type SecProviderSettlementReceipt
 } from '../../system-architecture/operation/semantic.ts';
 import {
   createVerificationActionKey,
   createVerificationActionPlan,
   encodeVerificationActionData,
-  issueVerificationActionTerminalSettlement,
+  issueProcessVerificationActionTerminalSettlement,
+  issueVerificationActionOwnerTerminalReceipt,
   isVerificationActionRunnable,
   parseVerificationActionKey,
   parseVerificationActionPlan,
@@ -60,6 +73,7 @@ import {
 import {
   acquireVerificationActionClaim,
   appendVerificationActionJournalEvent,
+  commitVerificationActionRevocationUnderClaim,
   commitVerificationActionTerminalUnderClaim,
   readVerificationActionJournal,
   releaseVerificationActionClaim,
@@ -78,6 +92,8 @@ export interface VerificationActionRunOutcome {
   readonly terminal: VerificationActionTerminal | null;
   readonly physicalExecution: boolean;
   readonly reason: string | null;
+  /** Existing terminal-journal note, atomically committed with that terminal. */
+  readonly subordinateSettlement: string | null;
 }
 
 export const LOCAL_VERIFICATION_ACTION_DAG_RESULT_SCHEMA =
@@ -164,6 +180,12 @@ export type VerificationActionExecutor = (
   context: Readonly<{
     action: VerificationActionKey;
     executionDomain: string;
+    /**
+     * Registers one bounded producer-owned settlement projection for atomic
+     * persistence in the existing terminal journal event. The runner treats
+     * the bytes as opaque and never invents a producer-specific schema.
+     */
+    recordSubordinateSettlement(note: string): void;
   }>
 ) => Promise<unknown> | unknown;
 
@@ -231,10 +253,41 @@ function canonicalAction(action: unknown): VerificationActionKey {
   return parseVerificationActionKey(encodeVerificationActionData(action));
 }
 
-function boundedError(error: unknown): string {
+const VERIFICATION_ACTION_JOURNAL_NOTE_MAXIMUM_BYTES = 1024;
+
+function truncateUtf8(value: string, maximumBytes: number): string {
+  let result = '';
+  let byteLength = 0;
+  for (const scalar of value) {
+    const scalarBytes = Buffer.byteLength(scalar, 'utf8');
+    if (byteLength + scalarBytes > maximumBytes) break;
+    result += scalar;
+    byteLength += scalarBytes;
+  }
+  return result;
+}
+
+function boundedExecutionFailureNote(
+  error: unknown,
+  state: 'invalidated' | 'cancelled'
+): string {
   const text = error instanceof Error ? error.message : String(error);
   const sanitized = text.replace(/[\u0000-\u001f]/gu, ' ');
-  return `executor threw: ${sanitized}`.slice(0, 1024);
+  const suffix = state === 'invalidated'
+    ? '; physical result durably invalidated before terminal commit'
+    : '; executor ended without an owner-issued terminal; action durably cancelled';
+  const prefix = `executor threw: ${sanitized}`;
+  return `${truncateUtf8(
+    prefix,
+    VERIFICATION_ACTION_JOURNAL_NOTE_MAXIMUM_BYTES - Buffer.byteLength(suffix, 'utf8')
+  )}${suffix}`;
+}
+
+class VerificationActionCandidateDriftError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VerificationActionCandidateDriftError';
+  }
 }
 
 function boundedToken(value: string | undefined, label: string, fallback: () => string): string {
@@ -247,7 +300,7 @@ function boundedToken(value: string | undefined, label: string, fallback: () => 
 
 function nextOwnerToken(): string {
   ownerSequence += 1;
-  return `verification-action-owner-${ownerSequence}`;
+  return `verification-action-owner-${process.pid}-${ownerSequence}-${randomUUID()}`;
 }
 
 function localDagDigest(value: unknown): VerificationActionKeyDigest {
@@ -278,19 +331,29 @@ function bindLocalDagOperation(input: Readonly<{
   executionEnvironment: CiVerificationExecutionEnvironment;
   deadlineAtUnixMs: number;
 }>): SecBoundSemanticOperation {
-  const contractDigest = localDagDigest({
+  const processContractDigest = localDagDigest({
     contract: 'verification.local-action-execution',
     normalizedOperationDigest: input.normalizedOperation.semanticDigest
   }) as SecOperationDigest;
+  const diagnosticContractDigest = localDagDigest({
+    contract: 'verification.local-action-process-diagnostics',
+    normalizedOperationDigest: input.normalizedOperation.semanticDigest
+  }) as SecOperationDigest;
+  const decisionDigest = localDagDigest({ processContractDigest, diagnosticContractDigest });
   const operationPlan = compileSecSemanticOperationPlan({
     operation: 'verification.local-action',
     intentDigest: input.action.actionKey as SecOperationDigest,
-    decisionDigest: input.normalizedOperation.semanticDigest as SecOperationDigest,
+    decisionDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
     aggregateBudgets: [
       {
         resource: 'duration-ms',
         maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.durationMs
+      },
+      {
+        resource: 'input-bytes',
+        maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStdoutBytes
+          + VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStderrBytes
       },
       {
         resource: 'output-bytes',
@@ -304,22 +367,43 @@ function bindLocalDagOperation(input: Readonly<{
     ],
     requirements: [{
       id: 'verification.local-provider',
-      contractDigest,
+      contractDigest: processContractDigest,
       effectKinds: ['process'],
       failureKinds: ['process.failed', 'process.settlement-failed']
+    }, {
+      id: 'verification.action-diagnostics',
+      contractDigest: diagnosticContractDigest,
+      effectKinds: ['filesystem'],
+      failureKinds: [
+        'diagnostic.corrupt-object',
+        'diagnostic.deadline-exhausted',
+        'diagnostic.foreign-residue',
+        'diagnostic.incomplete-object',
+        'diagnostic.physical-replacement',
+        'diagnostic.resource-exhausted'
+      ]
     }],
     attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: contractDigest
+      authorityGrantDigest: decisionDigest
     })
   });
-  const bound = bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
-    requirementId: 'verification.local-provider',
-    contractDigest,
-    providerIdentityDigest: localDagDigest({
-      executionEnvironmentRevision: input.executionEnvironment.executionEnvironmentRevision,
-      toolchainRevision: input.executionEnvironment.toolchainRevision
-    }) as SecOperationDigest
-  })]);
+  const bound = bindSecSemanticOperation(operationPlan, [
+    compileSecCapabilityBinding({
+      requirementId: 'verification.local-provider',
+      contractDigest: processContractDigest,
+      providerIdentityDigest: localDagDigest({
+        executionEnvironmentRevision: input.executionEnvironment.executionEnvironmentRevision,
+        toolchainRevision: input.executionEnvironment.toolchainRevision
+      }) as SecOperationDigest
+    }),
+    compileSecCapabilityBinding({
+      requirementId: 'verification.action-diagnostics',
+      contractDigest: diagnosticContractDigest,
+      providerIdentityDigest: localDagDigest(
+        'runtime-state.process-diagnostics'
+      ) as SecOperationDigest
+    })
+  ]);
   return bound;
 }
 
@@ -420,7 +504,8 @@ function outcome(
   state: VerificationActionJournalState | null,
   terminal: VerificationActionTerminal | null,
   physicalExecution: boolean,
-  reason: string | null
+  reason: string | null,
+  subordinateSettlement: string | null = null
 ): VerificationActionRunOutcome {
   return Object.freeze({
     actionKey,
@@ -428,8 +513,30 @@ function outcome(
     state,
     terminal,
     physicalExecution,
-    reason
+    reason,
+    subordinateSettlement
   });
+}
+
+function boundedSubordinateSettlement(value: string): string {
+  if (value.length === 0 || value.length > 1024
+      || Buffer.byteLength(value, 'utf8') > 1024
+      || /[\u0000-\u001f]/u.test(value)) {
+    throw new Error(
+      'VerificationAction subordinate settlement must be non-empty bounded single-line text.'
+    );
+  }
+  return value;
+}
+
+function persistedSubordinateSettlement(
+  journal: VerificationActionJournalReadback
+): string | null {
+  for (let index = journal.events.length - 1; index >= 0; index -= 1) {
+    const event = journal.events[index]!;
+    if (event.terminal !== null) return event.note;
+  }
+  return null;
 }
 
 
@@ -439,6 +546,8 @@ function outcome(
 export class VerificationActionRunner {
   readonly #journalFileSystemPromises = new Map<string, Promise<RuntimeStateJournalFileSystem>>();
   readonly #journalFileSystems = new Map<string, RuntimeStateJournalFileSystem>();
+  readonly #runtimeAuthorities = new Map<string, SecRuntimeStatePhysicalAuthority>();
+  readonly #diagnosticStores = new Map<string, BoundedProcessDiagnosticObjectStore>();
 
   async #journalFileSystem(repositoryRoot: string): Promise<RuntimeStateJournalFileSystem> {
     const physicalRoot = realpathSync.native(path.resolve(repositoryRoot));
@@ -446,21 +555,88 @@ export class VerificationActionRunner {
     if (pending === undefined) {
       pending = (async () => {
         const authority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: physicalRoot });
-        await authority.assertCurrent();
-        const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: physicalRoot });
-        const fs = createRuntimeStateJournalFileSystem(
-          authority.directory(roots.workspaceStateRoot)
-        );
-        this.#journalFileSystems.set(physicalRoot, fs);
-        return fs;
+        try {
+          await authority.assertCurrent();
+          const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: physicalRoot });
+          const fs = createRuntimeStateJournalFileSystem(
+            authority.directory(roots.workspaceStateRoot)
+          );
+          const diagnostics = createBoundedProcessDiagnosticObjectStore({
+            authority,
+            repositoryRoot: physicalRoot
+          });
+          this.#runtimeAuthorities.set(physicalRoot, authority);
+          this.#diagnosticStores.set(physicalRoot, diagnostics);
+          this.#journalFileSystems.set(physicalRoot, fs);
+          return fs;
+        } catch (error) {
+          await authority.release();
+          throw error;
+        }
       })().catch((error) => {
         this.#journalFileSystemPromises.delete(physicalRoot);
         this.#journalFileSystems.delete(physicalRoot);
+        this.#runtimeAuthorities.delete(physicalRoot);
+        this.#diagnosticStores.delete(physicalRoot);
         throw error;
       });
       this.#journalFileSystemPromises.set(physicalRoot, pending);
     }
     return pending;
+  }
+
+  #diagnosticStore(repositoryRoot: string): BoundedProcessDiagnosticObjectStore {
+    const physicalRoot = realpathSync.native(path.resolve(repositoryRoot));
+    const store = this.#diagnosticStores.get(physicalRoot);
+    if (store === undefined) {
+      throw new Error('VerificationAction diagnostic authority must be acquired before publication.');
+    }
+    return store;
+  }
+
+  async publishBoundProcessDiagnostics(input: Readonly<{
+    repositoryRoot: string;
+    action: VerificationActionKey;
+    operation: SecBoundSemanticOperation;
+    processSettlement: SecProviderSettlementReceipt;
+    streams: readonly Readonly<{
+      stream: BoundedProcessDiagnosticStream;
+      bytes: Uint8Array;
+    }>[];
+    signal?: AbortSignal;
+  }>): Promise<readonly BoundedProcessDiagnosticPublishedObject[]> {
+    const action = canonicalAction(input.action);
+    assertSecProviderSettlementReceipt(input.processSettlement);
+    const operationBindsAction = input.operation.plan.identity.intentDigest === action.actionKey
+      || action.operation.semanticDigest === input.operation.plan.identity.identityDigest;
+    if (!operationBindsAction
+        || input.processSettlement.requirementId === 'verification.action-diagnostics'
+        || input.processSettlement.operationIdentityDigest
+          !== input.operation.plan.identity.identityDigest
+        || input.processSettlement.executionPlanDigest
+          !== input.operation.plan.execution.executionPlanDigest
+        || input.processSettlement.boundAttemptDigest !== input.operation.boundAttemptDigest) {
+      throw new Error(
+        'VerificationAction diagnostic publication requires the exact owner process settlement.'
+      );
+    }
+    return this.#diagnosticStore(input.repositoryRoot).publish({
+      operation: input.operation,
+      requirementId: 'verification.action-diagnostics',
+      subjectDigest: action.actionKey as SecOperationDigest,
+      settlementDigest: input.processSettlement.providerReceiptDigest,
+      streams: input.streams,
+      signal: input.signal
+    });
+  }
+
+  async close(): Promise<void> {
+    const authorities = [...this.#runtimeAuthorities.values()];
+    this.#runtimeAuthorities.clear();
+    this.#diagnosticStores.clear();
+    this.#journalFileSystems.clear();
+    this.#journalFileSystemPromises.clear();
+    for (const authority of authorities) await authority.release();
   }
 
   #retainedJournalFileSystem(repositoryRoot: string): RuntimeStateJournalFileSystem {
@@ -542,7 +718,8 @@ export class VerificationActionRunner {
         joined.state,
         joined.terminal,
         false,
-        joined.reason
+        joined.reason,
+        joined.subordinateSettlement
       );
     }
 
@@ -554,8 +731,10 @@ export class VerificationActionRunner {
       leaseDurationMs: input.leaseDurationMs
     });
     if (claim.disposition === 'terminal') {
+      const terminalJournal = readVerificationActionJournal(journalFs, action.actionKey);
       return outcome(action.actionKey, 'reused', 'reused', claim.terminal, false,
-        claim.terminal?.status === 'failed' ? 'known terminal failure reused; never projected as PASS' : null);
+        claim.terminal?.status === 'failed' ? 'known terminal failure reused; never projected as PASS' : null,
+        persistedSubordinateSettlement(terminalJournal));
     }
     if (claim.disposition === 'joined') {
       return outcome(action.actionKey, 'joined', 'running', null, false, claim.reason);
@@ -596,7 +775,8 @@ export class VerificationActionRunner {
       releaseClaim();
       if (journal.terminal === null) throw new Error('VerificationAction terminal state has no terminal fact.');
       return outcome(action.actionKey, 'reused', 'reused', journal.terminal, false,
-        journal.terminal.status === 'failed' ? 'known terminal failure reused; never projected as PASS' : null);
+        journal.terminal.status === 'failed' ? 'known terminal failure reused; never projected as PASS' : null,
+        persistedSubordinateSettlement(journal));
     }
     if (journal.latestState === 'queued' || journal.latestState === 'running') {
       stopHeartbeat();
@@ -627,7 +807,10 @@ export class VerificationActionRunner {
             false,
             concurrent.terminal === null
               ? 'another process published the durable physical-start transition'
-              : null
+              : null,
+            concurrent.terminal === null
+              ? null
+              : persistedSubordinateSettlement(concurrent)
           );
         }
         stopHeartbeat();
@@ -655,23 +838,66 @@ export class VerificationActionRunner {
       try {
         const currentOwnerKeys = new Set(ownerKeys ?? []);
         currentOwnerKeys.add(ownerKey);
+        let subordinateRecorded = false;
+        const recordSubordinateSettlement = (value: string): void => {
+          if (subordinateRecorded) {
+            throw new Error('VerificationAction executor registered more than one subordinate settlement.');
+          }
+          note = boundedSubordinateSettlement(value);
+          subordinateRecorded = true;
+        };
         const executorResult = await EXECUTION_CONTEXT.run(
           Object.freeze({ ownerToken, ownerKeys: currentOwnerKeys }),
-          () => input.executor({ action, executionDomain })
+          () => input.executor({
+            action,
+            executionDomain,
+            recordSubordinateSettlement
+          })
         );
         terminal = projectVerificationActionTerminal(executorResult);
+        if (terminal.actionKey !== action.actionKey) {
+          throw new Error('VerificationAction terminal belongs to a different Action identity.');
+        }
       } catch (error) {
-        note = boundedError(error);
-        stopHeartbeat();
-        releaseClaim();
-        resolveFlight(outcome(
-          action.actionKey,
-          'blocked',
-          'running',
-          null,
-          true,
-          `${note}; no owner-issued terminal was committed`
-        ));
+        const failureState = error instanceof VerificationActionCandidateDriftError
+          ? 'invalidated' as const
+          : 'cancelled' as const;
+        note = boundedExecutionFailureNote(error, failureState);
+        try {
+          const committed = commitVerificationActionRevocationUnderClaim({
+            fs: journalFs,
+            action,
+            ownerToken,
+            now: input.recordedAt?.() ?? new Date().toISOString(),
+            state: failureState,
+            recordedAt: input.recordedAt?.(),
+            note
+          });
+          stopHeartbeat();
+          if (committed === null) {
+            const unresolved = readVerificationActionJournal(journalFs, action.actionKey);
+            resolveFlight(outcome(
+              action.actionKey,
+              'blocked',
+              unresolved.latestState,
+              null,
+              true,
+              'physical result unresolved because the executor lost its durable claim before settlement'
+            ));
+            return;
+          }
+          resolveFlight(outcome(
+            action.actionKey,
+            'blocked',
+            failureState,
+            null,
+            true,
+            note
+          ));
+        } catch (settlementError) {
+          stopHeartbeat();
+          rejectFlight(settlementError);
+        }
         return;
       }
       const afterExecution = readVerificationActionJournal(
@@ -734,7 +960,15 @@ export class VerificationActionRunner {
             'physical result discarded because terminal commit did not own the live claim'));
           return;
         }
-        resolveFlight(outcome(action.actionKey, 'executed', 'terminal', terminal, true, note));
+        resolveFlight(outcome(
+          action.actionKey,
+          'executed',
+          'terminal',
+          terminal,
+          true,
+          null,
+          note
+        ));
       } catch (error) {
         stopHeartbeat();
         releaseClaim();
@@ -881,7 +1115,9 @@ export async function executeLocalVerificationActionDag(
     throw new Error('local VerificationAction DAG requires the exact clean candidate head and tree.');
   }
 
+  const ownsRunner = input.runner === undefined;
   const runner = input.runner ?? createVerificationActionRunner();
+  try {
   const actionResults: VerificationActionRunOutcome[] = [];
   for (let index = 0; index < closure.actions.length; index += 1) {
     const plan = closure.actions[index]!;
@@ -904,6 +1140,30 @@ export async function executeLocalVerificationActionDag(
       executor: async () => {
         const session = openProcessResourceSession({
           operation: boundOperation,
+          requirementBindingContext: issueSecOperationRequirementBindingContext({
+            operation: boundOperation,
+            requirementId: 'verification.local-provider',
+            resourceCeilings: [
+              {
+                resource: 'duration-ms',
+                maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.durationMs
+              },
+              {
+                resource: 'input-bytes',
+                maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStdoutBytes
+                  + VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStderrBytes
+              },
+              {
+                resource: 'output-bytes',
+                maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStdoutBytes
+                  + VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.maxStderrBytes
+              },
+              {
+                resource: 'processes',
+                maximum: VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY.processes
+              }
+            ]
+          }),
           signal: input.signal
         });
         const process: VerificationActionProcessExecutionContext = Object.freeze({
@@ -957,9 +1217,30 @@ export async function executeLocalVerificationActionDag(
             stderrDigest: rawDigest(physicalResult.result.stderr)
           })
         });
+        const diagnosticObjects = await runner.publishBoundProcessDiagnostics({
+          repositoryRoot: authorityRoot,
+          action: plan.action,
+          operation: boundOperation,
+          processSettlement: providerSettlement,
+          streams: [
+            { stream: 'stdout', bytes: physicalResult.result.stdout },
+            { stream: 'stderr', bytes: new TextEncoder().encode(physicalResult.result.stderr) }
+          ],
+          signal: input.signal
+        });
+        const diagnosticSettlement = issueSecProviderSettlementReceipt(boundOperation, {
+          requirementId: 'verification.action-diagnostics',
+          physicalDisposition: 'settled',
+          providerSettlementReferenceDigest: localDagDigest(
+            diagnosticObjects.map(({ receipt, readback }) => ({
+              objectDigest: receipt.objectDigest,
+              readbackDigest: readback.readbackDigest
+            }))
+          )
+        });
         const providerSettlementSet = compileSecProviderSettlementSet(
           boundOperation,
-          [providerSettlement]
+          [providerSettlement, diagnosticSettlement]
         );
         const candidateAfter = input.inspectRepository(candidateRoot);
         if (!candidateAfter.trackedClean
@@ -967,7 +1248,9 @@ export async function executeLocalVerificationActionDag(
             || candidateAfter.headTreeSha !== normalizedOperation.candidate.headTreeSha
             || canonicalCommonDirectory(candidateAfter.gitCommonDirectory)
               !== canonicalCommonDirectory(candidate.gitCommonDirectory)) {
-          throw new Error('local VerificationAction candidate readback drifted after process settlement.');
+          throw new VerificationActionCandidateDriftError(
+            'local VerificationAction candidate readback drifted after process settlement.'
+          );
         }
         const readback = issueSecNormalDomainReadbackReceipt(
           boundOperation,
@@ -999,17 +1282,27 @@ export async function executeLocalVerificationActionDag(
               actionKey: plan.action.actionKey,
               operationDigest: normalizedOperation.semanticDigest,
               exitCode: physicalResult.result.code,
-              stdoutDigest: rawDigest(physicalResult.result.stdout),
-              stderrDigest: rawDigest(physicalResult.result.stderr),
+              diagnosticObjects: diagnosticObjects.map(({ receipt, readback }) => ({
+                objectDigest: receipt.objectDigest,
+                readbackDigest: readback.readbackDigest
+              })),
               candidate: candidateAfter
             })
           }
         );
-        return issueVerificationActionTerminalSettlement(ownerTerminalJoin, {
+        const actionTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
+          action: plan.action,
+          operation: boundOperation,
+          providerSettlementSet,
+          readback,
+          ownerTerminalProjection: ownerTerminalJoin
+        });
+        return issueProcessVerificationActionTerminalSettlement(actionTerminalReceipt, {
           status: physicalResult.result.code === 0 ? 'passed' : 'failed',
           reasonCode: physicalResult.result.code === 0
             ? 'executed-success'
-            : 'executed-failure'
+            : 'executed-failure',
+          diagnosticObjects
         });
       }
     });
@@ -1028,4 +1321,7 @@ export async function executeLocalVerificationActionDag(
     actionResults: Object.freeze(actionResults)
   });
   return Object.freeze({ ...withoutDigest, terminalDigest: localDagDigest(withoutDigest) });
+  } finally {
+    if (ownsRunner) await runner.close();
+  }
 }

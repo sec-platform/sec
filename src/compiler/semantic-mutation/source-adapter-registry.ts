@@ -2,8 +2,10 @@ import type { LoadedSemanticContract } from '../../semantic/contracts/contract/t
 import type { FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
 import type { FactProvenance } from '../../semantic/engineering-ir/contract/fact-types.ts';
 import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, type NormalizedSemanticMutationRequest, type SemanticMutationAuthorizationContext, type SemanticMutationDiagnostic, type SemanticMutationLoadedSourceCandidate, type SemanticMutationOperation, type SemanticMutationSourceKind } from '../../semantic/mutation/contract/types.ts';
-import { modelRelativePath } from '../../workspace/paths.ts';
-import { semanticContractSourceRevision } from '../parse/load-authoring-semantic-contracts.ts';
+import {
+  AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH,
+  semanticContractSourceRevision
+} from '../parse/load-authoring-semantic-contracts.ts';
 import { cloneAndDeepFreeze, exactOwnKeys, isPlainObject, mutationDiagnostic, sha256 } from './canonical.ts';
 import { validateSemanticMutationOperations } from './operation-registry.ts';
 
@@ -59,12 +61,20 @@ type SourceAdapterDescriptor = {
   readonly adapterRevision: typeof SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION;
 };
 
+const AUTHORING_SOURCE_ROOT = AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH.slice(
+  0,
+  AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH.indexOf('/') + 1
+);
+if (AUTHORING_SOURCE_ROOT.length <= 1 || !AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH.startsWith(AUTHORING_SOURCE_ROOT)) {
+  throw new Error('Authoring semantic contract index must identify one rooted workspace source.');
+}
+
 const SOURCE_ADAPTERS: Readonly<Record<SemanticMutationSourceKind, SourceAdapterDescriptor>> =
   cloneAndDeepFreeze({
     'workspace-authoring': {
       sourceKind: 'workspace-authoring',
       writable: true,
-      relativePathPrefix: `${modelRelativePath}/`,
+      relativePathPrefix: AUTHORING_SOURCE_ROOT,
       adapterId: SEMANTIC_CONTRACT_YAML_ADAPTER_ID,
       adapterRevision: SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION
     },

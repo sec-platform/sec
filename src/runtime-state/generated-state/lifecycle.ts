@@ -2,6 +2,11 @@ import { lstatSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { acquireWorkspaceWriteLease } from '../../workspace/lease.ts';
+import {
+  parseWorktreePorcelainZ,
+  parseWorktreeStatusPorcelainZ,
+  type WorktreeStatusPorcelainRecord
+} from '../physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
 import { PhysicalNoFollowError, assertPhysicallyDisjointDirectoryChains, createExclusiveNoFollowDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, physicallyContainsDirectoryChain, publishExclusiveDurableCanonicalFile, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../physical/runtime/physical-no-follow.ts';
 import { runCommandBytes, type ByteCommandResult } from '../physical/runtime/process.ts';
@@ -9,11 +14,7 @@ import { createRuntimeStateJournalFileSystem } from '../workspace-state/journal-
 import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
 import {
-  parseWorktreePorcelainZ,
-  parseWorktreeStatusPorcelainZ,
-  type WorktreeStatusPorcelainRecord
-} from '../worktree-closeout-contract.ts';
-import {
+  GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA,
   GENERATED_STATE_REGISTRY,
   assertGeneratedStateWorktreeRetirement,
   createGeneratedStateInventory,
@@ -25,9 +26,11 @@ import {
   generatedStateDomainProviderMaterialDigest,
   generatedStateRuleForPath,
   normalizeGeneratedStateRelativePath,
+  parseGeneratedStatePhysicalIdentity,
   parseGeneratedStateRegistration,
   retireGeneratedStateRegistration,
   type GeneratedStateCleanupProfile,
+  type GeneratedStateDisposalReceipt,
   type GeneratedStateInventory,
   type GeneratedStateInventoryEntry,
   type GeneratedStatePhysicalForm,
@@ -39,6 +42,8 @@ import {
 } from './contract.ts';
 
 const GENERATED_STATE_RUNTIME_VERSION = 'v1' as const;
+const GENERATED_STATE_CLEANUP_INTENT_SCHEMA = 'sec-generated-state-cleanup-intent-v2' as const;
+const GENERATED_STATE_DISPOSAL_KEY_SCHEMA = 'sec-generated-state-disposal-key-v1' as const;
 const MAXIMUM_CLEANUP_ENTRIES = 100_000;
 const CLEANUP_DEADLINE_MS = 30_000;
 
@@ -394,6 +399,7 @@ type GeneratedStateRegistrationLedgerObservation = Readonly<{
   readonly tip: GeneratedStateRegistrationLedgerRecord | null;
   readonly registration: GeneratedStateRegistration | null;
   readonly retiredPredecessor: GeneratedStateRegistration | null;
+  readonly previousRegistration: GeneratedStateRegistration | null;
 }>;
 
 type GeneratedStateRegistrationMigrationTarget = Readonly<{
@@ -866,8 +872,10 @@ function transactionPointerPath(store: GeneratedStateRuntimeStore, relativePath:
 }
 
 interface GeneratedStateCleanupIntent {
-  readonly schema: 'sec-generated-state-cleanup-intent-v1';
+  readonly schema: typeof GENERATED_STATE_CLEANUP_INTENT_SCHEMA;
   readonly beforeInventoryDigest: `sha256:${string}`;
+  readonly profile: GeneratedStateCleanupProfile;
+  readonly registrationDigest: `sha256:${string}`;
   readonly relativePath: string;
   readonly root: GeneratedStatePhysicalIdentity;
   readonly tombstoneName: string;
@@ -880,25 +888,72 @@ function loadCleanupIntent(
 ): GeneratedStateCleanupIntent | null {
   const locator = transactionPointerPath(store, relativePath);
   if (!store.fs.exists(locator)) return null;
-  const value = JSON.parse(store.fs.readText(locator)) as Partial<GeneratedStateCleanupIntent>;
-  if (value.schema !== 'sec-generated-state-cleanup-intent-v1'
+  const source = store.fs.readText(locator);
+  let value: Partial<GeneratedStateCleanupIntent>;
+  try {
+    value = JSON.parse(source) as Partial<GeneratedStateCleanupIntent>;
+  } catch (error) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state cleanup intent is not exact JSON: ${error instanceof Error ? error.message : String(error)}.`
+    );
+  }
+  const expectedKeys = [
+    'beforeInventoryDigest',
+    'intentDigest',
+    'profile',
+    'registrationDigest',
+    'relativePath',
+    'root',
+    'schema',
+    'tombstoneName'
+  ];
+  if (Object.keys(value).sort().join('\0') !== expectedKeys.join('\0')) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state cleanup intent has noncanonical keys; physical state is preserved.'
+    );
+  }
+  let root: GeneratedStatePhysicalIdentity;
+  try {
+    root = parseGeneratedStatePhysicalIdentity(value.root, 'cleanupIntent.root');
+  } catch (error) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state cleanup intent physical identity is malformed: ${error instanceof Error ? error.message : String(error)}.`
+    );
+  }
+  if (value.schema !== GENERATED_STATE_CLEANUP_INTENT_SCHEMA
       || value.relativePath !== normalizeGeneratedStateRelativePath(relativePath)
       || typeof value.beforeInventoryDigest !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.beforeInventoryDigest)
+      || !['automatic', 'safe', 'all-rebuildable'].includes(String(value.profile))
+      || typeof value.registrationDigest !== 'string'
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.registrationDigest)
       || typeof value.tombstoneName !== 'string' || !/^q-[0-9a-f]{48}$/u.test(value.tombstoneName)
-      || value.root === undefined || typeof value.intentDigest !== 'string') {
-    throw new Error('Generated-state cleanup intent pointer is malformed.');
+      || typeof value.intentDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.intentDigest)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state cleanup intent pointer is malformed; physical state is preserved.'
+    );
   }
   const material = Object.freeze({
     schema: value.schema,
     beforeInventoryDigest: value.beforeInventoryDigest,
+    profile: value.profile,
+    registrationDigest: value.registrationDigest,
     relativePath: value.relativePath,
-    root: value.root,
+    root,
     tombstoneName: value.tombstoneName
   });
   if (generatedStateDigest(material) !== value.intentDigest) {
-    throw new Error('Generated-state cleanup intent digest is invalid.');
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state cleanup intent digest is invalid; physical state is preserved.'
+    );
   }
-  return Object.freeze({ ...material, intentDigest: value.intentDigest }) as GeneratedStateCleanupIntent;
+  const intent = Object.freeze({ ...material, intentDigest: value.intentDigest }) as GeneratedStateCleanupIntent;
+  if (canonicalBytes(intent) !== source) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state cleanup intent bytes are noncanonical; physical state is preserved.'
+    );
+  }
+  return intent;
 }
 
 function readRegistrationLedgerObservation(
@@ -1134,12 +1189,31 @@ function readRegistrationLedgerObservation(
   if (tip !== undefined) {
     const generation = generations.get(tip.registrationDigest);
     if (generation === undefined) throw new GeneratedStateProducerBindingBlockedError('Generated-state registration tip generation disappeared.');
-    if (!pointers.has(registrationKey(normalized))) {
-      return Object.freeze({ tip, registration: null, retiredPredecessor: generation.registration });
+    const previousRecord = tip.previousRecordDigest === null ? null : recordByDigest.get(tip.previousRecordDigest) ?? null;
+    const previousRegistration = previousRecord === null
+      ? null
+      : generations.get(previousRecord.registrationDigest)?.registration ?? null;
+    if (tip.previousRecordDigest !== null && previousRegistration === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state registration predecessor disappeared: ${normalized}.`
+      );
     }
-    return Object.freeze({ tip, registration: generation.registration, retiredPredecessor: null });
+    if (!pointers.has(registrationKey(normalized))) {
+      return Object.freeze({
+        tip,
+        registration: null,
+        retiredPredecessor: generation.registration,
+        previousRegistration
+      });
+    }
+    return Object.freeze({
+      tip,
+      registration: generation.registration,
+      retiredPredecessor: null,
+      previousRegistration
+    });
   }
-  return Object.freeze({ tip: null, registration: null, retiredPredecessor: null });
+  return Object.freeze({ tip: null, registration: null, retiredPredecessor: null, previousRegistration: null });
 }
 
 function loadRegistration(
@@ -1620,6 +1694,22 @@ async function registerGeneratedStateBirth(input: Readonly<{
   });
 }
 
+function generatedStateOwnerRetirementRef(
+  registration: GeneratedStateRegistration,
+  outcome: string
+): `sha256:${string}` {
+  return generatedStateDigest(Object.freeze({
+    schema: 'sec-generated-state-owner-retirement-v1',
+    registrationId: registration.registrationId,
+    registrationDigest: registration.registrationDigest,
+    relativePath: registration.relativePath,
+    owner: registration.owner,
+    producer: registration.producer,
+    operationId: registration.operationId,
+    outcome
+  }));
+}
+
 async function retireGeneratedState(input: Readonly<{
   repositoryRoot: string;
   workspaceRoot?: string;
@@ -1639,16 +1729,7 @@ async function retireGeneratedState(input: Readonly<{
     }
     const outcome = input.outcome.trim();
     if (outcome.length === 0) throw new Error('Generated-state retirement outcome is empty.');
-    const retirementRef = generatedStateDigest(Object.freeze({
-      schema: 'sec-generated-state-owner-retirement-v1',
-      registrationId: current.registrationId,
-      registrationDigest: current.registrationDigest,
-      relativePath: current.relativePath,
-      owner: current.owner,
-      producer: current.producer,
-      operationId: current.operationId,
-      outcome
-    }));
+    const retirementRef = generatedStateOwnerRetirementRef(current, outcome);
     if (current.phase === 'retired') {
       if (current.retirementRef === retirementRef) return current;
       throw new Error('Generated-state registration was retired by a different authority.');
@@ -1764,6 +1845,144 @@ export function assertGeneratedStateRetirementObservation(
       'Generated-state retirement observation was not issued by its owner.'
     );
   }
+}
+
+const issuedGeneratedStateDisposalReceipts = new WeakSet<object>();
+
+export function assertGeneratedStateDisposalReceipt(
+  receipt: GeneratedStateDisposalReceipt
+): void {
+  if (!issuedGeneratedStateDisposalReceipts.has(receipt)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      'Generated-state disposal receipt was not issued by its owner.'
+    );
+  }
+}
+
+function generatedStateDisposalReceiptPath(
+  store: GeneratedStateRuntimeStore,
+  input: Readonly<{
+    relativePath: string;
+    profile: GeneratedStateCleanupProfile;
+    registrationDigest: `sha256:${string}`;
+    retirementRef: `sha256:${string}`;
+    physical: GeneratedStatePhysicalIdentity;
+  }>
+): string {
+  const key = generatedStateDigest(Object.freeze({
+    schema: GENERATED_STATE_DISPOSAL_KEY_SCHEMA,
+    relativePath: input.relativePath,
+    profile: input.profile,
+    registrationDigest: input.registrationDigest,
+    retirementRef: input.retirementRef,
+    physical: input.physical
+  }));
+  return path.join(store.settlementsRoot, `disposal-${key.slice('sha256:'.length)}.json`);
+}
+
+function parseGeneratedStateDisposalReceiptBytes(
+  source: string,
+  label: string
+): GeneratedStateDisposalReceipt {
+  let unknownValue: unknown;
+  try {
+    unknownValue = JSON.parse(source);
+  } catch (error) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `${label} is not exact JSON: ${error instanceof Error ? error.message : String(error)}.`
+    );
+  }
+  if (unknownValue === null || typeof unknownValue !== 'object' || Array.isArray(unknownValue)) {
+    throw new GeneratedStateProducerBindingBlockedError(`${label} is not one canonical object.`);
+  }
+  const value = unknownValue as Record<string, unknown>;
+  const expectedKeys = [
+    'afterInventoryDigest',
+    'beforeInventoryDigest',
+    'physical',
+    'profile',
+    'receiptDigest',
+    'registrationDigest',
+    'relativePath',
+    'retirementRef',
+    'schema',
+    'settlementDigest',
+    'terminal'
+  ];
+  if (Object.keys(value).sort().join('\0') !== expectedKeys.join('\0')) {
+    throw new GeneratedStateProducerBindingBlockedError(`${label} has noncanonical keys.`);
+  }
+  let physical: GeneratedStatePhysicalIdentity;
+  try {
+    physical = parseGeneratedStatePhysicalIdentity(value.physical, `${label}.physical`);
+  } catch (error) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `${label} has malformed physical identity: ${error instanceof Error ? error.message : String(error)}.`
+    );
+  }
+  if (value.schema !== GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA ||
+      typeof value.relativePath !== 'string' ||
+      value.relativePath !== normalizeGeneratedStateRelativePath(value.relativePath) ||
+      !['automatic', 'safe', 'all-rebuildable'].includes(String(value.profile)) ||
+      typeof value.registrationDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.registrationDigest) ||
+      typeof value.retirementRef !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.retirementRef) ||
+      typeof value.beforeInventoryDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.beforeInventoryDigest) ||
+      typeof value.afterInventoryDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.afterInventoryDigest) ||
+      typeof value.settlementDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.settlementDigest) ||
+      value.terminal !== 'disposed' ||
+      typeof value.receiptDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value.receiptDigest)) {
+    throw new GeneratedStateProducerBindingBlockedError(`${label} is malformed.`);
+  }
+  const material = Object.freeze({
+    schema: value.schema,
+    relativePath: value.relativePath,
+    profile: value.profile as GeneratedStateCleanupProfile,
+    registrationDigest: value.registrationDigest as `sha256:${string}`,
+    retirementRef: value.retirementRef as `sha256:${string}`,
+    physical,
+    beforeInventoryDigest: value.beforeInventoryDigest as `sha256:${string}`,
+    afterInventoryDigest: value.afterInventoryDigest as `sha256:${string}`,
+    settlementDigest: value.settlementDigest as `sha256:${string}`,
+    terminal: value.terminal
+  });
+  if (generatedStateDigest(material) !== value.receiptDigest) {
+    throw new GeneratedStateProducerBindingBlockedError(`${label} digest is invalid.`);
+  }
+  const receipt = Object.freeze({
+    ...material,
+    receiptDigest: value.receiptDigest as `sha256:${string}`
+  });
+  if (canonicalBytes(receipt) !== source) {
+    throw new GeneratedStateProducerBindingBlockedError(`${label} bytes are noncanonical.`);
+  }
+  return receipt;
+}
+
+function readGeneratedStateDisposalReceipt(
+  store: GeneratedStateRuntimeStore,
+  expected: Readonly<{
+    relativePath: string;
+    profile: GeneratedStateCleanupProfile;
+    registrationDigest: `sha256:${string}`;
+    retirementRef: `sha256:${string}`;
+    physical: GeneratedStatePhysicalIdentity;
+  }>
+): GeneratedStateDisposalReceipt | null {
+  const locator = generatedStateDisposalReceiptPath(store, expected);
+  if (!store.fs.exists(locator)) return null;
+  const receipt = parseGeneratedStateDisposalReceiptBytes(
+    store.fs.readText(locator),
+    `Generated-state disposal receipt ${expected.relativePath}`
+  );
+  if (receipt.relativePath !== expected.relativePath || receipt.profile !== expected.profile ||
+      receipt.registrationDigest !== expected.registrationDigest ||
+      receipt.retirementRef !== expected.retirementRef ||
+      !samePhysicalIdentity(receipt.physical, expected.physical)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal receipt differs from its owner key: ${expected.relativePath}.`
+    );
+  }
+  return receipt;
 }
 
 async function observeGeneratedStateRetirement(input: Readonly<{
@@ -3079,7 +3298,9 @@ export async function settleGeneratedState(input: Readonly<{
   )) {
     const registration = loadRegistration(store, entry.relativePath);
     const intent = loadCleanupIntent(store, entry.relativePath);
-    if (registration === null || intent === null || !sameIdentity(registration.root, intent.root)) {
+    if (registration === null || intent === null || intent.profile !== input.profile ||
+        intent.registrationDigest !== registration.registrationDigest ||
+        !sameIdentity(registration.root, intent.root)) {
       blockers.push(`${entry.relativePath}:retired-absent-root-without-valid-intent`);
       attempts.push(Object.freeze({
         relativePath: entry.relativePath,
@@ -3150,8 +3371,10 @@ export async function settleGeneratedState(input: Readonly<{
       }
       const tombstoneName = `q-${entry.registrationDigest!.slice('sha256:'.length, 'sha256:'.length + 48)}`;
       const intent = Object.freeze({
-        schema: 'sec-generated-state-cleanup-intent-v1',
+        schema: GENERATED_STATE_CLEANUP_INTENT_SCHEMA,
         beforeInventoryDigest: before.inventoryDigest,
+        profile: input.profile,
+        registrationDigest: entry.registrationDigest!,
         relativePath,
         root: entry.physicalIdentity,
         tombstoneName
@@ -3262,6 +3485,189 @@ export async function settleGeneratedState(input: Readonly<{
   return settlement;
 }
 
+async function disposeGeneratedStateRegistration(input: Readonly<{
+  repositoryRoot: string;
+  workspaceRoot?: string;
+  relativePath: string;
+  expectedRegistrationDigest: `sha256:${string}` | null;
+  outcome: string;
+  profile: GeneratedStateCleanupProfile;
+}>, options: GeneratedStateLifecycleOptions): Promise<GeneratedStateDisposalReceipt> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
+  const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
+  const rule = requireRule(relativePath);
+  if (!rule.cleanupProfiles.includes(input.profile)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal profile is not owned by ${relativePath}: ${input.profile}.`
+    );
+  }
+  const outcome = input.outcome.trim();
+  if (outcome.length === 0) {
+    throw new GeneratedStateProducerBindingBlockedError('Generated-state disposal outcome is empty.');
+  }
+  const initialStore = openRuntimeStoreReadOnly(workspaceRoot, options);
+  if (initialStore === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal has no durable registration store: ${relativePath}.`
+    );
+  }
+  const initial = readRegistrationLedgerObservation(initialStore, relativePath);
+  let registration = initial.registration ?? initial.retiredPredecessor;
+  if (registration === null || path.resolve(registration.repositoryRoot) !== repositoryRoot ||
+      registration.relativePath !== relativePath || registration.ruleId !== rule.id ||
+      registration.owner !== rule.owner || registration.producer !== rule.producer) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal registration is missing, foreign, or stale: ${relativePath}.`
+    );
+  }
+  const retirementAuthority = registration.phase === 'active'
+    ? registration
+    : initial.previousRegistration;
+  if (retirementAuthority === null || retirementAuthority.phase !== 'active' ||
+      !samePhysicalIdentity(retirementAuthority.root, registration.root)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal retirement predecessor is missing or foreign: ${relativePath}.`
+    );
+  }
+  const expectedRetirementRef = generatedStateOwnerRetirementRef(retirementAuthority, outcome);
+  if (initial.registration?.phase === 'active') {
+    if (input.expectedRegistrationDigest !== registration.registrationDigest) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state disposal is not bound to the active producer registration: ${relativePath}.`
+      );
+    }
+    registration = await retireGeneratedState({
+      repositoryRoot,
+      workspaceRoot,
+      relativePath,
+      expectedRegistrationDigest: registration.registrationDigest,
+      outcome
+    }, options);
+  } else if (registration.phase !== 'retired' || registration.retirementRef !== expectedRetirementRef) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal recovery differs from the owner retirement: ${relativePath}.`
+    );
+  }
+
+  const observedBeforeSettlement = observeRoot(workspaceRoot, relativePath);
+  if (observedBeforeSettlement.identity !== null &&
+      !samePhysicalIdentity(observedBeforeSettlement.identity, registration.root)) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal physical identity changed: ${relativePath}.`
+    );
+  }
+  if (rule.physicalForms.some(({ worktreeRetirement }) =>
+    worktreeRetirement.mode === 'domain-retire'
+  )) {
+    await disposeRetiredGeneratedStateDomain({
+      repositoryRoot,
+      workspaceRoot,
+      relativePath,
+      expected: Object.freeze({ physical: registration.root })
+    }, options);
+  }
+  if (observeRoot(workspaceRoot, relativePath).kind === 'missing') {
+    const recoveryStore = openRuntimeStoreReadOnly(workspaceRoot, options);
+    if (recoveryStore === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state disposal terminal store disappeared: ${relativePath}.`
+      );
+    }
+    const existingReceipt = readGeneratedStateDisposalReceipt(recoveryStore, Object.freeze({
+      relativePath,
+      profile: input.profile,
+      registrationDigest: registration.registrationDigest,
+      retirementRef: expectedRetirementRef,
+      physical: registration.root
+    }));
+    if (existingReceipt !== null) {
+      const recoveryLedger = readRegistrationLedgerObservation(recoveryStore, relativePath);
+      if (recoveryLedger.registration !== null ||
+          recoveryLedger.retiredPredecessor?.registrationDigest !== registration.registrationDigest ||
+          recoveryLedger.retiredPredecessor.retirementRef !== expectedRetirementRef) {
+        throw new GeneratedStateProducerBindingBlockedError(
+          `Generated-state disposal terminal ledger differs: ${relativePath}.`
+        );
+      }
+      await recoveryStore.assertCurrent();
+      issuedGeneratedStateDisposalReceipts.add(existingReceipt);
+      return existingReceipt;
+    }
+  }
+  const settlement = await settleGeneratedState({
+    repositoryRoot,
+    workspaceRoot,
+    profile: input.profile,
+    relativePaths: [relativePath]
+  }, options);
+  if ((settlement.terminal !== 'completed' && settlement.terminal !== 'no-op') ||
+      settlement.blockers.length > 0 || observeRoot(workspaceRoot, relativePath).kind !== 'missing') {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal did not reach one terminal physical absence: ${relativePath}.`
+    );
+  }
+  const terminalStore = openRuntimeStoreReadOnly(workspaceRoot, options);
+  if (terminalStore === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal terminal store disappeared: ${relativePath}.`
+    );
+  }
+  const terminalLedger = readRegistrationLedgerObservation(terminalStore, relativePath);
+  if (terminalLedger.registration !== null ||
+      terminalLedger.retiredPredecessor?.registrationDigest !== registration.registrationDigest ||
+      terminalLedger.retiredPredecessor.retirementRef !== expectedRetirementRef) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal terminal ledger differs: ${relativePath}.`
+    );
+  }
+  const material = Object.freeze({
+    schema: GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA,
+    relativePath,
+    profile: input.profile,
+    registrationDigest: registration.registrationDigest,
+    retirementRef: expectedRetirementRef,
+    physical: registration.root,
+    beforeInventoryDigest: settlement.beforeInventoryDigest,
+    afterInventoryDigest: settlement.afterInventoryDigest,
+    settlementDigest: settlement.settlementDigest,
+    terminal: 'disposed' as const
+  });
+  const receipt = Object.freeze({
+    ...material,
+    receiptDigest: generatedStateDigest(material)
+  });
+  const receiptStore = await openRuntimeStore(workspaceRoot, options);
+  const receiptKey = Object.freeze({
+    relativePath,
+    profile: input.profile,
+    registrationDigest: registration.registrationDigest,
+    retirementRef: expectedRetirementRef,
+    physical: registration.root
+  });
+  const receiptPath = generatedStateDisposalReceiptPath(receiptStore, receiptKey);
+  const receiptBytes = canonicalBytes(receipt);
+  if (!receiptStore.fs.createExclusiveFsync(receiptPath, receiptBytes)) {
+    const concurrentReceipt = readGeneratedStateDisposalReceipt(receiptStore, receiptKey);
+    if (concurrentReceipt === null) {
+      throw new GeneratedStateProducerBindingBlockedError(
+        `Generated-state disposal receipt disappeared after concurrent publication: ${relativePath}.`
+      );
+    }
+    await receiptStore.assertCurrent();
+    issuedGeneratedStateDisposalReceipts.add(concurrentReceipt);
+    return concurrentReceipt;
+  }
+  if (receiptStore.fs.readText(receiptPath) !== receiptBytes) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal receipt readback differs: ${relativePath}.`
+    );
+  }
+  await receiptStore.assertCurrent();
+  issuedGeneratedStateDisposalReceipts.add(receipt);
+  return receipt;
+}
+
 export function generatedStateProducerHooks(input: Readonly<{
   repositoryRoot: string;
   workspaceRoot?: string;
@@ -3291,7 +3697,10 @@ export function generatedStateProducerHooks(input: Readonly<{
     expected: GeneratedStateAbsentRegistrationExpectation,
     outcome: string
   ): Promise<GeneratedStateAbsentRegistrationSettlementReceipt>;
-  disposed(relativePath: string, outcome: string): Promise<void>;
+  disposed(
+    relativePath: string,
+    request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
+  ): Promise<GeneratedStateDisposalReceipt>;
 }> {
   const producerSession = new Map<string, `sha256:${string}`>();
   const requireProducerBinding = (relativePath: string): `sha256:${string}` => {
@@ -3355,31 +3764,17 @@ export function generatedStateProducerHooks(input: Readonly<{
       expected,
       outcome
     }, options),
-    disposed: async (relativePath, outcome) => {
+    disposed: async (relativePath, request) => {
       const normalized = normalizeGeneratedStateRelativePath(relativePath);
-      const registration = await retireGeneratedState({
+      const receipt = await disposeGeneratedStateRegistration({
         ...input,
         relativePath: normalized,
-        expectedRegistrationDigest: requireProducerBinding(normalized),
-        outcome
+        expectedRegistrationDigest: producerSession.get(normalized) ?? null,
+        outcome: request.outcome,
+        profile: request.profile
       }, options);
-      if (await disposeRetiredGeneratedStateDomain({
-        ...input,
-        relativePath: normalized,
-        expected: Object.freeze({ physical: registration.root })
-      }, options)) {
-        producerSession.delete(normalized);
-        return;
-      }
-      const receipt = await settleGeneratedState({
-        ...input,
-        profile: 'automatic',
-        relativePaths: [relativePath]
-      }, options);
-      if (receipt.terminal !== 'completed' && receipt.terminal !== 'no-op') {
-        throw new Error(`Generated-state disposal did not close: ${receipt.settlementDigest}`);
-      }
       producerSession.delete(normalized);
+      return receipt;
     }
   });
 }

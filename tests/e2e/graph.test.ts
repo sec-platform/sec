@@ -1,21 +1,19 @@
 import { expect, test } from 'bun:test';
-import fs from 'node:fs/promises';
 
-import type { UpgradeDiagnostics, UpgradePlan } from '../../src/change-management/upgrade/contract/types.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { buildExplainGraph, writeExplainGraph } from '../../src/compiler/emit/write-explain-graph.ts';
+import { buildExplainGraph } from '../../src/compiler/emit/write-explain-graph.ts';
 import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
 import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
 import { buildSemanticViewSet } from '../../src/compiler/projection/build-semantic-view-set.ts';
 import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
-import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
-import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { expectGraphEdge, expectGraphNode } from '../helpers/graph-assertions.ts';
 import { emptyPolicyScopeReport } from '../helpers/policy-fixtures.ts';
+import { buildUpgradeDiagnostics, buildUpgradePlanArtifact } from '../helpers/upgrade-fixtures.ts';
 import { prepareResolvedWorkspace } from '../testkit/workspace.ts';
 
 function emptyCoverage(): AcceptanceCoverageReport {
@@ -24,9 +22,7 @@ function emptyCoverage(): AcceptanceCoverageReport {
     status: 'passed',
     acceptancePassed: [],
     blocks: [],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
+    uncoveredBlocks: []
   };
 }
 
@@ -123,16 +119,14 @@ test('explain graph consumes canonical ports, policies, and policy violation gov
   );
   expect(violationEdges).toHaveLength(1);
 }, 180000);
-test('explain graph connects slot contract upgrade impacts to slots and files', async () => {
-  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-upgrade-slot-' });
+test('explain graph connects upgrade file operations to their block and durable files', async () => {
+  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-upgrade-file-' });
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
-  const upgradePlan: UpgradePlan = {
-    formatVersion: '1',
+  const upgradePlan = buildUpgradePlanArtifact({
     blockId: 'entity/customer-basic',
     fromVersion: '0.1.0',
     toVersion: '0.2.0',
-    status: 'planned',
     preflightChecks: [
       {
         id: 'version-range',
@@ -143,14 +137,17 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       {
         id: 'migration-entries',
         status: 'passed',
-        message: '1 migration entries loaded and validated',
-        evidence: ['mig-customer-normalizer-contract:migrations/customer-normalizer-contract.json']
+        message: '2 migration entries loaded and validated',
+        evidence: [
+          'mig-customer-normalizer-file:migrations/customer-normalizer-file.json',
+          'mig-upgrade-metadata:migrations/upgrade-metadata.json'
+        ]
       },
       {
         id: 'impact-scan',
         status: 'passed',
         message: '2 upgrade impacts calculated',
-        evidence: ['custom/customer_normalizer.ts', 'upgrade.metadata.json']
+        evidence: ['src/installed/entity/customer-service.ts', 'upgrade.metadata.json']
       },
       {
         id: 'override-conflicts',
@@ -159,27 +156,33 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         evidence: []
       }
     ],
-    impacts: ['custom/customer_normalizer.ts', 'upgrade.metadata.json'],
+    impacts: ['src/installed/entity/customer-service.ts', 'upgrade.metadata.json'],
     migrations: [
       {
-        id: 'mig-customer-normalizer-contract',
-        kind: 'slot-contract-update',
-        entry: 'migrations/customer-normalizer-contract.json',
+        id: 'mig-customer-normalizer-file',
+        kind: 'file-replace',
+        entry: 'migrations/customer-normalizer-file.json',
         requiresVerification: true
+      },
+      {
+        id: 'mig-upgrade-metadata',
+        kind: 'text-append',
+        entry: 'migrations/upgrade-metadata.json',
+        requiresVerification: false
       }
     ],
     migrationKindCounts: {
-      'slot-contract-update': 1,
+      'file-replace': 1,
       'text-append': 1
     },
     migrationSummaries: [
       {
-        id: 'mig-customer-normalizer-contract',
-        kind: 'slot-contract-update',
-        target: 'custom/customer_normalizer.ts',
-        reason: 'Update customer normalizer input contract to v2.',
+        id: 'mig-customer-normalizer-file',
+        kind: 'file-replace',
+        target: 'src/installed/entity/customer-service.ts',
+        reason: 'Replace the customer normalizer implementation.',
         requiresVerification: true,
-        slotId: 'customer_normalizer'
+        source: 'migrations/customer-normalizer-v2.ts'
       },
       {
         id: 'mig-upgrade-metadata',
@@ -191,11 +194,11 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
     ],
     migrationOperations: [
       {
-        id: 'mig-customer-normalizer-contract',
-        kind: 'slot-contract-update',
-        target: 'custom/customer_normalizer.ts',
-        role: 'slot',
-        slotId: 'customer_normalizer'
+        id: 'mig-customer-normalizer-file',
+        kind: 'file-replace',
+        target: 'src/installed/entity/customer-service.ts',
+        role: 'file',
+        source: 'migrations/customer-normalizer-v2.ts'
       },
       {
         id: 'mig-upgrade-metadata',
@@ -205,25 +208,22 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         contentLength: 24
       }
     ]
-  };
-  const diagnostics: UpgradeDiagnostics = {
-    formatVersion: '1',
-    status: 'blocked',
-    phase: 'planning',
+  });
+  const diagnostics = buildUpgradeDiagnostics({
     blockId: 'entity/customer-basic',
     targetVersion: '0.2.0',
     failedCheck: 'override-conflicts',
     errorCode: 'UPGRADE-CONFLICT-001',
     message: 'Override conflicts with upgrade',
     details: {
-      migrationId: 'mig-customer-normalizer-contract',
-      migrationKind: 'slot-contract-update',
-      entry: 'migrations/customer-normalizer-contract.json',
-      entryId: 'mig-customer-normalizer-contract-entry',
+      migrationId: 'mig-customer-normalizer-file',
+      migrationKind: 'file-replace',
+      entry: 'migrations/customer-normalizer-file.json',
+      entryId: 'mig-customer-normalizer-file-entry',
       entryKind: 'text-replace',
       rollbackStatus: 'restored'
     }
-  };
+  });
 
   const graph = await buildExplainGraph(
     workspaceRoot,
@@ -232,7 +232,6 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
     emptyCoverage(),
     null,
     upgradePlan,
-    null,
     diagnostics
   );
 
@@ -245,9 +244,9 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         label: 'entity/customer-basic 0.1.0 -> 0.2.0'
       },
       {
-        id: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        id: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
         type: 'upgrade',
-        label: 'mig-customer-normalizer-contract'
+        label: 'mig-customer-normalizer-file'
       },
       {
         id: 'upgrade-verification:required',
@@ -274,16 +273,15 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         type: 'upgrade',
         label: 'rollback restored'
       },
-      expect.objectContaining({
-        id: 'slot:entity/customer-basic:customer_normalizer',
-        type: 'slot',
-        label: 'customer_normalizer'
-      }),
-      { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' },
       {
-        id: 'file:migrations/customer-normalizer-contract.json',
+        id: 'file:src/installed/entity/customer-service.ts',
         type: 'file',
-        label: 'migrations/customer-normalizer-contract.json'
+        label: 'src/installed/entity/customer-service.ts'
+      },
+      {
+        id: 'file:migrations/customer-normalizer-file.json',
+        type: 'file',
+        label: 'migrations/customer-normalizer-file.json'
       },
       { id: 'file:upgrade.metadata.json', type: 'file', label: 'upgrade.metadata.json' }
     ])
@@ -295,7 +293,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       { from: 'upgrade:entity/customer-basic:0.2.0', to: 'file:upgrade.metadata.json', type: 'writes_to' },
       {
         from: 'upgrade:entity/customer-basic:0.2.0',
-        to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
         type: 'depends_on'
       },
       {
@@ -304,13 +302,13 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         type: 'depends_on'
       },
       {
-        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
         to: 'upgrade-verification:required',
         type: 'depends_on'
       },
       {
-        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
-        to: 'file:custom/customer_normalizer.ts',
+        from: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
+        to: 'file:src/installed/entity/customer-service.ts',
         type: 'writes_to'
       },
       {
@@ -323,8 +321,6 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
         to: 'file:upgrade.metadata.json',
         type: 'writes_to'
       },
-      { from: 'block:entity/customer-basic', to: 'slot:entity/customer-basic:customer_normalizer', type: 'connects_to' },
-      { from: 'slot:entity/customer-basic:customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' },
       {
         from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
         to: 'upgrade:entity/customer-basic:0.2.0',
@@ -332,7 +328,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       },
       {
         from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
-        to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-contract',
+        to: 'upgrade:entity/customer-basic:0.2.0:migration:mig-customer-normalizer-file',
         type: 'connects_to'
       },
       {
@@ -342,7 +338,7 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       },
       {
         from: 'upgrade:entity/customer-basic:0.2.0:diagnostics',
-        to: 'file:migrations/customer-normalizer-contract.json',
+        to: 'file:migrations/customer-normalizer-file.json',
         type: 'connects_to'
       },
       {
@@ -352,107 +348,4 @@ test('explain graph connects slot contract upgrade impacts to slots and files', 
       }
     ])
   );
-}, 180000);
-test('explain graph connects repair tasks to slots and files', async () => {
-  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-repair-' });
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
-  const repairPlan: RepairPlan = {
-    formatVersion: '1',
-    status: 'pending',
-    sourceVerificationStatus: 'failed',
-    requiresVerification: false,
-    tasks: [
-      {
-        taskId: 'repair_customer_normalizer',
-        taskKind: 'repair-slot',
-        category: 'slot-rewrite',
-        phase: 'repair',
-        sourceSlotId: 'customer_normalizer',
-        targetBlock: 'entity/customer-basic',
-        targetFile: 'custom/customer_normalizer.ts',
-        allowedPaths: ['custom/customer_normalizer.ts'],
-        requiredSymbols: [],
-        forbiddenOperations: [],
-        testsToPass: [],
-        failureSummary: 'unit failed',
-        failurePoints: []
-      }
-    ]
-  };
-
-  const graph = await buildExplainGraph(workspaceRoot, lock, { formatVersion: '1', artifacts: [] }, emptyCoverage(), null, null, repairPlan);
-
-  const repairNodeIds = new Set([
-    'repair:repair_customer_normalizer',
-    'repair-category:slot-rewrite',
-    'slot:entity/customer-basic:customer_normalizer',
-    'file:custom/customer_normalizer.ts'
-  ]);
-
-  const repairNodes = graph.nodes.filter((node) => repairNodeIds.has(node.id));
-  expect(repairNodes).toHaveLength(4);
-  expect(repairNodes).toEqual(
-    expect.arrayContaining([
-      { id: 'repair:repair_customer_normalizer', type: 'repair', label: 'repair_customer_normalizer' },
-      { id: 'repair-category:slot-rewrite', type: 'repair', label: 'slot-rewrite' },
-      expect.objectContaining({
-        id: 'slot:entity/customer-basic:customer_normalizer',
-        type: 'slot',
-        label: 'customer_normalizer'
-      }),
-      { id: 'file:custom/customer_normalizer.ts', type: 'file', label: 'custom/customer_normalizer.ts' }
-    ])
-  );
-
-  const repairEdges = graph.edges.filter((edge) => edge.from === 'repair:repair_customer_normalizer');
-  expect(repairEdges).toHaveLength(3);
-  expect(repairEdges).toEqual(
-    expect.arrayContaining([
-      { from: 'repair:repair_customer_normalizer', to: 'repair-category:slot-rewrite', type: 'depends_on' },
-      { from: 'repair:repair_customer_normalizer', to: 'slot:entity/customer-basic:customer_normalizer', type: 'connects_to' },
-      { from: 'repair:repair_customer_normalizer', to: 'file:custom/customer_normalizer.ts', type: 'writes_to' }
-    ])
-  );
-}, 180000);
-test('writeExplainGraph does not require a policy report', async () => {
-  const workspaceRoot = await prepareResolvedWorkspace({ prefix: 'engineering-compiler-explain-no-policy-' });
-  const acceptanceCoveragePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.acceptanceCoverage);
-  const explainGraphDotPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphDot);
-  const explainGraphMermaidPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraphMermaid);
-  const explainGraphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
-  const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
-  const policyReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
-  const provenancePath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.provenance);
-  const lock = await attachSemanticViews(workspaceRoot, await readJson<LockFile>(lockPath));
-  const provenance: ProvenanceFile = {
-    formatVersion: '1',
-    artifacts: []
-  };
-  await writeJson(acceptanceCoveragePath, emptyCoverage());
-  await fs.rm(policyReportPath, { force: true });
-
-  const graph = await writeExplainGraph(workspaceRoot, lock, provenance);
-  const writtenGraph = await readJson<typeof graph>(explainGraphPath);
-  const writtenLock = await readJson<typeof lock>(lockPath);
-  const writtenProvenance = await readJson<ProvenanceFile>(provenancePath);
-  const mermaid = await fs.readFile(explainGraphMermaidPath, 'utf8');
-  const dot = await fs.readFile(explainGraphDotPath, 'utf8');
-
-  expectGraphNode(graph, { type: 'port' });
-  expectGraphNode(graph, { type: 'policy' });
-  expect(writtenGraph.nodes).toEqual(graph.nodes);
-  expect(mermaid).toContain('flowchart TD');
-  expect(mermaid).toContain('app_customer_admin["customer-admin (app)"]');
-  expect(mermaid).toContain('block_entity_customer_basic["entity/customer-basic (block)"]');
-  expect(mermaid).toContain('app_customer_admin -- contains --> block_entity_customer_basic');
-  expect(dot).toContain('digraph ExplainGraph {');
-  expect(dot).toContain('"app:customer-admin" [label="customer-admin (app)"];');
-  expect(dot).toContain('"app:customer-admin" -> "block:entity/customer-basic" [label="contains"];');
-  const explainArtifacts = [
-    ...CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
-    CI_ARTIFACT_FILES.provenance
-  ];
-  expect(writtenLock.generatedPaths).toEqual(expect.arrayContaining(explainArtifacts));
-  expect(writtenProvenance.artifacts.map((artifact) => artifact.path)).toEqual(expect.arrayContaining(explainArtifacts));
 }, 180000);

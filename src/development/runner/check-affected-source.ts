@@ -1,11 +1,26 @@
 import { compileRepositorySourceProgramCompilation } from '../../brownfield/source-program-model/repository-compilation.ts';
-import { issueTestImpactProjection } from '../../brownfield/source-program-model/test-impact-projection.ts';
+import {
+  issueTestImpactProjection,
+  type IssuedTestImpactProjection
+} from '../../brownfield/source-program-model/test-impact-projection.ts';
 import {
   acquireWorkingTreeWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput
+  compileWorkspaceTypeScriptProjectInput,
+  issueWorkspaceTypeScriptProjectGenerationEvidence,
+  type WorkspaceTypeScriptProjectGenerationEvidence
 } from '../../brownfield/source-program-model/workspace-source-snapshot.ts';
+import type { GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
 import { tsconfigRelativePath } from '../../workspace/runtime/paths.ts';
-import type { AffectedTestImpactProjectionIssuer } from './test-runner.ts';
+
+export type AffectedTestImpactProjectionIssuer = (
+  input: Readonly<{
+    repositoryRoot: string;
+    session: GitReadSession;
+  }>
+) => Promise<Readonly<{
+  projection: IssuedTestImpactProjection;
+  projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
+}>>;
 
 /** Private signer for one check:affected logical operation. */
 export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectionIssuer = async (
@@ -23,13 +38,16 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
     projectInput,
     repositoryRoot: input.repositoryRoot
   });
-  if (compilation.projectGeneration === null) {
-    throw new Error('check:affected Source Program project generation is unavailable');
-  }
-  return issueTestImpactProjection({
-    workspaceSnapshot,
-    projectGeneration: compilation.projectGeneration,
-    typeScriptModel: compilation.typeScriptCompilation.model,
-    testObservations: compilation.testObservations
+  return Object.freeze({
+    projection: issueTestImpactProjection({
+      workspaceSnapshot,
+      projectGeneration: compilation.projectGeneration,
+      typeScriptModel: compilation.typeScriptCompilation.model,
+      testObservations: compilation.testObservations
+    }),
+    projectGenerationEvidence: issueWorkspaceTypeScriptProjectGenerationEvidence(
+      workspaceSnapshot,
+      projectInput
+    )
   });
 };

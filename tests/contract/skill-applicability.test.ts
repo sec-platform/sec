@@ -72,7 +72,6 @@ function planInput(overrides: {
   role?: SecAgentRole;
   operationKind?: SecOperationKind;
   candidates?: readonly SecAgentSkillId[];
-  availableCapabilities?: readonly string[];
   authorizedResources?: readonly string[];
   authorizedGates?: readonly string[];
   writePaths?: readonly string[];
@@ -109,7 +108,6 @@ function planInput(overrides: {
           ? observedChangedPaths
           : ['platform/shared/']),
         forbiddenPaths: overrides.forbiddenPaths ?? [],
-        availableCapabilities: overrides.availableCapabilities ?? ['git', 'github', 'hosted-gate'],
         authorizedResources: overrides.authorizedResources ?? [],
         authorizedGates: overrides.authorizedGates ?? [],
         changedPaths: observedChangedPaths
@@ -122,7 +120,8 @@ function planInput(overrides: {
       ref: 'docs/development-governance.md',
       owner: 'development-governance-owner',
       revision: 'owner-revision-v1',
-      reasonCode: 'canonical-operation-owner'
+      reasonCode: 'canonical-operation-owner',
+      projection: null
     }],
     conditionalRefs: [],
     forbiddenSources: [
@@ -186,15 +185,19 @@ test('multiple surviving metadata candidates resolve ambiguous before any body r
   expect(decision.selectedSkillId).toBeNull();
 });
 
-test('Skill write surface beyond frozen scope resolves conflict', () => {
+test('Skill selection remains orthogonal to Task Capsule write and resource authority', () => {
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
     candidates: ['sec-architecture-evolution'],
-    forbiddenPaths: ['docs/']
+    writePaths: [],
+    forbiddenPaths: ['docs/'],
+    authorizedResources: ['github-api'],
+    authorizedGates: ['hosted-gate']
   }));
-  expect(decision.status).toBe('conflict');
-  expect(decision.reasonCodes).toContain('conflict-write-path');
+  expect(decision.status).toBe('applicable');
+  expect(decision.selectedSkillId).toBe('sec-architecture-evolution');
+  expect('scopeConflicts' in decision).toBeFalse();
 });
 
 test('candidate quarantine revisions are derived from exact Git objects', () => {

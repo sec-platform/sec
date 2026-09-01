@@ -29,14 +29,13 @@ import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
 import {
   getWorkspacePaths,
   resolveWorkspaceArtifactPath
-} from '../../src/workspace/paths.ts';
+} from '../../src/workspace/runtime/paths.ts';
 import {
   expectGraphEdge,
   expectReviewConflictHint,
   expectReviewRegressionRisk
 } from '../helpers/graph-assertions.ts';
 import {
-  prepareAdaptedWorkspace,
   prepareLockedWorkspace,
   withTempWorkspace
 } from '../testkit/workspace.ts';
@@ -119,7 +118,6 @@ test('compile coordinator runs resolve and compose in one committed transaction'
       resolve: 'succeeded',
       'build-ir': 'succeeded',
       compose: 'succeeded',
-      adapt: 'pending',
       verify: 'pending',
       repair: 'skipped',
       lock: 'pending',

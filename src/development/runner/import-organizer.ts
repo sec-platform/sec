@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
+import type { GeneratedStateCleanupProfile, GeneratedStateDisposalReceipt } from '../../runtime-state/generated-state/contract.ts';
+import { assertGeneratedStateDisposalReceipt } from '../../runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, type RetainedNoFollowChildProcessDirectory } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 
 import { CompilerError } from '../../compiler/errors.ts';
@@ -113,6 +115,7 @@ interface StagedIndexEntry {
 
 interface StagedImportUpdate {
   readonly entry: StagedIndexEntry;
+  readonly expectedBytes: Buffer;
   readonly normalizedBytes: Buffer;
   readonly normalizedObjectId: string;
 }
@@ -120,11 +123,15 @@ interface StagedImportUpdate {
 interface StagedImportOrganizerTestHooks {
   readonly beforeHash?: (fileName: string) => void;
   readonly afterIndexLock?: () => void | Promise<void>;
+  readonly beforeSynchronizedIndexPublish?: () => void | Promise<void>;
   readonly candidateContext?: (mode: 'working-tree' | 'snapshot') => void | Promise<void>;
   readonly beforeCandidateSnapshotWrite?: (snapshotRoot: string) => void | Promise<void>;
   readonly generatedStateLifecycle?: Readonly<{
     born(relativePath: string, operationId: string): Promise<void>;
-    disposed(relativePath: string, outcome: string): Promise<void>;
+    disposed(
+      relativePath: string,
+      request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
+    ): Promise<GeneratedStateDisposalReceipt>;
   }>;
 }
 
@@ -543,11 +550,14 @@ function absoluteRepositoryPath(projectRoot: string, gitPath: string): string {
 
 type ImportSnapshotLifecycleOwner = Readonly<{
   born(relativePath: string, operationId: string): Promise<void>;
-  disposed(relativePath: string, outcome: string): Promise<void>;
+  disposed(
+    relativePath: string,
+    request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
+  ): Promise<GeneratedStateDisposalReceipt>;
 }>;
 
 type ImportSnapshotLifecycleReceipt = Readonly<{
-  dispose(outcome: string): Promise<void>;
+  dispose(outcome: string): Promise<GeneratedStateDisposalReceipt>;
 }>;
 
 function issueImportSnapshotLifecycleReceipt(
@@ -555,7 +565,14 @@ function issueImportSnapshotLifecycleReceipt(
   relativePath: string
 ): ImportSnapshotLifecycleReceipt {
   return Object.freeze({
-    dispose: (outcome) => owner.disposed(relativePath, outcome)
+    dispose: async (outcome) => {
+      const receipt = await owner.disposed(relativePath, { outcome, profile: 'automatic' });
+      assertGeneratedStateDisposalReceipt(receipt);
+      if (receipt.relativePath !== relativePath || receipt.profile !== 'automatic') {
+        throw new Error('Import snapshot lifecycle disposal receipt differs from its owner request.');
+      }
+      return receipt;
+    }
   });
 }
 
@@ -844,8 +861,12 @@ function assertIndexUnchanged(
   candidateBase: string | undefined
 ): void {
   const currentTargets = stagedTypeScriptTargets(projectRoot, candidateBase);
-  if (!canonicalEquals(currentTargets, targetPaths)) {
-    throw new Error('Git index changed while organizing staged TypeScript imports');
+  const targetSet = new Set(targetPaths);
+  const unexpectedTargets = currentTargets.filter((targetPath) => !targetSet.has(targetPath));
+  if (unexpectedTargets.length > 0) {
+    throw new Error(
+      `Git index gained an unexpected TypeScript target while organizing staged imports: ${unexpectedTargets.join(', ')}`
+    );
   }
   const currentEntries = selectStagedEntries(readIndexEntries(projectRoot), targetPaths);
   if (!canonicalEquals(currentEntries, selectedEntries)) {
@@ -861,6 +882,35 @@ async function publishStagedIndex(
   testHooks: StagedImportOrganizerTestHooks,
   candidateBase: string | undefined
 ): Promise<void> {
+  const publication = await prepareStagedIndexPublication(
+    projectRoot,
+    targetPaths,
+    selectedEntries,
+    updates,
+    testHooks,
+    candidateBase
+  );
+  try {
+    await publication.commit();
+  } finally {
+    await publication.dispose();
+  }
+}
+
+type PreparedStagedIndexPublication = Readonly<{
+  commit(): Promise<void>;
+  dispose(): Promise<void>;
+  isPublished(): boolean;
+}>;
+
+async function prepareStagedIndexPublication(
+  projectRoot: string,
+  targetPaths: readonly string[],
+  selectedEntries: readonly StagedIndexEntry[],
+  updates: readonly StagedImportUpdate[],
+  testHooks: StagedImportOrganizerTestHooks,
+  candidateBase: string | undefined
+): Promise<PreparedStagedIndexPublication> {
   const indexPath = gitIndexPath(projectRoot);
   const lockPath = `${indexPath}.lock`;
   const alternateIndexPath = `${indexPath}.imports-staged-${process.pid}-${randomUUID()}`;
@@ -911,17 +961,38 @@ async function publishStagedIndex(
     );
 
     const completedIndex = await fs.readFile(alternateIndexPath);
-    await lock.writeFile(completedIndex);
-    await lock.sync();
-    await lock.close();
-    lock = null;
-    await fs.rename(lockPath, indexPath);
-    published = true;
-  } finally {
+    return Object.freeze({
+      commit: async () => {
+        if (published || lock === null) {
+          throw new Error('Prepared staged index publication is no longer live');
+        }
+        await lock.writeFile(completedIndex);
+        await lock.sync();
+        await lock.close();
+        lock = null;
+        await fs.rename(lockPath, indexPath);
+        published = true;
+        if (!(await fs.readFile(indexPath)).equals(completedIndex)) {
+          throw new Error('Published Git index bytes failed exact readback');
+        }
+      },
+      dispose: async () => {
+        if (lock !== null) {
+          await lock.close().catch(() => undefined);
+          lock = null;
+        }
+        await fs.rm(alternateLockPath, { force: true }).catch(() => undefined);
+        await fs.rm(alternateIndexPath, { force: true }).catch(() => undefined);
+        if (ownsLock && !published) await fs.rm(lockPath, { force: true }).catch(() => undefined);
+      },
+      isPublished: () => published
+    });
+  } catch (error) {
     if (lock !== null) await lock.close().catch(() => undefined);
     await fs.rm(alternateLockPath, { force: true }).catch(() => undefined);
     await fs.rm(alternateIndexPath, { force: true }).catch(() => undefined);
     if (ownsLock && !published) await fs.rm(lockPath, { force: true }).catch(() => undefined);
+    throw error;
   }
 }
 
@@ -992,6 +1063,7 @@ async function computeStagedImportUpdates(
       }
       updates.push(Object.freeze({
         entry,
+        expectedBytes: Buffer.from(result.source.bytes),
         normalizedBytes: result.replacementBytes,
         normalizedObjectId
       }));
@@ -1048,7 +1120,7 @@ export async function runStagedImportCheck(
   }
 }
 
-export async function runStagedImportOrganizer(
+export async function runStagedIndexOnlyImportOrganizer(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
   selection: StagedImportSelection = {}
@@ -1080,13 +1152,169 @@ export async function runStagedImportOrganizer(
   }
 }
 
+async function assertSynchronizedWorktreePreimages(
+  projectRoot: string,
+  updates: readonly StagedImportUpdate[]
+): Promise<void> {
+  for (const update of updates) {
+    const absolutePath = absoluteRepositoryPath(projectRoot, update.entry.path);
+    let metadata: Awaited<ReturnType<typeof fs.lstat>>;
+    let bytes: Buffer;
+    try {
+      metadata = await fs.lstat(absolutePath);
+      bytes = await fs.readFile(absolutePath);
+    } catch (error) {
+      throw new CompilerError(
+        'IMPORT-STAGED-WORKTREE-DIVERGED',
+        `Cannot synchronize staged imports because the worktree preimage is unavailable: ${update.entry.path}`,
+        { path: update.entry.path, cause: String(error) }
+      );
+    }
+    if (!metadata.isFile() || metadata.isSymbolicLink() || !bytes.equals(update.expectedBytes)) {
+      throw new CompilerError(
+        'IMPORT-STAGED-WORKTREE-DIVERGED',
+        `Cannot synchronize staged imports because index and worktree bytes differ: ${update.entry.path}`,
+        { path: update.entry.path }
+      );
+    }
+  }
+}
+
+function synchronizedWorktreeWrites(
+  updates: readonly StagedImportUpdate[],
+  direction: 'forward' | 'rollback'
+): readonly Readonly<{
+  relativePath: string;
+  expectedBytes: Buffer;
+  replacementBytes: Buffer;
+}>[] {
+  return Object.freeze(updates.map((update) => Object.freeze({
+    relativePath: update.entry.path,
+    expectedBytes: Buffer.from(direction === 'forward' ? update.expectedBytes : update.normalizedBytes),
+    replacementBytes: Buffer.from(direction === 'forward' ? update.normalizedBytes : update.expectedBytes)
+  })));
+}
+
+/**
+ * Author-facing staged apply owns both visible source images. It refuses a
+ * partial-stage preimage before any publication, then holds the real Git index
+ * lock while the canonical durable worktree transaction publishes and reads
+ * back the same replacement bytes. A failure before index publication is
+ * rolled back through that same transaction owner; its journal paths are
+ * returned in the typed failure instead of asking callers to reconstruct bytes
+ * from stdout or `git show` presentation.
+ */
+export async function runSynchronizedStagedImportOrganizer(
+  projectRoot = compilerRoot,
+  testHooks: StagedImportOrganizerTestHooks = {},
+  selection: StagedImportSelection = {}
+): Promise<number> {
+  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection);
+  if (computed === null) {
+    console.log('No staged TypeScript import targets selected.');
+    return 0;
+  }
+  let indexPublication: PreparedStagedIndexPublication | null = null;
+  let forwardJournalPath: string | null = null;
+  try {
+    if (computed.updates.length === 0) {
+      console.log('Staged TypeScript imports are organized.');
+      return 0;
+    }
+    await assertSynchronizedWorktreePreimages(projectRoot, computed.updates);
+    indexPublication = await prepareStagedIndexPublication(
+      projectRoot,
+      computed.targetPaths,
+      computed.selectedEntries,
+      computed.updates,
+      testHooks,
+      computed.candidateBase
+    );
+    await assertSynchronizedWorktreePreimages(projectRoot, computed.updates);
+    const forward = await publishImportTransformTransaction(
+      projectRoot,
+      synchronizedWorktreeWrites(computed.updates, 'forward')
+    );
+    forwardJournalPath = forward.journalPath;
+    if (forward.status !== 'accepted') {
+      throw new CompilerError(
+        'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
+        `Synchronized staged import worktree publication did not reach accepted: ${forward.status}`,
+        { journalPath: forward.journalPath, reasonCode: forward.reasonCode }
+      );
+    }
+    try {
+      await testHooks.beforeSynchronizedIndexPublish?.();
+      await indexPublication.commit();
+    } catch (error) {
+      if (indexPublication.isPublished()) {
+        throw new CompilerError(
+          'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
+          'Synchronized staged import index publication crossed its atomic rename but exact readback failed.',
+          { forwardJournalPath, cause: String(error) }
+        );
+      }
+      const rollback = await publishImportTransformTransaction(
+        projectRoot,
+        synchronizedWorktreeWrites(computed.updates, 'rollback')
+      );
+      if (rollback.status !== 'accepted') {
+        throw new CompilerError(
+          'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
+          'Synchronized staged import publication and rollback require owner recovery.',
+          {
+            forwardJournalPath,
+            rollbackJournalPath: rollback.journalPath,
+            rollbackStatus: rollback.status,
+            rollbackReasonCode: rollback.reasonCode,
+            cause: String(error)
+          }
+        );
+      }
+      throw new CompilerError(
+        'IMPORT-STAGED-SYNC-ROLLED-BACK',
+        'Synchronized staged import publication failed before index commit and was rolled back exactly.',
+        { forwardJournalPath, rollbackJournalPath: rollback.journalPath, cause: String(error) }
+      );
+    }
+    for (const update of computed.updates) {
+      const worktreeBytes = await fs.readFile(absoluteRepositoryPath(projectRoot, update.entry.path));
+      if (!worktreeBytes.equals(update.normalizedBytes)) {
+        throw new CompilerError(
+          'IMPORT-STAGED-SYNC-RECOVERY-REQUIRED',
+          `Synchronized staged import worktree readback drifted: ${update.entry.path}`,
+          { path: update.entry.path, forwardJournalPath }
+        );
+      }
+    }
+    const normalizedByPath = new Map(computed.updates.map((update) => [
+      update.entry.path,
+      update.normalizedObjectId
+    ]));
+    assertIndexUnchanged(
+      projectRoot,
+      computed.targetPaths,
+      computed.selectedEntries.map((entry) => Object.freeze({
+        ...entry,
+        objectId: normalizedByPath.get(entry.path) ?? entry.objectId
+      })),
+      computed.candidateBase
+    );
+    console.log(`Synchronized staged imports in ${computed.updates.length} file(s); exact index and worktree readback accepted.`);
+    return 0;
+  } finally {
+    await indexPublication?.dispose();
+    await disposeStagedComputation(computed);
+  }
+}
+
 export async function runCandidateImportOrganizer(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
   env: ImportSelectionEnvironment = process.env
 ): Promise<number> {
   const candidateBase = resolveCandidateImportBase(projectRoot, undefined, env);
-  return runStagedImportOrganizer(projectRoot, testHooks, { candidateBase });
+  return runStagedIndexOnlyImportOrganizer(projectRoot, testHooks, { candidateBase });
 }
 
 export async function runCandidateImportCheck(

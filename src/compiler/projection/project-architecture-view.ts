@@ -17,7 +17,6 @@ const ARCHITECTURE_ENTITY_KINDS = new Set<SemanticEntityKind>([
   'block',
   'capability',
   'port',
-  'slot',
   'entity',
   'field',
   'responsibility',

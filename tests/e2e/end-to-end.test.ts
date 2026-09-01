@@ -3,7 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  adaptWorkspace,
   composeWorkspace,
   explainWorkspace,
   initWorkspace,
@@ -13,7 +12,7 @@ import {
 } from '../../src/compiler/orchestration/cli.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/graph-assertions.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
@@ -29,22 +28,14 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   await initWorkspace(workspaceRoot, { template: 'reference-customer' });
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
   expect(resolvedLock.resolvedBlocks.length).toBe(3);
-  expect(resolvedLock.slotTasks.length).toBe(1);
 
   await composeWorkspace(workspaceRoot);
-  const skeleton = await fs.readFile(
-    path.join(resolvedWorkspaceRoot, 'custom', 'customer_normalizer.ts'),
+  const installedCustomerService = await fs.readFile(
+    path.join(resolvedWorkspaceRoot, 'src', 'installed', 'entity', 'customer-service.ts'),
     'utf8'
   );
-  expect(skeleton).toMatch(/Not implemented/);
-
-  await adaptWorkspace(workspaceRoot);
-  const synthesized = await fs.readFile(
-    path.join(resolvedWorkspaceRoot, 'custom', 'customer_normalizer.ts'),
-    'utf8'
-  );
-  expect(synthesized).toMatch(/normalizeCustomerInput/);
-  expect(synthesized).toMatch(/Unknown/);
+  expect(installedCustomerService).toMatch(/normalizeCustomerInput/);
+  expect(installedCustomerService).toMatch(/Unknown/);
 
   const { report } = await verifyWorkspace(workspaceRoot);
   expect(report.summary.status).toBe('passed');
@@ -64,11 +55,10 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   const provenance = await readJson<{
     artifacts: Array<{ path: string; originType: string }>;
   }>(provenancePath);
-  expect(
-    provenance.artifacts.some(
-      (artifact) => artifact.path === 'custom/customer_normalizer.ts' && artifact.originType === 'slot'
-    )
-  ).toBe(true);
+  expect(provenance.artifacts).toContainEqual(expect.objectContaining({
+    path: 'src/installed/entity/customer-service.ts',
+    originType: 'block'
+  }));
 
   const runtimeReport = await readJson<{
     status: string;
@@ -86,11 +76,9 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   const coverage = await readJson<{
     status: string;
     uncoveredBlocks: string[];
-    uncoveredSlots: string[];
   }>(acceptanceCoveragePath);
   expect(coverage.status).toBe('passed');
   expect(coverage.uncoveredBlocks).toHaveLength(0);
-  expect(coverage.uncoveredSlots).toHaveLength(0);
 
   const policyReport = await readJson<{
     status: string;
@@ -109,7 +97,6 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
   const { graph, reviewSummary } = await explainWorkspace(workspaceRoot);
   const explainedLockState = await readJson<{ passStatus: { emit: string } }>(lockPath);
   expect(explainedLockState.passStatus.emit).toBe('succeeded');
-  expectGraphNode(graph, { id: 'slot:entity/customer-basic:customer_normalizer' });
   expectGraphNode(graph, { id: 'port:entity/customer-basic:input:tenant_context', type: 'port' });
   expectGraphNode(graph, { id: 'pin:entity/customer-basic:input:tenant_context', type: 'pin' });
   expectGraphEdge(graph, {
@@ -139,12 +126,6 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
     to: 'file:src/installed/entity/customer-service.ts',
     type: 'connects_to'
   });
-  expectGraphEdge(graph, { type: 'writes_to', to: 'file:source/code/slots/customer_normalizer.ts' });
-  expectGraphEdge(graph, {
-    type: 'connects_to',
-    from: 'file:source/code/slots/customer_normalizer.ts',
-    to: 'file:custom/customer_normalizer.ts'
-  });
   expectNoGraphEdge(graph, { type: 'violates' });
   expect(graph.overlays.coverage.blocks.every((entry) => Array.isArray(entry.coveredBy))).toBe(true);
   expect(reviewSummary.ciSummary.status).toBe('passed');
@@ -157,26 +138,15 @@ test('v0.1 reference pipeline runs end to end in a temporary workspace', async (
     overrideSummaryCount: expect.any(Number),
     registrySummaryCount: expect.any(Number),
     originSummaries: expect.arrayContaining([
-      expect.objectContaining({ originType: 'block' }),
-      expect.objectContaining({ originType: 'slot' })
+      expect.objectContaining({ originType: 'block' })
     ])
   });
   expect(reviewSummary.provenanceSummary?.artifactCount).toBeGreaterThan(0);
   expect(reviewSummary.coverageSummary).toMatchObject({
     status: 'passed',
     blockCount: 3,
-    slotCount: 1,
     coveredBlockCount: 3,
-    coveredSlotCount: 1,
-    uncoveredBlockCount: 0,
-    uncoveredSlotCount: 0,
-    slotSummaries: [
-      {
-        id: 'customer_normalizer',
-        coveredByCount: 2,
-        coveredBy: ['tenant_only_sees_own_customers', 'user_can_create_customer']
-      }
-    ]
+    uncoveredBlockCount: 0
   });
   expect(reviewSummary.failurePoints).toHaveLength(0);
   expect(reviewSummary.regressionRisks).toHaveLength(0);

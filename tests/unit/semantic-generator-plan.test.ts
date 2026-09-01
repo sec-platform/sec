@@ -39,7 +39,6 @@ function input(): BuildEngineeringIRInput {
         }]
       }
     }],
-    slotTasks: [],
     acceptanceIds: ['item_can_transition'],
     policyDeclarations: [],
     semanticContracts: [{

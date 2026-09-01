@@ -72,7 +72,6 @@ export const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
   'node:util/types',
   'diff',
   'p-limit',
-  'ts-morph',
   'typescript',
   'yaml'
 ]);
@@ -238,7 +237,8 @@ export function runtimeRelativeImportsFromSource(
   );
   const isRuntimeLocallyBoundIdentifier = (identifier: ts.Identifier): boolean => {
     const declaration = localSymbol(identifier)?.valueDeclaration;
-    return declaration !== undefined && (declaration.flags & ts.NodeFlags.Ambient) === 0;
+    return declaration !== undefined
+      && (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Ambient) === 0;
   };
   const specifiers: string[] = [];
   const bunProcessBindings = new Map<string, string>();

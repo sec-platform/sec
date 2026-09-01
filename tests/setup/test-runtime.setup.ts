@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os';
 
 import { createTestProcessTempRootV1 } from '../../src/development/runner/test-process-temp.ts';
-import { compilerRoot } from '../../src/workspace/paths.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 declare const afterAll: (callback: () => void) => void;
 

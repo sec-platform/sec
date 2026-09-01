@@ -7,7 +7,6 @@
       "operations": [
         "runCommand",
         "runCommandBytes",
-        "runCommandWithRetry",
         "runObservedCommand",
         "openProcessResourceSession",
         "runRetainedCommand",
@@ -20,15 +19,158 @@
       "ownerInternalOperations": [
         "runCommand",
         "runCommandBytes",
-        "runCommandWithRetry",
         "runObservedCommand",
         "runRetainedCommand",
         "runRetainedCommandBytes",
         "resolveExecutableLocator"
       ]
+    },
+    {
+      "capability": "process.settlement-receipt",
+      "operations": [
+        "assertProcessResourceSessionReceipt"
+      ],
+      "operationRoles": []
+    },
+    {
+      "capability": "runtime-state.physical",
+      "operations": [
+        "censusRetainedRuntimeGenerations",
+        "materializeRetainedTypeScriptExecutionGeneration",
+        "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot",
+        "openRetainedWindowsRuntimeStateDirectory",
+        "observeRetainedRuntimeEndpointResidue",
+        "retainCommandAuxiliaryOrdinaryFiles"
+      ],
+      "effectKinds": [
+        "filesystem"
+      ],
+      "ownerInternalOperations": [
+        "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot"
+      ],
+      "operationRoles": []
     }
   ],
   "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.physical",
+        "operation": "retainCommandAuxiliaryOrdinaryFiles"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "brownfield.repository-audit"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "physical-auxiliary-file-admission-failed",
+          "physical-auxiliary-file-settlement-failed"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "records",
+            "maximum": 8
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.physical",
+        "operation": "materializeRetainedTypeScriptExecutionGeneration"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "toolchain.typescript"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "runtime-physical-typescript-generation-invalid",
+          "runtime-physical-typescript-generation-residue"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 536870912
+          },
+          {
+            "resource": "records",
+            "maximum": 500000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.physical",
+        "operation": "censusRetainedRuntimeGenerations"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "external-capabilities.docker"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "runtime-generation-census-inaccessible",
+          "runtime-generation-census-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
     {
       "operation": {
         "kind": "capability",
@@ -37,6 +179,8 @@
       },
       "consumerSupport": {
         "consumers": [
+          "brownfield.repository-audit",
+          "development.runner",
           "external-capabilities.docker",
           "external-capabilities.git-read",
           "verification.action"
@@ -81,6 +225,100 @@
       "futureSupport": {
         "condition": "semantic-superset-required"
       }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.physical",
+        "operation": "openRetainedWindowsRuntimeStateDirectory"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "external-capabilities.docker"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "runtime-state-directory-invalid",
+          "runtime-state-directory-open-failed"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "runtime-state.physical",
+        "operation": "observeRetainedRuntimeEndpointResidue"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "external-capabilities.docker"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "runtime-endpoint-identity-drift",
+          "runtime-endpoint-observation-failed"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ],
+  "causalRelations": [
+    {
+      "subject": "runtime-state.git-worktree-list-observation",
+      "relation": "parses",
+      "symbol": {
+        "path": "src/runtime-state/physical/contract/git-worktree-observation.ts",
+        "name": "parseWorktreePorcelainZ"
+      },
+      "operation": null
+    },
+    {
+      "subject": "runtime-state.git-working-state-observation",
+      "relation": "parses",
+      "symbol": {
+        "path": "src/runtime-state/physical/contract/git-worktree-observation.ts",
+        "name": "parseWorktreeStatusPorcelainZ"
+      },
+      "operation": null
     }
   ]
 }

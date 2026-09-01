@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -6,6 +6,10 @@ import { expect, test } from 'bun:test';
 
 import {
   hardenExistingWindowsHostDirectoryAuthority,
+  openWindowsReadOnlyTreeGeneration,
+  retireWindowsReadOnlyTreeGeneration,
+  sealExistingWindowsReadOnlyTreeAuthority,
+  sealWindowsReadOnlyTreeGeneration,
   WindowsHostDirectoryAuthorityError
 } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import {
@@ -15,6 +19,7 @@ import {
 import {
   acquireSecRuntimeStatePhysicalAuthority
 } from '../../src/runtime-state/workspace-state/physical-authority.ts';
+
 
 function windowsRuntimeAuthorityInput(root: string): Readonly<{
   repositoryRoot: string;
@@ -29,6 +34,62 @@ function windowsRuntimeAuthorityInput(root: string): Readonly<{
     requiredDirectories: Object.freeze([])
   });
 }
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows persisted generation retirement restores exact move and delete authority',
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-generation-retire-'));
+    const generationRoot = path.join(root, 'generation');
+    const retiredRoot = path.join(root, 'retired');
+    const sourcePath = path.join(generationRoot, 'source.ts');
+    await mkdir(generationRoot);
+    await writeFile(sourcePath, 'export const value = 1;\n');
+    const binding = Object.freeze({
+      generationDigest: `sha256:${'1'.repeat(64)}` as const,
+      treeDigest: `sha256:${'2'.repeat(64)}` as const,
+      treeEntryCount: 1
+    });
+    let primaryFailure: unknown;
+    try {
+      const sealed = await sealWindowsReadOnlyTreeGeneration(
+        generationRoot,
+        [sourcePath],
+        binding
+      );
+      await sealed.authority.assertCurrent();
+      await sealed.authority.release();
+      const reopened = await openWindowsReadOnlyTreeGeneration(
+        generationRoot,
+        sealed.proofText,
+        binding
+      );
+      await reopened.assertCurrent();
+      await reopened.release();
+      await retireWindowsReadOnlyTreeGeneration(
+        generationRoot,
+        sealed.proofText,
+        binding
+      );
+      await retireWindowsReadOnlyTreeGeneration(
+        generationRoot,
+        sealed.proofText,
+        binding
+      );
+      await rename(generationRoot, retiredRoot);
+      await rm(retiredRoot, { recursive: true });
+      expect(await readdir(root)).toEqual([]);
+    } catch (error) {
+      primaryFailure = error;
+      throw error;
+    } finally {
+      try {
+        await rm(root, { recursive: true, force: true });
+      } catch (cleanupError) {
+        if (primaryFailure === undefined) throw cleanupError;
+      }
+    }
+  }
+);
 
 test.skipIf(process.platform !== 'win32')(
   'Windows host directory authority revalidates exact owner, ACL and directory identity',
@@ -52,6 +113,156 @@ test.skipIf(process.platform !== 'win32')(
         'Windows host directory authority changed'
       );
       expect(await readdir(authorityRoot)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows read-only tree reuses its physically-bound ACL proof on warm readback',
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-proof-reuse-'));
+    const repositoryRoot = path.join(root, 'repository');
+    const generationRoot = path.join(repositoryRoot, 'generation');
+    const executablePath = path.join(generationRoot, 'compiler.exe');
+    await mkdir(generationRoot, { recursive: true });
+    await writeFile(executablePath, 'immutable compiler generation');
+    const before = observeWindowsAclSessionLifecycleForTests();
+    let authority: Awaited<ReturnType<typeof sealExistingWindowsReadOnlyTreeAuthority>> |
+      undefined;
+    try {
+      authority = await sealExistingWindowsReadOnlyTreeAuthority(
+        generationRoot,
+        [executablePath],
+        {
+          ownerRootPath: generationRoot,
+          ownership: 'repository-dependency-generation',
+          repositoryRootPath: repositoryRoot
+        }
+      );
+      const cold = observeWindowsAclSessionLifecycleForTests();
+      expect(cold.descriptorReads - before.descriptorReads).toBe(4);
+      await authority.assertCurrent();
+      await authority.assertCurrent();
+      expect(observeWindowsAclSessionLifecycleForTests().descriptorReads).toBe(
+        cold.descriptorReads
+      );
+    } finally {
+      await authority?.release();
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows read-only tree invalidates a published ACL proof on permission change',
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-acl-drift-'));
+    const repositoryRoot = path.join(root, 'repository');
+    const generationRoot = path.join(repositoryRoot, 'generation');
+    const executablePath = path.join(generationRoot, 'compiler.exe');
+    await mkdir(generationRoot, { recursive: true });
+    await writeFile(executablePath, 'immutable compiler generation');
+    let authority: Awaited<ReturnType<typeof sealExistingWindowsReadOnlyTreeAuthority>> |
+      undefined;
+    try {
+      authority = await sealExistingWindowsReadOnlyTreeAuthority(
+        generationRoot,
+        [executablePath],
+        {
+          ownerRootPath: generationRoot,
+          ownership: 'repository-dependency-generation',
+          repositoryRootPath: repositoryRoot
+        }
+      );
+      const systemRoot = process.env.SystemRoot;
+      if (!systemRoot) throw new Error('Windows SystemRoot is unavailable');
+      const changed = Bun.spawnSync([
+        path.join(systemRoot, 'System32', 'icacls.exe'),
+        executablePath,
+        '/grant:r',
+        '*S-1-1-0:(R)'
+      ], { stderr: 'pipe', stdout: 'pipe' });
+      expect(changed.exitCode).toBe(0);
+      await expect(authority.assertCurrent()).rejects.toMatchObject({
+        failure: 'physical-identity-changed'
+      });
+    } finally {
+      await authority?.release();
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows read-only tree rejects physical replacement and will not restore onto it',
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-object-drift-'));
+    const repositoryRoot = path.join(root, 'repository');
+    const generationRoot = path.join(repositoryRoot, 'generation');
+    const executablePath = path.join(generationRoot, 'compiler.exe');
+    await mkdir(generationRoot, { recursive: true });
+    await writeFile(executablePath, 'immutable compiler generation');
+    let authority: Awaited<ReturnType<typeof sealExistingWindowsReadOnlyTreeAuthority>> |
+      undefined;
+    try {
+      authority = await sealExistingWindowsReadOnlyTreeAuthority(
+        generationRoot,
+        [executablePath],
+        {
+          ownerRootPath: generationRoot,
+          ownership: 'repository-dependency-generation',
+          repositoryRootPath: repositoryRoot
+        }
+      );
+      const systemRoot = process.env.SystemRoot;
+      if (!systemRoot) throw new Error('Windows SystemRoot is unavailable');
+      const reset = Bun.spawnSync([
+        path.join(systemRoot, 'System32', 'icacls.exe'),
+        generationRoot,
+        '/reset',
+        '/T',
+        '/C'
+      ], { stderr: 'pipe', stdout: 'pipe' });
+      expect(reset.exitCode).toBe(0);
+      await rm(generationRoot, { recursive: true, force: true });
+      await mkdir(generationRoot);
+      await writeFile(executablePath, 'replacement compiler generation');
+      await expect(authority.assertCurrent()).rejects.toMatchObject({
+        failure: 'physical-identity-changed'
+      });
+      await expect(authority.release()).rejects.toMatchObject({ failure: 'acl-untrusted' });
+      authority = undefined;
+    } finally {
+      await authority?.release().catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows read-only tree rejects an exhausted admission before opening an ACL session',
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-tree-deadline-'));
+    const repositoryRoot = path.join(root, 'repository');
+    const generationRoot = path.join(repositoryRoot, 'generation');
+    const executablePath = path.join(generationRoot, 'compiler.exe');
+    await mkdir(generationRoot, { recursive: true });
+    await writeFile(executablePath, 'immutable compiler generation');
+    const before = observeWindowsAclSessionLifecycleForTests();
+    try {
+      await expect(sealExistingWindowsReadOnlyTreeAuthority(
+        generationRoot,
+        [executablePath],
+        {
+          deadlineAtMs: Date.now() - 1,
+          ownerRootPath: generationRoot,
+          ownership: 'repository-dependency-generation',
+          repositoryRootPath: repositoryRoot
+        }
+      )).rejects.toMatchObject({ failure: 'deadline-exhausted' });
+      expect(observeWindowsAclSessionLifecycleForTests().opened).toBe(before.opened);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

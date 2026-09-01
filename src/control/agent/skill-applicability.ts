@@ -4,7 +4,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../external-capabilities/git-read/authority.ts';
-import { type GitReadSession } from '../../external-capabilities/git-read/runtime/session.ts';
+import {
+  GIT_READ_DEFAULT_OPERATION_BUDGET,
+  type GitReadSession
+} from '../../external-capabilities/git-read/runtime/session.ts';
 import { canonicalJson } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { resolveProspectiveWorkerOperation } from './operation-read-plan.ts';
 import {
@@ -114,7 +117,7 @@ async function main(): Promise<void> {
   if (options.candidateRoot === undefined) fail('--candidate-root <path> is required.');
   const runtimeRoot = path.resolve(import.meta.dir, '../..');
   const invokedRoot = await withAuthorityGitReadSession(
-    { cwd: path.resolve(process.cwd()) },
+    { cwd: path.resolve(process.cwd()), budget: GIT_READ_DEFAULT_OPERATION_BUDGET },
     (session) => requireGitOutput(session, ['rev-parse', '--show-toplevel'], 'runtime repository discovery')
   );
   if (path.resolve(invokedRoot) !== runtimeRoot) {
@@ -138,7 +141,7 @@ async function main(): Promise<void> {
   const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
   const quarantined = observation.changedPaths.filter(isSecSkillQuarantinePath);
   const { trustedSkillRevisions, candidateSkillRevisions } = await withAuthorityGitReadSession(
-    { cwd: observation.candidateRoot },
+    { cwd: observation.candidateRoot, budget: GIT_READ_DEFAULT_OPERATION_BUDGET },
     async (session) => {
       const trusted: Record<string, string> = {};
       const candidate: Record<string, string> = {};

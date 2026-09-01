@@ -9,10 +9,10 @@ import {
   ensureProjectDependencies
 } from '../../toolchain/dependencies/runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../verification/contract/types.ts';
-import { listFilesRecursive } from '../../workspace/discovery.ts';
 import type { CommitFence } from '../../workspace/files.ts';
 import { writeText } from '../../workspace/files.ts';
-import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../workspace/paths.ts';
+import { listFilesRecursive } from '../../workspace/runtime/discovery.ts';
+import { compilerRoot, getWorkspacePaths, relativePosixPath } from '../../workspace/runtime/paths.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry,
   type SemanticMutationIsolatedPhase

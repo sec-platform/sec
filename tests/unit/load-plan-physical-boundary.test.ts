@@ -18,7 +18,6 @@ function planYaml(name: string): string {
     'registry:',
     '  sources: []',
     'blocks: []',
-    'slots: []',
     'acceptance: []',
     ''
   ].join('\n');

@@ -3,9 +3,12 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { Worker as ThreadWorker } from 'node:worker_threads';
 
 import type { CommitFence } from '../contract/commit-fence.ts';
+import {
+  assertIndependentProviderProcessCapability,
+  type IndependentProviderProcessCapability
+} from './independent-provider-process.ts';
 import {
   decodeWindowsJobActiveProcessCount,
   windowsNaturalExitSettlementDisposition,
@@ -25,6 +28,7 @@ const WINDOWS_CREATE_NO_WINDOW = 0x0800_0000;
 const WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1;
 const WINDOWS_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9;
 const WINDOWS_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x0000_2000;
+const WINDOWS_JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK = 0x0000_1000;
 const WINDOWS_PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x0002_0002;
 const WINDOWS_PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002_000d;
 const WINDOWS_STARTF_USESTDHANDLES = 0x0000_0100;
@@ -154,7 +158,7 @@ export function createObservedNativeLifecycleFailureForTests(
   );
 }
 
-export interface ObservedCommandOptions {
+export interface ObservedCommandCoreOptions {
   /** Final fence evaluated only after the root, descendant tree, and streams settle. */
   readonly afterSettlement?: CommitFence;
   readonly beforeSpawn?: CommitFence;
@@ -162,10 +166,6 @@ export interface ObservedCommandOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly envMode?: 'inherit' | 'replace';
   readonly fenceIntervalMs?: number;
-  /** Immutable bytes written once to the observed child's stdin. */
-  readonly input?: Uint8Array;
-  /** Required aggregate bound whenever input is supplied. */
-  readonly maxStdinBytes?: number;
   readonly maxObservedOutputBytes?: number;
   readonly onChunk?: (stream: 'stdout' | 'stderr', byteLength: number) => void;
   readonly onOutput?: (stream: 'stdout' | 'stderr', chunk: Uint8Array) => void;
@@ -177,15 +177,62 @@ export interface ObservedCommandOptions {
   readonly timeoutMs?: number;
   readonly whileRunning?: CommitFence;
   readonly windowsHide?: boolean;
+  /**
+   * Allows a launcher root to create an independently owned provider process.
+   * Only the retained launcher root remains in this observer's Job; callers
+   * must perform an independent provider-state readback before claiming the
+   * external descendant settled.
+   */
+  readonly independentProvider?: IndependentProviderProcessCapability;
   /** Internal deterministic test seam. */
   readonly dependencies?: Partial<ObservedCommandDependencies>;
 }
 
+export function compileWindowsObservedJobLimitFlags(
+  descendants: 'contained' | 'independent-provider'
+): number {
+  if (descendants === 'contained') return WINDOWS_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+  if (descendants === 'independent-provider') {
+    return WINDOWS_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+      | WINDOWS_JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+  }
+  throw new Error('Windows observed Job descendant disposition is invalid.');
+}
+
+export function windowsObservedJobDescendantDisposition(
+  capability?: IndependentProviderProcessCapability
+): 'contained' | 'independent-provider' {
+  if (capability === undefined) return 'contained';
+  assertIndependentProviderProcessCapability(capability);
+  return 'independent-provider';
+}
+
+/** No-stdin process observation options used by the core capability. */
+export type ObservedCommandOptions = ObservedCommandCoreOptions;
+
 export type ObservedProcessTimerHandle = ReturnType<typeof setTimeout>;
 
 type ObservedSpawnOptions = SpawnOptions & {
-  readonly observedInput?: Uint8Array;
+  readonly observedInput?: ObservedCommandInputCapability;
+  readonly windowsJobDescendants?: 'contained' | 'independent-provider';
 };
+
+export interface ObservedCommandStdinController {
+  readonly settlement: Promise<boolean>;
+  abort(): void;
+}
+
+/**
+ * Explicit stdin transport injected only by callers that need command input.
+ * The process lifecycle core intentionally owns no worker or asset dependency.
+ */
+export interface ObservedCommandInputCapability {
+  readonly input: Uint8Array;
+  startWindowsWriter(
+    handle: bigint,
+    closeHandle: () => void
+  ): ObservedCommandStdinController;
+}
 
 export interface ObservedProcessRuntime {
   readonly platform: NodeJS.Platform;
@@ -294,79 +341,7 @@ export interface WindowsObservedJobController {
 
 const windowsObservedJobs = new WeakMap<ChildProcess, WindowsObservedJobController>();
 
-interface WindowsObservedStdinController {
-  readonly settlement: Promise<boolean>;
-  abort(): void;
-}
-
-const windowsObservedStdinControllers = new WeakMap<ChildProcess, WindowsObservedStdinController>();
-
-const WINDOWS_STDIN_WRITER_SOURCE = String.raw`
-const { parentPort } = require('node:worker_threads');
-parentPort.once('message', async ({ handle, bytes }) => {
-  try {
-    const { dlopen, FFIType } = await import('bun:ffi');
-    const kernel32 = dlopen('kernel32.dll', {
-      WriteFile: {
-        args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr],
-        returns: FFIType.i32
-      }
-    });
-    const input = Buffer.from(bytes);
-    let offset = 0;
-    while (offset < input.byteLength) {
-      const next = input.subarray(offset, Math.min(input.byteLength, offset + 64 * 1024));
-      const written = Buffer.alloc(4);
-      if (kernel32.symbols.WriteFile(handle, next, next.byteLength, written, null) === 0) {
-        throw new Error('stdin write failed');
-      }
-      const byteLength = written.readUInt32LE(0);
-      if (byteLength <= 0 || byteLength > next.byteLength) throw new Error('stdin short write');
-      offset += byteLength;
-    }
-    parentPort.postMessage({ ok: true, byteLength: offset });
-  } catch {
-    parentPort.postMessage({ ok: false, byteLength: 0 });
-  }
-});
-`;
-
-function startWindowsObservedStdinWriter(
-  handle: bigint,
-  input: Uint8Array,
-  closeHandle: () => void
-): WindowsObservedStdinController {
-  const worker = new ThreadWorker(WINDOWS_STDIN_WRITER_SOURCE, { eval: true });
-  let settled = false;
-  let resolveSettlement!: (value: boolean) => void;
-  const settlement = new Promise<boolean>((resolve) => {
-    resolveSettlement = resolve;
-  });
-  const finish = (value: boolean): void => {
-    if (settled) return;
-    settled = true;
-    closeHandle();
-    resolveSettlement(value);
-  };
-  worker.once('message', (value: unknown) => {
-    const record = typeof value === 'object' && value !== null
-      ? value as { readonly ok?: unknown; readonly byteLength?: unknown }
-      : null;
-    finish(record?.ok === true && record.byteLength === input.byteLength);
-  });
-  worker.once('messageerror', () => finish(false));
-  worker.once('error', () => finish(false));
-  worker.once('exit', (code) => {
-    if (code !== 0) finish(false);
-  });
-  worker.postMessage({ handle, bytes: new Uint8Array(input) });
-  return Object.freeze({
-    settlement,
-    abort(): void {
-      if (!settled) void worker.terminate().then(() => finish(false), () => finish(false));
-    }
-  });
-}
+const windowsObservedStdinControllers = new WeakMap<ChildProcess, ObservedCommandStdinController>();
 
 /** Test-only stable Job identity seam; production registrations come from suspended launch. */
 export function registerObservedWindowsJobControllerForTests(
@@ -511,7 +486,10 @@ async function spawnWindowsJobChild(
     const observedInput = options.observedInput;
     if (observedInput === undefined) closeHandle(stdin.parent);
     const jobInformation = Buffer.alloc(144);
-    jobInformation.writeUInt32LE(WINDOWS_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 16);
+    const jobLimitFlags = compileWindowsObservedJobLimitFlags(
+      options.windowsJobDescendants ?? 'contained'
+    );
+    jobInformation.writeUInt32LE(jobLimitFlags, 16);
     jobHandle = kernel32.symbols.CreateJobObjectW(null, null) as bigint;
     closeHandles.add(jobHandle);
     if (jobHandle === 0n || kernel32.symbols.SetInformationJobObject(
@@ -643,9 +621,8 @@ async function spawnWindowsJobChild(
       };
       windowsObservedJobs.set(emitter, controller);
       if (observedInput !== undefined) {
-        const stdinController = startWindowsObservedStdinWriter(
+        const stdinController = observedInput.startWindowsWriter(
           stdin.parent,
-          observedInput,
           () => closeHandle(stdin.parent)
         );
         windowsObservedStdinControllers.set(emitter, stdinController);
@@ -1016,7 +993,11 @@ async function defaultSpawnChild(
   args: readonly string[],
   options: ObservedSpawnOptions
 ): Promise<ChildProcess> {
-  const { observedInput: _observedInput, ...spawnOptions } = options;
+  const {
+    observedInput: _observedInput,
+    windowsJobDescendants: _windowsJobDescendants,
+    ...spawnOptions
+  } = options;
   return process.platform === 'win32'
     ? spawnWindowsJobChild(command, args, options)
     : spawn(command, [...args], spawnOptions);
@@ -1380,7 +1361,8 @@ function raceWithDeadline<T>(
 export async function runObservedCommand(
   command: string,
   args: readonly string[],
-  options: ObservedCommandOptions
+  options: ObservedCommandCoreOptions,
+  inputCapability?: ObservedCommandInputCapability
 ): Promise<ObservedCommandOutcome> {
   const dependencies = { ...DEFAULT_DEPENDENCIES, ...options.dependencies };
   const fenceIntervalMs = positiveInteger(options.fenceIntervalMs, 50, 'fenceIntervalMs');
@@ -1395,11 +1377,7 @@ export async function runObservedCommand(
     0,
     'maxObservedOutputBytes'
   );
-  const commandInput = copyBoundedCommandInput(
-    options.input,
-    options.maxStdinBytes,
-    'observed command stdin'
-  );
+  const commandInput = inputCapability?.input ?? null;
   if (options.timeoutMs !== undefined) positiveInteger(options.timeoutMs, 1, 'timeoutMs');
 
   const startedAt = dependencies.monotonicNowMs();
@@ -1496,6 +1474,9 @@ export async function runObservedCommand(
   }).filter(([, value]) => value !== undefined)) as NodeJS.ProcessEnv;
 
   try {
+    const descendantDisposition = windowsObservedJobDescendantDisposition(
+      options.independentProvider
+    );
     const configuredStdio = options.stdio ?? ['ignore', 'pipe', 'pipe'];
     const stdio = (commandInput === null
       ? configuredStdio
@@ -1506,8 +1487,9 @@ export async function runObservedCommand(
       shell: false,
       stdio,
       windowsHide: options.windowsHide ?? true,
+      windowsJobDescendants: descendantDisposition,
       detached: dependencies.platform !== 'win32',
-      ...(commandInput === null ? {} : { observedInput: commandInput })
+      ...(inputCapability === undefined ? {} : { observedInput: inputCapability })
     });
   } catch (error) {
     if (error instanceof ObservedNativeLifecycleFailure) return finishLifecycleFailure(error);

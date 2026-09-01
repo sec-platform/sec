@@ -12,8 +12,8 @@ import {
   resolveExecutableLocator,
   runRetainedCommandBytes
 } from '../../runtime-state/physical/runtime/process.ts';
+import { GITHUB_HOST } from './contract.ts';
 
-const GITHUB_HOST = 'github.com' as const;
 const MAX_CREDENTIAL_LIFETIME_MS = 30_000;
 const MAX_TOKEN_BYTES = 4_096;
 const MAX_ERROR_BYTES = 8_192;

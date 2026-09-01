@@ -1,4 +1,22 @@
 {
   "importGraph": "runtime",
-  "externalEntrypoints": []
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "verification.test-registration",
+      "operations": [
+        "effectfulTest"
+      ],
+      "effectKinds": [],
+      "operationRoles": [
+        {
+          "operation": "effectfulTest",
+          "role": "registration-issuer",
+          "semanticOperation": "verification.effectful-test",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ]
 }

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { readJson } from '../../src/workspace/files.ts';
-import { compilerRoot } from '../../src/workspace/paths.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 
 const compilerFileCache = new Map<string, string>();
 

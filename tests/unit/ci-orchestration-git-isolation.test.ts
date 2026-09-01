@@ -11,7 +11,7 @@ import {
   CodexDevelopmentDefaultTrackedTreeIsClean,
   CodexDevelopmentExactGitTestImpactSourceProvider
 } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { selectCiPrRiskSlowSuites } from '../../src/verification/ci/runtime/pr-risk-selection.ts';
+import { selectCiSlowTestClosure } from '../../src/verification/ci/runtime/slow-test-selection.ts';
 import { selectTestsForSources } from '../../src/verification/test-impact/runtime/impact.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
@@ -65,10 +65,6 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
     git(repositoryRoot, ['add', 'README.md']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
     const baseSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
-    expect(() => CodexDevelopmentExactGitTestImpactSourceProvider(
-      repositoryRoot,
-      baseSha
-    )).toThrow('Exact candidate module descriptor census is missing');
 
     mkdirSync(path.join(repositoryRoot, 'src', 'candidate'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'docs'), { recursive: true });
@@ -91,37 +87,44 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
         dynamicPolicy: 'forbidden',
         owns: [],
         projects: [],
-        audience: [],
-        consumers: [],
-        updateTriggers: []
       }]
     }), 'utf8');
     writeFileSync(path.join(repositoryRoot, 'docs', 'candidate.md'), '# Candidate\n', 'utf8');
-    writeFileSync(path.join(repositoryRoot, 'platform', 'candidate', 'candidate-only.ts'),
+    writeFileSync(path.join(repositoryRoot, 'src', 'candidate', 'candidate-only.ts'),
       'export const candidateOnly = 1;\n', 'utf8');
     writeFileSync(path.join(repositoryRoot, 'tests', 'unit', 'candidate-only.test.ts'),
-      "import { candidateOnly } from '../../platform/candidate/candidate-only.ts'; void candidateOnly;\n", 'utf8');
-    git(repositoryRoot, ['add', 'platform/candidate', 'tests', 'docs']);
+      "import { candidateOnly } from '../../src/candidate/candidate-only.ts'; void candidateOnly;\n", 'utf8');
+    git(repositoryRoot, ['add', 'src/candidate', 'tests', 'docs']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'candidate']);
     const candidateSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     // The physical checkout is old-main. Only immutable candidate objects may
     // contribute source bytes to the provider.
     git(repositoryRoot, ['checkout', '--quiet', '--detach', baseSha]);
-    const provider = CodexDevelopmentExactGitTestImpactSourceProvider(
+    const coldProvider = CodexDevelopmentExactGitTestImpactSourceProvider(
       repositoryRoot,
       candidateSha
     );
-    expect(provider.moduleFiles).toEqual([
-      'platform/candidate/candidate-only.ts',
-      'tests/unit/candidate-only.test.ts'
-    ]);
-    expect(selectTestsForSources(['platform/candidate/candidate-only.ts'], provider)).toEqual({
+    const warmProvider = CodexDevelopmentExactGitTestImpactSourceProvider(
+      repositoryRoot,
+      candidateSha
+    );
+    expect(coldProvider.projection.subject).toEqual(expect.objectContaining({
+      kind: 'physical-repository',
+      provenance: expect.objectContaining({ kind: 'git-tree' })
+    }));
+    expect(warmProvider.projection.projectionDigest)
+      .toBe(coldProvider.projection.projectionDigest);
+    expect(warmProvider.projection.moduleGraph.files)
+      .toContain('src/candidate/candidate-only.ts');
+    expect(warmProvider.projection.moduleGraph.files)
+      .toContain('tests/unit/candidate-only.test.ts');
+    expect(selectTestsForSources(['src/candidate/candidate-only.ts'], warmProvider)).toEqual({
       fast: ['tests/unit/candidate-only.test.ts'],
       slow: [],
-      owners: ['candidate.module']
+      owners: ['candidate']
     });
-    expect(selectCiPrRiskSlowSuites(['docs/candidate.md'], provider).resolved).toBe(true);
+    expect(selectCiSlowTestClosure(['docs/candidate.md'], warmProvider).resolved).toBe(true);
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }

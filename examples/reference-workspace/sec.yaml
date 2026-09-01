@@ -31,7 +31,6 @@ blocks:
     version: 0.1.0
   - id: file/upload
     version: 0.1.0
-slots: []
 acceptance:
   - id: user_can_login
   - id: user_can_create_customer

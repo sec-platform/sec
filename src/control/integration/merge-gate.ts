@@ -4,15 +4,16 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { encodeVerificationActionData } from '../../verification/action/contract/action.ts';
 import { parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure } from '../../verification/action/contract/ci.ts';
 import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentAssertVerificationSessionArtifact, type CodexDevelopmentVerificationSessionArtifact } from '../../verification/ci/contract/evidence.ts';
-import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_WORKFLOW_PATH } from '../../verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX } from '../../verification/ci/contract/revision.ts';
+import { CI_VERIFICATION_WORKFLOW_PATH } from '../../verification/contract/revision.ts';
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_PRODUCER_IDENTITY, type ReviewStabilityReceipt } from '../../verification/review/contract/stability.ts';
 import type { VerificationSession } from '../../verification/session/contract/session.ts';
 import {
+  DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,
   parseMainHealthLedger,
   resolveOrdinaryMainHealthLane,
   type MainHealthLedger
 } from '../main-health/contract.ts';
-import { DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY } from '../main-health/default-branch-revision.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../main-health/github-status-namespace.ts';
 import {
   assertScopeAuthorizationCurrent,

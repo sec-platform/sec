@@ -6,6 +6,7 @@ export const GENERATED_STATE_REGISTRY_SCHEMA = 'sec-generated-state-registry-v1'
 export const GENERATED_STATE_REGISTRATION_SCHEMA = 'sec-generated-state-registration-v1' as const;
 export const GENERATED_STATE_INVENTORY_SCHEMA = 'sec-generated-state-inventory-v1' as const;
 export const GENERATED_STATE_SETTLEMENT_SCHEMA = 'sec-generated-state-settlement-v1' as const;
+export const GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA = 'sec-generated-state-disposal-receipt-v1' as const;
 export const GENERATED_STATE_WORKTREE_RETIREMENT_SCHEMA = "sec-generated-state-worktree-retirement-v1" as const;
 
 export type GeneratedStateClass =
@@ -139,6 +140,20 @@ export interface GeneratedStateSettlement {
   readonly blockers: readonly string[];
   readonly generatedAt: string;
   readonly settlementDigest: `sha256:${string}`;
+}
+
+export interface GeneratedStateDisposalReceipt {
+  readonly schema: typeof GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA;
+  readonly relativePath: string;
+  readonly profile: GeneratedStateCleanupProfile;
+  readonly registrationDigest: `sha256:${string}`;
+  readonly retirementRef: `sha256:${string}`;
+  readonly physical: GeneratedStatePhysicalIdentity;
+  readonly beforeInventoryDigest: `sha256:${string}`;
+  readonly afterInventoryDigest: `sha256:${string}`;
+  readonly settlementDigest: `sha256:${string}`;
+  readonly terminal: 'disposed';
+  readonly receiptDigest: `sha256:${string}`;
 }
 
 export interface GeneratedStateWorktreePreservedEntry {
@@ -440,7 +455,10 @@ export function generatedStateDomainProviderMaterialDigest(
   }));
 }
 
-function parsePhysicalIdentity(value: unknown, label: string): GeneratedStatePhysicalIdentity {
+export function parseGeneratedStatePhysicalIdentity(
+  value: unknown,
+  label: string
+): GeneratedStatePhysicalIdentity {
   const record = plainRecord(value, label);
   exactKeys(record, ['device', 'inode', 'objectId'], label);
   return Object.freeze({
@@ -488,10 +506,10 @@ export function createGeneratedStateRegistration(input: Readonly<{
   }
   const material = registrationMaterial({
     repositoryRoot: stringValue(input.repositoryRoot, 'registration.repositoryRoot'),
-    workspace: parsePhysicalIdentity(input.workspace, 'registration.workspace'),
+    workspace: parseGeneratedStatePhysicalIdentity(input.workspace, 'registration.workspace'),
     ruleId: input.rule.id,
     relativePath,
-    root: parsePhysicalIdentity(input.root, 'registration.root'),
+    root: parseGeneratedStatePhysicalIdentity(input.root, 'registration.root'),
     owner: input.rule.owner,
     producer: input.rule.producer,
     operationId: stringValue(input.operationId, 'registration.operationId'),
@@ -543,12 +561,12 @@ export function parseGeneratedStateRegistration(value: unknown): GeneratedStateR
   if ((phase === 'active') !== (retirementRef === null)) fail('registration phase and retirementRef disagree.');
   const material = registrationMaterial({
     repositoryRoot: stringValue(record.repositoryRoot, 'registration.repositoryRoot'),
-    workspace: parsePhysicalIdentity(record.workspace, 'registration.workspace'),
+    workspace: parseGeneratedStatePhysicalIdentity(record.workspace, 'registration.workspace'),
     ruleId,
     relativePath: normalizeGeneratedStateRelativePath(
       stringValue(record.relativePath, 'registration.relativePath')
     ),
-    root: parsePhysicalIdentity(record.root, 'registration.root'),
+    root: parseGeneratedStatePhysicalIdentity(record.root, 'registration.root'),
     owner: stringValue(record.owner, 'registration.owner'),
     producer: stringValue(record.producer, 'registration.producer'),
     operationId: stringValue(record.operationId, 'registration.operationId'),
@@ -647,7 +665,7 @@ export function createGeneratedStateWorktreeRetirement(
         }
         return Object.freeze({
           relativePath,
-          source: parsePhysicalIdentity(entry.source, `worktree retirement source ${relativePath}`),
+          source: parseGeneratedStatePhysicalIdentity(entry.source, `worktree retirement source ${relativePath}`),
           inventoryDigest: entry.inventoryDigest,
           ruleIds,
           action: 'domain-retired' as const,
@@ -663,8 +681,8 @@ export function createGeneratedStateWorktreeRetirement(
       return Object.freeze({
         relativePath,
         destinationName: entry.destinationName,
-        source: parsePhysicalIdentity(entry.source, `worktree retirement source ${relativePath}`),
-        retained: parsePhysicalIdentity(entry.retained, `worktree retirement retained ${relativePath}`),
+        source: parseGeneratedStatePhysicalIdentity(entry.source, `worktree retirement source ${relativePath}`),
+        retained: parseGeneratedStatePhysicalIdentity(entry.retained, `worktree retirement retained ${relativePath}`),
         inventoryDigest: entry.inventoryDigest,
         ruleIds,
         action: 'preserved' as const
@@ -683,7 +701,7 @@ export function createGeneratedStateWorktreeRetirement(
       ? null
       : Object.freeze({
           path: stringValue(input.retentionRoot.path, 'worktree retirement retentionRoot.path'),
-          ...parsePhysicalIdentity(
+          ...parseGeneratedStatePhysicalIdentity(
             {
               device: input.retentionRoot.device,
               inode: input.retentionRoot.inode,
@@ -702,7 +720,7 @@ export function createGeneratedStateWorktreeRetirement(
     operationId: digestValue(input.operationId, 'worktree retirement operationId'),
     repositoryRoot: stringValue(input.repositoryRoot, 'worktree retirement repositoryRoot'),
     workspacePath: stringValue(input.workspacePath, 'worktree retirement workspacePath'),
-    workspace: parsePhysicalIdentity(input.workspace, 'worktree retirement workspace'),
+    workspace: parseGeneratedStatePhysicalIdentity(input.workspace, 'worktree retirement workspace'),
     worktree: Object.freeze({ branch, headSha: input.worktree.headSha, treeSha: input.worktree.treeSha }),
     registryDigest: GENERATED_STATE_REGISTRY.registryDigest,
     statusDigest: digestValue(input.statusDigest, 'worktree retirement statusDigest'),

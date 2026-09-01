@@ -23,9 +23,7 @@ function manifest(id: string, acceptance: BlockManifest['acceptance']): BlockMan
     conflicts: [],
     installs: [{ kind: 'copy', from: 'files/source.ts', to: 'src/source.ts' }],
     pins: { inputs: [], outputs: [] },
-    slots: [],
-    acceptance,
-    routes: []
+    acceptance
   };
 }
 
@@ -105,18 +103,6 @@ function lock(acceptancePlan: string[]): LockFile {
     ],
     resolvedCapabilities: [],
     installPlan: [],
-    slotTasks: [
-      {
-        id: 'target_slot',
-        block: 'target/block',
-        target: 'custom/target_slot.ts',
-        symbol: 'targetSlot',
-        kind: 'adapter',
-        status: 'filled',
-        writableZones: ['custom/target_slot.ts'],
-        provenanceHints: { generator: 'test', verifiedBy: [] }
-      }
-    ],
     generatedPaths: [],
     acceptancePlan,
     passStatus: {
@@ -124,7 +110,6 @@ function lock(acceptancePlan: string[]): LockFile {
       align: 'succeeded',
       resolve: 'succeeded',
       compose: 'succeeded',
-      adapt: 'succeeded',
       verify: 'succeeded',
       repair: 'skipped',
       lock: 'pending',
@@ -165,7 +150,7 @@ test('fast and runtime files close every declared semantic acceptance', async ()
       {
         id: 'customer_can_upload_attachment',
         dependsOn: ['user_can_create_customer'],
-        covers: { blocks: ['target/block'], slots: ['target_slot'] }
+        covers: { blocks: ['target/block'] }
       }
     ]);
 
@@ -202,14 +187,7 @@ test('fast and runtime files close every declared semantic acceptance', async ()
         uncovered: false
       }
     ]);
-    expect(coverage.slots[0]).toEqual({
-      id: 'target_slot',
-      declaredAcceptance: ['customer_can_upload_attachment'],
-      coveredBy: ['customer_can_upload_attachment'],
-      uncovered: false
-    });
     expect(coverage.uncoveredBlocks).toEqual([]);
-    expect(coverage.uncoveredSlots).toEqual([]);
   });
 });
 
@@ -223,7 +201,7 @@ test('partial, unmapped and empty observations remain uncovered', async () => {
       {
         id: 'customer_can_upload_attachment',
         dependsOn: ['user_can_create_customer'],
-        covers: { blocks: ['target/block'], slots: ['target_slot'] }
+        covers: { blocks: ['target/block'] }
       },
       {
         id: 'unmapped_acceptance',
@@ -268,7 +246,6 @@ test('partial, unmapped and empty observations remain uncovered', async () => {
     );
     expect(empty.acceptancePassed).toEqual([]);
     expect(empty.blocks.every((entry) => entry.uncovered)).toBe(true);
-    expect(empty.slots.every((entry) => entry.uncovered)).toBe(true);
   });
 });
 

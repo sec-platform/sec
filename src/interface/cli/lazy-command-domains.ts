@@ -38,12 +38,15 @@ const loadRepairOrchestrator = memoizedModule(() => import('../../compiler/orche
 const loadUpgradeOrchestrator = memoizedModule(() => import('../../change-management/upgrade/orchestration.ts'));
 const loadVerifyOrchestrator = memoizedModule(() => import('../../compiler/orchestration/verify-orchestrator.ts'));
 const loadWorkspaceOrchestrator = memoizedModule(() => import('../../compiler/orchestration/workspace-orchestrator.ts'));
+const loadLocalContainerEngineReadiness = memoizedModule(
+  () => import('../../external-capabilities/docker/runtime/readiness.ts')
+);
 
 // These modules mix command-owned observation/effects with synchronous formatting.
 // Expose the memoized module boundary rather than converting their synchronous
 // projection helpers into Promise-returning public facades.
 export const loadDependencyEnvironmentDomain = memoizedModule(() => import('../../toolchain/dependencies/environment.ts'));
-export const loadProjectOverviewDomain = memoizedModule(() => import('../../workspace/project.ts'));
+export const loadProjectOverviewDomain = memoizedModule(() => import('./project-overview.ts'));
 export const loadReferenceCheckDomain = memoizedModule(() => import('../../reference/application/check.ts'));
 export const loadTestBudgetDomain = memoizedModule(() => import('../../verification/test-impact/contract/budget.ts'));
 
@@ -54,7 +57,6 @@ const loadWorktreeSettlement = memoizedModule(() => import('../../development/to
 
 export const addBlock = lazyFunction(loadBlockOrchestrator, 'addBlock');
 export const resolveWorkspace = lazyFunction(loadBlockOrchestrator, 'resolveWorkspace');
-export const adaptWorkspace = lazyFunction(loadComposeOrchestrator, 'adaptWorkspace');
 export const composeWorkspace = lazyFunction(loadComposeOrchestrator, 'composeWorkspace');
 export const explainWorkspace = lazyFunction(loadEmitOrchestrator, 'explainWorkspace');
 export const lockWorkspace = lazyFunction(loadEmitOrchestrator, 'lockWorkspace');
@@ -65,6 +67,10 @@ export const repairWorkspace = lazyFunction(loadRepairOrchestrator, 'repairWorks
 export const upgradeWorkspace = lazyFunction(loadUpgradeOrchestrator, 'upgradeWorkspace');
 export const verifyWorkspace = lazyFunction(loadVerifyOrchestrator, 'verifyWorkspace');
 export const initWorkspace = lazyFunction(loadWorkspaceOrchestrator, 'initWorkspace');
+export const observeLocalContainerEngineReadiness = lazyFunction(
+  loadLocalContainerEngineReadiness,
+  'observeLocalContainerEngineReadiness'
+);
 
 export const runCensus = lazyFunction(loadTextByteCensus, 'runCensus');
 export const runSettlement = lazyFunction(loadWorktreeSettlement, 'runSettlement');

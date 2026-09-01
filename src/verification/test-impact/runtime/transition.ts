@@ -276,7 +276,7 @@ export function decodeGitPathOutput(stdout: Uint8Array, label: string): string {
 
 export function gitChangedFileDiffArgs(
   baseRef?: string,
-  currentRef: string | null = 'HEAD'
+  currentRef = 'HEAD'
 ): string[] {
   return [
     '--no-pager',
@@ -294,9 +294,47 @@ export function gitChangedFileDiffArgs(
     '--find-renames',
     '--find-copies',
     '--diff-filter=ACDMRTUXB',
-    ...(baseRef
-      ? currentRef === null ? [baseRef] : [baseRef, currentRef]
-      : currentRef === null ? ['HEAD'] : [currentRef])
+    ...(baseRef ? [baseRef, currentRef] : [currentRef])
+  ];
+}
+
+/** Read-only staged/index delta. Unlike `git diff HEAD`, this never refreshes the index. */
+export function gitIndexChangedFileDiffArgs(baseRef = 'HEAD'): string[] {
+  return [
+    '--no-pager',
+    '-c',
+    'core.quotepath=false',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
+    'diff-index',
+    '--cached',
+    '--name-status',
+    '-z',
+    '--find-renames',
+    '--find-copies',
+    '--diff-filter=ACDMRTUXB',
+    baseRef
+  ];
+}
+
+/** Read-only working-tree/index delta. This plumbing command does not refresh the index. */
+export function gitWorktreeChangedFileDiffArgs(): string[] {
+  return [
+    '--no-pager',
+    '-c',
+    'core.quotepath=false',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
+    'diff-files',
+    '--name-status',
+    '-z',
+    '--find-renames',
+    '--find-copies',
+    '--diff-filter=ACDMRTUXB'
   ];
 }
 

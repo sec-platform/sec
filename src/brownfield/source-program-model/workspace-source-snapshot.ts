@@ -1,5 +1,7 @@
+import { Glob } from 'bun';
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import ts from 'typescript';
 
 import {
   CodexDevelopmentListExactGitTreeEntries,
@@ -9,7 +11,9 @@ import {
   assertProductionGitReadSession,
   type GitReadSession
 } from '../../external-capabilities/git-read/runtime/session.ts';
+import type { RetainedNoFollowProvenDirectoryGeneration } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { createConcurrencyLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import {
   compileSecRepositoryModuleGraph,
   compileSecRepositoryModuleMembershipSnapshot,
@@ -30,6 +34,10 @@ const workspaceSourceSnapshotBrand: unique symbol = Symbol('workspace-source-sna
 const issuedWorkspaceSourceSnapshots = new WeakSet<object>();
 const workspaceTypeScriptProjectInputBrand: unique symbol = Symbol('workspace-typescript-project-input');
 const issuedWorkspaceTypeScriptProjectInputs = new WeakSet<object>();
+const workspaceTypeScriptProjectGenerationEvidenceBrand: unique symbol = Symbol(
+  'workspace-typescript-project-generation-evidence'
+);
+const issuedWorkspaceTypeScriptProjectGenerationEvidence = new WeakSet<object>();
 
 export type WorkspaceSourceSnapshotSubject =
   | Readonly<{
@@ -79,6 +87,7 @@ type IssueWorkspaceSourceSnapshotInput = Readonly<{
   subject: WorkspaceSourceSnapshotSubject;
   files: readonly WorkspaceSourceFile[];
   moduleMembership: SecRepositoryModuleMembership;
+  sourceByteLength: number | null;
 }>;
 
 export type CompileVirtualWorkspaceSourceSnapshotInput = Readonly<{
@@ -120,6 +129,8 @@ export interface WorkspaceSourceSnapshot {
   readonly sourceRevision: `sha256:${string}`;
   readonly physicalObservationReceipt: PhysicalObservationReceipt | null;
   readonly files: readonly WorkspaceSourceFile[];
+  /** Physical provider observation reused by resource admission; never semantic identity. */
+  readonly sourceByteLength: number | null;
   readonly moduleMembership: SecRepositoryModuleMembership;
   readonly snapshotDigest: `sha256:${string}`;
   readonly moduleMembershipDigest: `sha256:${string}`;
@@ -146,6 +157,23 @@ export type WorkspaceTypeScriptSourceFact = Readonly<{
   moduleDigest: `sha256:${string}`;
 }>;
 
+export type WorkspaceTypeScriptExternalSourceFact = Readonly<{
+  kind: 'default-library' | 'dependency-generation';
+  path: string;
+  contentDigest: `sha256:${string}`;
+}>;
+
+export type WorkspaceTypeScriptExecutionConfigContainmentReceipt = Readonly<{
+  status: 'contained';
+  projectConfigPath: string;
+  projectConfigDigest: `sha256:${string}`;
+  workspaceSnapshotIdentityDigest: `sha256:${string}`;
+  dependencyGenerationPhysicalDigest: `sha256:${string}` | null;
+  compilerRevision: string;
+  resolvedConfigDigest: `sha256:${string}`;
+  containmentDigest: `sha256:${string}`;
+}>;
+
 export interface WorkspaceTypeScriptProjectInput {
   readonly [workspaceTypeScriptProjectInputBrand]: true;
   readonly sourceRevision: string;
@@ -155,10 +183,47 @@ export interface WorkspaceTypeScriptProjectInput {
   readonly moduleGraphDigest: `sha256:${string}`;
   readonly projectConfigPath: string;
   readonly projectConfigDigest: `sha256:${string}`;
+  readonly dependencyGenerationPhysicalDigest: `sha256:${string}` | null;
+  readonly executionConfigContainment: WorkspaceTypeScriptExecutionConfigContainmentReceipt;
   readonly sourceFacts: readonly WorkspaceTypeScriptSourceFact[];
+  readonly externalSourceFacts: readonly WorkspaceTypeScriptExternalSourceFact[];
   readonly orderedSourceFactsDigest: `sha256:${string}`;
   readonly projectInputDigest: `sha256:${string}`;
   readonly observationDigest: `sha256:${string}`;
+}
+
+export function workspaceTypeScriptDependencyGenerationPhysicalDigest(
+  generation: RetainedNoFollowProvenDirectoryGeneration
+): `sha256:${string}` {
+  generation.assertCurrent();
+  return sha256(Object.freeze({
+    device: generation.root.device,
+    inode: generation.root.inode,
+    objectId: generation.root.objectId
+  })) as `sha256:${string}`;
+}
+
+/**
+ * Process-local evidence binding one exact ProjectInput to the working-tree
+ * observation which produced it. It deliberately carries no current/readback
+ * method: a post-state check cannot prove which bytes an external process
+ * consumed. A durable fact-store receipt cannot manufacture a frozen execution
+ * input from this evidence.
+ */
+export interface WorkspaceTypeScriptProjectGenerationEvidence {
+  readonly [workspaceTypeScriptProjectGenerationEvidenceBrand]: true;
+  readonly generationDigest: `sha256:${string}`;
+  readonly projectInput: WorkspaceTypeScriptProjectInput;
+  readonly sourceFiles: readonly WorkspaceSourceFile[];
+}
+
+export function assertWorkspaceTypeScriptProjectGenerationEvidence(
+  evidence: WorkspaceTypeScriptProjectGenerationEvidence
+): void {
+  if (!issuedWorkspaceTypeScriptProjectGenerationEvidence.has(evidence)) {
+    throw new Error('TypeScript project generation evidence was not issued by the Source Program owner');
+  }
+  assertWorkspaceTypeScriptProjectInput(evidence.projectInput);
 }
 
 export function assertWorkspaceTypeScriptProjectInput(
@@ -184,9 +249,181 @@ export function assertWorkspaceTypeScriptProjectInputMatchesSnapshot(
   }
 }
 
+function typeScriptScriptKind(fileName: string): ts.ScriptKind {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  if (lower.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (/\.(?:c|m)?js$/u.test(lower)) return ts.ScriptKind.JS;
+  if (lower.endsWith('.json')) return ts.ScriptKind.JSON;
+  return ts.ScriptKind.TS;
+}
+
+function pathInside(root: string, candidate: string): string | null {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  if (relative === '') return '';
+  if (path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
+    return null;
+  }
+  return relative.replaceAll('\\', '/');
+}
+
+function snapshotReadDirectory(
+  snapshot: WorkspaceSourceSnapshot,
+  virtualRoot: string,
+  rootDir: string,
+  extensions: readonly string[],
+  excludes: readonly string[] | undefined,
+  includes: readonly string[],
+  depth: number | undefined
+): string[] {
+  const rootRelative = pathInside(virtualRoot, rootDir);
+  if (rootRelative === null) return [];
+  const includeGlobs = includes.map((pattern) => new Glob(pattern.replaceAll('\\', '/')));
+  const excludeGlobs = (excludes ?? []).map((pattern) => new Glob(pattern.replaceAll('\\', '/')));
+  return snapshot.files.flatMap(({ path: repositoryPath }) => {
+    const relativeToRoot = path.posix.relative(rootRelative, repositoryPath);
+    if (relativeToRoot === '' || relativeToRoot === '..' || relativeToRoot.startsWith('../')) {
+      return [];
+    }
+    if (depth !== undefined && relativeToRoot.split('/').length - 1 > depth) return [];
+    if (extensions.length > 0 && !extensions.some((extension) => repositoryPath.endsWith(extension))) {
+      return [];
+    }
+    if (includeGlobs.length > 0 && !includeGlobs.some((glob) => glob.match(relativeToRoot))) {
+      return [];
+    }
+    if (excludeGlobs.some((glob) => glob.match(relativeToRoot))) return [];
+    return [path.resolve(virtualRoot, ...repositoryPath.split('/'))];
+  }).sort(compareCodeUnits);
+}
+
+function typeScriptModuleSpecifier(node: ts.Node): string | null {
+  if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+      && node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)) {
+    return node.moduleSpecifier.text;
+  }
+  if (ts.isImportEqualsDeclaration(node)
+      && ts.isExternalModuleReference(node.moduleReference)
+      && node.moduleReference.expression !== undefined
+      && ts.isStringLiteral(node.moduleReference.expression)) {
+    return node.moduleReference.expression.text;
+  }
+  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+      && node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0]!)) {
+    return node.arguments[0]!.text;
+  }
+  return null;
+}
+
+function parseContainedTypeScriptProjectConfig(
+  source: string,
+  projectConfigPath: string
+): Readonly<Record<string, unknown>> {
+  const parsed = ts.parseConfigFileTextToJson(projectConfigPath, source);
+  if (parsed.error !== undefined || parsed.config === undefined || parsed.config === null
+      || typeof parsed.config !== 'object' || Array.isArray(parsed.config)) {
+    throw new Error('TypeScript ProjectInput config is invalid');
+  }
+  const config = parsed.config as Record<string, unknown>;
+  if ('extends' in config || 'references' in config) {
+    throw new Error('TypeScript ProjectInput config cannot escape through extends or references');
+  }
+  const contained = (value: unknown, label: string): void => {
+    if (typeof value !== 'string' || path.isAbsolute(value)
+        || value.split(/[\\/]+/u).includes('..') || value.includes('\0')) {
+      throw new Error(`TypeScript ProjectInput ${label} is not repository-contained`);
+    }
+  };
+  for (const key of ['files', 'include', 'exclude'] as const) {
+    const value = config[key];
+    if (value === undefined) continue;
+    if (!Array.isArray(value)) throw new Error(`TypeScript ProjectInput ${key} is invalid`);
+    for (const entry of value) contained(entry, key);
+  }
+  const compilerOptions = config.compilerOptions;
+  if (compilerOptions === undefined) return Object.freeze(config);
+  if (compilerOptions === null || typeof compilerOptions !== 'object'
+      || Array.isArray(compilerOptions)) {
+    throw new Error('TypeScript ProjectInput compilerOptions is invalid');
+  }
+  const options = compilerOptions as Record<string, unknown>;
+  if ('plugins' in options) {
+    throw new Error('TypeScript ProjectInput cannot load compiler plugins');
+  }
+  for (const key of ['baseUrl', 'rootDir', 'outDir', 'declarationDir'] as const) {
+    if (options[key] !== undefined) contained(options[key], `compilerOptions.${key}`);
+  }
+  for (const key of ['rootDirs', 'typeRoots'] as const) {
+    const value = options[key];
+    if (value === undefined) continue;
+    if (!Array.isArray(value)) {
+      throw new Error(`TypeScript ProjectInput compilerOptions.${key} is invalid`);
+    }
+    for (const entry of value) contained(entry, `compilerOptions.${key}`);
+  }
+  const paths = options.paths;
+  if (paths === undefined) return Object.freeze(config);
+  if (paths === null || typeof paths !== 'object' || Array.isArray(paths)) {
+    throw new Error('TypeScript ProjectInput compilerOptions.paths is invalid');
+  }
+  for (const targets of Object.values(paths as Record<string, unknown>)) {
+    if (!Array.isArray(targets)) {
+      throw new Error('TypeScript ProjectInput compilerOptions.paths targets are invalid');
+    }
+    for (const target of targets) contained(target, 'compilerOptions.paths');
+  }
+  return Object.freeze(config);
+}
+
+function parseTypeScriptProjectConfiguration(
+  configPath: string,
+  configSource: string,
+  config: Readonly<Record<string, unknown>>,
+  host: ts.ParseConfigHost,
+  virtualRoot: string
+): ts.ParsedCommandLine {
+  const sourceFile = ts.parseJsonText(configPath, configSource);
+  const parsed = ts.parseJsonSourceFileConfigFileContent(
+    sourceFile,
+    host,
+    virtualRoot,
+    { noEmit: true },
+    configPath
+  );
+  if (parsed.fileNames.length > 0 || parsed.errors.length === 0) return parsed;
+
+  /*
+   * TypeScript reports a valid include-based project with no current matches as
+   * a command-line error. Source Program needs a different semantic result: an
+   * exact, empty ProjectInput generation. Re-parse the same JSONC object as an
+   * explicit empty project so TypeScript still owns every syntax, option,
+   * extends, files, include and exclude validation. This does not identify or
+   * suppress a diagnostic code/message and introduces no synthetic source.
+   */
+  const emptyProjectValidation = ts.parseJsonConfigFileContent(
+    Object.freeze({
+      ...config,
+      ...(!Object.prototype.hasOwnProperty.call(config, 'references')
+        ? { references: Object.freeze([]) }
+        : {})
+    }),
+    host,
+    virtualRoot,
+    { noEmit: true },
+    configPath
+  );
+  return emptyProjectValidation.fileNames.length === 0
+    && emptyProjectValidation.errors.length === 0
+    ? emptyProjectValidation
+    : parsed;
+}
+
 export function compileWorkspaceTypeScriptProjectInput(
   snapshot: WorkspaceSourceSnapshot,
-  projectConfigPath: string
+  projectConfigPath: string,
+  input: Readonly<{
+    dependencyGeneration?: RetainedNoFollowProvenDirectoryGeneration;
+  }> = {}
 ): WorkspaceTypeScriptProjectInput {
   assertWorkspaceSourceSnapshot(snapshot);
   const canonicalConfigPath = normalizeSecRepositoryPath(projectConfigPath);
@@ -197,35 +434,328 @@ export function compileWorkspaceTypeScriptProjectInput(
   if (projectConfig === null) {
     throw new Error(`TypeScript ProjectInput config is absent: ${projectConfigPath}`);
   }
-  const sourceFacts = Object.freeze(snapshot.files
-    .filter(({ path: repositoryPath }) => /\.(?:[cm]?[jt]sx?|json)$/iu.test(repositoryPath))
-    .map(({ path: repositoryPath, contentDigest }) => Object.freeze({
+  const containedProjectConfig = parseContainedTypeScriptProjectConfig(
+    projectConfig.source,
+    projectConfigPath
+  );
+  const virtualRoot = path.resolve(process.cwd(), '.sec-source-program-project-input');
+  const dependencyGeneration = input.dependencyGeneration;
+  dependencyGeneration?.assertCurrent();
+  const dependencyRoot = dependencyGeneration?.root.path ?? null;
+  const dependencyGenerationPhysicalDigest = dependencyGeneration === undefined
+    ? null
+    : workspaceTypeScriptDependencyGenerationPhysicalDigest(dependencyGeneration);
+  const virtualDependencyRoot = path.resolve(virtualRoot, 'node_modules');
+  const defaultLibraryRoot = path.dirname(ts.getDefaultLibFilePath({}));
+  const virtualConfigPath = path.resolve(virtualRoot, ...projectConfigPath.split('/'));
+  const snapshotFileForAbsolute = (fileName: string): WorkspaceSourceFile | null => {
+    const repositoryPath = pathInside(virtualRoot, fileName);
+    return repositoryPath === null ? null : snapshot.file(repositoryPath);
+  };
+  const dependencyFileForAbsolute = (fileName: string): string | null => {
+    if (dependencyRoot === null) return null;
+    const relative = pathInside(virtualDependencyRoot, fileName);
+    return relative === null
+      ? null
+      : path.resolve(dependencyRoot, ...relative.split('/'));
+  };
+  const parseHost: ts.ParseConfigHost = {
+    useCaseSensitiveFileNames: true,
+    fileExists: (fileName) => snapshotFileForAbsolute(fileName) !== null,
+    readFile: (fileName) => snapshotFileForAbsolute(fileName)?.source,
+    readDirectory: (rootDir, extensions, excludes, includes, depth) => snapshotReadDirectory(
+      snapshot,
+      virtualRoot,
+      rootDir,
+      extensions,
+      excludes,
+      includes,
+      depth
+    )
+  };
+  const parsed = parseTypeScriptProjectConfiguration(
+    virtualConfigPath,
+    projectConfig.source,
+    containedProjectConfig,
+    parseHost,
+    virtualRoot
+  );
+  if (parsed.errors.length > 0) {
+    throw new Error(`TypeScript ProjectInput config is invalid: ${ts.flattenDiagnosticMessageText(
+      parsed.errors[0]!.messageText,
+      '\n'
+    )}`);
+  }
+  const baseHost = ts.createCompilerHost(parsed.options, true);
+  const host: ts.CompilerHost = {
+    ...baseHost,
+    directoryExists: (directoryName) => {
+      const dependencyDirectory = dependencyFileForAbsolute(directoryName);
+      if (dependencyDirectory !== null) {
+        return baseHost.directoryExists?.(dependencyDirectory) ?? false;
+      }
+      const repositoryPath = pathInside(virtualRoot, directoryName);
+      if (repositoryPath !== null) {
+        return snapshot.files.some(({ path: sourcePath }) => (
+          repositoryPath === '' || sourcePath.startsWith(`${repositoryPath}/`)
+        ));
+      }
+      return baseHost.directoryExists?.(directoryName) ?? false;
+    },
+    fileExists: (fileName) => {
+      if (snapshotFileForAbsolute(fileName) !== null) return true;
+      const dependencyFile = dependencyFileForAbsolute(fileName);
+      return baseHost.fileExists(dependencyFile ?? fileName);
+    },
+    getCurrentDirectory: () => virtualRoot,
+    getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+      const source = snapshotFileForAbsolute(fileName);
+      if (source !== null) {
+        return ts.createSourceFile(
+          fileName,
+          source.source,
+          languageVersion,
+          true,
+          typeScriptScriptKind(source.path)
+        );
+      }
+      const dependencyFile = dependencyFileForAbsolute(fileName);
+      const externalSource = baseHost.getSourceFile(
+        dependencyFile ?? fileName,
+        languageVersion,
+        onError,
+        shouldCreateNewSourceFile
+      );
+      if (externalSource === undefined || externalSource.fileName === fileName) {
+        return externalSource;
+      }
+      return ts.createSourceFile(
+        fileName,
+        externalSource.text,
+        languageVersion,
+        true,
+        typeScriptScriptKind(fileName)
+      );
+    },
+    readDirectory: (rootDir, extensions, excludes, includes, depth) => {
+      if (pathInside(virtualRoot, rootDir) !== null) {
+        const dependencyDirectory = dependencyFileForAbsolute(rootDir);
+        if (dependencyDirectory !== null) {
+          return baseHost.readDirectory?.(
+            dependencyDirectory,
+            extensions,
+            excludes,
+            includes,
+            depth
+          ) ?? [];
+        }
+        return snapshotReadDirectory(
+          snapshot,
+          virtualRoot,
+          rootDir,
+          extensions,
+          excludes,
+          includes,
+          depth
+        );
+      }
+      return baseHost.readDirectory?.(rootDir, extensions, excludes, includes, depth) ?? [];
+    },
+    readFile: (fileName) => {
+      const source = snapshotFileForAbsolute(fileName)?.source;
+      if (source !== undefined) return source;
+      return baseHost.readFile(dependencyFileForAbsolute(fileName) ?? fileName);
+    },
+    realpath: (fileName) => {
+      const dependencyFile = dependencyFileForAbsolute(fileName);
+      if (dependencyFile !== null) return fileName;
+      return pathInside(virtualRoot, fileName) === null
+        ? (baseHost.realpath?.(fileName) ?? fileName)
+        : fileName;
+    }
+  };
+  const program = ts.createProgram({
+    rootNames: parsed.fileNames,
+    options: parsed.options,
+    projectReferences: parsed.projectReferences,
+    host
+  });
+  const repositorySources = new Map<string, WorkspaceSourceFile>();
+  const externalSources: WorkspaceTypeScriptExternalSourceFact[] = [];
+  for (const sourceFile of program.getSourceFiles()) {
+    const virtualDependencyPath = pathInside(virtualDependencyRoot, sourceFile.fileName);
+    const repositoryPath = virtualDependencyPath === null
+      ? pathInside(virtualRoot, sourceFile.fileName)
+      : null;
+    if (repositoryPath !== null) {
+      const source = snapshot.file(repositoryPath);
+      if (source === null || source.source !== sourceFile.text) {
+        throw new Error(`TypeScript Program repository source is outside its exact snapshot: ${repositoryPath}`);
+      }
+      repositorySources.set(repositoryPath, source);
+      const visit = (node: ts.Node): void => {
+        const specifier = typeScriptModuleSpecifier(node);
+        if (specifier !== null && (specifier.includes('\0') || path.isAbsolute(specifier))) {
+          throw new Error(`TypeScript ProjectInput contains an absolute or invalid import: ${repositoryPath}`);
+        }
+        if (specifier !== null && (specifier === '..' || specifier.startsWith('../'))
+            && pathInside(virtualRoot, path.resolve(path.dirname(sourceFile.fileName), specifier)) === null) {
+          throw new Error(`TypeScript ProjectInput import escapes its snapshot: ${repositoryPath}`);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(sourceFile);
+      for (const reference of sourceFile.referencedFiles) {
+        if (reference.fileName.includes('\0') || path.isAbsolute(reference.fileName)) {
+          throw new Error(`TypeScript ProjectInput contains an absolute triple-slash reference: ${repositoryPath}`);
+        }
+        const resolvedReference = path.resolve(path.dirname(sourceFile.fileName), reference.fileName);
+        if (pathInside(virtualRoot, resolvedReference) === null) {
+          throw new Error(`TypeScript ProjectInput triple-slash reference escapes its snapshot: ${repositoryPath}`);
+        }
+      }
+      continue;
+    }
+    const defaultLibraryPath = pathInside(defaultLibraryRoot, sourceFile.fileName);
+    const dependencyPath = virtualDependencyPath
+      ?? (dependencyRoot === null ? null : pathInside(dependencyRoot, sourceFile.fileName));
+    const kind = defaultLibraryPath !== null
+      ? 'default-library' as const
+      : dependencyPath !== null
+        ? 'dependency-generation' as const
+        : null;
+    const classifiedPath = defaultLibraryPath ?? dependencyPath;
+    if (kind === null || classifiedPath === null) {
+      throw new Error(`TypeScript Program loaded a foreign source: ${sourceFile.fileName}`);
+    }
+    externalSources.push(Object.freeze({
+      kind,
+      path: classifiedPath,
+      contentDigest: rawSha256(sourceFile.text)
+    }));
+  }
+  const sourceFacts = Object.freeze([
+    projectConfig,
+    ...repositorySources.values()
+  ].filter((source, index, values) => values.findIndex(({ path: sourcePath }) => (
+    sourcePath === source.path
+  )) === index).sort((left, right) => compareCodeUnits(left.path, right.path)).map(({
+    path: repositoryPath,
+    contentDigest
+  }) => Object.freeze({
       path: repositoryPath,
       contentDigest: contentDigest as `sha256:${string}`,
       moduleId: snapshot.moduleMembership.moduleForPath(repositoryPath)?.moduleId ?? null,
       moduleDigest: sha256(snapshot.moduleMembership.moduleForPath(repositoryPath)) as `sha256:${string}`
     })));
-  const orderedSourceFactsDigest = sha256(sourceFacts) as `sha256:${string}`;
-  const canonical = Object.freeze({
+  const externalSourceFacts = Object.freeze(externalSources.sort((left, right) => (
+    compareCodeUnits(left.kind, right.kind) || compareCodeUnits(left.path, right.path)
+  )));
+  dependencyGeneration?.assertCurrent();
+  const orderedSourceFactsDigest = sha256({ sourceFacts, externalSourceFacts }) as `sha256:${string}`;
+  const resolvedRootSourcePaths = Object.freeze(parsed.fileNames.map((fileName) => {
+    const repositoryPath = pathInside(virtualRoot, fileName);
+    if (repositoryPath === null || snapshot.file(repositoryPath) === null) {
+      throw new Error(`TypeScript ProjectInput root source is outside its exact snapshot: ${fileName}`);
+    }
+    return repositoryPath;
+  }).sort(compareCodeUnits));
+  const resolvedConfigDigest = sha256(Object.freeze({
+    compilerRevision: ts.version,
+    projectConfigPath,
+    projectConfigDigest: projectConfig.contentDigest,
+    containedProjectConfig,
+    resolvedRootSourcePaths,
+    orderedSourceFactsDigest,
+    dependencyGenerationPhysicalDigest
+  })) as `sha256:${string}`;
+  const containmentCanonical = Object.freeze({
+    status: 'contained' as const,
+    projectConfigPath,
+    projectConfigDigest: projectConfig.contentDigest as `sha256:${string}`,
+    workspaceSnapshotIdentityDigest: snapshot.identityDigest,
+    dependencyGenerationPhysicalDigest,
+    compilerRevision: ts.version,
+    resolvedConfigDigest
+  });
+  const executionConfigContainment: WorkspaceTypeScriptExecutionConfigContainmentReceipt = Object.freeze({
+    ...containmentCanonical,
+    containmentDigest: sha256(containmentCanonical) as `sha256:${string}`
+  });
+  const observation = Object.freeze({
     sourceRevision: snapshot.sourceRevision,
     snapshotDigest: snapshot.snapshotDigest,
     workspaceSnapshotIdentityDigest: snapshot.identityDigest,
     moduleMembershipDigest: snapshot.moduleMembershipDigest,
     moduleGraphDigest: snapshot.moduleGraphDigest,
+  });
+  const semanticInput = Object.freeze({
     projectConfigPath,
     projectConfigDigest: projectConfig.contentDigest as `sha256:${string}`,
+    dependencyGenerationPhysicalDigest,
+    executionConfig: Object.freeze({
+      status: executionConfigContainment.status,
+      projectConfigPath: executionConfigContainment.projectConfigPath,
+      projectConfigDigest: executionConfigContainment.projectConfigDigest,
+      dependencyGenerationPhysicalDigest: executionConfigContainment.dependencyGenerationPhysicalDigest,
+      compilerRevision: executionConfigContainment.compilerRevision,
+      resolvedConfigDigest: executionConfigContainment.resolvedConfigDigest
+    }),
     sourceFacts,
+    externalSourceFacts,
     orderedSourceFactsDigest
   });
-  const projectInputDigest = sha256(canonical) as `sha256:${string}`;
-  const input: WorkspaceTypeScriptProjectInput = Object.freeze({
+  const projectInputDigest = sha256(semanticInput) as `sha256:${string}`;
+  const projectInput: WorkspaceTypeScriptProjectInput = Object.freeze({
     [workspaceTypeScriptProjectInputBrand]: true as const,
-    ...canonical,
+    ...observation,
+    projectConfigPath,
+    projectConfigDigest: projectConfig.contentDigest as `sha256:${string}`,
+    dependencyGenerationPhysicalDigest,
+    executionConfigContainment,
+    sourceFacts,
+    externalSourceFacts,
+    orderedSourceFactsDigest,
     projectInputDigest,
-    observationDigest: sha256({ projectInputDigest, snapshot: snapshot.subjectDigest }) as `sha256:${string}`
+    observationDigest: sha256({
+      ...observation,
+      projectInputDigest,
+      snapshotSubject: snapshot.subjectDigest
+    }) as `sha256:${string}`
   });
-  issuedWorkspaceTypeScriptProjectInputs.add(input);
-  return input;
+  issuedWorkspaceTypeScriptProjectInputs.add(projectInput);
+  return projectInput;
+}
+
+export function issueWorkspaceTypeScriptProjectGenerationEvidence(
+  snapshot: PhysicalWorkspaceSourceSnapshot,
+  projectInput: WorkspaceTypeScriptProjectInput
+): WorkspaceTypeScriptProjectGenerationEvidence {
+  assertPhysicalWorkspaceSourceSnapshot(snapshot);
+  assertWorkspaceTypeScriptProjectInputMatchesSnapshot(projectInput, snapshot);
+  if (snapshot.subject.provenance.kind !== 'working-tree-observation') {
+    throw new Error('TypeScript project generation requires one retained working-tree observation');
+  }
+  const generationDigest = sha256(Object.freeze({
+    projectInputDigest: projectInput.projectInputDigest,
+    workspaceSnapshotIdentityDigest: snapshot.identityDigest,
+    physicalObservationReceipt: snapshot.physicalObservationReceipt
+  })) as `sha256:${string}`;
+  const sourceFiles = Object.freeze(projectInput.sourceFacts.map((fact) => {
+    const file = snapshot.file(fact.path);
+    if (file === null || file.contentDigest !== fact.contentDigest) {
+      throw new Error(`TypeScript project generation source differs from ProjectInput: ${fact.path}`);
+    }
+    return file;
+  }));
+  const evidence: WorkspaceTypeScriptProjectGenerationEvidence = Object.freeze({
+    [workspaceTypeScriptProjectGenerationEvidenceBrand]: true as const,
+    generationDigest,
+    projectInput,
+    sourceFiles
+  });
+  issuedWorkspaceTypeScriptProjectGenerationEvidence.add(evidence);
+  return evidence;
 }
 
 export function assertWorkspaceSourceSnapshot(
@@ -345,36 +875,56 @@ function emptyModuleMembership(): SecRepositoryModuleMembership {
 function issueWorkspaceSourceSnapshot(
   input: IssueWorkspaceSourceSnapshotInput
 ): WorkspaceSourceSnapshot {
+  if (input.sourceByteLength !== null
+      && (!Number.isSafeInteger(input.sourceByteLength) || input.sourceByteLength < 0)) {
+    throw new Error('Workspace source snapshot physical byte observation is invalid');
+  }
   const subject = canonicalSubject(input.subject);
   const files = canonicalFiles(input.files);
   const sourceRevision = sourceGeneration(files);
   const exactMembershipDigest = membershipDigest(files, input.moduleMembership);
   const sourceByPath = new Map(files.map((file) => [file.path, file] as const));
-  const moduleGraph = compileSecRepositoryModuleGraph({
-    files: files.filter(({ path }) => isSourceProgramInputPath(path)).map(({ path }) => path),
-    readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null
-  });
-  const exactModuleGraphDigest = graphDigest(moduleGraph);
-  const exactSnapshotDigest = sha256({
-    sourceRevision,
-    moduleMembershipDigest: exactMembershipDigest,
-    moduleGraphDigest: exactModuleGraphDigest
-  }) as `sha256:${string}`;
   const subjectDigest = sha256(subject) as `sha256:${string}`;
-  const identityDigest = sha256({
-    subjectDigest,
-    sourceRevision,
-    snapshotDigest: exactSnapshotDigest,
-    moduleMembershipDigest: exactMembershipDigest,
-    moduleGraphDigest: exactModuleGraphDigest
-  }) as `sha256:${string}`;
+  let semanticProjection: Readonly<{
+    moduleGraph: SecRepositoryModuleGraph;
+    moduleGraphDigest: `sha256:${string}`;
+    snapshotDigest: `sha256:${string}`;
+    identityDigest: `sha256:${string}`;
+  }> | null = null;
+  const requireSemanticProjection = () => {
+    if (semanticProjection !== null) return semanticProjection;
+    const moduleGraph = compileSecRepositoryModuleGraph({
+      files: files.filter(({ path }) => isSourceProgramInputPath(path)).map(({ path }) => path),
+      readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null
+    });
+    const moduleGraphDigest = graphDigest(moduleGraph);
+    const snapshotDigest = sha256({
+      sourceRevision,
+      moduleMembershipDigest: exactMembershipDigest,
+      moduleGraphDigest
+    }) as `sha256:${string}`;
+    semanticProjection = Object.freeze({
+      moduleGraph,
+      moduleGraphDigest,
+      snapshotDigest,
+      identityDigest: sha256({
+        subjectDigest,
+        sourceRevision,
+        snapshotDigest,
+        moduleMembershipDigest: exactMembershipDigest,
+        moduleGraphDigest
+      }) as `sha256:${string}`
+    });
+    return semanticProjection;
+  };
   const assertMatches = (candidate: WorkspaceSourceSnapshotMatchInput): void => {
     const candidateFiles = canonicalFiles(candidate.files);
     const candidateRevision = candidate.sourceRevision ?? candidate.productionModel?.sourceRevision;
+    const projection = requireSemanticProjection();
     if (candidateRevision !== sourceRevision
         || sourceGeneration(candidateFiles) !== sourceRevision
         || membershipDigest(candidateFiles, candidate.moduleMembership) !== exactMembershipDigest
-        || graphDigest(moduleGraph) !== exactModuleGraphDigest) {
+        || graphDigest(projection.moduleGraph) !== projection.moduleGraphDigest) {
       throw new Error('Workspace source snapshot does not bind the supplied exact input');
     }
   };
@@ -387,13 +937,17 @@ function issueWorkspaceSourceSnapshot(
       ? subject.provenance
       : null,
     files,
+    sourceByteLength: input.sourceByteLength,
     moduleMembership: input.moduleMembership,
-    snapshotDigest: exactSnapshotDigest,
     moduleMembershipDigest: exactMembershipDigest,
-    moduleGraphDigest: exactModuleGraphDigest,
-    identityDigest,
-    moduleGraphCompilationCount: 1 as const,
-    moduleGraph,
+    get snapshotDigest() { return requireSemanticProjection().snapshotDigest; },
+    get moduleGraphDigest() { return requireSemanticProjection().moduleGraphDigest; },
+    get identityDigest() { return requireSemanticProjection().identityDigest; },
+    get moduleGraphCompilationCount() {
+      requireSemanticProjection();
+      return 1 as const;
+    },
+    get moduleGraph() { return requireSemanticProjection().moduleGraph; },
     file: (repositoryPath: string) => sourceByPath.get(repositoryPath) ?? null,
     assertMatches
   });
@@ -408,7 +962,8 @@ export function compileVirtualWorkspaceSourceSnapshot(
   return issueWorkspaceSourceSnapshot({
     subject: input.subject,
     files: canonicalFiles(input.files),
-    moduleMembership: input.moduleMembership
+    moduleMembership: input.moduleMembership,
+    sourceByteLength: null
   }) as VirtualWorkspaceSourceSnapshot;
 }
 
@@ -442,7 +997,8 @@ function issuePhysicalWorkspaceSourceSnapshot(
       })
     }),
     files: input.files,
-    moduleMembership: input.moduleMembership
+    moduleMembership: input.moduleMembership,
+    sourceByteLength: input.sourceByteLength
   });
   if (input.session.failure !== null
       || !input.session.verifyExecutable()
@@ -567,17 +1123,16 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
     throw new Error('Working-tree workspace snapshot requires a current production Git session');
   }
   const membershipEntries = await observeWorkingTreeMembership(session);
-  const repositoryPaths = membershipEntries.map(({ path: repositoryPath }) => repositoryPath);
-  const files: WorkspaceSourceFile[] = [];
-  const physicalFileObservations: Readonly<Record<string, string | number>>[] = [];
-  let totalBytes = 0;
-  for (const membershipEntry of membershipEntries) {
+  const sourceMembershipEntries = membershipEntries.filter(({ path: repositoryPath }) => (
+    isSourceProgramInputPath(repositoryPath)
+  ));
+  const limit = createConcurrencyLimit();
+  const admittedEntries = await Promise.all(sourceMembershipEntries.map((membershipEntry) => limit(async () => {
     const repositoryPath = membershipEntry.path;
     const canonicalPath = normalizeSecRepositoryPath(repositoryPath);
     if (canonicalPath !== repositoryPath || canonicalPath.length === 0) {
       throw new Error(`Workspace source membership path is not canonical: ${repositoryPath}`);
     }
-    if (!isSourceProgramInputPath(repositoryPath)) continue;
     const absolutePath = path.resolve(session.cwd, ...repositoryPath.split('/'));
     const relativePath = path.relative(session.cwd, absolutePath);
     if (relativePath.length === 0 || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
@@ -590,10 +1145,14 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
     if (before.size > SOURCE_SNAPSHOT_MAX_FILE_BYTES) {
       throw new Error(`Workspace source file exceeds its byte ceiling: ${repositoryPath}`);
     }
-    totalBytes += before.size;
-    if (totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
-      throw new Error('Workspace source snapshot exceeds its aggregate byte ceiling');
-    }
+    return Object.freeze({ absolutePath, before, membershipEntry, repositoryPath });
+  })));
+  const totalBytes = admittedEntries.reduce((total, { before }) => total + before.size, 0);
+  if (!Number.isSafeInteger(totalBytes) || totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
+    throw new Error('Workspace source snapshot exceeds its aggregate byte ceiling');
+  }
+  const observedEntries = await Promise.all(admittedEntries.map((entry) => limit(async () => {
+    const { absolutePath, before, membershipEntry, repositoryPath } = entry;
     const bytes = await readFile(absolutePath);
     const after = await lstat(absolutePath);
     if (bytes.length !== before.size || bytes.includes(0)
@@ -602,20 +1161,24 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
         || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
       throw new Error(`Workspace source file changed during acquisition: ${repositoryPath}`);
     }
-    files.push(Object.freeze({
+    return Object.freeze({
+      file: Object.freeze({
       path: repositoryPath,
       mode: membershipEntry.mode ?? ((before.mode & 0o111) === 0 ? '100644' : '100755'),
       source: exactUtf8(bytes, `Workspace source file ${repositoryPath}`),
       contentDigest: rawSha256(bytes)
-    }));
-    physicalFileObservations.push(Object.freeze({
-      path: repositoryPath,
-      device: String(before.dev),
-      inode: String(before.ino),
-      size: before.size,
-      mtimeMs: before.mtimeMs
-    }));
-  }
+      }),
+      physical: Object.freeze({
+        path: repositoryPath,
+        device: String(before.dev),
+        inode: String(before.ino),
+        size: before.size,
+        mtimeMs: before.mtimeMs
+      })
+    });
+  })));
+  const files = observedEntries.map(({ file }) => file);
+  const physicalFileObservations = observedEntries.map(({ physical }) => physical);
   const descriptorSources = files
     .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/sec.module.json'))
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
@@ -639,7 +1202,8 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
     session,
     provenance: Object.freeze({ kind: 'working-tree-observation', identityDigest }),
     files,
-    moduleMembership
+    moduleMembership,
+    sourceByteLength: totalBytes
   });
 }
 
@@ -674,12 +1238,11 @@ export function acquireExactGitTreeWorkspaceSourceSnapshot(
     entries: sourceEntries
   });
   let totalBytes = 0;
-  for (const { repositoryPath, source } of sourceBlobs) {
-    const bytes = Buffer.byteLength(source, 'utf8');
-    if (bytes > SOURCE_SNAPSHOT_MAX_FILE_BYTES) {
+  for (const { repositoryPath, byteLength } of sourceBlobs) {
+    if (byteLength > SOURCE_SNAPSHOT_MAX_FILE_BYTES) {
       throw new Error(`Exact workspace source file exceeds its byte ceiling: ${repositoryPath}`);
     }
-    totalBytes += bytes;
+    totalBytes += byteLength;
     if (totalBytes > SOURCE_SNAPSHOT_MAX_TOTAL_BYTES) {
       throw new Error('Exact workspace source snapshot exceeds its aggregate byte ceiling');
     }
@@ -723,6 +1286,7 @@ export function acquireExactGitTreeWorkspaceSourceSnapshot(
   return issueWorkspaceSourceSnapshot({
     subject,
     files,
-    moduleMembership
+    moduleMembership,
+    sourceByteLength: totalBytes
   }) as PhysicalWorkspaceSourceSnapshot;
 }

@@ -1,4 +1,4 @@
-import { platformCommand } from '../interface/cli/contract.ts';
+import { platformCommand } from '../interface/cli/contract/command.ts';
 import { uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
 
 export const CONTRACT_FREEZE_STATUS_ACTIVE = 'active' as const;

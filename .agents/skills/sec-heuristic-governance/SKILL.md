@@ -20,14 +20,6 @@ description: 用于新的 Agent 行为选择、重复系统性偏航、维护者
 - canonical owner、现有 behavior/Skill identity、当前权限与 exact revision。
 - 能在未来无需再次提醒便阻断同类偏航的可观察条件。
 
-## 权限与路径
-- 只修当前任务授权内的治理 owner、唯一 Skill、短路由及必要 machine rejection。
-- 缺陷 Skill/WP 不能否决对自身最小闭包的修正；该权限不扩张到无关代码、其他仓库或外部 Effect。
-
-## 允许工具与操作
-- exact fact、tracked/import/consumer census、Skill/behavior inventory、focused deterministic validation。
-- 无外部 Effect 的正向、负向和边界 forward-test。
-
 ## 前置门禁
 - 先对准备保留、新增、修改或验证的对象做彻底删除反事实；无法说明删除后哪个终局结果变差时，不得把对象当作需求。
 - 能定位被证伪前提、受影响闭包和 canonical owner；不能定位时保持 typed unknown。
@@ -54,7 +46,3 @@ description: 用于新的 Agent 行为选择、重复系统性偏航、维护者
 - 不把 maintainer 原话、样例、字段表、版本或产品算法复制进 Skill。
 - 不用新 Skill、Issue、WP 或 Evidence 文件代替既有 owner 修复。
 - 不借治理自纠扩权外部写入、安装、发布、清理或 merge。
-
-## 权威
-- `docs/development-governance.md`
-- `platform/control/agent/skill.ts`

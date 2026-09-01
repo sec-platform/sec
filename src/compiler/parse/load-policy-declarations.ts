@@ -8,8 +8,9 @@ import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime
 import { isCanonicalBlockId } from '../../semantic/identity/contract/block.ts';
 import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { compilerRuntimeResources } from '../../toolchain/layout.ts';
-import { getWorkspacePaths, officialPoliciesRelativePath, policiesRelativePath, posixPath, relativePosixPath } from '../../workspace/paths.ts';
+import { getWorkspacePaths, officialPoliciesRelativePath, policiesRelativePath, posixPath, relativePosixPath } from '../../workspace/runtime/paths.ts';
 import { isCanonicalPolicyId } from '../policies/contract/identity.ts';
+import { POLICY_RULE_IDS } from '../policies/contract/rules.ts';
 import type { PolicyRule, PolicySourceFileReport, PolicySourceScope, PolicySpec } from '../policies/contract/types.ts';
 
 export interface LoadedPolicyDefinition {
@@ -34,13 +35,11 @@ export interface LoadedPolicyDeclarations {
 
 export const POLICY_SOURCE_INVENTORY_MAX_ENTRIES = 4096;
 export const POLICY_SOURCE_INVENTORY_TIMEOUT_MS = 5000;
-const POLICY_RULE = 'tenant_context_must_flow_to_query' as const;
-
 const policyRuleSchema = z.object({
   id: z.string().refine(isCanonicalPolicyId, 'Policy id must be one canonical lowercase token'),
   severity: z.enum(['info', 'warn', 'error', 'blocker']),
   appliesTo: z.array(z.string()).min(1),
-  rule: z.literal(POLICY_RULE)
+  rule: z.enum(POLICY_RULE_IDS)
 }).strict().superRefine((policy, context) => {
   for (let index = 0; index < policy.appliesTo.length; index += 1) {
     const blockId = policy.appliesTo[index]!;

@@ -38,13 +38,6 @@ import {
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../workspace/lease.ts';
 
 import {
-  CodexDevelopmentAssertWorkPackageOwnership,
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentParseWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
-} from '../../../control/agent/work-package-contract.ts';
-import {
   BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
   authorizeBranchCloseout,
   createBranchCloseoutOperationBinding,
@@ -138,6 +131,17 @@ import {
 } from '../../../control/issues/issue-disposition-github.ts';
 import { createMainHealthLedger } from '../../../control/main-health/contract.ts';
 import { createObservedMainHealthInput } from '../../../control/main-health/main-health-observation.ts';
+import {
+  createCiMainHealthRequestOperationId,
+  matchesCiCompilerWorkflowRunIdentity
+} from '../../../control/main-health/provider-policy.ts';
+import {
+  CodexDevelopmentAssertWorkPackageOwnership,
+  CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentParseWorkPackageLocator,
+  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest
+} from '../../../control/task/contract/work-package.ts';
 import { executeVerifiedCiActionPlan } from '../../../development/runner/verification-action-executor.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
@@ -155,17 +159,17 @@ import { renderIndependentReviewTrailer, type ReviewStabilityReceipt } from '../
 import { VERIFICATION_REGISTRY_PROJECTION_SCHEMA, VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH, parseVerificationSession, type VerificationRegistryEntry, type VerificationSession } from '../../session/contract/session.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../trust/contract/root.ts';
+import {
+  CodexDevelopmentCreateVerificationEvidenceProducer,
+  CodexDevelopmentParseVerificationSessionArtifact
+} from '../contract/evidence.ts';
 import type {
   GitHubWorkflowJobObservation,
   GitHubWorkflowRunObservation
 } from '../contract/github-observation.ts';
 import {
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-  CodexDevelopmentCreateVerificationEvidenceProducer,
-  CodexDevelopmentParseVerificationSessionArtifact,
-  createCiMainHealthRequestOperationId,
-  matchesCiCompilerWorkflowRunIdentity
-} from '../index.ts';
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE
+} from '../contract/revision.ts';
 import {
   CodexDevelopmentDefaultChangedPaths,
   CodexDevelopmentExactGitTestImpactSourceProvider

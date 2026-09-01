@@ -21,6 +21,7 @@ export interface SecRuntimeRoots {
   readonly workspaceLocatorRoot: string;
   readonly workspaceStateRoot: string;
   readonly workspaceLocatorKey: `sha256:${string}`;
+  readonly processDiagnosticObjectRoot: string;
 }
 
 export interface SecWorkspacePhysicalIdentity {
@@ -43,6 +44,7 @@ export interface SecRuntimeStateLayout {
   readonly durableLocalExecutionJournalRoot: string;
   readonly verificationSessionJournalRoot: string;
   readonly verificationActionJournalRoot: string;
+  readonly processDiagnosticObjectRoot: string;
 }
 
 export function currentSecRuntimePlatform(
@@ -201,12 +203,14 @@ export function resolveSecRuntimeRoots(input: Readonly<{
   const workspaceLocatorKey = createSecWorkspaceLocatorKey({
     workspacePhysicalIdentity: input.workspacePhysicalIdentity
   });
+  const workspaceStateRoot = api.join(stateRoot, 'workspaces', 'v1', workspaceLocatorKey.slice(7));
   return Object.freeze({
     stateRoot,
     cacheRoot,
     workspaceLocatorRoot: api.join(stateRoot, 'workspace-locators', 'v1'),
-    workspaceStateRoot: api.join(stateRoot, 'workspaces', 'v1', workspaceLocatorKey.slice(7)),
-    workspaceLocatorKey
+    workspaceStateRoot,
+    workspaceLocatorKey,
+    processDiagnosticObjectRoot: api.join(workspaceStateRoot, 'objects', 'process-diagnostics')
   });
 }
 
@@ -248,6 +252,11 @@ export function resolveSecRuntimeStateLayout(input: Readonly<{
       roots.workspaceStateRoot, 'durable-local-executions'
     ),
     verificationSessionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-sessions', 'v2'),
-    verificationActionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-actions', 'v2')
+    verificationActionJournalRoot: api.join(
+      roots.workspaceStateRoot,
+      'verification-actions',
+      'terminal-bound'
+    ),
+    processDiagnosticObjectRoot: roots.processDiagnosticObjectRoot
   });
 }

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { expectCliSuccess, expectCliText } from '../testkit/cli.ts';
 import { withTempWorkspace, withWorkspaceScenario } from '../testkit/workspace.ts';
@@ -22,7 +22,6 @@ function nativeWorkspaceDirectories(paths: WorkspacePathsSnapshot): string[] {
     paths.policiesRoot,
     paths.overridesRoot,
     paths.srcRoot,
-    paths.slotsRoot,
     paths.testsRoot,
     paths.prismaRoot,
     paths.secRoot,
@@ -53,7 +52,7 @@ test('CLI init creates the native workspace roots', async () => {
   });
 }, 180000);
 test('CLI defaults verification to the fast lane', async () => {
-  await withWorkspaceScenario('adapted-default', async (workspaceRoot) => {
+  await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
     await expectCliText(workspaceRoot, ['verify'], ['Verification passed (fast)\n']);
   });
 }, 180000);

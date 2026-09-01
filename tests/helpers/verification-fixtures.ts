@@ -16,7 +16,7 @@ import {
   type ProductVerificationRuntimeMode
 } from '../../src/verification/profile/contract/product.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 
 export function emptyVerificationLogs(): VerificationReport['logs'] {
   return { stdout: '', stderr: '' };
@@ -44,9 +44,7 @@ function emptyAcceptanceCoverage(status: VerificationReport['runtime']['status']
     status,
     acceptancePassed: [],
     blocks: [],
-    slots: [],
-    uncoveredBlocks: [],
-    uncoveredSlots: []
+    uncoveredBlocks: []
   };
 }
 
@@ -148,16 +146,12 @@ export async function writeCanonicalVerificationArtifactSetFixture(
 
 export async function writeFailedFastUnitVerification(
   workspaceRoot: string,
-  message: string,
-  options: { slotTasks?: LockFile['slotTasks'] } = {}
+  message: string
 ): Promise<void> {
   const lockPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
   const verificationReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.verificationReport);
   const lock = await readJson<LockFile>(lockPath);
   lock.passStatus.verify = 'failed';
-  if (options.slotTasks !== undefined) {
-    lock.slotTasks = options.slotTasks;
-  }
   await writeJson(lockPath, lock);
 
   const report = await readJson<VerificationReport>(verificationReportPath);

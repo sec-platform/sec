@@ -1,11 +1,11 @@
-import { CompilerError } from '../../compiler/errors.ts';
 import { PhysicalNoFollowError } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { readOptionalProvenanceFile } from '../../semantic/provenance/authority.ts';
 import type { ProvenanceFile } from '../../semantic/provenance/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
+import { ProjectIntegrityError } from '../contract/project-integrity.ts';
+import { modelRelativePath } from '../contract/types.ts';
 import {
   getWorkspacePaths,
-  modelRelativePath,
   resolveWorkspaceArtifactPath,
   secRelativePath,
   tsconfigRelativePath,
@@ -20,8 +20,7 @@ function readOptionalProvenanceNoFollow(provenancePath: string): ProvenanceFile 
     return readOptionalProvenanceFile(provenancePath, 'Canonical provenance');
   } catch (error) {
     if (error instanceof PhysicalNoFollowError) throw error;
-    throw new CompilerError(
-      'ERROR-DRIFT-001',
+    throw new ProjectIntegrityError(
       `Canonical provenance cannot be decoded or validated: ${error instanceof Error ? error.message : String(error)}`
     );
   }
@@ -44,7 +43,6 @@ async function verifyPreviousProvenance(
       && !artifact.path.startsWith(`${secRelativePath}/`)
       && artifact.path !== workspaceConfigRelativePath
       && artifact.path !== tsconfigRelativePath
-      && artifact.originType !== 'slot'
     ))
   );
 
@@ -52,16 +50,14 @@ async function verifyPreviousProvenance(
     if (!exists) {
       const missingIsDrift = options.strictMissing || trackedProjectPaths?.has(artifactPath) === true;
       if (missingIsDrift) {
-        throw new CompilerError(
-          'ERROR-DRIFT-001',
+        throw new ProjectIntegrityError(
           `Reference drift detected: Read-only project file is missing: ${artifactPath}`
         );
       }
       continue;
     }
     if (artifact.hash && currentHash !== artifact.hash) {
-      throw new CompilerError(
-        'ERROR-DRIFT-001',
+      throw new ProjectIntegrityError(
         `Reference drift detected: Read-only project file modified: ${artifactPath}`
       );
     }

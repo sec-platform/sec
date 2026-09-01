@@ -1,12 +1,12 @@
 import { parse as parseYaml } from 'yaml';
 
 import { rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
+import type { MainHealthRepairDecision } from '../main-health/repair.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest,
   type CodexDevelopmentWorkPackageManifest
-} from '../agent/work-package-contract.ts';
-import type { MainHealthRepairDecision } from '../main-health/repair.ts';
+} from '../task/contract/work-package.ts';
 import {
   compileSecWorkRollingProjection,
   compileSecWorkRollingTransitionProjection,

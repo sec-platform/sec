@@ -2,9 +2,25 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../runtime-state/physical/runtime/physical-no-follow.ts';
-import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, runCommandBytes, runRetainedCommandBytes } from '../runtime-state/physical/runtime/process.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession,
+  type ProcessResourceSession,
+  type ProcessResourceSessionReceipt
+} from '../runtime-state/physical/runtime/process-resource-session.ts';
+import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, issueRetainedCommandBoundary } from '../runtime-state/physical/runtime/process.ts';
+import { settlePhysicalResources } from '../runtime-state/physical/runtime/resource-settlement.ts';
 import { SecError } from '../system-architecture/foundation/contract/failure.ts';
-import { digest } from '../system-architecture/foundation/runtime/canonical.ts';
+import { digest, sha256 } from '../system-architecture/foundation/runtime/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../system-architecture/operation/requirement-binding-context.ts';
+import {
+  bindSecSemanticOperation,
+  compileSecCapabilityBinding,
+  compileSecSemanticOperationPlan,
+  issueSecSemanticOperationAttemptContext,
+  type SecBoundSemanticOperation,
+  type SecOperationDigest
+} from '../system-architecture/operation/semantic.ts';
 import {
   loadCanonicalBunRuntimeVersion,
   parseCompilerPackageEntrypointBinding,
@@ -13,6 +29,11 @@ import {
 import { materializeExactReleaseGitTree } from './release-git-tree-source.ts';
 
 const RELEASE_BUILD_META_FILE_NAME = '.sec-release-build-metafile.json' as const;
+const RELEASE_BUILDER_MAX_DURATION_MS = 10 * 60_000;
+const RELEASE_BUILDER_MAX_STDOUT_BYTES = 512 * 1024 * 1024;
+const RELEASE_BUILDER_MAX_STDERR_BYTES = 8 * 1024 * 1024;
+const RELEASE_BUILDER_OPERATION = 'release.builder-command';
+const RELEASE_BUILDER_REQUIREMENT = 'release.builder-process';
 
 export interface ReleaseBuilderIdentity {
   readonly schema: 'sec-release-builder-identity-v1';
@@ -60,55 +81,239 @@ type BuildMetafile = Readonly<{
   inputs?: Record<string, unknown>;
 }>;
 
+function exactReleaseBuilderEnvironment(): Readonly<Record<string, string>> {
+  return Object.freeze(Object.fromEntries(
+    Object.entries(process.env)
+      .filter((entry): entry is [string, string] => entry[1] !== undefined)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+  ));
+}
+
+function compileReleaseBuilderOperation(input: Readonly<{
+  args: readonly string[];
+  builder: ReleaseBuilderIdentity;
+  cwd: string;
+  deadlineAtUnixMs: number;
+  environment: Readonly<Record<string, string>>;
+  maximumStdoutBytes: number;
+  providerIdentityDigest: SecOperationDigest;
+}>): SecBoundSemanticOperation {
+  const remainingDurationMs = input.deadlineAtUnixMs - Date.now();
+  if (!Number.isSafeInteger(input.deadlineAtUnixMs)
+      || !Number.isSafeInteger(remainingDurationMs)
+      || remainingDurationMs < 1
+      || remainingDurationMs > RELEASE_BUILDER_MAX_DURATION_MS) {
+    throw new Error('Release builder absolute deadline elapsed during physical admission.');
+  }
+  const contractDigest = sha256({
+    operation: RELEASE_BUILDER_OPERATION,
+    runtime: 'bun',
+    processCount: 1,
+    maximumDurationMs: RELEASE_BUILDER_MAX_DURATION_MS,
+    maximumStdoutBytes: input.maximumStdoutBytes,
+    maximumStderrBytes: RELEASE_BUILDER_MAX_STDERR_BYTES
+  }) as SecOperationDigest;
+  const plan = compileSecSemanticOperationPlan({
+    operation: RELEASE_BUILDER_OPERATION,
+    intentDigest: sha256({
+      args: input.args,
+      builder: input.builder,
+      cwd: input.cwd,
+      environment: input.environment,
+      providerIdentityDigest: input.providerIdentityDigest
+    }) as SecOperationDigest,
+    decisionDigest: contractDigest,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    attempt: issueSecSemanticOperationAttemptContext({
+      authorityGrantDigest: contractDigest
+    }),
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: remainingDurationMs },
+      {
+        resource: 'output-bytes',
+        maximum: input.maximumStdoutBytes + RELEASE_BUILDER_MAX_STDERR_BYTES
+      },
+      { resource: 'processes', maximum: 1 }
+    ],
+    requirements: [{
+      id: RELEASE_BUILDER_REQUIREMENT,
+      contractDigest,
+      effectKinds: ['filesystem', 'process'],
+      failureKinds: [
+        'filesystem.identity-drift',
+        'filesystem.materialization-failed',
+        'process.cancelled',
+        'process.deadline-exhausted',
+        'process.identity-drift',
+        'process.output-budget-exhausted',
+        'process.settlement-unproven',
+        'process.unavailable'
+      ]
+    }]
+  });
+  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: RELEASE_BUILDER_REQUIREMENT,
+    contractDigest,
+    providerIdentityDigest: input.providerIdentityDigest
+  })]);
+}
+
+function assertReleaseBuilderReceipt(
+  receipt: ProcessResourceSessionReceipt,
+  operation: SecBoundSemanticOperation,
+  completed: boolean
+): void {
+  assertProcessResourceSessionReceipt(receipt, {
+    operationIdentityDigest: operation.plan.identity.identityDigest,
+    boundAttemptDigest: operation.boundAttemptDigest,
+    requirementId: RELEASE_BUILDER_REQUIREMENT
+  });
+  if (receipt.processCount < (completed ? 1 : 0)
+      || receipt.processCount > 1
+      || receipt.settledProcessCount !== receipt.processCount
+      || receipt.successfulProcessRecordCount !== (completed ? 1 : 0)
+      || receipt.inputBytes !== 0
+      || receipt.outputBytes > (operation.plan.execution.aggregateBudgets.find(
+        ({ resource }) => resource === 'output-bytes'
+      )?.maximum ?? -1)) {
+    throw new Error('Release builder process receipt does not match the bound operation.');
+  }
+}
+
 async function runReleaseBuilderCommand(
   cwd: string,
   args: readonly string[],
   builder: ReleaseBuilderIdentity,
   maxOutputBytes = 256 * 1024 * 1024
 ): Promise<Buffer> {
-  const options = Object.freeze({
-    cwd,
-    maxStderrBytes: Math.min(maxOutputBytes, 8 * 1024 * 1024),
-    maxStdoutBytes: maxOutputBytes,
-    timeoutMs: 10 * 60_000
-  });
-  let result;
-  if (process.platform !== 'win32') {
-    result = await runCommandBytes(process.execPath, [...args], options);
-  } else {
-    const executablePath = await fs.realpath(process.execPath);
-    const executable = retainNoFollowOrdinaryFile(
-      inspectNoFollowDirectoryChain(path.dirname(executablePath), 'release builder executable parent'),
+  if (!Number.isSafeInteger(maxOutputBytes)
+      || maxOutputBytes < 1
+      || maxOutputBytes > RELEASE_BUILDER_MAX_STDOUT_BYTES) {
+    throw new Error('Release builder stdout budget exceeds the canonical owner ceiling.');
+  }
+  const deadlineAtUnixMs = Date.now() + RELEASE_BUILDER_MAX_DURATION_MS;
+  const absoluteCwd = path.resolve(cwd);
+  const executablePath = path.resolve(await fs.realpath(process.execPath));
+  let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
+  let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
+  let session: ProcessResourceSession | undefined;
+  let operation: SecBoundSemanticOperation | undefined;
+  let completed = false;
+  let executionError: unknown | undefined;
+  let result: Awaited<ReturnType<ProcessResourceSession['run']>> | undefined;
+  try {
+    const executableParent = inspectNoFollowDirectoryChain(
+      path.dirname(executablePath),
+      'release builder executable parent'
+    );
+    executable = retainNoFollowOrdinaryFile(
+      executableParent,
       path.basename(executablePath),
       undefined,
       'release builder executable',
       RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
       'executable'
     );
-    const workingDirectory = retainNoFollowDirectoryForChildProcess(
-      inspectNoFollowDirectoryChain(cwd, 'release builder working directory'),
+    const workingDirectoryChain = inspectNoFollowDirectoryChain(
+      absoluteCwd,
+      'release builder working directory'
+    );
+    workingDirectory = retainNoFollowDirectoryForChildProcess(
+      workingDirectoryChain,
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
       'release builder working directory'
     );
-    try {
-      if (executable.digest().byteDigest !== builder.executableSha256) {
-        throw new Error('Retained release builder bytes differ from the frozen builder identity');
-      }
-      result = await runRetainedCommandBytes(
-        Object.freeze({ executable, workingDirectory }),
-        [...args],
-        options
-      );
-    } finally {
-      workingDirectory.dispose();
-      executable.dispose();
+    if (executable.digest().byteDigest !== builder.executableSha256) {
+      throw new Error('Retained release builder bytes differ from the frozen builder identity');
     }
+    const providerIdentityDigest = sha256({
+      domain: 'release.builder-command.physical-provider',
+      executable: {
+        path: executable.path,
+        parent: executable.parent,
+        physical: executable.physical,
+        size: executable.size
+      },
+      workingDirectory: workingDirectoryChain.target
+    }) as SecOperationDigest;
+    const environment = exactReleaseBuilderEnvironment();
+    operation = compileReleaseBuilderOperation({
+      args,
+      builder,
+      cwd: absoluteCwd,
+      deadlineAtUnixMs,
+      environment,
+      maximumStdoutBytes: maxOutputBytes,
+      providerIdentityDigest
+    });
+    session = openProcessResourceSession({
+      operation,
+      requirementBindingContext: issueSecOperationRequirementBindingContext({
+        operation,
+        requirementId: RELEASE_BUILDER_REQUIREMENT,
+        resourceCeilings: [
+          ...operation.plan.execution.aggregateBudgets,
+          { resource: 'input-bytes', maximum: 0 }
+        ]
+      })
+    });
+    result = await session.run(
+      issueRetainedCommandBoundary({ executable, workingDirectory }),
+      [...args],
+      {
+        env: environment,
+        envMode: 'replace',
+        maxStderrBytes: RELEASE_BUILDER_MAX_STDERR_BYTES,
+        maxStdoutBytes: maxOutputBytes
+      }
+    );
+    completed = true;
+  } catch (error) {
+    executionError = error;
   }
-  if (result.code !== 0) {
-    const detail = result.stderr.trim();
+
+  let receipt: ProcessResourceSessionReceipt | undefined;
+  let settlementError: unknown | undefined;
+  try {
+    settlePhysicalResources({
+      ...(executionError === undefined ? {} : {
+        primary: { label: 'release builder execution', error: executionError }
+      }),
+      cleanup: [
+        ...(session === undefined ? [] : [{
+          label: 'release builder process session close',
+          settle: () => { receipt = session!.close(); }
+        }]),
+        ...(workingDirectory === undefined ? [] : [{
+          label: 'release builder working directory dispose',
+          settle: () => workingDirectory!.dispose()
+        }]),
+        ...(executable === undefined ? [] : [{
+          label: 'release builder executable dispose',
+          settle: () => executable!.dispose()
+        }])
+      ]
+    });
+  } catch (error) {
+    settlementError = error;
+  }
+  if (session !== undefined) {
+    if (operation === undefined) {
+      throw new Error('Release builder did not issue one terminal process receipt.');
+    }
+    if (receipt === undefined) {
+      if (settlementError !== undefined) throw settlementError;
+      throw new Error('Release builder did not issue one terminal process receipt.');
+    }
+    assertReleaseBuilderReceipt(receipt, operation, completed);
+  }
+  if (settlementError !== undefined) throw settlementError;
+  if (result === undefined) throw executionError;
+  if (result.result.code !== 0) {
+    const detail = result.result.stderr.trim();
     throw new Error(`bun ${args[0] ?? ''} failed${detail ? `: ${detail}` : ''}`);
   }
-  return Buffer.from(result.stdout);
+  return Buffer.from(result.result.stdout);
 }
 
 async function observeReleaseBuilderIdentity(): Promise<ReleaseBuilderIdentity> {

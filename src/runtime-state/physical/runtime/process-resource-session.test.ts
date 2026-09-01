@@ -5,6 +5,11 @@ import path from 'node:path';
 
 import { sha256 } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import {
+  issueSecOperationRequirementBindingContext,
+  type SecOperationRequirementBindingContext,
+  type SecOperationResourceCeiling
+} from '../../../system-architecture/operation/requirement-binding-context.ts';
+import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecSemanticOperationPlan,
@@ -15,30 +20,41 @@ import {
   type SecOperationEffectKind
 } from '../../../system-architecture/operation/semantic.ts';
 import {
+  issueIndependentProviderProcessCapability
+} from './independent-provider-process.ts';
+import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile
 } from './physical-no-follow.ts';
-import { openProcessResourceSession } from './process-resource-session.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession,
+  type ProcessResourceSessionReceipt
+} from './process-resource-session.ts';
 import {
   issueRetainedCommandBoundary,
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-  type RetainedCommandBoundary
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
 } from './process.ts';
+import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
 const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
 const compilerRoot = path.resolve(import.meta.dir, '../../../..');
 
 function boundOperation(input: Readonly<{
+  authorityGrantLabel?: string;
   budgets?: readonly SecOperationBudget[];
   deadlineAtUnixMs?: number;
   effectKinds?: readonly SecOperationEffectKind[];
+  label?: string;
+  providerLabel?: string;
 }> = {}): SecBoundSemanticOperation {
+  const label = input.label ?? 'process-resource-test';
   const plan = compileSecSemanticOperationPlan({
     operation: 'verification.process-resource-test',
-    intentDigest: digest('process-resource-test-intent'),
-    decisionDigest: digest('process-resource-test-decision'),
+    intentDigest: digest(`${label}-intent`),
+    decisionDigest: digest(`${label}-decision`),
     deadlineAtUnixMs: input.deadlineAtUnixMs ?? Date.now() + 30_000,
     aggregateBudgets: input.budgets ?? [
       { resource: 'duration-ms', maximum: 10_000 },
@@ -53,14 +69,36 @@ function boundOperation(input: Readonly<{
       failureKinds: ['process.failed']
     }],
     attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: digest('process-native-test-authority-grant')
+      // A distinct grant changes only the bound attempt, not the operation plan.
+      authorityGrantDigest: digest(
+        input.authorityGrantLabel ?? 'process-native-test-authority-grant'
+      )
     })
   });
   return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
     requirementId: plan.execution.requirements[0]!.id,
     contractDigest: plan.execution.requirements[0]!.contractDigest,
-    providerIdentityDigest: digest('process-native-test-provider')
+    providerIdentityDigest: digest(input.providerLabel ?? 'process-native-test-provider')
   })]);
+}
+
+function requirementBindingContext(
+  operation: SecBoundSemanticOperation,
+  ceilings?: readonly SecOperationResourceCeiling[]
+): SecOperationRequirementBindingContext {
+  const inputBudget = operation.plan.execution.aggregateBudgets.find(
+    ({ resource }) => resource === 'input-bytes'
+  );
+  return issueSecOperationRequirementBindingContext({
+    operation,
+    requirementId: operation.plan.execution.requirements[0]!.id,
+    resourceCeilings: ceilings ?? [
+      ...operation.plan.execution.aggregateBudgets,
+      ...(inputBudget === undefined
+        ? [{ resource: 'input-bytes' as const, maximum: 0 }]
+        : [])
+    ]
+  });
 }
 
 function retainTestBoundary(): Readonly<{
@@ -93,9 +131,16 @@ function retainTestBoundary(): Readonly<{
 test('process sessions reject structural operation and session clones', async () => {
   const operation = boundOperation();
   const operationClone = structuredClone(operation) as SecBoundSemanticOperation;
-  expect(() => openProcessResourceSession({ operation: operationClone })).toThrow(/owner-issued/u);
+  expect(() => openProcessResourceSession({
+    operation: operationClone,
+    requirementBindingContext: requirementBindingContext(operation)
+  }))
+    .toThrow(/foundation-compiled operation plan/u);
 
-  const session = openProcessResourceSession({ operation });
+  const session = openProcessResourceSession({
+    operation,
+    requirementBindingContext: requirementBindingContext(operation)
+  });
   const clone = Object.freeze({ ...session });
   expect(() => clone.close()).toThrow(/owner-issued session/u);
   await expect(clone.run({} as RetainedCommandBoundary, [], {
@@ -108,25 +153,31 @@ test('process sessions reject structural operation and session clones', async ()
 test('process session admission preserves pre-cancelled classification', () => {
   const controller = new AbortController();
   controller.abort(new Error('cancelled before admission'));
+  const operation = boundOperation({ deadlineAtUnixMs: Date.now() - 1 });
   expect(() => openProcessResourceSession({
-    operation: boundOperation({ deadlineAtUnixMs: Date.now() - 1 }),
+    operation,
+    requirementBindingContext: requirementBindingContext(operation),
     signal: controller.signal
   })).toThrow('Process resource session is cancelled.');
 });
 
-test('process sessions require one process Effect and complete aggregate budgets exactly once', async () => {
+test('process sessions require one process Effect and complete bound resource ceilings exactly once', async () => {
+  const filesystemOperation = boundOperation({ effectKinds: ['filesystem'] });
   expect(() => openProcessResourceSession({
-    operation: boundOperation({ effectKinds: ['filesystem'] })
+    operation: filesystemOperation,
+    requirementBindingContext: requirementBindingContext(filesystemOperation)
   })).toThrow(/process Effect requirement/u);
 
   const retained = retainTestBoundary();
+  const operation = boundOperation({ budgets: [
+    { resource: 'duration-ms', maximum: 15_000 },
+    { resource: 'input-bytes', maximum: 3 },
+    { resource: 'output-bytes', maximum: 6 },
+    { resource: 'processes', maximum: 2 }
+  ] });
   const session = openProcessResourceSession({
-    operation: boundOperation({ budgets: [
-      { resource: 'duration-ms', maximum: 15_000 },
-      { resource: 'input-bytes', maximum: 3 },
-      { resource: 'output-bytes', maximum: 6 },
-      { resource: 'processes', maximum: 2 }
-    ] })
+    operation,
+    requirementBindingContext: requirementBindingContext(operation)
   });
   try {
     const first = await session.run(retained.boundary, [
@@ -175,11 +226,27 @@ test('process sessions require one process Effect and complete aggregate budgets
     expect(session.close()).toBe(receipt);
     expect(receipt).toMatchObject({
       processCount: 2,
+      settledProcessCount: 2,
+      successfulProcessRecordCount: 2,
       failedProcessCount: 0,
       inputBytes: 3,
       outputBytes: 5,
       deadlineAtUnixMs: session.deadlineAtUnixMs
     });
+    assertProcessResourceSessionReceipt(receipt, {
+      operationIdentityDigest: operation.plan.identity.identityDigest,
+      boundAttemptDigest: operation.boundAttemptDigest,
+      requirementId: operation.plan.execution.requirements[0]!.id
+    });
+    expect(() => assertProcessResourceSessionReceipt(
+      structuredClone(receipt) as ProcessResourceSessionReceipt
+    )).toThrow(/owner-issued terminal receipt/u);
+    expect(() => assertProcessResourceSessionReceipt(receipt, {
+      operationIdentityDigest: boundOperation({ label: 'receipt-transplant' })
+        .plan.identity.identityDigest,
+      boundAttemptDigest: operation.boundAttemptDigest,
+      requirementId: operation.plan.execution.requirements[0]!.id
+    })).toThrow(/expected operation requirement/u);
     await expect(session.run(retained.boundary, ['--version'], {
       maxStderrBytes: 0,
       maxStdoutBytes: 0
@@ -189,11 +256,49 @@ test('process sessions require one process Effect and complete aggregate budgets
   }
 });
 
+test('process admission rejects context transplants omitted resources and widened ceilings', () => {
+  const operation = boundOperation({ label: 'context-target' });
+  const foreignOperation = boundOperation({ label: 'context-foreign' });
+  expect(() => openProcessResourceSession({
+    operation,
+    requirementBindingContext: requirementBindingContext(foreignOperation)
+  })).toThrow('operation binding context transplant');
+
+  expect(() => openProcessResourceSession({
+    operation,
+    requirementBindingContext: requirementBindingContext(operation, [
+      { resource: 'duration-ms', maximum: 1_000 },
+      { resource: 'input-bytes', maximum: 0 },
+      { resource: 'processes', maximum: 1 }
+    ])
+  })).toThrow('complete process resource ceiling set');
+
+  expect(() => requirementBindingContext(operation, [
+    { resource: 'duration-ms', maximum: 10_001 },
+    { resource: 'input-bytes', maximum: 0 },
+    { resource: 'output-bytes', maximum: 1 },
+    { resource: 'processes', maximum: 1 }
+  ])).toThrow('not narrowed from its operation');
+
+  const singleUseOperation = boundOperation({ label: 'context-single-use' });
+  const singleUseContext = requirementBindingContext(singleUseOperation);
+  openProcessResourceSession({
+    operation: singleUseOperation,
+    requirementBindingContext: singleUseContext
+  }).close();
+  expect(() => openProcessResourceSession({
+    operation: singleUseOperation,
+    requirementBindingContext: singleUseContext
+  })).toThrow('already been consumed');
+});
+
 test('process sessions enforce single-flight cancellation and child settlement before close', async () => {
   const retained = retainTestBoundary();
   const controller = new AbortController();
+  const operation = boundOperation();
   const session = openProcessResourceSession({
-    operation: boundOperation(),
+    operation,
+    requirementBindingContext: requirementBindingContext(operation),
     signal: controller.signal
   });
   try {
@@ -214,25 +319,35 @@ test('process sessions enforce single-flight cancellation and child settlement b
     controller.abort(new Error('test cancellation'));
     await expect(running).rejects.toThrow(/aborted/u);
     expect(session.signal.aborted).toBeTrue();
-    expect(session.close()).toMatchObject({ processCount: 1, failedProcessCount: 1 });
+    expect(session.close()).toMatchObject({
+      processCount: 1,
+      settledProcessCount: 1,
+      successfulProcessRecordCount: 0,
+      failedProcessCount: 1
+    });
   } finally {
     retained.dispose();
   }
 });
 
 test('process session deadline is one fixed wall and monotonic cancellation boundary', async () => {
+  const operation = boundOperation({
+    budgets: [
+      { resource: 'duration-ms', maximum: 25 },
+      { resource: 'output-bytes', maximum: 1 },
+      { resource: 'processes', maximum: 1 }
+    ],
+    deadlineAtUnixMs: Date.now() + 1_000
+  });
   const session = openProcessResourceSession({
-    operation: boundOperation({
-      budgets: [
-        { resource: 'duration-ms', maximum: 25 },
-        { resource: 'output-bytes', maximum: 1 },
-        { resource: 'processes', maximum: 1 }
-      ],
-      deadlineAtUnixMs: Date.now() + 1_000
-    })
+    operation,
+    requirementBindingContext: requirementBindingContext(operation)
   });
   expect(session.deadlineAtUnixMs).toBeLessThanOrEqual(Date.now() + 25);
   expect(session.deadlineAtMonotonicMs).toBeGreaterThan(performance.now());
+  const cooperativeDeadlineAtUnixMs = session.cooperativeDeadlineAtUnixMs();
+  expect(cooperativeDeadlineAtUnixMs).toBeGreaterThan(Date.now());
+  expect(cooperativeDeadlineAtUnixMs).toBeLessThan(session.deadlineAtUnixMs);
   await Bun.sleep(75);
   expect(session.signal.aborted).toBeTrue();
   await expect(session.run({} as RetainedCommandBoundary, [], {
@@ -240,6 +355,62 @@ test('process session deadline is one fixed wall and monotonic cancellation boun
     maxStdoutBytes: 0
   })).rejects.toThrow(/cancelled|deadline/u);
   session.close();
+});
+
+test('process session rejects operation, attempt, and provider breakaway token transplants before spawn', async () => {
+  const sessionOperation = boundOperation({
+    effectKinds: ['process', 'provider'],
+    label: 'breakaway-session'
+  });
+  const session = openProcessResourceSession({
+    operation: sessionOperation,
+    requirementBindingContext: requirementBindingContext(sessionOperation)
+  });
+  const retained = retainTestBoundary();
+  const runWith = async (
+    capability: ReturnType<typeof issueIndependentProviderProcessCapability>
+  ): Promise<void> => {
+    await session.run(retained.boundary, ['--version'], {
+      independentProvider: capability,
+      maxStderrBytes: 1,
+      maxStdoutBytes: 1
+    });
+  };
+  try {
+    const operationTransplant = issueIndependentProviderProcessCapability({
+      boundary: retained.boundary,
+      operation: boundOperation({
+        effectKinds: ['process', 'provider'],
+        label: 'different-operation'
+      })
+    });
+    await expect(runWith(operationTransplant)).rejects.toThrow('operation transplant');
+
+    const attemptTransplant = issueIndependentProviderProcessCapability({
+      boundary: retained.boundary,
+      operation: boundOperation({
+        authorityGrantLabel: 'different-attempt-grant',
+        effectKinds: ['process', 'provider'],
+        label: 'breakaway-session'
+      })
+    });
+    await expect(runWith(attemptTransplant)).rejects.toThrow('attempt transplant');
+
+    const foreignRetained = retainTestBoundary();
+    const providerTransplant = issueIndependentProviderProcessCapability({
+      boundary: foreignRetained.boundary,
+      operation: sessionOperation,
+    });
+    try {
+      await expect(runWith(providerTransplant)).rejects.toThrow('retained provider transplant');
+    } finally {
+      foreignRetained.dispose();
+    }
+    expect(session.processCount).toBe(0);
+  } finally {
+    session.close();
+    retained.dispose();
+  }
 });
 
 test.skipIf(process.platform !== 'linux')(
@@ -270,7 +441,11 @@ test.skipIf(process.platform !== 'linux')(
       'Linux retained executable cwd'
     );
     const boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
-    const session = openProcessResourceSession({ operation: boundOperation() });
+    const operation = boundOperation();
+    const session = openProcessResourceSession({
+      operation,
+      requirementBindingContext: requirementBindingContext(operation)
+    });
     try {
       const executed = await session.run(boundary, [], {
         maxStderrBytes: 0,

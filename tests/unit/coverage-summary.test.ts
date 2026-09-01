@@ -49,22 +49,7 @@ test('review summary surfaces acceptance coverage summary', async () => {
           uncovered: true
         }
       ],
-      slots: [
-        {
-          id: 'customer_normalizer',
-          declaredAcceptance: ['customer_crud'],
-          coveredBy: ['customer_crud'],
-          uncovered: false
-        },
-        {
-          id: 'tenant_context_provider',
-          declaredAcceptance: ['tenant_scope'],
-          coveredBy: [],
-          uncovered: true
-        }
-      ],
-      uncoveredBlocks: ['tenant/basic-workspace'],
-      uncoveredSlots: ['tenant_context_provider']
+      uncoveredBlocks: ['tenant/basic-workspace']
     }
   });
 
@@ -72,15 +57,10 @@ test('review summary surfaces acceptance coverage summary', async () => {
     status: 'failed',
     acceptancePassedCount: 1,
     blockCount: 2,
-    slotCount: 2,
     coveredBlockCount: 1,
-    coveredSlotCount: 1,
     uncoveredBlockCount: 1,
-    uncoveredSlotCount: 1,
     acceptancePassed: ['customer_crud'],
-    uncoveredBlocks: ['tenant/basic-workspace'],
-    uncoveredSlots: ['tenant_context_provider']
+    uncoveredBlocks: ['tenant/basic-workspace']
   });
   expect(summary.coverageSummary?.blockSummaries).toHaveLength(2);
-  expect(summary.coverageSummary?.slotSummaries).toHaveLength(2);
 });

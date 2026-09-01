@@ -5,7 +5,7 @@ import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/mani
 import type { RuntimeVerificationLaneReport, VerificationReport } from '../../verification/contract/types.ts';
 import { CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual } from '../../verification/result/contract/result.ts';
 import { formatJsonFile, publishExistingParentCanonicalWorkspaceFile, type CommitFence } from '../../workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { saveLock } from '../lock.ts';
 import type { PolicyReport } from '../policies/contract/types.ts';

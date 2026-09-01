@@ -21,9 +21,7 @@ installs:
 pins:
   inputs: []
   outputs: []
-slots: []
 acceptance: []
-routes: []
 `;
 
 const mismatchedVersionOverlay = `version: 1.0.0

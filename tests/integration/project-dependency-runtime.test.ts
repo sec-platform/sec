@@ -15,8 +15,8 @@ import {
   SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES,
   withProjectDependencyBridge
 } from '../../src/toolchain/dependencies/test/runtime.ts';
+import { ensureProjectBase } from '../../src/workspace/application/project-base.ts';
 import { readJson } from '../../src/workspace/files.ts';
-import { ensureProjectBase } from '../../src/workspace/project.ts';
 import { readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

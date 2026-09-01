@@ -17,7 +17,6 @@ export function protectedProvenanceArtifact(artifact: ProvenanceArtifact): boole
     !artifactPath.startsWith('source/') &&
     !artifactPath.startsWith('control/') &&
     !artifactPath.startsWith('.sec/') &&
-    artifact.originType !== 'slot' &&
     artifactPath !== 'tsconfig.json'
   );
 }

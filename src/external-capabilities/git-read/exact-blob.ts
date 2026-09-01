@@ -44,6 +44,7 @@ export type CodexDevelopmentExactGitTreeEntry = Readonly<{
 export type CodexDevelopmentExactGitTextBlob = Readonly<{
   blobSha: string;
   repositoryPath: string;
+  byteLength: number;
   source: string;
 }>;
 
@@ -345,6 +346,7 @@ export function CodexDevelopmentReadExactGitTextBlobsBatch(options: Readonly<{
     return Object.freeze({
       blobSha: entry.blobSha,
       repositoryPath: entry.repositoryPath,
+      byteLength: size,
       source: decodeUtf8(result.stdout.subarray(start, end), `source ${entry.repositoryPath}`)
     });
   });

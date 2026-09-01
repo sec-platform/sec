@@ -149,7 +149,6 @@ function buildInput(contract: LoadedSemanticContract): BuildEngineeringIRInput {
       registryPath: 'source/model'
     }],
     manifests: [],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: [],
     semanticContracts: [contract]
@@ -426,6 +425,24 @@ test('SM-2 adds consecutive transitions to one state as canonical YAML nodes wit
   expect(text.match(/from:/gu)).toHaveLength(2);
   expect(text.endsWith('\n')).toBe(false);
   expect(text.replaceAll('\r\n', '')).not.toContain('\n');
+});
+
+test('semantic YAML syntax failure remains one typed mutation diagnostic', () => {
+  const render = () => renderSemanticContractYamlEdit(
+    new TextEncoder().encode('states: [unterminated\n'),
+    []
+  );
+
+  expect(render).toThrow(expect.objectContaining({
+    code: 'SEMANTIC-MUTATION-006',
+    diagnostic: expect.objectContaining({
+      code: 'SEMANTIC-MUTATION-006',
+      details: {
+        yamlFailureCode: 'YAML-SYNTAX-001',
+        yamlFailureKind: 'invalid-yaml'
+      }
+    })
+  }));
 });
 
 test('owner resolution fails closed for none, read-only, ambiguous, forged, mismatched, or unauthorized provenance', () => {

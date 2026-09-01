@@ -100,7 +100,6 @@ test('Plan runtime validation rejects values TypeScript unions cannot protect af
     },
     registry: { sources: [] },
     blocks: [{ id: 'ticket/basic', version: '1.0.0' }],
-    slots: [],
     acceptance: []
   } satisfies PlanFile;
 

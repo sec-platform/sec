@@ -3,6 +3,7 @@ import type {
   SecOperationDigest,
   SecProviderSettlementReceipt
 } from '../../../system-architecture/operation/semantic.ts';
+import type { DockerCommandProviderCapability } from './command-provider.ts';
 import type { DockerEndpointIdentity } from './daemon.ts';
 
 export type ContainerEngineOperation =
@@ -76,6 +77,7 @@ export interface ContainerEngineOperationScope {
 
 export interface OpenContainerEngineSessionInput {
   readonly operation: SecBoundSemanticOperation;
+  readonly provider: DockerCommandProviderCapability;
   readonly signal?: AbortSignal;
   readonly cwd: string;
   readonly availability: 'observe' | 'ensure-started';

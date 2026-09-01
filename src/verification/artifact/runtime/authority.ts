@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { readOptionalRetainedJsonLeaf, retainOptionalDirectory } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { cloneAndDeepFreeze } from '../../../system-architecture/foundation/runtime/canonical.ts';
-import { resolveWorkspaceArtifactPath } from '../../../workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../../workspace/runtime/paths.ts';
 import { CI_ARTIFACT_FILES } from '../../ci-artifacts/contract/manifest.ts';
 import {
   assertCanonicalVerificationArtifactSet,

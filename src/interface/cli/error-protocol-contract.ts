@@ -1,8 +1,8 @@
 import { buildErrorProtocol, type ErrorProtocol } from '../../compiler/error-protocol.ts';
 import type { CompilerErrorDetails } from '../../compiler/errors.ts';
 import { uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { srcRelativePath, workspaceConfigRelativePath } from '../../workspace/paths.ts';
-import { platformCommand } from './contract.ts';
+import { srcRelativePath } from '../../workspace/runtime/paths.ts';
+import { platformCommand } from './contract/command.ts';
 
 export const ERROR_PROTOCOL_CONTRACT_STATUS_ACTIVE = 'active' as const;
 
@@ -41,7 +41,7 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
   {
     id: 'verify-blocked-error',
     code: 'VERIFY-BLOCKED-001',
-    message: 'adapt must succeed before verify'
+    message: 'compose must succeed before verify'
   },
   {
     id: 'verify-acceptance-error',
@@ -76,11 +76,11 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
   {
     id: 'upgrade-rollback-error',
     code: 'UPGRADE-MIGRATION-016',
-    message: `slot-contract-update target "${srcRelativePath}/slots/customer_normalizer.ts" is missing`,
+    message: `file-replace target "${srcRelativePath}/installed/private/customer-normalizer.ts" is missing`,
     details: {
-      migrationId: 'mig-customer-normalizer-contract',
-      migrationKind: 'slot-contract-update',
-      target: `${srcRelativePath}/slots/customer_normalizer.ts`,
+      migrationId: 'mig-customer-normalizer-file',
+      migrationKind: 'file-replace',
+      target: `${srcRelativePath}/installed/private/customer-normalizer.ts`,
       rollbackStatus: 'restored'
     }
   },
@@ -88,16 +88,6 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
     id: 'upgrade-conflict-error',
     code: 'UPGRADE-CONFLICT-001',
     message: 'Override "manual-auth-session-hotfix" conflicts with upgrade of "auth/basic-session"'
-  },
-  {
-    id: 'slot-capability-lint-error',
-    code: 'SLOT-LINT-005',
-    message: 'Runtime import "change-case" has no explicit capability/transitive-effect proof'
-  },
-  {
-    id: 'engineering-operation-error',
-    code: 'ENGINEERING-OPERATION-001',
-    message: `Engineering operation slot "missing-slot" does not exist in ${workspaceConfigRelativePath}`
   },
   {
     id: 'drift-error',

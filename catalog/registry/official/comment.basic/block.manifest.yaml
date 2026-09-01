@@ -35,7 +35,6 @@ pins:
     - id: comment_added
       type: TicketCommentRecord
       required: true
-slots: []
 acceptance:
   - id: ticket_comment_can_be_added
     dependsOn:

@@ -34,7 +34,6 @@ function baseInput(): BuildEngineeringIRInput {
         },
       },
     ],
-    slotTasks: [],
     acceptanceIds: ["flow_succeeds"],
     policyDeclarations: [],
   };

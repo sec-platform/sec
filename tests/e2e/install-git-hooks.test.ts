@@ -22,7 +22,7 @@ import {
 const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
 const depsEnsureCommand = 'bun run deps:ensure';
 const hooksReconcileCommand = 'bun run postinstall';
-const importsApplyStagedCommand = 'bun run imports:apply --staged';
+const importsCheckStagedCommand = 'bun run imports:check --staged';
 const importsFreezeCommand = 'bun run imports:freeze';
 
 function installGitHooks(options: {
@@ -142,23 +142,27 @@ async function expectManagedHooksMirror(repoRoot: string, configured: string): P
   for (const hook of managedHookNames) {
     const source = await readFile(path.join(repoRoot, '.githooks', hook), 'utf8');
     const importCommand = hook === 'pre-commit'
-      ? importsApplyStagedCommand
+      ? importsCheckStagedCommand
       : importsFreezeCommand;
-    const injected = hook === 'pre-commit' || hook === 'pre-push'
+    const injected = hook === 'pre-push'
       ? source.replace(importCommand, `${depsEnsureCommand}\n${importCommand}`)
       : source;
     const expected = injected
       .replaceAll(depsEnsureCommand, runtimeBoundCommand(depsEnsureCommand))
       .replaceAll(hooksReconcileCommand, runtimeBoundCommand(hooksReconcileCommand))
-      .replaceAll(importsApplyStagedCommand, runtimeBoundCommand(importsApplyStagedCommand))
+      .replaceAll(importsCheckStagedCommand, runtimeBoundCommand(importsCheckStagedCommand))
       .replaceAll(importsFreezeCommand, runtimeBoundCommand(importsFreezeCommand));
     const installed = await readFile(path.join(configured, hook), 'utf8');
     expect(installed).toBe(expected);
     expect(installed).not.toMatch(/(?:^|\n)bun \.\/platform\/dev-runner\.ts/u);
     if (hook === 'pre-commit' || hook === 'pre-push') {
       expect(source).not.toContain(depsEnsureCommand);
-      expect(installed.indexOf(runtimeBoundCommand(depsEnsureCommand)))
-        .toBeLessThan(installed.indexOf(runtimeBoundCommand(importCommand)));
+      if (hook === 'pre-commit') {
+        expect(installed).not.toContain(runtimeBoundCommand(depsEnsureCommand));
+      } else {
+        expect(installed.indexOf(runtimeBoundCommand(depsEnsureCommand)))
+          .toBeLessThan(installed.indexOf(runtimeBoundCommand(importCommand)));
+      }
     }
   }
 }
@@ -694,8 +698,7 @@ test('managed hooks execute the installed Bun identity without inheriting its PA
     );
     await writeFile(path.join(repoRoot, 'package.json'), JSON.stringify({
       scripts: {
-        'deps:ensure': `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} deps:ensure`,
-        'imports:freeze': `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} imports:freeze`
+        'imports:check': `bun ./${DEV_RUNNER_ENTRYPOINT_PATH} imports:check`
       }
     }), 'utf8');
     git(repoRoot, ['add', 'package.json', DEV_RUNNER_ENTRYPOINT_PATH]);
@@ -722,8 +725,8 @@ test('managed hooks execute the installed Bun identity without inheriting its PA
       windowsHide: true
     });
     expect(committed.status).toBe(0);
-    expect(await readFile(`${marker}.deps-ensure`, 'utf8')).toBe(process.execPath);
-    expect(await readFile(`${marker}.imports-freeze`, 'utf8')).toBe(process.execPath);
+    expect(await readFile(`${marker}.imports-check`, 'utf8')).toBe(process.execPath);
+    await expect(readFile(`${marker}.deps-ensure`, 'utf8')).rejects.toThrow();
   });
 });
 

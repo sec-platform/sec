@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../runtime-state/generated-state/contract.ts';
 import type { GeneratedStateWorktreeRetirementProvider } from '../../../runtime-state/generated-state/lifecycle.ts';
-import { assertPhysicalGenerationRetirementReceipt, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowOrdinaryFile, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertPhysicalGenerationRetirementReceipt, assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowOrdinaryFile, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, issueRetainedCommandBoundary, pathEnvKey, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, runRetainedCommand, type CommandResult } from '../../../runtime-state/physical/runtime/process.ts';
 import {
   parseGitWorktreeAdminLocator,
@@ -289,9 +289,14 @@ export function assertCompilerDependencyEnvironmentRetirementReceipt(
 }
 
 type CompilerDependencyExecutionGenerationAuthorityRecord = Readonly<{
+  binding: Readonly<CompilerDepsBinding>;
   directRootResolution: DependencyFreshnessLockObservation;
+  identity: CompilerDependencyIdentity;
+  kind: 'none' | 'generation-published' | 'locator-published';
+  nodeModulesPath: string;
   root: string;
   sourceGeneration: Readonly<RuntimeDependencySourceGeneration>;
+  source: 'existing' | 'installed';
 }>;
 
 const compilerDependencyExecutionGenerationAuthorities =
@@ -314,6 +319,34 @@ export function assertCompilerDependencyExecutionGenerationAuthority(
       'Compiler dependency execution generation authority was not issued by its owner'
     );
   }
+}
+
+export function projectCompilerDepsReadyState(
+  authority: CompilerDependencyExecutionGenerationAuthority
+): CompilerDepsReadyState {
+  assertCompilerDependencyExecutionGenerationAuthority(authority);
+  const record = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
+  const transitionDigest = generatedStateDigest(Object.freeze({
+    schema: 'sec-compiler-dependency-transition-v1',
+    kind: record.kind,
+    root: record.root,
+    nodeModulesPath: record.nodeModulesPath,
+    manifestHash: record.identity.manifestHash,
+    bindingDigest: generatedStateDigest(record.binding),
+    sourceGeneration: record.sourceGeneration
+  }));
+  return Object.freeze({
+    manifestHash: record.identity.manifestHash,
+    nodeModulesPath: record.nodeModulesPath,
+    packageManager: 'bun' as const,
+    requiresFreshProcess: record.kind !== 'none',
+    root: record.root,
+    runtimeMaterialization: record.binding.runtimeMaterialization,
+    sourceGeneration: record.sourceGeneration,
+    source: record.source,
+    transitionDigest,
+    executionGenerationAuthority: authority
+  });
 }
 
 export interface DependencyAuthorityPaths {
@@ -790,6 +823,22 @@ async function readCompilerDepsBinding(bindingPath: string): Promise<CompilerDep
   return isCompilerDepsBinding(value) ? value : null;
 }
 
+function compilerDependencyBindingMatchesIdentity(
+  binding: Readonly<CompilerDepsBinding>,
+  identity: CompilerDependencyIdentity
+): boolean {
+  return binding.architecture === identity.architecture &&
+    binding.bunExecutablePath === identity.bunExecutablePath &&
+    binding.bunExecutableSha256 === identity.bunExecutableSha256 &&
+    binding.bunVersion === identity.bunVersion &&
+    binding.declaredBunVersion === identity.declaredBunVersion &&
+    binding.dependencyManifestSha256 === identity.dependencyManifestSha256 &&
+    binding.installConfigSha256 === identity.installConfigSha256 &&
+    binding.lockSha256 === identity.lockSha256 &&
+    binding.manifestHash === identity.manifestHash &&
+    binding.platform === identity.platform;
+}
+
 async function compilerDependencyGenerationBinding(
   root: string,
   nodeModulesPath: string,
@@ -798,17 +847,7 @@ async function compilerDependencyGenerationBinding(
 ): Promise<Readonly<CompilerDepsBinding> | null> {
   const binding = await readCompilerDepsBinding(bindingPath);
   if (binding === null) return null;
-  if (
-    binding.architecture !== identity.architecture ||
-    binding.bunExecutablePath !== identity.bunExecutablePath ||
-    binding.bunExecutableSha256 !== identity.bunExecutableSha256 ||
-    binding.bunVersion !== identity.bunVersion ||
-    binding.declaredBunVersion !== identity.declaredBunVersion ||
-    binding.dependencyManifestSha256 !== identity.dependencyManifestSha256 ||
-    binding.installConfigSha256 !== identity.installConfigSha256 ||
-    binding.lockSha256 !== identity.lockSha256 ||
-    binding.manifestHash !== identity.manifestHash ||
-    binding.platform !== identity.platform) return null;
+  if (!compilerDependencyBindingMatchesIdentity(binding, identity)) return null;
   let packages: readonly CompilerDependencyPackageBinding[] | null;
   try {
     packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
@@ -9562,31 +9601,17 @@ function createCompilerDepsReadyState(input: Readonly<{
   sourceGeneration: Readonly<RuntimeDependencySourceGeneration>;
   source: 'existing' | 'installed';
 }>): CompilerDepsReadyState {
-  const transitionDigest = generatedStateDigest(Object.freeze({
-    schema: 'sec-compiler-dependency-transition-v1',
+  const authority = issueCompilerDependencyExecutionGenerationAuthority({
+    binding: input.binding,
+    directRootResolution: compilerDependencyDirectRootResolution(input.binding, input.identity),
+    identity: input.identity,
     kind: input.kind,
-    root: input.root,
     nodeModulesPath: input.nodeModulesPath,
-    manifestHash: input.identity.manifestHash,
-    bindingDigest: generatedStateDigest(input.binding),
-    sourceGeneration: input.sourceGeneration
-  }));
-  return Object.freeze({
-    manifestHash: input.identity.manifestHash,
-    nodeModulesPath: input.nodeModulesPath,
-    packageManager: 'bun' as const,
-    requiresFreshProcess: input.kind !== 'none',
     root: input.root,
-    runtimeMaterialization: input.binding.runtimeMaterialization,
     sourceGeneration: input.sourceGeneration,
-    source: input.source,
-    transitionDigest,
-    executionGenerationAuthority: issueCompilerDependencyExecutionGenerationAuthority({
-      directRootResolution: compilerDependencyDirectRootResolution(input.binding, input.identity),
-      root: input.root,
-      sourceGeneration: input.sourceGeneration
-    })
+    source: input.source
   });
+  return projectCompilerDepsReadyState(authority);
 }
 
 type CompilerDependencyReadyObservation =
@@ -9662,6 +9687,111 @@ async function observeCompilerDependencyReady(
   });
 }
 
+async function observeCompilerDependencyReadyFromPublishedProof(
+  root: string,
+  nodeModulesPath: string,
+  identity: CompilerDependencyIdentity,
+  options: RuntimeDependencyOperationOptions,
+  ledger: Awaited<ReturnType<typeof readDependencyTransitionLedger>>
+): Promise<CompilerDependencyReadyObservation | null> {
+  if (ledger === null) return null;
+  let generationPath: string;
+  try {
+    generationPath = path.resolve(await fs.realpath(nodeModulesPath));
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  }
+  if (!isCanonicalLocalCompilerDependencyGeneration(root, generationPath)) return null;
+  const binding = await readCompilerDepsBinding(path.join(generationPath, COMPILER_DEPS_BINDING_FILE));
+  if (binding === null || !compilerDependencyBindingMatchesIdentity(binding, identity)) return null;
+  const bindingDigest = generatedStateDigest(binding);
+  const generationRoot = inspectNoFollowDirectoryChain(
+    generationPath,
+    'Compiler dependency published generation root'
+  ).target;
+  const generationPhysical = generatedStatePhysicalIdentity(generationRoot);
+  const records = [...ledger.records.values()]
+    .filter((record) => record.kind === 'compiler-local-locator' && record.phase === 'complete'
+      && sameHostPath(record.sourceGeneration.sourcePath, generationPath)
+      && record.sourceGeneration.bindingDigest === bindingDigest
+      && sameGeneratedStateIdentity(record.sourceGeneration.physical, generationPhysical))
+    .sort((left, right) => right.sequence - left.sequence);
+  const record = records[0];
+  if (record === undefined) return null;
+  const namespace = inspectDependencyTransitionNamespace(root);
+  if (namespace === null) return null;
+  const proofRoot = inspectNoFollowDirectoryChild(
+    namespace.backupRoot,
+    'read-only-generations',
+    'Compiler dependency published generation proof root'
+  );
+  if (proofRoot === null) return null;
+  const proofName = `${record.sourceGeneration.epoch.slice('sha256:'.length)}.json`;
+  const proofBytes = readNoFollowOrdinaryFile(proofRoot, proofName);
+  if (proofBytes === null) return null;
+  let proofText: string;
+  try {
+    proofText = new TextDecoder('utf-8', { fatal: true }).decode(proofBytes);
+  } catch (error) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency published generation proof is not exact UTF-8', {
+      cause: error instanceof Error ? error.message : String(error)
+    });
+  }
+  const context = runtimeDependencyOperationContext(options);
+  const reopened = await reopenRetainedNoFollowProvenDirectoryGeneration({
+    deadlineAtUnixMs: Date.now() + Math.max(1, Math.floor(
+      runtimeDependencyOperationRemainingMs(options, 'Compiler dependency published generation proof')
+    )),
+    proofText,
+    root: generationRoot,
+    signal: context.signal
+  });
+  try {
+    if (reopened.binding.generationDigest !== record.sourceGeneration.epoch
+        || reopened.binding.treeDigest !== record.sourceGeneration.treeDigest
+        || reopened.binding.treeEntryCount !== record.sourceGeneration.treeEntryCount) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency published generation proof differs from its immutable transition'
+      );
+    }
+    await options.beforeCommit?.();
+    runtimeDependencyOperationRemainingMs(
+      options,
+      'Compiler dependency published generation readback'
+    );
+    await reopened.generation.assertAuthorityCurrent();
+    const [finalIdentity, finalBinding, finalGenerationPath] = await Promise.all([
+      observeCompilerDependencyIdentity(root, options),
+      readCompilerDepsBinding(path.join(generationPath, COMPILER_DEPS_BINDING_FILE)),
+      fs.realpath(nodeModulesPath).then((value) => path.resolve(value))
+    ]);
+    const finalRoot = assertSameNoFollowDirectoryIdentity(
+      generationRoot,
+      'Compiler dependency published generation final root'
+    ).target;
+    if (!canonicalEquals(finalIdentity, identity) || finalBinding === null
+        || !canonicalEquals(finalBinding, binding)
+        || finalGenerationPath !== generationPath
+        || !sameGeneratedStateIdentity(generatedStatePhysicalIdentity(finalRoot), generationPhysical)) {
+      throw new SecError(
+        'RUNTIME-DEPS-004',
+        'Compiler dependency published generation changed during proof readback'
+      );
+    }
+    return Object.freeze({
+      binding,
+      kind: 'external-bridge' as const,
+      nodeModulesPath,
+      sourceGeneration: record.sourceGeneration
+    });
+  } finally {
+    const retirement = await reopened.generation.retire();
+    assertPhysicalGenerationRetirementReceipt(retirement);
+  }
+}
+
 /**
  * Observe only an already-published compiler dependency generation and issue
  * the same opaque authority consumed by the retained execution owner. This
@@ -9685,7 +9815,8 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
     operationOptions,
     'Compiler dependency generation observation source admission'
   );
-  const pendingTransition = await readDependencyTransition(root, operationOptions);
+  const transitionLedger = await readDependencyTransitionLedger(root, operationOptions);
+  const pendingTransition = transitionLedger?.tip ?? null;
   if (pendingTransition !== null && pendingTransition.phase !== 'complete' &&
       pendingTransition.phase !== 'rolled-back') {
     throw new SecError(
@@ -9694,6 +9825,28 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
     );
   }
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
+  const published = await observeCompilerDependencyReadyFromPublishedProof(
+    root,
+    nodeModulesPath,
+    identity,
+    operationOptions,
+    transitionLedger
+  );
+  if (published !== null && published.kind !== 'incompatible-bridge') {
+    return issueCompilerDependencyExecutionGenerationAuthority({
+      binding: published.binding,
+      directRootResolution: compilerDependencyDirectRootResolution(
+        published.binding,
+        identity
+      ),
+      identity,
+      kind: 'none',
+      nodeModulesPath,
+      root,
+      sourceGeneration: published.sourceGeneration,
+      source: 'existing'
+    });
+  }
   const observed = await observeCompilerDependencyReady(
     root,
     nodeModulesPath,
@@ -9741,12 +9894,17 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
     );
   }
   return issueCompilerDependencyExecutionGenerationAuthority({
+    binding: finalObservation.binding,
     directRootResolution: compilerDependencyDirectRootResolution(
       finalObservation.binding,
       finalIdentity
     ),
+    identity: finalIdentity,
+    kind: 'none',
+    nodeModulesPath,
     root,
-    sourceGeneration: finalObservation.sourceGeneration
+    sourceGeneration: finalObservation.sourceGeneration,
+    source: 'existing'
   });
 }
 

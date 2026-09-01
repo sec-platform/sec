@@ -1,4 +1,5 @@
 import { Argument, type Command } from 'commander';
+import { readUpgradeArtifactSet } from '../../change-management/upgrade/runtime/artifact-readback.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
 import { readLockFile } from '../../compiler/lock.ts';
@@ -26,10 +27,8 @@ import { buildContractFreezeContract, formatContractFreezeContract } from '../..
 import { buildReviewPolicySummary } from '../../verification/review/contract/policy.ts';
 import { parseReviewSummaryJson } from '../../verification/review/contract/summary.ts';
 import type { ReviewSummary } from '../../verification/review/contract/types.ts';
-import type { UpgradeDiagnostics, UpgradePlan } from '../../verification/review/contract/upgrade-artifact.ts';
 import { buildE2eMatrix } from '../../verification/review/runtime/matrix.ts';
 import { pathExists, readJson } from '../../workspace/files.ts';
-import type { ProjectOverview } from '../../workspace/project.ts';
 import {
   resolveWorkspaceArtifactPath,
   resolveWorkspaceLockPath,
@@ -67,7 +66,8 @@ import {
   formatRuntimeReport,
   formatRuntimeStepsInspect,
   formatUpgradeDiagnostics,
-  formatUpgradeSummary,
+  formatUpgradePlan,
+  formatUpgradePreview,
   formatVerificationReport,
   type BlockUsageMap,
   type DemoChecklist,
@@ -85,6 +85,7 @@ import {
   loadReferenceCheckDomain,
   loadTestBudgetDomain,
   lockWorkspace,
+  observeLocalContainerEngineReadiness,
   observeWorkspaceArtifacts,
   repairWorkspace,
   resolveWorkspace,
@@ -94,6 +95,7 @@ import {
   verifyWorkspace,
   writeWorkspaceArtifacts
 } from './lazy-command-domains.ts';
+import type { ProjectOverview } from './project-overview.ts';
 import { withSpinner } from './runtime/spinner.ts';
 
 type JsonOpts = { json: boolean; compact: boolean };
@@ -104,8 +106,10 @@ export type DependencyEnvironmentCommandDomain = Pick<
   DependencyEnvironmentModule,
   | 'cleanDependencyEnvironment'
   | 'formatDependencyEnvironmentStatus'
+  | 'formatDependencyFreshnessDecision'
   | 'formatDoctorReport'
   | 'getDependencyEnvironmentStatus'
+  | 'getDependencyFreshness'
   | 'getDoctorReport'
   | 'relinkProjectDependencies'
   | 'warmupDependencyEnvironment'
@@ -456,24 +460,48 @@ export function registerCommands(
     ) => {
       const output = jsonOpts(opts);
       if (subject === 'plan' && targetVersion === undefined) {
-        const upgradePlanPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.upgradePlan);
-        await printRequiredJson<UpgradePlan>(upgradePlanPath, `Upgrade plan not found; run ${commandPath(cmd)} <block-id> <target-version> --dry-run first`, output, (p) => formatUpgradeSummary(p, true));
+        const { plan: upgradePlan, executionTerminal: upgradeExecutionTerminal } = readUpgradeArtifactSet(process.cwd());
+        if (upgradePlan === null) {
+          throw new CompilerError(
+            'UPGRADE-BLOCKED-003',
+            `Upgrade plan not found; run ${commandPath(cmd)} <block-id> <target-version>`
+          );
+        }
+        printJsonOrText(
+          upgradePlan,
+          output,
+          (plan) => formatUpgradePlan(plan, upgradeExecutionTerminal)
+        );
         return;
       }
       if (subject === 'diagnostics' && targetVersion === undefined) {
-        const upgradeDiagnosticsPath = resolveWorkspaceArtifactPath(process.cwd(), CI_ARTIFACT_FILES.upgradeDiagnostics);
-        await printRequiredJson<UpgradeDiagnostics>(upgradeDiagnosticsPath, `Upgrade diagnostics not found; run ${commandPath(cmd)} <block-id> <target-version> --dry-run first`, output, formatUpgradeDiagnostics);
+        const { diagnostics: upgradeDiagnostics } = readUpgradeArtifactSet(process.cwd());
+        if (upgradeDiagnostics === null) {
+          throw new CompilerError(
+            'UPGRADE-BLOCKED-003',
+            `Upgrade diagnostics not found; run ${commandPath(cmd)} <block-id> <target-version>`
+          );
+        }
+        printJsonOrText(upgradeDiagnostics, output, formatUpgradeDiagnostics);
         return;
       }
       if (subject === undefined || targetVersion === undefined) {
         throw usageError(`Usage: ${commandPath(cmd)} <block-id> <target-version> [--dry-run] [--json [--compact]]`);
       }
-      const { upgradePlan } = await runWithOptionalSpinner(
+      const result = await runWithOptionalSpinner(
         opts.dryRun ? 'Previewing upgrade' : 'Running upgrade',
         output,
         () => upgradeWorkspace(process.cwd(), subject, targetVersion, { dryRun: !!opts.dryRun })
       );
-      printJsonOrText(upgradePlan, output, (p) => formatUpgradeSummary(p, !!opts.dryRun));
+      if (result.resultKind === 'preview') {
+        printJsonOrText(result.upgradePlan, output, formatUpgradePreview);
+      } else {
+        printJsonOrText(
+          result.upgradePlan,
+          output,
+          (plan) => formatUpgradePlan(plan, result.upgradeExecutionTerminal)
+        );
+      }
     });
 
   addJsonFlags(optionalModeCommand(program.command('lock'), 'mode', ['inspect']))
@@ -541,6 +569,11 @@ export function registerCommands(
     const status = await domain.getDependencyEnvironmentStatus(process.cwd());
     printJsonOrText(status, jsonOpts(opts), domain.formatDependencyEnvironmentStatus);
   });
+  addJsonFlags(deps.command('freshness')).action(async (opts: Record<string, unknown>) => {
+    const domain = await loadDependencyEnvironment();
+    const status = await domain.getDependencyFreshness();
+    printJsonOrText(status, jsonOpts(opts), domain.formatDependencyFreshnessDecision);
+  });
   addJsonFlags(deps.command('warmup')).action(async (opts: Record<string, unknown>) => {
     const domain = await loadDependencyEnvironment();
     const status = await domain.warmupDependencyEnvironment(process.cwd());
@@ -581,10 +614,12 @@ export function registerCommands(
     printJsonOrText(buildBenchmarkTaskSuiteContract(), output, formatBenchmarkTaskSuiteContract);
   });
 
-  addJsonFlags(program.command('test')).action(async (opts: Record<string, unknown>) => {
+  addJsonFlags(program.command('test').command('budget')).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
     const domain = await loadTestBudgetDomain();
-    printJsonOrText(await domain.buildTestBudgetContract(), output, domain.formatTestBudgetContract);
+    const { issueCurrentTestBudgetProjection } = await import('../../development/runner/test-runner.ts');
+    const contract = domain.buildTestBudgetContract(await issueCurrentTestBudgetProjection());
+    printJsonOrText(contract, output, domain.formatTestBudgetContract);
   });
 
   addJsonFlags(optionalModeCommand(program.command('policy'), 'mode', ['sources']))
@@ -741,6 +776,24 @@ export function registerCommands(
     });
 
   const envCmd = program.command('environment').description('Environment settlement inspection');
+  addJsonFlags(envCmd.command('container-engine'))
+    .description('Observe the retained local Container Engine, optionally starting Docker Desktop')
+    .option('--start', 'Issue one bounded Docker Desktop start intent when the endpoint is unavailable')
+    .action(async (opts: Record<string, unknown>) => {
+      const output = jsonOpts(opts);
+      const result = await observeLocalContainerEngineReadiness({
+        cwd: process.cwd(),
+        mode: opts.start ? 'ensure-started' : 'observe'
+      });
+      printJsonOrText(
+        result,
+        output,
+        (value) => value.status === 'ready'
+          ? `Container Engine ready: ${value.endpoint.contextName} (${value.endpoint.daemonId})`
+          : `Container Engine unavailable: ${value.reason} (${value.phase})`
+      );
+      if (result.status !== 'ready') process.exitCode = 1;
+    });
   addJsonFlags(envCmd.command('settle'))
     .description('Non-destructive worktree settlement preflight')
     .option('--fix', 'Re-checkout governed text files to enforce canonical LF materialization')

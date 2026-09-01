@@ -14,6 +14,7 @@ import type {
   SourceProgramLiteral,
   SourceProgramModel,
   SourceProgramReference,
+  SourceProgramReturnProvenance,
   SourceProgramSpan,
   SourceProgramUnknown
 } from './contract.ts';
@@ -22,13 +23,14 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const SHARD_KEYS = Object.freeze([
   'capabilities', 'compilerRevision', 'declarations', 'entrypoints', 'file',
   'literals', 'moduleDigest', 'path', 'providerRevision', 'rawFileDigest', 'semanticDependencyScope',
-  'references', 'schemaDigest', 'shardDigest', 'unknowns'
+  'references', 'returnProvenances', 'schemaDigest', 'shardDigest', 'unknowns'
 ]);
 const ENUMS = Object.freeze({
   observationClass: new Set(['observed', 'derived', 'unknown']),
   surface: new Set(['production', 'test', 'fixture', 'workflow', 'resource']),
   semanticKind: new Set(['pure-reexport', 'declaration-owner', 'executable', 'unknown']),
   referenceKind: new Set(['reference', 'import', 'reexport', 'call', 'construct']),
+  referenceSourceRelation: new Set(['declaration', 'module-initialization']),
   literalContext: new Set(['producer', 'reader', 'argument', 'assertion', 'literal']),
   entrypointKind: new Set(['package-script', 'package-bin', 'cli-command', 'module-entrypoint', 'git-hook', 'workflow']),
   capability: new Set(['process', 'filesystem', 'network', 'dynamic-code', 'provider']),
@@ -49,9 +51,13 @@ export const SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA = Object.freeze({
     'entrypoints',
     'literals',
     'references',
+    'returnProvenances',
     'unknowns'
   ]),
+  capabilitySource: 'compiler-issued-owning-declaration-observation',
   invalidation: 'typescript-owner-semantic-dependency-scope',
+  referenceSource: 'compiler-issued-declaration-or-module-initialization',
+  surfaceCoverage: 'production-and-test-with-production-projections-filtered',
   root: 'ordered-content-addressed-shards'
 });
 
@@ -69,6 +75,7 @@ export interface TypeScriptSourceProgramFactShard {
   readonly file: SourceProgramFile;
   readonly declarations: readonly SourceProgramDeclaration[];
   readonly references: readonly SourceProgramReference[];
+  readonly returnProvenances: readonly SourceProgramReturnProvenance[];
   readonly literals: readonly SourceProgramLiteral[];
   readonly entrypoints: readonly SourceProgramEntrypoint[];
   readonly capabilities: readonly SourceProgramCapabilityInvocation[];
@@ -132,6 +139,54 @@ function exactSpan(value: unknown, label: string, nullable = false): void {
   if ((value.start as number) > (value.end as number)) throw new Error(`${label} is reversed`);
 }
 
+const MAX_RETURN_PROVENANCE_VALUES = 32;
+const MAX_RETURN_PROVENANCE_ARGUMENTS = 32;
+const MAX_RETURN_PROVENANCE_ARGUMENT_VALUES = 8;
+
+function exactReturnArgumentProvenance(value: unknown, label: string): void {
+  if (!isPlainObject(value) || typeof value.kind !== 'string') {
+    throw new Error(`${label} must be one return argument provenance value`);
+  }
+  if (value.kind === 'parameter') {
+    exactObject(value, ['index', 'kind'], label);
+    if (!Number.isSafeInteger(value.index) || (value.index as number) < 0) {
+      throw new Error(`${label}.index must be a non-negative safe integer`);
+    }
+    return;
+  }
+  if (value.kind === 'literal' || value.kind === 'opaque') {
+    exactObject(value, ['kind'], label);
+    return;
+  }
+  throw new Error(`${label}.kind is invalid`);
+}
+
+function exactReturnValueProvenance(value: unknown, label: string): void {
+  if (isPlainObject(value) && value.kind === 'call-result') {
+    exactObject(value, ['arguments', 'kind', 'targetObservationId'], label);
+    exactDigest(value.targetObservationId, `${label}.targetObservationId`);
+    if (!Array.isArray(value.arguments)
+        || value.arguments.length > MAX_RETURN_PROVENANCE_ARGUMENTS) {
+      throw new Error(`${label}.arguments exceeds the bounded provenance grammar`);
+    }
+    value.arguments.forEach((argument, argumentIndex) => {
+      if (!Array.isArray(argument)
+          || argument.length === 0
+          || argument.length > MAX_RETURN_PROVENANCE_ARGUMENT_VALUES) {
+        throw new Error(
+          `${label}.arguments[${argumentIndex}] exceeds the bounded provenance grammar`
+        );
+      }
+      argument.forEach((item, itemIndex) => exactReturnArgumentProvenance(
+        item,
+        `${label}.arguments[${argumentIndex}][${itemIndex}]`
+      ));
+    });
+    return;
+  }
+  exactReturnArgumentProvenance(value, label);
+}
+
 function exactShardFacts(value: Record<string, unknown>): void {
   exactObject(value.file, [
     'contentDigest', 'moduleId', 'path', 'semanticKind',
@@ -167,16 +222,41 @@ function exactShardFacts(value: Record<string, unknown>): void {
   });
   collection('references', [
     'kind', 'moduleSpecifier', 'name', 'observationClass', 'path', 'span',
-    'targetObservationId', 'targetPath'
+    'sourceObservationId', 'sourceRelation', 'targetObservationId', 'targetPath'
   ], (entry, index) => {
     exactString(entry.path, `references[${index}].path`);
     exactEnum(entry.kind, ENUMS.referenceKind, `references[${index}].kind`);
     exactString(entry.name, `references[${index}].name`);
     exactText(entry.moduleSpecifier, `references[${index}].moduleSpecifier`, true);
+    exactDigest(entry.sourceObservationId, `references[${index}].sourceObservationId`, true);
+    exactEnum(
+      entry.sourceRelation,
+      ENUMS.referenceSourceRelation,
+      `references[${index}].sourceRelation`
+    );
     exactDigest(entry.targetObservationId, `references[${index}].targetObservationId`, true);
     exactString(entry.targetPath, `references[${index}].targetPath`, true);
     exactEnum(entry.observationClass, ENUMS.observationClass, `references[${index}].observationClass`);
     exactSpan(entry.span, `references[${index}].span`);
+  });
+  collection('returnProvenances', [
+    'declarationObservationId', 'normalReturns', 'path'
+  ], (entry, index) => {
+    exactString(entry.path, `returnProvenances[${index}].path`);
+    exactDigest(
+      entry.declarationObservationId,
+      `returnProvenances[${index}].declarationObservationId`
+    );
+    if (!Array.isArray(entry.normalReturns)
+        || entry.normalReturns.length > MAX_RETURN_PROVENANCE_VALUES) {
+      throw new Error(
+        `returnProvenances[${index}].normalReturns exceeds the bounded provenance grammar`
+      );
+    }
+    entry.normalReturns.forEach((value, valueIndex) => exactReturnValueProvenance(
+      value,
+      `returnProvenances[${index}].normalReturns[${valueIndex}]`
+    ));
   });
   collection('literals', ['context', 'contextSpan', 'path', 'span', 'value'], (entry, index) => {
     exactString(entry.path, `literals[${index}].path`);
@@ -201,10 +281,11 @@ function exactShardFacts(value: Record<string, unknown>): void {
     exactSpan(entry.span, `entrypoints[${index}].span`, true);
   });
   collection('capabilities', [
-    'capability', 'moduleId', 'moduleSpecifier', 'observationClass', 'operation',
-    'path', 'providerCapability', 'providerModuleId', 'span', 'subject',
+    'capability', 'moduleId', 'moduleSpecifier', 'observationClass', 'observationId', 'operation',
+    'owningDeclarationObservationId', 'path', 'providerCapability', 'providerModuleId', 'span', 'subject',
     'surface', 'transport'
   ], (entry, index) => {
+    exactDigest(entry.observationId, `capabilities[${index}].observationId`);
     exactString(entry.path, `capabilities[${index}].path`);
     exactEnum(entry.surface, ENUMS.surface, `capabilities[${index}].surface`);
     exactEnum(entry.capability, ENUMS.capability, `capabilities[${index}].capability`);
@@ -216,6 +297,11 @@ function exactShardFacts(value: Record<string, unknown>): void {
     exactText(entry.moduleSpecifier, `capabilities[${index}].moduleSpecifier`, true);
     exactString(entry.providerCapability, `capabilities[${index}].providerCapability`, true);
     exactString(entry.providerModuleId, `capabilities[${index}].providerModuleId`, true);
+    exactDigest(
+      entry.owningDeclarationObservationId,
+      `capabilities[${index}].owningDeclarationObservationId`,
+      true
+    );
     exactSpan(entry.span, `capabilities[${index}].span`);
   });
   collection('unknowns', ['code', 'detail', 'path', 'span'], (entry, index) => {
@@ -257,12 +343,26 @@ export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
   if (facts.file.path !== facts.path || ![
     facts.declarations,
     facts.references,
+    facts.returnProvenances,
     facts.literals,
     facts.entrypoints,
     facts.capabilities,
     facts.unknowns
   ].every((values) => exactPath(facts.path, values))) {
     throw new Error(`TypeScript Source Program fact shard crosses file boundary: ${facts.path}`);
+  }
+  const declarationObservationIds = new Set(
+    facts.declarations.map(({ observationId }) => observationId)
+  );
+  if (new Set(facts.returnProvenances.map(({ declarationObservationId }) => (
+    declarationObservationId
+  ))).size !== facts.returnProvenances.length
+      || facts.returnProvenances.some(({ declarationObservationId }) => (
+        !declarationObservationIds.has(declarationObservationId)
+      ))) {
+    throw new Error(
+      `TypeScript Source Program return provenance is not bound to one shard declaration: ${facts.path}`
+    );
   }
   const canonicalFacts = Object.freeze({
     path: facts.path,
@@ -271,6 +371,9 @@ export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
       sortByPathAndSpan(left, right) || compareCodeUnits(left.name, right.name))),
     references: Object.freeze([...facts.references].sort((left, right) =>
       sortByPathAndSpan(left, right) || compareCodeUnits(left.kind, right.kind))),
+    returnProvenances: Object.freeze([...facts.returnProvenances].sort((left, right) =>
+      compareCodeUnits(left.path, right.path)
+      || compareCodeUnits(left.declarationObservationId, right.declarationObservationId))),
     literals: Object.freeze([...facts.literals].sort((left, right) =>
       sortByPathAndSpan(left, right) || compareCodeUnits(left.value, right.value))),
     entrypoints: Object.freeze([...facts.entrypoints].sort((left, right) =>
@@ -340,6 +443,7 @@ export function parseTypeScriptSourceProgramFactShard(
       file: parsed.file as unknown as SourceProgramFile,
       declarations: parsed.declarations as unknown as readonly SourceProgramDeclaration[],
       references: parsed.references as unknown as readonly SourceProgramReference[],
+      returnProvenances: parsed.returnProvenances as unknown as readonly SourceProgramReturnProvenance[],
       literals: parsed.literals as unknown as readonly SourceProgramLiteral[],
       entrypoints: parsed.entrypoints as unknown as readonly SourceProgramEntrypoint[],
       capabilities: parsed.capabilities as unknown as readonly SourceProgramCapabilityInvocation[],
@@ -394,6 +498,7 @@ export function assembleTypeScriptSourceProgramModel(input: Readonly<{
     files: Object.freeze(shards.map(({ file }) => file)),
     declarations: Object.freeze(shards.flatMap(({ declarations }) => declarations)),
     references: Object.freeze(shards.flatMap(({ references }) => references)),
+    returnProvenances: Object.freeze(shards.flatMap(({ returnProvenances }) => returnProvenances)),
     literals: Object.freeze(shards.flatMap(({ literals }) => literals)),
     entrypoints: Object.freeze(shards.flatMap(({ entrypoints }) => entrypoints)),
     entrypointClosures: EMPTY_COMPONENT,

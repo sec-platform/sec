@@ -35,10 +35,6 @@ export interface CoverageOverlay {
     id: string;
     coveredBy: string[];
   }>;
-  slots: Array<{
-    id: string;
-    coveredBy: string[];
-  }>;
 }
 
 export interface ExplainGraph {

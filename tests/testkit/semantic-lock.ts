@@ -13,7 +13,6 @@ export function semanticArtifactLock(target: string): LockFile {
     resolvedBlocks: [],
     resolvedCapabilities: [],
     installPlan: [],
-    slotTasks: [],
     semanticLoweringTasks: [{
       ...ticketSemanticGeneratorTask(),
       target,
@@ -32,7 +31,6 @@ export function semanticArtifactLock(target: string): LockFile {
       align: 'succeeded',
       resolve: 'succeeded',
       compose: 'succeeded',
-      adapt: 'pending',
       verify: 'pending',
       repair: 'pending',
       lock: 'pending',

@@ -137,7 +137,7 @@ test('production sec main health returns its first typed provider admission fail
     expect(firstRun.status).not.toBe(0);
     if (process.platform === 'win32') {
       expect(firstRun.stderr).toContain('trusted-runtime-control-cli-unavailable');
-      expect(firstRun.stderr).toContain('installed-executable-capability-unproven');
+      expect(firstRun.stderr).toContain('semantic-session-unavailable');
     } else {
       expect(firstRun.stderr).toContain('credential-provider-unavailable');
     }

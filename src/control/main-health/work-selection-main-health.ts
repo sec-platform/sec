@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
+import { GITHUB_API_BASE_URL } from '../../external-capabilities/github-read/contract.ts';
 import { readGitHubToken } from '../../external-capabilities/github-read/credential.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle } from '../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createNoFollowDirectoryChain, inspectExactNoFollowDirectoryPresence, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -119,7 +120,6 @@ const MAIN_HEALTH_GITHUB_MAX_REQUESTS = 2_048;
 const MAIN_HEALTH_GITHUB_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 const MAIN_HEALTH_GITHUB_MAX_READ_SESSIONS = 2;
 export const MAIN_HEALTH_GITHUB_READ_OPERATION_TIMEOUT_MS = 10 * 60_000;
-const MAIN_HEALTH_GITHUB_API_ORIGIN = 'https://api.github.com' as const;
 const MAIN_HEALTH_GITHUB_CREDENTIAL_MAX_TOKEN_BYTES = 1024 as const;
 
 function createMainHealthGitHubRequestSession(input: Readonly<{
@@ -1345,7 +1345,7 @@ async function requestMainHealthGitHubJsonWithToken<T>(input: Readonly<{
     await Promise.race([operation, deadline]);
   try {
     const response = await raceDeadline(Promise.resolve().then(() => input.fetchImpl(
-      `${MAIN_HEALTH_GITHUB_API_ORIGIN}${input.endpoint}`,
+      `${GITHUB_API_BASE_URL}${input.endpoint}`,
       {
         method: input.method,
         headers: {

@@ -67,27 +67,22 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
     const { json: coverageReport } = await expectCliVariants<{
       status: string;
       blocks: Array<{ id: string; coveredBy: string[]; uncovered: boolean }>;
-      slots: Array<{ id: string; coveredBy: string[]; uncovered: boolean }>;
       uncoveredBlocks: string[];
-      uncoveredSlots: string[];
     }>(workspaceRoot, ['acceptance', 'coverage'], {
       text: [
         'Acceptance coverage passed; acceptancePassed=',
-        'blocks=0/3; slots=0/1; uncoveredBlocks=3; uncoveredSlots=1',
+        'blocks=0/3; uncoveredBlocks=3',
         'Uncovered blocks: auth/basic-session, tenant/basic-workspace, entity/customer-basic',
-        'Block entity/customer-basic; declared=3; coveredBy=none; uncovered=true',
-        'Slot customer_normalizer; declared=2; coveredBy=none; uncovered=true'
+        'Block entity/customer-basic; declared=3; coveredBy=none; uncovered=true'
       ],
       compactJson: {
         status: 'passed',
-        uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic'],
-        uncoveredSlots: ['customer_normalizer']
+        uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic']
       }
     });
     expect(coverageReport).toMatchObject({
       status: 'passed',
-      uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic'],
-      uncoveredSlots: ['customer_normalizer']
+      uncoveredBlocks: ['auth/basic-session', 'tenant/basic-workspace', 'entity/customer-basic']
     });
     expect(coverageReport.blocks).toEqual(
       expect.arrayContaining([
@@ -97,12 +92,6 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
         })
       ])
     );
-    expect(coverageReport.slots).toHaveLength(1);
-    expect(coverageReport.slots[0]).toMatchObject({
-      id: 'customer_normalizer',
-      uncovered: true
-    });
-
     await expectCliText(workspaceRoot, ['acceptance', 'blocks'], [
       'Acceptance coverage blocks passed',
       'targets=3; covered=0; uncovered=3',
@@ -124,25 +113,6 @@ test('CLI exposes acceptance coverage as text and JSON contracts', async () => {
       { compact: true }
     );
 
-    await expectCliText(workspaceRoot, ['acceptance', 'slots'], [
-      'Acceptance coverage slots passed',
-      'targets=1; covered=0; uncovered=1',
-      'Target customer_normalizer; declared=2; coveredBy=none; uncovered=true'
-    ]);
-
-    await expectCliJson(
-      workspaceRoot,
-      ['acceptance', 'slots', '--json', '--compact'],
-      {
-        status: 'passed',
-        targetKind: 'slots',
-        targetCount: 1,
-        coveredCount: 0,
-        uncoveredCount: 1,
-        uncoveredIds: ['customer_normalizer']
-      },
-      { compact: true }
-    );
   });
 }, 120000);
 
@@ -202,7 +172,7 @@ test('CLI exposes runtime report as text and JSON contracts', async () => {
 }, 120000);
 
 test('CLI runs verify with JSON output for CI consumers', async () => {
-  await withWorkspaceScenario('adapted-default', async (workspaceRoot) => {
+  await withWorkspaceScenario('composed-default', async (workspaceRoot) => {
     await expectCliText(workspaceRoot, ['verify', '--lane', 'fast'], ['Verification passed (fast)\n']);
 
     const directVerificationReport = await expectCliJson<VerificationReport>(

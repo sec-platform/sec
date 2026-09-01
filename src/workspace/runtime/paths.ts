@@ -9,13 +9,14 @@ import {
 import {
   CI_ARTIFACT_FILES,
   CI_ARTIFACT_ROOT_RELATIVE_PATH,
-  isCiArtifactPath
+  isCanonicalCiArtifactPath
 } from '../../verification/ci-artifacts/contract/manifest.ts';
 import {
   localStateRelativePath,
   resolveWorkspaceLocalStateRoot
 } from '../contract/local-state.ts';
 import type { WorkspacePaths } from '../contract/types.ts';
+import { modelRelativePath } from '../contract/types.ts';
 
 export { localStateRelativePath };
 
@@ -23,7 +24,6 @@ export const compilerRoot = compilerRuntimeLayout.packageRoot;
 
 /** Native target-workspace roots. */
 export const workspaceConfigRelativePath = 'sec.yaml' as const;
-export const modelRelativePath = 'model' as const;
 export const srcRelativePath = 'src' as const;
 export const testsRelativePath = 'tests' as const;
 export const packageJsonRelativePath = 'package.json' as const;
@@ -37,7 +37,6 @@ export const modelBlocksRelativePath = path.join(modelRelativePath, 'blocks');
 export const privateRegistryRelativePath = path.join(modelBlocksRelativePath, 'private');
 export const policiesRelativePath = path.join(modelRelativePath, 'policies');
 export const overridesRelativePath = path.join(modelRelativePath, 'patches');
-export const slotsRelativePath = path.join(srcRelativePath, 'slots');
 
 /** Compiler-owned resources are outside the target workspace layout. */
 export const officialPoliciesRelativePath =
@@ -85,16 +84,7 @@ export function resolvePathInside(root: string, relativePath: string, options: {
  * applied here.
  */
 export function isCanonicalWorkspaceArtifactPath(value: string): boolean {
-  if (!isCiArtifactPath(value) || posixPath(value) !== value || !isSafeRelativePath(value)) {
-    return false;
-  }
-  const segments = value.split('/');
-  return segments.every((segment, index) =>
-    segment.length > 0
-    && segment !== '.'
-    && segment !== '..'
-    && (segment !== '**' || index === segments.length - 1)
-  );
+  return isCanonicalCiArtifactPath(value);
 }
 
 export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths {
@@ -113,7 +103,6 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     policiesRoot: path.join(root, policiesRelativePath),
     overridesRoot: path.join(root, overridesRelativePath),
     srcRoot,
-    slotsRoot: path.join(root, slotsRelativePath),
     testsRoot: path.join(root, testsRelativePath),
     packageJsonPath: path.join(root, packageJsonRelativePath),
     tsconfigPath: path.join(root, tsconfigRelativePath),

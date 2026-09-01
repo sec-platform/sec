@@ -1,0 +1,5 @@
+export function normalizeCustomer(
+  input: Readonly<Record<string, unknown>>
+): Record<string, unknown> {
+  return { ...input, normalized: true };
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "sec-anonymous-package-registry-profile-v1",
+  "providerId": "npm-public-registry-dist-tags",
+  "origin": "https://registry.npmjs.org",
+  "resourcePrefix": "/-/package/",
+  "resourceSuffix": "/dist-tags",
+  "maximumConcurrentRequests": 4,
+  "maximumPackageCount": 64,
+  "maximumResponseBytes": 16384,
+  "timeoutMs": 5000
+}

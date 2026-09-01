@@ -27,10 +27,6 @@ import { digest, rawSha256, sha256 } from '../../system-architecture/foundation/
 import { compileSecRepositoryModuleMembership } from '../../system-architecture/repository-modules/contract.ts';
 import { withWorkspaceWriteLease } from '../../workspace/lease.ts';
 import {
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
-} from '../agent/work-package-contract.ts';
-import {
   assertMainHealthPublicationAuthorityStable,
   observeCanonicalMainHealthForPublication,
   observeMainHealthGitHubControlInventory,
@@ -39,6 +35,10 @@ import {
   type MainHealthRuntimeAuthority
 } from '../main-health/work-selection-main-health.ts';
 import { observeSecWorkSelectionLive } from '../main-health/work-selection.ts';
+import {
+  CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest
+} from '../task/contract/work-package.ts';
 import { assertSecRoadmapTerminalCompactionCandidate } from '../work-selection/live-contract.ts';
 import {
   CodexDevelopmentAssertControlPlaneBinding,

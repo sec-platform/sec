@@ -18,9 +18,7 @@ test('CLI exposes provenance registry as text and JSON contracts', async () => {
       text: [
         'Provenance registry; artifacts=',
         'Origins: block=',
-        'slot=',
-        'Registry sources: official=',
-        'origin=slot:'
+        'Registry sources: official='
       ],
       compactJson: {
         formatVersion: '1',
@@ -29,11 +27,6 @@ test('CLI exposes provenance registry as text and JSON contracts', async () => {
     });
     expect(provenance.artifacts).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          path: 'custom/customer_normalizer.ts',
-          originType: 'slot',
-          overrideStatus: 'none'
-        }),
         expect.objectContaining({
           path: 'src/installed/entity/customer-service.ts',
           originType: 'block',

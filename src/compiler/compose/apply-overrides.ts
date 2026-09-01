@@ -1,13 +1,14 @@
 import path from 'node:path';
 
 import { decodeExactUtf8, readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { OverrideApplyPhase, OverrideEntry } from '../../semantic/provenance/contract/types.ts';
+import type { OverrideEntry } from '../../semantic/provenance/contract/types.ts';
 import type { CommitFence } from '../../workspace/files.ts';
 import {
+  deleteExpectedCanonicalWorkspaceFile,
   publishExclusiveCanonicalWorkspaceFile,
   publishExpectedCanonicalWorkspaceFile
 } from '../../workspace/files.ts';
-import { resolvePathInside } from '../../workspace/paths.ts';
+import { resolvePathInside } from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
 import {
   loadOverrideManifest,
@@ -95,62 +96,101 @@ function assertPreparedOverrideInputsCurrent(prepared: readonly PreparedOverride
   }
 }
 
+async function rollbackPublishedOverrides(
+  workspaceRoot: string,
+  published: readonly PreparedOverride[]
+): Promise<void> {
+  for (const override of [...published].reverse()) {
+    const input = {
+      workspaceRoot,
+      targetPath: override.targetPath,
+      expectedBytes: override.sourceBytes,
+      label: `Override ${override.entry.id} rollback`
+    };
+    if (override.targetPreimage === null) {
+      await deleteExpectedCanonicalWorkspaceFile({ ...input, bytes: override.sourceBytes });
+    } else {
+      await publishExpectedCanonicalWorkspaceFile({ ...input, bytes: override.targetPreimage });
+    }
+  }
+}
+
 export async function applyOverrides(
   workspaceRoot: string,
-  phase: OverrideApplyPhase,
   commitFence?: CommitFence
 ): Promise<void> {
   const manifest = await loadOverrideManifest(workspaceRoot);
   const overrideManifestPath = await resolveOverrideManifestPath(workspaceRoot);
   const overrideRoot = path.dirname(overrideManifestPath);
 
-  // Freeze every applicable source before the first project effect. This is
-  // deliberately operation-local; #296/#420 can later supply the same bytes
-  // from the unified Workspace Observation without changing this publisher.
+  // Freeze every applicable source before the first project effect so the
+  // batch is planned against one exact source/target preimage.
   const prepared = manifest.overrides
-    .filter((entry) => entry.appliesAfter.includes(phase))
     .map((entry) => readOverrideSource(overrideRoot, workspaceRoot, entry));
 
   await commitFence?.();
   assertPreparedOverrideInputsCurrent(prepared);
 
-  for (const override of prepared) {
-    const publicationFence = async (): Promise<void> => {
-      await commitFence?.();
-      const sourceAtPublication = readOptionalRetainedOrdinaryFile(
-        override.sourcePath,
-        `Override source ${override.entry.id} publication fence`
-      );
-      if (sourceAtPublication === null
-          || !Buffer.from(sourceAtPublication).equals(Buffer.from(override.sourceBytes))) {
-        throw new CompilerError(
-          'OVERRIDE-APPLY-001',
-          `Override "${override.entry.id}" source changed before publication`
+  const published: PreparedOverride[] = [];
+  try {
+    for (const override of prepared) {
+      const publicationFence = async (): Promise<void> => {
+        await commitFence?.();
+        const sourceAtPublication = readOptionalRetainedOrdinaryFile(
+          override.sourcePath,
+          `Override source ${override.entry.id} publication fence`
         );
+        if (sourceAtPublication === null
+            || !Buffer.from(sourceAtPublication).equals(Buffer.from(override.sourceBytes))) {
+          throw new CompilerError(
+            'OVERRIDE-APPLY-001',
+            `Override "${override.entry.id}" source changed before publication`
+          );
+        }
+      };
+      if (override.targetPreimage !== null
+          && Buffer.from(override.targetPreimage).equals(Buffer.from(override.sourceBytes))) {
+        await publicationFence();
+        continue;
       }
-    };
-    if (override.targetPreimage !== null
-        && Buffer.from(override.targetPreimage).equals(Buffer.from(override.sourceBytes))) {
-      await publicationFence();
-      continue;
-    }
-    if (override.targetPreimage === null) {
-      await publishExclusiveCanonicalWorkspaceFile({
+      if (override.targetPreimage === null) {
+        await publishExclusiveCanonicalWorkspaceFile({
+          workspaceRoot,
+          targetPath: override.targetPath,
+          bytes: override.sourceBytes,
+          label: `Override ${override.entry.id}`,
+          commitFence: publicationFence
+        });
+        published.push(override);
+        continue;
+      }
+      await publishExpectedCanonicalWorkspaceFile({
         workspaceRoot,
         targetPath: override.targetPath,
+        expectedBytes: override.targetPreimage,
         bytes: override.sourceBytes,
         label: `Override ${override.entry.id}`,
         commitFence: publicationFence
       });
-      continue;
+      published.push(override);
     }
-    await publishExpectedCanonicalWorkspaceFile({
-      workspaceRoot,
-      targetPath: override.targetPath,
-      expectedBytes: override.targetPreimage,
-      bytes: override.sourceBytes,
-      label: `Override ${override.entry.id}`,
-      commitFence: publicationFence
-    });
+  } catch (error) {
+    try {
+      // Forward authorization may remain failed after an interrupted batch.
+      // Compensation is instead bounded by the exact bytes and retained
+      // physical identity published by this operation; a substituted target
+      // becomes typed residue rather than being overwritten.
+      await rollbackPublishedOverrides(workspaceRoot, published);
+    } catch (rollbackError) {
+      throw new CompilerError(
+        'OVERRIDE-APPLY-002',
+        'Override publication failed and exact rollback could not be proven',
+        {
+          publicationError: error instanceof Error ? error.message : String(error),
+          rollbackError: rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+        }
+      );
+    }
+    throw error;
   }
 }

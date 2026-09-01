@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 
 import {
   buildLocalAffectedCheckPlan,
+  type AffectedTestPlan,
   type LocalAffectedGateId
-} from '../../src/development/runner/check-runner.ts';
-import type { AffectedTestPlan } from '../../src/development/runner/test-runner.ts';
+} from '../../src/development/runner/affected-plan.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
   defaultAffectedSelectionProjectionContext,

@@ -10,7 +10,7 @@ import { createWorkspaceWriteCommitFence, withWorkspaceWriteLease, type Workspac
 import {
   resolveWorkspaceArtifactPath,
   resolveWorkspaceProvenancePath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { buildCiArtifactManifest, writeCiArtifactManifest } from '../emit/ci-artifacts.ts';
 import { lockProject } from '../emit/lock-project.ts';

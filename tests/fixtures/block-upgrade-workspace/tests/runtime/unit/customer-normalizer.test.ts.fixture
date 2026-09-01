@@ -1,0 +1,14 @@
+import { expect, test } from 'bun:test';
+
+import { normalizeCustomer } from '../../../src/installed/private/customer-normalizer.ts';
+
+test('the customer normalizer publishes the upgraded normalized result', () => {
+  const customer = {
+    name: 'Ada Lovelace',
+    email: 'ada@example.test',
+    phone: '+44-20-0000-0000',
+    company: 'Analytical Engines'
+  };
+
+  expect(normalizeCustomer(customer)).toEqual({ ...customer, normalized: true });
+});

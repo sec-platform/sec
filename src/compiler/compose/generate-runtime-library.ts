@@ -9,7 +9,7 @@ import {
   srcRelativePath,
   testsRelativePath,
   tsconfigRelativePath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
 import type { LockFile } from '../contract.ts';
 import { TemplateEngine } from './template-engine.ts';
 

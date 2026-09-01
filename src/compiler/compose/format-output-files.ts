@@ -10,7 +10,7 @@ import {
   isCanonicalWorkspaceArtifactPath,
   resolvePathInside,
   resolveWorkspaceArtifactPath
-} from '../../workspace/paths.ts';
+} from '../../workspace/runtime/paths.ts';
 import { CompilerError } from '../errors.ts';
 
 const FORMATTABLE_EXTENSIONS = new Set([

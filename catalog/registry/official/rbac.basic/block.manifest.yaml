@@ -24,6 +24,5 @@ pins:
     - id: authorization_decision
       type: AuthorizationDecision
       required: true
-slots: []
 acceptance:
   - id: user_can_access_authorized_route

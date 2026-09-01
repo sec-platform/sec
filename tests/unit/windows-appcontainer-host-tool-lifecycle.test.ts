@@ -33,6 +33,7 @@ import {
 } from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
 
 interface FakeChild extends EventEmitter {
+  readonly stdin: null;
   readonly stdout: PassThrough;
   readonly stderr: PassThrough;
   readonly pid: number;
@@ -44,6 +45,7 @@ interface FakeChild extends EventEmitter {
 function fakeChild(pid = 42_424): FakeChild {
   const child = new EventEmitter() as FakeChild;
   Object.defineProperties(child, {
+    stdin: { value: null, enumerable: true },
     stdout: { value: new PassThrough(), enumerable: true },
     stderr: { value: new PassThrough(), enumerable: true },
     pid: { value: pid, enumerable: true }

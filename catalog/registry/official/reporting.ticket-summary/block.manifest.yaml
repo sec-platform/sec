@@ -24,7 +24,6 @@ pins:
     - id: ticket_summary
       type: TicketSummary
       required: true
-slots: []
 acceptance:
   - id: ticket_summary_can_be_reported
     dependsOn:

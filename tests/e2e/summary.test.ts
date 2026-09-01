@@ -10,9 +10,9 @@ import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/con
 import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import { validateReviewSummary } from '../../src/verification/review/contract/summary.ts';
+import { parseReviewSummaryJson, validateReviewSummary } from '../../src/verification/review/contract/summary.ts';
 import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/paths.ts';
+import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { buildOfficialCopyInstallStep, buildOfficialResolvedBlock } from '../helpers/lock-fixtures.ts';
 import {
   buildPassingReviewCoverage,
@@ -23,7 +23,7 @@ import {
   buildRuntimeVerificationReport
 } from '../helpers/review-fixtures.ts';
 import { expectCliJson, expectCliSuccess, expectCliText, runCliInProcess } from '../testkit/cli.ts';
-import { createWorkspace, prepareAdaptedWorkspace, prepareLockedWorkspace, withTempWorkspace } from '../testkit/workspace.ts';
+import { createWorkspace, prepareComposedWorkspace, prepareLockedWorkspace, withTempWorkspace } from '../testkit/workspace.ts';
 
 async function readReviewInputs(workspaceRoot: string): Promise<{
   lock: LockFile;
@@ -55,10 +55,12 @@ test('canonical Review Summary publication persists the artifact and generated p
       passStatus: { lock: 'succeeded' }
     }
   });
+  await fs.mkdir(path.dirname(reviewSummaryPath), { recursive: true });
   await writeJson(lockPath, lock);
 
   const summary = await publishReviewSummary(workspaceRoot, lock, provenance, report, coverage);
   const persistedLock = await readJson<LockFile>(lockPath);
+  const persistedSource = await fs.readFile(reviewSummaryPath, 'utf8');
   const persistedSummary = await readJson<typeof summary>(reviewSummaryPath);
 
   expect(summary.ciSummary).toEqual({
@@ -67,7 +69,6 @@ test('canonical Review Summary publication persists the artifact and generated p
     regressionRiskCount: 0,
     conflictHintCount: 0,
     impactedBlockCount: 0,
-    impactedSlotCount: 0,
     runtimeEntryCount: 0
   });
   expect(summary).toMatchObject({
@@ -76,18 +77,43 @@ test('canonical Review Summary publication persists the artifact and generated p
     installImpactCount: 0
   });
   expect(summary.conflictHints).toHaveLength(0);
+  expect(parseReviewSummaryJson(persistedSource)).toEqual(summary);
   expect(validateReviewSummary(persistedSummary)).toEqual(summary);
-  expect(() => validateReviewSummary({ ...persistedSummary, formatVersion: 'unknown' })).toThrow();
-  expect(() => validateReviewSummary({ ...persistedSummary, undeclared: true })).toThrow();
-  expect(persistedLock.generatedPaths).toContain('control/evidence/review-summary.json');
+  expect(() => parseReviewSummaryJson(JSON.stringify({ ...persistedSummary, formatVersion: 'unknown' }))).toThrow();
+  expect(() => parseReviewSummaryJson(JSON.stringify({ ...persistedSummary, undeclared: true }))).toThrow();
+  const formatVersion = JSON.stringify(summary.formatVersion);
+  const duplicateFormatVersion = `{"formatVersion":${formatVersion},"formatVersion":${formatVersion}}`;
+  expect(() => parseReviewSummaryJson(duplicateFormatVersion)).toThrow(
+    'duplicate key "formatVersion"'
+  );
+  await fs.writeFile(reviewSummaryPath, duplicateFormatVersion, 'utf8');
+  const rejectedReview = await runCliInProcess(workspaceRoot, ['review', '--json', '--compact']);
+  expect(rejectedReview.code).toBe(1);
+  expect(rejectedReview.stdout).toBe('');
+  expect(rejectedReview.stderr).toContain('duplicate key "formatVersion"');
+  expect(persistedLock.generatedPaths).toContain(CI_ARTIFACT_FILES.reviewSummary);
 }, 180000);
 test('buildReviewSummary captures fast-lane policy failures as structured failure points', async () => {
-  const workspaceRoot = await prepareAdaptedWorkspace({ prefix: 'engineering-compiler-review-fast-' });
+  const workspaceRoot = await prepareComposedWorkspace({ prefix: 'engineering-compiler-review-fast-' });
   const projectRoot = workspaceRoot;
+  const customerServicePath = path.join(
+    projectRoot,
+    'src',
+    'installed',
+    'entity',
+    'customer-service.ts'
+  );
+  const customerService = await fs.readFile(customerServicePath, 'utf8');
+  const policyViolatingCustomerService = customerService
+    .replace("import { currentTenant } from '../tenant/context.ts';\n", '')
+    .replaceAll('const tenantId = currentTenant(session);', 'const tenantId = session.tenantId;');
+  if (policyViolatingCustomerService === customerService) {
+    throw new Error('Customer service fixture no longer exposes the tenant-policy mutation boundary');
+  }
 
   await fs.writeFile(
-    path.join(projectRoot, 'src', 'installed', 'entity', 'customer-service.ts'),
-    `import type { CustomerInput, CustomerRecord, Database } from '../../runtime/database.ts';\nimport type { Session } from '../auth/session.ts';\nimport { normalizeCustomerInput } from '../../../custom/customer_normalizer.ts';\n\nexport function createCustomer(db: Database, session: Session, input: CustomerInput): CustomerRecord {\n  const normalized = normalizeCustomerInput(input);\n  const customer: CustomerRecord = {\n    id: db.nextCustomerId++,\n    tenantId: session.tenantId,\n    ...normalized\n  };\n  db.customers.push(customer);\n  return customer;\n}\n\nexport function listCustomers(db: Database, session: Session): CustomerRecord[] {\n  return db.customers.filter((customer) => customer.tenantId === session.tenantId);\n}\n`,
+    customerServicePath,
+    policyViolatingCustomerService,
     'utf8'
   );
 
@@ -330,7 +356,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
       blockId: 'reporting/ticket-summary',
       actionKinds: ['copy'],
       sourceRoots: ['reporting.ticket-summary'],
-      targetPaths: ['src/installed/reporting/ticket-summary.ts', 'src/installed/reporting/ticket-summary.ts'],
+      targetPaths: ['src/installed/reporting/ticket-summary.ts'],
       verticals: [],
       runtimeEntries: ['src/installed/reporting/ticket-summary.ts']
     },
@@ -348,7 +374,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
     blockCount: 3,
     actionKindCount: 1,
     sourceRootCount: 3,
-    targetPathCount: 4,
+    targetPathCount: 3,
     verticalCount: 0,
     runtimeEntryCount: 3,
     groupCount: 1,
@@ -358,8 +384,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
     targetPaths: [
       'src/installed/export/customer-csv.ts',
       'src/installed/reporting/ticket-summary.ts',
-      'src/installed/ticket/ticket-service.ts',
-      'src/installed/reporting/ticket-summary.ts'
+      'src/installed/ticket/ticket-service.ts'
     ],
     verticals: [],
     runtimeEntries: [
@@ -373,7 +398,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
         blockCount: 3,
         actionKindCount: 1,
         runtimeEntryCount: 3,
-        targetPathCount: 4,
+        targetPathCount: 3,
         blocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic'],
         actionKinds: ['copy'],
         runtimeEntries: [
@@ -384,8 +409,7 @@ test('buildReviewSummary attributes runtime entries only from explicit ownership
         targetPaths: [
           'src/installed/export/customer-csv.ts',
           'src/installed/reporting/ticket-summary.ts',
-          'src/installed/ticket/ticket-service.ts',
-          'src/installed/reporting/ticket-summary.ts'
+          'src/installed/ticket/ticket-service.ts'
         ]
       }
     ]

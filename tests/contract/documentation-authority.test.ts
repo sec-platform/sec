@@ -4,10 +4,6 @@ import { Glob } from 'bun';
 import { describe, expect, test } from 'bun:test';
 
 import {
-  CodexDevelopmentParseWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
-} from '../../src/control/agent/work-package-contract.ts';
-import {
   parseDocumentationAuthorityRegistry,
   resolveDocumentationOperationOwners
 } from '../../src/control/documentation/authority.ts';
@@ -15,8 +11,12 @@ import {
   CodexDevelopmentParseActivePointer,
   CodexDevelopmentParseRollingPlan
 } from '../../src/control/documentation/document-control-plane-contract.ts';
+import {
+  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest
+} from '../../src/control/task/contract/work-package.ts';
 import { parseSecRoadmapWorkCatalog } from '../../src/control/work-selection/live-contract.ts';
-import { compilerRoot } from '../../src/workspace/paths.ts';
+import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
 import { readCompilerFile, readCompilerTextFile } from '../helpers/compiler-fixtures.ts';
 
 describe('canonical documentation authority', () => {
@@ -44,11 +44,11 @@ describe('canonical documentation authority', () => {
       authorityRefs: ['agents-entry'],
       changedPaths: []
     })).toThrow(/non-owning/u);
-    expect(() => resolveDocumentationOperationOwners({
+    expect(resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['verification-governance'],
       changedPaths: []
-    })).toThrow(/development-governance/u);
+    }).map(({ id }) => id)).toEqual(['verification-governance']);
     expect(resolveDocumentationOperationOwners({
       registry,
       authorityRefs: ['development-governance', 'product'],

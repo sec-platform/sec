@@ -23,7 +23,6 @@ function input(): BuildEngineeringIRInput {
       registryPath: 'catalog/registry/official'
     }],
     manifests: [],
-    slotTasks: [],
     acceptanceIds: [],
     policyDeclarations: []
   };

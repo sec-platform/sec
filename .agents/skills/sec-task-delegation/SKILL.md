@@ -18,14 +18,6 @@ description: 用于判断 frozen Work Package 是否值得拆成互不重叠的�
 - 当前用户授权、角色候选、owned/forbidden path closure、依赖、资源冲突、停止条件和独立性要求。
 - 若 production Task Capsule compiler 已可用，消费其 typed output；不得从 prose 重建竞争 Capsule。
 
-## 权限与路径
-- 委派只能保持或收窄当前 Work Package 与用户授权，不能新增写入路径、外部 effect、merge 或发布权限。
-- 主线程保留最新用户授权、canonical writer、架构裁决、集成与最终验证责任。
-
-## 允许工具与操作
-- 形成 bounded role projection、owner/path disjoint proof、启动已授权的独立 Agent，以及消费角色完成结果。
-- 在 #205 的 production Task Capsule compiler 完成切换前，本 Skill 只拥有“是否值得委派”的判断，不签发第二份 canonical Capsule 状态。
-
 ## 前置门禁
 - repository resolver 与 frozen Work Package 均有效。
 - 每个角色都有单一 owner、可独立收口的结果和明确的依赖边界；否则保持单 writer。
@@ -49,9 +41,3 @@ description: 用于判断 frozen Work Package 是否值得拆成互不重叠的�
 - 禁止同一文件或 authority 的多个写者。
 - 禁止递归分派、主动轮询、为 finding 创建 successor worktree，或把 Agent 输出当作自动 merge 授权。
 - 禁止在真实 production Task Capsule compiler 和 consumer cutover 之前仅凭目标架构删除本 Skill。
-
-## 权威
-- `AGENTS.md`
-- `docs/development-governance.md`
-- `platform/control/agent/skill.ts`
-- `.codex/agents/`

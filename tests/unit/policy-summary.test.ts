@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/compiler/policies/contract/rules.ts';
 import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
 import { buildReviewPolicySummary } from '../../src/verification/review/contract/policy.ts';
@@ -16,15 +17,17 @@ import {
 } from '../helpers/review-fixtures.ts';
 
 const PROJECT_POLICY_SOURCE = `${posixPath(policiesRelativePath)}/custom.spec.yaml`;
-const CUSTOMER_NORMALIZER_TARGET = `${srcRelativePath}/slots/customer_normalizer.ts`;
+const CUSTOMER_SERVICE_TARGET = `${srcRelativePath}/installed/entity/customer-service.ts`;
+const TENANT_FLOW_RULE = TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE;
+const TENANT_FLOW_PREDICATE = policySemanticRule(TENANT_FLOW_RULE).requiredPredicate;
 
 test('review summary surfaces semantically assured policy governance failure', async () => {
   const violation: PolicyReport['violations'][number] = {
     id: 'tenant-scope-required',
     severity: 'error',
     appliesTo: ['entity/customer-basic'],
-    rule: 'tenant_context_must_flow_to_query',
-    files: ['src/installed/entity/customer-service.ts'],
+    rule: TENANT_FLOW_RULE,
+    files: [CUSTOMER_SERVICE_TARGET],
     message: 'Entity customer queries violate the canonical tenant data-flow policy.',
     sourceScope: 'official',
     sourcePath: 'catalog/policies/official/policy.spec.yaml'
@@ -68,13 +71,13 @@ test('review summary surfaces semantically assured policy governance failure', a
           id: 'project-only',
           sourceScope: 'project',
           sourcePath: PROJECT_POLICY_SOURCE,
-          targets: [CUSTOMER_NORMALIZER_TARGET]
+          targets: [CUSTOMER_SERVICE_TARGET]
         },
         {
           id: 'tenant-scope-required',
           sourceScope: 'official',
           sourcePath: 'catalog/policies/official/policy.spec.yaml',
-          targets: ['src/installed/entity/customer-service.ts']
+          targets: [CUSTOMER_SERVICE_TARGET]
         }
       ]
     },
@@ -84,7 +87,7 @@ test('review summary surfaces semantically assured policy governance failure', a
       providerId: 'semantic-policy-test-provider',
       providerRevision: 'semantic-policy-test-provider-v1',
       assurance: 'semantic',
-      requiredSemanticPredicates: ['FLOWS_TO'],
+      requiredSemanticPredicates: [TENANT_FLOW_PREDICATE],
       unsupportedSemanticPredicates: []
     }
   };
@@ -142,7 +145,7 @@ test('review projects source-structure policy evidence as attention rather than 
         id: 'tenant-scope-required',
         sourceScope: 'official',
         sourcePath: 'catalog/policies/official/policy.spec.yaml',
-        targets: ['src/installed/entity/customer-service.ts']
+        targets: [CUSTOMER_SERVICE_TARGET]
       }]
     },
     violations: [],
@@ -150,8 +153,8 @@ test('review projects source-structure policy evidence as attention rather than 
       id: 'tenant-scope-required',
       severity: 'error',
       appliesTo: ['entity/customer-basic'],
-      rule: 'tenant_context_must_flow_to_query',
-      files: ['src/installed/entity/customer-service.ts'],
+      rule: TENANT_FLOW_RULE,
+      files: [CUSTOMER_SERVICE_TARGET],
       message: 'Source structure is advisory only.',
       sourceScope: 'official',
       sourcePath: 'catalog/policies/official/policy.spec.yaml',
@@ -161,8 +164,8 @@ test('review projects source-structure policy evidence as attention rather than 
       providerId: 'sec-policy-source-structure',
       providerRevision: 'tenant-context-structure-v1',
       assurance: 'source-structure',
-      requiredSemanticPredicates: ['FLOWS_TO'],
-      unsupportedSemanticPredicates: ['FLOWS_TO']
+      requiredSemanticPredicates: [TENANT_FLOW_PREDICATE],
+      unsupportedSemanticPredicates: [TENANT_FLOW_PREDICATE]
     }
   };
 
@@ -172,7 +175,7 @@ test('review projects source-structure policy evidence as attention rather than 
     assurance: 'source-structure',
     evaluatorProviderId: 'sec-policy-source-structure',
     evaluatorProviderRevision: 'tenant-context-structure-v1',
-    unsupportedSemanticPredicates: ['FLOWS_TO'],
+    unsupportedSemanticPredicates: [TENANT_FLOW_PREDICATE],
     diagnosticCount: 1,
     violationCount: 0
   });

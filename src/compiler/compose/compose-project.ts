@@ -1,15 +1,14 @@
 import path from 'node:path';
 
-import { readOptionalRetainedOrdinaryFile } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { defaultLimit } from '../../system-architecture/foundation/runtime/concurrency.ts';
 import { CI_ARTIFACT_FILES } from '../../verification/ci-artifacts/contract/manifest.ts';
-import { ensureDir, publishExclusiveCanonicalWorkspaceFile, writeJson, type CommitFence } from '../../workspace/files.ts';
-import { resolvePathInside, resolveWorkspaceArtifactPath } from '../../workspace/paths.ts';
-import { checkProjectWriteBoundary, ensureProjectBase } from '../../workspace/project.ts';
-import { CodeBuilder } from '../codegen/code-builder.ts';
-import type { InstallPlanStep, LockFile, SlotTask } from '../contract.ts';
-import { CompilerError } from '../errors.ts';
+import { ensureProjectBase } from '../../workspace/application/project-base.ts';
+import { checkProjectWriteBoundary } from '../../workspace/application/project-write-boundary.ts';
+import { ensureDir, writeJson, type CommitFence } from '../../workspace/files.ts';
+import { resolveWorkspaceArtifactPath } from '../../workspace/runtime/paths.ts';
+import { writeProjectBaseline } from '../../workspace/runtime/project-baseline.ts';
+import type { InstallPlanStep, LockFile } from '../contract.ts';
 import { addGeneratedPaths, saveLock } from '../lock.ts';
+import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import type { PipelineSemanticContext } from '../pipeline/types.ts';
 import { lowerSemanticTasks } from '../semantic-lowering.ts';
 import { applyOverrides } from './apply-overrides.ts';
@@ -18,52 +17,6 @@ import { generateRuntimeLibraryScaffold } from './generate-runtime-library.ts';
 import { installOpaqueModules } from './install-opaque-modules.ts';
 import { defaultInstallRegistry } from './install-strategies.ts';
 import { mergePrismaTemplate } from './merge-prisma-template.ts';
-
-function renderSlotSkeleton(task: SlotTask): string {
-  const builder = new CodeBuilder(task.target)
-    .addFileComment(`@generated slot-id:${task.id} block:${task.block}`);
-
-  if (task.inputType && task.outputType) {
-    builder.addImport({
-      moduleSpecifier: '../runtime/database.ts',
-      namedImports: [task.inputType, task.outputType],
-      isTypeOnly: true
-    });
-  }
-  builder.addFunction({
-    name: task.symbol,
-    isExported: true,
-    parameters: [{ name: 'input', type: task.inputType ?? 'unknown' }],
-    returnType: task.outputType ?? 'unknown',
-    body: "throw new Error('Not implemented');"
-  });
-  return builder.getText();
-}
-
-async function ensureSlotSkeleton(
-  workspaceRoot: string,
-  task: SlotTask,
-  commitFence?: CommitFence
-): Promise<void> {
-  const targetPath = resolvePathInside(workspaceRoot, task.target);
-  if (!targetPath) {
-    throw new CompilerError('COMPOSE-PATH-003', `Slot target "${task.target}" escapes workspace root`);
-  }
-  const existing = readOptionalRetainedOrdinaryFile(
-    targetPath,
-    `Compose Slot target ${task.block}:${task.id}`
-  );
-  if (existing === null) {
-    await publishExclusiveCanonicalWorkspaceFile({
-      workspaceRoot,
-      targetPath,
-      bytes: Buffer.from(renderSlotSkeleton(task), 'utf8'),
-      label: `Compose Slot skeleton ${task.block}:${task.id}`,
-      commitFence
-    });
-  }
-  task.status = 'generated';
-}
 
 export async function composeProject(
   workspaceRoot: string,
@@ -106,12 +59,6 @@ export async function composeProject(
     blocks: lock.resolvedBlocks.map((block) => ({ id: block.id, installOrder: block.installOrder }))
   }, commitFence);
 
-  await Promise.all(
-    lock.slotTasks.map((task) => defaultLimit(() =>
-      ensureSlotSkeleton(workspaceRoot, task, commitFence)
-    ))
-  );
-
   const semanticLowering = await lowerSemanticTasks(workspaceRoot, semanticContext, commitFence);
   lock.semanticLoweringTasks = semanticLowering.tasks;
   const semanticGeneratedPaths = semanticLowering.generatedPaths;
@@ -125,9 +72,21 @@ export async function composeProject(
     ...opaqueGeneratedPaths
   ];
   addGeneratedPaths(lock, initialGeneratedPaths);
-  await applyOverrides(workspaceRoot, 'compose', commitFence);
   await formatOutputFiles(workspaceRoot, lock.generatedPaths, commitFence);
+  await applyOverrides(workspaceRoot, commitFence);
   await writeJson(installManifestPath, installManifest, commitFence);
+  const overrideManifest = await loadOverrideManifest(workspaceRoot);
+  await writeProjectBaseline(
+    workspaceRoot,
+    {
+      artifactPaths: [
+        ...lock.installPlan.map((step) => step.to),
+        ...lock.generatedPaths,
+        ...overrideManifest.overrides.map((entry) => entry.target)
+      ]
+    },
+    commitFence
+  );
   lock.passStatus.compose = 'succeeded';
   await saveLock(workspaceRoot, lock, commitFence);
   return lock;

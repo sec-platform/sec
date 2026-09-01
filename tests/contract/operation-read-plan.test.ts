@@ -64,7 +64,6 @@ function input(): SecOperationReadPlanInput {
         readPaths: ['docs/development-governance.md'],
         writePaths: ['platform/shared/'],
         forbiddenPaths: ['.agents/skills/'],
-        availableCapabilities: ['git'],
         authorizedResources: [],
         authorizedGates: [],
         changedPaths: []
@@ -81,7 +80,8 @@ function input(): SecOperationReadPlanInput {
       ref: 'docs/development-governance.md',
       owner: 'development-governance-owner',
       revision: 'owner-revision-v1',
-      reasonCode: 'canonical-operation-owner'
+      reasonCode: 'canonical-operation-owner',
+      projection: null
     }],
     conditionalRefs: [],
     forbiddenSources: [

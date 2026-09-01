@@ -51,8 +51,8 @@ test('failed operation batch publishes no partial Plan mutation', async () => {
 
     await expect(applyWithLease(workspaceRoot, [
       { id: 'must-rollback-in-memory', kind: 'set-app-name', value: 'must-not-publish' },
-      { id: 'missing-slot', kind: 'set-slot-description', slotId: 'missing_slot', description: 'blocked' }
-    ])).rejects.toMatchObject({ code: 'ENGINEERING-OPERATION-001' });
+      { id: 'invalid-acceptance', kind: 'add-acceptance', acceptanceId: 'INVALID ACCEPTANCE' }
+    ])).rejects.toMatchObject({ code: 'PLAN-VALIDATION-025' });
 
     expect(await fs.readFile(workspaceConfigPath)).toEqual(before);
   }, 'engineering-operation-failure-');

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import type { CommitFence } from '../contract/commit-fence.ts';
+import type { IndependentProviderProcessCapability } from './independent-provider-process.ts';
 import {
   copyBoundedCommandInput,
   runObservedCommand,
@@ -11,9 +12,20 @@ import {
 } from './observed-process-stdin.ts';
 import {
   assertRetainedNoFollowCapability,
-  type RetainedNoFollowChildProcessDirectory,
+  retainNoFollowOrdinaryFile,
+  type PhysicalDirectoryChain,
   type RetainedNoFollowOrdinaryFile
 } from './physical-no-follow.ts';
+import { settlePhysicalResources } from './resource-settlement.ts';
+import {
+  assertRetainedCommandBoundaryCurrent,
+  issueRetainedCommandBoundaryIdentity,
+  retainedCommandBoundaryAuxiliaryInputs,
+  type RetainedCommandAuxiliaryInput,
+  type RetainedCommandBoundary,
+  type RetainedCommandExecutable,
+  type RetainedCommandWorkingDirectory
+} from './retained-command-boundary.ts';
 
 export const ISOLATED_VERIFICATION_ENV_KEY = 'SEC_ISOLATED_VERIFICATION' as const;
 
@@ -66,32 +78,59 @@ export interface RunCommandOptions {
   stallTimeoutMs?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+  independentProvider?: IndependentProviderProcessCapability;
 }
-
-/**
- * Caller-owned, already-retained command boundaries. This transport accepts
- * only the capabilities' child-facing paths; it does not expose a general
- * stdio table or grant authority to open a path. The caller remains
- * responsible for disposing both underlying capabilities after settlement.
- */
-export type RetainedCommandExecutable = RetainedNoFollowOrdinaryFile;
-
-export type RetainedCommandWorkingDirectory = RetainedNoFollowChildProcessDirectory;
-
-export interface RetainedCommandBoundary {
-  readonly executable: RetainedCommandExecutable;
-  readonly workingDirectory: RetainedCommandWorkingDirectory;
-}
-
-export type RetainedCommandAuxiliaryInput = Readonly<{
-  readonly capability: RetainedNoFollowChildProcessDirectory | RetainedNoFollowOrdinaryFile;
-  readonly kind: 'directory' | 'ordinary-file';
-}>;
 
 const RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE = 5;
 const RETAINED_COMMAND_AUXILIARY_INPUT_LIMIT = 8;
-const RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS =
-  new WeakMap<RetainedCommandBoundary, readonly RetainedCommandAuxiliaryInput[]>();
+
+export type RetainedCommandAuxiliaryOrdinaryFileRequest = Readonly<{
+  expectedParent: PhysicalDirectoryChain;
+  name: string;
+  expectedPhysical?: Readonly<{ device: string; inode: string }>;
+  label?: string;
+}>;
+
+export function retainCommandAuxiliaryOrdinaryFiles(
+  requests: readonly [
+    RetainedCommandAuxiliaryOrdinaryFileRequest,
+    ...RetainedCommandAuxiliaryOrdinaryFileRequest[]
+  ]
+): readonly [RetainedNoFollowOrdinaryFile, ...RetainedNoFollowOrdinaryFile[]] {
+  if (requests.length > RETAINED_COMMAND_AUXILIARY_INPUT_LIMIT) {
+    throw new Error(
+      `Retained command accepts at most ${RETAINED_COMMAND_AUXILIARY_INPUT_LIMIT} auxiliary files`
+    );
+  }
+  const retained: RetainedNoFollowOrdinaryFile[] = [];
+  try {
+    for (const [index, request] of requests.entries()) {
+      retained.push(retainNoFollowOrdinaryFile(
+        request.expectedParent,
+        request.name,
+        request.expectedPhysical,
+        request.label ?? `retained command auxiliary file[${index}]`,
+        RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE + index
+      ));
+    }
+    return Object.freeze(retained) as readonly [
+      RetainedNoFollowOrdinaryFile,
+      ...RetainedNoFollowOrdinaryFile[]
+    ];
+  } catch (error) {
+    settlePhysicalResources({
+      primary: Object.freeze({
+        label: 'retained command auxiliary-file admission',
+        error
+      }),
+      cleanup: retained.reverse().map((capability, index) => Object.freeze({
+        label: `retained command auxiliary-file cleanup[${index}]`,
+        settle: () => capability.dispose()
+      }))
+    });
+    throw new Error('Unreachable auxiliary-file settlement state.');
+  }
+}
 
 export type RunRetainedCommandOptions = Omit<
   RunCommandOptions,
@@ -117,11 +156,6 @@ export class RetainedCommandTransportError extends Error {
 export const RETAINED_EXECUTABLE_CHILD_DESCRIPTOR = 3 as const;
 export const RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR = 4 as const;
 
-/**
- * Issue one closed retained process boundary from the physical owner's
- * executable and cwd capabilities. Callers never receive a general stdio
- * table and cannot structurally substitute either capability.
- */
 export function issueRetainedCommandBoundary(input: Readonly<{
   executable: RetainedCommandExecutable;
   workingDirectory: RetainedCommandWorkingDirectory;
@@ -146,13 +180,11 @@ export function issueRetainedCommandBoundary(input: Readonly<{
       `retained command auxiliary input[${index}]`
     );
   }
-  const boundary = Object.freeze({
+  const boundary = issueRetainedCommandBoundaryIdentity({
     executable: input.executable,
-    workingDirectory: input.workingDirectory
+    workingDirectory: input.workingDirectory,
+    auxiliaryInputs
   });
-  RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS.set(boundary, auxiliaryInputs);
-  // Validate descriptor allocation before this capability can cross an effect
-  // boundary; retainedCommandSpawnBoundary repeats the check at every spawn.
   retainedCommandSpawnBoundary(boundary);
   return boundary;
 }
@@ -276,24 +308,8 @@ function retainedCommandSpawnBoundary(boundary: RetainedCommandBoundary): Readon
   cwd: string;
   stdio: RunCommandStdio;
 }> {
-  assertRetainedNoFollowCapability(
-    boundary.executable,
-    'executable',
-    'retained command executable'
-  );
-  assertRetainedNoFollowCapability(
-    boundary.workingDirectory,
-    'working-directory',
-    'retained command working directory'
-  );
-  const auxiliaryInputs = RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS.get(boundary) ?? [];
-  for (const [index, auxiliary] of auxiliaryInputs.entries()) {
-    assertRetainedNoFollowCapability(
-      auxiliary.capability,
-      auxiliary.kind === 'directory' ? 'working-directory' : 'ordinary-file',
-      `retained command auxiliary input[${index}]`
-    );
-  }
+  assertRetainedCommandBoundaryCurrent(boundary);
+  const auxiliaryInputs = retainedCommandBoundaryAuxiliaryInputs(boundary);
   const stdio: RunCommandStdio = ['ignore', 'pipe', 'pipe'];
   if (process.platform === 'win32') {
     if (boundary.executable.stdioSourceDescriptor !== null
@@ -360,30 +376,9 @@ function retainedCommandSpawnBoundary(boundary: RetainedCommandBoundary): Readon
     stdio[childDescriptor] = source;
   }
   return Object.freeze({
-    // libuv may chdir before it remaps inherited stdio descriptors. Address
-    // the already-retained parent descriptor during spawn admission; fd 4 is
-    // still installed for the child-facing boundary before exec.
     cwd: `/proc/self/fd/${workingDirectorySource}`,
     stdio
   });
-}
-
-function assertRetainedCommandBoundaryCurrent(boundary: RetainedCommandBoundary): void {
-  assertRetainedNoFollowCapability(
-    boundary.executable,
-    'executable',
-    'retained command executable'
-  );
-  assertRetainedNoFollowCapability(
-    boundary.workingDirectory,
-    'working-directory',
-    'retained command working directory'
-  );
-  boundary.executable.assertCurrent();
-  boundary.workingDirectory.assertCurrent();
-  for (const auxiliary of RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS.get(boundary) ?? []) {
-    auxiliary.capability.assertCurrent();
-  }
 }
 
 function runCommandCapture(
@@ -800,6 +795,7 @@ async function runRetainedCommandCaptureV1(
       terminationDeadlineMs: options.terminationDeadlineMs,
       terminationGraceMs: options.terminationGraceMs,
       timeoutMs: options.timeoutMs,
+      independentProvider: options.independentProvider,
       whileRunning: async () => assertBoundary()
     });
   } finally {
@@ -827,34 +823,4 @@ async function runRetainedCommandCaptureV1(
   return stdoutMode === 'bytes'
     ? { code: outcome.exitCode ?? 1, stdout: new Uint8Array(stdout), stderr }
     : { code: outcome.exitCode ?? 1, stdout: stdout.toString('utf8'), stderr };
-}
-
-export async function runCommandWithRetry(
-  command: string,
-  args: string[],
-  options: RunCommandOptions & { maxRetries?: number; retryDelayMs?: number }
-): Promise<CommandResult> {
-  const maxRetries = options.maxRetries ?? 3;
-  const retryDelayMs = options.retryDelayMs ?? 1000;
-  let lastResult: CommandResult | undefined;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await runCommand(command, args, options);
-      if (result.code === 0) {
-        return result;
-      }
-      lastResult = result;
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-      }
-    } catch (error) {
-      if (attempt === maxRetries) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    }
-  }
-
-  return lastResult!;
 }

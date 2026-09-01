@@ -1,6 +1,15 @@
 import path from 'node:path';
 
-import { createNoFollowDirectoryChain, inspectNoFollowDirectoryChain, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  createNoFollowDirectoryChain,
+  deleteRetainedNoFollowEntry,
+  inspectNoFollowDirectoryChain,
+  inspectNoFollowOrdinaryFileEntry,
+  publishExclusiveDurableCanonicalFile,
+  readNoFollowOrdinaryFile,
+  replaceDurableCanonicalFile,
+  type PhysicalDirectoryIdentity
+} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalPortableLogicalPath } from '../../system-architecture/foundation/contract/logical-path.ts';
 import type { CommitFence } from './files.ts';
 
@@ -171,4 +180,34 @@ export async function publishExclusiveCanonicalWorkspaceFile(
     validate: (current) => validateRequestedBytes(input, current)
   });
   return Object.freeze({ created: result.created });
+}
+
+/**
+ * Deletes one file only while the exact bytes and retained physical leaf that
+ * were just published remain current. This is the rollback counterpart of an
+ * exclusive canonical publication; it never treats a missing or substituted
+ * target as successful settlement.
+ */
+export async function deleteExpectedCanonicalWorkspaceFile(
+  input: ExpectedCanonicalWorkspaceFilePublicationInput
+): Promise<void> {
+  const { parent, leafName } = await retainedExistingPublicationParent(input);
+  await input.commitFence?.();
+  const current = inspectNoFollowOrdinaryFileEntry(parent, leafName);
+  if (
+    current === null
+    || current.kind !== 'file'
+    || current.bytes === null
+    || !Buffer.from(current.bytes).equals(Buffer.from(input.expectedBytes))
+  ) {
+    throw new Error(`${input.label} rollback preimage changed before deletion`);
+  }
+  deleteRetainedNoFollowEntry({
+    root: parent,
+    relativePath: leafName,
+    kind: 'file',
+    device: current.device,
+    inode: current.inode,
+    ancestorDirectories: []
+  });
 }

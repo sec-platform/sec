@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
+import path from 'node:path';
 
 import {
-  createSemanticMutationIsolatedRunnerBundleLoaderForTests
+  createSemanticMutationIsolatedRunnerBundleLoaderForTests,
+  relocateSemanticMutationIsolatedRunnerBundleForTests
 } from '../../src/compiler/verify/run-semantic-mutation-isolated-child.ts';
 
 function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
@@ -47,4 +49,27 @@ test('isolated runner bundle loader evicts a failed attempt', async () => {
   expect(await load()).toEqual(new Uint8Array([4]));
   expect(await load()).toEqual(new Uint8Array([4]));
   expect(builds).toBe(2);
+});
+
+test('isolated runner relocation retains only the compiler runtime and rejects an unrelated source', () => {
+  const buildModulesRoot = path.resolve('synthetic-compiler-modules');
+  const compilerRuntimeRoot = path.join(buildModulesRoot, 'typescript', 'lib');
+  const assignment = (directory: string) => new TextEncoder().encode(
+    `var __dirname = ${JSON.stringify(directory)}, ` +
+    `__filename = ${JSON.stringify(path.join(directory, 'typescript.js'))};`
+  );
+
+  const relocated = new TextDecoder().decode(
+    relocateSemanticMutationIsolatedRunnerBundleForTests(
+      assignment(compilerRuntimeRoot),
+      buildModulesRoot
+    )
+  );
+  expect(relocated).not.toContain(buildModulesRoot);
+  expect(relocated).toContain('new URL(relativePath, import.meta.url)');
+
+  expect(() => relocateSemanticMutationIsolatedRunnerBundleForTests(
+    assignment(path.resolve('foreign-compiler-runtime')),
+    buildModulesRoot
+  )).toThrow('unexpected relocation source');
 });

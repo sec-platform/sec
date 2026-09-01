@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import { rawSha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { compilerRoot } from '../../workspace/paths.ts';
+import { compilerRoot } from '../../workspace/runtime/paths.ts';
 export { pathEnvKey } from '../../runtime-state/physical/runtime/process.ts';
 
 export const TEST_WORKSPACE_NAMESPACE_ENV = 'SEC_TEST_WORKSPACE_NAMESPACE';

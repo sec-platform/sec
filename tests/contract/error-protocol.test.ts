@@ -6,7 +6,6 @@ import {
   formatErrorProtocolContract
 } from '../../src/interface/cli/error-protocol-contract.ts';
 import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { overridesRelativePath, posixPath, srcRelativePath, workspaceConfigRelativePath } from '../../src/workspace/paths.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { expectErrorProtocolSelfConsistent } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -18,23 +17,18 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
   expectErrorProtocolSelfConsistent(contract);
   expect(formatted).toContain('Error protocol active');
   expect(formatted).toContain('Example upgrade-conflict-error; code=UPGRADE-CONFLICT-001');
-  expect(formatted).toContain('Example slot-capability-lint-error; code=SLOT-LINT-005');
-  expect(formatted).toContain('Example engineering-operation-error; code=ENGINEERING-OPERATION-001');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     status: 'active',
     command: 'bun run sec -- contract errors --json',
-    issueTypes: ['composition', 'kernel', 'slot', 'spec', 'usage'],
+    issueTypes: ['composition', 'kernel', 'spec', 'usage'],
     artifactPaths: [
       CI_ARTIFACT_FILES.reviewSummary,
       CI_ARTIFACT_FILES.verificationReport,
       CI_ARTIFACT_FILES.provenance,
       CI_ARTIFACT_FILES.repairPlan,
       CI_ARTIFACT_FILES.upgradeDiagnostics,
-      CI_ARTIFACT_FILES.upgradePlan,
-      workspaceConfigRelativePath,
-      `${posixPath(overridesRelativePath)}/override-manifest.yaml`,
-      srcRelativePath
+      CI_ARTIFACT_FILES.upgradePlan
     ].sort(),
     examples: expect.arrayContaining([
       expect.objectContaining({
@@ -52,7 +46,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         output: expect.objectContaining({
           recoverable: true,
           issueType: 'composition',
-          suggestedActions: ['run-platform-resolve', 'run-platform-compose', 'run-platform-adapt', 'retry-platform-verify']
+          suggestedActions: ['run-platform-resolve', 'run-platform-compose', 'retry-platform-verify']
         })
       }),
       expect.objectContaining({
@@ -68,7 +62,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         id: 'repair-plan-error',
         output: expect.objectContaining({
           recoverable: true,
-          issueType: 'slot',
+          issueType: 'composition',
           suggestedActions: ['inspect-repair-plan', 'run-platform-repair-dry-run'],
           artifactPaths: [CI_ARTIFACT_FILES.repairPlan, CI_ARTIFACT_FILES.reviewSummary]
         })
@@ -80,31 +74,11 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
           issueType: 'composition',
           artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan],
           details: {
-            migrationId: 'mig-customer-normalizer-contract',
-            migrationKind: 'slot-contract-update',
-            target: 'src/slots/customer_normalizer.ts',
+            migrationId: 'mig-customer-normalizer-file',
+            migrationKind: 'file-replace',
+            target: 'src/installed/private/customer-normalizer.ts',
             rollbackStatus: 'restored'
           }
-        })
-      }),
-      expect.objectContaining({
-        id: 'slot-capability-lint-error',
-        output: expect.objectContaining({
-          code: 'SLOT-LINT-005',
-          recoverable: true,
-          issueType: 'slot',
-          suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'],
-          artifactPaths: [srcRelativePath]
-        })
-      }),
-      expect.objectContaining({
-        id: 'engineering-operation-error',
-        output: expect.objectContaining({
-          code: 'ENGINEERING-OPERATION-001',
-          recoverable: true,
-          issueType: 'spec',
-          suggestedActions: ['inspect-engineering-operation', 'fix-operation-target', 'retry-operation'],
-          artifactPaths: [workspaceConfigRelativePath]
         })
       }),
       expect.objectContaining({
@@ -112,7 +86,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         output: expect.objectContaining({
           recoverable: false,
           issueType: 'spec',
-          suggestedActions: ['run-platform-compose', 'run-platform-adapt', 'revert-local-project-changes'],
+          suggestedActions: ['run-platform-compose', 'revert-local-project-changes'],
           artifactPaths: [CI_ARTIFACT_FILES.provenance]
         })
       })
@@ -128,8 +102,6 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         `Artifact path list: ${contract.artifactPaths.join(', ')}`,
         'Example repair-plan-error; code=REPAIR-BLOCKED-001',
         'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
-        'Example slot-capability-lint-error; code=SLOT-LINT-005',
-        'Example engineering-operation-error; code=ENGINEERING-OPERATION-001',
         'Example drift-error; code=ERROR-DRIFT-001'
       ],
       json: {

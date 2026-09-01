@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test';
 
 import {
+  createBoundedProcessDiagnosticObjectReceipt
+} from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
+import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
   compileSecProviderSettlementSet,
@@ -10,13 +14,40 @@ import {
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext
 } from '../../src/system-architecture/operation/semantic.ts';
-import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, issueVerificationActionTerminalSettlement, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, issueNonProcessVerificationActionTerminalSettlement, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/verification/action/contract/action.ts';
 import { CodexDevelopmentAssertVerificationGateResult } from '../../src/verification/result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/verification/result/contract/schema.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
 const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;
+
+function diagnosticObject(boundAttemptDigest: typeof DIGEST_A | typeof DIGEST_B) {
+  const receipt = createBoundedProcessDiagnosticObjectReceipt({
+    operationIdentityDigest: DIGEST_A,
+    executionPlanDigest: DIGEST_B,
+    boundAttemptDigest,
+    subjectDigest: DIGEST_C,
+    settlementDigest: DIGEST_A,
+    stream: 'stderr',
+    bytes: new TextEncoder().encode('diagnostic'),
+    retainedUntilUnixMs: 1_900_000_100_000
+  });
+  const readbackUnsigned = {
+    disposition: 'current' as const,
+    objectDigest: receipt.objectDigest,
+    physicalIdentityDigest: DIGEST_B,
+    contentDigest: receipt.contentDigest,
+    byteLength: receipt.byteLength
+  };
+  return Object.freeze({
+    receipt,
+    readback: Object.freeze({
+      ...readbackUnsigned,
+      readbackDigest: sha256(readbackUnsigned)
+    })
+  });
+}
 
 function settlement(
   status: 'passed' | 'failed',
@@ -59,7 +90,20 @@ function settlement(
     ownerTerminalContractDigest: DIGEST_B,
     ownerTerminalReferenceDigest: status === 'passed' ? DIGEST_A : DIGEST_C
   });
-  return issueVerificationActionTerminalSettlement(join, {
+  const action = createVerificationActionKey(actionInput({
+    operation: {
+      ...actionInput().operation,
+      semanticDigest: bound.plan.identity.identityDigest
+    }
+  }));
+  const ownerTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
+    action,
+    operation: bound,
+    providerSettlementSet: providerSet,
+    readback,
+    ownerTerminalProjection: join
+  });
+  return issueNonProcessVerificationActionTerminalSettlement(ownerTerminalReceipt, {
     status,
     reasonCode: status === 'passed' ? 'executed-success' : 'executed-failure'
   });
@@ -168,11 +212,17 @@ test('semantic closure, producer, provider and contract changes change ActionKey
 
 test('Action terminal projection accepts only its owner-issued terminal settlement', () => {
   const completed = settlement('passed');
-  expect(projectVerificationActionTerminal(completed)).toEqual({
-    status: 'passed',
-    reasonCode: 'executed-success',
-    resultDigest: completed.ownerTerminalJoinReceipt.joinReceiptDigest
-  });
+  const terminal = projectVerificationActionTerminal(completed);
+  expect(terminal.status).toBe('passed');
+  expect(terminal.executionKind).toBe('non-process');
+  expect(terminal.boundAttemptDigest).toBe(
+    completed.ownerTerminalReceipt.attempt.boundAttemptDigest
+  );
+  expect(terminal.ownerTerminalReceiptDigest).toBe(
+    completed.ownerTerminalReceipt.terminalReceiptDigest
+  );
+  expect(terminal.diagnosticObjects).toEqual([]);
+  expect(terminal.resultDigest).not.toBe(completed.ownerTerminalReceipt.terminalReceiptDigest);
   expect(projectVerificationActionTerminal(settlement('failed')).status).toBe('failed');
   expect(() => projectVerificationActionTerminal({
     status: 'passed',
@@ -181,6 +231,37 @@ test('Action terminal projection accepts only its owner-issued terminal settleme
   })).toThrow('not Verification-owner-issued');
   expect(() => projectVerificationActionTerminal({ ...completed }))
     .toThrow('not Verification-owner-issued');
+});
+
+test('Action terminal rejects a diagnostic receipt from another bound attempt', () => {
+  const diagnosticObjects = [diagnosticObject(DIGEST_B)];
+  const unsigned = {
+    actionKey: DIGEST_C,
+    executionKind: 'process' as const,
+    status: 'failed' as const,
+    reasonCode: 'executed-failure' as const,
+    boundAttemptDigest: DIGEST_A,
+    ownerTerminalReceiptDigest: DIGEST_A,
+    diagnosticObjects
+  };
+  expect(() => createVerificationActionTerminal({
+    ...unsigned,
+    resultDigest: sha256({
+      ...unsigned,
+      diagnosticObjects: diagnosticObjects.map(({ receipt, readback }) => ({
+        objectDigest: receipt.objectDigest,
+        readbackDigest: readback.readbackDigest
+      }))
+    })
+  })).toThrow('different operation attempt');
+});
+
+test('Action process terminal requires owner-issued diagnostic evidence', () => {
+  const completed = settlement('passed');
+  expect(() => issueProcessVerificationActionTerminalSettlement(
+    completed.ownerTerminalReceipt,
+    { status: 'passed', reasonCode: 'executed-success', diagnosticObjects: [] }
+  )).toThrow('must contain owner-issued diagnostic evidence');
 });
 
 test('Action process resource policy is one immutable single-process bounded execution contract', () => {
@@ -196,12 +277,12 @@ test('one stable ActionKey accepts attempt-distinct owner settlements without ch
   const first = settlement('passed', 1_900_000_000_000);
   const second = settlement('passed', 1_900_000_000_001);
   expect(createVerificationActionKey(actionInput()).actionKey).toBe(action.actionKey);
-  expect(first.ownerTerminalJoinReceipt.operationIdentityDigest)
-    .toBe(second.ownerTerminalJoinReceipt.operationIdentityDigest);
-  expect(first.ownerTerminalJoinReceipt.boundAttemptDigest)
-    .not.toBe(second.ownerTerminalJoinReceipt.boundAttemptDigest);
-  expect(first.ownerTerminalJoinReceipt.joinReceiptDigest)
-    .not.toBe(second.ownerTerminalJoinReceipt.joinReceiptDigest);
+  expect(first.ownerTerminalReceipt.decision.operationIdentityDigest)
+    .toBe(second.ownerTerminalReceipt.decision.operationIdentityDigest);
+  expect(first.ownerTerminalReceipt.attempt.boundAttemptDigest)
+    .not.toBe(second.ownerTerminalReceipt.attempt.boundAttemptDigest);
+  expect(first.ownerTerminalReceipt.terminalReceiptDigest)
+    .not.toBe(second.ownerTerminalReceipt.terminalReceiptDigest);
 });
 
 test('strict ordinary-data boundary rejects getters, proxies, symbols, custom prototypes, toJSON and cycles', () => {
@@ -286,45 +367,22 @@ test('cheap preflight topology is exact, caller state is never accepted, and lan
 });
 
 test('terminal action adapts canonical result status without adding a reuse status', () => {
-  expect(createVerificationActionTerminal({
-    status: 'passed',
-    reasonCode: 'executed-success',
-    resultDigest: DIGEST_A
-  })).toEqual({
-    status: 'passed',
-    reasonCode: 'executed-success',
-    resultDigest: DIGEST_A
-  });
+  const passed = projectVerificationActionTerminal(settlement('passed'));
+  const failed = projectVerificationActionTerminal(settlement('failed'));
+  expect(createVerificationActionTerminal(passed)).toEqual(passed);
+  expect(createVerificationActionTerminal(failed)).toEqual(failed);
   expect(() => createVerificationActionTerminal({
-    status: 'passed',
+    ...passed,
     reasonCode: 'executed-failure',
-    resultDigest: null
   })).toThrow('passed status requires reasonCode executed-success');
-  expect(createVerificationActionTerminal({
-    status: 'failed',
-    reasonCode: 'timeout',
-    resultDigest: null
-  }).reasonCode).toBe('timeout');
-  expect(createVerificationActionTerminal({
-    status: 'failed',
-    reasonCode: 'cleanup-failed',
-    resultDigest: null
-  }).reasonCode).toBe('cleanup-failed');
-  expect(createVerificationActionTerminal({
-    status: 'failed',
-    reasonCode: 'process-settlement-failed',
-    resultDigest: null
-  }).reasonCode).toBe('process-settlement-failed');
-  expect(createVerificationActionTerminal({
-    status: 'not-run',
-    reasonCode: 'not-dispatched',
-    resultDigest: null
-  }).status).toBe('not-run');
   expect(() => createVerificationActionTerminal({
-    status: 'not-run',
-    reasonCode: 'timeout',
-    resultDigest: null
-  })).toThrow('not-run status requires a not-run reasonCode');
+    ...passed,
+    resultDigest: DIGEST_A
+  })).toThrow('does not bind the terminal attempt and diagnostics');
+  expect(() => createVerificationActionTerminal({
+    ...passed,
+    unexpected: true
+  })).toThrow('must contain exactly');
 });
 
 test('canonical Result preserves known failed reuse without promotion', () => {

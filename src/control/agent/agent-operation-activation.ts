@@ -11,7 +11,6 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { resolveWindowsControlCliSession, type SupportedCommandId, type WindowsControlCliSessionRequest } from '../../external-capabilities/windows-control-cli/runtime/session.ts';
 import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../system-architecture/foundation/runtime/canonical.ts';
 import { parseGitChangedRecordsOutput, type CodexDevelopmentGitChangedRecord } from '../../verification/test-impact/runtime/transition.ts';
 import {
@@ -22,8 +21,16 @@ import {
 import {
   documentationRecordById,
   parseDocumentationAuthorityRegistry,
-  resolveDocumentationOperationOwners
+  resolveDocumentationOperationOwners,
+  type DocumentationAuthorityRegistry
 } from '../documentation/authority.ts';
+import {
+  compileDocumentationOperationAdmissionProjection,
+  compileDocumentationSemanticGraph,
+  projectDocumentationClauseSelection,
+  type DocumentationClauseSelectionReference,
+  type DocumentationSemanticGraph
+} from '../documentation/compiler.ts';
 import {
   CodexDevelopmentAssertControlPlaneBinding,
   CodexDevelopmentParseActivePointer,
@@ -31,6 +38,12 @@ import {
   CodexDevelopmentParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
 import { observeSecWorkSelectionLive } from '../main-health/work-selection.ts';
+import {
+  CodexDevelopmentAssertWorkPackageChangedRecords,
+  CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest,
+  type CodexDevelopmentWorkPackageManifest
+} from '../task/contract/work-package.ts';
 import {
   compileSecWorkRollingTopology,
   type SecRoadmapWorkCatalogItem,
@@ -66,12 +79,6 @@ import {
   type SecAgentOperationActivationReceipt,
   type SecAgentOperationActivationRequest
 } from './operation-activation.ts';
-import {
-  CodexDevelopmentAssertWorkPackageChangedRecords,
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest,
-  type CodexDevelopmentWorkPackageManifest
-} from './work-package-contract.ts';
 
 const CONTROL_PATHS = Object.freeze({
   currentState: 'docs/work/current-state.yaml',
@@ -80,13 +87,6 @@ const CONTROL_PATHS = Object.freeze({
 });
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
-const WINDOWS_CONTROL_CLI_MAX_TOTAL_ARGUMENT_BYTES = 16 * 1024 * 1024;
-const WINDOWS_CONTROL_CLI_MAX_TOTAL_OUTPUT_BYTES = 16 * 1024 * 1024;
-const WINDOWS_CONTROL_CLI_MAX_ROOT_OBSERVED_BYTES = 256 * 1024 * 1024;
-const WINDOWS_CONTROL_CLI_MAX_EXECUTABLE_OBSERVED_BYTES = 256 * 1024 * 1024;
-const WINDOWS_CONTROL_CLI_MAX_RECORDS = 100_000;
-const WINDOWS_CONTROL_CLI_MAX_REOPEN_REFRESHES = 10_000;
-const WINDOWS_CONTROL_CLI_MAX_SETTLEMENT_ATTEMPTS = 128;
 
 export const SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES = Object.freeze([
   'activation-receipt-absent',
@@ -148,35 +148,18 @@ async function guardedAsync<T>(
   }
 }
 
-function controlCliCommandId(executable: string): SupportedCommandId | null {
+function controlCliCommandId(executable: string): 'git' | 'gh' | null {
   const leaf = executable.replaceAll('\\', '/').split('/').at(-1)?.toLowerCase() ?? '';
   if (leaf === 'git' || leaf === 'git.exe') return 'git';
   if (leaf === 'gh' || leaf === 'gh.exe') return 'gh';
   return null;
 }
 
-function windowsControlCliSessionRequest(cwd: string): WindowsControlCliSessionRequest {
-  return Object.freeze({
-    // This is only a caller locator hint. The Windows provider must derive and
-    // retain the repository directory itself before it can run a command.
-    workingDirectoryPathHint: path.resolve(cwd),
-    deadlineAtUnixMs: Date.now() + COMMAND_TIMEOUT_MS,
-    maxCommandsPerSession: 128,
-    maxTotalArgumentBytes: WINDOWS_CONTROL_CLI_MAX_TOTAL_ARGUMENT_BYTES,
-    maxTotalOutputBytes: WINDOWS_CONTROL_CLI_MAX_TOTAL_OUTPUT_BYTES,
-    maxRootObservedBytes: WINDOWS_CONTROL_CLI_MAX_ROOT_OBSERVED_BYTES,
-    maxExecutableObservedBytes: WINDOWS_CONTROL_CLI_MAX_EXECUTABLE_OBSERVED_BYTES,
-    maxRecords: WINDOWS_CONTROL_CLI_MAX_RECORDS,
-    maxReopenRefreshes: WINDOWS_CONTROL_CLI_MAX_REOPEN_REFRESHES,
-    maxSettlementAttempts: WINDOWS_CONTROL_CLI_MAX_SETTLEMENT_ATTEMPTS
-  });
-}
-
 /**
- * Windows Git/GitHub children have a single admission boundary. The current
- * activation consumer is synchronous and does not own the semantic
- * environment/effect binding required to consume a live session, so even a
- * `ready` physical session is fail-closed until that owner contract exists.
+ * The activation owner has not yet bound its synchronous Git reads and hosted
+ * publication effect to opaque semantic operations. A physical executable
+ * adoption receipt cannot fill that missing authority, so Windows remains
+ * fail-closed before any child starts.
  * Archive tools (tar/unzip) and non-Windows commands deliberately remain on
  * their separate provider routes.
  */
@@ -189,24 +172,11 @@ function assertWindowsControlCliCommandAdmission(
   const commandId = controlCliCommandId(executable);
   if (commandId === null) return;
 
-  let resolution: ReturnType<typeof resolveWindowsControlCliSession>;
-  try {
-    resolution = resolveWindowsControlCliSession(windowsControlCliSessionRequest(cwd));
-  } catch (error) {
-    return unavailable('activation-provider-unavailable', JSON.stringify({
-      commandId,
-      status: 'unknown',
-      reason: 'resolver-threw',
-      detail: error instanceof Error ? error.message : String(error),
-      argumentCount: args.length
-    }));
-  }
-
   return unavailable('activation-provider-unavailable', JSON.stringify({
     commandId,
-    status: resolution.status,
-    reason: resolution.reason,
-    detailDigest: resolution.detailDigest,
+    status: 'unavailable',
+    reason: 'semantic-session-unavailable',
+    cwdDigest: sha256(path.resolve(cwd)),
     argumentCount: args.length
   }));
 }
@@ -465,6 +435,7 @@ export interface SecOperationAuthorityOwnerObservation {
   readonly owner: string;
   readonly revision: string;
   readonly contentDigest: `sha256:${string}`;
+  readonly projection: DocumentationClauseSelectionReference | null;
 }
 
 function observeOperationAuthorityOwners(
@@ -479,10 +450,12 @@ function observeOperationAuthorityOwners(
     unavailable('activation-scope-conflict', 'work-package-authority-refs-missing');
   }
   let records: ReturnType<typeof resolveDocumentationOperationOwners>;
+  let registry: DocumentationAuthorityRegistry;
+  let documentationGraph: DocumentationSemanticGraph;
   try {
     const registryBlob = readGitBlob(candidateRoot, `${trustedRevision}:docs/authority.json`);
     const registryBytes = registryBlob.bytes;
-    const registry = parseDocumentationAuthorityRegistry(decodeUtf8(registryBytes, 'activation-scope-conflict'));
+    registry = parseDocumentationAuthorityRegistry(decodeUtf8(registryBytes, 'activation-scope-conflict'));
     const owners = resolveDocumentationOperationOwners({
       registry,
       authorityRefs: manifest.authorityRefs,
@@ -497,6 +470,31 @@ function observeOperationAuthorityOwners(
     records = Object.freeze([agents, registryOwner, ...owners]
       .filter((entry, index, values) => values.findIndex(({ id }) => id === entry.id) === index)
       .sort((left, right) => compareCodeUnits(left.id, right.id)));
+    const documentationSources = registry.documents
+      .filter((record) => (record.kind === 'authority' || record.kind === 'corpus-contract')
+        && record.lifecycle === 'stable')
+      .sort((left, right) => compareCodeUnits(left.id, right.id))
+      .map((record) => {
+        const revision = paths.includes(record.path) ? targetCandidate : trustedRevision;
+        return {
+          documentId: record.id,
+          source: decodeUtf8(
+            readGitBlob(candidateRoot, `${revision}:${record.path}`).bytes,
+            'activation-scope-conflict'
+          )
+        };
+      });
+    documentationGraph = compileDocumentationSemanticGraph({
+      trustedTree: targetCandidate,
+      registry,
+      sources: documentationSources,
+      admission: compileDocumentationOperationAdmissionProjection({
+        trustedTree: targetCandidate,
+        registry,
+        owners,
+        subjectRefs: paths
+      })
+    });
   } catch (error) {
     if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
     unavailable('activation-scope-conflict', error instanceof Error ? error.message : String(error));
@@ -511,7 +509,10 @@ function observeOperationAuthorityOwners(
       ref: entry.path,
       owner: entry.domain,
       revision: blob.oid,
-      contentDigest: rawSha256(blob.bytes)
+      contentDigest: rawSha256(blob.bytes),
+      projection: documentationGraph.clauses.some(({ documentId }) => documentId === entry.id)
+        ? projectDocumentationClauseSelection(documentationGraph, entry.id)
+        : null
     });
   }));
 }
@@ -1101,7 +1102,7 @@ function rebindPayloadProvider(
   value: SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt,
   provider: SecAgentOperationActivationProvider
 ): SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt {
-  if (value.schema === 'sec-agent-operation-activation-preparation-v1') {
+  if (value.schema === 'sec-agent-operation-activation-preparation-v2') {
     const {
       schema: _schema,
       preparationDigest: _preparationDigest,
@@ -1216,7 +1217,6 @@ async function produceHosted(input: Readonly<{
       operationId: secAgentOperationActivationOperationId(request.requestOperationId),
       role: 'worker',
       operationKind: 'implement',
-      availableCapabilities: ['git'],
       workDecisionReceiptDigest: decision.receiptDigest,
       workDecisionDecisionDigest: decision.decision.decisionDigest,
       provider
@@ -1432,7 +1432,7 @@ async function resolveSecAgentOperationActivationUnchecked(
     const preparationPayload = validateArtifactPayload(
       runtimeRoot, decision.repository, preparationPublication.publication
     );
-    if (preparationPayload.schema !== 'sec-agent-operation-activation-preparation-v1') {
+    if (preparationPayload.schema !== 'sec-agent-operation-activation-preparation-v2') {
       unavailable('activation-provider-readback-conflict', 'preparation-artifact-schema-drift');
     }
     const preparation = preparationPayload;
@@ -1464,7 +1464,6 @@ async function resolveSecAgentOperationActivationUnchecked(
       operationId: secAgentOperationActivationOperationId(preparation.request.requestOperationId),
       role: 'worker',
       operationKind: 'implement',
-      availableCapabilities: ['git'],
       workDecisionReceiptDigest: decision.receiptDigest,
       workDecisionDecisionDigest: decision.decision.decisionDigest,
       provider: preparation.provider
@@ -1492,7 +1491,7 @@ async function resolveSecAgentOperationActivationUnchecked(
   const final = finals[0]!;
   assertProviderLive(runtimeRoot, decision.repository, final.publication.provider);
   const receiptPayload = validateArtifactPayload(runtimeRoot, decision.repository, final.publication);
-  if (receiptPayload.schema !== 'sec-agent-operation-activation-receipt-v1') {
+  if (receiptPayload.schema !== 'sec-agent-operation-activation-receipt-v2') {
     unavailable('activation-provider-readback-conflict', 'final-artifact-schema-drift');
   }
   const receipt = receiptPayload;
@@ -1622,7 +1621,7 @@ function resolveMaximalPreparation(
   const selected = maximal[0]!;
   assertProviderLive(runtimeRoot, repository, selected.publication.provider);
   const payload = validateArtifactPayload(runtimeRoot, repository, selected.publication);
-  if (payload.schema !== 'sec-agent-operation-activation-preparation-v1') {
+  if (payload.schema !== 'sec-agent-operation-activation-preparation-v2') {
     unavailable('activation-provider-readback-conflict', 'preparation-artifact-schema-drift');
   }
   return Object.freeze({

@@ -2,14 +2,13 @@
 title: 升级、迁移与变更管理
 status: stable
 domain: change-management
-last-reviewed: 2026-08-06
 ---
 
 # 升级、迁移与变更管理
 
 本文拥有 Upgrade、Migration、Compatibility Decision、Implementation Binding migration、Override、Deprecation、Compensation、Forward Recovery 与 irreversible change 的稳定语义。单次 Authoring/Governed Source transaction 的 plan、publish、journal、rollback、recovery 和 terminal state只由 `docs/semantic-mutation.md` 及其代码合同拥有。
 
-旧新Engineering snapshots和Implementation Bindings的确定性结构比较由`docs/delta-and-impact.md`拥有；本文消费`Fact Delta`、`ImplementationBindingDelta`、Impact和physical Evidence，不建立第二Comparator。精确 migration union、schema、deployment protocol、命令和 diagnostics 由代码与测试唯一拥有。
+旧新Engineering snapshots和Implementation Bindings的确定性结构比较由`docs/delta-and-impact.md`拥有；本文只消费通过真实machine capability admission的Delta/Impact reference，并仅在`ImplementationBindingDelta`完成其producer/consumer activation后消费它，不建立第二Comparator。激活前该capability在类型与operation surface上缺席；只有已有operation真实请求它时，才由该operation owner返回typed unavailable reason并阻止Implementation compatibility/migration，不为未来猜测建立占位schema、dispatcher或字面测试，也不得临时按package、version、文件或测试结果重建第二Comparator。精确 migration union、schema、deployment protocol、命令和 diagnostics 由代码与测试唯一拥有。
 
 ## 变更对象
 
@@ -64,9 +63,9 @@ Change Management拥有跨revision和跨系统的：
 8. **Recovery strategy**：哪些步骤可由transaction rollback恢复，哪些需要compensation、forward recovery、backup或operator；
 9. **Retirement**：旧owner、Provider、Adapter、Binding、schema、path、Gate和兼容代码何时删除。
 
-替换计划还必须包含 **Intent absorption**：从旧对象的 canonical owner 读取已被真实 consumer、正式 transition、支持窗口或重新激活条件证明的设计目的和未来能力边界，并证明 target binding 以更小或更强的 primitive 覆盖这些要求。只证明当前样例、当前输出或 consumer-zero 不足以签发 supersession；缺少 owner-issued intent、target coverage 或 lifecycle-cost comparison 时必须返回 `design-intent-unresolved`。开放世界猜测、注释、死代码、Vn 名称和测试镜像不得进入 intent evidence。
+替换计划还必须包含 **Intent absorption**：从旧对象的canonical owner读取已被真实consumer、正式transition、支持窗口或重新激活条件证明的设计目的和未来能力边界，并证明target binding以更小或更强的primitive覆盖这些要求。future obligation只有同时绑定外部或产品decision、named consumer/target、activation trigger、acceptance、expiry/review和retirement rule时才是required；owner prose、roadmap/comment、死代码、开放世界猜测、Vn名称和测试镜像不能自签永久保留权。Supersession必须同时覆盖当前可观察价值、被证明的future obligations、failure/recovery、migration/retirement和resource/complexity budget；target的开发、运行、验证、迁移、恢复和退役总生命周期成本必须下降，或以更强且可证明的Safety/Correctness换取明确成本。缺少真实intent evidence、target coverage、资源上界或lifecycle-cost comparison时保持bounded unknown，不为此创建占位schema或兼容壳。
 
-Plan必须绑定exact source/current/target revisions、Fact/Binding Delta revisions、old/new Implementation Binding revisions、Compatibility rule revisions、required operations和deployment environment，并在执行前重新验证。旧Plan不能在source、policy、dependency、provider、consumer、Delta、Evidence或environment改变后继续使用。
+Plan以discriminated migration kind绑定其实际需要的exact source/current/target revisions、当前适用且已激活的Fact/Binding Delta、Implementation Binding、Compatibility rule、required operations和deployment environment；纯schema/data/path migration不得携带无意义的Binding或Resolution占位字段。所有适用输入在执行前重新验证；旧Plan不能在source、policy、dependency、provider、consumer、Delta、Evidence或environment改变后继续使用。
 
 ## Compatibility
 
@@ -81,7 +80,7 @@ Compatibility不是布尔标签。至少区分：
 - data migration与transaction rollback compatibility；
 - rolling deployment中不同版本同时运行的compatibility。
 
-Unknown或未经physical Evidence验证的方向不能默认兼容。Compatibility rule必须版本化并有正面、负面、边界与cross-version tests。
+Unknown或未经physical Evidence验证的方向不能默认兼容。Compatibility rule必须绑定可重算的canonical revision，并有正面、负面、边界与cross-version tests；只有满足下文“版本存在证明”时才为它建立可协商的版本dispatcher。
 
 Breaking change必须有显式decision、consumer census、migration path、deprecation window和release authorization。提高major version只标记意图，不自动完成这些义务。
 
@@ -100,17 +99,19 @@ Compatibility code 只允许作为一个有终点的 Migration program 存在，
 - `retirementAction`：同一批删除旧 reader、parser、adapter、tests、path 和 registry entry；
 - `expiry`：没有可验证进展或超过窗口时 fail closed，不自动延期。
 
-只有真实 rolling deployment 中不能原子切换的外部 producer/consumer 才允许短期 dual-read；dual-write 还必须额外证明两个 writer 不会形成冲突 authority，并绑定明确结束 revision。仓库内 caller、测试 fixture、CLI flag、re-export、别名、默认字段和同进程 API 不构成 dual-read/dual-write 的理由：consumer 可以同批迁移时必须直接 breaking cutover，旧面当场删除。
+at-rest durable state的旧grammar只能进入隔离one-way Migration，正常production reader不dual-read。只有真实negotiated/rolling protocol中不能原子切换的外部producer/consumer，才允许独立bounded compatibility reader在explicit Compatibility Decision、consumer census、expiry和retirement条件下短期dual-read；它不得靠默认字段或宽松parser把旧grammar伪装成当前grammar。dual-write还必须额外证明两个writer不会形成冲突authority，并绑定明确结束revision。仓库内caller、测试fixture、CLI flag、re-export、别名、默认字段和同进程API不构成dual-read/dual-write理由：consumer可以同批迁移时必须直接breaking cutover，旧面当场删除。
 
 测试只保留两类 Migration proof：旧物理状态严格转换后的公共 readback，以及 incompatible/unknown/partial state 的 fail-closed。只镜像旧版本号、旧字段存在、兼容 alias 可调用或旧 writer 仍能写入的测试必须删除；当 exit condition 满足时，conversion tests 与 reader 一同退休，历史 Evidence 保持不可变但不继续进入执行集合。
 
 ### 版本存在证明
 
-`V1`、`V2`、schema/version/revision字段和版本dispatcher都不是“为未来留余地”的默认架构。只有至少两个可观察状态必须被
+`V1`、`V2`、schema/format/protocol version和compatibility dispatcher都不是“为未来留余地”的默认架构。只有至少两个可观察grammar/protocol状态必须被
 同一真实consumer区分，且存在协议协商、持久状态解释、跨进程/跨发布并存、外部Provider兼容或有终点的Migration之一时，
 版本身份才是`required`。只有一个当前实现、全部caller可原子迁移、旧状态已经consumer-zero，或版本只出现在名称、常量、
 fixture与测试中时，版本机制属于`orphan | duplicate-owner`：删除`V1/V2/Vn`后缀、版本字段、分派、兼容层、migration壳与
 相应字面测试，直接保留唯一当前语义名称。
+
+content revision、digest、generation和epoch不是schema version；只要真实identity、CAS、freshness、invalidation、concurrency或Evidence binding consumer需要区分内容状态，它们就可以required，不要求同时存在两个grammar。它们仍必须由各自semantic owner一次声明，不能共用泛化`version`或靠全局递增序号联动。
 
 真实版本边界必须由其语义owner一次性声明并被机器consumer实际使用，至少绑定versioned subject、比较/协商语义、支持窗口、
 old/new consumer集合、Compatibility Decision、Migration/rollback或forward-recovery、retirement condition和Evidence失效规则。
@@ -118,9 +119,25 @@ old/new consumer集合、Compatibility Decision、Migration/rollback或forward-r
 独立，禁止共享一个泛化`version`或靠全局递增序号联动。测试验证跨版本行为、真实旧状态转换和不兼容边界，不验证数字本身；
 最后一个旧consumer退役时，版本reader、转换代码和测试必须在同一变更中删除，历史Git/Evidence负责解释过去。
 
+### Durable Schema 与严格读回
+
+只有durable persistence、cross-process/external producer-consumer、rolling coexistence或one-way Migration需要解释旧物理状态时，数据格式才拥有独立schema identity。同进程对象、仅writer生成而没有reader的投影、测试fixture、类型名和“以后可能会用”都不能单独产生format/version。
+
+一个required durable schema只能有一个semantic owner，并由该owner同时提供：
+
+- 唯一schema identity常量和literal type，writer、reader与migration不得复制字符串；
+- exact raw-byte/UTF-8 parser与strict schema validator，递归拒绝duplicate keys、unknown keys、unknown version、trailing data和非canonical identity；
+- writer-side validation、durable publish/readback，以及artifact集合内subject、producer、operation、source/target revision和Provenance的一致性校验；
+- typed failure分类；invalid、unknown、expired、unsafe或provenance不一致不能降级为absent、cache miss或可重新物化状态；
+- 明确的Compatibility、Migration/recovery、retirement和资源预算边界。
+
+正常production reader只接受当前schema。旧grammar只能进入独立的one-way authenticated Migration：migration intent绑定旧namespace/bytes/physical identity、old ledger digest、目标schema和operation authority，在lease/CAS与absolute resource budget内转换并完成target readback；旧parser不得成为正常路径的dual-read，也不得通过默认字段或放宽exact keys把旧状态伪装成当前状态。partial、fork、foreign、digest drift或unknown residue必须保留为typed recovery/migration blocker。
+
+Upgrade和version overlay只在真实upgrade resolver、migration operation、旧状态转换与公共readback存在时保留；它们的业务价值由可观察migration行为证明，不由版本常量或目录名证明。不能只删除测试、versioned resource、manifest metadata、reader或writer中的一侧：保留upgrade时必须保持producer→resolver→migration→artifact→readback闭包；退役upgrade时必须在consumer-zero且unknown-zero后原子删除resolver、schema/version、writer/reader、CLI、resources、tests、docs和registry引用。
+
 ## Implementation Compatibility Assessment
 
-Change Management消费由Delta/Impact authority生成的`ImplementationBindingDelta`，再结合Semantic Contract、Compatibility rules、Target/Runtime facts、consumer requirements和physical Evidence产生版本化Assessment：
+`ImplementationBindingDelta`激活后，Change Management消费由Delta/Impact authority生成的exact Delta，再结合Semantic Contract、Compatibility rules、Target/Runtime facts、consumer requirements和physical Evidence产生Assessment。未激活时该流程typed blocked，不能用ad hoc comparator、semver或绿测代替：
 
 ```text
 ImplementationBindingDelta
@@ -160,7 +177,7 @@ Change Management不得：
 
 1. **Contract preserved**：Assessment证明新Binding完整满足原Semantic Contract；冻结新Decision/Binding并重证。
 2. **Adapter-preserved**：新版默认行为变化，但版本化Adapter/config可以显式恢复原合同；迁移Adapter/Binding并重证。
-3. **Provider switch**：原Provider不再合格，Implementation Resolver基于新的validated inputs选择另一个合格候选；产生新Binding、Binding Delta、Compatibility Decision、consumer/artifact迁移和旧Provider退役。
+3. **Provider switch**：只在`ImplementationBindingDelta`已激活时可用；原Provider不再合格后，Implementation Resolver基于新的validated inputs选择另一个合格候选，产生新Binding、exact Binding Delta、Compatibility Decision、consumer/artifact迁移和旧Provider退役。
 4. **Semantic migration**：任何候选都无法保持原合同，且用户/Policy明确接受行为变化；必须先修改Semantic Contract，再重新Resolution。
 
 以下均被禁止：
@@ -169,9 +186,9 @@ Change Management不得：
 - 因旧Provider不可用自动换成“最像”的实现；
 - 用户pin绕过hard eligibility、安全、权限或Target限制；
 - Adapter通过吞掉错误、隐藏Effect或降低Acceptance伪装兼容；
-- 新Binding进入Target Program或package materialization前没有Binding Delta和Compatibility Decision。
+- `ImplementationBindingDelta`激活后，新Binding进入Target Program或package materialization前必须具有exact Binding Delta和Compatibility Decision；激活前Implementation switch整体不可用。
 
-Implementation Resolver只产生候选Decision/Binding；Delta/Impact owner产生Binding Delta/Impact；Change Management拥有Compatibility与迁移协调；Verification拥有物理结果；Dependency/Runtime owner拥有物理materialization和support事实。
+Implementation Resolver只产生候选Decision/Binding；已激活时Delta/Impact owner产生Binding Delta/Impact；Change Management拥有Compatibility与迁移协调；Verification拥有物理结果；Dependency/Runtime owner拥有物理materialization和support事实。
 
 ## Override
 
@@ -188,10 +205,10 @@ Override不得写 `control/**` 或伪造IR/Evidence。改变Contract、Effect、
 
 每个Migration kind必须有：
 
-- 唯一 discriminated type和version；
+- 唯一discriminated type；只有真实旧状态、外部/跨进程consumer或rolling coexistence需要区分时才增加满足“版本存在证明”的schema identity；
 - deterministic identity、ordering和target scope；
 - current/target revision与preconditions；
-- Fact/Binding Delta、old/new Binding、Compatibility Decision和resolver policy references（适用时）；
+- 由discriminated migration kind决定的Fact/Binding Delta、old/new Binding、Compatibility Decision和resolver policy references；不适用的字段在类型中缺席，不使用`null`、默认值或伪revision占位；
 - dry-run summary与expected effects；
 - constituent Engineering Operations / transactions；
 - idempotency、reentrancy与resume语义；
@@ -280,6 +297,8 @@ Retirement只有在以下全部成立后完成：
 - clean install/build/runtime Evidence闭合；
 - Registry/deployment/operations不再引用旧identity。
 
+`consumer-zero`不是“可以只删一个测试或入口”的局部信号，也不等于当前import/调用点为零；它是整图退役的effect admission。producer、reader、writer、external/durable state、已接受但尚未物化的业务义务、future obligation与unknown ledger全部为零后，才必须在同一变更删除实现、schema/version、adapter/facade、资源、测试、文档、registry和构建/发布引用。已接受但尚未物化的义务必须由canonical domain owner绑定operation identity、acceptance、待吸收责任和replacement DAG，投影为`required-unmaterialized`并阻断旧图单独退役；它不能由聊天、名称、注释、测试或“未来可能使用”自造。任一维度非零时保持typed retirement blocker，不得留下半删除图或用兼容壳拖延。
+
 保留无人理解的“兼容代码”或“备用Provider”会形成第二authority，不能无限延期。备用实现只有在真实failover contract、独立health/freshness、重新Resolution和定期physical proof存在时成立。
 
 ## 冲突优先级
@@ -301,10 +320,10 @@ AI confidence、最新时间、文件修改更多、Provider多数票、semver�
 Upgrade/Migration只有在：
 
 - 新状态进入唯一主链；
-- Fact/Binding Delta、old/new Binding、Compatibility Decision和Resolution Decision可追溯；
+- 该migration kind实际需要且已激活的Fact/Binding Delta、old/new Binding、Compatibility Decision和Resolution Decision可追溯；不适用字段由类型缺席；
 - required transactions有明确terminal并完成readback；
 - Compatibility方向和consumer迁移闭合；
-- 数据/外部Effect完成Verification或明确residual risk；
+- 数据/外部Effect拥有authorized terminal receipt与physical readback；只有known、bounded且由独立产品/安全owner显式接受的风险可以进入完成，unknown、partial或indeterminate一律保持recovery-required；
 - 部署、compensation/forward recovery和irreversible boundary明确；
 - 旧writer、Provider、Adapter、dependency、schema和兼容路径退役；
 - 新canonical revision、artifact、release/operations状态和Support maturity分别readback；

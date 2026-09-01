@@ -7,7 +7,7 @@ import {
   isCanonicalWorkspaceArtifactPath,
   resolvePathInside,
   resolveWorkspaceArtifactPath
-} from '../workspace/paths.ts';
+} from '../workspace/runtime/paths.ts';
 import { CodeBuilder } from './codegen/code-builder.ts';
 import { CompilerError } from './errors.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';

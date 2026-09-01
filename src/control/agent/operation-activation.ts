@@ -5,13 +5,13 @@ import { type SecDigest } from './task-capsule.ts';
 export const SEC_AGENT_OPERATION_ACTIVATION_REQUEST_SCHEMA =
   'sec-agent-operation-activation-request-v1' as const;
 export const SEC_AGENT_OPERATION_ACTIVATION_PREPARATION_SCHEMA =
-  'sec-agent-operation-activation-preparation-v1' as const;
+  'sec-agent-operation-activation-preparation-v2' as const;
 export const SEC_AGENT_OPERATION_ACTIVATION_RECEIPT_SCHEMA =
-  'sec-agent-operation-activation-receipt-v1' as const;
+  'sec-agent-operation-activation-receipt-v2' as const;
 export const SEC_AGENT_OPERATION_ACTIVATION_PROVIDER_SCHEMA =
   'sec-agent-operation-activation-provider-v1' as const;
 export const SEC_AGENT_OPERATION_ACTIVATION_PUBLICATION_SCHEMA =
-  'sec-agent-operation-activation-publication-v1' as const;
+  'sec-agent-operation-activation-publication-v2' as const;
 export const SEC_AGENT_OPERATION_ACTIVATION_EVENT =
   'sec-produce-agent-operation-activation-v1' as const;
 export const SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH =
@@ -90,7 +90,6 @@ export interface SecAgentOperationActivationPreparation {
   readonly operationId: string;
   readonly role: 'worker';
   readonly operationKind: 'implement';
-  readonly availableCapabilities: readonly ['git'];
   readonly workDecisionReceiptDigest: SecDigest;
   readonly workDecisionDecisionDigest: SecDigest;
   readonly provider: SecAgentOperationActivationProvider;
@@ -158,7 +157,7 @@ const PREPARATION_KEYS = [
   'schema', 'request', 'repository', 'workId', 'currentSpecRef', 'currentSpecRevision',
   'trustedBaseSha', 'trustedBaseTreeSha', 'proposal', 'controlDigests', 'authorizedPaths',
   'forbiddenPaths', 'proposalChangedPaths', 'operationId', 'role', 'operationKind',
-  'availableCapabilities', 'workDecisionReceiptDigest', 'workDecisionDecisionDigest',
+  'workDecisionReceiptDigest', 'workDecisionDecisionDigest',
   'provider', 'preparationDigest'
 ] as const;
 const PREPARATION_INPUT_KEYS = PREPARATION_KEYS.filter((key) => (
@@ -180,7 +179,7 @@ const PULL_REQUEST_KEYS = [
 ] as const;
 
 function fail(message: string): never {
-  throw new Error(`Agent Operation Activation V1: ${message}`);
+  throw new Error(`Agent Operation Activation: ${message}`);
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -426,8 +425,6 @@ export function createSecAgentOperationActivationPreparation(
   const input = record(value, 'preparation input');
   exactKeys(input, PREPARATION_INPUT_KEYS, 'preparation input');
   if (input.role !== 'worker' || input.operationKind !== 'implement') fail('V1 is limited to worker/implement.');
-  const capabilities = Array.isArray(input.availableCapabilities) ? input.availableCapabilities : [];
-  if (capabilities.length !== 1 || capabilities[0] !== 'git') fail('V1 capability must be exactly git.');
   const request = parseSecAgentOperationActivationRequest(input.request);
   if (request.phase !== 'prepare') fail('preparation requires one PRE request.');
   const proposal = parsePullRequest(input.proposal);
@@ -465,7 +462,6 @@ export function createSecAgentOperationActivationPreparation(
     operationId,
     role: 'worker' as const,
     operationKind: 'implement' as const,
-    availableCapabilities: Object.freeze(['git']) as readonly ['git'],
     workDecisionReceiptDigest: digest(input.workDecisionReceiptDigest, 'workDecisionReceiptDigest'),
     workDecisionDecisionDigest: digest(input.workDecisionDecisionDigest, 'workDecisionDecisionDigest'),
     provider

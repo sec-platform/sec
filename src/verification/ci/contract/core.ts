@@ -1,18 +1,15 @@
+import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../control/main-health/provider-policy.ts';
 import { platformCommand } from '../../../interface/cli/contract/command.ts';
 import { uniqueSorted } from '../../../system-architecture/foundation/runtime/canonical.ts';
 import { CI_ARTIFACT_FILES, CI_ARTIFACT_MANIFEST_PATH, CI_EXPLAIN_GRAPH_ARTIFACT_PATHS } from '../../ci-artifacts/contract/manifest.ts';
 import type { CiArtifactKind } from '../../ci-artifacts/contract/types.ts';
 import { CI_ARTIFACT_KINDS } from '../../ci-artifacts/contract/types.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../contract/revision.ts';
 import { slowTestSuiteIds } from '../../test-impact/contract/budget.ts';
 import {
-  CI_VERIFICATION_CONTRACT_REVISION,
   CI_VERIFICATION_EXECUTION_MODEL
 } from './plan.ts';
-import {
-  CI_MAIN_HEALTH_POLICY,
-  CI_MAIN_HEALTH_POLICY_DIGEST,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE
-} from './revision.ts';
+import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from './revision.ts';
 
 export const CI_CONTRACT_STATUS_ACTIVE = 'active' as const;
 

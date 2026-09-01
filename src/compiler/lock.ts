@@ -15,14 +15,12 @@ import { formatJsonFile, type CommitFence } from '../workspace/files.ts';
 import {
   getWorkspacePaths,
   resolveWorkspaceArtifactPath
-} from '../workspace/paths.ts';
+} from '../workspace/runtime/paths.ts';
 import {
   LOCK_APP_TARGETS,
   LOCK_FILE_FORMAT_VERSION,
   LOCK_PASS_STATES,
-  LOCK_SLOT_TASK_STATUSES,
   MANIFEST_KINDS,
-  SLOT_KINDS,
   type LockFile,
   type PassState,
   type PassStatus
@@ -167,22 +165,6 @@ const lockFileSchema = z.strictObject({
     from: z.string(),
     to: z.string()
   })),
-  slotTasks: z.array(z.strictObject({
-    id: z.string(),
-    block: z.string(),
-    target: z.string(),
-    sourcePath: z.string().optional(),
-    symbol: z.string(),
-    kind: z.enum(SLOT_KINDS),
-    inputType: z.string().optional(),
-    outputType: z.string().optional(),
-    status: z.enum(LOCK_SLOT_TASK_STATUSES),
-    writableZones: stringArraySchema,
-    provenanceHints: z.strictObject({
-      generator: z.string().nullable(),
-      verifiedBy: stringArraySchema
-    })
-  })),
   semanticLoweringTasks: z.array(semanticGeneratorTaskSchema).optional(),
   semanticViews: z.strictObject({
     formatVersion: z.literal(SEMANTIC_VIEW_SET_FORMAT_VERSION),
@@ -198,7 +180,6 @@ const lockFileSchema = z.strictObject({
     resolve: z.enum(LOCK_PASS_STATES),
     'build-ir': z.enum(LOCK_PASS_STATES).optional(),
     compose: z.enum(LOCK_PASS_STATES),
-    adapt: z.enum(LOCK_PASS_STATES),
     verify: z.enum(LOCK_PASS_STATES),
     repair: z.enum(LOCK_PASS_STATES),
     lock: z.enum(LOCK_PASS_STATES),
