@@ -93,6 +93,7 @@ import {
 } from '../source-program-model/declaration-topology.ts';
 import { compileSourceProgramImplementationDominance } from '../source-program-model/implementation-dominance.ts';
 import {
+  compileSourceProgramArchitectureEvolutionReference,
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
 import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramUnusedSymbolProviderReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity, type SourceProgramUnusedSymbolEvidence, type SourceProgramUnusedSymbolProviderReceipt } from '../source-program-model/reduction.ts';
@@ -1267,7 +1268,8 @@ async function compileKnipUnusedSymbolEvidence(
 async function compileWorkingTreeSourceProgram(
   repositoryRoot: string,
   supersessionBaseline: string,
-  deadlineAtUnixMs: number
+  deadlineAtUnixMs: number,
+  allowSupersessionEvidenceCache: boolean
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   sourceProgramCompilation: Readonly<{
@@ -1314,7 +1316,8 @@ async function compileWorkingTreeSourceProgram(
         supersessionBaseline,
         deadlineAtUnixMs,
         retained.physicalGeneration,
-        retained.generationDigest
+        retained.generationDigest,
+        allowSupersessionEvidenceCache
       )
     );
   } finally {
@@ -1328,7 +1331,8 @@ async function compileWorkingTreeSourceProgramWithSession(
   supersessionBaseline: string,
   deadlineAtUnixMs: number,
   dependencyGeneration: RetainedNoFollowProvenDirectoryGeneration,
-  dependencyGenerationDigest: `sha256:${string}`
+  dependencyGenerationDigest: `sha256:${string}`,
+  allowSupersessionEvidenceCache: boolean
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
   sourceProgramCompilation: Readonly<{
@@ -1393,10 +1397,9 @@ async function compileWorkingTreeSourceProgramWithSession(
     treeDigest: baselineTreeDigest
   });
   const baselineSource = await revisionSourceProgramFiles(session, baselineEntries);
-  const cachedBaselineSupersessionEvidence = await readSupersessionEvidenceCache(
-    repositoryRoot,
-    baselineIdentity
-  );
+  const cachedBaselineSupersessionEvidence = allowSupersessionEvidenceCache
+    ? await readSupersessionEvidenceCache(repositoryRoot, baselineIdentity)
+    : null;
   const baselineReconciliation = await compileRevisionSupersessionEvidence(
     repositoryRoot,
     exactSupersessionBaseline,
@@ -2436,7 +2439,8 @@ export async function runRepositoryAuditCli(
         return await compileWorkingTreeSourceProgram(
           DEFAULT_REPOSITORY_ROOT,
           supersessionBaseline,
-          deadlineAtUnixMs
+          deadlineAtUnixMs,
+          !args.includes('--enforce')
         );
       } finally {
         // Every downstream audit consumes sealed fact shards, never the live
@@ -2452,9 +2456,10 @@ export async function runRepositoryAuditCli(
     });
     const reconciliationProjection = compileSourceProgramReconciliationProjection({
       before: worktreeAudit.baselineSourceProgramCompilation,
-      after: worktreeAudit.currentSourceProgramCompilation,
-      beforeMembership: worktreeAudit.baselineModuleMembership,
-      afterMembership: worktreeAudit.moduleMembership
+      after: worktreeAudit.currentSourceProgramCompilation
+    });
+    const architectureEvolution = compileSourceProgramArchitectureEvolutionReference({
+      reconciliation: reconciliationProjection
     });
     const blockingCandidates = sourceProgramBlockingCandidates(model);
     const observedTestValue = compileSourceProgramTestValue({
@@ -2604,7 +2609,8 @@ export async function runRepositoryAuditCli(
             ])
           )
       },
-      reconciliation: full ? reconciliationProjection : {
+      reconciliation: full || args.includes('--architecture-evolution')
+        ? reconciliationProjection : {
         status: reconciliationProjection.status,
         projectionDigest: reconciliationProjection.projectionDigest,
         before: reconciliationProjection.before,
@@ -2613,6 +2619,22 @@ export async function runRepositoryAuditCli(
         frontiers: reconciliationProjection.frontiers.length,
         providerEvidence: reconciliationProjection.providerEvidence,
         unresolvedReasons: compactRecordSet(reconciliationProjection.unresolvedReasons)
+      },
+      architectureEvolution: full || args.includes('--architecture-evolution')
+        ? architectureEvolution : {
+        status: architectureEvolution.status,
+        direction: architectureEvolution.direction,
+        referenceDigest: architectureEvolution.referenceDigest,
+        before: architectureEvolution.before,
+        after: architectureEvolution.after,
+        changes: architectureEvolution.changes.length,
+        changedPaths: compactRecordSet(architectureEvolution.changedPaths),
+        consumerPaths: compactRecordSet(architectureEvolution.consumerPaths),
+        retirementPaths: compactRecordSet(architectureEvolution.retirementPaths),
+        graphDelta: Object.fromEntries(Object.entries(architectureEvolution.graphDelta).map(
+          ([name, values]) => [name, values.length]
+        )),
+        blockers: compactRecordSet(architectureEvolution.blockers)
       },
       blockingCandidates: full ? blockingCandidates : compactRecordSet(blockingCandidates),
       blockingTestFindings: full
@@ -2649,6 +2671,9 @@ export async function runRepositoryAuditCli(
         reconciliationChanges: reconciliationProjection.changes.length,
         reconciliationFrontiers: reconciliationProjection.frontiers.length,
         reconciliationUnresolvedReasons: reconciliationProjection.unresolvedReasons.length,
+        architectureEvolutionStatus: architectureEvolution.status,
+        architectureEvolutionDirection: architectureEvolution.direction,
+        architectureEvolutionBlockers: architectureEvolution.blockers.length,
         blockingTestFindings: blockingTestFindings.length,
         reportedBlockingTestFindings: (full ? blockingTestFindings : compactBlockingTestFindings).length,
         unknownDispositionClusters: unknownDispositionClusters.length,
@@ -2791,6 +2816,7 @@ export async function runRepositoryAuditCli(
       && (blockingCandidates.length > 0
         || implementationDominance.findings.length > 0
         || reconciliationProjection.status === 'unresolved'
+        || architectureEvolution.status === 'blocked'
         || blockingTestFindings.length > 0
         || repositoryAuditSupersessionShouldBlock(supersession)
         || repositoryModuleArchitectureShouldBlock(worktreeAudit.moduleArchitecture)
